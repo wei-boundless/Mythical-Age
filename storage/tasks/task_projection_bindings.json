@@ -1,58 +1,6 @@
 {
   "projection_bindings": [
     {
-      "binding_id": "taskprojbind:task.health.issue_triage",
-      "task_id": "task.health.issue_triage",
-      "projection_selection_mode": "workflow_compatible_or_task_default",
-      "allowed_projection_ids": [],
-      "default_projection_id": "",
-      "projection_required": false,
-      "notes": "Derived from specific task record defaults.",
-      "metadata": {
-        "derived_from": "specific_task_record"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.health.trace_analysis",
-      "task_id": "task.health.trace_analysis",
-      "projection_selection_mode": "workflow_compatible_or_task_default",
-      "allowed_projection_ids": [],
-      "default_projection_id": "",
-      "projection_required": false,
-      "notes": "Derived from specific task record defaults.",
-      "metadata": {
-        "derived_from": "specific_task_record"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.health.case_draft",
-      "task_id": "task.health.case_draft",
-      "projection_selection_mode": "workflow_compatible_or_task_default",
-      "allowed_projection_ids": [],
-      "default_projection_id": "",
-      "projection_required": false,
-      "notes": "Derived from specific task record defaults.",
-      "metadata": {
-        "derived_from": "specific_task_record"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.health.fix_verification",
-      "task_id": "task.health.fix_verification",
-      "projection_selection_mode": "workflow_compatible_or_task_default",
-      "allowed_projection_ids": [],
-      "default_projection_id": "",
-      "projection_required": false,
-      "notes": "Derived from specific task record defaults.",
-      "metadata": {
-        "derived_from": "specific_task_record"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
       "binding_id": "taskprojbind:task.writing.modular_novel.node.project_brief",
       "task_id": "task.writing.modular_novel.node.project_brief",
       "projection_selection_mode": "fixed_projection",

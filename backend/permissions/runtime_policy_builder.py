@@ -4,9 +4,9 @@ from typing import Any
 
 from capability_system.operation_registry import OperationDescriptor, OperationRegistry
 from agent_system.profiles.runtime_profile_models import AgentRuntimeProfile
-from orchestration.resource_policy import ResourceDecision, ResourcePolicy
-from orchestration.resource_policy_builder import RuntimeApprovalContext
-from orchestration.resource_scope_mapping import map_operations_to_resource_scopes
+from permissions.resource_policy import ResourceDecision, ResourcePolicy
+from permissions.resource_policy_builder import RuntimeApprovalContext
+from permissions.resource_scope_mapping import map_operations_to_resource_scopes
 from orchestration.runtime_directive import RuntimeDirective
 
 MODEL_VISIBLE_AGENT_OPERATIONS = {"op.delegate_to_agent"}

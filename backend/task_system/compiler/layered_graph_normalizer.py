@@ -231,6 +231,8 @@ def _memory_edge_payload(edge: TaskGraphEdgeDefinition) -> dict[str, Any]:
         "candidate_ref_key": str(metadata.get("candidate_ref_key") or ""),
         "verdict_key": str(metadata.get("verdict_key") or ""),
         "required_verdict": str(metadata.get("required_verdict") or ""),
+        "approval_source_node_id": str(metadata.get("approval_source_node_id") or ""),
+        "approval_policy": str(metadata.get("approval_policy") or ""),
         "commit_visibility_policy": dict(
             metadata.get("commit_visibility_policy")
             or metadata.get("visibility_policy")

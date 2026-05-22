@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_system.profiles.runtime_profile_models import AgentRuntimeProfile
-from orchestration.resource_policy_builder import RuntimeApprovalContext
+from permissions.resource_policy_builder import RuntimeApprovalContext
 from task_system.contracts.capability_requirements import build_operation_requirement
 
 from task_system.services.assembly_models import ProjectionSelectionResult, TaskExecutionAssembly
@@ -820,8 +820,6 @@ def _select_communication_protocol(
         protocol = flow_registry.get_task_communication_protocol(protocol_id)
         if protocol is not None:
             return protocol
-    if task_id.startswith("task.health.") or task_family == "health":
-        return flow_registry.get_task_communication_protocol("protocol.health.repair_review")
     return None
 
 
@@ -862,15 +860,6 @@ def _select_task_graph(
     for item in flow_registry.list_task_graphs():
         if task_id and task_id in list(item.to_dict().get("subtask_refs") or []):
             return item
-    if task_id.startswith("task.health.") or task_family == "health":
-        return next(
-            (
-                item
-                for item in flow_registry.list_task_graphs()
-                if str(item.metadata.get("topology_template_id") or "") == "topology.health.repair_review"
-            ),
-            None,
-        )
     return None
 
 

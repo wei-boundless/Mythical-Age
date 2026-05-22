@@ -17,7 +17,6 @@ PROMOTION_CANDIDATE_KINDS = {
 }
 ARTIFACT_KINDS = {
     "artifact_ref",
-    "chapter_draft",
     "scene_draft",
     "draft_artifact",
 }

@@ -55,47 +55,12 @@ def default_health_issues(now: float | None = None) -> tuple[HealthIssue, ...]:
 
 
 def default_problem_nodes() -> tuple[ProblemNode, ...]:
-    return (
-        ProblemNode(
-            node_id="problem-node:sample:task-binding",
-            issue_id="health:issue:sample-task-system-chain",
-            system="task_system",
-            stage="TaskAgentBinding",
-            evidence_refs=("binding:flow.health.issue_triage:agent:3",),
-            diagnosis="样例节点：用于验证任务系统能展示绑定、权限和投影链路。",
-            confidence=0.8,
-            suggested_action="检查 AgentRuntimeProfile 与任务流绑定是否一致。",
-        ),
-    )
+    return ()
 
 
 def default_health_agent_runs(now: float | None = None) -> tuple[HealthAgentRun, ...]:
-    timestamp = time.time() if now is None else now
-    return (
-        HealthAgentRun(
-            run_id="health-run:sample:issue-triage",
-            request_id="health-task-request:sample:issue-triage",
-            issue_id="health:issue:sample-task-system-chain",
-            task_run_id="taskrun:sample:health-issue-triage",
-            agent_id=HEALTH_AGENT_ID,
-            agent_profile_id="health_maintainer_agent",
-            runtime_lane="health_issue_read",
-            health_action="issue_triage",
-            workflow_id="workflow.health.issue_triage",
-            admission_status="accepted",
-            projection_id="",
-            prompt_manifest_id="",
-            status="sample",
-            terminal_reason="not_executed_sample",
-            blocked_reasons=(),
-            report_refs=(),
-            trace_refs=("runtime-loop:sample",),
-            artifact_refs=("HealthTriageResult:sample",),
-            result_ref="HealthTriageResult:sample",
-            created_at=timestamp,
-            metadata={"sample": True},
-        ),
-    )
+    _ = now
+    return ()
 
 
 class HealthRegistry:

@@ -9,7 +9,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from context_system.projection.projection import ContextProjection
 from runtime.memory.observation_aggregator import ObservationAggregator
-from runtime.unit_runtime.loop import _build_answer_readiness_judge_message
+from runtime.execution_engine import build_answer_readiness_judge_message
 
 
 def test_observation_aggregator_builds_evidence_items_without_losing_projection() -> None:
@@ -45,7 +45,7 @@ def test_answer_readiness_message_asks_model_to_judge_before_more_tools() -> Non
         }
     )
 
-    message = _build_answer_readiness_judge_message(
+    message = build_answer_readiness_judge_message(
         user_message="顺便查一下黄金价格，直接给结论和时间口径。",
         aggregation=aggregator.snapshot(),
         current_bundle_items=[],

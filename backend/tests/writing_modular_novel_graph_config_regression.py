@@ -62,7 +62,7 @@ def test_modular_writing_graph_config_compiles_graph_modules_and_chapter_batches
         "extension_commit",
         "next_volume_router",
     }.issubset(chapter_node_ids)
-    assert {"memory.writing.baseline", "memory.writing.mutable", "memory.writing.artifact_index", "memory.writing.issue_ledger"}.issubset(chapter_node_ids)
+    assert {"memory.writing.baseline", "memory.writing.mutable", "memory.writing.manuscript", "memory.writing.artifact_index", "memory.writing.issue_ledger"}.issubset(chapter_node_ids)
 
     runtime_loop_policy = chapter_graph.metadata["runtime_loop_policy"]
     assert runtime_loop_policy["enabled"] is True
@@ -116,6 +116,8 @@ def test_modular_writing_graph_config_compiles_graph_modules_and_chapter_batches
     edge_pairs = {(edge.source_node_id, edge.target_node_id, edge.edge_type) for edge in chapter_graph.edges}
     assert ("chapter_progress_router", "volume_review", "structured_handoff") in edge_pairs
     assert ("memory.writing.baseline", "chapter_draft", "memory_read") in edge_pairs
+    assert ("memory.writing.manuscript", "chapter_draft", "memory_read") in edge_pairs
+    assert ("memory_commit_chapter", "memory.writing.manuscript", "memory_commit") in edge_pairs
     assert ("memory_commit_chapter", "memory.writing.artifact_index", "memory_commit") in edge_pairs
 
     chapter_spec = compile_task_graph_definition_runtime_spec(
@@ -166,6 +168,8 @@ def test_modular_writing_graph_config_compiles_graph_modules_and_chapter_batches
     assert "比如" not in world_prompt
     assert "例如" not in world_prompt
     assert "商业化追读钩子" in world_prompt
+    assert "宗门" not in world_prompt
+    assert "洪荒时代" not in world_prompt
     assert "世界设定 Bible" in review_prompt
     assert "商业化承载" in review_prompt
     assert "只要报告中存在阻塞问题" in review_prompt
@@ -180,15 +184,20 @@ def test_modular_writing_graph_config_compiles_graph_modules_and_chapter_batches
     assert "只要报告中存在阻塞问题" in character_review.metadata["role_prompt"]
     assert "裁决必须是返修或拒绝" in character_review.metadata["role_prompt"]
     assert "人设与关系基准库管理员" in memory_commit_character.metadata["role_prompt"]
-    assert "没有阻塞问题" in memory_commit_character.metadata["role_prompt"]
+    assert "创作架构对齐" in memory_commit_character.metadata["role_prompt"]
     plot_memory_policy = plot_design.contract_bindings["memory"]["memory_read_policy"]
-    assert "character_commit_ref" in plot_memory_policy["topics"]
-    assert "character_commit_ref" in plot_memory_policy["required_topics"]
+    assert "world_commit_ref" in plot_memory_policy["topics"]
+    assert "world_commit_ref" in plot_memory_policy["required_topics"]
+    assert "character_commit_ref" not in plot_memory_policy["topics"]
     assert "character_design_ref" not in plot_memory_policy["topics"]
     design_edge_pairs = {(edge.source_node_id, edge.target_node_id, edge.edge_type) for edge in design_graph.edges}
-    assert ("character_review", "memory_commit_character", "structured_handoff") in design_edge_pairs
-    assert ("memory_commit_character", "plot_design", "structured_handoff") in design_edge_pairs
+    assert ("memory_commit_world", "plot_design", "structured_handoff") in design_edge_pairs
+    assert ("character_review", "design_sync", "structured_handoff") in design_edge_pairs
+    assert ("plot_design", "design_sync", "structured_handoff") in design_edge_pairs
+    assert ("design_sync", "memory_commit_character", "structured_handoff") in design_edge_pairs
+    assert ("memory_commit_character", "outline_design", "structured_handoff") in design_edge_pairs
     assert ("character_review", "plot_design", "structured_handoff") not in design_edge_pairs
+    assert ("memory_commit_character", "plot_design", "structured_handoff") not in design_edge_pairs
 
     workflows = {item.workflow_id: item for item in registry.workflow_registry.list_workflows()}
     assert workflows["workflow.writing.modular_novel.node.world_design"].prompt == world_prompt
@@ -351,6 +360,13 @@ def test_modular_writing_memory_context_is_visible_to_runtime_profiles(tmp_path:
         artifact_section = next(item for item in assembly["context_sections"] if item["section_id"] == "artifact_policy")
         assert artifact_section["metadata"]["artifact_policy"]["target_paths"]
 
+    chapter_draft_node = next(node for node in graph.nodes if node.node_id == "chapter_draft")
+    assert "memory.writing.manuscript" in chapter_draft_node.memory_read_policy["readable_repositories"]
+    assert "memory.writing.manuscript" in chapter_draft_node.dynamic_memory_read_policy["repository_node_ids"]
+    assert chapter_draft_node.contract_bindings["memory"]["prewrite_memory_plan_policy"]["enabled"] is True
+    assert chapter_draft_node.contract_bindings["memory"]["prewrite_memory_plan_policy"]["required_before_main_prose"] is True
+    assert "正文记忆库" in {item["label"] for item in chapter_draft_node.artifact_context_policy["items"]}
+
     chapter_draft_revision_target = build_node_runtime_assembly(
         manifest=manifest,
         node_id="chapter_draft",
@@ -406,12 +422,14 @@ def test_writing_runtime_spec_excludes_memory_repositories_from_execution_nodes(
     node_ids = {node.node_id for node in runtime_spec.nodes}
     assert "memory.writing.baseline" not in node_ids
     assert "memory.writing.mutable" not in node_ids
+    assert "memory.writing.manuscript" not in node_ids
     assert "memory.writing.issue_ledger" not in node_ids
     assert "memory.writing.artifact_index" not in node_ids
-    assert all(edge.target_node_id not in {"memory.writing.baseline", "memory.writing.mutable"} for edge in runtime_spec.edges)
+    assert all(edge.target_node_id not in {"memory.writing.baseline", "memory.writing.mutable", "memory.writing.manuscript"} for edge in runtime_spec.edges)
     assert set(runtime_spec.diagnostics["resource_node_ids_excluded_from_execution"]) >= {
         "memory.writing.baseline",
         "memory.writing.mutable",
+        "memory.writing.manuscript",
     }
 
 
@@ -445,10 +463,12 @@ def test_modular_writing_review_and_commit_memory_boundaries(tmp_path: Path) -> 
             assert (review_node_id, "memory.writing.issue_ledger", "memory_commit") in edge_index
             assert (review_node_id, "memory.writing.baseline", "memory_commit") not in edge_index
             assert (review_node_id, "memory.writing.mutable", "memory_commit") not in edge_index
+            assert (review_node_id, "memory.writing.manuscript", "memory_commit") not in edge_index
 
     assert node("graph.writing.modular_novel.design_init", "memory_commit_world").memory_writeback_policy["mode"] == "baseline_commit"
     assert node("graph.writing.modular_novel.design_init", "baseline_memory_seed").memory_writeback_policy["mode"] == "baseline_commit"
     assert node("graph.writing.modular_novel.chapter_cycle", "memory_commit_chapter").memory_writeback_policy["mode"] == "chapter_commit"
+    assert node("graph.writing.modular_novel.chapter_cycle", "memory_commit_chapter").memory_writeback_policy["commit_identity_policy"]["mode"] == "scope_and_artifact_refs"
     assert node("graph.writing.modular_novel.chapter_cycle", "volume_commit").memory_writeback_policy["mode"] == "volume_commit"
     assert node("graph.writing.modular_novel.chapter_cycle", "extension_commit").memory_writeback_policy["mode"] == "dynamic_memory_commit"
 
@@ -460,8 +480,10 @@ def test_modular_writing_review_and_commit_memory_boundaries(tmp_path: Path) -> 
     assert ("volume_review", "volume_commit", "structured_handoff") in chapter_edge_pairs
     assert ("extension_review", "extension_commit", "structured_handoff") in chapter_edge_pairs
     assert ("memory_commit_chapter", "memory.writing.mutable", "memory_commit") in chapter_edge_pairs
+    assert ("memory_commit_chapter", "memory.writing.manuscript", "memory_commit") in chapter_edge_pairs
     assert ("memory_commit_chapter", "memory.writing.artifact_index", "memory_commit") in chapter_edge_pairs
     assert ("extension_commit", "memory.writing.mutable", "memory_commit") in chapter_edge_pairs
+    assert ("extension_commit", "memory.writing.manuscript", "memory_commit") not in chapter_edge_pairs
 
 
 def test_modular_writing_state_protocols_prevent_candidate_review_commit_pollution(tmp_path: Path) -> None:
@@ -515,10 +537,16 @@ def test_modular_writing_state_protocols_prevent_candidate_review_commit_polluti
     assert write_policy["source_review_node_id"] == "chapter_review"
     assert write_policy["source_candidate_node_id"] == "chapter_draft"
     assert write_policy["approved_slices_required"] is True
-    assert write_policy["allowed_write_targets"] == ["memory.writing.mutable", "memory.writing.artifact_index"]
+    assert write_policy["allowed_write_targets"] == ["memory.writing.mutable", "memory.writing.manuscript", "memory.writing.artifact_index"]
     assert write_policy["commit_packet_schema"]["packet_kind"] == "WritingMemoryCommitPacket"
     assert "source_review_ref" in write_policy["commit_packet_schema"]["required_fields"]
+    assert "chapter_summaries" in write_policy["commit_packet_schema"]["required_fields"]
+    assert "manuscript_fact_index" in write_policy["commit_packet_schema"]["required_fields"]
+    assert "next_batch_memory_requests" in write_policy["commit_packet_schema"]["required_fields"]
+    assert "memory.writing.manuscript" in write_policy["commit_packet_schema"]["target_repositories"]
     assert chapter_commit.contract_bindings["governance"]["commit_guard"]["reject_on_missing_review_receipt"] is True
+    assert chapter_outline.executor_policy["runtime_batch_boundary_policy"]["unit_label"] == "章"
+    assert chapter_outline.executor_policy["runtime_batch_boundary_policy"]["list_key"] == "batch_chapter_list"
 
     baseline_policy = baseline_seed.memory_writeback_policy
     assert baseline_policy["source_review_required"] is True
@@ -526,6 +554,7 @@ def test_modular_writing_state_protocols_prevent_candidate_review_commit_polluti
     assert baseline_policy["allowed_write_targets"] == ["memory.writing.baseline", "memory.writing.artifact_index"]
     assert baseline_seed.contract_bindings["governance"]["write_permission_matrix"]["forbidden_write_targets"] == [
         "memory.writing.mutable",
+        "memory.writing.manuscript",
         "memory.writing.issue_ledger",
     ]
 
@@ -577,3 +606,97 @@ def test_modular_writing_outline_threads_are_outline_owned_and_derived(tmp_path:
     assert "outline_thread_refs" in commit_fields
     assert "active_outline_thread_refs" in commit_fields
     assert "due_outline_thread_refs" in commit_fields
+
+
+def test_modular_writing_memory_taxonomy_and_growth_protocols(tmp_path: Path) -> None:
+    base_dir = _seed_storage(tmp_path)
+    config = _load_config_module()
+    config.configure(base_dir)
+
+    registry = TaskFlowRegistry(base_dir)
+    graphs = {graph.graph_id: graph for graph in registry.list_task_graphs()}
+    chapter_graph = graphs["graph.writing.modular_novel.chapter_cycle"]
+    design_graph = graphs["graph.writing.modular_novel.design_init"]
+
+    manuscript_repo = next(node for node in chapter_graph.nodes if node.node_id == "memory.writing.manuscript")
+    repo_config = manuscript_repo.contract_bindings["memory"]
+    assert repo_config["repository_id"] == "writing_modular_manuscript"
+    assert set(repo_config["collections"]) >= {
+        "approved_chapter_batches",
+        "chapter_summaries",
+        "manuscript_fact_index",
+        "scene_continuity",
+        "chapter_hooks",
+    }
+    assert "chapter_draft" in manuscript_repo.metadata["readable_by"]
+    assert "memory_commit_chapter" in manuscript_repo.metadata["write_owner_node_ids"]
+
+    chapter_draft = next(node for node in chapter_graph.nodes if node.node_id == "chapter_draft")
+    prewrite_policy = chapter_draft.contract_bindings["memory"]["prewrite_memory_plan_policy"]
+    assert prewrite_policy["authority"] == "chapter_writer_self_selects_from_structured_memory_pack"
+    assert prewrite_policy["plan_is_not_canon"] is True
+    assert set(prewrite_policy["required_sources"]) >= {
+        "memory.writing.baseline",
+        "memory.writing.mutable",
+        "memory.writing.manuscript",
+        "chapter_outline_ref",
+    }
+    assert "写前取材判断" in chapter_draft.metadata["role_prompt"]
+
+    chapter_review = next(node for node in chapter_graph.nodes if node.node_id == "chapter_review")
+    assert "取材判断缺失" in chapter_review.metadata["role_prompt"]
+    assert chapter_review.contract_bindings["runtime"]["dynamic_expansion"]["silent_absorption_forbidden"] is True
+
+    extension_commit = next(node for node in chapter_graph.nodes if node.node_id == "extension_commit")
+    extension_schema = extension_commit.memory_writeback_policy["commit_packet_schema"]
+    assert set(extension_schema["required_fields"]) >= {
+        "world_detail_cards",
+        "character_state_cards",
+        "outline_adjustment_cards",
+        "continuity_correction_cards",
+        "baseline_upgrade_candidate",
+    }
+    assert extension_schema["target_repositories"] == ["memory.writing.mutable", "memory.writing.artifact_index"]
+    assert "memory.writing.manuscript" not in extension_schema["target_repositories"]
+
+    memory_commit_character = next(node for node in design_graph.nodes if node.node_id == "memory_commit_character")
+    character_guard = memory_commit_character.contract_bindings["governance"]["commit_guard"]
+    assert character_guard["source_review_node_id"] == "character_review"
+    assert character_guard["barrier_node_id"] == "design_sync"
+    assert character_guard["additional_required_refs"] == ["design_sync_ref"]
+    assert set(memory_commit_character.memory_writeback_policy["commit_packet_schema"]["required_fields"]) >= {
+        "character_review_ref",
+        "design_sync_ref",
+        "approved_character_slices",
+        "plot_interface_refs",
+    }
+
+
+def test_modular_writing_design_parallelism_uses_alignment_barrier(tmp_path: Path) -> None:
+    base_dir = _seed_storage(tmp_path)
+    config = _load_config_module()
+    config.configure(base_dir)
+
+    registry = TaskFlowRegistry(base_dir)
+    graph = registry.get_task_graph("graph.writing.modular_novel.design_init")
+    assert graph is not None
+
+    node_ids = {node.node_id for node in graph.nodes}
+    assert "character_design" in node_ids
+    assert "plot_design" in node_ids
+    assert "design_sync" in node_ids
+
+    edge_pairs = {(edge.source_node_id, edge.target_node_id, edge.edge_type) for edge in graph.edges}
+    assert ("memory_commit_world", "character_design", "structured_handoff") in edge_pairs
+    assert ("memory_commit_world", "plot_design", "structured_handoff") in edge_pairs
+    assert ("character_review", "design_sync", "structured_handoff") in edge_pairs
+    assert ("plot_design", "design_sync", "structured_handoff") in edge_pairs
+    assert ("design_sync", "memory_commit_character", "structured_handoff") in edge_pairs
+    assert ("memory_commit_character", "outline_design", "structured_handoff") in edge_pairs
+    assert ("character_review", "memory_commit_character", "structured_handoff") not in edge_pairs
+    assert ("memory_commit_character", "plot_design", "structured_handoff") not in edge_pairs
+
+    plot_design = next(node for node in graph.nodes if node.node_id == "plot_design")
+    plot_policy = plot_design.memory_read_policy
+    assert plot_policy["required_topics"] == ["world_commit_ref"]
+    assert "character_commit_ref" not in plot_policy["topics"]

@@ -12,7 +12,6 @@ from runtime.agent_assembly import (
     SubRuntimeWorkOrder,
     WorkOrder,
     build_agent_assembly_contract,
-    build_execution_permit,
     payload_from_work_order,
     validate_assembly_contract,
     validate_execution_permit,
@@ -20,6 +19,7 @@ from runtime.agent_assembly import (
     work_order_from_node_execution_request_legacy,
     work_order_from_legacy_payload,
 )
+from runtime.execution_permit import build_execution_permit
 from runtime.execution.node_execution_request import NodeExecutionRequest
 
 

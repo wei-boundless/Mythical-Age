@@ -336,6 +336,8 @@ def _graph_memory_edge_descriptors(
                 "candidate_ref_key": str(metadata.get("candidate_ref_key") or "").strip(),
                 "verdict_key": str(metadata.get("verdict_key") or "").strip(),
                 "required_verdict": str(metadata.get("required_verdict") or "").strip(),
+                "approval_source_node_id": str(metadata.get("approval_source_node_id") or "").strip(),
+                "approval_policy": str(metadata.get("approval_policy") or "").strip(),
                 "model_visible_label": str(metadata.get("model_visible_label") or metadata.get("visible_label") or "").strip(),
                 "usage_instruction": str(metadata.get("usage_instruction") or metadata.get("instructions") or "").strip(),
                 "commit_visibility_policy": dict(
@@ -395,9 +397,11 @@ def _formal_memory_commit_requests(
     *,
     commit_edges: list[dict[str, Any]],
     output_bundle: dict[str, Any],
+    accepted_candidate_refs: list[str] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     requests: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
+    fallback_refs = [str(item).strip() for item in list(accepted_candidate_refs or []) if str(item).strip()]
     for edge in commit_edges:
         candidate_ref_key = str(edge.get("candidate_ref_key") or "").strip()
         verdict_key = str(edge.get("verdict_key") or "").strip()
@@ -429,6 +433,16 @@ def _formal_memory_commit_requests(
             )
             continue
         if not candidate_ref_key:
+            for ref in fallback_refs:
+                requests.append(
+                    {
+                        "candidate_ref": ref,
+                        "candidate_version_id": ref,
+                        "edge": dict(edge),
+                        "verdict": verdict,
+                        "required_verdict": required_verdict,
+                    }
+                )
             continue
         ref_extraction = _extract_source_output_value(candidate_ref_key, candidates=[], output_bundle=output_bundle)
         if not ref_extraction.get("found"):
@@ -530,6 +544,8 @@ def _formal_memory_write_records(
                 "source_edge_type": str(edge.get("edge_type") or ""),
                 "memory_edge_type": edge_operation,
                 "commit_state": commit_state,
+                "approval_source_node_id": str(edge.get("approval_source_node_id") or ""),
+                "approval_policy": str(edge.get("approval_policy") or ""),
                 "selector": dict(edge.get("selector") or {}),
                 "version_selector": str(edge.get("version_selector") or ""),
                 "commit_visibility_policy": dict(edge.get("commit_visibility_policy") or {}),

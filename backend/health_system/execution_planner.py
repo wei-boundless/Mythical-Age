@@ -4,12 +4,12 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from agent_system.assembly.runtime_bundle_builder import build_orchestration_runtime_bundle
-from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
-from task_system import TaskFlowRegistry
-from task_system.services.assembly_builder import build_task_execution_assembly_bundle
-
-from .constants import HEALTH_SESSION_ID, health_specific_task_id
+from .agent_config import (
+    HEALTH_AGENT_CONFIG_BLOCK_REASON,
+    HEALTH_AGENT_ID,
+    HEALTH_SESSION_ID,
+    health_agent_unavailable_diagnostics,
+)
 from .models import HealthIssue
 
 
@@ -51,103 +51,29 @@ def build_health_agent_execution_plan(
     session_id: str = HEALTH_SESSION_ID,
     source: str = "health_system.execution_plan",
 ) -> HealthAgentExecutionPlan:
+    del base_dir, session_id, source
     health_action = str(health_action or "issue_triage").strip() or "issue_triage"
-    task_registry = TaskFlowRegistry(base_dir)
-    specific_task_id = health_specific_task_id(health_action)
-    specific_task = task_registry.get_specific_task_record(specific_task_id)
-    if specific_task is None:
-        raise KeyError(specific_task_id)
-    flow = next((item for item in task_registry.list_flows() if item.flow_id == specific_task.default_flow_contract_id), None)
-    if flow is None:
-        raise KeyError(specific_task.default_flow_contract_id or health_action)
-
-    binding = task_registry.build_binding_for_flow(flow)
-    task_id = f"task.health.{health_action}:{issue.issue_id}"
-    current_turn_context = {
-        "authority": "health_system.current_turn_context",
-        "selected_task_id": specific_task_id,
-        "workflow_id": flow.default_workflow_id,
-        "task_workflow_id": flow.default_workflow_id,
-        "resolved_bindings": [
-            {
-                "binding_type": "health_issue",
-                "issue_id": issue.issue_id,
-                "issue_title": issue.title,
-            }
-        ],
-        "explicit_inputs": {
-            "explicit_template_id": _health_template_id_for_action(health_action),
-            "capability_requests": ["health_issue"],
-        },
-    }
-    user_goal = f"处理健康问题：{issue.title or issue.issue_id}"
-    task_bundle = build_task_execution_assembly_bundle(
-        base_dir=base_dir,
-        session_id=session_id,
-        user_goal=user_goal,
-        task_id=task_id,
-        source=source,
-        current_turn_context=current_turn_context,
-        query_understanding={
-            "intent": "health_issue",
-            "capability_requests": ["health_issue"],
-            "route_hint": "health",
-        },
-    )
-    runtime_profile = AgentRuntimeRegistry(base_dir).get_profile(binding.agent_id)
-    orchestration_bundle = build_orchestration_runtime_bundle(
-        base_dir=base_dir,
-        session_id=session_id,
-        task_id=task_id,
-        user_goal=user_goal,
-        task_assembly_bundle=task_bundle,
-        current_turn_context=current_turn_context,
-        memory_runtime_view=_memory_runtime_view(issue=issue, health_action=health_action),
-        context_policy_result=_context_policy_result(binding=binding.to_dict()),
-        agent_runtime_profile=runtime_profile,
-    )
-    task_execution_assembly = dict(task_bundle.get("task_execution_assembly") or {})
-    task_body_orchestration = dict(orchestration_bundle.get("task_body_orchestration") or {})
-    agent_runtime_spec = dict(orchestration_bundle.get("agent_runtime_spec") or {})
-
-    blocked_reasons = list(binding.diagnostics.get("failures") or [])
-    if binding.validation_state != "valid":
-        blocked_reasons.append("binding_invalid")
-    if str(agent_runtime_spec.get("agent_id") or "").strip() != str(binding.agent_id or "").strip():
-        blocked_reasons.append("runtime_spec_agent_mismatch")
-    if str(agent_runtime_spec.get("runtime_lane") or "") != binding.runtime_lane:
-        blocked_reasons.append("runtime_spec_lane_mismatch")
-    if not bool(agent_runtime_spec.get("runtime_executable", True)):
-        blocked_reasons.append("runtime_spec_not_executable")
-
     return HealthAgentExecutionPlan(
         issue_id=issue.issue_id,
         health_action=health_action,
-        task_id=task_id,
-        flow_id=flow.flow_id,
-        binding_id=binding.binding_id,
-        agent_id=str(binding.agent_id or "").strip(),
-        agent_profile_id=binding.agent_profile_id,
-        workflow_id=binding.workflow_id,
-        runtime_lane=binding.runtime_lane,
-        resource_policy_ref=binding.resource_policy_ref,
-        task_contract_ref=str(dict(task_bundle.get("task_contract") or {}).get("task_id") or task_id),
-        task_execution_assembly=task_execution_assembly,
-        task_body_orchestration=task_body_orchestration,
-        agent_runtime_spec=agent_runtime_spec,
-        task_contract=dict(task_bundle.get("task_contract") or {}),
-        operation_requirement=dict(task_bundle.get("operation_requirement") or {}),
-        flow=flow.to_dict(),
-        binding=binding.to_dict(),
-        blocked_reasons=tuple(dict.fromkeys(item for item in blocked_reasons if item)),
-        diagnostics={
-            "source": source,
-            "specific_task_id": specific_task_id,
-            "specific_task_record": specific_task.to_dict(),
-            "task_bundle_status": str(task_bundle.get("status") or ""),
-            "runtime_executable": bool(agent_runtime_spec.get("runtime_executable", True)),
-            "runtime_profile": runtime_profile.to_dict() if runtime_profile is not None else {},
-        },
+        task_id="",
+        flow_id="",
+        binding_id="",
+        agent_id=HEALTH_AGENT_ID,
+        agent_profile_id="",
+        workflow_id="",
+        runtime_lane="",
+        resource_policy_ref="",
+        task_contract_ref="",
+        task_execution_assembly={},
+        task_body_orchestration={},
+        agent_runtime_spec={},
+        task_contract={},
+        operation_requirement={},
+        flow={},
+        binding={},
+        blocked_reasons=(HEALTH_AGENT_CONFIG_BLOCK_REASON,),
+        diagnostics=health_agent_unavailable_diagnostics(health_action=health_action),
     )
 
 
@@ -182,33 +108,3 @@ def build_health_agent_run_preview(plan: HealthAgentExecutionPlan, *, issue: Hea
         },
     }
 
-
-def _memory_runtime_view(*, issue: HealthIssue, health_action: str) -> dict[str, Any]:
-    return {
-        "view_id": f"health-memview:{issue.issue_id}:{health_action}",
-        "authority": "health_system.memory_runtime_view",
-        "health_action": health_action,
-        "issue_ref": issue.issue_id,
-        "conversation_ref": issue.conversation_ref,
-        "runtime_trace_refs": list(issue.runtime_trace_refs),
-        "prompt_manifest_refs": list(issue.prompt_manifest_refs),
-        "memory_refs": list(issue.memory_refs),
-        "assertion_refs": list(issue.assertion_refs),
-    }
-
-
-def _context_policy_result(binding: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "authority": "health_system.context_policy",
-        "memory_scope": str(binding.get("memory_scope") or "issue_local_readonly"),
-        "allowed_context_sections": ["health_issue", "runtime_trace", "prompt_manifest", "assertions"],
-    }
-
-
-def _health_template_id_for_action(health_action: str) -> str:
-    return {
-        "issue_triage": "template.health.issue_triage",
-        "trace_analysis": "template.health.trace_analysis",
-        "case_draft": "template.health.case_draft",
-        "fix_verification": "template.health.fix_verification",
-    }.get(str(health_action or "").strip(), "template.health.issue_triage")

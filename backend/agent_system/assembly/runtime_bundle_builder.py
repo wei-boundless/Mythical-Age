@@ -15,7 +15,7 @@ from ..profiles.runtime_profile_models import AgentRuntimeProfile
 from ..profiles.runtime_profile_registry import AgentRuntimeRegistry
 from .runtime_spec_models import AgentRuntimeSpec, TaskBodyOrchestration
 from ..profiles.body_registry import BodyProfileRegistry
-from orchestration.resource_policy_builder import build_resource_policy_candidate
+from permissions.resource_policy_builder import build_resource_policy_candidate
 from orchestration.resource_runtime_view import build_resource_runtime_views
 
 

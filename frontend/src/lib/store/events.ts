@@ -109,6 +109,74 @@ function stageStatusForEvent(event: string, data: Record<string, unknown>) {
   return "";
 }
 
+function activityLevelForEvent(event: string, data: Record<string, unknown>) {
+  if (event === "done") {
+    return "success" as const;
+  }
+  if (event === "error") {
+    return "error" as const;
+  }
+  if (event === "stopped") {
+    return "stopped" as const;
+  }
+  if (event === "operation_gate") {
+    const eventType = String(data.event_type ?? ((data.event as Record<string, unknown> | undefined)?.event_type) ?? "");
+    if (eventType.includes("approval") || eventType.includes("gate")) {
+      return "waiting" as const;
+    }
+  }
+  return "running" as const;
+}
+
+function activityDetailForEvent(event: string, data: Record<string, unknown>) {
+  if (event === "tool_start") {
+    const tool = String(data.tool ?? "工具").trim() || "工具";
+    return `正在调用 ${tool}`;
+  }
+  if (event === "tool_end") {
+    const tool = String(data.tool ?? "工具").trim() || "工具";
+    return `${tool} 已返回，正在整理结果`;
+  }
+  if (event === "retrieval") {
+    const results = Array.isArray(data.results) ? data.results.length : 0;
+    return results ? `已检索到 ${results} 条候选证据` : "正在检索可用证据";
+  }
+  if (event === "done") {
+    return "回答已生成并写回会话";
+  }
+  if (event === "error") {
+    return String(data.error ?? "请求执行失败");
+  }
+  if (event === "stopped") {
+    return "已按你的操作停止本轮生成";
+  }
+  const summary = eventSummary(event, data);
+  return summary === event ? "" : summary;
+}
+
+function patchSessionActivity(
+  state: StoreState,
+  event: string,
+  data: Record<string, unknown>,
+  fallbackTitle = ""
+): StoreState {
+  const title = stageStatusForEvent(event, data) || fallbackTitle;
+  if (!title) {
+    return state;
+  }
+  return {
+    ...state,
+    sessionActivity: {
+      level: activityLevelForEvent(event, data),
+      title,
+      detail: activityDetailForEvent(event, data),
+      event,
+      toolName: event.startsWith("tool") ? String(data.tool ?? "").trim() || undefined : undefined,
+      updatedAt: Date.now()
+    }
+  };
+}
+
 function stageStatusForRuntimeEvent(eventType: string) {
   if (!eventType) {
     return "";
@@ -558,6 +626,13 @@ export function startStreamingTurn(state: StoreState, userContent: string): Stre
       ...state,
       isStreaming: true,
       messages: [...state.messages, userMessage, assistantMessage],
+      sessionActivity: {
+        level: "running",
+        title: "接收请求",
+        detail: userContent.trim().slice(0, 120),
+        event: "user_message",
+        updatedAt: Date.now()
+      },
       orchestrationSnapshot: makeOrchestrationSnapshot(state, userContent)
     },
     session: {
@@ -577,11 +652,11 @@ export function reduceStreamEvent(
   const stateWithOrchestrationBase = withOrchestration === state.orchestrationSnapshot
     ? state
     : { ...state, orchestrationSnapshot: withOrchestration };
-  const stateWithOrchestration = patchAssistantStage(
+  const stateWithOrchestration = patchSessionActivity(patchAssistantStage(
     stateWithOrchestrationBase,
     session.assistantId,
     stageStatusForEvent(event, data)
-  );
+  ), event, data);
 
   if (event === "retrieval") {
     return {

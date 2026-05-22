@@ -256,47 +256,8 @@ def _render_artifact_path(path_template: str, explicit_inputs: dict[str, Any]) -
     template = str(path_template or "").strip()
     if not template:
         return ""
-    chapter_index = _safe_int(explicit_inputs.get("chapter_index"), 1)
-    volume_index = _safe_int(explicit_inputs.get("volume_index"), 1)
-    chapters_per_round = max(
-        _safe_int(explicit_inputs.get("chapters_per_round") or explicit_inputs.get("chapter_batch_size"), 1),
-        1,
-    )
-    batch_start_index = _safe_int(explicit_inputs.get("batch_start_index"), chapter_index)
-    batch_end_index = _safe_int(explicit_inputs.get("batch_end_index"), batch_start_index + chapters_per_round - 1)
-    batch_index = _safe_int(explicit_inputs.get("batch_index"), ((chapter_index - 1) // chapters_per_round) + 1)
-    values = {
-        "volume_index": volume_index,
-        "volume_index_padded": f"{volume_index:03d}",
-        "volume_label": str(explicit_inputs.get("volume_label") or f"第{volume_index}卷"),
-        "volume_current_words": _safe_int(explicit_inputs.get("volume_current_words"), 0),
-        "volume_target_words": _safe_int(explicit_inputs.get("volume_target_words"), 0),
-        "chapters_per_volume": _safe_int(explicit_inputs.get("chapters_per_volume"), 0),
-        "chapter_index": chapter_index,
-        "chapter_index_padded": f"{chapter_index:03d}",
-        "chapter_file_prefix": str(explicit_inputs.get("chapter_file_prefix") or f"chapter_{chapter_index:03d}"),
-        "chapters_per_round": chapters_per_round,
-        "chapter_batch_size": chapters_per_round,
-        "batch_index": batch_index,
-        "batch_index_padded": f"{batch_index:03d}",
-        "batch_start_index": batch_start_index,
-        "batch_start_index_padded": f"{batch_start_index:03d}",
-        "batch_end_index": batch_end_index,
-        "batch_end_index_padded": f"{batch_end_index:03d}",
-        "batch_chapter_range": f"{batch_start_index:03d}-{batch_end_index:03d}",
-        "round_index": _safe_int(
-            explicit_inputs.get("round_index")
-            or explicit_inputs.get("revision_round")
-            or explicit_inputs.get("attempt_index"),
-            1,
-        ),
-    }
-    rendered = template
-    for key, value in values.items():
-        padded_value = f"{int(value):03d}" if isinstance(value, int) else str(value)
-        rendered = rendered.replace("{" + key + ":03d}", padded_value)
-        rendered = rendered.replace("{" + key + "}", str(value))
-    return rendered
+    values = _artifact_template_values(explicit_inputs)
+    return _render_template(template, values)
 
 
 def _rejected_artifact_root(
@@ -306,20 +267,80 @@ def _rejected_artifact_root(
     explicit_inputs: dict[str, Any],
     request_id: str,
 ) -> Path:
-    batch_start = _safe_int(explicit_inputs.get("batch_start_index"), _safe_int(explicit_inputs.get("chapter_index"), 0))
-    batch_end = _safe_int(explicit_inputs.get("batch_end_index"), batch_start)
     round_index = _safe_int(
         explicit_inputs.get("round_index")
         or explicit_inputs.get("revision_round")
         or explicit_inputs.get("attempt_index"),
         1,
     )
-    batch_slug = (
-        f"chapter_{batch_start:03d}_{batch_end:03d}_round_{round_index:03d}"
-        if batch_start and batch_end
-        else f"round_{round_index:03d}"
+    scope_label = str(
+        explicit_inputs.get("batch_scope_slug")
+        or explicit_inputs.get("unit_batch_slug")
+        or explicit_inputs.get("batch_label_slug")
+        or explicit_inputs.get("batch_chapter_range")
+        or explicit_inputs.get("batch_range")
+        or ""
+    ).strip()
+    if scope_label:
+        scope_slug = _safe_slug(f"batch_{scope_label}_round_{round_index:03d}")
+    else:
+        batch_start = _safe_int(explicit_inputs.get("batch_start_index"), 0)
+        batch_end = _safe_int(explicit_inputs.get("batch_end_index"), batch_start)
+        scope_slug = (
+            f"batch_{batch_start:03d}_{batch_end:03d}_round_{round_index:03d}"
+            if batch_start and batch_end
+            else f"round_{round_index:03d}"
+        )
+    return artifact_root / "rejected" / _safe_slug(stage_id) / scope_slug / _safe_slug(request_id)
+
+
+def _artifact_template_values(explicit_inputs: dict[str, Any]) -> dict[str, Any]:
+    values: dict[str, Any] = {
+        str(key): value
+        for key, value in dict(explicit_inputs or {}).items()
+        if str(key).strip()
+    }
+    for key, value in list(values.items()):
+        if key.endswith("_padded"):
+            continue
+        parsed = _safe_int(value, 0)
+        if parsed > 0 and (
+            key.endswith("_index")
+            or key.endswith("_count")
+            or key.endswith("_size")
+            or key.endswith("_round")
+            or key in {"round_index", "attempt_index", "revision_round"}
+        ):
+            values.setdefault(f"{key}_padded", f"{parsed:03d}")
+    batch_start = _safe_int(values.get("batch_start_index"), 0)
+    batch_end = _safe_int(values.get("batch_end_index"), batch_start)
+    if batch_start > 0:
+        values.setdefault("batch_start_index_padded", f"{batch_start:03d}")
+    if batch_end > 0:
+        values.setdefault("batch_end_index_padded", f"{batch_end:03d}")
+    if batch_start > 0 and batch_end > 0:
+        values.setdefault("batch_range", f"{batch_start:03d}-{batch_end:03d}")
+    round_index = _safe_int(
+        values.get("round_index")
+        or values.get("revision_round")
+        or values.get("attempt_index"),
+        1,
     )
-    return artifact_root / "rejected" / _safe_slug(stage_id) / batch_slug / _safe_slug(request_id)
+    values.setdefault("round_index", round_index)
+    values.setdefault("round_index_padded", f"{round_index:03d}")
+    return values
+
+
+def _render_template(template: str, values: dict[str, Any]) -> str:
+    try:
+        return str(template or "").format_map(_SafeFormatValues(values))
+    except (KeyError, ValueError, IndexError):
+        rendered = str(template or "")
+        for key, value in dict(values or {}).items():
+            rendered = rendered.replace("{" + str(key) + "}", str(value))
+            if isinstance(value, int):
+                rendered = rendered.replace("{" + str(key) + ":03d}", f"{value:03d}")
+        return rendered
 
 
 def _safe_int(value: Any, default: int = 0) -> int:
@@ -603,3 +624,11 @@ def _relative_or_absolute(path: Path, workspace: Path) -> str:
         return path.resolve().relative_to(workspace.resolve()).as_posix()
     except ValueError:
         return path.resolve().as_posix()
+
+
+class _SafeFormatValues(dict):
+    def __init__(self, values: dict[str, Any]) -> None:
+        super().__init__({str(key): value for key, value in dict(values or {}).items()})
+
+    def __missing__(self, key: str) -> str:
+        return "{" + str(key) + "}"

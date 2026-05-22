@@ -10,7 +10,7 @@ if str(ROOT) not in sys.path:
 from capability_system import build_default_operation_registry
 from agent_system.profiles.runtime_profile_models import AgentRuntimeProfile
 from runtime.shared.context_manager import RuntimeContextManager
-from runtime.shared.model_adoption import (
+from permissions import (
     build_model_response_runtime_adoption,
     build_runtime_capability_state,
 )

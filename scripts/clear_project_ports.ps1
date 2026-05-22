@@ -1,6 +1,7 @@
 param(
     [int[]]$Ports = @(3000, 3001, 8000, 8002),
     [switch]$IncludePidFiles,
+    [switch]$ForceAnyOwner,
     [string]$RepoRoot = ""
 )
 
@@ -13,6 +14,14 @@ if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
 }
 
 $OutputDir = Join-Path $RepoRoot "output"
+
+if (-not $ForceAnyOwner) {
+    $projectStack = Join-Path $PSScriptRoot "project_stack.ps1"
+    if (Test-Path $projectStack) {
+        & $projectStack -Action stop
+        exit $LASTEXITCODE
+    }
+}
 
 function Stop-ProcessByPort {
     param([int]$Port)

@@ -11,6 +11,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from query import QueryRuntime
 from query.models import QueryRequest
+from runtime.agent_assembly import NodeWorkOrder, build_agent_assembly_contract
 from task_system import TaskFlowRegistry
 from tests.support.runtime_stubs import (
     DefaultPermissionStub,
@@ -118,7 +119,7 @@ def test_run_single_agent_stream_emits_stream_delta_once() -> None:
     assert any(event.get("type") == "done" for event in events)
 
 
-def test_astream_selected_health_task_adopts_configured_health_agent() -> None:
+def test_removed_health_task_selection_falls_back_to_general_runtime() -> None:
     runtime = _build_stream_runtime()
 
     async def _collect() -> list[dict[str, object]]:
@@ -149,10 +150,77 @@ def test_astream_selected_health_task_adopts_configured_health_agent() -> None:
         and dict(event.get("event") or {}).get("event_type") == "task_contract_built"
     )
 
-    assert task_run["agent_id"] == "agent:3"
-    assert task_run["agent_profile_id"] == "health_maintainer_agent"
-    assert task_run["runtime_lane"] == "health_issue_read"
-    assert dict(task_contract_event["payload"])["agent_runtime_spec"]["agent_id"] == "agent:3"
+    payload = dict(task_contract_event["payload"])
+    assembly = dict(payload.get("task_execution_assembly") or {})
+
+    assert task_run["agent_id"] == "agent:0"
+    assert task_run["agent_profile_id"] == "main_interactive_agent"
+    assert assembly["task_family"] == "general"
+    assert assembly["flow_contract_id"] == ""
+
+
+def test_graph_node_assembly_contract_overrides_stale_task_selection_agent() -> None:
+    runtime = _build_stream_runtime()
+    work_order = NodeWorkOrder(
+        work_order_id="workorder:assembly-authority",
+        task_ref="task.dev.light_web_game",
+        coordination_run_id="coordrun:assembly-authority",
+        root_task_run_id="taskrun:root",
+        stage_id="prototype",
+        node_id="prototype",
+        agent_id="agent:0",
+        agent_profile_id="main_interactive_agent",
+        runtime_lane="game_delivery",
+        executor_type="agent",
+        explicit_inputs={"goal": "做一个小游戏"},
+        input_package={"package_id": "nodeinput:assembly-authority"},
+        dispatch_context={"dispatch_event_id": "tlevent:assembly-authority"},
+    )
+    assembly = build_agent_assembly_contract(work_order, base_dir=runtime.base_dir).to_dict()
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.task_run_loop.run_single_agent_stream(
+            session_id="session-assembly-authority",
+            task_id="taskinst:session-assembly-authority:triage",
+            user_message="请分诊这个健康问题。",
+            history=[],
+            source="regression",
+            agent_runtime_chain=runtime.agent_runtime_chain,
+            model_response_executor=runtime.model_response_executor,
+            runtime_context_manager=runtime.runtime_context_manager,
+            task_selection={
+                "selected_task_id": "task.dev.light_web_game",
+                "agent_id": "agent:pdf_reader",
+                "agent_profile_id": "pdf_analysis_agent",
+                "runtime_lane": "pdf_delegate",
+                "agent_assembly_contract": assembly,
+            },
+            tool_runtime_executor=runtime.tool_runtime_executor,
+            tool_instances=runtime._all_tool_instances(),
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    started = next(event for event in events if event.get("type") == "runtime_loop_started")
+    task_run = dict(started["task_run"])
+    task_contract_event = next(
+        dict(event.get("event") or {})
+        for event in events
+        if event.get("type") == "runtime_loop_event"
+        and dict(event.get("event") or {}).get("event_type") == "task_contract_built"
+    )
+    payload = dict(task_contract_event["payload"])
+    refs = dict(task_contract_event["refs"])
+
+    assert task_run["agent_id"] == "agent:0"
+    assert task_run["agent_profile_id"] == "main_interactive_agent"
+    assert task_run["runtime_lane"] == "game_delivery"
+    assert payload["agent_runtime_spec"]["agent_id"] == "agent:0"
+    assert payload["agent_assembly_contract"]["assembly_id"] == assembly["assembly_id"]
+    assert refs["agent_assembly_contract_ref"] == assembly["assembly_id"]
+    assert refs["work_order_ref"] == work_order.work_order_id
 
 
 def test_runtime_trace_exposes_worker_spawn_trace_for_light_web_game(tmp_path: Path) -> None:

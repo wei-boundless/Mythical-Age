@@ -1181,11 +1181,7 @@ def _coordination_merge_result_from_payload(payload: dict[str, Any]) -> Coordina
 
 def _project_progress_ledger_from_payload(payload: dict[str, Any]) -> ProjectProgressLedger:
     committed_unit_refs = payload.get("committed_unit_refs")
-    if committed_unit_refs is None:
-        committed_unit_refs = payload.get("committed_chapter_refs")
     metric_receipts = payload.get("metric_receipts")
-    if metric_receipts is None:
-        metric_receipts = payload.get("chapter_word_receipts")
     return ProjectProgressLedger(
         ledger_id=str(payload.get("ledger_id") or payload.get("project_id") or ""),
         project_id=str(payload.get("project_id") or ""),
@@ -1196,8 +1192,8 @@ def _project_progress_ledger_from_payload(payload: dict[str, Any]) -> ProjectPro
         metric_label=str(payload.get("metric_label") or "units"),
         target_metric_total=int(payload.get("target_metric_total") or payload.get("target_words") or 0),
         committed_metric_total=int(payload.get("committed_metric_total") or payload.get("committed_words_total") or 0),
-        committed_unit_count=int(payload.get("committed_unit_count") or payload.get("committed_chapter_count") or 0),
-        last_committed_unit_index=int(payload.get("last_committed_unit_index") or payload.get("last_committed_chapter_index") or 0),
+        committed_unit_count=int(payload.get("committed_unit_count") or 0),
+        last_committed_unit_index=int(payload.get("last_committed_unit_index") or 0),
         committed_unit_refs=tuple(str(item) for item in list(committed_unit_refs or []) if str(item)),
         metric_receipts=tuple(dict(item) for item in list(metric_receipts or []) if isinstance(item, dict)),
         run_chain=tuple(str(item) for item in list(payload.get("run_chain") or []) if str(item)),
@@ -1241,8 +1237,8 @@ def _project_runtime_status_from_payload(payload: dict[str, Any]) -> ProjectRunt
         metric_label=str(payload.get("metric_label") or "units"),
         completed_metric_total=int(payload.get("completed_metric_total") or payload.get("completed_words_total") or 0),
         target_metric_total=int(payload.get("target_metric_total") or payload.get("target_words") or 0),
-        committed_unit_count=int(payload.get("committed_unit_count") or payload.get("committed_chapter_count") or 0),
-        last_committed_unit_index=int(payload.get("last_committed_unit_index") or payload.get("last_committed_chapter_index") or 0),
+        committed_unit_count=int(payload.get("committed_unit_count") or 0),
+        last_committed_unit_index=int(payload.get("last_committed_unit_index") or 0),
         active_blocker=dict(payload.get("active_blocker") or {}),
         recovery_state=dict(payload.get("recovery_state") or {}),
         delivery_state=str(payload.get("delivery_state") or ""),

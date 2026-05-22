@@ -16,7 +16,7 @@ from evidence.pdf_worker import PDFWorker
 from evidence.retrieval_worker import RetrievalWorker
 from evidence.structured_data_worker import StructuredDataWorker
 from runtime.model_gateway.model_runtime import ModelRuntime
-from orchestration import OperationGate, OperationGatePipelineContext, ResourcePolicy
+from permissions import OperationGate, OperationGatePipelineContext, ResourcePolicy
 from knowledge_system.retrieval import RetrievalService
 
 

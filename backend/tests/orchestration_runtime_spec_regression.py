@@ -95,7 +95,7 @@ def test_professional_mode_overrides_registered_light_web_game_recipe() -> None:
     assert recipe["metadata"]["runtime_driver"] == "professional_task_run"
 
 
-def test_orchestration_runtime_bundle_uses_selected_task_profiles() -> None:
+def test_removed_health_task_selection_does_not_mount_old_profiles() -> None:
     task_bundle = build_task_execution_assembly_bundle(
         session_id="session-orch-health",
         task_id="taskinst:turn:session-orch-health:1:health_issue_triage",
@@ -108,26 +108,14 @@ def test_orchestration_runtime_bundle_uses_selected_task_profiles() -> None:
         },
     )
 
-    payload = build_orchestration_runtime_bundle(
-        base_dir=BACKEND_DIR,
-        session_id="session-orch-health",
-        task_id="taskinst:turn:session-orch-health:1:health_issue_triage",
-        user_goal="请检查这个 health issue 的修复建议。",
-        task_assembly_bundle=task_bundle,
-        agent_runtime_profile=AgentRuntimeRegistry(BACKEND_DIR).get_profile("agent:3"),
-        current_turn_context={
-            "authority": "context.current_turn",
-            "turn_id": "turn:session-orch-health:1",
-            "selected_task_id": "task.health.issue_triage",
-        },
-    )
+    assembly = task_bundle["task_execution_assembly"]
 
-    runtime_spec = payload["agent_runtime_spec"]
-    orchestration = payload["task_body_orchestration"]
-
-    assert runtime_spec["runtime_lane"] == "health_issue_read"
-    assert orchestration["resource_binding_plan"]["operation_requirement_ref"].startswith("opreq:")
-    assert orchestration["verification_gate_plan"]["task_constraints"] == task_bundle["task_execution_assembly"]["task_constraints"]
+    assert AgentRuntimeRegistry(BACKEND_DIR).get_profile("agent:3") is None
+    assert assembly["task_family"] == "general"
+    assert assembly["flow_contract_id"] == ""
+    assert assembly["workflow_id"] == ""
+    assert assembly["communication_protocol_ref"] == ""
+    assert assembly["graph_ref"] == ""
 
 
 def test_orchestration_runtime_bundle_respects_shared_contract_flag() -> None:

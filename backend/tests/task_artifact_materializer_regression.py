@@ -215,7 +215,7 @@ def test_rejected_stage_artifact_is_isolated_from_official_output(tmp_path: Path
         artifact_root
         / "rejected"
         / "chapter-draft"
-        / "chapter_001_010_round_006"
+        / "batch_001_010_round_006"
         / "nodeexec-test-chapter-draft-old"
         / "volume_001"
         / "chapters"

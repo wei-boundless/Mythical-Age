@@ -58,7 +58,7 @@ describe("TaskGraph timeline layering", () => {
       ],
       {
         phase_definitions: [{ phase_id: "phase.design", title: "设计阶段" }],
-        timeline_blocks: [{ block_id: "block.design", title: "设计阶段图", phase_id: "phase.design" }],
+        timeline_blocks: [{ block_id: "block.design", block_type: "design_graph", title: "设计阶段图", phase_id: "phase.design" }],
       },
     );
 
@@ -66,5 +66,30 @@ describe("TaskGraph timeline layering", () => {
     expect(issues.some((issue) => issue.code === "timeline_block_handoff_contract_missing")).toBe(true);
     expect(issues.some((issue) => issue.code === "timeline_block_imported_graph_missing")).toBe(true);
     expect(issues.some((issue) => issue.code === "timeline_edge_visibility_timing_missing")).toBe(true);
+  });
+
+  it("does not require linked_graph_id for ordinary phase graph blocks", () => {
+    const issues = buildTimelinePreflightIssues(
+      [
+        { node_id: "plan", phase_id: "phase.plan", sequence_index: 1 },
+        { node_id: "execute", phase_id: "phase.plan", sequence_index: 2 },
+      ],
+      [{ edge_id: "edge.plan.execute", source_node_id: "plan", target_node_id: "execute", edge_type: "handoff" }],
+      {
+        phase_definitions: [{ phase_id: "phase.plan", title: "计划" }],
+        timeline_blocks: [{
+          block_id: "block.phase.plan",
+          block_type: "phase_graph",
+          title: "计划阶段",
+          phase_id: "phase.plan",
+          entry_node_id: "plan",
+          exit_node_id: "execute",
+          handoff_contract_id: "contract.phase.plan",
+          version_ref: "template",
+        }],
+      },
+    );
+
+    expect(issues.some((issue) => issue.code === "timeline_block_imported_graph_missing")).toBe(false);
   });
 });

@@ -301,7 +301,7 @@ def test_operation_gate_fails_closed_when_declared_safety_validator_is_missing()
         resource_policy=policy,
         directive_ref="directive-read-missing-validator",
         context=OperationGatePipelineContext(
-            operation_input={"operation_id": "op.read_file", "path": "backend/orchestration/resource_gate.py"},
+            operation_input={"operation_id": "op.read_file", "path": "backend/permissions/operation_gate.py"},
             validators={},
         ),
     )
@@ -373,7 +373,7 @@ def test_shell_read_only_validator_blocks_control_operators_and_git_config() -> 
 
 
 def test_filesystem_path_validator_blocks_workspace_escape_and_expansion() -> None:
-    assert validate_filesystem_path({"path": "backend/orchestration/resource_gate.py"})[0] is True
+    assert validate_filesystem_path({"path": "backend/permissions/operation_gate.py"})[0] is True
     assert validate_filesystem_path({"path": "../outside.txt"}) == (
         False,
         "filesystem path escapes through parent traversal",

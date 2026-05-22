@@ -21,7 +21,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "build_capability_supply_package_from_catalog": (".supply", "build_capability_supply_package_from_catalog"),
     "build_operation_catalog": (".catalog", "build_capability_catalog"),
     "build_operation_requirement": ("task_system.contracts.capability_requirements", "build_operation_requirement"),
-    "build_resource_policy_candidate": ("orchestration.resource_policy_builder", "build_resource_policy_candidate"),
+    "build_resource_policy_candidate": ("permissions.resource_policy_builder", "build_resource_policy_candidate"),
     "build_resource_runtime_views": ("orchestration.resource_runtime_view", "build_resource_runtime_views"),
     "build_capability_endpoints": (".endpoints", "build_capability_endpoints"),
     "build_default_operation_registry": (".operation_registry", "build_default_operation_registry"),

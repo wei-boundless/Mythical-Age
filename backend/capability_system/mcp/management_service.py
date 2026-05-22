@@ -6,7 +6,7 @@ from typing import Any
 from capability_system.mcp.external_provider import ExternalMCPProvider
 from capability_system.mcp.client import ExternalMCPServerConfig
 from capability_system.mcp.local_provider import LocalMCPProvider
-from orchestration import ResourcePolicy
+from permissions import ResourcePolicy
 
 
 class MCPManagementService:

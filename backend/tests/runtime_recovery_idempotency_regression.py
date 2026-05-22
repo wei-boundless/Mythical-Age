@@ -9,6 +9,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from capability_system.operation_registry import OperationDescriptor
 from orchestration import RuntimeActionRequest
+from runtime.execution_engine import prepare_tool_execution
 from runtime.unit_runtime.loop import TaskRunLoop
 
 
@@ -44,7 +45,7 @@ def test_idempotent_write_reuses_completed_result(tmp_path: Path) -> None:
         read_only=False,
     )
 
-    first_record, first_events, first_decision = loop._prepare_tool_execution(
+    first_record, first_events, first_decision = prepare_tool_execution(
         task_run_id="taskrun:test-recovery",
         step_id="step.write",
         action_request=_action_request("req-1"),
@@ -52,6 +53,8 @@ def test_idempotent_write_reuses_completed_result(tmp_path: Path) -> None:
         operation_id="op.test_write",
         descriptor=descriptor,
         tool_name="edit_file",
+        execution_store=loop.execution_store,
+        record_execution_event=loop._record_execution_event,
     )
     assert first_decision == "dispatch"
     assert first_record.replay_policy == "reuse_completed_result"
@@ -70,7 +73,7 @@ def test_idempotent_write_reuses_completed_result(tmp_path: Path) -> None:
         },
     )
 
-    second_record, second_events, second_decision = loop._prepare_tool_execution(
+    second_record, second_events, second_decision = prepare_tool_execution(
         task_run_id="taskrun:test-recovery",
         step_id="step.write",
         action_request=_action_request("req-2"),
@@ -78,6 +81,8 @@ def test_idempotent_write_reuses_completed_result(tmp_path: Path) -> None:
         operation_id="op.test_write",
         descriptor=descriptor,
         tool_name="edit_file",
+        execution_store=loop.execution_store,
+        record_execution_event=loop._record_execution_event,
     )
 
     assert second_decision == "reuse_completed_result"
@@ -104,7 +109,7 @@ def test_non_replay_safe_write_is_suppressed_on_duplicate_request(tmp_path: Path
         requires_user_interaction=True,
     )
 
-    first_record, _, first_decision = loop._prepare_tool_execution(
+    first_record, _, first_decision = prepare_tool_execution(
         task_run_id="taskrun:test-recovery",
         step_id="step.write",
         action_request=_action_request("req-1"),
@@ -112,6 +117,8 @@ def test_non_replay_safe_write_is_suppressed_on_duplicate_request(tmp_path: Path
         operation_id="op.test_write",
         descriptor=descriptor,
         tool_name="edit_file",
+        execution_store=loop.execution_store,
+        record_execution_event=loop._record_execution_event,
     )
     assert first_decision == "dispatch"
     loop.execution_store.mark_completed(
@@ -120,7 +127,7 @@ def test_non_replay_safe_write_is_suppressed_on_duplicate_request(tmp_path: Path
         result_payload={"result": "patched"},
     )
 
-    second_record, second_events, second_decision = loop._prepare_tool_execution(
+    second_record, second_events, second_decision = prepare_tool_execution(
         task_run_id="taskrun:test-recovery",
         step_id="step.write",
         action_request=_action_request("req-2"),
@@ -128,6 +135,8 @@ def test_non_replay_safe_write_is_suppressed_on_duplicate_request(tmp_path: Path
         operation_id="op.test_write",
         descriptor=descriptor,
         tool_name="edit_file",
+        execution_store=loop.execution_store,
+        record_execution_event=loop._record_execution_event,
     )
 
     assert second_decision == "deny_auto_replay"

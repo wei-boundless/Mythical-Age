@@ -43,6 +43,7 @@ function Workspace() {
   } = useAppStore();
   const [mounted, setMounted] = useState(false);
   const [forcedPlayground, setForcedPlayground] = useState(false);
+  const [chatVisualMode, setChatVisualMode] = useState<"default" | "reality">("default");
 
   const mainView: WorkspaceView = isTaskLayerView(activeWorkspaceView)
     ? "task-system"
@@ -52,6 +53,10 @@ function Workspace() {
 
   useEffect(() => {
     setMounted(true);
+    const storedMode = window.localStorage.getItem("chatVisualMode");
+    if (storedMode === "reality") {
+      setChatVisualMode("reality");
+    }
   }, []);
 
   useEffect(() => {
@@ -61,10 +66,6 @@ function Workspace() {
       setForcedPlayground(view === "playground");
     }
   }, [setWorkspaceView]);
-
-  if (!mounted) {
-    return <main className="app-boot-stage" aria-label="正在启动" />;
-  }
 
   useEffect(() => {
     if (
@@ -76,6 +77,23 @@ function Workspace() {
       setWorkspaceView("chat");
     }
   }, [activeWorkspaceView, setWorkspaceView]);
+
+  function returnToWorkspace() {
+    setForcedPlayground(false);
+    setWorkspaceView("chat");
+    const url = new URL(window.location.href);
+    url.searchParams.delete("view");
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+  }
+
+  function updateChatVisualMode(mode: "default" | "reality") {
+    setChatVisualMode(mode);
+    window.localStorage.setItem("chatVisualMode", mode);
+  }
+
+  if (!mounted) {
+    return <main className="app-boot-stage" aria-label="正在启动" />;
+  }
 
   if (activeWorkspaceView === "system-framework") {
     return (
@@ -100,9 +118,9 @@ function Workspace() {
 
   return (
     forcedPlayground || activeWorkspaceView === "playground" ? (
-      <PlaygroundView />
+      <PlaygroundView onReturnToWorkspace={returnToWorkspace} />
     ) : (
-      <main className="practical-workspace">
+      <main className={chatVisualMode === "reality" ? "practical-workspace practical-workspace--reality" : "practical-workspace"}>
         <Sidebar />
         <section className="practical-main" aria-label="主工作区">
           <section className="practical-content">
@@ -111,7 +129,7 @@ function Workspace() {
             ) : mainView === "task-system" ? (
               <TaskSystemView />
             ) : (
-              <ChatPanel />
+              <ChatPanel onVisualModeChange={updateChatVisualMode} visualMode={chatVisualMode} />
             )}
           </section>
         </section>

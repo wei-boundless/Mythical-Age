@@ -35,6 +35,12 @@ async def list_runtime_loop_task_runs(session_id: str) -> dict[str, Any]:
     return runtime.query_runtime.task_run_loop.list_session_traces(session_id)
 
 
+@router.get("/orchestration/runtime-loop/live-monitor")
+async def list_runtime_loop_global_live_monitor(limit: int = 20) -> dict[str, Any]:
+    runtime = require_runtime()
+    return runtime.query_runtime.task_run_loop.list_global_live_monitor(limit=limit)
+
+
 @router.get("/orchestration/runtime-loop/sessions/{session_id}/live-monitor")
 async def get_runtime_loop_session_live_monitor(session_id: str) -> dict[str, Any]:
     runtime = require_runtime()

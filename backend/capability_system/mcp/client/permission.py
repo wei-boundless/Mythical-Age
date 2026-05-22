@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from capability_system.operation_registry import OperationDescriptor, OperationRegistry
-from orchestration import OperationGate, OperationGatePipelineContext, ResourcePolicy
+from permissions import OperationGate, OperationGatePipelineContext, ResourcePolicy
 
 from .models import ExternalMCPServerConfig
 

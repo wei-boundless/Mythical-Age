@@ -1,5 +1,6 @@
 import type {
   OrchestrationSnapshot,
+  GlobalRuntimeMonitor,
   RetrievalResult,
   TaskGraphMonitorDecision,
   TaskGraphRunMonitorView,
@@ -18,6 +19,17 @@ export type Message = {
   retrievals: RetrievalResult[];
   stageStatus?: string;
   sourceIndex?: number;
+};
+
+export type SessionActivityLevel = "idle" | "running" | "waiting" | "success" | "error" | "stopped";
+
+export type SessionActivityState = {
+  level: SessionActivityLevel;
+  title: string;
+  detail: string;
+  event: string;
+  toolName?: string;
+  updatedAt: number;
 };
 
 export type TokenStats = {
@@ -117,6 +129,7 @@ export type StoreState = {
   messages: Message[];
   isStreaming: boolean;
   activeStreamSessionIds: string[];
+  sessionActivity: SessionActivityState;
   ragMode: boolean;
   searchPolicy: SearchPolicyState;
   skills: SkillSummary[];
@@ -136,6 +149,12 @@ export type StoreState = {
   taskGraphMonitorBinding: TaskGraphMonitorBinding | null;
   taskGraphLiveMonitor: RuntimeLoopTaskRunLiveMonitor | null;
   taskGraphRunMonitor: TaskGraphRunMonitorView | null;
+  globalRuntimeMonitor: GlobalRuntimeMonitor | null;
+  globalRuntimeMonitorSelectedTaskRunId: string;
+  globalRuntimeMonitorSelectedLiveMonitor: RuntimeLoopTaskRunLiveMonitor | null;
+  globalRuntimeMonitorSelectedGraphMonitor: TaskGraphRunMonitorView | null;
+  globalRuntimeMonitorLoading: boolean;
+  globalRuntimeMonitorError: string;
   taskGraphBoundRunMonitor: TaskGraphRunMonitorView | null;
   taskGraphMonitorDecision: TaskGraphMonitorDecision | null;
   taskGraphMonitorDecisions: TaskGraphMonitorDecision[];
@@ -177,6 +196,8 @@ export type StoreActions = {
   resumeTaskGraphRun: (taskGraphRunId: string, payload?: Record<string, unknown>) => Promise<void>;
   resolveRuntimeApproval: (taskRunId: string, decision: "approve" | "reject", message?: string) => Promise<void>;
   setTaskSelection: (selection: TaskSelectionState | null) => void;
+  selectGlobalRuntimeMonitorTaskRun: (taskRunId: string) => void;
+  refreshGlobalRuntimeMonitor: () => Promise<void>;
 };
 
 export type AppStore = StoreState &

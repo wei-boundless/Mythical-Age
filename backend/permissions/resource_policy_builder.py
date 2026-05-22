@@ -5,8 +5,8 @@ from dataclasses import dataclass
 from capability_system.operation_registry import OperationDescriptor, OperationRegistry
 from task_system.contracts.capability_requirements import OperationRequirement
 
-from .resource_policy import ResourceDecision, ResourcePolicy
-from .resource_scope_mapping import map_operations_to_resource_scopes
+from permissions.resource_policy import ResourceDecision, ResourcePolicy
+from permissions.resource_scope_mapping import map_operations_to_resource_scopes
 
 
 APPROVAL_RISK_TAGS = {

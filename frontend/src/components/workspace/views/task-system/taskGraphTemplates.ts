@@ -149,8 +149,8 @@ function makeNode(input: TemplateNodeInput, taskFamily: string): TaskGraphNode {
     projection_id: input.projection_id,
     projection_overlay_id: input.projection_id,
     input_contract_id: input.input_contract_id,
-    output_contract_id: input.output_contract_id,
-    node_contract_id: input.output_contract_id,
+    output_contract_id: input.output_contract_id ?? (input.review_gate ? "contract.review.verdict" : undefined),
+    node_contract_id: input.output_contract_id ?? (input.review_gate ? "contract.review.verdict" : undefined),
     label: input.title,
     title: input.title,
     phase_id: input.phase_id,
@@ -298,7 +298,38 @@ function memoryReadEdge(edgeId: string, repositoryNodeId: string, targetNodeId: 
   };
 }
 
-function memoryCommitEdge(edgeId: string, sourceNodeId: string, repositoryNodeId: string, collection: string): TaskGraphEdge {
+function memoryWriteCandidateEdge(edgeId: string, sourceNodeId: string, repositoryNodeId: string, collection: string): TaskGraphEdge {
+  return {
+    edge_id: edgeId,
+    from: sourceNodeId,
+    to: repositoryNodeId,
+    source_node_id: sourceNodeId,
+    target_node_id: repositoryNodeId,
+    edge_type: "memory_write_candidate",
+    mode: "memory_write_candidate",
+    payload_contract_id: "contract.memory.write_candidate",
+    ack_required: true,
+    wait_policy: "wait_required_contracts",
+    metadata: {
+      repository: repositoryNodeId,
+      repository_id: repositoryNodeId,
+      collection,
+      selector: { collection, record_kind: collectionRecordKind(collection) },
+      record_key: `${repositoryNodeId}.${collection}.current`,
+      record_kind: collectionRecordKind(collection),
+      source_output_key: `${collection}_memory_candidate`,
+      usage_instruction: "该边只写入候选记忆；候选必须经过审核或明确提交边后才对后续节点可见。",
+    },
+  };
+}
+
+function memoryCommitEdge(
+  edgeId: string,
+  sourceNodeId: string,
+  repositoryNodeId: string,
+  collection: string,
+  options: { approvalSourceNodeId?: string } = {},
+): TaskGraphEdge {
   return {
     edge_id: edgeId,
     from: sourceNodeId,
@@ -315,11 +346,10 @@ function memoryCommitEdge(edgeId: string, sourceNodeId: string, repositoryNodeId
       repository_id: repositoryNodeId,
       collection,
       selector: { collection, record_kind: collectionRecordKind(collection) },
-      record_key: `${sourceNodeId}.${repositoryNodeId}.${collection}.committed`,
+      record_key: `${repositoryNodeId}.${collection}.current`,
       record_kind: collectionRecordKind(collection),
-      candidate_ref_key: `${repositoryNodeId}.${collection}.candidate_ref`,
-      verdict_key: "review_verdict",
-      required_verdict: "approved",
+      approval_source_node_id: options.approvalSourceNodeId,
+      approval_policy: options.approvalSourceNodeId ? "approved_upstream_review_gate" : "explicit_commit_stage",
       commit_visibility_policy: { required_status: "committed", visible_after: "next_clock" },
       usage_instruction: "只有审核通过或明确允许提交的内容可以写入该记忆库。",
     },
@@ -345,6 +375,7 @@ function applyTemplateOptions(
   ].filter(Boolean);
   const nodes = result.nodes.map((node) => {
     const metadata = (node.metadata ?? {}) as Record<string, unknown>;
+    const agentBound = Boolean(String(node.agent_id ?? "").trim());
     return {
       ...node,
       metadata: {
@@ -354,7 +385,7 @@ function applyTemplateOptions(
         template_artifact_type: artifactType,
         template_review_strength: reviewStrength,
         template_prompt_context: optionLines,
-        agent_binding_source: Object.values(input.agent_bindings ?? {}).includes(String(node.agent_id ?? "")) ? "template_parameter" : "template_default",
+        agent_binding_source: agentBound && Object.values(input.agent_bindings ?? {}).includes(String(node.agent_id ?? "")) ? "template_parameter" : "template_default",
       },
     };
   });
@@ -829,6 +860,12 @@ export function buildTaskGraphTemplateDraft(input: TaskGraphTemplateBuildInput):
         definition_of_done: "你必须输出复盘结论、改进项、下轮建议和是否继续循环。",
         input_contract_id: "contract.review.input",
         output_contract_id: "contract.review.verdict",
+        memory_writeback_policy: {
+          writable_kinds: ["review_issue_record"],
+          writable_scopes: ["graph_scope"],
+          default_status: "draft",
+          default_visibility: "shared_in_graph",
+        },
         review_gate: true,
         metadata: {
           review_policy: {
@@ -852,6 +889,12 @@ export function buildTaskGraphTemplateDraft(input: TaskGraphTemplateBuildInput):
         node_type: "memory_commit",
         input_contract_id: "contract.memory.commit.input",
         output_contract_id: "contract.memory.commit.result",
+        memory_writeback_policy: {
+          writable_kinds: ["memory_commit_record"],
+          writable_scopes: ["graph_scope"],
+          default_status: "draft",
+          default_visibility: "shared_in_graph",
+        },
         metadata: {
           operation: "commit",
           publisher_role: "memory_steward",
@@ -873,9 +916,12 @@ export function buildTaskGraphTemplateDraft(input: TaskGraphTemplateBuildInput):
         memoryReadEdge("edge.memory_baseline.review", "memory.baseline", "agent.reviewer", "decisions"),
         memoryReadEdge("edge.memory_mutable.review", "memory.mutable", "agent.reviewer", "state_delta"),
         makeEdge("edge.review.memory", "agent.reviewer", "agent.memory", mode, "复盘结论写入记忆"),
-        memoryCommitEdge("edge.review.issue_ledger", "agent.reviewer", "memory.issue_ledger", "issues"),
-        memoryCommitEdge("edge.memory.mutable", "agent.memory", "memory.mutable", "progress"),
-        memoryCommitEdge("edge.memory.artifact_index", "agent.memory", "memory.artifact_index", "commit_refs"),
+        memoryWriteCandidateEdge("edge.review.issue_ledger.candidate", "agent.reviewer", "memory.issue_ledger", "issues"),
+        memoryCommitEdge("edge.review.issue_ledger", "agent.reviewer", "memory.issue_ledger", "issues", { approvalSourceNodeId: "agent.reviewer" }),
+        memoryWriteCandidateEdge("edge.memory.mutable.candidate", "agent.memory", "memory.mutable", "progress"),
+        memoryCommitEdge("edge.memory.mutable", "agent.memory", "memory.mutable", "progress", { approvalSourceNodeId: "agent.reviewer" }),
+        memoryWriteCandidateEdge("edge.memory.artifact_index.candidate", "agent.memory", "memory.artifact_index", "commit_refs"),
+        memoryCommitEdge("edge.memory.artifact_index", "agent.memory", "memory.artifact_index", "commit_refs", { approvalSourceNodeId: "agent.reviewer" }),
         {
           ...makeEdge("edge.memory.plan", "agent.memory", "agent.planner", "review_feedback", "记忆反馈到下一轮计划"),
           failure_propagation_policy: "allow_partial",

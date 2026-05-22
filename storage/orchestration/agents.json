@@ -9,10 +9,10 @@
       "enabled": true,
       "builtin": true,
       "editable": true,
-      "default_soul_id": "hebo",
-      "default_projection_id": "hebo__primary",
+      "default_soul_id": "siyue",
+      "default_projection_id": "siyue__primary",
       "created_at": 1778178166.2262201,
-      "updated_at": 1779062992.0968692,
+      "updated_at": 1779417486.296552,
       "metadata": {
         "role": "main_conversation_entry",
         "system_key": "task_system",

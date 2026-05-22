@@ -92,6 +92,7 @@ def admit_health_command(base_dir: Path, command: HealthManagementCommand) -> He
         "task_execution_assembly": dict(plan.task_execution_assembly),
         "task_body_orchestration": dict(plan.task_body_orchestration),
         "agent_runtime_spec": dict(plan.agent_runtime_spec),
+        "config": dict(plan.diagnostics),
     }
     runtime_spec = dict(plan.agent_runtime_spec)
     if not runtime_spec:

@@ -7,7 +7,7 @@ from capability_system.local_mcp_registry import default_local_mcp_units, get_lo
 from capability_system.mcp.providers import MCPProviderServer, MCPProviderTool
 from capability_system.mcp.server.local_capability_server import LocalCapabilityMCPExecutor, LocalMCPToolRequest
 from capability_system.operation_registry import build_default_operation_registry
-from orchestration import OperationGate, OperationGatePipelineContext, ResourcePolicy
+from permissions import OperationGate, OperationGatePipelineContext, ResourcePolicy
 
 
 class LocalMCPProvider:

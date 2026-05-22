@@ -16,15 +16,17 @@ from capability_system.local_mcp_registry import get_local_mcp_unit, get_local_m
 from capability_system.search_policy import (
     normalize_search_policy,
     operation_allowed_by_search_policy,
-    tool_allowed_by_search_policy,
 )
 from agent_system.registry.agent_registry import AgentRegistry
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from agent_system.models.model_profile_resolver import ModelProfileResolver
-from orchestration.resource_gate import ApprovalToken, OperationGate, OperationGatePipelineContext
-from orchestration.resource_policy import ResourceDecision, ResourcePolicy
+from permissions import (
+    ApprovalToken,
+    OperationGate,
+    OperationGatePipelineContext,
+    ResourcePolicy,
+)
 from project_layout import ProjectLayout
-from response_system.boundary.boundary import AssistantOutputBoundary
 from memory_system.runtime_services import MemoryRuntimeServices
 from artifact_system import ArtifactRepositoryService
 from task_system.registry.flow_registry import TaskFlowRegistry
@@ -57,7 +59,6 @@ from understanding.capability_resolution_view import capability_resolution_view
 
 from context_system.projection.projection import (
     projection_from_bundle_answer,
-    projection_from_file_work,
 )
 from orchestration.commit_gate import build_assistant_session_message_commit_decision, build_task_run_final_commit_decision
 from orchestration.runtime_directive import RuntimeDirective
@@ -78,9 +79,6 @@ from ..shared.execution_record import (
     OperationExecutionRecord,
     RuntimeExecutionStore,
     build_execution_receipt,
-    build_idempotency_token,
-    build_request_fingerprint,
-    derive_replay_policy,
 )
 from ..shared.event_log import RuntimeEventLog
 from ..shared.loop_control import RuntimeLoopLimits, check_runtime_loop_control
@@ -97,6 +95,35 @@ from .artifact_paths import (
 from ..shared.artifact_refs import ArtifactRefIndex
 from ..execution.agent_delegation_executor import AgentDelegationExecutor
 from ..coordination_runtime.runtime import LangGraphCoordinationRuntime, LangGraphCoordinationRuntimeResult
+from ..agent_assembly import WorkOrder, build_agent_assembly_contract
+from ..execution_permit import (
+    action_request_from_approval_state,
+    build_execution_permit_from_payload,
+    resource_policy_from_approval_state,
+    runtime_directive_from_approval_state,
+    tool_instances_for_policy_and_permit,
+)
+from ..execution_engine import (
+    ModelToolCallAccumulator,
+    apply_observation_aggregation,
+    artifact_success_fallback_answer_metadata,
+    build_answer_readiness_judge_message,
+    build_artifact_success_fallback_answer,
+    build_repeated_tool_halt_message,
+    build_runtime_budget_exhausted_message,
+    builtin_tool_lane_answer_from_observation,
+    classify_delegation_goal_alignment,
+    forced_synthesis_answer_metadata,
+    forced_tool_synthesis_from_available_evidence,
+    merge_task_spec_binding_into_delegation_payload,
+    prepare_tool_execution,
+    record_tool_observation_projection,
+    repeated_tool_halt_answer_metadata,
+    runtime_budget_exhausted_answer_metadata,
+    select_final_answer_from_context,
+    select_final_answer_from_task_summary_refs,
+    should_force_answer_after_tool_results,
+)
 from ..memory.project_supervision import (
     build_runtime_status,
     ensure_project_runtime_inputs,
@@ -120,11 +147,10 @@ from .dispatch_plan_compiler import (
 )
 from .quality_gates import (
     _artifact_policy_from_task_execution_assembly,
-    _match_bundle_ordinal_for_tool_observation,
     _model_stream_policy_from_task_execution_assembly,
     _safe_int,
 )
-from ..shared.model_adoption import build_model_response_runtime_adoption, build_runtime_capability_state
+from permissions import build_model_response_runtime_adoption, build_runtime_capability_state
 from ..shared.models import (
     AgentHandoffEnvelope,
     AgentRun,
@@ -133,7 +159,7 @@ from ..shared.models import (
     RuntimeLoopState,
     TaskRun,
 )
-from ..memory.observation_aggregator import ObservationAggregation, ObservationAggregator
+from ..memory.observation_aggregator import ObservationAggregator
 from ..shared.safety import build_task_safety_validators
 from .sandbox_policy import prepare_runtime_sandbox_policy_for_turn
 from ..shared.stage_projection import StageProjectionCycle
@@ -144,7 +170,7 @@ from .finalizer import (
 )
 from ..memory.trace_reader import RuntimeLoopTraceReader
 from ..execution.delegation_models import AgentDelegationRequest
-from ..shared.tool_adoption import build_tool_request_runtime_adoption
+from permissions import build_tool_request_runtime_adoption
 from ..shared.tool_repetition_guard import ToolRepetitionGuard
 from agent_system.registry.worker_agent_blueprints import WorkerAgentSpawnRequest, WorkerAgentSpawnResult
 from agent_system.registry.worker_agent_factory import WorkerAgentFactory
@@ -266,18 +292,11 @@ class TaskRunLoop:
                 return "default"
         return "default"
 
-    @staticmethod
-    def _apply_observation_aggregation(
-        aggregation: ObservationAggregation,
-    ) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
-        return (
-            dict(aggregation.projection.main_context),
-            [dict(item) for item in aggregation.projection.task_summary_refs],
-            [dict(item) for item in aggregation.projection.bundle_summary_refs],
-        )
-
     def list_session_traces(self, session_id: str) -> dict[str, Any]:
         return self.trace_reader.list_session_task_runs(session_id)
+
+    def list_global_live_monitor(self, limit: int = 20) -> dict[str, Any]:
+        return self.trace_reader.list_global_live_monitor(limit=limit)
 
     def get_session_live_monitor(self, session_id: str) -> dict[str, Any]:
         return self.trace_reader.get_session_live_monitor(session_id)
@@ -1226,19 +1245,26 @@ class TaskRunLoop:
     ):
         """Run the current single-agent lane inside the TaskRunLoop trace spine."""
 
+        assembly_contract = _assembly_contract_from_task_selection(task_selection)
+        runtime_chain_task_selection = dict(task_selection or {})
+        if assembly_contract:
+            runtime_chain_task_selection["agent_assembly_contract"] = dict(assembly_contract)
+            runtime_chain_task_selection["assembly_id"] = str(assembly_contract.get("assembly_id") or "")
+            runtime_chain_task_selection["work_order_id"] = str(assembly_contract.get("work_order_id") or "")
+            runtime_chain_task_selection["executor_type"] = str(assembly_contract.get("executor_type") or "")
         allowed_search_sources = _resolve_runtime_search_sources(
             search_policy=search_policy,
-            task_selection=task_selection,
+            task_selection=runtime_chain_task_selection,
         )
         chain_runtime = agent_runtime_chain.build_runtime(
             session_id=session_id,
             task_id=task_id,
-            turn_id=str(dict(task_selection or {}).get("turn_id") or ""),
+            turn_id=str(dict(runtime_chain_task_selection or {}).get("turn_id") or ""),
             message=user_message,
             source=source,
-            current_turn_context_override=dict(task_selection or {}),
+            current_turn_context_override=dict(runtime_chain_task_selection or {}),
             task_selection={
-                **dict(task_selection or {}),
+                **dict(runtime_chain_task_selection or {}),
                 "search_policy": sorted(allowed_search_sources),
             },
             agent_runtime_profile=agent_runtime_profile,
@@ -1266,9 +1292,29 @@ class TaskRunLoop:
         )
         task_body_orchestration_payload = dict(chain_runtime.get("task_body_orchestration") or task_operation.get("task_body_orchestration") or {})
         agent_runtime_spec_payload = dict(chain_runtime.get("agent_runtime_spec") or task_operation.get("agent_runtime_spec") or {})
+        if assembly_contract:
+            agent_runtime_spec_payload = _agent_runtime_spec_with_assembly_contract(
+                agent_runtime_spec_payload,
+                assembly_contract,
+            )
+            task_operation["agent_runtime_spec"] = agent_runtime_spec_payload
+            task_operation["agent_assembly_contract"] = assembly_contract
+        execution_permit = _execution_permit_from_assembly_contract(assembly_contract)
+        if execution_permit:
+            task_operation["execution_permit"] = execution_permit
         effective_agent_runtime_profile = agent_runtime_profile or self.agent_runtime_registry.get_profile(
             str(agent_runtime_spec_payload.get("agent_id") or "").strip()
         )
+        effective_agent_profile_id = str(agent_runtime_spec_payload.get("agent_profile_id") or "").strip()
+        if not effective_agent_profile_id:
+            effective_agent_profile_id = str(
+                getattr(effective_agent_runtime_profile, "agent_profile_id", "")
+                or _agent_profile_id_for_runtime_spec(
+                    self.agent_runtime_registry,
+                    agent_runtime_spec_payload,
+                )
+                or "main_interactive_agent"
+            )
         memory_view = dict(chain_runtime.get("memory_runtime_view") or {})
         context_policy = dict(chain_runtime.get("context_policy_result") or {})
         adoption_mode = str(task_agent_adoption_plan_payload.get("adoption_mode") or "adopt_existing")
@@ -1281,14 +1327,7 @@ class TaskRunLoop:
             task_id=task_id,
             task_contract_ref=str(task_contract.get("task_id") or task_id),
             agent_id=str(agent_runtime_spec_payload.get("agent_id") or "agent:0"),
-            agent_profile_id=str(
-                getattr(effective_agent_runtime_profile, "agent_profile_id", "")
-                or _agent_profile_id_for_runtime_spec(
-                    self.agent_runtime_registry,
-                    agent_runtime_spec_payload,
-                )
-                or "main_interactive_agent"
-            ),
+            agent_profile_id=effective_agent_profile_id,
             runtime_lane=str(agent_runtime_spec_payload.get("runtime_lane") or "full_interactive"),
             task_agent_binding_ref=str(task_execution_assembly_payload.get("task_agent_binding_ref") or ""),
             adoption_mode=adoption_mode,
@@ -1308,6 +1347,8 @@ class TaskRunLoop:
                 "runtime_channel": "single_agent_runtime",
                 "search_policy": list(search_policy) if search_policy is not None else None,
                 "allowed_search_sources": sorted(allowed_search_sources),
+                "agent_assembly_contract": _assembly_contract_diagnostics(assembly_contract),
+                "execution_permit": _execution_permit_diagnostics(execution_permit),
                 **_stage_execution_request_diagnostics(dict(task_selection or {})),
             },
         )
@@ -1393,6 +1434,8 @@ class TaskRunLoop:
                 "task_graph_runtime_spec": runtime_spec_payload,
                 "task_body_orchestration": task_body_orchestration_payload,
                 "agent_runtime_spec": agent_runtime_spec_payload,
+                "agent_assembly_contract": assembly_contract,
+                "execution_permit": execution_permit,
                 "task_run_ledger": runtime_task_ledger.to_dict() if runtime_task_ledger is not None else {},
                 "sandbox_policy": sandbox_policy,
                 "source": source,
@@ -1417,6 +1460,9 @@ class TaskRunLoop:
                 ),
                 "task_body_orchestration_ref": str(task_body_orchestration_payload.get("orchestration_id") or ""),
                 "agent_runtime_spec_ref": str(agent_runtime_spec_payload.get("runtime_spec_id") or ""),
+                "agent_assembly_contract_ref": str(assembly_contract.get("assembly_id") or ""),
+                "work_order_ref": str(assembly_contract.get("work_order_id") or ""),
+                "execution_permit_ref": str(execution_permit.get("permit_id") or ""),
                 "bundle_spec_ref": str(bundle_spec_payload.get("bundle_id") or ""),
                 "task_run_ledger_ref": runtime_task_ledger.ledger_id if runtime_task_ledger is not None else "",
             },
@@ -1459,6 +1505,8 @@ class TaskRunLoop:
                 continuation_payload = LangGraphCoordinationRuntimeResult(
                     state=dict(initial_coordination_state or {}),
                     stage_execution_request=initial_request,
+                    node_work_order=dict(dict(initial_coordination_state or {}).get("node_work_order") or {}),
+                    agent_assembly_contract=dict(dict(initial_coordination_state or {}).get("agent_assembly_contract") or {}),
                 ).continuation_payload(
                     session_id=session_id,
                     current_turn_context=dict(task_operation.get("current_turn_context") or {}),
@@ -1650,11 +1698,14 @@ class TaskRunLoop:
             safety_envelope=task_safety_envelope,
             sandbox_policy=sandbox_policy,
         )
-        runtime_tool_instances = self._tool_instances_for_resource_policy(
-            tool_instances,
-            resource_policy,
+        runtime_tool_instances = tool_instances_for_policy_and_permit(
+            tool_instances=tool_instances,
+            resource_policy=resource_policy,
+            definitions_by_name=self.tool_authorization_index.definitions_by_name,
+            normalize_operation_id=self.operation_gate.registry.normalize_id,
             allowed_search_sources=allowed_search_sources,
             sandbox_policy=sandbox_policy,
+            execution_permit=execution_permit,
         )
         runtime_capability_state = build_runtime_capability_state(
             task_operation,
@@ -2021,7 +2072,7 @@ class TaskRunLoop:
             selected_recipe_payload=selected_recipe_payload,
             retrieval_results=retrieval_results,
         ):
-            final_content = _select_final_answer_from_context(final_main_context)
+            final_content = select_final_answer_from_context(final_main_context)
             if not final_content:
                 final_content = str(
                     final_main_context.get("resolved_answer")
@@ -2029,7 +2080,7 @@ class TaskRunLoop:
                     or ""
                 )
             if not final_content and final_task_summary_refs:
-                final_content = _select_final_answer_from_task_summary_refs(final_task_summary_refs)
+                final_content = select_final_answer_from_task_summary_refs(final_task_summary_refs)
             if final_content:
                 final_answer_metadata = {
                     "answer_channel": "answer_candidate",
@@ -2046,9 +2097,7 @@ class TaskRunLoop:
         current_bundle_items = _bundle_items_from_runtime_contract(
             task_spec_payload=task_spec_payload,
         )
-        pending_tool_calls: list[dict[str, Any]] = []
-        assistant_tool_call_content = ""
-        assistant_tool_call_kwargs: dict[str, Any] = {}
+        tool_call_accumulator = ModelToolCallAccumulator()
         tool_messages: list[ToolMessage] = []
         tool_observation_count = 0
         executed_bundle_ordinals: list[int] = []
@@ -2126,13 +2175,7 @@ class TaskRunLoop:
                 model_spec=resolved_model_spec,
             ):
                 if event.get("type") == "tool_call_requested":
-                    tool_call = dict(event.get("tool_call") or {})
-                    if tool_call:
-                        pending_tool_calls.append(tool_call)
-                    assistant_tool_call_content = str(event.get("assistant_content") or assistant_tool_call_content)
-                    event_kwargs = dict(event.get("assistant_additional_kwargs") or {})
-                    if event_kwargs:
-                        assistant_tool_call_kwargs.update(event_kwargs)
+                    tool_call_accumulator.ingest_event(event)
                 runtime_events = await self._events_from_executor_event(
                     state.task_run_id,
                     user_message=user_message,
@@ -2225,36 +2268,21 @@ class TaskRunLoop:
                         if observation.get("observation_type") == "tool_result":
                             tool_observation_count += 1
                             observation_payload = dict(observation.get("payload") or {})
-                            observation_aggregator.add_tool_observation(
-                                observation_payload,
+                            aggregation, matched_ordinal = record_tool_observation_projection(
+                                observation_aggregator=observation_aggregator,
+                                observation_payload=observation_payload,
                                 observation_ref=observation_ref,
-                            )
-                            matched_ordinal = _match_bundle_ordinal_for_tool_observation(
-                                bundle_items=current_bundle_items,
-                                tool_name=str(observation_payload.get("tool_name") or ""),
-                                tool_args=dict(observation_payload.get("tool_args") or {}),
-                                executed_ordinals=executed_bundle_ordinals,
+                                current_bundle_items=current_bundle_items,
+                                executed_bundle_ordinals=executed_bundle_ordinals,
                             )
                             if matched_ordinal > 0 and matched_ordinal not in executed_bundle_ordinals:
                                 executed_bundle_ordinals.append(matched_ordinal)
-                            projected_main_context, projected_task_summary_refs = _project_file_work_context_from_tool_observation(
-                                observation_payload
-                            )
-                            if projected_main_context or projected_task_summary_refs:
-                                projection = projection_from_file_work(
-                                    projected_main_context,
-                                    projected_task_summary_refs,
-                                    bundle_items=current_bundle_items,
-                                )
-                                aggregation = observation_aggregator.add_projection(
-                                    projection,
-                                    tool_name=str(observation_payload.get("tool_name") or ""),
-                                )
+                            if aggregation.projection.main_context or aggregation.projection.task_summary_refs:
                                 (
                                     final_main_context,
                                     final_task_summary_refs,
                                     final_bundle_summary_refs,
-                                ) = self._apply_observation_aggregation(aggregation)
+                                ) = apply_observation_aggregation(aggregation)
                             repeated_tool_halt = repeated_tool_halt or tool_repetition_guard.record(
                                 str(observation_payload.get("tool_name") or ""),
                                 dict(observation_payload.get("tool_args") or {}),
@@ -2267,7 +2295,7 @@ class TaskRunLoop:
                             )
                             builtin_tool_lane_answer_metadata = None
                             if _recipe_allows_tool_observation_finalization(selected_recipe_payload):
-                                builtin_tool_lane_answer_metadata = _builtin_tool_lane_answer_from_observation(
+                                builtin_tool_lane_answer_metadata = builtin_tool_lane_answer_from_observation(
                                     user_message=user_message,
                                     observation_payload=observation_payload,
                                 )
@@ -2281,7 +2309,7 @@ class TaskRunLoop:
                                     "answer_finalization_policy": builtin_tool_lane_answer_metadata["answer_finalization_policy"],
                                     "answer_fallback_reason": builtin_tool_lane_answer_metadata["answer_fallback_reason"],
                                 }
-                                builtin_tool_lane_finalized = len(pending_tool_calls) <= 1 and not current_bundle_items
+                                builtin_tool_lane_finalized = len(tool_call_accumulator.pending_tool_calls) <= 1 and not current_bundle_items
                             operation_id = resolve_tool_operation_id(
                                 str(observation_payload.get("tool_name") or ""),
                                 definitions_by_name=self.tool_authorization_index.definitions_by_name,
@@ -2406,22 +2434,22 @@ class TaskRunLoop:
             model_call_count = max(0, int(outcome.model_call_count or 0))
         followup_messages: list[Any] = []
         retrieval_followup_force_synthesis = False
-        if len(pending_tool_calls) > 1 and terminal_reason == "completed":
+        if len(tool_call_accumulator.pending_tool_calls) > 1 and terminal_reason == "completed":
             builtin_tool_lane_finalized = False
             final_content = ""
             final_answer_metadata = {}
             preserve_final_answer_metadata = False
-        if pending_tool_calls and tool_messages and terminal_reason == "completed" and not builtin_tool_lane_finalized:
+        if tool_call_accumulator.pending_tool_calls and tool_messages and terminal_reason == "completed" and not builtin_tool_lane_finalized:
             followup_messages = [
                 *list(context_snapshot.model_messages),
                 AIMessage(
-                    content=assistant_tool_call_content,
-                    tool_calls=tool_calls_for_langchain_messages(pending_tool_calls),
-                    additional_kwargs=assistant_tool_call_kwargs,
+                    content=tool_call_accumulator.assistant_content,
+                    tool_calls=tool_calls_for_langchain_messages(tool_call_accumulator.pending_tool_calls),
+                    additional_kwargs=tool_call_accumulator.assistant_additional_kwargs,
                 ),
                 *tool_messages,
             ]
-            readiness_message = _build_answer_readiness_judge_message(
+            readiness_message = build_answer_readiness_judge_message(
                 user_message=user_message,
                 aggregation=observation_aggregator.snapshot(),
                 current_bundle_items=current_bundle_items,
@@ -2473,7 +2501,7 @@ class TaskRunLoop:
             if not followup_control.allowed:
                 terminal_reason = followup_control.reason
                 if not final_content:
-                    synthesized = _forced_tool_synthesis_from_available_evidence(
+                    synthesized = forced_tool_synthesis_from_available_evidence(
                         user_message=user_message,
                         aggregation=observation_aggregator.snapshot(),
                         final_task_summary_refs=final_task_summary_refs,
@@ -2481,15 +2509,15 @@ class TaskRunLoop:
                     )
                     if synthesized:
                         final_content = synthesized
-                        final_answer_metadata = _forced_synthesis_answer_metadata(
+                        final_answer_metadata = forced_synthesis_answer_metadata(
                             source="runtime_loop.budget_exhausted_force_synthesis"
                         )
                     else:
-                        final_content = _build_runtime_budget_exhausted_message(
+                        final_content = build_runtime_budget_exhausted_message(
                             followup_control.message,
                             tool_observation_count=tool_observation_count,
                         )
-                        final_answer_metadata = _runtime_budget_exhausted_answer_metadata()
+                        final_answer_metadata = runtime_budget_exhausted_answer_metadata()
                 break
             followup_event = self.event_log.append(
                 state.task_run_id,
@@ -2508,9 +2536,7 @@ class TaskRunLoop:
                 transition="continue_after_tool_result",
                 result_refs=result_refs,
             )
-            next_pending_tool_calls: list[dict[str, Any]] = []
-            next_assistant_tool_call_content = ""
-            next_assistant_tool_call_kwargs: dict[str, Any] = {}
+            next_tool_call_accumulator = ModelToolCallAccumulator()
             next_tool_messages: list[ToolMessage] = []
             async for event in model_response_executor.stream(
                 user_message=user_message,
@@ -2521,15 +2547,7 @@ class TaskRunLoop:
                 model_spec=resolved_model_spec,
             ):
                 if event.get("type") == "tool_call_requested":
-                    tool_call = dict(event.get("tool_call") or {})
-                    if tool_call:
-                        next_pending_tool_calls.append(tool_call)
-                    next_assistant_tool_call_content = str(
-                        event.get("assistant_content") or next_assistant_tool_call_content
-                    )
-                    event_kwargs = dict(event.get("assistant_additional_kwargs") or {})
-                    if event_kwargs:
-                        next_assistant_tool_call_kwargs.update(event_kwargs)
+                    next_tool_call_accumulator.ingest_event(event)
                 runtime_events = await self._events_from_executor_event(
                     state.task_run_id,
                     user_message=user_message,
@@ -2551,36 +2569,20 @@ class TaskRunLoop:
                         if observation.get("observation_type") == "tool_result":
                             tool_observation_count += 1
                             observation_payload = dict(observation.get("payload") or {})
-                            observation_aggregator.add_tool_observation(
-                                observation_payload,
+                            aggregation, matched_ordinal = record_tool_observation_projection(
+                                observation_aggregator=observation_aggregator,
+                                observation_payload=observation_payload,
                                 observation_ref=observation_ref,
-                            )
-                            matched_ordinal = _match_bundle_ordinal_for_tool_observation(
-                                bundle_items=current_bundle_items,
-                                tool_name=str(observation_payload.get("tool_name") or ""),
-                                tool_args=dict(observation_payload.get("tool_args") or {}),
-                                executed_ordinals=executed_bundle_ordinals,
+                                current_bundle_items=current_bundle_items,
+                                executed_bundle_ordinals=executed_bundle_ordinals,
                             )
                             if matched_ordinal > 0 and matched_ordinal not in executed_bundle_ordinals:
                                 executed_bundle_ordinals.append(matched_ordinal)
-                            projected_main_context, projected_task_summary_refs = _project_file_work_context_from_tool_observation(
-                                observation_payload
-                            )
-                            if projected_main_context or projected_task_summary_refs:
-                                projection = projection_from_file_work(
-                                    projected_main_context,
-                                    projected_task_summary_refs,
-                                    bundle_items=current_bundle_items,
-                                )
-                                aggregation = observation_aggregator.add_projection(
-                                    projection,
-                                    tool_name=str(observation_payload.get("tool_name") or ""),
-                                )
                             (
                                 final_main_context,
                                 final_task_summary_refs,
                                 final_bundle_summary_refs,
-                            ) = self._apply_observation_aggregation(observation_aggregator.snapshot())
+                            ) = apply_observation_aggregation(observation_aggregator.snapshot())
                             repeated_tool_halt = repeated_tool_halt or tool_repetition_guard.record(
                                 str(observation_payload.get("tool_name") or ""),
                                 dict(observation_payload.get("tool_args") or {}),
@@ -2820,20 +2822,20 @@ class TaskRunLoop:
                 if event.get("type") != "done":
                     yield event
             if (
-                next_pending_tool_calls
+                next_tool_call_accumulator.pending_tool_calls
                 and next_tool_messages
                 and terminal_reason == "completed"
                 and tool_observation_count > 0
                 and _is_retrieval_task_mode(str(task_spec_payload.get("task_mode") or ""))
             ):
                 retrieval_followup_force_synthesis = True
-            if next_pending_tool_calls and next_tool_messages and terminal_reason == "completed":
-                if _should_force_answer_after_tool_results(
+            if next_tool_call_accumulator.pending_tool_calls and next_tool_messages and terminal_reason == "completed":
+                if should_force_answer_after_tool_results(
                     aggregation=observation_aggregator.snapshot(),
                     final_task_summary_refs=final_task_summary_refs,
                     final_main_context=final_main_context,
                 ):
-                    synthesized = _forced_tool_synthesis_from_available_evidence(
+                    synthesized = forced_tool_synthesis_from_available_evidence(
                         user_message=user_message,
                         aggregation=observation_aggregator.snapshot(),
                         final_task_summary_refs=final_task_summary_refs,
@@ -2841,11 +2843,11 @@ class TaskRunLoop:
                     )
                     if synthesized:
                         final_content = synthesized
-                        final_answer_metadata = _forced_synthesis_answer_metadata(source="runtime_loop.post_tool_judgement_force_synthesis")
+                        final_answer_metadata = forced_synthesis_answer_metadata(source="runtime_loop.post_tool_judgement_force_synthesis")
                         followup_messages = []
                         break
                 if retrieval_followup_force_synthesis:
-                    synthesized = _forced_tool_synthesis_from_available_evidence(
+                    synthesized = forced_tool_synthesis_from_available_evidence(
                         user_message=user_message,
                         aggregation=observation_aggregator.snapshot(),
                         final_task_summary_refs=final_task_summary_refs,
@@ -2853,14 +2855,14 @@ class TaskRunLoop:
                     )
                     if synthesized:
                         final_content = synthesized
-                        final_answer_metadata = _forced_synthesis_answer_metadata(source="runtime_loop.retrieval_followup_force_synthesis")
+                        final_answer_metadata = forced_synthesis_answer_metadata(source="runtime_loop.retrieval_followup_force_synthesis")
                         followup_messages = []
                         break
                 if repeated_tool_halt and final_content:
                     followup_messages = []
                     break
                 if repeated_tool_halt:
-                    synthesized = _forced_tool_synthesis_from_available_evidence(
+                    synthesized = forced_tool_synthesis_from_available_evidence(
                         user_message=user_message,
                         aggregation=observation_aggregator.snapshot(),
                         final_task_summary_refs=final_task_summary_refs,
@@ -2868,25 +2870,25 @@ class TaskRunLoop:
                     )
                     if synthesized:
                         final_content = synthesized
-                        final_answer_metadata = _forced_synthesis_answer_metadata(source="runtime_loop.repeated_tool_halt")
+                        final_answer_metadata = forced_synthesis_answer_metadata(source="runtime_loop.repeated_tool_halt")
                         followup_messages = []
                         break
-                    final_content = _build_repeated_tool_halt_message(
+                    final_content = build_repeated_tool_halt_message(
                         tool_observation_count=tool_observation_count,
                     )
-                    final_answer_metadata = _repeated_tool_halt_answer_metadata()
+                    final_answer_metadata = repeated_tool_halt_answer_metadata()
                     followup_messages = []
                     break
                 followup_messages = [
                     *followup_messages,
                     AIMessage(
-                        content=next_assistant_tool_call_content,
-                        tool_calls=tool_calls_for_langchain_messages(next_pending_tool_calls),
-                        additional_kwargs=next_assistant_tool_call_kwargs,
+                        content=next_tool_call_accumulator.assistant_content,
+                        tool_calls=tool_calls_for_langchain_messages(next_tool_call_accumulator.pending_tool_calls),
+                        additional_kwargs=next_tool_call_accumulator.assistant_additional_kwargs,
                     ),
                     *next_tool_messages,
                 ]
-                readiness_message = _build_answer_readiness_judge_message(
+                readiness_message = build_answer_readiness_judge_message(
                     user_message=user_message,
                     aggregation=observation_aggregator.snapshot(),
                     current_bundle_items=current_bundle_items,
@@ -2945,9 +2947,7 @@ class TaskRunLoop:
                     refs={"task_contract_ref": task_contract_ref},
                 )
                 yield {"type": "runtime_loop_event", "event": repair_event.to_dict()}
-                repair_pending_tool_calls: list[dict[str, Any]] = []
-                repair_assistant_tool_call_content = ""
-                repair_assistant_tool_call_kwargs: dict[str, Any] = {}
+                repair_tool_call_accumulator = ModelToolCallAccumulator()
                 async for event in model_response_executor.stream(
                     user_message=user_message,
                     model_messages=repair_messages,
@@ -2957,15 +2957,7 @@ class TaskRunLoop:
                     model_spec=resolved_model_spec,
                 ):
                     if event.get("type") == "tool_call_requested":
-                        tool_call = dict(event.get("tool_call") or {})
-                        if tool_call:
-                            repair_pending_tool_calls.append(tool_call)
-                        repair_assistant_tool_call_content = str(
-                            event.get("assistant_content") or repair_assistant_tool_call_content
-                        )
-                        event_kwargs = dict(event.get("assistant_additional_kwargs") or {})
-                        if event_kwargs:
-                            repair_assistant_tool_call_kwargs.update(event_kwargs)
+                        repair_tool_call_accumulator.ingest_event(event)
                     runtime_events = await self._events_from_executor_event(
                         state.task_run_id,
                         user_message=user_message,
@@ -3083,7 +3075,7 @@ class TaskRunLoop:
                             }
                             return
                         yield {"type": "runtime_loop_event", "event": runtime_event.to_dict()}
-                    if event.get("type") == "done" and not repair_pending_tool_calls:
+                    if event.get("type") == "done" and not repair_tool_call_accumulator.pending_tool_calls:
                         final_content = str(event.get("content") or final_content)
                         final_answer_metadata = {
                             "answer_channel": str(event.get("answer_channel") or final_answer_metadata.get("answer_channel") or ""),
@@ -3111,9 +3103,9 @@ class TaskRunLoop:
                     payload={
                         "attempt": repair_attempt,
                         "validation": artifact_validation,
-                        "tool_call_count": len(repair_pending_tool_calls),
-                        "assistant_content_chars": len(repair_assistant_tool_call_content),
-                        "assistant_additional_kwargs": repair_assistant_tool_call_kwargs,
+                        "tool_call_count": len(repair_tool_call_accumulator.pending_tool_calls),
+                        "assistant_content_chars": len(repair_tool_call_accumulator.assistant_content),
+                        "assistant_additional_kwargs": repair_tool_call_accumulator.assistant_additional_kwargs,
                     },
                     refs={"task_contract_ref": task_contract_ref},
                 )
@@ -3125,14 +3117,14 @@ class TaskRunLoop:
             and _requires_write_file_artifact(selected_recipe_payload)
         ):
             terminal_reason = "completed"
-            final_content = _build_artifact_success_fallback_answer(
+            final_content = build_artifact_success_fallback_answer(
                 selected_recipe_payload=selected_recipe_payload,
                 artifact_validation=artifact_validation,
                 final_task_summary_refs=final_task_summary_refs,
                 final_main_context=final_main_context,
             )
             final_answer_metadata = {
-                **_artifact_success_fallback_answer_metadata(),
+                **artifact_success_fallback_answer_metadata(),
             }
             recovery_event = self.event_log.append(
                 state.task_run_id,
@@ -3190,7 +3182,7 @@ class TaskRunLoop:
                     final_main_context,
                     final_task_summary_refs,
                     final_bundle_summary_refs,
-                ) = self._apply_observation_aggregation(aggregation)
+                ) = apply_observation_aggregation(aggregation)
         context_answer_source = str(final_main_context.get("answer_source") or "").strip()
         if context_answer_source and str(final_answer_metadata.get("answer_source") or "").strip() in {
             "",
@@ -4246,9 +4238,23 @@ class TaskRunLoop:
         next_task_ref = str(continuation_payload.get("next_task_ref") or "").strip()
         next_message = str(continuation_payload.get("message") or "").strip()
         next_turn_context = dict(continuation_payload.get("current_turn_context") or {})
+        assembly_contract = _assembly_contract_from_continuation_payload(
+            continuation_payload,
+            base_dir=self.backend_dir,
+        )
+        if assembly_contract:
+            next_turn_context["agent_assembly_contract"] = assembly_contract
         if not next_task_ref or not next_message:
             return
-        stage_agent_id = str(next_turn_context.get("agent_id") or "").strip()
+        stage_agent_id = str(assembly_contract.get("agent_id") or next_turn_context.get("agent_id") or "").strip()
+        stage_agent_profile_id = str(assembly_contract.get("agent_profile_id") or next_turn_context.get("agent_profile_id") or "").strip()
+        stage_runtime_lane = str(assembly_contract.get("runtime_lane") or next_turn_context.get("runtime_lane") or "").strip()
+        if stage_agent_id:
+            next_turn_context["agent_id"] = stage_agent_id
+        if stage_agent_profile_id:
+            next_turn_context["agent_profile_id"] = stage_agent_profile_id
+        if stage_runtime_lane:
+            next_turn_context["runtime_lane"] = stage_runtime_lane
         stage_agent_runtime_profile = None
         if stage_agent_id:
             stage_agent_runtime_profile = self.agent_runtime_registry.get_profile(stage_agent_id)
@@ -4275,8 +4281,10 @@ class TaskRunLoop:
                     "selected_task_id",
                     "task_id",
                     "agent_id",
+                    "agent_profile_id",
                     "projection_id",
                     "selected_projection_id",
+                    "runtime_lane",
                     "runtime_limits",
                     "agent_group_id",
                     "artifact_root",
@@ -4284,11 +4292,25 @@ class TaskRunLoop:
                     "explicit_inputs",
                     "a2a_payload",
                     "stage_execution_request",
+                    "node_work_order",
+                    "agent_assembly_contract",
                     "coordination_run_id",
                     "continuation_stage_id",
                 }
             },
         }
+        if assembly_contract:
+            task_selection.update(
+                {
+                    "agent_assembly_contract": assembly_contract,
+                    "agent_id": stage_agent_id,
+                    "agent_profile_id": stage_agent_profile_id,
+                    "runtime_lane": stage_runtime_lane,
+                    "work_order_id": str(assembly_contract.get("work_order_id") or ""),
+                    "assembly_id": str(assembly_contract.get("assembly_id") or ""),
+                    "executor_type": str(assembly_contract.get("executor_type") or ""),
+                }
+            )
         async for event in self.run_single_agent_stream(
             session_id=session_id,
             task_id=next_task_id,
@@ -4298,6 +4320,7 @@ class TaskRunLoop:
             agent_runtime_chain=_ContinuationAgentRuntimeChain(
                 base=_ContinuationAgentRuntimeChain.unwrap(agent_runtime_chain),
                 forced_turn_context=next_turn_context,
+                assembly_contract=assembly_contract,
             ),
             model_response_executor=model_response_executor,
             runtime_context_manager=runtime_context_manager,
@@ -4504,9 +4527,9 @@ class TaskRunLoop:
             }
         operation_id = self.operation_gate.registry.normalize_id(str(approval_state.get("operation_id") or ""))
         descriptor = self.operation_gate.registry.get_operation(operation_id)
-        action_request = _action_request_from_approval_state(task_run_id, approval_state)
-        directive = _runtime_directive_from_approval_state(approval_state)
-        resource_policy = _resource_policy_from_approval_state(approval_state)
+        action_request = action_request_from_approval_state(task_run_id, approval_state)
+        directive = runtime_directive_from_approval_state(approval_state)
+        resource_policy = resource_policy_from_approval_state(approval_state)
         gate_result = self.operation_gate.check(
             operation_id,
             resource_policy=resource_policy,
@@ -4548,7 +4571,7 @@ class TaskRunLoop:
                 "events": [gate_event.to_dict()],
                 "result_refs": [],
             }
-        execution_record, execution_events, execution_decision = self._prepare_tool_execution(
+        execution_record, execution_events, execution_decision = prepare_tool_execution(
             task_run_id=task_run_id,
             step_id=str(approval_state.get("step_ref") or ""),
             action_request=action_request,
@@ -4556,6 +4579,8 @@ class TaskRunLoop:
             operation_id=operation_id,
             descriptor=descriptor,
             tool_name=str(approval_state.get("tool_name") or ""),
+            execution_store=self.execution_store,
+            record_execution_event=self._record_execution_event,
         )
         events = [gate_event, *execution_events]
         if execution_decision != "dispatch":
@@ -4774,148 +4799,6 @@ class TaskRunLoop:
                 **dict(refs or {}),
             },
         )
-
-    def _prepare_tool_execution(
-        self,
-        *,
-        task_run_id: str,
-        step_id: str,
-        action_request: Any,
-        directive_ref: str,
-        operation_id: str,
-        descriptor: Any,
-        tool_name: str,
-    ) -> tuple[OperationExecutionRecord, list[Any], str]:
-        request_fingerprint = build_request_fingerprint(
-            step_id=step_id,
-            operation_id=operation_id,
-            payload=dict(action_request.payload or {}),
-        )
-        idempotency_token = build_idempotency_token(
-            task_run_id=task_run_id,
-            step_id=step_id,
-            operation_id=operation_id,
-            request_fingerprint=request_fingerprint,
-        )
-        replay_policy = derive_replay_policy(descriptor)
-        existing = self.execution_store.find_by_fingerprint(
-            task_run_id=task_run_id,
-            step_id=step_id,
-            operation_id=operation_id,
-            request_fingerprint=request_fingerprint,
-        )
-        record = self.execution_store.create_record(
-            task_run_id=task_run_id,
-            step_id=step_id,
-            action_request=action_request,
-            directive_ref=directive_ref,
-            operation_id=operation_id,
-            executor_type="tool",
-            replay_policy=replay_policy,
-            request_fingerprint=request_fingerprint,
-            idempotency_token=idempotency_token,
-            diagnostics={"tool_name": tool_name},
-        )
-        events = [
-            self._record_execution_event(
-                task_run_id,
-                event_type="execution_record_created",
-                record=record,
-                reason="tool_call_requested",
-            )
-        ]
-        if existing is None or existing.execution_id == record.execution_id:
-            return record, events, "dispatch"
-        if replay_policy == "reuse_completed_result" and existing.status in {"completed", "reused_completed_result"}:
-            record = self.execution_store.mark_reused(
-                record,
-                result_ref=existing.result_ref,
-                result_payload=dict(existing.result_payload or {}),
-                diagnostics={"source_execution_id": existing.execution_id},
-            )
-            events.append(
-                self._record_execution_event(
-                    task_run_id,
-                    event_type="recovery_replay_decided",
-                    record=record,
-                    reason="reuse_completed_result",
-                    diagnostics={"source_execution_id": existing.execution_id},
-                )
-            )
-            events.append(
-                self._record_execution_event(
-                    task_run_id,
-                    event_type="execution_result_reused",
-                    record=record,
-                    reason="reuse_completed_result",
-                    diagnostics={"source_execution_id": existing.execution_id},
-                )
-            )
-            return record, events, "reuse_completed_result"
-        if replay_policy in {"deny_auto_replay", "manual_recovery_required"} and existing.status in {
-            "completed",
-            "dispatched",
-            "reused_completed_result",
-        }:
-            record = self.execution_store.mark_replay_suppressed(
-                record,
-                error="replay_denied",
-                diagnostics={"source_execution_id": existing.execution_id},
-            )
-            events.append(
-                self._record_execution_event(
-                    task_run_id,
-                    event_type="recovery_replay_decided",
-                    record=record,
-                    reason="deny_auto_replay",
-                    diagnostics={"source_execution_id": existing.execution_id},
-                )
-            )
-            events.append(
-                self._record_execution_event(
-                    task_run_id,
-                    event_type="replay_guard_triggered",
-                    record=record,
-                    reason="deny_auto_replay",
-                    diagnostics={"source_execution_id": existing.execution_id},
-                )
-            )
-            return record, events, "deny_auto_replay"
-        return record, events, "dispatch"
-
-    def _tool_instances_for_resource_policy(
-        self,
-        tool_instances: list[Any] | None,
-        resource_policy: Any,
-        *,
-        allowed_search_sources: set[str] | None = None,
-        sandbox_policy: dict[str, Any] | None = None,
-    ) -> list[Any]:
-        from capability_system.tool_authorization import build_authorized_tool_set
-
-        allowed_sources = allowed_search_sources if allowed_search_sources is not None else normalize_search_policy(None)
-        allowed_operations = {
-            self.operation_gate.registry.normalize_id(operation_id)
-            for operation_id in [
-                *tuple(getattr(resource_policy, "allowed_operations", ()) or ()),
-                *tuple(getattr(resource_policy, "requires_approval_operations", ()) or ()),
-            ]
-        }
-        authorized = build_authorized_tool_set(
-            tool_instances=tool_instances,
-            definitions_by_name=self.tool_authorization_index.definitions_by_name,
-            allowed_operations=allowed_operations,
-            runtime_lane="main_runtime",
-            include_hidden=bool(dict(sandbox_policy or {}).get("enabled") is True),
-        )
-        filtered: list[Any] = []
-        for tool in list(authorized.instances):
-            tool_name = str(getattr(tool, "name", "") or "").strip()
-            definition = self.tool_authorization_index.definitions_by_name.get(tool_name)
-            if definition is not None and not tool_allowed_by_search_policy(definition, allowed_sources):
-                continue
-            filtered.append(tool)
-        return filtered
 
     def _should_run_recipe_mcp_phase(
         self,
@@ -5270,7 +5153,7 @@ class TaskRunLoop:
         agent_communication_protocol = dict(task_spec_inputs.get("agent_communication_protocol") or {})
         if agent_communication_protocol:
             input_payload.setdefault("agent_communication_protocol", agent_communication_protocol)
-        input_payload = _merge_task_spec_binding_into_delegation_payload(
+        input_payload = merge_task_spec_binding_into_delegation_payload(
             input_payload,
             task_spec_payload=task_spec_payload,
             current_turn_context=dict(dict(task_operation or {}).get("current_turn_context") or {}),
@@ -5285,7 +5168,7 @@ class TaskRunLoop:
             "allowed_search_sources": sorted(
                 allowed_search_sources if allowed_search_sources is not None else normalize_search_policy(None)
             ),
-            "goal_alignment": _classify_delegation_goal_alignment(
+            "goal_alignment": classify_delegation_goal_alignment(
                 user_message=user_message,
                 instruction=instruction,
                 input_payload=input_payload,
@@ -5690,7 +5573,7 @@ class TaskRunLoop:
                         )
                     )
                     return events
-                execution_record, execution_events, execution_decision = self._prepare_tool_execution(
+                execution_record, execution_events, execution_decision = prepare_tool_execution(
                     task_run_id=task_run_id,
                     step_id=step_id,
                     action_request=action_request,
@@ -5698,6 +5581,8 @@ class TaskRunLoop:
                     operation_id=operation_id,
                     descriptor=descriptor,
                     tool_name=tool_name,
+                    execution_store=self.execution_store,
+                    record_execution_event=self._record_execution_event,
                 )
                 events.extend(execution_events)
                 if execution_decision == "reuse_completed_result":
@@ -6325,167 +6210,6 @@ def _dedupe_refs(values: list[str]) -> list[str]:
     return refs
 
 
-def _build_answer_readiness_judge_message(
-    *,
-    user_message: str,
-    aggregation: ObservationAggregation,
-    current_bundle_items: list[dict[str, Any]],
-    remaining_model_calls: int,
-) -> str:
-    evidence_items = list(aggregation.evidence_items or [])
-    if not evidence_items:
-        return ""
-    lines = [
-        "你已经收到工具返回的证据。现在先判断证据是否足够回答用户，而不是默认继续调用工具。",
-        "",
-        "你的任务：",
-        "1. 如果证据已经足够覆盖用户当前问题，请直接收口回答。",
-        "2. 如果证据只缺少少量关键信息，才继续调用工具；继续前必须明确缺口是什么。",
-        "3. 如果用户问题本身不清楚，请向用户说明缺少的限定条件。",
-        "4. 不要为了确认已经足够的信息而重复查询同类工具。",
-        "",
-        f"用户当前问题：{str(user_message or '').strip()}",
-        f"剩余模型调用预算：{max(int(remaining_model_calls or 0), 0)}",
-    ]
-    if current_bundle_items:
-        lines.append("")
-        lines.append("当前是复合任务；只有未完成的子项才需要继续补证。")
-    lines.append("")
-    lines.append("已有证据：")
-    for index, item in enumerate(evidence_items[-6:], start=1):
-        tool_name = str(item.get("tool_name") or "tool").strip()
-        result_preview = str(item.get("result_preview") or "").strip()
-        result_chars = int(item.get("result_chars") or len(result_preview))
-        truncated = "，已截断" if item.get("truncated") else ""
-        args = dict(item.get("tool_args") or {})
-        request_text = str(args.get("query") or args.get("path") or "").strip()
-        request_part = f"；请求：{request_text}" if request_text else ""
-        lines.append(f"{index}. 工具：{tool_name}{request_part}；结果长度：{result_chars}{truncated}")
-        if result_preview:
-            lines.append(f"   证据摘要：{result_preview}")
-    lines.extend(
-        [
-            "",
-            "请基于上述证据决定下一步。",
-            "如果可以回答，请直接给用户可读结论，不要输出 JSON，不要解释内部判断过程。",
-            "如果仍要调用工具，请只调用能补齐明确缺口的工具。",
-        ]
-    )
-    return "\n".join(lines).strip()
-
-
-def _runtime_budget_exhausted_answer_metadata() -> dict[str, str]:
-    return {
-        "answer_channel": "answer_candidate",
-        "answer_source": "runtime_loop_control",
-        "answer_canonical_state": "progress_only",
-        "answer_persist_policy": "persist_debug_only",
-        "answer_finalization_policy": "none",
-        "answer_fallback_reason": "runtime_budget_exhausted",
-    }
-
-
-def _repeated_tool_halt_answer_metadata() -> dict[str, str]:
-    return {
-        "answer_channel": "answer_candidate",
-        "answer_source": "runtime_loop_control",
-        "answer_canonical_state": "progress_only",
-        "answer_persist_policy": "persist_debug_only",
-        "answer_finalization_policy": "none",
-        "answer_fallback_reason": "repeated_tool_halt",
-    }
-
-
-def _forced_synthesis_answer_metadata(*, source: str = "runtime_loop_synthesis") -> dict[str, str]:
-    return {
-        "answer_channel": "tool_visible_summary",
-        "answer_source": source,
-        "answer_canonical_state": "stable_answer",
-        "answer_persist_policy": "persist_canonical",
-        "answer_finalization_policy": "none",
-        "answer_fallback_reason": "",
-    }
-
-
-def _artifact_success_fallback_answer_metadata(*, source: str = "runtime_loop.artifact_success_fallback") -> dict[str, str]:
-    return {
-        "answer_channel": "tool_visible_summary",
-        "answer_source": source,
-        "answer_canonical_state": "stable_answer",
-        "answer_persist_policy": "persist_canonical",
-        "answer_finalization_policy": "none",
-        "answer_fallback_reason": "artifact_success_fallback",
-    }
-
-
-def _build_runtime_budget_exhausted_message(message: str = "", *, tool_observation_count: int = 0) -> str:
-    reason = str(message or "").strip()
-    if "max_runtime_seconds" in reason:
-        reason_text = "本轮运行时间达到上限"
-    elif "max_model_calls" in reason:
-        reason_text = "本轮模型续写次数达到上限"
-    elif "max_events" in reason:
-        reason_text = "本轮链路事件数量达到上限"
-    else:
-        reason_text = "本轮运行预算达到上限"
-    evidence_text = (
-        f"已经收到 {tool_observation_count} 条工具结果"
-        if tool_observation_count > 0
-        else "还没有收到可用于总结的工具结果"
-    )
-    return (
-        f"{reason_text}，所以先停止继续调用工具。{evidence_text}，但模型还没有把这些结果收口成最终回答。"
-        "请直接继续问“基于已读取内容总结”，我会从现有上下文继续收口。"
-    )
-
-
-def _build_repeated_tool_halt_message(*, tool_observation_count: int = 0) -> str:
-    evidence_text = (
-        f"已经连续收到了 {tool_observation_count} 条相似工具结果"
-        if tool_observation_count > 0
-        else "已经连续触发了相似工具调用"
-    )
-    return (
-        f"{evidence_text}，继续重复读取不会带来新的信息，所以我先停止本轮重复工具调用。"
-        "你可以直接继续基于当前已绑定对象提问，我会从现有上下文继续收口。"
-    )
-
-
-def _build_artifact_success_fallback_answer(
-    *,
-    selected_recipe_payload: dict[str, Any],
-    artifact_validation: dict[str, Any],
-    final_task_summary_refs: list[dict[str, Any]],
-    final_main_context: dict[str, Any],
-) -> str:
-    artifact_items = [
-        str(dict(item).get("path") or "").strip()
-        for item in list(artifact_validation.get("artifacts") or [])
-        if str(dict(item).get("path") or "").strip()
-    ]
-    task_title = str(
-        selected_recipe_payload.get("title")
-        or selected_recipe_payload.get("task_mode")
-        or selected_recipe_payload.get("template_id")
-        or "任务"
-    ).strip()
-    summary = _forced_tool_synthesis_answer(
-        user_message="",
-        final_task_summary_refs=final_task_summary_refs,
-        final_main_context=final_main_context,
-    )
-    lines = [f"{task_title}已完成真实产物写入。"]
-    if artifact_items:
-        lines.append("产物文件：")
-        lines.extend(f"- {item}" for item in artifact_items[:6])
-    if summary:
-        lines.append(summary)
-    else:
-        lines.append("本轮所需 artifact 已通过 write_file 写入并通过存在性校验。")
-    lines.append("模型后续收口阶段中断，但正式产物已经落盘，可基于现有产物继续下一阶段。")
-    return "\n".join(lines)
-
-
 def _explicit_project_brief(explicit_inputs: dict[str, Any]) -> str:
     parts: list[str] = []
     title = str(explicit_inputs.get("project_title") or explicit_inputs.get("title") or "").strip()
@@ -6506,583 +6230,6 @@ def _explicit_project_brief(explicit_inputs: dict[str, Any]) -> str:
     return "\n".join(parts).strip()
 
 
-def _forced_tool_synthesis_from_available_evidence(
-    *,
-    user_message: str,
-    aggregation: ObservationAggregation,
-    final_task_summary_refs: list[dict[str, Any]],
-    final_main_context: dict[str, Any],
-) -> str:
-    synthesized = _forced_tool_synthesis_answer(
-        user_message=user_message,
-        final_task_summary_refs=final_task_summary_refs,
-        final_main_context=final_main_context,
-    )
-    if synthesized:
-        return synthesized
-    return _forced_tool_synthesis_from_observation_aggregation(
-        user_message=user_message,
-        aggregation=aggregation,
-    )
-
-
-def _forced_tool_synthesis_from_observation_aggregation(
-    *,
-    user_message: str,
-    aggregation: ObservationAggregation,
-) -> str:
-    boundary = AssistantOutputBoundary()
-    eligible = 0
-    for item in list(aggregation.evidence_items or [])[-8:]:
-        tool_name = str(item.get("tool_name") or "").strip()
-        preview = str(item.get("result_preview") or "").strip()
-        if not tool_name or not preview:
-            continue
-        if tool_name in {"search_text", "web_search", "fetch_url"} and len(preview) < 80:
-            continue
-        boundary.ingest_tool_result(tool_name, preview)
-        eligible += 1
-    if eligible <= 0:
-        return ""
-    boundary.finalize_segment()
-    response = boundary.build_response(
-        route="runtime_force_synthesis",
-        execution_posture="tool_synthesis",
-        user_message=user_message,
-        tool_name="aggregated_tool_results",
-        retrieval_results=None,
-    )
-    content = str(response.canonical_answer or "").strip()
-    if not content or response.fallback_reason:
-        return ""
-    if response.selected_channel not in {"tool_visible_summary", "answer_candidate"}:
-        return ""
-    if _looks_like_runtime_internal_answer(content):
-        return ""
-    return content
-
-
-def _should_force_answer_after_tool_results(
-    *,
-    aggregation: ObservationAggregation,
-    final_task_summary_refs: list[dict[str, Any]],
-    final_main_context: dict[str, Any],
-) -> bool:
-    tool_names = [str(item).strip() for item in list(aggregation.tool_names or []) if str(item).strip()]
-    if final_task_summary_refs:
-        return True
-    active_constraints = dict(final_main_context.get("active_constraints") or {})
-    if active_constraints.get("active_pdf") or active_constraints.get("active_dataset"):
-        return True
-    if "delegate_to_agent" in tool_names:
-        return True
-    return False
-
-
-def _forced_tool_synthesis_answer(
-    *,
-    user_message: str,
-    final_task_summary_refs: list[dict[str, Any]],
-    final_main_context: dict[str, Any],
-) -> str:
-    if not final_task_summary_refs:
-        return ""
-    active_constraints = dict(final_main_context.get("active_constraints") or {})
-    source = str(active_constraints.get("active_pdf") or active_constraints.get("active_dataset") or "").strip()
-    summaries: list[str] = []
-    for item in final_task_summary_refs[-3:]:
-        summary = _clean_text(item.get("answer") or item.get("summary"))
-        if not summary:
-            continue
-        summaries.append(summary)
-    if not summaries:
-        return ""
-    if len(summaries) == 1:
-        body = summaries[0]
-    else:
-        body = "\n".join(f"{index}. {summary}" for index, summary in enumerate(summaries, start=1))
-    prefix = "基于已读取结果"
-    if source:
-        prefix += f"（{source}）"
-    if user_message:
-        prefix += "，"
-    else:
-        prefix += "："
-    return f"{prefix}{body}"
-
-
-def _select_final_answer_from_task_summary_refs(final_task_summary_refs: list[dict[str, Any]]) -> str:
-    for item in final_task_summary_refs:
-        answer = _clean_text(item.get("answer"))
-        if answer:
-            return answer
-    for item in final_task_summary_refs:
-        summary = _clean_text(item.get("summary"))
-        if summary:
-            return summary
-    return ""
-
-
-def _select_final_answer_from_context(final_main_context: dict[str, Any]) -> str:
-    for key in ("answer", "resolved_answer", "canonical_answer"):
-        value = _clean_text(final_main_context.get(key))
-        if value:
-            return value
-    return ""
-
-
-def _builtin_tool_lane_answer_from_observation(
-    *,
-    user_message: str,
-    observation_payload: dict[str, Any],
-) -> dict[str, str] | None:
-    tool_name = str(observation_payload.get("tool_name") or "").strip()
-    result_text = str(observation_payload.get("result") or "").strip()
-    if not tool_name or not result_text:
-        return None
-    boundary = AssistantOutputBoundary()
-    boundary.ingest_tool_result(tool_name, result_text)
-    boundary.finalize_segment()
-    response = boundary.build_response(
-        route="builtin_tool_lane",
-        execution_posture="builtin_tool_lane",
-        user_message=user_message,
-        tool_name=tool_name,
-        retrieval_results=None,
-    )
-    content = str(response.canonical_answer or "").strip()
-    if not content or response.fallback_reason:
-        return None
-    if response.selected_channel not in {"tool_visible_summary", "answer_candidate"}:
-        return None
-    return {
-        "content": content,
-        "answer_channel": str(response.selected_channel or "answer_candidate"),
-        "answer_source": f"builtin_tool_lane.{tool_name}",
-        "answer_canonical_state": str(response.canonical_state or "stable_answer"),
-        "answer_persist_policy": str(response.persist_policy or "persist_canonical"),
-        "answer_finalization_policy": str(response.finalization_policy or "none"),
-        "answer_fallback_reason": "",
-    }
-
-
-def _project_file_work_context_from_tool_observation(payload: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    tool_name = str(payload.get("tool_name") or "").strip()
-    tool_args = dict(payload.get("tool_args") or {})
-    result_text = str(payload.get("result") or "").strip()
-    if not result_text or str(payload.get("truncated") or "").lower() == "true":
-        return {}, []
-    if tool_name == "delegate_to_agent":
-        return _project_delegated_file_work_context(tool_args=tool_args, result_text=result_text)
-    if tool_name in {"mcp_pdf", "pdf"}:
-        return _project_pdf_tool_context(tool_args=tool_args, result_text=result_text)
-    if tool_name in {"mcp_structured_data", "structured_data"}:
-        return _project_structured_data_tool_context(tool_args=tool_args, result_text=result_text)
-    return {}, []
-
-
-def _project_pdf_tool_context(*, tool_args: dict[str, Any], result_text: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    path = _clean_text(tool_args.get("path"))
-    query = _clean_text(tool_args.get("query"))
-    if not path:
-        path = _extract_tool_output_field(result_text, ("PDF", "文件", "path", "source"))
-    canonical_payload = _parse_tool_canonical_payload(result_text, "PDF_CANONICAL_RESULT::")
-    if not path and canonical_payload:
-        path = _clean_text(canonical_payload.get("source"))
-    if not path or _looks_like_failed_tool_result(result_text):
-        return {}, []
-    object_handle_id = _stable_file_work_id("source:pdf", path)
-    result_handle_id = _stable_file_work_id("result:pdf_answer", f"{path}:{query}:{result_text[:160]}")
-    pages = _extract_page_numbers(result_text)
-    if not pages and canonical_payload:
-        pages = [
-            int(page)
-            for page in list(canonical_payload.get("pages") or [])
-            if _safe_positive_int(page) is not None
-        ][:12]
-    if not pages and canonical_payload:
-        metadata = dict(canonical_payload.get("metadata") or {})
-        target_page = _safe_positive_int(metadata.get("target_page"))
-        if target_page is not None:
-            pages = [target_page]
-    subset_handle_id = (
-        _stable_file_work_id("subset:pdf_pages", f"{path}:{','.join(str(page) for page in pages)}")
-        if pages
-        else ""
-    )
-    mode = _clean_text(tool_args.get("mode")) or ("page" if pages else "document")
-    active_constraints: dict[str, Any] = {
-        "active_pdf": path,
-        "active_pdf_mode": mode,
-        "source_kind": "pdf",
-    }
-    if pages:
-        active_constraints["active_pdf_pages"] = pages
-    main_context = {
-        "active_goal": query,
-        "active_work_item": "pdf",
-        "active_binding_identity": _binding_identity(path),
-        "active_object_handle_id": object_handle_id,
-        "active_result_handle_id": result_handle_id,
-        "active_subset_handle_id": subset_handle_id,
-        "followup_mode": "binding_ref",
-        "followup_resolution_source": "tool_observation_projection",
-        "followup_target_task_id": result_handle_id,
-        "followup_target_task_ids": [result_handle_id],
-        "followup_binding_key": "active_pdf",
-        "followup_binding_identity": _binding_identity(path),
-        "active_constraints": active_constraints,
-    }
-    summary_source = _clean_text(canonical_payload.get("summary")) if canonical_payload else ""
-    degraded_reason = _clean_text(canonical_payload.get("degraded_reason")) if canonical_payload else ""
-    summary = _compact_summary(summary_source or result_text)
-    if degraded_reason and degraded_reason not in summary:
-        summary = _compact_summary(f"{summary} degraded_reason={degraded_reason}")
-    task_summary = {
-        "task_id": result_handle_id,
-        "query": query,
-        "summary": summary,
-        "task_kind": "pdf",
-        "key_points": [
-            f"pdf={path}",
-            f"pdf_mode={mode}",
-            *([f"pdf_pages={','.join(str(page) for page in pages)}"] if pages else []),
-            f"artifact={path}#analysis",
-        ],
-    }
-    return main_context, [task_summary]
-
-
-def _project_structured_data_tool_context(
-    *,
-    tool_args: dict[str, Any],
-    result_text: str,
-) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    context_writeback_hints = dict(tool_args.get("context_writeback_hints") or {})
-    path = _clean_text(tool_args.get("path"))
-    query = _clean_text(tool_args.get("query"))
-    if not path:
-        path = _clean_text(context_writeback_hints.get("source_path")) or _extract_tool_output_field(result_text, ("数据集", "文件", "path", "source"))
-    if not path or _looks_like_failed_tool_result(result_text):
-        return {}, []
-    object_handle_id = _clean_text(context_writeback_hints.get("active_object_handle_id")) or _stable_file_work_id("source:dataset", path)
-    result_handle_id = _clean_text(context_writeback_hints.get("active_result_handle_id")) or _stable_file_work_id("result:structured_answer", f"{path}:{query}:{result_text[:160]}")
-    subset_labels = [
-        str(item or "").strip()
-        for item in list(context_writeback_hints.get("subset_labels") or [])
-        if str(item or "").strip()
-    ]
-    subset_filter_column = _clean_text(context_writeback_hints.get("subset_filter_column"))
-    subset_handle_id = _clean_text(context_writeback_hints.get("active_subset_handle_id"))
-    active_constraints: dict[str, Any] = {
-        "active_dataset": path,
-        "source_kind": "dataset",
-    }
-    if subset_labels:
-        active_constraints["subset_labels"] = subset_labels
-    if subset_filter_column:
-        active_constraints["subset_filter_column"] = subset_filter_column
-    main_context = {
-        "active_goal": query,
-        "active_work_item": "structured_data",
-        "active_binding_identity": _binding_identity(path),
-        "active_object_handle_id": object_handle_id,
-        "active_result_handle_id": result_handle_id,
-        "active_subset_handle_id": subset_handle_id,
-        "followup_mode": "binding_ref",
-        "followup_resolution_source": "tool_observation_projection",
-        "followup_target_task_id": result_handle_id,
-        "followup_target_task_ids": [result_handle_id],
-        "followup_binding_key": "active_dataset",
-        "followup_binding_identity": _binding_identity(path),
-        "active_constraints": active_constraints,
-    }
-    summary = _compact_summary(result_text)
-    task_summary = {
-        "task_id": result_handle_id,
-        "query": query,
-        "summary": summary,
-        "task_kind": "structured_data",
-        "active_object_handle_id": object_handle_id,
-        "active_result_handle_id": result_handle_id,
-        "active_subset_handle_id": subset_handle_id,
-        **({"subset_labels": subset_labels} if subset_labels else {}),
-        **({"subset_filter_column": subset_filter_column} if subset_filter_column else {}),
-        "key_points": [
-            f"dataset={path}",
-            f"artifact={path}#analysis",
-        ],
-    }
-    return main_context, [task_summary]
-
-
-def _project_delegated_file_work_context(
-    *,
-    tool_args: dict[str, Any],
-    result_text: str,
-) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    result_payload = _parse_json_object(result_text)
-    if not result_payload or str(result_payload.get("status") or "") not in {"completed", "failed"}:
-        return {}, []
-    input_payload = dict(tool_args.get("input_payload") or {})
-    context_writeback_hints = dict(result_payload.get("context_writeback_hints") or {})
-    kind = _infer_delegated_file_work_kind(
-        tool_args=tool_args,
-        result_payload=result_payload,
-        context_writeback_hints=context_writeback_hints,
-    )
-    path = _clean_text(
-        input_payload.get("file_path")
-        or input_payload.get("path")
-        or input_payload.get("active_dataset")
-        or input_payload.get("active_pdf")
-    )
-    goal_alignment = _classify_delegation_goal_alignment(
-        user_message=_clean_text(tool_args.get("current_user_message")),
-        instruction=_clean_text(tool_args.get("instruction")),
-        input_payload=input_payload,
-    )
-    if goal_alignment == "offtopic":
-        return {}, []
-    if not path:
-        path = _clean_text(
-            context_writeback_hints.get("source_path")
-            or result_payload.get("source")
-            or result_payload.get("path")
-        )
-    summary = _clean_text(result_payload.get("summary") or result_payload.get("answer_candidate") or result_text)
-    if not path and kind in {"retrieval", "evidence_lookup", "knowledge_retrieval"}:
-        task_id = _stable_file_work_id(
-            "result:delegated_retrieval",
-            f"{tool_args.get('instruction')}:{summary[:160]}",
-        )
-        main_context = {
-            "active_goal": _clean_text(tool_args.get("instruction")),
-            "active_work_item": "delegated_retrieval",
-            "followup_mode": "summary_ref",
-            "followup_resolution_source": "tool_observation_projection",
-            "followup_target_task_id": task_id,
-            "followup_target_task_ids": [task_id],
-        }
-        task_summary = {
-            "task_id": task_id,
-            "query": _clean_text(tool_args.get("instruction")),
-            "summary": _compact_summary(summary),
-            "task_kind": "delegated_retrieval",
-            "key_points": [
-                "source=delegated_retrieval",
-                f"target_agent={_clean_text(result_payload.get('target_agent_id')) or 'delegated_agent'}",
-            ],
-        }
-        return main_context, [task_summary]
-    if not path:
-        return {}, []
-    delegated_tool_args = {
-        "path": path,
-        "query": _clean_text(input_payload.get("query") or tool_args.get("instruction")),
-        **({"context_writeback_hints": context_writeback_hints} if context_writeback_hints else {}),
-    }
-    if kind in {"structured_data", "table_analysis", "structured_data_lookup"}:
-        return _project_structured_data_tool_context(tool_args=delegated_tool_args, result_text=summary)
-    if kind in {"pdf", "pdf_reading", "document_reading"}:
-        mode = _clean_text(input_payload.get("mode") or input_payload.get("extract_mode"))
-        if mode:
-            delegated_tool_args["mode"] = mode
-        return _project_pdf_tool_context(tool_args=delegated_tool_args, result_text=summary)
-    return {}, []
-
-
-def _infer_delegated_file_work_kind(
-    *,
-    tool_args: dict[str, Any],
-    result_payload: dict[str, Any],
-    context_writeback_hints: dict[str, Any],
-) -> str:
-    explicit_kind = _clean_text(tool_args.get("delegation_kind"))
-    if explicit_kind:
-        return explicit_kind
-
-    result_metadata = dict(result_payload.get("metadata") or {})
-    source_kind = _clean_text(
-        context_writeback_hints.get("source_kind")
-        or result_payload.get("source_kind")
-        or result_metadata.get("source_kind")
-    ).lower()
-    if source_kind in {"dataset", "structured_data", "table", "spreadsheet", "csv", "xlsx"}:
-        return "table_analysis"
-    if source_kind in {"pdf", "document"}:
-        return "pdf_reading"
-    if source_kind in {"retrieval", "knowledge", "knowledge_base", "rag"}:
-        return "evidence_lookup"
-
-    target_agent_id = _clean_text(result_payload.get("target_agent_id")).lower()
-    if any(token in target_agent_id for token in ("table", "structured", "data_analyst", "dataset")):
-        return "table_analysis"
-    if any(token in target_agent_id for token in ("pdf", "document")):
-        return "pdf_reading"
-    if any(token in target_agent_id for token in ("rag", "retrieval", "search", "knowledge")):
-        return "evidence_lookup"
-
-    return ""
-
-
-def _stable_file_work_id(prefix: str, value: str) -> str:
-    import hashlib
-
-    digest = hashlib.sha1(str(value or "").encode("utf-8")).hexdigest()[:16]
-    return f"{prefix}:{digest}"
-
-
-def _parse_tool_canonical_payload(value: str, marker: str) -> dict[str, Any]:
-    import json
-
-    text = str(value or "").strip()
-    if marker not in text:
-        return {}
-    raw = text.split(marker, 1)[1].strip()
-    try:
-        payload = json.loads(raw)
-    except json.JSONDecodeError:
-        return {}
-    return payload if isinstance(payload, dict) else {}
-
-
-def _parse_json_object(value: str) -> dict[str, Any]:
-    import json
-
-    text = str(value or "").strip()
-    if not text.startswith("{"):
-        return {}
-    try:
-        payload = json.loads(text)
-    except json.JSONDecodeError:
-        return {}
-    return payload if isinstance(payload, dict) else {}
-
-
-def _binding_identity(value: str) -> str:
-    return str(value or "").replace("\\", "/").strip().lower()
-
-
-def _compact_summary(value: str, max_chars: int = 280) -> str:
-    return " ".join(str(value or "").split()).strip()[:max_chars]
-
-
-def _clean_text(value: Any) -> str:
-    return str(value or "").strip()
-
-
-def _merge_task_spec_binding_into_delegation_payload(
-    payload: dict[str, Any],
-    *,
-    task_spec_payload: dict[str, Any] | None,
-    current_turn_context: dict[str, Any] | None = None,
-    user_message: str,
-) -> dict[str, Any]:
-    merged = dict(payload or {})
-    inputs = dict(dict(task_spec_payload or {}).get("inputs") or {})
-    tool_input = dict(inputs.get("tool_input") or {})
-    if user_message:
-        merged.setdefault("query", str(user_message or "").strip())
-    for key in ("query", "mode", "extract_mode", "section", "page", "pages", "max_chunks"):
-        value = tool_input.get(key)
-        if value not in ("", [], {}, None):
-            merged.setdefault(key, value)
-    explicit_dataset = _clean_text(
-        inputs.get("explicit_dataset_path")
-        or tool_input.get("active_dataset")
-        or tool_input.get("path")
-        or tool_input.get("file_path")
-        or _path_from_context_recall(current_turn_context, source_kind="dataset", binding_key="active_dataset")
-    )
-    explicit_pdf = _clean_text(
-        inputs.get("explicit_pdf_path")
-        or tool_input.get("active_pdf")
-        or tool_input.get("path")
-        or tool_input.get("file_path")
-        or _path_from_context_recall(current_turn_context, source_kind="pdf", binding_key="active_pdf")
-    )
-    source_kind = _task_spec_source_kind(task_spec_payload or {})
-    if source_kind == "dataset" and explicit_dataset:
-        merged.setdefault("active_dataset", explicit_dataset)
-        merged.setdefault("path", explicit_dataset)
-        merged.setdefault("file_path", explicit_dataset)
-    elif source_kind == "pdf" and explicit_pdf:
-        merged.setdefault("active_pdf", explicit_pdf)
-        merged.setdefault("path", explicit_pdf)
-        merged.setdefault("file_path", explicit_pdf)
-    elif explicit_dataset and not explicit_pdf:
-        merged.setdefault("active_dataset", explicit_dataset)
-        merged.setdefault("path", explicit_dataset)
-        merged.setdefault("file_path", explicit_dataset)
-    elif explicit_pdf:
-        merged.setdefault("active_pdf", explicit_pdf)
-        merged.setdefault("path", explicit_pdf)
-        merged.setdefault("file_path", explicit_pdf)
-    return merged
-
-
-def _task_spec_source_kind(task_spec_payload: dict[str, Any]) -> str:
-    recipe_id = str(task_spec_payload.get("recipe_id") or "").strip()
-    if "structured_data" in recipe_id:
-        return "dataset"
-    if "pdf" in recipe_id:
-        return "pdf"
-    bindings = dict(task_spec_payload.get("bindings") or {})
-    for item in list(bindings.get("resolved_bindings") or []):
-        if not isinstance(item, dict):
-            continue
-        file_kind = str(item.get("file_kind") or "").strip()
-        if file_kind == "dataset":
-            return "dataset"
-        if file_kind == "pdf":
-            return "pdf"
-    return ""
-
-
-def _path_from_context_recall(
-    current_turn_context: dict[str, Any] | None,
-    *,
-    source_kind: str,
-    binding_key: str,
-) -> str:
-    target_source = str(source_kind or "").strip()
-    target_binding = str(binding_key or "").strip()
-    for candidate in list(dict(current_turn_context or {}).get("context_recall_candidates") or []):
-        if not isinstance(candidate, dict):
-            continue
-        if str(candidate.get("source_kind") or "").strip() != target_source:
-            continue
-        payload = dict(candidate.get("recall_payload") or {})
-        constraints = dict(payload.get("active_constraints") or {})
-        for key in (target_binding, "path", "file_path"):
-            value = str(payload.get(key) or constraints.get(key) or "").strip()
-            if value:
-                return value
-    return ""
-
-
-def _safe_positive_int(value: Any) -> int | None:
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
-        return None
-    return parsed if parsed > 0 else None
-
-
-def _looks_like_failed_tool_result(value: str) -> bool:
-    text = str(value or "").strip().lower()
-    failure_markers = (
-        "failed:",
-        "分析失败",
-        "explicit path is required",
-        "file does not exist",
-        "文件不存在",
-        "unavailable",
-    )
-    return any(marker in text for marker in failure_markers)
-
-
 def _looks_like_runtime_internal_answer(value: str) -> bool:
     text = str(value or "").strip()
     internal_markers = (
@@ -7095,83 +6242,6 @@ def _looks_like_runtime_internal_answer(value: str) -> bool:
         "下一轮我会优先调用",
     )
     return any(marker in text for marker in internal_markers)
-
-
-def _classify_delegation_goal_alignment(
-    *,
-    user_message: str,
-    instruction: str,
-    input_payload: dict[str, Any],
-) -> str:
-    user_text = _clean_text(user_message)
-    instruction_text = _clean_text(instruction)
-    path = _clean_text(
-        input_payload.get("file_path")
-        or input_payload.get("path")
-        or input_payload.get("active_pdf")
-        or input_payload.get("active_dataset")
-    )
-    if not user_text or not instruction_text:
-        return "unknown"
-    user_lower = user_text.lower()
-    instruction_lower = instruction_text.lower()
-    if path:
-        normalized_path = path.replace("\\", "/").lower()
-        if normalized_path and normalized_path in user_lower:
-            return "aligned"
-        file_name = normalized_path.split("/")[-1]
-        if file_name and file_name in user_lower:
-            return "aligned"
-    user_tokens = set(_alignment_tokens(user_text))
-    instruction_tokens = set(_alignment_tokens(instruction_text))
-    if not user_tokens or not instruction_tokens:
-        return "unknown"
-    overlap = user_tokens & instruction_tokens
-    if len(overlap) >= 2:
-        return "aligned"
-    strong_user = any(token in user_lower for token in ("pdf", ".pdf", "第3页", "第三页", "第4页", "第四页", "第二部分", "章节"))
-    strong_instruction = any(
-        token in instruction_lower for token in ("pdf", ".pdf", "页", "第二部分", "章节", "全文", "目录页", "正文页")
-    )
-    if strong_user and strong_instruction:
-        return "aligned"
-    if strong_user != strong_instruction and not overlap:
-        return "offtopic"
-    if any(token in user_lower for token in ("表格", "excel", ".xlsx", ".csv")) and not any(
-        token in instruction_lower for token in ("表格", "excel", ".xlsx", ".csv", "数据表", "数据集")
-    ):
-        return "offtopic"
-    if any(token in user_lower for token in ("黄金", "金价", "xau", "天气")) and not any(
-        token in instruction_lower for token in ("黄金", "金价", "xau", "天气")
-    ):
-        return "offtopic"
-    return "unknown"
-
-
-def _alignment_tokens(value: str) -> list[str]:
-    import re
-
-    tokens: list[str] = []
-    for match in re.finditer(r"[A-Za-z0-9_.:/\\-]{2,}|[\u4e00-\u9fff]{2,8}", str(value or "")):
-        token = match.group(0).strip().lower()
-        if not token or token in {"当前", "继续", "直接", "告诉我", "给我", "分析", "文件", "内容", "结果"}:
-            continue
-        tokens.append(token)
-    return tokens
-
-
-def _extract_page_numbers(value: str) -> list[int]:
-    import re
-
-    pages: list[int] = []
-    for match in re.finditer(r"(?:第\s*|page\s*|p\.?\s*)(\d{1,4})\s*(?:页)?", str(value or ""), flags=re.IGNORECASE):
-        try:
-            page = int(match.group(1))
-        except (TypeError, ValueError):
-            continue
-        if page > 0 and page not in pages:
-            pages.append(page)
-    return pages[:12]
 
 
 def _resolve_runtime_search_sources(
@@ -7372,15 +6442,6 @@ def _agent_profile_id_for_runtime_spec(registry: Any, runtime_spec_payload: dict
     return str(getattr(profile, "agent_profile_id", "") or "").strip()
 
 
-def _extract_tool_output_field(value: str, labels: tuple[str, ...]) -> str:
-    import re
-
-    label_pattern = "|".join(re.escape(label) for label in labels)
-    pattern = rf"(?:{label_pattern})\s*[:：]\s*([^\s,，;；]+)"
-    match = re.search(pattern, str(value or ""), flags=re.IGNORECASE)
-    return match.group(1).strip() if match else ""
-
-
 def _diagnostic_int(payload: dict[str, Any], key: str) -> int:
     diagnostics = dict(payload.get("diagnostics") or {})
     try:
@@ -7419,102 +6480,6 @@ def _summarize_tool_args(tool_args: dict[str, Any]) -> dict[str, Any]:
         else:
             summary[key] = type(value).__name__
     return summary
-
-
-def _runtime_directive_from_approval_state(approval_state: dict[str, Any]) -> RuntimeDirective:
-    payload = dict(approval_state.get("directive") or {})
-    operation_id = str(approval_state.get("operation_id") or "").strip()
-    return RuntimeDirective(
-        directive_id=str(payload.get("directive_id") or approval_state.get("directive_ref") or ""),
-        task_id=str(payload.get("task_id") or approval_state.get("task_run_id") or ""),
-        plan_ref=str(payload.get("plan_ref") or "orchplan:approval-resume"),
-        stage_ref=str(payload.get("stage_ref") or "orchstage:approval-resume"),
-        executor_type=str(payload.get("executor_type") or "tool"),  # type: ignore[arg-type]
-        adopted_resource_policy_ref=str(
-            payload.get("adopted_resource_policy_ref")
-            or dict(approval_state.get("resource_policy") or {}).get("policy_id")
-            or "respol:approval-resume"
-        ),
-        operation_refs=tuple(
-            str(item)
-            for item in list(payload.get("operation_refs") or [operation_id])
-            if str(item)
-        ),
-        input_contract_ref=str(payload.get("input_contract_ref") or ""),
-        output_contract_ref=str(payload.get("output_contract_ref") or ""),
-        execution_graph_ref=str(payload.get("execution_graph_ref") or ""),
-        runtime_executable=True,
-        diagnostics=dict(payload.get("diagnostics") or {}),
-    )
-
-
-def _resource_policy_from_approval_state(approval_state: dict[str, Any]) -> ResourcePolicy:
-    payload = dict(approval_state.get("resource_policy") or {})
-    decisions = tuple(
-        ResourceDecision(
-            operation_id=str(item.get("operation_id") or ""),
-            decision=item.get("decision", "unknown"),
-            reason=str(item.get("reason") or ""),
-            risk_tags=tuple(str(tag) for tag in list(item.get("risk_tags") or [])),
-            requires_user_approval=bool(item.get("requires_user_approval") is True),
-            authorization_owner=str(item.get("authorization_owner") or "ResourcePolicy"),
-            approval_channel=str(item.get("approval_channel") or ""),
-            diagnostics=dict(item.get("diagnostics") or {}),
-        )
-        for item in list(payload.get("decisions") or [])
-        if isinstance(item, dict)
-    )
-    return ResourcePolicy(
-        policy_id=str(payload.get("policy_id") or "respol:approval-resume"),
-        task_id=str(payload.get("task_id") or approval_state.get("task_run_id") or ""),
-        allowed_operations=tuple(str(item) for item in list(payload.get("allowed_operations") or [])),
-        denied_operations=tuple(str(item) for item in list(payload.get("denied_operations") or [])),
-        requires_approval_operations=tuple(
-            str(item) for item in list(payload.get("requires_approval_operations") or [])
-        ),
-        not_executable_operations=tuple(str(item) for item in list(payload.get("not_executable_operations") or [])),
-        allowed_tools=tuple(str(item) for item in list(payload.get("allowed_tools") or [])),
-        denied_tools=tuple(str(item) for item in list(payload.get("denied_tools") or [])),
-        allowed_mcps=tuple(str(item) for item in list(payload.get("allowed_mcps") or [])),
-        denied_mcps=tuple(str(item) for item in list(payload.get("denied_mcps") or [])),
-        allowed_agents=tuple(str(item) for item in list(payload.get("allowed_agents") or [])),
-        denied_agents=tuple(str(item) for item in list(payload.get("denied_agents") or [])),
-        memory_read_scope=str(payload.get("memory_read_scope") or "none"),
-        memory_write_scope=str(payload.get("memory_write_scope") or "none"),
-        filesystem_scope=dict(payload.get("filesystem_scope") or {}),
-        network_scope=dict(payload.get("network_scope") or {}),
-        shell_scope=dict(payload.get("shell_scope") or {}),
-        approval_policy=str(payload.get("approval_policy") or "runtime_tool_dispatch"),
-        runtime_view_only=bool(payload.get("runtime_view_only") is True),
-        adopted=bool(payload.get("adopted") is True),
-        runtime_executable=bool(payload.get("runtime_executable") is True),
-        decisions=decisions,
-        diagnostics=dict(payload.get("diagnostics") or {}),
-    )
-
-
-def _action_request_from_approval_state(task_run_id: str, approval_state: dict[str, Any]) -> RuntimeActionRequest:
-    tool_name = str(approval_state.get("tool_name") or "").strip()
-    tool_call = {
-        "id": str(approval_state.get("tool_call_id") or approval_state.get("action_request_ref") or ""),
-        "name": tool_name,
-        "args": dict(approval_state.get("tool_args") or {}),
-        "type": "tool_call",
-    }
-    return RuntimeActionRequest(
-        request_id=str(approval_state.get("action_request_ref") or f"rtact:{task_run_id}:approval"),
-        task_run_id=task_run_id,
-        request_type="tool_call",
-        step_id=str(approval_state.get("step_ref") or ""),
-        directive_ref=str(approval_state.get("directive_ref") or ""),
-        operation_id=str(approval_state.get("operation_id") or ""),
-        payload={
-            "tool_name": tool_name,
-            "tool_call": tool_call,
-            "execution_state": "approved_for_dispatch",
-        },
-        created_at=float(approval_state.get("created_at") or time.time()),
-    )
 
 
 def _memory_commit_state_from_assistant_commit_result(result: Any) -> dict[str, Any]:
@@ -7598,19 +6563,110 @@ def _runtime_loop_short_hash(value: Any) -> str:
     return hashlib.sha1(text.encode("utf-8")).hexdigest()[:16]
 
 
+def _assembly_contract_from_continuation_payload(
+    continuation_payload: dict[str, Any] | None,
+    *,
+    base_dir: Path,
+) -> dict[str, Any]:
+    payload = dict(continuation_payload or {})
+    assembly = dict(payload.get("agent_assembly_contract") or {})
+    if assembly:
+        return assembly
+    context = dict(payload.get("current_turn_context") or {})
+    assembly = dict(context.get("agent_assembly_contract") or {})
+    if assembly:
+        return assembly
+    work_order = dict(payload.get("node_work_order") or context.get("node_work_order") or {})
+    if not work_order:
+        return {}
+    return build_agent_assembly_contract(WorkOrder.from_dict(work_order), base_dir=base_dir).to_dict()
+
+
+def _assembly_contract_from_task_selection(task_selection: dict[str, Any] | None) -> dict[str, Any]:
+    selection = dict(task_selection or {})
+    assembly = dict(selection.get("agent_assembly_contract") or {})
+    if assembly:
+        return assembly
+    context = dict(selection.get("current_turn_context") or {})
+    assembly = dict(context.get("agent_assembly_contract") or {})
+    if assembly:
+        return assembly
+    return {}
+
+
+def _agent_runtime_spec_with_assembly_contract(
+    agent_runtime_spec: dict[str, Any],
+    assembly_contract: dict[str, Any],
+) -> dict[str, Any]:
+    spec = dict(agent_runtime_spec or {})
+    for key in ("agent_id", "agent_profile_id", "runtime_lane"):
+        value = str(assembly_contract.get(key) or "").strip()
+        if value:
+            spec[key] = value
+    spec["agent_assembly_contract_id"] = str(assembly_contract.get("assembly_id") or "")
+    spec["work_order_id"] = str(assembly_contract.get("work_order_id") or "")
+    spec["executor_type"] = str(assembly_contract.get("executor_type") or spec.get("executor_type") or "")
+    return spec
+
+
+def _assembly_contract_diagnostics(assembly_contract: dict[str, Any] | None) -> dict[str, Any]:
+    assembly = dict(assembly_contract or {})
+    if not assembly:
+        return {}
+    return {
+        "assembly_id": str(assembly.get("assembly_id") or ""),
+        "work_order_id": str(assembly.get("work_order_id") or ""),
+        "work_kind": str(assembly.get("work_kind") or ""),
+        "agent_id": str(assembly.get("agent_id") or ""),
+        "agent_profile_id": str(assembly.get("agent_profile_id") or ""),
+        "runtime_lane": str(assembly.get("runtime_lane") or ""),
+        "executor_type": str(assembly.get("executor_type") or ""),
+    }
+
+
+def _execution_permit_from_assembly_contract(assembly_contract: dict[str, Any] | None) -> dict[str, Any]:
+    return build_execution_permit_from_payload(dict(assembly_contract or {}))
+
+
+def _execution_permit_diagnostics(execution_permit: dict[str, Any] | None) -> dict[str, Any]:
+    permit = dict(execution_permit or {})
+    if not permit:
+        return {}
+    return {
+        "permit_id": str(permit.get("permit_id") or ""),
+        "assembly_id": str(permit.get("assembly_id") or ""),
+        "work_order_id": str(permit.get("work_order_id") or ""),
+        "agent_id": str(permit.get("agent_id") or ""),
+        "agent_profile_id": str(permit.get("agent_profile_id") or ""),
+        "executor_type": str(permit.get("executor_type") or ""),
+        "allowed_operations": list(permit.get("allowed_operations") or []),
+        "visible_tools": list(permit.get("visible_tools") or []),
+        "dispatchable_tools": list(permit.get("dispatchable_tools") or []),
+    }
+
+
 class _ContinuationAgentRuntimeChain:
-    def __init__(self, *, base: Any, forced_turn_context: dict[str, Any]) -> None:
+    def __init__(self, *, base: Any, forced_turn_context: dict[str, Any], assembly_contract: dict[str, Any] | None = None) -> None:
         self._base = base
         self._forced_turn_context = dict(forced_turn_context or {})
+        self._assembly_contract = dict(assembly_contract or self._forced_turn_context.get("agent_assembly_contract") or {})
 
     def build_runtime(self, **kwargs) -> dict[str, Any]:
         override = {
             **dict(kwargs.get("current_turn_context_override") or {}),
             **dict(self._forced_turn_context),
         }
-        forced_agent_id = str(self._forced_turn_context.get("agent_id") or "").strip()
+        if self._assembly_contract:
+            override["agent_assembly_contract"] = self._assembly_contract
+        forced_agent_id = str(self._assembly_contract.get("agent_id") or self._forced_turn_context.get("agent_id") or "").strip()
+        forced_agent_profile_id = str(self._assembly_contract.get("agent_profile_id") or self._forced_turn_context.get("agent_profile_id") or "").strip()
+        forced_runtime_lane = str(self._assembly_contract.get("runtime_lane") or self._forced_turn_context.get("runtime_lane") or "").strip()
         if forced_agent_id:
             override["agent_id"] = forced_agent_id
+        if forced_agent_profile_id:
+            override["agent_profile_id"] = forced_agent_profile_id
+        if forced_runtime_lane:
+            override["runtime_lane"] = forced_runtime_lane
         kwargs["current_turn_context_override"] = override
         task_selection = {
             **dict(kwargs.get("task_selection") or {}),
@@ -7622,21 +6678,37 @@ class _ContinuationAgentRuntimeChain:
         }
         if forced_agent_id:
             task_selection["agent_id"] = forced_agent_id
+        if forced_agent_profile_id:
+            task_selection["agent_profile_id"] = forced_agent_profile_id
+        if forced_runtime_lane:
+            task_selection["runtime_lane"] = forced_runtime_lane
+        if self._assembly_contract:
+            task_selection["agent_assembly_contract"] = self._assembly_contract
+            task_selection["assembly_id"] = str(self._assembly_contract.get("assembly_id") or "")
+            task_selection["work_order_id"] = str(self._assembly_contract.get("work_order_id") or "")
+            task_selection["executor_type"] = str(self._assembly_contract.get("executor_type") or "")
         kwargs["task_selection"] = task_selection
         runtime = dict(self._base.build_runtime(**kwargs) or {})
         current_turn_context = {
             **dict(runtime.get("current_turn_context") or {}),
             **dict(self._forced_turn_context),
         }
+        if self._assembly_contract:
+            current_turn_context["agent_assembly_contract"] = self._assembly_contract
+            current_turn_context["agent_id"] = forced_agent_id
+            current_turn_context["agent_profile_id"] = forced_agent_profile_id
+            current_turn_context["runtime_lane"] = forced_runtime_lane
         task_operation = dict(runtime.get("task_operation") or {})
         task_operation["current_turn_context"] = current_turn_context
+        if self._assembly_contract:
+            task_operation["agent_assembly_contract"] = self._assembly_contract
         task_spec = dict(task_operation.get("task_spec") or {})
         task_spec["inputs"] = {
             **dict(task_spec.get("inputs") or {}),
             **dict(current_turn_context.get("explicit_inputs") or {}),
         }
         task_operation["task_spec"] = task_spec
-        expected_agent_id = str(current_turn_context.get("agent_id") or "").strip()
+        expected_agent_id = str(self._assembly_contract.get("agent_id") or current_turn_context.get("agent_id") or "").strip()
         if expected_agent_id:
             agent_runtime_spec = dict(runtime.get("agent_runtime_spec") or task_operation.get("agent_runtime_spec") or {})
             actual_agent_id = str(agent_runtime_spec.get("agent_id") or "").strip()
@@ -7645,6 +6717,13 @@ class _ContinuationAgentRuntimeChain:
                     "TaskGraph node runtime assembled with wrong agent: "
                     f"expected {expected_agent_id}, got {actual_agent_id or '<empty>'}"
                 )
+            if self._assembly_contract:
+                agent_runtime_spec = _agent_runtime_spec_with_assembly_contract(
+                    agent_runtime_spec,
+                    self._assembly_contract,
+                )
+                runtime["agent_runtime_spec"] = agent_runtime_spec
+                task_operation["agent_runtime_spec"] = agent_runtime_spec
         runtime["current_turn_context"] = current_turn_context
         runtime["task_operation"] = task_operation
         return runtime

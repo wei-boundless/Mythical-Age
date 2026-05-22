@@ -12,9 +12,9 @@ BACKEND_DIR = REPO_ROOT / "backend"
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from orchestration.agent_registry import AgentRegistry
-from orchestration.agent_runtime_registry import AgentRuntimeRegistry
-from orchestration.model_profile_models import AgentModelProfile, parse_agent_model_profile
+from agent_system.models.model_profile_models import AgentModelProfile, parse_agent_model_profile
+from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
+from agent_system.registry.agent_registry import AgentRegistry
 from task_system.contracts.contract_definition_models import AcceptanceRule, ArtifactRequirement, ContractField, ContractSpec
 from task_system.registry.contract_registry import TaskContractRegistry
 from task_system.registry.flow_registry import TaskFlowRegistry
@@ -61,7 +61,16 @@ REPOSITORY_NODES = (
         "node_type": "memory_repository",
         "title": "基准记忆库",
         "repository_id": "writing_modular_baseline",
-        "collections": ("world_commits", "outline_commits", "character_commits", "frozen_facts"),
+        "collections": (
+            "world_bible",
+            "world_element_cards",
+            "character_baselines",
+            "relationship_baselines",
+            "outline_canon",
+            "outline_thread_index",
+            "frozen_facts",
+            "forbidden_changes",
+        ),
         "mutable": False,
         "write_owner_node_ids": ("memory_commit_world", "memory_commit_character", "baseline_memory_seed"),
         "readable_by": ("plot_design", "design_sync", "outline_design", "outline_review", "baseline_memory_seed", "volume_plan", "chapter_outline", "chapter_draft", "chapter_review", "volume_review", "final_assemble", "final_review"),
@@ -72,11 +81,38 @@ REPOSITORY_NODES = (
         "node_type": "memory_repository",
         "title": "动态记忆库",
         "repository_id": "writing_modular_mutable",
-        "collections": ("chapter_commits", "volume_commits", "extension_commits", "continuity_notes"),
+        "collections": (
+            "chapter_state_deltas",
+            "volume_state_deltas",
+            "extension_commits",
+            "continuity_notes",
+            "character_state_snapshots",
+            "setting_expansion_cards",
+            "outline_adjustments",
+            "next_batch_requirements",
+        ),
         "mutable": True,
         "write_owner_node_ids": ("memory_commit_chapter", "volume_commit", "extension_commit", "memory_finalize"),
-        "readable_by": ("chapter_outline", "chapter_draft", "chapter_review", "volume_review", "final_assemble"),
+        "readable_by": ("volume_plan", "chapter_outline", "chapter_draft", "chapter_review", "memory_commit_chapter", "volume_review", "volume_commit", "volume_postmortem", "world_outline_extension_proposal", "extension_review", "final_assemble", "final_review"),
         "library_role": "post_batch_and_post_volume_update_layer",
+    },
+    {
+        "node_id": "memory.writing.manuscript",
+        "node_type": "memory_repository",
+        "title": "正文记忆库",
+        "repository_id": "writing_modular_manuscript",
+        "collections": (
+            "approved_chapter_batches",
+            "chapter_summaries",
+            "manuscript_fact_index",
+            "scene_continuity",
+            "chapter_hooks",
+            "prose_refs",
+        ),
+        "mutable": True,
+        "write_owner_node_ids": ("memory_commit_chapter", "memory_finalize"),
+        "readable_by": ("volume_plan", "chapter_outline", "chapter_draft", "chapter_review", "memory_commit_chapter", "volume_review", "volume_commit", "final_assemble", "final_review", "memory_finalize"),
+        "library_role": "approved_manuscript_and_summary_layer",
     },
     {
         "node_id": "memory.writing.artifact_index",
@@ -104,6 +140,7 @@ REPOSITORY_NODES = (
 
 COMMIT_WRITE_MODES = {"baseline_commit", "chapter_commit", "volume_commit", "dynamic_memory_commit", "finalize_commit"}
 MUTABLE_COMMIT_WRITE_MODES = {"chapter_commit", "volume_commit", "dynamic_memory_commit", "finalize_commit"}
+MANUSCRIPT_COMMIT_WRITE_MODES = {"chapter_commit", "finalize_commit"}
 
 SOURCE_REVIEW_BY_COMMIT_NODE = {
     "memory_commit_world": "world_review",
@@ -144,6 +181,30 @@ OUTLINE_THREAD_INDEX_NODE_IDS = {
     "final_review",
     "memory_finalize",
 }
+
+
+def _repository_collection(repo_id: str) -> str:
+    if repo_id.endswith("baseline"):
+        return "baseline"
+    if repo_id.endswith("mutable"):
+        return "mutable"
+    if repo_id.endswith("manuscript"):
+        return "manuscript"
+    if repo_id.endswith("issue_ledger"):
+        return "issues"
+    if repo_id.endswith("artifact_index"):
+        return "artifact_refs"
+    return "default"
+
+
+def _repository_label(repo_id: str) -> str:
+    return {
+        "memory.writing.baseline": "基准库",
+        "memory.writing.mutable": "动态记忆库",
+        "memory.writing.manuscript": "正文记忆库",
+        "memory.writing.artifact_index": "产物索引库",
+        "memory.writing.issue_ledger": "问题台账",
+    }.get(repo_id, "记忆库")
 
 
 def _chapter_loop_derived_fields() -> list[dict[str, Any]]:
@@ -228,6 +289,63 @@ def _length_budget_contract(scope: str, target_units: int, min_units: int, max_u
     }
 
 
+def _chapter_batch_quality_retry_policy() -> dict[str, Any]:
+    return {
+        "acceptance_policies": ["sectioned_text_batch_quality"],
+        "unit_start_key": "batch_start_index",
+        "unit_end_key": "batch_end_index",
+        "unit_count_key": "chapters_per_round",
+        "target_metric_key": "batch_target_words",
+        "unit_target_metric_key": "chapter_target_words",
+        "minimum_metric_ratio": 0.55,
+        "minimum_metric_per_unit": CHAPTER_MIN_WORDS,
+        "unit_label": "章",
+        "unit_summary_template": "第{index}章",
+        "metric_summary_label": "字",
+        "required_heading_patterns": [r"第\s*(?P<index>[0-9一二三四五六七八九十百零〇两]+)\s*[章节回]"],
+        "heading_match_scope": "formal_heading",
+        "metric_section_keys": ["章节正文候选"],
+        "metric_stop_section_keys": [
+            "承接说明",
+            "本章目标完成说明",
+            "人物与冲突推进",
+            "商业钩子与爽点兑现",
+            "后续伏笔或待承接事项",
+            "自检风险",
+            "公开摘要",
+        ],
+        "forbid_unexpected_unit_indexes": True,
+        "forbid_unexpected_unit_ranges": True,
+        "range_declaration_keywords": [
+            "当前批次",
+            "当前章批次",
+            "本批允许范围",
+            "本批允许章号",
+            "允许范围",
+            "批次目标",
+            "批次摘要",
+            "当前批次细纲",
+            "当前批次正文",
+        ],
+        "broad_range_keywords": ["本批", "本轮"],
+        "range_mention_patterns": [
+            r"第\s*(?P<start>[0-9一二三四五六七八九十百零〇两]+)\s*章?\s*(?:至|到|[-—~～])\s*第?\s*(?P<end>[0-9一二三四五六七八九十百零〇两]+)\s*章"
+        ],
+        "future_range_keywords": [
+            "下一批",
+            "下批",
+            "下一轮",
+            "下轮",
+            "后续批次",
+            "后续章节",
+            "后续章",
+            "后续承接",
+            "承接点",
+            "下一阶段",
+        ],
+    }
+
+
 @dataclass(frozen=True, slots=True)
 class NodeSpec:
     node_id: str
@@ -304,8 +422,8 @@ DESIGN_NODES: tuple[NodeSpec, ...] = (
             "你必须完整设计成长与资源体系：成长路径、阶段门槛、突破条件、资源消耗、工具来源、路线分化、克制关系、失败代价、上限边界和稀缺资源的产出逻辑。成长体系要能支撑持续升级，同时避免无代价膨胀。",
             "你必须完整设计题材适配的原创机制：核心规则、关键制度、特殊流程、特殊场域、关键资源、记忆点、禁忌与代价、世界核心装置。原创设计要能产生记忆点、爽点、危机和伏笔，不只是装饰。",
             "你的设计必须给出可持续产能：每个重要场域可展开的冲突，每类资源可制造的争夺，每套制度可压迫或奖赏的人群，每个秘密可牵引的中后期揭示，每个机制可承载的副线、奖励、代价和反转。",
-            "你必须把本项目写成《洪荒时代》自己的商业世界，而不是套默认修仙模板。没有项目硬设定或上游已审核依据时，禁止主动使用宗门、门派、学院、世家、灵石、丹药、神器、拍卖会、秘境、师尊收徒等通用类型资产作为世界基础。若确实需要类似功能，必须改造成由本项目历史和机制自然生成的专属制度、称谓、资源与场域，并明确其来源、权力归属、运行规则、成本、限制和剧情作用。",
-            "你在设计社会组织、交换媒介、修炼资源、遗迹器物、教育传承和探索场域时，必须先说明它们为什么会在神庭破灭五千年后、五域退守、人族守护者、神灵残余、真灵灵域、万族崛起这套背景中出现。不能只给一个网文常用名词，也不能把没有机制来源的套路资产写成冻结事实。",
+            "你必须把本项目写成只属于项目自身的商业世界，而不是套默认类型模板。没有项目硬设定或上游已审核依据时，禁止主动使用任何题材默认资产、通用组织模板、通用资源名词、通用探索场域、通用师承关系或通用奖励道具作为世界基础。若确实需要类似叙事功能，必须改造成由本项目历史和机制自然生成的专属制度、称谓、资源与场域，并明确其来源、权力归属、运行规则、成本、限制和剧情作用。",
+            "你在设计社会组织、交换媒介、成长资源、特殊器物、教育传承和探索场域时，必须先说明它们为什么会在项目硬设定规定的时代、地域、权力结构、群体关系和历史后果中出现。不能只给一个网文常用名词，也不能把没有机制来源的套路资产写成冻结事实。",
             "你必须保留用户硬设定，并把新增设定标为候选设计。所有具体设定都必须来自用户题材、项目启动包和已建立世界逻辑；没有依据时，不得主动加入题材专属元素、套路资产或类型预设。你不能提前写具体章节剧情，不能把尚未审核的剧情细节写成世界事实。你的输出必须给后续人设、剧情、细纲节点留下可引用的规则、边界、场域资源、群体目标、成长钩子和商业化追读钩子。",
         ),
     ),
@@ -328,7 +446,7 @@ DESIGN_NODES: tuple[NodeSpec, ...] = (
             "你需要逐项检查世界设定 Bible：世界卖点是否明确，空间分区是否能支撑探索与升级，历史秩序是否能制造秘密和恩怨链，群体格局是否有竞争目标，交换与资源体系是否能驱动交易和争夺，成长体系是否有清晰阶段、代价和上限，题材适配的原创机制是否有记忆点。",
             "你还需要检查商业化承载：核心人物成长路线是否有连续奖励，读者期待是否能分阶段释放，世界规则是否能自然制造冲突，关键设定是否便于后续人设、剧情、细纲和章节正文引用，是否存在只有概念没有机制、只有背景没有矛盾、只有阶段没有代价的问题。",
             "你的审核标准要像资深网文责编：不满足强辨识度、升级产能、情绪回报、持续冲突、章节可写性和读者记忆点的设计，不能因为完整而通过；只有能支撑高质量商业连载的世界观才允许进入下一阶段。",
-            "你必须专门检查套路资产污染：候选世界观是否把宗门、门派、学院、世家、灵石、丹药、神器、拍卖会、秘境、师尊收徒等通用类型资产当成默认事实。若这些功能没有被改造成《洪荒时代》专属的制度、称谓、资源、场域与机制来源，必须判为返修；不能把“常见网文设定”当作通过理由。",
+            "你必须专门检查套路资产污染：候选世界观是否把题材默认资产、通用组织模板、通用资源名词、通用探索场域、通用师承关系或通用奖励道具当成默认事实。若这些功能没有被改造成项目专属的制度、称谓、资源、场域与机制来源，必须判为返修；不能把常见网文设定当作通过理由。",
             "你必须指出具体问题、风险等级、影响范围和返修建议，并检查候选世界观是否把用户未要求的题材专属元素强行写成事实。裁决只能是通过、带备注通过、返修或拒绝；返修时必须明确回到世界观设计节点的哪些部分。只要报告中存在阻塞问题、必须修改项、硬设定冲突、机制来源不明或冻结前必须处理的问题，裁决必须是返修或拒绝，不能写成通过或带备注通过。带备注通过只能用于不影响冻结和后续写作的轻微建议。你不负责替设计节点扩写世界观，也不能把自己的补充设定写成已通过事实。",
         ),
     ),
@@ -365,12 +483,15 @@ DESIGN_NODES: tuple[NodeSpec, ...] = (
         output_contract_id="contract.writing.modular_novel.character_design",
         required_inputs=("上游交接包",),
         memory_topics=("project_brief", "world_commit_ref", "approved_world_spine"),
+        required_memory_topics=("world_commit_ref",),
+        readable_repositories=("memory.writing.baseline",),
+        artifact_context_keys=("上游交接包", "基准库"),
         artifact_paths=("design/character_design_round_{round_index:03d}.md",),
         prompt=_role_prompt(
             "你是一名名家级中文商业网文人设与关系设计师。你只负责在已提交世界观边界内设计核心视角人物、关键关系人物、对抗角色、合作角色、引导或制约角色、群体关系和角色动机网络。",
             "你要让角色从世界规则中生长出来：身份、欲望、能力、创伤、资源、立场、误解、利益冲突和成长压力都要能回到世界观基准事实。角色关系要能产生长期推进力，并服务升级爽点、身份反差、群体碰撞、情绪价值和追读期待。",
             "你的角色设计要对标头部作品的共性标准：核心视角人物有清晰欲望和独特生存逻辑，关键关系人物有可记忆的利益位置和行为方式，对抗角色有压迫感和合理目标，关系网能反复制造误会、合作、背叛、亏欠、竞争和情绪回报。",
-            "你不得把未冻结的通用类型资产继续带入角色设计。角色的导师、组织、资源、敌对者和身份关系必须来自已提交世界观的专属制度与机制；如果世界观只给了功能方向而未冻结具体称谓，你只能写方向性接口，不能默认写宗门、学院、世家、神器、灵石、师尊等套壳名词。",
+            "你不得把未冻结的通用类型资产继续带入角色设计。角色的引导者、组织、资源、敌对者和身份关系必须来自已提交世界观的专属制度与机制；如果世界观只给了功能方向而未冻结具体称谓，你只能写方向性接口，不能默认写通用组织、通用资源、通用道具或通用师承称谓。",
             "你必须读取项目启动包和世界观提交内容，不得改写世界观冻结事实。你的输出仍是人设候选，不是最终基准库；未审核的新角色设定必须标明候选性质。",
         ),
     ),
@@ -385,6 +506,9 @@ DESIGN_NODES: tuple[NodeSpec, ...] = (
         output_contract_id="contract.writing.modular_novel.character_review",
         required_inputs=("上游交接包",),
         memory_topics=("world_commit_ref", "character_design_ref", "project_brief"),
+        required_memory_topics=("world_commit_ref", "character_design_ref"),
+        readable_repositories=("memory.writing.baseline",),
+        artifact_context_keys=("上游交接包", "基准库"),
         artifact_paths=("design/character_review_round_{round_index:03d}.md",),
         review_revision_stage_id="character_design",
         write_mode="review_and_issue_ledger",
@@ -396,46 +520,26 @@ DESIGN_NODES: tuple[NodeSpec, ...] = (
         ),
     ),
     NodeSpec(
-        node_id="memory_commit_character",
-        title="人设与关系提交",
-        node_type="memory_commit",
-        role="memory_steward",
-        agent_id=MEMORY_AGENT_ID,
-        projection_id="projection.writing.modular_novel.memory_steward",
-        phase_id="phase.modular.design_init.design",
-        sequence_index=57,
-        output_contract_id="contract.writing.modular_novel.character_commit",
-        required_inputs=("上游交接包",),
-        memory_topics=("project_brief", "world_commit_ref", "character_design_ref", "character_review_ref"),
-        artifact_paths=("memory/character/character_commit_round_{round_index:03d}.md",),
-        write_mode="baseline_commit",
-        prompt=_role_prompt(
-            "你是一名人设与关系基准库管理员。你只负责把已经通过审核的人物设定、关系网络、动机网络、对抗关系、合作关系、情绪关系和角色边界固化为后续剧情与章节写作可长期引用的角色基准记录。",
-            "你必须保留角色可写性的核心信息：身份来源、欲望链、能力边界、行动逻辑、关系压力、阶段弧线、对抗功能、情绪回报、商业爽点承载和禁止改写项。摘要只能作为索引，不能替代正式角色基准内容。",
-            "你只能提交审核明确通过或带备注通过且没有阻塞问题、必须修改项、硬设定冲突、角色动机断裂、商业承载不足的内容。候选分歧、未审补充、过程讨论和你自己的推测不能进入冻结事实；如果审核报告虽然写了通过或带备注通过，但正文同时出现阻塞问题、必须修改、进入剧情前必须处理等要求，你必须拒绝提交并输出提交失败说明，要求回到人设与关系设计节点返修，不能替设计节点修补后冻结。",
-        ),
-    ),
-    NodeSpec(
         node_id="plot_design",
         title="剧情与伏笔设计",
         node_type="agent_role",
         role="creator",
         projection_id="projection.writing.modular_novel.plot_designer",
         phase_id="phase.modular.design_init.design",
-        sequence_index=60,
+        sequence_index=50,
         output_contract_id="contract.writing.modular_novel.plot_design",
         required_inputs=("上游交接包",),
-        memory_topics=("project_brief", "world_commit_ref", "character_commit_ref"),
-        required_memory_topics=("world_commit_ref", "character_commit_ref"),
+        memory_topics=("project_brief", "world_commit_ref", "approved_world_spine"),
+        required_memory_topics=("world_commit_ref",),
         readable_repositories=("memory.writing.baseline",),
         artifact_context_keys=("上游交接包", "基准库"),
         artifact_paths=("design/plot_design_round_{round_index:03d}.md",),
         prompt=_role_prompt(
-            "你是一名名家级中文商业网文剧情与伏笔设计师。你只负责根据已提交世界观和已提交人设基准设计主线推进、阶段冲突、对抗压力、秘密揭示节奏、伏笔链和长期悬念。",
-            "你要把剧情建立在世界机制和角色动机上：每个阶段冲突都应来自规则、资源、关系、身份、组织、价值观、成长体系或角色选择的压力。主线需要有连续升级、阶段奖励、危机递进、身份变化、场域展开和读者期待管理。伏笔必须可追踪，包含埋设位置、误导方式、阶段性回收、最终兑现和失败风险。",
+            "你是一名名家级中文商业网文剧情与伏笔设计师。你只负责根据已提交世界观设计主线推进、阶段冲突、对抗压力、秘密揭示节奏、伏笔链和长期悬念，产出可与人设候选对齐的剧情候选。",
+            "你要把剧情建立在世界机制上：每个阶段冲突都应来自规则、资源、场域、群体边界、价值秩序、成长体系或时代压力。主线需要有连续升级、阶段奖励、危机递进、身份变化、场域展开和读者期待管理。伏笔必须可追踪，包含埋设位置、误导方式、阶段性回收、最终兑现和失败风险。",
             "你的剧情设计要追求头部网文的节奏能力：小目标不断兑现，大目标持续抬高，危机与奖励交替出现，对抗压力推动核心人物选择，秘密揭示带来新场域、新身份、新关系或新规则。",
-            "你不得用默认网文资产补剧情空洞。所有修炼入口、交易奖励、组织压迫、遗迹探索、导师关系和关键道具必须来自已提交世界观与人设候选中的专属机制；未冻结的内容只能作为候选接口和待审伏笔，不能写成剧情事实。",
-            "你不得改写世界观冻结事实，不得把角色稳定事实改掉，也不得把未审核设定写成基准事实。若缺少角色提交记录或角色审核仍有阻塞项，你必须停止并说明需要回到人设提交链路，不能继续设计剧情。你的输出是剧情候选结构，不是章节正文，也不是最终大纲。",
+            "你不得用默认网文资产补剧情空洞。所有成长入口、交易奖励、组织压迫、探索场域、引导关系和关键物件都必须来自已提交世界观中的专属机制；未冻结的内容只能作为候选接口和待审伏笔，不能写成剧情事实。",
+            "你不得改写世界观冻结事实，也不得预设角色候选已经通过。你需要为后续对齐节点留下清晰接口：哪些剧情压力需要角色欲望承接，哪些伏笔需要角色关系触发，哪些阶段奖励需要人设弧线支撑。你的输出是剧情候选结构，不是章节正文，也不是最终大纲。",
         ),
     ),
     NodeSpec(
@@ -448,15 +552,41 @@ DESIGN_NODES: tuple[NodeSpec, ...] = (
         sequence_index=70,
         output_contract_id="contract.writing.modular_novel.design_alignment",
         required_inputs=("上游交接包",),
-        memory_topics=("world_commit_ref", "character_commit_ref", "plot_design_ref", "conflict_ledger"),
+        memory_topics=("world_commit_ref", "character_design_ref", "character_review_ref", "plot_design_ref", "conflict_ledger"),
+        required_memory_topics=("world_commit_ref", "character_design_ref", "character_review_ref", "plot_design_ref"),
+        readable_repositories=("memory.writing.baseline",),
+        artifact_context_keys=("上游交接包", "基准库"),
         artifact_paths=("design/design_alignment_round_{round_index:03d}.md",),
         write_mode="review_and_issue_ledger",
         prompt=_role_prompt(
-            "你是一名名家级商业网文创作架构对齐审核员。你只负责检查世界观、人设、关系、剧情和伏笔是否互相支撑，是否存在事实冲突、动机断裂、世界规则失效或长篇承载不足。",
+            "你是一名名家级商业网文创作架构对齐审核员。你只负责把已提交世界观、人设候选与剧情候选汇合成同一套可执行创作架构，并裁决它们是否互相支撑，是否存在事实冲突、动机断裂、世界规则失效或长篇承载不足。",
             "你需要把冲突分成必须返修、可带备注接受和后续大纲需要注意三类，并说明应由哪个上游节点处理。对齐包要给大纲设计师明确可用的事实、候选、风险和取舍建议。",
             "你的对齐标准不只看逻辑通顺，还要看商业强度：世界卖点是否进入角色命运，角色欲望是否推动剧情，剧情奖励是否回扣成长和资源体系，伏笔是否能反复制造读者期待。",
             "你必须检查行为污染是否已经从世界观扩散到角色或剧情：通用类型资产、默认修仙称谓、无来源资源、无机制道具、无审核身份关系，一旦影响后续大纲，必须要求回到源头节点返修，而不是在对齐包里自行补丁。",
-            "你不能代替大纲设计师写全书大纲，不能把自己的新设定直接并入基准事实。你的职责是把设计资产校准到同一套创作架构下。",
+            "你不能代替大纲设计师写全书大纲，不能把自己的新设定直接并入基准事实。你的对齐结果必须明确哪些人设切片允许进入角色基准提交，哪些剧情接口允许进入全书细纲，哪些内容必须返修或丢弃。",
+        ),
+    ),
+    NodeSpec(
+        node_id="memory_commit_character",
+        title="人设与关系提交",
+        node_type="memory_commit",
+        role="memory_steward",
+        agent_id=MEMORY_AGENT_ID,
+        projection_id="projection.writing.modular_novel.memory_steward",
+        phase_id="phase.modular.design_init.design",
+        sequence_index=75,
+        output_contract_id="contract.writing.modular_novel.character_commit",
+        required_inputs=("上游交接包",),
+        memory_topics=("project_brief", "world_commit_ref", "character_design_ref", "character_review_ref", "design_sync_ref"),
+        required_memory_topics=("world_commit_ref", "character_design_ref", "character_review_ref", "design_sync_ref"),
+        readable_repositories=("memory.writing.baseline",),
+        artifact_context_keys=("上游交接包", "基准库"),
+        artifact_paths=("memory/character/character_commit_round_{round_index:03d}.md",),
+        write_mode="baseline_commit",
+        prompt=_role_prompt(
+            "你是一名人设与关系基准库管理员。你只负责把人设审核通过、并在创作架构对齐中被明确允许进入基准库的人物设定、关系网络、动机网络、对抗关系、合作关系、情绪关系和角色边界固化为后续剧情与章节写作可长期引用的角色基准记录。",
+            "你必须保留角色可写性的核心信息：身份来源、欲望链、能力边界、行动逻辑、关系压力、阶段弧线、对抗功能、情绪回报、商业爽点承载、剧情接口和禁止改写项。摘要只能作为索引，不能替代正式角色基准内容。",
+            "你只能提交人设审核明确通过或带备注通过、且创作架构对齐明确允许提交的内容。候选分歧、未审补充、对齐节点判定为风险或返修的切片、过程讨论和你自己的推测不能进入冻结事实；如果审核或对齐报告同时出现阻塞问题、必须修改、进入剧情前必须处理等要求，你必须拒绝提交并输出提交失败说明，不能替设计节点修补后冻结。",
         ),
     ),
     NodeSpec(
@@ -470,11 +600,15 @@ DESIGN_NODES: tuple[NodeSpec, ...] = (
         output_contract_id="contract.writing.modular_novel.outline_design",
         required_inputs=("上游交接包",),
         memory_topics=("world_commit_ref", "character_commit_ref", "plot_design_ref", "design_sync_ref", "project_brief"),
+        required_memory_topics=("world_commit_ref", "character_commit_ref", "plot_design_ref", "design_sync_ref"),
+        readable_repositories=("memory.writing.baseline",),
+        artifact_context_keys=("上游交接包", "基准库"),
         artifact_paths=("outline/outline_design_round_{round_index:03d}.md",),
         prompt=_role_prompt(
-            "你是一名名家级中文商业网文全书细纲设计师。你只负责把已提交世界观、人设候选、剧情候选和对齐包汇总成可执行的长篇细纲。",
+            "你是一名名家级中文商业网文全书细纲设计师。你只负责把已提交世界观、已提交人设、剧情候选和对齐包汇总成可执行的长篇细纲。",
             "你需要规划分卷目标、阶段矛盾、角色成长节点、场域展开、资源争夺、群体关系变化、伏笔布设与回收、信息揭示节奏、爽点兑现节奏、每卷的开局压力和收束结果。细纲必须让后续分卷规划和章节批次细纲能连续执行。",
             "你的细纲要具备头部连载作品的产能：每卷有明确钩子和阶段高潮，每个大段落有读者期待、冲突推进、奖励兑现和新问题抬升；不能只有事件顺序，必须给出情绪曲线和追读设计。",
+            "你必须把伏笔、悬念、关系推进和回收窗口写成大纲权威内容。每条长线都要有来源、埋设窗口、误导或遮蔽方式、推进节点、回收窗口、预期读者效果和失效风险。你不能另起一个独立剧情事实源，也不能让后续章节靠临场发挥补主线。",
             "你不能从零另造设定，不能绕开对齐包中的冲突裁决。若必须补足细纲所需的连接设定，只能标为待审候选并说明依赖来源。",
         ),
     ),
@@ -533,8 +667,8 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         output_contract_id="contract.writing.modular_novel.volume_plan",
         memory_topics=("baseline_world", "baseline_outline", "baseline_characters", "previous_volume_commit", "dynamic_memory"),
         required_memory_topics=("baseline_world", "baseline_outline", "baseline_characters"),
-        readable_repositories=("memory.writing.baseline", "memory.writing.mutable"),
-        artifact_context_keys=("上游交接包", "基准库", "动态记忆库"),
+        readable_repositories=("memory.writing.baseline", "memory.writing.mutable", "memory.writing.manuscript"),
+        artifact_context_keys=("上游交接包", "基准库", "动态记忆库", "正文记忆库"),
         artifact_paths=("volume_{volume_index_padded}/volume_plan_round_{round_index:03d}.md",),
         loop_scope_id="loop.volume",
         title_template="{volume_label}分卷计划",
@@ -555,10 +689,10 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         sequence_index=20,
         output_contract_id="contract.writing.modular_novel.chapter_outline",
         required_inputs=("上游交接包",),
-        memory_topics=("baseline_world", "baseline_outline", "baseline_characters", "volume_plan_ref", "previous_chapter_commit", "continuity_notes"),
+        memory_topics=("baseline_world", "baseline_outline", "baseline_characters", "volume_plan_ref", "previous_chapter_commit", "previous_chapter_summaries", "manuscript_fact_index", "continuity_notes"),
         required_memory_topics=("baseline_world", "baseline_outline", "baseline_characters"),
-        readable_repositories=("memory.writing.baseline", "memory.writing.mutable"),
-        artifact_context_keys=("上游交接包", "基准库", "动态记忆库"),
+        readable_repositories=("memory.writing.baseline", "memory.writing.mutable", "memory.writing.manuscript"),
+        artifact_context_keys=("上游交接包", "基准库", "动态记忆库", "正文记忆库"),
         artifact_paths=("volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/outline_round_{round_index:03d}.md",),
         loop_scope_id="loop.chapter_batch",
         title_template="{batch_label}章节批次细纲",
@@ -580,10 +714,10 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         sequence_index=30,
         output_contract_id="contract.writing.modular_novel.chapter_draft",
         required_inputs=("上游交接包",),
-        memory_topics=("baseline_world", "baseline_outline", "baseline_characters", "volume_plan_ref", "chapter_outline_ref", "previous_chapter_commit"),
+        memory_topics=("baseline_world", "baseline_outline", "baseline_characters", "volume_plan_ref", "chapter_outline_ref", "previous_chapter_commit", "previous_chapter_summaries", "manuscript_fact_index", "active_outline_thread_refs", "due_outline_thread_refs"),
         required_memory_topics=("baseline_world", "baseline_outline", "baseline_characters", "chapter_outline_ref"),
-        readable_repositories=("memory.writing.baseline", "memory.writing.mutable"),
-        artifact_context_keys=("上游交接包", "基准库", "动态记忆库"),
+        readable_repositories=("memory.writing.baseline", "memory.writing.mutable", "memory.writing.manuscript"),
+        artifact_context_keys=("上游交接包", "基准库", "动态记忆库", "正文记忆库"),
         artifact_paths=("volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/draft_round_{round_index:03d}.md",),
         loop_scope_id="loop.chapter_batch",
         title_template="{batch_label}章节正文草稿",
@@ -615,7 +749,8 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
             "你的文风要走中文网文里古朴大气、又不失细腻的路子：叙述要娓娓道来，句子要有呼吸感，画面要清楚但不堆砌术语，语言要质朴而有余味，情绪要落在人物动作、神情、语气和环境反馈里。避免说明腔、流水账、AI腔和机械化列项，也避免过度华丽、过度抒情或舞台台词化。",
             "每个场景都要有目标、阻碍、转折和结果；设定信息要融入动作、对话、观察、利益争夺、人物判断、物件细节和环境反馈里释放。对白要承担关系变化、信息交换、压迫试探或情绪爆发，内心活动要服务选择和行动，不要写成旁白讲解。",
             "每章都要服务商业连载阅读体验：开局有承接和当章目标，中段有阻碍、反应和推进，结尾形成自然的章末牵引，留下新的压力、期待、反转、奖励或疑问。爽点要以铺垫、触发、出手、代价、反馈和余波形成兑现，来源可以是角色选择、实力变化、身份反差、资源获得、局势翻盘或认知揭示。",
-            "你必须读取基准库完整设定、动态记忆库承接信息、当前卷计划和当前批次细纲。正文要尊重世界规则、角色动机、前后连续性和批次目标；如果旧产物或提示中出现其他章号，以运行时批次边界为准。你不能跳写未授权章节，也不能为方便剧情临时改世界规则。",
+            "你必须先完成写前取材判断，再进入正文。写前取材判断只允许简短列出本批采用的世界规则、人物当前状态、上一批承接、正文事实索引、活跃伏笔、到期伏笔、禁改边界和本批叙事目标；它必须来自基准库、动态记忆库、正文记忆库、当前卷计划和当前批次细纲，不能凭空补设定。",
+            "写前取材判断之后必须输出完整小说正文，正文才是主体。正文要尊重世界规则、角色动机、前后连续性和批次目标；如果旧产物或提示中出现其他章号，以运行时批次边界为准。你不能跳写未授权章节，也不能为方便剧情临时改世界规则。若发现必须新增设定才能写通，只能在正文后标为待审扩展建议，不能当作已成立事实写进正文核心逻辑。",
         ),
     ),
     NodeSpec(
@@ -628,10 +763,10 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         sequence_index=40,
         output_contract_id="contract.writing.modular_novel.chapter_review",
         required_inputs=("上游交接包",),
-        memory_topics=("chapter_draft_ref", "chapter_outline_ref", "baseline_world", "baseline_outline", "continuity_notes"),
+        memory_topics=("chapter_draft_ref", "chapter_outline_ref", "baseline_world", "baseline_outline", "continuity_notes", "previous_chapter_summaries", "manuscript_fact_index"),
         required_memory_topics=("chapter_draft_ref", "chapter_outline_ref"),
-        readable_repositories=("memory.writing.baseline", "memory.writing.mutable"),
-        artifact_context_keys=("上游交接包", "基准库", "动态记忆库"),
+        readable_repositories=("memory.writing.baseline", "memory.writing.mutable", "memory.writing.manuscript"),
+        artifact_context_keys=("上游交接包", "基准库", "动态记忆库", "正文记忆库"),
         artifact_paths=("volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/review_round_{round_index:03d}.md",),
         review_revision_stage_id="chapter_draft",
         loop_scope_id="loop.chapter_batch",
@@ -642,7 +777,8 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
             "你是一名名家级中文商业网文章节总审。你只负责审核当前十章正文是否满足批次细纲、基准设定、连续性、正文量、角色推进、场景完成度、商业节奏和伏笔推进要求。",
             "你需要以头部连载作品的阅读体验做裁决：章节开局是否承接有力，当章目标是否明确，叙事是否像小说而不是说明书，场景是否有画面、行动、阻碍和转折，人物是否有欲望、压力、立场和选择，设定是否通过情境自然释放，爽点是否完成铺垫和兑现，章末是否形成下一章追读牵引。",
             "你还需要像资深责编一样检查世界规则、角色动机、前后文承接、伏笔状态、批次目标、字数规模、语言自然度、情绪回报和商业卖点是否真实达标。问题必须定位到章节、场景和影响范围。",
-            "你不能替写手补写正文。你必须给出通过、带备注通过、返修或拒绝裁决，并把连续性问题、风格目标差距和返修要求登记清楚。",
+            "你必须检查写手的写前取材判断是否真实使用了基准库、动态记忆库、正文记忆库和当前批次细纲，是否漏读了会影响本批的角色状态、世界规则、正文事实、活跃伏笔或禁改边界。取材判断缺失、取材依据与正文不一致、正文偏离取材依据，都必须进入返修或拒绝裁决。",
+            "你不能替写手补写正文。你必须给出通过、带备注通过、返修或拒绝裁决，并把连续性问题、风格目标差距、偏移性质和返修要求登记清楚。若正文偏离世界观或大纲，你必须明确裁决为返修正文、提交动态吸收提案，或要求回到上游设计节点，不能默默当作通过事实。",
         ),
     ),
     NodeSpec(
@@ -656,18 +792,19 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         sequence_index=50,
         output_contract_id="contract.writing.modular_novel.chapter_batch_commit",
         required_inputs=("上游交接包",),
-        memory_topics=("chapter_draft_ref", "chapter_review_ref", "chapter_outline_ref", "continuity_notes"),
+        memory_topics=("chapter_draft_ref", "chapter_review_ref", "chapter_outline_ref", "continuity_notes", "chapter_summaries", "manuscript_fact_index", "next_batch_requirements"),
         required_memory_topics=("chapter_draft_ref", "chapter_review_ref"),
-        readable_repositories=("memory.writing.baseline", "memory.writing.mutable"),
-        artifact_context_keys=("上游交接包", "基准库", "动态记忆库"),
+        readable_repositories=("memory.writing.baseline", "memory.writing.mutable", "memory.writing.manuscript"),
+        artifact_context_keys=("上游交接包", "基准库", "动态记忆库", "正文记忆库"),
         artifact_paths=("volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/chapter_commit_round_{round_index:03d}.md",),
         loop_scope_id="loop.chapter_batch",
         title_template="{batch_label}章节批次提交",
         write_mode="chapter_commit",
         prompt=_role_prompt(
             "你是一名章节记忆提交员。你只负责在章节审核通过或带备注通过后登记当前批次正文引用、章节摘要、角色状态变化、群体关系变化、伏笔状态、连续性说明和下一批承接事项。",
-            "你需要区分已完成事实、仍需跟踪的伏笔、下一批必须读取的状态和审核备注。登记内容必须可供后续章节细纲与写手直接引用。",
-            "你不能改写正文，不能把未通过审核的草稿写入已提交记忆，也不能把审核员未认可的新设定固化为事实。",
+            "你需要把提交内容分层写清：正文记忆库记录已通过的正文引用、逐章摘要、正文事实索引、场景连续性和章末承接；动态记忆库记录人物状态变化、关系变化、世界细节增量、伏笔状态、下一批必须读取的状态和审核备注。",
+            "你必须区分已发生正文事实、待跟踪伏笔、待审设定扩展、下一批取材清单和审核备注。登记内容必须可供后续章节细纲与写手直接引用，但不能把待审扩展写成已冻结设定。",
+            "你不能改写正文，不能把未通过审核的草稿写入已提交记忆，也不能把审核员未认可的新设定固化为事实。若审核裁决要求动态吸收或上游重设，你只能登记提案入口和风险，不能替扩展提交节点越权完成。",
         ),
     ),
     NodeSpec(
@@ -702,10 +839,10 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         sequence_index=70,
         output_contract_id="contract.writing.modular_novel.volume_review",
         required_inputs=("上游交接包",),
-        memory_topics=("volume_chapter_commits", "baseline_outline", "volume_plan_ref", "continuity_notes"),
+        memory_topics=("volume_chapter_commits", "baseline_outline", "volume_plan_ref", "continuity_notes", "approved_chapter_batches", "chapter_summaries", "manuscript_fact_index"),
         required_memory_topics=("volume_chapter_commits", "volume_plan_ref"),
-        readable_repositories=("memory.writing.baseline", "memory.writing.mutable"),
-        artifact_context_keys=("上游交接包", "基准库", "动态记忆库"),
+        readable_repositories=("memory.writing.baseline", "memory.writing.mutable", "memory.writing.manuscript"),
+        artifact_context_keys=("上游交接包", "基准库", "动态记忆库", "正文记忆库"),
         artifact_paths=("volume_{volume_index_padded}/volume_review_round_{round_index:03d}.md",),
         review_revision_stage_id="chapter_outline",
         loop_scope_id="loop.volume",
@@ -729,10 +866,10 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         sequence_index=80,
         output_contract_id="contract.writing.modular_novel.volume_commit",
         required_inputs=("上游交接包",),
-        memory_topics=("volume_review_ref", "volume_chapter_commits", "continuity_notes"),
+        memory_topics=("volume_review_ref", "volume_chapter_commits", "continuity_notes", "chapter_summaries", "manuscript_fact_index"),
         required_memory_topics=("volume_review_ref", "volume_chapter_commits"),
-        readable_repositories=("memory.writing.mutable",),
-        artifact_context_keys=("上游交接包", "动态记忆库"),
+        readable_repositories=("memory.writing.mutable", "memory.writing.manuscript"),
+        artifact_context_keys=("上游交接包", "动态记忆库", "正文记忆库"),
         artifact_paths=("volume_{volume_index_padded}/volume_commit_round_{round_index:03d}.md",),
         loop_scope_id="loop.volume",
         title_template="{volume_label}卷级提交",
@@ -762,6 +899,7 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         prompt=_role_prompt(
             "你是一名卷后复盘员。你只负责总结本卷完成情况、节奏偏差、人物与群体关系变化、伏笔状态、下一卷风险和需要补充的设定候选。",
             "你需要判断哪些问题来自执行偏差，哪些来自原始设计不足，哪些需要下一卷动态调整。所有建议都必须区分事实观察、风险判断和候选提案。",
+            "你必须把可能需要增长的内容分为世界细节、角色状态、大纲线程、正文连续性四类。每一类都要说明来源章节或卷级证据、为什么需要增长、如果不处理会影响什么、是否触碰冻结事实、是否只适合下一卷临时使用。",
             "你不能直接修改基准库，不能重写已提交章节，也不能把复盘建议当成已批准设定。",
         ),
     ),
@@ -783,7 +921,8 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         title_template="{volume_label}设定与大纲补充提案",
         prompt=_role_prompt(
             "你是一名设定与大纲补充提案员。你只负责把卷后复盘中确实需要补充的内容整理成候选提案，供审核节点判断能否进入动态记忆库。",
-            "提案必须区分动态调整、下一卷重点、伏笔补强、角色状态补充、世界细节补充和可能触碰冻结事实的风险。每项提案都要说明来源、必要性、影响范围和替代方案。",
+            "提案必须拆成世界细节卡、角色状态卡、大纲线程调整卡、正文连续性修正卡和拒绝项。每张卡都要说明来源引用、必要性、影响范围、有效窗口、下游使用方式、冲突检查、替代方案和为什么不能直接写入基准库。",
+            "你必须把正文偏移处理清楚：如果偏移来自正文执行失误，应建议返修正文；如果偏移已经被审核允许吸收，只能作为动态提案；如果偏移暴露上游设计缺陷，应要求回到上游设计或大纲节点，而不是用单条补丁糊住。",
             "你不能直接修改基准库，不能推翻已冻结事实，也不能为了修补局部问题提出大范围重构。",
         ),
     ),
@@ -807,8 +946,8 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         write_mode="review_and_issue_ledger",
         prompt=_role_prompt(
             "你是一名补充提案审核员。你只负责判断设定与大纲补充提案能否进入动态记忆库，是否触碰基准库冻结事实，是否会污染后续创作。",
-            "你需要检查提案的来源是否可靠、必要性是否成立、影响范围是否可控、是否与世界观/人设/细纲冲突、是否只是为了修补单章问题而扩大设定口径。",
-            "你必须给出通过、带备注通过、拒绝或返修裁决。通过内容也只能作为动态记忆进入下一卷读取层，不能变成基准库冻结事实。",
+            "你需要逐卡检查来源是否可靠、必要性是否成立、影响范围是否可控、有效窗口是否明确、是否与世界观/人设/细纲冲突、是否只是为了修补单章问题而扩大设定口径。",
+            "你必须给出通过、带备注通过、拒绝或返修裁决。通过内容也只能作为动态记忆进入下一卷读取层，不能变成基准库冻结事实。若提案试图静默覆盖冻结事实、吸收未经审核的正文偏移、或把临时修补写成长期 canon，必须拒绝。",
         ),
     ),
     NodeSpec(
@@ -831,7 +970,7 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         write_mode="dynamic_memory_commit",
         prompt=_role_prompt(
             "你是一名动态记忆提交员。你只负责把审核通过或带备注通过的补充提案写入动态记忆库，作为下一卷读取层。",
-            "你需要保留提案来源、审核裁决、适用范围、有效期、影响对象和不得触碰的基准事实。动态记忆必须便于下一卷规划师判断是否采用。",
+            "你需要按世界细节卡、角色状态卡、大纲线程调整卡、正文连续性修正卡分别提交，并保留提案来源、审核裁决、适用范围、有效期、影响对象、下游读取方式、是否可升级基准库的判断和不得触碰的基准事实。动态记忆必须便于下一卷规划师判断是否采用。",
             "你不能改写基准库冻结事实，不能提交未通过提案，也不能把动态候选写成永久设定。",
         ),
     ),
@@ -869,10 +1008,10 @@ FINALIZE_NODES: tuple[NodeSpec, ...] = (
         phase_id="phase.modular.finalize.final",
         sequence_index=10,
         output_contract_id="contract.writing.modular_novel.final_manuscript",
-        memory_topics=("all_chapter_commits", "baseline_memory", "dynamic_memory", "volume_commits"),
+        memory_topics=("all_chapter_commits", "baseline_memory", "dynamic_memory", "volume_commits", "approved_chapter_batches", "chapter_summaries", "manuscript_fact_index"),
         required_memory_topics=("all_chapter_commits",),
-        readable_repositories=("memory.writing.baseline", "memory.writing.mutable"),
-        artifact_context_keys=("上游交接包", "基准库", "动态记忆库"),
+        readable_repositories=("memory.writing.baseline", "memory.writing.mutable", "memory.writing.manuscript"),
+        artifact_context_keys=("上游交接包", "基准库", "动态记忆库", "正文记忆库"),
         artifact_paths=("final/final_manuscript.md", "final/delivery_manifest.md"),
         prompt=_role_prompt(
             "你是一名全书汇编员。你只负责按已提交章节、卷级提交和最终动态记忆汇编最终稿与交付清单。",
@@ -891,8 +1030,8 @@ FINALIZE_NODES: tuple[NodeSpec, ...] = (
         output_contract_id="contract.writing.modular_novel.final_review",
         required_inputs=("上游交接包",),
         memory_topics=("final_manuscript_ref", "delivery_manifest_ref", "target_words", "target_chapters"),
-        readable_repositories=("memory.writing.baseline", "memory.writing.mutable"),
-        artifact_context_keys=("上游交接包", "基准库", "动态记忆库"),
+        readable_repositories=("memory.writing.baseline", "memory.writing.mutable", "memory.writing.manuscript"),
+        artifact_context_keys=("上游交接包", "基准库", "动态记忆库", "正文记忆库"),
         artifact_paths=("final/final_review_round_{round_index:03d}.md",),
         review_revision_stage_id="final_assemble",
         write_mode="review_and_issue_ledger",
@@ -915,8 +1054,8 @@ FINALIZE_NODES: tuple[NodeSpec, ...] = (
         output_contract_id="contract.writing.modular_novel.final_memory_seal",
         required_inputs=("上游交接包",),
         memory_topics=("final_review_ref", "final_manuscript_ref", "delivery_manifest_ref"),
-        readable_repositories=("memory.writing.mutable",),
-        artifact_context_keys=("上游交接包", "动态记忆库"),
+        readable_repositories=("memory.writing.mutable", "memory.writing.manuscript"),
+        artifact_context_keys=("上游交接包", "动态记忆库", "正文记忆库"),
         artifact_paths=("final/memory_finalize_round_{round_index:03d}.md",),
         write_mode="finalize_commit",
         prompt=_role_prompt(
@@ -933,11 +1072,12 @@ DESIGN_BUSINESS_EDGES = (
     ("edge.world.review", "world_design", "world_review", "contract.writing.modular_novel.world_candidate", "把世界观候选交给世界观审核员。"),
     ("edge.world_review.commit", "world_review", "memory_commit_world", "contract.writing.modular_novel.world_review", "把世界观审核结果交给基准记忆管理员。"),
     ("edge.world_commit.character_design", "memory_commit_world", "character_design", "contract.writing.modular_novel.world_commit", "把已提交世界观交给人设与关系设计师。"),
+    ("edge.world_commit.plot", "memory_commit_world", "plot_design", "contract.writing.modular_novel.world_commit", "把已提交世界观交给剧情与伏笔设计师。"),
     ("edge.character.review", "character_design", "character_review", "contract.writing.modular_novel.character_design", "把角色和关系候选交给人设审核员。"),
-    ("edge.character_review.commit", "character_review", "memory_commit_character", "contract.writing.modular_novel.character_review", "把人设审核结果交给角色基准库管理员。"),
-    ("edge.character_commit.plot", "memory_commit_character", "plot_design", "contract.writing.modular_novel.character_commit", "把已提交人设与关系基准交给剧情设计师。"),
-    ("edge.character_commit.sync", "memory_commit_character", "design_sync", "contract.writing.modular_novel.character_commit", "把已提交人设交给创作架构对齐节点。"),
+    ("edge.character_review.sync", "character_review", "design_sync", "contract.writing.modular_novel.character_review", "把已审核人设候选交给创作架构对齐节点。"),
     ("edge.plot.sync", "plot_design", "design_sync", "contract.writing.modular_novel.plot_design", "把剧情与伏笔候选交给创作架构对齐节点。"),
+    ("edge.sync.character_commit", "design_sync", "memory_commit_character", "contract.writing.modular_novel.design_alignment", "把对齐通过的人设切片交给角色基准库管理员。"),
+    ("edge.character_commit.outline", "memory_commit_character", "outline_design", "contract.writing.modular_novel.character_commit", "把已提交角色基准交给全书细纲设计师。"),
     ("edge.sync.outline", "design_sync", "outline_design", "contract.writing.modular_novel.design_alignment", "把对齐包交给全书细纲设计师。"),
     ("edge.outline.review", "outline_design", "outline_review", "contract.writing.modular_novel.outline_design", "把全书细纲交给细纲审核员。"),
     ("edge.outline_review.baseline", "outline_review", "baseline_memory_seed", "contract.writing.modular_novel.outline_review", "把通过审核的细纲和设计资产交给基准库初始化。"),
@@ -1594,6 +1734,14 @@ def _node_payload(node: NodeSpec) -> dict[str, Any]:
     runtime_bindings["stage_packet_policy"] = _stage_packet_policy(node)
     if outline_thread_policy:
         runtime_bindings["outline_thread_policy"] = dict(outline_thread_policy)
+    memory_write_policy = _memory_write_policy(node)
+    executor_policy = _executor_policy(node)
+    runtime_batch_boundary_policy = _runtime_batch_boundary_policy(node)
+    if runtime_batch_boundary_policy:
+        executor_policy["runtime_batch_boundary_policy"] = runtime_batch_boundary_policy
+    replay_sanitization_policy = _replay_sanitization_policy(node)
+    if replay_sanitization_policy:
+        executor_policy["replay_sanitization_policy"] = replay_sanitization_policy
     payload = {
         "node_id": node.node_id,
         "node_type": node.node_type,
@@ -1614,6 +1762,7 @@ def _node_payload(node: NodeSpec) -> dict[str, Any]:
         "wait_policy": "wait_all_upstream_completed",
         "join_policy": "all_success",
         "blocks_phase_exit": True,
+        "executor_policy": executor_policy,
         "context_visibility_policy": {
             "shared_context_policy": "explicit_refs_only",
             "memory_sharing_policy": "memory_pack_only",
@@ -1628,8 +1777,10 @@ def _node_payload(node: NodeSpec) -> dict[str, Any]:
             "artifact": {"artifact_policy": artifact_policy, "artifact_context_policy": _artifact_context_policy(node)},
             "memory": {
                 "memory_read_policy": _memory_read_policy(node),
-                "memory_writeback_policy": _memory_write_policy(node),
+                "memory_writeback_policy": memory_write_policy,
                 "dynamic_memory_read_policy": _dynamic_memory_read_policy(node),
+                "prewrite_memory_plan_policy": _prewrite_memory_plan_policy(node),
+                "dynamic_expansion_policy": _dynamic_expansion_policy(node),
             },
             "acceptance": {"review_gate_policy": _review_gate_policy(node)} if node.node_type == "review_gate" else {},
             "runtime": runtime_bindings,
@@ -1637,11 +1788,12 @@ def _node_payload(node: NodeSpec) -> dict[str, Any]:
             "governance": governance_policy,
         },
         "memory_read_policy": _memory_read_policy(node),
-        "memory_writeback_policy": _memory_write_policy(node),
+        "memory_writeback_policy": memory_write_policy,
         "dynamic_memory_read_policy": _dynamic_memory_read_policy(node),
         "artifact_context_policy": _artifact_context_policy(node),
         "artifact_policy": artifact_policy,
         "artifact_targets": [{"path": path, "required": True, "source": "node_spec"} for path in node.artifact_paths],
+        "quality_retry_policy": _quality_retry_policy(node),
         "review_gate_policy": _review_gate_policy(node),
         "loop_policy": _loop_policy(node),
         "loop_kind": "bounded_metric_iteration" if node.loop_scope_id else "",
@@ -1662,6 +1814,8 @@ def _node_payload(node: NodeSpec) -> dict[str, Any]:
             "artifact_context_policy": _artifact_context_policy(node),
             "governance_policy": governance_policy,
             "outline_thread_policy": outline_thread_policy,
+            "prewrite_memory_plan_policy": _prewrite_memory_plan_policy(node),
+            "dynamic_expansion_policy": _dynamic_expansion_policy(node),
             "loop_route_policy": dict(node.loop_route_policy),
             "loop_scope_id": node.loop_scope_id,
             "title_template": node.title_template,
@@ -1782,15 +1936,17 @@ def _memory_edges_for_nodes(nodes: tuple[NodeSpec, ...]) -> list[dict[str, Any]]
                     source=repo_id,
                     target=node.node_id,
                     operation="read",
-                    collection="baseline" if repo_id.endswith("baseline") else "mutable",
+                    collection=_repository_collection(repo_id),
                     topics=node.memory_topics,
-                    label="基准库" if repo_id.endswith("baseline") else "动态记忆库",
+                    label=_repository_label(repo_id),
                 )
             )
         if node.write_mode in {"baseline_commit"}:
             edges.append(_memory_edge(f"edge.memory_commit.{node.node_id}.baseline", node.node_id, "memory.writing.baseline", "commit", "baseline", node.memory_topics, "基准库提交"))
-        elif node.write_mode in {"chapter_commit", "volume_commit", "dynamic_memory_commit", "finalize_commit"}:
+        elif node.write_mode in MUTABLE_COMMIT_WRITE_MODES:
             edges.append(_memory_edge(f"edge.memory_commit.{node.node_id}.mutable", node.node_id, "memory.writing.mutable", "commit", "mutable", node.memory_topics, "动态记忆提交"))
+        if node.write_mode in MANUSCRIPT_COMMIT_WRITE_MODES:
+            edges.append(_memory_edge(f"edge.memory_commit.{node.node_id}.manuscript", node.node_id, "memory.writing.manuscript", "commit", "manuscript", node.memory_topics, "正文记忆提交"))
         elif node.write_mode == "review_and_issue_ledger":
             edges.append(_memory_edge(f"edge.issue_commit.{node.node_id}", node.node_id, "memory.writing.issue_ledger", "commit", "issues", node.memory_topics, "问题台账"))
         if node.artifact_paths:
@@ -2030,6 +2186,7 @@ def _write_permission_matrix(node: NodeSpec) -> dict[str, Any]:
         "issue_ledger_write": node.write_mode == "review_and_issue_ledger",
         "baseline_memory_write": node.write_mode == "baseline_commit",
         "mutable_memory_write": node.write_mode in MUTABLE_COMMIT_WRITE_MODES,
+        "manuscript_memory_write": node.write_mode in MANUSCRIPT_COMMIT_WRITE_MODES,
         "candidate_archive_write": node.write_mode == "candidate_archive_only",
         "on_forbidden_write": "fail_closed",
     }
@@ -2041,6 +2198,8 @@ def _allowed_write_targets(node: NodeSpec) -> list[str]:
         targets.append("memory.writing.baseline")
     elif node.write_mode in MUTABLE_COMMIT_WRITE_MODES:
         targets.append("memory.writing.mutable")
+    if node.write_mode in MANUSCRIPT_COMMIT_WRITE_MODES:
+        targets.append("memory.writing.manuscript")
     elif node.write_mode == "review_and_issue_ledger":
         targets.append("memory.writing.issue_ledger")
     if node.artifact_paths:
@@ -2049,7 +2208,7 @@ def _allowed_write_targets(node: NodeSpec) -> list[str]:
 
 
 def _forbidden_write_targets(node: NodeSpec) -> list[str]:
-    all_targets = ["memory.writing.baseline", "memory.writing.mutable", "memory.writing.issue_ledger"]
+    all_targets = ["memory.writing.baseline", "memory.writing.mutable", "memory.writing.manuscript", "memory.writing.issue_ledger"]
     return [target for target in all_targets if target not in _allowed_write_targets(node)]
 
 
@@ -2068,6 +2227,8 @@ def _commit_guard_policy(node: NodeSpec) -> dict[str, Any]:
         "reject_on_missing_review_receipt": True,
         "reject_on_revise_or_reject_verdict": True,
         "commit_packet_schema": _commit_packet_schema(node),
+        "additional_required_refs": ["design_sync_ref"] if node.node_id == "memory_commit_character" else [],
+        "barrier_node_id": "design_sync" if node.node_id == "memory_commit_character" else "",
     }
 
 
@@ -2109,6 +2270,8 @@ def _stage_packet_policy(node: NodeSpec) -> dict[str, Any]:
             "authorized_text_expansion_only": True,
         },
         "outline_thread_index": _outline_thread_policy(node),
+        "prewrite_memory_plan": _prewrite_memory_plan_policy(node),
+        "dynamic_expansion": _dynamic_expansion_policy(node),
     }
 
 
@@ -2126,6 +2289,30 @@ def _commit_packet_schema(node: NodeSpec) -> dict[str, Any]:
     ]
     if _outline_thread_policy(node):
         fields.extend(["outline_thread_refs", "active_outline_thread_refs", "due_outline_thread_refs"])
+    if node.node_id == "memory_commit_chapter":
+        fields.extend(
+            [
+                "approved_chapter_batch_refs",
+                "chapter_summaries",
+                "manuscript_fact_index",
+                "scene_continuity",
+                "character_state_deltas",
+                "relationship_state_deltas",
+                "world_detail_deltas",
+                "setting_expansion_candidates",
+                "foreshadowing_status_updates",
+                "continuity_index",
+                "next_batch_memory_requests",
+                "must_not_rewrite_facts",
+                "review_verdict_receipt",
+            ]
+        )
+    if node.node_id == "volume_commit":
+        fields.extend(["volume_summary", "volume_character_state", "volume_thread_status", "next_volume_requirements"])
+    if node.node_id == "memory_commit_character":
+        fields.extend(["character_review_ref", "design_sync_ref", "approved_character_slices", "rejected_character_slices", "plot_interface_refs"])
+    if node.node_id == "extension_commit":
+        fields.extend(["world_detail_cards", "character_state_cards", "outline_adjustment_cards", "continuity_correction_cards", "rejected_extension_items", "effective_scope", "expiry_or_review_window", "baseline_upgrade_candidate"])
     return {
         "packet_kind": "WritingMemoryCommitPacket",
         "required_fields": list(dict.fromkeys(fields)),
@@ -2133,6 +2320,48 @@ def _commit_packet_schema(node: NodeSpec) -> dict[str, Any]:
         "source_review_node_id": SOURCE_REVIEW_BY_COMMIT_NODE.get(node.node_id, ""),
         "write_receipt_required": True,
         "downstream_visibility": "visible_after_commit_receipt",
+        "target_repositories": _allowed_write_targets(node),
+    }
+
+
+def _prewrite_memory_plan_policy(node: NodeSpec) -> dict[str, Any]:
+    if node.node_id != "chapter_draft":
+        return {}
+    return {
+        "enabled": True,
+        "authority": "chapter_writer_self_selects_from_structured_memory_pack",
+        "required_before_main_prose": True,
+        "output_section": "写前取材记录",
+        "max_section_chars": 2500,
+        "required_sources": ["memory.writing.baseline", "memory.writing.mutable", "memory.writing.manuscript", "chapter_outline_ref", "volume_plan_ref"],
+        "required_fields": [
+            "本批叙事目标",
+            "采用的世界规则",
+            "采用的人物当前状态",
+            "上一批承接",
+            "正文事实索引",
+            "活跃伏笔",
+            "到期伏笔",
+            "禁改边界",
+            "本批不得新增为事实的内容",
+        ],
+        "main_prose_section_required_after_plan": True,
+        "plan_is_not_canon": True,
+        "missing_plan_verdict": "review_must_revise_or_reject",
+    }
+
+
+def _dynamic_expansion_policy(node: NodeSpec) -> dict[str, Any]:
+    if node.node_id not in {"world_outline_extension_proposal", "extension_review", "extension_commit", "chapter_review", "memory_commit_chapter"}:
+        return {}
+    return {
+        "enabled": True,
+        "authority": "reviewed_dynamic_memory_growth",
+        "baseline_overwrite_forbidden": True,
+        "silent_absorption_forbidden": True,
+        "deviation_resolutions": ["revise_source_text", "propose_dynamic_absorption", "return_to_upstream_design"],
+        "card_types": ["world_detail_card", "character_state_card", "outline_adjustment_card", "continuity_correction_card"],
+        "required_card_fields": ["source_ref", "reason", "affected_scope", "effective_window", "conflict_check", "downstream_usage", "not_baseline_until_reviewed"],
     }
 
 
@@ -2217,9 +2446,10 @@ def _memory_read_policy(node: NodeSpec) -> dict[str, Any]:
 
 def _dynamic_memory_read_policy(node: NodeSpec) -> dict[str, Any]:
     return {
-        "enabled": "memory.writing.mutable" in node.readable_repositories,
+        "enabled": any(repo_id in node.readable_repositories for repo_id in ("memory.writing.mutable", "memory.writing.manuscript")),
         "memory_scope": "writing_modular_novel",
         "repository_node_id": "memory.writing.mutable",
+        "repository_node_ids": [repo_id for repo_id in ("memory.writing.mutable", "memory.writing.manuscript") if repo_id in node.readable_repositories],
         "version_selector": "latest_committed_before_stage_start",
         "summary_only": False,
         "prefer_canonical_text": True,
@@ -2231,7 +2461,7 @@ def _dynamic_memory_read_policy(node: NodeSpec) -> dict[str, Any]:
 
 def _memory_write_policy(node: NodeSpec) -> dict[str, Any]:
     is_commit = node.write_mode in COMMIT_WRITE_MODES
-    return {
+    policy = {
         "mode": node.write_mode,
         "access_model": "edge_based_repository_write",
         "memory_scope": "writing_modular_novel",
@@ -2246,14 +2476,103 @@ def _memory_write_policy(node: NodeSpec) -> dict[str, Any]:
         "write_scope_guard": {
             "baseline_memory_mutable": node.write_mode == "baseline_commit",
             "mutable_memory_mutable": node.write_mode in MUTABLE_COMMIT_WRITE_MODES,
+            "manuscript_memory_mutable": node.write_mode in MANUSCRIPT_COMMIT_WRITE_MODES,
             "forbid_frozen_character_rewrite": True,
             "forbid_frozen_relationship_rewrite": True,
             "requires_outline_review_before_baseline": node.node_id == "baseline_memory_seed",
             "review_verdict_required_before_commit": is_commit,
             "forbid_unreviewed_candidate_commit": is_commit,
+            "forbid_unreviewed_manuscript_commit": node.write_mode in MANUSCRIPT_COMMIT_WRITE_MODES,
             "on_guard_failure": "fail_closed",
         },
     }
+    if node.node_id == "memory_commit_chapter":
+        policy["commit_identity_policy"] = {
+            "mode": "scope_and_artifact_refs",
+            "identity_namespace": "chapter_batch_commit",
+            "input_keys": ["volume_index", "batch_start_index", "batch_end_index"],
+            "artifact_ref_input_keys": [
+                "chapter_draft_ref",
+                "chapter_review_ref",
+                "previous_candidate_ref",
+                "previous_review_ref",
+            ],
+            "artifact_ref_input_suffixes": [":artifact_refs"],
+            "artifact_ref_input_contains": ["chapter_draft", "chapter_review"],
+            "fallback_to_result_artifact_refs": True,
+        }
+    return policy
+
+
+def _runtime_batch_boundary_policy(node: NodeSpec) -> dict[str, Any]:
+    if node.loop_scope_id != "loop.chapter_batch":
+        return {}
+    return {
+        "enabled": True,
+        "start_key": "batch_start_index",
+        "end_key": "batch_end_index",
+        "count_key": "chapters_per_round",
+        "list_key": "batch_chapter_list",
+        "target_metric_key": "batch_target_words",
+        "unit_label": "章",
+        "unit_label_prefix": "第",
+        "unit_label_suffix": "章",
+        "range_template": "本节点只允许处理第{start}章至第{end}章。",
+        "list_template": "允许章号清单：{unit_list}。",
+        "size_template": "当前运行时每轮批次大小为 {unit_count} 章。",
+        "metric_template": "当前批次目标正文量约 {target_metric} 字。",
+        "conflict_template": "如果项目启动包、上游旧产物或历史摘要出现其他批次大小或其他章号范围，以本运行时批次边界为准。",
+    }
+
+
+def _replay_sanitization_policy(node: NodeSpec) -> dict[str, Any]:
+    if node.node_id != "chapter_draft":
+        return {}
+    return {
+        "trigger_input_keys": ["revision_required", "chapter_revision_requirements"],
+        "unit_label": "章",
+        "unit_label_prefix": "第",
+        "unit_label_suffix": "章",
+        "unit_start_key": "batch_start_index",
+        "unit_end_key": "batch_end_index",
+        "unit_count_key": "chapters_per_round",
+        "unit_target_metric_key": "chapter_target_words",
+        "unit_list_key": "batch_chapter_list",
+        "requirements_key": "chapter_revision_requirements",
+        "requirements_template": "第{start}章至第{end}章上一轮审核未通过。本轮必须严格依据最新审核意见重写完整批次，共{count}章；每章约{unit_target}字，只输出完整正文，不要输出摘要、提纲、解释、拒绝、等待补充或工作说明。{review_hint}",
+        "review_ref_key": "previous_chapter_review_ref",
+        "batch_dir_template": "batch_{batch_index:03d}_chapters_{batch_start_index:03d}_{batch_end_index:03d}",
+        "latest_artifact_sources": [
+            {
+                "input_key": "previous_chapter_review_ref",
+                "directory_template": "reviews/chapters/{batch_dir_name}",
+                "pattern": "review_round_*.md",
+            },
+            {
+                "input_key": "previous_chapter_draft_ref",
+                "directory_template": "chapters/{batch_dir_name}",
+                "pattern": "draft_round_*.md",
+            },
+        ],
+        "clear_input_key_contains": ["chapter_draft:artifact_refs"],
+        "review_section_names": [
+            "裁决",
+            "裁决理由",
+            "阻塞问题",
+            "非阻塞问题",
+            "下一轮修改要求",
+            "canon一致性检查",
+            "承接与推进检查",
+            "商业阅读体验检查",
+            "爽点与章末追读检查",
+        ],
+    }
+
+
+def _quality_retry_policy(node: NodeSpec) -> dict[str, Any]:
+    if node.node_id in {"chapter_draft", "chapter_review"}:
+        return _chapter_batch_quality_retry_policy()
+    return {}
 
 
 def _review_gate_policy(node: NodeSpec) -> dict[str, Any]:
@@ -2304,6 +2623,14 @@ def _loop_policy(node: NodeSpec) -> dict[str, Any]:
         "iteration_size_key": "chapters_per_round" if node.loop_scope_id == "loop.chapter_batch" else "target_volumes",
         "iteration_size": CHAPTER_BATCH_SIZE if node.loop_scope_id == "loop.chapter_batch" else TARGET_VOLUMES,
         "exit_decision": "volume_target_reached" if node.loop_scope_id == "loop.chapter_batch" else "target_volumes_reached",
+    }
+
+
+def _executor_policy(node: NodeSpec) -> dict[str, Any]:
+    return {
+        "default_executor": "agent",
+        "allowed_executors": ["agent"],
+        "operation_policy": _node_operation_policy(node_id=node.node_id),
     }
 
 
@@ -2525,6 +2852,13 @@ def _working_memory_policy() -> dict[str, Any]:
                 "read_authority": "memory_read_edges_only",
                 "mutable": True,
                 "library_role": "post_volume_adjustment_layer",
+            },
+            "manuscript_memory": {
+                "repository_node_id": "memory.writing.manuscript",
+                "write_authority": "chapter_commit_memory_commit_edges",
+                "read_authority": "memory_read_edges_only",
+                "mutable": True,
+                "library_role": "approved_manuscript_and_summary_layer",
             },
         },
     }

@@ -1839,6 +1839,42 @@ export type RuntimeLoopSessionTaskRuns = {
   task_runs: RuntimeLoopTaskRunSummary[];
 };
 
+export type GlobalRuntimeMonitorItem = {
+  task_run_id: string;
+  session_id: string;
+  task_id: string;
+  title: string;
+  status: string;
+  terminal_reason: string;
+  created_at: number;
+  updated_at: number;
+  elapsed_seconds: number;
+  latest_event_type: string;
+  latest_event_at: number;
+  event_count: number;
+  coordination_run_id: string;
+  coordination_status: string;
+  graph_id: string;
+  active_node_id: string;
+  project_id: string;
+  project_title: string;
+  project_runtime_status: Record<string, unknown> | null;
+  has_coordination: boolean;
+};
+
+export type GlobalRuntimeMonitor = {
+  authority: string;
+  summary: {
+    total: number;
+    running: number;
+    waiting: number;
+    completed: number;
+    failed: number;
+  };
+  task_runs: GlobalRuntimeMonitorItem[];
+  updated_at: number;
+};
+
 export type RuntimeLoopTaskRunTrace = {
   authority: string;
   task_run: Record<string, unknown>;
@@ -3625,6 +3661,12 @@ export async function listOrchestrationRuntimeLoopTaskRuns(sessionId: string) {
   );
 }
 
+export async function getGlobalRuntimeMonitor(limit = 30) {
+  return request<GlobalRuntimeMonitor>(
+    `/orchestration/runtime-loop/live-monitor?limit=${encodeURIComponent(String(limit))}`
+  );
+}
+
 export async function getOrchestrationRuntimeLoopSessionLiveMonitor(sessionId: string) {
   return request<RuntimeLoopSessionLiveMonitor>(
     `/orchestration/runtime-loop/sessions/${encodeURIComponent(sessionId)}/live-monitor`
@@ -3987,6 +4029,19 @@ export async function saveSoulSystemFile(path: string, content: string, reason =
   return request<SoulSystemCatalog>("/soul/files", {
     method: "PUT",
     body: JSON.stringify({ path, content, reason })
+  });
+}
+
+export async function saveSoulCommonContract(promptId: string, payload: { title: string; content: string; version?: string; cache_scope?: string }) {
+  return request<SoulSystemCatalog>(`/soul/common-contracts/${encodeURIComponent(promptId)}`, {
+    method: "PUT",
+    body: JSON.stringify({
+      prompt_id: promptId,
+      title: payload.title,
+      content: payload.content,
+      version: payload.version ?? "v1",
+      cache_scope: payload.cache_scope ?? "static"
+    })
   });
 }
 

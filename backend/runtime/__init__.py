@@ -74,8 +74,8 @@ from .agent_assembly import (
     SubRuntimeWorkOrder,
     WorkOrder,
     build_agent_assembly_contract,
-    build_execution_permit,
 )
+from .execution_permit import build_execution_permit
 from .shared.event_log import RuntimeEventLog
 from .shared.events import RuntimeEvent, RuntimeEventType
 from .shared.execution_record import (
@@ -89,7 +89,6 @@ from .shared.execution_record import (
     derive_replay_policy,
 )
 from .shared.loop_control import RuntimeLoopControlDecision, RuntimeLoopLimits, check_runtime_loop_control
-from .shared.model_adoption import build_model_response_runtime_adoption
 from .shared.models import (
     AgentHandoffEnvelope,
     AgentRun,
@@ -109,7 +108,6 @@ from .shared.models import (
 from .shared.stage_projection import StageProjectionCycle, StageProjectionSnapshot
 from .memory.state_index import RuntimeStateIndex
 from .memory.trace_reader import RuntimeLoopTraceReader
-from .shared.tool_adoption import build_tool_request_runtime_adoption
 from .shared.tool_repetition_guard import ToolRepetitionGuard
 from .tool_runtime import (
     ToolCallBindingOptions,
@@ -127,6 +125,8 @@ from agent_system.registry.worker_agent_blueprints import WorkerAgentBlueprint, 
 _LAZY_EXPORTS = {
     "TaskRunLoop": (".unit_runtime.loop", "TaskRunLoop"),
     "TaskRunLoopStartResult": (".unit_runtime.loop", "TaskRunLoopStartResult"),
+    "build_model_response_runtime_adoption": ("permissions", "build_model_response_runtime_adoption"),
+    "build_tool_request_runtime_adoption": ("permissions", "build_tool_request_runtime_adoption"),
 }
 
 

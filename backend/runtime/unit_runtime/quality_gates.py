@@ -277,8 +277,6 @@ def _length_budget_quality_gate(
     min_units = _safe_int(length_budget.get("min_units"))
     max_units = _safe_int(length_budget.get("max_units"))
     batch_unit_count = _safe_int(length_budget.get("batch_unit_count"))
-    if batch_unit_count <= 0:
-        batch_unit_count = max(_safe_int(explicit_inputs.get("chapters_per_round")), 1)
     if target_units <= 0 and min_units > 0:
         target_units = min_units
     if max_units > 0 and target_units > max_units:
@@ -380,6 +378,7 @@ def _sectioned_text_batch_quality_gate(
             expected_start=start_index,
             expected_end=end_index,
             expected_indexes=expected_index_set,
+            policy=policy,
         )
         if bool(policy.get("forbid_unexpected_unit_ranges"))
         else []
@@ -465,6 +464,8 @@ def _sectioned_text_batch_quality_gate(
             min_per_unit=min_per_unit,
             insufficient_unit_metrics=insufficient_unit_metrics,
             missing_indexes=missing_indexes,
+            unit_label=str(policy.get("unit_summary_template") or policy.get("unit_summary_label") or policy.get("unit_label") or "单元"),
+            metric_label=str(policy.get("metric_summary_label") or ""),
         ),
         "issues": issues,
     }
@@ -584,35 +585,44 @@ def _unexpected_unit_range_declarations(
     expected_start: int,
     expected_end: int,
     expected_indexes: set[int],
+    policy: dict[str, Any],
 ) -> list[dict[str, Any]]:
     text = str(content or "")
     if not text.strip() or expected_start <= 0 or expected_end <= 0:
         return []
-    exact_range_keywords = (
-        "当前批次",
-        "当前章批次",
-        "本批允许范围",
-        "本批允许章号",
-        "允许范围",
-        "批次目标",
-        "批次摘要",
-        "当前批次细纲",
-        "当前批次正文",
+    exact_range_keywords = tuple(
+        str(item).strip()
+        for item in list(policy.get("range_declaration_keywords") or [])
+        if str(item).strip()
     )
-    broad_batch_keywords = ("本批", "本轮")
+    broad_batch_keywords = tuple(
+        str(item).strip()
+        for item in list(policy.get("broad_range_keywords") or [])
+        if str(item).strip()
+    )
+    range_mention_patterns = tuple(
+        str(item).strip()
+        for item in list(policy.get("range_mention_patterns") or [])
+        if str(item).strip()
+    )
+    unit_index_patterns = tuple(
+        str(item).strip()
+        for item in list(policy.get("unit_index_mention_patterns") or policy.get("required_heading_patterns") or [])
+        if str(item).strip()
+    )
+    if not exact_range_keywords and not broad_batch_keywords and not range_mention_patterns:
+        return []
     unexpected: list[dict[str, Any]] = []
     for line_number, line in enumerate(text.splitlines(), start=1):
         stripped = line.strip()
         if not stripped:
             continue
-        is_exact_declaration = any(keyword in stripped for keyword in exact_range_keywords) or bool(
-            re.search(r"第\s*[0-9一二三四五六七八九十百零〇两]+\s*(?:[-—~～]|至|到)\s*第?\s*[0-9一二三四五六七八九十百零〇两]+\s*章\s*批次摘要", stripped)
-        )
+        is_exact_declaration = any(keyword in stripped for keyword in exact_range_keywords)
         is_batch_line = is_exact_declaration or any(keyword in stripped for keyword in broad_batch_keywords)
         if not is_batch_line:
             continue
-        line_ranges = _chapter_range_mentions_in_text(stripped)
-        line_indexes = _chapter_indexes_in_text(stripped)
+        line_ranges = _range_mentions_in_text(stripped, range_mention_patterns)
+        line_indexes = _unit_indexes_in_text(stripped, unit_index_patterns)
         for range_mention in line_ranges:
             start_index = int(range_mention.get("start_index") or 0)
             end_index = int(range_mention.get("end_index") or 0)
@@ -622,6 +632,11 @@ def _unexpected_unit_range_declarations(
                     stripped,
                     range_mention=range_mention,
                     expected_end=expected_end,
+                    future_keywords=tuple(
+                        str(item).strip()
+                        for item in list(policy.get("future_range_keywords") or [])
+                        if str(item).strip()
+                    ),
                 )
             ):
                 continue
@@ -657,35 +672,44 @@ def _unexpected_unit_range_declarations(
     return unexpected
 
 
-def _chapter_ranges_in_text(content: str) -> list[tuple[int, int]]:
+def _unit_ranges_in_text(content: str, patterns: tuple[str, ...]) -> list[tuple[int, int]]:
     return [
         (int(item["start_index"]), int(item["end_index"]))
-        for item in _chapter_range_mentions_in_text(content)
+        for item in _range_mentions_in_text(content, patterns)
     ]
 
 
-def _chapter_range_mentions_in_text(content: str) -> list[dict[str, int]]:
+def _range_mentions_in_text(content: str, patterns: tuple[str, ...]) -> list[dict[str, int]]:
     text = str(content or "")
-    pattern = re.compile(
-        r"第\s*(?P<start>[0-9一二三四五六七八九十百零〇两]+)\s*章?\s*(?:至|到|[-—~～])\s*第?\s*(?P<end>[0-9一二三四五六七八九十百零〇两]+)\s*章"
-    )
     ranges: list[dict[str, int]] = []
-    for match in pattern.finditer(text):
-        start_index = _parse_index_number(str(match.group("start") or ""))
-        end_index = _parse_index_number(str(match.group("end") or ""))
-        if start_index > 0 and end_index > 0:
-            if start_index <= end_index:
-                normalized_start, normalized_end = start_index, end_index
-            else:
-                normalized_start, normalized_end = end_index, start_index
-            ranges.append(
-                {
-                    "start_index": normalized_start,
-                    "end_index": normalized_end,
-                    "match_start": int(match.start()),
-                    "match_end": int(match.end()),
-                }
-            )
+    for pattern in patterns:
+        try:
+            compiled = re.compile(pattern)
+        except re.error:
+            continue
+        for match in compiled.finditer(text):
+            groups = match.groupdict()
+            start_raw = str(groups.get("start") or groups.get("start_index") or "")
+            end_raw = str(groups.get("end") or groups.get("end_index") or "")
+            if not start_raw and len(match.groups()) >= 1:
+                start_raw = str(match.group(1) or "")
+            if not end_raw and len(match.groups()) >= 2:
+                end_raw = str(match.group(2) or "")
+            start_index = _parse_index_number(start_raw)
+            end_index = _parse_index_number(end_raw)
+            if start_index > 0 and end_index > 0:
+                if start_index <= end_index:
+                    normalized_start, normalized_end = start_index, end_index
+                else:
+                    normalized_start, normalized_end = end_index, start_index
+                ranges.append(
+                    {
+                        "start_index": normalized_start,
+                        "end_index": normalized_end,
+                        "match_start": int(match.start()),
+                        "match_end": int(match.end()),
+                    }
+                )
     return ranges
 
 
@@ -694,23 +718,14 @@ def _is_future_unit_range_reference(
     *,
     range_mention: dict[str, int],
     expected_end: int,
+    future_keywords: tuple[str, ...] = (),
 ) -> bool:
     start_index = int(range_mention.get("start_index") or 0)
     end_index = int(range_mention.get("end_index") or 0)
     if start_index <= expected_end and end_index <= expected_end:
         return False
-    future_keywords = (
-        "下一批",
-        "下批",
-        "下一轮",
-        "下轮",
-        "后续批次",
-        "后续章节",
-        "后续章",
-        "后续承接",
-        "承接点",
-        "下一阶段",
-    )
+    if not future_keywords:
+        return False
     match_start = int(range_mention.get("match_start") or 0)
     prefix = str(line or "")[:match_start]
     suffix = str(line or "")[match_start : int(range_mention.get("match_end") or match_start)]
@@ -718,12 +733,22 @@ def _is_future_unit_range_reference(
     return any(keyword in prefix or keyword in suffix or keyword in nearby for keyword in future_keywords)
 
 
-def _chapter_indexes_in_text(content: str) -> set[int]:
+def _unit_indexes_in_text(content: str, patterns: tuple[str, ...]) -> set[int]:
     indexes: set[int] = set()
-    for match in re.finditer(r"第\s*([0-9一二三四五六七八九十百零〇两]+)\s*章", str(content or "")):
-        parsed = _parse_index_number(str(match.group(1) or ""))
-        if parsed > 0:
-            indexes.add(parsed)
+    for pattern in patterns:
+        try:
+            matches = re.finditer(pattern, str(content or ""), flags=re.MULTILINE)
+        except re.error:
+            continue
+        for match in matches:
+            value = ""
+            if "index" in match.groupdict():
+                value = str(match.groupdict().get("index") or "")
+            elif match.groups():
+                value = str(match.group(1) or "")
+            parsed = _parse_index_number(value)
+            if parsed > 0:
+                indexes.add(parsed)
     return indexes
 
 
@@ -734,6 +759,8 @@ def _unit_metric_summary(
     min_per_unit: int,
     insufficient_unit_metrics: list[dict[str, int]],
     missing_indexes: list[int],
+    unit_label: str = "单元",
+    metric_label: str = "",
 ) -> str:
     if not expected_indexes:
         return ""
@@ -742,16 +769,25 @@ def _unit_metric_summary(
     }
     parts: list[str] = []
     for index in expected_indexes:
+        unit_name = _render_unit_summary_label(unit_label, index)
         if index in missing_indexes:
-            parts.append(f"第{index}章缺失")
+            parts.append(f"{unit_name}缺失")
             continue
         count = int(unit_metric_counts.get(str(index)) or 0)
         if index in insufficient_by_index and min_per_unit > 0:
             deficit = int(insufficient_by_index[index].get("deficit") or 0)
-            parts.append(f"第{index}章约{count}字，低于{min_per_unit}字，需补约{deficit}字")
+            suffix = metric_label or ""
+            parts.append(f"{unit_name}约{count}{suffix}，低于{min_per_unit}{suffix}，需补约{deficit}{suffix}")
         else:
-            parts.append(f"第{index}章约{count}字")
+            parts.append(f"{unit_name}约{count}{metric_label or ''}")
     return "；".join(parts)
+
+
+def _render_unit_summary_label(template: str, index: int) -> str:
+    text = str(template or "").strip()
+    if "{index}" in text:
+        return text.replace("{index}", str(index))
+    return f"{text}{index}"
 
 
 def _parse_index_number(value: str) -> int:
@@ -774,42 +810,3 @@ def _parse_index_number(value: str) -> int:
             current = 0
     return total + current
 
-
-def _match_bundle_ordinal_for_tool_observation(
-    *,
-    bundle_items: list[dict[str, Any]],
-    tool_name: str,
-    tool_args: dict[str, Any],
-    executed_ordinals: list[int],
-) -> int:
-    normalized_tool = str(tool_name or "").strip()
-    if not normalized_tool or not bundle_items:
-        return 0
-    normalized_path = str(tool_args.get("path") or "").strip()
-    normalized_query = str(tool_args.get("query") or "").strip().lower()
-    matching_items = [
-        dict(item)
-        for item in bundle_items
-        if str(item.get("required_tool") or "").strip() == normalized_tool
-    ]
-    if not matching_items:
-        return 0
-    if normalized_path:
-        for item in matching_items:
-            binding = item.get("target_binding")
-            if not isinstance(binding, dict):
-                continue
-            binding_path = str(dict(binding.get("metadata") or {}).get("path") or "").strip()
-            if binding_path and binding_path == normalized_path:
-                return _safe_int(item.get("ordinal"))
-    if normalized_query:
-        for item in matching_items:
-            user_text = str(item.get("user_text") or "").strip().lower()
-            if user_text and (user_text in normalized_query or normalized_query in user_text):
-                return _safe_int(item.get("ordinal"))
-    executed = {value for value in executed_ordinals if _safe_int(value) > 0}
-    for item in matching_items:
-        ordinal = _safe_int(item.get("ordinal"))
-        if ordinal > 0 and ordinal not in executed:
-            return ordinal
-    return _safe_int(matching_items[0].get("ordinal"))

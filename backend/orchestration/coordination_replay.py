@@ -4,15 +4,23 @@ import time
 from pathlib import Path
 from typing import Any
 
-def _sanitize_replayed_writing_stage_request_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    """Clean stale chapter revision fields before replaying a persisted stage request."""
-    if str(payload.get("stage_id") or payload.get("node_id") or "").strip() != "chapter_draft":
-        return payload
+
+def sanitize_replayed_stage_request_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Clean stale revision fields before replaying a persisted stage request.
+
+    The replay policy is contract driven: task-specific behavior belongs in the
+    request's explicit inputs, not in orchestration hardcoded node names.
+    """
+
     explicit_inputs = dict(payload.get("explicit_inputs") or {})
-    if explicit_inputs.get("revision_required") is not True and "chapter_revision_requirements" not in explicit_inputs:
+    replay_policy = _replay_sanitization_policy(payload=payload, explicit_inputs=explicit_inputs)
+    if not replay_policy:
+        return payload
+    trigger_keys = [str(item).strip() for item in list(replay_policy.get("trigger_input_keys") or ["revision_required"]) if str(item).strip()]
+    if trigger_keys and not any(explicit_inputs.get(key) in {True, "true", "1"} or key in explicit_inputs for key in trigger_keys):
         return payload
 
-    sanitized_inputs = _sanitize_writing_chapter_revision_inputs(explicit_inputs)
+    sanitized_inputs = _sanitize_revision_inputs(explicit_inputs, replay_policy=replay_policy)
     sanitized = dict(payload)
     sanitized["explicit_inputs"] = sanitized_inputs
     sanitized["request_id"] = ""
@@ -28,48 +36,93 @@ def _sanitize_replayed_writing_stage_request_payload(payload: dict[str, Any]) ->
     return sanitized
 
 
-def _sanitize_writing_chapter_revision_inputs(explicit_inputs: dict[str, Any]) -> dict[str, Any]:
+def _replay_sanitization_policy(*, payload: dict[str, Any], explicit_inputs: dict[str, Any]) -> dict[str, Any]:
+    for source in (
+        explicit_inputs.get("replay_sanitization_policy"),
+        dict(payload.get("runtime_assembly") or {}).get("replay_sanitization_policy"),
+        dict(dict(payload.get("runtime_assembly") or {}).get("metadata") or {}).get("replay_sanitization_policy"),
+    ):
+        if isinstance(source, dict) and source:
+            return dict(source)
+    return {}
+
+
+def _sanitize_revision_inputs(explicit_inputs: dict[str, Any], *, replay_policy: dict[str, Any]) -> dict[str, Any]:
     inputs = dict(explicit_inputs)
     artifact_root = Path(str(inputs.get("artifact_root") or ""))
-    batch_dir_name = _writing_batch_dir_name(inputs)
+    batch_dir_name = _batch_dir_name(inputs, replay_policy=replay_policy)
 
-    latest_review_ref = _latest_artifact_ref(
-        artifact_root / "reviews" / "chapters" / batch_dir_name,
-        "review_round_*.md",
-    )
-    latest_draft_ref = _latest_artifact_ref(
-        artifact_root / "chapters" / batch_dir_name,
-        "draft_round_*.md",
-    )
-    if latest_review_ref:
-        inputs["previous_chapter_review_ref"] = latest_review_ref
-    if latest_draft_ref:
-        inputs["previous_chapter_draft_ref"] = latest_draft_ref
+    artifact_sources = [dict(item) for item in list(replay_policy.get("latest_artifact_sources") or []) if isinstance(item, dict)]
+    for source in artifact_sources:
+        input_key = str(source.get("input_key") or "").strip()
+        directory_template = str(source.get("directory_template") or "").strip()
+        pattern = str(source.get("pattern") or "").strip()
+        if not input_key or not directory_template or not pattern:
+            continue
+        latest_ref = _latest_artifact_ref(
+            artifact_root / _render_template(directory_template, {**inputs, "batch_dir_name": batch_dir_name}),
+            pattern,
+        )
+        if latest_ref:
+            inputs[input_key] = latest_ref
 
-    batch_start = _safe_int(inputs.get("batch_start_index") or inputs.get("chapter_index"), 1)
-    batch_end = _safe_int(inputs.get("batch_end_index"), batch_start)
-    chapters_per_round = _safe_int(inputs.get("chapters_per_round") or inputs.get("chapter_batch_size"), 10)
-    chapter_target_words = _safe_int(inputs.get("chapter_target_words"), 2000)
-    batch_chapter_numbers = list(range(batch_start, batch_end + 1))
-    inputs["batch_chapter_numbers"] = batch_chapter_numbers
-    inputs["batch_chapter_list"] = "、".join(f"第{i}章" for i in batch_chapter_numbers)
+    review_ref_key = str(replay_policy.get("review_ref_key") or "previous_review_ref").strip()
     review_hint = ""
-    review_text = _read_artifact_text(latest_review_ref)
+    review_text = _read_artifact_text(str(inputs.get(review_ref_key) or ""))
     if review_text:
-        review_hint = "\n最新审核意见摘要：\n" + _compact_review_text(review_text, max_chars=6000)
-    inputs["chapter_revision_requirements"] = (
-        f"第{batch_start}章至第{batch_end}章上一轮审核未通过。"
-        f"本轮必须严格依据最新审核意见重写完整批次，共{chapters_per_round}章；"
-        f"每章约{chapter_target_words}字，只输出完整正文，不要输出摘要、提纲、解释、拒绝、等待补充或工作说明。"
-        f"{review_hint}"
+        review_hint = "\n最新审核意见摘要：\n" + _compact_review_text(
+            review_text,
+            max_chars=_safe_int(replay_policy.get("review_hint_max_chars"), 6000),
+            section_names=tuple(str(item) for item in list(replay_policy.get("review_section_names") or ()) if str(item)),
+        )
+
+    start = _safe_int(inputs.get(str(replay_policy.get("unit_start_key") or "batch_start_index")), 1)
+    end = _safe_int(inputs.get(str(replay_policy.get("unit_end_key") or "batch_end_index")), start)
+    count = _safe_int(inputs.get(str(replay_policy.get("unit_count_key") or "unit_batch_size")), max(end - start + 1, 1))
+    unit_target = _safe_int(inputs.get(str(replay_policy.get("unit_target_metric_key") or "unit_target_metric")), 0)
+    unit_label = str(replay_policy.get("unit_label") or "单元").strip()
+    unit_prefix = str(replay_policy.get("unit_label_prefix") or "").strip()
+    unit_suffix = str(replay_policy.get("unit_label_suffix") or unit_label).strip()
+    unit_numbers = list(range(start, end + 1))
+    list_key = str(replay_policy.get("unit_list_key") or "").strip()
+    if list_key:
+        inputs[list_key] = "、".join(f"{unit_prefix}{index}{unit_suffix}" for index in unit_numbers)
+
+    requirements_key = str(replay_policy.get("requirements_key") or "revision_requirements").strip()
+    template = str(
+        replay_policy.get("requirements_template")
+        or "{unit_prefix}{start}{unit_suffix}至{unit_prefix}{end}{unit_suffix}上一轮审核未通过。"
+        "本轮必须严格依据最新审核意见重写完整批次，共{count}{unit_label}；"
+        "每个单元目标工作量约{unit_target}，只输出完整产物，不要输出摘要、提纲、解释、拒绝、等待补充或工作说明。"
+        "{review_hint}"
+    )
+    inputs[requirements_key] = _render_template(
+        template,
+        {
+            **inputs,
+            "start": start,
+            "end": end,
+            "count": count,
+            "unit_target": unit_target,
+            "unit_label": unit_label,
+            "unit_prefix": unit_prefix,
+            "unit_suffix": unit_suffix,
+            "review_hint": review_hint,
+        },
     )
     inputs["revision_required"] = True
     inputs["force_replay"] = True
     inputs["force_replay_after"] = time.time()
-    for key in list(inputs):
-        if str(key).endswith(":artifact_refs") and "chapter_draft" in str(key):
-            inputs.pop(key, None)
-    inputs.pop("previous_quality_failure_stage_id", None)
+
+    for pattern in list(replay_policy.get("clear_input_key_contains") or []):
+        token = str(pattern or "")
+        if not token:
+            continue
+        for key in list(inputs):
+            if token in str(key):
+                inputs.pop(key, None)
+    for key in list(replay_policy.get("clear_input_keys") or ["previous_quality_failure_stage_id"]):
+        inputs.pop(str(key), None)
     return inputs
 
 
@@ -87,11 +140,14 @@ def _replace_nested_explicit_inputs(value: Any, explicit_inputs: dict[str, Any])
     return value
 
 
-def _writing_batch_dir_name(inputs: dict[str, Any]) -> str:
+def _batch_dir_name(inputs: dict[str, Any], *, replay_policy: dict[str, Any]) -> str:
+    template = str(replay_policy.get("batch_dir_template") or "").strip()
+    if template:
+        return _render_template(template, inputs)
     batch_index = _safe_int(inputs.get("batch_index"), 1)
-    batch_start = _safe_int(inputs.get("batch_start_index") or inputs.get("chapter_index"), 1)
+    batch_start = _safe_int(inputs.get("batch_start_index"), 1)
     batch_end = _safe_int(inputs.get("batch_end_index"), batch_start)
-    return f"batch_{batch_index:03d}_chapters_{batch_start:03d}_{batch_end:03d}"
+    return f"batch_{batch_index:03d}_{batch_start:03d}_{batch_end:03d}"
 
 
 def _latest_artifact_ref(directory: Path, pattern: str) -> str:
@@ -119,22 +175,14 @@ def _read_artifact_text(artifact_ref: str, *, max_chars: int = 8000) -> str:
         return ""
 
 
-def _compact_review_text(text: str, *, max_chars: int = 3000) -> str:
+def _compact_review_text(
+    text: str,
+    *,
+    max_chars: int = 3000,
+    section_names: tuple[str, ...] = (),
+) -> str:
     raw = str(text or "").strip()
-    sections = _extract_named_review_sections(
-        raw,
-        section_names=(
-            "裁决",
-            "裁决理由",
-            "阻塞问题",
-            "非阻塞问题",
-            "下一轮修改要求",
-            "canon一致性检查",
-            "承接与推进检查",
-            "商业阅读体验检查",
-            "爽点与章末追读检查",
-        ),
-    )
+    sections = _extract_named_review_sections(raw, section_names=section_names)
     if sections:
         compact = "\n\n".join(sections)
     else:
@@ -165,6 +213,8 @@ def _compact_review_text(text: str, *, max_chars: int = 3000) -> str:
 
 
 def _extract_named_review_sections(text: str, *, section_names: tuple[str, ...]) -> list[str]:
+    if not section_names:
+        return []
     sections: list[tuple[str, list[str]]] = []
     current_name = ""
     current_lines: list[str] = []
@@ -195,9 +245,26 @@ def _extract_named_review_sections(text: str, *, section_names: tuple[str, ...])
     return ["\n".join(lines).strip() for name, lines in sections if name in wanted and "\n".join(lines).strip()]
 
 
+def _render_template(template: str, values: dict[str, Any]) -> str:
+    try:
+        return str(template or "").format_map(_SafeFormatValues(values))
+    except (KeyError, ValueError, IndexError):
+        rendered = str(template or "")
+        for key, value in dict(values or {}).items():
+            rendered = rendered.replace("{" + str(key) + "}", str(value))
+        return rendered
+
+
+class _SafeFormatValues(dict):
+    def __init__(self, values: dict[str, Any]) -> None:
+        super().__init__({str(key): value for key, value in dict(values or {}).items()})
+
+    def __missing__(self, key: str) -> str:
+        return "{" + str(key) + "}"
+
+
 def _safe_int(value: Any, default: int = 0) -> int:
     try:
         return int(value)
     except (TypeError, ValueError):
         return default
-

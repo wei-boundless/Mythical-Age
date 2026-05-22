@@ -1,38 +1,71 @@
 "use client";
 
-import { Activity, ChevronRight, Minimize2, Network, RefreshCw, ShieldAlert, X } from "lucide-react";
+import { Activity, AlertTriangle, CheckCircle2, ChevronRight, Clock3, Minimize2, Network, PauseCircle, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { TaskGraphRunMonitorPanel } from "@/components/task-graph-monitor/TaskGraphRunMonitorPanel";
+import type { GlobalRuntimeMonitorItem } from "@/lib/api";
 import { useAppStore } from "@/lib/store";
+
+const ACTIVE_STATUSES = new Set(["created", "running", "waiting_approval", "blocked"]);
+const WAITING_STATUSES = new Set(["waiting_approval", "blocked"]);
+
+function statusLabel(status: string) {
+  if (status === "running" || status === "created") return "进行中";
+  if (status === "waiting_approval") return "等待审批";
+  if (status === "blocked") return "受阻";
+  if (status === "completed" || status === "success") return "已完成";
+  if (status === "failed") return "失败";
+  if (status === "aborted") return "已停止";
+  return status || "未知";
+}
+
+function statusIcon(status: string) {
+  if (WAITING_STATUSES.has(status)) return <PauseCircle size={14} />;
+  if (status === "completed" || status === "success") return <CheckCircle2 size={14} />;
+  if (status === "failed" || status === "aborted") return <AlertTriangle size={14} />;
+  return <Activity size={14} />;
+}
+
+function formatDuration(seconds: number) {
+  const safe = Math.max(0, Math.floor(seconds || 0));
+  const hours = Math.floor(safe / 3600);
+  const minutes = Math.floor((safe % 3600) / 60);
+  const secs = safe % 60;
+  if (hours) return `${hours}h ${minutes}m`;
+  if (minutes) return `${minutes}m ${secs}s`;
+  return `${secs}s`;
+}
+
+function formatTime(timestamp: number) {
+  if (!timestamp) return "-";
+  return new Date(timestamp * 1000).toLocaleTimeString();
+}
+
+function taskTitle(item: GlobalRuntimeMonitorItem) {
+  return item.project_title || item.title || item.task_id || item.task_run_id;
+}
 
 export function TaskMonitorDock() {
   const {
-    clearTaskGraphMonitorRun,
-    evaluateBoundTaskGraphMonitor,
-    resolveRuntimeApproval,
-    setTaskGraphRunInteractionOpen,
-    taskGraphBoundRunMonitor,
-    taskGraphLiveMonitor,
-    taskGraphMonitorBinding,
-    taskGraphMonitorDecision,
-    taskGraphMonitorError,
-    taskGraphMonitorLoading,
-    taskGraphRunMonitor,
+    globalRuntimeMonitor,
+    globalRuntimeMonitorError,
+    globalRuntimeMonitorLoading,
+    globalRuntimeMonitorSelectedGraphMonitor,
+    globalRuntimeMonitorSelectedLiveMonitor,
+    globalRuntimeMonitorSelectedTaskRunId,
+    refreshGlobalRuntimeMonitor,
+    selectGlobalRuntimeMonitorTaskRun,
   } = useAppStore();
   const [collapsed, setCollapsed] = useState(false);
-  const [approvalBusy, setApprovalBusy] = useState(false);
-  const [approvalError, setApprovalError] = useState("");
-  const monitor = taskGraphBoundRunMonitor ?? taskGraphRunMonitor ?? null;
-  const hasSignal = Boolean(monitor || taskGraphLiveMonitor || taskGraphMonitorBinding);
-  const pendingApproval = useMemo(() => {
-    const state = taskGraphLiveMonitor?.loop_state;
-    const approval = state && typeof state === "object" && !Array.isArray(state)
-      ? (state.pending_approval_state as Record<string, unknown> | undefined)
-      : undefined;
-    return approval && String(approval.status ?? "") === "pending" ? approval : null;
-  }, [taskGraphLiveMonitor?.loop_state]);
-  const pendingApprovalTaskRunId = String(taskGraphLiveMonitor?.task_run?.task_run_id ?? pendingApproval?.task_run_id ?? "").trim();
+  const tasks = useMemo(() => globalRuntimeMonitor?.task_runs ?? [], [globalRuntimeMonitor?.task_runs]);
+  const summary = globalRuntimeMonitor?.summary ?? { total: 0, running: 0, waiting: 0, completed: 0, failed: 0 };
+  const selectedTask = useMemo(
+    () => tasks.find((item) => item.task_run_id === globalRuntimeMonitorSelectedTaskRunId) ?? tasks[0] ?? null,
+    [globalRuntimeMonitorSelectedTaskRunId, tasks]
+  );
+  const hasActiveSignal = tasks.some((item) => ACTIVE_STATUSES.has(item.status));
+  const hasSignal = tasks.length > 0;
 
   useEffect(() => {
     const collapseQuery = window.matchMedia("(max-width: 1260px)");
@@ -49,34 +82,18 @@ export function TaskMonitorDock() {
   }, []);
 
   const statusText = useMemo(() => {
-    if (pendingApproval) return "等待审批";
-    if (taskGraphMonitorLoading) return "同步中";
-    if (monitor) return "运行监控";
-    if (taskGraphMonitorBinding) return "已绑定";
-    if (taskGraphLiveMonitor) return "实时信号";
+    if (globalRuntimeMonitorLoading && !globalRuntimeMonitor) return "同步中";
+    if (summary.waiting) return "等待处理";
+    if (summary.running) return `${summary.running} 运行中`;
+    if (summary.total) return `${summary.total} 个任务`;
     return "待命";
-  }, [monitor, pendingApproval, taskGraphLiveMonitor, taskGraphMonitorBinding, taskGraphMonitorLoading]);
-
-  async function submitApproval(decision: "approve" | "reject") {
-    if (!pendingApprovalTaskRunId || approvalBusy) {
-      return;
-    }
-    setApprovalBusy(true);
-    setApprovalError("");
-    try {
-      await resolveRuntimeApproval(pendingApprovalTaskRunId, decision);
-    } catch (error) {
-      setApprovalError(error instanceof Error ? error.message : "审批提交失败");
-    } finally {
-      setApprovalBusy(false);
-    }
-  }
+  }, [globalRuntimeMonitor, globalRuntimeMonitorLoading, summary.running, summary.total, summary.waiting]);
 
   return (
-    <aside className={collapsed ? "task-monitor-dock task-monitor-dock--collapsed" : "task-monitor-dock"} aria-label="任务监控">
+    <aside className={collapsed ? "task-monitor-dock task-monitor-dock--collapsed" : "task-monitor-dock"} aria-label="全局运行监控">
       <header className="task-monitor-dock__head">
         <button
-          aria-label={collapsed ? "展开任务监控" : "折叠任务监控"}
+          aria-label={collapsed ? "展开运行监控" : "折叠运行监控"}
           className="task-monitor-dock__collapse"
           onClick={() => setCollapsed((current) => !current)}
           type="button"
@@ -87,21 +104,22 @@ export function TaskMonitorDock() {
           <Activity size={16} />
           <span>监控</span>
         </div>
-        {!collapsed && taskGraphMonitorBinding ? (
+        {!collapsed ? (
           <button
-            aria-label="解除当前运行监控绑定"
+            aria-label="刷新运行监控"
             className="task-monitor-dock__open"
-            onClick={clearTaskGraphMonitorRun}
+            disabled={globalRuntimeMonitorLoading}
+            onClick={() => void refreshGlobalRuntimeMonitor()}
             type="button"
           >
-            <X size={15} />
+            <RefreshCw size={15} />
           </button>
         ) : null}
       </header>
 
       {collapsed ? (
         <button
-          className={hasSignal ? "task-monitor-dock__rail task-monitor-dock__rail--active" : "task-monitor-dock__rail"}
+          className={hasActiveSignal ? "task-monitor-dock__rail task-monitor-dock__rail--active" : "task-monitor-dock__rail"}
           onClick={() => setCollapsed(false)}
           type="button"
         >
@@ -112,62 +130,89 @@ export function TaskMonitorDock() {
         <div className="task-monitor-dock__body">
           <section className={hasSignal ? "task-monitor-summary task-monitor-summary--active" : "task-monitor-summary"}>
             <div>
-              <span>任务状态</span>
+              <span>全局任务</span>
               <strong>{statusText}</strong>
             </div>
-            <small>{taskGraphMonitorBinding?.title || taskGraphMonitorBinding?.task_run_id || "Agent 开始任务后，这里显示运行信息。"}</small>
-            <div className="task-monitor-summary__actions">
-              <button
-                disabled={!taskGraphMonitorBinding || taskGraphMonitorLoading}
-                onClick={() => void evaluateBoundTaskGraphMonitor()}
-                type="button"
-              >
-                <RefreshCw size={13} />
-                <span>{taskGraphMonitorLoading ? "监测中" : "执行监测"}</span>
-              </button>
-              {taskGraphMonitorDecision?.action && taskGraphMonitorDecision.action !== "no_action" ? (
-                <button onClick={() => setTaskGraphRunInteractionOpen(true)} type="button">
-                  <Activity size={13} />
-                  <span>处理提醒</span>
-                </button>
-              ) : null}
-            </div>
+            <small>
+              {globalRuntimeMonitor?.updated_at
+                ? `最近刷新 ${formatTime(globalRuntimeMonitor.updated_at)}`
+                : "任务开始后，这里显示全局运行信息。"}
+            </small>
           </section>
 
-          {taskGraphMonitorError ? (
+          <section className="runtime-monitor-metrics" aria-label="任务运行统计">
+            <article><strong>{summary.running}</strong><span>进行中</span></article>
+            <article><strong>{summary.waiting}</strong><span>等待</span></article>
+            <article><strong>{summary.completed}</strong><span>完成</span></article>
+            <article><strong>{summary.total}</strong><span>总数</span></article>
+          </section>
+
+          {globalRuntimeMonitorError ? (
             <section className="task-monitor-alert task-monitor-alert--error">
               <strong>监控读取异常</strong>
-              <span>{taskGraphMonitorError}</span>
+              <span>{globalRuntimeMonitorError}</span>
             </section>
           ) : null}
 
-          {pendingApproval ? (
-            <section className="task-monitor-alert task-monitor-alert--attention">
-              <strong className="task-monitor-alert__title"><ShieldAlert size={14} /> 工具调用等待审批</strong>
-              <span>{String(pendingApproval.tool_name ?? pendingApproval.operation_id ?? "unknown")}</span>
-              <small>{String(pendingApproval.directive_ref ?? "")}</small>
-              <div className="task-monitor-summary__actions">
-                <button disabled={approvalBusy} onClick={() => { void submitApproval("approve"); }} type="button">
-                  <span>批准执行</span>
+          <section className="runtime-monitor-list" aria-label="运行任务列表">
+            {tasks.length ? tasks.map((item) => {
+              const active = item.task_run_id === selectedTask?.task_run_id;
+              return (
+                <button
+                  className={active ? "runtime-monitor-row runtime-monitor-row--active" : "runtime-monitor-row"}
+                  key={item.task_run_id}
+                  onClick={() => selectGlobalRuntimeMonitorTaskRun(item.task_run_id)}
+                  type="button"
+                >
+                  <span className={`runtime-monitor-row__status runtime-monitor-row__status--${item.status}`}>
+                    {statusIcon(item.status)}
+                  </span>
+                  <span className="runtime-monitor-row__main">
+                    <strong>{taskTitle(item)}</strong>
+                    <small>{item.graph_id || item.coordination_run_id || item.task_run_id}</small>
+                  </span>
+                  <span className="runtime-monitor-row__meta">
+                    <strong>{statusLabel(item.status)}</strong>
+                    <small>{formatDuration(item.elapsed_seconds)}</small>
+                  </span>
                 </button>
-                <button disabled={approvalBusy} onClick={() => { void submitApproval("reject"); }} type="button">
-                  <span>拒绝</span>
-                </button>
+              );
+            }) : (
+              <div className="runtime-monitor-empty">
+                <Clock3 size={18} />
+                <strong>当前没有运行任务</strong>
+                <span>Agent 开始执行后，会按任务显示实时状态。</span>
               </div>
-              {approvalError ? <span>{approvalError}</span> : null}
-            </section>
-          ) : null}
+            )}
+          </section>
 
-          {taskGraphMonitorDecision ? (
-            <section className={taskGraphMonitorDecision.action === "no_action" ? "task-monitor-alert" : "task-monitor-alert task-monitor-alert--attention"}>
-              <strong>{taskGraphMonitorDecision.summary || "监测已返回决策"}</strong>
-              <span>{taskGraphMonitorDecision.action} / {taskGraphMonitorDecision.reason}</span>
-            </section>
-          ) : null}
+          <section className="runtime-monitor-detail" aria-label="选中任务详细监控">
+            {selectedTask ? (
+              <header className="runtime-monitor-detail__head">
+                <div>
+                  <span>{statusLabel(selectedTask.status)}</span>
+                  <strong>{taskTitle(selectedTask)}</strong>
+                </div>
+                <small>{selectedTask.event_count} events · 更新 {formatTime(selectedTask.latest_event_at || selectedTask.updated_at)}</small>
+              </header>
+            ) : null}
 
-          <div className="task-monitor-dock__panel">
-            <TaskGraphRunMonitorPanel monitor={monitor} />
-          </div>
+            {globalRuntimeMonitorSelectedGraphMonitor ? (
+              <TaskGraphRunMonitorPanel monitor={globalRuntimeMonitorSelectedGraphMonitor} />
+            ) : globalRuntimeMonitorSelectedLiveMonitor ? (
+              <div className="runtime-monitor-lite-detail">
+                <article><span>TaskRun</span><strong>{String(globalRuntimeMonitorSelectedLiveMonitor.task_run?.task_run_id ?? selectedTask?.task_run_id ?? "")}</strong></article>
+                <article><span>状态</span><strong>{statusLabel(globalRuntimeMonitorSelectedLiveMonitor.status)}</strong></article>
+                <article><span>终止原因</span><strong>{globalRuntimeMonitorSelectedLiveMonitor.terminal_reason || "-"}</strong></article>
+                <article><span>Checkpoint</span><strong>{String(globalRuntimeMonitorSelectedLiveMonitor.latest_checkpoint?.checkpoint_id ?? "-")}</strong></article>
+              </div>
+            ) : selectedTask ? (
+              <div className="runtime-monitor-empty">
+                <RefreshCw size={18} />
+                <strong>正在读取详情</strong>
+              </div>
+            ) : null}
+          </section>
         </div>
       )}
     </aside>

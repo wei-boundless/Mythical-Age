@@ -10,6 +10,50 @@ if str(BACKEND_DIR) not in sys.path:
 from runtime.unit_runtime.quality_gates import _sectioned_text_batch_quality_gate
 
 
+def _chapter_quality_policy(**overrides) -> dict:
+    policy = {
+        "unit_start_key": "batch_start_index",
+        "unit_end_key": "batch_end_index",
+        "unit_count_key": "chapters_per_round",
+        "target_metric_key": "batch_target_words",
+        "unit_target_metric_key": "chapter_target_words",
+        "minimum_metric_ratio": 0.55,
+        "minimum_metric_per_unit": 1200,
+        "unit_summary_template": "第{index}章",
+        "metric_summary_label": "字",
+        "required_heading_patterns": [r"第\s*(?P<index>[0-9一二三四五六七八九十百零〇两]+)\s*[章节回]"],
+        "range_declaration_keywords": [
+            "当前批次",
+            "当前章批次",
+            "本批允许范围",
+            "本批允许章号",
+            "允许范围",
+            "批次目标",
+            "批次摘要",
+            "当前批次细纲",
+            "当前批次正文",
+        ],
+        "broad_range_keywords": ["本批", "本轮"],
+        "range_mention_patterns": [
+            r"第\s*(?P<start>[0-9一二三四五六七八九十百零〇两]+)\s*章?\s*(?:至|到|[-—~～])\s*第?\s*(?P<end>[0-9一二三四五六七八九十百零〇两]+)\s*章"
+        ],
+        "future_range_keywords": [
+            "下一批",
+            "下批",
+            "下一轮",
+            "下轮",
+            "后续批次",
+            "后续章节",
+            "后续章",
+            "后续承接",
+            "承接点",
+            "下一阶段",
+        ],
+    }
+    policy.update(overrides)
+    return policy
+
+
 def test_chapter_draft_quality_gate_reports_per_chapter_metric_deficits() -> None:
     text = "\n\n".join(
         [
@@ -28,16 +72,7 @@ def test_chapter_draft_quality_gate_reports_per_chapter_metric_deficits() -> Non
             "chapter_target_words": 2000,
             "batch_target_words": 6000,
         },
-        policy={
-            "unit_start_key": "batch_start_index",
-            "unit_end_key": "batch_end_index",
-            "unit_count_key": "chapters_per_round",
-            "target_metric_key": "batch_target_words",
-            "unit_target_metric_key": "chapter_target_words",
-            "minimum_metric_ratio": 0.55,
-            "minimum_metric_per_unit": 1200,
-            "required_heading_patterns": [r"第\s*(?P<index>[0-9一二三四五六七八九十百零〇两]+)\s*[章节回]"],
-        },
+        policy=_chapter_quality_policy(),
     )
 
     assert result["accepted"] is False
@@ -75,14 +110,7 @@ def test_chapter_draft_quality_gate_accepts_complete_bounded_batch() -> None:
             "batch_target_words": 6000,
         },
         policy={
-            "unit_start_key": "batch_start_index",
-            "unit_end_key": "batch_end_index",
-            "unit_count_key": "chapters_per_round",
-            "target_metric_key": "batch_target_words",
-            "unit_target_metric_key": "chapter_target_words",
-            "minimum_metric_ratio": 0.55,
-            "minimum_metric_per_unit": 1200,
-            "required_heading_patterns": [r"第\s*(?P<index>[0-9一二三四五六七八九十百零〇两]+)\s*[章节回]"],
+            **_chapter_quality_policy(),
         },
     )
 
@@ -113,15 +141,7 @@ def test_batch_quality_gate_rejects_unexpected_chapter_headings() -> None:
             "batch_target_words": 10000,
         },
         policy={
-            "unit_start_key": "batch_start_index",
-            "unit_end_key": "batch_end_index",
-            "unit_count_key": "chapters_per_round",
-            "target_metric_key": "batch_target_words",
-            "unit_target_metric_key": "chapter_target_words",
-            "minimum_metric_ratio": 0.55,
-            "minimum_metric_per_unit": 1200,
-            "required_heading_patterns": [r"第\s*(?P<index>[0-9一二三四五六七八九十百零〇两]+)\s*[章节回]"],
-            "forbid_unexpected_unit_indexes": True,
+            **_chapter_quality_policy(forbid_unexpected_unit_indexes=True),
         },
     )
 
@@ -161,17 +181,11 @@ def test_batch_quality_gate_ignores_next_batch_handoff_chapter_numbers() -> None
             "batch_target_words": 10000,
         },
         policy={
-            "unit_start_key": "batch_start_index",
-            "unit_end_key": "batch_end_index",
-            "unit_count_key": "chapters_per_round",
-            "target_metric_key": "batch_target_words",
-            "unit_target_metric_key": "chapter_target_words",
-            "minimum_metric_ratio": 0.55,
-            "minimum_metric_per_unit": 1200,
-            "required_heading_patterns": [r"第\s*(?P<index>[0-9一二三四五六七八九十百零〇两]+)\s*[章节回]"],
-            "heading_match_scope": "formal_heading",
-            "ignored_heading_parent_keywords": ["后续批次承接点"],
-            "forbid_unexpected_unit_indexes": True,
+            **_chapter_quality_policy(
+                heading_match_scope="formal_heading",
+                ignored_heading_parent_keywords=["后续批次承接点"],
+                forbid_unexpected_unit_indexes=True,
+            ),
         },
     )
 
@@ -201,15 +215,13 @@ def test_batch_quality_gate_ignores_future_batch_range_reference() -> None:
             "chapters_per_round": 5,
         },
         policy={
-            "unit_start_key": "batch_start_index",
-            "unit_end_key": "batch_end_index",
-            "unit_count_key": "chapters_per_round",
-            "minimum_metric_ratio": 0.0,
-            "minimum_metric_per_unit": 0,
-            "required_heading_patterns": [r"第\s*(?P<index>[0-9一二三四五六七八九十百零〇两]+)\s*[章节回]"],
-            "heading_match_scope": "formal_heading",
-            "forbid_unexpected_unit_indexes": True,
-            "forbid_unexpected_unit_ranges": True,
+            **_chapter_quality_policy(
+                minimum_metric_ratio=0.0,
+                minimum_metric_per_unit=0,
+                heading_match_scope="formal_heading",
+                forbid_unexpected_unit_indexes=True,
+                forbid_unexpected_unit_ranges=True,
+            ),
         },
     )
 
@@ -240,13 +252,11 @@ def test_batch_quality_gate_rejects_stale_batch_range_declaration() -> None:
             "chapters_per_round": 5,
         },
         policy={
-            "unit_start_key": "batch_start_index",
-            "unit_end_key": "batch_end_index",
-            "unit_count_key": "chapters_per_round",
-            "minimum_metric_ratio": 0.0,
-            "minimum_metric_per_unit": 0,
-            "required_heading_patterns": [r"第\s*(?P<index>[0-9一二三四五六七八九十百零〇两]+)\s*[章节回]"],
-            "forbid_unexpected_unit_ranges": True,
+            **_chapter_quality_policy(
+                minimum_metric_ratio=0.0,
+                minimum_metric_per_unit=0,
+                forbid_unexpected_unit_ranges=True,
+            ),
         },
     )
 
@@ -281,27 +291,21 @@ def test_chapter_draft_quality_gate_excludes_manifest_sections_from_body_metrics
             "batch_target_words": 10000,
         },
         policy={
-            "unit_start_key": "batch_start_index",
-            "unit_end_key": "batch_end_index",
-            "unit_count_key": "chapters_per_round",
-            "target_metric_key": "batch_target_words",
-            "unit_target_metric_key": "chapter_target_words",
-            "minimum_metric_ratio": 0.55,
-            "minimum_metric_per_unit": 1200,
-            "required_heading_patterns": [r"第\s*(?P<index>[0-9一二三四五六七八九十百零〇两]+)\s*[章节回]"],
-            "heading_match_scope": "formal_heading",
-            "metric_section_keys": ["章节正文候选"],
-            "metric_stop_section_keys": [
-                "承接说明",
-                "本章目标完成说明",
-                "人物与冲突推进",
-                "商业钩子与爽点兑现",
-                "后续伏笔或待承接事项",
-                "自检风险",
-                "公开摘要",
-            ],
-            "forbid_unexpected_unit_indexes": True,
-            "forbid_unexpected_unit_ranges": True,
+            **_chapter_quality_policy(
+                heading_match_scope="formal_heading",
+                metric_section_keys=["章节正文候选"],
+                metric_stop_section_keys=[
+                    "承接说明",
+                    "本章目标完成说明",
+                    "人物与冲突推进",
+                    "商业钩子与爽点兑现",
+                    "后续伏笔或待承接事项",
+                    "自检风险",
+                    "公开摘要",
+                ],
+                forbid_unexpected_unit_indexes=True,
+                forbid_unexpected_unit_ranges=True,
+            ),
         },
     )
 

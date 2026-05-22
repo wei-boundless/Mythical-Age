@@ -98,16 +98,12 @@ def build_task_graph_run_monitor_view(
     )
     committed_unit_count = int(
         project_progress.get("committed_unit_count")
-        or project_progress.get("committed_chapter_count")
         or project_runtime_status.get("committed_unit_count")
-        or project_runtime_status.get("committed_chapter_count")
         or 0
     )
     last_committed_unit_index = int(
         project_progress.get("last_committed_unit_index")
-        or project_progress.get("last_committed_chapter_index")
         or project_runtime_status.get("last_committed_unit_index")
-        or project_runtime_status.get("last_committed_chapter_index")
         or 0
     )
     supervision_items = [dict(item) for item in list(supervision_records or []) if isinstance(item, dict)]

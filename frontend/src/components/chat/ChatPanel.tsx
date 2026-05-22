@@ -4,15 +4,22 @@ import { useEffect, useMemo, useRef } from "react";
 
 import { ChatInput } from "@/components/chat/ChatInput";
 import { ChatMessage } from "@/components/chat/ChatMessage";
+import { SessionActivityBar } from "@/components/chat/SessionActivityBar";
 import { useAppStore } from "@/lib/store";
 
-export function ChatPanel() {
+type ChatPanelProps = {
+  visualMode?: "default" | "reality";
+  onVisualModeChange?: (mode: "default" | "reality") => void;
+};
+
+export function ChatPanel({ visualMode = "default", onVisualModeChange }: ChatPanelProps) {
   const {
     messages,
     sendMessage,
     stopCurrentStream,
     resendEditedMessage,
     activeStreamSessionIds,
+    sessionActivity,
     currentSessionId,
     searchPolicy,
     toggleSearchPolicySource,
@@ -39,7 +46,25 @@ export function ChatPanel() {
     <section className="chat-panel-shell grid h-full min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_auto] overflow-hidden">
       <div className="chat-thread flex min-h-0 min-w-0 flex-col overflow-hidden">
         <header className="chat-thread__head">
-          <span>对话</span>
+          <span>主会话</span>
+          {onVisualModeChange ? (
+            <div className="chat-visual-switch" aria-label="主会话外观模式">
+              <button
+                className={visualMode === "default" ? "chat-visual-switch__item chat-visual-switch__item--active" : "chat-visual-switch__item"}
+                onClick={() => onVisualModeChange("default")}
+                type="button"
+              >
+                默认
+              </button>
+              <button
+                className={visualMode === "reality" ? "chat-visual-switch__item chat-visual-switch__item--active" : "chat-visual-switch__item"}
+                onClick={() => onVisualModeChange("reality")}
+                type="button"
+              >
+                现实
+              </button>
+            </div>
+          ) : null}
         </header>
 
         <div className="chat-thread__messages flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
@@ -64,6 +89,7 @@ export function ChatPanel() {
       </div>
 
       <div className="chat-panel-footer min-w-0">
+        <SessionActivityBar activity={sessionActivity} active={currentSessionStreaming} />
         <ChatInput
           disabled={currentSessionStreaming}
           onSend={sendMessage}

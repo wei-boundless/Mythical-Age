@@ -1,18 +1,10 @@
 from __future__ import annotations
 
+from .agent_config import HEALTH_AGENT_ID, HEALTH_SESSION_ID
 
-HEALTH_AGENT_ID = "agent:3"
-HEALTH_SESSION_ID = "health-system"
-
-
-HEALTH_TASK_ID_BY_ACTION = {
-    "issue_triage": "task.health.issue_triage",
-    "trace_analysis": "task.health.trace_analysis",
-    "case_draft": "task.health.case_draft",
-    "fix_verification": "task.health.fix_verification",
-}
+HEALTH_TASK_ID_BY_ACTION: dict[str, str] = {}
 
 
 def health_specific_task_id(health_action: str) -> str:
-    normalized = str(health_action or "").strip()
-    return HEALTH_TASK_ID_BY_ACTION.get(normalized, f"task.health.{normalized or 'issue_triage'}")
+    _ = health_action
+    return ""

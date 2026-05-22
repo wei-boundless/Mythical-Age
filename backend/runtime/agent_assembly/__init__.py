@@ -30,7 +30,6 @@ from .models import (
     SubRuntimeWorkOrder,
     WorkOrder,
 )
-from .permit_builder import build_execution_permit
 from .prompt_composer import compose_prompt, compose_prompt_snapshot
 from .result_projector import (
     project_execution_result,
@@ -76,7 +75,6 @@ __all__ = [
     "bind_soul",
     "build_agent_assembly_contract",
     "build_assembly_contract_id",
-    "build_execution_permit",
     "build_execution_permit_for_work_order",
     "build_execution_permit_id",
     "build_execution_result_id",

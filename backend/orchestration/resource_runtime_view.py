@@ -5,7 +5,7 @@ from typing import Any
 
 from capability_system.operation_registry import OperationRegistry
 
-from .resource_policy import ResourceDecision, ResourcePolicy
+from permissions.resource_policy import ResourceDecision, ResourcePolicy
 
 
 @dataclass(frozen=True, slots=True)

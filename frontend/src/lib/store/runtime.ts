@@ -7,8 +7,10 @@ import {
   createSession,
   deleteSession,
   getCoordinationRunTaskGraphMonitor,
+  getGlobalRuntimeMonitor,
   getTaskGraphRunMonitorDecisions,
   getTaskGraphRunMonitor,
+  getOrchestrationRuntimeLoopTaskRunLiveMonitor,
   getOrchestrationRuntimeLoopSessionLiveMonitor,
   getRagMode,
   getSessionHistory,
@@ -53,6 +55,8 @@ export class WorkspaceRuntime {
   private taskGraphMonitorTimer: number | null = null;
   private taskGraphMonitorTaskRunId: string | null = null;
   private taskGraphMonitorInFlight = false;
+  private globalRuntimeMonitorTimer: number | null = null;
+  private globalRuntimeMonitorInFlight = false;
   private sessionRefreshTimers: number[] = [];
   private streamingSessionCache = new Map<string, Pick<StoreState, "messages" | "orchestrationSnapshot">>();
   private removedStreamingSessionIds = new Set<string>();
@@ -149,6 +153,12 @@ export class WorkspaceRuntime {
       },
       setTaskSelection: (selection) => {
         this.setTaskSelection(selection);
+      },
+      selectGlobalRuntimeMonitorTaskRun: (taskRunId) => {
+        this.selectGlobalRuntimeMonitorTaskRun(taskRunId);
+      },
+      refreshGlobalRuntimeMonitor: async () => {
+        await this.refreshGlobalRuntimeMonitor();
       }
     };
   }
@@ -189,6 +199,7 @@ export class WorkspaceRuntime {
       inspectorDirty: false
     }));
     this.restoreTaskGraphMonitorBinding();
+    this.startGlobalRuntimeMonitorPolling();
   }
 
   dispose() {
@@ -201,6 +212,7 @@ export class WorkspaceRuntime {
     this.sessionRefreshTimers = [];
     this.stopOrchestrationMonitorPolling();
     this.stopTaskGraphMonitorPolling();
+    this.stopGlobalRuntimeMonitorPolling();
   }
 
   private scheduleSessionRefreshes(delays: number[] = [1500, 4000]) {
@@ -1171,6 +1183,7 @@ export class WorkspaceRuntime {
         ?? taskGraphRunIdFromLiveMonitor(liveMonitor.monitor)
         ?? ""
       ).trim();
+      this.updateSessionActivityFromLiveMonitor(liveStatus, taskRunId, coordinationRunId);
       let taskGraphRunMonitor = this.store.getState().taskGraphRunMonitor;
       if (coordinationRunId) {
         taskGraphRunMonitor = await getCoordinationRunTaskGraphMonitor(coordinationRunId);
@@ -1193,5 +1206,168 @@ export class WorkspaceRuntime {
 
   private setTaskSelection(selection: TaskSelectionState | null) {
     this.store.setState((prev) => ({ ...prev, taskSelection: selection }));
+  }
+
+  private startGlobalRuntimeMonitorPolling() {
+    if (typeof window === "undefined") {
+      return;
+    }
+    void this.refreshGlobalRuntimeMonitor();
+  }
+
+  private stopGlobalRuntimeMonitorPolling() {
+    if (typeof window === "undefined") {
+      return;
+    }
+    if (this.globalRuntimeMonitorTimer !== null) {
+      window.clearTimeout(this.globalRuntimeMonitorTimer);
+      this.globalRuntimeMonitorTimer = null;
+    }
+    this.globalRuntimeMonitorInFlight = false;
+  }
+
+  private scheduleGlobalRuntimeMonitorPoll(delayMs = 2500) {
+    if (typeof window === "undefined") {
+      return;
+    }
+    if (this.globalRuntimeMonitorTimer !== null) {
+      window.clearTimeout(this.globalRuntimeMonitorTimer);
+    }
+    this.globalRuntimeMonitorTimer = window.setTimeout(() => {
+      void this.refreshGlobalRuntimeMonitor();
+    }, delayMs);
+  }
+
+  private async refreshGlobalRuntimeMonitor() {
+    if (this.globalRuntimeMonitorInFlight) {
+      this.scheduleGlobalRuntimeMonitorPoll(1200);
+      return;
+    }
+    this.globalRuntimeMonitorInFlight = true;
+    this.store.setState((prev) => ({ ...prev, globalRuntimeMonitorLoading: true }));
+    try {
+      const monitor = await getGlobalRuntimeMonitor(40);
+      const currentSelected = this.store.getState().globalRuntimeMonitorSelectedTaskRunId;
+      const nextSelected = currentSelected || monitor.task_runs[0]?.task_run_id || "";
+      this.store.setState((prev) => ({
+        ...prev,
+        globalRuntimeMonitor: monitor,
+        globalRuntimeMonitorSelectedTaskRunId: nextSelected,
+        globalRuntimeMonitorError: "",
+      }));
+      if (nextSelected) {
+        await this.loadGlobalRuntimeMonitorTaskRunDetail(nextSelected);
+      }
+    } catch (error) {
+      this.store.setState((prev) => ({
+        ...prev,
+        globalRuntimeMonitorError: error instanceof Error ? error.message : "全局运行监控读取失败",
+      }));
+    } finally {
+      this.globalRuntimeMonitorInFlight = false;
+      this.store.setState((prev) => ({ ...prev, globalRuntimeMonitorLoading: false }));
+      this.scheduleGlobalRuntimeMonitorPoll();
+    }
+  }
+
+  private selectGlobalRuntimeMonitorTaskRun(taskRunId: string) {
+    const normalized = taskRunId.trim();
+    this.store.setState((prev) => ({
+      ...prev,
+      globalRuntimeMonitorSelectedTaskRunId: normalized,
+      globalRuntimeMonitorSelectedLiveMonitor: null,
+      globalRuntimeMonitorSelectedGraphMonitor: null,
+    }));
+    if (normalized) {
+      void this.loadGlobalRuntimeMonitorTaskRunDetail(normalized);
+    }
+  }
+
+  private async loadGlobalRuntimeMonitorTaskRunDetail(taskRunId: string) {
+    const normalized = taskRunId.trim();
+    if (!normalized) {
+      return;
+    }
+    try {
+      const [liveMonitor, graphMonitor] = await Promise.all([
+        getOrchestrationRuntimeLoopTaskRunLiveMonitor(normalized).catch(() => null),
+        getTaskGraphRunMonitor(normalized).catch(() => null),
+      ]);
+      if (this.store.getState().globalRuntimeMonitorSelectedTaskRunId !== normalized) {
+        return;
+      }
+      this.store.setState((prev) => ({
+        ...prev,
+        globalRuntimeMonitorSelectedLiveMonitor: liveMonitor,
+        globalRuntimeMonitorSelectedGraphMonitor: graphMonitor,
+        globalRuntimeMonitorError: "",
+      }));
+    } catch (error) {
+      if (this.store.getState().globalRuntimeMonitorSelectedTaskRunId !== normalized) {
+        return;
+      }
+      this.store.setState((prev) => ({
+        ...prev,
+        globalRuntimeMonitorError: error instanceof Error ? error.message : "任务详情监控读取失败",
+      }));
+    }
+  }
+
+  private updateSessionActivityFromLiveMonitor(liveStatus: string, taskRunId: string, coordinationRunId: string) {
+    const normalizedStatus = liveStatus.trim();
+    if (!normalizedStatus) {
+      return;
+    }
+    if (normalizedStatus === "waiting_approval" || normalizedStatus === "blocked") {
+      this.store.setState((prev) => ({
+        ...prev,
+        sessionActivity: {
+          level: "waiting",
+          title: normalizedStatus === "waiting_approval" ? "等待审批" : "运行受阻",
+          detail: taskRunId || coordinationRunId || "任务图运行正在等待处理",
+          event: "runtime_live_monitor",
+          updatedAt: Date.now(),
+        },
+      }));
+      return;
+    }
+    if (normalizedStatus === "running" || normalizedStatus === "created") {
+      this.store.setState((prev) => ({
+        ...prev,
+        sessionActivity: {
+          level: "running",
+          title: "任务运行中",
+          detail: taskRunId || coordinationRunId || "正在同步任务图运行状态",
+          event: "runtime_live_monitor",
+          updatedAt: Date.now(),
+        },
+      }));
+      return;
+    }
+    if (["completed", "complete", "success", "succeeded"].includes(normalizedStatus)) {
+      this.store.setState((prev) => ({
+        ...prev,
+        sessionActivity: {
+          level: "success",
+          title: "任务已完成",
+          detail: taskRunId || coordinationRunId || "任务图运行已收口",
+          event: "runtime_live_monitor",
+          updatedAt: Date.now(),
+        },
+      }));
+      return;
+    }
+    if (["failed", "error"].includes(normalizedStatus)) {
+      this.store.setState((prev) => ({
+        ...prev,
+        sessionActivity: {
+          level: "error",
+          title: "任务失败",
+          detail: taskRunId || coordinationRunId || "任务图运行返回失败状态",
+          event: "runtime_live_monitor",
+          updatedAt: Date.now(),
+        },
+      }));
+    }
   }
 }

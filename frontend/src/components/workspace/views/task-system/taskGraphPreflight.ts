@@ -111,6 +111,17 @@ function isMemoryRepositoryNode(node: Record<string, unknown>) {
   );
 }
 
+function isResourceNode(node: Record<string, unknown>) {
+  const nodeType = stringValue(node.node_type).toLowerCase();
+  const role = stringValue(node.role ?? node.work_posture).toLowerCase();
+  return (
+    role === "resource"
+    || isMemoryRepositoryNode(node)
+    || nodeType === "artifact_repository"
+    || nodeType === "memory_collection"
+  );
+}
+
 function memoryRepositorySpecs(nodes: Array<Record<string, unknown>>) {
   return nodes
     .map((node, index) => ({ node, index }))
@@ -249,7 +260,7 @@ export function buildTaskGraphPreflightReport({
     const agentId = stringValue(node.agent_id);
     const executionMode = stringValue(node.execution_mode || "sync");
     const humanGatePolicy = recordValue(node.human_gate_policy);
-    if (!agentId && role !== "memory" && role !== "manual_gate") {
+    if (!agentId && role !== "memory" && role !== "manual_gate" && !isResourceNode(node)) {
       pushIssue(issues, {
         severity: "warning",
         scope: "node",
@@ -659,7 +670,7 @@ export function buildTaskGraphPreflightReport({
         source: "frontend.preflight.memory_commit_contract",
       });
     }
-    if (memoryEdge.operation === "commit" && !stringValue(metadata.verdict_key) && !stringValue(metadata.required_verdict)) {
+    if (memoryEdge.operation === "commit" && !stringValue(metadata.verdict_key) && !stringValue(metadata.required_verdict) && !stringValue(metadata.approval_source_node_id)) {
       pushIssue(issues, {
         severity: "info",
         scope: "edge",

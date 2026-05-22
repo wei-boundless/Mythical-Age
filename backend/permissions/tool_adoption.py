@@ -3,10 +3,10 @@ from __future__ import annotations
 from typing import Any
 
 from capability_system import OperationDescriptor
-from orchestration.resource_policy import ResourceDecision, ResourcePolicy
+from permissions.resource_policy import ResourceDecision, ResourcePolicy
 
 from orchestration.runtime_directive import RuntimeDirective
-from .action_request import RuntimeActionRequest
+from runtime.shared.action_request import RuntimeActionRequest
 
 
 def build_tool_request_runtime_adoption(

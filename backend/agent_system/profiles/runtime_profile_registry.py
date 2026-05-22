@@ -36,6 +36,19 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _is_removed_health_runtime_profile(payload: dict[str, Any]) -> bool:
+    metadata = dict(payload.get("metadata") or {})
+    profile_id = str(payload.get("agent_profile_id") or "").strip()
+    agent_id = normalize_agent_id(str(payload.get("agent_id") or ""))
+    return (
+        agent_id == "agent:3"
+        and (
+            profile_id == "health_maintainer_agent"
+            or str(metadata.get("runtime_template_id") or "").strip() == "builtin.system.health_manager"
+        )
+    )
+
+
 def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
     return (
         AgentRuntimeProfile(
@@ -83,35 +96,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             delegate_context_policy="summary_and_refs_only",
             lifecycle_policy="system_builtin",
             metadata={"runtime_template_id": "builtin.main.default"},
-        ),
-        AgentRuntimeProfile(
-            agent_profile_id="health_maintainer_agent",
-            agent_id="agent:3",
-            allowed_runtime_lanes=(
-                "health_issue_read",
-                "health_trace_read",
-                "prompt_trace_read",
-                "memory_trace_read",
-                "runtime_trace_read",
-                "assertion_trace_read",
-                "case_draft_candidate",
-                "fix_verification_candidate",
-            ),
-            allowed_operations=("op.model_response", "op.read_file", "op.search_text", "op.memory_read"),
-            blocked_operations=(
-                "op.write_file",
-                "op.edit_file",
-                "op.shell",
-                "op.python_repl",
-                "op.memory_write_candidate",
-                "op.agent_bounded",
-            ),
-            allowed_memory_scopes=("issue_local_readonly", "health_trace_readonly"),
-            allowed_context_sections=("task", "health_issue", "runtime_trace", "prompt_manifest", "memory_runtime_view", "assertions", "runtime_contracts"),
-            use_shared_contract=True,
-            approval_policy="read_only_first",
-            lifecycle_policy="system_builtin",
-            metadata={"system_key": "health_system", "manager_kind": "health", "runtime_template_id": "builtin.system.health_manager"},
         ),
         AgentRuntimeProfile(
             agent_profile_id="memory_system_agent",
@@ -290,7 +274,7 @@ class AgentRuntimeRegistry:
         stored_profiles = [
             _migrate_profile_payload(item)
             for item in list(payload.get("profiles") or [])
-            if isinstance(item, dict)
+            if isinstance(item, dict) and not _is_removed_health_runtime_profile(item)
         ]
         default_agent_ids = set(default_by_agent)
         live_agent_ids = {agent.agent_id for agent in self.agent_registry.list_agents()}

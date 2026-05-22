@@ -92,24 +92,20 @@ def test_health_command_admission_rejects_blocked_operation(tmp_path) -> None:
     )
 
     assert response["receipt"]["accepted"] is False
-    assert response["receipt"]["status"] == "rejected"
-    assert "operation_blocked:op.write_file" in response["receipt"]["blocked_reasons"]
+    assert response["receipt"]["status"] == "blocked"
+    assert "health_agent_config_not_rebuilt" in response["receipt"]["blocked_reasons"]
     admission = dict(response["receipt"]["diagnostics"]["admission"])
-    assert admission["task_execution_assembly_ref"].startswith("taskasm:")
-    assert admission["task_body_orchestration_ref"].startswith("orchestration:")
-    assert admission["runtime_spec_ref"].startswith("rtspec:")
+    assert admission["agent_id"] == "agent:3"
+    assert admission["task_execution_assembly_ref"] == ""
+    assert admission["task_body_orchestration_ref"] == ""
+    assert admission["runtime_spec_ref"] == ""
 
 
-def test_task_system_exposes_generic_agent_task_connection_profile(tmp_path) -> None:
+def test_task_system_no_longer_exposes_old_health_connection_profile(tmp_path) -> None:
     overview = TaskFlowRegistry(tmp_path).build_agent_task_connection_overview(task_family="health")
-    profiles = overview["profiles"]
-    health_profile = next(item for item in profiles if item["agent_id"] == "agent:3")
 
     assert overview["authority"] == "task_system.agent_task_connections"
-    assert health_profile["owner_system"] == "health_system"
-    assert "flow.health.issue_triage" in health_profile["flow_refs"]
-    assert "workflow.health.issue_triage" in health_profile["workflow_refs"]
-    assert health_profile["validation_state"] in {"valid", "invalid"}
+    assert overview["profiles"] == []
 
 
 def test_health_agent_run_preview_does_not_expose_projection_instance(tmp_path) -> None:
@@ -125,13 +121,12 @@ def test_health_agent_run_preview_does_not_expose_projection_instance(tmp_path) 
 
     preview = registry.preview_agent_run(issue_id=issue.issue_id, health_action="issue_triage")
 
-    assert preview["status"] in {"ready", "blocked"}
+    assert preview["status"] == "blocked"
     assert "projection_instance" not in preview
-    assert preview["task_execution_assembly"]["authority"] == "task_system.task_execution_assembly"
-    assert preview["task_body_orchestration"]["authority"] == "orchestration.task_body_orchestration"
-    assert preview["agent_runtime_spec"]["authority"] == "orchestration.agent_runtime_spec"
-    if preview["status"] == "blocked":
-        assert preview["reason"]
+    assert preview["reason"] == "health_agent_config_not_rebuilt"
+    assert preview["task_execution_assembly"] == {}
+    assert preview["task_body_orchestration"] == {}
+    assert preview["agent_runtime_spec"] == {}
 
 
 def test_launch_health_test_command_records_health_test_run(tmp_path) -> None:
@@ -157,20 +152,18 @@ def test_launch_health_test_command_records_health_test_run(tmp_path) -> None:
     assert registry.list_health_test_runs()[0].scenario_refs == ("health-scenario:static-contract",)
 
 
-def test_default_health_management_agent_configuration_is_bound_and_guarded(tmp_path) -> None:
+def test_agent3_identity_remains_but_old_health_runtime_config_is_absent(tmp_path) -> None:
     agent_registry = AgentRegistry(tmp_path)
     profile = AgentRuntimeRegistry(tmp_path).get_profile("agent:3")
-    connection = next(
-        item
-        for item in TaskFlowRegistry(tmp_path).list_agent_task_connection_profiles()
-        if item.agent_id == "agent:3"
-    )
+    agent = agent_registry.get_agent("agent:3")
+    registry = TaskFlowRegistry(tmp_path)
 
-    assert profile is not None
-    assert "op.write_file" in profile.blocked_operations
-    assert "health" in connection.task_family_refs
-    assert connection.default_flow_ref == "flow.health.issue_triage"
-    assert connection.default_runtime_lane_hint == "health_issue_read"
+    assert agent is not None
+    assert agent.agent_id == "agent:3"
+    assert profile is None
+    assert registry.get_flow("flow.health.issue_triage") is None
+    assert registry.get_specific_task_record("task.health.issue_triage") is None
+    assert all(not item.workflow_id.startswith("workflow.health.") for item in registry.workflow_registry.list_workflows())
 
 
 def test_health_conversation_session_uses_orchestration_config_not_payload_overrides(tmp_path) -> None:
@@ -196,12 +189,12 @@ def test_health_conversation_session_uses_orchestration_config_not_payload_overr
     )
 
     assert session.agent_id == "agent:3"
-    assert session.agent_profile_id == "health_maintainer_agent"
-    assert session.workflow_id == "workflow.health.issue_triage"
-    assert session.runtime_lane == "health_issue_read"
+    assert session.agent_profile_id == ""
+    assert session.workflow_id == ""
+    assert session.runtime_lane == ""
 
 
-def test_health_conversation_message_returns_real_assistant_reply() -> None:
+def test_health_conversation_message_fails_closed_until_agent_config_is_rebuilt() -> None:
     with TestClient(app) as client:
         runtime = app_runtime.require_ready()
         original_stream = runtime.query_runtime.model_response_executor.stream
@@ -234,26 +227,13 @@ def test_health_conversation_message_returns_real_assistant_reply() -> None:
             payload = response.json()
             assert payload["message"]["role"] == "user"
             assert payload["assistant_message"]["role"] == "assistant"
-            assert "请分析这个问题" in payload["assistant_message"]["content"]
+            assert "运行时门禁拦截" in payload["assistant_message"]["content"]
             runs = [
                 item
                 for item in HealthRegistry(runtime.base_dir).list_agent_runs()
                 if item.issue_id == issue_id and item.metadata.get("runtime_execution_owner")
             ]
-            assert runs
-            run = runs[-1]
-            assert run.agent_id == "agent:3"
-            assert run.agent_profile_id == "health_maintainer_agent"
-            assert run.metadata["runtime_execution_owner"] == "TaskRunLoop.run_single_agent_stream"
-            trace = runtime.query_runtime.task_run_loop.get_trace(run.task_run_id, include_payloads=True)
-            assert trace is not None
-            events = trace["events"]
-            assert any(item["event_type"] == "task_contract_built" for item in events)
-            assert any(item["event_type"] == "stage_projection_built" for item in events)
-            assert not any(
-                str(dict(item.get("payload") or {}).get("source") or "").startswith("health_system.agent_run")
-                for item in events
-            )
+            assert runs == []
         finally:
             runtime.query_runtime.model_response_executor.stream = original_stream  # type: ignore[method-assign]
 

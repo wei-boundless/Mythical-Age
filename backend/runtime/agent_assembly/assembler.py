@@ -136,7 +136,7 @@ def build_execution_permit_for_work_order(
     base_dir: Path,
     agent_runtime_profile: AgentRuntimeProfile | None = None,
 ):
-    from .permit_builder import build_execution_permit
+    from runtime.execution_permit import build_execution_permit
 
     assembly = build_agent_assembly_contract(
         work_order,

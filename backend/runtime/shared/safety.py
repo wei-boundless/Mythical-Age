@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from capability_system.workspace_file_service import WorkspaceFileService
-from orchestration.resource_gate import OperationGateResult
+from permissions.operation_gate import OperationGateResult
 
 
 def build_task_safety_validators(

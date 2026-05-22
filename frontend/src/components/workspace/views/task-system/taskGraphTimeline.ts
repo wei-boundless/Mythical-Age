@@ -433,7 +433,9 @@ export function buildTimelinePreflightIssues(
     if (!timelineBlockHandoffContractIdOf(block as unknown as Record<string, unknown>)) {
       issues.push({ code: "timeline_block_handoff_contract_missing", message: `图块 ${block.title || block.block_id} 缺少 handoff_contract_id。`, severity: "warning", phase_id: block.phase_id });
     }
-    if (!block.linked_graph_id) {
+    const blockType = String(block.block_type ?? "").trim();
+    const requiresLinkedGraph = ["graph_module", "imported_graph", "external_graph", "design_graph"].includes(blockType);
+    if (requiresLinkedGraph && !block.linked_graph_id) {
       issues.push({ code: "timeline_block_imported_graph_missing", message: `图块 ${block.title || block.block_id} 还没有绑定 linked_graph_id，运行时只能把它视为当前图内的生命周期阶段块。`, severity: "warning", phase_id: block.phase_id });
     }
     if (!block.version_ref) {
@@ -485,8 +487,17 @@ export function buildTimelinePreflightIssues(
     }
     if (["memory", "memory_resource", "memory_read", "memory_write", "memory_handoff", "memory_commit", "memory_finalize"].includes(String(node.node_type ?? ""))) {
       const phase = phaseDefinitions.find((item) => item.phase_id === nodePhaseId(node));
-      if (!phase?.review_gate_node_id) {
-        issues.push({ code: "timeline_memory_without_review_gate", message: "记忆节点所在阶段没有配置审核门。", severity: "warning", node_id: nodeId, phase_id: phase?.phase_id });
+      const requiresReviewGate = String(node.node_type ?? "") === "memory_commit" || String(node.metadata && asRecord(node.metadata).operation || "") === "commit";
+      if (requiresReviewGate && !phase?.review_gate_node_id && !String(asRecord(node.metadata).commit_gate_node_id ?? "").trim()) {
+        const hasCommitApprovalEdge = edges.some((edge) => {
+          const metadata = asRecord(edge.metadata);
+          return graphEdgeSource(edge) === nodeId
+            && String(edge.edge_type ?? edge.mode ?? "") === "memory_commit"
+            && String(metadata.approval_source_node_id ?? metadata.verdict_key ?? "").trim();
+        });
+        if (!hasCommitApprovalEdge) {
+          issues.push({ code: "timeline_memory_without_review_gate", message: "记忆节点所在阶段没有配置审核门。", severity: "warning", node_id: nodeId, phase_id: phase?.phase_id });
+        }
       }
     }
   }

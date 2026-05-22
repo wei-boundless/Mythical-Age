@@ -37,30 +37,6 @@ class ProjectionTemplate:
 def default_projection_templates() -> tuple[ProjectionTemplate, ...]:
     return (
         ProjectionTemplate(
-            template_id="xuannv__health_maintainer",
-            title="玄女 / 健康维护投影",
-            soul_id="xuannv",
-            agent_profile_id="health_maintainer_agent",
-            role_type="health_inspector",
-            task_mode="health_maintenance",
-            default_skill_workflow_id="workflow.health.issue_triage",
-            default_memory_policy="issue_local_readonly",
-            default_output_contract="HealthTriageResult",
-            projection_resolution_policy="pinned",
-            posture_tags=("health_maintenance", "evidence_first", "bounded_resource"),
-            expression_density="concise",
-            attention_focus=("health_issue", "runtime_trace", "resource_boundary", "verification"),
-            risk_notes=(
-                "健康维护投影只能消费任务与资源策略提供的证据。",
-                "只使用运行时实际注入的工具。",
-            ),
-            guardrails=(
-                "只读取问题证据和显式 trace refs。",
-                "只输出候选分析、用例草案或修复验证建议。",
-            ),
-            metadata={"default_agent_id": "agent:3"},
-        ),
-        ProjectionTemplate(
             template_id="primary_agent_default",
             title="主 Agent 默认投影",
             soul_id="active",

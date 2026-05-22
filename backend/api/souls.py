@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from api.deps import require_runtime
 from agent_system.registry.agent_registry import AgentRegistry
 from soul import SoulFacade
+from soul.catalog_store import SoulCatalogStore
 from soul.image_asset_service import SoulImageAssetError, SoulImageAssetService
 from soul.registry import (
     ACTIVE_SEED_PATH,
@@ -131,6 +132,14 @@ class SoulImageAssetGenerateRequest(BaseModel):
     overwrite: bool = False
 
 
+class SoulCommonContractSaveRequest(BaseModel):
+    prompt_id: str = Field(default="common_contract.default", min_length=3, max_length=160)
+    title: str = Field(..., min_length=1, max_length=120)
+    content: str = Field(..., min_length=1)
+    version: str = Field(default="v1", max_length=40)
+    cache_scope: str = Field(default="static", max_length=40)
+
+
 def _project_root_from_backend(base_dir: Path) -> Path:
     return base_dir.resolve().parent
 
@@ -197,6 +206,37 @@ async def save_soul_file(payload: SoulFileSaveRequest) -> dict[str, Any]:
     catalog = SoulFacade(runtime.base_dir).save_managed_file(normalized, payload.content)
     runtime.refresh_indexes_for_path(normalized)
     return catalog
+
+
+@router.put("/soul/common-contracts/{prompt_id}")
+async def save_soul_common_contract(prompt_id: str, payload: SoulCommonContractSaveRequest) -> dict[str, Any]:
+    runtime = require_runtime()
+    normalized_id = prompt_id.strip()
+    if payload.prompt_id != normalized_id:
+        payload = payload.model_copy(update={"prompt_id": normalized_id})
+    store = SoulCatalogStore(runtime.base_dir)
+    items = store.load_bucket("common_contracts")
+    next_item = {
+        "prompt_id": payload.prompt_id,
+        "title": payload.title.strip(),
+        "content": payload.content,
+        "source_ref": "soul/common_contracts/catalog.json",
+        "version": payload.version.strip() or "v1",
+        "cache_scope": payload.cache_scope.strip() or "static",
+    }
+    replaced = False
+    next_items: list[dict[str, Any]] = []
+    for item in items:
+        if str(item.get("prompt_id") or "") == normalized_id:
+            next_items.append(next_item)
+            replaced = True
+        else:
+            next_items.append(dict(item))
+    if not replaced:
+        next_items.append(next_item)
+    store.save_bucket("common_contracts", next_items)
+    runtime.refresh_indexes_for_path("soul/common_contracts/catalog.json")
+    return SoulFacade(runtime.base_dir).build_catalog()
 
 
 @router.get("/soul/projections")

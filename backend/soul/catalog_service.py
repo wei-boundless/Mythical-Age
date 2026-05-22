@@ -66,11 +66,11 @@ class SoulCatalogService:
         return [
             {
                 "world_id": "world.default",
-                "title": "默认无背景世界",
-                "summary": "不注入额外世界观，仅保留灵魂卡片自身说明。",
-                "content": "这是默认无背景世界。它只表示当前灵魂不绑定额外世界观，不参与纯工作模式。",
+                "title": "现实世界",
+                "summary": "真实任务、共同契约与无角色执行投影的工作空间。",
+                "content": "这里承载现实任务所需的共同契约、工作指令和专业执行投影。它不启用洪荒叙事，也不要求灵魂扮演，只帮助用户把目标、证据、工具和验收边界整理清楚。",
                 "source_ref": "soul/worlds/catalog.json",
-                "metadata": {"system_default": True},
+                "metadata": {"system_default": True, "theme": "reality"},
             }
         ]
 
@@ -120,12 +120,12 @@ class SoulCatalogService:
         return [
             {
                 "prompt_id": "work_prompt.default",
-                "title": "默认纯工作 prompt",
+                "title": "默认工作指令",
                 "content": "你是一名执行当前任务的工作 Agent。你只关注用户目标、任务契约、可用资源和验收要求。你不进行灵魂扮演，不引用背景世界，不用故事设定解释工作行为。",
                 "source_ref": "soul/work_prompts/catalog.json",
                 "task_mode": "work_mode",
                 "role_type": "worker",
-                "metadata": {"system_default": True},
+                "metadata": {"system_default": True, "world_id": "world.default"},
             }
         ]
 

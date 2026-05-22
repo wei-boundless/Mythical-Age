@@ -8,7 +8,8 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from capability_system import build_default_operation_registry
-from orchestration import OperationGate, ResourcePolicy
+from permissions import OperationGate, ResourcePolicy
+from runtime.execution_permit import tool_instances_for_policy_and_permit
 from runtime.shared.action_request import build_tool_result_observation
 from runtime.shared.execution_record import OperationExecutionRecord, build_execution_receipt
 from runtime.shared.models import RuntimeLoopState, TaskRun
@@ -103,8 +104,9 @@ def test_authorized_tool_set_filters_by_explicit_operation_and_main_runtime_visi
 
 
 def test_task_run_loop_tool_filter_uses_tool_definition_operation_id() -> None:
-    loop = TaskRunLoop(Path("runtime-loop-test"))
     instances = build_tool_instances(Path.cwd())
+    index = build_tool_authorization_index(get_tool_definitions())
+    registry = build_default_operation_registry()
     policy = ResourcePolicy(
         policy_id="respol-test",
         task_id="task-test",
@@ -114,9 +116,45 @@ def test_task_run_loop_tool_filter_uses_tool_definition_operation_id() -> None:
         runtime_view_only=False,
     )
 
-    visible = loop._tool_instances_for_resource_policy(instances, policy)
+    visible = tool_instances_for_policy_and_permit(
+        tool_instances=instances,
+        resource_policy=policy,
+        definitions_by_name=index.definitions_by_name,
+        normalize_operation_id=registry.normalize_id,
+    )
 
     assert visible == []
+
+
+def test_task_run_loop_tool_filter_intersects_resource_policy_with_execution_permit() -> None:
+    instances = build_tool_instances(Path.cwd())
+    index = build_tool_authorization_index(get_tool_definitions())
+    registry = build_default_operation_registry()
+    policy = ResourcePolicy(
+        policy_id="respol-test-permit-intersection",
+        task_id="task-test",
+        allowed_operations=("op.read_file", "op.search_text"),
+        adopted=True,
+        runtime_executable=True,
+        runtime_view_only=False,
+    )
+
+    visible = tool_instances_for_policy_and_permit(
+        tool_instances=instances,
+        resource_policy=policy,
+        definitions_by_name=index.definitions_by_name,
+        normalize_operation_id=registry.normalize_id,
+        execution_permit={
+            "permit_id": "permit:test",
+            "allowed_operations": ["op.read_file"],
+            "visible_tools": ["read_file"],
+            "dispatchable_tools": ["read_file"],
+        },
+    )
+    names = {getattr(tool, "name", "") for tool in visible}
+
+    assert "read_file" in names
+    assert "search_text" not in names
 
 
 def test_task_run_loop_reads_permission_mode_from_provider() -> None:
@@ -146,8 +184,9 @@ def test_write_and_edit_tools_are_registered_as_main_runtime_schema_tools() -> N
 
 
 def test_requires_approval_operations_can_be_schema_visible_before_gate_execution() -> None:
-    loop = TaskRunLoop(Path("runtime-loop-test"))
     instances = build_tool_instances(Path.cwd())
+    index = build_tool_authorization_index(get_tool_definitions())
+    registry = build_default_operation_registry()
     policy = ResourcePolicy(
         policy_id="respol-test-approval-visible",
         task_id="task-test",
@@ -158,7 +197,12 @@ def test_requires_approval_operations_can_be_schema_visible_before_gate_executio
         runtime_view_only=False,
     )
 
-    visible = loop._tool_instances_for_resource_policy(instances, policy)
+    visible = tool_instances_for_policy_and_permit(
+        tool_instances=instances,
+        resource_policy=policy,
+        definitions_by_name=index.definitions_by_name,
+        normalize_operation_id=registry.normalize_id,
+    )
     names = {getattr(tool, "name", "") for tool in visible}
 
     assert {"read_file", "write_file", "edit_file"} <= names

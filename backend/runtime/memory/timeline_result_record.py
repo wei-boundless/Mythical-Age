@@ -161,8 +161,8 @@ def build_timeline_coordinate(
         "loop_frame_id": str(dispatch_context.get("loop_frame_id") or explicit_inputs.get("loop_frame_id") or ""),
         "iteration_index": _safe_int(dispatch_context.get("iteration_index") or explicit_inputs.get("iteration_index"), 0),
         "volume_index": _safe_int(dispatch_context.get("volume_index") or explicit_inputs.get("volume_index"), 0),
-        "batch_start_index": _safe_int(dispatch_context.get("batch_start_index") or explicit_inputs.get("batch_start_index") or explicit_inputs.get("chapter_index"), 0),
-        "batch_end_index": _safe_int(dispatch_context.get("batch_end_index") or explicit_inputs.get("batch_end_index") or explicit_inputs.get("chapter_index"), 0),
+        "batch_start_index": _safe_int(dispatch_context.get("batch_start_index") or explicit_inputs.get("batch_start_index"), 0),
+        "batch_end_index": _safe_int(dispatch_context.get("batch_end_index") or explicit_inputs.get("batch_end_index"), 0),
         "round_index": _safe_int(
             dispatch_context.get("round_index")
             or explicit_inputs.get("round_index")

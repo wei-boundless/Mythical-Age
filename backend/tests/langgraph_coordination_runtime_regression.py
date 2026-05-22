@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 
 from runtime.shared.event_log import RuntimeEventLog
@@ -263,7 +264,26 @@ def test_stage_execution_message_declares_runtime_batch_boundary_over_stale_proj
     message = _stage_execution_message(
         stage_id="chapter_outline",
         task_ref="task.test.chapter_outline",
-        contract={"title": "当前批次细纲"},
+        contract={
+            "title": "当前批次细纲",
+            "executor_policy": {
+                "runtime_batch_boundary_policy": {
+                    "start_key": "batch_start_index",
+                    "end_key": "batch_end_index",
+                    "count_key": "chapters_per_round",
+                    "list_key": "batch_chapter_list",
+                    "target_metric_key": "batch_target_words",
+                    "unit_label": "章",
+                    "unit_label_prefix": "第",
+                    "unit_label_suffix": "章",
+                    "range_template": "本节点只允许处理第{start}章至第{end}章。",
+                    "list_template": "允许章号清单：{unit_list}。",
+                    "size_template": "当前运行时每轮批次大小为 {unit_count} 章。",
+                    "metric_template": "当前批次目标正文量约 {target_metric} 字。",
+                    "conflict_template": "如果项目启动包、上游旧产物或历史摘要出现其他批次大小或其他章号范围，以本运行时批次边界为准。",
+                }
+            },
+        },
         explicit_inputs={
             "project_title": "洪荒时代",
             "project_brief": "硬设定：每轮连续创作 10 章。",
@@ -283,6 +303,26 @@ def test_stage_execution_message_declares_runtime_batch_boundary_over_stale_proj
     assert "本节点只允许处理第1章至第5章" in message
     assert "当前运行时每轮批次大小为 5 章" in message
     assert "以本运行时批次边界为准" in message
+
+
+def test_stage_execution_message_uses_generic_batch_boundary_without_domain_defaults() -> None:
+    message = _stage_execution_message(
+        stage_id="batch_worker",
+        task_ref="task.test.batch_worker",
+        contract={"title": "批处理节点"},
+        explicit_inputs={
+            "batch_start_index": 2,
+            "batch_end_index": 4,
+            "unit_label": "项",
+            "unit_batch_list": "2项、3项、4项",
+            "unit_batch_size": 3,
+            "batch_target_units": 900,
+        },
+    )
+
+    assert "本节点只允许处理2项至4项" in message
+    assert "允许单元清单：2项、3项、4项" in message
+    assert "章" not in message
 
 
 def test_stage_execution_message_expands_revision_artifact_text(tmp_path) -> None:
@@ -997,7 +1037,9 @@ class _FormalMemoryRegistry:
                     source_node_id="world_author",
                     target_node_id="memory.world",
                     edge_type="memory_write_candidate",
+                    payload_contract_id="contract.memory.write_candidate",
                     metadata={
+                        "repository": "memory.world",
                         "collection": "world",
                         "record_key": "world_bible.current",
                         "record_kind": "world_bible",
@@ -1009,7 +1051,9 @@ class _FormalMemoryRegistry:
                     source_node_id="world_review",
                     target_node_id="memory.world",
                     edge_type="memory_commit",
+                    payload_contract_id="contract.memory.commit",
                     metadata={
+                        "repository": "memory.world",
                         "collection": "world",
                         "record_key": "world_bible.current",
                         "record_kind": "world_bible",
@@ -1037,6 +1081,78 @@ class _FormalMemoryRegistry:
 
     def list_specific_task_records(self):
         return list(self.tasks)
+
+
+class _ApprovalSourceFormalMemoryRegistry(_FormalMemoryRegistry):
+    def __init__(self) -> None:
+        super().__init__()
+        edges = []
+        resource_edges = []
+        for edge in self.coordination.graph_edges:
+            payload = dict(edge)
+            if payload.get("edge_id") == "edge.world_review.memory.world":
+                metadata = dict(payload.get("metadata") or {})
+                metadata.pop("candidate_ref_key", None)
+                metadata.pop("verdict_key", None)
+                metadata.pop("required_verdict", None)
+                metadata["approval_source_node_id"] = "world_author"
+                metadata["approval_policy"] = "approved_upstream_review_gate"
+                payload["metadata"] = metadata
+            if payload.get("edge_id") in {"edge.world_author.memory.world", "edge.world_review.memory.world"}:
+                resource_edges.append(payload)
+            edges.append(payload)
+        metadata = {**dict(self.coordination.metadata or {}), "memory_edges": resource_edges}
+        self.coordination = replace(self.coordination, graph_edges=tuple(edges), metadata=metadata)
+        self.topology = TopologyTemplate(
+            template_id=self.topology.template_id,
+            title=self.topology.title,
+            nodes=self.coordination.graph_nodes,
+            edges=self.coordination.graph_edges,
+            enabled=True,
+        )
+
+    def get_task_graph(self, graph_id: str):
+        graph = super().get_task_graph(graph_id)
+        if graph is None:
+            return None
+        edges = []
+        resource_edges = []
+        for edge in graph.edges:
+            if edge.edge_id != "edge.world_review.memory.world":
+                if edge.edge_id == "edge.world_author.memory.world":
+                    resource_edges.append(edge)
+                edges.append(edge)
+                continue
+            metadata = dict(edge.metadata or {})
+            metadata.pop("candidate_ref_key", None)
+            metadata.pop("verdict_key", None)
+            metadata.pop("required_verdict", None)
+            metadata["approval_source_node_id"] = "world_author"
+            metadata["approval_policy"] = "approved_upstream_review_gate"
+            edges.append(
+                TaskGraphEdgeDefinition(
+                    edge_id=edge.edge_id,
+                    source_node_id=edge.source_node_id,
+                    target_node_id=edge.target_node_id,
+                    edge_type=edge.edge_type,
+                    payload_contract_id=edge.payload_contract_id,
+                    metadata=metadata,
+                )
+            )
+            resource_edges.append(edges[-1])
+        return TaskGraphDefinition(
+            graph_id=graph.graph_id,
+            title=graph.title,
+            task_family=graph.task_family,
+            graph_kind=graph.graph_kind,
+            nodes=graph.nodes,
+            edges=tuple(edges),
+            default_protocol_id=graph.default_protocol_id,
+            runtime_policy=graph.runtime_policy,
+            metadata={"memory_edges": [edge.to_dict() for edge in resource_edges]},
+            publish_state=graph.publish_state,
+            enabled=graph.enabled,
+        )
 
 
 class _ArtifactContextRegistry:
@@ -1447,6 +1563,84 @@ def test_formal_memory_commit_edge_uses_candidate_ref_and_verdict(tmp_path) -> N
     )
     assert len(versions) == 1
     assert versions[0].canonical_text == "洪荒世界观候选。"
+
+
+def test_formal_memory_commit_edge_uses_approval_source_candidate_refs(tmp_path) -> None:
+    registry = _ApprovalSourceFormalMemoryRegistry()
+    state_index = RuntimeStateIndex(tmp_path)
+    event_log = RuntimeEventLog(tmp_path)
+    runtime = LangGraphCoordinationRuntime(
+        root_dir=tmp_path,
+        state_index=state_index,
+        event_log=event_log,
+        task_flow_registry=registry,
+        trace_reader=_Trace({}),
+    )
+    coordination_run = CoordinationRun(
+        coordination_run_id="coordrun:formal-memory-approval-source",
+        task_run_id="taskrun:formal-memory-approval-source",
+        graph_ref="graph.test.formal_memory_runtime",
+        coordinator_agent_id="agent:0",
+        topology_template_id="topology.test.formal_memory_runtime",
+        communication_protocol_id="protocol.test.formal_memory_runtime",
+        status="running",
+        diagnostics={"coordination_flow": {"current_stage_id": "world_author"}},
+    )
+    state_index.upsert_coordination_run(coordination_run)
+
+    source_result = runtime.resume_from_task_result(
+        coordination_run=coordination_run,
+        event=NodeResultReadyEvent(
+            event_type="task_result_ready",
+            coordination_run_id="coordrun:formal-memory-approval-source",
+            task_run_id="taskrun:world-author",
+            stage_id="world_author",
+            task_ref="task.test.world_author",
+            task_result_ref="taskresult:world-author",
+            accepted=True,
+            artifact_refs=("artifact:world_candidate.md",),
+        ),
+        current_task_result={
+            "final_outputs": {
+                "world_candidate": {
+                    "canonical_text": "由批准来源提交的候选。",
+                    "summary": "批准来源候选",
+                }
+            },
+            "output_refs": ["artifact:world_candidate.md"],
+        },
+    )
+    candidate_ref = source_result.state["stage_results"]["world_author"]["working_memory_refs"][0]
+
+    review_result = runtime.resume_from_task_result(
+        coordination_run=coordination_run,
+        event=NodeResultReadyEvent(
+            event_type="task_result_ready",
+            coordination_run_id="coordrun:formal-memory-approval-source",
+            task_run_id="taskrun:world-review",
+            stage_id="world_review",
+            task_ref="task.test.world_review",
+            task_result_ref="taskresult:world-review",
+            accepted=True,
+        ),
+        current_task_result={"final_outputs": {"verdict": "pass"}},
+    )
+
+    operations = list(review_result.state.get("working_memory_operations") or [])
+    commit_operation = [item for item in operations if item.get("operation") == "memory_commit"][-1]
+    assert commit_operation["accepted_working_memory_refs"] == [candidate_ref]
+    assert commit_operation["formal_memory_acknowledgements"][0]["status"] == "committed"
+    versions, _read_log = runtime.formal_memory.store.select_versions(
+        repository_id="memory.world",
+        collection_id="world",
+        selector={"record_key": "world_bible.current", "status_filter": ["committed"]},
+        version_selector={"mode": "latest_committed_before_clock"},
+        clock_seq=999,
+        node_run_id="taskrun:formal-memory-approval-source:assert",
+        edge_id="assert",
+    )
+    assert len(versions) == 1
+    assert versions[0].canonical_text == "由批准来源提交的候选。"
 
 
 def test_formal_memory_read_edge_does_not_fallback_to_working_memory(tmp_path) -> None:

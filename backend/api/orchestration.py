@@ -16,7 +16,7 @@ from orchestration.coordination_control import (
     _mark_rewound_task_run_running,
     _move_invalidated_artifacts,
     _recover_active_stage_completed_checkpoint,
-    _sanitize_replayed_writing_stage_request_payload,
+    sanitize_replayed_stage_request_payload,
     _schedule_stage_execution_background,
     _stage_request_matches_active_stage,
 )
@@ -449,7 +449,7 @@ async def continue_coordination_current_stage(
         active_stage_id=active_stage_id,
     ):
         request = NodeExecutionRequest.from_dict(
-            _sanitize_replayed_writing_stage_request_payload(current_stage_payload)
+            sanitize_replayed_stage_request_payload(current_stage_payload)
         )
         current_turn_context = {
             "authority": "context.coordination_run_continue",
@@ -480,7 +480,7 @@ async def continue_coordination_current_stage(
         if not request_payload:
             raise HTTPException(status_code=409, detail="CoordinationRun has no resumable stage result or current stage execution request")
         request = NodeExecutionRequest.from_dict(
-            _sanitize_replayed_writing_stage_request_payload(request_payload)
+            sanitize_replayed_stage_request_payload(request_payload)
         )
         current_turn_context = {
             "authority": "context.coordination_run_continue",

@@ -62,7 +62,7 @@ def _latest_unconsumed_stage_task_result(
             "terminal_reason": str(task_run.terminal_reason or ""),
             "recovered_from_completed_stage_task_run": True,
         }
-        if active_stage_id == "chapter_draft" or _is_review_gate_contract(contract):
+        if _stage_has_recovery_acceptance_policy(contract) or _is_review_gate_contract(contract):
             artifact_text = _read_first_artifact_text(runtime=runtime, artifact_refs=artifact_refs)
             quality = _recovery_stage_business_acceptance(
                 stage_id=active_stage_id,
@@ -414,6 +414,7 @@ def _graph_module_imported_completion_packet(
     core_artifact_refs = _graph_module_core_artifact_refs(
         artifact_refs_by_stage=artifact_refs_by_stage,
         all_artifact_refs=artifact_refs,
+        stage_order=list(stage_results.keys()),
     )
     handle = dict(diagnostics.get("importing_graph_module_runtime_handle") or {})
     if not handle:
@@ -667,26 +668,9 @@ def _graph_module_core_artifact_refs(
     *,
     artifact_refs_by_stage: dict[str, list[str]],
     all_artifact_refs: list[str],
+    stage_order: list[str] | tuple[str, ...] = (),
 ) -> list[str]:
-    priority_stage_ids = [
-        "project_brief",
-        "world_design",
-        "world_review",
-        "memory_commit_world",
-        "character_design",
-        "plot_design",
-        "design_sync",
-        "outline_design",
-        "outline_review",
-        "baseline_memory_seed",
-        "volume_plan",
-        "chapter_outline",
-        "chapter_draft",
-        "chapter_review",
-        "memory_commit_chapter",
-        "volume_review",
-        "volume_commit",
-    ]
+    priority_stage_ids = [str(item) for item in list(stage_order or artifact_refs_by_stage.keys()) if str(item)]
     selected: list[str] = []
     for stage_id in priority_stage_ids:
         selected.extend(
@@ -751,6 +735,11 @@ def _is_review_gate_contract(contract: dict[str, Any]) -> bool:
     return node_type == "review_gate" or gate_policy == "review_gate" or bool(dict(contract.get("review_gate_policy") or {}))
 
 
+def _stage_has_recovery_acceptance_policy(contract: dict[str, Any]) -> bool:
+    policy = dict(contract.get("quality_retry_policy") or {})
+    return bool(policy.get("acceptance_policies") or policy.get("recovery_acceptance_enabled"))
+
+
 def _recovery_stage_business_acceptance(
     *,
     stage_id: str,
@@ -778,30 +767,19 @@ def _recovery_stage_business_acceptance(
         "review_verdict": str(acceptance.get("verdict") or ""),
         "accepted_by_recovery_quality_gate": bool(acceptance.get("accepted") is True),
         "recovery_quality_issues": issues,
-        "chapter_words": int(acceptance.get("content_metric_total") or acceptance.get("raw_content_metric_total") or 0),
-        "expected_chapter_indexes": list(acceptance.get("expected_unit_indexes") or []),
-        "found_chapter_indexes": list(acceptance.get("found_unit_indexes") or []),
-        "missing_chapter_indexes": missing_indexes,
+        "content_metric_total": int(acceptance.get("content_metric_total") or acceptance.get("raw_content_metric_total") or 0),
+        "expected_unit_indexes": list(acceptance.get("expected_unit_indexes") or []),
+        "found_unit_indexes": list(acceptance.get("found_unit_indexes") or []),
+        "missing_unit_indexes": missing_indexes,
         "recovered_from_completed_stage_task_run": True,
     }
 
 
 def _recovery_acceptance_contract(*, stage_id: str, contract: dict[str, Any]) -> dict[str, Any]:
-    if str(stage_id or "").strip() != "chapter_draft":
+    _ = stage_id
+    quality_policy = dict(dict(contract or {}).get("quality_retry_policy") or {})
+    if not quality_policy:
         return dict(contract or {})
-    quality_policy = {
-        "acceptance_policies": ["sectioned_text_batch_quality"],
-        "unit_count_key": "chapters_per_round",
-        "unit_start_key": "batch_start_index",
-        "unit_end_key": "batch_end_index",
-        "unit_index_key": "chapter_index",
-        "target_metric_key": "batch_target_words",
-        "unit_target_metric_key": "chapter_target_words",
-        "minimum_metric_ratio": 0.55,
-        "minimum_metric_per_unit": 1200,
-        "required_heading_patterns": [r"第\s*(?P<index>[0-9一二三四五六七八九十百零〇两]+)\s*[章节回]"],
-        "heading_match_scope": "anywhere",
-    }
     existing_policy = dict(dict(contract or {}).get("quality_retry_policy") or {})
     return {
         **dict(contract or {}),

@@ -5,7 +5,7 @@ from typing import Any
 
 from capability_system.operation_registry import OperationDescriptor, OperationRegistry
 
-from .resource_policy import ResourcePolicy
+from permissions.resource_policy import ResourcePolicy
 
 
 PERMISSION_MODE_DEFAULT = "default"

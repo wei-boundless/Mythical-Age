@@ -315,20 +315,37 @@ Existing modules to reduce:
 
 ### 3.4 Permission Boundary
 
-Create `backend/runtime/permissions/`.
+Use the existing top-level `backend/permissions/` package as the platform permission system.
+Do not create a new `permission_system` package and do not put permission policy under
+`backend/runtime/permissions/`.
 
-Planned files:
+`backend/permissions/` owns policy and authorization decisions:
+
+- `policy.py`
+  - permission modes and mode normalization.
+- `service.py`
+  - settings/API-facing permission service.
+- `decision_pipeline.py`
+  - direct tool permission checks.
+- `resource_policy.py`
+  - `ResourcePolicy` and `ResourceDecision`.
+- `operation_gate.py`
+  - `OperationGate`, `OperationGateResult`, approval token/state, denial tracking.
+- `resource_policy_builder.py`
+  - candidate policy construction from task operation requirements.
+- `runtime_policy_builder.py`
+  - adopted runtime policy construction for model/tool execution.
+
+`backend/runtime/execution_permit/` owns one-run sealed permit projection:
 
 - `permit_builder.py`
-  - builds `ExecutionPermit`.
+  - builds `ExecutionPermit` from `AgentAssemblyContract`.
 - `tool_gateway.py`
-  - maps permit to model-visible tools and dispatchable tools.
-- `operation_gate_adapter.py`
-  - calls existing `OperationGate` from one place.
+  - maps permit/resource policy to model-visible tools and dispatchable tools.
 - `sandbox_gateway.py`
-  - resolves sandbox once and attaches it to permit.
+  - maps permit/resource policy to runtime sandbox execution view.
 - `approval_gateway.py`
-  - converts approval requirements to runtime action requests.
+  - converts approval requirements to runtime action requests/checkpoint state.
 
 Rules:
 
@@ -336,6 +353,8 @@ Rules:
 - Tool dispatch must require the same permit.
 - Sandbox permission cannot silently add hidden tools unless the permit says so.
 - Agent profile capability ceiling and turn-level adopted operations must both be visible in permit diagnostics, but permit fields decide.
+- Permission rules are platform-level decisions and stay under `backend/permissions/`.
+- Runtime may consume permission decisions, but must not own permission policy.
 
 ### 3.5 Sub-Runtime Boundary
 
@@ -554,37 +573,55 @@ Completion criteria:
 - A task graph node cannot silently switch agent through stale context.
 - Prompt snapshot contains role/task/output instructions, not raw control-plane labels as primary guidance.
 
-### Phase 4: Build Unified `ExecutionPermit`
+### Phase 4: Build Unified Permission System And `ExecutionPermit`
 
 Goal:
 
-Unify tool visibility, operation gate, sandbox, and approval.
+Unify tool visibility, operation gate, sandbox, and approval while putting ownership in
+the right packages: policy decisions in `backend/permissions/`, one-run permit projection
+in `backend/runtime/execution_permit/`.
 
 Files:
 
-- add `backend/runtime/permissions/__init__.py`
-- add `backend/runtime/permissions/permit_builder.py`
-- add `backend/runtime/permissions/tool_gateway.py`
-- add `backend/runtime/permissions/operation_gate_adapter.py`
-- add `backend/runtime/permissions/sandbox_gateway.py`
-- add `backend/runtime/permissions/approval_gateway.py`
+- update `backend/permissions/__init__.py`
+- add `backend/permissions/resource_policy.py`
+- add `backend/permissions/operation_gate.py`
+- add `backend/permissions/resource_policy_builder.py`
+- add `backend/permissions/runtime_policy_builder.py`
+- add `backend/runtime/execution_permit/__init__.py`
+- add `backend/runtime/execution_permit/permit_builder.py`
+- add `backend/runtime/execution_permit/tool_gateway.py`
+- add `backend/runtime/execution_permit/sandbox_gateway.py`
+- add `backend/runtime/execution_permit/approval_gateway.py`
 - update `backend/runtime/shared/model_adoption.py`
 - update `backend/runtime/shared/tool_adoption.py`
 - update `backend/runtime/unit_runtime/sandbox_policy.py`
 - update `backend/runtime/tool_runtime/tool_executor.py`
+- remove old primary ownership from `backend/orchestration/resource_policy.py`
+- remove old primary ownership from `backend/orchestration/resource_gate.py`
+- remove old primary ownership from `backend/orchestration/resource_policy_builder.py`
+- remove old primary ownership from `backend/runtime/agent_assembly/permit_builder.py`
 
 Work:
 
+- Move `ResourcePolicy`, `ResourceDecision`, `OperationGate`, approval state/token, and
+  `RuntimeApprovalContext` into `backend/permissions/`.
+- Move runtime model/tool adoption into `backend/permissions/runtime_policy_builder.py`.
+- Move `ExecutionPermit` builder out of agent assembly and into
+  `backend/runtime/execution_permit/`.
 - Build permit before model execution.
-- Derive model-visible tools from permit.
-- Dispatch tools only if permit admits the request.
-- Keep OperationGate, but call it from one gateway.
+- Derive model-visible tools from permit/resource policy gateway.
+- Dispatch tools only if the same policy/permit family admits the request.
+- Keep `OperationGate`, but call it from permissions as the platform authorization gate.
 
 Completion criteria:
 
 - The same permit explains model-visible tools and tool dispatch decisions.
 - A denied operation cannot become visible through sandbox hidden-tool behavior.
 - Tool authorization regression tests pass and include model-visible/dispatch consistency checks.
+- No backend code imports `ResourcePolicy` or `OperationGate` from `orchestration` as the
+  primary permission owner.
+- No backend code imports `build_execution_permit` from `runtime.agent_assembly`.
 
 ### Phase 5: Extract `ExecutionEngine`
 
@@ -613,6 +650,36 @@ Completion criteria:
 - `TaskRunLoop.run_single_agent_stream` is no longer the owner of model/tool inner loop.
 - Existing streaming behavior is preserved.
 - Tool result follow-up tests pass.
+
+Progress 2026-05-22:
+
+- Completed extraction of final-output fallback/synthesis helpers into
+  `backend/runtime/execution_engine/final_output.py`.
+- Completed extraction of model tool-call accumulation into
+  `backend/runtime/execution_engine/model_loop.py`.
+- Completed extraction of tool observation file-work projection into
+  `backend/runtime/execution_engine/observation_projection.py`.
+- Completed extraction of observation aggregation/projection flow into
+  `backend/runtime/execution_engine/observation_flow.py`.
+- Completed extraction of delegation payload binding and goal-alignment
+  helpers into `backend/runtime/execution_engine/delegation_context.py`.
+- Completed extraction of tool execution replay/idempotency preparation into
+  `backend/runtime/execution_engine/tool_loop.py`.
+- Moved approval-state resume projection into
+  `backend/runtime/execution_permit/approval_gateway.py`.
+- Moved model-visible tool filtering from `TaskRunLoop` into
+  `backend/runtime/execution_permit/tool_gateway.py`.
+- Removed old private loop helper imports from tests for the migrated
+  execution-engine functions.
+
+Remaining Phase 5 work:
+
+- Move the model/tool follow-up loop itself behind
+  `backend/runtime/execution_engine/engine.py`.
+- Move the remaining tool dispatch sequencing/event translation into
+  `backend/runtime/execution_engine/tool_loop.py`.
+- Reduce `TaskRunLoop.run_single_agent_stream` to task-run lifecycle,
+  checkpoint, event-log, and finalizer orchestration.
 
 ### Phase 6: Result Boundary And Coordination Acceptance
 
@@ -722,7 +789,7 @@ Completion criteria:
 
 - `backend/runtime/agent_assembly/`
 - `backend/runtime/execution_engine/`
-- `backend/runtime/permissions/`
+- `backend/runtime/execution_permit/`
 - `backend/runtime/subruntime/`
 
 ### Existing Files To Change
@@ -1010,10 +1077,9 @@ backend/runtime/
     trace_adapter.py
     runtime_payloads.py
     context_packet_resolver.py
-  permissions/
+  execution_permit/
     permit_builder.py
     tool_gateway.py
-    operation_gate_adapter.py
     sandbox_gateway.py
     approval_gateway.py
   execution_engine/

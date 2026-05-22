@@ -2,13 +2,13 @@
   "items": [
     {
       "world_id": "world.default",
-      "title": "默认无背景世界",
-      "summary": "不注入额外世界观，仅保留灵魂卡片自身说明。",
-      "content": "这是默认无背景世界。它只表示当前灵魂不绑定额外世界观，不参与纯工作模式。",
+      "title": "现实世界",
+      "summary": "真实任务、共同契约与无角色执行投影的工作空间。",
+      "content": "这里承载现实任务所需的共同契约、工作指令和专业执行投影。它不启用洪荒叙事，也不要求灵魂扮演，只帮助用户把目标、证据、工具和验收边界整理清楚。",
       "source_ref": "soul/worlds/catalog.json",
       "metadata": {
         "system_default": true,
-        "theme": "plain",
+        "theme": "reality",
         "gate_image": "/souls/generated/world-default-gate-v2.png",
         "scene_image": "/souls/generated/world-default-scene-v2.png"
       }

@@ -78,6 +78,7 @@ from .review_gate_verdict import review_verdict_is_accepted, review_verdict_is_r
 from .checkpoint_adapter import LangGraphCheckpointStoreAdapter
 from .runtime_kernel import LangGraphRuntimeKernel
 from .work_order_builder import build_node_work_order_from_request
+from ..agent_assembly import build_agent_assembly_contract
 from ..shared.runtime_object_store import RuntimeObjectStore
 from ..shared.models import AgentHandoffEnvelope, CoordinationRun
 from ..contracts.runtime_assembly_builder import build_node_runtime_assembly
@@ -154,6 +155,7 @@ class CoordinationRuntimeState(TypedDict, total=False):
     current_event: dict[str, Any]
     current_task_result: dict[str, Any]
     node_work_order: dict[str, Any]
+    agent_assembly_contract: dict[str, Any]
     node_execution_request: dict[str, Any]
     stage_execution_request: dict[str, Any]
     a2a_payload: dict[str, Any]
@@ -175,11 +177,13 @@ class LangGraphCoordinationRuntimeResult:
     events: tuple[Any, ...] = ()
     stage_execution_request: NodeExecutionRequest | None = None
     node_work_order: dict[str, Any] = field(default_factory=dict)
+    agent_assembly_contract: dict[str, Any] = field(default_factory=dict)
     checkpoint_ref: str = ""
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
     def continuation_payload(self, *, session_id: str, current_turn_context: dict[str, Any] | None = None) -> dict[str, Any]:
         work_order = dict(self.node_work_order or {})
+        assembly_contract = dict(self.agent_assembly_contract or {})
         if self.stage_execution_request is None and not work_order:
             return {}
         request = self.stage_execution_request or NodeExecutionRequest.from_dict(
@@ -207,6 +211,7 @@ class LangGraphCoordinationRuntimeResult:
                 "continuation_stage_id",
                 "stage_execution_request",
                 "node_work_order",
+                "agent_assembly_contract",
                 "a2a_payload",
             }
         }
@@ -221,6 +226,7 @@ class LangGraphCoordinationRuntimeResult:
             "continuation_stage_id": work_order_stage_id,
             "stage_execution_request": request.to_dict(),
             "node_work_order": work_order,
+            "agent_assembly_contract": assembly_contract,
             "a2a_payload": dict(request.a2a_payload),
             "explicit_inputs": dict(request.explicit_inputs),
         }
@@ -234,6 +240,7 @@ class LangGraphCoordinationRuntimeResult:
                 "current_turn_context": turn_context,
                 "stage_execution_request": request.to_dict(),
                 "node_work_order": work_order,
+                "agent_assembly_contract": assembly_contract,
                 "a2a_payload": dict(request.a2a_payload),
                 "human_work_packet": dict(request.human_work_packet),
                 "requires_human_executor": True,
@@ -249,6 +256,7 @@ class LangGraphCoordinationRuntimeResult:
                 "current_turn_context": turn_context,
                 "stage_execution_request": request.to_dict(),
                 "node_work_order": work_order,
+                "agent_assembly_contract": assembly_contract,
                 "a2a_payload": dict(request.a2a_payload),
                 "graph_module_runtime_handle": dict(request.runtime_assembly.get("graph_module_runtime_handle") or {}),
                 "requires_graph_module_executor": True,
@@ -265,13 +273,17 @@ class LangGraphCoordinationRuntimeResult:
             "message": request.message,
             "stage_execution_request": request.to_dict(),
             "node_work_order": work_order,
+            "agent_assembly_contract": assembly_contract,
             "a2a_payload": dict(request.a2a_payload),
             "task_selection": {
                 "selected_task_id": work_order_task_ref,
                 "task_id": work_order_task_ref,
                 "agent_id": work_order_agent_id,
+                "agent_profile_id": str(assembly_contract.get("agent_profile_id") or work_order.get("agent_profile_id") or request.agent_profile_id),
+                "runtime_lane": str(assembly_contract.get("runtime_lane") or work_order.get("runtime_lane") or request.runtime_lane),
                 "projection_id": work_order_projection_id,
                 "selected_projection_id": work_order_projection_id,
+                "agent_assembly_contract": assembly_contract,
             },
             "suppress_done": True,
         }
@@ -778,10 +790,7 @@ class LangGraphCoordinationRuntime:
                 "missing_required_inputs": [],
                 "current_event": {},
                 "current_task_result": {},
-                "node_work_order": {},
-                "node_execution_request": {},
-                "stage_execution_request": {},
-                "a2a_payload": {},
+                **_execution_boundary_cleared(),
                 "human_gate": {},
                 "terminal_status": "",
                 "diagnostics": diagnostics,
@@ -843,6 +852,7 @@ class LangGraphCoordinationRuntime:
             events=tuple(events),
             stage_execution_request=request,
             node_work_order=dict(state.get("node_work_order") or {}),
+            agent_assembly_contract=dict(state.get("agent_assembly_contract") or {}),
             checkpoint_ref=checkpoint.checkpoint_id,
             diagnostics={
                 "supported": True,
@@ -936,6 +946,7 @@ class LangGraphCoordinationRuntime:
             events=tuple(events),
             stage_execution_request=requests[-1] if requests else None,
             node_work_order=dict(state.get("node_work_order") or {}),
+            agent_assembly_contract=dict(state.get("agent_assembly_contract") or {}),
             checkpoint_ref=checkpoint.checkpoint_id,
             diagnostics={
                 "supported": True,
@@ -1054,29 +1065,16 @@ class LangGraphCoordinationRuntime:
         phase_id = str(payload.get("phase_id") or _runtime_node_value(state, stage_id, "phase_id") or "phase.unassigned")
         scope_path = ["run", phase_id]
         pending_inputs = dict(state.get("pending_inputs") or {})
-        volume_index = _safe_int(pending_inputs.get("volume_index"), 0)
-        batch_start = _safe_int(pending_inputs.get("batch_start_index") or pending_inputs.get("chapter_index"), 0)
-        batch_end = _safe_int(pending_inputs.get("batch_end_index"), batch_start)
-        round_index = _safe_int(
-            pending_inputs.get("round_index")
-            or pending_inputs.get("revision_round")
-            or pending_inputs.get("attempt_index"),
-            0,
-        )
-        if volume_index > 0:
-            scope_path.append(f"volume[{volume_index:03d}]")
-        if batch_start > 0:
-            batch_label = f"batch[{batch_start:03d}"
-            if batch_end and batch_end != batch_start:
-                batch_label += f"-{batch_end:03d}"
-            batch_label += "]"
-            scope_path.append(batch_label)
-        if round_index > 0:
-            scope_path.append(f"round[{round_index:03d}]")
+        coordinate = _runtime_scope_coordinate_from_inputs(pending_inputs)
+        volume_index = int(coordinate.get("volume_index") or 0)
+        batch_start = int(coordinate.get("batch_start_index") or 0)
+        batch_end = int(coordinate.get("batch_end_index") or 0)
+        round_index = int(coordinate.get("round_index") or 0)
+        scope_path.extend(_scope_path_segments_from_coordinate(coordinate))
         retry_index = int(dict(state.get("retry_counts") or {}).get(stage_id) or 0)
         if retry_index > 0:
             scope_path.append(f"retry[{retry_index}]")
-        loop_index = _safe_int(pending_inputs.get("iteration_index"), 0)
+        loop_index = int(coordinate.get("iteration_index") or 0)
         if loop_index > 0:
             scope_path.append(f"iteration[{loop_index}]")
         dependency_scope_key = _dependency_scope_key_from_inputs(pending_inputs)
@@ -1220,6 +1218,7 @@ class LangGraphCoordinationRuntime:
         dispatch_context = dict(result_request_payload.get("dispatch_context") or request_payload.get("dispatch_context") or {})
         commit_identity = _stage_commit_identity(
             stage_id=stage_id,
+            contract=contract,
             explicit_inputs=dict(result_request_payload.get("explicit_inputs") or state.get("pending_inputs") or {}),
             artifact_refs=artifact_refs,
         )
@@ -1251,10 +1250,7 @@ class LangGraphCoordinationRuntime:
             duplicate_commits.append(dict(duplicate_event.to_dict() if duplicate_event is not None else {}))
             return {
                 "duplicate_stage_commits": duplicate_commits,
-                "node_work_order": {},
-                "node_execution_request": {},
-                "stage_execution_request": {},
-                "a2a_payload": {},
+                **_execution_boundary_cleared(),
                 "terminal_status": "duplicate_commit_ignored",
                 "timeline": self.timeline_ledger.snapshot(str(state.get("coordination_run_id") or ""), limit=80),
                 "diagnostics": {**dict(state.get("diagnostics") or {}), "last_duplicate_commit_identity": commit_identity},
@@ -1337,6 +1333,7 @@ class LangGraphCoordinationRuntime:
                 event=event,
                 output_bundle=output_bundle,
                 execution_context=result_request_payload,
+                current_stage_candidate_refs=list(stage_result_payload.get("working_memory_refs") or []),
                 source_clock=str(result_event_payload.get("event_id") or ""),
                 source_clock_seq=int(result_event_payload.get("clock_seq") or 0),
             )
@@ -1673,10 +1670,7 @@ class LangGraphCoordinationRuntime:
             "latest_stage_result_records": latest_stage_result_records,
             "accepted_result_records_by_scope": accepted_result_records_by_scope,
             "final_result_ref": str(event.get("task_result_ref") or event.get("agent_run_result_ref") or ""),
-            "node_work_order": {},
-            "node_execution_request": {},
-            "stage_execution_request": {},
-            "a2a_payload": {},
+            **_execution_boundary_cleared(),
             "terminal_status": str(loop_updates.get("terminal_status") if "terminal_status" in loop_updates else terminal_status),
             "pending_inputs": dict(loop_updates.get("pending_inputs") or state.get("pending_inputs") or {}),
             "timeline": self.timeline_ledger.snapshot(str(state.get("coordination_run_id") or ""), limit=80),
@@ -1871,9 +1865,7 @@ class LangGraphCoordinationRuntime:
         if str(state.get("terminal_status") or "") == "stale_result_ignored":
             return {
                 "terminal_status": "stale_result_ignored",
-                "node_execution_request": _active_execution_request_payload(state),
-                "stage_execution_request": dict(state.get("stage_execution_request") or {}),
-                "a2a_payload": dict(state.get("a2a_payload") or {}),
+                **_execution_boundary_preserved(state),
                 "ready_nodes": list(state.get("ready_nodes") or []),
                 "blocked_nodes": list(state.get("blocked_nodes") or []),
                 "running_nodes": list(state.get("running_nodes") or []),
@@ -1885,9 +1877,7 @@ class LangGraphCoordinationRuntime:
         if str(state.get("terminal_status") or "") == "duplicate_commit_ignored":
             return {
                 "terminal_status": "duplicate_commit_ignored",
-                "node_execution_request": _active_execution_request_payload(state),
-                "stage_execution_request": dict(state.get("stage_execution_request") or {}),
-                "a2a_payload": dict(state.get("a2a_payload") or {}),
+                **_execution_boundary_preserved(state),
                 "ready_nodes": list(state.get("ready_nodes") or []),
                 "blocked_nodes": list(state.get("blocked_nodes") or []),
                 "running_nodes": list(state.get("running_nodes") or []),
@@ -2399,7 +2389,14 @@ class LangGraphCoordinationRuntime:
             runtime_lane=str(contract.get("runtime_lane") or ""),
             executor_type=executor_binding.selected_executor,
             executor_binding=graph_module_executor_binding_payload or executor_binding.to_dict(),
-            explicit_inputs=dict(explicit_inputs),
+            explicit_inputs=_explicit_inputs_with_runtime_boundary_policy(
+                explicit_inputs=_explicit_inputs_with_replay_policy(
+                    explicit_inputs=explicit_inputs,
+                    contract=contract,
+                    node_id=node_id,
+                ),
+                contract=contract,
+            ),
             standard_input_package=standard_input_package.to_dict(),
             human_work_packet=human_work_packet.to_dict() if human_work_packet is not None else {},
             runtime_assembly=runtime_assembly_payload,
@@ -2408,7 +2405,14 @@ class LangGraphCoordinationRuntime:
                 stage_id=stage_id,
                 task_ref=str(contract.get("task_ref") or state.get("active_task_ref") or ""),
                 contract=contract,
-                explicit_inputs=explicit_inputs,
+                explicit_inputs=_explicit_inputs_with_runtime_boundary_policy(
+                    explicit_inputs=_explicit_inputs_with_replay_policy(
+                        explicit_inputs=explicit_inputs,
+                        contract=contract,
+                        node_id=node_id,
+                    ),
+                    contract=contract,
+                ),
                 artifact_context_packet=artifact_context_packet,
                 memory_snapshot=memory_snapshot,
                 revision_packet=revision_packet,
@@ -2432,6 +2436,11 @@ class LangGraphCoordinationRuntime:
             },
         )
         node_work_order = build_node_work_order_from_request(request, state=state)
+        agent_assembly_contract = build_agent_assembly_contract(
+            node_work_order,
+            base_dir=self.registry_base_dir,
+            agent_runtime_profile=agent_profile,
+        )
         if dispatch_event is not None:
             self._append_timeline_event(
                 state,
@@ -2472,6 +2481,7 @@ class LangGraphCoordinationRuntime:
             "node_execution_request": request.to_dict(),
             "stage_execution_request": request.to_dict(),
             "node_work_order": node_work_order.to_dict(),
+            "agent_assembly_contract": agent_assembly_contract.to_dict(),
             "a2a_payload": a2a_payload,
             "pending_inputs": explicit_inputs,
             **({"batch_lifecycle_runtime_state": batch_runtime_state} if batch_runtime_state else {}),
@@ -2826,6 +2836,33 @@ class LangGraphCoordinationRuntime:
             )
         return operations
 
+    @staticmethod
+    def _candidate_refs_from_commit_approval_sources(
+        *,
+        state: CoordinationRuntimeState,
+        commit_edges: list[dict[str, Any]],
+        current_stage_id: str,
+        current_stage_candidate_refs: list[str] | None = None,
+    ) -> list[str]:
+        approval_sources = {
+            str(edge.get("approval_source_node_id") or "").strip()
+            for edge in commit_edges
+            if str(edge.get("approval_source_node_id") or "").strip()
+        }
+        if not approval_sources:
+            return []
+        refs: list[str] = []
+        if current_stage_id in approval_sources:
+            for ref in _string_list(current_stage_candidate_refs or []):
+                if ref and ref not in refs:
+                    refs.append(ref)
+        for stage_id in sorted(approval_sources):
+            result = dict(dict(state.get("stage_results") or {}).get(stage_id) or {})
+            for ref in _string_list(result.get("working_memory_refs")):
+                if ref and ref not in refs:
+                    refs.append(ref)
+        return refs
+
     def _commit_stage_working_memory_decisions(
         self,
         *,
@@ -2835,6 +2872,7 @@ class LangGraphCoordinationRuntime:
         event: dict[str, Any],
         output_bundle: dict[str, Any] | None = None,
         execution_context: dict[str, Any] | None = None,
+        current_stage_candidate_refs: list[str] | None = None,
         source_clock: str = "",
         source_clock_seq: int = 0,
     ) -> dict[str, Any]:
@@ -2883,10 +2921,21 @@ class LangGraphCoordinationRuntime:
             operation="write",
         )
         commit_edges = [edge for edge in commit_edges if str(edge.get("edge_type") or "") == "memory_commit" or str(edge.get("memory_edge_type") or "") == "commit"]
+        if not commit_edges:
+            return {}
         resolved_output_bundle = dict(output_bundle or _node_result_output_bundle(state=state, event=event, artifact_refs=[], mapped_outputs={}))
+        fallback_commit_refs = list(accepted_refs)
+        if not fallback_commit_refs:
+            fallback_commit_refs = self._candidate_refs_from_commit_approval_sources(
+                state=state,
+                commit_edges=commit_edges,
+                current_stage_id=stage_id,
+                current_stage_candidate_refs=current_stage_candidate_refs,
+            )
         edge_commit_requests, edge_commit_errors = _formal_memory_commit_requests(
             commit_edges=commit_edges,
             output_bundle=resolved_output_bundle,
+            accepted_candidate_refs=fallback_commit_refs,
         )
         refs_from_commit_edges = [request["candidate_ref"] for request in edge_commit_requests if request.get("candidate_ref")]
         for ref in refs_from_commit_edges:
@@ -2894,6 +2943,9 @@ class LangGraphCoordinationRuntime:
                 accepted_refs.append(ref)
         if not decision_payload and is_commit_stage and not accepted_refs:
             accepted_refs = _stage_working_memory_refs_for_commit(state)
+            for ref in _string_list(current_stage_candidate_refs or []):
+                if ref not in accepted_refs:
+                    accepted_refs.append(ref)
         if not accepted_refs and not discarded_refs and not conflict_refs and not edge_commit_errors:
             return {}
         commit_request_by_ref = {
@@ -3066,10 +3118,7 @@ class LangGraphCoordinationRuntime:
                 "coordination_run_id": coordination_run.coordination_run_id,
                 "root_task_run_id": coordination_run.task_run_id,
                 "terminal_status": "blocked",
-                "node_work_order": {},
-                "node_execution_request": {},
-                "stage_execution_request": {},
-                "a2a_payload": {},
+                **_execution_boundary_cleared(),
                 "diagnostics": {
                     "coordination_engine": "langgraph_runtime",
                     "task_graph_runtime_source": "missing_task_graph_definition",
@@ -3201,10 +3250,7 @@ class LangGraphCoordinationRuntime:
             "terminal_status": "blocked" if issues else "",
             "final_result_ref": "",
             "current_event": {},
-            "node_work_order": {},
-            "node_execution_request": {},
-            "stage_execution_request": {},
-            "a2a_payload": {},
+            **_execution_boundary_cleared(),
             "diagnostics": {
                 "coordination_engine": "langgraph_runtime",
                 "communication_protocol_id": coordination_run.communication_protocol_id,
@@ -3994,7 +4040,7 @@ def _stage_execution_message(
     if loop_summary:
         lines.append("当前循环上下文：")
         lines.append(loop_summary)
-    batch_boundary = _runtime_batch_boundary_instruction(explicit_inputs)
+    batch_boundary = _runtime_batch_boundary_instruction(contract=contract, explicit_inputs=explicit_inputs)
     if batch_boundary:
         lines.append("运行时批次边界：")
         lines.append(batch_boundary)
@@ -4097,6 +4143,7 @@ def _runtime_result_from_state(
         events=events,
         stage_execution_request=request,
         node_work_order=dict(state.get("node_work_order") or {}),
+        agent_assembly_contract=dict(state.get("agent_assembly_contract") or {}),
         checkpoint_ref=checkpoint_ref,
         diagnostics=diagnostics,
     )
@@ -4176,29 +4223,100 @@ def _request_dispatch_identity(request_payload: dict[str, Any]) -> str:
     )
 
 
-def _stage_commit_identity(*, stage_id: str, explicit_inputs: dict[str, Any], artifact_refs: list[str]) -> str:
-    if str(stage_id or "") != "memory_commit_chapter":
+def _stage_commit_identity(
+    *,
+    stage_id: str,
+    contract: dict[str, Any],
+    explicit_inputs: dict[str, Any],
+    artifact_refs: list[str],
+) -> str:
+    policy = _commit_identity_policy(contract)
+    if not policy:
         return ""
-    volume_index = _safe_int(explicit_inputs.get("volume_index"), 1)
-    batch_start = _safe_int(explicit_inputs.get("batch_start_index") or explicit_inputs.get("chapter_index"), 0)
-    batch_end = _safe_int(explicit_inputs.get("batch_end_index"), batch_start)
-    source_refs = []
-    for key, value in explicit_inputs.items():
-        key_text = str(key or "")
-        if key_text.endswith(":artifact_refs") and any(token in key_text for token in ("chapter_draft", "chapter_review")):
-            source_refs.extend(_artifact_refs_from_value(value))
-    for key in ("chapter_draft_ref", "chapter_review_ref", "previous_candidate_ref", "previous_review_ref"):
-        source_refs.extend(_artifact_refs_from_value(explicit_inputs.get(key)))
-    if not source_refs:
-        source_refs.extend(str(item) for item in list(artifact_refs or []) if str(item))
-    seed = {
+    mode = str(policy.get("mode") or "input_keys_and_artifact_refs").strip()
+    if mode in {"disabled", "none", "off"}:
+        return ""
+    namespace = str(policy.get("identity_namespace") or policy.get("namespace") or stage_id or "stage").strip()
+    seed: dict[str, Any] = {
         "stage_id": stage_id,
-        "volume_index": volume_index,
-        "batch_start_index": batch_start,
-        "batch_end_index": batch_end,
-        "source_refs": sorted(set(source_refs)),
+        "namespace": namespace,
+        "mode": mode,
     }
-    return f"commitid:{_short_hash(seed)}"
+
+    input_keys = [str(item).strip() for item in list(policy.get("input_keys") or []) if str(item).strip()]
+    if input_keys:
+        seed["inputs"] = {key: explicit_inputs.get(key) for key in input_keys}
+    elif mode in {"runtime_scope", "scope_and_artifact_refs"}:
+        seed["inputs"] = _runtime_scope_coordinate_from_inputs(explicit_inputs)
+
+    source_refs = _commit_identity_source_refs(
+        policy=policy,
+        explicit_inputs=explicit_inputs,
+        artifact_refs=artifact_refs,
+    )
+    if source_refs:
+        seed["source_refs"] = source_refs
+    if not seed.get("inputs") and not source_refs:
+        return ""
+    return f"{namespace}:commitid:{_short_hash(seed)}"
+
+
+def _commit_identity_policy(contract: dict[str, Any]) -> dict[str, Any]:
+    for source in (
+        dict(contract.get("memory_writeback_policy") or {}),
+        dict(contract.get("artifact_policy") or {}),
+        dict(contract.get("executor_policy") or {}),
+        dict(contract.get("metadata") or {}),
+    ):
+        policy = source.get("commit_identity_policy")
+        if isinstance(policy, dict) and policy:
+            return dict(policy)
+    return {}
+
+
+def _commit_identity_source_refs(
+    *,
+    policy: dict[str, Any],
+    explicit_inputs: dict[str, Any],
+    artifact_refs: list[str],
+) -> list[str]:
+    source_refs: list[str] = []
+    exact_input_keys = [
+        str(item).strip()
+        for item in list(policy.get("artifact_ref_input_keys") or policy.get("source_ref_input_keys") or [])
+        if str(item).strip()
+    ]
+    for key in exact_input_keys:
+        source_refs.extend(_artifact_refs_from_value(explicit_inputs.get(key)))
+
+    suffixes = [
+        str(item).strip()
+        for item in list(policy.get("artifact_ref_input_suffixes") or [])
+        if str(item).strip()
+    ]
+    prefixes = [
+        str(item).strip()
+        for item in list(policy.get("artifact_ref_input_prefixes") or [])
+        if str(item).strip()
+    ]
+    contains = [
+        str(item).strip()
+        for item in list(policy.get("artifact_ref_input_contains") or [])
+        if str(item).strip()
+    ]
+    if suffixes or prefixes or contains:
+        for key, value in dict(explicit_inputs or {}).items():
+            key_text = str(key or "")
+            if (
+                any(key_text.endswith(suffix) for suffix in suffixes)
+                or any(key_text.startswith(prefix) for prefix in prefixes)
+                or any(token in key_text for token in contains)
+            ):
+                source_refs.extend(_artifact_refs_from_value(value))
+
+    if bool(policy.get("include_result_artifact_refs") or policy.get("fallback_to_result_artifact_refs")):
+        source_refs.extend(str(item) for item in list(artifact_refs or []) if str(item))
+    return sorted({str(item) for item in source_refs if str(item)})
 
 
 def _short_hash(value: Any) -> str:
@@ -4372,26 +4490,150 @@ def _render_runtime_template(template: str, values: dict[str, Any]) -> str:
         return rendered
 
 
-def _runtime_batch_boundary_instruction(explicit_inputs: dict[str, Any]) -> str:
-    start = _safe_int(explicit_inputs.get("batch_start_index") or explicit_inputs.get("chapter_index"), 0)
-    end = _safe_int(explicit_inputs.get("batch_end_index"), 0)
-    chapters_per_round = _safe_int(explicit_inputs.get("chapters_per_round") or explicit_inputs.get("chapter_batch_size"), 0)
+def _runtime_batch_boundary_instruction(*, contract: dict[str, Any], explicit_inputs: dict[str, Any]) -> str:
+    policy = _runtime_batch_boundary_policy(contract=contract, explicit_inputs=explicit_inputs)
+    if policy.get("enabled") is False:
+        return ""
+    start_key = str(policy.get("start_key") or "batch_start_index").strip()
+    end_key = str(policy.get("end_key") or "batch_end_index").strip()
+    count_key = str(policy.get("count_key") or "unit_batch_size").strip()
+    list_key = str(policy.get("list_key") or "unit_batch_list").strip()
+    metric_key = str(policy.get("target_metric_key") or "batch_target_units").strip()
+    start = _safe_int(explicit_inputs.get(start_key), 0)
+    end = _safe_int(explicit_inputs.get(end_key), 0)
+    unit_count = _safe_int(explicit_inputs.get(count_key), 0)
     if start <= 0 or end < start:
         return ""
-    chapter_list = str(explicit_inputs.get("batch_chapter_list") or "").strip()
-    if not chapter_list:
-        chapter_list = "、".join(f"第{index}章" for index in range(start, end + 1))
-    words = _safe_int(explicit_inputs.get("batch_target_words"), 0)
+    unit_label = str(policy.get("unit_label") or explicit_inputs.get("unit_label") or "单元").strip()
+    unit_label_prefix = str(policy.get("unit_label_prefix") or explicit_inputs.get("unit_label_prefix") or "").strip()
+    unit_label_suffix = str(policy.get("unit_label_suffix") or explicit_inputs.get("unit_label_suffix") or unit_label).strip()
+    range_template = str(policy.get("range_template") or "本节点只允许处理{unit_label_prefix}{start}{unit_label_suffix}至{unit_label_prefix}{end}{unit_label_suffix}。").strip()
+    list_template = str(policy.get("list_template") or "允许单元清单：{unit_list}。").strip()
+    size_template = str(policy.get("size_template") or "当前运行时每轮批次大小为 {unit_count} {unit_label}。").strip()
+    metric_template = str(policy.get("metric_template") or "当前批次目标工作量约 {target_metric}。").strip()
+    conflict_template = str(
+        policy.get("conflict_template")
+        or "如果项目启动包、上游旧产物或历史摘要出现其他批次大小或其他范围，以本运行时批次边界为准。"
+    ).strip()
+    unit_list = str(explicit_inputs.get(list_key) or "").strip()
+    if not unit_list:
+        separator = str(policy.get("unit_list_separator") or "、")
+        unit_list = separator.join(f"{unit_label_prefix}{index}{unit_label_suffix}" for index in range(start, end + 1))
+    target_metric = _safe_int(explicit_inputs.get(metric_key), 0)
+    values = {
+        **dict(explicit_inputs or {}),
+        "start": start,
+        "end": end,
+        "unit_count": unit_count,
+        "unit_label": unit_label,
+        "unit_label_prefix": unit_label_prefix,
+        "unit_label_suffix": unit_label_suffix,
+        "unit_list": unit_list,
+        "target_metric": target_metric,
+    }
     parts = [
-        f"本节点只允许处理第{start}章至第{end}章。",
-        f"允许章号清单：{chapter_list}。",
+        _render_runtime_template(range_template, values),
+        _render_runtime_template(list_template, values),
     ]
-    if chapters_per_round:
-        parts.append(f"当前运行时每轮批次大小为 {chapters_per_round} 章。")
-    if words:
-        parts.append(f"当前批次目标正文量约 {words} 字。")
-    parts.append("如果项目启动包、上游旧产物或历史摘要出现其他批次大小或其他章号范围，以本运行时批次边界为准。")
+    if unit_count:
+        parts.append(_render_runtime_template(size_template, values))
+    if target_metric:
+        parts.append(_render_runtime_template(metric_template, values))
+    if conflict_template:
+        parts.append(_render_runtime_template(conflict_template, values))
     return "".join(parts)
+
+
+def _runtime_batch_boundary_policy(*, contract: dict[str, Any], explicit_inputs: dict[str, Any]) -> dict[str, Any]:
+    policy: dict[str, Any] = {}
+    for source in (
+        dict(contract.get("runtime_batch_boundary_policy") or {}),
+        dict(contract.get("memory_writeback_policy") or {}).get("runtime_batch_boundary_policy"),
+        dict(contract.get("executor_policy") or {}).get("runtime_batch_boundary_policy"),
+        explicit_inputs.get("runtime_batch_boundary_policy"),
+    ):
+        if isinstance(source, dict):
+            policy = {**policy, **source}
+    if policy:
+        return policy
+    unit_label = str(explicit_inputs.get("unit_label") or "").strip()
+    if unit_label:
+        return {"unit_label": unit_label}
+    return {}
+
+
+def _explicit_inputs_with_runtime_boundary_policy(
+    *,
+    explicit_inputs: dict[str, Any],
+    contract: dict[str, Any],
+) -> dict[str, Any]:
+    policy = _runtime_batch_boundary_policy(contract=contract, explicit_inputs=explicit_inputs)
+    if not policy:
+        return dict(explicit_inputs or {})
+    return {
+        **dict(explicit_inputs or {}),
+        "runtime_batch_boundary_policy": policy,
+    }
+
+
+def _explicit_inputs_with_replay_policy(
+    *,
+    explicit_inputs: dict[str, Any],
+    contract: dict[str, Any],
+    node_id: str,
+) -> dict[str, Any]:
+    policy = _replay_sanitization_policy(contract=contract, node_id=node_id)
+    if not policy:
+        return dict(explicit_inputs or {})
+    return {
+        **dict(explicit_inputs or {}),
+        "replay_sanitization_policy": policy,
+    }
+
+
+def _replay_sanitization_policy(*, contract: dict[str, Any], node_id: str) -> dict[str, Any]:
+    _ = node_id
+    for source in (
+        dict(contract.get("revision_context_policy") or {}),
+        dict(contract.get("quality_retry_policy") or {}),
+        dict(contract.get("executor_policy") or {}),
+        dict(contract.get("metadata") or {}),
+    ):
+        policy = source.get("replay_sanitization_policy")
+        if isinstance(policy, dict) and policy:
+            return dict(policy)
+    return {}
+
+
+def _runtime_scope_coordinate_from_inputs(inputs: dict[str, Any]) -> dict[str, int]:
+    batch_start = _safe_int(inputs.get("batch_start_index"), 0)
+    batch_end = _safe_int(inputs.get("batch_end_index"), batch_start)
+    return {
+        "volume_index": _safe_int(inputs.get("volume_index"), 0),
+        "batch_start_index": batch_start,
+        "batch_end_index": batch_end,
+        "round_index": _safe_int(inputs.get("round_index") or inputs.get("revision_round") or inputs.get("attempt_index"), 0),
+        "iteration_index": _safe_int(inputs.get("iteration_index"), 0),
+    }
+
+
+def _scope_path_segments_from_coordinate(coordinate: dict[str, Any]) -> list[str]:
+    volume_index = _safe_int(coordinate.get("volume_index"), 0)
+    batch_start = _safe_int(coordinate.get("batch_start_index"), 0)
+    batch_end = _safe_int(coordinate.get("batch_end_index"), batch_start)
+    round_index = _safe_int(coordinate.get("round_index"), 0)
+    parts: list[str] = []
+    if volume_index > 0:
+        parts.append(f"volume[{volume_index:03d}]")
+    if batch_start > 0:
+        batch_label = f"batch[{batch_start:03d}"
+        if batch_end and batch_end != batch_start:
+            batch_label += f"-{batch_end:03d}"
+        batch_label += "]"
+        parts.append(batch_label)
+    if round_index > 0:
+        parts.append(f"round[{round_index:03d}]")
+    return parts
 
 
 class _SafeFormatValues(dict):
@@ -4614,7 +4856,7 @@ def _stage_scope_for_resume(*, state: dict[str, Any], stage_id: str, contract: d
         "phase_id": phase_id,
         "iteration_index": _safe_int(dict(latest_record.get("timeline_coordinate") or {}).get("iteration_index") or pending_inputs.get("iteration_index"), 0),
         "volume_index": _safe_int(dict(latest_record.get("timeline_coordinate") or {}).get("volume_index") or pending_inputs.get("volume_index"), 0),
-        "batch_start_index": _safe_int(dict(latest_record.get("timeline_coordinate") or {}).get("batch_start_index") or pending_inputs.get("batch_start_index") or pending_inputs.get("chapter_index"), 0),
+        "batch_start_index": _safe_int(dict(latest_record.get("timeline_coordinate") or {}).get("batch_start_index") or pending_inputs.get("batch_start_index"), 0),
         "batch_end_index": _safe_int(dict(latest_record.get("timeline_coordinate") or {}).get("batch_end_index") or pending_inputs.get("batch_end_index"), 0),
         "round_index": _safe_int(
             dict(latest_record.get("timeline_coordinate") or {}).get("round_index")
@@ -4803,10 +5045,7 @@ def _resume_human_gate_state(*, state: CoordinationRuntimeState, event: dict[str
             "human_gate": {**human_gate, "status": "approved", "stage_id": stage_id, "resume": dict(event)},
             "terminal_status": "",
             "missing_required_inputs": [],
-            "node_work_order": {},
-            "node_execution_request": {},
-            "stage_execution_request": {},
-            "a2a_payload": {},
+            **_execution_boundary_cleared(),
             "diagnostics": diagnostics,
         }
     if decision in {"retry", "rework", "revise", "rerun"}:
@@ -4832,10 +5071,7 @@ def _resume_human_gate_state(*, state: CoordinationRuntimeState, event: dict[str
             "human_gate": {**human_gate, "status": "retry", "stage_id": stage_id, "resume": dict(event)},
             "terminal_status": "",
             "missing_required_inputs": [],
-            "node_work_order": {},
-            "node_execution_request": {},
-            "stage_execution_request": {},
-            "a2a_payload": {},
+            **_execution_boundary_cleared(),
             "diagnostics": diagnostics,
         }
     if decision in {"reject", "rejected", "fail", "failed"}:
@@ -4857,10 +5093,7 @@ def _resume_human_gate_state(*, state: CoordinationRuntimeState, event: dict[str
             "human_gate": {**human_gate, "status": "rejected", "stage_id": stage_id, "resume": dict(event)},
             "terminal_status": "failed",
             "missing_required_inputs": [],
-            "node_work_order": {},
-            "node_execution_request": {},
-            "stage_execution_request": {},
-            "a2a_payload": {},
+            **_execution_boundary_cleared(),
             "diagnostics": diagnostics,
         }
     node_statuses[stage_id] = "waiting_for_human"
@@ -4880,10 +5113,7 @@ def _resume_human_gate_state(*, state: CoordinationRuntimeState, event: dict[str
         "contract_status": contract_status,
         "human_gate": {**human_gate, "status": "waiting", "stage_id": stage_id, "resume": dict(event)},
         "terminal_status": "waiting_for_human",
-        "node_work_order": {},
-        "node_execution_request": {},
-        "stage_execution_request": {},
-        "a2a_payload": {},
+        **_execution_boundary_cleared(),
         "diagnostics": diagnostics,
     }
 
@@ -4916,10 +5146,27 @@ def _topological_stage_order(nodes: list[dict[str, Any]], edges: list[dict[str, 
 def _clear_execution_boundary(state: dict[str, Any], *, terminal_status: str) -> dict[str, Any]:
     return {
         "terminal_status": terminal_status,
+        **_execution_boundary_cleared(),
+    }
+
+
+def _execution_boundary_cleared() -> dict[str, Any]:
+    return {
         "node_work_order": {},
+        "agent_assembly_contract": {},
         "node_execution_request": {},
         "stage_execution_request": {},
         "a2a_payload": {},
+    }
+
+
+def _execution_boundary_preserved(state: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "node_work_order": dict(state.get("node_work_order") or {}),
+        "agent_assembly_contract": dict(state.get("agent_assembly_contract") or {}),
+        "node_execution_request": _active_execution_request_payload(state),
+        "stage_execution_request": dict(state.get("stage_execution_request") or {}),
+        "a2a_payload": dict(state.get("a2a_payload") or {}),
     }
 
 
@@ -5184,22 +5431,10 @@ def _scheduler_node_sets(
 
 
 def _dependency_scope_key_from_inputs(inputs: dict[str, Any]) -> str:
-    volume_index = _safe_int(inputs.get("volume_index"), 0)
-    batch_start = _safe_int(inputs.get("batch_start_index") or inputs.get("chapter_index"), 0)
-    batch_end = _safe_int(inputs.get("batch_end_index"), batch_start)
-    round_index = _safe_int(inputs.get("round_index") or inputs.get("revision_round") or inputs.get("attempt_index"), 0)
-    iteration_index = _safe_int(inputs.get("iteration_index"), 0)
+    coordinate = _runtime_scope_coordinate_from_inputs(inputs)
+    iteration_index = int(coordinate.get("iteration_index") or 0)
     parts = ["run"]
-    if volume_index > 0:
-        parts.append(f"volume[{volume_index:03d}]")
-    if batch_start > 0:
-        batch_label = f"batch[{batch_start:03d}"
-        if batch_end and batch_end != batch_start:
-            batch_label += f"-{batch_end:03d}"
-        batch_label += "]"
-        parts.append(batch_label)
-    if round_index > 0:
-        parts.append(f"round[{round_index:03d}]")
+    parts.extend(_scope_path_segments_from_coordinate(coordinate))
     if iteration_index > 0:
         parts.append(f"iteration[{iteration_index}]")
     return "/".join(parts)
@@ -5244,29 +5479,12 @@ def _active_scope_key_for_scheduler(state: dict[str, Any]) -> str:
         phase_id = str(contract.get("phase_id") or _runtime_node_value(state, active_stage_id, "phase_id") or "phase.unassigned")
         scope_path = ["run", phase_id]
         pending_inputs = dict(state.get("pending_inputs") or {})
-        volume_index = _safe_int(pending_inputs.get("volume_index"), 0)
-        batch_start = _safe_int(pending_inputs.get("batch_start_index") or pending_inputs.get("chapter_index"), 0)
-        batch_end = _safe_int(pending_inputs.get("batch_end_index"), batch_start)
-        round_index = _safe_int(
-            pending_inputs.get("round_index")
-            or pending_inputs.get("revision_round")
-            or pending_inputs.get("attempt_index"),
-            0,
-        )
-        if volume_index > 0:
-            scope_path.append(f"volume[{volume_index:03d}]")
-        if batch_start > 0:
-            batch_label = f"batch[{batch_start:03d}"
-            if batch_end and batch_end != batch_start:
-                batch_label += f"-{batch_end:03d}"
-            batch_label += "]"
-            scope_path.append(batch_label)
-        if round_index > 0:
-            scope_path.append(f"round[{round_index:03d}]")
+        coordinate = _runtime_scope_coordinate_from_inputs(pending_inputs)
+        scope_path.extend(_scope_path_segments_from_coordinate(coordinate))
         retry_index = _safe_int(dict(state.get("retry_counts") or {}).get(active_stage_id), 0)
         if retry_index > 0:
             scope_path.append(f"retry[{retry_index}]")
-        loop_index = _safe_int(pending_inputs.get("iteration_index"), 0)
+        loop_index = int(coordinate.get("iteration_index") or 0)
         if loop_index > 0:
             scope_path.append(f"iteration[{loop_index}]")
     return _dependency_scope_key_from_inputs(dict(state.get("pending_inputs") or {})) or "/".join(str(item).strip().replace("/", "_") for item in list(scope_path or ["run"]) if str(item).strip()) or "run"

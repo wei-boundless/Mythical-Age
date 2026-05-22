@@ -9,8 +9,10 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from capability_system.search_policy import normalize_search_policy, operation_allowed_by_search_policy
-from capability_system.tool_definitions import build_tool_instances
-from runtime.unit_runtime.loop import TaskRunLoop
+from capability_system import build_default_operation_registry
+from capability_system.tool_authorization import build_tool_authorization_index
+from capability_system.tool_definitions import build_tool_instances, get_tool_definitions
+from runtime.execution_permit import tool_instances_for_policy_and_permit
 from runtime.unit_runtime.loop import _resolve_runtime_search_sources
 
 
@@ -24,8 +26,9 @@ def test_normalized_empty_search_policy_blocks_source_bound_operations() -> None
 
 
 def test_task_run_loop_filters_main_runtime_tools_by_search_policy(tmp_path) -> None:
-    loop = TaskRunLoop(tmp_path, backend_dir=BACKEND_DIR)
     tools = build_tool_instances(BACKEND_DIR)
+    index = build_tool_authorization_index(get_tool_definitions())
+    registry = build_default_operation_registry()
     resource_policy = SimpleNamespace(
         allowed_operations=(
             "op.model_response",
@@ -37,9 +40,11 @@ def test_task_run_loop_filters_main_runtime_tools_by_search_policy(tmp_path) -> 
         requires_approval_operations=(),
     )
 
-    filtered = loop._tool_instances_for_resource_policy(
-        tools,
-        resource_policy,
+    filtered = tool_instances_for_policy_and_permit(
+        tool_instances=tools,
+        resource_policy=resource_policy,
+        definitions_by_name=index.definitions_by_name,
+        normalize_operation_id=registry.normalize_id,
         allowed_search_sources={"rag"},
     )
     names = {str(getattr(tool, "name", "") or "") for tool in filtered}

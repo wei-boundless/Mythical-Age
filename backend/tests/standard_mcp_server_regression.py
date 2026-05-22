@@ -9,7 +9,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from orchestration import ResourcePolicy
+from permissions import ResourcePolicy
 from capability_system.mcp.server.local_capability_server import LocalCapabilityMCPExecutor, LocalMCPToolRequest
 from capability_system.mcp.server.server import build_server
 from capability_system.mcp.server.tool_pool import build_mcp_tool_pool

@@ -39,6 +39,13 @@ export function getDefaultState(): StoreState {
     messages: [],
     isStreaming: false,
     activeStreamSessionIds: [],
+    sessionActivity: {
+      level: "idle",
+      title: "待命",
+      detail: "输入消息后，会在这里显示当前处理阶段。",
+      event: "",
+      updatedAt: 0
+    },
     ragMode: false,
     searchPolicy: {
       rag: false,
@@ -62,6 +69,12 @@ export function getDefaultState(): StoreState {
     taskGraphMonitorBinding: null,
     taskGraphLiveMonitor: null,
     taskGraphRunMonitor: null,
+    globalRuntimeMonitor: null,
+    globalRuntimeMonitorSelectedTaskRunId: "",
+    globalRuntimeMonitorSelectedLiveMonitor: null,
+    globalRuntimeMonitorSelectedGraphMonitor: null,
+    globalRuntimeMonitorLoading: false,
+    globalRuntimeMonitorError: "",
     taskGraphBoundRunMonitor: null,
     taskGraphMonitorDecision: null,
     taskGraphMonitorDecisions: [],

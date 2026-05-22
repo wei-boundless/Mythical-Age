@@ -4,12 +4,12 @@ import json
 from pathlib import Path
 
 from memory_system import MemoryFacade
-from runtime.unit_runtime.loop import _project_file_work_context_from_tool_observation
+from runtime.execution_engine import project_file_work_context_from_tool_observation
 from query.runtime import QueryRuntime
 
 
 def test_structured_mcp_observation_projects_file_work_context() -> None:
-    main_context, task_refs = _project_file_work_context_from_tool_observation(
+    main_context, task_refs = project_file_work_context_from_tool_observation(
         {
             "tool_name": "mcp_structured_data",
             "tool_args": {
@@ -36,7 +36,7 @@ def test_structured_mcp_observation_projects_file_work_context() -> None:
 
 
 def test_delegated_structured_observation_uses_canonical_subset_hints() -> None:
-    main_context, _ = _project_file_work_context_from_tool_observation(
+    main_context, _ = project_file_work_context_from_tool_observation(
         {
             "tool_name": "delegate_to_agent",
             "tool_args": {
@@ -73,7 +73,7 @@ def test_delegated_structured_observation_uses_canonical_subset_hints() -> None:
 
 
 def test_auto_delegated_structured_observation_infers_kind_from_writeback_protocol() -> None:
-    main_context, task_refs = _project_file_work_context_from_tool_observation(
+    main_context, task_refs = project_file_work_context_from_tool_observation(
         {
             "tool_name": "delegate_to_agent",
             "tool_args": {
@@ -109,7 +109,7 @@ def test_auto_delegated_structured_observation_infers_kind_from_writeback_protoc
 
 
 def test_pdf_mcp_observation_projects_file_work_context() -> None:
-    main_context, task_refs = _project_file_work_context_from_tool_observation(
+    main_context, task_refs = project_file_work_context_from_tool_observation(
         {
             "tool_name": "mcp_pdf",
             "tool_args": {
@@ -132,7 +132,7 @@ def test_pdf_mcp_observation_projects_file_work_context() -> None:
 
 
 def test_structured_projection_does_not_infer_subset_from_answer_text() -> None:
-    main_context, task_refs = _project_file_work_context_from_tool_observation(
+    main_context, task_refs = project_file_work_context_from_tool_observation(
         {
             "tool_name": "delegate_to_agent",
             "tool_args": {

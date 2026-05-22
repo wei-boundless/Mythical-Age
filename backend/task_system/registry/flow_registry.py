@@ -44,12 +44,6 @@ CONTRACT_TITLE_MAP: dict[str, str] = {
     "ShortStoryTaskInput": "短篇小说任务输入",
     "ShortStoryResult": "短篇小说成稿",
     "HealthIssue": "健康问题",
-    "HealthTriageResult": "健康分诊结果",
-    "HealthTrace": "健康链路",
-    "HealthTraceAnalysis": "健康链路分析",
-    "HealthCaseDraftProposal": "复现用例草案",
-    "HealthIssueWithBeforeAfterTrace": "带前后链路的健康问题",
-    "HealthFixVerificationProposal": "修复验证方案",
 }
 
 
@@ -68,60 +62,7 @@ def normalize_task_agent_adoption_mode(value: str) -> str:
 
 
 def default_health_task_flows() -> tuple[TaskFlowDefinition, ...]:
-    return (
-        TaskFlowDefinition(
-            flow_id="flow.health.issue_triage",
-            task_family="health",
-            title="健康问题分诊流",
-            input_contract_id="HealthIssue",
-            output_contract_id="HealthTriageResult",
-            default_agent_id="agent:3",
-            default_workflow_id="workflow.health.issue_triage",
-            default_runtime_lane="health_issue_read",
-            default_memory_scope="health_issue",
-            enabled=True,
-            metadata={"task_resource": "task.health.issue_triage", "managed_by": "task_system"},
-        ),
-        TaskFlowDefinition(
-            flow_id="flow.health.trace_analysis",
-            task_family="health",
-            title="健康链路分析流",
-            input_contract_id="HealthTrace",
-            output_contract_id="HealthTraceAnalysis",
-            default_agent_id="agent:3",
-            default_workflow_id="workflow.health.trace_analysis",
-            default_runtime_lane="health_issue_read",
-            default_memory_scope="health_issue",
-            enabled=True,
-            metadata={"task_resource": "task.health.trace_analysis", "managed_by": "task_system"},
-        ),
-        TaskFlowDefinition(
-            flow_id="flow.health.case_draft",
-            task_family="health",
-            title="健康复现用例草案流",
-            input_contract_id="HealthIssue",
-            output_contract_id="HealthCaseDraftProposal",
-            default_agent_id="agent:3",
-            default_workflow_id="workflow.health.case_draft",
-            default_runtime_lane="health_issue_read",
-            default_memory_scope="health_issue",
-            enabled=True,
-            metadata={"task_resource": "task.health.case_draft", "managed_by": "task_system"},
-        ),
-        TaskFlowDefinition(
-            flow_id="flow.health.fix_verification",
-            task_family="health",
-            title="健康修复验证流",
-            input_contract_id="HealthIssue",
-            output_contract_id="HealthFixVerificationProposal",
-            default_agent_id="agent:3",
-            default_workflow_id="workflow.health.fix_verification",
-            default_runtime_lane="health_issue_read",
-            default_memory_scope="health_issue",
-            enabled=True,
-            metadata={"task_resource": "task.health.fix_verification", "managed_by": "task_system"},
-        ),
-    )
+    return ()
 
 
 def default_task_flows() -> tuple[TaskFlowDefinition, ...]:
@@ -129,48 +70,28 @@ def default_task_flows() -> tuple[TaskFlowDefinition, ...]:
 
 
 def _system_task_specs() -> dict[str, dict[str, Any]]:
-    return {
-        "task.health.issue_triage": {
-            "title": "健康问题分诊任务",
-            "description": "对健康问题做初步分诊、归类和建议。",
-            "task_family": "health",
-            "runtime_lane": "health_issue_read",
-            "workflow_id": "workflow.health.issue_triage",
-            "input_contract_id": "HealthIssue",
-            "output_contract_id": "HealthTriageResult",
-            "safety_policy": {"read_only": True},
-        },
-        "task.health.trace_analysis": {
-            "title": "健康链路分析任务",
-            "description": "分析运行链路、关键事件和失败转折点。",
-            "task_family": "health",
-            "runtime_lane": "health_issue_read",
-            "workflow_id": "workflow.health.trace_analysis",
-            "input_contract_id": "HealthTrace",
-            "output_contract_id": "HealthTraceAnalysis",
-            "safety_policy": {"read_only": True},
-        },
-        "task.health.case_draft": {
-            "title": "健康复现用例草案任务",
-            "description": "把真实失败整理成最小可复现场景和断言。",
-            "task_family": "health",
-            "runtime_lane": "health_issue_read",
-            "workflow_id": "workflow.health.case_draft",
-            "input_contract_id": "HealthIssue",
-            "output_contract_id": "HealthCaseDraftProposal",
-            "safety_policy": {"read_only": True},
-        },
-        "task.health.fix_verification": {
-            "title": "健康修复验证任务",
-            "description": "验证修复是否真实消除问题并形成裁决。",
-            "task_family": "health",
-            "runtime_lane": "health_issue_read",
-            "workflow_id": "workflow.health.fix_verification",
-            "input_contract_id": "HealthIssue",
-            "output_contract_id": "HealthFixVerificationProposal",
-            "safety_policy": {"read_only": True},
-        },
-    }
+    return {}
+
+
+def _is_removed_health_task_config(payload: dict[str, Any]) -> bool:
+    metadata = dict(payload.get("metadata") or {})
+    values = (
+        payload.get("task_id"),
+        payload.get("flow_id"),
+        payload.get("workflow_id"),
+        payload.get("default_workflow_id"),
+        payload.get("default_flow_contract_id"),
+        payload.get("flow_contract_id"),
+        payload.get("binding_id"),
+        payload.get("plan_id"),
+        payload.get("profile_id"),
+        metadata.get("task_resource"),
+        metadata.get("source_flow_id"),
+    )
+    return any(
+        str(value or "").strip().startswith(("task.health.", "flow.health.", "workflow.health."))
+        for value in values
+    )
 
 
 def _memory_scope_for_family(task_family: str) -> str:
@@ -830,7 +751,11 @@ class TaskFlowRegistry:
             )
             merged_payload = _merge_default_overlay_by_key(
                 default_payload,
-                [item for item in list(payload.get("flows") or []) if isinstance(item, dict)],
+                [
+                    item
+                    for item in list(payload.get("flows") or [])
+                    if isinstance(item, dict) and not _is_removed_health_task_config(item)
+                ],
                 key="flow_id",
             )
             flows = []
@@ -925,7 +850,11 @@ class TaskFlowRegistry:
             )
             merged_payload = _merge_items_by_key(
                 default_assignments,
-                [item for item in list(payload.get("assignments") or []) if isinstance(item, dict)],
+                [
+                    item
+                    for item in list(payload.get("assignments") or [])
+                    if isinstance(item, dict) and not _is_removed_health_task_config(item)
+                ],
                 key="task_id",
             )
             assignments: list[TaskAssignment] = []
@@ -1188,7 +1117,11 @@ class TaskFlowRegistry:
         records: list[SpecificTaskRecord] = []
         merged_payload = _merge_default_overlay_by_key(
             [item for item in default_records if str(item.get("task_id") or "").strip() not in deleted_task_ids],
-            [item for item in list(payload.get("specific_task_records") or []) if isinstance(item, dict)],
+            [
+                item
+                for item in list(payload.get("specific_task_records") or [])
+                if isinstance(item, dict) and not _is_removed_health_task_config(item)
+            ],
             key="task_id",
         )
         for item in merged_payload:
@@ -1538,7 +1471,11 @@ class TaskFlowRegistry:
             )
             merged_payload = _merge_items_by_key(
                 default_bindings,
-                [item for item in list(payload.get("projection_bindings") or []) if isinstance(item, dict)],
+                [
+                    item
+                    for item in list(payload.get("projection_bindings") or [])
+                    if isinstance(item, dict) and not _is_removed_health_task_config(item)
+                ],
                 key="binding_id",
             )
             bindings: list[TaskProjectionBinding] = []
@@ -1642,7 +1579,11 @@ class TaskFlowRegistry:
         )
         merged_payload = _merge_items_by_key(
             default_bindings,
-            [item for item in list(payload.get("flow_contract_bindings") or []) if isinstance(item, dict)],
+            [
+                item
+                for item in list(payload.get("flow_contract_bindings") or [])
+                if isinstance(item, dict) and not _is_removed_health_task_config(item)
+            ],
             key="binding_id",
         )
         bindings: list[TaskFlowContractBinding] = []
@@ -1730,7 +1671,11 @@ class TaskFlowRegistry:
             default_plans = [_default_adoption_plan(item).to_dict() for item in default_tasks]
             merged_payload = _merge_default_overlay_by_key(
                 default_plans,
-                [item for item in list(payload.get("adoption_plans") or []) if isinstance(item, dict)],
+                [
+                    item
+                    for item in list(payload.get("adoption_plans") or [])
+                    if isinstance(item, dict) and not _is_removed_health_task_config(item)
+                ],
                 key="plan_id",
             )
             plans: list[TaskAgentAdoptionPlan] = []
@@ -1885,7 +1830,11 @@ class TaskFlowRegistry:
         )
         merged_payload = _merge_items_by_key(
             default_profiles,
-            [item for item in list(payload.get("memory_request_profiles") or []) if isinstance(item, dict)],
+            [
+                item
+                for item in list(payload.get("memory_request_profiles") or [])
+                if isinstance(item, dict) and not _is_removed_health_task_config(item)
+            ],
             key="profile_id",
         )
         profiles: list[TaskMemoryRequestProfile] = []
