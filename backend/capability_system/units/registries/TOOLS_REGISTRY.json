@@ -1,7 +1,76 @@
 {
   "version": 2,
-  "tool_count": 23,
+  "tool_count": 24,
   "tools": [
+    {
+      "name": "agent_todo",
+      "display_name": "Agent Todo",
+      "operation_id": "op.agent_todo",
+      "module": "tools.agent_todo_tool",
+      "contract": {
+        "required_inputs": [],
+        "required_bindings": [],
+        "optional_inputs": [
+          "operation",
+          "session_id",
+          "task_id",
+          "items",
+          "todo_id",
+          "status",
+          "notes"
+        ],
+        "owner_scope": "none",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "clarify",
+        "context_policy": "inline",
+        "result_channel": "canonical"
+      },
+      "resolution_contract": {
+        "path_field": "",
+        "path_kind": "",
+        "binding_field": "",
+        "allow_message_extraction": false
+      },
+      "output_contract": {
+        "display_mode": "summary_text",
+        "finalization_policy": "none",
+        "persistence_policy": "persist_canonical"
+      },
+      "projection_contract": {
+        "task_summary_policy": "canonical_only",
+        "result_ref_policy": "default",
+        "memory_projection_policy": "canonical_only"
+      },
+      "capability_tags": [
+        "todo",
+        "planning",
+        "progress_tracking",
+        "agent_state"
+      ],
+      "supported_modalities": [
+        "task",
+        "workspace",
+        "text"
+      ],
+      "safety_tags": [
+        "state",
+        "non_destructive"
+      ],
+      "route_hints": [
+        "tool",
+        "agent_todo",
+        "task_progress"
+      ],
+      "safe_for_auto_route": false,
+      "schema_identity": "local.tools/agent_todo",
+      "runtime_visibility": "main_runtime",
+      "prompt_exposure_policy": "schema_only",
+      "resource_exposure_policy": "none",
+      "is_read_only": false,
+      "is_destructive": false,
+      "is_concurrency_safe": false
+    },
     {
       "name": "web_search",
       "display_name": "网页搜索",

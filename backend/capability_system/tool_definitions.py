@@ -15,6 +15,7 @@ from capability_system.tool_contracts import (
     ToolResourceExposurePolicy,
     ToolRuntimeVisibility,
 )
+from capability_system.units.tools.agent_todo_tool import AgentTodoTool
 from capability_system.units.tools.browser_control_tool import BrowserControlTool
 from capability_system.units.tools.delegate_to_agent_tool import DelegateToAgentTool
 from capability_system.units.tools.fetch_url_tool import FetchURLTool
@@ -70,6 +71,33 @@ class ToolDefinition:
 
 def _tool_definitions() -> list[ToolDefinition]:
     return [
+        ToolDefinition(
+            name="agent_todo",
+            display_name="Agent Todo",
+            operation_id="op.agent_todo",
+            module="tools.agent_todo_tool",
+            factory=lambda base_dir: AgentTodoTool(root_dir=base_dir),
+            contract=ToolExecutionContract(
+                required_inputs=[],
+                optional_inputs=["operation", "session_id", "task_id", "items", "todo_id", "status", "notes"],
+                owner_scope="none",
+                missing_binding_behavior="clarify",
+                context_policy="inline",
+                result_channel="canonical",
+            ),
+            output_contract=ToolOutputContract(display_mode="summary_text", persistence_policy="persist_canonical"),
+            capability_tags=["todo", "planning", "progress_tracking", "agent_state"],
+            supported_modalities=["task", "workspace", "text"],
+            safety_tags=["state", "non_destructive"],
+            route_hints=["tool", "agent_todo", "task_progress"],
+            safe_for_auto_route=False,
+            schema_identity="local.tools/agent_todo",
+            prompt_exposure_policy="schema_only",
+            resource_exposure_policy="none",
+            is_read_only=False,
+            is_destructive=False,
+            is_concurrency_safe=False,
+        ),
         ToolDefinition(
             name="web_search",
             display_name="网页搜索",

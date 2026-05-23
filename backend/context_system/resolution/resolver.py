@@ -25,6 +25,7 @@ class ContextResolver:
         query_understanding: dict[str, Any] | None = None,
         intent_frame: dict[str, Any] | None = None,
         intent_decision: dict[str, Any] | None = None,
+        task_goal_frame: dict[str, Any] | None = None,
         runtime_assembly_hint: dict[str, Any] | None = None,
         continuation_candidates: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
         continuation_decision: dict[str, Any] | None = None,
@@ -33,6 +34,7 @@ class ContextResolver:
         understanding = dict(query_understanding or {})
         intent_frame_payload = dict(intent_frame or understanding.get("intent_frame") or {})
         intent_decision_payload = dict(intent_decision or understanding.get("intent_decision") or {})
+        task_goal_frame_payload = dict(task_goal_frame or understanding.get("task_goal_frame") or {})
         runtime_assembly_hint_payload = dict(runtime_assembly_hint or {})
         continuation_candidate_payloads = [
             dict(item)
@@ -111,6 +113,7 @@ class ContextResolver:
             restore_candidates_used=restore_candidate_refs,
             intent_frame=intent_frame_payload,
             intent_decision=intent_decision_payload,
+            task_goal_frame=task_goal_frame_payload,
             runtime_assembly_hint=runtime_assembly_hint_payload,
             continuation_candidates=tuple(continuation_candidate_payloads),
             continuation_decision=continuation_decision_payload,

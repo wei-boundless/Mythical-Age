@@ -568,8 +568,10 @@ def _specific_task_record_from_assignment(task: TaskAssignment) -> SpecificTaskR
     )
 
 
-def _default_projection_binding_from_specific_record(record: SpecificTaskRecord) -> TaskProjectionBinding:
+def _default_projection_binding_from_specific_record(record: SpecificTaskRecord) -> TaskProjectionBinding | None:
     projection_policy = str(record.default_projection_policy or "").strip()
+    if projection_policy in {"", "prompt_library_stage_role", "workflow_compatible_or_task_default"}:
+        return None
     projection_required = projection_policy == "fixed_projection"
     return TaskProjectionBinding(
         binding_id=f"taskprojbind:{record.task_id}",
@@ -1462,8 +1464,18 @@ class TaskFlowRegistry:
     def list_projection_bindings(self) -> list[TaskProjectionBinding]:
         def load() -> list[TaskProjectionBinding]:
             default_bindings = [
-                *[_default_projection_binding(_synthetic_task_from_general_profile(item)).to_dict() for item in self.list_general_task_profiles()],
-                *[_default_projection_binding_from_specific_record(item).to_dict() for item in self.list_specific_task_records()],
+                *[
+                    binding.to_dict()
+                    for item in self.list_general_task_profiles()
+                    for binding in (_default_projection_binding(_synthetic_task_from_general_profile(item)),)
+                    if binding.binding_id
+                ],
+                *[
+                    binding.to_dict()
+                    for item in self.list_specific_task_records()
+                    for binding in (_default_projection_binding_from_specific_record(item),)
+                    if binding is not None
+                ],
             ]
             payload = _read_json(
                 _projection_bindings_path(self.base_dir),
@@ -1567,6 +1579,21 @@ class TaskFlowRegistry:
         )
         self._invalidate_cache()
         return binding
+
+    def delete_projection_binding(self, task_id: str) -> TaskProjectionBinding | None:
+        target = str(task_id or "").strip()
+        if not target:
+            return None
+        existing = self.list_projection_bindings()
+        deleted = next((item for item in existing if item.task_id == target), None)
+        if deleted is None:
+            return None
+        _write_json(
+            _projection_bindings_path(self.base_dir),
+            {"projection_bindings": [item.to_dict() for item in existing if item.task_id != target]},
+        )
+        self._invalidate_cache()
+        return deleted
 
     def list_flow_contract_bindings(self) -> list[TaskFlowContractBinding]:
         default_bindings = [
@@ -2900,6 +2927,10 @@ def _normalize_agent_refs_in_mapping(payload: dict[str, Any]) -> dict[str, Any]:
         next_payload["participant_agent_ids"] = list(
             normalize_agent_id_sequence(str(item) for item in list(next_payload.get("participant_agent_ids") or []) if str(item))
         )
+    if not str(next_payload.get("projection_id") or "").strip():
+        next_payload.pop("projection_id", None)
+    if not str(next_payload.get("projection_overlay_id") or "").strip():
+        next_payload.pop("projection_overlay_id", None)
     return next_payload
 
 

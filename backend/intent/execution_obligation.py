@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from task_system.goal_profiles import get_task_goal_profile
+
 from .obligation_models import ExecutionObligation
 
 
@@ -90,12 +92,48 @@ def build_execution_obligation(
     }
     reads = _collect_required_reads(text=text, explicit_inputs=inputs, current_turn=current_turn)
     forbid_write = _has_any(lowered, _FORBID_WRITE_MARKERS)
-    write_required = _requires_real_write(lowered) and not forbid_write
-    verify_required = _has_any(lowered, _VERIFY_MARKERS)
-    required_writes = tuple(_build_write_requirements(text=text, explicit_inputs=inputs)) if write_required else ()
-    required_commands = tuple(_build_command_requirements(text=text)) if verify_required else ()
-    required_verifications = tuple(_build_verification_requirements(text=text)) if verify_required else ()
-    required_deliverables = tuple(_infer_required_deliverables(lowered, write_required=write_required, verify_required=verify_required))
+    goal_frame = dict(current_turn.get("task_goal_frame") or current_turn.get("goal_frame") or {})
+    profile_obligation = _profile_obligation_requirements(
+        task_goal_frame=goal_frame,
+        current_turn=current_turn,
+    )
+    write_required = (_requires_real_write(lowered) or bool(profile_obligation["required_writes"])) and not forbid_write
+    verify_required = _has_any(lowered, _VERIFY_MARKERS) or bool(profile_obligation["required_verifications"])
+    required_writes = tuple(
+        _dedupe_dicts(
+            [
+                *(_build_write_requirements(text=text, explicit_inputs=inputs) if _requires_real_write(lowered) and not forbid_write else []),
+                *([] if forbid_write else list(profile_obligation["required_writes"])),
+            ],
+            key_fields=("kind", "path", "source"),
+        )
+    )
+    required_commands = tuple(
+        _dedupe_dicts(
+            [
+                *(_build_command_requirements(text=text) if _has_any(lowered, _VERIFY_MARKERS) else []),
+                *list(profile_obligation["required_commands"]),
+            ],
+            key_fields=("kind", "command_hint", "source"),
+        )
+    )
+    required_verifications = tuple(
+        _dedupe_dicts(
+            [
+                *(_build_verification_requirements(text=text) if _has_any(lowered, _VERIFY_MARKERS) else []),
+                *list(profile_obligation["required_verifications"]),
+            ],
+            key_fields=("kind", "verification_kind", "criterion_id"),
+        )
+    )
+    required_deliverables = tuple(
+        _dedupe(
+            [
+                *_infer_required_deliverables(lowered, write_required=write_required, verify_required=verify_required),
+                *list(profile_obligation["required_deliverables"]),
+            ]
+        )
+    )
     forbidden_actions = ("modify_code", "write_file", "edit_file") if forbid_write else ()
     signals = {
         "read_paths": [item["path"] for item in reads if item.get("path")],
@@ -103,6 +141,7 @@ def build_execution_obligation(
         "verify_required": verify_required,
         "forbid_write": forbid_write,
         "deliverable_markers": [marker for marker in _DELIVER_MARKERS if marker in lowered],
+        "profile_obligation": profile_obligation["evidence"],
     }
     confidence = 0.35
     if reads:
@@ -125,6 +164,66 @@ def build_execution_obligation(
         confidence=min(confidence, 0.98),
         extraction_evidence=signals,
     )
+
+
+def _profile_obligation_requirements(
+    *,
+    task_goal_frame: dict[str, Any],
+    current_turn: dict[str, Any],
+) -> dict[str, Any]:
+    task_goal_type = str(
+        task_goal_frame.get("task_goal_type")
+        or current_turn.get("task_goal_type")
+        or current_turn.get("semantic_task_type")
+        or ""
+    ).strip()
+    profile = get_task_goal_profile(task_goal_type)
+    if profile is None:
+        return {
+            "required_writes": (),
+            "required_commands": (),
+            "required_verifications": (),
+            "required_deliverables": (),
+            "evidence": {"matched": False, "task_goal_type": task_goal_type},
+        }
+    actions = {str(item).strip() for item in tuple(profile.required_actions or ()) if str(item).strip()}
+    writes: list[dict[str, Any]] = []
+    commands: list[dict[str, Any]] = []
+    verifications: list[dict[str, Any]] = []
+    if "apply_real_change" in actions:
+        writes.append({"kind": "workspace_change", "required": True, "source": "task_goal_profile", "task_goal_type": task_goal_type})
+    if "integrate_asset" in actions:
+        writes.append({"kind": "asset_integration", "required": True, "source": "task_goal_profile", "task_goal_type": task_goal_type})
+    if "run_browser_verification" in actions:
+        commands.append({"kind": "browser_or_runtime_check", "command_hint": "start_or_open_app", "required": True, "source": "task_goal_profile"})
+        verifications.append({"kind": "browser_verification", "required": True, "source": "task_goal_profile"})
+    required_verifications = [
+        dict(item)
+        for item in list(task_goal_frame.get("required_verifications") or [])
+        if isinstance(item, dict)
+    ]
+    for item in required_verifications:
+        verifications.append(
+            {
+                "kind": str(item.get("verification_kind") or item.get("kind") or "evidence"),
+                "criterion_id": str(item.get("criterion_id") or ""),
+                "title": str(item.get("title") or ""),
+                "required": item.get("required") is not False,
+                "source": "task_goal_frame",
+            }
+        )
+    return {
+        "required_writes": tuple(writes),
+        "required_commands": tuple(commands),
+        "required_verifications": tuple(verifications),
+        "required_deliverables": tuple(profile.default_core_deliverables),
+        "evidence": {
+            "matched": True,
+            "task_goal_type": task_goal_type,
+            "profile_id": profile.task_goal_type,
+            "required_actions": sorted(actions),
+        },
+    }
 
 
 def _collect_required_reads(
@@ -384,5 +483,18 @@ def _dedupe(values: list[str]) -> list[str]:
         if not item or item in seen:
             continue
         seen.add(item)
+        result.append(item)
+    return result
+
+
+def _dedupe_dicts(values: list[dict[str, Any]], *, key_fields: tuple[str, ...]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    seen: set[tuple[str, ...]] = set()
+    for value in values:
+        item = dict(value or {})
+        key = tuple(str(item.get(field) or "").strip() for field in key_fields)
+        if key in seen:
+            continue
+        seen.add(key)
         result.append(item)
     return result

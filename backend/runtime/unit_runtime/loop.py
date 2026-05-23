@@ -53,6 +53,7 @@ from task_system.tasks.spec_models import TaskSpec
 from task_system.tasks.step_models import StepInputBinding, TaskStepBlueprint
 from task_system.planning.execution_recipe_models import ExecutionRecipe, TaskValidationRule
 from understanding.capability_resolution_view import capability_resolution_view
+from intent.model_understanding_invoker import invoke_model_understanding_draft
 
 from context_system.projection.projection import (
     projection_from_bundle_answer,
@@ -1289,16 +1290,46 @@ class TaskRunLoop:
             search_policy=search_policy,
             task_selection=runtime_chain_task_selection,
         )
+        runtime_context_override = {
+            **dict(invocation_model_context or {}),
+            **dict(runtime_chain_task_selection or {}),
+        }
+        model_understanding_policy = _model_understanding_sidecar_policy(runtime_context_override)
+        model_understanding_diagnostics = {
+            "sidecar_name": "model_understanding",
+            "sidecar_status": (
+                "not_enabled"
+                if not bool(model_understanding_policy.get("enabled") is True)
+                else "not_invoked_model_runtime_not_sidecar_capable"
+            ),
+            "model_call_performed": False,
+        }
+        model_understanding_invoker = _structured_sidecar_invoker(
+            model_response_executor,
+            enabled=bool(model_understanding_policy.get("enabled") is True),
+        )
+        if model_understanding_invoker is not None:
+            draft, model_understanding_diagnostics = await invoke_model_understanding_draft(
+                invoker=model_understanding_invoker,
+                user_message=user_message,
+                deterministic_signals={
+                    "task_id": task_id,
+                    "session_id": session_id,
+                    "task_selection": dict(runtime_chain_task_selection or {}),
+                    "source": source,
+                },
+            )
+            if draft:
+                runtime_context_override["model_understanding_draft"] = draft
+        if model_understanding_policy.get("enabled") is True:
+            runtime_context_override["model_understanding_sidecar_diagnostics"] = model_understanding_diagnostics
         chain_runtime = agent_runtime_chain.build_runtime(
             session_id=session_id,
             task_id=task_id,
             turn_id=str(dict(runtime_chain_task_selection or {}).get("turn_id") or ""),
             message=user_message,
             source=source,
-            current_turn_context_override={
-                **dict(invocation_model_context or {}),
-                **dict(runtime_chain_task_selection or {}),
-            },
+            current_turn_context_override=runtime_context_override,
             task_selection={
                 **dict(runtime_chain_task_selection or {}),
                 "search_policy": sorted(allowed_search_sources),
@@ -2709,7 +2740,7 @@ class TaskRunLoop:
             task_run_id=terminal_state.task_run_id,
             task_id=task_id,
             content=final_content,
-            **final_answer_metadata,
+            **_assistant_commit_metadata(final_answer_metadata),
         )
         output_refs = [
             item["task_id"]
@@ -6323,6 +6354,49 @@ def _chat_model_selection_runtime_defaults(model_selection: dict[str, Any] | Non
     if reasoning_effort in {"high", "max"}:
         defaults["reasoning_effort"] = reasoning_effort
     return defaults
+
+
+def _assistant_commit_metadata(final_answer_metadata: dict[str, Any] | None) -> dict[str, Any]:
+    metadata = dict(final_answer_metadata or {})
+    allowed_keys = {
+        "answer_channel",
+        "answer_source",
+        "answer_canonical_state",
+        "answer_persist_policy",
+        "answer_finalization_policy",
+        "answer_fallback_reason",
+    }
+    return {
+        key: str(metadata.get(key) or "")
+        for key in allowed_keys
+        if str(metadata.get(key) or "").strip()
+    }
+
+
+def _model_understanding_sidecar_policy(current_turn_context: dict[str, Any]) -> dict[str, Any]:
+    raw = dict(dict(current_turn_context or {}).get("model_understanding_policy") or {})
+    enabled = _truthy(raw.get("enabled"))
+    return {
+        "enabled": enabled,
+        "policy_source": str(raw.get("authority") or "runtime.model_understanding_policy"),
+        "readonly": True,
+    }
+
+
+def _structured_sidecar_invoker(model_response_executor: Any, *, enabled: bool) -> Any | None:
+    if not enabled:
+        return None
+    model_runtime = getattr(model_response_executor, "model_runtime", None)
+    if getattr(model_runtime, "supports_structured_sidecars", False) is not True:
+        return None
+    invoker = getattr(model_runtime, "invoke_messages", None)
+    return invoker if callable(invoker) else None
+
+
+def _truthy(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on", "enabled"}
+    return bool(value is True)
 
 
 class _ContinuationAgentRuntimeChain:

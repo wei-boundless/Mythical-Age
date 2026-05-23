@@ -10,6 +10,7 @@ from runtime.contracts.compiler import compile_coordination_contract_manifest
 from runtime.contracts.runtime_assembly_builder import build_node_runtime_assembly
 from runtime.shared.stage_projection import StageProjectionCycle
 from api import task_system as tasks_api
+from prompt_library import PromptLibraryRegistry
 from task_system.registry.contract_registry import TaskContractRegistry
 from task_system.registry.flow_registry import TaskFlowRegistry
 from task_system.compiler.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
@@ -240,6 +241,23 @@ def test_modular_writing_graph_config_compiles_graph_modules_and_chapter_batches
     workflows = {item.workflow_id: item for item in registry.workflow_registry.list_workflows()}
     assert workflows["workflow.writing.modular_novel.node.world_design"].prompt == world_prompt
     assert workflows["workflow.writing.modular_novel.node.chapter_draft"].prompt == chapter_draft.metadata["role_prompt"]
+    prompt_registry = PromptLibraryRegistry(base_dir)
+    world_prompt_resource = prompt_registry.resolve_stage_role(
+        workflow_id="workflow.writing.modular_novel.node.world_design",
+    )
+    chapter_prompt_resource = prompt_registry.resolve_stage_role(
+        workflow_id="workflow.writing.modular_novel.node.chapter_draft",
+    )
+    assert world_prompt_resource is not None
+    assert world_prompt_resource.resource_type == "stage_role"
+    assert world_prompt_resource.content == world_prompt
+    assert world_prompt_resource.source_ref == (
+        "storage/tasks/task_workflows.json#workflow.writing.modular_novel.node.world_design.prompt"
+    )
+    assert world_prompt_resource.legacy_projection_ids == ()
+    assert chapter_prompt_resource is not None
+    assert chapter_prompt_resource.content == chapter_draft.metadata["role_prompt"]
+    assert registry.get_projection_binding("task.writing.modular_novel.node.world_design") is None
     wrapper_task_ids = {
         "task.writing.modular_novel.master",
         "task.writing.modular_novel.design_init",
@@ -273,8 +291,9 @@ def test_modular_writing_graph_config_compiles_graph_modules_and_chapter_batches
         assert node.agent_id == ""
         assert node.agent_group_id == ""
         assert node.work_posture == ""
-        assert node.projection_id == ""
-        assert node.projection_overlay_id == ""
+        node_payload = node.to_dict()
+        assert "projection_id" not in node_payload
+        assert "projection_overlay_id" not in node_payload
         assert "role_prompt" not in node.metadata
         assert "model_requirement" not in node.contract_bindings.get("runtime", {})
         assert node.contract_bindings["runtime"]["graph_module_runtime"]["linked_graph_id"] == node.metadata["linked_graph_id"]
@@ -563,6 +582,14 @@ def test_modular_writing_world_design_runtime_uses_node_professional_prompt(tmp_
     assert mode_policy["interaction_mode"] == "role_mode"
     assert mode_policy["mode_reason"] == "task_graph_node_runtime"
     assert "node_professional_prompt_section" in section_ids
+    manifest_sections = {
+        str(item.get("section_id") or ""): dict(item)
+        for item in list(dict(runtime["task_body_orchestration"]).get("prompt_manifest", {}).get("sections") or [])
+        if isinstance(item, dict)
+    }
+    node_prompt_manifest = manifest_sections["node_professional_prompt_section"]
+    assert node_prompt_manifest["source_type"] == "prompt_library_resource"
+    assert str(node_prompt_manifest["source_id"]).startswith("prompt.task_graph.writing.modular_novel.node.world_design")
     assert "名家级中文商业网文世界架构师" in section_text
     assert "题材专属元素、套路资产或类型预设" in section_text
     assert "结构性代码修复执行员" not in section_text

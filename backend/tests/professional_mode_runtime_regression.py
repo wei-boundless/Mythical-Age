@@ -75,6 +75,14 @@ def test_professional_profile_is_injected_into_soul_runtime_view() -> None:
     assert "专业长任务测试报告诊断员" in sections["professional_profile_section"]["content"]
     assert "semantic_task_section" in sections
     assert "test_report_triage" in sections["semantic_task_section"]["content"]
+    assert "agent_plan_section" in sections
+    assert "计划" in sections["agent_plan_section"]["content"]
+    assert "agent_todo" in sections["agent_plan_section"]["content"]
+    assert "plan_coverage_section" in sections
+    assert "计划覆盖审查" in sections["plan_coverage_section"]["content"]
+
+    requirement = task_bundle["operation_requirement"]
+    assert "op.agent_todo" in set(requirement["optional_operations"])
 
 
 def test_evidence_packet_and_validator_require_triage_deliverables() -> None:
@@ -140,6 +148,122 @@ def test_deliverable_validator_flags_command_tool_markup_leak() -> None:
     assert result.passed is False
     assert result.protocol_leak_detected is True
     assert "protocol_boundary" in result.missing_deliverables
+
+
+def test_profile_driven_validator_rejects_game_completion_without_evidence() -> None:
+    result = validate_deliverable(
+        final_answer=(
+            "已创建 index.html 和 game.js，视觉资源已接入，玩法已可玩，"
+            "浏览器验证通过，最终报告已完成。"
+        ),
+        semantic_contract={
+            "task_goal_type": "game_vertical_slice_delivery",
+            "deliverables": [
+                "runnable_artifact_refs",
+                "gameplay_acceptance",
+                "visual_asset_refs",
+                "verification_evidence",
+                "final_report",
+            ],
+            "required_actions": [
+                "inspect_code",
+                "apply_real_change",
+                "integrate_asset",
+                "run_browser_verification",
+                "validate_deliverables",
+            ],
+        },
+        evidence_packet={"facts": []},
+    )
+
+    assert result.passed is False
+    assert "runnable_artifact_refs" in result.missing_deliverables
+    assert "visual_asset_refs" in result.missing_deliverables
+    assert "verification_evidence" in result.missing_deliverables
+    assert "claims_runtime_or_browser_verification_without_evidence" in result.unsupported_claims
+    assert "claims_artifact_changes_without_write_evidence" in result.unsupported_claims
+
+
+def test_profile_driven_validator_accepts_game_evidence_dimensions() -> None:
+    result = validate_deliverable(
+        final_answer=(
+            "已完成浏览器游戏垂直切片：文件 backend/game/index.html、backend/game/game.js "
+            "和 backend/game/assets/hero.png 已交付；玩法包含移动、攻击、敌人和 HUD；"
+            "浏览器验证通过；最终报告已完成。"
+        ),
+        semantic_contract={
+            "task_goal_type": "game_vertical_slice_delivery",
+            "deliverables": [
+                "runnable_artifact_refs",
+                "gameplay_acceptance",
+                "visual_asset_refs",
+                "verification_evidence",
+                "final_report",
+            ],
+            "required_actions": [
+                "inspect_code",
+                "apply_real_change",
+                "integrate_asset",
+                "run_browser_verification",
+                "validate_deliverables",
+            ],
+        },
+        evidence_packet={
+            "facts": [
+                {
+                    "fact_type": "observation",
+                    "preview": "write succeeded backend/game/index.html and backend/game/game.js",
+                },
+                {
+                    "fact_type": "observation",
+                    "preview": "write succeeded backend/game/assets/hero.png image asset sprite",
+                },
+                {
+                    "fact_type": "observation",
+                    "preview": "browser opened localhost:5173 canvas screenshot nonblank",
+                },
+                {
+                    "fact_type": "observation",
+                    "preview": "gameplay acceptance: movement attack enemy wave health hud",
+                },
+            ]
+        },
+    )
+
+    assert result.passed is True
+    assert result.missing_deliverables == ()
+    assert result.unsupported_claims == ()
+
+
+def test_profile_driven_validator_requires_frontend_workflow_evidence() -> None:
+    result = validate_deliverable(
+        final_answer="前端页面已修改，核心流程已完成并通过浏览器验证，但暂无额外限制。",
+        semantic_contract={
+            "task_goal_type": "frontend_app_delivery",
+            "deliverables": [
+                "runnable_artifact_refs",
+                "workflow_acceptance",
+                "verification_evidence",
+                "limitations",
+            ],
+            "required_actions": [
+                "inspect_code",
+                "apply_real_change",
+                "run_browser_verification",
+                "validate_deliverables",
+            ],
+        },
+        evidence_packet={
+            "facts": [
+                {"fact_type": "observation", "preview": "write succeeded frontend/src/App.tsx"},
+                {"fact_type": "observation", "preview": "browser opened localhost:3000 DOM screenshot"},
+            ]
+        },
+    )
+
+    assert result.passed is False
+    assert "workflow_acceptance" in result.missing_deliverables
+    assert "claims_functional_acceptance_without_evidence" in result.unsupported_claims
 
 
 def test_runtime_lane_registry_exposes_three_modes_and_removes_old_lane() -> None:

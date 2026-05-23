@@ -4,8 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from capability_system import build_default_operation_registry
-from orchestration.artifact_policy_view import render_artifact_policy_instructions
-from prompting.professional_profiles import get_professional_prompt_profile
+from prompt_library import assemble_runtime_prompt_contract
 from soul import SoulFacade
 from soul.projection_store import get_projection_card
 
@@ -115,7 +114,8 @@ def build_orchestration_runtime_bundle(
         selected_recipe=selected_recipe,
     )
     projection_diagnostics = _projection_resolution_diagnostics(projection_requirement)
-    prompt_contract = _build_runtime_prompt_contract(
+    prompt_contract = assemble_runtime_prompt_contract(
+        base_dir=base_dir,
         task_id=task_id,
         user_goal=user_goal,
         task_contract=task_contract,
@@ -130,6 +130,14 @@ def build_orchestration_runtime_bundle(
         operation_requirement=operation_requirement,
         active_skill=active_skill_payload,
         agent_id=agent_id,
+        current_turn_context=current_turn_payload,
+    )
+    prompt_contract_metadata = dict(prompt_contract.get("metadata") or {})
+    prompt_selection_context = dict(prompt_contract_metadata.get("prompt_selection_context") or {})
+    prompt_assembly_plan = dict(prompt_contract_metadata.get("prompt_assembly_plan") or {})
+    prompt_flow_trace = _prompt_flow_trace(
+        prompt_selection_context=prompt_selection_context,
+        prompt_assembly_plan=prompt_assembly_plan,
     )
     operation_registry = build_default_operation_registry()
     candidate_policy = build_resource_policy_candidate(
@@ -166,6 +174,7 @@ def build_orchestration_runtime_bundle(
             "section_order": list(prompt_profile.section_order),
             "projection_policy": prompt_profile.stage_projection_policy,
             "current_turn_ref": str(current_turn_payload.get("turn_id") or ""),
+            "prompt_flow_trace": prompt_flow_trace,
         },
         resource_binding_plan={
             "operation_requirement_ref": str(operation_requirement.get("requirement_id") or ""),
@@ -192,6 +201,9 @@ def build_orchestration_runtime_bundle(
             "builder": "orchestration.build_orchestration_runtime_bundle",
             "projection_provider": "soul.build_soul_runtime_view",
             "projection_resolution": projection_diagnostics,
+            "prompt_selection_context": prompt_selection_context,
+            "prompt_assembly_plan": prompt_assembly_plan,
+            "prompt_flow_trace": prompt_flow_trace,
             "memory_view_ref": str(memory_view.get("view_id") or ""),
             "context_policy_ref": _context_policy_ref(context_policy),
             "runtime_lane": runtime_lane_profile.lane_id,
@@ -366,314 +378,41 @@ def _projection_resolution_diagnostics(projection_requirement: dict[str, Any]) -
     }
 
 
-def _build_runtime_prompt_contract(
+def _prompt_flow_trace(
     *,
-    task_id: str,
-    user_goal: str,
-    task_contract: dict[str, Any],
-    task_execution_assembly: dict[str, Any],
-    task_spec: dict[str, Any],
-    selected_recipe: dict[str, Any],
-    task_workflow: dict[str, Any],
-    binding: dict[str, Any],
-    registered_task: dict[str, Any],
-    skill_runtime_views: list[dict[str, Any]],
-    projection_requirement: dict[str, Any],
-    operation_requirement: dict[str, Any],
-    active_skill: dict[str, Any],
-    agent_id: str,
+    prompt_selection_context: dict[str, Any],
+    prompt_assembly_plan: dict[str, Any],
 ) -> dict[str, Any]:
-    selected_metadata = dict(selected_recipe.get("metadata") or {})
-    semantic_contract = dict(
-        task_contract.get("semantic_task_contract")
-        or selected_metadata.get("semantic_task_contract")
-        or {}
-    )
-    mode_policy = dict(
-        task_contract.get("mode_policy")
-        or selected_metadata.get("mode_policy")
-        or {}
-    )
-    professional_profile_id = str(
-        semantic_contract.get("professional_profile_id")
-        or selected_metadata.get("professional_profile_id")
-        or ""
-    ).strip()
-    professional_profile = get_professional_prompt_profile(professional_profile_id)
-    workflow_steps = [
-        str(item.get("title") or item.get("step_id") or "").strip()
-        for item in list(task_workflow.get("steps") or ())
-        if isinstance(item, dict) and str(item.get("title") or item.get("step_id") or "").strip()
+    context = dict(prompt_selection_context or {})
+    plan = dict(prompt_assembly_plan or {})
+    diagnostics = dict(plan.get("diagnostics") or {})
+    selected = [
+        dict(item)
+        for item in list(plan.get("selected") or [])
+        if isinstance(item, dict) and not str(item.get("resource_id") or "").startswith("builtin:")
     ]
-    if not workflow_steps:
-        workflow_steps = [
-            str(item.get("title") or item.get("step_id") or "").strip()
-            for item in list(selected_recipe.get("step_blueprints") or ())
-            if isinstance(item, dict) and str(item.get("title") or item.get("step_id") or "").strip()
-        ]
-    skill_ids = [
-        str(item.get("skill_id") or "").strip()
-        for item in skill_runtime_views
-        if str(item.get("skill_id") or "").strip()
-    ]
-    if not skill_ids and active_skill:
-        skill_ids.append(str(active_skill.get("name") or "").strip())
     return {
-        "contract_id": f"orchprompt:{task_id}",
-        "task_id": task_id,
-        "definition_id": str(binding.get("definition_id") or task_execution_assembly.get("task_family") or "runtime"),
-        "binding_id": str(binding.get("binding_id") or ""),
-        "task_section": "\n".join(
-            [
-                f"Goal: {str(task_contract.get('user_goal') or user_goal).strip()}",
-                f"Task family: {str(task_execution_assembly.get('task_family') or '').strip() or 'general'}",
-                f"Task mode: {str(task_execution_assembly.get('task_mode') or '').strip() or 'general_qa'}",
-                f"Requested outputs: {', '.join(list(task_execution_assembly.get('requested_outputs') or ()) or ['AssistantFinalAnswer'])}",
-            ]
-        ).strip(),
-        "workflow_section": _workflow_section(
-            task_workflow=task_workflow,
-            selected_recipe=selected_recipe,
-            workflow_steps=workflow_steps,
-            skill_ids=skill_ids,
-        ),
-        "node_professional_prompt_section": _node_professional_prompt_section(
-            task_workflow=task_workflow,
-            registered_task=registered_task,
-        ),
-        "semantic_task_section": _semantic_task_section(semantic_contract),
-        "professional_profile_section": professional_profile.prompt if professional_profile is not None else "",
-        "mode_policy_section": _mode_policy_section(mode_policy),
-        "resource_section": "",
-        "projection_section": _projection_section(projection_requirement),
-        "output_section": _output_section(task_execution_assembly=task_execution_assembly, task_spec=task_spec),
-        "guardrail_section": _communication_guardrail_section(task_spec),
-        "metadata": {
-            "agent_id": agent_id,
-            "resource_policy_ref": str(operation_requirement.get("requirement_id") or ""),
-            "registered_task_id": str(registered_task.get("task_id") or ""),
-            "selected_recipe_id": str(selected_recipe.get("recipe_id") or ""),
-            "task_workflow_id": str(task_workflow.get("workflow_id") or ""),
-            "semantic_task_contract": semantic_contract,
-            "mode_policy": mode_policy,
-            "professional_profile": professional_profile.to_dict() if professional_profile is not None else {},
-        },
+        "authority": "prompt_library.flow_trace",
+        "selector": str(diagnostics.get("selector") or ""),
+        "workflow_id": str(context.get("workflow_id") or diagnostics.get("workflow_id") or ""),
+        "graph_id": str(context.get("graph_id") or diagnostics.get("graph_id") or ""),
+        "node_id": str(context.get("node_id") or diagnostics.get("node_id") or ""),
+        "stage_id": str(context.get("stage_id") or diagnostics.get("stage_id") or ""),
+        "phase_id": str(context.get("phase_id") or diagnostics.get("phase_id") or ""),
+        "current_step_id": str(context.get("current_step_id") or diagnostics.get("current_step_id") or ""),
+        "current_step_kind": str(context.get("current_step_kind") or diagnostics.get("current_step_kind") or ""),
+        "task_graph_node_runtime": bool(context.get("task_graph_node_runtime") or diagnostics.get("task_graph_node_runtime")),
+        "step_sequence": list(context.get("step_sequence") or diagnostics.get("step_sequence") or []),
+        "selected_prompt_resources": [
+            {
+                "section_id": str(item.get("section_id") or ""),
+                "resource_id": str(item.get("resource_id") or ""),
+                "resource_type": str(item.get("resource_type") or ""),
+                "selection_reason": str(item.get("selection_reason") or ""),
+            }
+            for item in selected
+        ],
     }
-
-
-def _semantic_task_section(semantic_contract: dict[str, Any]) -> str:
-    if not semantic_contract:
-        return ""
-    deliverables = [
-        str(item).strip()
-        for item in list(semantic_contract.get("deliverables") or [])
-        if str(item).strip()
-    ]
-    reasoning_steps = [
-        str(item).strip()
-        for item in list(semantic_contract.get("required_reasoning_steps") or [])
-        if str(item).strip()
-    ]
-    required_actions = [
-        str(item).strip()
-        for item in list(semantic_contract.get("required_actions") or [])
-        if str(item).strip()
-    ]
-    forbidden_actions = [
-        str(item).strip()
-        for item in list(semantic_contract.get("forbidden_actions") or [])
-        if str(item).strip()
-    ]
-    materials = [
-        str(dict(item).get("path") or "").strip()
-        for item in list(semantic_contract.get("materials") or [])
-        if isinstance(item, dict) and str(dict(item).get("path") or "").strip()
-    ]
-    lines = [
-        f"你本轮要完成的任务类型是：{str(semantic_contract.get('task_goal_type') or 'general').strip()}。",
-        f"任务领域：{str(semantic_contract.get('domain') or 'general').strip()}。",
-    ]
-    if materials:
-        lines.append("需要优先处理的材料：" + "、".join(materials[:8]) + "。")
-    if reasoning_steps:
-        lines.append("你需要按这些思考步骤推进：" + " -> ".join(reasoning_steps) + "。")
-    if required_actions:
-        lines.append("必须真实完成或明确说明无法完成的动作：" + "、".join(required_actions) + "。")
-    if deliverables:
-        lines.append("最终回答必须交付：" + "、".join(deliverables) + "。")
-    if forbidden_actions:
-        lines.append("禁止：" + "、".join(forbidden_actions) + "。")
-    return "\n".join(lines)
-
-
-def _mode_policy_section(mode_policy: dict[str, Any]) -> str:
-    if not mode_policy:
-        return ""
-    interaction_mode = str(mode_policy.get("interaction_mode") or "").strip()
-    projection_strength = str(mode_policy.get("projection_strength") or "").strip()
-    verification_policy = dict(mode_policy.get("verification_policy") or {})
-    tool_policy = dict(mode_policy.get("tool_policy") or {})
-    lines = [
-        f"当前交互模式：{interaction_mode or 'role_mode'}。",
-        f"投影参与强度：{projection_strength or 'primary'}。",
-    ]
-    if interaction_mode == "role_mode":
-        lines.append("请优先保持角色与灵魂投影的自然表达，只在真实可用的只读能力范围内辅助回答。")
-    elif interaction_mode == "standard_mode":
-        lines.append("请在当前回合内用有限工具解决明确问题，结论必须说明真实依据和限制。")
-    elif interaction_mode == "professional_mode":
-        lines.append("请以专业任务职责和语义契约为最高优先级，灵魂投影只影响表达温度，不能覆盖交付物和验证要求。")
-    if bool(tool_policy.get("requires_evidence_packet")):
-        lines.append("工具或委派观察必须先沉淀为证据包，再进入最终结论。")
-    if bool(verification_policy.get("deliverable_validator")):
-        lines.append("最终回答需要接受交付物验证；缺少必要交付物时不能宣称完成。")
-    return "\n".join(lines)
-
-
-def _communication_guardrail_section(task_spec: dict[str, Any]) -> str:
-    inputs = dict(task_spec.get("inputs") or {})
-    protocol = dict(inputs.get("agent_communication_protocol") or {})
-    if not protocol:
-        return ""
-    main_contract = dict(protocol.get("main_agent_contract") or {})
-    child_contract = dict(protocol.get("child_agent_contract") or {})
-    parent_contract = dict(protocol.get("parent_closeout_contract") or {})
-    lines = [
-        "Agent communication protocol:",
-        f"- Transport: {str(protocol.get('transport') or 'runtime_tool:delegate_to_agent')}.",
-        f"- Delegate when: {str(main_contract.get('delegate_when') or '').strip()}",
-        f"- Main instruction style: {str(main_contract.get('instruction_style') or '').strip()}",
-        f"- Scope rule: {str(main_contract.get('scope_rule') or '').strip()}",
-        f"- Child must return: {', '.join(list(child_contract.get('must_return') or [])) or 'summary, answer_candidate'}.",
-        f"- Parent closeout: {str(parent_contract.get('closeout_rule') or '').strip()}",
-    ]
-    return "\n".join(line for line in lines if line.strip() and not line.endswith(": "))
-
-
-def _workflow_section(
-    *,
-    task_workflow: dict[str, Any],
-    selected_recipe: dict[str, Any],
-    workflow_steps: list[str],
-    skill_ids: list[str],
-) -> str:
-    title = str(task_workflow.get("title") or selected_recipe.get("title") or "未命名工作流").strip()
-    workflow_id = str(task_workflow.get("workflow_id") or selected_recipe.get("recipe_id") or "").strip() or "runtime_recipe"
-    task_mode = str(task_workflow.get("task_mode") or selected_recipe.get("task_mode") or "").strip() or "runtime"
-    lines = [
-        f"Workflow: {title}",
-        f"Workflow ID: {workflow_id}",
-        f"Task mode: {task_mode}",
-    ]
-    if workflow_steps:
-        lines.append(f"Steps: {' -> '.join(workflow_steps)}")
-    if skill_ids:
-        lines.append(f"Visible skills: {', '.join(skill_ids)}")
-    stop_conditions = [str(item).strip() for item in list(task_workflow.get("stop_conditions") or ()) if str(item).strip()]
-    if stop_conditions:
-        lines.append(f"Stop conditions: {'; '.join(stop_conditions)}")
-    output_boundary = str(
-        task_workflow.get("output_boundary")
-        or task_workflow.get("output_contract_id")
-        or selected_recipe.get("output_schema")
-        or ""
-    ).strip()
-    if output_boundary:
-        lines.append(f"Output boundary: {output_boundary}")
-    return "\n".join(lines)
-
-
-def _node_professional_prompt_section(
-    *,
-    task_workflow: dict[str, Any],
-    registered_task: dict[str, Any],
-) -> str:
-    prompt = str(task_workflow.get("prompt") or "").strip()
-    if prompt:
-        return prompt
-    metadata = dict((registered_task or {}).get("metadata") or {})
-    fallback = str(metadata.get("role_prompt") or metadata.get("prompt") or "").strip()
-    return fallback
-
-
-def _projection_section(projection_requirement: dict[str, Any]) -> str:
-    posture_tags = [str(item).strip() for item in list(projection_requirement.get("posture_tags") or ()) if str(item).strip()]
-    attention_focus = [str(item).strip() for item in list(projection_requirement.get("attention_focus") or ()) if str(item).strip()]
-    lines = [
-        f"Projection role: {str(projection_requirement.get('role_type') or 'task_default')}.",
-        f"Posture tags: {', '.join(posture_tags) or 'none'}.",
-    ]
-    identity_anchor = str(projection_requirement.get("identity_anchor") or "").strip()
-    if identity_anchor:
-        lines.append(f"Projection identity anchor: {identity_anchor}")
-    projection_id = str(projection_requirement.get("projection_id") or "").strip()
-    if projection_id:
-        lines.append(f"Projection ID: {projection_id}.")
-    soul_id = str(projection_requirement.get("soul_id") or "").strip()
-    if soul_id:
-        lines.append(f"Soul: {soul_id}.")
-    if attention_focus:
-        lines.append(f"Attention focus: {', '.join(attention_focus)}.")
-    reason = str(projection_requirement.get("reason") or "").strip()
-    if reason:
-        lines.append(f"Projection reason: {reason}.")
-    return "\n".join(lines)
-
-
-def _output_section(
-    *,
-    task_execution_assembly: dict[str, Any],
-    task_spec: dict[str, Any],
-) -> str:
-    requested_outputs = [str(item).strip() for item in list(task_execution_assembly.get("requested_outputs") or ()) if str(item).strip()]
-    task_mode = str(task_execution_assembly.get("task_mode") or "").strip()
-    if task_mode == "capability_execution":
-        return (
-            f"Output should satisfy task mode {task_mode}. "
-            "If required inputs are already present, execute the capability directly and return the result."
-        )
-    output_contract = str(task_execution_assembly.get("output_contract_id") or "").strip()
-    template_metadata = dict(task_execution_assembly.get("metadata") or {})
-    artifact_policy = dict(
-        task_execution_assembly.get("artifact_policy")
-        or template_metadata.get("artifact_policy")
-        or {}
-    )
-    artifact_policy_section = render_artifact_policy_instructions(
-        artifact_policy,
-        heading="Artifact policy",
-    )
-    final_answer_requirements = [
-        str(item).strip()
-        for item in list(template_metadata.get("final_answer_requirements") or [])
-        if str(item).strip()
-    ]
-    forbidden_final_states = [
-        str(item).strip()
-        for item in list(template_metadata.get("forbidden_final_states") or [])
-        if str(item).strip()
-    ]
-    return "\n".join(
-        line
-        for line in (
-            f"Output should satisfy task mode: {task_mode or 'general_qa'}.",
-            f"Requested outputs: {', '.join(requested_outputs) if requested_outputs else 'AssistantFinalAnswer'}.",
-            f"Output contract: {output_contract}." if output_contract else "",
-            artifact_policy_section,
-            f"Deliverable summary: {str(task_spec.get('summary') or '').strip()}" if str(task_spec.get("summary") or "").strip() else "",
-            (
-                "Mandatory final answer requirements: "
-                + "; ".join(final_answer_requirements)
-                + "."
-            ) if final_answer_requirements else "",
-            (
-                "Forbidden terminal states: "
-                + "; ".join(forbidden_final_states)
-                + "."
-            ) if forbidden_final_states else "",
-        )
-        if line
-    )
 
 
 def _context_policy_ref(context_policy_result: dict[str, Any]) -> str:

@@ -19,7 +19,7 @@ from runtime.unit_runtime.finalizer import TaskRunFinalizer
 from runtime.coordination_runtime.trace_adapter import CoordinationTraceAdapter
 from runtime.memory.state_index import RuntimeStateIndex
 from runtime.unit_runtime.loop import TaskRunLoop
-from soul.facade import SoulFacade
+from prompt_library import PromptLibraryRegistry
 from task_system import TaskFlowRegistry, TaskWorkflowRegistry
 from task_system.graphs.task_graph_models import TaskGraphDefinition, TaskGraphNodeDefinition
 from tests.support.runtime_stubs import RuntimeBaseDirStub
@@ -2067,7 +2067,7 @@ def test_task_graph_api_persists_working_memory_strategy_fields(tmp_path: Path) 
     assert edge["working_memory_handoff_policy"]["carry_kinds"] == ["plan_fragment"]
 
 
-def test_task_graph_api_migrates_legacy_prompt_metadata_to_projection(tmp_path: Path) -> None:
+def test_task_graph_api_migrates_legacy_prompt_metadata_to_prompt_library(tmp_path: Path) -> None:
     original = tasks_api.require_runtime
     tasks_api.require_runtime = lambda: _RuntimeStub(tmp_path)  # type: ignore[assignment]
     try:
@@ -2107,18 +2107,20 @@ def test_task_graph_api_migrates_legacy_prompt_metadata_to_projection(tmp_path: 
     node = graph_detail["nodes"][0]
     metadata = node["metadata"]
 
-    assert node["projection_id"] == "projection.taskgraph.graph.test.prompt.migration.world.review"
+    assert "projection_id" not in node
+    assert "projection_overlay_id" not in node
     assert "role_prompt" not in metadata
     assert "role_identity" not in metadata
     assert metadata["legacy_prompt_migration"]["migration_status"] == "migrated"
-    assert metadata["legacy_prompt_migration"]["projection_id"] == node["projection_id"]
+    prompt_resource_id = metadata["legacy_prompt_migration"]["prompt_resource_id"]
+    assert prompt_resource_id
 
-    projection_cards = SoulFacade(tmp_path).list_projection_cards()["cards"]
-    projection = next(item for item in projection_cards if item["projection_id"] == node["projection_id"])
-    assert projection["owner_system"] == "task_system"
-    assert projection["projection_kind"] == "task_graph_node"
-    assert projection["source_task_graph_refs"] == ["graph.test.prompt_migration"]
-    assert "你是一名世界观审核员" in projection["projection_prompt"]
+    resource = PromptLibraryRegistry(tmp_path).get_resource(prompt_resource_id)
+    assert resource is not None
+    assert resource.resource_type == "stage_role"
+    assert resource.graph_id == "graph.test.prompt_migration"
+    assert resource.node_id == "world_review"
+    assert "你是一名世界观审核员" in resource.content
 
 
 def test_task_graph_api_exposes_direct_runtime_spec_in_overview(tmp_path: Path) -> None:

@@ -7,7 +7,7 @@ from typing import Any
 from capability_system.local_mcp_registry import get_local_mcp_unit
 from continuation import collect_continuation_candidates, decide_continuation
 from context_system import ContextResolver
-from intent import build_runtime_assembly_hint, collect_intent_frame, decide_intent
+from intent import build_runtime_assembly_hint, build_task_goal_frame, collect_intent_frame, decide_intent
 from task_system.services.assembly_builder import build_task_execution_assembly_bundle
 from task_system.registry.flow_registry import TaskFlowRegistry
 from understanding.capability_resolution_view import capability_resolution_view
@@ -134,6 +134,12 @@ class AgentRuntimeChainAssembler:
             query_understanding,
             task_selection=task_selection_payload,
         )
+        task_goal_frame = build_task_goal_frame(
+            message,
+            intent_frame=intent_frame.to_dict(),
+            intent_decision=intent_decision.to_dict(),
+            query_understanding=asdict(query_understanding),
+        )
         current_turn_context = ContextResolver().resolve(
             session_id=session_id,
             task_id=task_id,
@@ -142,6 +148,7 @@ class AgentRuntimeChainAssembler:
             query_understanding=asdict(query_understanding),
             intent_frame=intent_frame.to_dict(),
             intent_decision=intent_decision.to_dict(),
+            task_goal_frame=task_goal_frame.to_dict(),
             runtime_assembly_hint=runtime_assembly_hint,
             continuation_candidates=[item.to_dict() for item in continuation_candidates],
             continuation_decision=continuation_decision.to_dict(),

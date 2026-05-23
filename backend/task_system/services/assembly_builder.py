@@ -5,6 +5,7 @@ from typing import Any
 
 from agent_system.profiles.runtime_profile_models import AgentRuntimeProfile
 from permissions.resource_policy_builder import RuntimeApprovalContext
+from intent import build_task_goal_frame
 from task_system.contracts.capability_requirements import build_operation_requirement
 
 from task_system.services.assembly_models import ProjectionSelectionResult, TaskExecutionAssembly
@@ -65,6 +66,11 @@ def build_task_execution_assembly_bundle(
     current_turn_payload = _normalize_current_turn_for_registered_task(
         current_turn_payload=current_turn_payload,
         registered_task=registered_task,
+    )
+    current_turn_payload = _ensure_task_goal_frame(
+        user_goal=user_goal,
+        query_understanding=dict(query_understanding or {}),
+        current_turn_payload=current_turn_payload,
     )
     specific_task_record = (
         flow_registry.get_specific_task_record(str(registered_task.get("task_id") or ""))
@@ -500,6 +506,28 @@ def _normalize_current_turn_for_registered_task(
     payload.setdefault("semantic_task_type", "task_graph_node_execution")
     payload.setdefault("task_goal_type", "task_graph_node_execution")
     payload.setdefault("execution_obligation_policy", "orchestration_owns_task_graph_node_side_effects")
+    return payload
+
+
+def _ensure_task_goal_frame(
+    *,
+    user_goal: str,
+    query_understanding: dict[str, Any],
+    current_turn_payload: dict[str, Any],
+) -> dict[str, Any]:
+    payload = dict(current_turn_payload or {})
+    existing = dict(payload.get("task_goal_frame") or payload.get("goal_frame") or {})
+    if existing:
+        payload["task_goal_frame"] = existing
+        return payload
+    frame = build_task_goal_frame(
+        user_goal,
+        intent_frame=dict(payload.get("intent_frame") or {}),
+        intent_decision=dict(payload.get("intent_decision") or {}),
+        query_understanding=query_understanding,
+        model_understanding_draft=dict(payload.get("model_understanding_draft") or {}),
+    )
+    payload["task_goal_frame"] = frame.to_dict()
     return payload
 
 

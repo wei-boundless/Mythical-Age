@@ -126,7 +126,12 @@ class TaskGraphNodeDefinition:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        payload = asdict(self)
+        if not str(payload.get("projection_id") or "").strip():
+            payload.pop("projection_id", None)
+        if not str(payload.get("projection_overlay_id") or "").strip():
+            payload.pop("projection_overlay_id", None)
+        return payload
 
 
 @dataclass(frozen=True, slots=True)

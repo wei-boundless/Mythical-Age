@@ -63,6 +63,8 @@ class TaskAssignment:
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["participant_agent_ids"] = list(self.participant_agent_ids)
+        if not str(payload.get("projection_id") or "").strip():
+            payload.pop("projection_id", None)
         task_structure = dict(payload.get("task_structure") or {})
         chain_type = str(task_structure.get("execution_chain_type") or task_structure.get("chain_type") or "").strip()
         if not chain_type:

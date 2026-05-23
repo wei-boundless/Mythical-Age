@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from dataclasses import asdict
+
 from intent.execution_obligation import build_execution_obligation
+from intent.task_goal_interpreter import build_task_goal_frame
 from task_system.services.assembly_support import build_runtime_task_intent_contract
+from understanding.query_understanding import analyze_query_understanding
 
 
 def test_execution_obligation_extracts_read_write_and_pytest_from_failure_repair_goal() -> None:
@@ -78,3 +82,26 @@ def test_execution_obligation_treats_created_game_files_as_writes_not_reads() ->
         "frontend/public/games/snake_plus/game.js",
         "frontend/public/games/snake_plus/README.md",
     ]
+
+
+def test_execution_obligation_derives_browser_game_requirements_from_goal_frame() -> None:
+    message = "做一个可运行的浏览器端 2D 肉鸽游戏垂直切片，需要真实接入至少一个图像资产。"
+    query = analyze_query_understanding(message)
+    goal_frame = build_task_goal_frame(message, query_understanding=asdict(query)).to_dict()
+    obligation = build_execution_obligation(
+        session_id="session-game-goal-frame",
+        task_id="task-game-goal-frame",
+        user_goal=message,
+        current_turn_context={"task_goal_frame": goal_frame},
+    ).to_dict()
+
+    write_kinds = {item["kind"] for item in obligation["required_writes"]}
+    verification_kinds = {item["kind"] for item in obligation["required_verifications"]}
+    command_kinds = {item["kind"] for item in obligation["required_commands"]}
+
+    assert "workspace_change" in write_kinds
+    assert "asset_integration" in write_kinds
+    assert "browser_or_runtime_check" in command_kinds
+    assert "browser_verification" in verification_kinds
+    assert "runnable_artifact_refs" in obligation["required_deliverables"]
+    assert obligation["extraction_evidence"]["profile_obligation"]["matched"] is True

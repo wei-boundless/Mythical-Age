@@ -14,7 +14,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.project_brief",
         "node_id": "project_brief",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -39,7 +38,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.world_designer",
         "node_id": "world_design",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -64,7 +62,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.world_reviewer",
         "node_id": "world_review",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -89,7 +86,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.memory_steward",
         "node_id": "memory_commit_world",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -114,7 +110,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.character_designer",
         "node_id": "character_design",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -139,7 +134,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.character_reviewer",
         "node_id": "character_review",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -164,7 +158,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.plot_designer",
         "node_id": "plot_design",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -189,7 +182,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.design_sync",
         "node_id": "design_sync",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -214,7 +206,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.memory_steward",
         "node_id": "memory_commit_character",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -239,7 +230,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.outline_designer",
         "node_id": "outline_design",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -264,7 +254,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.outline_reviewer",
         "node_id": "outline_review",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -289,7 +278,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.baseline_memory_steward",
         "node_id": "baseline_memory_seed",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -314,7 +302,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.volume_planner",
         "node_id": "volume_plan",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -339,7 +326,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.chapter_outliner",
         "node_id": "chapter_outline",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -364,7 +350,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.chapter_writer",
         "node_id": "chapter_draft",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -389,7 +374,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.chapter_reviewer",
         "node_id": "chapter_review",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -414,7 +398,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.memory_steward",
         "node_id": "memory_commit_chapter",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -439,7 +422,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.chapter_progress_router",
         "node_id": "chapter_progress_router",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -464,7 +446,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.volume_reviewer",
         "node_id": "volume_review",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -489,7 +470,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.memory_steward",
         "node_id": "volume_commit",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -514,7 +494,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.volume_postmortem",
         "node_id": "volume_postmortem",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -539,7 +518,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.extension_proposer",
         "node_id": "world_outline_extension_proposal",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -564,7 +542,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.extension_reviewer",
         "node_id": "extension_review",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -589,7 +566,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.memory_steward",
         "node_id": "extension_commit",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -614,7 +590,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.next_volume_router",
         "node_id": "next_volume_router",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -639,7 +614,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.final_assembler",
         "node_id": "final_assemble",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -664,7 +638,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.final_reviewer",
         "node_id": "final_review",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -689,7 +662,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.memory_steward",
         "node_id": "memory_finalize",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",

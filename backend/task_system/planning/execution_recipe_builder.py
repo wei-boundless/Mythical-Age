@@ -5,7 +5,10 @@ from typing import Any
 
 from task_system.planning.execution_recipe_models import ExecutionRecipe
 from task_system.planning.execution_shape_resolver import ExecutionShape
+from task_system.planning.understanding_step_compiler import compile_understanding_runtime_steps
 from task_system.tasks.step_models import TaskStepBlueprint
+from runtime.professional_runtime.agent_plan import build_agent_plan_draft
+from runtime.professional_runtime.plan_coverage import review_plan_coverage
 
 
 def build_execution_recipe(
@@ -96,6 +99,37 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
         strict = bool(verification_policy.get("strict") is True)
         standard_or_professional = interaction_mode in {"standard_mode", "professional_mode"}
         professional = interaction_mode == "professional_mode"
+        runtime_task_id = _runtime_task_id_from_contract(semantic_contract)
+        agent_plan_draft = build_agent_plan_draft(
+            task_id=runtime_task_id,
+            semantic_contract=semantic_contract,
+            execution_obligation=execution_obligation,
+            model_agent_plan_draft=dict(execution_shape.diagnostics.get("model_agent_plan_draft") or {}),
+        ).to_dict()
+        plan_coverage_review = review_plan_coverage(
+            task_id=runtime_task_id,
+            semantic_contract=semantic_contract,
+            agent_plan_draft=agent_plan_draft,
+        ).to_dict()
+        step_blueprints = compile_understanding_runtime_steps(
+            interaction_mode=interaction_mode,
+            semantic_contract=semantic_contract,
+            mode_policy=mode_policy,
+            execution_obligation=execution_obligation,
+            plan_coverage_review=plan_coverage_review,
+        )
+        optional_operations = [
+            str(item)
+            for item in tuple(tool_policy.get("allowed_operation_refs") or ())
+            if str(item).strip() != "op.model_response"
+        ]
+        if _needs_agent_todo(
+            interaction_mode=interaction_mode,
+            semantic_contract=semantic_contract,
+            agent_plan_draft=agent_plan_draft,
+            step_blueprints=step_blueprints,
+        ):
+            optional_operations.append("op.agent_todo")
         return {
             "title": _interaction_mode_title(interaction_mode),
             "description": "Run the main Agent through the unified interaction-mode runtime with semantic contract, evidence, validation, and committed closeout.",
@@ -107,26 +141,21 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
                 "interaction_mode_summary": {"type": "object", "required": False},
             },
             "required_operations": ("op.model_response",),
-            "optional_operations": tuple(
-                str(item)
-                for item in tuple(tool_policy.get("allowed_operation_refs") or ())
-                if str(item).strip() != "op.model_response"
-            ),
-            "step_blueprints": (
-                _step("bind_mode_policy", "Bind mode policy", "understand", required_operations=("op.model_response",)),
-                _step("draft_semantic_plan", "Draft semantic plan", "plan", required_operations=("op.model_response",)),
-                _step("build_evidence_packet", "Build evidence packet", "analyze", required_operations=("op.model_response",)),
-                _step("validate_deliverable", "Validate deliverable", "verify", required_operations=("op.model_response",)),
-                _step("commit_final_answer", "Commit final answer", "finalize", required_operations=("op.model_response",)),
-            ),
+            "optional_operations": tuple(_dedupe(optional_operations)),
+            "step_blueprints": step_blueprints,
             "metadata": {
                 "execution_strategy": "interaction_mode_run",
                 "runtime_lane_hint": runtime_lane,
                 "runtime_driver": "professional_task_run",
                 "interaction_mode": interaction_mode,
+                "understanding_step_compiler": "task_system.planning.understanding_step_compiler",
+                "compiled_step_count": len(step_blueprints),
+                "compiled_step_ids": [step.step_id for step in step_blueprints],
                 "mode_policy": mode_policy,
                 "semantic_task_contract": semantic_contract,
                 "execution_obligation": execution_obligation,
+                "agent_plan_draft": agent_plan_draft,
+                "plan_coverage_review": plan_coverage_review,
                 "semantic_task_type": str(semantic_contract.get("task_goal_type") or ""),
                 "professional_profile_id": str(semantic_contract.get("professional_profile_id") or ""),
                 "projection_strength": str(mode_policy.get("projection_strength") or ""),
@@ -371,6 +400,34 @@ def _interaction_mode_title(interaction_mode: str) -> str:
     }.get(str(interaction_mode or ""), "Main Agent interaction task")
 
 
+def _runtime_task_id_from_contract(semantic_contract: dict[str, Any]) -> str:
+    contract_id = str(semantic_contract.get("contract_id") or "").strip()
+    if contract_id.startswith("semantic-task:"):
+        return contract_id.rsplit(":", 1)[-1] or "runtime"
+    return contract_id or "runtime"
+
+
+def _needs_agent_todo(
+    *,
+    interaction_mode: str,
+    semantic_contract: dict[str, Any],
+    agent_plan_draft: dict[str, Any],
+    step_blueprints: tuple[TaskStepBlueprint, ...],
+) -> bool:
+    if interaction_mode == "professional_mode":
+        return True
+    steps = [item for item in list(agent_plan_draft.get("steps") or []) if isinstance(item, dict)]
+    if len(steps) > 1 or len(step_blueprints) > 2:
+        return True
+    diagnostics = dict(semantic_contract.get("diagnostics") or {})
+    understanding = dict(
+        diagnostics.get("task_understanding_frame")
+        or dict(diagnostics.get("task_goal_frame") or {}).get("task_understanding_frame")
+        or {}
+    )
+    return len(list(understanding.get("user_provided_flow") or [])) > 1
+
+
 def _deliverable_requirement_lines(semantic_contract: dict[str, Any], *, strict: bool) -> tuple[str, ...]:
     deliverables = [
         str(item).strip()
@@ -390,3 +447,15 @@ def _deliverable_requirement_lines(semantic_contract: dict[str, Any], *, strict:
     if strict:
         lines.append("Strict validation is enabled; missing required deliverables must block completion.")
     return tuple(lines)
+
+
+def _dedupe(values: list[str] | tuple[str, ...]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        item = str(value or "").strip()
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        result.append(item)
+    return result

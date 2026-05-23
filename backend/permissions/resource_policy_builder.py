@@ -29,6 +29,7 @@ DENY_BY_DEFAULT_RISK_TAGS = {
 }
 NOT_EXECUTABLE_TYPES = {"mcp", "agent"}
 MODEL_VISIBLE_AGENT_OPERATIONS = {"op.delegate_to_agent"}
+MODEL_VISIBLE_STATE_OPERATIONS = {"op.agent_todo"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,6 +157,13 @@ def _decide_operation(
             risk_tags=descriptor.risk_tags,
         )
     if set(descriptor.risk_tags) & DENY_BY_DEFAULT_RISK_TAGS:
+        if descriptor.operation_id in MODEL_VISIBLE_STATE_OPERATIONS:
+            return ResourceDecision(
+                operation_id=descriptor.operation_id,
+                decision="allow",
+                reason="non-destructive task state operation is exposed as a bounded model-visible tool",
+                risk_tags=descriptor.risk_tags,
+            )
         return ResourceDecision(
             operation_id=descriptor.operation_id,
             decision="deny",

@@ -74,6 +74,9 @@ def test_agent_runtime_chain_uses_realtime_network_without_active_skill() -> Non
     operation_requirement = dict(task_operation.get("operation_requirement") or {})
     task_body_orchestration = dict(task_operation.get("task_body_orchestration") or {})
     memory_request_profile = dict(task_operation.get("task_memory_request_profile") or {})
+    diagnostics = dict(task_body_orchestration.get("diagnostics") or {})
+    prompt_flow_trace = dict(diagnostics.get("prompt_flow_trace") or {})
+    prompt_assembly_plan = dict(diagnostics.get("prompt_assembly_plan") or {})
 
     assert active_skill == {}
     assert understanding["route"] == "realtime_network"
@@ -84,8 +87,14 @@ def test_agent_runtime_chain_uses_realtime_network_without_active_skill() -> Non
     sections = list(dict(task_body_orchestration.get("soul_runtime_view") or {}).get("sections") or [])
     contents = "\n".join(str(dict(item).get("content") or "") for item in sections)
     assert "OpenAI API 最新更新" in contents
-    assert "Workflow ID: runtime.recipe.information_search" in contents
-    assert "Task mode: information_search" in contents
+    assert "Workflow ID:" not in contents
+    assert "Task mode:" not in contents
+    assert "当前工作方式" in contents
+    assert task_body_orchestration["stage_plan"]["section_order"]
+    assert prompt_flow_trace["authority"] == "prompt_library.flow_trace"
+    assert prompt_assembly_plan["authority"] == "prompt_library.assembly_plan"
+    assert prompt_assembly_plan["diagnostics"]["selector"] == "prompt_library.flow_aware_v1"
+    assert "prompt_flow_trace" in task_body_orchestration["stage_plan"]
 
 
 def test_agent_runtime_chain_uses_intent_gated_state_recall_for_followup() -> None:

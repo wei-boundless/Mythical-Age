@@ -142,6 +142,8 @@ class RuntimeConversationAgent:
 
 
 class ModelRuntime:
+    supports_structured_sidecars = True
+
     def __init__(self, settings_service: AppSettingsService) -> None:
         self.settings_service = settings_service
 

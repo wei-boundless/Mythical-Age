@@ -12,7 +12,7 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.project_brief",
       "default_workflow_id": "workflow.writing.modular_novel.node.project_brief",
-      "default_projection_policy": "fixed_projection",
+      "default_projection_policy": "workflow_compatible_or_task_default",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -38,7 +38,6 @@
           ],
           "task_resource_kind": "writing_modular_novel",
           "execution_chain_type": "coordination_node",
-          "projection_id": "projection.writing.modular_novel.project_brief",
           "node_id": "project_brief",
           "runtime_interaction_mode": "role_mode",
           "suppress_bundle_projection": true,
@@ -50,7 +49,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.project_brief",
         "node_id": "project_brief",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -74,7 +72,7 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.world_design",
       "default_workflow_id": "workflow.writing.modular_novel.node.world_design",
-      "default_projection_policy": "fixed_projection",
+      "default_projection_policy": "workflow_compatible_or_task_default",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -100,7 +98,6 @@
           ],
           "task_resource_kind": "writing_modular_novel",
           "execution_chain_type": "coordination_node",
-          "projection_id": "projection.writing.modular_novel.world_designer",
           "node_id": "world_design",
           "runtime_interaction_mode": "role_mode",
           "suppress_bundle_projection": true,
@@ -112,7 +109,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.world_designer",
         "node_id": "world_design",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -136,7 +132,7 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.world_review",
       "default_workflow_id": "workflow.writing.modular_novel.node.world_review",
-      "default_projection_policy": "fixed_projection",
+      "default_projection_policy": "workflow_compatible_or_task_default",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -162,7 +158,6 @@
           ],
           "task_resource_kind": "writing_modular_novel",
           "execution_chain_type": "coordination_node",
-          "projection_id": "projection.writing.modular_novel.world_reviewer",
           "node_id": "world_review",
           "runtime_interaction_mode": "role_mode",
           "suppress_bundle_projection": true,
@@ -174,7 +169,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.world_reviewer",
         "node_id": "world_review",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -198,7 +192,7 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.memory_commit_world",
       "default_workflow_id": "workflow.writing.modular_novel.node.memory_commit_world",
-      "default_projection_policy": "fixed_projection",
+      "default_projection_policy": "workflow_compatible_or_task_default",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -224,7 +218,6 @@
           ],
           "task_resource_kind": "writing_modular_novel",
           "execution_chain_type": "coordination_node",
-          "projection_id": "projection.writing.modular_novel.memory_steward",
           "node_id": "memory_commit_world",
           "runtime_interaction_mode": "role_mode",
           "suppress_bundle_projection": true,
@@ -236,7 +229,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.memory_steward",
         "node_id": "memory_commit_world",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -260,7 +252,7 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.character_design",
       "default_workflow_id": "workflow.writing.modular_novel.node.character_design",
-      "default_projection_policy": "fixed_projection",
+      "default_projection_policy": "workflow_compatible_or_task_default",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -286,7 +278,6 @@
           ],
           "task_resource_kind": "writing_modular_novel",
           "execution_chain_type": "coordination_node",
-          "projection_id": "projection.writing.modular_novel.character_designer",
           "node_id": "character_design",
           "runtime_interaction_mode": "role_mode",
           "suppress_bundle_projection": true,
@@ -298,7 +289,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.character_designer",
         "node_id": "character_design",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -322,7 +312,7 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.character_review",
       "default_workflow_id": "workflow.writing.modular_novel.node.character_review",
-      "default_projection_policy": "fixed_projection",
+      "default_projection_policy": "workflow_compatible_or_task_default",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -348,7 +338,6 @@
           ],
           "task_resource_kind": "writing_modular_novel",
           "execution_chain_type": "coordination_node",
-          "projection_id": "projection.writing.modular_novel.character_reviewer",
           "node_id": "character_review",
           "runtime_interaction_mode": "role_mode",
           "suppress_bundle_projection": true,
@@ -360,7 +349,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.character_reviewer",
         "node_id": "character_review",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -384,7 +372,7 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.plot_design",
       "default_workflow_id": "workflow.writing.modular_novel.node.plot_design",
-      "default_projection_policy": "fixed_projection",
+      "default_projection_policy": "workflow_compatible_or_task_default",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -410,7 +398,6 @@
           ],
           "task_resource_kind": "writing_modular_novel",
           "execution_chain_type": "coordination_node",
-          "projection_id": "projection.writing.modular_novel.plot_designer",
           "node_id": "plot_design",
           "runtime_interaction_mode": "role_mode",
           "suppress_bundle_projection": true,
@@ -422,7 +409,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.plot_designer",
         "node_id": "plot_design",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -446,7 +432,7 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.design_sync",
       "default_workflow_id": "workflow.writing.modular_novel.node.design_sync",
-      "default_projection_policy": "fixed_projection",
+      "default_projection_policy": "workflow_compatible_or_task_default",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -472,7 +458,6 @@
           ],
           "task_resource_kind": "writing_modular_novel",
           "execution_chain_type": "coordination_node",
-          "projection_id": "projection.writing.modular_novel.design_sync",
           "node_id": "design_sync",
           "runtime_interaction_mode": "role_mode",
           "suppress_bundle_projection": true,
@@ -484,7 +469,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.design_sync",
         "node_id": "design_sync",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -508,7 +492,7 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.memory_commit_character",
       "default_workflow_id": "workflow.writing.modular_novel.node.memory_commit_character",
-      "default_projection_policy": "fixed_projection",
+      "default_projection_policy": "workflow_compatible_or_task_default",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -534,7 +518,6 @@
           ],
           "task_resource_kind": "writing_modular_novel",
           "execution_chain_type": "coordination_node",
-          "projection_id": "projection.writing.modular_novel.memory_steward",
           "node_id": "memory_commit_character",
           "runtime_interaction_mode": "role_mode",
           "suppress_bundle_projection": true,
@@ -546,7 +529,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.memory_steward",
         "node_id": "memory_commit_character",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -570,7 +552,7 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.outline_design",
       "default_workflow_id": "workflow.writing.modular_novel.node.outline_design",
-      "default_projection_policy": "fixed_projection",
+      "default_projection_policy": "workflow_compatible_or_task_default",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -596,7 +578,6 @@
           ],
           "task_resource_kind": "writing_modular_novel",
           "execution_chain_type": "coordination_node",
-          "projection_id": "projection.writing.modular_novel.outline_designer",
           "node_id": "outline_design",
           "runtime_interaction_mode": "role_mode",
           "suppress_bundle_projection": true,
@@ -608,7 +589,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.outline_designer",
         "node_id": "outline_design",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -632,7 +612,7 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.outline_review",
       "default_workflow_id": "workflow.writing.modular_novel.node.outline_review",
-      "default_projection_policy": "fixed_projection",
+      "default_projection_policy": "workflow_compatible_or_task_default",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -658,7 +638,6 @@
           ],
           "task_resource_kind": "writing_modular_novel",
           "execution_chain_type": "coordination_node",
-          "projection_id": "projection.writing.modular_novel.outline_reviewer",
           "node_id": "outline_review",
           "runtime_interaction_mode": "role_mode",
           "suppress_bundle_projection": true,
@@ -670,7 +649,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.outline_reviewer",
         "node_id": "outline_review",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -694,7 +672,7 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.baseline_memory_seed",
       "default_workflow_id": "workflow.writing.modular_novel.node.baseline_memory_seed",
-      "default_projection_policy": "fixed_projection",
+      "default_projection_policy": "workflow_compatible_or_task_default",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -720,7 +698,6 @@
           ],
           "task_resource_kind": "writing_modular_novel",
           "execution_chain_type": "coordination_node",
-          "projection_id": "projection.writing.modular_novel.baseline_memory_steward",
           "node_id": "baseline_memory_seed",
           "runtime_interaction_mode": "role_mode",
           "suppress_bundle_projection": true,
@@ -732,7 +709,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.baseline_memory_steward",
         "node_id": "baseline_memory_seed",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -756,7 +732,7 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.volume_plan",
       "default_workflow_id": "workflow.writing.modular_novel.node.volume_plan",
-      "default_projection_policy": "fixed_projection",
+      "default_projection_policy": "workflow_compatible_or_task_default",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -782,7 +758,6 @@
           ],
           "task_resource_kind": "writing_modular_novel",
           "execution_chain_type": "coordination_node",
-          "projection_id": "projection.writing.modular_novel.volume_planner",
           "node_id": "volume_plan",
           "runtime_interaction_mode": "role_mode",
           "suppress_bundle_projection": true,
@@ -794,7 +769,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.volume_planner",
         "node_id": "volume_plan",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -818,7 +792,7 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.chapter_outline",
       "default_workflow_id": "workflow.writing.modular_novel.node.chapter_outline",
-      "default_projection_policy": "fixed_projection",
+      "default_projection_policy": "workflow_compatible_or_task_default",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -844,7 +818,6 @@
           ],
           "task_resource_kind": "writing_modular_novel",
           "execution_chain_type": "coordination_node",
-          "projection_id": "projection.writing.modular_novel.chapter_outliner",
           "node_id": "chapter_outline",
           "runtime_interaction_mode": "role_mode",
           "suppress_bundle_projection": true,
@@ -856,7 +829,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.chapter_outliner",
         "node_id": "chapter_outline",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -880,7 +852,7 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.chapter_draft",
       "default_workflow_id": "workflow.writing.modular_novel.node.chapter_draft",
-      "default_projection_policy": "fixed_projection",
+      "default_projection_policy": "workflow_compatible_or_task_default",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -906,7 +878,6 @@
           ],
           "task_resource_kind": "writing_modular_novel",
           "execution_chain_type": "coordination_node",
-          "projection_id": "projection.writing.modular_novel.chapter_writer",
           "node_id": "chapter_draft",
           "runtime_interaction_mode": "role_mode",
           "suppress_bundle_projection": true,
@@ -918,7 +889,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.chapter_writer",
         "node_id": "chapter_draft",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -942,7 +912,7 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.chapter_review",
       "default_workflow_id": "workflow.writing.modular_novel.node.chapter_review",
-      "default_projection_policy": "fixed_projection",
+      "default_projection_policy": "workflow_compatible_or_task_default",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -968,7 +938,6 @@
           ],
           "task_resource_kind": "writing_modular_novel",
           "execution_chain_type": "coordination_node",
-          "projection_id": "projection.writing.modular_novel.chapter_reviewer",
           "node_id": "chapter_review",
           "runtime_interaction_mode": "role_mode",
           "suppress_bundle_projection": true,
@@ -980,7 +949,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.chapter_reviewer",
         "node_id": "chapter_review",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -1004,7 +972,7 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.memory_commit_chapter",
       "default_workflow_id": "workflow.writing.modular_novel.node.memory_commit_chapter",
-      "default_projection_policy": "fixed_projection",
+      "default_projection_policy": "workflow_compatible_or_task_default",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -1030,7 +998,6 @@
           ],
           "task_resource_kind": "writing_modular_novel",
           "execution_chain_type": "coordination_node",
-          "projection_id": "projection.writing.modular_novel.memory_steward",
           "node_id": "memory_commit_chapter",
           "runtime_interaction_mode": "role_mode",
           "suppress_bundle_projection": true,
@@ -1042,7 +1009,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.memory_steward",
         "node_id": "memory_commit_chapter",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -1066,7 +1032,7 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.chapter_progress_router",
       "default_workflow_id": "workflow.writing.modular_novel.node.chapter_progress_router",
-      "default_projection_policy": "fixed_projection",
+      "default_projection_policy": "workflow_compatible_or_task_default",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -1092,7 +1058,6 @@
           ],
           "task_resource_kind": "writing_modular_novel",
           "execution_chain_type": "coordination_node",
-          "projection_id": "projection.writing.modular_novel.chapter_progress_router",
           "node_id": "chapter_progress_router",
           "runtime_interaction_mode": "role_mode",
           "suppress_bundle_projection": true,
@@ -1104,7 +1069,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.chapter_progress_router",
         "node_id": "chapter_progress_router",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -1128,7 +1092,7 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.volume_review",
       "default_workflow_id": "workflow.writing.modular_novel.node.volume_review",
-      "default_projection_policy": "fixed_projection",
+      "default_projection_policy": "workflow_compatible_or_task_default",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -1154,7 +1118,6 @@
           ],
           "task_resource_kind": "writing_modular_novel",
           "execution_chain_type": "coordination_node",
-          "projection_id": "projection.writing.modular_novel.volume_reviewer",
           "node_id": "volume_review",
           "runtime_interaction_mode": "role_mode",
           "suppress_bundle_projection": true,
@@ -1166,7 +1129,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.volume_reviewer",
         "node_id": "volume_review",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -1190,7 +1152,7 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.volume_commit",
       "default_workflow_id": "workflow.writing.modular_novel.node.volume_commit",
-      "default_projection_policy": "fixed_projection",
+      "default_projection_policy": "workflow_compatible_or_task_default",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -1216,7 +1178,6 @@
           ],
           "task_resource_kind": "writing_modular_novel",
           "execution_chain_type": "coordination_node",
-          "projection_id": "projection.writing.modular_novel.memory_steward",
           "node_id": "volume_commit",
           "runtime_interaction_mode": "role_mode",
           "suppress_bundle_projection": true,
@@ -1228,7 +1189,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.memory_steward",
         "node_id": "volume_commit",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -1252,7 +1212,7 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.volume_postmortem",
       "default_workflow_id": "workflow.writing.modular_novel.node.volume_postmortem",
-      "default_projection_policy": "fixed_projection",
+      "default_projection_policy": "workflow_compatible_or_task_default",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -1278,7 +1238,6 @@
           ],
           "task_resource_kind": "writing_modular_novel",
           "execution_chain_type": "coordination_node",
-          "projection_id": "projection.writing.modular_novel.volume_postmortem",
           "node_id": "volume_postmortem",
           "runtime_interaction_mode": "role_mode",
           "suppress_bundle_projection": true,
@@ -1290,7 +1249,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.volume_postmortem",
         "node_id": "volume_postmortem",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -1314,7 +1272,7 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.world_outline_extension_proposal",
       "default_workflow_id": "workflow.writing.modular_novel.node.world_outline_extension_proposal",
-      "default_projection_policy": "fixed_projection",
+      "default_projection_policy": "workflow_compatible_or_task_default",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -1340,7 +1298,6 @@
           ],
           "task_resource_kind": "writing_modular_novel",
           "execution_chain_type": "coordination_node",
-          "projection_id": "projection.writing.modular_novel.extension_proposer",
           "node_id": "world_outline_extension_proposal",
           "runtime_interaction_mode": "role_mode",
           "suppress_bundle_projection": true,
@@ -1352,7 +1309,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.extension_proposer",
         "node_id": "world_outline_extension_proposal",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -1376,7 +1332,7 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.extension_review",
       "default_workflow_id": "workflow.writing.modular_novel.node.extension_review",
-      "default_projection_policy": "fixed_projection",
+      "default_projection_policy": "workflow_compatible_or_task_default",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -1402,7 +1358,6 @@
           ],
           "task_resource_kind": "writing_modular_novel",
           "execution_chain_type": "coordination_node",
-          "projection_id": "projection.writing.modular_novel.extension_reviewer",
           "node_id": "extension_review",
           "runtime_interaction_mode": "role_mode",
           "suppress_bundle_projection": true,
@@ -1414,7 +1369,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.extension_reviewer",
         "node_id": "extension_review",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -1438,7 +1392,7 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.extension_commit",
       "default_workflow_id": "workflow.writing.modular_novel.node.extension_commit",
-      "default_projection_policy": "fixed_projection",
+      "default_projection_policy": "workflow_compatible_or_task_default",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -1464,7 +1418,6 @@
           ],
           "task_resource_kind": "writing_modular_novel",
           "execution_chain_type": "coordination_node",
-          "projection_id": "projection.writing.modular_novel.memory_steward",
           "node_id": "extension_commit",
           "runtime_interaction_mode": "role_mode",
           "suppress_bundle_projection": true,
@@ -1476,7 +1429,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.memory_steward",
         "node_id": "extension_commit",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -1500,7 +1452,7 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.next_volume_router",
       "default_workflow_id": "workflow.writing.modular_novel.node.next_volume_router",
-      "default_projection_policy": "fixed_projection",
+      "default_projection_policy": "workflow_compatible_or_task_default",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -1526,7 +1478,6 @@
           ],
           "task_resource_kind": "writing_modular_novel",
           "execution_chain_type": "coordination_node",
-          "projection_id": "projection.writing.modular_novel.next_volume_router",
           "node_id": "next_volume_router",
           "runtime_interaction_mode": "role_mode",
           "suppress_bundle_projection": true,
@@ -1538,7 +1489,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.next_volume_router",
         "node_id": "next_volume_router",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -1562,7 +1512,7 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.final_assemble",
       "default_workflow_id": "workflow.writing.modular_novel.node.final_assemble",
-      "default_projection_policy": "fixed_projection",
+      "default_projection_policy": "workflow_compatible_or_task_default",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -1588,7 +1538,6 @@
           ],
           "task_resource_kind": "writing_modular_novel",
           "execution_chain_type": "coordination_node",
-          "projection_id": "projection.writing.modular_novel.final_assembler",
           "node_id": "final_assemble",
           "runtime_interaction_mode": "role_mode",
           "suppress_bundle_projection": true,
@@ -1600,7 +1549,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.final_assembler",
         "node_id": "final_assemble",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -1624,7 +1572,7 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.final_review",
       "default_workflow_id": "workflow.writing.modular_novel.node.final_review",
-      "default_projection_policy": "fixed_projection",
+      "default_projection_policy": "workflow_compatible_or_task_default",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -1650,7 +1598,6 @@
           ],
           "task_resource_kind": "writing_modular_novel",
           "execution_chain_type": "coordination_node",
-          "projection_id": "projection.writing.modular_novel.final_reviewer",
           "node_id": "final_review",
           "runtime_interaction_mode": "role_mode",
           "suppress_bundle_projection": true,
@@ -1662,7 +1609,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.final_reviewer",
         "node_id": "final_review",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",
@@ -1686,7 +1632,7 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.memory_finalize",
       "default_workflow_id": "workflow.writing.modular_novel.node.memory_finalize",
-      "default_projection_policy": "fixed_projection",
+      "default_projection_policy": "workflow_compatible_or_task_default",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -1712,7 +1658,6 @@
           ],
           "task_resource_kind": "writing_modular_novel",
           "execution_chain_type": "coordination_node",
-          "projection_id": "projection.writing.modular_novel.memory_steward",
           "node_id": "memory_finalize",
           "runtime_interaction_mode": "role_mode",
           "suppress_bundle_projection": true,
@@ -1724,7 +1669,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "projection_id": "projection.writing.modular_novel.memory_steward",
         "node_id": "memory_finalize",
         "package_template": "writing_modular_novel",
         "runtime_interaction_mode": "role_mode",

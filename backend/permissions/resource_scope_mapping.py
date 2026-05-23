@@ -26,6 +26,7 @@ _BUILTIN_OPERATION_TO_TOOL = {
     "op.shell": "terminal",
     "op.python_repl": "python_repl",
     "op.delegate_to_agent": "delegate_to_agent",
+    "op.agent_todo": "agent_todo",
 }
 
 

@@ -68,6 +68,7 @@ class CurrentTurnContext:
     unresolved_ambiguities: tuple[str, ...] = ()
     intent_frame: dict[str, Any] = field(default_factory=dict)
     intent_decision: dict[str, Any] = field(default_factory=dict)
+    task_goal_frame: dict[str, Any] = field(default_factory=dict)
     runtime_assembly_hint: dict[str, Any] = field(default_factory=dict)
     continuation_candidates: tuple[dict[str, Any], ...] = ()
     continuation_decision: dict[str, Any] = field(default_factory=dict)

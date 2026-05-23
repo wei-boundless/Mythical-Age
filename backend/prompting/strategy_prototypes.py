@@ -68,6 +68,45 @@ _PROTOTYPES: dict[str, StrategyPrototype] = {
         prompt_profile_id="professional.material_synthesis",
         validator_profile_id="deliverable.material_synthesis",
     ),
+    "game_vertical_slice_delivery": StrategyPrototype(
+        prototype_id="game_vertical_slice_delivery",
+        title="Game Vertical Slice Delivery",
+        match_signals=("游戏", "肉鸽", "roguelike", "垂直切片", "浏览器游戏"),
+        default_reasoning_steps=(
+            "understand_product_goal",
+            "inspect_project_entrypoints",
+            "plan_vertical_slice",
+            "implement_core_gameplay",
+            "integrate_visual_asset",
+            "run_browser_verification",
+            "write_final_report",
+        ),
+        default_deliverables=(
+            "runnable_artifact_refs",
+            "gameplay_acceptance",
+            "visual_asset_refs",
+            "verification_evidence",
+            "final_report",
+        ),
+        prompt_profile_id="professional.game_vertical_slice_delivery",
+        validator_profile_id="deliverable.game_vertical_slice_delivery",
+    ),
+    "frontend_app_delivery": StrategyPrototype(
+        prototype_id="frontend_app_delivery",
+        title="Frontend App Delivery",
+        match_signals=("前端", "UI", "编辑器", "可运行", "浏览器验证"),
+        default_reasoning_steps=(
+            "understand_product_goal",
+            "inspect_frontend_structure",
+            "plan_user_workflow",
+            "implement_frontend_changes",
+            "run_browser_verification",
+            "synthesize_delivery",
+        ),
+        default_deliverables=("runnable_artifact_refs", "workflow_acceptance", "verification_evidence", "limitations"),
+        prompt_profile_id="professional.frontend_app_delivery",
+        validator_profile_id="deliverable.frontend_app_delivery",
+    ),
     "generic_professional_task": StrategyPrototype(
         prototype_id="generic_professional_task",
         title="Generic Professional Task",
@@ -90,5 +129,7 @@ def strategy_prototype_for_task_goal(task_goal_type: str) -> StrategyPrototype:
         "runtime_trace_analysis": "runtime_trace_analysis",
         "artifact_delivery": "artifact_delivery",
         "material_synthesis": "material_synthesis",
+        "game_vertical_slice_delivery": "game_vertical_slice_delivery",
+        "frontend_app_delivery": "frontend_app_delivery",
     }
     return _PROTOTYPES.get(mapping.get(normalized, ""), _PROTOTYPES["generic_professional_task"])

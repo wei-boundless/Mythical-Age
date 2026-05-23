@@ -1,823 +1,780 @@
-# 任务理解系统目标优先重构计划书
+# 任务理解系统目标优先重构计划书 v2
 
 日期：2026-05-23
 
-## 1. 背景与问题定义
+## 0. 本版修正结论
 
-当前任务理解链路在复杂开发任务上出现结构性误判。典型失败是“开发一个浏览器端 2D 肉鸽游戏垂直切片”被识别成 `workspace_file_write` 和 `code_fix_execution`，最终主 Agent 只写了 `final_report.md`，没有完成游戏源码、生图资源、启动验证和浏览器验收。
-
-这不是单个 prompt 失效，也不是某个关键词缺失，而是任务理解架构的裁决顺序错误：
+本计划书替换旧版“任务域 profile 驱动”的表述，改为更接近成熟 agent 产品的目标导向控制系统：
 
 ```text
-当前错误顺序：
-用户原文 -> 路径/关键词规则 -> route_hint/task_kind -> semantic contract -> runtime
-
-目标顺序：
-用户原文 -> 目标理解 -> 任务域匹配 -> 流程/资源绑定 -> semantic contract -> runtime
+强模型主动理解目标
+  + 系统维护显式任务契约
+  + agent 自主生成具体执行计划
+  + 系统审查计划是否覆盖契约义务
+  + 执行过程沉淀真实 evidence
+  + 最终用 CompletionJudgment 裁决完成度
 ```
 
-系统应先理解用户真正要完成的结果，再根据任务域和已注册流程确定资源、工具、阶段和验收要求。路径、关键词、文件名、报告名只能作为证据，不应拥有最终裁决权。
+重要修正：
 
-## 2. 现有代码诊断
+1. 不新增 `task_system.domains`、`TaskDomainProfile` 或 `TaskDomainBinding` 平行体系。
+2. 现有正式任务域层是 `TaskDomainRecord` / `TaskFlowRegistry.list_task_domains()`。
+3. `game_vertical_slice_delivery`、`frontend_app_delivery` 是 `task_goal_type` / `TaskGoalProfile`，它们属于 `task_domain="development"`。
+4. 状态机只提供稳定阶段和边界，不提前写死所有业务步骤。
+5. 具体任务步骤应由 agent 主动生成，再由系统做计划覆盖审查。
+6. 最终验证不能只靠程序规则，也不能只靠模型自述；必须是合同、证据和模型评审的受控合议。
 
-### 2.1 旧任务理解层拥有过高裁决权
+## 1. 代码现状报告
 
-文件：
+### 1.1 已存在并应继续使用的结构
 
-- `backend/understanding/task_understanding.py`
-- `backend/understanding/query_understanding.py`
-
-问题：
-
-- `WORKSPACE_FILE_PATH_PATTERN` 会把 `docs/.../final_report.md` 识别成显式工作区路径。
-- `_looks_like_workspace_write_request` 看到“写入、生成、产出、创建”等词后，直接触发 `workspace_write_request`。
-- `_build_bounded_workspace_write_task` 直接产出 `task_kind=workspace_file_write`、`route_hint=workspace_write`、`candidate_tools=["write_file"]`。
-
-代码层问题不是“规则不够多”，而是规则结果被当成任务裁决，而不是弱信号。
-
-### 2.2 执行义务层从原文关键词反推动作
-
-文件：
-
-- `backend/intent/execution_obligation.py`
-
-问题：
-
-- `_WRITE_MARKERS` 包含“实现”，导致复杂产品开发任务被抽象成普通写入义务。
-- `_VERIFY_MARKERS` 偏向 `pytest`、`run tests` 等命令语言，无法识别“启动项目、浏览器验证、运行验证、玩法验收”。
-- `_build_write_requirements` 无法从“做一个游戏/应用/工具”反推出源码、资源、入口文件和验证对象，只能得到泛化的 `workspace_change`。
-
-### 2.3 语义任务合同缺少产品交付类任务域
-
-文件：
-
-- `backend/task_system/contracts/semantic_task_contracts.py`
-
-问题：
-
-- `_resolve_task_goal_type` 主要在 `code_fix_execution`、`artifact_delivery`、`material_synthesis`、`bounded_tool_task` 等类型之间选择。
-- 缺少 `interactive_product_delivery`、`frontend_app_delivery`、`game_vertical_slice_delivery` 等任务类型。
-- 因为用户说“真实修改代码”，系统把“开发产品”归为“代码修复执行”。
-
-### 2.4 专业运行时继承错误合同
-
-文件：
-
-- `backend/runtime/professional_runtime/goal_contract.py`
-- `backend/runtime/professional_runtime/driver.py`
-
-问题：
-
-- `_goal_contract_from_semantic_contract` 只消费已经被误判的 semantic contract。
-- `code_fix_execution` 生成的是“检查代码、结构性修改、运行或说明验证”的通用计划。
-- 计划没有保留用户要求的阶段，如玩法设计、技术设计、资产清单、生图提示词、MVP、资源接入、运行验证、最终报告。
-
-### 2.5 验收层没有任务域验收
-
-文件：
-
-- `backend/runtime/contracts/obligation_validation.py`
-- `backend/runtime/contracts/deliverable_validator.py`
-
-问题：
-
-- 主要检查是否有写入观察、命令观察、输出路径、最终回答关键词。
-- 无法识别“最终报告声称存在 index.html/game.js/图片资源，但实际没有文件观察”的伪完成。
-- 没有按任务域验证浏览器应用、游戏切片、图片资源、运行截图或 Playwright/浏览器证据。
-
-## 3. 重构目标
-
-### 3.1 核心目标
-
-建立目标优先的任务理解系统：
-
-```text
-User Message
-  -> TaskGoalFrame
-  -> TaskDomainProfile Match
-  -> SemanticTaskContract
-  -> ExecutionObligation
-  -> RuntimeInteractionModePolicy
-  -> Professional Runtime Plan
-  -> Domain-Aware Validation
-```
-
-### 3.2 功能要求
-
-重构完成后，系统必须支持：
-
-1. 识别复杂任务的真实目标，而不是被文件路径或局部动词劫持。
-2. 区分核心交付物和辅助交付物。
-3. 根据任务域绑定系统已有流程、skills、工具和验证要求。
-4. 支持产品开发类任务，如浏览器应用、游戏原型、图编辑器、任务系统 UI 重构。
-5. 支持阶段化长任务，不把最终报告当成替代执行。
-6. 对最终回答中的完成声明做证据对齐检查。
-7. 保留短任务、PDF、表格、实时查询等轻量路径的效率。
-
-### 3.3 设计原则
-
-1. 目标理解优先，关键词规则降级为证据。
-2. 系统流程可注册、可查询、可扩展，而不是散落在 if/else。
-3. 任务域合同应描述用户可理解的职责，不写成 runtime 节点说明。
-4. 执行义务从目标合同反推，而不是只从用户原文关键词抽取。
-5. 验收必须和任务域绑定，不能只看是否写了一个文件。
-6. 兼容路径要有限期，旧逻辑不能长期作为第二套主系统。
-
-## 4. 目标数据模型
-
-### 4.1 TaskGoalFrame
-
-新增文件建议：
+当前代码已经部分完成目标优先链路：
 
 - `backend/intent/task_goal_frame.py`
+  - 已有 `TaskGoalFrame`、`TaskGoalDeliverable`、`TaskGoalCriterion`。
+  - 目前表示目标、核心交付、辅助交付、成功标准、验证项、显式约束和 evidence。
 
-功能要求：
+- `backend/intent/task_goal_interpreter.py`
+  - 已有 deterministic `build_task_goal_frame()`。
+  - 当前通过 `task_system.goal_profiles.task_goal_profiles()` 对候选 profile 打分。
+  - 仍缺少显式 `GoalHypothesisSet`、拒绝理由、歧义处理和模型目标理解入口。
 
-- 表示当前 turn 的真实任务目标。
-- 作为 semantic contract 的上游输入。
-- 不直接执行工具，不直接产生路由。
+- `backend/task_system/goal_profiles/`
+  - 已有 `TaskGoalProfile` 和 `TaskGoalProfileBinding`。
+  - 已包含 `game_vertical_slice_delivery`、`frontend_app_delivery`、`code_fix_execution` 等 goal profiles。
+  - 这是正确方向，应继续作为 goal profile 层，而不是再建 domain profile 层。
+
+- `backend/task_system/registry/flow_models.py`
+  - 已有 `TaskDomainRecord`。
+  - 这是正式任务域层。`development` 是任务域，肉鸽游戏不是独立任务域。
+
+- `backend/task_system/contracts/semantic_task_contracts.py`
+  - 已开始优先消费 `task_goal_frame`。
+  - 已接入 `get_task_goal_profile()` 和 `bind_task_goal_profile()`。
+  - 仍有较多 task_goal_type if/else，需要逐步收口到 profile + contract schema。
+
+- `backend/intent/execution_obligation.py`
+  - 已开始从 `TaskGoalProfile.required_actions` 推导写入、资源接入、浏览器验证等义务。
+  - 仍偏 deterministic，没有正式的 plan coverage gate。
+
+- `backend/task_system/planning/understanding_step_compiler.py`
+  - 已将单 agent 流程表达为稳定 step blueprint：
+    `turn_intake -> context_resolution -> task_goal_understanding -> domain_flow_matching -> contract_compilation -> prompt_assembly -> execution_planning -> step_execution -> verification -> finalization`
+  - 但目前 `execution_planning` 只是 `execution_plan_draft` 的占位，尚未真正让模型生成可审查计划。
+
+- `backend/runtime/professional_runtime/goal_contract.py`
+  - `_semantic_control_plan()` 仍以 semantic contract 直接生成较通用的专业计划。
+  - 还没有 `AgentPlanDraft`、`PlanCoverageReview`、计划修复循环。
+
+- `backend/runtime/contracts/deliverable_validator.py`
+  - 已有 profile-driven evidence dimension 验证雏形。
+  - 仍只是 `DeliverableValidationResult`，不是完整 `CompletionJudgment`。
+
+### 1.2 当前主要缺口
+
+当前系统已经不是完全旧系统，但还没有达到成熟 agent 水平。缺口集中在四处：
+
+1. 目标理解缺少候选假设层。
+   - 现在直接选一个 `TaskGoalFrame`。
+   - 成熟做法应该先产生 `GoalHypothesisSet`，记录候选目标、拒绝目标、选择理由和歧义。
+
+2. 计划生成缺少模型主动性。
+   - 现在系统从 profile reasoning steps 推导执行步骤。
+   - 成熟做法应该由 agent 根据目标和代码现状生成具体 `AgentPlanDraft`。
+
+3. 计划审查缺少硬 gate。
+   - 现在合同规定了 required actions，但没有在执行前强制检查计划是否覆盖。
+   - 成熟做法应新增 `PlanCoverageReview`：不覆盖核心义务就退回重拟。
+
+4. 验证结果缺少完成度裁决模型。
+   - 现在 `validate_deliverable()` 返回 passed/missing/unsupported_claims。
+   - 成熟做法应升级为 `CompletionJudgment`：
+     `verified / partially_verified / unverified / blocked / contradicted`。
+
+## 2. 设计原则
+
+### 2.1 最高优先级原则
+
+1. 用户目标先于路径、关键词、文件名和工具路由。
+2. 模型拥有主动规划权，但不拥有事实裁决权。
+3. 系统拥有合同和证据裁决权，但不替模型写死所有任务策略。
+4. 旧 `query_understanding` 只能提供 weak signal，不能覆盖 `TaskGoalFrame`。
+5. `final_answer` 是交付汇报，不是交付事实本身。
+6. 任务步骤可以由 agent 生成，但必须经过合同覆盖审查。
+7. 任何完成声明都必须能回指 evidence。
+8. 验证不是追求绝对真理，而是诚实表达置信状态。
+
+### 2.2 任务域与目标类型边界
+
+必须保持以下分层：
+
+```text
+TaskDomainRecord
+  - 正式任务域层
+  - 示例：development、task_graph、general、agent_runtime_quality
+
+TaskGoalProfile
+  - 目标类型能力模板
+  - 示例：game_vertical_slice_delivery、frontend_app_delivery、code_fix_execution
+
+SemanticTaskContract
+  - 本轮任务的契约化结果
+
+ExecutionObligation
+  - 从目标合同反推出必须执行/验证的义务
+```
+
+禁止：
+
+- 禁止新增 `TaskDomainProfile` 平行任务域体系。
+- 禁止把 `game_vertical_slice_delivery` 注册成独立 task domain。
+- 禁止让报告路径、输出文件名、旧 route hint 抢走主目标裁决权。
+- 禁止把 runtime 节点说明写成 agent-facing prompt。
+
+## 3. 目标架构
+
+### 3.1 固定控制流
+
+目标系统的主链路：
+
+```text
+UserMessage
+  -> GoalHypothesisSet
+  -> TaskGoalFrame
+  -> TaskGoalProfileBinding
+  -> SemanticTaskContract
+  -> ExecutionObligation
+  -> AgentPlanDraft
+  -> PlanCoverageReview
+  -> ExecutionRecipe / TaskRunLedger
+  -> EvidencePacket
+  -> ModelCompletionReview
+  -> CompletionJudgment
+  -> FinalAnswer
+```
+
+### 3.2 各阶段职责
+
+`GoalHypothesisSet`：
+
+- 由 deterministic signals + 模型理解共同生成。
+- 保存候选目标、选择理由、拒绝理由、歧义和澄清策略。
+- 不执行工具，不生成计划。
+
+`TaskGoalFrame`：
+
+- 只表达用户真正要完成的目标。
+- 区分核心交付物和辅助交付物。
+- 表达成功标准、不可接受结果和用户显式约束。
+- 不直接选择工具。
+
+`TaskGoalProfileBinding`：
+
+- 将 `TaskGoalFrame.task_goal_type` 绑定到已注册 `TaskGoalProfile`。
+- 继承默认能力、默认验证和 profile policy。
+- 冲突进入 diagnostics，不允许 profile 覆盖用户禁止项。
+
+`SemanticTaskContract`：
+
+- 合并 `TaskGoalFrame`、`TaskGoalProfile`、显式输入和 material。
+- 生成稳定 deliverables、required_actions、forbidden_actions、validation_schema。
+- 作为 runtime、plan review 和 completion judgment 的共同合同。
+
+`ExecutionObligation`：
+
+- 从合同反推出必须读、必须写、必须运行、必须验证。
+- 原文关键词只能补充 evidence，不能作为复杂任务义务的唯一来源。
+
+`AgentPlanDraft`：
+
+- 由模型/agent 主动生成具体步骤。
+- 步骤应该面向实际工作，不是系统节点说明。
+- 每步声明 expected output、required operations、evidence expectation。
+
+`PlanCoverageReview`：
+
+- 系统审查计划是否覆盖合同义务。
+- 如果缺少核心义务，必须要求重拟计划。
+- 允许模型解释为什么某义务不可执行，但必须进入 blocked/limitation。
+
+`EvidencePacket`：
+
+- 只记录真实 observation：
+  文件、命令、浏览器、截图、测试、结构化材料、模型评审结果。
+- 模型自述不能作为事实 observation。
+
+`CompletionJudgment`：
+
+- 消费 `SemanticTaskContract`、`ExecutionObligation`、`EvidencePacket`、`ModelCompletionReview`。
+- 输出完成度状态，而不是简单 boolean。
+
+## 4. 新增核心数据模型
+
+### 4.1 GoalHypothesisSet
+
+建议新增文件：
+
+- `backend/intent/goal_hypothesis.py`
 
 建议结构：
 
 ```python
 @dataclass(frozen=True, slots=True)
-class TaskGoalFrame:
-    user_goal: str
-    goal_summary: str
+class GoalHypothesis:
     task_goal_type: str
     task_domain: str
-    complexity: str
-    core_deliverables: tuple[dict[str, Any], ...]
-    supporting_deliverables: tuple[dict[str, Any], ...]
-    success_criteria: tuple[dict[str, Any], ...]
-    required_capabilities: tuple[str, ...]
-    required_verifications: tuple[dict[str, Any], ...]
-    explicit_constraints: tuple[str, ...]
-    forbidden_actions: tuple[str, ...]
-    evidence: dict[str, Any]
     confidence: float
-    authority: str = "intent.task_goal_frame"
+    matched_by: tuple[str, ...]
+    supporting_evidence: tuple[str, ...]
+    rejection_reason: str = ""
+    risks: tuple[str, ...] = ()
+
+@dataclass(frozen=True, slots=True)
+class GoalHypothesisSet:
+    hypothesis_set_id: str
+    user_goal: str
+    chosen: GoalHypothesis
+    candidates: tuple[GoalHypothesis, ...]
+    rejected: tuple[GoalHypothesis, ...]
+    ambiguity_points: tuple[str, ...] = ()
+    clarification_needed: bool = False
+    clarification_question: str = ""
+    authority: str = "intent.goal_hypothesis_set"
 ```
 
 实现要求：
 
-- `task_goal_type` 必须是稳定枚举式字符串，不能随模型自由命名。
-- `core_deliverables` 和 `supporting_deliverables` 必须分离。
-- `success_criteria` 必须面向功能完成状态，而不是面向最终回答格式。
-- `evidence` 可以包含路径、关键词、已有 `IntentFrame`、旧 `TaskUnderstanding` 结果，但不能让 evidence 自动覆盖目标类型。
+- `artifact_delivery` 和 `game_vertical_slice_delivery` 同时命中时，必须记录为什么选择开发目标、拒绝单文件交付。
+- 未注册 `task_goal_type` 不允许进入 chosen。
+- 模型输出未知类型必须映射到已注册 profile 或 fallback。
 
-### 4.2 TaskDomainProfile
+### 4.2 TaskGoalFrame v2
 
-新增文件建议：
+在现有 `TaskGoalFrame` 上新增字段：
 
-- `backend/task_system/domains/task_domain_profiles.py`
+```text
+goal_hypothesis_set_ref
+rejected_goal_candidates
+unacceptable_outcomes
+ambiguity_points
+clarification_policy
+```
 
-功能要求：
+实现要求：
 
-- 注册可复用任务域。
-- 定义每个任务域的目标类型、默认流程、能力需求、验证需求和专业 prompt profile。
+- `unacceptable_outcomes` 必须能表达“只写最终报告不算完成”。
+- `supporting_deliverables` 不得进入核心完成判定。
+- `confidence` 低或歧义高时，系统可选择澄清，而不是盲目执行。
+
+### 4.3 AgentPlanDraft
+
+建议新增文件：
+
+- `backend/runtime/professional_runtime/agent_plan.py`
 
 建议结构：
 
 ```python
 @dataclass(frozen=True, slots=True)
-class TaskDomainProfile:
-    domain_id: str
-    task_goal_type: str
+class AgentPlanStep:
+    step_id: str
     title: str
-    description: str
-    match_markers: tuple[str, ...]
-    required_capabilities: tuple[str, ...]
-    default_core_deliverables: tuple[str, ...]
-    default_supporting_deliverables: tuple[str, ...]
-    default_success_criteria: tuple[str, ...]
-    default_verifications: tuple[str, ...]
-    strategy_prototype_id: str
-    professional_profile_id: str
-    validator_profile_id: str
+    purpose: str
+    required_operations: tuple[str, ...]
+    expected_outputs: tuple[str, ...]
+    evidence_expectations: tuple[str, ...]
+    contract_refs: tuple[str, ...]
+    may_skip_if: str = ""
+
+@dataclass(frozen=True, slots=True)
+class AgentPlanDraft:
+    plan_id: str
+    task_goal_type: str
+    semantic_contract_ref: str
+    steps: tuple[AgentPlanStep, ...]
+    assumptions: tuple[str, ...] = ()
+    limitations: tuple[str, ...] = ()
+    authority: str = "runtime.agent_plan_draft"
 ```
 
-首批内置任务域：
+Agent-facing prompt 必须是职责语言，例如：
 
-- `code_fix_execution`
-- `artifact_delivery`
-- `material_synthesis`
-- `frontend_app_delivery`
-- `interactive_product_delivery`
-- `game_vertical_slice_delivery`
-- `image_asset_generation`
-- `browser_operation_task`
-- `workflow_graph_coordination`
+```text
+你是一名任务执行规划员。
+你需要根据用户目标、语义合同和代码现状，设计一组可执行步骤。
+每个步骤必须说明要产生什么真实证据。
+你不能把最终报告当成核心产物的替代品。
+```
 
-实现要求：
+不能写成：
 
-- 注册表必须是单一来源。
-- 不允许在 `semantic_task_contracts.py` 中继续堆新增任务域 if/else。
-- domain profile 可从存储加载，但必须有内置兜底。
-- 任务域 prompt 必须写成 agent 职责语言，而不是系统实现语言。
+```text
+这是 execution_planning 节点。
+根据 runtime 节点输出 execution_plan_draft。
+```
 
-## 5. 阶段实施计划
+### 4.4 PlanCoverageReview
 
-## 阶段一：建立诊断基线与回归样本
+建议新增文件：
 
-### 任务细纲
+- `backend/runtime/professional_runtime/plan_coverage.py`
 
-1. 固化肉鸽失败 prompt 为回归样本。
-2. 新增至少 6 类任务理解样本：
-   - 浏览器肉鸽游戏开发。
-   - 前端图编辑器重构。
-   - 普通代码 bug 修复。
-   - 只写一份 Markdown 报告。
-   - PDF 页面阅读。
-   - 实时联网查询。
-3. 为每个样本记录预期：
-   - `task_goal_type`
-   - `task_domain`
-   - 核心交付物
-   - 辅助交付物
-   - 必须验证项
-   - 禁止误判项
+建议结构：
 
-### 功能要求
+```python
+@dataclass(frozen=True, slots=True)
+class PlanCoverageReview:
+    review_id: str
+    plan_id: str
+    semantic_contract_ref: str
+    passed: bool
+    covered_actions: tuple[str, ...]
+    missing_actions: tuple[str, ...]
+    covered_deliverables: tuple[str, ...]
+    missing_deliverables: tuple[str, ...]
+    unsupported_skips: tuple[str, ...] = ()
+    required_replan_reason: str = ""
+    authority: str = "runtime.plan_coverage_review"
+```
 
-- 必须能证明当前系统如何失败。
-- 必须覆盖“带报告路径但报告不是核心产物”的任务。
-- 必须覆盖“确实只写文件”的任务，防止新系统过度复杂化。
+审查规则：
 
-### 代码实现要求
+- `apply_real_change` 必须有产物修改步骤。
+- `integrate_asset` 必须有资源生成/接入/检查步骤。
+- `run_browser_verification` 必须有启动/浏览器/可视检查步骤。
+- `gameplay_acceptance` 必须有玩法实现和玩法验收步骤。
+- `workflow_acceptance` 必须有用户流程实现和流程验收步骤。
+- final report 只能作为后置汇报，不能替代核心产物。
 
-新增或扩展：
+### 4.5 CompletionJudgment
 
-- `backend/tests/task_goal_understanding_regression.py`
-- `backend/tests/fixtures/task_goal_cases.py`
+建议新增文件：
 
-测试用例必须直接调用理解层函数，不依赖完整 `/api/chat`。
+- `backend/runtime/contracts/completion_judgment.py`
 
-### 完成标准
+建议结构：
 
-- 当前旧系统在肉鸽样本上失败的断言清晰存在。
-- 新目标类型的预期合同被测试表达出来。
-- 不允许通过修改测试预期掩盖当前缺陷。
+```python
+@dataclass(frozen=True, slots=True)
+class CompletionJudgment:
+    judgment_id: str
+    task_goal_type: str
+    status: str  # verified | partially_verified | unverified | blocked | contradicted
+    verified_deliverables: tuple[str, ...]
+    missing_deliverables: tuple[str, ...]
+    unsupported_claims: tuple[str, ...]
+    blocked_reasons: tuple[str, ...] = ()
+    confidence: str = "medium"
+    next_required_actions: tuple[str, ...] = ()
+    evidence_alignment: dict[str, Any] = field(default_factory=dict)
+    model_review: dict[str, Any] = field(default_factory=dict)
+    authority: str = "runtime.completion_judgment"
+```
 
-## 阶段二：新增 TaskGoalFrame，不切换主链路
+状态定义：
 
-### 任务细纲
+- `verified`：核心交付和必需验证均有充分 evidence。
+- `partially_verified`：核心产物部分有证据，但存在非阻断缺口。
+- `unverified`：final answer 声称完成，但缺少关键 evidence。
+- `blocked`：环境、权限、依赖等阻断验证或交付。
+- `contradicted`：final answer 声明与 evidence 冲突。
 
-1. 新增 `TaskGoalFrame` 数据模型。
-2. 新增 `build_task_goal_frame`。
-3. 先采用 deterministic + 结构化规则混合实现：
-   - 复用 `IntentFrame`。
-   - 读取 `TaskUnderstanding` 作为 evidence。
-   - 根据产品类、开发类、报告类、查询类信号初步归类。
-4. 输出 shadow diagnostics，不改变 runtime 行为。
+## 5. 模型主动性设计
 
-### 功能要求
+### 5.1 模型负责什么
 
-- 对肉鸽任务输出：
-  - `task_goal_type=game_vertical_slice_delivery`
-  - `task_domain=browser_game_development`
-  - `core_deliverables` 包含 runnable game/source/assets。
-  - `supporting_deliverables` 包含 stage docs/final report。
-  - `required_verifications` 包含 dev server/browser/playability。
-- 对单纯“创建 docs/tmp/test.md”仍输出文件写入类目标。
+模型应负责：
 
-### 代码实现要求
+- 理解用户真实目标。
+- 在候选目标之间做语义判断。
+- 根据代码现状主动生成计划。
+- 主动发现还缺什么。
+- 根据失败证据修复计划。
+- 对完成证据做语义评审。
 
-新增：
+### 5.2 系统负责什么
+
+系统应负责：
+
+- 限定合法 `task_goal_type`。
+- 维护 `TaskGoalProfile` 注册表。
+- 维护 `SemanticTaskContract`。
+- 审查 plan 是否覆盖 contract。
+- 记录真实 observation。
+- 拦截没有 evidence 的完成声明。
+- 输出明确完成度状态。
+
+### 5.3 模型输出约束
+
+模型不能：
+
+- 自由创造未注册 task goal type。
+- 把工具未观察到的事情当事实。
+- 声称未运行的测试通过。
+- 声称未打开的浏览器验证通过。
+- 把 supporting report 当核心产物替代。
+- 把 runtime 节点说明写给 agent。
+
+## 6. 固定状态机与动态计划的关系
+
+系统固定阶段：
+
+```text
+turn_intake
+context_resolution
+task_goal_understanding
+domain_flow_matching
+contract_compilation
+prompt_assembly
+execution_planning
+plan_coverage_review
+step_execution
+verification
+finalization
+```
+
+说明：
+
+- `domain_flow_matching` 名称可保留，但输出必须是 `task_goal_profile_binding`，不是新 domain binding。
+- 新增 `plan_coverage_review` step kind，或者先在 `execution_planning` diagnostics 中落地，之后再提升为正式 step kind。
+- 固定状态机只管边界和生命周期。
+- 业务步骤来自 `AgentPlanDraft.steps`。
+- `TaskRunLedger.step_runs` 应记录系统阶段和 agent 业务步骤之间的映射。
+
+## 7. 分阶段实施计划
+
+### 阶段一：修正目标假设层
+
+目标：
+
+- 新增 `GoalHypothesisSet`。
+- 让 `build_task_goal_frame()` 先产生候选集，再生成 chosen frame。
+- 保留 deterministic 逻辑，但改为候选评分器，不直接作为最终裁决。
+
+涉及文件：
+
+- `backend/intent/goal_hypothesis.py`
+- `backend/intent/task_goal_interpreter.py`
+- `backend/intent/task_goal_frame.py`
+- `backend/tests/task_goal_frame_regression.py`
+
+完成标准：
+
+- 肉鸽任务同时记录 `game_vertical_slice_delivery` chosen 和 `artifact_delivery` rejected。
+- rejected reason 明确说明：报告路径是辅助产物，不是核心目标。
+- 前端分析类任务不会误入 `frontend_app_delivery`。
+
+### 阶段二：升级 TaskGoalFrame v2
+
+目标：
+
+- 增加 `unacceptable_outcomes`、`rejected_goal_candidates`、`ambiguity_points`。
+- 将“只写 final_report 不算完成”等反目标写入 frame。
+
+涉及文件：
 
 - `backend/intent/task_goal_frame.py`
 - `backend/intent/task_goal_interpreter.py`
-
-修改：
-
-- `backend/intent/__init__.py`
-- `backend/agent_system/assembly/runtime_chain.py`
-
-实现限制：
-
-- 不允许直接删除旧 `TaskUnderstanding`。
-- 不允许让 `TaskGoalFrame` 直接决定工具。
-- 所有旧理解结果只能进入 `evidence.legacy_task_understanding`。
-
-### 完成标准
-
-- 新测试能读取 `TaskGoalFrame`。
-- runtime trace 中能看到 shadow `task_goal_frame`。
-- 主链路行为暂不改变，便于对照。
-
-## 阶段三：任务域注册表与产品类任务域
-
-### 任务细纲
-
-1. 新增任务域 profile 注册表。
-2. 把现有 task goal type 映射迁入 profile：
-   - code fix
-   - artifact delivery
-   - material synthesis
-   - runtime trace
-   - regression test design
-3. 新增产品开发类 profile：
-   - `frontend_app_delivery`
-   - `interactive_product_delivery`
-   - `game_vertical_slice_delivery`
-4. 新增查询 API 或内部 catalog builder，供配置页和任务系统 UI 后续展示。
-
-### 功能要求
-
-`game_vertical_slice_delivery` 必须定义：
-
-- 核心交付：
-  - 可运行游戏入口。
-  - 游戏源码。
-  - 至少一个视觉资源。
-  - 玩法功能实现。
-- 辅助交付：
-  - 项目简报。
-  - 玩法设计。
-  - 技术设计。
-  - 资产清单。
-  - 最终报告。
-- 必须能力：
-  - workspace read/write。
-  - terminal。
-  - browser verification。
-  - image generation 或 asset integration。
-- 必须验证：
-  - 启动项目。
-  - 浏览器打开。
-  - Canvas/DOM 非空。
-  - 关键玩法验收。
-  - 图片资源真实可见。
-
-### 代码实现要求
-
-新增：
-
-- `backend/task_system/domains/__init__.py`
-- `backend/task_system/domains/task_domain_profiles.py`
-- `backend/task_system/domains/domain_registry.py`
-
-修改：
-
-- `backend/prompting/strategy_prototypes.py`
-- `backend/prompting/professional_profiles.py`
-
-实现限制：
-
-- domain profile 的 prompt 必须是角色职责描述。
-- 不允许把 runtime 节点、内部 operation id、调试术语写进 agent-facing prompt。
-- 内置 profiles 必须可序列化，方便前端任务系统后续读取。
-
-### 完成标准
-
-- 注册表能按 `task_goal_type` 和 `domain_id` 查询。
-- 旧 task goal type 的 strategy/profile 不回退。
-- 肉鸽任务能匹配 `game_vertical_slice_delivery` profile。
-
-## 阶段四：SemanticTaskContract 优先消费 TaskGoalFrame
-
-### 任务细纲
-
-1. 修改 `build_semantic_task_contract` 输入，支持 `task_goal_frame`。
-2. 调整 `_resolve_task_goal_type`：
-   - 优先使用 `TaskGoalFrame.task_goal_type`。
-   - 其次使用显式 `current_turn_context.task_goal_type`。
-   - 最后才使用旧关键词 fallback。
-3. 交付物从 domain profile + task goal frame 合并生成。
-4. material 收集逻辑区分输入材料、输出路径、辅助报告路径。
-
-### 功能要求
-
-- `final_report.md` 在肉鸽任务中必须是 supporting deliverable。
-- semantic contract 必须保留用户的功能验收项。
-- `task_goal_type=game_vertical_slice_delivery` 时，deliverables 不能退化为 `change_summary/changed_files`。
-
-### 代码实现要求
-
-修改：
-
 - `backend/task_system/contracts/semantic_task_contracts.py`
-- `backend/task_system/services/assembly_support.py`
-- `backend/context_system/current_turn/current_turn.py`
 
-新增测试：
+完成标准：
 
-- `backend/tests/semantic_task_goal_frame_contract_regression.py`
+- `TaskGoalFrame.to_dict()` 输出完整 v2 字段。
+- `SemanticTaskContract.diagnostics` 保留 rejected candidates 和 unacceptable outcomes。
 
-实现限制：
+### 阶段三：模型目标理解接入
 
-- 不允许直接把所有路径都当 material。
-- 输出路径必须带 role：
-  - `core_output`
-  - `supporting_output`
-  - `input_material`
-  - `verification_artifact`
-- 旧 fallback 必须保留，但 diagnostics 要明确 `source=legacy_fallback`。
+目标：
 
-### 完成标准
+- 在 deterministic 稳定后接入模型目标理解。
+- 模型只输出固定 schema。
+- 系统校验模型输出是否属于已注册 `TaskGoalProfile`。
 
-- 肉鸽样本 semantic contract 为 `game_vertical_slice_delivery`。
-- 单纯创建 Markdown 文件仍为 `artifact_delivery` 或 bounded file write。
-- code fix 样本仍为 `code_fix_execution`。
-
-## 阶段五：ExecutionObligation 从合同反推资源与验证
-
-### 任务细纲
-
-1. 扩展 `build_execution_obligation`，支持 semantic contract/task goal frame 输入。
-2. 对产品类任务生成结构化写入义务：
-   - 源码变更。
-   - 资源文件。
-   - 文档产物。
-3. 对产品类任务生成验证义务：
-   - terminal 启动或构建。
-   - browser 打开。
-   - UI/Canvas 可见性检查。
-   - 任务域功能 checklist。
-4. 保留原文关键词抽取作为补充 evidence。
-
-### 功能要求
-
-肉鸽任务必须产生：
-
-- `required_writes`：
-  - `workspace_change`
-  - `source_artifact`
-  - `visual_asset`
-  - `supporting_report`
-- `required_commands`：
-  - `dev_server_or_build`
-- `required_verifications`：
-  - `browser_open`
-  - `visual_nonblank`
-  - `gameplay_acceptance`
-  - `asset_visible`
-
-### 代码实现要求
-
-修改：
-
-- `backend/intent/execution_obligation.py`
-- `backend/intent/obligation_models.py`
-- `backend/task_system/services/assembly_support.py`
-
-新增：
-
-- `backend/intent/domain_obligation_builder.py`
-
-实现限制：
-
-- `_WRITE_MARKERS` 不能继续作为复杂任务是否写入的唯一依据。
-- `_VERIFY_MARKERS` 不能继续作为是否需要验证的唯一依据。
-- domain obligation 必须可测试、可序列化。
-
-### 完成标准
-
-- 肉鸽任务不再只得到泛化 `workspace_change`。
-- “运行验证”类中文表达能触发验证义务。
-- 没有验证证据时，专业运行时不能通过交付验收。
-
-## 阶段六：Professional Runtime 生成任务域计划
-
-### 任务细纲
-
-1. 扩展 `_semantic_control_plan`，支持 domain profile plan template。
-2. 为 `game_vertical_slice_delivery` 生成阶段计划：
-   - 项目结构勘察。
-   - 产品简报。
-   - 玩法设计。
-   - 技术设计。
-   - 资产计划与生图提示词。
-   - MVP 实现。
-   - 资源接入。
-   - 启动与浏览器验证。
-   - 最终报告。
-3. 每一阶段绑定 required operations。
-4. 计划进入 ledger 和 trace，方便 UI 监控。
-
-### 功能要求
-
-- 阶段计划必须保留用户明确要求的阶段。
-- 不能允许第一步直接写最终报告。
-- 每个阶段必须有明确产物或观察。
-- 如果某阶段失败，runtime 应要求追踪原因并继续修复，而不是直接总结。
-
-### 代码实现要求
-
-修改：
-
-- `backend/runtime/professional_runtime/goal_contract.py`
-- `backend/runtime/professional_runtime/driver.py`
-- `backend/task_system/planning/execution_shape_resolver.py`
-
-新增：
-
-- `backend/runtime/professional_runtime/domain_plan_templates.py`
-
-实现限制：
-
-- 不允许把 domain plan 写死在 driver 大函数里。
-- 模板必须独立可测试。
-- required operations 必须使用已有 operation refs，不引入未注册工具名。
-
-### 完成标准
-
-- 肉鸽任务计划不再显示通用 `code_change_execution` 四步。
-- trace 中能看到 domain-specific plan。
-- 第一项副作用工具调用不应是写 `final_report.md`。
-
-## 阶段七：任务域验收器与伪完成拦截
-
-### 任务细纲
-
-1. 新增 domain-aware validation。
-2. 对最终回答做 claim-to-evidence 对齐。
-3. 对产品类任务检查：
-   - 文件观察。
-   - 图片资源观察。
-   - terminal 运行观察。
-   - browser/visual 观察。
-   - 功能 checklist 观察。
-4. 对报告中声称的文件路径进行存在性和写入证据检查。
-
-### 功能要求
-
-肉鸽任务必须拦截以下伪完成：
-
-- 声称 `index.html` 已创建，但无写入观察。
-- 声称图片已生成，但无图片文件或生图工具观察。
-- 声称浏览器验证通过，但无 browser/terminal 观察。
-- 只验证 `final_report.md` 存在就声称游戏完成。
-
-### 代码实现要求
-
-修改：
-
-- `backend/runtime/contracts/obligation_validation.py`
-- `backend/runtime/contracts/deliverable_validator.py`
-
-新增：
-
-- `backend/runtime/contracts/domain_validators.py`
-- `backend/runtime/contracts/claim_evidence_alignment.py`
-
-实现限制：
-
-- 不允许靠最终回答关键词通过验收。
-- unsupported claims 必须进入 validation diagnostics。
-- validator 不应该要求固定文件名，但必须要求对应类别证据。
-
-### 完成标准
-
-- 旧失败 trace 中的行为会被明确判定为缺少核心产物和验证证据。
-- `partial_contract_failed` 的原因包含结构化缺失项，而不是只缺“测试/原因”这类词。
-
-## 阶段八：模型驱动目标理解接入
-
-### 任务细纲
-
-1. 在 deterministic `TaskGoalFrame` 稳定后，引入模型目标理解。
-2. 模型只输出固定 schema。
-3. 系统用 domain registry 校验模型输出。
-4. 如果模型输出未知类型，降级到 `generic_professional_task` 或 deterministic fallback。
-
-### 功能要求
-
-- 模型负责理解“用户真正要完成什么”。
-- 系统负责校验类型、绑定流程、控制工具和验收。
-- 模型不能凭空创造不可执行任务域。
-
-### 代码实现要求
-
-新增：
+建议新增：
 
 - `backend/intent/model_task_goal_interpreter.py`
 - `backend/intent/task_goal_schema.py`
 
-实现限制：
+完成标准：
 
-- 模型输出必须 JSON/schema validate。
-- 未注册 `task_goal_type` 不得直接进入 runtime。
-- prompt 必须要求区分 core/supporting deliverables。
+- 模型可参与候选目标排序。
+- 未注册类型被拒绝并降级到 deterministic fallback。
+- 短任务可以跳过模型路径，避免延迟。
 
-### 完成标准
+### 阶段四：SemanticTaskContract 收口
 
-- 对复杂自然语言任务，模型理解结果优于纯关键词。
-- 对短任务，模型路径可跳过，避免增加延迟。
-- 模型失败时系统仍可 deterministic fallback。
+目标：
 
-## 阶段九：旧逻辑收口与迁移
+- 让 semantic contract 更彻底地消费 `TaskGoalFrame + TaskGoalProfile`。
+- 减少散落 task_goal_type if/else。
+- deliverables、required_actions、forbidden_actions 优先来自 profile 和 frame。
 
-### 任务细纲
+涉及文件：
 
-1. 将 `TaskUnderstanding` 明确标记为 legacy signal layer。
-2. 清理 semantic contract 中重复的关键词分支。
-3. 将任务类型映射迁移到 domain registry。
-4. 删除无用旧测试或改写为新结构测试。
-5. 更新设计文档和调试输出。
+- `backend/task_system/contracts/semantic_task_contracts.py`
+- `backend/task_system/goal_profiles/task_goal_profiles.py`
+- `backend/task_system/goal_profiles/goal_profile_binding.py`
 
-### 功能要求
+完成标准：
 
-- 系统只有一个主任务裁决源：`TaskGoalFrame + TaskDomainProfile`。
-- 旧规则只用于轻量工具路由和 evidence。
-- 前端任务系统可以显示任务目标、任务域、核心交付、验证状态。
+- `game_vertical_slice_delivery` 合同 domain 为 `development`。
+- `final_report` 不是唯一核心完成条件。
+- 单文件写入仍稳定为 `artifact_delivery`。
 
-### 代码实现要求
+### 阶段五：AgentPlanDraft 生成
 
-修改或清理：
+目标：
+
+- 在 professional runtime 中让 agent 根据合同主动生成具体执行计划。
+- 计划步骤包含 expected outputs 和 evidence expectations。
+
+涉及文件：
+
+- `backend/runtime/professional_runtime/agent_plan.py`
+- `backend/runtime/professional_runtime/goal_contract.py`
+- `backend/runtime/professional_runtime/driver.py`
+- `backend/task_system/planning/understanding_step_compiler.py`
+
+完成标准：
+
+- 肉鸽任务计划不是通用四步，而是围绕项目勘察、玩法实现、资源接入、运行验证、最终汇报。
+- 前端任务计划围绕具体用户工作流。
+- 计划由 agent 生成，但必须结构化。
+
+### 阶段六：PlanCoverageReview gate
+
+目标：
+
+- 对 `AgentPlanDraft` 做合同覆盖审查。
+- 不通过时要求 replan，而不是继续执行。
+
+涉及文件：
+
+- `backend/runtime/professional_runtime/plan_coverage.py`
+- `backend/runtime/professional_runtime/driver.py`
+- `backend/tests/professional_task_run_regression.py`
+
+完成标准：
+
+- 缺少浏览器验证步骤的前端/游戏计划不能执行。
+- 缺少资源接入步骤的游戏计划不能执行。
+- 把 final report 放在第一步并替代实现的计划不能执行。
+
+### 阶段七：ExecutionRecipe / TaskRunLedger 对接动态计划
+
+目标：
+
+- 固定系统阶段继续由 `ExecutionRecipe.step_blueprints` 表达。
+- `AgentPlanDraft.steps` 映射到 `TaskRunLedger.step_runs` 的业务步骤。
+- 每个业务步骤必须挂 observation refs。
+
+涉及文件：
+
+- `backend/task_system/planning/understanding_step_compiler.py`
+- `backend/task_system/tasks/step_models.py`
+- `backend/task_system/tasks/run_models.py`
+- `backend/runtime/professional_runtime/driver.py`
+
+完成标准：
+
+- ledger 能显示系统阶段和 agent 业务步骤。
+- 每个执行步骤能追踪输入、输出、观察和失败原因。
+
+### 阶段八：EvidencePacket 标准化
+
+目标：
+
+- 将文件、命令、浏览器、截图、测试、模型评审全部标准化为 typed evidence。
+- 让 profile-driven validator 不依赖自由文本 marker。
+
+涉及文件：
+
+- `backend/runtime/memory/evidence_packet.py`
+- `backend/runtime/contracts/evidence_types.py`
+- `backend/runtime/professional_runtime/evidence_closeout.py`
+
+建议 evidence 类型：
+
+```text
+file_write
+file_edit
+command_run
+test_result
+browser_open
+browser_dom_snapshot
+browser_screenshot
+canvas_pixel_check
+asset_file
+asset_visible
+gameplay_check
+workflow_check
+model_review
+blocked_reason
+```
+
+完成标准：
+
+- 不再主要靠 `preview` 文本猜证据类型。
+- 浏览器验证、文件写入、资源可见性都能结构化表达。
+
+### 阶段九：CompletionJudgment 替代单薄 validator
+
+目标：
+
+- 新增 `CompletionJudgment`。
+- `deliverable_validator` 保留为底层检查器，但不再是最终裁决模型。
+
+涉及文件：
+
+- `backend/runtime/contracts/completion_judgment.py`
+- `backend/runtime/contracts/deliverable_validator.py`
+- `backend/runtime/professional_runtime/driver.py`
+
+完成标准：
+
+- 输出 `verified / partially_verified / unverified / blocked / contradicted`。
+- unsupported claims 明确进入 judgment。
+- final answer 根据 judgment 诚实汇报完成度。
+
+### 阶段十：旧逻辑收口
+
+目标：
+
+- 旧 `query_understanding` 降级为 weak signal。
+- 清理重复 task_goal_type if/else。
+- 删除无用旧测试和旧残留。
+
+涉及文件：
 
 - `backend/understanding/task_understanding.py`
+- `backend/understanding/query_understanding.py`
 - `backend/task_system/contracts/semantic_task_contracts.py`
 - `backend/intent/execution_obligation.py`
 - 相关 regression tests
 
-实现限制：
+完成标准：
 
-- 不保留无用旧残留。
-- 不允许两套任务类型系统长期并行。
-- 清理时必须保证 PDF、表格、知识库、实时查询路径不退化。
+- 系统只有一个主任务裁决源：`GoalHypothesisSet -> TaskGoalFrame -> TaskGoalProfileBinding`。
+- legacy route 只能影响工具效率，不能覆盖目标裁决。
 
-### 完成标准
-
-- 新链路默认启用。
-- legacy fallback 有明确边界。
-- 任务理解 debug 输出能清楚显示：
-  - goal frame source
-  - matched domain
-  - core deliverables
-  - supporting deliverables
-  - required capabilities
-  - required verifications
-
-## 6. 文件级执行清单
-
-### 新增文件
-
-- `backend/intent/task_goal_frame.py`
-- `backend/intent/task_goal_interpreter.py`
-- `backend/intent/model_task_goal_interpreter.py`
-- `backend/intent/task_goal_schema.py`
-- `backend/intent/domain_obligation_builder.py`
-- `backend/task_system/domains/__init__.py`
-- `backend/task_system/domains/task_domain_profiles.py`
-- `backend/task_system/domains/domain_registry.py`
-- `backend/runtime/professional_runtime/domain_plan_templates.py`
-- `backend/runtime/contracts/domain_validators.py`
-- `backend/runtime/contracts/claim_evidence_alignment.py`
-- `backend/tests/task_goal_understanding_regression.py`
-- `backend/tests/semantic_task_goal_frame_contract_regression.py`
-- `backend/tests/domain_obligation_regression.py`
-- `backend/tests/domain_validation_regression.py`
-
-### 重点修改文件
-
-- `backend/agent_system/assembly/runtime_chain.py`
-- `backend/intent/__init__.py`
-- `backend/intent/execution_obligation.py`
-- `backend/intent/obligation_models.py`
-- `backend/task_system/contracts/semantic_task_contracts.py`
-- `backend/task_system/services/assembly_support.py`
-- `backend/runtime/professional_runtime/goal_contract.py`
-- `backend/runtime/professional_runtime/driver.py`
-- `backend/runtime/contracts/obligation_validation.py`
-- `backend/runtime/contracts/deliverable_validator.py`
-- `backend/prompting/strategy_prototypes.py`
-- `backend/prompting/professional_profiles.py`
-- `backend/orchestration/interaction_mode_policy.py`
-
-### 后续前端可接入文件
-
-- 任务系统配置页读取 domain registry catalog。
-- 任务运行监控页展示 goal frame、domain、core deliverables、verification obligations。
-
-## 7. 验证矩阵
-
-### 单元测试
-
-必须覆盖：
-
-- 目标理解分类。
-- domain profile 匹配。
-- semantic contract 生成。
-- execution obligation 生成。
-- domain plan template。
-- domain validator。
-- claim/evidence 对齐。
-
-### 回归测试
-
-必须覆盖：
-
-- 肉鸽游戏长任务。
-- 前端应用开发任务。
-- 普通代码修复任务。
-- 单文件写入任务。
-- PDF 阅读任务。
-- 表格分析任务。
-- 实时查询任务。
-- 任务图节点运行任务。
-
-### 端到端测试
-
-必须至少跑一条专业模式任务，确认：
-
-- 不再首步写最终报告。
-- 能生成 domain-specific plan。
-- 无核心产物时验收失败。
-- 有核心产物和验证证据时验收通过。
-
-## 8. 风险与控制
-
-### 风险一：模型理解不稳定
-
-控制：
-
-- 先做 deterministic shadow frame。
-- 模型输出必须 schema validate。
-- 未注册任务域不能进入 runtime。
-
-### 风险二：轻量任务变慢
-
-控制：
-
-- 短问答、明确工具读取、PDF、表格、实时查询可以继续走轻量路径。
-- 只有复杂任务、长任务、产品开发任务进入目标理解。
-
-### 风险三：新旧系统并行导致混乱
-
-控制：
-
-- 阶段九必须清理旧裁决权。
-- legacy 只能作为 evidence/fallback。
-- diagnostics 必须标明 source。
-
-### 风险四：domain profile 变成新 if/else
-
-控制：
-
-- 注册表单一来源。
-- profile 数据化。
-- plan template 独立模块。
-- validator 独立模块。
-
-## 9. 禁止事项
-
-1. 禁止只给肉鸽样本加关键词特判。
-2. 禁止只把 `final_report.md` 特判成非核心产物就收工。
-3. 禁止把 runtime 节点说明写进 agent-facing prompt。
-4. 禁止用最终回答关键词替代真实验收。
-5. 禁止保留无用旧残留代码。
-6. 禁止让模型自由创造未注册任务域。
-7. 禁止在专业运行时 driver 中继续堆大段任务域 if/else。
-
-## 10. 推荐实施顺序
-
-推荐按以下顺序一次性推进到可用闭环：
-
-1. 阶段一：测试基线。
-2. 阶段二：TaskGoalFrame shadow。
-3. 阶段三：Domain Registry。
-4. 阶段四：SemanticTaskContract 接入。
-5. 阶段五：ExecutionObligation 接入。
-6. 阶段六：Professional Runtime domain plan。
-7. 阶段七：Domain Validation。
-8. 阶段八：模型目标理解。
-9. 阶段九：旧逻辑收口。
-
-最小可交付闭环是阶段一到阶段七。阶段八可以在 deterministic 版本稳定后再接入，避免一开始把模型不稳定性和结构重构混在一起。
-
-## 11. 本次肉鸽实验修复后的期望结果
+## 8. 肉鸽任务期望闭环
 
 同样输入“开发浏览器端 2D 肉鸽游戏垂直切片”后，系统应产生：
 
 ```text
+GoalHypothesisSet:
+  chosen = game_vertical_slice_delivery
+  rejected = artifact_delivery
+  rejection_reason = final_report 是辅助产物，不是核心产品目标
+
 TaskGoalFrame:
   task_goal_type = game_vertical_slice_delivery
-  task_domain = browser_game_development
-  complexity = long_running
+  task_domain = development
   core_deliverables = runnable_game, source_files, visual_asset, gameplay_features
   supporting_deliverables = stage_docs, final_report
-  required_capabilities = workspace_read, workspace_write, terminal, browser, image_generation
-  required_verifications = dev_server_run, browser_open, visual_nonblank, asset_visible, gameplay_acceptance
+  unacceptable_outcomes = final_report_only, design_doc_only, unverified_game_claim
+
+TaskGoalProfileBinding:
+  profile_id = game_vertical_slice_delivery
+  task_domain = development
 
 SemanticTaskContract:
-  strategy_prototype_id = game_vertical_slice_delivery
-  professional_profile_id = professional.game_vertical_slice_delivery
   deliverables = runnable_artifact_refs, gameplay_acceptance, visual_asset_refs, verification_evidence, final_report
+  required_actions = inspect_code, apply_real_change, integrate_asset, run_browser_verification, validate_deliverables
 
-Professional Plan:
+AgentPlanDraft:
   inspect_project
-  write_brief
-  design_gameplay
-  design_technical_architecture
-  plan_and_generate_assets
-  implement_mvp
-  integrate_assets
-  run_and_verify_browser
+  identify_entrypoints
+  implement_game_loop
+  implement_player_and_enemy_interaction
+  add_progression_or_hud
+  integrate_visual_asset
+  run_app
+  browser_verify_canvas_and_gameplay
   write_final_report
 
-Validation:
-  final_report alone cannot satisfy contract
+PlanCoverageReview:
+  passed = true
+  covered_actions = apply_real_change, integrate_asset, run_browser_verification
+
+CompletionJudgment:
+  status = verified | partially_verified | blocked
+  never verified when only final_report exists
 ```
 
-这才符合用户真实任务，也符合项目现有设计原则中“工具合适就用、任务生命周期可追踪、事实和验证不伪造、结构服务执行”的方向。
+## 9. 验证矩阵
+
+必须覆盖：
+
+- 浏览器肉鸽游戏开发。
+- 前端应用/编辑器开发。
+- 普通代码修复。
+- 单文件 Markdown 交付。
+- PDF 阅读。
+- 表格分析。
+- 实时查询。
+- 测试报告诊断。
+- 任务图节点执行。
+
+关键断言：
+
+- 产品开发任务不能被报告路径劫持。
+- agent 生成的计划必须覆盖合同义务。
+- 没有 evidence 的完成声明进入 `unverified` 或 `contradicted`。
+- 环境阻断进入 `blocked`，不能伪装成完成。
+- 短任务不应被长任务控制流拖慢。
+
+## 10. 风险控制
+
+### 风险一：模型主动性导致漂移
+
+控制：
+
+- 模型只能在注册 goal profile 内选择。
+- plan 必须过 coverage review。
+- 未覆盖合同义务时不能执行。
+
+### 风险二：系统规则过硬导致 agent 失去灵活性
+
+控制：
+
+- 系统只固定阶段和合同，不写死业务步骤。
+- agent 可以提出替代验证方式，但必须说明 evidence expectation。
+
+### 风险三：验证无法完全自动化
+
+控制：
+
+- 使用 `CompletionJudgment` 表达置信状态。
+- 可机器验证的用工具验证。
+- 语义质量用模型评审辅助，但不能替代事实 evidence。
+
+### 风险四：新旧系统并行混乱
+
+控制：
+
+- 不新增 domain profile 平行层。
+- 旧理解层只保留为 weak signal。
+- 阶段十必须清理旧残留。
+
+## 11. 禁止事项
+
+1. 禁止只给肉鸽样本加关键词特判。
+2. 禁止新增 `task_system.domains` 平行体系。
+3. 禁止把 `game_vertical_slice_delivery` 当独立任务域。
+4. 禁止让 final report 替代核心产品交付。
+5. 禁止让模型自述替代工具 evidence。
+6. 禁止把 runtime 节点说明写进 agent-facing prompt。
+7. 禁止保留无用旧残留代码和旧测试。
+8. 禁止计划未覆盖合同义务就进入执行。
+
+## 12. 下一步执行建议
+
+按当前代码现状，下一步不应该继续扩写 validator 分支，而应该先做：
+
+1. `GoalHypothesisSet`
+2. `TaskGoalFrame v2`
+3. `AgentPlanDraft`
+4. `PlanCoverageReview`
+
+这四步完成后，理解系统才会从“目标分类 + 合同补强”升级为“成熟 agent 主动规划 + 系统契约审查”的架构。

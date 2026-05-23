@@ -16,6 +16,7 @@ from agent_system.models.model_profile_models import AgentModelProfile, parse_ag
 from agent_system.profiles.runtime_mode_config import CUSTOM_MODE, STANDARD_MODE
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from agent_system.registry.agent_registry import AgentRegistry
+from prompt_library import PromptLibraryRegistry
 from task_system.contracts.contract_definition_models import AcceptanceRule, ArtifactRequirement, ContractField, ContractSpec
 from task_system.registry.contract_registry import TaskContractRegistry
 from task_system.registry.flow_registry import TaskFlowRegistry
@@ -520,7 +521,6 @@ class NodeSpec:
     output_contract_id: str
     input_contract_id: str = "contract.user_request.basic"
     agent_id: str = ""
-    projection_id: str = ""
     phase_id: str = ""
     sequence_index: int = 0
     required_inputs: tuple[str, ...] = ()
@@ -550,7 +550,6 @@ DESIGN_NODES: tuple[NodeSpec, ...] = (
         title="项目启动包",
         node_type="agent_role",
         role="creator",
-        projection_id="projection.writing.modular_novel.project_brief",
         phase_id="phase.modular.design_init.start",
         sequence_index=10,
         output_contract_id="contract.writing.modular_novel.project_brief",
@@ -569,7 +568,6 @@ DESIGN_NODES: tuple[NodeSpec, ...] = (
         title="世界观设定候选",
         node_type="agent_role",
         role="creator",
-        projection_id="projection.writing.modular_novel.world_designer",
         phase_id="phase.modular.design_init.world",
         sequence_index=20,
         output_contract_id="contract.writing.modular_novel.world_candidate",
@@ -596,7 +594,6 @@ DESIGN_NODES: tuple[NodeSpec, ...] = (
         title="世界观审核",
         node_type="review_gate",
         role="reviewer",
-        projection_id="projection.writing.modular_novel.world_reviewer",
         phase_id="phase.modular.design_init.world",
         sequence_index=30,
         output_contract_id="contract.writing.modular_novel.world_review",
@@ -621,7 +618,6 @@ DESIGN_NODES: tuple[NodeSpec, ...] = (
         node_type="memory_commit",
         role="memory_steward",
         agent_id=MEMORY_AGENT_ID,
-        projection_id="projection.writing.modular_novel.memory_steward",
         phase_id="phase.modular.design_init.world",
         sequence_index=40,
         output_contract_id="contract.writing.modular_novel.world_commit",
@@ -644,7 +640,6 @@ DESIGN_NODES: tuple[NodeSpec, ...] = (
         title="人设与关系设计",
         node_type="agent_role",
         role="creator",
-        projection_id="projection.writing.modular_novel.character_designer",
         phase_id="phase.modular.design_init.design",
         sequence_index=50,
         output_contract_id="contract.writing.modular_novel.character_design",
@@ -667,7 +662,6 @@ DESIGN_NODES: tuple[NodeSpec, ...] = (
         title="人设与关系审核",
         node_type="review_gate",
         role="reviewer",
-        projection_id="projection.writing.modular_novel.character_reviewer",
         phase_id="phase.modular.design_init.design",
         sequence_index=55,
         output_contract_id="contract.writing.modular_novel.character_review",
@@ -692,7 +686,6 @@ DESIGN_NODES: tuple[NodeSpec, ...] = (
         title="剧情与伏笔设计",
         node_type="agent_role",
         role="creator",
-        projection_id="projection.writing.modular_novel.plot_designer",
         phase_id="phase.modular.design_init.design",
         sequence_index=50,
         output_contract_id="contract.writing.modular_novel.plot_design",
@@ -715,7 +708,6 @@ DESIGN_NODES: tuple[NodeSpec, ...] = (
         title="创作架构对齐",
         node_type="agent_role",
         role="reviewer",
-        projection_id="projection.writing.modular_novel.design_sync",
         phase_id="phase.modular.design_init.design",
         sequence_index=70,
         output_contract_id="contract.writing.modular_novel.design_alignment",
@@ -740,7 +732,6 @@ DESIGN_NODES: tuple[NodeSpec, ...] = (
         node_type="memory_commit",
         role="memory_steward",
         agent_id=MEMORY_AGENT_ID,
-        projection_id="projection.writing.modular_novel.memory_steward",
         phase_id="phase.modular.design_init.design",
         sequence_index=75,
         output_contract_id="contract.writing.modular_novel.character_commit",
@@ -762,7 +753,6 @@ DESIGN_NODES: tuple[NodeSpec, ...] = (
         title="全书细纲设计",
         node_type="agent_role",
         role="creator",
-        projection_id="projection.writing.modular_novel.outline_designer",
         phase_id="phase.modular.design_init.core",
         sequence_index=80,
         output_contract_id="contract.writing.modular_novel.outline_design",
@@ -785,7 +775,6 @@ DESIGN_NODES: tuple[NodeSpec, ...] = (
         title="细纲审核",
         node_type="review_gate",
         role="reviewer",
-        projection_id="projection.writing.modular_novel.outline_reviewer",
         phase_id="phase.modular.design_init.core",
         sequence_index=90,
         output_contract_id="contract.writing.modular_novel.outline_review",
@@ -808,7 +797,6 @@ DESIGN_NODES: tuple[NodeSpec, ...] = (
         node_type="memory_commit",
         role="memory_steward",
         agent_id=MEMORY_AGENT_ID,
-        projection_id="projection.writing.modular_novel.baseline_memory_steward",
         phase_id="phase.modular.design_init.core",
         sequence_index=100,
         output_contract_id="contract.writing.modular_novel.baseline_commit",
@@ -830,7 +818,6 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         title="分卷计划",
         node_type="agent_role",
         role="creator",
-        projection_id="projection.writing.modular_novel.volume_planner",
         phase_id="phase.modular.chapter_cycle.volume_plan",
         sequence_index=10,
         output_contract_id="contract.writing.modular_novel.volume_plan",
@@ -853,7 +840,6 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         title="章节批次细纲",
         node_type="agent_role",
         role="creator",
-        projection_id="projection.writing.modular_novel.chapter_outliner",
         phase_id="phase.modular.chapter_cycle.chapter_loop",
         sequence_index=20,
         output_contract_id="contract.writing.modular_novel.chapter_outline",
@@ -878,7 +864,6 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         title="章节正文草稿",
         node_type="agent_role",
         role="creator",
-        projection_id="projection.writing.modular_novel.chapter_writer",
         phase_id="phase.modular.chapter_cycle.chapter_loop",
         sequence_index=30,
         output_contract_id="contract.writing.modular_novel.chapter_draft",
@@ -932,7 +917,6 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         title="章节批次审核",
         node_type="review_gate",
         role="reviewer",
-        projection_id="projection.writing.modular_novel.chapter_reviewer",
         phase_id="phase.modular.chapter_cycle.chapter_loop",
         sequence_index=40,
         output_contract_id="contract.writing.modular_novel.chapter_review",
@@ -962,7 +946,6 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         node_type="memory_commit",
         role="memory_steward",
         agent_id=MEMORY_AGENT_ID,
-        projection_id="projection.writing.modular_novel.memory_steward",
         phase_id="phase.modular.chapter_cycle.chapter_loop",
         sequence_index=50,
         output_contract_id="contract.writing.modular_novel.chapter_batch_commit",
@@ -987,7 +970,6 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         title="章节进度路由",
         node_type="agent_role",
         role="router",
-        projection_id="projection.writing.modular_novel.chapter_progress_router",
         phase_id="phase.modular.chapter_cycle.chapter_loop",
         sequence_index=60,
         output_contract_id="contract.writing.modular_novel.progress_route",
@@ -1009,7 +991,6 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         title="卷级审核",
         node_type="review_gate",
         role="reviewer",
-        projection_id="projection.writing.modular_novel.volume_reviewer",
         phase_id="phase.modular.chapter_cycle.volume_review",
         sequence_index=70,
         output_contract_id="contract.writing.modular_novel.volume_review",
@@ -1036,7 +1017,6 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         node_type="memory_commit",
         role="memory_steward",
         agent_id=MEMORY_AGENT_ID,
-        projection_id="projection.writing.modular_novel.memory_steward",
         phase_id="phase.modular.chapter_cycle.volume_review",
         sequence_index=80,
         output_contract_id="contract.writing.modular_novel.volume_commit",
@@ -1060,7 +1040,6 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         title="卷后复盘",
         node_type="agent_role",
         role="reviewer",
-        projection_id="projection.writing.modular_novel.volume_postmortem",
         phase_id="phase.modular.chapter_cycle.volume_extension",
         sequence_index=90,
         output_contract_id="contract.writing.modular_novel.volume_postmortem",
@@ -1083,7 +1062,6 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         title="设定与大纲补充提案",
         node_type="agent_role",
         role="creator",
-        projection_id="projection.writing.modular_novel.extension_proposer",
         phase_id="phase.modular.chapter_cycle.volume_extension",
         sequence_index=100,
         output_contract_id="contract.writing.modular_novel.extension_proposal",
@@ -1106,7 +1084,6 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         title="补充提案审核",
         node_type="review_gate",
         role="reviewer",
-        projection_id="projection.writing.modular_novel.extension_reviewer",
         phase_id="phase.modular.chapter_cycle.volume_extension",
         sequence_index=110,
         output_contract_id="contract.writing.modular_novel.extension_review",
@@ -1131,7 +1108,6 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         node_type="memory_commit",
         role="memory_steward",
         agent_id=MEMORY_AGENT_ID,
-        projection_id="projection.writing.modular_novel.memory_steward",
         phase_id="phase.modular.chapter_cycle.volume_extension",
         sequence_index=120,
         output_contract_id="contract.writing.modular_novel.extension_commit",
@@ -1154,7 +1130,6 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         title="下一卷路由",
         node_type="agent_role",
         role="router",
-        projection_id="projection.writing.modular_novel.next_volume_router",
         phase_id="phase.modular.chapter_cycle.volume_extension",
         sequence_index=130,
         output_contract_id="contract.writing.modular_novel.volume_route",
@@ -1179,7 +1154,6 @@ FINALIZE_NODES: tuple[NodeSpec, ...] = (
         title="全书汇编",
         node_type="agent_role",
         role="creator",
-        projection_id="projection.writing.modular_novel.final_assembler",
         phase_id="phase.modular.finalize.final",
         sequence_index=10,
         output_contract_id="contract.writing.modular_novel.final_manuscript",
@@ -1199,7 +1173,6 @@ FINALIZE_NODES: tuple[NodeSpec, ...] = (
         title="最终审查",
         node_type="review_gate",
         role="reviewer",
-        projection_id="projection.writing.modular_novel.final_reviewer",
         phase_id="phase.modular.finalize.final",
         sequence_index=20,
         output_contract_id="contract.writing.modular_novel.final_review",
@@ -1223,7 +1196,6 @@ FINALIZE_NODES: tuple[NodeSpec, ...] = (
         node_type="memory_finalize",
         role="memory_steward",
         agent_id=MEMORY_AGENT_ID,
-        projection_id="projection.writing.modular_novel.memory_steward",
         phase_id="phase.modular.finalize.final",
         sequence_index=30,
         output_contract_id="contract.writing.modular_novel.final_memory_seal",
@@ -1296,6 +1268,7 @@ def configure(base_dir: Path | str | None = None) -> dict[str, Any]:
     _upsert_protocol(registry)
     _delete_graph_module_wrapper_task_assets(registry)
     _upsert_task_assets(registry)
+    PromptLibraryRegistry(backend_dir).sync_task_workflow_prompts()
     _upsert_imported_module_graph(registry, graph_id=DESIGN_GRAPH_ID, nodes=DESIGN_NODES, business_edges=DESIGN_BUSINESS_EDGES)
     _upsert_imported_module_graph(registry, graph_id=CHAPTER_GRAPH_ID, nodes=CHAPTER_NODES, business_edges=CHAPTER_BUSINESS_EDGES)
     _upsert_imported_module_graph(registry, graph_id=FINALIZE_GRAPH_ID, nodes=FINALIZE_NODES, business_edges=FINALIZE_BUSINESS_EDGES)
@@ -1661,7 +1634,6 @@ def _upsert_task_assets(registry: TaskFlowRegistry) -> None:
             output_contract_id=node.output_contract_id,
             prompt=node.prompt,
             agent_id=_node_agent_id(node),
-            projection_id=node.projection_id,
             node_id=node.node_id,
         )
 
@@ -1688,7 +1660,6 @@ def _upsert_task_asset(
     output_contract_id: str,
     prompt: str,
     agent_id: str,
-    projection_id: str,
     node_id: str = "",
 ) -> None:
     flow_id = task_id.replace("task.", "flow.", 1)
@@ -1696,7 +1667,7 @@ def _upsert_task_asset(
     registry.workflow_registry.upsert_workflow(
         workflow_id=workflow_id,
         title=title,
-        compatible_projection_ids=(projection_id,) if projection_id else (),
+        compatible_projection_ids=(),
         steps=(
             {"step_id": "read_contract_packet", "title": "读取契约化输入包"},
             {"step_id": "execute_node", "title": "执行节点职责"},
@@ -1745,13 +1716,12 @@ def _upsert_task_asset(
         output_contract_id=output_contract_id,
         default_flow_contract_id=flow_id,
         default_workflow_id=workflow_id,
-        default_projection_policy="fixed_projection" if projection_id else "workflow_compatible_or_task_default",
+        default_projection_policy="prompt_library_stage_role",
         task_policy={
             "safety_policy": {"verification_mode": "artifact_or_trace", "write_mode": "scoped", "safety_class": "S2_bounded"},
             "task_structure": {
                 "execution_chain_type": "coordination_node",
                 "memory_scope_hint": "writing_modular_novel",
-                "projection_id": projection_id,
                 "node_id": node_id,
                 "runtime_interaction_mode": "role_mode",
                 "suppress_bundle_projection": True,
@@ -1761,7 +1731,6 @@ def _upsert_task_asset(
         metadata={
             "managed_by": MANAGED_BY,
             "domain_id": DOMAIN_ID,
-            "projection_id": projection_id,
             "node_id": node_id,
             "package_template": TASK_FAMILY,
             "runtime_interaction_mode": "role_mode",
@@ -1781,7 +1750,6 @@ def _upsert_task_asset(
         default_agent_id=agent_id,
         workflow_id=workflow_id,
         workflow_file_ref=f"workflow:{workflow_id}",
-        projection_id=projection_id,
         input_contract_id=input_contract_id,
         output_contract_id=output_contract_id,
         safety_policy={"verification_mode": "artifact_or_trace", "write_mode": "scoped", "safety_class": "S2_bounded"},
@@ -1789,7 +1757,6 @@ def _upsert_task_asset(
             "execution_chain_type": "coordination_node",
             "runtime_lane_hint": "coordination_task",
             "memory_scope_hint": "writing_modular_novel",
-            "projection_id": projection_id,
             "node_id": node_id,
             "runtime_interaction_mode": "role_mode",
             "suppress_bundle_projection": True,
@@ -1804,7 +1771,6 @@ def _upsert_task_asset(
         metadata={
             "managed_by": MANAGED_BY,
             "domain_id": DOMAIN_ID,
-            "projection_id": projection_id,
             "node_id": node_id,
             "package_template": TASK_FAMILY,
             "runtime_interaction_mode": "role_mode",
@@ -1814,15 +1780,7 @@ def _upsert_task_asset(
             "task_graph_node_runtime": True,
         },
     )
-    registry.upsert_projection_binding(
-        task_id=task_id,
-        projection_selection_mode="fixed_projection" if projection_id else "workflow_compatible_or_task_default",
-        allowed_projection_ids=(projection_id,) if projection_id else (),
-        default_projection_id=projection_id,
-        projection_required=bool(projection_id),
-        notes="模块化写作任务图原生配置生成。",
-        metadata={"managed_by": MANAGED_BY, "node_id": node_id},
-    )
+    registry.delete_projection_binding(task_id)
     registry.upsert_flow_contract_binding(
         task_id=task_id,
         flow_contract_id=flow_id,
@@ -1842,7 +1800,7 @@ def _upsert_task_asset(
     )
     registry.upsert_task_agent_adoption_plan(
         task_id=task_id,
-        adoption_mode="adopt_with_projection",
+        adoption_mode="adopt_existing",
         default_agent_id=agent_id,
         allow_worker_agent_spawn=False,
         notes="模块化写作任务图使用通用任务图执行能力，不新增写作专用后端入口。",
@@ -1940,8 +1898,6 @@ def _node_payload(node: NodeSpec) -> dict[str, Any]:
         "agent_id": agent_id,
         "agent_group_id": AGENT_GROUP_ID,
         "work_posture": node.role,
-        "projection_id": node.projection_id,
-        "projection_overlay_id": node.projection_id,
         "runtime_lane": "coordination_task",
         "interaction_mode": "role_mode",
         "runtime_interaction_mode": "role_mode",

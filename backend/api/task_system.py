@@ -15,7 +15,7 @@ from runtime.contracts.runtime_assembly_builder import (
     build_node_runtime_assembly,
 )
 from runtime import bootstrap_scheduler_state
-from soul.facade import SoulFacade
+from prompt_library import PromptLibraryRegistry
 from task_system import (
     TaskContractRegistry,
     TaskFlowRegistry,
@@ -78,7 +78,7 @@ def _strip_task_graph_prompt_metadata(
     metadata: dict[str, object],
     *,
     prompt: str = "",
-    projection_id: str = "",
+    prompt_resource_id: str = "",
     migration_status: str = "migrated",
 ) -> dict[str, object]:
     legacy_values = {
@@ -96,17 +96,19 @@ def _strip_task_graph_prompt_metadata(
         cleaned["legacy_prompt_migration"] = {
             **(existing_migration if isinstance(existing_migration, dict) else {}),
             "legacy_field_names": sorted(str(key) for key in legacy_values.keys()),
-            "projection_id": projection_id,
+            "prompt_resource_id": prompt_resource_id,
             "migration_status": migration_status,
         }
     return cleaned
 
 
-def _base_projection_card(base_dir) -> dict[str, object] | None:
-    catalog = SoulFacade(base_dir).list_projection_cards()
-    cards = [item for item in list(catalog.get("cards") or []) if isinstance(item, dict)]
-    selected_projection_id = str(catalog.get("selected_projection_id") or "").strip()
-    return next((item for item in cards if str(item.get("projection_id") or "") == selected_projection_id), None) or (cards[0] if cards else None)
+def _strip_empty_task_graph_projection_fields(node: dict[str, object]) -> dict[str, object]:
+    next_node = dict(node)
+    if not str(next_node.get("projection_id") or "").strip():
+        next_node.pop("projection_id", None)
+    if not str(next_node.get("projection_overlay_id") or "").strip():
+        next_node.pop("projection_overlay_id", None)
+    return next_node
 
 
 def _migrate_task_graph_legacy_prompt_nodes(
@@ -117,41 +119,30 @@ def _migrate_task_graph_legacy_prompt_nodes(
     task_family: str,
     nodes: tuple[dict[str, object], ...],
 ) -> tuple[dict[str, object], ...]:
-    base_card = _base_projection_card(base_dir)
+    prompt_registry = PromptLibraryRegistry(base_dir)
     migrated_nodes: list[dict[str, object]] = []
     for node in nodes:
-        next_node = dict(node)
+        next_node = _strip_empty_task_graph_projection_fields(dict(node))
         metadata = dict(next_node.get("metadata") or {})
         prompt = _build_task_graph_node_projection_prompt(next_node, metadata)
-        projection_id = str(next_node.get("projection_id") or next_node.get("projection_overlay_id") or "").strip()
-        if prompt and not projection_id and base_card:
-            node_id = str(next_node.get("node_id") or next_node.get("id") or next_node.get("title") or "node").strip()
-            projection_id = f"projection.taskgraph.{_slug_ref(graph_id, 'graph')}.{_slug_ref(node_id)}"
-            SoulFacade(base_dir).upsert_projection_card(
-                request={
-                    "projection_id": projection_id,
-                    "soul_id": str(base_card.get("soul_id") or ""),
-                    "projection_kind": "task_graph_node",
-                    "owner_system": "task_system",
-                    "source_task_graph_refs": [graph_id],
-                    "projection_name": f"{str(next_node.get('title') or node_id)} / 节点职责",
-                    "role_type": str(next_node.get("work_posture") or next_node.get("role") or "task_graph_node"),
-                    "agent_profile_id": str(base_card.get("agent_profile_id") or "task_graph_node_agent"),
-                    "projection_prompt": prompt,
-                    "usage_summary": f"由 TaskGraph {graph_title or graph_id} 的节点职责迁移生成。",
-                    "memory_policy_summary": "记忆读写权限由 TaskGraph 节点策略与 Agent Runtime Profile 决定。",
-                    "output_contract_summary": "输出边界由 TaskGraph 节点契约和边交接契约决定。",
-                },
-                select_after_create=False,
+        prompt_resource_id = ""
+        if prompt:
+            resource = prompt_registry.migrate_task_graph_node_prompt(
+                graph_id=graph_id,
+                graph_title=graph_title,
+                task_family=task_family,
+                node=next_node,
+                prompt=prompt,
             )
-            next_node["projection_id"] = projection_id
-            next_node["projection_overlay_id"] = projection_id
+            prompt_resource_id = resource.resource_id
+            next_node.pop("projection_id", None)
+            next_node.pop("projection_overlay_id", None)
         if prompt or any(key in metadata for key in TASK_GRAPH_PROMPT_METADATA_KEYS):
             next_node["metadata"] = _strip_task_graph_prompt_metadata(
                 metadata,
                 prompt=prompt,
-                projection_id=projection_id,
-                migration_status="migrated" if projection_id else "pending_no_projection_base",
+                prompt_resource_id=prompt_resource_id,
+                migration_status="migrated" if prompt_resource_id else "pending_no_prompt_resource",
             )
         migrated_nodes.append(next_node)
     return tuple(migrated_nodes)

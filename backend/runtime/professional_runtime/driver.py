@@ -57,7 +57,10 @@ from .goal_contract import (
     _goal_contract_from_semantic_contract,
     _semantic_control_plan,
 )
+from .completion_judgment import build_verification_review, judge_completion
 from .run_session import build_professional_run_session
+from .model_sidecars import invoke_readonly_planner_draft, invoke_readonly_verifier_review
+from .plan_coverage import review_plan_coverage
 from .runtime_policy import (
     _allowed_tool_names_from_policy,
     _first_finalize_step_id,
@@ -205,6 +208,73 @@ class ProfessionalTaskRunDriver:
             mode_policy=mode_policy,
             goal_contract=goal_contract,
         )
+        recipe_metadata = dict(dict(selected_recipe_payload or {}).get("metadata") or {})
+        agent_plan_draft = dict(recipe_metadata.get("agent_plan_draft") or {})
+        plan_coverage_review = dict(recipe_metadata.get("plan_coverage_review") or {})
+        sidecar_policy = _professional_sidecar_policy(
+            task_operation=task_operation,
+            selected_recipe_payload=selected_recipe_payload,
+        )
+        sidecar_invoker = _sidecar_invoker(model_response_executor, enabled=bool(sidecar_policy.get("enabled") is True))
+        planner_sidecar_diagnostics = {
+            "sidecar_name": "readonly_planner",
+            "sidecar_status": (
+                "not_enabled"
+                if not bool(sidecar_policy.get("enabled") is True)
+                else "not_invoked_model_runtime_not_sidecar_capable"
+                if sidecar_invoker is None
+                else "pending"
+            ),
+            "model_call_performed": False,
+        }
+        if sidecar_invoker is not None and bool(sidecar_policy.get("planner_enabled") is True):
+            planner_plan, planner_sidecar_diagnostics = await invoke_readonly_planner_draft(
+                invoker=sidecar_invoker,
+                task_id=task_id,
+                semantic_contract=semantic_contract,
+                domain_playbook=dict(dict(semantic_contract.get("diagnostics") or {}).get("task_domain_binding") or {}),
+                workspace_observations=[],
+                model_spec=resolved_model_spec,
+            )
+            if planner_plan is not None:
+                candidate_plan = planner_plan.to_dict()
+                candidate_coverage = review_plan_coverage(
+                    task_id=task_id,
+                    semantic_contract=semantic_contract,
+                    agent_plan_draft=candidate_plan,
+                ).to_dict()
+                if candidate_coverage.get("passed") is True:
+                    agent_plan_draft = candidate_plan
+                    plan_coverage_review = candidate_coverage
+                    plan = _control_plan_from_agent_plan_draft(
+                        agent_plan_draft=agent_plan_draft,
+                        fallback_plan=plan,
+                    )
+                else:
+                    planner_sidecar_diagnostics = {
+                        **dict(planner_sidecar_diagnostics or {}),
+                        "model_plan_rejected_by_coverage_gate": True,
+                        "candidate_plan_coverage_review": candidate_coverage,
+                    }
+        elif sidecar_invoker is not None:
+            planner_sidecar_diagnostics = {
+                **planner_sidecar_diagnostics,
+                "sidecar_status": "not_enabled",
+            }
+        planner_event = self.event_log.append(
+            task_run_id,
+            "professional_task_readonly_planner_checked",
+            payload={
+                "interaction_mode": interaction_mode,
+                "sidecar_policy": sidecar_policy,
+                "agent_plan_draft": agent_plan_draft,
+                "plan_coverage_review": plan_coverage_review,
+                "planner_sidecar_diagnostics": planner_sidecar_diagnostics,
+                "plan_item_count": len(plan),
+            },
+            refs={"task_contract_ref": task_contract_ref},
+        )
+        yield {"type": "runtime_loop_event", "event": planner_event.to_dict()}
         start_event = self.event_log.append(
             task_run_id,
             "professional_task_started",
@@ -342,7 +412,14 @@ class ProfessionalTaskRunDriver:
                 "max_tool_calls_per_round": max_tool_calls,
                 "max_tool_calls_per_task_run": max_tool_calls_per_task_run,
                 "max_tool_rounds_per_task_run": max_tool_rounds,
-                "plan_source": "semantic_task_contract",
+                "plan_source": (
+                    "model_agent_plan_draft"
+                    if str(agent_plan_draft.get("source") or "") == "model_agent_plan_draft"
+                    else "semantic_task_contract"
+                ),
+                "agent_plan_draft": agent_plan_draft,
+                "plan_coverage_review": plan_coverage_review,
+                "planner_sidecar_diagnostics": planner_sidecar_diagnostics,
                 "goal_contract": goal_contract.to_dict(),
                 "ledger_backed": outcome.ledger is not None,
             },
@@ -1484,6 +1561,22 @@ class ProfessionalTaskRunDriver:
             "passed": bool(obligation_validation.get("passed") is True),
         }
         verification = _normalize_professional_verification(verification)
+        verification_review = build_verification_review(
+            task_run_id=task_run_id,
+            semantic_contract=semantic_contract,
+            evidence_packet=evidence_packet.to_dict(),
+            deliverable_validation=deliverable_validation,
+            obligation_validation=obligation_validation,
+        )
+        completion_judgment = judge_completion(
+            task_run_id=task_run_id,
+            semantic_contract=semantic_contract,
+            evidence_packet=evidence_packet.to_dict(),
+            verification_review=verification_review,
+            terminal_reason=outcome.terminal_reason,
+        )
+        verification["verification_review"] = verification_review.to_dict()
+        verification["completion_judgment"] = completion_judgment.to_dict()
         if _should_repair_professional_closeout(verification):
             repair_base_content = str(outcome.final_content or "").strip()
             repair_base_metadata = dict(outcome.final_answer_metadata or {})
@@ -1658,8 +1751,57 @@ class ProfessionalTaskRunDriver:
                 "passed": bool(obligation_validation.get("passed") is True),
             }
             verification = _normalize_professional_verification(verification)
+            verification_review = build_verification_review(
+                task_run_id=task_run_id,
+                semantic_contract=semantic_contract,
+                evidence_packet=evidence_packet.to_dict(),
+                deliverable_validation=deliverable_validation,
+                obligation_validation=obligation_validation,
+            )
+            verifier_sidecar_diagnostics = {
+                "sidecar_name": "readonly_verifier",
+                "sidecar_status": (
+                    "not_enabled"
+                    if not bool(sidecar_policy.get("enabled") is True) or not bool(sidecar_policy.get("verifier_enabled") is True)
+                    else "not_invoked_model_runtime_not_sidecar_capable"
+                    if sidecar_invoker is None
+                    else "pending"
+                ),
+                "model_call_performed": False,
+            }
+            if sidecar_invoker is not None and bool(sidecar_policy.get("verifier_enabled") is True):
+                model_verification_review, verifier_sidecar_diagnostics = await invoke_readonly_verifier_review(
+                    invoker=sidecar_invoker,
+                    task_run_id=task_run_id,
+                    semantic_contract=semantic_contract,
+                    evidence_packet=evidence_packet.to_dict(),
+                    agent_plan_draft=agent_plan_draft,
+                    deliverable_validation=deliverable_validation,
+                    obligation_validation=obligation_validation,
+                    model_spec=resolved_model_spec,
+                )
+                if model_verification_review is not None:
+                    verification_review = model_verification_review
+            completion_judgment = judge_completion(
+                task_run_id=task_run_id,
+                semantic_contract=semantic_contract,
+                evidence_packet=evidence_packet.to_dict(),
+                verification_review=verification_review,
+                terminal_reason=outcome.terminal_reason,
+            )
+            verification["verification_review"] = verification_review.to_dict()
+            verification["completion_judgment"] = completion_judgment.to_dict()
+            verification["verifier_sidecar_diagnostics"] = verifier_sidecar_diagnostics
         if outcome.terminal_reason in {"completed", "tool_loop_budget_exceeded"} and not bool(verification.get("passed") is True):
             outcome.terminal_reason = "partial_contract_failed"
+            completion_judgment = judge_completion(
+                task_run_id=task_run_id,
+                semantic_contract=semantic_contract,
+                evidence_packet=evidence_packet.to_dict(),
+                verification_review=verification.get("verification_review"),
+                terminal_reason=outcome.terminal_reason,
+            )
+            verification["completion_judgment"] = completion_judgment.to_dict()
         unsatisfied = unsatisfied_obligations_from_verification(verification)
         run_state = run_state.advance(
             "complete" if bool(verification.get("passed") is True) else "blocked",
@@ -1675,6 +1817,12 @@ class ProfessionalTaskRunDriver:
         )
         verification["professional_run_state"] = run_state.to_dict()
         verification["tool_observation_ledger"] = tool_observation_ledger.to_dict()
+        outcome.final_answer_metadata = {
+            **dict(outcome.final_answer_metadata or {}),
+            "verification_review": dict(verification.get("verification_review") or {}),
+            "completion_judgment": dict(verification.get("completion_judgment") or {}),
+            "verifier_sidecar_diagnostics": dict(verification.get("verifier_sidecar_diagnostics") or {}),
+        }
         verify_event = self.event_log.append(
             task_run_id,
             "professional_task_deliverable_validation_checked",
@@ -1682,6 +1830,17 @@ class ProfessionalTaskRunDriver:
             refs={"task_contract_ref": task_contract_ref, "task_step_ref": "professional.validate_deliverable"},
         )
         yield {"type": "runtime_loop_event", "event": verify_event.to_dict()}
+        completion_judgment_event = self.event_log.append(
+            task_run_id,
+            "professional_task_completion_judged",
+            payload={
+                "completion_judgment": dict(verification.get("completion_judgment") or {}),
+                "verification_review": dict(verification.get("verification_review") or {}),
+                "verifier_sidecar_diagnostics": dict(verification.get("verifier_sidecar_diagnostics") or {}),
+            },
+            refs={"task_contract_ref": task_contract_ref, "task_step_ref": "professional.completion_judgment"},
+        )
+        yield {"type": "runtime_loop_event", "event": completion_judgment_event.to_dict()}
         session_event = self.event_log.append(
             task_run_id,
             "professional_run_session_updated",
@@ -2299,19 +2458,90 @@ class ProfessionalTaskRunDriver:
         return state, ledger
 
 
+def _professional_sidecar_policy(
+    *,
+    task_operation: dict[str, Any],
+    selected_recipe_payload: dict[str, Any],
+) -> dict[str, Any]:
+    current_turn = dict(task_operation.get("current_turn_context") or {})
+    recipe_metadata = dict(dict(selected_recipe_payload or {}).get("metadata") or {})
+    mode_policy = dict(recipe_metadata.get("mode_policy") or {})
+    raw_policy = {
+        **dict(mode_policy.get("model_sidecar_policy") or {}),
+        **dict(recipe_metadata.get("model_sidecar_policy") or {}),
+        **dict(current_turn.get("model_sidecar_policy") or {}),
+    }
+    enabled = _enabled_flag(raw_policy, "enabled", default=False)
+    planner_enabled = enabled and _enabled_flag(raw_policy, "planner_enabled", default=True)
+    verifier_enabled = enabled and _enabled_flag(raw_policy, "verifier_enabled", default=True)
+    return {
+        "enabled": enabled,
+        "planner_enabled": planner_enabled,
+        "verifier_enabled": verifier_enabled,
+        "policy_source": str(raw_policy.get("authority") or "runtime.model_sidecar_policy"),
+        "readonly": True,
+    }
 
 
+def _enabled_flag(policy: dict[str, Any], key: str, *, default: bool) -> bool:
+    if key not in policy:
+        return default
+    value = policy.get(key)
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on", "enabled"}
+    return bool(value is True)
 
 
+def _sidecar_invoker(model_response_executor: Any, *, enabled: bool) -> Any | None:
+    if not enabled:
+        return None
+    model_runtime = getattr(model_response_executor, "model_runtime", None)
+    if getattr(model_runtime, "supports_structured_sidecars", False) is not True:
+        return None
+    invoker = getattr(model_runtime, "invoke_messages", None)
+    return invoker if callable(invoker) else None
 
 
-
-
-
-
-
-
-
+def _control_plan_from_agent_plan_draft(
+    *,
+    agent_plan_draft: dict[str, Any],
+    fallback_plan: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    steps = [dict(item) for item in list(agent_plan_draft.get("steps") or []) if isinstance(item, dict)]
+    converted: list[dict[str, Any]] = []
+    for index, step in enumerate(steps, start=1):
+        step_id = str(step.get("step_id") or f"model_plan_step_{index}").strip()
+        converted.append(
+            {
+                "plan_item_id": f"professional.model_plan.{step_id}",
+                "title": str(step.get("title") or step_id).strip() or step_id,
+                "step_kind": "plan_item",
+                "executor_type": "model",
+                "action_kind": "main_agent",
+                "summary": str(step.get("purpose") or step.get("title") or step_id).strip(),
+                "required_operations": list(step.get("required_operations") or ["op.model_response"]),
+                "expected_outputs": list(step.get("expected_outputs") or []),
+                "evidence_expectations": list(step.get("evidence_expectations") or []),
+                "contract_refs": list(step.get("contract_refs") or []),
+                "contract_required": True,
+            }
+        )
+    if not converted:
+        return list(fallback_plan or [])
+    if not any("validate" in str(item.get("plan_item_id") or "") for item in converted):
+        converted.append(
+            {
+                "plan_item_id": "professional.validate_deliverable",
+                "title": "按交付物验证最终回答",
+                "step_kind": "plan_item",
+                "executor_type": "model",
+                "action_kind": "main_agent",
+                "summary": "检查语义交付物、证据对齐、协议泄漏和未支持声明。",
+                "required_operations": ["op.model_response"],
+                "contract_required": True,
+            }
+        )
+    return converted
 
 
 

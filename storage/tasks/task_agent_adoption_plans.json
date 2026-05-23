@@ -3,7 +3,7 @@
     {
       "plan_id": "taskadopt:task.writing.modular_novel.node.project_brief",
       "task_id": "task.writing.modular_novel.node.project_brief",
-      "adoption_mode": "adopt_with_projection",
+      "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:writing_modular_creator",
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
@@ -32,7 +32,7 @@
     {
       "plan_id": "taskadopt:task.writing.modular_novel.node.world_design",
       "task_id": "task.writing.modular_novel.node.world_design",
-      "adoption_mode": "adopt_with_projection",
+      "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:writing_modular_creator",
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
@@ -61,7 +61,7 @@
     {
       "plan_id": "taskadopt:task.writing.modular_novel.node.world_review",
       "task_id": "task.writing.modular_novel.node.world_review",
-      "adoption_mode": "adopt_with_projection",
+      "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:writing_modular_reviewer",
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
@@ -90,7 +90,7 @@
     {
       "plan_id": "taskadopt:task.writing.modular_novel.node.memory_commit_world",
       "task_id": "task.writing.modular_novel.node.memory_commit_world",
-      "adoption_mode": "adopt_with_projection",
+      "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:writing_modular_memory_steward",
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
@@ -119,7 +119,7 @@
     {
       "plan_id": "taskadopt:task.writing.modular_novel.node.character_design",
       "task_id": "task.writing.modular_novel.node.character_design",
-      "adoption_mode": "adopt_with_projection",
+      "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:writing_modular_creator",
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
@@ -148,7 +148,7 @@
     {
       "plan_id": "taskadopt:task.writing.modular_novel.node.character_review",
       "task_id": "task.writing.modular_novel.node.character_review",
-      "adoption_mode": "adopt_with_projection",
+      "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:writing_modular_reviewer",
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
@@ -177,7 +177,7 @@
     {
       "plan_id": "taskadopt:task.writing.modular_novel.node.plot_design",
       "task_id": "task.writing.modular_novel.node.plot_design",
-      "adoption_mode": "adopt_with_projection",
+      "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:writing_modular_creator",
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
@@ -206,7 +206,7 @@
     {
       "plan_id": "taskadopt:task.writing.modular_novel.node.design_sync",
       "task_id": "task.writing.modular_novel.node.design_sync",
-      "adoption_mode": "adopt_with_projection",
+      "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:writing_modular_creator",
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
@@ -235,7 +235,7 @@
     {
       "plan_id": "taskadopt:task.writing.modular_novel.node.memory_commit_character",
       "task_id": "task.writing.modular_novel.node.memory_commit_character",
-      "adoption_mode": "adopt_with_projection",
+      "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:writing_modular_memory_steward",
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
@@ -264,7 +264,7 @@
     {
       "plan_id": "taskadopt:task.writing.modular_novel.node.outline_design",
       "task_id": "task.writing.modular_novel.node.outline_design",
-      "adoption_mode": "adopt_with_projection",
+      "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:writing_modular_creator",
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
@@ -293,7 +293,7 @@
     {
       "plan_id": "taskadopt:task.writing.modular_novel.node.outline_review",
       "task_id": "task.writing.modular_novel.node.outline_review",
-      "adoption_mode": "adopt_with_projection",
+      "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:writing_modular_reviewer",
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
@@ -322,7 +322,7 @@
     {
       "plan_id": "taskadopt:task.writing.modular_novel.node.baseline_memory_seed",
       "task_id": "task.writing.modular_novel.node.baseline_memory_seed",
-      "adoption_mode": "adopt_with_projection",
+      "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:writing_modular_memory_steward",
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
@@ -351,7 +351,7 @@
     {
       "plan_id": "taskadopt:task.writing.modular_novel.node.volume_plan",
       "task_id": "task.writing.modular_novel.node.volume_plan",
-      "adoption_mode": "adopt_with_projection",
+      "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:writing_modular_creator",
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
@@ -380,7 +380,7 @@
     {
       "plan_id": "taskadopt:task.writing.modular_novel.node.chapter_outline",
       "task_id": "task.writing.modular_novel.node.chapter_outline",
-      "adoption_mode": "adopt_with_projection",
+      "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:writing_modular_creator",
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
@@ -409,7 +409,7 @@
     {
       "plan_id": "taskadopt:task.writing.modular_novel.node.chapter_draft",
       "task_id": "task.writing.modular_novel.node.chapter_draft",
-      "adoption_mode": "adopt_with_projection",
+      "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:writing_modular_creator",
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
@@ -438,7 +438,7 @@
     {
       "plan_id": "taskadopt:task.writing.modular_novel.node.chapter_review",
       "task_id": "task.writing.modular_novel.node.chapter_review",
-      "adoption_mode": "adopt_with_projection",
+      "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:writing_modular_reviewer",
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
@@ -467,7 +467,7 @@
     {
       "plan_id": "taskadopt:task.writing.modular_novel.node.memory_commit_chapter",
       "task_id": "task.writing.modular_novel.node.memory_commit_chapter",
-      "adoption_mode": "adopt_with_projection",
+      "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:writing_modular_memory_steward",
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
@@ -496,7 +496,7 @@
     {
       "plan_id": "taskadopt:task.writing.modular_novel.node.chapter_progress_router",
       "task_id": "task.writing.modular_novel.node.chapter_progress_router",
-      "adoption_mode": "adopt_with_projection",
+      "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:writing_modular_creator",
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
@@ -525,7 +525,7 @@
     {
       "plan_id": "taskadopt:task.writing.modular_novel.node.volume_review",
       "task_id": "task.writing.modular_novel.node.volume_review",
-      "adoption_mode": "adopt_with_projection",
+      "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:writing_modular_reviewer",
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
@@ -554,7 +554,7 @@
     {
       "plan_id": "taskadopt:task.writing.modular_novel.node.volume_commit",
       "task_id": "task.writing.modular_novel.node.volume_commit",
-      "adoption_mode": "adopt_with_projection",
+      "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:writing_modular_memory_steward",
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
@@ -583,7 +583,7 @@
     {
       "plan_id": "taskadopt:task.writing.modular_novel.node.volume_postmortem",
       "task_id": "task.writing.modular_novel.node.volume_postmortem",
-      "adoption_mode": "adopt_with_projection",
+      "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:writing_modular_creator",
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
@@ -612,7 +612,7 @@
     {
       "plan_id": "taskadopt:task.writing.modular_novel.node.world_outline_extension_proposal",
       "task_id": "task.writing.modular_novel.node.world_outline_extension_proposal",
-      "adoption_mode": "adopt_with_projection",
+      "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:writing_modular_creator",
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
@@ -641,7 +641,7 @@
     {
       "plan_id": "taskadopt:task.writing.modular_novel.node.extension_review",
       "task_id": "task.writing.modular_novel.node.extension_review",
-      "adoption_mode": "adopt_with_projection",
+      "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:writing_modular_reviewer",
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
@@ -670,7 +670,7 @@
     {
       "plan_id": "taskadopt:task.writing.modular_novel.node.extension_commit",
       "task_id": "task.writing.modular_novel.node.extension_commit",
-      "adoption_mode": "adopt_with_projection",
+      "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:writing_modular_memory_steward",
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
@@ -699,7 +699,7 @@
     {
       "plan_id": "taskadopt:task.writing.modular_novel.node.next_volume_router",
       "task_id": "task.writing.modular_novel.node.next_volume_router",
-      "adoption_mode": "adopt_with_projection",
+      "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:writing_modular_creator",
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
@@ -728,7 +728,7 @@
     {
       "plan_id": "taskadopt:task.writing.modular_novel.node.final_assemble",
       "task_id": "task.writing.modular_novel.node.final_assemble",
-      "adoption_mode": "adopt_with_projection",
+      "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:writing_modular_creator",
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
@@ -757,7 +757,7 @@
     {
       "plan_id": "taskadopt:task.writing.modular_novel.node.final_review",
       "task_id": "task.writing.modular_novel.node.final_review",
-      "adoption_mode": "adopt_with_projection",
+      "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:writing_modular_reviewer",
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
@@ -778,6 +778,35 @@
       },
       "authority": "task_system.task_execution_policy",
       "execution_policy_id": "taskexecpol:task.writing.modular_novel.node.final_review",
+      "execution_chain_type": "coordination_node",
+      "runtime_agent_selection_policy": "orchestration_default",
+      "task_level": "standard",
+      "task_privilege": "bounded"
+    },
+    {
+      "plan_id": "taskadopt:task.writing.modular_novel.node.memory_finalize",
+      "task_id": "task.writing.modular_novel.node.memory_finalize",
+      "adoption_mode": "adopt_existing",
+      "default_agent_id": "agent:writing_modular_memory_steward",
+      "allow_worker_agent_spawn": false,
+      "worker_agent_blueprint_id": "",
+      "worker_agent_naming_rule": "",
+      "notes": "模块化写作任务图使用通用任务图执行能力，不新增写作专用后端入口。",
+      "metadata": {
+        "derived_from": "task_assignment",
+        "participant_agent_ids": [],
+        "runtime_limits": {},
+        "execution_chain_type": "coordination_node",
+        "task_graph_id": "",
+        "graph_id": "",
+        "communication_protocol_id": "",
+        "topology_template_id": "",
+        "agent_group_id": "",
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "memory_finalize"
+      },
+      "authority": "task_system.task_execution_policy",
+      "execution_policy_id": "taskexecpol:task.writing.modular_novel.node.memory_finalize",
       "execution_chain_type": "coordination_node",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
@@ -806,27 +835,6 @@
       "authority": "task_system.task_execution_policy",
       "execution_policy_id": "taskexecpol:task.000001",
       "execution_chain_type": "coordination_chain",
-      "runtime_agent_selection_policy": "orchestration_default",
-      "task_level": "standard",
-      "task_privilege": "bounded"
-    },
-    {
-      "plan_id": "taskadopt:task.writing.modular_novel.node.memory_finalize",
-      "task_id": "task.writing.modular_novel.node.memory_finalize",
-      "adoption_mode": "adopt_with_projection",
-      "default_agent_id": "agent:writing_modular_memory_steward",
-      "allow_worker_agent_spawn": false,
-      "worker_agent_blueprint_id": "",
-      "worker_agent_naming_rule": "",
-      "notes": "模块化写作任务图使用通用任务图执行能力，不新增写作专用后端入口。",
-      "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
-        "execution_chain_type": "coordination_node",
-        "node_id": "memory_finalize"
-      },
-      "authority": "task_system.task_execution_policy",
-      "execution_policy_id": "taskexecpol:task.writing.modular_novel.node.memory_finalize",
-      "execution_chain_type": "coordination_node",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
       "task_privilege": "bounded"

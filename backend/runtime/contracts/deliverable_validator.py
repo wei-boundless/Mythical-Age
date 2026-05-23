@@ -1,9 +1,15 @@
 from __future__ import annotations
 import re
+import json
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from task_system.runtime_semantics.protocol_boundary import has_protocol_leak
+
+try:
+    from task_system.goal_profiles import get_task_goal_profile
+except Exception:  # pragma: no cover - runtime fallback for partial imports
+    get_task_goal_profile = None  # type: ignore[assignment]
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,6 +72,14 @@ def validate_deliverable(
             semantic_contract=contract,
             evidence_packet=dict(evidence_packet or {}),
             protocol_leak_detected=protocol_leak,
+        )
+    if _requires_profile_evidence_validation(contract):
+        return _validate_profile_driven_delivery(
+            final_answer=text,
+            semantic_contract=contract,
+            evidence_packet=dict(evidence_packet or {}),
+            protocol_leak_detected=protocol_leak,
+            required_output_paths=required_output_paths,
         )
     required = [str(item) for item in list(contract.get("deliverables") or []) if str(item).strip()]
     missing = [item for item in required if not _generic_deliverable_present(text, item)]
@@ -216,6 +230,323 @@ def _validate_material_synthesis(
         },
         diagnostics={"section_checks": checks},
     )
+
+
+def _validate_profile_driven_delivery(
+    *,
+    final_answer: str,
+    semantic_contract: dict[str, Any],
+    evidence_packet: dict[str, Any],
+    protocol_leak_detected: bool,
+    required_output_paths: list[str] | tuple[str, ...] | None = None,
+) -> DeliverableValidationResult:
+    task_goal_type = str(semantic_contract.get("task_goal_type") or "general").strip()
+    required_deliverables = [
+        str(item)
+        for item in list(semantic_contract.get("deliverables") or [])
+        if str(item).strip()
+    ]
+    required_actions = [
+        str(item)
+        for item in list(semantic_contract.get("required_actions") or [])
+        if str(item).strip()
+    ]
+    facts = [dict(item) for item in list(evidence_packet.get("facts") or []) if isinstance(item, dict)]
+    fact_text = _facts_text(facts)
+    observed_paths = _artifact_write_paths_from_facts(facts)
+    required_paths = _dedupe([str(item).replace("\\", "/").strip() for item in list(required_output_paths or [])])
+    missing_required_paths = [
+        path for path in required_paths if not any(_path_matches(path, observed) for observed in observed_paths)
+    ]
+    dimensions = _profile_validation_dimensions(required_deliverables, required_actions)
+    checks = {
+        "source_or_artifact_evidence": not dimensions["source_or_artifact"] or _has_source_or_artifact_evidence(facts, final_answer),
+        "runtime_or_browser_evidence": not dimensions["runtime_or_browser"] or _has_runtime_or_browser_evidence(facts),
+        "asset_evidence": not dimensions["asset"] or _has_asset_evidence(facts),
+        "functional_acceptance_evidence": not dimensions["functional_acceptance"] or _has_functional_acceptance_evidence(facts, final_answer, required_deliverables),
+        "limitations": "limitations" not in required_deliverables or _generic_deliverable_present(final_answer, "limitations"),
+        "final_report": "final_report" not in required_deliverables or _contains_any(final_answer, ("完成", "交付", "报告", "summary", "final")),
+    }
+    deliverable_checks = {
+        item: _deliverable_satisfied_by_profile_checks(
+            item,
+            final_answer=final_answer,
+            checks=checks,
+        )
+        for item in required_deliverables
+    }
+    missing = [item for item, passed in deliverable_checks.items() if not passed]
+    missing.extend(f"output_path:{path}" for path in missing_required_paths)
+    unsupported_claims = _unsupported_profile_claims(
+        final_answer=final_answer,
+        facts=facts,
+        dimensions=dimensions,
+    )
+    if protocol_leak_detected:
+        missing.append("protocol_boundary")
+    passed = not missing and not unsupported_claims
+    return DeliverableValidationResult(
+        passed=passed,
+        task_goal_type=task_goal_type,
+        missing_deliverables=tuple(_dedupe(missing)),
+        protocol_leak_detected=protocol_leak_detected,
+        unsupported_claims=tuple(unsupported_claims),
+        evidence_alignment={
+            "accepted": passed,
+            "mode": "profile_evidence_dimensions",
+            "fact_count": len(facts),
+            "required_actions": required_actions,
+            "required_dimensions": {key: value for key, value in dimensions.items() if value},
+            "observed": {
+                "source_or_artifact": _has_source_or_artifact_evidence(facts, final_answer),
+                "runtime_or_browser": _has_runtime_or_browser_evidence(facts),
+                "asset": _has_asset_evidence(facts),
+                "functional_acceptance": _has_functional_acceptance_evidence(facts, final_answer, required_deliverables),
+            },
+            "required_output_paths": required_paths,
+            "observed_output_paths": observed_paths,
+            "missing_required_output_paths": missing_required_paths,
+        },
+        diagnostics={
+            "section_checks": checks,
+            "deliverable_checks": deliverable_checks,
+            "fact_terms_preview": fact_text[:500],
+        },
+    )
+
+
+def _requires_profile_evidence_validation(semantic_contract: dict[str, Any]) -> bool:
+    task_goal_type = str(semantic_contract.get("task_goal_type") or "").strip()
+    profile = get_task_goal_profile(task_goal_type) if get_task_goal_profile else None
+    required_actions = set(
+        str(item)
+        for item in list(semantic_contract.get("required_actions") or getattr(profile, "required_actions", ()) or [])
+        if str(item).strip()
+    )
+    deliverables = set(
+        str(item)
+        for item in list(semantic_contract.get("deliverables") or getattr(profile, "default_core_deliverables", ()) or [])
+        if str(item).strip()
+    )
+    evidence_actions = {
+        "apply_real_change",
+        "integrate_asset",
+        "run_browser_verification",
+        "run_verification",
+    }
+    evidence_deliverables = {
+        "runnable_artifact_refs",
+        "visual_asset_refs",
+        "verification_evidence",
+        "gameplay_acceptance",
+        "workflow_acceptance",
+    }
+    return bool(profile) and (
+        bool(required_actions & evidence_actions)
+        or bool(deliverables & evidence_deliverables)
+    )
+
+
+def _profile_validation_dimensions(deliverables: list[str], actions: list[str]) -> dict[str, bool]:
+    deliverable_set = set(deliverables)
+    action_set = set(actions)
+    return {
+        "source_or_artifact": bool(
+            {"runnable_artifact_refs", "artifact_refs", "changed_files"} & deliverable_set
+            or {"apply_real_change"} & action_set
+        ),
+        "runtime_or_browser": bool(
+            "verification_evidence" in deliverable_set
+            or {"run_browser_verification", "run_verification"} & action_set
+        ),
+        "asset": bool("visual_asset_refs" in deliverable_set or "integrate_asset" in action_set),
+        "functional_acceptance": bool({"gameplay_acceptance", "workflow_acceptance"} & deliverable_set),
+    }
+
+
+def _deliverable_satisfied_by_profile_checks(
+    deliverable: str,
+    *,
+    final_answer: str,
+    checks: dict[str, bool],
+) -> bool:
+    mapping = {
+        "runnable_artifact_refs": "source_or_artifact_evidence",
+        "artifact_refs": "source_or_artifact_evidence",
+        "changed_files": "source_or_artifact_evidence",
+        "visual_asset_refs": "asset_evidence",
+        "verification_evidence": "runtime_or_browser_evidence",
+        "gameplay_acceptance": "functional_acceptance_evidence",
+        "workflow_acceptance": "functional_acceptance_evidence",
+        "limitations": "limitations",
+        "final_report": "final_report",
+    }
+    key = mapping.get(str(deliverable or ""))
+    if key:
+        return bool(checks.get(key))
+    return _generic_deliverable_present(final_answer, deliverable)
+
+
+def _has_source_or_artifact_evidence(facts: list[dict[str, Any]], final_answer: str) -> bool:
+    observed_paths = _artifact_write_paths_from_facts(facts)
+    if observed_paths:
+        return True
+    text = _facts_text(facts)
+    return _contains_any(
+        text,
+        (
+            "write succeeded",
+            "edit succeeded",
+            "created",
+            "modified",
+            "changed file",
+            "patch",
+            "写入成功",
+            "已写入",
+            "已修改",
+            "创建",
+        ),
+    ) and _contains_any(final_answer, ("文件", "路径", ".html", ".js", ".css", ".tsx", ".jsx", ".png", ".jpg", "artifact"))
+
+
+def _has_runtime_or_browser_evidence(facts: list[dict[str, Any]]) -> bool:
+    text = _facts_text(facts)
+    return _contains_any(
+        text,
+        (
+            "browser",
+            "playwright",
+            "localhost",
+            "127.0.0.1",
+            "dev server",
+            "server started",
+            "npm run",
+            "vite",
+            "canvas",
+            "screenshot",
+            "dom",
+            "浏览器",
+            "启动",
+            "运行",
+            "截图",
+            "页面",
+        ),
+    )
+
+
+def _has_asset_evidence(facts: list[dict[str, Any]]) -> bool:
+    text = _facts_text(facts)
+    return _contains_any(
+        text,
+        (
+            "asset",
+            "assets/",
+            ".png",
+            ".jpg",
+            ".jpeg",
+            ".webp",
+            ".svg",
+            "image",
+            "sprite",
+            "texture",
+            "visual",
+            "资源",
+            "图片",
+            "图像",
+            "贴图",
+            "精灵",
+        ),
+    )
+
+
+def _has_functional_acceptance_evidence(facts: list[dict[str, Any]], final_answer: str, deliverables: list[str]) -> bool:
+    text = _facts_text(facts)
+    if "gameplay_acceptance" in deliverables:
+        return _contains_any(
+            text,
+            (
+                "movement",
+                "attack",
+                "enemy",
+                "wave",
+                "boss",
+                "hud",
+                "collision",
+                "health",
+                "score",
+                "gameplay",
+                "移动",
+                "攻击",
+                "敌人",
+                "波次",
+                "生命",
+                "玩法",
+            ),
+        )
+    if "workflow_acceptance" in deliverables:
+        return _contains_any(
+            text,
+            (
+                "click",
+                "input",
+                "form",
+                "workflow",
+                "interaction",
+                "navigation",
+                "button",
+                "state updated",
+                "点击",
+                "输入",
+                "交互",
+                "流程",
+                "页面切换",
+            ),
+        )
+    return _contains_any(final_answer, ("验收", "acceptance"))
+
+
+def _unsupported_profile_claims(
+    *,
+    final_answer: str,
+    facts: list[dict[str, Any]],
+    dimensions: dict[str, bool],
+) -> list[str]:
+    claims: list[str] = []
+    if dimensions["runtime_or_browser"] and _claims_runtime_verified(final_answer) and not _has_runtime_or_browser_evidence(facts):
+        claims.append("claims_runtime_or_browser_verification_without_evidence")
+    if dimensions["asset"] and _claims_asset_ready(final_answer) and not _has_asset_evidence(facts):
+        claims.append("claims_asset_integration_without_evidence")
+    if dimensions["functional_acceptance"] and _claims_functional_acceptance(final_answer) and not _has_functional_acceptance_evidence(facts, final_answer, ["gameplay_acceptance", "workflow_acceptance"]):
+        claims.append("claims_functional_acceptance_without_evidence")
+    if dimensions["source_or_artifact"] and _claims_files_changed(final_answer) and not _has_source_or_artifact_evidence(facts, final_answer):
+        claims.append("claims_artifact_changes_without_write_evidence")
+    return _dedupe(claims)
+
+
+def _claims_runtime_verified(text: str) -> bool:
+    return _contains_any(text, ("验证通过", "运行通过", "浏览器验证", "已验证", "tested", "verified", "browser verified", "playwright"))
+
+
+def _claims_asset_ready(text: str) -> bool:
+    return _contains_any(text, ("资源已", "图片已", "图像已", "asset", "assets", "sprite", "贴图", "视觉资源"))
+
+
+def _claims_functional_acceptance(text: str) -> bool:
+    return _contains_any(text, ("玩法已", "流程已", "可玩", "验收通过", "交互完成", "workflow complete", "playable"))
+
+
+def _claims_files_changed(text: str) -> bool:
+    return _contains_any(text, ("已创建", "已修改", "已写入", "changed", "created", ".html", ".js", ".css", ".tsx", ".jsx"))
+
+
+def _facts_text(facts: list[dict[str, Any]]) -> str:
+    chunks: list[str] = []
+    for fact in facts:
+        try:
+            chunks.append(json.dumps(fact, ensure_ascii=False, sort_keys=True))
+        except Exception:
+            chunks.append(str(fact))
+    return "\n".join(chunks)
 
 
 def _generic_deliverable_present(text: str, deliverable: str) -> bool:

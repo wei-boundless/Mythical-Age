@@ -9,7 +9,7 @@
         "professional",
         "custom"
       ],
-      "default_runtime_mode": "standard",
+      "default_runtime_mode": "custom",
       "allowed_runtime_lanes": [
         "role_interaction",
         "standard_task",

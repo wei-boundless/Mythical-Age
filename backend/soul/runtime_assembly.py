@@ -4,10 +4,10 @@ import hashlib
 from pathlib import Path
 from typing import Any
 
+from prompt_library import assemble_runtime_prompt_sections
 from soul.agent_prompt_bundle import build_agent_prompt_bundle
-from soul.contracts import PromptSection, SoulProjectionRequest, SoulRuntimeView, SoulToolView
+from soul.contracts import SoulProjectionRequest, SoulRuntimeView
 from soul.prompt_assembly import build_prompt_manifest
-from soul.registry import CORE_PATH, read_text
 
 from .view_mapping import (
     soul_skill_view_from_skill_runtime_view,
@@ -67,6 +67,7 @@ class SoulRuntimeAssemblyBuilder:
             visible_tool_ids=tuple(item.tool_id for item in soul_tool_views if item.runtime_executable),
             authorization_owner="ResourcePolicy",
             trace={
+                "prompt_section_owner": "PromptLibrary",
                 "projection_owner": "SoulRuntimeProjection",
                 "authorization_owner": "ResourcePolicy",
             },
@@ -101,173 +102,8 @@ class SoulRuntimeAssemblyBuilder:
             "projection_id": projection_id,
         }
 
-    def _runtime_sections(
-        self,
-        *,
-        contract: dict[str, Any],
-        projection: dict[str, Any],
-        request: SoulProjectionRequest,
-        soul_skill_views: tuple[Any, ...],
-        soul_tool_views: tuple[SoulToolView, ...],
-        use_shared_contract: bool,
-    ) -> tuple[PromptSection, ...]:
-        resource_content = _resource_projection_content(soul_tool_views)
-        resource_policy_ref = str(contract.get("metadata", {}).get("resource_policy_ref") or "")
-        projection_lines = [str(contract.get("projection_section") or "").strip()]
-        projection_identity = str(projection.get("identity_anchor") or "").strip()
-        if projection_identity:
-            projection_lines.append(projection_identity)
-        projection_prompt = str(projection.get("projection_prompt") or "").strip()
-        if projection_prompt:
-            projection_lines.append(f"Projection prompt: {projection_prompt}")
-        projection_content = "\n".join(line for line in projection_lines if line)
-        candidate_sections = [
-            PromptSection(
-                section_id="static_common_rules",
-                title="静态共同准则",
-                source_type="core",
-                source_id=CORE_PATH,
-                owner_layer="soul_core",
-                cache_scope="static",
-                visible_to_model=use_shared_contract,
-                content=read_text(self.base_dir / CORE_PATH).strip() or "当前未配置静态共同准则。",
-                source_refs=(CORE_PATH,),
-            ),
-            PromptSection(
-                section_id="task_section",
-                title="任务契约",
-                source_type="task_contract",
-                source_id=request.task_id,
-                owner_layer="task",
-                cache_scope="dynamic",
-                visible_to_model=True,
-                content=str(contract.get("task_section") or ""),
-                source_refs=(str(contract.get("contract_id") or request.task_id),),
-            ),
-            PromptSection(
-                section_id="semantic_task_section",
-                title="语义任务契约",
-                source_type="semantic_task_contract",
-                source_id=str(
-                    dict(contract.get("metadata") or {}).get("semantic_task_contract", {}).get("contract_id")
-                    if isinstance(dict(contract.get("metadata") or {}).get("semantic_task_contract"), dict)
-                    else request.task_id
-                ),
-                owner_layer="task",
-                cache_scope="dynamic",
-                visible_to_model=True,
-                content=str(contract.get("semantic_task_section") or ""),
-                source_refs=(str(contract.get("contract_id") or request.task_id),),
-            ),
-            PromptSection(
-                section_id="node_professional_prompt_section",
-                title="节点专业职责",
-                source_type="task_workflow_prompt",
-                source_id=str(dict(contract.get("metadata") or {}).get("task_workflow_id") or request.task_id),
-                owner_layer="task",
-                cache_scope="dynamic",
-                visible_to_model=True,
-                content=str(contract.get("node_professional_prompt_section") or ""),
-                source_refs=(str(dict(contract.get("metadata") or {}).get("task_workflow_id") or request.task_id),),
-            ),
-            PromptSection(
-                section_id="professional_profile_section",
-                title="专业职责",
-                source_type="professional_prompt_profile",
-                source_id=str(
-                    dict(contract.get("metadata") or {}).get("professional_profile", {}).get("profile_id")
-                    if isinstance(dict(contract.get("metadata") or {}).get("professional_profile"), dict)
-                    else ""
-                ),
-                owner_layer="task",
-                cache_scope="dynamic",
-                visible_to_model=True,
-                content=str(contract.get("professional_profile_section") or ""),
-                source_refs=(str(contract.get("contract_id") or request.task_id),),
-            ),
-            PromptSection(
-                section_id="mode_policy_section",
-                title="交互模式策略",
-                source_type="runtime_interaction_mode_policy",
-                source_id=str(
-                    dict(contract.get("metadata") or {}).get("mode_policy", {}).get("authority")
-                    if isinstance(dict(contract.get("metadata") or {}).get("mode_policy"), dict)
-                    else ""
-                ),
-                owner_layer="task",
-                cache_scope="dynamic",
-                visible_to_model=True,
-                content=str(contract.get("mode_policy_section") or ""),
-                source_refs=(str(contract.get("contract_id") or request.task_id),),
-            ),
-            PromptSection(
-                section_id="workflow_section",
-                title="工作流",
-                source_type="task_workflow",
-                source_id="task_prompt_contract.workflow_section",
-                owner_layer="task",
-                cache_scope="dynamic",
-                visible_to_model=True,
-                content=str(contract.get("workflow_section") or ""),
-                source_refs=tuple(item.skill_id for item in soul_skill_views),
-            ),
-            PromptSection(
-                section_id="projection_section",
-                title="投影姿态",
-                source_type="projection_requirement",
-                source_id=request.task_id,
-                owner_layer="projection",
-                cache_scope="dynamic",
-                visible_to_model=True,
-                content=projection_content,
-                source_refs=(str(projection.get("task_id") or request.task_id),),
-            ),
-            PromptSection(
-                section_id="output_section",
-                title="输出边界",
-                source_type="task_contract",
-                source_id=request.task_id,
-                owner_layer="task",
-                cache_scope="dynamic",
-                visible_to_model=True,
-                content=str(contract.get("output_section") or ""),
-                source_refs=(str(contract.get("contract_id") or request.task_id),),
-            ),
-        ]
-        if resource_content:
-            candidate_sections.append(
-                PromptSection(
-                    section_id="tool_view",
-                    title="Tools 可见摘要",
-                    source_type="resource_policy",
-                    source_id=resource_policy_ref or "resource_policy",
-                    owner_layer="resource_policy",
-                    cache_scope="dynamic",
-                    visible_to_model=True,
-                    content=resource_content,
-                    source_refs=(resource_policy_ref,) if resource_policy_ref else (),
-                )
-            )
-        guardrail_content = str(contract.get("guardrail_section") or "")
-        if guardrail_content:
-            candidate_sections.append(
-                PromptSection(
-                    section_id="guardrail_section",
-                    title="护栏",
-                    source_type="task_binding",
-                    source_id=str(contract.get("binding_id") or ""),
-                    owner_layer="task",
-                    cache_scope="dynamic",
-                    visible_to_model=True,
-                    content=guardrail_content,
-                    source_refs=(str(contract.get("binding_id") or ""),),
-                )
-            )
-        return tuple(
-            section
-            for section in candidate_sections
-            if section.visible_to_model and section.content.strip()
-        )
+    def _runtime_sections(self, **payload: Any):
+        return assemble_runtime_prompt_sections(base_dir=self.base_dir, **payload)
 
 
 def build_soul_runtime_view(
@@ -290,10 +126,3 @@ def build_soul_runtime_view(
         agent_profile_id=agent_profile_id,
         use_shared_contract=use_shared_contract,
     )
-
-
-def _resource_projection_content(tool_views: tuple[SoulToolView, ...]) -> str:
-    lines = []
-    for item in [view for view in tool_views if view.runtime_executable]:
-        lines.append(f"- {item.title} (`{item.tool_id}`): decision={item.policy_decision}")
-    return "\n".join(line for line in lines if line)

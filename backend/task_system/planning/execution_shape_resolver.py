@@ -119,7 +119,6 @@ def resolve_execution_shape(
     reasons: list[str] = []
     selected_task_id = str(
         current_turn.get("selected_task_id")
-        or current_turn.get("task_id")
         or current_turn.get("specific_task_id")
         or current_turn.get("task_assignment_id")
         or ""
@@ -203,6 +202,16 @@ def resolve_execution_shape(
     if has_explicit_dataset:
         reasons.append("explicit_dataset_route")
         return _shape_from_source_kind("dataset", recipe_id="runtime.recipe.structured_data_analysis", execution_kind="dataset_analysis", resolution_source="capability_contract", reasons=reasons, diagnostics=_shape_diagnostics(definition_ids, effective_route, execution_posture, effective_skill, "dataset", modality, current_turn))
+    if task_intent_contract.execution_intent == "subset_followup" or followup_target_kind == "active_subset":
+        reasons.append("subset_followup")
+        if (
+            source_kind in {"document", "pdf"}
+            or effective_route == "pdf"
+            or effective_skill == "pdf-analysis"
+            or "document_analysis" in capability_requests
+        ) and not has_explicit_dataset:
+            return _shape_from_source_kind("pdf", recipe_id="runtime.recipe.pdf_analysis", execution_kind="document_analysis", resolution_source="binding_contract", reasons=reasons, diagnostics=_shape_diagnostics(definition_ids, effective_route, execution_posture, effective_skill, "pdf", modality, current_turn))
+        return _shape_from_source_kind("dataset", recipe_id="runtime.recipe.structured_data_analysis", execution_kind="dataset_analysis", resolution_source="binding_contract", reasons=reasons, diagnostics=_shape_diagnostics(definition_ids, effective_route, execution_posture, effective_skill, "dataset", modality, current_turn))
     if has_explicit_pdf:
         reasons.append("explicit_pdf_route")
         return _shape_from_source_kind("pdf", recipe_id="runtime.recipe.pdf_analysis", execution_kind="document_analysis", resolution_source="capability_contract", reasons=reasons, diagnostics=_shape_diagnostics(definition_ids, effective_route, execution_posture, effective_skill, "pdf", modality, current_turn))
@@ -234,7 +243,7 @@ def resolve_execution_shape(
             or has_dataset_route
         )
         if material_route_owned_by_interaction_mode:
-            reasons.append("interaction_mode_owns_material_routes")
+            material_reasons: list[str] = []
             if interaction_mode == "professional_mode":
                 return _professional_runtime_shape(
                     mode_policy=mode_policy,
@@ -252,27 +261,37 @@ def resolve_execution_shape(
                     task_goal_type=task_goal_type,
                     reasons=reasons,
                 )
+            if task_intent_contract.execution_intent == "subset_followup" or followup_target_kind == "active_subset":
+                material_reasons.append("subset_followup")
+                if (
+                    source_kind in {"document", "pdf"}
+                    or effective_route == "pdf"
+                    or effective_skill == "pdf-analysis"
+                    or "document_analysis" in capability_requests
+                ) and not has_explicit_dataset:
+                    return _shape_from_source_kind("pdf", recipe_id="runtime.recipe.pdf_analysis", execution_kind="document_analysis", resolution_source="binding_contract", reasons=material_reasons, diagnostics=_shape_diagnostics(definition_ids, effective_route, execution_posture, effective_skill, "pdf", modality, current_turn))
+                return _shape_from_source_kind("dataset", recipe_id="runtime.recipe.structured_data_analysis", execution_kind="dataset_analysis", resolution_source="binding_contract", reasons=material_reasons, diagnostics=_shape_diagnostics(definition_ids, effective_route, execution_posture, effective_skill, "dataset", modality, current_turn))
             if has_explicit_dataset:
-                reasons.append("explicit_dataset_route")
-                return _shape_from_source_kind("dataset", recipe_id="runtime.recipe.structured_data_analysis", execution_kind="dataset_analysis", resolution_source="capability_contract", reasons=reasons, diagnostics=_shape_diagnostics(definition_ids, effective_route, execution_posture, effective_skill, "dataset", modality, current_turn))
+                material_reasons.append("explicit_dataset_route")
+                return _shape_from_source_kind("dataset", recipe_id="runtime.recipe.structured_data_analysis", execution_kind="dataset_analysis", resolution_source="capability_contract", reasons=material_reasons, diagnostics=_shape_diagnostics(definition_ids, effective_route, execution_posture, effective_skill, "dataset", modality, current_turn))
             if has_explicit_pdf:
-                reasons.append("explicit_pdf_route")
-                return _shape_from_source_kind("pdf", recipe_id="runtime.recipe.pdf_analysis", execution_kind="document_analysis", resolution_source="capability_contract", reasons=reasons, diagnostics=_shape_diagnostics(definition_ids, effective_route, execution_posture, effective_skill, "pdf", modality, current_turn))
+                material_reasons.append("explicit_pdf_route")
+                return _shape_from_source_kind("pdf", recipe_id="runtime.recipe.pdf_analysis", execution_kind="document_analysis", resolution_source="capability_contract", reasons=material_reasons, diagnostics=_shape_diagnostics(definition_ids, effective_route, execution_posture, effective_skill, "pdf", modality, current_turn))
             if has_pdf_route:
-                reasons.append("pdf_route")
-                return _shape_from_source_kind("pdf", recipe_id="runtime.recipe.pdf_analysis", execution_kind="document_analysis", resolution_source="capability_contract", reasons=reasons, diagnostics=_shape_diagnostics(definition_ids, effective_route, execution_posture, effective_skill, "pdf", modality, current_turn))
+                material_reasons.append("pdf_route")
+                return _shape_from_source_kind("pdf", recipe_id="runtime.recipe.pdf_analysis", execution_kind="document_analysis", resolution_source="capability_contract", reasons=material_reasons, diagnostics=_shape_diagnostics(definition_ids, effective_route, execution_posture, effective_skill, "pdf", modality, current_turn))
             if has_dataset_route:
-                reasons.append("dataset_route")
-                return _shape_from_source_kind("dataset", recipe_id="runtime.recipe.structured_data_analysis", execution_kind="dataset_analysis", resolution_source="capability_contract", reasons=reasons, diagnostics=_shape_diagnostics(definition_ids, effective_route, execution_posture, effective_skill, "dataset", modality, current_turn))
+                material_reasons.append("dataset_route")
+                return _shape_from_source_kind("dataset", recipe_id="runtime.recipe.structured_data_analysis", execution_kind="dataset_analysis", resolution_source="capability_contract", reasons=material_reasons, diagnostics=_shape_diagnostics(definition_ids, effective_route, execution_posture, effective_skill, "dataset", modality, current_turn))
             if has_realtime_capability:
-                reasons.append("search_route")
+                material_reasons.append("search_route")
                 return ExecutionShape(
                     recipe_id="runtime.recipe.information_search",
                     execution_kind="search",
                     source_kind=source_kind or "external_web",
                     finalization_policy={"requires_model_finalize": True, "tool_observation_can_finalize": False},
                     resolution_source="capability_contract",
-                    resolution_reasons=tuple(reasons),
+                    resolution_reasons=tuple(material_reasons),
                     diagnostics=_shape_diagnostics(definition_ids, effective_route, execution_posture, effective_skill, source_kind or "external_web", modality, current_turn),
                 )
         return _professional_runtime_shape(
@@ -473,6 +492,7 @@ def _professional_runtime_shape(
             "mode_policy": mode_policy,
             "semantic_task_contract": semantic_contract,
             "execution_obligation": execution_obligation,
+            "model_agent_plan_draft": dict(current_turn.get("model_agent_plan_draft") or {}),
         },
     )
 
