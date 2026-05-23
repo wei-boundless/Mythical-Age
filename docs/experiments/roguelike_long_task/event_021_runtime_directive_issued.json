@@ -1,0 +1,600 @@
+{
+  "event_id": "rtevt:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e:21:e1f25d6c",
+  "task_run_id": "taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e",
+  "event_type": "runtime_directive_issued",
+  "offset": 21,
+  "created_at": 1779512791.299631,
+  "refs": {
+    "directive_ref": "runtime-directive:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:model-response",
+    "resource_policy_ref": "respol:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:model-response:runtime"
+  },
+  "payload": {
+    "directive": {
+      "directive_id": "runtime-directive:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:model-response",
+      "task_id": "taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response",
+      "plan_ref": "orchestration:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response",
+      "stage_ref": "stageproj:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response",
+      "executor_type": "model",
+      "adopted_resource_policy_ref": "respol:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:model-response:runtime",
+      "operation_refs": [
+        "op.model_response",
+        "op.write_file",
+        "op.read_file",
+        "op.search_files",
+        "op.search_text",
+        "op.read_structured_file",
+        "op.git_status",
+        "op.git_diff",
+        "op.delegate_to_agent",
+        "op.edit_file",
+        "op.shell",
+        "op.web_search",
+        "op.fetch_url"
+      ],
+      "input_contract_ref": "",
+      "output_contract_ref": "",
+      "execution_graph_ref": "execgraph:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:runtime",
+      "runtime_executable": true,
+      "authority": "runtime_directive",
+      "diagnostics": {
+        "directive_only_executor": true,
+        "adoption_owner": "TaskRunLoop",
+        "task_execution_assembly_ref": "taskasm:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response",
+        "task_body_orchestration_ref": "orchestration:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response",
+        "agent_runtime_spec_ref": "rtspec:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response"
+      }
+    },
+    "resource_policy": {
+      "policy_id": "respol:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:model-response:runtime",
+      "task_id": "taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response",
+      "allowed_operations": [
+        "op.model_response",
+        "op.write_file",
+        "op.read_file",
+        "op.search_files",
+        "op.search_text",
+        "op.read_structured_file",
+        "op.git_status",
+        "op.git_diff",
+        "op.delegate_to_agent",
+        "op.edit_file",
+        "op.shell",
+        "op.web_search",
+        "op.fetch_url"
+      ],
+      "denied_operations": [],
+      "requires_approval_operations": [],
+      "not_executable_operations": [],
+      "allowed_tools": [
+        "write_file",
+        "read_file",
+        "search_files",
+        "search_text",
+        "read_structured_file",
+        "git_status",
+        "git_diff",
+        "delegate_to_agent",
+        "edit_file",
+        "terminal",
+        "web_search",
+        "fetch_url"
+      ],
+      "denied_tools": [],
+      "allowed_mcps": [],
+      "denied_mcps": [],
+      "allowed_agents": [],
+      "denied_agents": [],
+      "memory_read_scope": "context_package",
+      "memory_write_scope": "none",
+      "filesystem_scope": {},
+      "network_scope": {},
+      "shell_scope": {},
+      "approval_policy": "default",
+      "authority": "resource_policy",
+      "runtime_view_only": false,
+      "adopted": true,
+      "runtime_executable": true,
+      "decisions": [
+        {
+          "operation_id": "op.model_response",
+          "decision": "allow",
+          "reason": "operation allowed by task requirement and agent capability profile",
+          "risk_tags": [
+            "model_response",
+            "read_only"
+          ],
+          "requires_user_approval": false,
+          "authorization_owner": "ResourcePolicy",
+          "approval_channel": "",
+          "diagnostics": {}
+        },
+        {
+          "operation_id": "op.write_file",
+          "decision": "allow",
+          "reason": "operation allowed inside runtime sandbox side-effect boundary",
+          "risk_tags": [
+            "local_write"
+          ],
+          "requires_user_approval": false,
+          "authorization_owner": "ResourcePolicy",
+          "approval_channel": "",
+          "diagnostics": {
+            "approval_policy": "sandboxed_side_effects",
+            "sandbox": {
+              "enabled": true,
+              "mode": "workspace_overlay",
+              "side_effect_root": "D:\\AI应用\\langchain-agent\\output\\sandbox_runs",
+              "workspace_dir_name": "workspace",
+              "real_workspace_access": "read_only",
+              "approval_policy": "sandboxed_side_effects",
+              "side_effect_tools": [
+                "write_file",
+                "edit_file",
+                "terminal",
+                "python_repl"
+              ],
+              "side_effect_operations": [
+                "op.write_file",
+                "op.edit_file",
+                "op.shell",
+                "op.python_repl"
+              ],
+              "sandbox_root": "D:\\AI应用\\langchain-agent\\output\\sandbox_runs\\session_ac61c695a2a246f493d92b83555f9039_scope_docs_experiments_roguelike_long_task\\workspace"
+            }
+          }
+        },
+        {
+          "operation_id": "op.read_file",
+          "decision": "allow",
+          "reason": "operation allowed by task requirement and agent capability profile",
+          "risk_tags": [
+            "read_only",
+            "local_read"
+          ],
+          "requires_user_approval": false,
+          "authorization_owner": "ResourcePolicy",
+          "approval_channel": "",
+          "diagnostics": {}
+        },
+        {
+          "operation_id": "op.search_files",
+          "decision": "allow",
+          "reason": "operation allowed by task requirement and agent capability profile",
+          "risk_tags": [
+            "read_only",
+            "local_read"
+          ],
+          "requires_user_approval": false,
+          "authorization_owner": "ResourcePolicy",
+          "approval_channel": "",
+          "diagnostics": {}
+        },
+        {
+          "operation_id": "op.search_text",
+          "decision": "allow",
+          "reason": "operation allowed by task requirement and agent capability profile",
+          "risk_tags": [
+            "read_only",
+            "local_read"
+          ],
+          "requires_user_approval": false,
+          "authorization_owner": "ResourcePolicy",
+          "approval_channel": "",
+          "diagnostics": {}
+        },
+        {
+          "operation_id": "op.read_structured_file",
+          "decision": "allow",
+          "reason": "operation allowed by task requirement and agent capability profile",
+          "risk_tags": [
+            "read_only",
+            "local_read",
+            "structured_config"
+          ],
+          "requires_user_approval": false,
+          "authorization_owner": "ResourcePolicy",
+          "approval_channel": "",
+          "diagnostics": {}
+        },
+        {
+          "operation_id": "op.git_status",
+          "decision": "allow",
+          "reason": "operation allowed by task requirement and agent capability profile",
+          "risk_tags": [
+            "read_only",
+            "git_read"
+          ],
+          "requires_user_approval": false,
+          "authorization_owner": "ResourcePolicy",
+          "approval_channel": "",
+          "diagnostics": {}
+        },
+        {
+          "operation_id": "op.git_diff",
+          "decision": "allow",
+          "reason": "operation allowed by task requirement and agent capability profile",
+          "risk_tags": [
+            "read_only",
+            "git_read"
+          ],
+          "requires_user_approval": false,
+          "authorization_owner": "ResourcePolicy",
+          "approval_channel": "",
+          "diagnostics": {}
+        },
+        {
+          "operation_id": "op.delegate_to_agent",
+          "decision": "allow",
+          "reason": "delegate operation is exposed as a bounded model-visible tool",
+          "risk_tags": [
+            "agent_execution",
+            "delegation"
+          ],
+          "requires_user_approval": false,
+          "authorization_owner": "ResourcePolicy",
+          "approval_channel": "",
+          "diagnostics": {}
+        },
+        {
+          "operation_id": "op.edit_file",
+          "decision": "allow",
+          "reason": "operation allowed inside runtime sandbox side-effect boundary",
+          "risk_tags": [
+            "local_write"
+          ],
+          "requires_user_approval": false,
+          "authorization_owner": "ResourcePolicy",
+          "approval_channel": "",
+          "diagnostics": {
+            "approval_policy": "sandboxed_side_effects",
+            "sandbox": {
+              "enabled": true,
+              "mode": "workspace_overlay",
+              "side_effect_root": "D:\\AI应用\\langchain-agent\\output\\sandbox_runs",
+              "workspace_dir_name": "workspace",
+              "real_workspace_access": "read_only",
+              "approval_policy": "sandboxed_side_effects",
+              "side_effect_tools": [
+                "write_file",
+                "edit_file",
+                "terminal",
+                "python_repl"
+              ],
+              "side_effect_operations": [
+                "op.write_file",
+                "op.edit_file",
+                "op.shell",
+                "op.python_repl"
+              ],
+              "sandbox_root": "D:\\AI应用\\langchain-agent\\output\\sandbox_runs\\session_ac61c695a2a246f493d92b83555f9039_scope_docs_experiments_roguelike_long_task\\workspace"
+            }
+          }
+        },
+        {
+          "operation_id": "op.shell",
+          "decision": "allow",
+          "reason": "operation allowed inside runtime sandbox side-effect boundary",
+          "risk_tags": [
+            "shell_execution"
+          ],
+          "requires_user_approval": false,
+          "authorization_owner": "ResourcePolicy",
+          "approval_channel": "",
+          "diagnostics": {
+            "approval_policy": "sandboxed_side_effects",
+            "sandbox": {
+              "enabled": true,
+              "mode": "workspace_overlay",
+              "side_effect_root": "D:\\AI应用\\langchain-agent\\output\\sandbox_runs",
+              "workspace_dir_name": "workspace",
+              "real_workspace_access": "read_only",
+              "approval_policy": "sandboxed_side_effects",
+              "side_effect_tools": [
+                "write_file",
+                "edit_file",
+                "terminal",
+                "python_repl"
+              ],
+              "side_effect_operations": [
+                "op.write_file",
+                "op.edit_file",
+                "op.shell",
+                "op.python_repl"
+              ],
+              "sandbox_root": "D:\\AI应用\\langchain-agent\\output\\sandbox_runs\\session_ac61c695a2a246f493d92b83555f9039_scope_docs_experiments_roguelike_long_task\\workspace"
+            }
+          }
+        },
+        {
+          "operation_id": "op.web_search",
+          "decision": "allow",
+          "reason": "operation allowed by task requirement and agent capability profile",
+          "risk_tags": [
+            "read_only",
+            "network_open_world"
+          ],
+          "requires_user_approval": false,
+          "authorization_owner": "ResourcePolicy",
+          "approval_channel": "",
+          "diagnostics": {}
+        },
+        {
+          "operation_id": "op.fetch_url",
+          "decision": "allow",
+          "reason": "operation allowed by task requirement and agent capability profile",
+          "risk_tags": [
+            "read_only",
+            "external_fetch"
+          ],
+          "requires_user_approval": false,
+          "authorization_owner": "ResourcePolicy",
+          "approval_channel": "",
+          "diagnostics": {}
+        }
+      ],
+      "diagnostics": {
+        "runtime_executable": true,
+        "adopted": true,
+        "tools_allowed": true,
+        "mcps_allowed": false,
+        "memory_write_allowed": false,
+        "filesystem_write_allowed": true,
+        "sandbox_policy": {
+          "enabled": true,
+          "mode": "workspace_overlay",
+          "side_effect_root": "D:\\AI应用\\langchain-agent\\output\\sandbox_runs",
+          "workspace_dir_name": "workspace",
+          "real_workspace_access": "read_only",
+          "approval_policy": "sandboxed_side_effects",
+          "side_effect_tools": [
+            "write_file",
+            "edit_file",
+            "terminal",
+            "python_repl"
+          ],
+          "side_effect_operations": [
+            "op.write_file",
+            "op.edit_file",
+            "op.shell",
+            "op.python_repl"
+          ],
+          "sandbox_root": "D:\\AI应用\\langchain-agent\\output\\sandbox_runs\\session_ac61c695a2a246f493d92b83555f9039_scope_docs_experiments_roguelike_long_task\\workspace"
+        },
+        "adoption_owner": "TaskRunLoop",
+        "authorization_inputs": {
+          "task_operation_requirement": true,
+          "agent_runtime_profile": true,
+          "operation_registry": true
+        },
+        "scope_mapping": {
+          "allowed": {
+            "operation_ids": [
+              "op.model_response",
+              "op.write_file",
+              "op.read_file",
+              "op.search_files",
+              "op.search_text",
+              "op.read_structured_file",
+              "op.git_status",
+              "op.git_diff",
+              "op.delegate_to_agent",
+              "op.edit_file",
+              "op.shell",
+              "op.web_search",
+              "op.fetch_url"
+            ],
+            "tool_names": [
+              "write_file",
+              "read_file",
+              "search_files",
+              "search_text",
+              "read_structured_file",
+              "git_status",
+              "git_diff",
+              "delegate_to_agent",
+              "edit_file",
+              "terminal",
+              "web_search",
+              "fetch_url"
+            ],
+            "mcp_routes": [],
+            "agent_ids": [],
+            "unmapped_operations": []
+          },
+          "denied": {
+            "operation_ids": [],
+            "tool_names": [],
+            "mcp_routes": [],
+            "agent_ids": [],
+            "unmapped_operations": []
+          },
+          "not_executable": {
+            "operation_ids": [],
+            "tool_names": [],
+            "mcp_routes": [],
+            "agent_ids": [],
+            "unmapped_operations": []
+          }
+        },
+        "task_safety_envelope": {
+          "safety_class": "S0_readonly",
+          "write_mode": "none",
+          "write_roots": [],
+          "forbidden_paths": [],
+          "verification_mode": "none",
+          "task_id": "",
+          "recipe_id": "runtime.recipe.professional_task"
+        }
+      }
+    },
+    "search_policy": null,
+    "allowed_search_sources": [
+      "local_files",
+      "rag",
+      "web"
+    ],
+    "runtime_capability_state": {
+      "state_id": "runtime-capability-state:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response",
+      "agent_id": "agent:0",
+      "agent_profile_id": "main_interactive_agent",
+      "agent_profile_operations": [
+        "op.analyze_multimodal_file",
+        "op.delegate_to_agent",
+        "op.edit_file",
+        "op.fetch_url",
+        "op.git_diff",
+        "op.git_log",
+        "op.git_show",
+        "op.git_status",
+        "op.glob_paths",
+        "op.index_multimodal_file",
+        "op.list_dir",
+        "op.mcp_pdf",
+        "op.mcp_retrieval",
+        "op.mcp_structured_data",
+        "op.memory_read",
+        "op.model_response",
+        "op.path_exists",
+        "op.read_file",
+        "op.read_structured_file",
+        "op.search_files",
+        "op.search_text",
+        "op.shell",
+        "op.stat_path",
+        "op.web_search",
+        "op.write_file"
+      ],
+      "agent_profile_blocked_operations": [
+        "op.memory_write_candidate",
+        "op.python_repl"
+      ],
+      "turn_requested_operations": [
+        "op.model_response",
+        "op.write_file",
+        "op.read_file",
+        "op.search_files",
+        "op.search_text",
+        "op.read_structured_file",
+        "op.git_status",
+        "op.git_diff",
+        "op.delegate_to_agent",
+        "op.edit_file",
+        "op.shell",
+        "op.web_search",
+        "op.fetch_url"
+      ],
+      "turn_adopted_operations": [
+        "op.model_response",
+        "op.write_file",
+        "op.read_file",
+        "op.search_files",
+        "op.search_text",
+        "op.read_structured_file",
+        "op.git_status",
+        "op.git_diff",
+        "op.delegate_to_agent",
+        "op.edit_file",
+        "op.shell",
+        "op.web_search",
+        "op.fetch_url"
+      ],
+      "turn_visible_tools": [
+        "web_search",
+        "search_files",
+        "search_text",
+        "read_file",
+        "read_structured_file",
+        "fetch_url",
+        "git_status",
+        "git_diff",
+        "write_file",
+        "edit_file",
+        "delegate_to_agent",
+        "terminal"
+      ],
+      "approval_required_operations": [],
+      "blocked_by_profile_operations": [],
+      "blocked_by_turn_policy_operations": [
+        "op.analyze_multimodal_file",
+        "op.git_log",
+        "op.git_show",
+        "op.glob_paths",
+        "op.index_multimodal_file",
+        "op.list_dir",
+        "op.mcp_pdf",
+        "op.mcp_retrieval",
+        "op.mcp_structured_data",
+        "op.memory_read",
+        "op.path_exists",
+        "op.stat_path"
+      ],
+      "profile_write_capable": true,
+      "turn_write_operation_adopted": true,
+      "turn_write_tool_visible": true,
+      "commit_scope_diagnostics": {
+        "resource_policy_filesystem_write_allowed": true,
+        "meaning": "This describes the current turn resource policy, not the agent profile capability ceiling."
+      },
+      "sandbox_policy": {
+        "enabled": true,
+        "mode": "workspace_overlay",
+        "side_effect_root": "D:\\AI应用\\langchain-agent\\output\\sandbox_runs",
+        "workspace_dir_name": "workspace",
+        "real_workspace_access": "read_only",
+        "approval_policy": "sandboxed_side_effects",
+        "side_effect_tools": [
+          "write_file",
+          "edit_file",
+          "terminal",
+          "python_repl"
+        ],
+        "side_effect_operations": [
+          "op.write_file",
+          "op.edit_file",
+          "op.shell",
+          "op.python_repl"
+        ],
+        "sandbox_root": "D:\\AI应用\\langchain-agent\\output\\sandbox_runs\\session_ac61c695a2a246f493d92b83555f9039_scope_docs_experiments_roguelike_long_task\\workspace"
+      },
+      "authority": "orchestration.runtime_capability_state"
+    },
+    "sandbox_policy": {
+      "enabled": true,
+      "mode": "workspace_overlay",
+      "side_effect_root": "D:\\AI应用\\langchain-agent\\output\\sandbox_runs",
+      "workspace_dir_name": "workspace",
+      "real_workspace_access": "read_only",
+      "approval_policy": "sandboxed_side_effects",
+      "side_effect_tools": [
+        "write_file",
+        "edit_file",
+        "terminal",
+        "python_repl"
+      ],
+      "side_effect_operations": [
+        "op.write_file",
+        "op.edit_file",
+        "op.shell",
+        "op.python_repl"
+      ],
+      "overlay_copy_on_write": true,
+      "sandbox_root": "D:\\AI应用\\langchain-agent\\output\\sandbox_runs\\session_ac61c695a2a246f493d92b83555f9039_scope_docs_experiments_roguelike_long_task\\workspace",
+      "workspace_root": "D:\\AI应用\\langchain-agent",
+      "workspace_key": "session:ac61c695a2a246f493d92b83555f9039:scope:docs/experiments/roguelike_long_task"
+    },
+    "effective_tool_names": [
+      "web_search",
+      "search_files",
+      "search_text",
+      "read_file",
+      "read_structured_file",
+      "fetch_url",
+      "git_status",
+      "git_diff",
+      "write_file",
+      "edit_file",
+      "delegate_to_agent",
+      "terminal"
+    ]
+  }
+}

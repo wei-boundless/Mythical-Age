@@ -132,6 +132,71 @@ def test_length_budget_batch_count_alone_is_not_configured() -> None:
     assert acceptance["policy"] == "technical_completion"
 
 
+def test_stage_business_acceptance_combines_length_budget_and_sectioned_batch_quality() -> None:
+    budget = compile_length_budget(
+        explicit={
+            "budget_scope": "batch",
+            "measurement_mode": "text_units",
+            "target_units": 6000,
+            "min_units": 5400,
+            "max_units": 9000,
+            "metric_section_keys": ["章节正文候选"],
+        },
+        source_ref="chapter_draft",
+    ).to_dict()
+    text = "\n\n".join(
+        [
+            "# 【章节正文候选】",
+            "## 第1章\n" + ("泽" * 1900),
+            "## 第2章\n" + ("黎" * 700),
+            "## 第3章\n" + ("火" * 1900),
+        ]
+    )
+
+    acceptance = stage_business_acceptance(
+        stage_id="chapter_draft",
+        contract={
+            "length_budget": budget,
+            "quality_retry_policy": {
+                "acceptance_policies": ["sectioned_text_batch_quality"],
+                "unit_start_key": "batch_start_index",
+                "unit_end_key": "batch_end_index",
+                "unit_count_key": "chapters_per_round",
+                "target_metric_key": "batch_target_words",
+                "unit_target_metric_key": "chapter_target_words",
+                "minimum_metric_ratio": 0.9,
+                "minimum_metric_per_unit": 1800,
+                "unit_summary_template": "第{index}章",
+                "metric_summary_label": "字",
+                "required_heading_patterns": [r"第\s*(?P<index>[0-9一二三四五六七八九十百零〇两]+)\s*[章节回]"],
+                "heading_match_scope": "formal_heading",
+                "metric_section_keys": ["章节正文候选"],
+            },
+        },
+        explicit_inputs={
+            "batch_start_index": 1,
+            "batch_end_index": 3,
+            "chapters_per_round": 3,
+            "chapter_target_words": 2000,
+            "batch_target_words": 6000,
+        },
+        final_content=text,
+        output_refs=["artifact:chapter_draft"],
+        terminal_status="completed",
+        requires_file_artifact_refs=True,
+    )
+
+    assert acceptance["accepted"] is False
+    assert acceptance["policy"] == "length_budget+sectioned_text_batch_quality"
+    assert acceptance["quality_gate_policies"] == ["length_budget", "sectioned_text_batch_quality"]
+    assert "length_budget_quality" in acceptance
+    assert "sectioned_text_batch_quality" in acceptance
+    assert any(str(issue).startswith("insufficient_metric:") for issue in acceptance["issues"])
+    assert any(str(issue).startswith("insufficient_unit_metric:2:") for issue in acceptance["issues"])
+    assert "第2章" in acceptance["quality_issue_summary"]
+    assert "总量约" in acceptance["quality_issue_summary"]
+
+
 def test_length_budget_normalizes_legacy_volume_scope_to_group() -> None:
     budget = compile_length_budget(
         explicit={

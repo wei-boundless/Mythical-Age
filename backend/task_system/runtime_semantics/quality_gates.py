@@ -204,11 +204,32 @@ def stage_business_acceptance(
     quality_policy = dict(contract.get("quality_retry_policy") or {})
     accepted_policies = {str(item) for item in list(quality_policy.get("acceptance_policies") or []) if str(item)}
     if length_budget and length_budget.get("configured") is True:
-        content_quality = length_budget_quality_gate(
+        length_quality = length_budget_quality_gate(
             final_content,
             explicit_inputs=dict(explicit_inputs or {}),
             length_budget=length_budget,
         )
+        if "sectioned_text_batch_quality" in accepted_policies:
+            section_quality = sectioned_text_batch_quality_gate(
+                final_content,
+                explicit_inputs=dict(explicit_inputs or {}),
+                policy=quality_policy,
+            )
+            content_quality = _combine_length_and_section_quality(
+                length_quality=length_quality,
+                section_quality=section_quality,
+            )
+            return {
+                "accepted": bool(base_accepted and content_quality["accepted"]),
+                "base_accepted": base_accepted,
+                "business_accepted": bool(content_quality["accepted"]),
+                "artifact_ok": artifact_ok,
+                "stage_id": stage_id,
+                "policy": "length_budget+sectioned_text_batch_quality",
+                **content_quality,
+                "authority": "orchestration.stage_business_acceptance",
+            }
+        content_quality = length_quality
         return {
             "accepted": bool(base_accepted and content_quality["accepted"]),
             "base_accepted": base_accepted,
@@ -326,6 +347,70 @@ def length_budget_quality_gate(
         **measurement_diagnostics,
         **metric_text_diagnostics,
     }
+
+
+def _combine_length_and_section_quality(
+    *,
+    length_quality: dict[str, Any],
+    section_quality: dict[str, Any],
+) -> dict[str, Any]:
+    issues = _dedupe_strings(
+        [
+            *[str(item) for item in list(length_quality.get("issues") or []) if str(item)],
+            *[str(item) for item in list(section_quality.get("issues") or []) if str(item)],
+        ]
+    )
+    combined = {
+        **length_quality,
+        **section_quality,
+        "accepted": bool(length_quality.get("accepted")) and bool(section_quality.get("accepted")),
+        "issues": issues,
+        "length_budget_quality": dict(length_quality),
+        "sectioned_text_batch_quality": dict(section_quality),
+        "quality_gate_policies": ["length_budget", "sectioned_text_batch_quality"],
+    }
+    combined["quality_issue_summary"] = _quality_issue_summary(combined)
+    return combined
+
+
+def _dedupe_strings(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in items:
+        text = str(item or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+    return result
+
+
+def _quality_issue_summary(quality: dict[str, Any]) -> str:
+    parts: list[str] = []
+    content_total = safe_int(quality.get("content_metric_total"))
+    min_total = safe_int(quality.get("min_required_metric_total"))
+    target_total = safe_int(quality.get("target_units"))
+    max_total = safe_int(quality.get("max_allowed_metric_total"))
+    metric_label = str(quality.get("metric_summary_label") or "")
+    if min_total > 0 and content_total < min_total:
+        parts.append(f"总量约{content_total}{metric_label}，低于最低要求{min_total}{metric_label}，需至少补约{min_total - content_total}{metric_label}")
+    elif target_total > 0 and content_total < target_total:
+        parts.append(f"总量约{content_total}{metric_label}，低于目标{target_total}{metric_label}，建议补约{target_total - content_total}{metric_label}")
+    if max_total > 0 and content_total > max_total:
+        parts.append(f"总量约{content_total}{metric_label}，超过上限{max_total}{metric_label}，需压缩约{content_total - max_total}{metric_label}")
+    unit_summary = str(quality.get("unit_metric_summary") or "").strip()
+    if unit_summary:
+        parts.append(f"逐单元统计：{unit_summary}")
+    missing = [str(item) for item in list(quality.get("missing_unit_indexes") or []) if str(item)]
+    if missing:
+        parts.append("缺失单元：" + "、".join(missing))
+    unexpected = [str(item) for item in list(quality.get("unexpected_unit_indexes") or []) if str(item)]
+    if unexpected:
+        parts.append("越界单元：" + "、".join(unexpected))
+    if not parts:
+        issues = [str(item) for item in list(quality.get("issues") or []) if str(item)]
+        parts.extend(issues)
+    return "；".join(parts)
 
 
 def _extract_review_verdict(content: str) -> str:

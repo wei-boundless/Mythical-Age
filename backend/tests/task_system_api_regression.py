@@ -429,6 +429,46 @@ def test_stage_execution_scheduler_invalidates_stale_running_task_run(tmp_path: 
     assert events[-1][0] == "coordination_stage_background_execution_invalidated"
 
 
+def test_stage_execution_scheduler_marks_node_failed_when_background_execution_crashes(tmp_path: Path) -> None:
+    state_index = RuntimeStateIndex(tmp_path / "runtime_state")
+    request = NodeExecutionRequest(
+        request_id="nodeexec:draft",
+        coordination_run_id="coordrun:root",
+        thread_id="coordrun:root",
+        root_task_run_id="taskrun:root",
+        stage_id="chapter_draft",
+        node_id="chapter_draft",
+        task_ref="task.test.chapter_draft",
+    )
+    events: list[tuple[str, dict]] = []
+    loop = SimpleNamespace(
+        state_index=state_index,
+        event_log=SimpleNamespace(
+            append=lambda _task_run_id, event_type, payload=None, refs=None: events.append((event_type, payload or {})),
+        ),
+    )
+
+    coordination_scheduler._mark_stage_execution_node_failed(
+        task_run_loop=loop,
+        stage_execution_request=request,
+        source="test",
+        error=ValueError("runtime lane mismatch"),
+    )
+
+    node_runs = state_index.list_coordination_node_runs(request.coordination_run_id)
+    assert len(node_runs) == 1
+    node_run = node_runs[0]
+    assert node_run.status == "failed"
+    assert node_run.node_id == "chapter_draft"
+    failure = node_run.diagnostics["background_execution_failed"]
+    assert failure["error_type"] == "ValueError"
+    assert failure["phase"] == "stage_background_execution_before_task_run"
+    assert [event[0] for event in events] == [
+        "coordination_node_run_created",
+        "coordination_stage_updated",
+    ]
+
+
 def test_finalizer_suppresses_completed_result_after_task_run_stop(tmp_path: Path) -> None:
     backend_dir = tmp_path / "backend"
     runtime_dir = tmp_path / "runtime_state"

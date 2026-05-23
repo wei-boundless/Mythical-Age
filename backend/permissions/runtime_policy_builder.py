@@ -234,10 +234,12 @@ def _build_runtime_decisions(
 
 def _requested_operations(task_operation: dict[str, Any]) -> tuple[str, ...]:
     requirement = dict(task_operation.get("operation_requirement") or {})
+    execution_permit = dict(task_operation.get("execution_permit") or {})
     requested = [
         "op.model_response",
         *list(requirement.get("required_operations") or ()),
         *list(requirement.get("optional_operations") or ()),
+        *list(execution_permit.get("allowed_operations") or ()),
     ]
     denied = {str(item or "").strip() for item in list(requirement.get("denied_operations") or ()) if str(item or "").strip()}
     return tuple(item for item in _dedupe(requested) if item not in denied or item == "op.model_response")

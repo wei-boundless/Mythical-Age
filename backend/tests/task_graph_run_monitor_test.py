@@ -352,3 +352,73 @@ def test_monitor_prefers_failed_stage_error_details() -> None:
     assert view["runtime"]["failure"]["detail"] == "request exceeded 300s"
     assert view["runtime"]["failure"]["stage_id"] == "world"
     assert view["runtime"]["failure"]["step_id"] == "understand_request"
+
+
+def test_monitor_exposes_batch_technical_blocker_without_stage_last_error() -> None:
+    task_run = _base_task_run()
+    task_run["status"] = "failed"
+    coordination_run = _base_coordination_run()
+    coordination_run["status"] = "failed"
+    batch_lifecycle = {
+        "authority": "task_system.batch_lifecycle_runtime_state",
+        "batch_states": [
+            {
+                "batch_id": "chapter_1_10",
+                "node_id": "chapter",
+                "status": "technical_blocked",
+                "last_verdict": "technical_blocked",
+            }
+        ],
+        "batch_execution_instances": [
+            {
+                "execution_id": "batchrun:chapter_1_10:attempt_3",
+                "batch_id": "chapter_1_10",
+                "node_id": "chapter",
+                "status": "technical_blocked",
+                "verdict": "technical_blocked",
+            }
+        ],
+        "diagnostics": {
+            "last_transition": {
+                "stage_id": "chapter",
+                "batch_id": "chapter_1_10",
+                "technical_failure": True,
+                "technical_blocked": True,
+                "technical_failure_count": 3,
+                "technical_failure_limit": 3,
+                "event_diagnostics": {
+                    "terminal_reason": "executor_failed",
+                    "last_error": {},
+                },
+            }
+        },
+    }
+    view = build_task_graph_run_monitor_view(
+        task_run=task_run,
+        coordination_run=coordination_run,
+        coordination_state={
+            "diagnostics": {
+                "coordination_graph_spec": _graph_spec(),
+                "batch_lifecycle_runtime_state": batch_lifecycle,
+            },
+            "terminal_status": "blocked",
+            "active_stage_id": "chapter",
+            "node_statuses": {"chapter": "blocked"},
+            "batch_lifecycle_runtime_state": batch_lifecycle,
+        },
+        project_status={
+            "project_id": "project:test",
+            "active_blocker": {
+                "kind": "run_failed",
+                "summary": "blocked",
+            },
+        },
+    )
+
+    assert view["runtime"]["failure"]["technical_blocked"] is True
+    assert view["runtime"]["failure"]["code"] == "technical_blocked"
+    assert view["runtime"]["failure"]["stage_id"] == "chapter"
+    assert view["runtime"]["failure"]["batch_id"] == "chapter_1_10"
+    assert view["runtime"]["failure"]["technical_failure_count"] == 3
+    assert view["blocker"]["kind"] == "technical_blocked"
+    assert view["blocker"]["terminal_reason"] == "technical_blocked"

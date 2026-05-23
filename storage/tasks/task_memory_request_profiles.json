@@ -649,6 +649,24 @@
       "authority": "task_system.task_memory_request_profile"
     },
     {
+      "profile_id": "taskmem:task.000001",
+      "task_id": "task.000001",
+      "requested_memory_layers": [
+        "conversation"
+      ],
+      "requested_topics": [
+        "general"
+      ],
+      "memory_priority": "normal",
+      "writeback_policy": "task_default",
+      "allow_long_term_memory": false,
+      "memory_scope_hint": "",
+      "metadata": {
+        "derived_from": "specific_task_record"
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
       "profile_id": "taskmem:task.writing.modular_novel.node.memory_finalize",
       "task_id": "task.writing.modular_novel.node.memory_finalize",
       "requested_memory_layers": [
@@ -669,24 +687,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "node_id": "memory_finalize"
-      },
-      "authority": "task_system.task_memory_request_profile"
-    },
-    {
-      "profile_id": "taskmem:task.000001",
-      "task_id": "task.000001",
-      "requested_memory_layers": [
-        "conversation"
-      ],
-      "requested_topics": [
-        "general"
-      ],
-      "memory_priority": "normal",
-      "writeback_policy": "task_default",
-      "allow_long_term_memory": false,
-      "memory_scope_hint": "",
-      "metadata": {
-        "derived_from": "specific_task_record"
       },
       "authority": "task_system.task_memory_request_profile"
     }

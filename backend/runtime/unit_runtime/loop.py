@@ -1758,9 +1758,11 @@ class TaskRunLoop:
         model_resolution: dict[str, Any] = {}
         settings_service = getattr(getattr(model_response_executor, "model_runtime", None), "settings_service", None)
         if settings_service is not None:
-            model_requirement = dict(
-                dict(task_execution_assembly_payload.get("contract_bindings") or {}).get("runtime") or {}
-            ).get("model_requirement")
+            model_requirement = _model_requirement_for_model_resolution(
+                task_execution_assembly=task_execution_assembly_payload,
+                current_turn_context=current_turn_context,
+                agent_assembly_contract=assembly_contract,
+            )
             graph_runtime_defaults = _chat_model_selection_runtime_defaults(model_selection)
             resolved_model_spec = ModelProfileResolver(settings_service).resolve_model_spec(
                 agent_runtime_profile=effective_agent_runtime_profile,
@@ -3203,6 +3205,23 @@ class TaskRunLoop:
                     runtime_observation = dict(runtime_effect.runtime_error_observation or {})
                     runtime_observation_payload = dict(runtime_observation.get("payload") or {})
                     current_step = current_task_step_run(application.runtime_task_ledger)
+                    error_diagnostics = {
+                        "last_error": {
+                            "message": runtime_error,
+                            "code": str(runtime_observation_payload.get("code") or ""),
+                            "provider": str(runtime_observation_payload.get("provider") or ""),
+                            "model": str(runtime_observation_payload.get("model") or ""),
+                            "detail": str(runtime_observation_payload.get("detail") or ""),
+                            "source": str(runtime_event.payload.get("answer_source") or runtime_observation.get("source") or ""),
+                            "observation_ref": str(runtime_event.refs.get("observation_ref") or ""),
+                            "step_id": str(current_step.step_id if current_step is not None else ""),
+                        },
+                    }
+                    application.loop_state = self._state_with_task_run_ledger(
+                        application.loop_state,
+                        application.runtime_task_ledger,
+                        diagnostics=error_diagnostics,
+                    )
                     if (
                         application.runtime_task_ledger is not None
                         and current_step is not None
@@ -3218,18 +3237,7 @@ class TaskRunLoop:
                             reason="loop_error",
                             failure_reason=runtime_error,
                             result_refs=application.result_refs,
-                            diagnostics={
-                                "last_error": {
-                                    "message": runtime_error,
-                                    "code": str(runtime_observation_payload.get("code") or ""),
-                                    "provider": str(runtime_observation_payload.get("provider") or ""),
-                                    "model": str(runtime_observation_payload.get("model") or ""),
-                                    "detail": str(runtime_observation_payload.get("detail") or ""),
-                                    "source": str(runtime_event.payload.get("answer_source") or runtime_observation.get("source") or ""),
-                                    "observation_ref": str(runtime_event.refs.get("observation_ref") or ""),
-                                    "step_id": current_step.step_id,
-                                },
-                            },
+                            diagnostics=error_diagnostics,
                             ledger_diagnostics={"terminal_reason": "executor_failed"},
                         )
                         for transition_event in transition_events:
@@ -3391,13 +3399,30 @@ class TaskRunLoop:
             return
         observation_payload = dict(observation.get("payload") or {})
         current_step = current_task_step_run(application.runtime_task_ledger)
+        error_text = str(observation_payload.get("error") or "executor_failed")
+        error_diagnostics = {
+            "last_error": {
+                "message": error_text,
+                "code": str(observation_payload.get("code") or ""),
+                "provider": str(observation_payload.get("provider") or ""),
+                "model": str(observation_payload.get("model") or ""),
+                "detail": str(observation_payload.get("detail") or ""),
+                "source": str(observation.get("source") or ""),
+                "observation_ref": observation_ref,
+                "step_id": str(current_step.step_id if current_step is not None else ""),
+            },
+        }
+        application.loop_state = self._state_with_task_run_ledger(
+            application.loop_state,
+            application.runtime_task_ledger,
+            diagnostics=error_diagnostics,
+        )
         if (
             application.runtime_task_ledger is not None
             and current_step is not None
             and current_step.status == "running"
             and current_step.executor_type in {"tool", "mcp", "agent"}
         ):
-            error_text = str(observation_payload.get("error") or "executor_failed")
             (
                 application.loop_state,
                 application.runtime_task_ledger,
@@ -3412,18 +3437,7 @@ class TaskRunLoop:
                 output_refs=(observation_ref,),
                 step_result_ref=observation_ref,
                 executor_ref=str(observation.get("source") or current_step.executor_ref),
-                diagnostics={
-                    "last_error": {
-                        "message": error_text,
-                        "code": str(observation_payload.get("code") or ""),
-                        "provider": str(observation_payload.get("provider") or ""),
-                        "model": str(observation_payload.get("model") or ""),
-                        "detail": str(observation_payload.get("detail") or ""),
-                        "source": str(observation.get("source") or ""),
-                        "observation_ref": observation_ref,
-                        "step_id": current_step.step_id,
-                    },
-                },
+                diagnostics=error_diagnostics,
                 ledger_diagnostics={"terminal_reason": "executor_failed"},
                 result_refs=application.result_refs,
             )
@@ -5899,6 +5913,34 @@ def _direct_runtime_assembly_from_selection(selection: dict[str, Any]) -> dict[s
     if operation_policy:
         runtime_assembly["operation_policy"] = operation_policy
     return runtime_assembly
+
+
+def _model_requirement_for_model_resolution(
+    *,
+    task_execution_assembly: dict[str, Any] | None,
+    current_turn_context: dict[str, Any] | None,
+    agent_assembly_contract: dict[str, Any] | None,
+) -> dict[str, Any]:
+    task_assembly = dict(task_execution_assembly or {})
+    current_turn = dict(current_turn_context or {})
+    assembly = dict(agent_assembly_contract or {})
+    candidates = [
+        dict(dict(task_assembly.get("contract_bindings") or {}).get("runtime") or {}).get("model_requirement"),
+        dict(assembly.get("metadata") or {}).get("model_requirement"),
+        dict(dict(assembly.get("prompt_assembly") or {}).get("metadata") or {}).get("model_requirement"),
+        dict(dict(dict(assembly.get("runtime_assembly") or {}).get("metadata") or {}).get("contract_bindings") or {}).get("runtime", {}).get("model_requirement")
+        if isinstance(dict(dict(assembly.get("runtime_assembly") or {}).get("metadata") or {}).get("contract_bindings"), dict)
+        else {},
+        dict(dict(dict(current_turn.get("runtime_assembly") or {}).get("metadata") or {}).get("contract_bindings") or {}).get("runtime", {}).get("model_requirement")
+        if isinstance(dict(dict(current_turn.get("runtime_assembly") or {}).get("metadata") or {}).get("contract_bindings"), dict)
+        else {},
+        dict(dict(current_turn.get("contract_bindings") or {}).get("runtime") or {}).get("model_requirement"),
+        dict(current_turn.get("model_requirement") or {}),
+    ]
+    for candidate in candidates:
+        if isinstance(candidate, dict) and candidate:
+            return dict(candidate)
+    return {}
 
 
 def _merge_invocation_identity_into_task_selection(

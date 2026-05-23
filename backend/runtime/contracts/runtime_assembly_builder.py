@@ -97,6 +97,7 @@ def build_node_runtime_assembly(
         node.memory_bindings.get("dynamic_memory_read_policy") or getattr(node, "dynamic_memory_read_policy", {}) or node.metadata.get("dynamic_memory_read_policy") or {}
     )
     node_length_budget = dict(node.runtime_bindings.get("length_budget") or {})
+    node_role_prompt = str(node.metadata.get("role_prompt") or "").strip()
     return NodeRuntimeAssembly(
         assembly_id=_stable_assembly_id("node", manifest.manifest_id, node_id, explicit_inputs or {}),
         manifest_ref=manifest.manifest_id,
@@ -120,6 +121,7 @@ def build_node_runtime_assembly(
             context_strategy="node_status_and_upstream_summary",
         ),
         metadata={
+            "role_prompt": node_role_prompt,
             "stream_policy": node_stream_policy,
             "memory_read_policy": node_memory_read_policy,
             "memory_writeback_policy": node_memory_writeback_policy,

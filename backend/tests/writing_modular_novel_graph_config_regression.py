@@ -91,6 +91,12 @@ def test_modular_writing_graph_config_compiles_graph_modules_and_chapter_batches
     assert "爽点兑现" in chapter_draft.metadata["role_prompt"]
     assert "章末牵引" in chapter_draft.metadata["role_prompt"]
     assert "主动搜索任务记忆数据库" in chapter_draft.metadata["role_prompt"]
+    assert "每章目标约两千字" in chapter_draft.metadata["role_prompt"]
+    assert "最低不得少于一千八百字" in chapter_draft.metadata["role_prompt"]
+    assert "不得把十章压缩成剧情摘要" in chapter_draft.metadata["role_prompt"]
+    assert "章节正文候选才是交付主体" in chapter_draft.metadata["role_prompt"]
+    assert "严格按运行时允许章号逐章书写" in chapter_draft.metadata["role_prompt"]
+    assert "按第1章至第10章逐章书写" not in chapter_draft.metadata["role_prompt"]
     assert "名家级中文商业网文章节总审" in chapter_review.metadata["role_prompt"]
     assert "头部连载作品的阅读体验" in chapter_review.metadata["role_prompt"]
     assert "名家级中文商业网文分卷规划师" in volume_plan.metadata["role_prompt"]
@@ -109,8 +115,30 @@ def test_modular_writing_graph_config_compiles_graph_modules_and_chapter_batches
     assert chapter_draft.contract_bindings["runtime"]["tool_execution_policy"]["allowed_operation_refs"] == ["op.memory_read"]
     assert chapter_draft.contract_bindings["runtime"]["tool_execution_policy"]["database_search_only"] is True
     assert chapter_draft.contract_bindings["runtime"]["length_budget"]["target_units"] == 20_000
+    assert chapter_draft.contract_bindings["runtime"]["length_budget"]["min_units"] == 18_000
     assert chapter_draft.contract_bindings["runtime"]["length_budget"]["batch_unit_count"] == 10
+    assert (
+        chapter_draft.contract_bindings["runtime"]["length_budget"]["repair_policy"]["max_repair_rounds"]
+        == 4
+    )
+    assert "最低不得少于一万八千字" in chapter_draft.contract_bindings["runtime"]["length_budget"]["repair_policy"]["repair_instruction"]
+    assert chapter_draft.quality_retry_policy["requirements_input_key"] == "chapter_revision_requirements"
+    assert chapter_draft.quality_retry_policy["carry_current_output_as"] == "previous_chapter_draft_ref"
+    assert "完整重交当前批次小说正文" in chapter_draft.quality_retry_policy["requirements_template"]
+    assert "质量门统计：{quality_issue_summary}" in chapter_draft.quality_retry_policy["requirements_template"]
+    assert "不是补丁说明" in chapter_draft.quality_retry_policy["requirements_template"]
+    assert "最低不得少于1800字" in chapter_draft.quality_retry_policy["requirements_template"]
+    assert "整批正文最低不得少于18000字" in chapter_draft.quality_retry_policy["requirements_template"]
+    assert "压缩转述" in chapter_draft.quality_retry_policy["requirements_template"]
+    replay_template = chapter_draft.executor_policy["replay_sanitization_policy"]["requirements_template"]
+    assert "完整重交当前批次小说正文" in replay_template
+    assert "不是补丁说明" in replay_template
+    assert "最低不得少于1800字" in replay_template
+    assert "整批正文最低不得少于18000字" in replay_template
+    assert "压缩转述" in replay_template
+    assert "requirements_input_key" not in chapter_review.quality_retry_policy
     assert chapter_draft.contract_bindings["runtime"]["batch_acceptance_policy"]["mode"] == "review_then_commit"
+    assert chapter_draft.contract_bindings["runtime"]["batch_acceptance_policy"]["max_repair_rounds"] == 4
     assert chapter_draft.contract_bindings["runtime"]["merge_policy"]["mode"] == "wait_all_committed"
     assert chapter_draft.loop_scope_id == "loop.chapter_batch"
     assert chapter_router.loop_route_policy["continue_stage_id"] == "chapter_outline"
@@ -146,6 +174,7 @@ def test_modular_writing_graph_config_compiles_graph_modules_and_chapter_batches
     assert split_plans[0]["batches"][-1]["range"] == {"start": 491, "end": 500, "label": "chapter_491_500"}
     assert split_plans[0]["merge_readiness_plan"]["ready_condition"] == "all_batches_committed"
     assert len(split_plans[0]["batch_lifecycle_plans"]) == 50
+    assert split_plans[0]["acceptance_policy"]["max_repair_rounds"] == 4
     assert [step["step_type"] for step in split_plans[0]["batch_lifecycle_plans"][0]["steps"]] == [
         "execute",
         "review",
@@ -365,11 +394,14 @@ def test_modular_writing_memory_context_is_visible_to_runtime_profiles(tmp_path:
         assert "artifact_policy" in visible_section_ids
         assert "memory_snapshot" in visible_section_ids
         assert "memory_snapshot" not in assembly["diagnostics"]["context_sections_hidden_by_profile"]
+        assert assembly["metadata"]["role_prompt"] == node_contract.metadata["role_prompt"]
         assert assembly["metadata"]["layered_context"]["memory_reads"]
         artifact_section = next(item for item in assembly["context_sections"] if item["section_id"] == "artifact_policy")
         assert artifact_section["metadata"]["artifact_policy"]["target_paths"]
 
     chapter_draft_node = next(node for node in graph.nodes if node.node_id == "chapter_draft")
+    chapter_draft_contract = next(item for item in manifest.node_contracts if item.node_id == "chapter_draft")
+    assert "名家级中文商业网文长篇写手" in chapter_draft_contract.metadata["role_prompt"]
     assert "memory.writing.manuscript" in chapter_draft_node.memory_read_policy["readable_repositories"]
     assert "memory.writing.manuscript" in chapter_draft_node.dynamic_memory_read_policy["repository_node_ids"]
     assert chapter_draft_node.dynamic_memory_read_policy["allow_dynamic_read"] is True

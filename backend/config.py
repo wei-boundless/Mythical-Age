@@ -14,7 +14,7 @@ from project_layout import ProjectLayout
 LLM_PROVIDER_DEFAULTS: dict[str, dict[str, Any]] = {
     "deepseek": {
         "display_name": "DeepSeek",
-        "model": "deepseek-v4-pro",
+        "model": "deepseek-v4-flash",
         "base_url": "https://api.deepseek.com/v1",
         "adapter": "deepseek_langchain",
         "credential_envs": ("DEEPSEEK_API_KEY", "LLM_API_KEY"),
@@ -877,7 +877,7 @@ def get_settings() -> Settings:
         llm_fallback_base_url=_resolve_llm_fallback_base_url(llm_fallback_provider),
         llm_timeout_seconds=_resolve_positive_float("LLM_TIMEOUT_SECONDS", 45.0, _runtime_system_value("runtime", "llm_timeout_seconds")),
         llm_max_retries=_resolve_nonnegative_int("LLM_MAX_RETRIES", 2, _runtime_system_value("runtime", "llm_max_retries")),
-        llm_max_output_tokens=_resolve_positive_int("LLM_MAX_OUTPUT_TOKENS", 32768, _runtime_system_value("runtime", "llm_max_output_tokens")),
+        llm_max_output_tokens=_resolve_positive_int("LLM_MAX_OUTPUT_TOKENS", 65536, _runtime_system_value("runtime", "llm_max_output_tokens")),
         llm_long_output_timeout_seconds=_resolve_positive_float("LLM_LONG_OUTPUT_TIMEOUT_SECONDS", 180.0, _runtime_system_value("runtime", "llm_long_output_timeout_seconds")),
         llm_thinking_mode=_resolve_llm_thinking_mode(),
         llm_reasoning_effort=_resolve_llm_reasoning_effort(),

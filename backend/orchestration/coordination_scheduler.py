@@ -5,7 +5,7 @@ import threading
 import time
 from typing import Any
 
-from runtime import TaskRun
+from runtime import CoordinationNodeRun, TaskRun
 from runtime.coordination_runtime.runtime import LangGraphCoordinationRuntimeResult
 from runtime.subruntime import start_graph_module_stage_request
 from understanding import analyze_memory_intent
@@ -169,6 +169,15 @@ def _schedule_stage_execution_background(
                 )
             )
         except Exception as exc:
+            try:
+                _mark_stage_execution_node_failed(
+                    task_run_loop=task_run_loop,
+                    stage_execution_request=stage_execution_request,
+                    source=source,
+                    error=exc,
+                )
+            except Exception:
+                pass
             task_run_loop.event_log.append(
                 stage_execution_request.root_task_run_id,
                 "coordination_stage_background_execution_failed",
@@ -211,6 +220,78 @@ def _schedule_stage_execution_background(
         identity=identity,
     )
     return result
+
+
+def _mark_stage_execution_node_failed(
+    *,
+    task_run_loop: Any,
+    stage_execution_request: Any,
+    source: str,
+    error: Exception,
+) -> None:
+    coordination_run_id = str(getattr(stage_execution_request, "coordination_run_id", "") or "").strip()
+    root_task_run_id = str(getattr(stage_execution_request, "root_task_run_id", "") or "").strip()
+    stage_id = str(getattr(stage_execution_request, "stage_id", "") or "").strip()
+    node_id = str(getattr(stage_execution_request, "node_id", "") or stage_id).strip()
+    if not coordination_run_id or not root_task_run_id or not node_id:
+        return
+    now = time.time()
+    existing = next(
+        (
+            item
+            for item in task_run_loop.state_index.list_coordination_node_runs(coordination_run_id)
+            if str(item.node_id or "") == node_id
+        ),
+        None,
+    )
+    failure_payload = {
+        "source": source,
+        "stage_id": stage_id,
+        "node_id": node_id,
+        "task_ref": str(getattr(stage_execution_request, "task_ref", "") or ""),
+        "error": str(error),
+        "error_type": error.__class__.__name__,
+        "failed_at": now,
+        "phase": "stage_background_execution_before_task_run",
+    }
+    diagnostics = {
+        **(dict(existing.diagnostics) if existing is not None else {}),
+        "coordination_engine": "langgraph_runtime",
+        "stage_id": stage_id,
+        "stage_status": "failed",
+        "task_ref": str(getattr(stage_execution_request, "task_ref", "") or ""),
+        "background_execution_failed": failure_payload,
+    }
+    node_run = CoordinationNodeRun(
+        node_run_id=(existing.node_run_id if existing is not None else f"coordnode:{coordination_run_id}:{node_id}"),
+        coordination_run_id=coordination_run_id,
+        task_run_id=root_task_run_id,
+        node_id=node_id,
+        role=(existing.role if existing is not None else "participant"),
+        assigned_agent_id=(existing.assigned_agent_id if existing is not None else str(getattr(stage_execution_request, "agent_id", "") or "")),
+        assigned_agent_run_ref=(existing.assigned_agent_run_ref if existing is not None else ""),
+        status="failed",
+        handoff_count=(existing.handoff_count if existing is not None else 0),
+        latest_handoff_ref=(existing.latest_handoff_ref if existing is not None else ""),
+        created_at=(existing.created_at if existing is not None else now),
+        updated_at=now,
+        diagnostics=diagnostics,
+    )
+    task_run_loop.state_index.upsert_coordination_node_run(node_run)
+    _append_stage_execution_schedule_event(
+        task_run_loop=task_run_loop,
+        root_task_run_id=root_task_run_id,
+        event_type="coordination_node_run_updated" if existing is not None else "coordination_node_run_created",
+        payload={"coordination_node_run": node_run.to_dict()},
+        identity=_stage_execution_schedule_identity(stage_execution_request),
+    )
+    _append_stage_execution_schedule_event(
+        task_run_loop=task_run_loop,
+        root_task_run_id=root_task_run_id,
+        event_type="coordination_stage_updated",
+        payload={"stage": {"stage_id": stage_id, "node_id": node_id, "message_type": "", "status": "failed"}},
+        identity=_stage_execution_schedule_identity(stage_execution_request),
+    )
 
 
 def _stage_execution_schedule_identity(stage_execution_request: Any) -> dict[str, Any]:

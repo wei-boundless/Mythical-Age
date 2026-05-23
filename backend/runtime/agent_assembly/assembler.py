@@ -66,25 +66,31 @@ def build_agent_assembly_contract(
     prompt_manifest_ref = _resolve_prompt_manifest_ref(work_order)
     memory_binding = _build_memory_binding(work_order, runtime_profile)
     capability_binding = _build_capability_binding(work_order, runtime_profile, agent_descriptor)
+    role_name = _role_name_for_work_order(work_order)
+    role_summary = _role_summary_for_work_order(work_order, agent_descriptor)
+    instruction_text = _instruction_text_for_work_order(work_order, agent_descriptor, runtime_profile)
+    runtime_model_requirement = _runtime_model_requirement(work_order)
+    role_prompt_source = _runtime_role_prompt_source(work_order) or "fallback"
     soul_binding = SoulAssemblyBinding(
         projection_id=projection_id,
         soul_id=soul_id,
         prompt_manifest_ref=prompt_manifest_ref,
-        role_name=_role_name_for_work_order(work_order),
-        role_summary=_role_summary_for_work_order(work_order, agent_descriptor),
+        role_name=role_name,
+        role_summary=role_summary,
         metadata={
             "agent_name": getattr(agent_descriptor, "agent_name", ""),
             "agent_category": getattr(agent_descriptor, "agent_category", ""),
             "runtime_profile_id": getattr(runtime_profile, "agent_profile_id", ""),
+            "role_prompt_source": role_prompt_source,
         },
     )
     output_boundary = _build_output_boundary(work_order, agent_descriptor, prompt_manifest_ref=prompt_manifest_ref)
     ports = _build_ports(work_order, capability_binding, memory_binding, output_boundary)
     prompt_assembly = PromptAssemblyContract(
         prompt_id=f"prompt:{work_order.work_order_id}",
-        role_name=_role_name_for_work_order(work_order),
-        role_summary=_role_summary_for_work_order(work_order, agent_descriptor),
-        instruction_text=_instruction_text_for_work_order(work_order, agent_descriptor, runtime_profile),
+        role_name=role_name,
+        role_summary=role_summary,
+        instruction_text=instruction_text,
         visible_sections=ports,
         forbidden_actions=_forbidden_actions_for_work_order(work_order, runtime_profile),
         required_outputs=_required_outputs_for_work_order(work_order, output_boundary),
@@ -92,6 +98,8 @@ def build_agent_assembly_contract(
             "work_kind": work_order.work_kind,
             "executor_type": work_order.executor_type,
             "prompt_manifest_ref": prompt_manifest_ref,
+            "role_prompt_source": role_prompt_source,
+            "model_requirement": runtime_model_requirement,
         },
     )
     assembly = AgentAssemblyContract(
@@ -142,6 +150,9 @@ def build_agent_assembly_contract(
             "projection_resolution_source": _projection_resolution_source(work_order, agent_descriptor),
             "runtime_lane_source": _runtime_lane_source(work_order, runtime_profile),
             "prompt_manifest_ref": prompt_manifest_ref,
+            "model_requirement": runtime_model_requirement,
+            "tool_execution_policy": _runtime_tool_execution_policy(work_order),
+            "dynamic_memory_read_policy": _runtime_dynamic_memory_read_policy(work_order),
         },
         diagnostics={
             "work_order_id": work_order.work_order_id,
@@ -150,6 +161,8 @@ def build_agent_assembly_contract(
             "agent_profile_id": agent_profile_id,
             "runtime_lane": runtime_lane,
             "runtime_profile_id": getattr(runtime_profile, "agent_profile_id", ""),
+            "model_requirement": runtime_model_requirement,
+            "prompt_role_source": role_prompt_source,
             "ports": [port.to_dict() for port in ports],
         },
     )
@@ -378,6 +391,10 @@ def _build_capability_binding(
     runtime_profile: AgentRuntimeProfile | None,
     agent_descriptor: Any | None,
 ) -> CapabilityAssemblyBinding:
+    tool_execution_policy = _runtime_tool_execution_policy(work_order)
+    explicit_tool_names = _policy_tool_names(tool_execution_policy, "allowed_tool_names")
+    denied_tool_names = _policy_tool_names(tool_execution_policy, "denied_tool_names")
+    denied_operation_refs = _policy_operation_refs(tool_execution_policy, "denied_operation_refs", "blocked_operation_refs")
     if work_order.executor_type != "agent":
         return CapabilityAssemblyBinding(
             allowed_operations=(),
@@ -391,6 +408,7 @@ def _build_capability_binding(
                 "can_delegate_to_agents": False,
                 "approval_policy": str(getattr(runtime_profile, "approval_policy", "") or ""),
                 "executor_type": work_order.executor_type,
+                "tool_execution_policy": tool_execution_policy,
             },
         )
     allowed_operations = tuple(
@@ -399,15 +417,25 @@ def _build_capability_binding(
         if str(item).strip()
     )
     explicit_operations = _work_order_operation_policy_operations(work_order)
+    policy_operations = _policy_operation_refs(tool_execution_policy, "allowed_operation_refs", "allowed_operations")
     if explicit_operations:
         allowed_operations = tuple(_dedupe([*allowed_operations, *explicit_operations]))
+    if policy_operations:
+        allowed_operations = tuple(_dedupe(["op.model_response", *policy_operations]))
+    if denied_operation_refs:
+        denied = set(denied_operation_refs)
+        allowed_operations = tuple(item for item in allowed_operations if item not in denied)
     if not allowed_operations and work_order.executor_type != "human":
         allowed_operations = ("op.model_response",)
-    visible_tools = tuple(
-        _operation_to_visible_tool(item)
+    operation_visible_tools = tuple(
+        _tool_names_for_operation(item, preferred_tool_names=explicit_tool_names)
         for item in allowed_operations
         if item != "op.model_response"
     )
+    visible_tools = tuple(_dedupe([*explicit_tool_names, *operation_visible_tools]))
+    if denied_tool_names:
+        denied_tools = set(denied_tool_names)
+        visible_tools = tuple(item for item in visible_tools if item not in denied_tools)
     dispatchable_tools = visible_tools
     delegated_agent_ids = tuple(
         str(item).strip()
@@ -420,6 +448,11 @@ def _build_capability_binding(
         "agent_category": getattr(agent_descriptor, "agent_category", ""),
         "can_delegate_to_agents": bool(getattr(runtime_profile, "can_delegate_to_agents", False)),
         "approval_policy": str(getattr(runtime_profile, "approval_policy", "") or ""),
+        "tool_execution_policy": tool_execution_policy,
+        "dynamic_memory_read_policy": _runtime_dynamic_memory_read_policy(work_order),
+        "explicit_allowed_tool_names": list(explicit_tool_names),
+        "denied_tool_names": list(denied_tool_names),
+        "denied_operation_refs": list(denied_operation_refs),
     }
     return CapabilityAssemblyBinding(
         allowed_operations=allowed_operations,
@@ -445,6 +478,110 @@ def _work_order_operation_policy_operations(work_order: WorkOrder) -> tuple[str,
     if operations:
         operations.append("op.model_response")
     return tuple(_dedupe(operations))
+
+
+def _runtime_assembly_metadata(work_order: WorkOrder) -> dict[str, Any]:
+    return dict(dict(work_order.runtime_assembly or {}).get("metadata") or {})
+
+
+def _runtime_contract_bindings(work_order: WorkOrder) -> dict[str, Any]:
+    runtime_assembly = dict(work_order.runtime_assembly or {})
+    metadata = dict(runtime_assembly.get("metadata") or {})
+    contract_bindings = dict(metadata.get("contract_bindings") or runtime_assembly.get("contract_bindings") or {})
+    return {str(key).strip(): dict(value) for key, value in contract_bindings.items() if str(key).strip() and isinstance(value, dict)}
+
+
+def _runtime_bindings(work_order: WorkOrder) -> dict[str, Any]:
+    return dict(_runtime_contract_bindings(work_order).get("runtime") or {})
+
+
+def _runtime_memory_bindings(work_order: WorkOrder) -> dict[str, Any]:
+    return dict(_runtime_contract_bindings(work_order).get("memory") or {})
+
+
+def _runtime_model_requirement(work_order: WorkOrder) -> dict[str, Any]:
+    requirement = dict(_runtime_bindings(work_order).get("model_requirement") or {})
+    runtime_assembly = dict(work_order.runtime_assembly or {})
+    metadata = dict(runtime_assembly.get("metadata") or {})
+    if not requirement:
+        requirement = dict(metadata.get("model_requirement") or runtime_assembly.get("model_requirement") or {})
+    return requirement
+
+
+def _runtime_tool_execution_policy(work_order: WorkOrder) -> dict[str, Any]:
+    policy = dict(_runtime_bindings(work_order).get("tool_execution_policy") or {})
+    runtime_assembly = dict(work_order.runtime_assembly or {})
+    metadata = dict(runtime_assembly.get("metadata") or {})
+    if not policy:
+        policy = dict(metadata.get("tool_execution_policy") or runtime_assembly.get("tool_execution_policy") or {})
+    return policy
+
+
+def _runtime_dynamic_memory_read_policy(work_order: WorkOrder) -> dict[str, Any]:
+    policy = dict(_runtime_memory_bindings(work_order).get("dynamic_memory_read_policy") or {})
+    runtime_assembly = dict(work_order.runtime_assembly or {})
+    metadata = dict(runtime_assembly.get("metadata") or {})
+    if not policy:
+        policy = dict(
+            metadata.get("dynamic_memory_read_policy")
+            or runtime_assembly.get("dynamic_memory_read_policy")
+            or {}
+        )
+    return policy
+
+
+def _runtime_role_prompt(work_order: WorkOrder) -> str:
+    runtime_assembly = dict(work_order.runtime_assembly or {})
+    metadata = dict(runtime_assembly.get("metadata") or {})
+    contract_bindings = _runtime_contract_bindings(work_order)
+    candidates = [
+        metadata.get("role_prompt"),
+        runtime_assembly.get("role_prompt"),
+        dict(contract_bindings.get("prompt") or {}).get("role_prompt"),
+        metadata.get("role_identity"),
+        runtime_assembly.get("role_identity"),
+    ]
+    return next((str(item).strip() for item in candidates if str(item or "").strip()), "")
+
+
+def _runtime_role_prompt_source(work_order: WorkOrder) -> str:
+    runtime_assembly = dict(work_order.runtime_assembly or {})
+    metadata = dict(runtime_assembly.get("metadata") or {})
+    if str(metadata.get("role_prompt") or "").strip():
+        return "runtime_assembly.metadata.role_prompt"
+    if str(runtime_assembly.get("role_prompt") or "").strip():
+        return "runtime_assembly.role_prompt"
+    prompt_bindings = dict(_runtime_contract_bindings(work_order).get("prompt") or {})
+    if str(prompt_bindings.get("role_prompt") or "").strip():
+        return "runtime_assembly.metadata.contract_bindings.prompt.role_prompt"
+    if str(metadata.get("role_identity") or "").strip():
+        return "runtime_assembly.metadata.role_identity"
+    if str(runtime_assembly.get("role_identity") or "").strip():
+        return "runtime_assembly.role_identity"
+    return ""
+
+
+def _policy_tool_names(policy: dict[str, Any], *keys: str) -> tuple[str, ...]:
+    values: list[Any] = []
+    for key in keys:
+        values.extend(list(dict(policy or {}).get(key) or []))
+    return tuple(_dedupe([str(item).strip() for item in values if str(item).strip()]))
+
+
+def _policy_operation_refs(policy: dict[str, Any], *keys: str) -> tuple[str, ...]:
+    values: list[Any] = []
+    for key in keys:
+        values.extend(list(dict(policy or {}).get(key) or []))
+    return tuple(_dedupe([str(item).strip() for item in values if str(item).strip()]))
+
+
+def _tool_names_for_operation(operation_id: str, *, preferred_tool_names: tuple[str, ...] = ()) -> str:
+    item = str(operation_id or "").strip()
+    if not item:
+        return ""
+    if item == "op.memory_read" and "memory_search" in set(preferred_tool_names):
+        return "memory_search"
+    return _operation_to_visible_tool(item)
 
 
 def _dedupe(values: list[Any] | tuple[Any, ...]) -> list[str]:
@@ -567,6 +704,17 @@ def _build_ports(
 
 
 def _role_name_for_work_order(work_order: WorkOrder) -> str:
+    role_prompt = _runtime_role_prompt(work_order)
+    if role_prompt:
+        first_line = role_prompt.splitlines()[0].strip()
+        if first_line.startswith("你是一名"):
+            name = first_line.removeprefix("你是一名").split("。", 1)[0].strip()
+            if name:
+                return name
+        if first_line.startswith("你是"):
+            name = first_line.removeprefix("你是").strip(" “”\"'。")
+            if name:
+                return name
     if work_order.executor_type == "human":
         return "人工审核员"
     if work_order.work_kind == "node":
@@ -578,6 +726,10 @@ def _role_name_for_work_order(work_order: WorkOrder) -> str:
 
 def _role_summary_for_work_order(work_order: WorkOrder, agent_descriptor: Any | None) -> str:
     agent_name = str(getattr(agent_descriptor, "agent_name", "") or "").strip()
+    role_prompt = _runtime_role_prompt(work_order)
+    if role_prompt:
+        summary_lines = [line.strip() for line in role_prompt.splitlines() if line.strip()]
+        return "\n".join(summary_lines[:3])
     if work_order.executor_type == "human":
         return "你负责人工确认和人工结果回填，只处理当前工作单。"
     if work_order.work_kind == "node":
@@ -594,6 +746,9 @@ def _instruction_text_for_work_order(
 ) -> str:
     _ = runtime_profile
     agent_name = str(getattr(agent_descriptor, "agent_name", "") or "").strip()
+    role_prompt = _runtime_role_prompt(work_order)
+    if role_prompt:
+        return role_prompt
     if work_order.executor_type == "human":
         return (
             "你是一名人工执行者。"

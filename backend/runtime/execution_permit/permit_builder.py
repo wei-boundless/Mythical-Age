@@ -8,28 +8,43 @@ from .validation import validate_execution_permit
 
 def build_execution_permit(assembly: AgentAssemblyContract) -> ExecutionPermit:
     capability = assembly.capability_binding
+    policy = dict(capability.metadata.get("tool_execution_policy") or {})
+    explicit_visible_tools = _dedupe(
+        [
+            *list(policy.get("allowed_tool_names") or []),
+            *list(capability.visible_tools),
+        ]
+    )
+    denied_tools = set(_dedupe([*list(policy.get("denied_tool_names") or [])]))
+    denied_operations = set(_dedupe([*list(policy.get("denied_operation_refs") or []), *list(policy.get("blocked_operation_refs") or [])]))
     allowed_operations = _dedupe(
         [
             *list(capability.allowed_operations),
             *list(_default_agent_operations(assembly)),
         ]
     )
+    if denied_operations:
+        allowed_operations = [item for item in allowed_operations if item not in denied_operations]
     visible_tools = _dedupe(
         [
-            *list(capability.visible_tools),
+            *explicit_visible_tools,
             *[
-                _operation_to_tool_ref(item)
+                _operation_to_tool_ref(item, preferred_tool_names=explicit_visible_tools)
                 for item in allowed_operations
                 if item != "op.model_response"
             ],
         ]
     )
+    if denied_tools:
+        visible_tools = [item for item in visible_tools if item not in denied_tools]
     dispatchable_tools = _dedupe(
         [
             *list(capability.dispatchable_tools),
             *visible_tools,
         ]
     )
+    if denied_tools:
+        dispatchable_tools = [item for item in dispatchable_tools if item not in denied_tools]
     permit = ExecutionPermit(
         permit_id="",
         assembly_id=assembly.assembly_id,
@@ -52,12 +67,15 @@ def build_execution_permit(assembly: AgentAssemblyContract) -> ExecutionPermit:
             "assembly_role_summary": assembly.prompt_assembly.role_summary if assembly.prompt_assembly is not None else "",
             "visible_tools_source": "capability_binding",
             "dispatchable_tools_source": "capability_binding",
+            "tool_execution_policy": policy,
             "sandbox_policy": _sandbox_policy_snapshot(assembly),
             "approval_state_source": _approval_state_source(assembly),
         },
         metadata={
             "prompt_manifest_ref": assembly.prompt_manifest_ref,
             "output_boundary_id": assembly.output_boundary.boundary_id,
+            "model_requirement": dict(assembly.metadata.get("model_requirement") or {}),
+            "dynamic_memory_read_policy": dict(capability.metadata.get("dynamic_memory_read_policy") or {}),
         },
     )
     report = validate_execution_permit(permit)
@@ -120,10 +138,12 @@ def _sandbox_policy_snapshot(assembly: AgentAssemblyContract) -> dict[str, Any]:
     return dict(sandbox_policy)
 
 
-def _operation_to_tool_ref(operation_id: Any) -> str:
+def _operation_to_tool_ref(operation_id: Any, *, preferred_tool_names: list[str] | tuple[str, ...] = ()) -> str:
     item = str(operation_id or "").strip()
     if not item:
         return ""
+    if item == "op.memory_read" and "memory_search" in set(preferred_tool_names):
+        return "memory_search"
     return item.removeprefix("op.")
 
 

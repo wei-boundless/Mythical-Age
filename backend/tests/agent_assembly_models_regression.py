@@ -181,6 +181,90 @@ def test_direct_work_order_operation_policy_extends_visible_tools() -> None:
     assert "browser_control" in permit["model_visible_tool_refs"]
 
 
+def test_node_runtime_assembly_contract_drives_role_tools_and_model_budget() -> None:
+    base_dir = _base_dir()
+    role_prompt = (
+        "你是一名名家级中文商业网文长篇写手。\n"
+        "你必须先按需使用 memory_search 搜索任务记忆数据库，再依据大纲、细纲、人物和世界设定写出连续章节。"
+    )
+    runtime_assembly = {
+        "assembly_id": "runtime-assembly:chapter-draft",
+        "metadata": {
+            "role_prompt": role_prompt,
+            "dynamic_memory_read_policy": {
+                "allow_dynamic_read": True,
+                "dynamic_read_tool_name": "memory_search",
+            },
+            "contract_bindings": {
+                "runtime": {
+                    "model_requirement": {
+                        "profile_ref": "llm.deepseek.long_output_65536",
+                        "preferred_output_tokens": 65536,
+                        "min_output_tokens": 8192,
+                    },
+                    "tool_execution_policy": {
+                        "allowed_tool_names": ["memory_search"],
+                        "allowed_operation_refs": ["op.memory_read"],
+                        "denied_tool_names": [
+                            "read_file",
+                            "search_text",
+                            "search_files",
+                            "web_search",
+                            "fetch_url",
+                            "write_file",
+                            "delegate_to_agent",
+                        ],
+                        "database_search_only": True,
+                    },
+                },
+                "memory": {
+                    "dynamic_memory_read_policy": {
+                        "allow_dynamic_read": True,
+                        "dynamic_read_tool_name": "memory_search",
+                    },
+                },
+            },
+        },
+    }
+    work_order = NodeWorkOrder(
+        work_order_id="nodeexec:chapter-draft",
+        task_ref="task.writing.modular_novel.chapter_draft",
+        coordination_run_id="coordrun:test",
+        root_task_run_id="taskrun:root",
+        stage_id="chapter_draft",
+        node_id="chapter_draft",
+        agent_id="agent:writing_modular_creator",
+        agent_profile_id="writing_modular_creator_runtime",
+        runtime_lane="coordination_task",
+        runtime_assembly=runtime_assembly,
+    )
+    runtime_profile = AgentRuntimeProfile(
+        agent_profile_id="writing_modular_creator_runtime",
+        agent_id="agent:writing_modular_creator",
+        allowed_runtime_lanes=("coordination_task",),
+        allowed_operations=("op.model_response", "op.memory_read", "op.text_metric"),
+    )
+
+    assembly = build_agent_assembly_contract(work_order, base_dir=base_dir, agent_runtime_profile=runtime_profile)
+    permit = build_execution_permit(assembly)
+
+    assert assembly.prompt_assembly is not None
+    assert "名家级中文商业网文长篇写手" in assembly.prompt_assembly.role_name
+    assert assembly.prompt_assembly.instruction_text == role_prompt
+    assert "阶段任务执行者" not in assembly.prompt_assembly.instruction_text
+    assert assembly.metadata["model_requirement"]["preferred_output_tokens"] == 65536
+    assert assembly.prompt_assembly.metadata["model_requirement"]["preferred_output_tokens"] == 65536
+    assert "op.memory_read" in permit.allowed_operations
+    assert "memory_search" in permit.visible_tools
+    assert "memory_search" in permit.model_visible_tool_refs
+    assert "memory_read" not in permit.visible_tools
+    for forbidden in ("read_file", "search_text", "search_files", "web_search", "fetch_url", "write_file", "delegate_to_agent"):
+        assert forbidden not in permit.visible_tools
+        assert forbidden not in permit.dispatchable_tools
+    assert permit.metadata["model_requirement"]["preferred_output_tokens"] == 65536
+    assert permit.metadata["dynamic_memory_read_policy"]["dynamic_read_tool_name"] == "memory_search"
+
+
 def test_agent_invocation_is_single_boundary_for_node_work_order() -> None:
     base_dir = _base_dir()
     work_order = NodeWorkOrder(

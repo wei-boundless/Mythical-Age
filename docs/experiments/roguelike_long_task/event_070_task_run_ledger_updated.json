@@ -1,0 +1,530 @@
+{
+  "event_id": "rtevt:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e:70:1d008dd3",
+  "task_run_id": "taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e",
+  "event_type": "task_run_ledger_updated",
+  "offset": 70,
+  "created_at": 1779512847.6274717,
+  "refs": {
+    "task_run_ledger_ref": "taskrun-ledger:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e",
+    "current_step_id": "build_evidence_packet",
+    "task_contract_ref": "taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response"
+  },
+  "payload": {
+    "task_run_ledger": {
+      "ledger_id": "taskrun-ledger:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e",
+      "task_run_id": "taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e",
+      "task_id": "taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response",
+      "task_spec_ref": "taskspec:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response",
+      "template_id": "runtime.recipe.professional_task",
+      "status": "running",
+      "current_step_id": "build_evidence_packet",
+      "requested_outputs": [
+        "final_answer",
+        "interaction_mode_summary"
+      ],
+      "step_runs": [
+        {
+          "step_id": "bind_mode_policy",
+          "title": "Bind mode policy",
+          "step_kind": "understand",
+          "executor_type": "model",
+          "status": "completed",
+          "required_operations": [
+            "op.model_response"
+          ],
+          "optional_operations": [],
+          "input_refs": [],
+          "output_contract_id": "",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [],
+          "output_refs": [],
+          "entered_at": 1779512790.324783,
+          "completed_at": 1779512791.353334,
+          "attempt_count": 1,
+          "failure_reason": "",
+          "step_result_ref": "",
+          "executor_ref": "professional_task_run",
+          "diagnostics": {
+            "transition_reason": "professional_task_mode_policy_bound",
+            "professional_state": "mode_policy_bound",
+            "interaction_mode": "professional_mode",
+            "semantic_task_type": "code_fix_execution"
+          },
+          "authority": "task_system.task_step_run"
+        },
+        {
+          "step_id": "draft_semantic_plan",
+          "title": "Draft semantic plan",
+          "step_kind": "plan",
+          "executor_type": "model",
+          "status": "completed",
+          "required_operations": [
+            "op.model_response"
+          ],
+          "optional_operations": [],
+          "input_refs": [],
+          "output_contract_id": "",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [],
+          "output_refs": [
+            "professional_control_step:draft_semantic_plan"
+          ],
+          "entered_at": 1779512791.3701236,
+          "completed_at": 1779512791.8939443,
+          "attempt_count": 1,
+          "failure_reason": "",
+          "step_result_ref": "",
+          "executor_ref": "professional_task_run",
+          "diagnostics": {
+            "transition_reason": "professional_task_action_step_selected",
+            "professional_state": "mode_policy_bound",
+            "interaction_mode": "professional_mode",
+            "semantic_task_type": "code_fix_execution"
+          },
+          "authority": "task_system.task_step_run"
+        },
+        {
+          "step_id": "build_evidence_packet",
+          "title": "Build evidence packet",
+          "step_kind": "analyze",
+          "executor_type": "model",
+          "status": "running",
+          "required_operations": [
+            "op.model_response"
+          ],
+          "optional_operations": [],
+          "input_refs": [],
+          "output_contract_id": "",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [],
+          "output_refs": [],
+          "entered_at": 1779512847.6059165,
+          "completed_at": 0.0,
+          "attempt_count": 1,
+          "failure_reason": "",
+          "step_result_ref": "",
+          "executor_ref": "professional_task_run",
+          "diagnostics": {
+            "transition_reason": "professional_task_step_evaluated",
+            "professional_state": "step_evaluated",
+            "interaction_mode": "professional_mode"
+          },
+          "authority": "task_system.task_step_run"
+        },
+        {
+          "step_id": "validate_deliverable",
+          "title": "Validate deliverable",
+          "step_kind": "verify",
+          "executor_type": "model",
+          "status": "pending",
+          "required_operations": [
+            "op.model_response"
+          ],
+          "optional_operations": [],
+          "input_refs": [],
+          "output_contract_id": "",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [],
+          "output_refs": [],
+          "entered_at": 0.0,
+          "completed_at": 0.0,
+          "attempt_count": 0,
+          "failure_reason": "",
+          "step_result_ref": "",
+          "executor_ref": "",
+          "diagnostics": {},
+          "authority": "task_system.task_step_run"
+        },
+        {
+          "step_id": "professional.mode_policy",
+          "title": "绑定交互模式和任务边界",
+          "step_kind": "plan_item",
+          "executor_type": "model",
+          "status": "completed",
+          "required_operations": [
+            "op.model_response"
+          ],
+          "optional_operations": [],
+          "input_refs": [],
+          "output_contract_id": "",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [],
+          "output_refs": [
+            "professional_plan_item:professional.mode_policy"
+          ],
+          "entered_at": 1779512791.909244,
+          "completed_at": 1779512791.922989,
+          "attempt_count": 1,
+          "failure_reason": "",
+          "step_result_ref": "",
+          "executor_ref": "professional_task_run",
+          "diagnostics": {
+            "plan_item": {
+              "plan_item_id": "professional.mode_policy",
+              "title": "绑定交互模式和任务边界",
+              "step_kind": "plan_item",
+              "executor_type": "model",
+              "action_kind": "main_agent",
+              "summary": "professional_mode: 你是一名独立游戏原型开发负责人。\n\n你的目标是在当前项目中完成一个可运行、可测试、可迭代的浏览器端 2D 肉鸽游戏垂直切片。\n\n你必须按阶段推进：项目简报、玩法设计、技术设计、资产清单、生图提示词与资源生成、MVP 实现、资源接入、运行验证、最终报告。\n\n最低产品范围：\n- 俯视角移动。\n- 玩家攻击。\n- 至少三类敌人或三种敌人行为。\n- 房间、竞技场或波",
+              "required_operations": [
+                "op.model_response"
+              ],
+              "contract_required": true
+            },
+            "transition_reason": "professional_task_prerequisite_step_completed",
+            "interaction_mode": "professional_mode",
+            "professional_state": "step_evaluated",
+            "execution_scope": "goal_and_scope_locked"
+          },
+          "authority": "task_system.task_step_run"
+        },
+        {
+          "step_id": "professional.semantic_contract",
+          "title": "绑定语义任务契约",
+          "step_kind": "plan_item",
+          "executor_type": "model",
+          "status": "completed",
+          "required_operations": [
+            "op.model_response"
+          ],
+          "optional_operations": [],
+          "input_refs": [],
+          "output_contract_id": "",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [],
+          "output_refs": [
+            "professional_plan_item:professional.semantic_contract"
+          ],
+          "entered_at": 1779512791.9368165,
+          "completed_at": 1779512791.9460764,
+          "attempt_count": 1,
+          "failure_reason": "",
+          "step_result_ref": "",
+          "executor_ref": "professional_task_run",
+          "diagnostics": {
+            "plan_item": {
+              "plan_item_id": "professional.semantic_contract",
+              "title": "绑定语义任务契约",
+              "step_kind": "plan_item",
+              "executor_type": "model",
+              "action_kind": "main_agent",
+              "summary": "任务类型 code_fix_execution；交付物：change_summary, changed_files, verification_result_or_limitation。",
+              "required_operations": [
+                "op.model_response"
+              ],
+              "contract_required": true
+            },
+            "transition_reason": "professional_task_prerequisite_step_completed",
+            "interaction_mode": "professional_mode",
+            "professional_state": "step_evaluated",
+            "execution_scope": "goal_and_scope_locked"
+          },
+          "authority": "task_system.task_step_run"
+        },
+        {
+          "step_id": "professional.reasoning_steps",
+          "title": "按专业步骤完成结构化分析",
+          "step_kind": "plan_item",
+          "executor_type": "model",
+          "status": "completed",
+          "required_operations": [
+            "op.model_response"
+          ],
+          "optional_operations": [],
+          "input_refs": [],
+          "output_contract_id": "",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [],
+          "output_refs": [
+            "professional_plan_item:professional.reasoning_steps"
+          ],
+          "entered_at": 1779512791.9553368,
+          "completed_at": 1779512791.963002,
+          "attempt_count": 1,
+          "failure_reason": "",
+          "step_result_ref": "",
+          "executor_ref": "professional_task_run",
+          "diagnostics": {
+            "plan_item": {
+              "plan_item_id": "professional.reasoning_steps",
+              "title": "按专业步骤完成结构化分析",
+              "step_kind": "plan_item",
+              "executor_type": "model",
+              "action_kind": "main_agent",
+              "summary": "inspect_relevant_code -> plan_structural_change -> edit_scoped_files -> run_or_explain_verification",
+              "required_operations": [
+                "op.model_response"
+              ],
+              "contract_required": true
+            },
+            "transition_reason": "professional_task_prerequisite_step_completed",
+            "interaction_mode": "professional_mode",
+            "professional_state": "step_evaluated",
+            "execution_scope": "goal_and_scope_locked"
+          },
+          "authority": "task_system.task_step_run"
+        },
+        {
+          "step_id": "professional.evidence_packet",
+          "title": "构建证据包",
+          "step_kind": "plan_item",
+          "executor_type": "model",
+          "status": "completed",
+          "required_operations": [
+            "op.model_response"
+          ],
+          "optional_operations": [],
+          "input_refs": [],
+          "output_contract_id": "",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [],
+          "output_refs": [
+            "professional_plan_item:professional.evidence_packet"
+          ],
+          "entered_at": 1779512791.9890373,
+          "completed_at": 1779512792.0089424,
+          "attempt_count": 1,
+          "failure_reason": "",
+          "step_result_ref": "",
+          "executor_ref": "professional_task_run",
+          "diagnostics": {
+            "plan_item": {
+              "plan_item_id": "professional.evidence_packet",
+              "title": "构建证据包",
+              "step_kind": "plan_item",
+              "executor_type": "model",
+              "action_kind": "main_agent",
+              "summary": "将工具观察、材料事实、失败分类和限制先沉淀为 evidence packet。",
+              "required_operations": [
+                "op.model_response"
+              ],
+              "contract_required": true
+            },
+            "transition_reason": "professional_task_prerequisite_step_completed",
+            "interaction_mode": "professional_mode",
+            "professional_state": "step_evaluated",
+            "execution_scope": "goal_and_scope_locked"
+          },
+          "authority": "task_system.task_step_run"
+        },
+        {
+          "step_id": "professional.produce_output",
+          "title": "执行真实代码或产物修改",
+          "step_kind": "plan_item",
+          "executor_type": "model",
+          "status": "completed",
+          "required_operations": [
+            "op.write_file",
+            "op.edit_file"
+          ],
+          "optional_operations": [],
+          "input_refs": [],
+          "output_contract_id": "",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [
+            "rtobs:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e:26091e3a"
+          ],
+          "output_refs": [
+            "professional_observation:rtobs:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e:26091e3a"
+          ],
+          "entered_at": 1779512792.030382,
+          "completed_at": 1779512847.5905812,
+          "attempt_count": 1,
+          "failure_reason": "",
+          "step_result_ref": "",
+          "executor_ref": "professional_task_run",
+          "diagnostics": {
+            "plan_item": {
+              "plan_item_id": "professional.produce_output",
+              "title": "执行真实代码或产物修改",
+              "step_kind": "plan_item",
+              "executor_type": "model",
+              "action_kind": "main_agent",
+              "summary": "必须通过 write_file/edit_file 产出：docs/experiments/roguelike_long_task/final_report.md",
+              "required_operations": [
+                "op.write_file",
+                "op.edit_file"
+              ],
+              "contract_required": true
+            },
+            "transition_reason": "professional_task_observation_received",
+            "professional_state": "step_evaluated",
+            "interaction_mode": "professional_mode",
+            "execution_scope": "controlled_observation_completed"
+          },
+          "authority": "task_system.task_step_run"
+        },
+        {
+          "step_id": "professional.verify_output",
+          "title": "运行真实验证或说明限制",
+          "step_kind": "plan_item",
+          "executor_type": "model",
+          "status": "pending",
+          "required_operations": [
+            "op.shell"
+          ],
+          "optional_operations": [],
+          "input_refs": [],
+          "output_contract_id": "",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [],
+          "output_refs": [],
+          "entered_at": 0.0,
+          "completed_at": 0.0,
+          "attempt_count": 0,
+          "failure_reason": "",
+          "step_result_ref": "",
+          "executor_ref": "",
+          "diagnostics": {
+            "plan_item": {
+              "plan_item_id": "professional.verify_output",
+              "title": "运行真实验证或说明限制",
+              "step_kind": "plan_item",
+              "executor_type": "model",
+              "action_kind": "main_agent",
+              "summary": "使用 terminal 运行验证命令，或明确说明无法验证的真实限制。",
+              "required_operations": [
+                "op.shell"
+              ],
+              "contract_required": true
+            }
+          },
+          "authority": "task_system.task_step_run"
+        },
+        {
+          "step_id": "professional.synthesis",
+          "title": "综合证据形成专业结论",
+          "step_kind": "plan_item",
+          "executor_type": "model",
+          "status": "pending",
+          "required_operations": [
+            "op.model_response"
+          ],
+          "optional_operations": [],
+          "input_refs": [],
+          "output_contract_id": "",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [],
+          "output_refs": [],
+          "entered_at": 0.0,
+          "completed_at": 0.0,
+          "attempt_count": 0,
+          "failure_reason": "",
+          "step_result_ref": "",
+          "executor_ref": "",
+          "diagnostics": {
+            "plan_item": {
+              "plan_item_id": "professional.synthesis",
+              "title": "综合证据形成专业结论",
+              "step_kind": "plan_item",
+              "executor_type": "model",
+              "action_kind": "main_agent",
+              "summary": "最终回答必须覆盖验收词：修改、文件、验证、测试、原因；并说明真实完成项、限制和下一步。",
+              "required_operations": [
+                "op.model_response"
+              ],
+              "response_must_include": [
+                "修改",
+                "文件",
+                "验证",
+                "测试",
+                "原因"
+              ],
+              "contract_required": true
+            }
+          },
+          "authority": "task_system.task_step_run"
+        },
+        {
+          "step_id": "professional.validate_deliverable",
+          "title": "按交付物验证最终回答",
+          "step_kind": "plan_item",
+          "executor_type": "model",
+          "status": "pending",
+          "required_operations": [
+            "op.model_response"
+          ],
+          "optional_operations": [],
+          "input_refs": [],
+          "output_contract_id": "",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [],
+          "output_refs": [],
+          "entered_at": 0.0,
+          "completed_at": 0.0,
+          "attempt_count": 0,
+          "failure_reason": "",
+          "step_result_ref": "",
+          "executor_ref": "",
+          "diagnostics": {
+            "plan_item": {
+              "plan_item_id": "professional.validate_deliverable",
+              "title": "按交付物验证最终回答",
+              "step_kind": "plan_item",
+              "executor_type": "model",
+              "action_kind": "main_agent",
+              "summary": "检查语义交付物、证据对齐、协议泄漏和未支持声明。",
+              "required_operations": [
+                "op.model_response"
+              ],
+              "contract_required": true
+            }
+          },
+          "authority": "task_system.task_step_run"
+        },
+        {
+          "step_id": "commit_final_answer",
+          "title": "Commit final answer",
+          "step_kind": "finalize",
+          "executor_type": "model",
+          "status": "pending",
+          "required_operations": [
+            "op.model_response"
+          ],
+          "optional_operations": [],
+          "input_refs": [],
+          "output_contract_id": "",
+          "stop_policy": "on_success",
+          "retry_policy": {},
+          "observation_refs": [],
+          "output_refs": [],
+          "entered_at": 0.0,
+          "completed_at": 0.0,
+          "attempt_count": 0,
+          "failure_reason": "",
+          "step_result_ref": "",
+          "executor_ref": "",
+          "diagnostics": {},
+          "authority": "task_system.task_step_run"
+        }
+      ],
+      "refs": {
+        "task_contract_ref": "taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response",
+        "recipe_id": "runtime.recipe.professional_task"
+      },
+      "diagnostics": {
+        "current_step_id": "build_evidence_packet",
+        "transition_reason": "professional_task_semantic_plan_drafted",
+        "interaction_mode": "professional_mode"
+      },
+      "authority": "task_system.task_run_ledger"
+    },
+    "reason": "professional_task_step_evaluated",
+    "diagnostics": {
+      "interaction_mode": "professional_mode",
+      "observation_ref_count": 1
+    }
+  }
+}

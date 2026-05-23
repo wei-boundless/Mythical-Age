@@ -158,7 +158,7 @@ class ModelRuntime:
     @property
     def max_output_tokens(self) -> int:
         static = self.settings_service.static
-        return max(1, int(getattr(static, "llm_max_output_tokens", 32768) or 32768))
+        return max(1, int(getattr(static, "llm_max_output_tokens", 65536) or 65536))
 
     @property
     def long_output_timeout_seconds(self) -> float:

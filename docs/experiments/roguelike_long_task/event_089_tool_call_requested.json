@@ -1,0 +1,40 @@
+{
+  "event_id": "rtevt:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e:89:eb65ba91",
+  "task_run_id": "taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e",
+  "event_type": "tool_call_requested",
+  "offset": 89,
+  "created_at": 1779512853.8336053,
+  "refs": {
+    "action_request_ref": "rtact:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e:eace61e6",
+    "directive_ref": "runtime-directive:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:model-response",
+    "operation_id": "op.shell",
+    "task_step_ref": "build_evidence_packet"
+  },
+  "payload": {
+    "action_request": {
+      "request_id": "rtact:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e:eace61e6",
+      "task_run_id": "taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e",
+      "request_type": "tool_call",
+      "step_id": "build_evidence_packet",
+      "directive_ref": "runtime-directive:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:model-response",
+      "operation_id": "op.shell",
+      "payload": {
+        "tool_name": "terminal",
+        "tool_call": {
+          "id": "call_00_V0NDMHXpVMqXbdG0Al3W1121",
+          "name": "terminal",
+          "args": {
+            "command": "Get-ChildItem -Path \"docs/experiments/roguelike_long_task\" -Recurse -File | ForEach-Object { \"$($_.FullName) ($($_.Length) bytes)\" }"
+          },
+          "type": "tool_call",
+          "source": "native_tool_call"
+        },
+        "execution_state": "requested_not_dispatched",
+        "assistant_content_preview": "",
+        "assistant_reasoning_preview": ""
+      },
+      "created_at": 1779512853.8106644,
+      "authority": "orchestration.runtime_action_request"
+    }
+  }
+}

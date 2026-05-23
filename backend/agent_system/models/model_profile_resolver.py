@@ -117,7 +117,7 @@ class ModelProfileResolver:
 
         max_output_tokens = _positive_int(
             agent_model_profile.max_output_tokens,
-            _positive_int(defaults.get("max_output_tokens"), int(getattr(settings, "llm_max_output_tokens", 32768) or 32768)),
+            _positive_int(defaults.get("max_output_tokens"), int(getattr(settings, "llm_max_output_tokens", 65536) or 65536)),
         )
         if requirement.preferred_output_tokens:
             max_output_tokens = max(max_output_tokens, int(requirement.preferred_output_tokens))

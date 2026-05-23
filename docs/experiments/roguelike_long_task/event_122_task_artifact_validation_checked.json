@@ -1,0 +1,17 @@
+{
+  "event_id": "rtevt:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e:122:59cef980",
+  "task_run_id": "taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e",
+  "event_type": "task_artifact_validation_checked",
+  "offset": 122,
+  "created_at": 1779512862.9011292,
+  "refs": {
+    "task_contract_ref": "taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response"
+  },
+  "payload": {
+    "validation": {
+      "passed": true,
+      "required": false,
+      "reason": "no artifact_file_required validation rule"
+    }
+  }
+}

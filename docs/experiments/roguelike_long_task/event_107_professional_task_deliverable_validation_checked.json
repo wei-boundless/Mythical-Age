@@ -1,0 +1,545 @@
+{
+  "event_id": "rtevt:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e:107:653daab2",
+  "task_run_id": "taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e",
+  "event_type": "professional_task_deliverable_validation_checked",
+  "offset": 107,
+  "created_at": 1779512862.3442798,
+  "refs": {
+    "task_contract_ref": "taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response",
+    "task_step_ref": "professional.validate_deliverable"
+  },
+  "payload": {
+    "verification": {
+      "passed": false,
+      "satisfactions": [
+        {
+          "obligation_key": "read_material",
+          "required": false,
+          "satisfied": true,
+          "evidence_refs": [],
+          "missing_reason": ""
+        },
+        {
+          "obligation_key": "write_output",
+          "required": true,
+          "satisfied": true,
+          "evidence_refs": [
+            "rtobs:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e:26091e3a"
+          ],
+          "missing_reason": ""
+        },
+        {
+          "obligation_key": "verify_command",
+          "required": true,
+          "satisfied": true,
+          "evidence_refs": [
+            "rtobs:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e:3a89e8f8",
+            "rtobs:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e:8f6c5a28"
+          ],
+          "missing_reason": ""
+        },
+        {
+          "obligation_key": "delegate_review",
+          "required": false,
+          "satisfied": true,
+          "evidence_refs": [],
+          "missing_reason": ""
+        }
+      ],
+      "missing_required_actions": [],
+      "missing_material_paths": [],
+      "missing_output_paths": [],
+      "missing_response_terms": [
+        "测试",
+        "原因"
+      ],
+      "missing_deliverables": [],
+      "unsupported_claims": [],
+      "protocol_leak_detected": false,
+      "checks": {
+        "has_final_content": true,
+        "terminal_reason": "completed",
+        "tool_execution_enabled": true,
+        "tool_call_count": 3,
+        "tool_observation_count": 3,
+        "delegation_enabled": true,
+        "delegation_observation_count": 0,
+        "write_output_required": true,
+        "write_observation_count": 1,
+        "required_output_paths": [
+          "docs/experiments/roguelike_long_task/final_report.md"
+        ],
+        "missing_output_paths": [],
+        "artifact_observation_count": 1,
+        "verification_command_count": 2,
+        "write_budget_reserved": true,
+        "tool_budget_exhausted": false,
+        "contract_gate_blocked": true,
+        "contract_passed": false,
+        "missing_required_actions": [],
+        "missing_response_terms": [
+          "测试",
+          "原因"
+        ],
+        "protocol_leak_detected": false,
+        "tool_claim_guard": "event_guarded",
+        "summary_check_required": true,
+        "tool_observation_ledger": {
+          "record_count": 3,
+          "read_count": 0,
+          "write_count": 1,
+          "verification_count": 2,
+          "delegation_count": 0,
+          "observed_paths": [
+            "docs/experiments/roguelike_long_task/final_report.md"
+          ],
+          "matched_paths": [],
+          "artifact_refs": [
+            {
+              "path": "docs/experiments/roguelike_long_task/final_report.md",
+              "kind": "file",
+              "sandbox": {
+                "enabled": true,
+                "backend": "local_overlay",
+                "mode": "workspace_overlay",
+                "sandbox_root": "D:\\AI应用\\langchain-agent\\output\\sandbox_runs\\session_ac61c695a2a246f493d92b83555f9039_scope_docs_experiments_roguelike_long_task\\workspace",
+                "workspace_root": "D:\\AI应用\\langchain-agent",
+                "tool_name": "write_file",
+                "real_workspace_access": "read_only",
+                "overlay_copy_on_write": true
+              },
+              "source": "write_file"
+            }
+          ],
+          "verification_passed": true,
+          "satisfied_obligations": [
+            "verify_command",
+            "write_output"
+          ]
+        },
+        "semantic_task_type": "code_fix_execution"
+      },
+      "authority": "orchestration.obligation_validation",
+      "interaction_mode": "professional_mode",
+      "mode": "professional_mode",
+      "semantic_task_type": "code_fix_execution",
+      "evidence_packet": {
+        "packet_id": "evidence:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e:general",
+        "task_run_id": "taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e",
+        "semantic_contract_ref": "semantic-task:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response",
+        "source_observation_refs": [
+          "rtobs:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e:26091e3a",
+          "rtobs:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e:3a89e8f8",
+          "rtobs:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e:8f6c5a28"
+        ],
+        "material_refs": [
+          {
+            "path": "docs/experiments/roguelike_long_task/final_report.md",
+            "kind": "text",
+            "role": "material",
+            "required": true
+          }
+        ],
+        "facts": [
+          {
+            "fact_type": "observation",
+            "preview": "Write succeeded: docs/experiments/roguelike_long_task/final_report.md",
+            "observation_ref": "rtobs:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e:26091e3a"
+          },
+          {
+            "fact_type": "observation",
+            "preview": "FullName                                                                                                               \n--------                                                                                                               \nD:\\AI应用\\langchain-agent\\output\\sandbox_runs\\session_ac61c695a2a246f493d92b83555f9039_scope_docs_experiments_roguelik...",
+            "observation_ref": "rtobs:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e:3a89e8f8"
+          },
+          {
+            "fact_type": "observation",
+            "preview": "D:\\AI应用\\langchain-agent\\output\\sandbox_runs\\session_ac61c695a2a246f493d92b83555f9039_scope_docs_experiments_roguelike_long_task\\workspace\\docs\\experiments\\roguelike_long_task\\final_report.md (8748 bytes)",
+            "observation_ref": "rtobs:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e:8f6c5a28"
+          }
+        ],
+        "classifications": [],
+        "limitations": [],
+        "confidence": "medium",
+        "authority": "orchestration.evidence_packet"
+      },
+      "deliverable_validation": {
+        "passed": true,
+        "task_goal_type": "code_fix_execution",
+        "missing_deliverables": [],
+        "protocol_leak_detected": false,
+        "unsupported_claims": [],
+        "evidence_alignment": {
+          "accepted": true,
+          "mode": "generic"
+        },
+        "diagnostics": {},
+        "authority": "orchestration.deliverable_validator"
+      },
+      "obligation_validation": {
+        "passed": false,
+        "satisfactions": [
+          {
+            "obligation_key": "read_material",
+            "required": false,
+            "satisfied": true,
+            "evidence_refs": [],
+            "missing_reason": ""
+          },
+          {
+            "obligation_key": "write_output",
+            "required": true,
+            "satisfied": true,
+            "evidence_refs": [
+              "rtobs:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e:26091e3a"
+            ],
+            "missing_reason": ""
+          },
+          {
+            "obligation_key": "verify_command",
+            "required": true,
+            "satisfied": true,
+            "evidence_refs": [
+              "rtobs:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e:3a89e8f8",
+              "rtobs:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e:8f6c5a28"
+            ],
+            "missing_reason": ""
+          },
+          {
+            "obligation_key": "delegate_review",
+            "required": false,
+            "satisfied": true,
+            "evidence_refs": [],
+            "missing_reason": ""
+          }
+        ],
+        "missing_required_actions": [],
+        "missing_material_paths": [],
+        "missing_output_paths": [],
+        "missing_response_terms": [
+          "测试",
+          "原因"
+        ],
+        "missing_deliverables": [],
+        "unsupported_claims": [],
+        "protocol_leak_detected": false,
+        "checks": {
+          "has_final_content": true,
+          "terminal_reason": "completed",
+          "tool_execution_enabled": true,
+          "tool_call_count": 3,
+          "tool_observation_count": 3,
+          "delegation_enabled": true,
+          "delegation_observation_count": 0,
+          "write_output_required": true,
+          "write_observation_count": 1,
+          "required_output_paths": [
+            "docs/experiments/roguelike_long_task/final_report.md"
+          ],
+          "missing_output_paths": [],
+          "artifact_observation_count": 1,
+          "verification_command_count": 2,
+          "write_budget_reserved": true,
+          "tool_budget_exhausted": false,
+          "contract_gate_blocked": true,
+          "contract_passed": false,
+          "missing_required_actions": [],
+          "missing_response_terms": [
+            "测试",
+            "原因"
+          ],
+          "protocol_leak_detected": false,
+          "tool_claim_guard": "event_guarded",
+          "summary_check_required": true,
+          "tool_observation_ledger": {
+            "record_count": 3,
+            "read_count": 0,
+            "write_count": 1,
+            "verification_count": 2,
+            "delegation_count": 0,
+            "observed_paths": [
+              "docs/experiments/roguelike_long_task/final_report.md"
+            ],
+            "matched_paths": [],
+            "artifact_refs": [
+              {
+                "path": "docs/experiments/roguelike_long_task/final_report.md",
+                "kind": "file",
+                "sandbox": {
+                  "enabled": true,
+                  "backend": "local_overlay",
+                  "mode": "workspace_overlay",
+                  "sandbox_root": "D:\\AI应用\\langchain-agent\\output\\sandbox_runs\\session_ac61c695a2a246f493d92b83555f9039_scope_docs_experiments_roguelike_long_task\\workspace",
+                  "workspace_root": "D:\\AI应用\\langchain-agent",
+                  "tool_name": "write_file",
+                  "real_workspace_access": "read_only",
+                  "overlay_copy_on_write": true
+                },
+                "source": "write_file"
+              }
+            ],
+            "verification_passed": true,
+            "satisfied_obligations": [
+              "verify_command",
+              "write_output"
+            ]
+          },
+          "semantic_task_type": "code_fix_execution"
+        },
+        "authority": "orchestration.obligation_validation"
+      },
+      "professional_run_state": {
+        "run_state_id": "professional-run-state:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e",
+        "task_run_id": "taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e",
+        "state": "blocked",
+        "transitions": [
+          {
+            "from_state": "initialized",
+            "to_state": "mode_policy_bound",
+            "reason": "mode_policy_bound",
+            "evidence_refs": []
+          },
+          {
+            "from_state": "mode_policy_bound",
+            "to_state": "obligation_bound",
+            "reason": "execution_obligation_bound",
+            "evidence_refs": []
+          },
+          {
+            "from_state": "obligation_bound",
+            "to_state": "prototype_bound",
+            "reason": "strategy_prototype_bound",
+            "evidence_refs": []
+          },
+          {
+            "from_state": "prototype_bound",
+            "to_state": "plan_drafted",
+            "reason": "semantic_plan_drafted",
+            "evidence_refs": []
+          },
+          {
+            "from_state": "plan_drafted",
+            "to_state": "action_dispatched",
+            "reason": "action_dispatched",
+            "evidence_refs": []
+          },
+          {
+            "from_state": "action_dispatched",
+            "to_state": "artifact_written",
+            "reason": "write_observation_received",
+            "evidence_refs": [
+              "rtobs:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e:26091e3a"
+            ]
+          },
+          {
+            "from_state": "artifact_written",
+            "to_state": "verification_observed",
+            "reason": "verification_observation_received",
+            "evidence_refs": [
+              "rtobs:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e:3a89e8f8"
+            ]
+          },
+          {
+            "from_state": "verification_observed",
+            "to_state": "verification_observed",
+            "reason": "verification_observation_received",
+            "evidence_refs": [
+              "rtobs:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e:8f6c5a28"
+            ]
+          },
+          {
+            "from_state": "verification_observed",
+            "to_state": "deliverable_validating",
+            "reason": "deliverable_validation_ready",
+            "evidence_refs": [
+              "rtobs:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e:26091e3a",
+              "rtobs:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e:3a89e8f8",
+              "rtobs:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e:8f6c5a28"
+            ]
+          },
+          {
+            "from_state": "deliverable_validating",
+            "to_state": "blocked",
+            "reason": "deliverable_validation_checked",
+            "evidence_refs": [
+              "rtobs:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e:26091e3a",
+              "rtobs:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e:3a89e8f8",
+              "rtobs:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e:8f6c5a28"
+            ]
+          }
+        ],
+        "unsatisfied_obligations": [
+          "测试",
+          "原因"
+        ],
+        "blocked_reason": "unsatisfied_execution_obligations",
+        "authority": "orchestration.professional_run_state",
+        "diagnostics": {
+          "execution_obligation": {
+            "obligation_id": "execution-obligation:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response",
+            "user_goal": "你是一名独立游戏原型开发负责人。\n\n你的目标是在当前项目中完成一个可运行、可测试、可迭代的浏览器端 2D 肉鸽游戏垂直切片。\n\n你必须按阶段推进：项目简报、玩法设计、技术设计、资产清单、生图提示词与资源生成、MVP 实现、资源接入、运行验证、最终报告。\n\n最低产品范围：\n- 俯视角移动。\n- 玩家攻击。\n- 至少三类敌人或三种敌人行为。\n- 房间、竞技场或波次推进。\n- 经验、金币或奖励拾取。\n- 升级三选一，至少三个升级选项。\n- Boss 或精英敌人。\n- 死亡或胜利状态。\n- 可见 HUD。\n- 至少一个生图资源真实显示在游戏里。\n\n你需要真实修改代码、真实生成或接入至少一个图像资产、真实启动项目并验证。\n你不能把未运行、未验证的功能说成已经完成。\n遇到失败时，追踪原因、修复并重新验证。\n\n请把阶段产物写入 docs/experiments/roguelike_long_task/，最终报告写入 docs/experiments/roguelike_long_task/final_report.md。",
+            "required_reads": [],
+            "required_writes": [
+              {
+                "kind": "workspace_change",
+                "required": true,
+                "source": "user_goal"
+              }
+            ],
+            "required_commands": [],
+            "required_deliverables": [
+              "change_summary",
+              "changed_files"
+            ],
+            "required_verifications": [],
+            "forbidden_actions": [],
+            "confidence": 0.55,
+            "extraction_evidence": {
+              "read_paths": [],
+              "write_required": true,
+              "verify_required": false,
+              "forbid_write": false,
+              "deliverable_markers": [
+                "产物",
+                "报告"
+              ]
+            },
+            "authority": "runtime.execution_obligation"
+          },
+          "strategy_prototype_id": "code_change_execution",
+          "plan_item_count": 8,
+          "tool_execution_enabled": true,
+          "tool_observation_ledger": {
+            "record_count": 3,
+            "read_count": 0,
+            "write_count": 1,
+            "verification_count": 2,
+            "delegation_count": 0,
+            "observed_paths": [
+              "docs/experiments/roguelike_long_task/final_report.md"
+            ],
+            "matched_paths": [],
+            "artifact_refs": [
+              {
+                "path": "docs/experiments/roguelike_long_task/final_report.md",
+                "kind": "file",
+                "sandbox": {
+                  "enabled": true,
+                  "backend": "local_overlay",
+                  "mode": "workspace_overlay",
+                  "sandbox_root": "D:\\AI应用\\langchain-agent\\output\\sandbox_runs\\session_ac61c695a2a246f493d92b83555f9039_scope_docs_experiments_roguelike_long_task\\workspace",
+                  "workspace_root": "D:\\AI应用\\langchain-agent",
+                  "tool_name": "write_file",
+                  "real_workspace_access": "read_only",
+                  "overlay_copy_on_write": true
+                },
+                "source": "write_file"
+              }
+            ],
+            "verification_passed": true,
+            "satisfied_obligations": [
+              "verify_command",
+              "write_output"
+            ]
+          },
+          "verification_passed": false,
+          "terminal_reason": "partial_contract_failed"
+        }
+      },
+      "tool_observation_ledger": {
+        "ledger_id": "tool-observation-ledger:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e",
+        "task_run_id": "taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e",
+        "records": [
+          {
+            "observation_ref": "rtobs:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e:26091e3a",
+            "tool_name": "write_file",
+            "tool_args": {
+              "path": "docs/experiments/roguelike_long_task/final_report.md",
+              "content": {
+                "content_chars": 4857
+              }
+            },
+            "result_preview": "Write succeeded: docs/experiments/roguelike_long_task/final_report.md",
+            "side_effect_kind": "write",
+            "satisfies": [
+              "write_output"
+            ],
+            "status": "ok",
+            "observed_paths": [
+              "docs/experiments/roguelike_long_task/final_report.md"
+            ],
+            "matched_paths": [],
+            "artifact_refs": [
+              {
+                "path": "docs/experiments/roguelike_long_task/final_report.md",
+                "kind": "file",
+                "sandbox": {
+                  "enabled": true,
+                  "backend": "local_overlay",
+                  "mode": "workspace_overlay",
+                  "sandbox_root": "D:\\AI应用\\langchain-agent\\output\\sandbox_runs\\session_ac61c695a2a246f493d92b83555f9039_scope_docs_experiments_roguelike_long_task\\workspace",
+                  "workspace_root": "D:\\AI应用\\langchain-agent",
+                  "tool_name": "write_file",
+                  "real_workspace_access": "read_only",
+                  "overlay_copy_on_write": true
+                },
+                "source": "write_file"
+              }
+            ],
+            "command_receipt": {},
+            "side_effect_hash": "22c9de0f157ddb2223dae03b7fe5a45fe04c45d862ea7305effe478379cdb46c",
+            "authority": "orchestration.tool_observation_record"
+          },
+          {
+            "observation_ref": "rtobs:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e:3a89e8f8",
+            "tool_name": "terminal",
+            "tool_args": {
+              "command": "Get-ChildItem -Path docs/experiments/roguelike_long_task -Recurse | Select-Object FullName, Length"
+            },
+            "result_preview": "FullName                                                                                                               \n--------                                                                                                               \nD:\\AI应用\\langchain-agent\\output\\sandbox_runs\\session_ac61c695a2a246f493d92b83555f9039_scope_docs_experiments_roguelik...",
+            "side_effect_kind": "verification",
+            "satisfies": [
+              "verify_command"
+            ],
+            "status": "ok",
+            "observed_paths": [],
+            "matched_paths": [],
+            "artifact_refs": [],
+            "command_receipt": {
+              "command": "Get-ChildItem -Path docs/experiments/roguelike_long_task -Recurse | Select-Object FullName, Length",
+              "exit_code": 0,
+              "passed": true,
+              "output_preview": "FullName                                                                                                               \n--------                                                                                                               \nD:\\AI应用\\langchain-agent\\output\\sandbox_runs\\session_ac61c695a2a246f493d92b83555f9039_scope_docs_experiments_roguelik..."
+            },
+            "side_effect_hash": "8b25ce3221cd2b1f2fb094515b37af03e44d45b9d2a5df4b94bf8736f37d1a3d",
+            "authority": "orchestration.tool_observation_record"
+          },
+          {
+            "observation_ref": "rtobs:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e:8f6c5a28",
+            "tool_name": "terminal",
+            "tool_args": {
+              "command": "Get-ChildItem -Path \"docs/experiments/roguelike_long_task\" -Recurse -File | ForEach-Object { \"$($_.FullName) ($($_.Length) bytes)\" }"
+            },
+            "result_preview": "D:\\AI应用\\langchain-agent\\output\\sandbox_runs\\session_ac61c695a2a246f493d92b83555f9039_scope_docs_experiments_roguelike_long_task\\workspace\\docs\\experiments\\roguelike_long_task\\final_report.md (8748 bytes)",
+            "side_effect_kind": "verification",
+            "satisfies": [
+              "verify_command"
+            ],
+            "status": "ok",
+            "observed_paths": [],
+            "matched_paths": [],
+            "artifact_refs": [],
+            "command_receipt": {
+              "command": "Get-ChildItem -Path \"docs/experiments/roguelike_long_task\" -Recurse -File | ForEach-Object { \"$($_.FullName) ($($_.Length) bytes)\" }",
+              "exit_code": 0,
+              "passed": true,
+              "output_preview": "D:\\AI应用\\langchain-agent\\output\\sandbox_runs\\session_ac61c695a2a246f493d92b83555f9039_scope_docs_experiments_roguelike_long_task\\workspace\\docs\\experiments\\roguelike_long_task\\final_report.md (8748 bytes)"
+            },
+            "side_effect_hash": "c80e2540ccd54c94fa5a091af927c2f1407ad2edba11ba47ea1f4d7ea6006174",
+            "authority": "orchestration.tool_observation_record"
+          }
+        ],
+        "authority": "orchestration.tool_observation_ledger"
+      }
+    }
+  }
+}

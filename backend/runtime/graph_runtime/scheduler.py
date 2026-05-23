@@ -16,7 +16,7 @@ from .scheduler_models import (
 TERMINAL_COMPLETED = {"completed"}
 TERMINAL_FAILED = {"failed"}
 ACTIVE_STATUSES = {"running", "background_running"}
-WAITING_STATUSES = {"waiting_for_human", "human_gate", "waiting"}
+WAITING_STATUSES = {"waiting_for_human", "human_gate", "waiting", "blocked", "technical_blocked"}
 
 
 def bootstrap_scheduler_state(

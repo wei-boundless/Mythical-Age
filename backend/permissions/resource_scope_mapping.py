@@ -80,6 +80,16 @@ def map_operations_to_resource_scopes(
         tool_name = _BUILTIN_OPERATION_TO_TOOL.get(descriptor.operation_id)
         if tool_name:
             tool_names.append(tool_name)
+            continue
+        metadata_tool_names = [
+            str(item or "").strip()
+            for item in list(descriptor.metadata.get("model_visible_tools") or ())
+            if str(item or "").strip()
+        ]
+        if metadata_tool_names:
+            tool_names.extend(metadata_tool_names)
+            continue
+        unmapped.append(descriptor.operation_id)
 
     return ResourceScopeMapping(
         operation_ids=tuple(normalized),

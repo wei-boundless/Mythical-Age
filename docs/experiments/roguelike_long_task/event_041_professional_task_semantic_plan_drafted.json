@@ -1,0 +1,188 @@
+{
+  "event_id": "rtevt:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e:41:75561d07",
+  "task_run_id": "taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e",
+  "event_type": "professional_task_semantic_plan_drafted",
+  "offset": 41,
+  "created_at": 1779512791.8786492,
+  "refs": {
+    "task_contract_ref": "taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response"
+  },
+  "payload": {
+    "interaction_mode": "professional_mode",
+    "plan_items": [
+      {
+        "plan_item_id": "professional.mode_policy",
+        "title": "绑定交互模式和任务边界",
+        "step_kind": "plan_item",
+        "executor_type": "model",
+        "action_kind": "main_agent",
+        "summary": "professional_mode: 你是一名独立游戏原型开发负责人。\n\n你的目标是在当前项目中完成一个可运行、可测试、可迭代的浏览器端 2D 肉鸽游戏垂直切片。\n\n你必须按阶段推进：项目简报、玩法设计、技术设计、资产清单、生图提示词与资源生成、MVP 实现、资源接入、运行验证、最终报告。\n\n最低产品范围：\n- 俯视角移动。\n- 玩家攻击。\n- 至少三类敌人或三种敌人行为。\n- 房间、竞技场或波",
+        "required_operations": [
+          "op.model_response"
+        ],
+        "contract_required": true
+      },
+      {
+        "plan_item_id": "professional.semantic_contract",
+        "title": "绑定语义任务契约",
+        "step_kind": "plan_item",
+        "executor_type": "model",
+        "action_kind": "main_agent",
+        "summary": "任务类型 code_fix_execution；交付物：change_summary, changed_files, verification_result_or_limitation。",
+        "required_operations": [
+          "op.model_response"
+        ],
+        "contract_required": true
+      },
+      {
+        "plan_item_id": "professional.reasoning_steps",
+        "title": "按专业步骤完成结构化分析",
+        "step_kind": "plan_item",
+        "executor_type": "model",
+        "action_kind": "main_agent",
+        "summary": "inspect_relevant_code -> plan_structural_change -> edit_scoped_files -> run_or_explain_verification",
+        "required_operations": [
+          "op.model_response"
+        ],
+        "contract_required": true
+      },
+      {
+        "plan_item_id": "professional.evidence_packet",
+        "title": "构建证据包",
+        "step_kind": "plan_item",
+        "executor_type": "model",
+        "action_kind": "main_agent",
+        "summary": "将工具观察、材料事实、失败分类和限制先沉淀为 evidence packet。",
+        "required_operations": [
+          "op.model_response"
+        ],
+        "contract_required": true
+      },
+      {
+        "plan_item_id": "professional.produce_output",
+        "title": "执行真实代码或产物修改",
+        "step_kind": "plan_item",
+        "executor_type": "model",
+        "action_kind": "main_agent",
+        "summary": "必须通过 write_file/edit_file 产出：docs/experiments/roguelike_long_task/final_report.md",
+        "required_operations": [
+          "op.write_file",
+          "op.edit_file"
+        ],
+        "contract_required": true
+      },
+      {
+        "plan_item_id": "professional.verify_output",
+        "title": "运行真实验证或说明限制",
+        "step_kind": "plan_item",
+        "executor_type": "model",
+        "action_kind": "main_agent",
+        "summary": "使用 terminal 运行验证命令，或明确说明无法验证的真实限制。",
+        "required_operations": [
+          "op.shell"
+        ],
+        "contract_required": true
+      },
+      {
+        "plan_item_id": "professional.synthesis",
+        "title": "综合证据形成专业结论",
+        "step_kind": "plan_item",
+        "executor_type": "model",
+        "action_kind": "main_agent",
+        "summary": "最终回答必须覆盖验收词：修改、文件、验证、测试、原因；并说明真实完成项、限制和下一步。",
+        "required_operations": [
+          "op.model_response"
+        ],
+        "response_must_include": [
+          "修改",
+          "文件",
+          "验证",
+          "测试",
+          "原因"
+        ],
+        "contract_required": true
+      },
+      {
+        "plan_item_id": "professional.validate_deliverable",
+        "title": "按交付物验证最终回答",
+        "step_kind": "plan_item",
+        "executor_type": "model",
+        "action_kind": "main_agent",
+        "summary": "检查语义交付物、证据对齐、协议泄漏和未支持声明。",
+        "required_operations": [
+          "op.model_response"
+        ],
+        "contract_required": true
+      }
+    ],
+    "delegation_enabled": true,
+    "max_delegate_calls_per_task_run": 4,
+    "tool_execution_enabled": true,
+    "allowed_tool_names": [
+      "read_file",
+      "read_structured_file",
+      "search_text",
+      "search_files",
+      "git_status",
+      "git_diff",
+      "delegate_to_agent",
+      "write_file",
+      "edit_file",
+      "terminal",
+      "web_search",
+      "fetch_url"
+    ],
+    "max_tool_calls_per_round": 1,
+    "max_tool_calls_per_task_run": 32,
+    "max_tool_rounds_per_task_run": 16,
+    "plan_source": "semantic_task_contract",
+    "goal_contract": {
+      "contract_id": "professional-goal-contract:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e",
+      "goal": "你是一名独立游戏原型开发负责人。\n\n你的目标是在当前项目中完成一个可运行、可测试、可迭代的浏览器端 2D 肉鸽游戏垂直切片。\n\n你必须按阶段推进：项目简报、玩法设计、技术设计、资产清单、生图提示词与资源生成、MVP 实现、资源接入、运行验证、最终报告。\n\n最低产品范围：\n- 俯视角移动。\n- 玩家攻击。\n- 至少三类敌人或三种敌人行为。\n- 房间、竞技场或波次推进。\n- 经验、金币或奖励拾取。\n- 升级三选一，至少三个升级选项。\n- Boss 或精英敌人。\n- 死亡或胜利状态。\n- 可见 HUD。\n- 至少一个生图资源真实显示在游戏里。\n\n你需要真实修改代码、真实生成或接入至少一个图像资产、真实启动项目并验证。\n你不能把未运行、未验证的功能说成已经完成。\n遇到失败时，追踪原因、修复并重新验证。\n\n请把阶段产物写入 docs/experiments/roguelike_long_task/，最终报告写入 docs/experiments/roguelike_long_task/final_report.md。",
+      "required_material_paths": [],
+      "required_output_paths": [
+        "docs/experiments/roguelike_long_task/final_report.md"
+      ],
+      "material_types": [
+        "text"
+      ],
+      "required_tool_kinds": [
+        "validate_deliverables",
+        "inspect_code",
+        "apply_real_change",
+        "write_output",
+        "verify_command"
+      ],
+      "required_output_kinds": [
+        "final_answer",
+        "change_summary",
+        "changed_files",
+        "verification_result_or_limitation"
+      ],
+      "requires_material_review": false,
+      "requires_write_output": true,
+      "requires_verification_command": true,
+      "requires_delegation": false,
+      "response_must_include": [
+        "修改",
+        "文件",
+        "验证",
+        "测试",
+        "原因"
+      ],
+      "forbidden_visible_markers": [
+        "<｜｜DSML",
+        "｜｜parameter",
+        "tool_calls",
+        "invoke name=",
+        "<tool_call",
+        "name=\"read_file\"",
+        "name=\"search_text\"",
+        "name=\"search_files\"",
+        "name=\"delegate_to_agent\""
+      ],
+      "authority": "orchestration.professional_task_goal_contract"
+    },
+    "ledger_backed": true
+  }
+}

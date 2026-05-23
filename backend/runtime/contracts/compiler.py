@@ -292,6 +292,7 @@ def compile_coordination_contract_manifest(
                 governance_bindings=governance_bindings,
                 metadata={
                     "role": node.role,
+                    "role_prompt": str(node_metadata.get("role_prompt") or "").strip(),
                     "explicit_node_contract_refs": explicit_node_contract_refs,
                     "context_visibility_policy": dict(getattr(node, "context_visibility_policy", {}) or {}),
                     "memory_read_policy": dict(getattr(node, "memory_read_policy", {}) or {}),

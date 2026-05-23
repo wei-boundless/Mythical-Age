@@ -1,0 +1,43 @@
+{
+  "event_id": "rtevt:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e:59:0aff6fb9",
+  "task_run_id": "taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e",
+  "event_type": "tool_call_requested",
+  "offset": 59,
+  "created_at": 1779512847.4034219,
+  "refs": {
+    "action_request_ref": "rtact:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e:f8b63fd1",
+    "directive_ref": "runtime-directive:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:model-response",
+    "operation_id": "op.write_file",
+    "task_step_ref": "professional.produce_output"
+  },
+  "payload": {
+    "action_request": {
+      "request_id": "rtact:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e:f8b63fd1",
+      "task_run_id": "taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e",
+      "request_type": "tool_call",
+      "step_id": "professional.produce_output",
+      "directive_ref": "runtime-directive:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:model-response",
+      "operation_id": "op.write_file",
+      "payload": {
+        "tool_name": "write_file",
+        "tool_call": {
+          "id": "call_00_PrvfnxDT8rE6iX03dyfP0337",
+          "name": "write_file",
+          "args": {
+            "path": "docs/experiments/roguelike_long_task/final_report.md",
+            "content": {
+              "content_chars": 4857
+            }
+          },
+          "type": "tool_call",
+          "source": "native_tool_call"
+        },
+        "execution_state": "requested_not_dispatched",
+        "assistant_content_preview": "",
+        "assistant_reasoning_preview": ""
+      },
+      "created_at": 1779512847.3849857,
+      "authority": "orchestration.runtime_action_request"
+    }
+  }
+}

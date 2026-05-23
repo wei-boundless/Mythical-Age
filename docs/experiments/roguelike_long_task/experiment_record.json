@@ -1,0 +1,30 @@
+{
+  "session_id": "roguelike-long-task-supervised-20260523-130526",
+  "experiment": "roguelike_agent_long_task",
+  "started_at": "2026-05-23T13:05:26.2923519+08:00",
+  "backend_url": "http://127.0.0.1:8002",
+  "frontend_url": "http://localhost:3000/",
+  "status": "first_run_root_cause_traced",
+  "plan_path": "docs/implementation_plans/roguelike_agent_long_task_experiment_design_20260523.md",
+  "chat_session_id": "ac61c695a2a246f493d92b83555f9039",
+  "first_task_run_id": "taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e",
+  "first_run_result": {
+    "status": "failed",
+    "terminal_reason": "partial_contract_failed",
+    "structural_failure": "agent wrote only final_report.md in sandbox and did not create runnable game files or real browser/playtest evidence",
+    "semantic_misclassification": "code_fix_execution",
+    "observed_tool_calls": 3,
+    "observed_write_paths": [
+      "docs/experiments/roguelike_long_task/final_report.md"
+    ],
+    "intervention_required": true
+  },
+  "root_cause_report": "docs/experiments/roguelike_long_task/first_run_failure_root_cause.md",
+  "next_correction_policy": {
+    "reject_final_report_first": true,
+    "required_task_type": "interactive_game_vertical_slice_delivery",
+    "require_game_files_before_report": true,
+    "require_browser_or_static_server_verification": true,
+    "require_sandbox_disclosure": true
+  }
+}

@@ -118,6 +118,7 @@ from ..graph_runtime.batch_runtime import (
     batch_execution_instance_for_result,
     batch_runtime_state_from_diagnostics,
     bootstrap_batch_lifecycle_runtime_state,
+    is_technical_execution_failure,
     node_has_batch_plan,
     node_all_batches_committed,
     node_has_active_batch_work,
@@ -125,6 +126,8 @@ from ..graph_runtime.batch_runtime import (
     node_committed_batch_refs,
     node_has_failed_batch,
     node_has_more_batch_work,
+    node_has_technical_blocked_batch,
+    rewind_batch_lifecycle_for_stages,
     select_batch_for_stage,
     summarize_batch_lifecycle_runtime_state,
     transition_batch_after_stage_result,
@@ -656,6 +659,12 @@ class LangGraphCoordinationRuntime:
         order = [str(item) for item in list(state.get("stage_order") or []) if str(item)]
         if target_stage_id not in order:
             return LangGraphCoordinationRuntimeResult(diagnostics={"supported": False, "reason": "stage_not_in_order", "stage_id": target_stage_id})
+        invalidated_node_ids = [
+            str(dict(dict(state.get("stage_contracts") or {}).get(stage) or {}).get("node_id") or stage)
+            for stage in invalidated_stage_ids
+            if str(stage)
+        ]
+        target_node_id = str(dict(dict(state.get("stage_contracts") or {}).get(target_stage_id) or {}).get("node_id") or target_stage_id)
 
         stage_results = {
             str(key): dict(value)
@@ -793,6 +802,20 @@ class LangGraphCoordinationRuntime:
                 "created_at": time.time(),
             },
         }
+        batch_runtime_state = summarize_batch_lifecycle_runtime_state(
+            dict(state.get("batch_lifecycle_runtime_state") or {})
+        ) or batch_runtime_state_from_diagnostics(diagnostics)
+        if batch_runtime_state:
+            batch_runtime_state = rewind_batch_lifecycle_for_stages(
+                runtime_state=batch_runtime_state,
+                invalidated_stage_ids=invalidated_stage_ids,
+                invalidated_node_ids=invalidated_node_ids,
+                target_stage_id=target_stage_id,
+                target_node_id=target_node_id,
+                reason=reason,
+            )
+            diagnostics["batch_lifecycle_runtime_state"] = batch_runtime_state
+            diagnostics["last_rewind"]["batch_lifecycle_rewound"] = bool(batch_runtime_state)
         committed_identities = [
             item
             for item in _committed_stage_identities(state)
@@ -811,7 +834,7 @@ class LangGraphCoordinationRuntime:
         state.update(
             {
                 "active_stage_id": target_stage_id,
-                "active_node_id": str(dict(dict(state.get("stage_contracts") or {}).get(target_stage_id) or {}).get("node_id") or target_stage_id),
+                "active_node_id": target_node_id,
                 "active_task_ref": str(dict(dict(state.get("stage_contracts") or {}).get(target_stage_id) or {}).get("task_ref") or ""),
                 "node_statuses": node_statuses,
                 "stage_results": stage_results,
@@ -825,6 +848,7 @@ class LangGraphCoordinationRuntime:
                 "artifact_refs": artifact_refs,
                 "handoff_packets": handoff_packets,
                 "working_memory_operations": working_memory_operations,
+                **({"batch_lifecycle_runtime_state": batch_runtime_state} if batch_runtime_state else {}),
                 "pending_inputs": pending_inputs,
                 "missing_required_inputs": [],
                 "retry_stage_id": "",
@@ -1502,6 +1526,7 @@ class LangGraphCoordinationRuntime:
         retry_counts = dict(state.get("retry_counts") or {})
         retry_stage_id = ""
         terminal_status = ""
+        technical_retry = is_technical_execution_failure(dict(event.get("diagnostics") or {}))
         revision_packets = [dict(item) for item in list(state.get("revision_packets") or []) if isinstance(item, dict)]
         if accepted:
             node_statuses[stage_id] = "completed"
@@ -1510,6 +1535,9 @@ class LangGraphCoordinationRuntime:
                 node_statuses=node_statuses,
                 stage_id=stage_id,
             )
+        elif technical_retry:
+            node_statuses[stage_id] = "pending"
+            retry_stage_id = stage_id
         elif _stage_quality_retry_target(contract=contract, stage_id=stage_id, event=event):
             target_stage_id = _stage_quality_retry_target(contract=contract, stage_id=stage_id, event=event)
             node_statuses[stage_id] = "pending"
@@ -1583,7 +1611,10 @@ class LangGraphCoordinationRuntime:
                 task_result_ref=str(event.get("task_result_ref") or event.get("agent_run_result_ref") or ""),
                 artifact_refs=artifact_refs,
                 missing_required_inputs=[],
-                diagnostics={"retry_count": retry_counts.get(stage_id), "reason": "acceptance_failed_retry"},
+                diagnostics={
+                    "retry_count": retry_counts.get(stage_id),
+                    "reason": "technical_retry" if technical_retry else "acceptance_failed_retry",
+                },
             )
         else:
             contract_status = _accept_contract_status(
@@ -1602,6 +1633,9 @@ class LangGraphCoordinationRuntime:
             diagnostics["retry_counts"] = retry_counts
         else:
             diagnostics.pop("retry_counts", None)
+        if technical_retry:
+            diagnostics["last_technical_retry_stage_id"] = stage_id
+            diagnostics["last_technical_retry_reason"] = str(dict(event.get("diagnostics") or {}).get("terminal_reason") or "executor_failed")
         human_gate = dict(state.get("human_gate") or {})
         if terminal_status == "waiting_for_human":
             human_gate = {
@@ -1675,6 +1709,24 @@ class LangGraphCoordinationRuntime:
                     **dict(loop_updates or {}),
                     "node_statuses": node_statuses,
                     "terminal_status": "failed",
+                }
+            elif node_has_technical_blocked_batch(runtime_state=batch_runtime_state, stage_id=stage_id, node_id=node_id):
+                node_statuses[stage_id] = "blocked"
+                terminal_status = "blocked"
+                retry_stage_id = ""
+                diagnostics["batch_node_continue"] = False
+                diagnostics["batch_node_blocked"] = True
+                diagnostics["batch_node_blocked_reason"] = "technical_retry_exhausted"
+                loop_updates = {
+                    **dict(loop_updates or {}),
+                    "node_statuses": node_statuses,
+                    "terminal_status": "blocked",
+                    "pending_inputs": dict(state.get("pending_inputs") or {}),
+                    "diagnostics": {
+                        **dict(loop_updates.get("diagnostics") or {}),
+                        "batch_node_blocked": True,
+                        "batch_node_blocked_reason": "technical_retry_exhausted",
+                    },
                 }
             elif node_has_more_batch_work(runtime_state=batch_runtime_state, stage_id=stage_id, node_id=node_id):
                 node_statuses[stage_id] = "pending"
@@ -3904,7 +3956,15 @@ def _stage_quality_retry_target(*, contract: dict[str, Any], stage_id: str, even
     diagnostics = dict(event.get("diagnostics") or {})
     acceptance = dict(diagnostics.get("stage_business_acceptance") or {})
     accepted_policies = {str(item) for item in list(policy.get("acceptance_policies") or []) if str(item)}
-    if accepted_policies and str(acceptance.get("policy") or "") not in accepted_policies:
+    acceptance_policies = {
+        str(item)
+        for item in [
+            acceptance.get("policy"),
+            *list(acceptance.get("quality_gate_policies") or []),
+        ]
+        if str(item)
+    }
+    if accepted_policies and not accepted_policies.intersection(acceptance_policies):
         return ""
     issues = [str(item) for item in list(acceptance.get("issues") or []) if str(item)]
     recoverable_prefixes = tuple(str(item) for item in list(policy.get("recoverable_issue_prefixes") or []) if str(item))
@@ -3943,17 +4003,21 @@ def _pending_inputs_for_stage_quality_retry(
     requirements_key = str(policy.get("requirements_input_key") or "").strip()
     template = str(policy.get("requirements_template") or "").strip()
     if requirements_key and template:
+        acceptance = dict(dict(event.get("diagnostics") or {}).get("stage_business_acceptance") or {})
+        quality_issues = "; ".join(
+            str(item)
+            for item in list(acceptance.get("issues") or [])
+            if str(item)
+        )
+        quality_issue_summary = _quality_issue_summary_from_acceptance(acceptance)
         pending_inputs[requirements_key] = _render_runtime_template(
             template,
             {
                 **pending_inputs,
                 **dict(event.get("diagnostics") or {}),
-                **dict(dict(event.get("diagnostics") or {}).get("stage_business_acceptance") or {}),
-                "quality_issues": "; ".join(
-                    str(item)
-                    for item in list(dict(dict(event.get("diagnostics") or {}).get("stage_business_acceptance") or {}).get("issues") or [])
-                    if str(item)
-                ),
+                **acceptance,
+                "quality_issues": quality_issues,
+                "quality_issue_summary": quality_issue_summary,
             },
         )
     for key in list(policy.get("clear_input_keys") or []):
@@ -3964,6 +4028,27 @@ def _pending_inputs_for_stage_quality_retry(
         pending_inputs=pending_inputs,
         preserve_existing_batch_scope=True,
     )
+
+
+def _quality_issue_summary_from_acceptance(acceptance: dict[str, Any]) -> str:
+    explicit = str(acceptance.get("quality_issue_summary") or "").strip()
+    if explicit:
+        return explicit
+    parts: list[str] = []
+    unit_summary = str(acceptance.get("unit_metric_summary") or "").strip()
+    if unit_summary:
+        parts.append(f"逐单元统计：{unit_summary}")
+    content_total = _safe_int(acceptance.get("content_metric_total"), 0)
+    min_total = _safe_int(acceptance.get("min_required_metric_total"), 0)
+    target_total = _safe_int(acceptance.get("target_units"), 0)
+    metric_label = str(acceptance.get("metric_summary_label") or "")
+    if min_total > 0 and content_total < min_total:
+        parts.append(f"总量约{content_total}{metric_label}，低于最低要求{min_total}{metric_label}，需至少补约{min_total - content_total}{metric_label}")
+    elif target_total > 0 and content_total < target_total:
+        parts.append(f"总量约{content_total}{metric_label}，低于目标{target_total}{metric_label}，建议补约{target_total - content_total}{metric_label}")
+    if parts:
+        return "；".join(parts)
+    return "; ".join(str(item) for item in list(acceptance.get("issues") or []) if str(item))
 
 
 def _pending_inputs_for_revision_retry(

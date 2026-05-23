@@ -5,6 +5,7 @@ from typing import Any
 
 
 BATCH_RUNTIME_AUTHORITY = "task_system.batch_lifecycle_runtime_state"
+DEFAULT_TECHNICAL_FAILURE_LIMIT = 3
 
 
 def bootstrap_batch_lifecycle_runtime_state(
@@ -149,6 +150,147 @@ def summarize_batch_lifecycle_runtime_state(runtime_state: dict[str, Any]) -> di
     if _record(runtime_state).get("authority") != BATCH_RUNTIME_AUTHORITY:
         return {}
     return _summarize(runtime_state)
+
+
+def rewind_batch_lifecycle_for_stages(
+    *,
+    runtime_state: dict[str, Any],
+    invalidated_stage_ids: list[str],
+    target_stage_id: str,
+    target_node_id: str = "",
+    invalidated_node_ids: list[str] | None = None,
+    reason: str = "",
+) -> dict[str, Any]:
+    state = _summarize(runtime_state)
+    if _record(state).get("authority") != BATCH_RUNTIME_AUTHORITY:
+        return {}
+    invalidated_ids = {
+        _string(item)
+        for item in [*list(invalidated_stage_ids or []), *list(invalidated_node_ids or [])]
+        if _string(item)
+    }
+    target_ids = {_string(target_stage_id), _string(target_node_id)}
+    target_ids.discard("")
+    invalidated_ids.update(target_ids)
+    if not invalidated_ids:
+        return state
+
+    batch_states = [_record(item) for item in list(state.get("batch_states") or []) if isinstance(item, dict)]
+    affected_batches = [
+        item
+        for item in batch_states
+        if _string(item.get("node_id")) in invalidated_ids
+    ]
+    if not affected_batches:
+        return state
+
+    affected_batch_ids = {_string(item.get("batch_id")) for item in affected_batches if _string(item.get("batch_id"))}
+    affected_plan_ids = {_string(item.get("plan_id")) for item in affected_batches if _string(item.get("plan_id"))}
+    execution_instances = [
+        _record(item)
+        for item in list(state.get("batch_execution_instances") or [])
+        if isinstance(item, dict)
+    ]
+    removed_execution_ids = {
+        _string(item.get("execution_id"))
+        for item in execution_instances
+        if _string(item.get("batch_id")) in affected_batch_ids
+        or _string(item.get("node_id")) in invalidated_ids
+    }
+    execution_modes = _record(state.get("execution_mode_by_plan"))
+    first_ready_by_plan: dict[str, str] = {}
+    for plan_id in affected_plan_ids:
+        plan_batches = sorted(
+            [item for item in affected_batches if _string(item.get("plan_id")) == plan_id],
+            key=lambda item: _int_value(item.get("sequence_index"), 0),
+        )
+        if plan_batches and _string(execution_modes.get(plan_id), "sequential") != "parallel":
+            first_ready_by_plan[plan_id] = _string(plan_batches[0].get("batch_id"))
+
+    next_batches: list[dict[str, Any]] = []
+    for item in batch_states:
+        next_item = dict(item)
+        batch_id = _string(next_item.get("batch_id"))
+        plan_id = _string(next_item.get("plan_id"))
+        if batch_id in affected_batch_ids:
+            next_item.update(
+                {
+                    "status": (
+                        "ready"
+                        if _string(execution_modes.get(plan_id), "sequential") == "parallel"
+                        or first_ready_by_plan.get(plan_id) == batch_id
+                        else "planned"
+                    ),
+                    "attempt_index": 0,
+                    "repair_round": 0,
+                    "accepted": False,
+                    "committed": False,
+                    "active_execution_id": "",
+                    "last_result_ref": "",
+                    "last_verdict": "",
+                }
+            )
+        next_batches.append(next_item)
+
+    next_steps: list[dict[str, Any]] = []
+    for item in [_record(raw) for raw in list(state.get("step_states") or []) if isinstance(raw, dict)]:
+        if _string(item.get("batch_id")) in affected_batch_ids:
+            item["status"] = "planned"
+        next_steps.append(item)
+
+    next_merges: list[dict[str, Any]] = []
+    for item in [_record(raw) for raw in list(state.get("merge_states") or []) if isinstance(raw, dict)]:
+        if _string(item.get("plan_id")) in affected_plan_ids:
+            item["status"] = "waiting_for_commits"
+        next_merges.append(item)
+
+    state["batch_states"] = next_batches
+    state["step_states"] = next_steps
+    state["merge_states"] = next_merges
+    state["batch_execution_instances"] = [
+        item
+        for item in execution_instances
+        if _string(item.get("execution_id")) not in removed_execution_ids
+        and _string(item.get("batch_id")) not in affected_batch_ids
+        and _string(item.get("node_id")) not in invalidated_ids
+    ]
+    state["active_batch_by_node"] = {
+        key: value
+        for key, value in _record(state.get("active_batch_by_node")).items()
+        if _string(key) not in invalidated_ids and _string(value) not in affected_batch_ids
+    }
+    state["active_batches_by_node"] = {
+        key: [item for item in values if _string(item) not in affected_batch_ids]
+        for key, values in _list_map(state.get("active_batches_by_node")).items()
+        if _string(key) not in invalidated_ids
+    }
+    state["active_execution_by_node"] = {
+        key: value
+        for key, value in _record(state.get("active_execution_by_node")).items()
+        if _string(key) not in invalidated_ids and _string(value) not in removed_execution_ids
+    }
+    state["active_executions_by_node"] = {
+        key: [item for item in values if _string(item) not in removed_execution_ids]
+        for key, values in _list_map(state.get("active_executions_by_node")).items()
+        if _string(key) not in invalidated_ids
+    }
+    state["active_execution_by_batch"] = {
+        key: value
+        for key, value in _record(state.get("active_execution_by_batch")).items()
+        if _string(key) not in affected_batch_ids and _string(value) not in removed_execution_ids
+    }
+    diagnostics = _record(state.get("diagnostics"))
+    diagnostics["last_rewind"] = {
+        "target_stage_id": _string(target_stage_id),
+        "target_node_id": _string(target_node_id),
+        "invalidated_stage_ids": [_string(item) for item in list(invalidated_stage_ids or []) if _string(item)],
+        "invalidated_node_ids": sorted(invalidated_ids),
+        "reset_batch_ids": sorted(affected_batch_ids),
+        "removed_execution_ids": sorted(item for item in removed_execution_ids if item),
+        "reason": _string(reason),
+    }
+    state["diagnostics"] = diagnostics
+    return _summarize(state)
 
 
 def apply_batch_to_pending_inputs(
@@ -388,10 +530,16 @@ def transition_batch_after_stage_result(
     active_execution_id = active_execution_id or _string(active_execution_by_batch.get(active_batch_id))
     plans_by_id = _policy_index_from_runtime_state(state)
     result_ref = task_result_ref or agent_run_result_ref
+    diagnostics_payload = _record(event_diagnostics)
+    technical_failure = is_technical_execution_failure(diagnostics_payload)
     next_batches: list[dict[str, Any]] = []
     active_plan_id = ""
     active_sequence = 0
     next_status = ""
+    technical_retry_status = ""
+    technical_failure_count = 0
+    technical_failure_limit = DEFAULT_TECHNICAL_FAILURE_LIMIT
+    technical_blocked = False
     for item in batch_states:
         next_item = dict(item)
         if _string(item.get("batch_id")) == active_batch_id:
@@ -399,6 +547,7 @@ def transition_batch_after_stage_result(
             active_sequence = _int_value(item.get("sequence_index"), 0)
             policy = _record(plans_by_id.get(active_plan_id))
             max_repair_rounds = _int_value(_record(policy.get("acceptance_policy")).get("max_repair_rounds"), 3)
+            technical_failure_limit = _technical_failure_limit(policy)
             if accepted:
                 next_item.update(
                     {
@@ -411,6 +560,27 @@ def transition_batch_after_stage_result(
                     }
                 )
                 next_status = "committed"
+            elif technical_failure:
+                technical_failure_count = _technical_failure_count_for_batch(
+                    execution_instances,
+                    batch_id=active_batch_id,
+                ) + 1
+                technical_blocked = technical_failure_count >= technical_failure_limit
+                technical_retry_status = (
+                    "technical_blocked"
+                    if technical_blocked
+                    else "repair_ready" if _string(item.get("status")) == "repairing" else "ready"
+                )
+                next_item.update(
+                    {
+                        "status": technical_retry_status,
+                        "accepted": False,
+                        "active_execution_id": "",
+                        "last_result_ref": result_ref,
+                        "last_verdict": "technical_blocked" if technical_blocked else "technical_retry",
+                    }
+                )
+                next_status = technical_retry_status
             else:
                 repair_round = _int_value(item.get("repair_round"), 0) + 1
                 if repair_round <= max_repair_rounds:
@@ -447,6 +617,13 @@ def transition_batch_after_stage_result(
         state = _mark_step(state, batch_id=active_batch_id, step_type="review", status="completed")
         state = _mark_step(state, batch_id=active_batch_id, step_type="repair_loop", status="skipped_or_completed")
         state = _mark_step(state, batch_id=active_batch_id, step_type="commit", status="completed")
+    elif technical_failure:
+        state = _mark_step(
+            state,
+            batch_id=active_batch_id,
+            step_type="execute",
+            status="technical_blocked" if technical_blocked else "technical_retry",
+        )
     elif next_status == "repair_ready":
         state = _mark_step(state, batch_id=active_batch_id, step_type="execute", status="completed")
         state = _mark_step(state, batch_id=active_batch_id, step_type="review", status="revision_requested")
@@ -475,9 +652,17 @@ def transition_batch_after_stage_result(
     next_instances: list[dict[str, Any]] = []
     for item in execution_instances:
         if active_execution_id and _string(item.get("execution_id")) == active_execution_id:
-            item["status"] = next_status or item.get("status") or ""
+            item["status"] = (
+                "technical_blocked"
+                if technical_blocked
+                else "technical_failed" if technical_failure else next_status or item.get("status") or ""
+            )
             item["result_ref"] = result_ref
-            item["verdict"] = "accepted" if accepted else "revise"
+            item["verdict"] = (
+                "accepted"
+                if accepted
+                else "technical_blocked" if technical_blocked else "technical_retry" if technical_failure else "revise"
+            )
             if next_status == "failed":
                 item["verdict"] = "repair_rounds_exhausted"
         next_instances.append(item)
@@ -498,8 +683,13 @@ def transition_batch_after_stage_result(
         "dispatch_event_id": _string(dispatch_event_id),
         "accepted": bool(accepted),
         "next_status": next_status,
+        "technical_failure": bool(technical_failure),
+        "technical_failure_count": technical_failure_count,
+        "technical_failure_limit": technical_failure_limit,
+        "technical_blocked": bool(technical_blocked),
+        "technical_retry_status": technical_retry_status,
         "result_ref": result_ref,
-        "event_diagnostics": _record(event_diagnostics),
+        "event_diagnostics": diagnostics_payload,
     }
     state["diagnostics"] = diagnostics
     return _summarize(state)
@@ -575,7 +765,7 @@ def node_has_more_batch_work(*, runtime_state: dict[str, Any], stage_id: str, no
         for raw in list(runtime_state.get("batch_states") or [])
         if isinstance(raw, dict) and _string(_record(raw).get("node_id")) in target_ids
     ]
-    if any(_string(item.get("status")) == "failed" for item in batches):
+    if any(_string(item.get("status")) in {"failed", "technical_blocked"} for item in batches):
         return False
     return any(_string(item.get("status")) in {"planned", "ready", "repair_ready", "running", "repairing"} for item in batches)
 
@@ -603,6 +793,15 @@ def node_has_failed_batch(*, runtime_state: dict[str, Any], stage_id: str, node_
     target_ids.discard("")
     return any(
         _string(item.get("node_id")) in target_ids and _string(item.get("status")) == "failed"
+        for item in [_record(raw) for raw in list(runtime_state.get("batch_states") or []) if isinstance(raw, dict)]
+    )
+
+
+def node_has_technical_blocked_batch(*, runtime_state: dict[str, Any], stage_id: str, node_id: str = "") -> bool:
+    target_ids = {_string(stage_id), _string(node_id)}
+    target_ids.discard("")
+    return any(
+        _string(item.get("node_id")) in target_ids and _string(item.get("status")) == "technical_blocked"
         for item in [_record(raw) for raw in list(runtime_state.get("batch_states") or []) if isinstance(raw, dict)]
     )
 
@@ -912,6 +1111,57 @@ def _resolve_execution_id_for_result(
         if matched:
             return matched
     return ""
+
+
+def is_technical_execution_failure(diagnostics: dict[str, Any]) -> bool:
+    payload = _record(diagnostics)
+    terminal_reason = _string(payload.get("terminal_reason"))
+    if terminal_reason == "executor_failed":
+        return True
+    error_codes: set[str] = set()
+    for key in ("code", "error_code", "runtime_error_code"):
+        if _string(payload.get(key)):
+            error_codes.add(_string(payload.get(key)))
+    for key in ("last_error", "runtime_error", "error", "provider_error"):
+        value = payload.get(key)
+        if isinstance(value, dict):
+            for code_key in ("code", "error_code", "type"):
+                if _string(value.get(code_key)):
+                    error_codes.add(_string(value.get(code_key)))
+    technical_codes = {
+        "provider_error",
+        "provider_unavailable",
+        "configuration",
+        "rate_limit",
+        "timeout",
+        "executor_failed",
+        "model_error",
+        "transport_error",
+    }
+    return bool(error_codes & technical_codes)
+
+
+def _technical_failure_limit(policy: dict[str, Any]) -> int:
+    acceptance_policy = _record(policy.get("acceptance_policy"))
+    retry_policy = _record(policy.get("technical_retry_policy"))
+    for key in ("max_technical_retries", "technical_failure_limit", "technical_retry_limit"):
+        value = _int_value(retry_policy.get(key), 0)
+        if value > 0:
+            return value
+        value = _int_value(acceptance_policy.get(key), 0)
+        if value > 0:
+            return value
+    return DEFAULT_TECHNICAL_FAILURE_LIMIT
+
+
+def _technical_failure_count_for_batch(execution_instances: list[dict[str, Any]], *, batch_id: str) -> int:
+    target = _string(batch_id)
+    return sum(
+        1
+        for item in execution_instances
+        if _string(item.get("batch_id")) == target
+        and _string(item.get("status")) in {"technical_failed", "technical_blocked"}
+    )
 
 
 def _parallel_dispatch_limit(plan_metadata: dict[str, Any], *, child_execution_mode: str) -> int:

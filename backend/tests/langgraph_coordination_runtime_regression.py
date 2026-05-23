@@ -16,6 +16,7 @@ from runtime.coordination_runtime.runtime import (
     _rewind_preserved_pending_inputs,
     _agent_visible_checkout_explicit_inputs,
     _stage_execution_message,
+    _stage_quality_retry_target,
 )
 from runtime.coordination_runtime.node_result_committer import build_node_result_acceptance_draft
 from runtime.coordination_runtime.context_packet_resolver import build_revision_packet_from_review
@@ -379,6 +380,70 @@ def test_quality_retry_pending_inputs_normalize_stale_loop_fields() -> None:
     assert "第1章至第10章" not in pending_inputs["chapter_revision_requirements"]
     assert "第1章至第10章" not in pending_inputs["runtime_loop_summary"]
     assert "第6章" not in pending_inputs["runtime_loop_summary"]
+
+
+def test_quality_retry_target_accepts_combined_quality_gate_policy() -> None:
+    target = _stage_quality_retry_target(
+        contract={
+            "quality_retry_policy": {
+                "enabled": True,
+                "acceptance_policies": ["sectioned_text_batch_quality"],
+            }
+        },
+        stage_id="chapter_draft",
+        event={
+            "diagnostics": {
+                "stage_business_acceptance": {
+                    "accepted": False,
+                    "policy": "length_budget+sectioned_text_batch_quality",
+                    "quality_gate_policies": ["length_budget", "sectioned_text_batch_quality"],
+                    "issues": ["insufficient_metric:4500<5400", "insufficient_unit_metric:2:700<1800"],
+                }
+            }
+        },
+    )
+
+    assert target == "chapter_draft"
+
+
+def test_quality_retry_template_can_render_quality_issue_summary() -> None:
+    state = {
+        "pending_inputs": {
+            "round_index": 1,
+            "batch_start_index": 1,
+            "batch_end_index": 3,
+            "chapters_per_round": 3,
+        }
+    }
+
+    pending_inputs = _pending_inputs_for_stage_quality_retry(
+        state=state,
+        stage_id="chapter_draft",
+        contract={
+            "quality_retry_policy": {
+                "enabled": True,
+                "requirements_input_key": "chapter_revision_requirements",
+                "requirements_template": "问题：{quality_issues}\n统计：{quality_issue_summary}",
+            }
+        },
+        event={
+            "diagnostics": {
+                "stage_business_acceptance": {
+                    "accepted": False,
+                    "policy": "length_budget+sectioned_text_batch_quality",
+                    "quality_gate_policies": ["length_budget", "sectioned_text_batch_quality"],
+                    "issues": ["insufficient_metric:4500<5400", "insufficient_unit_metric:2:700<1800"],
+                    "quality_issue_summary": "总量约4500字，低于最低要求5400字，需至少补约900字；逐单元统计：第1章约1900字；第2章约700字，低于1800字，需补约1100字；第3章约1900字",
+                }
+            },
+            "artifact_refs": ["artifact:short-draft"],
+        },
+    )
+
+    requirements = pending_inputs["chapter_revision_requirements"]
+    assert "insufficient_metric:4500<5400" in requirements
+    assert "第2章约700字" in requirements
+    assert "需补约1100字" in requirements
 
 
 def test_review_gate_pass_verdict_overrides_missing_artifact_ref_technical_failure() -> None:

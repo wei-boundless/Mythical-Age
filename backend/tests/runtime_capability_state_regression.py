@@ -11,9 +11,13 @@ from capability_system import build_default_operation_registry
 from agent_system.profiles.runtime_profile_models import AgentRuntimeProfile
 from runtime.shared.context_manager import RuntimeContextManager
 from permissions import (
+    OperationGate,
+    OperationGatePipelineContext,
+    build_tool_request_runtime_adoption,
     build_model_response_runtime_adoption,
     build_runtime_capability_state,
 )
+from runtime.shared.action_request import RuntimeActionRequest
 
 
 def main() -> None:
@@ -68,6 +72,75 @@ def main() -> None:
     assert "本轮任务已采用写入/编辑 operation：否" in system_prompt
     assert "当前可见工具只代表本轮执行面" in system_prompt
     assert "历史对话或记忆中的 Assistant 自我能力判断不能覆盖这一运行时能力状态" in system_prompt
+
+
+def test_execution_permit_operations_are_adopted_for_runtime_tools() -> None:
+    profile = AgentRuntimeProfile(
+        agent_profile_id="writing_modular_creator_runtime",
+        agent_id="agent:writing_modular_creator",
+        allowed_operations=("op.model_response", "op.memory_read"),
+        blocked_operations=(),
+    )
+    task_operation = {
+        "task_contract": {"task_id": "task:test:memory-search"},
+        "operation_requirement": {
+            "required_operations": ["op.model_response"],
+            "optional_operations": [],
+            "denied_operations": [],
+            "metadata": {"approval_policy": "default"},
+        },
+        "execution_permit": {
+            "allowed_operations": ["op.model_response", "op.memory_read"],
+            "visible_tools": ["memory_search"],
+            "dispatchable_tools": ["memory_search"],
+            "model_visible_tool_refs": ["memory_search"],
+        },
+    }
+
+    _, resource_policy = build_model_response_runtime_adoption(
+        task_operation,
+        operation_registry=build_default_operation_registry(),
+        agent_runtime_profile=profile,
+    )
+
+    registry = build_default_operation_registry()
+    action_request = RuntimeActionRequest(
+        request_id="rtact:test:memory-search",
+        task_run_id="taskrun:test:memory-search",
+        request_type="tool_call",
+        operation_id="",
+        payload={
+            "tool_name": "memory_search",
+            "tool_call": {
+                "id": "call-memory-search",
+                "name": "memory_search",
+                "args": {"query": "云泽 大泽", "project_id": "project:test", "limit": 8},
+            },
+        },
+    )
+    tool_directive, tool_policy = build_tool_request_runtime_adoption(
+        action_request=action_request,
+        task_id="task:test:memory-search",
+        task_operation=task_operation,
+        operation_id=registry.normalize_id("memory_search"),
+        operation_descriptor=registry.get_operation("op.memory_read"),
+        adopted_resource_policy=resource_policy,
+    )
+    gate_result = OperationGate(registry).check(
+        "op.memory_read",
+        resource_policy=tool_policy,
+        directive_ref=tool_directive.directive_id,
+        context=OperationGatePipelineContext(
+            permission_mode="default",
+            operation_input={"operation_id": "op.memory_read", "tool_name": "memory_search"},
+        ),
+    )
+
+    assert "op.memory_read" in resource_policy.allowed_operations
+    assert "op.memory_read" not in resource_policy.denied_operations
+    assert "memory_search" in resource_policy.allowed_tools
+    assert "op.memory_read" in tool_policy.allowed_operations
+    assert gate_result.allowed is True
 
     print("ALL PASSED (runtime capability state)")
 

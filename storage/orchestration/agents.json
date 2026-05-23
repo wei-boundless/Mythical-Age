@@ -499,7 +499,7 @@
       "default_soul_id": "",
       "default_projection_id": "projection.writing.modular_novel.world_designer",
       "created_at": 1779319447.5224094,
-      "updated_at": 1779489745.0410535,
+      "updated_at": 1779514628.2104156,
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "task_family": "writing_modular_novel",
@@ -523,7 +523,7 @@
       "default_soul_id": "",
       "default_projection_id": "projection.writing.modular_novel.memory_steward",
       "created_at": 1779294907.9824607,
-      "updated_at": 1779489745.0748127,
+      "updated_at": 1779514628.2381542,
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "task_family": "writing_modular_novel",
@@ -547,7 +547,7 @@
       "default_soul_id": "",
       "default_projection_id": "projection.writing.modular_novel.world_reviewer",
       "created_at": 1779319447.5391102,
-      "updated_at": 1779489745.0594518,
+      "updated_at": 1779514628.2258441,
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "task_family": "writing_modular_novel",
@@ -571,7 +571,7 @@
       "default_soul_id": "",
       "default_projection_id": "projection.writing.modular_novel.runtime_monitor",
       "created_at": 1779294908.000848,
-      "updated_at": 1779489745.090164,
+      "updated_at": 1779514628.2642148,
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "task_family": "writing_modular_novel",
@@ -595,7 +595,7 @@
       "default_soul_id": "",
       "default_projection_id": "projection.writing.modular_novel.worker",
       "created_at": 1779294907.9685512,
-      "updated_at": 1779489745.031895,
+      "updated_at": 1779514628.2012103,
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "task_family": "writing_modular_novel",

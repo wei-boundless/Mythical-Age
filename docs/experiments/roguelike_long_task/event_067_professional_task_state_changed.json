@@ -1,0 +1,18 @@
+{
+  "event_id": "rtevt:taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e:67:025975c0",
+  "task_run_id": "taskrun:ac61c695a2a246f493d92b83555f9039:taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response:8b14c63e",
+  "event_type": "professional_task_state_changed",
+  "offset": 67,
+  "created_at": 1779512847.5905812,
+  "refs": {
+    "task_contract_ref": "taskinst:turn:ac61c695a2a246f493d92b83555f9039:1:general_response"
+  },
+  "payload": {
+    "from_state": "action_dispatched",
+    "to_state": "observation_received",
+    "interaction_mode": "professional_mode",
+    "tool_observation_count": 1,
+    "delegation_observation_count": 0,
+    "round_tool_observation_count": 1
+  }
+}

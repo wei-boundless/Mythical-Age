@@ -68,7 +68,7 @@ def build_task_graph_run_monitor_view(
             str(item.get("stage_id") or ""),
         ),
     )[-50:]
-    failure = _failure_details(task=task, coord=coord, state=state)
+    failure = _failure_details(task=task, coord=coord, state=state, batch_lifecycle=batch_lifecycle)
     active_node_id = str(state.get("active_stage_id") or state.get("active_node_id") or "")
     issues = _health_issues(
         graph_spec=graph_spec,
@@ -199,7 +199,12 @@ def build_task_graph_run_monitor_view(
             "latest_record": latest_supervision,
             "record_count": len(supervision_items),
         },
-        "blocker": dict(project_runtime_status.get("active_blocker") or {}),
+        "blocker": _blocker_details(
+            project_blocker=dict(project_runtime_status.get("active_blocker") or {}),
+            failure=failure,
+            state=state,
+            batch_lifecycle=batch_lifecycle,
+        ),
         "repair": dict(project_runtime_status.get("recovery_state") or {}),
         "topology": {
             "nodes": topology_nodes,
@@ -409,7 +414,13 @@ def _artifact_refs(stage_results: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return artifacts
 
 
-def _failure_details(*, task: dict[str, Any], coord: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
+def _failure_details(
+    *,
+    task: dict[str, Any],
+    coord: dict[str, Any],
+    state: dict[str, Any],
+    batch_lifecycle: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     diagnostics = dict(task.get("diagnostics") or {})
     state_diagnostics = dict(state.get("diagnostics") or {})
     coord_diagnostics = dict(coord.get("diagnostics") or {})
@@ -424,25 +435,119 @@ def _failure_details(*, task: dict[str, Any], coord: dict[str, Any], state: dict
             stage_error.setdefault("source", str(stage_error.get("source") or ""))
             stage_error["stage_id"] = stage_id
             failed_stage_errors.append(stage_error)
+    technical_blocker = _technical_blocker_from_batch_lifecycle(batch_lifecycle or {})
     last_error = dict(
         (failed_stage_errors[0] if failed_stage_errors else {})
         or diagnostics.get("last_error")
         or state_diagnostics.get("last_error")
         or coord_diagnostics.get("last_error")
+        or technical_blocker.get("last_error")
         or {}
     )
-    if not last_error and str(task.get("terminal_reason") or "") != "executor_failed":
+    if not last_error and not technical_blocker and str(task.get("terminal_reason") or "") != "executor_failed":
         return {}
     return {
-        "message": str(last_error.get("message") or ""),
-        "detail": str(last_error.get("detail") or ""),
-        "code": str(last_error.get("code") or ""),
+        "message": str(last_error.get("message") or technical_blocker.get("summary") or ""),
+        "detail": str(last_error.get("detail") or technical_blocker.get("detail") or ""),
+        "code": str(last_error.get("code") or technical_blocker.get("code") or ""),
         "provider": str(last_error.get("provider") or ""),
         "model": str(last_error.get("model") or ""),
         "source": str(last_error.get("source") or ""),
-        "stage_id": str(last_error.get("stage_id") or ""),
+        "stage_id": str(last_error.get("stage_id") or technical_blocker.get("stage_id") or ""),
         "step_id": str(last_error.get("step_id") or state.get("current_step_id") or ""),
         "observation_ref": str(last_error.get("observation_ref") or ""),
+        "technical_blocked": bool(technical_blocker),
+        "technical_failure_count": int(technical_blocker.get("technical_failure_count") or 0),
+        "technical_failure_limit": int(technical_blocker.get("technical_failure_limit") or 0),
+        "batch_id": str(technical_blocker.get("batch_id") or ""),
+    }
+
+
+def _blocker_details(
+    *,
+    project_blocker: dict[str, Any],
+    failure: dict[str, Any],
+    state: dict[str, Any],
+    batch_lifecycle: dict[str, Any],
+) -> dict[str, Any]:
+    technical_blocker = _technical_blocker_from_batch_lifecycle(batch_lifecycle)
+    if technical_blocker:
+        return {
+            **dict(project_blocker or {}),
+            "kind": "technical_blocked",
+            "severity": "error",
+            "summary": str(
+                failure.get("message")
+                or technical_blocker.get("summary")
+                or "Execution is blocked by repeated technical failures."
+            ),
+            "active_node_id": str(
+                technical_blocker.get("stage_id")
+                or state.get("active_stage_id")
+                or state.get("active_node_id")
+                or ""
+            ),
+            "terminal_reason": "technical_blocked",
+            "batch_id": str(technical_blocker.get("batch_id") or ""),
+            "technical_failure_count": int(technical_blocker.get("technical_failure_count") or 0),
+            "technical_failure_limit": int(technical_blocker.get("technical_failure_limit") or 0),
+            "failure": dict(failure or {}),
+        }
+    return dict(project_blocker or {})
+
+
+def _technical_blocker_from_batch_lifecycle(raw: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(raw or {})
+    if str(payload.get("authority") or "") != "task_system.batch_lifecycle_runtime_state":
+        return {}
+    diagnostics = dict(payload.get("diagnostics") or {})
+    transition = dict(diagnostics.get("last_transition") or {})
+    batch_id = str(transition.get("batch_id") or "")
+    blocked_batch = next(
+        (
+            dict(item)
+            for item in list(payload.get("batch_states") or [])
+            if isinstance(item, dict)
+            and str(item.get("status") or "") == "technical_blocked"
+            and (not batch_id or str(item.get("batch_id") or "") == batch_id)
+        ),
+        {},
+    )
+    if not blocked_batch:
+        blocked_batch = next(
+            (
+                dict(item)
+                for item in list(payload.get("batch_states") or [])
+                if isinstance(item, dict) and str(item.get("status") or "") == "technical_blocked"
+            ),
+            {},
+        )
+    if not blocked_batch:
+        return {}
+    event_diagnostics = dict(transition.get("event_diagnostics") or {})
+    last_error = dict(event_diagnostics.get("last_error") or {})
+    stage_id = str(
+        transition.get("stage_id")
+        or blocked_batch.get("node_id")
+        or event_diagnostics.get("stage_id")
+        or ""
+    )
+    count = int(transition.get("technical_failure_count") or 0)
+    limit = int(transition.get("technical_failure_limit") or 0)
+    summary = str(last_error.get("message") or "").strip()
+    if not summary:
+        summary = f"Technical failures exhausted for {stage_id or 'current stage'}"
+        if count and limit:
+            summary += f" ({count}/{limit})"
+    return {
+        "summary": summary,
+        "detail": str(last_error.get("detail") or ""),
+        "code": str(last_error.get("code") or "technical_blocked"),
+        "stage_id": stage_id,
+        "batch_id": str(blocked_batch.get("batch_id") or batch_id),
+        "last_error": last_error,
+        "technical_failure_count": count,
+        "technical_failure_limit": limit,
     }
 
 

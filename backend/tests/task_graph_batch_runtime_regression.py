@@ -8,6 +8,7 @@ from runtime.graph_runtime.batch_runtime import (
     bootstrap_batch_lifecycle_runtime_state,
     batch_execution_instance_for_result,
     node_has_more_batch_work,
+    rewind_batch_lifecycle_for_stages,
     select_batch_for_stage,
     transition_batch_after_stage_result,
 )
@@ -341,3 +342,259 @@ def test_batch_runtime_rejects_unknown_parallel_result_identity_without_touching
     assert "item_1_2" in state["running_batch_ids"]
     assert "item_1_2" not in state["committed_batch_ids"]
     assert state["diagnostics"]["last_transition_ignored"]["reason"] == "batch_execution_identity_not_found"
+
+
+def test_batch_runtime_executor_failure_releases_batch_without_consuming_repair_round() -> None:
+    spec = compile_task_graph_definition_runtime_spec(graph=_batch_graph())
+    state = bootstrap_batch_lifecycle_runtime_state(runtime_spec_payload=spec.to_dict())
+    state, first = select_batch_for_stage(runtime_state=state, stage_id="produce", node_id="produce")
+    execution_id = first["active_execution_id"]
+
+    state = transition_batch_after_stage_result(
+        runtime_state=state,
+        stage_id="produce",
+        node_id="produce",
+        accepted=False,
+        task_result_ref="taskresult:provider-failed",
+        batch_execution_id=execution_id,
+        event_diagnostics={
+            "unit_batch_execution_id": execution_id,
+            "terminal_reason": "executor_failed",
+            "last_error": {"code": "provider_error", "message": "Insufficient Balance"},
+        },
+    )
+
+    assert "item_1_2" in state["ready_batch_ids"]
+    assert state["running_batch_ids"] == []
+    batch = next(item for item in state["batch_states"] if item["batch_id"] == "item_1_2")
+    assert batch["repair_round"] == 0
+    assert batch["last_verdict"] == "technical_retry"
+    assert state["batch_execution_instances"][0]["status"] == "technical_failed"
+    assert state["batch_execution_instances"][0]["verdict"] == "technical_retry"
+    assert state["diagnostics"]["last_transition"]["technical_failure"] is True
+
+    state, retry = select_batch_for_stage(runtime_state=state, stage_id="produce", node_id="produce")
+    assert retry["batch_id"] == "item_1_2"
+    assert retry["active_execution_id"] != execution_id
+
+
+def test_batch_runtime_technical_failures_circuit_break_without_business_repair() -> None:
+    spec = compile_task_graph_definition_runtime_spec(graph=_batch_graph())
+    state = bootstrap_batch_lifecycle_runtime_state(runtime_spec_payload=spec.to_dict())
+    selected_execution_ids: list[str] = []
+    for index in range(3):
+        state, selected = select_batch_for_stage(runtime_state=state, stage_id="produce", node_id="produce")
+        execution_id = selected["active_execution_id"]
+        selected_execution_ids.append(execution_id)
+        state = transition_batch_after_stage_result(
+            runtime_state=state,
+            stage_id="produce",
+            node_id="produce",
+            accepted=False,
+            task_result_ref=f"taskresult:provider-failed-{index}",
+            batch_execution_id=execution_id,
+            event_diagnostics={
+                "unit_batch_execution_id": execution_id,
+                "terminal_reason": "executor_failed",
+                "last_error": {"code": "provider_error", "message": "Insufficient Balance"},
+            },
+        )
+
+    batch = next(item for item in state["batch_states"] if item["batch_id"] == "item_1_2")
+    assert batch["status"] == "technical_blocked"
+    assert batch["repair_round"] == 0
+    assert batch["last_verdict"] == "technical_blocked"
+    assert state["ready_batch_ids"] == []
+    assert state["running_batch_ids"] == []
+    assert state["failed_batch_ids"] == []
+    assert node_has_more_batch_work(runtime_state=state, stage_id="produce", node_id="produce") is False
+    assert state["batch_execution_instances"][-1]["execution_id"] == selected_execution_ids[-1]
+    assert state["batch_execution_instances"][-1]["status"] == "technical_blocked"
+    assert state["batch_execution_instances"][-1]["verdict"] == "technical_blocked"
+    assert state["diagnostics"]["last_transition"]["technical_failure_count"] == 3
+    assert state["diagnostics"]["last_transition"]["technical_blocked"] is True
+
+
+def test_batch_runtime_rewind_resets_failed_batches_to_dispatchable_work() -> None:
+    spec = compile_task_graph_definition_runtime_spec(graph=_batch_graph())
+    state = bootstrap_batch_lifecycle_runtime_state(runtime_spec_payload=spec.to_dict())
+    for _ in range(3):
+        state, selected = select_batch_for_stage(runtime_state=state, stage_id="produce", node_id="produce")
+        assert selected["batch_id"] == "item_1_2"
+        state = transition_batch_after_stage_result(
+            runtime_state=state,
+            stage_id="produce",
+            node_id="produce",
+            accepted=False,
+            task_result_ref="taskresult:revise",
+        )
+
+    assert "item_1_2" in state["failed_batch_ids"]
+    assert state["summary"]["failed_batch_count"] == 1
+    assert state["batch_execution_instances"]
+
+    rewound = rewind_batch_lifecycle_for_stages(
+        runtime_state=state,
+        invalidated_stage_ids=["produce"],
+        target_stage_id="produce",
+        target_node_id="produce",
+        reason="retry_after_prompt_fix",
+    )
+
+    assert rewound["ready_batch_ids"] == ["item_1_2"]
+    assert rewound["failed_batch_ids"] == []
+    assert rewound["summary"]["failed_batch_count"] == 0
+    assert rewound["batch_execution_instances"] == []
+    first = next(item for item in rewound["batch_states"] if item["batch_id"] == "item_1_2")
+    assert first["attempt_index"] == 0
+    assert first["repair_round"] == 0
+    assert first["last_result_ref"] == ""
+
+
+def test_coordination_rewind_resets_failed_batch_and_creates_new_request(tmp_path: Path) -> None:
+    graph = _batch_graph()
+    spec = compile_task_graph_definition_runtime_spec(graph=graph)
+    loop = TaskRunLoop(tmp_path, backend_dir=Path("backend"))
+    started = loop.start_task_graph_run(session_id="session:test", graph=graph, runtime_spec=spec)
+    assert started.coordination_run is not None
+    coordination_run = started.coordination_run
+    request = started.loop_state.diagnostics["stage_execution_request"]
+
+    for index in range(3):
+        result = loop.langgraph_coordination_runtime.resume_from_task_result(
+            coordination_run=coordination_run,
+            event=NodeResultReadyEvent(
+                event_type="task_result_ready",
+                coordination_run_id=coordination_run.coordination_run_id,
+                task_run_id=started.task_run.task_run_id,
+                stage_id="produce",
+                task_ref="task.test.produce",
+                task_result_ref=f"taskresult:revise-{index}",
+                accepted=False,
+                request_id=request["request_id"],
+                dispatch_event_id=request["dispatch_context"]["dispatch_event_id"],
+                diagnostics={
+                    "unit_batch_execution_id": request["explicit_inputs"]["unit_batch_execution_id"],
+                },
+            ),
+            inherited_inputs=dict(request["explicit_inputs"]),
+        )
+        if index < 2:
+            assert result.stage_execution_request is not None
+            request = result.stage_execution_request.to_dict()
+
+    failed_state = loop.langgraph_coordination_runtime.checkpoints.get_state(
+        thread_id=coordination_run.coordination_run_id
+    )
+    assert failed_state is not None
+    assert "item_1_2" in failed_state["batch_lifecycle_runtime_state"]["failed_batch_ids"]
+
+    rewound = loop.langgraph_coordination_runtime.rewind_from_stage(
+        coordination_run_id=coordination_run.coordination_run_id,
+        stage_id="produce",
+        reason="retry_after_prompt_fix",
+        refresh_graph_spec=True,
+    )
+
+    assert rewound.stage_execution_request is not None
+    payload = rewound.stage_execution_request.to_dict()
+    assert payload["stage_id"] == "produce"
+    assert payload["explicit_inputs"]["unit_batch_id"] == "item_1_2"
+    assert payload["request_id"] != request["request_id"]
+    batch_state = rewound.state["batch_lifecycle_runtime_state"]
+    assert "item_1_2" in batch_state["running_batch_ids"]
+    assert batch_state["failed_batch_ids"] == []
+
+
+def test_coordination_executor_failure_requeues_batch_without_business_repair(tmp_path: Path) -> None:
+    graph = _batch_graph()
+    spec = compile_task_graph_definition_runtime_spec(graph=graph)
+    loop = TaskRunLoop(tmp_path, backend_dir=Path("backend"))
+    started = loop.start_task_graph_run(session_id="session:test", graph=graph, runtime_spec=spec)
+    assert started.coordination_run is not None
+    coordination_run = started.coordination_run
+    request = started.loop_state.diagnostics["stage_execution_request"]
+    first_execution_id = request["explicit_inputs"]["unit_batch_execution_id"]
+
+    result = loop.langgraph_coordination_runtime.resume_from_task_result(
+        coordination_run=coordination_run,
+        event=NodeResultReadyEvent(
+            event_type="task_result_ready",
+            coordination_run_id=coordination_run.coordination_run_id,
+            task_run_id=started.task_run.task_run_id,
+            stage_id="produce",
+            task_ref="task.test.produce",
+            task_result_ref="taskresult:provider-failed",
+            accepted=False,
+            request_id=request["request_id"],
+            dispatch_event_id=request["dispatch_context"]["dispatch_event_id"],
+            diagnostics={
+                "unit_batch_execution_id": first_execution_id,
+                "terminal_reason": "executor_failed",
+                "last_error": {"code": "provider_error", "message": "Insufficient Balance"},
+            },
+        ),
+        inherited_inputs=dict(request["explicit_inputs"]),
+    )
+
+    assert result.stage_execution_request is not None
+    next_payload = result.stage_execution_request.to_dict()
+    assert next_payload["stage_id"] == "produce"
+    assert next_payload["explicit_inputs"]["unit_batch_id"] == "item_1_2"
+    assert next_payload["explicit_inputs"]["unit_batch_execution_id"] != first_execution_id
+    assert result.state["retry_counts"].get("produce") in {None, 0}
+    assert result.state["contract_status"]["node_status"]["produce"]["diagnostics"]["reason"] == "technical_retry"
+    batch_state = result.state["batch_lifecycle_runtime_state"]
+    batch = next(item for item in batch_state["batch_states"] if item["batch_id"] == "item_1_2")
+    assert batch["repair_round"] == 0
+    assert batch_state["batch_execution_instances"][0]["status"] == "technical_failed"
+    assert batch_state["diagnostics"]["last_transition"]["technical_failure"] is True
+
+
+def test_coordination_technical_failure_circuit_breaks_to_blocked_checkpoint(tmp_path: Path) -> None:
+    graph = _batch_graph()
+    spec = compile_task_graph_definition_runtime_spec(graph=graph)
+    loop = TaskRunLoop(tmp_path, backend_dir=Path("backend"))
+    started = loop.start_task_graph_run(session_id="session:test", graph=graph, runtime_spec=spec)
+    assert started.coordination_run is not None
+    coordination_run = started.coordination_run
+    request = started.loop_state.diagnostics["stage_execution_request"]
+
+    result = None
+    for index in range(3):
+        execution_id = request["explicit_inputs"]["unit_batch_execution_id"]
+        result = loop.langgraph_coordination_runtime.resume_from_task_result(
+            coordination_run=coordination_run,
+            event=NodeResultReadyEvent(
+                event_type="task_result_ready",
+                coordination_run_id=coordination_run.coordination_run_id,
+                task_run_id=started.task_run.task_run_id,
+                stage_id="produce",
+                task_ref="task.test.produce",
+                task_result_ref=f"taskresult:provider-failed-{index}",
+                accepted=False,
+                request_id=request["request_id"],
+                dispatch_event_id=request["dispatch_context"]["dispatch_event_id"],
+                diagnostics={
+                    "unit_batch_execution_id": execution_id,
+                    "terminal_reason": "executor_failed",
+                    "last_error": {"code": "provider_error", "message": "Insufficient Balance"},
+                },
+            ),
+            inherited_inputs=dict(request["explicit_inputs"]),
+        )
+        if index < 2:
+            assert result.stage_execution_request is not None
+            request = result.stage_execution_request.to_dict()
+
+    assert result is not None
+    assert result.stage_execution_request is None
+    assert result.state["terminal_status"] == "blocked"
+    assert result.state["node_statuses"]["produce"] == "blocked"
+    assert result.state["diagnostics"]["batch_node_blocked_reason"] == "technical_retry_exhausted"
+    assert result.state["retry_counts"].get("produce") in {None, 0}
+    batch_state = result.state["batch_lifecycle_runtime_state"]
+    batch = next(item for item in batch_state["batch_states"] if item["batch_id"] == "item_1_2")
+    assert batch["status"] == "technical_blocked"
+    assert batch["repair_round"] == 0
+    assert batch_state["failed_batch_ids"] == []

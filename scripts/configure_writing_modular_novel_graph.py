@@ -25,7 +25,9 @@ MANAGED_BY = "codex_writing_modular_novel_graph_20260521_native"
 DOMAIN_ID = "domain.writing.modular_novel"
 TASK_FAMILY = "writing_modular_novel"
 PROTOCOL_ID = "protocol.writing.modular_novel"
-MODEL_PROFILE_REF = "llm.deepseek.long_output_65536"
+MODEL_PROFILE_REF = "llm.deepseek.flash_long_output_65536"
+WRITING_MODEL_PROVIDER = "deepseek"
+WRITING_MODEL_NAME = "deepseek-v4-flash"
 
 MASTER_GRAPH_ID = "graph.writing.modular_novel.master"
 DESIGN_GRAPH_ID = "graph.writing.modular_novel.design_init"
@@ -43,7 +45,7 @@ TARGET_VOLUMES = 5
 CHAPTERS_PER_VOLUME = 100
 CHAPTER_BATCH_SIZE = 10
 CHAPTER_TARGET_WORDS = 2000
-CHAPTER_MIN_WORDS = 1200
+CHAPTER_MIN_WORDS = 1800
 CHAPTER_MAX_WORDS = 2600
 BATCH_TARGET_WORDS = CHAPTER_BATCH_SIZE * CHAPTER_TARGET_WORDS
 BATCH_MIN_WORDS = CHAPTER_BATCH_SIZE * CHAPTER_MIN_WORDS
@@ -411,7 +413,16 @@ def _length_budget_contract(scope: str, target_units: int, min_units: int, max_u
         "batch_unit_count": batch_unit_count,
         "metric_section_keys": ["章节正文候选"],
         "metric_stop_section_keys": ["承接说明", "本章目标完成说明", "人物与冲突推进", "商业钩子与爽点兑现", "后续伏笔或待承接事项", "自检风险", "公开摘要"],
-        "repair_policy": {"mode": "expand_or_split", "max_repair_rounds": 3, "repair_instruction": "扩写正文场景、行动、选择、冲突、代价和人物反应；不得用摘要、提纲或自检补量。"},
+        "repair_policy": {
+            "mode": "expand_or_split",
+            "max_repair_rounds": 4,
+            "repair_instruction": (
+                "上一轮正文量或分章完整度未达标。必须重写为当前批次十章完整小说正文："
+                "每章都要接近两千字，最低不得少于一千八百字；总正文量应接近两万字，最低不得少于一万八千字。"
+                "必须逐章展开场景、行动、对话、试探、冲突、代价、人物反应、余波和章末牵引。"
+                "不得用摘要、提纲、说明、自检、设定表或压缩转述补量；不得把写前取材判断计入正文。"
+            ),
+        },
         "acceptance_policy": {"require_continuity": True, "require_formal_headings": True, "require_artifact_ref": True, "metric_tool_operation": "op.text_metric"},
         "source": source,
     }
@@ -425,7 +436,7 @@ def _chapter_batch_quality_retry_policy() -> dict[str, Any]:
         "unit_count_key": "chapters_per_round",
         "target_metric_key": "batch_target_words",
         "unit_target_metric_key": "chapter_target_words",
-        "minimum_metric_ratio": 0.55,
+        "minimum_metric_ratio": 0.9,
         "minimum_metric_per_unit": CHAPTER_MIN_WORDS,
         "unit_label": "章",
         "unit_summary_template": "第{index}章",
@@ -472,6 +483,31 @@ def _chapter_batch_quality_retry_policy() -> dict[str, Any]:
             "下一阶段",
         ],
     }
+
+
+def _chapter_draft_quality_retry_policy() -> dict[str, Any]:
+    policy = _chapter_batch_quality_retry_policy()
+    policy.update(
+        {
+            "carry_current_output_as": "previous_chapter_draft_ref",
+            "requirements_input_key": "chapter_revision_requirements",
+            "requirements_template": (
+                "章节正文质量门未通过，当前问题：{quality_issues}。\n"
+                "质量门统计：{quality_issue_summary}。\n"
+                "本轮不是补丁说明，也不是局部增补；必须按运行时允许范围完整重交当前批次小说正文。"
+                "上一版正文只能作为连续性参照，不能原样缩写、摘要化或只交差异说明。\n"
+                "硬性生产规格：严格写第{batch_start_index}章至第{batch_end_index}章，共{chapters_per_round}章；"
+                "每章目标约{chapter_target_words}字，最低不得少于"
+                f"{CHAPTER_MIN_WORDS}字；整批正文最低不得少于"
+                f"{CHAPTER_MIN_WORDS * CHAPTER_BATCH_SIZE}字。\n"
+                "修复方式：优先扩写质量门指出的短章，同时保持十章连续小说正文完整交付；"
+                "每章都要有场景推进、人物行动、对话或心理变化、冲突升级、代价反馈、余波承接和章末牵引。"
+                "不得用摘要、提纲、自检、设定表、工作说明、等待补充、压缩转述或只列修改点代替正文。\n"
+                "交付主体必须是“章节正文候选”，并在该主体下逐章输出完整小说正文。"
+            ),
+        }
+    )
+    return policy
 
 
 @dataclass(frozen=True, slots=True)
@@ -867,6 +903,7 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
                 "mode": "review_then_commit",
                 "review_node_id": "chapter_review",
                 "commit_visibility": "next_batch_after_acceptance",
+                "max_repair_rounds": 4,
             },
             "merge_policy": {
                 "mode": "wait_all_committed",
@@ -877,11 +914,14 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         },
         prompt=_role_prompt(
             "你是一名名家级中文商业网文长篇写手。你只负责当前运行时批次允许的十章正文创作。",
+            "当前运行时批次是硬性生产规格，不是建议：如果本批为十章，你必须一次性交付十章连续小说正文；每章目标约两千字，最低不得少于一千八百字；整批正文目标约两万字，最低不得少于一万八千字。不得把十章压缩成剧情摘要、章节梗概、片段式示例或试写稿；未达到正文量和分章完整度时，视为没有完成写手职责。",
+            "输出结构必须清楚区分“写前取材判断”和“章节正文候选”。写前取材判断只能短，不计入正文量；章节正文候选才是交付主体。章节正文候选下必须严格按运行时允许章号逐章书写，每章都要有正式章节标题和完整叙事，不得合并章节、跳章、用省略号略写、用“此处承接”之类占位。",
             "你的正文目标是头部中文商业网文的连载质感：语言自然、有现场感和节奏弹性，叙述像有经验的人类作者在铺陈情势、递进冲突和安放伏笔；人物有清晰欲望、当下情绪、关系立场和选择压力，冲突通过行动、对话、试探、代价和后果推进。",
             "你可以学习名家级网文作品在节奏、场景张力、人物欲望、爽点兑现、情绪回报和章末牵引上的共性能力，但不能复刻任何具体作者的可识别文风、句式、口癖、桥段模板或专属设定。",
             "你的文风要走中文网文里古朴大气、又不失细腻的路子：叙述要娓娓道来，句子要有呼吸感，画面要清楚但不堆砌术语，语言要质朴而有余味，情绪要落在人物动作、神情、语气和环境反馈里。避免说明腔、流水账、AI腔和机械化列项，也避免过度华丽、过度抒情或舞台台词化。",
             "每个场景都要有目标、阻碍、转折和结果；设定信息要融入动作、对话、观察、利益争夺、人物判断、物件细节和环境反馈里释放。对白要承担关系变化、信息交换、压迫试探或情绪爆发，内心活动要服务选择和行动，不要写成旁白讲解。",
-            "每章都要服务商业连载阅读体验：开局有承接和当章目标，中段有阻碍、反应和推进，结尾形成自然的章末牵引，留下新的压力、期待、反转、奖励或疑问。爽点要以铺垫、触发、出手、代价、反馈和余波形成兑现，来源可以是角色选择、实力变化、身份反差、资源获得、局势翻盘或认知揭示。",
+            "每章都要服务商业连载阅读体验：开局有承接和当章目标，中段至少展开两个以上有效场景或一个足够饱满的长场景，必须出现阻碍、反应、推进和转折，结尾形成自然的章末牵引，留下新的压力、期待、反转、奖励或疑问。爽点要以铺垫、触发、出手、代价、反馈和余波形成兑现，来源可以是角色选择、实力变化、身份反差、资源获得、局势翻盘或认知揭示。",
+            "写作时不要为了赶进度而概述事件。你要把人物如何看见、如何判断、如何犹豫、如何开口、如何行动、如何承受后果写出来；世界信息必须落到可感知的物象、规则后果、人物利益、村落秩序、场域危险和对话压力里。读者应该读到小说现场，而不是读到剧情说明。",
             "你必须先完成写前取材判断，再进入正文。写前取材判断只允许简短列出本批采用的世界规则、人物当前状态、上一批承接、正文事实索引、活跃伏笔、到期伏笔、禁改边界和本批叙事目标；它必须来自基准库、动态记忆库、正文记忆库、当前卷计划和当前批次细纲，不能凭空补设定。",
             "当预装记忆包不足以确认某个规则、人物状态、正文事实、伏笔状态或前后承接时，你必须主动搜索任务记忆数据库，并在写前取材判断中记录检索意图、采用的记忆条目和未命中的风险。你只能检索任务记忆库，不能把未检索到的猜测当作已成立事实。",
             "写前取材判断之后必须输出完整小说正文，正文才是主体。正文要尊重世界规则、角色动机、前后连续性和批次目标；如果旧产物或提示中出现其他章号，以运行时批次边界为准。你不能跳写未授权章节，也不能为方便剧情临时改世界规则。若发现必须新增设定才能写通，只能在正文后标为待审扩展建议，不能当作已成立事实写进正文核心逻辑。",
@@ -1365,17 +1405,17 @@ def _upsert_agents(backend_dir: Path) -> None:
             current_model_profile.to_dict() if current_model_profile is not None else {}
         )
         writing_model_profile = AgentModelProfile(
-            profile_id=writing_model_profile.profile_id,
-            display_name=writing_model_profile.display_name,
-            provider=writing_model_profile.provider,
-            model=writing_model_profile.model,
+            profile_id=MODEL_PROFILE_REF,
+            display_name=writing_model_profile.display_name or "DeepSeek V4 Flash long-output writing profile",
+            provider=WRITING_MODEL_PROVIDER,
+            model=WRITING_MODEL_NAME,
             credential_ref=writing_model_profile.credential_ref,
             max_output_tokens=max(int(writing_model_profile.max_output_tokens or 0), WRITING_LONG_OUTPUT_TOKENS),
             timeout_seconds=max(float(writing_model_profile.timeout_seconds or 0), 180.0),
             long_output_timeout_seconds=max(float(writing_model_profile.long_output_timeout_seconds or 0), 600.0),
             max_retries=max(int(writing_model_profile.max_retries or 0), 2),
             temperature=writing_model_profile.temperature,
-            thinking_mode=writing_model_profile.thinking_mode or "enabled",
+            thinking_mode="disabled",
             reasoning_effort=writing_model_profile.reasoning_effort or "high",
             stream_policy=dict(writing_model_profile.stream_policy),
             fallback_profile_ref=writing_model_profile.fallback_profile_ref,
@@ -2852,7 +2892,17 @@ def _replay_sanitization_policy(node: NodeSpec) -> dict[str, Any]:
         "unit_target_metric_key": "chapter_target_words",
         "unit_list_key": "batch_chapter_list",
         "requirements_key": "chapter_revision_requirements",
-        "requirements_template": "第{start}章至第{end}章上一轮审核未通过。本轮必须严格依据最新审核意见重写完整批次，共{count}章；每章约{unit_target}字，只输出完整正文，不要输出摘要、提纲、解释、拒绝、等待补充或工作说明。{review_hint}",
+        "requirements_template": (
+            "第{start}章至第{end}章上一轮正文未通过质量门。"
+            "本轮不是补丁说明，也不是局部增补；必须按运行时允许范围完整重交当前批次小说正文，共{count}章。"
+            "上一版正文只能作为连续性参照，不能原样缩写、摘要化或只交差异说明。"
+            "每章目标约{unit_target}字，最低不得少于"
+            f"{CHAPTER_MIN_WORDS}字；整批正文最低不得少于{CHAPTER_MIN_WORDS * CHAPTER_BATCH_SIZE}字。"
+            "优先扩写质量门指出的短章，同时保持十章连续小说正文完整交付；"
+            "每章都要有场景推进、人物行动、对话或心理变化、冲突升级、代价反馈、余波承接和章末牵引。"
+            "不得用摘要、提纲、自检、设定表、工作说明、等待补充、压缩转述或只列修改点代替正文。"
+            "交付主体必须是“章节正文候选”，并在该主体下逐章输出完整小说正文。{review_hint}"
+        ),
         "review_ref_key": "previous_chapter_review_ref",
         "batch_dir_template": "batch_{batch_index:03d}_chapters_{batch_start_index:03d}_{batch_end_index:03d}",
         "latest_artifact_sources": [
@@ -2883,7 +2933,9 @@ def _replay_sanitization_policy(node: NodeSpec) -> dict[str, Any]:
 
 
 def _quality_retry_policy(node: NodeSpec) -> dict[str, Any]:
-    if node.node_id in {"chapter_draft", "chapter_review"}:
+    if node.node_id == "chapter_draft":
+        return _chapter_draft_quality_retry_policy()
+    if node.node_id == "chapter_review":
         return _chapter_batch_quality_retry_policy()
     return {}
 
@@ -3303,6 +3355,7 @@ def _model_requirement(node_id: str) -> dict[str, Any]:
         "min_context_tokens": 200000,
         "min_output_tokens": 8192,
         "preferred_output_tokens": preferred,
+        "thinking_mode": "disabled",
         "streaming_required": True,
         "fallback_allowed": True,
         "metadata": {"configured_by": MANAGED_BY, "node_id": node_id},
