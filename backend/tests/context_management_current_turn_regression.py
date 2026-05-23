@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from context_system import ContextResolver
-from intent.signal_collector import collect_intent_frame
 
 
 def test_context_resolver_builds_bundle_items_for_compound_request() -> None:
@@ -108,7 +107,6 @@ def test_chapter_writing_runtime_packet_is_not_treated_as_pdf_bundle() -> None:
         "请依据小说写作节点产出章节细纲。"
     )
 
-    intent_frame = collect_intent_frame(message)
     context = ContextResolver().resolve(
         session_id="writing-test",
         task_id="task.writing.modular_novel.node.chapter_outline",
@@ -116,7 +114,6 @@ def test_chapter_writing_runtime_packet_is_not_treated_as_pdf_bundle() -> None:
         query_understanding={},
     )
 
-    assert "pdf" not in intent_frame.target_domain_hints
     assert context.execution_mode == "single"
     assert context.bundle_items == ()
 

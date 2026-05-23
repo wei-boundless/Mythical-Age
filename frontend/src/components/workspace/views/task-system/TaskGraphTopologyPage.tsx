@@ -311,7 +311,7 @@ export function TaskGraphTopologyPage({
       <main className="task-graph-topology-canvas-shell">
         <header className="task-graph-topology-canvas-head">
           <div>
-            <span>Canonical Graph Builder</span>
+            <span>规范拓扑编辑</span>
             <strong>{taskGraphDraftV2.title}</strong>
           </div>
           <div className="task-graph-topology-metrics" aria-label="拓扑计数">

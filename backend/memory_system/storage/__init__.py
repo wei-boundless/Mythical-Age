@@ -17,14 +17,11 @@ __all__ = [
     "ProcessState",
     "ProcessStateEngine",
     "ProcessStateManager",
-    "ReconciledTurnUnderstanding",
-    "ReconciliationDecision",
     "SessionMemoryManager",
     "SessionUnderstandingProcessor",
-    "TurnUnderstandingAnalyzer",
-    "TurnUnderstandingSnapshot",
-    "UnderstandingReconciler",
-    "ActiveUnderstanding",
+    "ActiveProjection",
+    "TurnProjectionBuilder",
+    "TurnProjectionSnapshot",
     "find_exact_memory_matches",
     "format_frontmatter",
     "parse_frontmatter",
@@ -105,25 +102,13 @@ def __getattr__(name: str):
         from .session_processor import SessionUnderstandingProcessor
 
         return SessionUnderstandingProcessor
-    if name in {"ActiveUnderstanding", "TurnUnderstandingAnalyzer", "TurnUnderstandingSnapshot"}:
-        from .turn_understanding import ActiveUnderstanding, TurnUnderstandingAnalyzer, TurnUnderstandingSnapshot
+    if name in {"ActiveProjection", "TurnProjectionBuilder", "TurnProjectionSnapshot"}:
+        from .turn_projection import ActiveProjection, TurnProjectionBuilder, TurnProjectionSnapshot
 
         return {
-            "ActiveUnderstanding": ActiveUnderstanding,
-            "TurnUnderstandingAnalyzer": TurnUnderstandingAnalyzer,
-            "TurnUnderstandingSnapshot": TurnUnderstandingSnapshot,
-        }[name]
-    if name in {"ReconciledTurnUnderstanding", "ReconciliationDecision", "UnderstandingReconciler"}:
-        from .understanding_reconciliation import (
-            ReconciledTurnUnderstanding,
-            ReconciliationDecision,
-            UnderstandingReconciler,
-        )
-
-        return {
-            "ReconciledTurnUnderstanding": ReconciledTurnUnderstanding,
-            "ReconciliationDecision": ReconciliationDecision,
-            "UnderstandingReconciler": UnderstandingReconciler,
+            "ActiveProjection": ActiveProjection,
+            "TurnProjectionBuilder": TurnProjectionBuilder,
+            "TurnProjectionSnapshot": TurnProjectionSnapshot,
         }[name]
     raise AttributeError(f"module 'memory_system.storage' has no attribute {name!r}")
 

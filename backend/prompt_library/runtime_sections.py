@@ -67,20 +67,9 @@ def assemble_runtime_prompt_sections(
             source_refs=(str(contract.get("contract_id") or getattr(request, "task_id", "")),),
         ),
         PromptSection(
-            section_id="task_understanding_section",
-            title="通用理解框架",
-            source_type="task_understanding_frame",
-            source_id=_task_understanding_source_id(contract),
-            owner_layer="task",
-            cache_scope="dynamic",
-            visible_to_model=True,
-            content=str(contract.get("task_understanding_section") or ""),
-            source_refs=(str(contract.get("contract_id") or getattr(request, "task_id", "")),),
-        ),
-        PromptSection(
             section_id="semantic_task_section",
             title="语义任务契约",
-            source_type="semantic_task_contract",
+            source_type="task_requirement_contract",
             source_id=_semantic_contract_source_id(contract=contract, request=request),
             owner_layer="task",
             cache_scope="dynamic",
@@ -327,7 +316,7 @@ def _selected_plan_item(metadata: dict[str, Any], *, section_id: str) -> dict[st
 
 def _semantic_contract_source_id(*, contract: dict[str, Any], request: Any) -> str:
     metadata = dict(contract.get("metadata") or {})
-    semantic_contract = metadata.get("semantic_task_contract")
+    semantic_contract = metadata.get("task_requirement_contract")
     if isinstance(semantic_contract, dict):
         return str(semantic_contract.get("contract_id") or getattr(request, "task_id", "") or contract.get("task_id") or "")
     return str(getattr(request, "task_id", "") or contract.get("task_id") or "")
@@ -346,14 +335,6 @@ def _goal_hypothesis_source_id(contract: dict[str, Any]) -> str:
     hypothesis = metadata.get("goal_hypothesis_set")
     if isinstance(hypothesis, dict):
         return str(hypothesis.get("hypothesis_set_id") or "")
-    return ""
-
-
-def _task_understanding_source_id(contract: dict[str, Any]) -> str:
-    metadata = dict(contract.get("metadata") or {})
-    frame = metadata.get("task_understanding_frame")
-    if isinstance(frame, dict):
-        return str(frame.get("frame_id") or "")
     return ""
 
 

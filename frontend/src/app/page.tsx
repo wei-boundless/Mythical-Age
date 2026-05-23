@@ -1,22 +1,35 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { LayoutGrid, MessageSquare, Network, Settings, Workflow } from "lucide-react";
+import { Database, LayoutGrid, MessageSquare, Network, Settings, Workflow } from "lucide-react";
 
 import { AppProvider, useAppStore } from "@/lib/store";
-import { CapabilitySystemView } from "@/components/workspace/views/CapabilitySystemView";
+import { lazy, Suspense } from "react";
 import { CenterWorkspaceView } from "@/components/workspace/views/center/CenterWorkspaceView";
-import { OrchestrationView } from "@/components/workspace/views/OrchestrationView";
-import { PlaygroundView } from "@/components/workspace/views/PlaygroundView";
-import { SystemFrameworkView } from "@/components/workspace/views/SystemFrameworkView";
-import { SystemConfigView } from "@/components/workspace/views/SystemConfigView";
-import { TaskSystemView } from "@/components/workspace/views/TaskSystemView";
+import { ConfirmDialogProvider } from "@/components/layout/ConfirmDialogProvider";
 import { WorkbenchShell } from "@/components/layout/WorkbenchShell";
 import { TaskGraphRunInteractionDock } from "@/components/workspace/views/task-system/TaskGraphRunInteractionDock";
 import type { WorkspaceView } from "@/lib/store/types";
 
+const CapabilitySystemView = lazy(() => import("@/components/workspace/views/CapabilitySystemView").then((module) => ({ default: module.CapabilitySystemView })));
+const MemoryView = lazy(() => import("@/components/workspace/views/MemoryView").then((module) => ({ default: module.MemoryView })));
+const OrchestrationView = lazy(() => import("@/components/workspace/views/OrchestrationView").then((module) => ({ default: module.OrchestrationView })));
+const PlaygroundView = lazy(() => import("@/components/workspace/views/PlaygroundView").then((module) => ({ default: module.PlaygroundView })));
+const SystemConfigView = lazy(() => import("@/components/workspace/views/SystemConfigView").then((module) => ({ default: module.SystemConfigView })));
+const SystemFrameworkView = lazy(() => import("@/components/workspace/views/SystemFrameworkView").then((module) => ({ default: module.SystemFrameworkView })));
+const TaskSystemView = lazy(() => import("@/components/workspace/views/TaskSystemView").then((module) => ({ default: module.TaskSystemView })));
+
+function LazyView({ children }: { children: ReactNode }) {
+  return (
+    <Suspense fallback={<div className="boundary-empty boundary-empty--large">正在加载工作台...</div>}>
+      {children}
+    </Suspense>
+  );
+}
+
 const WORKSPACE_QUERY_VIEWS = new Set<WorkspaceView>([
   "chat",
+  "memory",
   "playground",
   "task-system",
   "orchestration",
@@ -29,6 +42,7 @@ const WORKSPACE_TONES = new Set(["water", "leaf", "gold", "ember", "lumen"]);
 
 const SYSTEM_NAV_ITEMS: Array<{ view: WorkspaceView; label: string; icon: typeof MessageSquare }> = [
   { view: "chat", label: "会话", icon: MessageSquare },
+  { view: "memory", label: "记忆", icon: Database },
   { view: "task-system", label: "任务", icon: Workflow },
   { view: "orchestration", label: "编排", icon: Network },
   { view: "capability-system", label: "能力", icon: LayoutGrid },
@@ -111,6 +125,7 @@ function Workspace() {
   useEffect(() => {
     if (
       activeWorkspaceView !== "chat"
+      && activeWorkspaceView !== "memory"
       && activeWorkspaceView !== "playground"
       && activeWorkspaceView !== "task-system"
       && activeWorkspaceView !== "capability-system"
@@ -130,130 +145,95 @@ function Workspace() {
     window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
   }
 
+  const taskGraphRunInteractionDock = (
+    <TaskGraphRunInteractionDock
+      actionLoading={taskGraphMonitorActionLoading}
+      binding={taskGraphMonitorBinding}
+      decision={taskGraphMonitorDecision}
+      error={taskGraphMonitorError}
+      monitor={taskGraphBoundRunMonitor}
+      monitorLoading={taskGraphMonitorLoading}
+      onClear={clearTaskGraphMonitorRun}
+      onEvaluate={() => void evaluateBoundTaskGraphMonitor()}
+      onOpenChange={setTaskGraphRunInteractionOpen}
+      onSubmitDecision={(decision, controlAction, resumePayload) => void submitTaskGraphMonitorDecision(decision, controlAction, resumePayload)}
+      open={taskGraphRunInteractionOpen}
+    />
+  );
+
+  const shouldShowTaskGraphRunInteractionDock =
+    activeWorkspaceView === "chat"
+    || activeWorkspaceView === "system-framework"
+    || activeWorkspaceView === "orchestration"
+    || activeWorkspaceView === "task-system"
+    || activeWorkspaceView === "capability-system";
+
+  let content: ReactNode;
+
   if (activeWorkspaceView === "system-framework") {
-    return (
+    content = (
       <main className="system-framework-stage min-h-screen">
-        <SystemFrameworkView />
-        <TaskGraphRunInteractionDock
-          actionLoading={taskGraphMonitorActionLoading}
-          binding={taskGraphMonitorBinding}
-          decision={taskGraphMonitorDecision}
-          error={taskGraphMonitorError}
-          monitor={taskGraphBoundRunMonitor}
-          monitorLoading={taskGraphMonitorLoading}
-          onClear={clearTaskGraphMonitorRun}
-          onEvaluate={() => void evaluateBoundTaskGraphMonitor()}
-          onOpenChange={setTaskGraphRunInteractionOpen}
-          onSubmitDecision={(decision, controlAction, resumePayload) => void submitTaskGraphMonitorDecision(decision, controlAction, resumePayload)}
-          open={taskGraphRunInteractionOpen}
-        />
+        <LazyView><SystemFrameworkView /></LazyView>
       </main>
     );
-  }
-
-  if (activeWorkspaceView === "orchestration") {
-    return (
+  } else if (activeWorkspaceView === "orchestration") {
+    content = (
       <SystemPageShell label="编排系统">
-        <OrchestrationView />
-        <TaskGraphRunInteractionDock
-          actionLoading={taskGraphMonitorActionLoading}
-          binding={taskGraphMonitorBinding}
-          decision={taskGraphMonitorDecision}
-          error={taskGraphMonitorError}
-          monitor={taskGraphBoundRunMonitor}
-          monitorLoading={taskGraphMonitorLoading}
-          onClear={clearTaskGraphMonitorRun}
-          onEvaluate={() => void evaluateBoundTaskGraphMonitor()}
-          onOpenChange={setTaskGraphRunInteractionOpen}
-          onSubmitDecision={(decision, controlAction, resumePayload) => void submitTaskGraphMonitorDecision(decision, controlAction, resumePayload)}
-          open={taskGraphRunInteractionOpen}
-        />
+        <LazyView><OrchestrationView /></LazyView>
       </SystemPageShell>
     );
-  }
-
-  if (activeWorkspaceView === "task-system") {
-    return (
+  } else if (activeWorkspaceView === "task-system") {
+    content = (
       <SystemPageShell label="任务系统">
-        <TaskSystemView />
-        <TaskGraphRunInteractionDock
-          actionLoading={taskGraphMonitorActionLoading}
-          binding={taskGraphMonitorBinding}
-          decision={taskGraphMonitorDecision}
-          error={taskGraphMonitorError}
-          monitor={taskGraphBoundRunMonitor}
-          monitorLoading={taskGraphMonitorLoading}
-          onClear={clearTaskGraphMonitorRun}
-          onEvaluate={() => void evaluateBoundTaskGraphMonitor()}
-          onOpenChange={setTaskGraphRunInteractionOpen}
-          onSubmitDecision={(decision, controlAction, resumePayload) => void submitTaskGraphMonitorDecision(decision, controlAction, resumePayload)}
-          open={taskGraphRunInteractionOpen}
-        />
+        <LazyView><TaskSystemView /></LazyView>
       </SystemPageShell>
     );
-  }
-
-  if (activeWorkspaceView === "capability-system") {
-    return (
+  } else if (activeWorkspaceView === "memory") {
+    content = (
+      <SystemPageShell label="长期记忆">
+        <LazyView><MemoryView /></LazyView>
+      </SystemPageShell>
+    );
+  } else if (activeWorkspaceView === "capability-system") {
+    content = (
       <SystemPageShell label="能力系统">
-        <CapabilitySystemView />
-        <TaskGraphRunInteractionDock
-          actionLoading={taskGraphMonitorActionLoading}
-          binding={taskGraphMonitorBinding}
-          decision={taskGraphMonitorDecision}
-          error={taskGraphMonitorError}
-          monitor={taskGraphBoundRunMonitor}
-          monitorLoading={taskGraphMonitorLoading}
-          onClear={clearTaskGraphMonitorRun}
-          onEvaluate={() => void evaluateBoundTaskGraphMonitor()}
-          onOpenChange={setTaskGraphRunInteractionOpen}
-          onSubmitDecision={(decision, controlAction, resumePayload) => void submitTaskGraphMonitorDecision(decision, controlAction, resumePayload)}
-          open={taskGraphRunInteractionOpen}
-        />
+        <LazyView><CapabilitySystemView /></LazyView>
       </SystemPageShell>
     );
-  }
-
-  if (activeWorkspaceView === "system-config") {
-    return (
+  } else if (activeWorkspaceView === "system-config") {
+    content = (
       <SystemPageShell label="配置">
-        <SystemConfigView />
+        <LazyView><SystemConfigView /></LazyView>
       </SystemPageShell>
     );
-  }
-
-  if (forcedPlayground || activeWorkspaceView === "playground") {
-    return <PlaygroundView onReturnToWorkspace={returnToWorkspace} />;
+  } else if (forcedPlayground || activeWorkspaceView === "playground") {
+    content = <LazyView><PlaygroundView onReturnToWorkspace={returnToWorkspace} /></LazyView>;
+  } else {
+    content = (
+      <SystemPageShell label="主会话">
+        <WorkbenchShell>
+          <section className="workbench-view-host workbench-view-host--chat" aria-label="主会话">
+            <CenterWorkspaceView />
+          </section>
+        </WorkbenchShell>
+      </SystemPageShell>
+    );
   }
 
   return (
-    <SystemPageShell label="主会话">
-      <WorkbenchShell>
-        <section className="workbench-view-host workbench-view-host--chat" aria-label="主会话">
-          <CenterWorkspaceView />
-        </section>
-        <TaskGraphRunInteractionDock
-          actionLoading={taskGraphMonitorActionLoading}
-          binding={taskGraphMonitorBinding}
-          decision={taskGraphMonitorDecision}
-          error={taskGraphMonitorError}
-          monitor={taskGraphBoundRunMonitor}
-          monitorLoading={taskGraphMonitorLoading}
-          onClear={clearTaskGraphMonitorRun}
-          onEvaluate={() => void evaluateBoundTaskGraphMonitor()}
-          onOpenChange={setTaskGraphRunInteractionOpen}
-          onSubmitDecision={(decision, controlAction, resumePayload) => void submitTaskGraphMonitorDecision(decision, controlAction, resumePayload)}
-          open={taskGraphRunInteractionOpen}
-        />
-      </WorkbenchShell>
-    </SystemPageShell>
+    <>
+      {content}
+      {shouldShowTaskGraphRunInteractionDock ? taskGraphRunInteractionDock : null}
+    </>
   );
 }
 
 export default function Page() {
   return (
     <AppProvider>
-      <Workspace />
+      <ConfirmDialogProvider>
+        <Workspace />
+      </ConfirmDialogProvider>
     </AppProvider>
   );
 }

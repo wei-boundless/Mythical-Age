@@ -174,7 +174,7 @@ def test_build_prompt_selection_context_preserves_task_flow_from_runtime_payload
         task_id="runtime-task",
         user_goal="继续执行世界观设计",
         task_contract={
-            "semantic_task_contract": {
+            "task_requirement_contract": {
                 "task_goal_type": "task_graph_node_execution",
                 "domain": "writing",
             },
@@ -228,12 +228,12 @@ def test_prompt_selection_context_exposes_goal_and_plan_contracts() -> None:
         task_id="runtime-task",
         user_goal="开发浏览器肉鸽游戏",
         task_contract={
-            "semantic_task_contract": {
+            "task_requirement_contract": {
                 "contract_id": "semantic-task:test:runtime-task",
                 "task_goal_type": "game_vertical_slice_delivery",
                 "domain": "development",
                 "diagnostics": {
-                    "task_goal_frame": {
+                    "task_goal_spec": {
                         "task_goal_type": "game_vertical_slice_delivery",
                         "unacceptable_outcomes": ["final_report_only"],
                     },
@@ -270,7 +270,7 @@ def test_prompt_selection_context_exposes_goal_and_plan_contracts() -> None:
     )
 
     assert context.goal_hypothesis_set["hypothesis_set_id"] == "goalhyp:test"
-    assert context.task_goal_frame["unacceptable_outcomes"] == ["final_report_only"]
+    assert context.task_goal_spec["unacceptable_outcomes"] == ["final_report_only"]
     assert context.agent_plan_draft["plan_id"] == "agent-plan:runtime-task"
     assert context.plan_coverage_review["passed"] is True
     assert context.metadata["agent_plan_ref"] == "agent-plan:runtime-task"

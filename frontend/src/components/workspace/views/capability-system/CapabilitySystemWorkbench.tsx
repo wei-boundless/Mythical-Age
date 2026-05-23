@@ -40,6 +40,7 @@ import {
   type OperationSkill,
   type OperationTool,
 } from "@/lib/api";
+import { useConfirmDialog } from "@/components/layout/ConfirmDialogProvider";
 
 type CapabilityPage = "overview" | "units" | "skills" | "tools" | "mcp";
 
@@ -363,6 +364,7 @@ function getMcpCatalogFromCapability(catalog: CapabilitySystemCatalog | null): M
 }
 
 export function CapabilitySystemWorkbench() {
+  const confirm = useConfirmDialog();
   const [catalog, setCatalog] = useState<CapabilitySystemCatalog | null>(null);
   const [activePage, setActivePage] = useState<CapabilityPage>("overview");
   const [query, setQuery] = useState("");
@@ -567,7 +569,11 @@ export function CapabilitySystemWorkbench() {
   }
 
   async function removeSkill(skill: OperationSkill) {
-    const ok = window.confirm(`确定删除「${skill.runtime.title || skill.runtime.name}」吗？这会删除对应 skill 目录。`);
+    const ok = await confirm({
+      title: `删除 skill「${skill.runtime.title || skill.runtime.name}」`,
+      body: "这会删除对应 skill 目录。",
+      confirmLabel: "删除 skill",
+    });
     if (!ok) return;
     setSaving(`delete:${skill.runtime.name}`);
     setError("");

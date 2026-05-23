@@ -40,16 +40,16 @@ def bind_task_goal_profile(
     session_id: str,
     task_id: str,
     task_goal_type: str,
-    task_goal_frame: dict[str, Any] | None = None,
+    task_goal_spec: dict[str, Any] | None = None,
 ) -> TaskGoalProfileBinding:
-    goal_frame = dict(task_goal_frame or {})
+    goal_frame = dict(task_goal_spec or {})
     profile = get_task_goal_profile(task_goal_type)
     if profile is None:
         return _fallback_binding(
             session_id=session_id,
             task_id=task_id,
             task_goal_type=task_goal_type,
-            task_goal_frame=goal_frame,
+            task_goal_spec=goal_frame,
         )
     conflicts = _explicit_constraint_conflicts(goal_frame=goal_frame, profile=profile)
     return TaskGoalProfileBinding(
@@ -76,22 +76,22 @@ def _fallback_binding(
     session_id: str,
     task_id: str,
     task_goal_type: str,
-    task_goal_frame: dict[str, Any],
+    task_goal_spec: dict[str, Any],
 ) -> TaskGoalProfileBinding:
     return TaskGoalProfileBinding(
         binding_id=f"task-goal-profile-binding:{session_id}:{task_id}",
         task_goal_type=str(task_goal_type or "light_qa"),
-        task_domain=str(task_goal_frame.get("task_domain") or "general"),
+        task_domain=str(task_goal_spec.get("task_domain") or "general"),
         profile_id="fallback",
         matched_by="fallback",
-        confidence=_confidence(task_goal_frame, default=0.32),
+        confidence=_confidence(task_goal_spec, default=0.32),
         inherited_capabilities=tuple(
             str(item).strip()
-            for item in list(task_goal_frame.get("required_capabilities") or [])
+            for item in list(task_goal_spec.get("required_capabilities") or [])
             if str(item).strip()
         ),
-        inherited_success_criteria=_criteria(task_goal_frame, "success_criteria", ()),
-        inherited_verifications=_criteria(task_goal_frame, "required_verifications", ()),
+        inherited_success_criteria=_criteria(task_goal_spec, "success_criteria", ()),
+        inherited_verifications=_criteria(task_goal_spec, "required_verifications", ()),
         domain_plan_template_id="generic_professional_task",
         diagnostics={
             "fallback_reason": "unregistered_task_goal_type",

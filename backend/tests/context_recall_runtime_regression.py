@@ -10,9 +10,8 @@ if str(BACKEND_DIR) not in sys.path:
 
 from runtime.model_gateway.model_response import ModelResponseRuntimeExecutor
 from orchestration.runtime_directive import RuntimeDirective
+from request_intent.request_signals import build_request_signals
 from runtime.unit_runtime.loop import TaskRunLoop
-from understanding.memory_intent import MemoryIntent
-from understanding.task_understanding import analyze_task_understanding
 
 
 def _runtime() -> TaskRunLoop:
@@ -100,7 +99,7 @@ def test_recipe_mcp_request_derives_path_from_context_recall_candidate() -> None
         runtime,
         user_message="只基于刚才这前五名员工按部门总结。",
         current_turn_context=_candidate_context(),
-        query_understanding={"source_kind": "dataset", "parameters": {"query": "按部门总结。"}},
+        query_understanding=build_request_signals("只基于刚才这前五名员工按部门总结。").to_dict(),
         selected_recipe_payload={"source_kind": "dataset"},
         task_spec_payload={"recipe_id": "runtime.recipe.structured_data_analysis", "inputs": {}},
     )
@@ -175,17 +174,3 @@ def test_model_executor_does_not_auto_delegate_for_direct_web_search_lane() -> N
 
     assert all(event["type"] != "tool_call_requested" for event in events)
     assert events[-1]["type"] == "done"
-
-
-def test_memory_intent_no_longer_short_circuits_deictic_pdf_without_explicit_input() -> None:
-    understanding = analyze_task_understanding(
-        "如果我要把这份报告讲给业务负责人听，第四页最值得摘出来的两到三句是什么？",
-        MemoryIntent(intent="session_state", memory_read_mode="session_state", should_skip_rag=True),
-    )
-
-    assert understanding.route_hint == "pdf"
-    assert understanding.modality == "pdf"
-    assert understanding.task_kind == "document_page"
-    assert understanding.parameters["mode"] == "page"
-    assert "path" not in understanding.parameters
-    assert "bound_pdf_followup" not in understanding.reasons

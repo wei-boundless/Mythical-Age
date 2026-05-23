@@ -14,4 +14,7 @@ async def runtime_lifespan(_: FastAPI):
     settings = get_settings()
     ensure_project_storage(settings.backend_dir)
     app_runtime.initialize(settings.backend_dir)
-    yield
+    try:
+        yield
+    finally:
+        await app_runtime.shutdown()

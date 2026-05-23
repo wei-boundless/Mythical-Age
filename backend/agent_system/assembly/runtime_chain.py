@@ -1,18 +1,16 @@
 from __future__ import annotations
 
-from dataclasses import asdict
+import json
+import hashlib
 from pathlib import Path
 from typing import Any
 
-from capability_system.local_mcp_registry import get_local_mcp_unit
 from continuation import collect_continuation_candidates, decide_continuation
 from context_system import ContextResolver
-from intent import build_runtime_assembly_hint, build_task_goal_frame, collect_intent_frame, decide_intent
 from task_system.services.assembly_builder import build_task_execution_assembly_bundle
 from task_system.registry.flow_registry import TaskFlowRegistry
-from understanding.capability_resolution_view import capability_resolution_view
-from understanding.memory_intent import analyze_memory_intent
-from understanding.query_understanding import analyze_query_understanding
+from request_intent.memory_intent import analyze_memory_intent
+from request_intent.request_signals import RequestSignals, build_request_signals
 
 from runtime.agent_assembly.boundary import (
     build_model_context_payload,
@@ -45,6 +43,7 @@ class AgentRuntimeChainAssembler:
         agent_runtime_profile: Any | None = None,
         current_turn_context_override: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        turn_memory_cache: dict[str, dict[str, Any]] = {}
         task_selection_payload = build_task_selection_payload(
             task_selection=task_selection,
         )
@@ -76,6 +75,7 @@ class AgentRuntimeChainAssembler:
             task_selection=task_selection_payload,
         )
         memory_payload = self.build_memory_runtime_view_payload(
+            turn_memory_cache=turn_memory_cache,
             task_id=task_id,
             agent_id=str(getattr(effective_agent_runtime_profile, "agent_id", "") or "agent:0"),
             session_id=session_id,
@@ -83,14 +83,19 @@ class AgentRuntimeChainAssembler:
             memory_intent=memory_intent,
             memory_request_profile=initial_memory_request_profile,
         )
-        intent_frame = collect_intent_frame(
+        query_understanding = build_request_signals(
             message,
-            memory_intent=memory_intent,
-            memory_runtime_view=memory_payload,
+            memory_intent,
+            current_turn_context=task_selection_payload,
         )
-        intent_decision = decide_intent(intent_frame)
-        if _should_request_state_recall(message=message, intent_frame=intent_frame, intent_decision=intent_decision):
+        query_understanding = _align_understanding_with_explicit_task_selection(
+            self.base_dir,
+            query_understanding,
+            task_selection=task_selection_payload,
+        )
+        if _should_request_state_recall(message=message, query_understanding=query_understanding):
             memory_payload = self.build_memory_runtime_view_payload(
+                turn_memory_cache=turn_memory_cache,
                 task_id=task_id,
                 agent_id=str(getattr(effective_agent_runtime_profile, "agent_id", "") or "agent:0"),
                 session_id=session_id,
@@ -103,36 +108,24 @@ class AgentRuntimeChainAssembler:
                     "allow_long_term_memory": False,
                 },
             )
-            intent_frame = collect_intent_frame(
+            query_understanding = build_request_signals(
                 message,
-                memory_intent=memory_intent,
-                memory_runtime_view=memory_payload,
+                memory_intent,
+                current_turn_context=task_selection_payload,
             )
-            intent_decision = decide_intent(intent_frame)
+            query_understanding = _align_understanding_with_explicit_task_selection(
+                self.base_dir,
+                query_understanding,
+                task_selection=task_selection_payload,
+            )
         continuation_candidates = collect_continuation_candidates(
             message=message,
             memory_runtime_view=memory_payload,
-            intent_frame=intent_frame,
-            intent_decision=intent_decision,
+            request_intent=query_understanding,
         )
         continuation_decision = decide_continuation(
             candidates=continuation_candidates,
-            intent_decision=intent_decision,
-        )
-        runtime_assembly_hint = build_runtime_assembly_hint(
-            intent_frame=intent_frame,
-            intent_decision=intent_decision,
-        )
-        query_understanding = analyze_query_understanding(
-            message,
-            memory_intent,
-            skill_registry=self.skill_registry,
-            tool_registry=self.tool_registry,
-        )
-        query_understanding = _align_understanding_with_explicit_task_selection(
-            self.base_dir,
-            query_understanding,
-            task_selection=task_selection_payload,
+            request_intent=query_understanding,
         )
         override_payload = build_turn_context_payload(
             current_turn_context=current_turn_context_override
@@ -144,24 +137,29 @@ class AgentRuntimeChainAssembler:
             **override_payload,
             **selection_override_payload,
         }
-        task_goal_frame = build_task_goal_frame(
-            message,
-            intent_frame=intent_frame.to_dict(),
-            intent_decision=intent_decision.to_dict(),
-            query_understanding=asdict(query_understanding),
-            current_turn_context=early_context_payload,
-            model_understanding_draft=dict(early_context_payload.get("model_understanding_draft") or {}),
+        model_turn_decision = dict(early_context_payload.get("model_turn_decision") or {})
+        if not model_turn_decision:
+            raise RuntimeError("ModelTurnDecision is required before runtime assembly")
+        query_understanding_payload = {
+            **query_understanding.to_dict(),
+            "model_turn_decision": model_turn_decision,
+            "request_facts": dict(early_context_payload.get("request_facts") or {}),
+            "boundary_policy": dict(early_context_payload.get("boundary_policy") or {}),
+            "action_permit": dict(early_context_payload.get("action_permit") or {}),
+        }
+        task_goal_spec = _task_goal_spec_from_model_turn_decision(
+            message=message,
+            model_turn_decision=model_turn_decision,
+            query_understanding=query_understanding_payload,
+            explicit_task_goal_spec=dict(early_context_payload.get("task_goal_spec") or {}),
         )
         current_turn_context = ContextResolver().resolve(
             session_id=session_id,
             task_id=task_id,
             user_message=message,
             memory_runtime_view=memory_payload,
-            query_understanding=asdict(query_understanding),
-            intent_frame=intent_frame.to_dict(),
-            intent_decision=intent_decision.to_dict(),
-            task_goal_frame=task_goal_frame.to_dict(),
-            runtime_assembly_hint=runtime_assembly_hint,
+            query_understanding=query_understanding_payload,
+            task_goal_spec=task_goal_spec,
             continuation_candidates=[item.to_dict() for item in continuation_candidates],
             continuation_decision=continuation_decision.to_dict(),
         )
@@ -172,21 +170,16 @@ class AgentRuntimeChainAssembler:
             current_turn_context_payload["turn_id"] = turn_id
         if selection_override_payload:
             current_turn_context_payload.update(selection_override_payload)
-        skill_frame = _resolve_skill_frame(self.skill_registry, query_understanding)
+        skill_frame = _resolve_skill_frame(self.skill_registry, query_understanding_payload)
         task_bundle = build_task_execution_assembly_bundle(
             base_dir=self.base_dir,
             session_id=session_id,
             task_id=task_id,
             user_goal=message,
             source=source,
-            query_understanding=asdict(query_understanding),
+            query_understanding=query_understanding_payload,
             current_turn_context=current_turn_context_payload,
             active_skill=_skill_frame_payload(skill_frame),
-            runtime_required_operations=_operation_ids_for_runtime(
-                query_understanding=query_understanding,
-                skill_frame=skill_frame,
-                tool_registry=self.tool_registry,
-            ),
             agent_runtime_profile=effective_agent_runtime_profile,
         )
         context_payload: dict[str, Any] = {}
@@ -199,6 +192,7 @@ class AgentRuntimeChainAssembler:
         )
         task_operation["task_memory_request_profile"] = memory_request_profile
         memory_payload = self.build_memory_runtime_view_payload(
+            turn_memory_cache=turn_memory_cache,
             task_id=task_id,
             agent_id=str(getattr(effective_agent_runtime_profile, "agent_id", "") or "agent:0"),
             session_id=session_id,
@@ -211,6 +205,7 @@ class AgentRuntimeChainAssembler:
             message=message,
             memory_intent=memory_intent,
             memory_request_profile=memory_request_profile,
+            memory_runtime_view=memory_payload,
             retrieval_allowed=_task_operation_allows_retrieval(task_operation),
         )
         context_payload = _to_dict(context_policy_result)
@@ -254,6 +249,7 @@ class AgentRuntimeChainAssembler:
     def build_memory_runtime_view_payload(
         self,
         *,
+        turn_memory_cache: dict[str, dict[str, Any]] | None = None,
         task_id: str = "task-runtime",
         agent_id: str = "agent:0",
         session_id: str,
@@ -261,6 +257,16 @@ class AgentRuntimeChainAssembler:
         memory_intent: Any,
         memory_request_profile: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        cache_key = _turn_memory_cache_key(
+            task_id=task_id,
+            agent_id=agent_id,
+            session_id=session_id,
+            message=message,
+            memory_intent=memory_intent,
+            memory_request_profile=memory_request_profile,
+        )
+        if turn_memory_cache is not None and cache_key in turn_memory_cache:
+            return dict(turn_memory_cache[cache_key])
         bundle_builder = getattr(self.memory_facade, "build_memory_bundle", None)
         if callable(bundle_builder):
             bundle = bundle_builder(
@@ -272,7 +278,10 @@ class AgentRuntimeChainAssembler:
                 memory_request_profile=memory_request_profile,
             )
             payload = bundle.to_dict() if hasattr(bundle, "to_dict") else dict(bundle)
-            return dict(payload.get("runtime_view") or {})
+            runtime_view = dict(payload.get("runtime_view") or {})
+            if turn_memory_cache is not None:
+                turn_memory_cache[cache_key] = dict(runtime_view)
+            return runtime_view
         builder = getattr(self.memory_facade, "build_memory_runtime_view", None)
         if not callable(builder):
             return {}
@@ -282,7 +291,10 @@ class AgentRuntimeChainAssembler:
             memory_intent=memory_intent,
             memory_request_profile=memory_request_profile,
         )
-        return _to_dict(view)
+        runtime_view = _to_dict(view)
+        if turn_memory_cache is not None:
+            turn_memory_cache[cache_key] = dict(runtime_view)
+        return runtime_view
 
     def build_context_policy_result(
         self,
@@ -291,6 +303,7 @@ class AgentRuntimeChainAssembler:
         message: str | None,
         memory_intent: Any,
         memory_request_profile: dict[str, Any] | None = None,
+        memory_runtime_view: dict[str, Any] | None = None,
         relevant_memory_notes: list[Any] | None = None,
         retrieval_results: list[dict[str, Any]] | None = None,
         retrieval_allowed: bool = True,
@@ -305,6 +318,7 @@ class AgentRuntimeChainAssembler:
             pending_user_message=message,
             memory_intent=memory_intent,
             memory_request_profile=memory_request_profile,
+            memory_view=memory_runtime_view,
             relevant_notes=relevant_memory_notes,
             retrieval_results=retrieval_results,
         )
@@ -340,6 +354,27 @@ def _to_dict(value: Any) -> dict[str, Any]:
     return dict(value)
 
 
+def _turn_memory_cache_key(
+    *,
+    task_id: str,
+    agent_id: str,
+    session_id: str,
+    message: str,
+    memory_intent: Any,
+    memory_request_profile: dict[str, Any] | None,
+) -> str:
+    payload = {
+        "task_id": str(task_id or ""),
+        "agent_id": str(agent_id or ""),
+        "session_id": str(session_id or ""),
+        "message": str(message or ""),
+        "memory_intent": _to_dict(memory_intent) if hasattr(memory_intent, "to_dict") or isinstance(memory_intent, dict) else str(memory_intent or ""),
+        "memory_request_profile": dict(memory_request_profile or {}),
+    }
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
 def _memory_request_profile_for_context_assembly(
     memory_request_profile: dict[str, Any],
     *,
@@ -369,15 +404,18 @@ def _memory_request_profile_for_context_assembly(
     return profile
 
 
-def _should_request_state_recall(*, message: str, intent_frame: Any, intent_decision: Any) -> bool:
-    evidence = dict(getattr(intent_frame, "evidence", {}) or {})
-    if bool(evidence.get("explicit_target")):
+def _should_request_state_recall(*, message: str, query_understanding: RequestSignals) -> bool:
+    payload = query_understanding.to_dict()
+    signals = dict(payload.get("turn_signals") or {})
+    capability = dict(payload.get("capability_intent") or {})
+    if signals.get("explicit_paths"):
         return False
-    if bool(evidence.get("weather_domain")) or bool(evidence.get("gold_price_domain")):
+    needs = {str(item).strip() for item in list(capability.get("capability_needs") or []) if str(item).strip()}
+    if needs & {"weather", "gold_price", "latest_information"}:
         return False
-    if bool(evidence.get("external_requirement")):
+    if bool(signals.get("external_context_required")):
         return False
-    if str(getattr(intent_decision, "primary_action", "") or "") in {"retrieve_knowledge", "recall_memory"}:
+    if bool(signals.get("memory_recall_required")):
         return False
     text = str(message or "").lower()
     has_followup_language = any(
@@ -399,7 +437,8 @@ def _should_request_state_recall(*, message: str, intent_frame: Any, intent_deci
     )
     if not has_followup_language:
         return False
-    if bool(evidence.get("dataset_language")) or bool(evidence.get("pdf_language")) or bool(evidence.get("scope_refinement")):
+    material_kinds = {str(item).strip() for item in list(signals.get("material_kinds") or []) if str(item).strip()}
+    if material_kinds & {"dataset", "pdf"}:
         return True
     return any(token in text for token in ("pdf", "报告", "表", "数据", "员工", "仓库", "库存", "第", "页"))
 
@@ -421,7 +460,12 @@ def _context_assembly_policy_from_payload(payload: dict[str, Any] | None) -> dic
 
 def _task_operation_allows_retrieval(task_operation: dict[str, Any]) -> bool:
     query_understanding = dict(task_operation.get("query_understanding") or {})
-    if bool(query_understanding.get("should_skip_rag")):
+    capability = dict(query_understanding.get("capability_intent") or {})
+    signals = dict(query_understanding.get("turn_signals") or {})
+    context_binding = dict(query_understanding.get("context_binding") or {})
+    if str(context_binding.get("kind") or "") == "explicit_task_selection":
+        return False
+    if bool(signals.get("memory_recall_required")):
         return False
     assembly = dict(task_operation.get("task_execution_assembly") or {})
     if str(assembly.get("runtime_lane") or "").strip() == "coordination_task":
@@ -445,10 +489,10 @@ def _task_operation_allows_retrieval(task_operation: dict[str, Any]) -> bool:
 
 def _align_understanding_with_explicit_task_selection(
     base_dir: Path,
-    query_understanding: Any,
+    query_understanding: RequestSignals,
     *,
     task_selection: dict[str, Any],
-) -> Any:
+) -> RequestSignals:
     selected_task_id = str(
         task_selection.get("selected_task_id")
         or task_selection.get("task_id")
@@ -464,12 +508,6 @@ def _align_understanding_with_explicit_task_selection(
     if record is None:
         return query_understanding
 
-    suppressed_resolution = dict(getattr(query_understanding, "capability_resolution", {}) or {})
-    suppressed_candidates = [
-        dict(item)
-        for item in list(getattr(query_understanding, "candidate_capabilities", []) or [])
-        if isinstance(item, dict)
-    ]
     record_policy = dict(getattr(record, "task_policy", {}) or {})
     record_structure = dict(record_policy.get("task_structure") or {})
     record_metadata = dict(getattr(record, "metadata", {}) or {})
@@ -480,52 +518,38 @@ def _align_understanding_with_explicit_task_selection(
         or getattr(record, "runtime_lane", "")
         or "task_runtime"
     ).strip()
-    query_understanding.intent = f"{record_task_mode}_task"
-    query_understanding.source_kind = "task_system"
-    query_understanding.task_kind = record_task_mode
-    query_understanding.modality = record.task_family or "task"
-    query_understanding.route = "agent"
-    query_understanding.execution_posture = "task_runtime"
-    query_understanding.direct_route_reason = "explicit_task_selection"
-    query_understanding.preferred_skill = None
-    query_understanding.skill_name = None
-    query_understanding.tool_name = None
-    query_understanding.capability_requests = []
-    query_understanding.candidate_tools = []
-    query_understanding.candidate_capabilities = []
-    query_understanding.tool_input = {"selected_task_id": selected_task_id}
-    query_understanding.should_skip_rag = True
-    query_understanding.confidence = 1.0
-    query_understanding.capability_resolution = {
-        "selected_candidate_type": "",
-        "selected_candidate_name": "",
-        "route": "agent",
-        "execution_posture": "task_runtime",
-        "preferred_skill": "",
-        "tool_name": "",
-        "mcp_route": "",
-        "diagnostics": {
-            "selection_source": "explicit_task_selection_override",
-            "suppressed_previous_resolution": suppressed_resolution,
-            "suppressed_candidate_count": len(suppressed_candidates),
-        },
-    }
-    query_understanding.reasons = [
-        "explicit_task_selection",
-        *[reason for reason in list(query_understanding.reasons or []) if reason != "explicit_task_selection"],
-    ]
-    signals = dict(query_understanding.structural_signals or {})
+    signals = dict(query_understanding.turn_signals or {})
     signals.update(
         {
             "selected_task_id": selected_task_id,
             "selected_task_family": record.task_family,
             "selected_task_mode": record_task_mode,
-            "understanding_aligned_to_explicit_task": True,
-            "suppressed_candidate_capabilities": suppressed_candidates,
+            "explicit_task_selection": True,
         }
     )
-    query_understanding.structural_signals = signals
-    return query_understanding
+    context_binding = {
+        "kind": "explicit_task_selection",
+        "selected_task_id": selected_task_id,
+        "selected_task_family": record.task_family,
+        "selected_task_mode": record_task_mode,
+    }
+    return RequestSignals(
+        frame_id=query_understanding.frame_id,
+        user_message=query_understanding.user_message,
+        structural_signals=signals,
+        capability_needs=(),
+        target_domain_hints=("task_system",),
+        context_binding=context_binding,
+        decision_trace=(
+            *tuple(query_understanding.decision_trace or ()),
+            {
+                "stage": "context_binding",
+                "decision": "explicit_task_selection",
+                "reason": "selected task record binds context only; model turn decision still owns intent and execution mode",
+            },
+        ),
+        confidence=1.0,
+    )
 
 
 def _resolve_task_selection_default_agent_id(
@@ -564,12 +588,9 @@ def _resolve_task_selection_default_agent_id(
 def _resolve_skill_frame(skill_registry: Any | None, task_frame: Any) -> Any | None:
     if skill_registry is None:
         return None
-    try:
-        from capability_system.skill_policy import SkillPolicyResolver
+    from capability_system.skill_policy import SkillPolicyResolver
 
-        return SkillPolicyResolver(skill_registry).resolve(task_frame=task_frame)
-    except Exception:
-        return None
+    return SkillPolicyResolver(skill_registry).resolve(task_frame=task_frame)
 
 
 def _skill_frame_payload(skill_frame: Any | None) -> dict[str, Any]:
@@ -585,56 +606,127 @@ def _skill_frame_payload(skill_frame: Any | None) -> dict[str, Any]:
     return payload
 
 
-def _operation_ids_for_runtime(
+def _task_goal_spec_from_model_turn_decision(
     *,
-    query_understanding: Any,
-    skill_frame: Any | None,
-    tool_registry: Any | None,
-) -> tuple[str, ...]:
-    _ = skill_frame
-    operations: list[str] = []
-    seen: set[str] = set()
-    resolution = capability_resolution_view(query_understanding)
-    effective_route = resolution.route
-    effective_skill = resolution.preferred_skill
-    if effective_route == "memory" or str(getattr(query_understanding, "execution_posture", "") or "") == "direct_memory":
-        return ("op.memory_read",)
-    if effective_route == "rag" or effective_skill == "rag-skill":
-        mcp_unit = get_local_mcp_unit("retrieval")
-    elif effective_route == "pdf" or effective_skill == "pdf-analysis":
-        mcp_unit = get_local_mcp_unit("pdf")
-    elif effective_route == "structured_data" or effective_skill == "structured-data-analysis":
-        mcp_unit = get_local_mcp_unit("structured_data")
-    else:
-        mcp_unit = None
-    if mcp_unit is not None:
-        operation_id = str(getattr(mcp_unit, "operation_id", "") or "").strip()
-        if operation_id:
-            return (operation_id,)
-
-    tool_names: list[str] = []
-    tool_name = str(getattr(query_understanding, "tool_name", "") or "").strip()
-    if tool_name:
-        tool_names.append(tool_name)
-    tool_names.extend(
-        str(item).strip()
-        for item in list(getattr(query_understanding, "candidate_tools", []) or [])
-        if str(item).strip()
+    message: str,
+    model_turn_decision: dict[str, Any],
+    query_understanding: dict[str, Any],
+    explicit_task_goal_spec: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    explicit_goal = _authoritative_explicit_task_goal_spec(
+        explicit_task_goal_spec,
+        model_turn_decision=model_turn_decision,
     )
-    for name in tool_names:
-        operation_id = _operation_id_for_tool(tool_registry, name)
-        if not operation_id or operation_id in seen:
-            continue
-        seen.add(operation_id)
-        operations.append(operation_id)
-    return tuple(operations)
+    work_mode = str(model_turn_decision.get("work_mode") or "").strip()
+    action_intent = str(model_turn_decision.get("action_intent") or "").strip()
+    interaction_intent = str(model_turn_decision.get("interaction_intent") or "").strip()
+    if explicit_goal:
+        task_goal_type = str(explicit_goal.get("task_goal_type") or "").strip()
+        task_domain = str(explicit_goal.get("task_domain") or "").strip() or "general"
+    elif work_mode == "implementation" or action_intent == "edit_workspace":
+        task_goal_type = "implementation"
+        task_domain = "workspace"
+    elif work_mode == "verification" or action_intent == "run_command":
+        task_goal_type = "verification"
+        task_domain = "workspace"
+    elif work_mode == "planning" or interaction_intent == "plan":
+        task_goal_type = "planning"
+        task_domain = "general"
+    elif action_intent == "search_external":
+        task_goal_type = "external_research"
+        task_domain = "external_web"
+    elif action_intent == "read_context":
+        task_goal_type = "inspection"
+        task_domain = "workspace"
+    else:
+        task_goal_type = "conversation"
+        task_domain = "general"
+    deliverables = [
+        {"deliverable_id": _slug(value), "title": value, "kind": "deliverable", "role": "core", "required": True, "metadata": {}}
+        for value in list(model_turn_decision.get("deliverables") or [])
+        if str(value).strip()
+    ]
+    criteria = [
+        {"criterion_id": _slug(value), "title": value, "verification_kind": "evidence", "required": True, "metadata": {}}
+        for value in list(model_turn_decision.get("completion_criteria") or [])
+        if str(value).strip()
+    ]
+    projected = {
+        "authority": "agent_runtime.model_turn_goal_projection",
+        "user_goal": str(message or "").strip(),
+        "goal_summary": str(model_turn_decision.get("desired_outcome") or message or "").strip()[:240],
+        "task_goal_type": task_goal_type,
+        "task_domain": task_domain,
+        "complexity": "long_running" if bool(model_turn_decision.get("todo_required") or model_turn_decision.get("planning_required")) else "short",
+        "core_deliverables": deliverables,
+        "supporting_deliverables": [],
+        "success_criteria": criteria,
+        "required_capabilities": [],
+        "required_verifications": criteria if action_intent in {"run_command", "use_browser"} else [],
+        "explicit_constraints": list(model_turn_decision.get("constraints") or []),
+        "forbidden_actions": list(model_turn_decision.get("forbidden_actions") or []),
+        "unacceptable_outcomes": ["invent_evidence", "execute_without_model_turn_decision"],
+        "ambiguity_points": list(model_turn_decision.get("ambiguity") or []),
+        "clarification_policy": {
+            "clarification_needed": bool(model_turn_decision.get("needs_clarification") is True),
+            "question": str(model_turn_decision.get("clarification_question") or ""),
+        },
+        "evidence": {
+            "model_turn_decision": model_turn_decision,
+            "request_signals_diagnostics_only": query_understanding,
+        },
+        "confidence": float(model_turn_decision.get("confidence") or 0.0),
+    }
+    if not explicit_goal:
+        return projected
+    merged = {
+        **projected,
+        **explicit_goal,
+        "authority": str(explicit_goal.get("authority") or projected["authority"]),
+        "user_goal": str(explicit_goal.get("user_goal") or projected["user_goal"]),
+        "goal_summary": str(explicit_goal.get("goal_summary") or projected["goal_summary"]),
+        "task_goal_type": task_goal_type,
+        "task_domain": task_domain,
+        "core_deliverables": list(explicit_goal.get("core_deliverables") or projected["core_deliverables"]),
+        "supporting_deliverables": list(explicit_goal.get("supporting_deliverables") or projected["supporting_deliverables"]),
+        "success_criteria": list(explicit_goal.get("success_criteria") or projected["success_criteria"]),
+        "required_capabilities": list(explicit_goal.get("required_capabilities") or projected["required_capabilities"]),
+        "required_verifications": list(explicit_goal.get("required_verifications") or projected["required_verifications"]),
+        "explicit_constraints": list(explicit_goal.get("explicit_constraints") or projected["explicit_constraints"]),
+        "forbidden_actions": list(explicit_goal.get("forbidden_actions") or projected["forbidden_actions"]),
+        "unacceptable_outcomes": list(explicit_goal.get("unacceptable_outcomes") or projected["unacceptable_outcomes"]),
+        "ambiguity_points": list(explicit_goal.get("ambiguity_points") or projected["ambiguity_points"]),
+        "clarification_policy": dict(explicit_goal.get("clarification_policy") or projected["clarification_policy"]),
+        "evidence": {
+            **dict(projected.get("evidence") or {}),
+            **dict(explicit_goal.get("evidence") or {}),
+            "explicit_task_goal_spec": explicit_goal,
+        },
+        "confidence": float(explicit_goal.get("confidence") or projected["confidence"]),
+    }
+    return merged
 
 
-def _operation_id_for_tool(tool_registry: Any | None, tool_name: str) -> str:
-    if tool_registry is None:
-        return ""
-    getter = getattr(tool_registry, "get_by_name", None)
-    if not callable(getter):
-        return ""
-    definition = getter(tool_name)
-    return str(getattr(definition, "operation_id", "") or "").strip()
+def _authoritative_explicit_task_goal_spec(
+    explicit_task_goal_spec: dict[str, Any] | None,
+    *,
+    model_turn_decision: dict[str, Any],
+) -> dict[str, Any]:
+    goal = dict(explicit_task_goal_spec or {})
+    task_goal_type = str(goal.get("task_goal_type") or "").strip()
+    if not task_goal_type:
+        return {}
+    authority = str(goal.get("authority") or "").strip()
+    if authority and authority != "agent_runtime.model_turn_goal_projection":
+        return {}
+    decision_authority = str(model_turn_decision.get("authority") or "").strip()
+    if decision_authority != "agent_runtime.model_turn_decision":
+        return {}
+    return goal
+
+
+def _slug(value: str) -> str:
+    slug = "".join(ch if ch.isalnum() else "_" for ch in str(value or "").lower()).strip("_")
+    while "__" in slug:
+        slug = slug.replace("__", "_")
+    return slug or "item"

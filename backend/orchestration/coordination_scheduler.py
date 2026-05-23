@@ -8,7 +8,7 @@ from typing import Any
 from runtime import CoordinationNodeRun, TaskRun
 from runtime.coordination_runtime.runtime import LangGraphCoordinationRuntimeResult
 from runtime.subruntime import start_graph_module_stage_request
-from understanding import analyze_memory_intent
+from request_intent import analyze_memory_intent
 
 from orchestration.coordination_rewind import _stage_id_from_task_run
 
@@ -548,4 +548,5 @@ def _append_stage_execution_schedule_event(
         )
     except Exception:
         return
+
 

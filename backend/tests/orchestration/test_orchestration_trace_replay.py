@@ -27,11 +27,15 @@ def test_turn_replay_marks_orchestration_diff_mismatch(tmp_path: Path) -> None:
                     "topology": {"mode": "single_execution", "route": "rag", "execution_kind": "agent", "branch_count": 1},
                     "decisions": [
                         {
-                            "node_id": "task-understanding",
-                            "owner_module": "understanding.query_understanding",
+                            "node_id": "request-intent",
+                            "owner_module": "agent_runtime.model_turn_decision",
                             "status": "selected",
-                            "outputs": {"route": "rag", "execution_posture": "direct_rag", "task_kind": "lookup"},
-                            "reasons": ["selected_rag"],
+                            "outputs": {
+                                "authority": "agent_runtime.model_turn_decision",
+                                "action_intent": "read_context",
+                                "work_mode": "read_only_analysis",
+                            },
+                            "reasons": ["model_turn_decision"],
                         }
                     ],
                 },

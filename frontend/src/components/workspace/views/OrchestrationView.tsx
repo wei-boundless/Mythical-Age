@@ -46,6 +46,7 @@ import { OrchestrationGroupWorkbench } from "@/components/workspace/views/orches
 import { OrchestrationRegistryWorkbench } from "@/components/workspace/views/orchestration/OrchestrationRegistryWorkbench";
 import { OrchestrationToolbarButton } from "@/components/workspace/views/orchestration/OrchestrationWorkbenchUi";
 import { taskSystemDisplayLabel } from "@/components/workspace/views/task-system/TaskSystemWorkbenchUi";
+import { useConfirmDialog } from "@/components/layout/ConfirmDialogProvider";
 import { useAppStore } from "@/lib/store";
 import {
   deriveAllowedRuntimeLanes,
@@ -393,6 +394,7 @@ function searchText(agent: Record<string, unknown>) {
 }
 
 export function OrchestrationView() {
+  const confirm = useConfirmDialog();
   const { orchestrationInspectorTarget } = useAppStore();
   const [catalog, setCatalog] = useState<OrchestrationAgentRuntimeCatalog | null>(null);
   const [capabilityItems, setCapabilityItems] = useState<OrchestrationCapabilityItem[]>([]);
@@ -1028,8 +1030,12 @@ export function OrchestrationView() {
           startBlankGroupDraft={startBlankGroupDraft}
           ungroupedCustomAgents={ungroupedCustomAgents}
           customDirectoryMode={customDirectoryMode}
-          removeAgentById={(agentId, agentName) => {
-            if (window.confirm(`确认删除 ${agentName || agentId} 吗？`)) {
+          removeAgentById={async (agentId, agentName) => {
+            if (await confirm({
+              title: `删除 Agent「${agentName || agentId}」`,
+              body: "该 Agent 会从编排配置中移除。",
+              confirmLabel: "删除 Agent",
+            })) {
               void removeAgent(agentId);
             }
           }}

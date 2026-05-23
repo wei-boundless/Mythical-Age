@@ -12,7 +12,7 @@ from artifact_system import ArtifactRepositoryService
 from memory_system import MemoryHeader
 from memory_system.runtime_services import MemoryRuntimeServices
 from project_layout import ProjectLayout
-from understanding.memory_intent import analyze_memory_intent
+from request_intent.memory_intent import analyze_memory_intent
 
 router = APIRouter()
 
@@ -607,3 +607,4 @@ def _govern_existing_note(filename: str, *, status: str, eligible_for_injection:
         "filename": result["filename"],
         "header": _header_payload(result["header"]) if result.get("header") else None,
     }
+

@@ -137,7 +137,7 @@ def test_completion_judgment_can_be_partially_verified_with_real_evidence_and_mi
     ).to_dict()
 
     assert judgment["status"] == "partially_verified"
-    assert judgment["completion_allowed"] is True
+    assert judgment["completion_allowed"] is False
     assert "未运行浏览器验证。" in judgment["limitations"]
 
 
@@ -162,7 +162,7 @@ def test_prompt_contract_renders_completion_judgment_section() -> None:
         user_goal="验证前端交付",
         task_contract={
             "user_goal": "验证前端交付",
-            "semantic_task_contract": SEMANTIC_CONTRACT,
+            "task_requirement_contract": SEMANTIC_CONTRACT,
             "mode_policy": {"interaction_mode": "professional_mode"},
         },
         task_execution_assembly={"task_family": "runtime", "task_mode": "professional_mode", "metadata": {}},

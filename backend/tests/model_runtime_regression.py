@@ -280,22 +280,44 @@ def test_model_runtime_retries_stream_before_first_event(monkeypatch: pytest.Mon
     assert items == [("messages", (SimpleNamespace(content="ok"), {}))]
 
 
-def test_model_runtime_closes_model_clients_after_invoke(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_model_runtime_reuses_model_clients_until_shutdown(monkeypatch: pytest.MonkeyPatch) -> None:
     runtime = _runtime(retries=0)
     model = _CloseableFakeModel(SimpleNamespace(content="ok"))
-    monkeypatch.setattr(runtime, "_build_chat_model_for_spec", lambda _spec: model)
+    build_count = 0
+
+    def _build(_spec):
+        nonlocal build_count
+        build_count += 1
+        return model
+
+    monkeypatch.setattr(runtime, "_build_chat_model_for_spec", _build)
 
     response = asyncio.run(runtime.invoke_messages([{"role": "user", "content": "hello"}]))
+    second_response = asyncio.run(runtime.invoke_messages([{"role": "user", "content": "again"}]))
 
     assert response.content == "ok"
+    assert second_response.content == "ok"
+    assert build_count == 1
+    assert model.root_async_client.closed is False
+    assert model.root_client.closed is False
+
+    asyncio.run(runtime.close())
+
     assert model.root_async_client.closed is True
     assert model.root_client.closed is True
 
 
-def test_model_runtime_closes_model_clients_after_stream(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_model_runtime_reuses_stream_model_clients_until_shutdown(monkeypatch: pytest.MonkeyPatch) -> None:
     runtime = _runtime(retries=0)
     model = _CloseableFakeModel(SimpleNamespace(content="unused"))
-    monkeypatch.setattr(runtime, "_build_chat_model_for_spec", lambda _spec: model)
+    build_count = 0
+
+    def _build(_spec):
+        nonlocal build_count
+        build_count += 1
+        return model
+
+    monkeypatch.setattr(runtime, "_build_chat_model_for_spec", _build)
     monkeypatch.setattr(
         runtime,
         "_create_raw_agent",
@@ -315,8 +337,16 @@ def test_model_runtime_closes_model_clients_after_stream(monkeypatch: pytest.Mon
         return items
 
     items = asyncio.run(_collect())
+    second_items = asyncio.run(_collect())
 
     assert items == [("messages", (SimpleNamespace(content="ok"), {}))]
+    assert second_items == [("messages", (SimpleNamespace(content="ok"), {}))]
+    assert build_count == 1
+    assert model.root_async_client.closed is False
+    assert model.root_client.closed is False
+
+    asyncio.run(runtime.close())
+
     assert model.root_async_client.closed is True
     assert model.root_client.closed is True
 

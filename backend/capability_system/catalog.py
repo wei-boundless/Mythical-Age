@@ -9,6 +9,7 @@ from capability_system.mcp.management_service import MCPManagementService
 from capability_system.mcp_registry import build_mcp_catalog
 from capability_system.operation_registry import build_default_operation_registry
 from capability_system.permission_views import attach_capability_permission_views
+from capability_system.skill_routes import skill_operation_ids_from_runtime
 from .endpoints import build_capability_endpoints
 from .models import AgentCapability, CapabilityBindingEdge, CapabilityBindingGraph, MCPCapability
 from .search_policy import classify_tool_source, search_policy_labels, tool_text_set
@@ -33,14 +34,6 @@ TOOL_RISK_ORDER = {
     "中": 1,
     "高": 2,
     "极高": 3,
-}
-
-SKILL_ROUTE_OPERATION_MAP = {
-    "rag": "op.mcp_retrieval",
-    "retrieval": "op.mcp_retrieval",
-    "pdf": "op.mcp_pdf",
-    "structured_data": "op.mcp_structured_data",
-    "data": "op.mcp_structured_data",
 }
 
 CAPABILITY_OPERATION_TYPE_LABELS = {
@@ -526,7 +519,7 @@ def build_orchestration_capability_items(catalog: dict[str, Any]) -> list[dict[s
         runtime = skill.get("runtime") if isinstance(skill.get("runtime"), dict) else {}
         prompt_view = skill.get("prompt_view") if isinstance(skill.get("prompt_view"), dict) else {}
         route = str(runtime.get("preferred_route") or "").strip()
-        operation_ids = _skill_operation_ids(runtime)
+        operation_ids = skill_operation_ids_from_runtime(runtime)
         primary_operation_id = operation_ids[0] if operation_ids else ""
         operation = operation_by_id.get(primary_operation_id)
         risk = _capability_risk_from_operation(operation)
@@ -676,18 +669,3 @@ def _dedupe_texts(values: list[str]) -> list[str]:
         seen.add(item)
         result.append(item)
     return result
-
-
-def _skill_operation_ids(runtime: dict[str, Any]) -> list[str]:
-    explicit = [
-        str(item).strip()
-        for item in list(runtime.get("requires_operations") or [])
-        if str(item).strip()
-    ]
-    if explicit:
-        return explicit
-    route = str(runtime.get("preferred_route") or "").strip()
-    if route.startswith("op."):
-        return [route]
-    mapped = SKILL_ROUTE_OPERATION_MAP.get(route, "")
-    return [mapped] if mapped else []

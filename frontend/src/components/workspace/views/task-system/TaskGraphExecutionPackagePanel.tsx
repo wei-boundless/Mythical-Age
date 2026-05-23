@@ -28,6 +28,21 @@ function recordNumberValue(record: Record<string, unknown> | null | undefined, k
   return typeof value === "number" ? value : Number(value || 0);
 }
 
+function RawDiagnosticsDetails({
+  children,
+  title,
+}: {
+  children: string;
+  title: string;
+}) {
+  return (
+    <details className="task-graph-runtime-spec-details">
+      <summary>{title}</summary>
+      <pre>{children}</pre>
+    </details>
+  );
+}
+
 export function TaskGraphExecutionPackagePanel({
   contractManifest,
   executionPackage,
@@ -111,7 +126,7 @@ export function TaskGraphExecutionPackagePanel({
           ) : null}
           {lengthBudget && recordValue(lengthBudget, "configured") ? (
             <section className="task-graph-runtime-spec-panel">
-              <header><strong>长度预算契约</strong><span>contract_bindings.runtime.length_budget</span></header>
+              <header><strong>长度预算契约</strong><span>业务验收范围</span></header>
               <div className="task-graph-mini-kv">
                 <p><span>范围</span><strong>{String(recordValue(lengthBudgetPreview, "budget_scope") ?? recordValue(lengthBudget, "budget_scope") ?? "-")}</strong></p>
                 <p><span>计量</span><strong>{String(recordValue(lengthBudgetPreview, "measurement_mode") ?? recordValue(lengthBudget, "measurement_mode") ?? "-")}</strong></p>
@@ -393,15 +408,16 @@ export function TaskGraphExecutionPackagePanel({
             </div>
           )}
           <details className="task-graph-runtime-spec-details">
-            <summary>RuntimeSpec Diagnostics</summary>
-            <pre>{JSON.stringify(runtimeSpec.diagnostics ?? {}, null, 2)}</pre>
+            <summary>诊断抽屉</summary>
+            <RawDiagnosticsDetails title="RuntimeSpec 原始诊断">
+              {JSON.stringify(runtimeSpec.diagnostics ?? {}, null, 2)}
+            </RawDiagnosticsDetails>
+            {contractManifest ? (
+              <RawDiagnosticsDetails title="ContractManifest 原始清单">
+                {JSON.stringify(contractManifest, null, 2)}
+              </RawDiagnosticsDetails>
+            ) : null}
           </details>
-          {contractManifest ? (
-            <details className="task-graph-runtime-spec-details">
-              <summary>ContractManifest</summary>
-              <pre>{JSON.stringify(contractManifest, null, 2)}</pre>
-            </details>
-          ) : null}
         </div>
       ) : (
         <div className={runtimeSpecError ? "task-graph-note task-graph-note--danger" : "task-graph-note"}>

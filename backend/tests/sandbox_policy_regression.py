@@ -33,7 +33,7 @@ class _EventLogStub:
 
 def test_sandbox_policy_uses_output_scope_as_workspace_key(tmp_path: Path) -> None:
     task_contract = {
-        "semantic_task_contract": {
+        "task_requirement_contract": {
             "execution_obligation": {
                 "required_output_paths": ["output/novel_artifacts/modular_novel/world/world_candidate.md"],
             },
@@ -71,7 +71,7 @@ def test_sandbox_policy_inherits_previous_workspace_for_compatible_professional_
         payload={"sandbox_policy": {"enabled": True, "workspace_key": previous_key}},
     )
     task_contract = {
-        "semantic_task_contract": {
+        "task_requirement_contract": {
             "execution_obligation": {
                 "required_output_paths": ["output/novel_artifacts/modular_novel/world/world_candidate_v2.md"],
             },
@@ -102,7 +102,7 @@ def test_sandbox_policy_does_not_inherit_workspace_for_unrelated_scope(tmp_path:
         payload={"sandbox_policy": {"enabled": True, "workspace_key": previous_key}},
     )
     task_contract = {
-        "semantic_task_contract": {
+        "task_requirement_contract": {
             "execution_obligation": {
                 "required_output_paths": ["output/novel_artifacts/modular_novel/volume_001/outline.md"],
             },

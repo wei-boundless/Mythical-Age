@@ -359,9 +359,6 @@ def _build_runtime_system_prompt(
     agent_assembly_contract: dict[str, Any] | None = None,
 ) -> str:
     parts = [str(base_system_prompt or "").strip()]
-    receipt_protocol_block = _render_user_visible_receipt_protocol_block()
-    if receipt_protocol_block:
-        parts.append(receipt_protocol_block)
     agent_assembly_block = _render_agent_assembly_contract_block(agent_assembly_contract)
     if agent_assembly_block:
         parts.append(agent_assembly_block)
@@ -381,17 +378,6 @@ def _build_runtime_system_prompt(
     if delegation_guidance_block:
         parts.append(delegation_guidance_block)
     return "\n\n".join(part for part in parts if part)
-
-
-def _render_user_visible_receipt_protocol_block() -> str:
-    return "\n".join(
-        [
-            "## 用户可见回执协议",
-            "当你完成用户命令、工具操作、文件编辑或任务执行时，必须用自然语言说明做了什么、影响范围是什么、是否产生了文件或其它产物。",
-            "默认可见内容必须面向用户；不要把 taskrun_id、taskinst_id、node_id、event_name、运行状态字段、装配字段或权限记录作为回答正文或状态摘要。",
-            "这些内部标识只能进入 debug、diagnostics、运行监控详情或开发者可展开区域。",
-        ]
-    )
 
 
 def _render_agent_assembly_contract_block(agent_assembly_contract: dict[str, Any] | None) -> str:

@@ -208,7 +208,7 @@ export function TaskGraphRootInspector({
           </div>
           <div className="task-graph-note">
             <strong>{String(lengthBudget.unit_label_zh ?? "单元")} 长度预算</strong>
-            <span>这里是业务契约，不是模型上限。它会进入 runtime.length_budget，并在运行时作为验收门使用。</span>
+            <span>这里定义交付物的业务验收范围，运行时会按该范围检查输出是否达标。</span>
           </div>
           <div className="boundary-form task-graph-composer-inspector-form">
             <label className="boundary-check">
@@ -282,7 +282,7 @@ export function TaskGraphRootInspector({
         </div>
         <div className="task-graph-note">
           <strong>端口边由 canonical edges 派生</strong>
-          <span>新增运行边请回到 Graph Builder；metadata 覆盖边只作为迁移诊断保留。</span>
+          <span>新增运行边请回到拓扑编辑；旧字段覆盖只在诊断层保留。</span>
         </div>
       </TaskGraphInspectorSection>
     </>

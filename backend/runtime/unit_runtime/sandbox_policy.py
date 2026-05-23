@@ -106,7 +106,7 @@ def sandbox_workspace_key(
 
 def sandbox_output_scope(*, task_contract: dict[str, Any], user_message: str) -> str:
     candidates: list[str] = []
-    semantic_contract = dict(task_contract.get("semantic_task_contract") or {})
+    semantic_contract = dict(task_contract.get("task_requirement_contract") or {})
     execution_obligation = dict(semantic_contract.get("execution_obligation") or {})
     for key in ("required_writes", "required_outputs", "required_output_paths"):
         for item in list(execution_obligation.get(key) or semantic_contract.get(key) or []):

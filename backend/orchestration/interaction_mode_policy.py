@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-
 ROLE_MODE = "role_mode"
 STANDARD_MODE = "standard_mode"
 PROFESSIONAL_MODE = "professional_mode"
@@ -40,23 +39,20 @@ class RuntimeInteractionModePolicy:
 
 def build_runtime_interaction_mode_policy(
     *,
-    semantic_task_contract: dict[str, Any] | None = None,
+    task_requirement_contract: dict[str, Any] | None = None,
     query_understanding: dict[str, Any] | None = None,
     current_turn_context: dict[str, Any] | None = None,
-    intent_decision: dict[str, Any] | None = None,
     execution_obligation: dict[str, Any] | None = None,
 ) -> RuntimeInteractionModePolicy:
-    contract = dict(semantic_task_contract or {})
+    contract = dict(task_requirement_contract or {})
     understanding = dict(query_understanding or {})
     current_turn = dict(current_turn_context or {})
-    intent = dict(intent_decision or current_turn.get("intent_decision") or {})
     obligation = dict(execution_obligation or contract.get("execution_obligation") or current_turn.get("execution_obligation") or {})
     explicit_mode = _normalize_mode(
         current_turn.get("interaction_mode")
         or current_turn.get("runtime_interaction_mode")
         or dict(current_turn.get("mode_policy") or {}).get("interaction_mode")
         or dict(current_turn.get("runtime_mode_policy") or {}).get("interaction_mode")
-        or intent.get("interaction_mode")
     )
     if _is_task_graph_node_runtime(current_turn, contract):
         return _policy_for_mode(
@@ -82,14 +78,13 @@ def build_runtime_interaction_mode_policy(
             understanding=understanding,
             execution_obligation=obligation,
         )
+    decision = _model_turn_decision(understanding, current_turn)
+    if not decision:
+        raise RuntimeError("ModelTurnDecision is required to select runtime interaction mode")
     task_goal_type = str(contract.get("task_goal_type") or "").strip()
-    strategy = str(
-        intent.get("execution_strategy")
-        or dict(current_turn.get("runtime_assembly_hint") or {}).get("execution_strategy")
-        or ""
-    ).strip()
-    route = str(understanding.get("route") or understanding.get("route_hint") or "").strip()
-    posture = str(understanding.get("execution_posture") or "").strip()
+    action_intent = str(decision.get("action_intent") or "").strip()
+    work_mode = str(decision.get("work_mode") or "").strip()
+    interaction_intent = str(decision.get("interaction_intent") or "").strip()
     if task_goal_type in {
         "test_report_triage",
         "runtime_trace_analysis",
@@ -104,14 +99,6 @@ def build_runtime_interaction_mode_policy(
             understanding=understanding,
             execution_obligation=obligation,
         )
-    if strategy == "professional_task_run":
-        return _policy_for_mode(
-            PROFESSIONAL_MODE,
-            mode_reason=f"intent_strategy:{strategy}",
-            contract=contract,
-            understanding=understanding,
-            execution_obligation=obligation,
-        )
     if task_goal_type in {"bounded_tool_task", "material_synthesis"}:
         return _policy_for_mode(
             STANDARD_MODE,
@@ -120,22 +107,32 @@ def build_runtime_interaction_mode_policy(
             understanding=understanding,
             execution_obligation=obligation,
         )
-    if route in {"search", "realtime_network", "workspace_read", "workspace_path_search", "workspace_text_search", "tool"}:
+    if action_intent in {"read_context", "search_external", "use_browser", "ask_clarification"}:
         return _policy_for_mode(
             STANDARD_MODE,
-            mode_reason=f"capability_route:{route}",
+            mode_reason=f"model_action:{action_intent}",
             contract=contract,
             understanding=understanding,
             execution_obligation=obligation,
         )
-    if posture in {"builtin_tool_lane", "direct_rag"}:
+    if action_intent in {"edit_workspace", "run_command", "start_service", "delegate"} or work_mode in {"implementation", "verification", "delegated"}:
         return _policy_for_mode(
-            STANDARD_MODE,
-            mode_reason=f"execution_posture:{posture}",
+            PROFESSIONAL_MODE,
+            mode_reason=f"model_work_mode:{work_mode or action_intent}",
             contract=contract,
             understanding=understanding,
             execution_obligation=obligation,
         )
+    if interaction_intent in {"plan", "review", "inspect"} or work_mode == "planning":
+        return _policy_for_mode(
+            STANDARD_MODE,
+            mode_reason=f"model_interaction:{interaction_intent}",
+            contract=contract,
+            understanding=understanding,
+            execution_obligation=obligation,
+        )
+    if action_intent != "answer_only":
+        raise RuntimeError(f"Unsupported ModelTurnDecision action_intent for interaction mode: {action_intent}")
     return _policy_for_mode(
         ROLE_MODE,
         mode_reason=f"semantic_task:{task_goal_type or 'role_conversation'}",
@@ -468,10 +465,18 @@ def _diagnostics(contract: dict[str, Any], understanding: dict[str, Any], execut
     return {
         "task_goal_type": str(contract.get("task_goal_type") or ""),
         "professional_profile_id": str(contract.get("professional_profile_id") or ""),
-        "route": str(understanding.get("route") or understanding.get("route_hint") or ""),
-        "execution_posture": str(understanding.get("execution_posture") or ""),
+        "model_turn_decision": _model_turn_decision(understanding, {}),
+        "action_permit": dict(understanding.get("action_permit") or {}),
         "execution_obligation": _obligation_summary(obligation),
     }
+
+
+def _model_turn_decision(understanding: dict[str, Any], current_turn: dict[str, Any]) -> dict[str, Any]:
+    return dict(
+        dict(understanding or {}).get("model_turn_decision")
+        or dict(current_turn or {}).get("model_turn_decision")
+        or {}
+    )
 
 
 def _obligation_requires_professional_mode(obligation: dict[str, Any]) -> bool:

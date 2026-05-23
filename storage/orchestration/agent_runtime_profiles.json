@@ -3,19 +3,12 @@
     {
       "agent_profile_id": "main_interactive_agent",
       "agent_id": "agent:0",
-      "enabled_runtime_modes": [
-        "role",
-        "standard",
-        "professional",
-        "custom"
-      ],
-      "default_runtime_mode": "custom",
       "allowed_runtime_lanes": [
+        "full_interactive",
+        "game_delivery",
         "role_interaction",
         "standard_task",
-        "professional_task",
-        "full_interactive",
-        "game_delivery"
+        "professional_task"
       ],
       "allowed_operations": [
         "op.model_response",
@@ -95,82 +88,17 @@
       "metadata": {
         "runtime_template_id": "builtin.main.default"
       },
-      "runtime_template_id": "builtin.main.default",
-      "runtime_mode_catalog": [
-        {
-          "mode": "role",
-          "label": "角色模式",
-          "interaction_mode": "role_mode",
-          "runtime_lane": "role_interaction",
-          "recipe_id": "runtime.recipe.role_interaction",
-          "projection_strength": "primary",
-          "runtime_lanes": [
-            "role_interaction"
-          ],
-          "execution_strategy": "",
-          "builtin": true,
-          "editable": false,
-          "description": ""
-        },
-        {
-          "mode": "standard",
-          "label": "标准模式",
-          "interaction_mode": "standard_mode",
-          "runtime_lane": "standard_task",
-          "recipe_id": "runtime.recipe.standard_task",
-          "projection_strength": "companion",
-          "runtime_lanes": [
-            "standard_task"
-          ],
-          "execution_strategy": "",
-          "builtin": true,
-          "editable": false,
-          "description": ""
-        },
-        {
-          "mode": "professional",
-          "label": "专家模式",
-          "interaction_mode": "professional_mode",
-          "runtime_lane": "professional_task",
-          "recipe_id": "runtime.recipe.professional_task",
-          "projection_strength": "style_only",
-          "runtime_lanes": [
-            "professional_task"
-          ],
-          "execution_strategy": "professional_task_run",
-          "builtin": true,
-          "editable": false,
-          "description": ""
-        },
-        {
-          "mode": "custom",
-          "label": "自定义模式",
-          "interaction_mode": "custom_mode",
-          "runtime_lane": "",
-          "recipe_id": "runtime.recipe.custom",
-          "projection_strength": "manual",
-          "runtime_lanes": [],
-          "execution_strategy": "",
-          "builtin": true,
-          "editable": true,
-          "description": ""
-        }
-      ]
+      "runtime_template_id": "builtin.main.default"
     },
     {
       "agent_profile_id": "memory_system_agent",
       "agent_id": "agent:1",
-      "enabled_runtime_modes": [
-        "standard",
-        "custom"
-      ],
-      "default_runtime_mode": "custom",
       "allowed_runtime_lanes": [
-        "standard_task",
         "memory_trace_read",
         "session_memory_maintenance",
         "durable_memory_extraction",
-        "memory_candidate_review"
+        "memory_candidate_review",
+        "standard_task"
       ],
       "allowed_operations": [
         "op.model_response",
@@ -233,79 +161,14 @@
         "manager_kind": "memory",
         "runtime_template_id": "builtin.system.memory_manager"
       },
-      "runtime_template_id": "builtin.system.memory_manager",
-      "runtime_mode_catalog": [
-        {
-          "mode": "role",
-          "label": "角色模式",
-          "interaction_mode": "role_mode",
-          "runtime_lane": "role_interaction",
-          "recipe_id": "runtime.recipe.role_interaction",
-          "projection_strength": "primary",
-          "runtime_lanes": [
-            "role_interaction"
-          ],
-          "execution_strategy": "",
-          "builtin": true,
-          "editable": false,
-          "description": ""
-        },
-        {
-          "mode": "standard",
-          "label": "标准模式",
-          "interaction_mode": "standard_mode",
-          "runtime_lane": "standard_task",
-          "recipe_id": "runtime.recipe.standard_task",
-          "projection_strength": "companion",
-          "runtime_lanes": [
-            "standard_task"
-          ],
-          "execution_strategy": "",
-          "builtin": true,
-          "editable": false,
-          "description": ""
-        },
-        {
-          "mode": "professional",
-          "label": "专家模式",
-          "interaction_mode": "professional_mode",
-          "runtime_lane": "professional_task",
-          "recipe_id": "runtime.recipe.professional_task",
-          "projection_strength": "style_only",
-          "runtime_lanes": [
-            "professional_task"
-          ],
-          "execution_strategy": "professional_task_run",
-          "builtin": true,
-          "editable": false,
-          "description": ""
-        },
-        {
-          "mode": "custom",
-          "label": "自定义模式",
-          "interaction_mode": "custom_mode",
-          "runtime_lane": "",
-          "recipe_id": "runtime.recipe.custom",
-          "projection_strength": "manual",
-          "runtime_lanes": [],
-          "execution_strategy": "",
-          "builtin": true,
-          "editable": true,
-          "description": ""
-        }
-      ]
+      "runtime_template_id": "builtin.system.memory_manager"
     },
     {
       "agent_profile_id": "config_system_agent",
       "agent_id": "agent:2",
-      "enabled_runtime_modes": [
-        "standard",
-        "custom"
-      ],
-      "default_runtime_mode": "custom",
       "allowed_runtime_lanes": [
-        "standard_task",
-        "config_trace_read"
+        "config_trace_read",
+        "standard_task"
       ],
       "allowed_operations": [
         "op.model_response",
@@ -359,79 +222,14 @@
         "manager_kind": "config",
         "runtime_template_id": "builtin.system.config_manager"
       },
-      "runtime_template_id": "builtin.system.config_manager",
-      "runtime_mode_catalog": [
-        {
-          "mode": "role",
-          "label": "角色模式",
-          "interaction_mode": "role_mode",
-          "runtime_lane": "role_interaction",
-          "recipe_id": "runtime.recipe.role_interaction",
-          "projection_strength": "primary",
-          "runtime_lanes": [
-            "role_interaction"
-          ],
-          "execution_strategy": "",
-          "builtin": true,
-          "editable": false,
-          "description": ""
-        },
-        {
-          "mode": "standard",
-          "label": "标准模式",
-          "interaction_mode": "standard_mode",
-          "runtime_lane": "standard_task",
-          "recipe_id": "runtime.recipe.standard_task",
-          "projection_strength": "companion",
-          "runtime_lanes": [
-            "standard_task"
-          ],
-          "execution_strategy": "",
-          "builtin": true,
-          "editable": false,
-          "description": ""
-        },
-        {
-          "mode": "professional",
-          "label": "专家模式",
-          "interaction_mode": "professional_mode",
-          "runtime_lane": "professional_task",
-          "recipe_id": "runtime.recipe.professional_task",
-          "projection_strength": "style_only",
-          "runtime_lanes": [
-            "professional_task"
-          ],
-          "execution_strategy": "professional_task_run",
-          "builtin": true,
-          "editable": false,
-          "description": ""
-        },
-        {
-          "mode": "custom",
-          "label": "自定义模式",
-          "interaction_mode": "custom_mode",
-          "runtime_lane": "",
-          "recipe_id": "runtime.recipe.custom",
-          "projection_strength": "manual",
-          "runtime_lanes": [],
-          "execution_strategy": "",
-          "builtin": true,
-          "editable": true,
-          "description": ""
-        }
-      ]
+      "runtime_template_id": "builtin.system.config_manager"
     },
     {
       "agent_profile_id": "task_management_agent",
       "agent_id": "agent:4",
-      "enabled_runtime_modes": [
-        "standard",
-        "custom"
-      ],
-      "default_runtime_mode": "custom",
       "allowed_runtime_lanes": [
-        "standard_task",
-        "task_trace_read"
+        "task_trace_read",
+        "standard_task"
       ],
       "allowed_operations": [
         "op.model_response",
@@ -485,79 +283,14 @@
         "manager_kind": "task",
         "runtime_template_id": "builtin.system.task_manager"
       },
-      "runtime_template_id": "builtin.system.task_manager",
-      "runtime_mode_catalog": [
-        {
-          "mode": "role",
-          "label": "角色模式",
-          "interaction_mode": "role_mode",
-          "runtime_lane": "role_interaction",
-          "recipe_id": "runtime.recipe.role_interaction",
-          "projection_strength": "primary",
-          "runtime_lanes": [
-            "role_interaction"
-          ],
-          "execution_strategy": "",
-          "builtin": true,
-          "editable": false,
-          "description": ""
-        },
-        {
-          "mode": "standard",
-          "label": "标准模式",
-          "interaction_mode": "standard_mode",
-          "runtime_lane": "standard_task",
-          "recipe_id": "runtime.recipe.standard_task",
-          "projection_strength": "companion",
-          "runtime_lanes": [
-            "standard_task"
-          ],
-          "execution_strategy": "",
-          "builtin": true,
-          "editable": false,
-          "description": ""
-        },
-        {
-          "mode": "professional",
-          "label": "专家模式",
-          "interaction_mode": "professional_mode",
-          "runtime_lane": "professional_task",
-          "recipe_id": "runtime.recipe.professional_task",
-          "projection_strength": "style_only",
-          "runtime_lanes": [
-            "professional_task"
-          ],
-          "execution_strategy": "professional_task_run",
-          "builtin": true,
-          "editable": false,
-          "description": ""
-        },
-        {
-          "mode": "custom",
-          "label": "自定义模式",
-          "interaction_mode": "custom_mode",
-          "runtime_lane": "",
-          "recipe_id": "runtime.recipe.custom",
-          "projection_strength": "manual",
-          "runtime_lanes": [],
-          "execution_strategy": "",
-          "builtin": true,
-          "editable": true,
-          "description": ""
-        }
-      ]
+      "runtime_template_id": "builtin.system.task_manager"
     },
     {
       "agent_profile_id": "capability_system_agent",
       "agent_id": "agent:5",
-      "enabled_runtime_modes": [
-        "standard",
-        "custom"
-      ],
-      "default_runtime_mode": "custom",
       "allowed_runtime_lanes": [
-        "standard_task",
-        "capability_trace_read"
+        "capability_trace_read",
+        "standard_task"
       ],
       "allowed_operations": [
         "op.model_response",
@@ -611,80 +344,15 @@
         "manager_kind": "capability",
         "runtime_template_id": "builtin.system.capability_manager"
       },
-      "runtime_template_id": "builtin.system.capability_manager",
-      "runtime_mode_catalog": [
-        {
-          "mode": "role",
-          "label": "角色模式",
-          "interaction_mode": "role_mode",
-          "runtime_lane": "role_interaction",
-          "recipe_id": "runtime.recipe.role_interaction",
-          "projection_strength": "primary",
-          "runtime_lanes": [
-            "role_interaction"
-          ],
-          "execution_strategy": "",
-          "builtin": true,
-          "editable": false,
-          "description": ""
-        },
-        {
-          "mode": "standard",
-          "label": "标准模式",
-          "interaction_mode": "standard_mode",
-          "runtime_lane": "standard_task",
-          "recipe_id": "runtime.recipe.standard_task",
-          "projection_strength": "companion",
-          "runtime_lanes": [
-            "standard_task"
-          ],
-          "execution_strategy": "",
-          "builtin": true,
-          "editable": false,
-          "description": ""
-        },
-        {
-          "mode": "professional",
-          "label": "专家模式",
-          "interaction_mode": "professional_mode",
-          "runtime_lane": "professional_task",
-          "recipe_id": "runtime.recipe.professional_task",
-          "projection_strength": "style_only",
-          "runtime_lanes": [
-            "professional_task"
-          ],
-          "execution_strategy": "professional_task_run",
-          "builtin": true,
-          "editable": false,
-          "description": ""
-        },
-        {
-          "mode": "custom",
-          "label": "自定义模式",
-          "interaction_mode": "custom_mode",
-          "runtime_lane": "",
-          "recipe_id": "runtime.recipe.custom",
-          "projection_strength": "manual",
-          "runtime_lanes": [],
-          "execution_strategy": "",
-          "builtin": true,
-          "editable": true,
-          "description": ""
-        }
-      ]
+      "runtime_template_id": "builtin.system.capability_manager"
     },
     {
       "agent_profile_id": "rag_analysis_agent",
       "agent_id": "agent:rag_analyst",
-      "enabled_runtime_modes": [
-        "standard",
-        "custom"
-      ],
-      "default_runtime_mode": "custom",
       "allowed_runtime_lanes": [
-        "standard_task",
         "retrieval_delegate",
-        "readonly_exploration"
+        "readonly_exploration",
+        "standard_task"
       ],
       "allowed_operations": [
         "op.model_response",
@@ -742,80 +410,15 @@
         "delegation_kind": "evidence_lookup",
         "runtime_template_id": "builtin.specialist.rag_analyst"
       },
-      "runtime_template_id": "builtin.specialist.rag_analyst",
-      "runtime_mode_catalog": [
-        {
-          "mode": "role",
-          "label": "角色模式",
-          "interaction_mode": "role_mode",
-          "runtime_lane": "role_interaction",
-          "recipe_id": "runtime.recipe.role_interaction",
-          "projection_strength": "primary",
-          "runtime_lanes": [
-            "role_interaction"
-          ],
-          "execution_strategy": "",
-          "builtin": true,
-          "editable": false,
-          "description": ""
-        },
-        {
-          "mode": "standard",
-          "label": "标准模式",
-          "interaction_mode": "standard_mode",
-          "runtime_lane": "standard_task",
-          "recipe_id": "runtime.recipe.standard_task",
-          "projection_strength": "companion",
-          "runtime_lanes": [
-            "standard_task"
-          ],
-          "execution_strategy": "",
-          "builtin": true,
-          "editable": false,
-          "description": ""
-        },
-        {
-          "mode": "professional",
-          "label": "专家模式",
-          "interaction_mode": "professional_mode",
-          "runtime_lane": "professional_task",
-          "recipe_id": "runtime.recipe.professional_task",
-          "projection_strength": "style_only",
-          "runtime_lanes": [
-            "professional_task"
-          ],
-          "execution_strategy": "professional_task_run",
-          "builtin": true,
-          "editable": false,
-          "description": ""
-        },
-        {
-          "mode": "custom",
-          "label": "自定义模式",
-          "interaction_mode": "custom_mode",
-          "runtime_lane": "",
-          "recipe_id": "runtime.recipe.custom",
-          "projection_strength": "manual",
-          "runtime_lanes": [],
-          "execution_strategy": "",
-          "builtin": true,
-          "editable": true,
-          "description": ""
-        }
-      ]
+      "runtime_template_id": "builtin.specialist.rag_analyst"
     },
     {
       "agent_profile_id": "pdf_analysis_agent",
       "agent_id": "agent:pdf_reader",
-      "enabled_runtime_modes": [
-        "standard",
-        "custom"
-      ],
-      "default_runtime_mode": "custom",
       "allowed_runtime_lanes": [
-        "standard_task",
         "pdf_delegate",
-        "readonly_exploration"
+        "readonly_exploration",
+        "standard_task"
       ],
       "allowed_operations": [
         "op.model_response",
@@ -873,80 +476,15 @@
         "delegation_kind": "pdf_reading",
         "runtime_template_id": "builtin.specialist.pdf_reader"
       },
-      "runtime_template_id": "builtin.specialist.pdf_reader",
-      "runtime_mode_catalog": [
-        {
-          "mode": "role",
-          "label": "角色模式",
-          "interaction_mode": "role_mode",
-          "runtime_lane": "role_interaction",
-          "recipe_id": "runtime.recipe.role_interaction",
-          "projection_strength": "primary",
-          "runtime_lanes": [
-            "role_interaction"
-          ],
-          "execution_strategy": "",
-          "builtin": true,
-          "editable": false,
-          "description": ""
-        },
-        {
-          "mode": "standard",
-          "label": "标准模式",
-          "interaction_mode": "standard_mode",
-          "runtime_lane": "standard_task",
-          "recipe_id": "runtime.recipe.standard_task",
-          "projection_strength": "companion",
-          "runtime_lanes": [
-            "standard_task"
-          ],
-          "execution_strategy": "",
-          "builtin": true,
-          "editable": false,
-          "description": ""
-        },
-        {
-          "mode": "professional",
-          "label": "专家模式",
-          "interaction_mode": "professional_mode",
-          "runtime_lane": "professional_task",
-          "recipe_id": "runtime.recipe.professional_task",
-          "projection_strength": "style_only",
-          "runtime_lanes": [
-            "professional_task"
-          ],
-          "execution_strategy": "professional_task_run",
-          "builtin": true,
-          "editable": false,
-          "description": ""
-        },
-        {
-          "mode": "custom",
-          "label": "自定义模式",
-          "interaction_mode": "custom_mode",
-          "runtime_lane": "",
-          "recipe_id": "runtime.recipe.custom",
-          "projection_strength": "manual",
-          "runtime_lanes": [],
-          "execution_strategy": "",
-          "builtin": true,
-          "editable": true,
-          "description": ""
-        }
-      ]
+      "runtime_template_id": "builtin.specialist.pdf_reader"
     },
     {
       "agent_profile_id": "structured_data_analysis_agent",
       "agent_id": "agent:table_analyst",
-      "enabled_runtime_modes": [
-        "standard",
-        "custom"
-      ],
-      "default_runtime_mode": "custom",
       "allowed_runtime_lanes": [
-        "standard_task",
         "structured_data_delegate",
-        "readonly_exploration"
+        "readonly_exploration",
+        "standard_task"
       ],
       "allowed_operations": [
         "op.model_response",
@@ -1004,80 +542,15 @@
         "delegation_kind": "table_analysis",
         "runtime_template_id": "builtin.specialist.table_analyst"
       },
-      "runtime_template_id": "builtin.specialist.table_analyst",
-      "runtime_mode_catalog": [
-        {
-          "mode": "role",
-          "label": "角色模式",
-          "interaction_mode": "role_mode",
-          "runtime_lane": "role_interaction",
-          "recipe_id": "runtime.recipe.role_interaction",
-          "projection_strength": "primary",
-          "runtime_lanes": [
-            "role_interaction"
-          ],
-          "execution_strategy": "",
-          "builtin": true,
-          "editable": false,
-          "description": ""
-        },
-        {
-          "mode": "standard",
-          "label": "标准模式",
-          "interaction_mode": "standard_mode",
-          "runtime_lane": "standard_task",
-          "recipe_id": "runtime.recipe.standard_task",
-          "projection_strength": "companion",
-          "runtime_lanes": [
-            "standard_task"
-          ],
-          "execution_strategy": "",
-          "builtin": true,
-          "editable": false,
-          "description": ""
-        },
-        {
-          "mode": "professional",
-          "label": "专家模式",
-          "interaction_mode": "professional_mode",
-          "runtime_lane": "professional_task",
-          "recipe_id": "runtime.recipe.professional_task",
-          "projection_strength": "style_only",
-          "runtime_lanes": [
-            "professional_task"
-          ],
-          "execution_strategy": "professional_task_run",
-          "builtin": true,
-          "editable": false,
-          "description": ""
-        },
-        {
-          "mode": "custom",
-          "label": "自定义模式",
-          "interaction_mode": "custom_mode",
-          "runtime_lane": "",
-          "recipe_id": "runtime.recipe.custom",
-          "projection_strength": "manual",
-          "runtime_lanes": [],
-          "execution_strategy": "",
-          "builtin": true,
-          "editable": true,
-          "description": ""
-        }
-      ]
+      "runtime_template_id": "builtin.specialist.table_analyst"
     },
     {
       "agent_profile_id": "web_research_agent",
       "agent_id": "agent:web_researcher",
-      "enabled_runtime_modes": [
-        "standard",
-        "custom"
-      ],
-      "default_runtime_mode": "custom",
       "allowed_runtime_lanes": [
-        "standard_task",
         "web_research_delegate",
-        "readonly_exploration"
+        "readonly_exploration",
+        "standard_task"
       ],
       "allowed_operations": [
         "op.model_response",
@@ -1140,76 +613,11 @@
         ],
         "runtime_template_id": "builtin.specialist.web_researcher"
       },
-      "runtime_template_id": "builtin.specialist.web_researcher",
-      "runtime_mode_catalog": [
-        {
-          "mode": "role",
-          "label": "角色模式",
-          "interaction_mode": "role_mode",
-          "runtime_lane": "role_interaction",
-          "recipe_id": "runtime.recipe.role_interaction",
-          "projection_strength": "primary",
-          "runtime_lanes": [
-            "role_interaction"
-          ],
-          "execution_strategy": "",
-          "builtin": true,
-          "editable": false,
-          "description": ""
-        },
-        {
-          "mode": "standard",
-          "label": "标准模式",
-          "interaction_mode": "standard_mode",
-          "runtime_lane": "standard_task",
-          "recipe_id": "runtime.recipe.standard_task",
-          "projection_strength": "companion",
-          "runtime_lanes": [
-            "standard_task"
-          ],
-          "execution_strategy": "",
-          "builtin": true,
-          "editable": false,
-          "description": ""
-        },
-        {
-          "mode": "professional",
-          "label": "专家模式",
-          "interaction_mode": "professional_mode",
-          "runtime_lane": "professional_task",
-          "recipe_id": "runtime.recipe.professional_task",
-          "projection_strength": "style_only",
-          "runtime_lanes": [
-            "professional_task"
-          ],
-          "execution_strategy": "professional_task_run",
-          "builtin": true,
-          "editable": false,
-          "description": ""
-        },
-        {
-          "mode": "custom",
-          "label": "自定义模式",
-          "interaction_mode": "custom_mode",
-          "runtime_lane": "",
-          "recipe_id": "runtime.recipe.custom",
-          "projection_strength": "manual",
-          "runtime_lanes": [],
-          "execution_strategy": "",
-          "builtin": true,
-          "editable": true,
-          "description": ""
-        }
-      ]
+      "runtime_template_id": "builtin.specialist.web_researcher"
     },
     {
       "agent_profile_id": "writing_modular_worker_runtime",
       "agent_id": "agent:writing_modular_worker",
-      "enabled_runtime_modes": [
-        "standard",
-        "custom"
-      ],
-      "default_runtime_mode": "standard",
       "allowed_runtime_lanes": [
         "standard_task",
         "coordination_task"
@@ -1292,76 +700,11 @@
         "generic_length_metric_tool_enabled": true,
         "allow_unregistered_runtime_lanes": true
       },
-      "runtime_template_id": "task_graph.writing.modular_novel.worker",
-      "runtime_mode_catalog": [
-        {
-          "mode": "role",
-          "label": "角色模式",
-          "interaction_mode": "role_mode",
-          "runtime_lane": "role_interaction",
-          "recipe_id": "runtime.recipe.role_interaction",
-          "projection_strength": "primary",
-          "runtime_lanes": [
-            "role_interaction"
-          ],
-          "execution_strategy": "",
-          "builtin": true,
-          "editable": false,
-          "description": ""
-        },
-        {
-          "mode": "standard",
-          "label": "标准模式",
-          "interaction_mode": "standard_mode",
-          "runtime_lane": "standard_task",
-          "recipe_id": "runtime.recipe.standard_task",
-          "projection_strength": "companion",
-          "runtime_lanes": [
-            "standard_task"
-          ],
-          "execution_strategy": "",
-          "builtin": true,
-          "editable": false,
-          "description": ""
-        },
-        {
-          "mode": "professional",
-          "label": "专家模式",
-          "interaction_mode": "professional_mode",
-          "runtime_lane": "professional_task",
-          "recipe_id": "runtime.recipe.professional_task",
-          "projection_strength": "style_only",
-          "runtime_lanes": [
-            "professional_task"
-          ],
-          "execution_strategy": "professional_task_run",
-          "builtin": true,
-          "editable": false,
-          "description": ""
-        },
-        {
-          "mode": "custom",
-          "label": "自定义模式",
-          "interaction_mode": "custom_mode",
-          "runtime_lane": "",
-          "recipe_id": "runtime.recipe.custom",
-          "projection_strength": "manual",
-          "runtime_lanes": [],
-          "execution_strategy": "",
-          "builtin": true,
-          "editable": true,
-          "description": ""
-        }
-      ]
+      "runtime_template_id": "task_graph.writing.modular_novel.worker"
     },
     {
       "agent_profile_id": "writing_modular_creator_runtime",
       "agent_id": "agent:writing_modular_creator",
-      "enabled_runtime_modes": [
-        "standard",
-        "custom"
-      ],
-      "default_runtime_mode": "standard",
       "allowed_runtime_lanes": [
         "standard_task",
         "coordination_task"
@@ -1444,76 +787,11 @@
         "generic_length_metric_tool_enabled": true,
         "allow_unregistered_runtime_lanes": true
       },
-      "runtime_template_id": "task_graph.writing.modular_novel.creator",
-      "runtime_mode_catalog": [
-        {
-          "mode": "role",
-          "label": "角色模式",
-          "interaction_mode": "role_mode",
-          "runtime_lane": "role_interaction",
-          "recipe_id": "runtime.recipe.role_interaction",
-          "projection_strength": "primary",
-          "runtime_lanes": [
-            "role_interaction"
-          ],
-          "execution_strategy": "",
-          "builtin": true,
-          "editable": false,
-          "description": ""
-        },
-        {
-          "mode": "standard",
-          "label": "标准模式",
-          "interaction_mode": "standard_mode",
-          "runtime_lane": "standard_task",
-          "recipe_id": "runtime.recipe.standard_task",
-          "projection_strength": "companion",
-          "runtime_lanes": [
-            "standard_task"
-          ],
-          "execution_strategy": "",
-          "builtin": true,
-          "editable": false,
-          "description": ""
-        },
-        {
-          "mode": "professional",
-          "label": "专家模式",
-          "interaction_mode": "professional_mode",
-          "runtime_lane": "professional_task",
-          "recipe_id": "runtime.recipe.professional_task",
-          "projection_strength": "style_only",
-          "runtime_lanes": [
-            "professional_task"
-          ],
-          "execution_strategy": "professional_task_run",
-          "builtin": true,
-          "editable": false,
-          "description": ""
-        },
-        {
-          "mode": "custom",
-          "label": "自定义模式",
-          "interaction_mode": "custom_mode",
-          "runtime_lane": "",
-          "recipe_id": "runtime.recipe.custom",
-          "projection_strength": "manual",
-          "runtime_lanes": [],
-          "execution_strategy": "",
-          "builtin": true,
-          "editable": true,
-          "description": ""
-        }
-      ]
+      "runtime_template_id": "task_graph.writing.modular_novel.creator"
     },
     {
       "agent_profile_id": "writing_modular_reviewer_runtime",
       "agent_id": "agent:writing_modular_reviewer",
-      "enabled_runtime_modes": [
-        "standard",
-        "custom"
-      ],
-      "default_runtime_mode": "standard",
       "allowed_runtime_lanes": [
         "standard_task",
         "coordination_task"
@@ -1595,76 +873,11 @@
         "generic_length_metric_tool_enabled": false,
         "allow_unregistered_runtime_lanes": true
       },
-      "runtime_template_id": "task_graph.writing.modular_novel.reviewer",
-      "runtime_mode_catalog": [
-        {
-          "mode": "role",
-          "label": "角色模式",
-          "interaction_mode": "role_mode",
-          "runtime_lane": "role_interaction",
-          "recipe_id": "runtime.recipe.role_interaction",
-          "projection_strength": "primary",
-          "runtime_lanes": [
-            "role_interaction"
-          ],
-          "execution_strategy": "",
-          "builtin": true,
-          "editable": false,
-          "description": ""
-        },
-        {
-          "mode": "standard",
-          "label": "标准模式",
-          "interaction_mode": "standard_mode",
-          "runtime_lane": "standard_task",
-          "recipe_id": "runtime.recipe.standard_task",
-          "projection_strength": "companion",
-          "runtime_lanes": [
-            "standard_task"
-          ],
-          "execution_strategy": "",
-          "builtin": true,
-          "editable": false,
-          "description": ""
-        },
-        {
-          "mode": "professional",
-          "label": "专家模式",
-          "interaction_mode": "professional_mode",
-          "runtime_lane": "professional_task",
-          "recipe_id": "runtime.recipe.professional_task",
-          "projection_strength": "style_only",
-          "runtime_lanes": [
-            "professional_task"
-          ],
-          "execution_strategy": "professional_task_run",
-          "builtin": true,
-          "editable": false,
-          "description": ""
-        },
-        {
-          "mode": "custom",
-          "label": "自定义模式",
-          "interaction_mode": "custom_mode",
-          "runtime_lane": "",
-          "recipe_id": "runtime.recipe.custom",
-          "projection_strength": "manual",
-          "runtime_lanes": [],
-          "execution_strategy": "",
-          "builtin": true,
-          "editable": true,
-          "description": ""
-        }
-      ]
+      "runtime_template_id": "task_graph.writing.modular_novel.reviewer"
     },
     {
       "agent_profile_id": "writing_modular_memory_steward_runtime",
       "agent_id": "agent:writing_modular_memory_steward",
-      "enabled_runtime_modes": [
-        "standard",
-        "custom"
-      ],
-      "default_runtime_mode": "standard",
       "allowed_runtime_lanes": [
         "standard_task",
         "coordination_task",
@@ -1747,76 +960,11 @@
         "generic_length_metric_tool_enabled": false,
         "allow_unregistered_runtime_lanes": true
       },
-      "runtime_template_id": "task_graph.writing.modular_novel.memory_steward",
-      "runtime_mode_catalog": [
-        {
-          "mode": "role",
-          "label": "角色模式",
-          "interaction_mode": "role_mode",
-          "runtime_lane": "role_interaction",
-          "recipe_id": "runtime.recipe.role_interaction",
-          "projection_strength": "primary",
-          "runtime_lanes": [
-            "role_interaction"
-          ],
-          "execution_strategy": "",
-          "builtin": true,
-          "editable": false,
-          "description": ""
-        },
-        {
-          "mode": "standard",
-          "label": "标准模式",
-          "interaction_mode": "standard_mode",
-          "runtime_lane": "standard_task",
-          "recipe_id": "runtime.recipe.standard_task",
-          "projection_strength": "companion",
-          "runtime_lanes": [
-            "standard_task"
-          ],
-          "execution_strategy": "",
-          "builtin": true,
-          "editable": false,
-          "description": ""
-        },
-        {
-          "mode": "professional",
-          "label": "专家模式",
-          "interaction_mode": "professional_mode",
-          "runtime_lane": "professional_task",
-          "recipe_id": "runtime.recipe.professional_task",
-          "projection_strength": "style_only",
-          "runtime_lanes": [
-            "professional_task"
-          ],
-          "execution_strategy": "professional_task_run",
-          "builtin": true,
-          "editable": false,
-          "description": ""
-        },
-        {
-          "mode": "custom",
-          "label": "自定义模式",
-          "interaction_mode": "custom_mode",
-          "runtime_lane": "",
-          "recipe_id": "runtime.recipe.custom",
-          "projection_strength": "manual",
-          "runtime_lanes": [],
-          "execution_strategy": "",
-          "builtin": true,
-          "editable": true,
-          "description": ""
-        }
-      ]
+      "runtime_template_id": "task_graph.writing.modular_novel.memory_steward"
     },
     {
       "agent_profile_id": "writing_modular_runtime_monitor_runtime",
       "agent_id": "agent:writing_modular_runtime_monitor",
-      "enabled_runtime_modes": [
-        "standard",
-        "custom"
-      ],
-      "default_runtime_mode": "standard",
       "allowed_runtime_lanes": [
         "standard_task",
         "task_graph_monitor"
@@ -1899,67 +1047,7 @@
         "generic_length_metric_tool_enabled": false,
         "allow_unregistered_runtime_lanes": true
       },
-      "runtime_template_id": "task_graph.writing.modular_novel.runtime_monitor",
-      "runtime_mode_catalog": [
-        {
-          "mode": "role",
-          "label": "角色模式",
-          "interaction_mode": "role_mode",
-          "runtime_lane": "role_interaction",
-          "recipe_id": "runtime.recipe.role_interaction",
-          "projection_strength": "primary",
-          "runtime_lanes": [
-            "role_interaction"
-          ],
-          "execution_strategy": "",
-          "builtin": true,
-          "editable": false,
-          "description": ""
-        },
-        {
-          "mode": "standard",
-          "label": "标准模式",
-          "interaction_mode": "standard_mode",
-          "runtime_lane": "standard_task",
-          "recipe_id": "runtime.recipe.standard_task",
-          "projection_strength": "companion",
-          "runtime_lanes": [
-            "standard_task"
-          ],
-          "execution_strategy": "",
-          "builtin": true,
-          "editable": false,
-          "description": ""
-        },
-        {
-          "mode": "professional",
-          "label": "专家模式",
-          "interaction_mode": "professional_mode",
-          "runtime_lane": "professional_task",
-          "recipe_id": "runtime.recipe.professional_task",
-          "projection_strength": "style_only",
-          "runtime_lanes": [
-            "professional_task"
-          ],
-          "execution_strategy": "professional_task_run",
-          "builtin": true,
-          "editable": false,
-          "description": ""
-        },
-        {
-          "mode": "custom",
-          "label": "自定义模式",
-          "interaction_mode": "custom_mode",
-          "runtime_lane": "",
-          "recipe_id": "runtime.recipe.custom",
-          "projection_strength": "manual",
-          "runtime_lanes": [],
-          "execution_strategy": "",
-          "builtin": true,
-          "editable": true,
-          "description": ""
-        }
-      ]
+      "runtime_template_id": "task_graph.writing.modular_novel.runtime_monitor"
     }
   ]
 }

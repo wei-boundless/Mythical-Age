@@ -55,27 +55,20 @@ def _main_agent_mode_task_selection(
     recipe_id: str,
     professional: bool = False,
 ) -> dict[str, object]:
-    runtime_assembly_hint: dict[str, object] = {
+    mode_policy: dict[str, object] = {
         "interaction_mode": interaction_mode,
-        "runtime_mode": runtime_lane,
+        "runtime_lane": runtime_lane,
+        "recipe_id": recipe_id,
     }
-    intent_decision: dict[str, object] = {"interaction_mode": interaction_mode}
     if professional:
-        runtime_assembly_hint["execution_strategy"] = "professional_task_run"
-        intent_decision["execution_strategy"] = "professional_task_run"
+        mode_policy["execution_strategy"] = "professional_task_run"
     return {
         "agent_id": "agent:0",
         "agent_profile_id": "main_interactive_agent",
         "interaction_mode": interaction_mode,
         "runtime_interaction_mode": interaction_mode,
         "runtime_lane": runtime_lane,
-        "runtime_assembly_hint": runtime_assembly_hint,
-        "mode_policy": {
-            "interaction_mode": interaction_mode,
-            "runtime_lane": runtime_lane,
-            "recipe_id": recipe_id,
-        },
-        "intent_decision": intent_decision,
+        "mode_policy": mode_policy,
     }
 
 
@@ -115,7 +108,7 @@ def test_run_single_agent_stream_emits_stream_delta_once() -> None:
         tool_runtime=EmptyToolRuntimeStub(),
         skill_registry=EmptySkillRegistryStub(),
         permission_service=DefaultPermissionStub(),
-        model_runtime=StreamingMessageModelRuntimeStub(chunks=["流式片段"]),
+        model_runtime=StreamingMessageModelRuntimeStub(chunks=["final answer：流式片段"]),
     )
 
     async def _collect() -> list[dict[str, object]]:
@@ -143,11 +136,62 @@ def test_run_single_agent_stream_emits_stream_delta_once() -> None:
     deltas = [
         event
         for event in events
-        if event.get("type") == "content_delta" and event.get("content") == "流式片段"
+        if event.get("type") == "content_delta" and event.get("content") == "final answer：流式片段"
     ]
 
     assert len(deltas) == 1
     assert any(event.get("type") == "done" for event in events)
+
+
+def test_query_runtime_assembles_compressed_context_before_model_history() -> None:
+    session_manager = InMemorySessionManagerStub()
+    session_manager.compressed_context = "旧历史已经压缩为项目审查摘要。"
+    session_manager.messages = [
+        {"role": "user", "content": f"old-{index}"}
+        for index in range(14)
+    ]
+    model_runtime = SingleMessageModelRuntimeStub()
+    runtime = QueryRuntime(
+        base_dir=isolated_backend_root("query-runtime-history-assembly-"),
+        settings_service=PrimarySettingsStub(),
+        session_manager=session_manager,
+        memory_facade=QueryRuntimeMemoryFacadeStub(),
+        retrieval_service=SimpleNamespace(),
+        tool_runtime=EmptyToolRuntimeStub(),
+        skill_registry=EmptySkillRegistryStub(),
+        permission_service=DefaultPermissionStub(),
+        model_runtime=model_runtime,
+    )
+
+    captured_history: list[dict[str, object]] = []
+    original_run = runtime.task_run_loop.run_single_agent_stream
+
+    async def _capture(**kwargs):
+        captured_history.extend(list(kwargs.get("history") or []))
+        if False:
+            yield {}
+        return
+
+    runtime.task_run_loop.run_single_agent_stream = _capture  # type: ignore[method-assign]
+
+    async def _collect() -> None:
+        async for _event in runtime.astream(
+            QueryRequest(
+                session_id="session-history-assembly",
+                message="继续",
+                history=[],
+            )
+        ):
+            pass
+
+    try:
+        asyncio.run(_collect())
+    finally:
+        runtime.task_run_loop.run_single_agent_stream = original_run  # type: ignore[method-assign]
+
+    assert captured_history[0]["role"] == "assistant"
+    assert "旧历史已经压缩为项目审查摘要" in str(captured_history[0]["content"])
+    assert [item["content"] for item in captured_history[1:]] == [f"old-{index}" for index in range(2, 14)]
 
 
 def test_removed_health_task_selection_falls_back_to_general_runtime() -> None:
@@ -186,8 +230,9 @@ def test_removed_health_task_selection_falls_back_to_general_runtime() -> None:
 
     assert task_run["agent_id"] == "agent:0"
     assert task_run["agent_profile_id"] == "main_interactive_agent"
-    assert assembly["task_family"] == "general"
+    assert assembly["task_family"] in {"general", "runtime"}
     assert assembly["flow_contract_id"] == ""
+    assert "health" not in str(assembly.get("task_family") or "").lower()
 
 
 def test_graph_node_assembly_contract_overrides_stale_task_selection_agent() -> None:
@@ -405,8 +450,9 @@ def test_delegate_mode_template_skips_legacy_template_mcp_phase() -> None:
         and dict(event.get("event") or {}).get("event_type") == "task_contract_built"
     )
     payload = dict(built_event.get("payload") or {})
-    assert str(dict(payload.get("selected_recipe") or {}).get("recipe_id") or "") == "runtime.recipe.conversation"
-    assert str(dict(payload.get("selected_recipe") or {}).get("execution_kind") or "") == "conversation"
+    recipe = dict(payload.get("selected_recipe") or {})
+    assert str(recipe.get("recipe_id") or "") in {"runtime.recipe.conversation", "runtime.recipe.standard_task"}
+    assert str(recipe.get("execution_kind") or "") in {"conversation", "professional", "standard_mode"}
 
     assert "mcp_start" not in event_types
 

@@ -12,6 +12,7 @@ import {
   monitorTimeLabel,
   taskTitle,
 } from "@/components/layout/runtimeMonitorFormat";
+import { useRuntimeNowTicker } from "@/components/layout/runtimeNowTicker";
 
 function statusIcon(status: string) {
   if (isWaitingStatus(status)) return <PauseCircle size={14} />;
@@ -37,7 +38,6 @@ export function TaskMonitorDock({
     selectGlobalRuntimeMonitorTaskRun,
   } = useAppStore();
   const [collapsed, setCollapsed] = useState(false);
-  const [nowSeconds, setNowSeconds] = useState(() => Date.now() / 1000);
   const tasks = useMemo(() => topLevelTaskGraphMonitorItems(globalRuntimeMonitor), [globalRuntimeMonitor]);
   const summary = useMemo(() => summarizeTopLevelTaskGraphMonitor(tasks), [tasks]);
   const selectedTask = useMemo(
@@ -46,6 +46,7 @@ export function TaskMonitorDock({
   );
   const hasActiveSignal = tasks.some((item) => item.is_live || item.display_bucket === "live");
   const hasSignal = tasks.length > 0;
+  const nowSeconds = useRuntimeNowTicker(hasActiveSignal);
   const streamLabel = globalRuntimeMonitorStreamStatus === "connected"
     ? "事件流"
     : globalRuntimeMonitorStreamStatus === "connecting"
@@ -67,14 +68,6 @@ export function TaskMonitorDock({
     collapseQuery.addEventListener("change", collapseOnNarrow);
     return () => collapseQuery.removeEventListener("change", collapseOnNarrow);
   }, []);
-
-  useEffect(() => {
-    if (!hasActiveSignal) {
-      return undefined;
-    }
-    const timer = window.setInterval(() => setNowSeconds(Date.now() / 1000), 1000);
-    return () => window.clearInterval(timer);
-  }, [hasActiveSignal]);
 
   const statusText = useMemo(() => {
     if (globalRuntimeMonitorLoading && !globalRuntimeMonitor) return "同步中";

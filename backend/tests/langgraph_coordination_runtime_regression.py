@@ -11,6 +11,7 @@ from runtime.coordination_runtime.runtime import (
     _active_scope_key_for_scheduler,
     _apply_loop_derived_fields,
     _memory_edge_allows_refs_only_auto_candidate,
+    _required_canonical_memory_content_violations,
     _review_gate_event_is_accepted,
     _pending_inputs_for_stage_quality_retry,
     _rewind_preserved_pending_inputs,
@@ -2150,6 +2151,197 @@ def test_formal_memory_missing_required_blocks_stage_dispatch(tmp_path) -> None:
     assert result["diagnostics"]["stage_blocked_by_memory"] is True
     assert result["missing_required_memory_records"][0]["collection"] == "world"
     assert "node_execution_request" not in result
+
+
+def test_required_canonical_memory_refs_only_record_is_dispatch_violation() -> None:
+    violations = _required_canonical_memory_content_violations(
+        {
+            "formal_memory.required_records": [
+                {
+                    "record_id": "record.world",
+                    "version_id": "version.world.refs-only",
+                    "repository_id": "memory.world",
+                    "collection_id": "world",
+                    "record_key": "world_bible.current",
+                    "status": "committed",
+                    "canonical_text": "",
+                    "summary": "候选产物引用，不能作为正式世界观正文。",
+                    "artifact_refs": ["artifact:world_candidate.md"],
+                    "content_state": "refs_only",
+                    "content_requirement": {
+                        "canonical_text_required": True,
+                        "artifact_ref_only_allowed": False,
+                    },
+                    "read_edge_id": "edge.memory.chapter.world",
+                    "authority": "formal_memory.resolved_record",
+                }
+            ],
+            "formal_memory": {
+                "required_records": [],
+                "missing_required_records": [],
+                "authority": "formal_memory.service",
+            },
+        }
+    )
+
+    assert violations == [
+        {
+            "edge_id": "edge.memory.chapter.world",
+            "repository": "memory.world",
+            "collection": "world",
+            "selector": {"record_key": "world_bible.current"},
+            "version_id": "version.world.refs-only",
+            "record_id": "record.world",
+            "record_key": "world_bible.current",
+            "status": "committed",
+            "content_state": "refs_only",
+            "content_requirement": {
+                "canonical_text_required": True,
+                "artifact_ref_only_allowed": False,
+            },
+            "reason": "required_canonical_memory_content_invalid",
+        }
+    ]
+
+
+def test_required_canonical_memory_invalid_record_blocks_stage_dispatch(tmp_path) -> None:
+    registry = _FormalMemoryRegistry()
+    state_index = RuntimeStateIndex(tmp_path)
+    event_log = RuntimeEventLog(tmp_path)
+    runtime = LangGraphCoordinationRuntime(
+        root_dir=tmp_path,
+        state_index=state_index,
+        event_log=event_log,
+        task_flow_registry=registry,
+        trace_reader=_Trace({}),
+    )
+
+    def fake_working_memory_context(**_: object) -> dict:
+        return {
+            "task_run_id": "taskrun:formal-memory-invalid",
+            "graph_id": "graph.test.formal_memory_invalid",
+            "owner_node_id": "chapter_writer",
+            "node_run_id": "taskrun:formal-memory-invalid:chapter_writer",
+            "run_attempt_id": "0",
+            "missing_required_records": [],
+            "repository_read_edges": [{"edge_id": "edge.memory.chapter.world"}],
+            "formal_memory.required_records": [
+                {
+                    "record_id": "record.world",
+                    "version_id": "version.world.refs-only",
+                    "repository_id": "memory.world",
+                    "collection_id": "world",
+                    "record_key": "world_bible.current",
+                    "status": "committed",
+                    "canonical_text": "",
+                    "summary": "候选产物引用，不能作为正式世界观正文。",
+                    "artifact_refs": ["artifact:world_candidate.md"],
+                    "content_state": "refs_only",
+                    "content_requirement": {
+                        "canonical_text_required": True,
+                        "artifact_ref_only_allowed": False,
+                    },
+                    "read_edge_id": "edge.memory.chapter.world",
+                    "authority": "formal_memory.resolved_record",
+                }
+            ],
+            "formal_memory": {
+                "required_records": [],
+                "missing_required_records": [],
+                "authority": "formal_memory.service",
+            },
+        }
+
+    runtime._select_stage_working_memory_context = fake_working_memory_context  # type: ignore[method-assign]
+    state = {
+        "coordination_run_id": "coordrun:formal-memory-invalid",
+        "root_task_run_id": "taskrun:formal-memory-invalid",
+        "active_stage_id": "chapter_writer",
+        "active_task_ref": "task.test.world_review",
+        "stage_contracts": {
+            "chapter_writer": {
+                "stage_id": "chapter_writer",
+                "node_id": "chapter_writer",
+                "task_ref": "task.test.world_review",
+                "agent_id": "agent:0",
+            }
+        },
+        "pending_inputs": {},
+        "current_event": {},
+        "stage_results": {},
+        "retry_counts": {},
+        "stage_order": ["chapter_writer"],
+        "node_statuses": {},
+        "diagnostics": {},
+    }
+
+    result = runtime._stage_execute(state)
+
+    assert result["terminal_status"] == "blocked"
+    assert result["node_statuses"]["chapter_writer"] == "blocked"
+    assert result["diagnostics"]["stage_blocked_by_memory"] is True
+    assert result["diagnostics"]["invalid_required_memory_records"][0]["reason"] == "required_canonical_memory_content_invalid"
+    assert result["missing_required_memory_records"][0]["content_state"] == "refs_only"
+    assert "node_execution_request" not in result
+
+
+def test_required_canonical_memory_candidate_record_is_dispatch_violation() -> None:
+    violations = _required_canonical_memory_content_violations(
+        {
+            "formal_memory.required_records": [
+                {
+                    "record_id": "record.world",
+                    "version_id": "version.world.candidate",
+                    "repository_id": "memory.world",
+                    "collection_id": "world",
+                    "record_key": "world_bible.current",
+                    "status": "candidate",
+                    "canonical_text": "未经提交的世界观候选正文。",
+                    "summary": "candidate",
+                    "artifact_refs": [],
+                    "content_state": "canonical_text",
+                    "content_requirement": {
+                        "canonical_text_required": True,
+                        "artifact_ref_only_allowed": False,
+                    },
+                    "read_edge_id": "edge.memory.chapter.world",
+                    "authority": "formal_memory.resolved_record",
+                }
+            ]
+        }
+    )
+
+    assert violations[0]["reason"] == "required_canonical_memory_content_invalid"
+    assert violations[0]["status"] == "candidate"
+
+
+def test_required_canonical_memory_valid_record_passes_dispatch_gate() -> None:
+    violations = _required_canonical_memory_content_violations(
+        {
+            "formal_memory.required_records": [
+                {
+                    "record_id": "record.world",
+                    "version_id": "version.world.committed",
+                    "repository_id": "memory.world",
+                    "collection_id": "world",
+                    "record_key": "world_bible.current",
+                    "status": "committed",
+                    "canonical_text": "正式世界观正文。",
+                    "summary": "正式世界观。",
+                    "artifact_refs": [],
+                    "content_state": "canonical_text",
+                    "content_requirement": {
+                        "canonical_text_required": True,
+                        "artifact_ref_only_allowed": False,
+                    },
+                    "read_edge_id": "edge.memory.chapter.world",
+                    "authority": "formal_memory.resolved_record",
+                }
+            ]
+        }
+    )
+
+    assert violations == []
 
 
 def test_refs_only_auto_candidate_requires_explicit_memory_edge_contract() -> None:

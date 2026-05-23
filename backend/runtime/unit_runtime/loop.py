@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import inspect
+import json
 import re
 import time
 import uuid
@@ -52,8 +54,15 @@ from task_system.tasks.run_models import (
 from task_system.tasks.spec_models import TaskSpec
 from task_system.tasks.step_models import StepInputBinding, TaskStepBlueprint
 from task_system.planning.execution_recipe_models import ExecutionRecipe, TaskValidationRule
-from understanding.capability_resolution_view import capability_resolution_view
-from intent.model_understanding_invoker import invoke_model_understanding_draft
+from request_intent.frame_access import explicit_paths, turn_signals
+from agent_runtime.understanding import (
+    build_action_permit,
+    build_boundary_policy,
+    build_context_candidates,
+    build_request_facts,
+    build_runtime_start_packet,
+    invoke_model_turn_decision,
+)
 
 from context_system.projection.projection import (
     projection_from_bundle_answer,
@@ -265,6 +274,7 @@ class TaskRunLoop:
         self.operation_gate = operation_gate or OperationGate(build_default_operation_registry())
         self.permission_mode_provider = permission_mode_provider
         self.limits = limits or RuntimeLoopLimits()
+        self._model_turn_decision_cache: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
         self.tool_authorization_index = self._build_tool_authorization_index()
         self.execution_engine = RuntimeExecutionEngine(
             event_log=self.event_log,
@@ -1294,35 +1304,72 @@ class TaskRunLoop:
             **dict(invocation_model_context or {}),
             **dict(runtime_chain_task_selection or {}),
         }
-        model_understanding_policy = _model_understanding_sidecar_policy(runtime_context_override)
-        model_understanding_diagnostics = {
-            "sidecar_name": "model_understanding",
-            "sidecar_status": (
-                "not_enabled"
-                if not bool(model_understanding_policy.get("enabled") is True)
-                else "not_invoked_model_runtime_not_sidecar_capable"
-            ),
-            "model_call_performed": False,
-        }
-        model_understanding_invoker = _structured_sidecar_invoker(
+        request_facts = build_request_facts(
+            user_message=user_message,
+            session_id=session_id,
+            task_id=task_id,
+            turn_id=str(dict(runtime_chain_task_selection or {}).get("turn_id") or ""),
+            source=source,
+            explicit_selection=runtime_chain_task_selection,
+        ).to_dict()
+        boundary_policy = build_boundary_policy(
+            user_message=user_message,
+            request_facts=request_facts,
+            current_turn_context=runtime_context_override,
+        ).to_dict()
+        context_candidates = build_context_candidates(
+            request_facts=request_facts,
+            continuation_candidates=[],
+            memory_runtime_view={},
+            current_turn_context=runtime_context_override,
+        ).to_dict()
+        model_turn_invoker = _structured_sidecar_invoker(
             model_response_executor,
-            enabled=bool(model_understanding_policy.get("enabled") is True),
+            enabled=True,
         )
-        if model_understanding_invoker is not None:
-            draft, model_understanding_diagnostics = await invoke_model_understanding_draft(
-                invoker=model_understanding_invoker,
-                user_message=user_message,
-                deterministic_signals={
-                    "task_id": task_id,
-                    "session_id": session_id,
-                    "task_selection": dict(runtime_chain_task_selection or {}),
-                    "source": source,
+        model_turn_decision, model_turn_diagnostics = await _invoke_model_turn_decision_with_turn_cache(
+            cache_owner=self,
+            invoker=model_turn_invoker,
+            user_message=user_message,
+            request_facts=request_facts,
+            boundary_policy=boundary_policy,
+            context_candidates=context_candidates,
+        )
+        action_permit = build_action_permit(
+            model_turn_decision=model_turn_decision,
+            boundary_policy=boundary_policy,
+        ).to_dict()
+        runtime_start_packet = build_runtime_start_packet(
+            user_request=user_message,
+            request_facts=request_facts,
+            boundary_policy=boundary_policy,
+            context_candidates=context_candidates,
+            model_turn_decision=model_turn_decision,
+            action_permit=action_permit,
+        ).to_dict()
+        runtime_context_override.update(
+            {
+                "request_facts": request_facts,
+                "boundary_policy": boundary_policy,
+                "context_candidates": context_candidates,
+                "model_turn_decision": model_turn_decision,
+                "model_turn_decision_diagnostics": model_turn_diagnostics,
+                "action_permit": action_permit,
+                "runtime_start_packet": runtime_start_packet,
+            }
+        )
+        if str(model_turn_decision.get("action_intent") or "") == "block":
+            blocked_event = self.event_log.append(
+                f"task-run:{task_id}",
+                "runtime_blocked_before_assembly",
+                payload={
+                    "reason": "model_turn_decision_unavailable_or_blocked",
+                    "model_turn_decision": model_turn_decision,
+                    "diagnostics": model_turn_diagnostics,
                 },
             )
-            if draft:
-                runtime_context_override["model_understanding_draft"] = draft
-        if model_understanding_policy.get("enabled") is True:
-            runtime_context_override["model_understanding_sidecar_diagnostics"] = model_understanding_diagnostics
+            yield {"type": "runtime_loop_event", "event": blocked_event.to_dict()}
+            return
         chain_runtime = agent_runtime_chain.build_runtime(
             session_id=session_id,
             task_id=task_id,
@@ -4706,7 +4753,7 @@ class TaskRunLoop:
         source_kind = str(
             selected_recipe_payload.get("source_kind")
             or dict(selected_recipe_payload.get("metadata") or {}).get("source_kind")
-            or query_understanding.get("source_kind")
+            or _source_kind_from_model_decision(query_understanding)
             or ""
         ).strip()
         if get_local_mcp_unit_for_source_kind(source_kind) is not None:
@@ -4715,10 +4762,8 @@ class TaskRunLoop:
                 str(getattr(unit, "operation_id", "") or ""),
                 allowed_search_sources,
             )
-        resolution = capability_resolution_view(query_understanding)
         return (
-            resolution.preferred_skill == "rag-skill"
-            and source_kind == "knowledge_base"
+            source_kind in {"knowledge", "knowledge_base", "retrieval"}
             and operation_allowed_by_search_policy("op.mcp_retrieval", allowed_search_sources)
         )
 
@@ -4823,13 +4868,12 @@ class TaskRunLoop:
         mcp_request = MCPRequest(
             request_id=f"mcpreq:{task_id}:{mcp_route}",
             session_id=session_id,
-            query=str(query_understanding.get("parameters", {}).get("query") or user_message),
+            query=str(user_message),
             mcp_route=mcp_route,
             task_frame={
                 "task_id": task_id,
-                "route": str(query_understanding.get("route") or query_understanding.get("route_hint") or "rag"),
-                "preferred_skill": str(query_understanding.get("preferred_skill") or ""),
-                "task_kind": str(query_understanding.get("task_kind") or ""),
+                "authority": str(query_understanding.get("authority") or ""),
+                "model_turn_decision": dict(query_understanding.get("model_turn_decision") or {}),
             },
             bindings=bindings,
             constraints=constraints,
@@ -4951,11 +4995,14 @@ class TaskRunLoop:
         source_kind = str(
             selected_recipe_payload.get("source_kind")
             or dict(selected_recipe_payload.get("metadata") or {}).get("source_kind")
-            or query_understanding.get("source_kind")
+            or _source_kind_from_model_decision(query_understanding)
             or ""
         ).strip()
         unit = get_local_mcp_unit_for_source_kind(source_kind)
-        parameters = dict(query_understanding.get("tool_input") or query_understanding.get("parameters") or {})
+        parameters: dict[str, Any] = {}
+        paths = explicit_paths(query_understanding)
+        if paths:
+            parameters["path"] = paths[0]
         bindings: dict[str, Any] = {}
         constraints: dict[str, Any] = {}
         if unit is not None:
@@ -4964,7 +5011,7 @@ class TaskRunLoop:
             if path_key and binding_key and binding_key != "current_turn_context":
                 path = str(
                     parameters.get(path_key)
-                    or _path_from_context_recall(
+                    or self._path_from_context_recall(
                         current_turn_context,
                         source_kind=str(unit.source_kind or source_kind or ""),
                         binding_key=binding_key,
@@ -5002,6 +5049,26 @@ class TaskRunLoop:
         if unit is not None and unit.route != "retrieval":
             return True
         return bool(retrieval_results)
+
+    def _path_from_context_recall(
+        self,
+        current_turn_context: dict[str, Any],
+        *,
+        source_kind: str,
+        binding_key: str,
+    ) -> str:
+        source = str(source_kind or "").strip()
+        key = str(binding_key or "").strip()
+        for candidate in list(dict(current_turn_context or {}).get("context_recall_candidates") or []):
+            if not isinstance(candidate, dict):
+                continue
+            if source and str(candidate.get("source_kind") or "").strip() != source:
+                continue
+            payload = dict(candidate.get("recall_payload") or {})
+            path = str(payload.get(key) or payload.get("path") or "").strip()
+            if path:
+                return path
+        return ""
 
     def _build_tool_authorization_index(self):
         from capability_system.tool_authorization import build_tool_authorization_index
@@ -5614,9 +5681,6 @@ def _task_selection_from_continuation_context(
 
 def _intent_continuation_trace_events(current_turn_context: dict[str, Any]) -> list[dict[str, Any]]:
     context = dict(current_turn_context or {})
-    intent_frame = dict(context.get("intent_frame") or {})
-    intent_decision = dict(context.get("intent_decision") or {})
-    runtime_assembly_hint = dict(context.get("runtime_assembly_hint") or {})
     continuation_candidates = [
         dict(item)
         for item in list(context.get("continuation_candidates") or [])
@@ -5624,27 +5688,6 @@ def _intent_continuation_trace_events(current_turn_context: dict[str, Any]) -> l
     ]
     continuation_decision = dict(context.get("continuation_decision") or {})
     events: list[dict[str, Any]] = []
-    if intent_frame:
-        events.append(
-            {
-                "event_type": "intent_frame_built",
-                "payload": {
-                    "intent_frame": intent_frame,
-                    "action_hypotheses": list(intent_frame.get("action_hypotheses") or []),
-                    "target_domain_hints": list(intent_frame.get("target_domain_hints") or []),
-                },
-            }
-        )
-    if intent_decision:
-        events.append(
-            {
-                "event_type": "intent_decision_made",
-                "payload": {
-                    "intent_decision": intent_decision,
-                    "runtime_assembly_hint": runtime_assembly_hint,
-                },
-            }
-        )
     if continuation_candidates:
         events.append(
             {
@@ -5756,7 +5799,8 @@ def _task_operation_allows_context_retrieval(
     if not operation_allowed_by_search_policy("op.mcp_retrieval", allowed_search_sources):
         return False
     query_understanding = dict(task_operation.get("query_understanding") or {})
-    if bool(query_understanding.get("should_skip_rag")):
+    signals = turn_signals(query_understanding)
+    if bool(signals.get("memory_recall_required")):
         return False
     current_turn = dict(task_operation.get("current_turn_context") or {})
     if _selection_is_coordination_task(current_turn):
@@ -6373,16 +6417,6 @@ def _assistant_commit_metadata(final_answer_metadata: dict[str, Any] | None) -> 
     }
 
 
-def _model_understanding_sidecar_policy(current_turn_context: dict[str, Any]) -> dict[str, Any]:
-    raw = dict(dict(current_turn_context or {}).get("model_understanding_policy") or {})
-    enabled = _truthy(raw.get("enabled"))
-    return {
-        "enabled": enabled,
-        "policy_source": str(raw.get("authority") or "runtime.model_understanding_policy"),
-        "readonly": True,
-    }
-
-
 def _structured_sidecar_invoker(model_response_executor: Any, *, enabled: bool) -> Any | None:
     if not enabled:
         return None
@@ -6393,10 +6427,85 @@ def _structured_sidecar_invoker(model_response_executor: Any, *, enabled: bool) 
     return invoker if callable(invoker) else None
 
 
+async def _invoke_model_turn_decision_with_turn_cache(
+    *,
+    cache_owner: Any,
+    invoker: Any,
+    user_message: str,
+    request_facts: dict[str, Any],
+    boundary_policy: dict[str, Any],
+    context_candidates: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    cache_key = _model_turn_decision_cache_key(
+        user_message=user_message,
+        request_facts=request_facts,
+        boundary_policy=boundary_policy,
+        context_candidates=context_candidates,
+    )
+    cache = getattr(cache_owner, "_model_turn_decision_cache", None)
+    if isinstance(cache, dict) and cache_key in cache:
+        cached_decision, cached_diagnostics = cache[cache_key]
+        return dict(cached_decision), {
+            **dict(cached_diagnostics or {}),
+            "sidecar_status": "cached_accepted",
+            "model_call_performed": False,
+            "cache_key": cache_key,
+        }
+
+    decision, diagnostics = await invoke_model_turn_decision(
+        invoker=invoker,
+        user_message=user_message,
+        request_facts=request_facts,
+        boundary_policy=boundary_policy,
+        context_candidates=context_candidates,
+    )
+    if (
+        isinstance(cache, dict)
+        and dict(diagnostics or {}).get("sidecar_status") == "accepted"
+        and str(dict(decision or {}).get("action_intent") or "") != "block"
+    ):
+        cache[cache_key] = (dict(decision or {}), {**dict(diagnostics or {}), "cache_key": cache_key})
+    return decision, diagnostics
+
+
+def _model_turn_decision_cache_key(
+    *,
+    user_message: str,
+    request_facts: dict[str, Any],
+    boundary_policy: dict[str, Any],
+    context_candidates: dict[str, Any],
+) -> str:
+    payload = {
+        "user_message": str(user_message or ""),
+        "request_facts": dict(request_facts or {}),
+        "boundary_policy": dict(boundary_policy or {}),
+        "context_candidates": dict(context_candidates or {}),
+    }
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str, separators=(",", ":"))
+    return "model-turn-decision-cache:" + hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
 def _truthy(value: Any) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {"1", "true", "yes", "on", "enabled"}
     return bool(value is True)
+
+
+def _source_kind_from_model_decision(query_understanding: dict[str, Any]) -> str:
+    decision = dict(dict(query_understanding or {}).get("model_turn_decision") or {})
+    action_intent = str(decision.get("action_intent") or "").strip()
+    targets = [str(item).strip().lower() for item in list(decision.get("target_objects") or []) if str(item).strip()]
+    if action_intent == "search_external":
+        return "external_web"
+    if any(target.endswith(".pdf") for target in targets):
+        return "pdf"
+    if any(target.endswith((".csv", ".tsv", ".xlsx", ".xls", ".parquet")) for target in targets):
+        return "dataset"
+    if any(target.endswith((".py", ".ts", ".tsx", ".js", ".jsx", ".css", ".html", ".md", ".txt", ".json", ".yaml", ".yml", ".toml")) for target in targets):
+        return "workspace"
+    if action_intent in {"read_context", "edit_workspace", "run_command", "start_service"}:
+        return "workspace"
+    return ""
 
 
 class _ContinuationAgentRuntimeChain:
@@ -6488,3 +6597,4 @@ class _ContinuationAgentRuntimeChain:
         while isinstance(chain, _ContinuationAgentRuntimeChain):
             chain = chain._base
         return chain
+

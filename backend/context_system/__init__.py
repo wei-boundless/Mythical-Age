@@ -16,7 +16,7 @@ __all__ = [
     "ContextPolicyResult",
     "ContextProjection",
     "ContextResolver",
-    "CurrentTurnContext",
+    "TurnBinding",
     "EvidenceSummary",
     "MainContextState",
     "MemoryContextPolicy",
@@ -36,7 +36,7 @@ __all__ = [
 ]
 
 _EXPORTS = {
-    "BundleItem": ("context_system.current_turn.current_turn", "BundleItem"),
+    "BundleItem": ("context_system.current_turn.turn_binding", "BundleItem"),
     "CompactResult": ("context_system.compaction.compactor", "CompactResult"),
     "ContextBudget": ("context_system.models.context_models", "ContextBudget"),
     "ContextBudgetPreset": ("context_system.budget.presets", "ContextBudgetPreset"),
@@ -48,12 +48,12 @@ _EXPORTS = {
     "ContextPolicyResult": ("context_system.policy.contracts", "ContextPolicyResult"),
     "ContextProjection": ("context_system.projection.projection", "ContextProjection"),
     "ContextResolver": ("context_system.resolution.resolver", "ContextResolver"),
-    "CurrentTurnContext": ("context_system.current_turn.current_turn", "CurrentTurnContext"),
+    "TurnBinding": ("context_system.current_turn.turn_binding", "TurnBinding"),
     "EvidenceSummary": ("context_system.policy.runtime_models", "EvidenceSummary"),
     "MainContextState": ("context_system.policy.runtime_models", "MainContextState"),
     "MemoryContextPolicy": ("context_system.policy.package_builder", "MemoryContextPolicy"),
     "PressureLevel": ("context_system.models.context_models", "PressureLevel"),
-    "ResolvedBinding": ("context_system.current_turn.current_turn", "ResolvedBinding"),
+    "ResolvedBinding": ("context_system.current_turn.turn_binding", "ResolvedBinding"),
     "RuntimeContextInvariantReport": ("runtime.shared.context_manager", "RuntimeContextInvariantReport"),
     "RuntimeContextManager": ("runtime.shared.context_manager", "RuntimeContextManager"),
     "RuntimeContextObservationRecord": ("runtime.shared.context_manager", "RuntimeContextObservationRecord"),
@@ -75,7 +75,7 @@ if TYPE_CHECKING:
         normalize_context_budget_preset_id,
     )
     from context_system.compaction.compactor import CompactResult, ContextCompactor
-    from context_system.current_turn.current_turn import BundleItem, CurrentTurnContext, ResolvedBinding
+    from context_system.current_turn.turn_binding import BundleItem, TurnBinding, ResolvedBinding
     from context_system.models.context_models import (
         ContextBudget,
         ContextControllerResult,

@@ -317,11 +317,10 @@ PROFESSIONAL_GAME_MULTIFILE_DELIVERY_TURNS: tuple[LongScenarioTurn, ...] = (
 
 PROFESSIONAL_TASK_SELECTION: dict[str, Any] = {
     "interaction_mode": "professional_mode",
-    "intent_decision": {"execution_strategy": "professional_task_run", "interaction_mode": "professional_mode"},
-    "runtime_assembly_hint": {
+    "mode_policy": {
         "execution_strategy": "professional_task_run",
-        "runtime_mode": "professional_task",
         "interaction_mode": "professional_mode",
+        "runtime_lane": "professional_task",
     },
 }
 
@@ -508,11 +507,10 @@ SANDBOX_FILE_OPS_ACCEPTANCE_TURNS: tuple[LongScenarioTurn, ...] = (
         params={
             "task_selection": {
                 "interaction_mode": "professional_mode",
-                "intent_decision": {"execution_strategy": "professional_task_run", "interaction_mode": "professional_mode"},
-                "runtime_assembly_hint": {
+                "mode_policy": {
                     "execution_strategy": "professional_task_run",
-                    "runtime_mode": "professional_task",
                     "interaction_mode": "professional_mode",
+                    "runtime_lane": "professional_task",
                 },
             }
         },
@@ -540,11 +538,10 @@ SANDBOX_FILE_OPS_ACCEPTANCE_TURNS: tuple[LongScenarioTurn, ...] = (
         params={
             "task_selection": {
                 "interaction_mode": "professional_mode",
-                "intent_decision": {"execution_strategy": "professional_task_run", "interaction_mode": "professional_mode"},
-                "runtime_assembly_hint": {
+                "mode_policy": {
                     "execution_strategy": "professional_task_run",
-                    "runtime_mode": "professional_task",
                     "interaction_mode": "professional_mode",
+                    "runtime_lane": "professional_task",
                 },
             }
         },
@@ -572,11 +569,10 @@ SANDBOX_FILE_OPS_ACCEPTANCE_TURNS: tuple[LongScenarioTurn, ...] = (
         params={
             "task_selection": {
                 "interaction_mode": "professional_mode",
-                "intent_decision": {"execution_strategy": "professional_task_run", "interaction_mode": "professional_mode"},
-                "runtime_assembly_hint": {
+                "mode_policy": {
                     "execution_strategy": "professional_task_run",
-                    "runtime_mode": "professional_task",
                     "interaction_mode": "professional_mode",
+                    "runtime_lane": "professional_task",
                 },
             }
         },

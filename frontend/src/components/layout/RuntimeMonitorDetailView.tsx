@@ -1,7 +1,6 @@
 "use client";
 
 import { AlertTriangle, CheckCircle2, Clock3, Network, RefreshCw, RotateCcw } from "lucide-react";
-import { useEffect, useState } from "react";
 
 import { TaskGraphRunMonitorPanel } from "@/components/task-graph-monitor/TaskGraphRunMonitorPanel";
 import { useAppStore } from "@/lib/store";
@@ -13,6 +12,7 @@ import {
   statusLabel,
   taskTitle,
 } from "@/components/layout/runtimeMonitorFormat";
+import { useRuntimeNowTicker } from "@/components/layout/runtimeNowTicker";
 
 function text(value: unknown, fallback = "-") {
   const normalized = String(value ?? "").trim();
@@ -29,22 +29,14 @@ export function RuntimeMonitorDetailView({ onClose }: { onClose: () => void }) {
     globalRuntimeMonitorSelectedTaskRunId,
     refreshGlobalRuntimeMonitor,
   } = useAppStore();
-  const [nowSeconds, setNowSeconds] = useState(() => Date.now() / 1000);
   const tasks = topLevelTaskGraphMonitorItems(globalRuntimeMonitor);
   const selectedTask = tasks.find((item) => item.task_run_id === globalRuntimeMonitorSelectedTaskRunId) ?? tasks[0] ?? null;
   const selectedTaskRunId = selectedTask?.task_run_id ?? "";
   const selectedTaskBucket = selectedTask?.display_bucket ?? "";
   const selectedTaskLive = selectedTask?.is_live ?? false;
+  const nowSeconds = useRuntimeNowTicker(Boolean(selectedTaskRunId && (selectedTaskLive || selectedTaskBucket === "stale")));
   const liveMonitor = globalRuntimeMonitorSelectedLiveMonitor;
   const graphMonitor = globalRuntimeMonitorSelectedGraphMonitor;
-
-  useEffect(() => {
-    if (!selectedTaskRunId || (!selectedTaskLive && selectedTaskBucket !== "stale")) {
-      return undefined;
-    }
-    const timer = window.setInterval(() => setNowSeconds(Date.now() / 1000), 1000);
-    return () => window.clearInterval(timer);
-  }, [selectedTaskBucket, selectedTaskLive, selectedTaskRunId]);
 
   return (
     <section className="runtime-monitor-center" aria-label="任务详细监控">

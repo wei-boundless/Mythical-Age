@@ -1,17 +1,13 @@
 "use client";
 
 import {
-  BrainCircuit,
-  ChevronDown,
   Database,
   FileText,
   GitBranch,
   Loader2,
-  MessageSquare,
   RefreshCw,
   Search,
   ShieldCheck,
-  Sparkles,
   Trash2
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -23,21 +19,13 @@ import {
   deleteDurableMemory,
   disableDurableMemory,
   getDurableMemoryNote,
-  getExperimentTurnMemoryTrace,
-  getSessionHistory,
   getMemoryOverview,
-  getSessionMemoryFiles,
   mergeDurableMemories,
-  recallMemoryPreview,
   type DurableMemoryNoteDetail,
-  type ExperimentTurnMemoryTrace,
   type MemoryHeader,
   type MemoryOverview,
-  type MemoryRecallPreview,
-  type MemorySessionFile,
-  type MemoryTraceSection,
-  type ToolCall,
 } from "@/lib/api";
+import { useConfirmDialog } from "@/components/layout/ConfirmDialogProvider";
 import { useAppStore } from "@/lib/store";
 
 function compactText(value: string, limit = 220) {
@@ -48,169 +36,15 @@ function compactText(value: string, limit = 220) {
   return `${normalized.slice(0, limit)}...`;
 }
 
-function valueText(value: unknown) {
-  if (Array.isArray(value)) {
-    return value.filter(Boolean).join(" / ") || "空";
-  }
-  if (typeof value === "boolean") {
-    return value ? "是" : "否";
-  }
-  return String(value ?? "").trim() || "空";
-}
-
-function formatBytes(value: number) {
-  if (!value) {
-    return "0 B";
-  }
-  if (value < 1024) {
-    return `${value} B`;
-  }
-  if (value < 1024 * 1024) {
-    return `${(value / 1024).toFixed(1)} KB`;
-  }
-  return `${(value / 1024 / 1024).toFixed(1)} MB`;
-}
-
-function formatTimestamp(value: number | null) {
-  if (!value) {
-    return "尚未生成";
-  }
-  return new Date(value * 1000).toLocaleString("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit"
-  });
-}
-
-function formatIsoTimestamp(value: string) {
-  if (!value) {
-    return "未记录";
-  }
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return value;
-  }
-  return parsed.toLocaleString("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit"
-  });
-}
-
-function noteTone(note: MemoryHeader) {
-  if (!note.eligible_for_injection || note.status !== "active") {
-    return "muted";
-  }
-  if (note.memory_class === "preference") {
-    return "preference";
-  }
-  if (note.memory_type === "project") {
-    return "project";
-  }
-  return "active";
-}
-
-function traceItemsText(sections: MemoryTraceSection[], emptyText: string) {
-  const items = sections.flatMap((section) => section.items.map((item) => `${section.label}: ${item}`));
-  if (!items.length) {
-    return emptyText;
-  }
-  return items.slice(0, 5).join("\n\n");
-}
-
-function TraceSectionCards({
-  emptyText,
-  sections,
-}: {
-  emptyText: string;
-  sections: MemoryTraceSection[];
-}) {
-  if (!sections.length) {
-    return (
-      <article className="memory-trace-readable__empty">
-        <strong>没有记录到片段</strong>
-        <p>{emptyText}</p>
-      </article>
-    );
-  }
-  return (
-    <>
-      {sections.map((section) => (
-        <article className="memory-trace-readable__section" key={section.id}>
-          <span>{section.count} 条</span>
-          <strong>{section.label}</strong>
-          {section.items.length ? section.items.slice(0, 4).map((item, index) => (
-            <p key={`${section.id}-${index}`}>{item}</p>
-          )) : <p>该分区存在，但没有展开条目。</p>}
-        </article>
-      ))}
-    </>
-  );
-}
-
-type ConversationItem = {
-  id: string;
-  index: number;
-  role: "user" | "assistant";
-  content: string;
-  toolCalls: ToolCall[];
-  source: "history" | "live";
-};
-
-type MemoryLayer = "conversation" | "state" | "durable";
 type DurableStatusFilter = "all" | "active" | "inactive" | "archived" | "deprecated";
 
-const MEMORY_LAYERS: Array<{
-  key: MemoryLayer;
-  title: string;
-  subtitle: string;
-  icon: typeof MessageSquare;
-}> = [
-  {
-    key: "conversation",
-    title: "对话记忆",
-    subtitle: "按轮次看记忆现场",
-    icon: MessageSquare
-  },
-  {
-    key: "state",
-    title: "状态记忆",
-    subtitle: "看 session 状态与上下文",
-    icon: BrainCircuit
-  },
-  {
-    key: "durable",
-    title: "全局长期记忆",
-    subtitle: "治理跨任务稳定记录",
-    icon: Database
-  }
-];
-
 export function MemoryView() {
-  const { currentSessionId, memoryInspectorTarget, messages, tokenStats, loadInspectorFile } = useAppStore();
-  const [activeLayer, setActiveLayer] = useState<MemoryLayer>("conversation");
+  const confirm = useConfirmDialog();
+  const { loadInspectorFile } = useAppStore();
   const [query, setQuery] = useState("");
   const [overview, setOverview] = useState<MemoryOverview | null>(null);
-  const [recallPreview, setRecallPreview] = useState<MemoryRecallPreview | null>(null);
   const [loading, setLoading] = useState(false);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const [recalling, setRecalling] = useState(false);
   const [error, setError] = useState("");
-  const [historyError, setHistoryError] = useState("");
-  const [sessionHistory, setSessionHistory] = useState<{
-    title: string;
-    messages: Array<{ role: "user" | "assistant"; content: string; tool_calls?: ToolCall[] }>;
-  } | null>(null);
-  const [expandedMessageIds, setExpandedMessageIds] = useState<string[]>([]);
-  const [linkedMemoryTrace, setLinkedMemoryTrace] = useState<ExperimentTurnMemoryTrace | null>(null);
-  const [linkedMemoryTraceStatus, setLinkedMemoryTraceStatus] = useState("");
-  const [linkedMemoryTraceLoading, setLinkedMemoryTraceLoading] = useState(false);
-  const [sessionMemoryFiles, setSessionMemoryFiles] = useState<MemorySessionFile[]>([]);
-  const [selectedSessionMemoryPath, setSelectedSessionMemoryPath] = useState("");
-  const [sessionMemoryFilesLoading, setSessionMemoryFilesLoading] = useState(false);
-  const [sessionMemoryFilesError, setSessionMemoryFilesError] = useState("");
   const [governanceBusy, setGovernanceBusy] = useState("");
   const [governanceMessage, setGovernanceMessage] = useState("");
   const [mergeFilenames, setMergeFilenames] = useState<string[]>([]);
@@ -258,60 +92,7 @@ export function MemoryView() {
   }, [durableStatusFilter, overview?.durable_memory.headers, query]);
 
   const visibleHeaders = filteredHeaders.slice(0, 18);
-  const conversationItems = useMemo<ConversationItem[]>(() => {
-    if (sessionHistory?.messages.length) {
-      return sessionHistory.messages.map((message, index) => ({
-        id: `history-${index}-${message.role}`,
-        index: index + 1,
-        role: message.role,
-        content: message.content,
-        toolCalls: message.tool_calls ?? [],
-        source: "history"
-      }));
-    }
-
-    return messages.map((message, index) => ({
-      id: `live-${message.id || index}-${message.role}`,
-      index: index + 1,
-      role: message.role,
-      content: message.content,
-      toolCalls: message.toolCalls ?? [],
-      source: "live"
-    }));
-  }, [messages, sessionHistory?.messages]);
-  const filteredConversationItems = useMemo(() => {
-    const normalized = query.trim().toLowerCase();
-    if (!normalized) {
-      return conversationItems;
-    }
-    return conversationItems.filter((item) =>
-      `${item.role} ${item.content}`.toLowerCase().includes(normalized)
-    );
-  }, [conversationItems, query]);
-  const session = overview?.session_memory ?? null;
   const durable = overview?.durable_memory ?? null;
-  const pressure = tokenStats?.history_pressure_level ?? "暂无数据";
-  const governanceAlerts = useMemo(() => {
-    const headers = overview?.durable_memory.headers ?? [];
-    const inactive = headers.filter((note) => note.status !== "active");
-    const blocked = headers.filter((note) => !note.eligible_for_injection);
-    const lowConfidence = headers.filter((note) => ["low", "weak", "低"].some((key) => note.confidence.toLowerCase().includes(key)));
-    const missingSummary = headers.filter((note) => !(note.summary || note.canonical_statement || note.description).trim());
-    return [
-      { label: "非 active 记录", count: inactive.length, tone: inactive.length ? "warning" : "ok", hint: "可能是归档、暂停或待清理记录。" },
-      { label: "禁止注入记录", count: blocked.length, tone: blocked.length ? "muted" : "ok", hint: "不会进入模型上下文，但仍可作为档案查看。" },
-      { label: "低置信记录", count: lowConfidence.length, tone: lowConfidence.length ? "warning" : "ok", hint: "后续治理时优先复核。" },
-      { label: "摘要缺失记录", count: missingSummary.length, tone: missingSummary.length ? "warning" : "ok", hint: "会影响检索和人工判断。" }
-    ];
-  }, [overview?.durable_memory.headers]);
-  const linkedTurnContext = linkedMemoryTrace?.turn_context ?? null;
-  const linkedTraceHasProblem = linkedTurnContext?.status === "failed" || Boolean(linkedTurnContext?.failed_checks?.length);
-  const linkedSessionSections = linkedMemoryTrace?.session_memory.model_sections.length
-    ? linkedMemoryTrace.session_memory.model_sections
-    : linkedMemoryTrace?.session_memory.debug_sections ?? [];
-  const linkedDurableSections = linkedMemoryTrace?.durable_memory.model_sections.length
-    ? linkedMemoryTrace.durable_memory.model_sections
-    : linkedMemoryTrace?.durable_memory.debug_sections ?? [];
   const durableStatusStats = useMemo(() => {
     const headers = overview?.durable_memory.headers ?? [];
     return {
@@ -321,156 +102,22 @@ export function MemoryView() {
       deprecated: headers.filter((note) => note.status === "deprecated").length
     };
   }, [overview?.durable_memory.headers]);
-  const selectedSessionMemoryFile = useMemo(
-    () => sessionMemoryFiles.find((file) => file.path === selectedSessionMemoryPath) ?? sessionMemoryFiles.find((file) => file.exists) ?? null,
-    [selectedSessionMemoryPath, sessionMemoryFiles]
-  );
-  const sessionMemoryExistingFiles = useMemo(
-    () => sessionMemoryFiles.filter((file) => file.exists),
-    [sessionMemoryFiles]
-  );
-
   const loadOverview = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const payload = await getMemoryOverview(currentSessionId || undefined);
+      const payload = await getMemoryOverview();
       setOverview(payload);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "记忆系统读取失败");
     } finally {
       setLoading(false);
     }
-  }, [currentSessionId]);
-
-  const loadSessionMemoryFiles = useCallback(async () => {
-    if (!currentSessionId) {
-      setSessionMemoryFiles([]);
-      setSelectedSessionMemoryPath("");
-      setSessionMemoryFilesError("");
-      return;
-    }
-    setSessionMemoryFilesLoading(true);
-    setSessionMemoryFilesError("");
-    try {
-      const payload = await getSessionMemoryFiles(currentSessionId);
-      setSessionMemoryFiles(payload.files);
-      setSelectedSessionMemoryPath((currentPath) => {
-        if (currentPath && payload.files.some((file) => file.path === currentPath)) {
-          return currentPath;
-        }
-        return payload.files.find((file) => file.id === "summary" && file.exists)?.path
-          ?? payload.files.find((file) => file.exists)?.path
-          ?? payload.files[0]?.path
-          ?? "";
-      });
-    } catch (exc) {
-      setSessionMemoryFiles([]);
-      setSelectedSessionMemoryPath("");
-      setSessionMemoryFilesError(exc instanceof Error ? exc.message : "状态记忆文件读取失败");
-    } finally {
-      setSessionMemoryFilesLoading(false);
-    }
-  }, [currentSessionId]);
-
-  const loadConversationHistory = useCallback(async () => {
-    if (!currentSessionId) {
-      setSessionHistory(null);
-      setHistoryError("");
-      return;
-    }
-    setHistoryLoading(true);
-    setHistoryError("");
-    try {
-      const payload = await getSessionHistory(currentSessionId);
-      setSessionHistory({
-        title: payload.title,
-        messages: payload.messages
-      });
-    } catch (exc) {
-      setSessionHistory(null);
-      setHistoryError(exc instanceof Error ? exc.message : "会话历史读取失败");
-    } finally {
-      setHistoryLoading(false);
-    }
-  }, [currentSessionId]);
-
-  async function runRecallPreview() {
-    const trimmed = query.trim();
-    if (!trimmed) {
-      setError("先输入一句要模拟召回的问题。");
-      return;
-    }
-    setRecalling(true);
-    setError("");
-    try {
-      const payload = await recallMemoryPreview({
-        query: trimmed,
-        session_id: currentSessionId || undefined,
-        limit: 6
-      });
-      setRecallPreview(payload);
-    } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "召回模拟失败");
-    } finally {
-      setRecalling(false);
-    }
-  }
+  }, []);
 
   useEffect(() => {
     void loadOverview();
   }, [loadOverview]);
-
-  useEffect(() => {
-    if (activeLayer !== "state") {
-      return;
-    }
-    void loadSessionMemoryFiles();
-  }, [activeLayer, loadSessionMemoryFiles]);
-
-  useEffect(() => {
-    setExpandedMessageIds([]);
-    void loadConversationHistory();
-  }, [loadConversationHistory]);
-
-  useEffect(() => {
-    if (!memoryInspectorTarget) {
-      return;
-    }
-    const requestedLayer = memoryInspectorTarget.layer;
-    setActiveLayer(requestedLayer === "conversation" || requestedLayer === "durable" ? requestedLayer : "state");
-    if (!memoryInspectorTarget.runId || !memoryInspectorTarget.turnId) {
-      return;
-    }
-    setLinkedMemoryTraceLoading(true);
-    setLinkedMemoryTraceStatus("");
-    void getExperimentTurnMemoryTrace(memoryInspectorTarget.runId, memoryInspectorTarget.turnId)
-      .then((payload) => {
-        setLinkedMemoryTrace(payload.memory_trace);
-        setLinkedMemoryTraceStatus(payload.status === "available" ? "" : payload.reason);
-      })
-      .catch((exc) => {
-        setLinkedMemoryTrace(null);
-        setLinkedMemoryTraceStatus(exc instanceof Error ? exc.message : "加载测试记忆链路失败");
-      })
-      .finally(() => setLinkedMemoryTraceLoading(false));
-  }, [memoryInspectorTarget]);
-
-  function toggleConversationItem(messageId: string) {
-    setExpandedMessageIds((prev) =>
-      prev.includes(messageId)
-        ? prev.filter((id) => id !== messageId)
-        : [...prev, messageId]
-    );
-  }
-
-  function toggleAllConversationItems() {
-    if (expandedMessageIds.length === filteredConversationItems.length) {
-      setExpandedMessageIds([]);
-      return;
-    }
-    setExpandedMessageIds(filteredConversationItems.map((item) => item.id));
-  }
 
   async function runGovernanceAction(label: string, action: () => Promise<unknown>, options?: { refreshSelected?: boolean }) {
     setGovernanceBusy(label);
@@ -559,15 +206,19 @@ export function MemoryView() {
     });
   }
 
-  async function deleteMemoryNote(filename: string, source: "reader" | "card") {
-    const confirmed = window.confirm(`确认删除长期记忆「${filename}」吗？\n\n文件会移入 durable_memory/trash，并从长期记忆列表中移除。`);
+  async function deleteMemoryNote(filename: string) {
+    const confirmed = await confirm({
+      title: `删除长期记忆「${filename}」`,
+      body: "文件会移入 durable_memory/trash，并从长期记忆列表中移除。",
+      confirmLabel: "删除记忆",
+    });
     if (!confirmed) {
       return;
     }
     await runGovernanceAction(
       "删除长期记忆",
       async () => {
-        await deleteDurableMemory(filename, `Deleted from durable ${source}`);
+        await deleteDurableMemory(filename, "Deleted from durable memory manager");
         setMergeFilenames((prev) => prev.filter((item) => item !== filename));
         if (selectedDurableFilename === filename) {
           setSelectedDurableFilename("");
@@ -613,378 +264,22 @@ export function MemoryView() {
 
       <section className="memory-hero">
         <div className="memory-hero__copy">
-          <span>只读安装版</span>
-          <strong>把记忆拆成三层看，先定位，再治理。</strong>
+          <span>Long-term Memory</span>
+          <strong>管理跨会话仍然稳定、有价值的长期记忆。</strong>
           <p>
-            对话记忆看单轮现场，状态记忆看 session 上下文，长期记忆只治理跨会话稳定记录。
-            运行时内部状态不进入主记忆页面，避免草稿、节点状态和稳定知识互相污染。
+            只保留长期记忆的阅读、写入、合并、启停、归档和删除。
           </p>
-        </div>
-        <div className="memory-orbit" aria-label="记忆系统链路图">
-          <div className="memory-orbit__ring" />
-          <div className="memory-orbit__node memory-orbit__node--session">
-            <BrainCircuit size={16} />
-            <span>状态记忆</span>
-          </div>
-          <div className="memory-orbit__node memory-orbit__node--recall">
-            <Search size={16} />
-            <span>召回选择</span>
-          </div>
-          <div className="memory-orbit__node memory-orbit__node--prompt">
-            <Sparkles size={16} />
-            <span>上下文装配</span>
-          </div>
-          <div className="memory-orbit__node memory-orbit__node--durable">
-            <Database size={16} />
-            <span>长期记忆</span>
-          </div>
         </div>
       </section>
 
-      <nav className="memory-layer-tabs" aria-label="记忆系统分层导航">
-        {MEMORY_LAYERS.map((layer) => {
-          const Icon = layer.icon;
-          return (
-            <button
-              className={`memory-layer-tab ${activeLayer === layer.key ? "memory-layer-tab--active" : ""}`}
-              key={layer.key}
-              onClick={() => setActiveLayer(layer.key)}
-              type="button"
-            >
-              <Icon size={18} />
-              <span>{layer.title}</span>
-              <small>{layer.subtitle}</small>
-            </button>
-          );
-        })}
-      </nav>
-
-      {memoryInspectorTarget ? (
-        <section className={`memory-inspector-focus ${linkedTraceHasProblem ? "memory-inspector-focus--problem" : ""}`}>
-          <div className="memory-inspector-focus__signal">
-            <span>{memoryInspectorTarget.source === "test-system" ? "来自测试系统" : "检查目标"}</span>
-            <strong>
-              {memoryInspectorTarget.turnIndex ? `第 ${memoryInspectorTarget.turnIndex} 轮` : "指定记忆目标"}
-              {linkedTurnContext?.session_alias ? ` · ${linkedTurnContext.session_alias}` : ""}
-            </strong>
-            <p>
-              {linkedMemoryTraceLoading
-                ? "正在加载这一轮的真实 memory trace。"
-                : linkedMemoryTrace
-                  ? linkedMemoryTrace.summary
-                  : linkedMemoryTraceStatus || memoryInspectorTarget.reason || "当前目标还没有可读的记忆链路。"}
-            </p>
-          </div>
-          <div className="memory-inspector-focus__meta">
-            <span><b>{linkedMemoryTrace?.session_memory.section_count ?? 0}</b> 状态片段</span>
-            <span><b>{(linkedMemoryTrace?.durable_memory.exact_count ?? 0) + (linkedMemoryTrace?.durable_memory.relevant_count ?? 0)}</b> 长期命中</span>
-            <span><b>{linkedMemoryTrace?.prompt_injection.section_count ?? 0}</b> 装配片段</span>
-            <span><b>{linkedTurnContext?.status === "passed" ? "通过" : linkedTurnContext?.status === "failed" ? "失败" : "未知"}</b> 测试状态</span>
-          </div>
-          <div className="memory-inspector-focus__actions">
-            <button className={activeLayer === "conversation" ? "memory-inspector-focus__active" : ""} onClick={() => setActiveLayer("conversation")} type="button">
-              看对话现场
-            </button>
-            <button className={activeLayer === "state" ? "memory-inspector-focus__active" : ""} onClick={() => setActiveLayer("state")} type="button">
-              看状态记忆
-            </button>
-            <button className={activeLayer === "durable" ? "memory-inspector-focus__active" : ""} onClick={() => setActiveLayer("durable")} type="button">
-              看长期命中
-            </button>
-          </div>
-        </section>
-      ) : null}
-
-      {activeLayer === "conversation" ? (
-        <>
-          {memoryInspectorTarget ? (
-            <section className="workspace-section memory-management-panel">
-              <div className="workspace-section__head">
-                <GitBranch size={18} />
-                <h3>测试轮次对话定位</h3>
-                {memoryInspectorTarget.turnIndex ? <span className="tag-chip">第 {memoryInspectorTarget.turnIndex} 轮</span> : null}
-                <span className="tag-chip">{linkedMemoryTrace ? "已连接" : linkedMemoryTraceLoading ? "加载中" : "未命中"}</span>
-              </div>
-              {linkedMemoryTrace ? (
-                <div className="memory-management-panel__grid">
-                  <article>
-                    <span>用户输入</span>
-                    <strong>{linkedTurnContext?.session_alias || "测试系统跳转"}</strong>
-                    <p>{compactText(linkedTurnContext?.user_input || memoryInspectorTarget.reason || "该轮测试记录没有用户输入。", 260)}</p>
-                  </article>
-                  <article>
-                    <span>助手输出</span>
-                    <strong>{linkedTurnContext?.status === "passed" ? "测试通过" : linkedTurnContext?.status === "failed" ? "测试失败" : "状态未知"}</strong>
-                    <p>{compactText(linkedTurnContext?.assistant_output || "该轮测试记录没有助手输出。", 260)}</p>
-                  </article>
-                  <article>
-                    <span>记忆摘要</span>
-                    <strong>{linkedMemoryTrace.summary || "暂无摘要"}</strong>
-                    <p>{traceItemsText(linkedSessionSections, "这一轮没有状态记忆片段进入模型上下文。")}</p>
-                  </article>
-                </div>
-              ) : (
-                <article className="workspace-record">
-                  <h3>{linkedMemoryTraceLoading ? "正在读取测试轮次" : "这一轮没有可用记忆链路"}</h3>
-                  <p>{linkedMemoryTraceStatus || "可以回到测试系统选择带有记忆标记的轮次。"}</p>
-                </article>
-              )}
-            </section>
-          ) : null}
-
-          <div className="workspace-search memory-search">
-            <Search size={17} />
-            <input
-              aria-label="搜索对话记忆"
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="搜索当前会话，或展开某一轮查看记忆链路"
-              value={query}
-            />
-            <button className="action-button action-button--ghost" onClick={() => void loadConversationHistory()} type="button">
-              {historyLoading ? <Loader2 className="animate-spin" size={15} /> : <RefreshCw size={15} />}
-              重载对话
-            </button>
-          </div>
-
-          <section className="workspace-section memory-management-panel">
-            <div className="workspace-section__head">
-              <MessageSquare size={18} />
-              <h3>对话记忆管理</h3>
-              <span className="tag-chip">{currentSessionId ? "当前会话已连接" : "未选择会话"}</span>
-            </div>
-            <div className="memory-management-panel__grid">
-              <article>
-                <span>阅读入口</span>
-                <strong>当前会话原始文件</strong>
-                <p>用于核对真实对话、工具调用、压缩上下文和会话标题。</p>
-                <button
-                  className="action-button action-button--ghost"
-                  disabled={!currentSessionId}
-                  onClick={() => currentSessionId ? void loadInspectorFile(`sessions/${currentSessionId}.json`) : undefined}
-                  type="button"
-                >
-                  打开会话 JSON
-                </button>
-              </article>
-              <article>
-                <span>阅读控制</span>
-                <strong>对话展开与召回检查</strong>
-                <p>批量展开所有轮次，或单独点击某一轮查看状态记忆、长期召回和上下文装配。</p>
-                <div className="memory-management-panel__actions">
-                  <button disabled={!filteredConversationItems.length} onClick={toggleAllConversationItems} type="button">
-                    {expandedMessageIds.length === filteredConversationItems.length ? "全部收起" : "全部展开"}
-                  </button>
-                  <button onClick={() => void loadConversationHistory()} type="button">
-                    重新读取
-                  </button>
-                </div>
-              </article>
-              <article>
-                <span>当前范围</span>
-                <strong>{sessionHistory?.title || currentSessionId || "没有会话"}</strong>
-                <p>{conversationItems.length} 条消息 · {sessionHistory ? "来自后端历史" : "来自前端实时缓存"}</p>
-              </article>
-            </div>
-          </section>
-
-          <section className="workspace-section memory-dialogue">
-            <div className="workspace-section__head">
-              <MessageSquare size={18} />
-              <h3>对话现场</h3>
-              <span className="tag-chip">{filteredConversationItems.length}/{conversationItems.length} 轮</span>
-              <span className="tag-chip">{sessionHistory ? "后端历史" : "实时缓存"}</span>
-              {sessionHistory?.title ? <span className="tag-chip">{sessionHistory.title}</span> : null}
-              <button className="action-button action-button--muted" disabled={!filteredConversationItems.length} onClick={toggleAllConversationItems} type="button">
-                {expandedMessageIds.length === filteredConversationItems.length ? "全部收起" : "全部展开"}
-              </button>
-            </div>
-            {historyError ? <div className="workspace-alert">{historyError}</div> : null}
-            <div className="memory-dialogue__rail">
-              {filteredConversationItems.length ? filteredConversationItems.map((item) => {
-                const expanded = expandedMessageIds.includes(item.id);
-                return (
-                  <article className={`memory-dialogue-turn memory-dialogue-turn--${item.role}`} key={item.id}>
-                    <button
-                      className="memory-dialogue-turn__head"
-                      onClick={() => toggleConversationItem(item.id)}
-                      type="button"
-                    >
-                      <span>{item.index}</span>
-                      <strong>{item.role === "user" ? "用户输入" : "助手回应"}</strong>
-                      <em>{compactText(item.content, 120)}</em>
-                      {item.toolCalls.length ? <i>{item.toolCalls.length} 个工具</i> : null}
-                      <ChevronDown className={expanded ? "memory-dialogue-turn__chevron--open" : ""} size={16} />
-                    </button>
-                    {expanded ? (
-                      <div className="memory-dialogue-turn__body">
-                        <pre>{item.content || "空内容"}</pre>
-                        {item.toolCalls.length ? (
-                          <div className="memory-dialogue-tools">
-                            {item.toolCalls.map((toolCall, toolIndex) => (
-                              <details key={`${item.id}-tool-${toolIndex}`}>
-                                <summary>
-                                  工具 {toolIndex + 1}: {toolCall.tool || "未知工具"}
-                                </summary>
-                                <pre>{compactText(`输入：\n${toolCall.input || "空"}\n\n输出：\n${toolCall.output || "空"}`, 1800)}</pre>
-                              </details>
-                            ))}
-                          </div>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </article>
-                );
-              }) : (
-                <article className="workspace-record">
-                  <h3>没有可展开的对话</h3>
-                  <p>当前会话还没有消息，或搜索词没有命中任何对话轮次。</p>
-                </article>
-              )}
-            </div>
-          </section>
-
-        </>
-      ) : null}
-
-      {activeLayer === "state" ? (
-        <>
-          <section className="workspace-section memory-state-workbench">
-            <div className="workspace-section__head">
-              <BrainCircuit size={18} />
-              <h3>状态记忆文件工作台</h3>
-              <span className="tag-chip">{currentSessionId || "未选择会话"}</span>
-              <span className="tag-chip">{sessionMemoryFilesLoading ? "读取中" : `${sessionMemoryExistingFiles.length} 个文件`}</span>
-              <button className="action-button action-button--ghost" onClick={() => void loadSessionMemoryFiles()} type="button">
-                {sessionMemoryFilesLoading ? <Loader2 className="animate-spin" size={14} /> : <RefreshCw size={14} />}
-                刷新文件
-              </button>
-            </div>
-            {sessionMemoryFilesError ? <div className="workspace-alert">{sessionMemoryFilesError}</div> : null}
-            <div className="memory-state-workbench__summary">
-              <article>
-                <span>当前目标</span>
-                <strong>{session?.active_goal || "未写入"}</strong>
-                <p>{session?.debug_preview || session?.preview || "还没有形成可读状态。先继续一次对话，状态文件会随运行写入。"}</p>
-              </article>
-              <article>
-                <span>上下文压力</span>
-                <strong>{pressure}</strong>
-                <p>策略：{valueText(session?.context_management?.["strategy"])}</p>
-              </article>
-              <article>
-                <span>流程 / 任务</span>
-                <strong>{valueText(session?.flow_state?.status)} / {valueText(session?.task_state?.status)}</strong>
-                <p>风险：{valueText(session?.risk?.flags)}</p>
-              </article>
-            </div>
-
-            <div className="memory-state-file-browser">
-              <aside className="memory-state-file-list" aria-label="状态记忆文件列表">
-                {currentSessionId ? sessionMemoryFiles.map((file) => (
-                  <button
-                    className={`memory-state-file-row ${selectedSessionMemoryFile?.path === file.path ? "memory-state-file-row--active" : ""} ${!file.exists ? "memory-state-file-row--missing" : ""}`}
-                    key={file.path}
-                    onClick={() => setSelectedSessionMemoryPath(file.path)}
-                    type="button"
-                  >
-                    <span>{file.exists ? file.kind : "missing"}</span>
-                    <strong>{file.label}</strong>
-                    <em>{file.path}</em>
-                    <small>{file.exists ? `${formatBytes(file.size)} · ${formatTimestamp(file.updated_at)}` : "文件尚未生成"}</small>
-                  </button>
-                )) : (
-                  <article className="workspace-record">
-                    <h3>还没有选择会话</h3>
-                    <p>状态记忆按 session_id 存在 `session-memory` 目录下，先选择一个会话后才能读取。</p>
-                  </article>
-                )}
-              </aside>
-
-              <article className="memory-state-file-reader">
-                {sessionMemoryFilesLoading ? (
-                  <div className="workspace-record">
-                    <h3>正在读取状态记忆文件</h3>
-                    <p>{currentSessionId || "等待会话"}</p>
-                  </div>
-                ) : selectedSessionMemoryFile ? (
-                  <>
-                    <div className="memory-state-file-reader__head">
-                      <div>
-                        <span>{selectedSessionMemoryFile.path}</span>
-                        <strong>{selectedSessionMemoryFile.label}</strong>
-                        <p>{selectedSessionMemoryFile.description}</p>
-                      </div>
-                      <button
-                        className="action-button action-button--muted"
-                        disabled={!selectedSessionMemoryFile.exists}
-                        onClick={() => void loadInspectorFile(selectedSessionMemoryFile.path)}
-                        type="button"
-                      >
-                        <FileText size={14} />
-                        打开源文件
-                      </button>
-                    </div>
-                    <div className="memory-state-file-reader__meta">
-                      <b>{selectedSessionMemoryFile.exists ? "已生成" : "未生成"}</b>
-                      <b>{selectedSessionMemoryFile.kind}</b>
-                      <b>{formatBytes(selectedSessionMemoryFile.size)}</b>
-                      <b>{formatTimestamp(selectedSessionMemoryFile.updated_at)}</b>
-                    </div>
-                    <pre>
-                      {selectedSessionMemoryFile.exists
-                        ? selectedSessionMemoryFile.preview || "文件为空。"
-                        : "这个状态记忆文件还没有生成。通常需要完成一次会话运行，或触发对应的压缩 / 流程快照后才会出现。"}
-                    </pre>
-                  </>
-                ) : (
-                  <div className="workspace-record">
-                    <h3>没有可阅读的状态文件</h3>
-                    <p>当前会话还没有写入 session-memory 文件。</p>
-                  </div>
-                )}
-              </article>
-            </div>
-          </section>
-
-        </>
-      ) : null}
-
-      {activeLayer === "durable" ? (
-        <>
-          {linkedMemoryTrace ? (
-            <section className="workspace-section memory-durable-focus">
-              <div className="workspace-section__head">
-                <Database size={18} />
-                <h3>测试 Turn 长期记忆命中</h3>
-                <span className="tag-chip">{linkedMemoryTrace.durable_memory.exact_count} 精确</span>
-                <span className="tag-chip">{linkedMemoryTrace.durable_memory.relevant_count} 相关</span>
-              </div>
-              <div className="memory-trace-readable">
-                <TraceSectionCards
-                  emptyText="这一轮没有长期记忆片段进入模型上下文。"
-                  sections={linkedDurableSections}
-                />
-              </div>
-            </section>
-          ) : null}
-
-          <div className="workspace-search memory-search">
+      <div className="workspace-search memory-search">
         <Search size={17} />
         <input
           aria-label="查询记忆"
           onChange={(event) => setQuery(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              void runRecallPreview();
-            }
-          }}
-          placeholder="输入一句问题，筛选长期记忆，或模拟本轮会召回什么"
+          placeholder="按标题、正文、类型或检索提示筛选长期记忆"
           value={query}
         />
-        <button className="action-button action-button--primary" disabled={recalling} onClick={() => void runRecallPreview()} type="button">
-          {recalling ? <Loader2 className="animate-spin" size={15} /> : <GitBranch size={15} />}
-          召回模拟
-        </button>
       </div>
 
       <div className="workspace-metrics-grid">
@@ -1038,16 +333,24 @@ export function MemoryView() {
         <div className="memory-durable-reader__layout">
           <aside className="memory-durable-reader__list">
             {visibleHeaders.length ? visibleHeaders.map((note) => (
-              <button
+              <div
                 className={`memory-durable-row ${selectedDurableFilename === note.filename ? "memory-durable-row--active" : ""}`}
                 key={`reader-${note.filename}`}
-                onClick={() => void inspectDurableNote(note)}
-                type="button"
               >
-                <span>{note.status} · {note.eligible_for_injection ? "注入" : "不注入"}</span>
-                <strong>{note.title || note.filename}</strong>
-                <em>{compactText(note.canonical_statement || note.summary || note.description, 110)}</em>
-              </button>
+                <button onClick={() => void inspectDurableNote(note)} type="button">
+                  <span>{note.status} · {note.eligible_for_injection ? "注入" : "不注入"}</span>
+                  <strong>{note.title || note.filename}</strong>
+                  <em>{compactText(note.canonical_statement || note.summary || note.description, 110)}</em>
+                </button>
+                <label>
+                  <input
+                    checked={mergeFilenames.includes(note.filename)}
+                    onChange={() => toggleMergeFilename(note.filename)}
+                    type="checkbox"
+                  />
+                  合并
+                </label>
+              </div>
             )) : (
               <article className="workspace-record">
                 <h3>没有可读的长期记忆</h3>
@@ -1088,9 +391,16 @@ export function MemoryView() {
                     停用
                   </button>
                   <button
+                    disabled={Boolean(governanceBusy) || selectedDurableNote.header?.status === "archived"}
+                    onClick={() => void runGovernanceAction("归档长期记忆", () => archiveDurableMemory(selectedDurableFilename, "Archived from durable reader"))}
+                    type="button"
+                  >
+                    归档
+                  </button>
+                  <button
                     className="memory-action-button--danger"
                     disabled={Boolean(governanceBusy)}
-                    onClick={() => void deleteMemoryNote(selectedDurableFilename, "reader")}
+                    onClick={() => void deleteMemoryNote(selectedDurableFilename)}
                     type="button"
                   >
                     <Trash2 size={13} />
@@ -1101,7 +411,7 @@ export function MemoryView() {
             ) : (
               <div className="workspace-record">
                 <h3>选择一条长期记忆</h3>
-                <p>左侧点开任意记忆，可以在这里阅读正文、打开源文件，并切换 active / inactive。</p>
+                <p>左侧点开任意记忆，可以阅读正文、打开源文件，并执行启停、归档或删除。</p>
               </div>
             )}
           </article>
@@ -1112,8 +422,7 @@ export function MemoryView() {
         <div className="workspace-section__head">
           <ShieldCheck size={18} />
           <h3>长期记忆治理台</h3>
-          <span className="tag-chip">写入 / 停用 / 归档 / 合并</span>
-          <span className="tag-chip">带审计日志</span>
+          <span className="tag-chip">新建 / 合并</span>
         </div>
         <div className="memory-governance-editor__grid">
           <article className="memory-governance-editor__panel">
@@ -1199,116 +508,6 @@ export function MemoryView() {
         </div>
       </section>
 
-      <section className="workspace-section memory-governance-preview">
-        <div className="workspace-section__head">
-          <ShieldCheck size={18} />
-          <h3>长期记忆治理预检</h3>
-          <span className="tag-chip">只读</span>
-          <span className="tag-chip">不写入</span>
-        </div>
-        <div className="memory-governance-grid">
-          {governanceAlerts.map((item) => (
-            <article className={`memory-governance-card memory-governance-card--${item.tone}`} key={item.label}>
-              <span>{item.label}</span>
-              <strong>{item.count} 条</strong>
-              <p>{item.hint}</p>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      {recallPreview ? (
-        <section className="memory-recall">
-          <div className="memory-recall__summary">
-            <span>{recallPreview.selection.should_recall ? "会召回" : "不会召回"}</span>
-            <strong>{recallPreview.selection.reason || recallPreview.intent.intent}</strong>
-            <p>{recallPreview.rendered_summary || "没有生成可注入的长期记忆摘要。"}</p>
-          </div>
-          <div className="memory-recall__notes">
-            {recallPreview.selected_notes.length ? recallPreview.selected_notes.map((note) => (
-              <article key={note.note_id || note.filename}>
-                <span>{note.memory_class}/{note.memory_type} · {note.confidence}</span>
-                <strong>{note.title || note.filename}</strong>
-                <p>{note.canonical_statement || note.summary || note.content_preview}</p>
-              </article>
-            )) : (
-              <article>
-                <span>empty</span>
-                <strong>没有选中长期记忆</strong>
-                <p>这不一定是问题，可能只是当前问题没有明确记忆信号。</p>
-              </article>
-            )}
-          </div>
-        </section>
-      ) : null}
-
-      <section className="workspace-section">
-        <div className="workspace-section__head">
-          <Database size={18} />
-          <h3>长期记忆记录</h3>
-          <span className="tag-chip">{filteredHeaders.length} matched</span>
-        </div>
-        <div className="memory-note-grid">
-          {visibleHeaders.length ? visibleHeaders.map((note) => (
-            <article className={`memory-note-card memory-note-card--${noteTone(note)}`} key={note.note_id || note.filename}>
-              <div className="memory-note-card__meta">
-                <span>{note.memory_class}/{note.memory_type}</span>
-                <span>{note.status} · {note.confidence}</span>
-              </div>
-              <h4>{note.title || note.filename}</h4>
-              <p>{compactText(note.canonical_statement || note.summary || note.description, 260)}</p>
-              <div className="memory-note-card__footer">
-                <span>{note.eligible_for_injection ? "允许注入" : "不注入"}</span>
-                <button onClick={() => toggleMergeFilename(note.filename)} type="button">
-                  {mergeFilenames.includes(note.filename) ? "取消合并" : "加入合并"}
-                </button>
-                <button onClick={() => void inspectDurableNote(note)} type="button">
-                  阅读
-                </button>
-                <button onClick={() => void loadInspectorFile(`durable_memory/notes/${note.filename}`)} type="button">
-                  打开
-                </button>
-                <button
-                  disabled={Boolean(governanceBusy) || note.status === "active"}
-                  onClick={() => void runGovernanceAction("激活长期记忆", () => activateDurableMemory(note.filename, "Activated from memory governance UI"))}
-                  type="button"
-                >
-                  激活
-                </button>
-                <button
-                  disabled={Boolean(governanceBusy) || note.status !== "active"}
-                  onClick={() => void runGovernanceAction("停用长期记忆", () => disableDurableMemory(note.filename, "Disabled from memory governance UI"))}
-                  type="button"
-                >
-                  停用
-                </button>
-                <button
-                  disabled={Boolean(governanceBusy) || note.status === "archived"}
-                  onClick={() => void runGovernanceAction("归档长期记忆", () => archiveDurableMemory(note.filename, "Archived from memory governance UI"))}
-                  type="button"
-                >
-                  归档
-                </button>
-                <button
-                  className="memory-action-button--danger"
-                  disabled={Boolean(governanceBusy)}
-                  onClick={() => void deleteMemoryNote(note.filename, "card")}
-                  type="button"
-                >
-                  删除
-                </button>
-              </div>
-            </article>
-          )) : (
-            <article className="workspace-record">
-              <h3>没有匹配的长期记忆</h3>
-              <p>可以换一个查询词，或先运行一次对话让记忆系统形成更多记录。</p>
-            </article>
-          )}
-        </div>
-      </section>
-        </>
-      ) : null}
     </div>
   );
 }

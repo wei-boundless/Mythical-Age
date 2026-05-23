@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from intent.models import IntentDecision
-
 from .models import ContinuationCandidate, ContinuationDecision
 from .profile_registry import profile_by_domain
 
@@ -9,9 +7,9 @@ from .profile_registry import profile_by_domain
 def decide_continuation(
     *,
     candidates: tuple[ContinuationCandidate, ...],
-    intent_decision: IntentDecision,
+    request_intent,
 ) -> ContinuationDecision:
-    if not intent_decision.needs_continuation:
+    if not candidates:
         return ContinuationDecision(reason="intent_does_not_require_continuation")
     compatible = [candidate for candidate in candidates if candidate.compatible]
     rejected = [candidate.candidate_id for candidate in candidates if not candidate.compatible]
@@ -41,7 +39,7 @@ def decide_continuation(
             else "active_object_followup"
         ),
         confidence=min(max(float(selected.score or 0.0) / 100.0, 0.45), 0.96),
-        reason=f"选择 {selected.source_kind} 候选 {selected.identity or selected.candidate_id}，因为它与当前动作 {intent_decision.primary_action} 兼容。",
+        reason=f"选择 {selected.source_kind} 候选 {selected.identity or selected.candidate_id}，因为它与当前续接候选兼容。",
         rejected_candidate_ids=tuple(rejected),
         diagnostics={
             "candidate_count": len(candidates),

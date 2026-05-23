@@ -150,7 +150,7 @@ class ProfessionalTaskRunDriver:
         task_run_id = outcome.state.task_run_id
         policy = _professional_runtime_policy(selected_recipe_payload)
         mode_policy = dict(policy.get("mode_policy") or {})
-        semantic_contract = dict(policy.get("semantic_task_contract") or {})
+        semantic_contract = dict(policy.get("task_requirement_contract") or {})
         execution_obligation = dict(semantic_contract.get("execution_obligation") or policy.get("execution_obligation") or {})
         interaction_mode = str(
             mode_policy.get("interaction_mode")
@@ -282,7 +282,7 @@ class ProfessionalTaskRunDriver:
                 "interaction_mode": interaction_mode,
                 "runtime_driver": "professional_task_run",
                 "goal": user_message,
-                "semantic_task_contract": semantic_contract,
+                "task_requirement_contract": semantic_contract,
                 "execution_obligation": execution_obligation,
                 "goal_contract": goal_contract.to_dict(),
                 "plan_item_count": len(plan),
@@ -415,7 +415,7 @@ class ProfessionalTaskRunDriver:
                 "plan_source": (
                     "model_agent_plan_draft"
                     if str(agent_plan_draft.get("source") or "") == "model_agent_plan_draft"
-                    else "semantic_task_contract"
+                    else "task_requirement_contract"
                 ),
                 "agent_plan_draft": agent_plan_draft,
                 "plan_coverage_review": plan_coverage_review,

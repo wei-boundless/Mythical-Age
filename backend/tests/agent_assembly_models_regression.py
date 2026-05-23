@@ -331,17 +331,10 @@ def test_agent_invocation_is_single_boundary_for_node_work_order() -> None:
 def test_task_semantics_survive_boundary_projection_without_control_leak() -> None:
     payload = {
         "interaction_mode": "professional_mode",
-        "intent_decision": {
-            "execution_strategy": "professional_task_run",
-            "interaction_mode": "professional_mode",
-        },
-        "runtime_assembly_hint": {
-            "execution_strategy": "professional_task_run",
-            "runtime_mode": "professional_task",
-            "interaction_mode": "professional_mode",
-        },
         "mode_policy": {
             "interaction_mode": "professional_mode",
+            "execution_strategy": "professional_task_run",
+            "runtime_lane": "professional_task",
             "tool_policy": {"max_tool_rounds_per_task_run": 3},
         },
         "semantic_task_type": "test_report_triage",
@@ -356,7 +349,7 @@ def test_task_semantics_survive_boundary_projection_without_control_leak() -> No
     assert turn_context["interaction_mode"] == "professional_mode"
     assert turn_context["mode_policy"]["tool_policy"]["max_tool_rounds_per_task_run"] == 3
     assert task_selection["semantic_task_type"] == "test_report_triage"
-    assert task_selection["intent_decision"]["execution_strategy"] == "professional_task_run"
+    assert task_selection["mode_policy"]["execution_strategy"] == "professional_task_run"
     for key in ("runtime_control", "stage_execution_request", "node_work_order"):
         assert key not in turn_context
         assert key not in task_selection

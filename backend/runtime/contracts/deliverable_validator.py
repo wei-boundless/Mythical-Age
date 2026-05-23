@@ -551,6 +551,8 @@ def _facts_text(facts: list[dict[str, Any]]) -> str:
 
 def _generic_deliverable_present(text: str, deliverable: str) -> bool:
     normalized = str(deliverable or "").lower()
+    if normalized == "final_answer":
+        return bool(str(text or "").strip())
     markers = {
         "change_summary": ("修改", "变更", "change"),
         "changed_files": ("文件", "changed file", "路径"),

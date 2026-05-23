@@ -91,6 +91,7 @@ import {
   type TaskSystemOverview,
   type TaskWorkflowRecord,
 } from "@/lib/api";
+import { useConfirmDialog } from "@/components/layout/ConfirmDialogProvider";
 import { useAppStore } from "@/lib/store";
 
 type TaskLayer = "management" | "editor";
@@ -663,6 +664,7 @@ type LayerNavItem<T extends string> = {
 };
 
 export function TaskSystemView() {
+  const confirm = useConfirmDialog();
   const {
     activeWorkspaceView,
     currentSessionId,
@@ -1371,9 +1373,14 @@ export function TaskSystemView() {
     setSelectedGraphEdgeId("");
   }
 
-  function applyTaskGraphTemplate(template: TaskGraphTemplateId, options: Partial<Parameters<typeof buildTaskGraphTemplateDraft>[0]> = {}) {
+  async function applyTaskGraphTemplate(template: TaskGraphTemplateId, options: Partial<Parameters<typeof buildTaskGraphTemplateDraft>[0]> = {}) {
     const shouldReplace = !(taskGraphDraftV2.nodes?.length || taskGraphDraftV2.edges?.length)
-      || window.confirm("应用图模板会替换当前未保存的拓扑草稿，确认继续吗？");
+      || await confirm({
+        title: "替换当前拓扑草稿",
+        body: "应用图模板会替换当前未保存的节点和边。",
+        confirmLabel: "替换",
+        tone: "warning",
+      });
     if (!shouldReplace) return;
     const metadata = asRecord(taskGraphDraftV2.metadata);
     const communicationModes = Array.isArray(metadata.business_communication_modes) ? metadata.business_communication_modes : [];
@@ -1665,7 +1672,11 @@ export function TaskSystemView() {
   }
 
   async function deleteDomain(domain: DomainRecord) {
-    const confirmed = window.confirm(`删除「${domain.title}」会同时删除该任务域下的 ${domain.tasks.length} 个特定任务及其装配配置。确认删除？`);
+    const confirmed = await confirm({
+      title: `删除任务域「${domain.title}」`,
+      body: `这会同时删除该任务域下的 ${domain.tasks.length} 个特定任务及其装配配置。`,
+      confirmLabel: "删除任务域",
+    });
     if (!confirmed) return;
     setSaving("domain-delete");
     setError("");
@@ -1687,7 +1698,11 @@ export function TaskSystemView() {
   }
 
   async function deleteTaskRecord(task: SpecificTaskRecord) {
-    const confirmed = window.confirm(`删除「${task.task_title}」会同时删除该任务的单任务装配配置。确认删除？`);
+    const confirmed = await confirm({
+      title: `删除特定任务「${task.task_title}」`,
+      body: "这会同时删除该任务的单任务装配配置。",
+      confirmLabel: "删除任务",
+    });
     if (!confirmed) return;
     setSaving("task-delete");
     setError("");

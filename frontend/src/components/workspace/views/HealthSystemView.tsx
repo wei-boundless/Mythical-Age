@@ -29,6 +29,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { HealthAgentDock } from "@/components/health/HealthAgentDock";
 import { HealthTraceTimeline } from "@/components/health/HealthTraceTimeline";
+import { useConfirmDialog } from "@/components/layout/ConfirmDialogProvider";
 import {
   cancelTestRun,
   createHealthIssue,
@@ -564,6 +565,7 @@ function sampleRerunCommand(sample: RegressionSample | Record<string, unknown>) 
 }
 
 export function HealthSystemView() {
+  const confirm = useConfirmDialog();
   const [activePage, setActivePage] = useState<HealthPage>("overview");
   const [problemReportTab, setProblemReportTab] = useState<ProblemReportTab>("analysis");
   const [tokenChartMode, setTokenChartMode] = useState<TokenChartMode>("daily");
@@ -775,7 +777,12 @@ export function HealthSystemView() {
 
   async function startProfile(profileId = selectedProfile) {
     const profile = profileById(profiles, profileId);
-    if (profile?.requires_confirmation && !window.confirm("该测试可能耗时较长，确认现在运行吗？")) {
+    if (profile?.requires_confirmation && !await confirm({
+      title: "启动长耗时验证",
+      body: "该测试可能耗时较长，运行期间会持续占用验证资源。",
+      confirmLabel: "开始运行",
+      tone: "warning",
+    })) {
       return;
     }
     const scenarioIds = isLongScenarioProfile(profileId) ? runnableScenarioIdsForProfile(profileId) : [];
@@ -1176,7 +1183,11 @@ export function HealthSystemView() {
   }
 
   async function removeManagedCase(caseId: string) {
-    if (!window.confirm("确认删除这个管理中的长情景吗？")) {
+    if (!await confirm({
+      title: "删除管理中的长情景",
+      body: "该长情景会从验证中心移除。",
+      confirmLabel: "删除情景",
+    })) {
       return;
     }
     setLoading(true);
@@ -1199,12 +1210,17 @@ export function HealthSystemView() {
     }
   }
 
-  function removeScenarioFromLibrary(testCase: HarnessMapCase) {
+  async function removeScenarioFromLibrary(testCase: HarnessMapCase) {
     if (testCase.reason === "front_managed_case") {
       void removeManagedCase(testCase.case_id);
       return;
     }
-    if (!window.confirm("确认从当前情景库移除这个系统情景吗？")) {
+    if (!await confirm({
+      title: "移除系统情景",
+      body: "该系统情景会从当前情景库移除，不会删除源定义。",
+      confirmLabel: "移除情景",
+      tone: "warning",
+    })) {
       return;
     }
     setRemovedScenarioCaseIds((current) => (

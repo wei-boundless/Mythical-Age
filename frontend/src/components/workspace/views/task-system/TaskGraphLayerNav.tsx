@@ -47,7 +47,7 @@ export const TASK_GRAPH_STUDIO_LAYERS: TaskGraphStudioLayer[] = [
   },
   {
     id: "topology",
-    title: "Graph Builder",
+    title: "拓扑编辑",
     description: "唯一可运行结构：节点、边、入口、出口",
     category: "builder",
     metric: "主编辑",
@@ -56,8 +56,8 @@ export const TASK_GRAPH_STUDIO_LAYERS: TaskGraphStudioLayer[] = [
   },
   {
     id: "modules",
-    title: "Compiled View",
-    description: "标准视图、端口、图模块展开诊断",
+    title: "编译预览",
+    description: "标准视图、端口、图模块展开结果",
     category: "validation",
     metric: "只读/诊断",
     state: "ready",

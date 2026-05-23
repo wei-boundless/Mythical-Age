@@ -144,6 +144,7 @@ class BackgroundTaskRecord:
     source: str = ""
     session_id: str = ""
     lane_id: str = ""
+    coalesce_key: str = ""
     attempts: int = 0
     queued_at: str = field(default_factory=utc_now_iso)
     started_at: str = ""
@@ -251,6 +252,7 @@ class BackgroundTaskManager:
             source=str(source or ""),
             session_id=str(session_id or ""),
             lane_id=str(lane_id or ""),
+            coalesce_key=key,
         )
         stored = self.store.write(record)
         self._schedule(stored.task_id, stored.task_kind, coalesce_key=key)
@@ -416,9 +418,24 @@ class BackgroundTaskManager:
         with self._lock:
             active = self._active_task_keys.get(coalesce_key)
         if not active:
-            return None
+            return self._load_persisted_coalesced_task(coalesce_key)
         task_id, kind = active
         record = self.store.load(task_id, kind)
         if record is None or record.status in {"succeeded", "failed", "skipped"}:
+            persisted = self._load_persisted_coalesced_task(coalesce_key)
+            if persisted is not None:
+                return persisted
             return None
         return record
+
+    def _load_persisted_coalesced_task(self, coalesce_key: str) -> BackgroundTaskRecord | None:
+        if not coalesce_key:
+            return None
+        candidates = [
+            record
+            for record in self.store.list_records()
+            if str(record.coalesce_key or "") == coalesce_key
+        ]
+        if not candidates:
+            return None
+        return sorted(candidates, key=lambda item: str(item.queued_at or ""), reverse=True)[0]

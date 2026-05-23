@@ -11,6 +11,7 @@ from evidence.output_policy import RAGEvidenceOutputPolicy
 from observability import build_debug_trace_event, start_turn_trace
 from context_system import RuntimeContextManager
 from runtime import ModelResponseRuntimeExecutor, ModelRuntimeError, TaskRunLoop, ToolRuntimeExecutor
+from runtime.shared.history_assembler import assemble_runtime_history
 from agent_system.assembly.runtime_chain import AgentRuntimeChainAssembler
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from orchestration import (
@@ -20,7 +21,7 @@ from orchestration import (
 from project_layout import ProjectLayout
 from prompting import build_static_prompt, build_system_prompt
 from query.models import QueryRequest
-from understanding import analyze_memory_intent
+from request_intent import analyze_memory_intent
 
 logger = logging.getLogger(__name__)
 
@@ -135,10 +136,15 @@ class QueryRuntime:
 
     async def astream(self, request: QueryRequest):
         history_record = self.session_manager.load_session_record(request.session_id)
-        history = request.history or self.session_manager.load_session_for_agent(
+        raw_history = request.history or self.session_manager.load_session_for_agent(
             request.session_id,
             include_compressed_context=False,
         )
+        history_assembly = assemble_runtime_history(
+            history=raw_history,
+            compressed_context=str(history_record.get("compressed_context") or ""),
+        )
+        history = [dict(item) for item in history_assembly.model_history]
         turn_index = len(history_record.get("messages", [])) + 1
         turn_id = f"turn:{request.session_id}:{turn_index}"
         task_id = f"taskinst:{turn_id}:{_task_instance_suffix(dict(request.task_selection or {}))}"
@@ -153,7 +159,11 @@ class QueryRuntime:
                 session_id=request.session_id,
                 user_message=request.message,
                 history_length=len(history),
-                metadata={"request_kind": "chat", "query_runtime_role": "adapter_only"},
+                metadata={
+                    "request_kind": "chat",
+                    "query_runtime_role": "adapter_only",
+                    "history_assembly": dict(history_assembly.diagnostics),
+                },
                 tags=["query-runtime", "agent-runtime-chain"],
             ) as trace:
                 debug_event = build_debug_trace_event(trace)
@@ -512,3 +522,4 @@ def _task_instance_suffix(task_selection: dict[str, Any]) -> str:
         if tail:
             return tail
     return "general_response"
+

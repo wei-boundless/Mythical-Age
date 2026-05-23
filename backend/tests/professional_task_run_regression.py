@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -24,7 +25,9 @@ from tests.support.runtime_stubs import (
     PrimarySettingsStub,
     QueryRuntimeMemoryFacadeStub,
     SingleMessageModelRuntimeStub,
+    _sidecar_payload_from_messages,
     isolated_backend_root,
+    model_turn_context,
 )
 
 
@@ -821,18 +824,15 @@ def _professional_task_selection(
 ) -> dict[str, object]:
     selection: dict[str, object] = {
         "interaction_mode": "professional_mode",
-        "intent_decision": {
+        "mode_policy": {
             "execution_strategy": "professional_task_run",
             "interaction_mode": "professional_mode",
-        },
-        "runtime_assembly_hint": {
-            "execution_strategy": "professional_task_run",
-            "runtime_mode": "professional_task",
-            "interaction_mode": "professional_mode",
+            "runtime_lane": "professional_task",
         },
     }
     if max_tool_rounds is not None:
         selection["mode_policy"] = {
+            **dict(selection["mode_policy"]),
             "interaction_mode": "professional_mode",
             "tool_policy": {
                 "max_tool_rounds_per_task_run": max_tool_rounds,
@@ -875,6 +875,7 @@ def _runtime(
     model_runtime=None,
     tool_runtime=None,
 ) -> QueryRuntime:
+    resolved_model_runtime = model_runtime or _ModelRuntimeStub()
     return QueryRuntime(
         base_dir=base_dir or _isolated_backend_root(),
         settings_service=_SettingsStub(),
@@ -884,8 +885,27 @@ def _runtime(
         tool_runtime=tool_runtime or _ToolRuntimeStub(),
         skill_registry=_SkillRegistryStub(),
         permission_service=_PermissionStub(),
-        model_runtime=model_runtime or _ModelRuntimeStub(),
+        model_runtime=_with_model_turn_sidecar(resolved_model_runtime),
     )
+
+
+def _with_model_turn_sidecar(model_runtime):
+    if getattr(model_runtime, "_professional_sidecar_wrapped", False):
+        return model_runtime
+    original = getattr(model_runtime, "invoke_messages", None)
+    if not callable(original):
+        return model_runtime
+
+    async def invoke_messages(messages, **kwargs):
+        sidecar_payload = _sidecar_payload_from_messages(messages)
+        if sidecar_payload is not None:
+            return SimpleNamespace(content=json.dumps(sidecar_payload, ensure_ascii=False))
+        return await original(messages, **kwargs)
+
+    model_runtime.supports_structured_sidecars = True
+    model_runtime.invoke_messages = invoke_messages
+    model_runtime._professional_sidecar_wrapped = True
+    return model_runtime
 
 
 def _event_types(runtime_events: list[dict[str, object]]) -> list[str]:
@@ -897,7 +917,20 @@ def _latest_event(runtime_events: list[dict[str, object]], event_type: str) -> d
 
 
 def test_professional_task_run_recipe_is_selected_from_new_intent_strategy() -> None:
-    current_turn_context = _professional_task_selection()
+    current_turn_context = {
+        **_professional_task_selection(),
+        **model_turn_context(
+            action_intent="modify_code",
+            work_mode="code_edit",
+            interaction_intent="delegate",
+            desired_outcome="追踪问题、修复代码并验证结果",
+            deliverables=["code_changes", "verification_report"],
+            planning_required=True,
+            todo_required=True,
+            task_goal_type="code_change",
+            task_domain="software_engineering",
+        ),
+    }
     contract = build_runtime_task_intent_contract(
         session_id="session-professional-shape",
         task_id="taskinst:professional-shape",
@@ -916,7 +949,7 @@ def test_professional_task_run_recipe_is_selected_from_new_intent_strategy() -> 
 
     assert shape.recipe_id == "runtime.recipe.professional_task"
     assert shape.execution_kind == "professional_mode"
-    assert "explicit_professional_runtime" in shape.resolution_reasons
+    assert "interaction_mode:professional_mode" in shape.resolution_reasons
     assert metadata["runtime_driver"] == "professional_task_run"
     assert metadata["interaction_mode"] == "professional_mode"
     assert metadata["runtime_lane_hint"] == "professional_task"
@@ -968,7 +1001,7 @@ def test_professional_mode_adds_semantic_plan_steps_and_monitor_summary() -> Non
     monitor = runtime.task_run_loop.get_task_run_live_monitor(task_run_id)
 
     assert plan_payload["interaction_mode"] == "professional_mode"
-    assert plan_payload["plan_source"] == "semantic_task_contract"
+    assert plan_payload["plan_source"] == "task_requirement_contract"
     assert any(dict(item).get("plan_item_id") == "professional.mode_policy" for item in plan_payload["plan_items"])
     assert any(dict(item).get("plan_item_id") == "professional.validate_deliverable" for item in plan_payload["plan_items"])
     assert "professional.mode_policy" in step_ids

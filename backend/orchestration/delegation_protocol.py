@@ -14,8 +14,6 @@ def build_agent_delegation_protocol(
     source_kind: str = "",
     user_goal: str = "",
     recall_context: dict[str, Any] | None = None,
-    intent_decision: dict[str, Any] | None = None,
-    runtime_assembly_hint: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     recall_payload = dict(recall_context or {})
     source = str(source_kind or recall_payload.get("source_kind") or "").strip()
@@ -46,8 +44,6 @@ def build_agent_delegation_protocol(
         },
         "handoff_context": {
             "user_goal": str(user_goal or "").strip(),
-            "intent_decision": dict(intent_decision or {}),
-            "runtime_assembly_hint": dict(runtime_assembly_hint or {}),
             "recall_context": recall_payload,
         },
     }

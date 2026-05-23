@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from request_intent.frame_access import (
+    capability_needs,
+    turn_signals,
+)
 from capability_system.local_mcp_registry import get_local_mcp_unit_for_source_kind
 from intent.execution_obligation import build_execution_obligation
 from orchestration.delegation_protocol import build_agent_delegation_protocol, default_expected_output_contract
@@ -12,7 +16,7 @@ from task_system.services.bundle_models import BundleItemSpec, BundleSpec
 from task_system.tasks.definitions import default_task_definitions
 from task_system.registry.flow_registry import TaskFlowRegistry
 from task_system.contracts.match_contracts import TaskIntentContract
-from task_system.contracts.semantic_task_contracts import build_semantic_task_contract
+from task_system.contracts.task_requirement_contracts import build_task_requirement_contract
 from task_system.tasks.spec_models import TaskSpec
 from task_system.tasks.step_models import StepInputBinding, TaskStepBlueprint
 from task_system.registry.workflow_registry import TaskWorkflowRegistry
@@ -97,7 +101,7 @@ def build_runtime_task_intent_contract(
         [
             *[
                 str(item or "").strip()
-                for item in list(understanding.get("capability_requests") or [])
+                for item in sorted(capability_needs(understanding))
                 if str(item or "").strip()
             ],
             *[
@@ -141,7 +145,7 @@ def build_runtime_task_intent_contract(
             ],
         ]
     )
-    semantic_contract = build_semantic_task_contract(
+    semantic_contract = build_task_requirement_contract(
         session_id=session_id,
         task_id=task_id,
         user_goal=user_goal,
@@ -151,10 +155,9 @@ def build_runtime_task_intent_contract(
         execution_obligation=execution_obligation_payload,
     )
     mode_policy = build_runtime_interaction_mode_policy(
-        semantic_task_contract=semantic_contract.to_dict(),
+        task_requirement_contract=semantic_contract.to_dict(),
         query_understanding=understanding,
         current_turn_context=current_turn_with_obligation,
-        intent_decision=dict(current_turn.get("intent_decision") or {}),
         execution_obligation=execution_obligation_payload,
     )
     return TaskIntentContract(
@@ -162,7 +165,7 @@ def build_runtime_task_intent_contract(
         session_id=session_id,
         task_id=task_id,
         user_goal=user_goal,
-        intent_kind=str(current_turn.get("intent") or understanding.get("intent") or ""),
+        intent_kind=str(dict(current_turn.get("model_turn_decision") or {}).get("interaction_intent") or current_turn.get("intent") or ""),
         execution_intent=_execution_intent_from_context(
             current_turn_context=current_turn,
             bundle_items=bundle_items,
@@ -189,10 +192,12 @@ def build_runtime_task_intent_contract(
         followup_target_refs=tuple(followup_target_refs),
         capability_requests=tuple(capability_requests),
         execution_obligation=execution_obligation_payload,
-        semantic_task_contract=semantic_contract.to_dict(),
+        task_requirement_contract=semantic_contract.to_dict(),
         mode_policy=mode_policy.to_dict(),
         diagnostics={
             "execution_mode": str(current_turn.get("execution_mode") or "single"),
+            "model_turn_decision": dict(current_turn.get("model_turn_decision") or {}),
+            "action_permit": dict(current_turn.get("action_permit") or {}),
             "interaction_mode": mode_policy.interaction_mode,
             "runtime_lane": mode_policy.runtime_lane,
             "projection_strength": mode_policy.projection_strength,
@@ -206,22 +211,9 @@ def build_runtime_task_intent_contract(
                 "forbidden_actions": list(execution_obligation_payload.get("forbidden_actions") or []),
             },
             "bundle_item_count": len(bundle_items),
-            "route_hint": str(understanding.get("route_hint") or ""),
             "preferred_skill": str(understanding.get("preferred_skill") or ""),
-            "source_kind": str(understanding.get("source_kind") or ""),
-            "modality": str(understanding.get("modality") or ""),
-            "intent_target_domain_hint": str(
-                dict(current_turn.get("intent_decision") or {}).get("target_domain_hint")
-                or dict(current_turn.get("runtime_assembly_hint") or {}).get("target_domain_hint")
-                or ""
-            ),
-            "intent_execution_strategy": str(
-                dict(current_turn.get("intent_decision") or {}).get("execution_strategy")
-                or dict(current_turn.get("runtime_assembly_hint") or {}).get("execution_strategy")
-                or ""
-            ),
             "followup_target_kind": str(
-                dict(understanding.get("structural_signals") or {}).get("followup_target_kind")
+                turn_signals(understanding).get("followup_target_kind")
                 or explicit_inputs.get("followup_target_kind")
                 or ""
             ),
@@ -272,7 +264,7 @@ def _execution_intent_from_context(
     if execution_mode == "bundle" or len(bundle_items) > 1:
         return "bundle_task"
     structural_signals = dict(current_turn_context.get("structural_signals") or {})
-    understanding_signals = dict(query_understanding.get("structural_signals") or {})
+    understanding_signals = turn_signals(query_understanding)
     explicit_inputs = dict(current_turn_context.get("explicit_inputs") or {})
     if (
         str(
@@ -337,26 +329,7 @@ def _intent_requested_outputs(
 
 
 def _capability_requests_from_intent(current_turn_context: dict[str, Any]) -> list[str]:
-    intent_decision = dict(current_turn_context.get("intent_decision") or {})
-    runtime_hint = dict(current_turn_context.get("runtime_assembly_hint") or {})
-    target_domain = str(
-        intent_decision.get("target_domain_hint")
-        or runtime_hint.get("target_domain_hint")
-        or ""
-    ).strip()
-    strategy = str(
-        intent_decision.get("execution_strategy")
-        or runtime_hint.get("execution_strategy")
-        or ""
-    ).strip()
-    if strategy != "specialist_handoff":
-        return []
-    if target_domain == "dataset":
-        return ["dataset_analysis"]
-    if target_domain == "pdf":
-        return ["document_analysis"]
-    if target_domain == "knowledge":
-        return ["knowledge_lookup"]
+    _ = current_turn_context
     return []
 
 
@@ -493,15 +466,11 @@ def _build_task_spec(
             "resolved_bindings": resolved_bindings,
         },
         constraints={
-            "intent": str(current_turn_context.get("intent") or query_understanding.get("intent") or ""),
+            "intent": str(dict(current_turn_context.get("model_turn_decision") or {}).get("interaction_intent") or current_turn_context.get("intent") or ""),
             "execution_mode": str(current_turn_context.get("execution_mode") or "single"),
             "confidence": float(current_turn_context.get("confidence") or query_understanding.get("confidence") or 0.0),
             "runtime_limits": runtime_limits,
-            "candidate_tools": [
-                str(item).strip()
-                for item in list(query_understanding.get("candidate_tools") or [])
-                if str(item).strip()
-            ],
+            "capability_needs": sorted(capability_needs(query_understanding)),
             **({"agent_communication_protocol_ref": agent_communication_protocol["protocol_id"]} if agent_communication_protocol else {}),
             **({"coordination_request_ref": coordination_request_brief["brief_id"]} if coordination_request_brief else {}),
         },
@@ -537,7 +506,6 @@ def _build_agent_communication_protocol(
         or metadata.get("source_kind")
         or ""
     ).strip()
-    runtime_hint = dict(current_turn_context.get("runtime_assembly_hint") or {})
     profile = profile_by_domain().get(source_kind)
     if not target_agent_id and profile is not None:
         target_agent_id = str(getattr(profile, "target_agent_id", "") or "").strip()
@@ -553,7 +521,6 @@ def _build_agent_communication_protocol(
         delegation_kind = delegation_kind or "evidence_lookup"
     should_emit = bool(target_agent_id) and (
         recipe_strategy == "delegate_preferred"
-        or runtime_hint.get("runtime_mode") in {"specialist_handoff", "retrieval_augmented_answer"}
         or recall_context
     )
     if not should_emit:
@@ -565,8 +532,6 @@ def _build_agent_communication_protocol(
         source_kind="knowledge" if source_kind in {"knowledge_base", "retrieval"} else source_kind,
         user_goal=user_goal,
         recall_context=recall_context,
-        intent_decision=dict(current_turn_context.get("intent_decision") or {}),
-        runtime_assembly_hint=runtime_hint,
     )
     protocol["expected_output_contract"] = default_expected_output_contract(
         source_kind=str(protocol.get("source_kind") or ""),
@@ -728,9 +693,8 @@ def _build_coordination_request_brief(
         "context_refs": context_refs,
         "binding_refs": binding_refs,
         "understanding_refs": {
-            "intent": str(query_understanding.get("intent") or ""),
-            "task_kind": str(query_understanding.get("task_kind") or ""),
-            "route": str(query_understanding.get("route") or ""),
+            "authority": str(query_understanding.get("authority") or ""),
+            "model_turn_decision_ref": str(dict(current_turn_context.get("model_turn_decision") or {}).get("decision_id") or ""),
         },
     }
 
@@ -1127,3 +1091,4 @@ def _single_bundle_item_ref(bundle_spec: BundleSpec | None) -> str:
     if bundle_spec is None or len(bundle_spec.items) != 1:
         return ""
     return str(bundle_spec.items[0].item_id or "")
+

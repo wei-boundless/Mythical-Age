@@ -35,8 +35,8 @@ def assemble_runtime_prompt_contract(
 ) -> dict[str, Any]:
     selected_metadata = dict(selected_recipe.get("metadata") or {})
     semantic_contract = dict(
-        task_contract.get("semantic_task_contract")
-        or selected_metadata.get("semantic_task_contract")
+        task_contract.get("task_requirement_contract")
+        or selected_metadata.get("task_requirement_contract")
         or {}
     )
     mode_policy = dict(
@@ -91,10 +91,6 @@ def assemble_runtime_prompt_contract(
                 "请围绕这个目标组织判断、行动和最终交付，不要把内部任务编号或编排字段暴露给用户。",
             ]
         ).strip(),
-        "task_understanding_section": _task_understanding_section(
-            semantic_contract=semantic_contract,
-            current_turn_context=dict(current_turn_context or {}),
-        ),
         "workflow_section": _workflow_section(
             task_workflow=task_workflow,
             selected_recipe=selected_recipe,
@@ -141,14 +137,10 @@ def assemble_runtime_prompt_contract(
             "node_professional_prompt_resource": node_prompt_resource,
             "prompt_selection_context": prompt_selection_context.to_dict(),
             "prompt_assembly_plan": prompt_assembly_plan.to_dict(),
-            "semantic_task_contract": semantic_contract,
-            "task_understanding_frame": dict(prompt_selection_context.task_understanding_frame or {}),
-            "model_understanding_request": dict(prompt_selection_context.model_understanding_request or {}),
-            "understanding_arbitration": dict(prompt_selection_context.understanding_arbitration or {}),
-            "communication_frame": dict(prompt_selection_context.communication_frame or {}),
+            "task_requirement_contract": semantic_contract,
             "task_domain_binding": dict(prompt_selection_context.task_domain_binding or {}),
             "goal_hypothesis_set": dict(prompt_selection_context.goal_hypothesis_set or {}),
-            "task_goal_frame": dict(prompt_selection_context.task_goal_frame or {}),
+            "task_goal_spec": dict(prompt_selection_context.task_goal_spec or {}),
             "agent_plan_draft": dict(prompt_selection_context.agent_plan_draft or {}),
             "plan_coverage_review": dict(prompt_selection_context.plan_coverage_review or {}),
             "verification_review": dict(prompt_selection_context.verification_review or {}),
@@ -219,177 +211,13 @@ def _semantic_task_section(semantic_contract: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _task_understanding_section(
-    *,
-    semantic_contract: dict[str, Any],
-    current_turn_context: dict[str, Any],
-) -> str:
-    diagnostics = dict(semantic_contract.get("diagnostics") or {})
-    frame = dict(
-        current_turn_context.get("task_understanding_frame")
-        or diagnostics.get("task_understanding_frame")
-        or dict(diagnostics.get("task_goal_frame") or {}).get("task_understanding_frame")
-        or {}
-    )
-    if not frame:
-        return ""
-    communication = dict(frame.get("communication_frame") or diagnostics.get("communication_frame") or {})
-    lines = [
-        "你负责先判断本轮请求应该如何被承接：用户是在提问、探讨方案、下达执行、纠偏，还是延续之前任务。",
-        "你需要以用户真实目标、明确流程、约束和证据要求来确定行动边界。",
-        "任务域只提供成熟工作习惯；用户明确给出的流程和禁令优先于任务域默认制式。",
-    ]
-    if communication:
-        posture = str(communication.get("user_posture") or "").strip()
-        agent_posture = str(communication.get("agent_posture") or "").strip()
-        collaboration = str(communication.get("collaboration_mode") or "").strip()
-        clarification = str(communication.get("clarification_policy") or "").strip()
-        final_contract = str(communication.get("final_response_contract") or "").strip()
-        lines.append(
-            "交流承接："
-            + f"用户姿态={posture or 'unspecified'}；"
-            + f"agent姿态={agent_posture or 'unspecified'}；"
-            + f"协作模式={collaboration or 'conversation'}；"
-            + f"澄清策略={clarification or 'no_clarification_needed'}；"
-            + f"最终回应契约={final_contract or 'direct_answer'}。"
-        )
-    interaction = str(frame.get("interaction_intent") or "").strip()
-    action = str(frame.get("action_intent") or "").strip()
-    if interaction or action:
-        lines.append(f"本轮交互意图：{interaction or 'unspecified'}；行动意图：{action or 'unspecified'}。")
-    flow = [
-        str(item).strip()
-        for item in list(frame.get("user_provided_flow") or [])
-        if str(item).strip()
-    ]
-    if flow:
-        lines.append("用户明确流程：" + " -> ".join(flow[:8]) + "。")
-    targets = [
-        str(item).strip()
-        for item in list(frame.get("target_objects") or [])
-        if str(item).strip()
-    ]
-    if targets:
-        lines.append("目标对象：" + "、".join(targets[:8]) + "。")
-    constraints = [
-        str(item).strip()
-        for item in list(frame.get("explicit_constraints") or [])
-        if str(item).strip()
-    ]
-    forbidden = [
-        str(item).strip()
-        for item in list(frame.get("forbidden_actions") or [])
-        if str(item).strip()
-    ]
-    if constraints:
-        lines.append("显式约束：" + "、".join(constraints[:8]) + "。")
-    if forbidden:
-        lines.append("禁止动作：" + "、".join(forbidden) + "。")
-    evidence = [
-        str(item).strip()
-        for item in list(frame.get("evidence_requirements") or [])
-        if str(item).strip()
-    ]
-    if evidence:
-        lines.append("完成前需要形成或说明的证据边界：" + "、".join(evidence) + "。")
-    context_binding = dict(frame.get("context_binding") or {})
-    if context_binding:
-        lines.append(
-            "上下文绑定："
-            + str(context_binding.get("kind") or "current_turn")
-            + "（"
-            + str(context_binding.get("source") or "user_message")
-            + "）。"
-        )
-    arbitration = dict(frame.get("understanding_arbitration") or diagnostics.get("understanding_arbitration") or {})
-    if arbitration:
-        arbitration_diagnostics = dict(arbitration.get("diagnostics") or {})
-        model_status = str(
-            arbitration.get("model_draft_status")
-            or arbitration_diagnostics.get("model_draft_status")
-            or ""
-        ).strip()
-        if model_status:
-            lines.append(
-                "理解裁决："
-                + ("没有真实模型理解草稿，当前理解来自确定性信号兜底。" if model_status == "absent" else f"模型理解草稿状态={model_status}。")
-            )
-        conflicts = [
-            dict(item)
-            for item in list(arbitration.get("conflict_set") or frame.get("conflict_set") or [])
-            if isinstance(item, dict)
-        ]
-        if conflicts:
-            rendered = []
-            for item in conflicts[:4]:
-                field_name = str(item.get("field") or "").strip()
-                reason = str(item.get("reason") or "").strip()
-                selected = str(item.get("selected_source") or "").strip()
-                rendered.append(
-                    field_name + (f"由{selected}优先" if selected else "") + (f"（{reason}）" if reason else "")
-                )
-            lines.append("理解冲突已记录，不能静默覆盖：" + "；".join(rendered) + "。")
-        assumptions = [
-            str(item).strip()
-            for item in list(arbitration.get("assumption_set") or frame.get("assumption_set") or [])
-            if str(item).strip()
-        ]
-        if assumptions:
-            lines.append("当前理解中的假设：" + "；".join(assumptions[:5]) + "。")
-    if bool(frame.get("clarification_needed")):
-        question = str(frame.get("clarification_question") or "").strip()
-        lines.append("如果不澄清会误执行：" + (question or "请先澄清关键目标或流程。"))
-    return "\n".join(line for line in lines if line.strip())
-
-
-def _domain_playbook_section(semantic_contract: dict[str, Any]) -> str:
-    diagnostics = dict(semantic_contract.get("diagnostics") or {})
-    binding = dict(diagnostics.get("task_domain_binding") or {})
-    if not binding:
-        return ""
-    contract_domain = str(semantic_contract.get("domain") or "").strip()
-    binding_diagnostics = dict(binding.get("diagnostics") or {})
-    bound_domains = {
-        str(binding.get("bound_domain_id") or "").strip(),
-        str(binding.get("domain_id") or "").strip(),
-        str(binding.get("requested_domain") or "").strip(),
-        str(binding_diagnostics.get("normalized_domain") or "").strip(),
-    }
-    normalized_domains = {
-        item.removeprefix("domain.")
-        for item in bound_domains
-        if item
-    }
-    if contract_domain and normalized_domains and contract_domain.removeprefix("domain.") not in normalized_domains:
-        return ""
-    lines = [
-        "你需要把任务域当作成熟工作制式，而不是用户目标裁判。",
-        "任务域可以补充默认工作习惯、风险控制和验证习惯；用户明确流程、用户禁令和语义任务合同优先。",
-    ]
-    title = str(binding.get("title") or binding.get("bound_domain_id") or "").strip()
-    family = str(binding.get("task_family") or "").strip()
-    source = str(binding.get("binding_source") or "").strip()
-    if title or family:
-        lines.append(f"当前任务域制式：{title or family}；任务族：{family or 'general'}；绑定来源：{source or 'unknown'}。")
-    default_practices = [str(item).strip() for item in list(binding.get("default_practices") or []) if str(item).strip()]
-    validation = [str(item).strip() for item in list(binding.get("validation_practices") or []) if str(item).strip()]
-    risks = [str(item).strip() for item in list(binding.get("risk_controls") or []) if str(item).strip()]
-    if default_practices:
-        lines.append("默认工作习惯：" + "；".join(default_practices[:6]) + "。")
-    if validation:
-        lines.append("默认验证习惯：" + "；".join(validation[:6]) + "。")
-    if risks:
-        lines.append("风险控制：" + "；".join(risks[:6]) + "。")
-    return "\n".join(lines)
-
-
 def _goal_understanding_section(
     *,
     semantic_contract: dict[str, Any],
     current_turn_context: dict[str, Any],
 ) -> str:
     diagnostics = dict(semantic_contract.get("diagnostics") or {})
-    frame = dict(current_turn_context.get("task_goal_frame") or diagnostics.get("task_goal_frame") or {})
+    frame = dict(current_turn_context.get("task_goal_spec") or diagnostics.get("task_goal_spec") or {})
     contract_goal_type = str(semantic_contract.get("task_goal_type") or "").strip()
     frame_goal_type = str(frame.get("task_goal_type") or "").strip()
     if contract_goal_type and frame_goal_type and frame_goal_type != contract_goal_type:
@@ -446,6 +274,31 @@ def _goal_understanding_section(
     if ambiguity:
         lines.append("仍需警惕的歧义：" + "、".join(ambiguity) + "。")
     return "\n".join(line for line in lines if line.strip())
+
+
+def _domain_playbook_section(semantic_contract: dict[str, Any]) -> str:
+    playbook = dict(semantic_contract.get("domain_playbook") or {})
+    if not playbook:
+        return ""
+    role = str(playbook.get("role") or "").strip()
+    responsibilities = [
+        str(item).strip()
+        for item in list(playbook.get("responsibilities") or [])
+        if str(item).strip()
+    ]
+    forbidden = [
+        str(item).strip()
+        for item in list(playbook.get("forbidden_actions") or [])
+        if str(item).strip()
+    ]
+    lines = []
+    if role:
+        lines.append(f"你在该任务领域中的职责是：{role}。")
+    if responsibilities:
+        lines.append("你需要负责：" + "、".join(responsibilities[:8]) + "。")
+    if forbidden:
+        lines.append("你不负责：" + "、".join(forbidden[:8]) + "。")
+    return "\n".join(lines)
 
 
 def _agent_plan_section(agent_plan: dict[str, Any], *, operation_requirement: dict[str, Any] | None = None) -> str:

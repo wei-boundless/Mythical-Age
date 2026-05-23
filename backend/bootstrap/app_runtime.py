@@ -95,6 +95,13 @@ class AppRuntime:
         runtime.skill_registry.reload()
         runtime.tool_runtime.reload()
 
+    async def shutdown(self) -> None:
+        model_runtime = self.model_runtime
+        if model_runtime is not None:
+            close = getattr(model_runtime, "close", None)
+            if callable(close):
+                await close()
+
     def refresh_indexes_for_path(self, relative_path: str) -> None:
         runtime = self.require_ready()
         normalized = relative_path.replace("\\", "/")

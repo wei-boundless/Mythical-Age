@@ -3,6 +3,7 @@
 import { Plus, Save, Trash2 } from "lucide-react";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 
+import { useConfirmDialog } from "@/components/layout/ConfirmDialogProvider";
 import type { OrchestrationAgentGroup } from "@/lib/api";
 
 type AgentGroupDraftLike = OrchestrationAgentGroup & {
@@ -91,6 +92,7 @@ export function OrchestrationGroupWorkbench({
   groupDraftMemberAgents: Array<Record<string, unknown>>;
   toggleGroupMember: (agentId: string) => void;
 }) {
+  const confirm = useConfirmDialog();
   const memberCount = groupDraftMemberAgents.length;
   const availableCount = groupDraftAvailableAgents.length;
   const agentOptions = Array.from(new Set([
@@ -101,8 +103,13 @@ export function OrchestrationGroupWorkbench({
   const groupKinds = Array.from(new Set([groupDraft.group_kind || "coordination_team", "coordination_team", "worker_pool", "review_team"]));
   const lifecycleStates = Array.from(new Set([groupDraft.lifecycle_state || "enabled", "enabled", "disabled", "draft"]));
 
-  function confirmRemoveMember(agentId: string, name: string) {
-    if (window.confirm(`确认将 ${name || agentId} 移出当前组吗？`)) {
+  async function confirmRemoveMember(agentId: string, name: string) {
+    if (await confirm({
+      title: `移出 Agent「${name || agentId}」`,
+      body: "该 Agent 会从当前组成员中移除，保存后生效。",
+      confirmLabel: "移出成员",
+      tone: "warning",
+    })) {
       toggleGroupMember(agentId);
     }
   }

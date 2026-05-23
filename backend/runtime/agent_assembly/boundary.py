@@ -46,12 +46,10 @@ MODEL_CONTEXT_KEYS = frozenset(
         "followup_target_refs",
         "resolved_bindings",
         "context_recall_candidates",
-        "intent_frame",
-        "intent_decision",
-        "runtime_assembly_hint",
         "continuation_candidates",
         "continuation_decision",
         "authority",
+        "graph_id",
         "task_graph_id",
         "selected_graph_id",
         "stale_stage_execution_retry",
@@ -62,13 +60,16 @@ TASK_SEMANTIC_CONTEXT_KEYS = frozenset(
     {
         "interaction_mode",
         "runtime_interaction_mode",
-        "intent_decision",
-        "runtime_assembly_hint",
         "mode_policy",
         "runtime_mode_policy",
         "semantic_task_type",
-        "model_understanding_draft",
-        "model_understanding_sidecar_diagnostics",
+        "model_turn_decision",
+        "request_facts",
+        "boundary_policy",
+        "context_candidates",
+        "action_permit",
+        "runtime_start_packet",
+        "task_goal_spec",
         "execution_obligation",
         "structural_signals",
     }
@@ -82,6 +83,7 @@ TASK_SELECTION_KEYS = frozenset(
         "task_id",
         "task_assignment_id",
         "specific_task_id",
+        "graph_id",
         "agent_id",
         "agent_profile_id",
         "projection_id",
@@ -256,6 +258,11 @@ def build_task_selection_payload(
     if task_ref:
         selection["selected_task_id"] = task_ref
         selection["task_id"] = task_ref
+    graph_ref = str(selection.get("graph_id") or selection.get("task_graph_id") or selection.get("selected_graph_id") or "").strip()
+    if graph_ref:
+        selection["graph_id"] = graph_ref
+        selection["task_graph_id"] = graph_ref
+        selection["selected_graph_id"] = graph_ref
     for key in ("agent_id", "agent_profile_id", "runtime_lane", "work_order_id", "assembly_id", "executor_type"):
         value = str(assembly.get(key) or work_order.get(key) or request.get(key) or "").strip()
         if value:

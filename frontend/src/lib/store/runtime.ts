@@ -69,6 +69,7 @@ export class WorkspaceRuntime {
   private globalRuntimeMonitorRequest = 0;
   private globalRuntimeMonitorEventSource: EventSource | null = null;
   private globalRuntimeMonitorDetailRefreshTimer: number | null = null;
+  private globalRuntimeMonitorVisibilityListener: (() => void) | null = null;
   private sessionRefreshTimers: number[] = [];
   private streamingSessionCache = new Map<string, Pick<StoreState, "messages" | "orchestrationSnapshot">>();
   private removedStreamingSessionIds = new Set<string>();
@@ -1412,6 +1413,7 @@ export class WorkspaceRuntime {
       return;
     }
     this.globalRuntimeMonitorPolling = true;
+    this.startGlobalRuntimeMonitorVisibilityBackoff();
     this.startGlobalRuntimeMonitorEventStream();
     if (this.globalRuntimeMonitorInFlight) {
       return;
@@ -1428,12 +1430,40 @@ export class WorkspaceRuntime {
       return;
     }
     this.globalRuntimeMonitorPolling = false;
+    this.stopGlobalRuntimeMonitorVisibilityBackoff();
     this.stopGlobalRuntimeMonitorEventStream();
     if (this.globalRuntimeMonitorTimer !== null) {
       window.clearTimeout(this.globalRuntimeMonitorTimer);
       this.globalRuntimeMonitorTimer = null;
     }
     this.globalRuntimeMonitorInFlight = false;
+  }
+
+  private startGlobalRuntimeMonitorVisibilityBackoff() {
+    if (typeof document === "undefined" || this.globalRuntimeMonitorVisibilityListener) {
+      return;
+    }
+    this.globalRuntimeMonitorVisibilityListener = () => {
+      if (!this.globalRuntimeMonitorPolling) {
+        return;
+      }
+      if (document.visibilityState === "visible") {
+        if (this.globalRuntimeMonitorTimer !== null) {
+          window.clearTimeout(this.globalRuntimeMonitorTimer);
+          this.globalRuntimeMonitorTimer = null;
+        }
+        void this.refreshGlobalRuntimeMonitor();
+      }
+    };
+    document.addEventListener("visibilitychange", this.globalRuntimeMonitorVisibilityListener);
+  }
+
+  private stopGlobalRuntimeMonitorVisibilityBackoff() {
+    if (typeof document === "undefined" || !this.globalRuntimeMonitorVisibilityListener) {
+      return;
+    }
+    document.removeEventListener("visibilitychange", this.globalRuntimeMonitorVisibilityListener);
+    this.globalRuntimeMonitorVisibilityListener = null;
   }
 
   private startGlobalRuntimeMonitorEventStream() {
@@ -1565,7 +1595,9 @@ export class WorkspaceRuntime {
       return;
     }
     const streamStatus = this.store.getState().globalRuntimeMonitorStreamStatus;
-    const effectiveDelay = streamStatus === "connected" ? Math.max(delayMs, 30000) : delayMs;
+    const pageHidden = typeof document !== "undefined" && document.visibilityState === "hidden";
+    const streamDelay = streamStatus === "connected" ? Math.max(delayMs, 30000) : delayMs;
+    const effectiveDelay = pageHidden ? Math.max(streamDelay, 60000) : streamDelay;
     if (this.globalRuntimeMonitorTimer !== null) {
       window.clearTimeout(this.globalRuntimeMonitorTimer);
     }

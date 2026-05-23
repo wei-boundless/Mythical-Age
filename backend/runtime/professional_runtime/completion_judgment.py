@@ -259,7 +259,7 @@ def judge_completion(
         verification_review_ref=str(review.get("review_id") or ""),
         evidence_packet_ref=str(evidence.get("packet_id") or ""),
         status=status,
-        completion_allowed=status in {"verified", "partially_verified"},
+        completion_allowed=status == "verified",
         user_visible_status=_user_visible_status(status),
         reasons=tuple(reasons),
         missing_deliverables=tuple(missing),

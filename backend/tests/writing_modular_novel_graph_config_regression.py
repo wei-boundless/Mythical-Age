@@ -550,6 +550,19 @@ def test_modular_writing_world_design_runtime_uses_node_professional_prompt(tmp_
         "runtime_lane": "coordination_task",
     }
 
+    from tests.support.runtime_stubs import model_turn_context
+
+    task_selection.update(
+        model_turn_context(
+            action_intent="edit_workspace",
+            work_mode="implementation",
+            interaction_intent="create",
+            desired_outcome="修复世界观候选并产出世界观设定",
+            deliverables=["node_contract_output"],
+            planning_required=True,
+            todo_required=True,
+        )
+    )
     runtime = chain.build_runtime(
         session_id="session:test-world-design",
         task_id="taskinst:test-world-design:world_design",
@@ -561,7 +574,7 @@ def test_modular_writing_world_design_runtime_uses_node_professional_prompt(tmp_
         agent_runtime_profile=profile,
     )
     task_contract = dict(dict(runtime["task_operation"]).get("task_contract") or {})
-    semantic_contract = dict(task_contract.get("semantic_task_contract") or {})
+    semantic_contract = dict(task_contract.get("task_requirement_contract") or {})
     mode_policy = dict(task_contract.get("mode_policy") or {})
     stage_projection = StageProjectionCycle().build_from_orchestration(
         task_id="taskinst:test-world-design:world_design",

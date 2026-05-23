@@ -5,6 +5,7 @@ from typing import Any
 
 from .operation_registry import build_default_operation_registry
 from .skill_registry import SkillRegistry
+from .skill_routes import skill_operation_ids_from_skill
 from .tool_registry import ToolRegistry
 from .mcp_registry import build_mcp_catalog
 from .catalog import MAIN_AGENT_ID, build_capability_catalog
@@ -97,8 +98,8 @@ def build_capability_supply_package_from_catalog(
     filtered_skills = [
         skill for skill in skills
         if not normalized_scope
-        or not _skill_operation_ids(skill)
-        or bool(set(_skill_operation_ids(skill)) & normalized_scope)
+        or not skill_operation_ids_from_skill(skill)
+        or bool(set(skill_operation_ids_from_skill(skill)) & normalized_scope)
     ]
 
     tool_refs = [
@@ -125,7 +126,7 @@ def build_capability_supply_package_from_catalog(
                 for item in list(((skill.get("runtime") or {}) if isinstance(skill.get("runtime"), dict) else {}).get("capability_tags") or [])
                 if str(item)
             ),
-            operation_ids=tuple(_skill_operation_ids(skill)),
+            operation_ids=tuple(skill_operation_ids_from_skill(skill)),
             capability_ids=tuple(
                 str(item)
                 for item in list(((skill.get("runtime") or {}) if isinstance(skill.get("runtime"), dict) else {}).get("requires_capabilities") or [])
@@ -199,24 +200,3 @@ def _normalize_operation_scope(
         if value:
             normalized.add(value)
     return normalized
-
-
-def _skill_operation_ids(skill: dict[str, Any]) -> list[str]:
-    runtime = (skill.get("runtime") or {}) if isinstance(skill.get("runtime"), dict) else {}
-    explicit = [
-        str(item).strip()
-        for item in list(runtime.get("requires_operations") or [])
-        if str(item).strip()
-    ]
-    if explicit:
-        return explicit
-    route = str(runtime.get("preferred_route") or "").strip()
-    if route.startswith("op."):
-        return [route]
-    return {
-        "rag": ["op.mcp_retrieval"],
-        "retrieval": ["op.mcp_retrieval"],
-        "pdf": ["op.mcp_pdf"],
-        "structured_data": ["op.mcp_structured_data"],
-        "data": ["op.mcp_structured_data"],
-    }.get(route, [])

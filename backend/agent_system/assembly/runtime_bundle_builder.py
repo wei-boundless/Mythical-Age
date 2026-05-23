@@ -181,7 +181,6 @@ def build_orchestration_runtime_bundle(
             "required_operations": list(operation_requirement.get("required_operations") or ()),
             "optional_operations": list(operation_requirement.get("optional_operations") or ()),
             "approval_policy": str(dict(operation_requirement.get("metadata") or {}).get("approval_policy") or "default"),
-            "intent_runtime_assembly_hint": dict(current_turn_payload.get("runtime_assembly_hint") or {}),
         },
         verification_gate_plan={
             "task_constraints": dict(task_execution_assembly.get("task_constraints") or {}),
@@ -209,8 +208,6 @@ def build_orchestration_runtime_bundle(
             "runtime_lane": runtime_lane_profile.lane_id,
             "requested_runtime_lane": requested_runtime_lane,
             "active_skill_name": str(active_skill_payload.get("name") or ""),
-            "intent_decision": dict(current_turn_payload.get("intent_decision") or {}),
-            "runtime_assembly_hint": dict(current_turn_payload.get("runtime_assembly_hint") or {}),
             "continuation_decision": dict(current_turn_payload.get("continuation_decision") or {}),
         },
     )
@@ -245,8 +242,6 @@ def build_orchestration_runtime_bundle(
             "requested_runtime_lane": requested_runtime_lane,
             "output_boundary_profile_ref": output_boundary_profile.profile_id,
             "projection_resolution": projection_diagnostics,
-            "intent_decision": dict(current_turn_payload.get("intent_decision") or {}),
-            "runtime_assembly_hint": dict(current_turn_payload.get("runtime_assembly_hint") or {}),
             "continuation_decision": dict(current_turn_payload.get("continuation_decision") or {}),
         },
     )
@@ -312,8 +307,8 @@ def _build_projection_requirement(
         or {}
     )
     semantic_contract = dict(
-        contract.get("semantic_task_contract")
-        or metadata.get("semantic_task_contract")
+        contract.get("task_requirement_contract")
+        or metadata.get("task_requirement_contract")
         or {}
     )
     selected_projection_id = str(projection_selection.get("selected_projection_id") or "").strip()

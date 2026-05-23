@@ -44,6 +44,7 @@ import {
   type TestRun,
   type TestTurn
 } from "@/lib/api";
+import { useConfirmDialog } from "@/components/layout/ConfirmDialogProvider";
 import { useAppStore } from "@/lib/store";
 
 type TestPage = "run" | "reports" | "analysis" | "cases";
@@ -282,6 +283,7 @@ function compactId(id: string) {
 }
 
 export function TestSystemView() {
+  const confirm = useConfirmDialog();
   const { setMemoryInspectorTarget, setOrchestrationInspectorTarget, setWorkspaceView } = useAppStore();
   const [activePage, setActivePage] = useState<TestPage>("run");
   const [caseFilter, setCaseFilter] = useState<CaseFilter>("active");
@@ -444,7 +446,12 @@ export function TestSystemView() {
 
   async function startProfile(profileId = selectedProfile) {
     const profile = profileById(profiles, profileId);
-    if (profile?.requires_confirmation && !window.confirm("该测试可能耗时较长，确认现在运行吗？")) {
+    if (profile?.requires_confirmation && !await confirm({
+      title: "启动长耗时测试",
+      body: "该测试可能耗时较长，运行期间会占用测试资源。",
+      confirmLabel: "开始运行",
+      tone: "warning",
+    })) {
       return;
     }
     setLoading(true);

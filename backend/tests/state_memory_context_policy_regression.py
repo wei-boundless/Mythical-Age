@@ -56,6 +56,38 @@ _Current-turn outputs, conclusions, or artifacts that remain active._
     assert result.diagnostics["memory_write_allowed"] is False
 
 
+def test_context_policy_result_reuses_supplied_memory_runtime_view(tmp_path) -> None:
+    facade = MemoryFacade(tmp_path)
+    candidate = MemoryContextCandidate(
+        candidate_id="supplied-state",
+        memory_layer="state",
+        source="test",
+        rendered_preview="active_result_handle_id: supplied-result",
+        token_estimate=20,
+        budget_class="preferred",
+        requires_verification_before_use=False,
+    )
+    supplied_view = MemoryRuntimeView(
+        view_id="memory-runtime:supplied",
+        session_id="context-policy-session",
+        context_candidates=(candidate,),
+    )
+
+    def _fail_rebuild(**_kwargs):
+        raise AssertionError("memory runtime view should be reused")
+
+    facade.bundle_service.build_memory_runtime_view = _fail_rebuild  # type: ignore[method-assign]
+
+    result = facade.build_memory_context_package_result(
+        session_id="context-policy-session",
+        query="复用上下文",
+        memory_view=supplied_view,
+    )
+
+    assert result.package.model_visible_sections["active_process_context"]
+    assert "supplied-result" in "\n".join(result.package.model_visible_sections["active_process_context"])
+
+
 def test_context_policy_drops_long_term_before_state_when_budget_is_tight() -> None:
     state_candidate = MemoryContextCandidate(
         candidate_id="state-candidate",

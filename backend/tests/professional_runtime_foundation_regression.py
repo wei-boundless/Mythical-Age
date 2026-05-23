@@ -4,7 +4,7 @@ import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
-from api import orchestration as orchestration_api
+from api import orchestration_catalog as orchestration_api
 from orchestration.resource_inventory import build_runtime_resource_inventory
 from runtime.professional_runtime.state_machine import (
     initial_professional_run_state,

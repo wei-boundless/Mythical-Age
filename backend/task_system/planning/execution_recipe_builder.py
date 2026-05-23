@@ -80,7 +80,7 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
         "runtime.recipe.professional_task",
     }:
         mode_policy = dict(execution_shape.diagnostics.get("mode_policy") or {})
-        semantic_contract = dict(execution_shape.diagnostics.get("semantic_task_contract") or {})
+        semantic_contract = dict(execution_shape.diagnostics.get("task_requirement_contract") or {})
         interaction_mode = str(
             mode_policy.get("interaction_mode")
             or execution_shape.diagnostics.get("interaction_mode")
@@ -152,7 +152,7 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
                 "compiled_step_count": len(step_blueprints),
                 "compiled_step_ids": [step.step_id for step in step_blueprints],
                 "mode_policy": mode_policy,
-                "semantic_task_contract": semantic_contract,
+                "task_requirement_contract": semantic_contract,
                 "execution_obligation": execution_obligation,
                 "agent_plan_draft": agent_plan_draft,
                 "plan_coverage_review": plan_coverage_review,
@@ -419,13 +419,19 @@ def _needs_agent_todo(
     steps = [item for item in list(agent_plan_draft.get("steps") or []) if isinstance(item, dict)]
     if len(steps) > 1 or len(step_blueprints) > 2:
         return True
-    diagnostics = dict(semantic_contract.get("diagnostics") or {})
-    understanding = dict(
-        diagnostics.get("task_understanding_frame")
-        or dict(diagnostics.get("task_goal_frame") or {}).get("task_understanding_frame")
-        or {}
-    )
-    return len(list(understanding.get("user_provided_flow") or [])) > 1
+    user_flow = [
+        str(item).strip()
+        for item in list(semantic_contract.get("user_provided_flow") or [])
+        if str(item).strip()
+    ]
+    if len(user_flow) > 1:
+        return True
+    explicit_constraints = [
+        str(item).strip()
+        for item in list(semantic_contract.get("explicit_constraints") or [])
+        if str(item).strip()
+    ]
+    return any(marker in item for item in explicit_constraints for marker in ("先", "然后", "再", "最后"))
 
 
 def _deliverable_requirement_lines(semantic_contract: dict[str, Any], *, strict: bool) -> tuple[str, ...]:

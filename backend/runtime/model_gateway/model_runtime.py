@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import inspect
 import logging
 from dataclasses import dataclass
@@ -146,6 +147,7 @@ class ModelRuntime:
 
     def __init__(self, settings_service: AppSettingsService) -> None:
         self.settings_service = settings_service
+        self._chat_model_pool: dict[str, Any] = {}
 
     @property
     def request_timeout_seconds(self) -> float:
@@ -187,7 +189,7 @@ class ModelRuntime:
         return str(getattr(static, "llm_reasoning_effort", "high") or "high").strip().lower()
 
     def build_chat_model(self):
-        return self._build_chat_model_for_spec(self._candidate_specs()[0])
+        return self._get_chat_model_for_spec(self._candidate_specs()[0])
 
     def create_conversation_agent(
         self,
@@ -208,7 +210,7 @@ class ModelRuntime:
         candidates = self._candidate_specs(model_spec=model_spec)
         for spec_index, spec in enumerate(candidates):
             for attempt in range(1, self._max_retries_for_spec(spec) + 2):
-                model = self._build_chat_model_for_spec(spec)
+                model = self._get_chat_model_for_spec(spec)
                 try:
                     return await asyncio.wait_for(
                         model.ainvoke(messages),
@@ -218,6 +220,7 @@ class ModelRuntime:
                     raise
                 except Exception as exc:
                     last_error = self._map_error(exc, spec)
+                    await self._invalidate_chat_model_for_spec(spec)
                     if attempt <= self._max_retries_for_spec(spec) and last_error.retryable:
                         logger.warning(
                             "Retrying model invoke after %s (%s/%s): %s",
@@ -229,8 +232,6 @@ class ModelRuntime:
                         await asyncio.sleep(min(0.5, 0.1 * attempt))
                         continue
                     break
-                finally:
-                    await self._aclose_chat_model(model)
             if last_error is None:
                 continue
             if spec_index < len(candidates) - 1:
@@ -257,7 +258,7 @@ class ModelRuntime:
         candidates = self._candidate_specs(model_spec=model_spec)
         for spec_index, spec in enumerate(candidates):
             for attempt in range(1, self._max_retries_for_spec(spec) + 2):
-                model = self._build_chat_model_for_spec(spec)
+                model = self._get_chat_model_for_spec(spec)
                 try:
                     bound_model = (
                         _bind_tools_with_options(model, tools, tool_call_options=tool_call_options, spec=spec)
@@ -272,6 +273,7 @@ class ModelRuntime:
                     raise
                 except Exception as exc:
                     last_error = self._map_error(exc, spec)
+                    await self._invalidate_chat_model_for_spec(spec)
                     if attempt <= self._max_retries_for_spec(spec) and last_error.retryable:
                         logger.warning(
                             "Retrying tool-enabled model invoke after %s (%s/%s): %s",
@@ -283,8 +285,6 @@ class ModelRuntime:
                         await asyncio.sleep(min(0.5, 0.1 * attempt))
                         continue
                     break
-                finally:
-                    await self._aclose_chat_model(model)
             if last_error is None:
                 continue
             if spec_index < len(candidates) - 1:
@@ -305,7 +305,7 @@ class ModelRuntime:
         for spec_index, spec in enumerate(candidates):
             for attempt in range(1, self._max_retries_for_spec(spec) + 2):
                 emitted = False
-                model = self._build_chat_model_for_spec(spec)
+                model = self._get_chat_model_for_spec(spec)
                 try:
                     stream = model.astream(messages)
                     async for chunk in self._iterate_with_timeout(stream, spec=spec):
@@ -316,6 +316,7 @@ class ModelRuntime:
                     raise
                 except Exception as exc:
                     last_error = self._map_error(exc, spec)
+                    await self._invalidate_chat_model_for_spec(spec)
                     if emitted:
                         raise last_error from exc
                     if attempt <= self._max_retries_for_spec(spec) and last_error.retryable:
@@ -329,8 +330,6 @@ class ModelRuntime:
                         await asyncio.sleep(min(0.5, 0.1 * attempt))
                         continue
                     break
-                finally:
-                    await self._aclose_chat_model(model)
             if last_error is None:
                 continue
             if spec_index < len(candidates) - 1:
@@ -358,7 +357,7 @@ class ModelRuntime:
         for spec_index, spec in enumerate(candidates):
             for attempt in range(1, self._max_retries_for_spec(spec) + 2):
                 emitted = False
-                model = self._build_chat_model_for_spec(spec)
+                model = self._get_chat_model_for_spec(spec)
                 try:
                     bound_model = (
                         _bind_tools_with_options(model, tools, tool_call_options=tool_call_options, spec=spec)
@@ -374,6 +373,7 @@ class ModelRuntime:
                     raise
                 except Exception as exc:
                     last_error = self._map_error(exc, spec)
+                    await self._invalidate_chat_model_for_spec(spec)
                     if emitted:
                         raise last_error from exc
                     if attempt <= self._max_retries_for_spec(spec) and last_error.retryable:
@@ -387,8 +387,6 @@ class ModelRuntime:
                         await asyncio.sleep(min(0.5, 0.1 * attempt))
                         continue
                     break
-                finally:
-                    await self._aclose_chat_model(model)
             if last_error is None:
                 continue
             if spec_index < len(candidates) - 1:
@@ -418,7 +416,7 @@ class ModelRuntime:
         for spec_index, spec in enumerate(candidates):
             for attempt in range(1, self._max_retries_for_spec(spec) + 2):
                 emitted = False
-                model = self._build_chat_model_for_spec(spec)
+                model = self._get_chat_model_for_spec(spec)
                 agent = self._create_raw_agent(
                     system_prompt=system_prompt,
                     tools=tools,
@@ -435,6 +433,7 @@ class ModelRuntime:
                     raise
                 except Exception as exc:
                     last_error = self._map_error(exc, spec)
+                    await self._invalidate_chat_model_for_spec(spec)
                     if emitted:
                         raise last_error from exc
                     if attempt <= self._max_retries_for_spec(spec) and last_error.retryable:
@@ -448,8 +447,6 @@ class ModelRuntime:
                         await asyncio.sleep(min(0.5, 0.1 * attempt))
                         continue
                     break
-                finally:
-                    await self._aclose_chat_model(model)
             if last_error is None:
                 continue
             if spec_index < len(candidates) - 1:
@@ -585,6 +582,43 @@ class ModelRuntime:
             timeout=timeout_seconds,
             max_retries=0,
             max_completion_tokens=max_output_tokens,
+        )
+
+    def _get_chat_model_for_spec(self, spec: ModelSpec):
+        key = self._chat_model_pool_key(spec)
+        model = self._chat_model_pool.get(key)
+        if model is None:
+            model = self._build_chat_model_for_spec(spec)
+            self._chat_model_pool[key] = model
+        return model
+
+    async def _invalidate_chat_model_for_spec(self, spec: ModelSpec) -> None:
+        key = self._chat_model_pool_key(spec)
+        model = self._chat_model_pool.pop(key, None)
+        if model is not None:
+            await self._aclose_chat_model(model)
+
+    async def close(self) -> None:
+        models = list(self._chat_model_pool.values())
+        self._chat_model_pool.clear()
+        for model in models:
+            await self._aclose_chat_model(model)
+
+    def _chat_model_pool_key(self, spec: ModelSpec) -> str:
+        api_key = str(spec.api_key or "")
+        api_key_fingerprint = hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:16] if api_key else ""
+        return "|".join(
+            [
+                str(spec.provider or ""),
+                str(spec.model or ""),
+                str(spec.base_url or ""),
+                api_key_fingerprint,
+                str(self._max_output_tokens_for_spec(spec)),
+                str(self._model_call_timeout_seconds_for_spec(spec)),
+                str(self._temperature_for_spec(spec)),
+                str(self._thinking_mode_for_spec(spec)),
+                str(self._reasoning_effort_for_spec(spec)),
+            ]
         )
 
     def _create_raw_agent(

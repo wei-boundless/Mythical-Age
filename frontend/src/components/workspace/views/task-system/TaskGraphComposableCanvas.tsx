@@ -192,7 +192,7 @@ export function TaskGraphComposableCanvas({
     ? showingImportedGraph
       ? "当前只读查看被导入图模块的内部节点与边；编辑请进入该图模块工作台。"
       : "当前显示已导入图模块之间的交接关系；选择一个模块可查看它的内部拓扑。"
-    : "当前画布只读显示 canonical 图编译出的单元、端口边和阶段图块派生关系；结构修改请回到 Graph Builder。";
+    : "当前画布只读显示规范图编译出的单元、端口边和阶段图块派生关系；结构修改请回到拓扑编辑。";
 
   return (
     <main className="task-graph-composer-canvas-shell" aria-label="当前层级可组合图画布">

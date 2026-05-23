@@ -24,6 +24,7 @@ from tests.support.runtime_stubs import (
     QueryRuntimeMemoryFacadeStub,
     SingleMessageModelRuntimeStub,
     isolated_backend_root,
+    model_turn_context,
 )
 
 
@@ -54,7 +55,17 @@ def test_agent_runtime_chain_cutsover_to_formal_orchestration_objects() -> None:
         turn_id="turn:session-chain-cutover:1",
         message="读取 docs/系统规划/03-编排系统详细设计书-20260504.md 并总结。",
         source="test",
-        task_selection={"turn_id": "turn:session-chain-cutover:1"},
+        task_selection={
+            "turn_id": "turn:session-chain-cutover:1",
+            **model_turn_context(
+                action_intent="read_context",
+                work_mode="read_only_analysis",
+                interaction_intent="inspect",
+                target_objects=["docs/系统规划/03-编排系统详细设计书-20260504.md"],
+                desired_outcome="读取文档并总结",
+                deliverables=["summary"],
+            ),
+        },
     )
 
     task_operation = payload["task_operation"]
@@ -192,6 +203,18 @@ def test_runtime_formalizes_worker_spawn_and_coordination_runtime_objects() -> N
                     "task_id": "task.dev.light_web_game",
                     "task_mode": "light_web_game",
                     "graph_id": "graph.dev.parallel_game_delivery",
+                    **model_turn_context(
+                        action_intent="delegate",
+                        work_mode="delegated",
+                        interaction_intent="create",
+                        target_objects=["task.dev.light_web_game", "graph.dev.parallel_game_delivery"],
+                        desired_outcome="开发轻量网页小游戏原型，并通过已选任务图协调交付。",
+                        deliverables=["playable_web_game_prototype", "coordination_trace"],
+                        planning_required=True,
+                        todo_required=True,
+                        task_goal_type="game_vertical_slice_delivery",
+                        task_domain="development",
+                    ),
                 },
             )
         ):

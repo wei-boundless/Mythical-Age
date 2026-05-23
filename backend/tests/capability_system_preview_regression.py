@@ -29,8 +29,8 @@ def test_operation_requirement_is_candidate_only_and_preserves_denied_operations
     )
 
     assert requirement.authority == "candidate_only"
-    assert requirement.required_operations == ("op.read_file", "op.edit_file")
-    assert requirement.optional_operations == ("op.search_text",)
+    assert requirement.required_operations == ("op.search_text", "op.read_file", "op.edit_file")
+    assert requirement.optional_operations == ()
     assert requirement.denied_operations == ("terminal",)
     assert requirement.metadata["review_policy"] == "required"
 

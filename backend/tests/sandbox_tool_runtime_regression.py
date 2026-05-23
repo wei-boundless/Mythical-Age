@@ -89,6 +89,67 @@ def test_sandbox_python_repl_blocks_absolute_workspace_escape(tmp_path: Path) ->
     assert "Blocked:" in result["observation"].payload["result"]
 
 
+def test_tool_runtime_executor_enforces_contract_before_tool_invocation(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    workspace.mkdir(parents=True)
+
+    result = _run_tool(
+        workspace=workspace,
+        sandbox_root=tmp_path / "sandbox" / "workspace",
+        tool_name="read_file",
+        tool_args={},
+        operation_id="op.read_file",
+    )
+
+    assert result["execution_record"].status == "failed"
+    assert "Tool execution blocked by contract" in result["error"]
+    assert "missing_required_input" in result["error"]
+    assert "path" in result["error"]
+    assert result["observation"].observation_type == "executor_error"
+    assert result["observation"].payload["error"] == result["error"]
+
+
+def test_tool_runtime_executor_blocks_operation_mismatch_before_tool_invocation(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    sandbox_root = tmp_path / "sandbox" / "workspace"
+    (workspace / "docs").mkdir(parents=True)
+    (workspace / "docs" / "note.md").write_text("real content", encoding="utf-8")
+
+    result = _run_tool(
+        workspace=workspace,
+        sandbox_root=sandbox_root,
+        tool_name="read_file",
+        tool_args={"path": "docs/note.md"},
+        operation_id="op.write_file",
+    )
+
+    assert result["execution_record"].status == "failed"
+    assert "Tool execution blocked by dispatch guard" in result["error"]
+    assert "action_request_operation_mismatch" in result["error"]
+    assert "directive_operation_refs_mismatch" in result["error"]
+    assert "execution_record_operation_mismatch" in result["error"]
+    assert result["observation"].observation_type == "executor_error"
+
+
+def test_tool_runtime_executor_blocks_tool_call_name_mismatch(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    (workspace / "docs").mkdir(parents=True)
+    (workspace / "docs" / "note.md").write_text("real content", encoding="utf-8")
+
+    result = _run_tool(
+        workspace=workspace,
+        sandbox_root=tmp_path / "sandbox" / "workspace",
+        tool_name="read_file",
+        tool_args={"path": "docs/note.md"},
+        operation_id="op.read_file",
+        tool_call_name="write_file",
+    )
+
+    assert result["execution_record"].status == "failed"
+    assert "Tool execution blocked by dispatch guard" in result["error"]
+    assert "tool_call_name_mismatch" in result["error"]
+
+
 def _run_tool(
     *,
     workspace: Path,
@@ -96,6 +157,7 @@ def _run_tool(
     tool_name: str,
     tool_args: dict[str, str],
     operation_id: str,
+    tool_call_name: str | None = None,
 ) -> dict:
     workspace.mkdir(parents=True, exist_ok=True)
     sandbox_root.mkdir(parents=True, exist_ok=True)
@@ -109,7 +171,7 @@ def _run_tool(
         operation_id=operation_id,
         payload={
             "tool_name": tool_name,
-            "tool_call": {"id": f"call-{tool_name}", "name": tool_name, "args": tool_args},
+            "tool_call": {"id": f"call-{tool_name}", "name": tool_call_name or tool_name, "args": tool_args},
         },
     )
     directive = RuntimeDirective(

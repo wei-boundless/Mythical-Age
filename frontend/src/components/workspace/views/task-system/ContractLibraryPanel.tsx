@@ -10,6 +10,7 @@ import {
   TaskSystemToolbarButton,
   taskSystemOptionLabel,
 } from "@/components/workspace/views/task-system/TaskSystemWorkbenchUi";
+import { useConfirmDialog } from "@/components/layout/ConfirmDialogProvider";
 import type {
   AcceptanceRule,
   ArtifactRequirement,
@@ -246,6 +247,7 @@ export function ContractLibraryPanel({
   onSave: (spec: ContractSpec) => Promise<void>;
   onDelete: (contractId: string) => Promise<void>;
 }) {
+  const confirm = useConfirmDialog();
   const specs = contractManagement.contract_specs ?? [];
   const [selectedId, setSelectedId] = useState(specs[0]?.contract_id ?? "");
   const selected = specs.find((item) => item.contract_id === selectedId) ?? specs[0] ?? null;
@@ -290,7 +292,11 @@ export function ContractLibraryPanel({
 
   async function remove() {
     if (!draft.contract_id) return;
-    if (!window.confirm(`确认删除契约「${contractSpecTitle(draft)}」？内置默认契约无法删除。`)) return;
+    if (!await confirm({
+      title: `删除契约「${contractSpecTitle(draft)}」`,
+      body: "内置默认契约无法删除；自定义契约删除后会从契约库移除。",
+      confirmLabel: "删除契约",
+    })) return;
     await onDelete(draft.contract_id);
     createDraft();
   }

@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from intent.models import IntentDecision, IntentFrame
+from request_intent.frame_access import target_domain_hints, turn_signals
 
 from .models import ContinuationCandidate
 from .profile_registry import ContinuationDomainProfile, default_continuation_profiles, profile_by_domain
@@ -13,10 +13,9 @@ def collect_continuation_candidates(
     *,
     message: str,
     memory_runtime_view: dict[str, Any] | None,
-    intent_frame: IntentFrame,
-    intent_decision: IntentDecision,
+    request_intent: Any,
 ) -> tuple[ContinuationCandidate, ...]:
-    if not intent_decision.needs_continuation:
+    if not _needs_continuation(message=message, request_intent=request_intent):
         return ()
     memory_view = dict(memory_runtime_view or {})
     candidates: list[ContinuationCandidate] = []
@@ -26,7 +25,7 @@ def collect_continuation_candidates(
     candidates.extend(_task_summary_candidates(memory_view=memory_view))
     candidates.extend(_conversation_candidates(memory_view=memory_view))
     scored = [
-        _score_candidate(candidate, message=message, intent_frame=intent_frame, intent_decision=intent_decision)
+        _score_candidate(candidate, message=message, request_intent=request_intent)
         for candidate in candidates
     ]
     return tuple(_dedupe_candidates(scored))
@@ -273,8 +272,7 @@ def _score_candidate(
     candidate: ContinuationCandidate,
     *,
     message: str,
-    intent_frame: IntentFrame,
-    intent_decision: IntentDecision,
+    request_intent: Any,
 ) -> ContinuationCandidate:
     profile = profile_by_domain().get(str(candidate.metadata.get("profile_id") or candidate.source_kind))
     lowered = str(message or "").lower()
@@ -287,16 +285,17 @@ def _score_candidate(
         if _marker_hits(lowered, profile.conflict_markers):
             conflicts.append("domain_language_conflict")
             score -= 45.0
-    target_domain = str(intent_decision.target_domain_hint or "").strip()
-    if _profile_domain_ids() and target_domain in _profile_domain_ids() and candidate.source_kind != target_domain:
+    target_domains = target_domain_hints(request_intent)
+    matched_domain = next((item for item in target_domains if item in _profile_domain_ids()), "")
+    if matched_domain and candidate.source_kind != matched_domain:
         conflicts.append("intent_domain_mismatch")
         score -= 80.0
-    if "refine_scope" in intent_decision.actions and profile is not None and _marker_hits(lowered, profile.subset_markers):
+    if profile is not None and _marker_hits(lowered, profile.subset_markers):
         score += 10.0
     compatible = score >= 45.0 and not conflicts
     return ContinuationCandidate(
         candidate_id=candidate.candidate_id,
-        target_kind=_target_kind(candidate, intent_frame=intent_frame, profile=profile),
+        target_kind=_target_kind(candidate, message=message, profile=profile),
         source_kind=candidate.source_kind,
         file_kind=candidate.file_kind,
         identity=candidate.identity,
@@ -312,18 +311,40 @@ def _score_candidate(
 def _target_kind(
     candidate: ContinuationCandidate,
     *,
-    intent_frame: IntentFrame,
+    message: str,
     profile: ContinuationDomainProfile | None,
 ) -> str:
     if candidate.target_kind != "source_object":
         return candidate.target_kind
-    lowered = str(intent_frame.user_message or "").lower()
+    lowered = str(message or "").lower()
     if profile is not None and _marker_hits(lowered, profile.subset_markers):
         payload = dict(candidate.recall_payload or {})
         if not str(payload.get("active_subset_handle_id") or payload.get("subset_handle_id") or "").strip():
             return "source_object"
         return "result_subset"
     return "source_object"
+
+
+def _needs_continuation(*, message: str, request_intent: Any) -> bool:
+    signals = turn_signals(request_intent)
+    if signals.get("followup_markers"):
+        return True
+    lowered = str(message or "").lower()
+    return any(
+        marker in lowered
+        for marker in (
+            "继续",
+            "接着",
+            "刚才",
+            "这个",
+            "这份",
+            "这些",
+            "再",
+            "只基于",
+            "上面",
+            "前五",
+        )
+    )
 
 
 def _profile_for_slot(slot_name: str, profiles: dict[str, ContinuationDomainProfile]) -> ContinuationDomainProfile | None:

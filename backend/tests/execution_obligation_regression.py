@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import asdict
-
 from intent.execution_obligation import build_execution_obligation
-from intent.task_goal_interpreter import build_task_goal_frame
+from request_intent.request_signals import build_request_signals
 from task_system.services.assembly_support import build_runtime_task_intent_contract
-from understanding.query_understanding import analyze_query_understanding
 
 
 def test_execution_obligation_extracts_read_write_and_pytest_from_failure_repair_goal() -> None:
@@ -36,11 +33,28 @@ def test_execution_obligation_forbid_write_wins_for_analysis_only_goal() -> None
             "先分析 backend/tests/fixtures/professional_task_suite/failing_sixty_turn_summary.json 的失败原因，"
             "不要改代码，也不要修改文件。"
         ),
-        query_understanding={"route": "workspace_read", "source_kind": "workspace"},
-        current_turn_context={},
+        query_understanding=build_request_signals(
+            "先分析 backend/tests/fixtures/professional_task_suite/failing_sixty_turn_summary.json 的失败原因，"
+            "不要改代码，也不要修改文件。"
+        ).to_dict(),
+        current_turn_context={
+            "model_turn_decision": _decision(
+                action_intent="read_context",
+                work_mode="read_only_analysis",
+                interaction_intent="inspect",
+                target_objects=["backend/tests/fixtures/professional_task_suite/failing_sixty_turn_summary.json"],
+                forbidden_actions=["modify_code", "write_file", "edit_file"],
+            ),
+            "task_goal_spec": {
+                "authority": "agent_runtime.model_turn_goal_projection",
+                "task_goal_type": "inspection",
+                "task_domain": "workspace",
+                "forbidden_actions": ["modify_code", "write_file", "edit_file"],
+            },
+        },
     )
     obligation = contract.execution_obligation
-    semantic = contract.semantic_task_contract
+    semantic = contract.task_requirement_contract
 
     assert obligation["required_reads"]
     assert obligation["required_writes"] == []
@@ -86,13 +100,18 @@ def test_execution_obligation_treats_created_game_files_as_writes_not_reads() ->
 
 def test_execution_obligation_derives_browser_game_requirements_from_goal_frame() -> None:
     message = "做一个可运行的浏览器端 2D 肉鸽游戏垂直切片，需要真实接入至少一个图像资产。"
-    query = analyze_query_understanding(message)
-    goal_frame = build_task_goal_frame(message, query_understanding=asdict(query)).to_dict()
+    goal_frame = {
+        "authority": "agent_runtime.model_turn_goal_projection",
+        "task_goal_type": "game_vertical_slice_delivery",
+        "task_domain": "development",
+        "required_verifications": [{"kind": "browser_verification"}],
+        "required_capabilities": ["browser", "asset_integration"],
+    }
     obligation = build_execution_obligation(
         session_id="session-game-goal-frame",
         task_id="task-game-goal-frame",
         user_goal=message,
-        current_turn_context={"task_goal_frame": goal_frame},
+        current_turn_context={"task_goal_spec": goal_frame},
     ).to_dict()
 
     write_kinds = {item["kind"] for item in obligation["required_writes"]}
@@ -105,3 +124,34 @@ def test_execution_obligation_derives_browser_game_requirements_from_goal_frame(
     assert "browser_verification" in verification_kinds
     assert "runnable_artifact_refs" in obligation["required_deliverables"]
     assert obligation["extraction_evidence"]["profile_obligation"]["matched"] is True
+
+
+def _decision(
+    *,
+    action_intent: str,
+    work_mode: str,
+    interaction_intent: str,
+    target_objects: list[str] | None = None,
+    forbidden_actions: list[str] | None = None,
+) -> dict[str, object]:
+    return {
+        "authority": "agent_runtime.model_turn_decision",
+        "decision_id": "model-turn-decision:test",
+        "user_message": "test",
+        "interaction_intent": interaction_intent,
+        "action_intent": action_intent,
+        "work_mode": work_mode,
+        "target_objects": list(target_objects or []),
+        "desired_outcome": "test",
+        "deliverables": [],
+        "constraints": [],
+        "forbidden_actions": list(forbidden_actions or []),
+        "context_binding_decision": {},
+        "planning_required": False,
+        "todo_required": False,
+        "completion_criteria": [],
+        "needs_clarification": False,
+        "clarification_question": "",
+        "confidence": 0.9,
+        "ambiguity": [],
+    }

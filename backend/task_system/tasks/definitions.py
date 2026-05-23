@@ -4,7 +4,12 @@ from dataclasses import asdict, dataclass, field
 import re
 from typing import Any
 
-from understanding.capability_resolution_view import capability_resolution_view
+from request_intent.frame_access import (
+    capability_needs,
+    context_binding,
+    explicit_task_selected,
+    material_kinds,
+)
 
 @dataclass(frozen=True, slots=True)
 class TaskDefinition:
@@ -178,67 +183,50 @@ def select_runtime_task_definitions(
     *,
     query_understanding: dict[str, Any] | None = None,
 ) -> list[TaskDefinition]:
-    """Select runtime task definitions from structured understanding first.
+    """Select task definitions from cognition signals and contracts.
 
-    Text heuristics are only a fallback. The runtime path already has a
-    query-understanding layer, so task prompts should not reclassify clear
-    executable requests as request intake just because the raw text is short.
+    Agent cognition contributes weak needs and material hints. It does not
+    preselect concrete tools or preserve old keyword routes.
     """
     definitions = default_task_definitions()
     understanding = dict(query_understanding or {})
-    resolution = capability_resolution_view(understanding)
-    execution_posture = resolution.execution_posture
-    effective_route = resolution.route
-    source_kind = str(understanding.get("source_kind") or "").strip()
-    modality = str(understanding.get("modality") or "").strip()
-    task_kind = str(understanding.get("task_kind") or "").strip()
-    structural_signals = dict(understanding.get("structural_signals") or {})
-    if structural_signals.get("understanding_aligned_to_explicit_task") or (
-        source_kind == "task_system" and execution_posture == "task_runtime"
-    ):
+    decision = dict(understanding.get("model_turn_decision") or {})
+    if not decision:
+        raise RuntimeError("ModelTurnDecision is required to select runtime task definitions")
+    action_intent = str(decision.get("action_intent") or "").strip()
+    work_mode = str(decision.get("work_mode") or "").strip()
+    interaction_intent = str(decision.get("interaction_intent") or "").strip()
+    needs = capability_needs(understanding)
+    kinds = material_kinds(understanding)
+    binding = context_binding(understanding)
+    if explicit_task_selected(understanding) or str(binding.get("kind") or "") == "explicit_task_selection":
         return [definitions["task.final_response"]]
-    capability_requests = {
-        str(item or "").strip()
-        for item in list(understanding.get("capability_requests") or ())
-        if str(item or "").strip()
-    }
-    candidate_tools = {
-        str(item or "").strip()
-        for item in list(understanding.get("candidate_tools") or ())
-        if str(item or "").strip()
-    }
-    effective_skill = resolution.preferred_skill
 
-    if effective_route == "pdf" or effective_skill == "pdf-analysis":
-        return [definitions["task.capability_execution"]]
-    if effective_route == "structured_data" or effective_skill == "structured-data-analysis":
-        return [definitions["task.capability_execution"]]
-    if execution_posture == "builtin_tool_lane" or effective_route in {
-        "tool",
-        "workspace_read",
-        "workspace_path_search",
-        "workspace_text_search",
-        "workspace_write",
-        "workspace_edit",
-        "realtime_network",
-    } or candidate_tools:
-        if source_kind == "workspace" or {"read_file", "search_files"} & candidate_tools:
-            return [
-                definitions["task.capability_execution"],
-                definitions["task.local_material_read"],
-                definitions["task.information_synthesis"],
-            ]
-        if source_kind == "external_web" or task_kind in {"realtime_lookup", "web_lookup"}:
-            return [definitions["task.capability_execution"], definitions["task.information_search"]]
-        return [definitions["task.capability_execution"]]
-
-    if execution_posture == "direct_rag" or effective_route == "rag" or effective_skill == "rag-skill":
-        return [definitions["task.knowledge_retrieval"], definitions["task.information_synthesis"]]
-
-    if execution_posture == "direct_memory" or effective_route == "memory":
+    if action_intent == "block":
+        raise RuntimeError("Blocked ModelTurnDecision cannot select runtime task definitions")
+    if action_intent == "search_external":
+        return [definitions["task.capability_execution"], definitions["task.information_search"]]
+    if action_intent in {"edit_workspace", "run_command", "start_service"} or work_mode in {"implementation", "verification"}:
+        return [
+            definitions["task.task_execution"],
+            definitions["task.inspection_and_correction"],
+        ]
+    if interaction_intent in {"review", "inspect"} or action_intent == "read_context":
+        if kinds & {"workspace", "code", "pdf", "dataset"} or needs:
+            return [definitions["task.inspection_and_correction"]]
+        return [
+            definitions["task.capability_execution"],
+            definitions["task.local_material_read"],
+            definitions["task.information_synthesis"],
+        ]
+    if "memory_candidate" in needs:
         return [definitions["task.memory_recall"]]
+    if "knowledge_lookup" in needs:
+        return [definitions["task.knowledge_retrieval"]]
+    if action_intent == "answer_only":
+        return [definitions["task.final_response"]]
 
-    return select_task_definitions(user_goal)
+    raise RuntimeError(f"Unsupported ModelTurnDecision action_intent for task definitions: {action_intent}")
 
 
 def _has_local_material_evidence(text: str) -> bool:
@@ -290,3 +278,4 @@ def _has_review_intent(text: str) -> bool:
 
 def _has_external_search_intent(text: str) -> bool:
     return any(token in text for token in ("联网", "搜索", "官方资料", "web search"))
+

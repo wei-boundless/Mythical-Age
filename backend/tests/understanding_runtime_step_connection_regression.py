@@ -8,7 +8,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from agent_system.assembly.runtime_chain import AgentRuntimeChainAssembler
-from tests.support.runtime_stubs import QueryRuntimeMemoryFacadeStub, isolated_backend_root
+from tests.support.runtime_stubs import QueryRuntimeMemoryFacadeStub, isolated_backend_root, model_turn_context
 
 
 ROGUELIKE_PROMPT = """你是一名独立游戏原型开发负责人。
@@ -25,13 +25,34 @@ def _runtime_bundle(message: str, *, task_selection: dict[str, object] | None = 
         base_dir=isolated_backend_root("understanding-runtime-steps-"),
         memory_facade=QueryRuntimeMemoryFacadeStub(),
     )
+    selection = dict(task_selection or {})
+    if "model_turn_decision" not in selection:
+        goal_type = ""
+        if "肉鸽游戏" in message or "游戏垂直切片" in message:
+            goal_type = "game_vertical_slice_delivery"
+        elif "前端" in message or "浏览器验证" in message:
+            goal_type = "frontend_app_delivery"
+        selection.update(
+            model_turn_context(
+                action_intent="edit_workspace",
+                work_mode="implementation",
+                interaction_intent="create",
+                desired_outcome=message,
+                deliverables=["runnable_artifact_refs", "verification_evidence"],
+                planning_required=True,
+                todo_required=True,
+                task_goal_type=goal_type,
+                task_domain="development" if goal_type else "",
+            )
+        )
     return assembler.build_runtime(
         session_id="session-understanding-runtime-steps",
         task_id="task-understanding-runtime-steps",
         turn_id="turn-understanding-runtime-steps",
         message=message,
         source="test",
-        task_selection=task_selection,
+        task_selection=selection,
+        current_turn_context_override=selection,
     )
 
 
@@ -45,11 +66,10 @@ def test_professional_game_goal_compiles_understanding_and_domain_steps_into_rec
         task_selection={
             "interaction_mode": "professional_mode",
             "runtime_interaction_mode": "professional_mode",
-            "intent_decision": {"execution_strategy": "professional_task_run", "interaction_mode": "professional_mode"},
-            "runtime_assembly_hint": {
+            "mode_policy": {
                 "execution_strategy": "professional_task_run",
                 "interaction_mode": "professional_mode",
-                "runtime_mode": "professional_task",
+                "runtime_lane": "professional_task",
             },
         },
     )
@@ -57,12 +77,12 @@ def test_professional_game_goal_compiles_understanding_and_domain_steps_into_rec
     current_turn = dict(bundle["current_turn_context"])
     recipe = dict(dict(bundle["task_operation"])["selected_recipe"])
     metadata = dict(recipe["metadata"])
-    semantic_contract = dict(metadata["semantic_task_contract"])
+    semantic_contract = dict(metadata["task_requirement_contract"])
     agent_plan = dict(metadata["agent_plan_draft"])
     coverage = dict(metadata["plan_coverage_review"])
     ids = _step_ids(recipe)
 
-    assert current_turn["task_goal_frame"]["task_goal_type"] == "game_vertical_slice_delivery"
+    assert current_turn["task_goal_spec"]["task_goal_type"] == "game_vertical_slice_delivery"
     assert semantic_contract["task_goal_type"] == "game_vertical_slice_delivery"
     assert metadata["understanding_step_compiler"] == "task_system.planning.understanding_step_compiler"
     assert ids[:8] == [
@@ -93,11 +113,10 @@ def test_frontend_goal_compiles_browser_verification_operations() -> None:
         task_selection={
             "interaction_mode": "professional_mode",
             "runtime_interaction_mode": "professional_mode",
-            "intent_decision": {"execution_strategy": "professional_task_run", "interaction_mode": "professional_mode"},
-            "runtime_assembly_hint": {
+            "mode_policy": {
                 "execution_strategy": "professional_task_run",
                 "interaction_mode": "professional_mode",
-                "runtime_mode": "professional_task",
+                "runtime_lane": "professional_task",
             },
         },
     )
@@ -125,7 +144,14 @@ def test_role_mode_uses_lightweight_understanding_steps_without_professional_dom
         task_selection={
             "interaction_mode": "role_mode",
             "runtime_interaction_mode": "role_mode",
-            "runtime_assembly_hint": {"interaction_mode": "role_mode", "runtime_mode": "role_interaction"},
+            "mode_policy": {"interaction_mode": "role_mode", "runtime_lane": "role_interaction"},
+            **model_turn_context(
+                action_intent="answer_only",
+                work_mode="conversation",
+                interaction_intent="answer",
+                desired_outcome="陪用户聊天",
+                deliverables=["conversational_response"],
+            ),
         },
     )
 

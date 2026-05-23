@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from capability_system.skill_routes import skill_operation_ids_from_runtime
+
 from .models import (
     CapabilityDependency,
     CapabilityHealth,
@@ -29,7 +31,7 @@ def _skill_units(catalog: dict[str, Any], operations: dict[str, dict[str, Any]])
         runtime = skill.get("runtime") if isinstance(skill.get("runtime"), dict) else {}
         prompt = skill.get("prompt_view") if isinstance(skill.get("prompt_view"), dict) else {}
         name = str(runtime.get("name") or "").strip()
-        operation_ids = tuple(_skill_operation_ids(runtime))
+        operation_ids = tuple(skill_operation_ids_from_runtime(runtime))
         capability_id = f"skill:{name}"
         dependencies = tuple(
             CapabilityDependency(capability_id, f"operation:{operation_id}", "requires_operation")
@@ -212,23 +214,3 @@ def _risk_for_operations(operation_ids: tuple[str, ...] | list[str], operations:
             continue
         risks.extend(str(item) for item in list(operation.get("risk_tags") or []) if str(item).strip())
     return tuple(dict.fromkeys(risks))
-
-
-def _skill_operation_ids(runtime: dict[str, Any]) -> list[str]:
-    explicit = [
-        str(item).strip()
-        for item in list(runtime.get("requires_operations") or [])
-        if str(item).strip()
-    ]
-    if explicit:
-        return explicit
-    route = str(runtime.get("preferred_route") or "").strip()
-    if route.startswith("op."):
-        return [route]
-    return {
-        "rag": ["op.mcp_retrieval"],
-        "retrieval": ["op.mcp_retrieval"],
-        "pdf": ["op.mcp_pdf"],
-        "structured_data": ["op.mcp_structured_data"],
-        "data": ["op.mcp_structured_data"],
-    }.get(route, [])

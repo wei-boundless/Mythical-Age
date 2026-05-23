@@ -11,6 +11,7 @@
       "participant_agent_ids": [],
       "workflow_id": "workflow.writing.modular_novel.node.project_brief",
       "workflow_file_ref": "workflow:workflow.writing.modular_novel.node.project_brief",
+      "projection_id": "",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.project_brief",
       "safety_policy": {
@@ -66,6 +67,7 @@
       "participant_agent_ids": [],
       "workflow_id": "workflow.writing.modular_novel.node.world_design",
       "workflow_file_ref": "workflow:workflow.writing.modular_novel.node.world_design",
+      "projection_id": "",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.world_candidate",
       "safety_policy": {
@@ -121,6 +123,7 @@
       "participant_agent_ids": [],
       "workflow_id": "workflow.writing.modular_novel.node.world_review",
       "workflow_file_ref": "workflow:workflow.writing.modular_novel.node.world_review",
+      "projection_id": "",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.world_review",
       "safety_policy": {
@@ -176,6 +179,7 @@
       "participant_agent_ids": [],
       "workflow_id": "workflow.writing.modular_novel.node.memory_commit_world",
       "workflow_file_ref": "workflow:workflow.writing.modular_novel.node.memory_commit_world",
+      "projection_id": "",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.world_commit",
       "safety_policy": {
@@ -231,6 +235,7 @@
       "participant_agent_ids": [],
       "workflow_id": "workflow.writing.modular_novel.node.character_design",
       "workflow_file_ref": "workflow:workflow.writing.modular_novel.node.character_design",
+      "projection_id": "",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.character_design",
       "safety_policy": {
@@ -286,6 +291,7 @@
       "participant_agent_ids": [],
       "workflow_id": "workflow.writing.modular_novel.node.character_review",
       "workflow_file_ref": "workflow:workflow.writing.modular_novel.node.character_review",
+      "projection_id": "",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.character_review",
       "safety_policy": {
@@ -341,6 +347,7 @@
       "participant_agent_ids": [],
       "workflow_id": "workflow.writing.modular_novel.node.plot_design",
       "workflow_file_ref": "workflow:workflow.writing.modular_novel.node.plot_design",
+      "projection_id": "",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.plot_design",
       "safety_policy": {
@@ -396,6 +403,7 @@
       "participant_agent_ids": [],
       "workflow_id": "workflow.writing.modular_novel.node.design_sync",
       "workflow_file_ref": "workflow:workflow.writing.modular_novel.node.design_sync",
+      "projection_id": "",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.design_alignment",
       "safety_policy": {
@@ -451,6 +459,7 @@
       "participant_agent_ids": [],
       "workflow_id": "workflow.writing.modular_novel.node.memory_commit_character",
       "workflow_file_ref": "workflow:workflow.writing.modular_novel.node.memory_commit_character",
+      "projection_id": "",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.character_commit",
       "safety_policy": {
@@ -506,6 +515,7 @@
       "participant_agent_ids": [],
       "workflow_id": "workflow.writing.modular_novel.node.outline_design",
       "workflow_file_ref": "workflow:workflow.writing.modular_novel.node.outline_design",
+      "projection_id": "",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.outline_design",
       "safety_policy": {
@@ -561,6 +571,7 @@
       "participant_agent_ids": [],
       "workflow_id": "workflow.writing.modular_novel.node.outline_review",
       "workflow_file_ref": "workflow:workflow.writing.modular_novel.node.outline_review",
+      "projection_id": "",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.outline_review",
       "safety_policy": {
@@ -616,6 +627,7 @@
       "participant_agent_ids": [],
       "workflow_id": "workflow.writing.modular_novel.node.baseline_memory_seed",
       "workflow_file_ref": "workflow:workflow.writing.modular_novel.node.baseline_memory_seed",
+      "projection_id": "",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.baseline_commit",
       "safety_policy": {
@@ -671,6 +683,7 @@
       "participant_agent_ids": [],
       "workflow_id": "workflow.writing.modular_novel.node.volume_plan",
       "workflow_file_ref": "workflow:workflow.writing.modular_novel.node.volume_plan",
+      "projection_id": "",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.volume_plan",
       "safety_policy": {
@@ -726,6 +739,7 @@
       "participant_agent_ids": [],
       "workflow_id": "workflow.writing.modular_novel.node.chapter_outline",
       "workflow_file_ref": "workflow:workflow.writing.modular_novel.node.chapter_outline",
+      "projection_id": "",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.chapter_outline",
       "safety_policy": {
@@ -781,6 +795,7 @@
       "participant_agent_ids": [],
       "workflow_id": "workflow.writing.modular_novel.node.chapter_draft",
       "workflow_file_ref": "workflow:workflow.writing.modular_novel.node.chapter_draft",
+      "projection_id": "",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.chapter_draft",
       "safety_policy": {
@@ -836,6 +851,7 @@
       "participant_agent_ids": [],
       "workflow_id": "workflow.writing.modular_novel.node.chapter_review",
       "workflow_file_ref": "workflow:workflow.writing.modular_novel.node.chapter_review",
+      "projection_id": "",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.chapter_review",
       "safety_policy": {
@@ -891,6 +907,7 @@
       "participant_agent_ids": [],
       "workflow_id": "workflow.writing.modular_novel.node.memory_commit_chapter",
       "workflow_file_ref": "workflow:workflow.writing.modular_novel.node.memory_commit_chapter",
+      "projection_id": "",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.chapter_batch_commit",
       "safety_policy": {
@@ -946,6 +963,7 @@
       "participant_agent_ids": [],
       "workflow_id": "workflow.writing.modular_novel.node.chapter_progress_router",
       "workflow_file_ref": "workflow:workflow.writing.modular_novel.node.chapter_progress_router",
+      "projection_id": "",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.progress_route",
       "safety_policy": {
@@ -1001,6 +1019,7 @@
       "participant_agent_ids": [],
       "workflow_id": "workflow.writing.modular_novel.node.volume_review",
       "workflow_file_ref": "workflow:workflow.writing.modular_novel.node.volume_review",
+      "projection_id": "",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.volume_review",
       "safety_policy": {
@@ -1056,6 +1075,7 @@
       "participant_agent_ids": [],
       "workflow_id": "workflow.writing.modular_novel.node.volume_commit",
       "workflow_file_ref": "workflow:workflow.writing.modular_novel.node.volume_commit",
+      "projection_id": "",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.volume_commit",
       "safety_policy": {
@@ -1111,6 +1131,7 @@
       "participant_agent_ids": [],
       "workflow_id": "workflow.writing.modular_novel.node.volume_postmortem",
       "workflow_file_ref": "workflow:workflow.writing.modular_novel.node.volume_postmortem",
+      "projection_id": "",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.volume_postmortem",
       "safety_policy": {
@@ -1166,6 +1187,7 @@
       "participant_agent_ids": [],
       "workflow_id": "workflow.writing.modular_novel.node.world_outline_extension_proposal",
       "workflow_file_ref": "workflow:workflow.writing.modular_novel.node.world_outline_extension_proposal",
+      "projection_id": "",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.extension_proposal",
       "safety_policy": {
@@ -1221,6 +1243,7 @@
       "participant_agent_ids": [],
       "workflow_id": "workflow.writing.modular_novel.node.extension_review",
       "workflow_file_ref": "workflow:workflow.writing.modular_novel.node.extension_review",
+      "projection_id": "",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.extension_review",
       "safety_policy": {
@@ -1276,6 +1299,7 @@
       "participant_agent_ids": [],
       "workflow_id": "workflow.writing.modular_novel.node.extension_commit",
       "workflow_file_ref": "workflow:workflow.writing.modular_novel.node.extension_commit",
+      "projection_id": "",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.extension_commit",
       "safety_policy": {
@@ -1331,6 +1355,7 @@
       "participant_agent_ids": [],
       "workflow_id": "workflow.writing.modular_novel.node.next_volume_router",
       "workflow_file_ref": "workflow:workflow.writing.modular_novel.node.next_volume_router",
+      "projection_id": "",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.volume_route",
       "safety_policy": {
@@ -1386,6 +1411,7 @@
       "participant_agent_ids": [],
       "workflow_id": "workflow.writing.modular_novel.node.final_assemble",
       "workflow_file_ref": "workflow:workflow.writing.modular_novel.node.final_assemble",
+      "projection_id": "",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.final_manuscript",
       "safety_policy": {
@@ -1441,6 +1467,7 @@
       "participant_agent_ids": [],
       "workflow_id": "workflow.writing.modular_novel.node.final_review",
       "workflow_file_ref": "workflow:workflow.writing.modular_novel.node.final_review",
+      "projection_id": "",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.final_review",
       "safety_policy": {
@@ -1496,6 +1523,7 @@
       "participant_agent_ids": [],
       "workflow_id": "workflow.writing.modular_novel.node.memory_finalize",
       "workflow_file_ref": "workflow:workflow.writing.modular_novel.node.memory_finalize",
+      "projection_id": "",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.final_memory_seal",
       "safety_policy": {
@@ -1551,6 +1579,7 @@
       "participant_agent_ids": [],
       "workflow_id": "workflow.000001",
       "workflow_file_ref": "workflow:workflow.000001",
+      "projection_id": "",
       "input_contract_id": "UserMessage",
       "output_contract_id": "AssistantFinalAnswer",
       "safety_policy": {

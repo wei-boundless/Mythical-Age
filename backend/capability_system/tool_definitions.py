@@ -51,12 +51,12 @@ class ToolDefinition:
     supported_modalities: list[str] = field(default_factory=list)
     safety_tags: list[str] = field(default_factory=list)
     route_hints: list[str] = field(default_factory=list)
-    safe_for_auto_route: bool = True
+    safe_for_auto_route: bool = False
     schema_identity: str = ""
     runtime_visibility: ToolRuntimeVisibility = "main_runtime"
     prompt_exposure_policy: ToolPromptExposurePolicy = "schema_only"
     resource_exposure_policy: ToolResourceExposurePolicy = "none"
-    is_read_only: bool = True
+    is_read_only: bool = False
     is_destructive: bool = False
     is_concurrency_safe: bool = False
 

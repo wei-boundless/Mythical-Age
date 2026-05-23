@@ -10,7 +10,7 @@ if str(BACKEND_DIR) not in sys.path:
 from agent_system.assembly.runtime_chain import AgentRuntimeChainAssembler
 from agent_system.profiles.runtime_profile_models import AgentRuntimeProfile
 from runtime.unit_runtime.loop import _task_operation_allows_context_retrieval
-from understanding.capability_resolution_view import capability_resolution_view
+from tests.support.runtime_stubs import model_turn_context
 
 
 class _MemoryFacadeStub:
@@ -56,6 +56,13 @@ def test_explicit_task_selection_suppresses_nested_rag_resolution() -> None:
         "coordination_run_id": "coordrun:test",
         "continuation_stage_id": "world_design",
         "stage_execution_request": {"node_id": "world_design"},
+        **model_turn_context(
+            action_intent="read_context",
+            work_mode="implementation",
+            interaction_intent="create",
+            desired_outcome="执行世界观设计节点",
+            deliverables=["node_contract_output"],
+        ),
     }
 
     runtime = chain.build_runtime(
@@ -71,25 +78,29 @@ def test_explicit_task_selection_suppresses_nested_rag_resolution() -> None:
 
     task_operation = dict(runtime.get("task_operation") or {})
     understanding = dict(task_operation.get("query_understanding") or {})
-    resolution = capability_resolution_view(understanding)
     execution_shape = dict(task_operation.get("execution_shape") or {})
     recipe = dict(task_operation.get("selected_recipe") or {})
 
-    assert understanding["route"] == "agent"
-    assert understanding["execution_posture"] == "task_runtime"
-    assert understanding["should_skip_rag"] is True
-    assert resolution.route == "agent"
-    assert resolution.execution_posture == "task_runtime"
-    assert resolution.preferred_skill == ""
+    assert understanding["authority"] == "request_facts.frame"
+    assert understanding["context_binding"]["kind"] == "explicit_task_selection"
+    assert "route_hint" not in understanding["capability_intent"]
+    assert understanding["capability_intent"]["tool_selection_allowed"] is False
+    assert "candidate_tools" not in understanding
+    assert "tool_name" not in understanding
     assert execution_shape["recipe_id"] != "runtime.recipe.knowledge_retrieval"
     assert "recipe_preset_id" not in execution_shape
-    assert "rag_execution_posture" not in list(execution_shape.get("resolution_reasons") or [])
+    assert "knowledge_route" not in list(execution_shape.get("resolution_reasons") or [])
     assert recipe["execution_kind"] == "task_runtime"
 
 
 def test_coordination_task_context_retrieval_requires_explicit_permission() -> None:
     task_operation = {
-        "query_understanding": {"should_skip_rag": True},
+        "query_understanding": {
+            "authority": "request_facts.frame",
+            "capability_intent": {"tool_selection_allowed": False},
+            "context_binding": {"kind": "explicit_task_selection"},
+            **model_turn_context(action_intent="read_context", work_mode="implementation", interaction_intent="create"),
+        },
         "current_turn_context": {
             "coordination_run_id": "coordrun:test",
             "continuation_stage_id": "world_design",

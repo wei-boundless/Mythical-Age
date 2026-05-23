@@ -223,14 +223,18 @@ def _model_plan_from_payload(
 def _steps_for_contract(*, contract: dict[str, Any], obligation: dict[str, Any]) -> list[AgentPlanStep]:
     task_goal_type = str(contract.get("task_goal_type") or "").strip()
     if task_goal_type == "game_vertical_slice_delivery":
-        return [
+        steps = []
+        if "read_material" in {str(item).strip() for item in list(contract.get("required_actions") or []) if str(item).strip()}:
+            steps.append(_step("read_required_materials", "读取必要材料", "读取并抽取任务所需材料证据。", ("op.read_file",), ("material_facts",), ("material_observation",), ("read_material",)))
+        steps.extend([
             _step("inspect_project", "勘察项目入口", "确认项目结构、启动方式和游戏落点。", ("op.read_file", "op.search_text"), ("entrypoint_map",), ("source_tree_observation",), ("inspect_code",)),
             _step("plan_vertical_slice", "规划垂直切片", "把用户目标拆成玩法、资源、验证和报告阶段。", ("op.model_response",), ("implementation_plan",), ("plan_coverage_notes",), ("gameplay_acceptance", "visual_asset_refs")),
             _step("implement_core_gameplay", "实现核心玩法", "实现可观察的移动、攻击、敌人、推进和 HUD。", ("op.write_file", "op.edit_file"), ("source_changes",), ("file_write", "gameplay_check"), ("apply_real_change", "gameplay_acceptance")),
             _step("integrate_visual_asset", "接入视觉资源", "生成或接入至少一个真实可见的视觉资源。", ("op.write_file", "op.edit_file"), ("asset_refs",), ("asset_file", "asset_visible"), ("integrate_asset", "visual_asset_refs")),
             _step("run_browser_verification", "运行并浏览器验证", "启动项目或打开入口，检查画面、资源和关键玩法。", ("op.shell", "op.browser"), ("verification_evidence",), ("browser_open", "canvas_pixel_check", "gameplay_check"), ("run_browser_verification", "verification_evidence")),
             _step("write_final_report", "撰写最终报告", "只在核心实现和验证之后汇报变更、证据和限制。", ("op.write_file", "op.model_response"), ("final_report",), ("file_write", "completion_judgment"), ("final_report",)),
-        ]
+        ])
+        return steps
     if task_goal_type == "frontend_app_delivery":
         return [
             _step("inspect_frontend_structure", "勘察前端结构", "确认入口、组件、路由和运行方式。", ("op.read_file", "op.search_text"), ("frontend_structure",), ("source_tree_observation",), ("inspect_code",)),

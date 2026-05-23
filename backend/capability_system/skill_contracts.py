@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from capability_system.skill_routes import SKILL_ROUTE_OPERATION_MAP
+
 
 DEFAULT_SKILL_OUTPUT_RULE = (
     "Directly answer the user-facing task. Do not describe internal tool calls, routing policy, or protocol."
@@ -11,13 +13,6 @@ DEFAULT_SKILL_OUTPUT_RULE = (
 VALID_ACTIVATION_POLICIES = {"model_visible", "manual", "disabled"}
 VALID_CONTEXT_MODES = {"inline", "isolated", "summary_only"}
 VALID_ROUTE_AUTHORITIES = {"candidate_only", "preferred", "required"}
-KNOWN_SKILL_ROUTE_OPERATION_MAP = {
-    "rag": "op.mcp_retrieval",
-    "retrieval": "op.mcp_retrieval",
-    "pdf": "op.mcp_pdf",
-    "structured_data": "op.mcp_structured_data",
-    "data": "op.mcp_structured_data",
-}
 
 
 def normalize_string(value: Any, default: str = "") -> str:
@@ -126,8 +121,8 @@ class SkillRuntimeContract:
             errors.append(f"context_mode must be one of {sorted(VALID_CONTEXT_MODES)}")
         if self.route_authority not in VALID_ROUTE_AUTHORITIES:
             errors.append(f"route_authority must be one of {sorted(VALID_ROUTE_AUTHORITIES)}")
-        if self.preferred_route and self.preferred_route in KNOWN_SKILL_ROUTE_OPERATION_MAP:
-            operation_id = KNOWN_SKILL_ROUTE_OPERATION_MAP[self.preferred_route]
+        if self.preferred_route and self.preferred_route in SKILL_ROUTE_OPERATION_MAP:
+            operation_id = SKILL_ROUTE_OPERATION_MAP[self.preferred_route]
             if operation_id not in set(self.requires_operations):
                 errors.append(f"preferred_route {self.preferred_route} requires explicit {operation_id} in requires_operations")
         return errors

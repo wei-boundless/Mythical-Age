@@ -196,7 +196,7 @@ backend/tasks/contract_models.py
 backend/tasks/contract_registry.py
 backend/tasks/contracts.py
 backend/tasks/runtime_contracts.py
-backend/tasks/semantic_task_contracts.py
+backend/tasks/task_requirement_contracts.py
 backend/tasks/match_contracts.py
 backend/tasks/flow_models.py
 backend/tasks/flow_registry.py
@@ -513,7 +513,7 @@ backend/tasks/contract_models.py              -> backend/task_system/contracts/m
 backend/tasks/contract_registry.py            -> backend/task_system/contracts/registry.py
 backend/tasks/contracts.py                    -> backend/task_system/contracts/task_contracts.py
 backend/tasks/runtime_contracts.py            -> backend/task_system/contracts/runtime_views.py
-backend/tasks/semantic_task_contracts.py      -> backend/task_system/contracts/semantic_contracts.py
+backend/tasks/task_requirement_contracts.py      -> backend/task_system/contracts/semantic_contracts.py
 backend/tasks/match_contracts.py              -> backend/task_system/contracts/match_contracts.py
 
 backend/tasks/flow_models.py                  -> backend/task_system/registry/flow_models.py

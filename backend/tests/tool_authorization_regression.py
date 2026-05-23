@@ -92,6 +92,21 @@ def test_all_builtin_tools_have_explicit_operation_id() -> None:
     assert all(definition.operation_id.startswith("op.") for definition in definitions)
 
 
+def test_tool_definition_defaults_are_fail_closed() -> None:
+    definition = get_tool_definitions()[0]
+    defaulted = type(definition)(
+        name="minimal_tool",
+        display_name="Minimal Tool",
+        operation_id="op.minimal_tool",
+        module="tools.minimal",
+        factory=definition.factory,
+    )
+
+    assert defaulted.safe_for_auto_route is False
+    assert defaulted.is_read_only is False
+    assert defaulted.is_concurrency_safe is False
+
+
 def test_tool_operation_resolution_does_not_use_operation_alias_collision() -> None:
     index = build_tool_authorization_index(get_tool_definitions())
 

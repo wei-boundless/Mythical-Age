@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from types import SimpleNamespace
 
+from request_intent.request_signals import build_request_signals
 from capability_system.paths import CapabilitySystemPaths
 from capability_system.skill_contracts import SkillContract, SkillPromptContract, SkillRuntimeContract
 
@@ -75,23 +75,14 @@ class SkillRegistry:
         route: str,
         modality: str,
         *,
-        task_kind: str | None = None,
         source_kind: str | None = None,
-        tool_name: str | None = None,
-        candidate_tools: list[str] | None = None,
     ) -> SkillDefinition | None:
         from capability_system.skill_policy import SkillPolicyResolver
 
-        task_frame = SimpleNamespace(
-            route=route,
-            modality=modality,
-            task_kind=task_kind,
-            source_kind=source_kind,
-            tool_name=tool_name,
-            candidate_tools=list(candidate_tools or []),
-            capability_requests=[],
-            execution_posture="",
-            skill_name=None,
+        _ = (route, modality)
+        task_frame = build_request_signals(
+            message,
+            current_turn_context={"target_domain_hint": source_kind or ""},
         )
         frame = SkillPolicyResolver(self).resolve(task_frame=task_frame)
         return frame.skill if frame is not None else None

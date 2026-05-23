@@ -4,7 +4,8 @@ from typing import Any
 
 import re
 
-from context_system.current_turn.current_turn import BundleItem, CurrentTurnContext, ResolvedBinding
+from request_intent.frame_access import capability_needs, explicit_paths, material_kinds, turn_signals
+from context_system.current_turn.turn_binding import BundleItem, TurnBinding, ResolvedBinding
 
 
 _ORDER_SPLIT_RE = re.compile(r"(?:(?<!优)先|再|然后|最后|并且|以及|，|,|；|;)")
@@ -23,19 +24,13 @@ class ContextResolver:
         user_message: str,
         memory_runtime_view: dict[str, Any] | None = None,
         query_understanding: dict[str, Any] | None = None,
-        intent_frame: dict[str, Any] | None = None,
-        intent_decision: dict[str, Any] | None = None,
-        task_goal_frame: dict[str, Any] | None = None,
-        runtime_assembly_hint: dict[str, Any] | None = None,
+        task_goal_spec: dict[str, Any] | None = None,
         continuation_candidates: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
         continuation_decision: dict[str, Any] | None = None,
-    ) -> CurrentTurnContext:
+    ) -> TurnBinding:
         memory_view = dict(memory_runtime_view or {})
         understanding = dict(query_understanding or {})
-        intent_frame_payload = dict(intent_frame or understanding.get("intent_frame") or {})
-        intent_decision_payload = dict(intent_decision or understanding.get("intent_decision") or {})
-        task_goal_frame_payload = dict(task_goal_frame or understanding.get("task_goal_frame") or {})
-        runtime_assembly_hint_payload = dict(runtime_assembly_hint or {})
+        task_goal_spec_payload = dict(task_goal_spec or understanding.get("task_goal_spec") or {})
         continuation_candidate_payloads = [
             dict(item)
             for item in list(continuation_candidates or [])
@@ -50,7 +45,7 @@ class ContextResolver:
         )
         bindings = self._resolved_bindings(
             explicit_inputs=explicit_inputs,
-            structural_signals=dict(understanding.get("structural_signals") or {}),
+            structural_signals=turn_signals(understanding),
         )
         if bundle_bindings:
             bindings = [*bundle_bindings, *bindings]
@@ -99,7 +94,7 @@ class ContextResolver:
             for item in list(memory_view.get("restore_candidates") or [])
             if isinstance(item, dict) and str(item.get("candidate_id") or "").strip()
         )
-        return CurrentTurnContext(
+        return TurnBinding(
             session_id=session_id,
             task_id=task_id,
             user_message=user_message,
@@ -111,21 +106,31 @@ class ContextResolver:
             bundle_items=tuple(bundle_items),
             followup_target_refs=followup_target_refs,
             restore_candidates_used=restore_candidate_refs,
-            intent_frame=intent_frame_payload,
-            intent_decision=intent_decision_payload,
-            task_goal_frame=task_goal_frame_payload,
-            runtime_assembly_hint=runtime_assembly_hint_payload,
+            task_goal_spec=task_goal_spec_payload,
             continuation_candidates=tuple(continuation_candidate_payloads),
             continuation_decision=continuation_decision_payload,
             context_recall_candidates=tuple(context_recall_candidates),
-            structural_signals=dict(understanding.get("structural_signals") or {}),
+            structural_signals=turn_signals(understanding),
             confidence=float(understanding.get("confidence") or 0.0),
         )
 
     def _explicit_inputs(self, understanding: dict[str, Any]) -> dict[str, Any]:
-        signals = dict(understanding.get("structural_signals") or {})
-        tool_input = dict(understanding.get("tool_input") or {})
+        signals = {
+            **dict(understanding.get("structural_signals") or {}),
+            **turn_signals(understanding),
+        }
+        paths = explicit_paths(understanding)
+        kinds = material_kinds(understanding)
         result: dict[str, Any] = {}
+        if paths:
+            result["explicit_paths"] = paths
+            primary_path = paths[0]
+            if "pdf" in kinds:
+                result["explicit_pdf_path"] = primary_path
+            elif "dataset" in kinds:
+                result["explicit_dataset_path"] = primary_path
+            else:
+                result["explicit_workspace_path"] = primary_path
         for key in (
             "explicit_dataset_path",
             "explicit_pdf_path",
@@ -138,11 +143,9 @@ class ContextResolver:
                 result[key] = value
         if signals.get("followup_ordinals"):
             result["followup_ordinals"] = list(signals.get("followup_ordinals") or [])
-        if tool_input:
-            result["tool_input"] = tool_input
         capability_requests = [
             str(item).strip()
-            for item in list(understanding.get("capability_requests") or [])
+            for item in sorted(capability_needs(understanding))
             if str(item).strip()
         ]
         if capability_requests:
@@ -577,3 +580,4 @@ def _identity(value: str) -> str:
 def _slug(value: str) -> str:
     compact = re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "-", str(value or "").lower()).strip("-")
     return compact[:48] or "main"
+

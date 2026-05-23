@@ -41,8 +41,7 @@ _RESOURCE_ORDERS = {
 
 _BUILTIN_SECTION_PLAN = (
     ("task_section", "builtin:task_section", "runtime_task_section", "任务契约", "task", 10),
-    ("task_understanding_section", "builtin:task_understanding_section", "task_understanding_frame", "通用理解框架", "task", 18),
-    ("semantic_task_section", "builtin:semantic_task_section", "semantic_task_contract", "语义任务契约", "task", 20),
+    ("semantic_task_section", "builtin:semantic_task_section", "task_requirement_contract", "语义任务契约", "task", 20),
     ("goal_understanding_section", "builtin:goal_understanding_section", "goal_understanding_contract", "目标理解", "task", 22),
     ("domain_playbook_section", "builtin:domain_playbook_section", "task_domain_binding", "任务域制式", "task", 24),
     ("workflow_section", "builtin:workflow_section", "task_workflow", "工作流", "task", 30),
@@ -90,40 +89,15 @@ def build_prompt_selection_context(
     registered_policy = dict(registered.get("task_policy") or {})
     registered_structure = dict(registered_policy.get("task_structure") or {})
     semantic_contract = dict(
-        contract.get("semantic_task_contract")
-        or recipe_metadata.get("semantic_task_contract")
-        or assembly_metadata.get("semantic_task_contract")
+        contract.get("task_requirement_contract")
+        or recipe_metadata.get("task_requirement_contract")
+        or assembly_metadata.get("task_requirement_contract")
         or {}
     )
     semantic_diagnostics = dict(semantic_contract.get("diagnostics") or {})
-    task_goal_frame = dict(
-        current_turn.get("task_goal_frame")
-        or semantic_diagnostics.get("task_goal_frame")
-        or {}
-    )
-    task_understanding_frame = dict(
-        current_turn.get("task_understanding_frame")
-        or semantic_diagnostics.get("task_understanding_frame")
-        or task_goal_frame.get("task_understanding_frame")
-        or dict(task_goal_frame.get("evidence") or {}).get("task_understanding_frame")
-        or {}
-    )
-    understanding_arbitration = dict(
-        current_turn.get("understanding_arbitration")
-        or semantic_diagnostics.get("understanding_arbitration")
-        or task_understanding_frame.get("understanding_arbitration")
-        or {}
-    )
-    model_understanding_request = dict(
-        current_turn.get("model_understanding_request")
-        or semantic_diagnostics.get("model_understanding_request")
-        or task_understanding_frame.get("model_understanding_request")
-        or {}
-    )
-    communication_frame = dict(
-        current_turn.get("communication_frame")
-        or semantic_diagnostics.get("communication_frame")
-        or task_understanding_frame.get("communication_frame")
+    task_goal_spec = dict(
+        current_turn.get("task_goal_spec")
+        or semantic_diagnostics.get("task_goal_spec")
         or {}
     )
     task_domain_binding = dict(
@@ -133,7 +107,7 @@ def build_prompt_selection_context(
     )
     goal_hypothesis_set = dict(
         semantic_diagnostics.get("goal_hypothesis_set")
-        or dict(task_goal_frame.get("evidence") or {}).get("goal_hypothesis_set")
+        or dict(task_goal_spec.get("evidence") or {}).get("goal_hypothesis_set")
         or {}
     )
     agent_plan_draft = dict(
@@ -292,13 +266,9 @@ def build_prompt_selection_context(
             for item in list(current_turn.get("visible_tool_ids") or current_turn.get("available_tool_ids") or [])
             if str(item).strip()
         ),
-        task_understanding_frame=task_understanding_frame,
-        model_understanding_request=model_understanding_request,
-        understanding_arbitration=understanding_arbitration,
-        communication_frame=communication_frame,
         task_domain_binding=task_domain_binding,
         goal_hypothesis_set=goal_hypothesis_set,
-        task_goal_frame=task_goal_frame,
+        task_goal_spec=task_goal_spec,
         agent_plan_draft=agent_plan_draft,
         plan_coverage_review=plan_coverage_review,
         verification_review=verification_review,
@@ -308,11 +278,7 @@ def build_prompt_selection_context(
             "mode_policy_ref": str(mode_policy.get("authority") or ""),
             "selected_recipe_id": str(recipe.get("recipe_id") or ""),
             "selected_recipe_title": str(recipe.get("title") or ""),
-            "semantic_task_contract_ref": str(semantic_contract.get("contract_id") or ""),
-            "task_understanding_frame_ref": str(task_understanding_frame.get("frame_id") or ""),
-            "model_understanding_request_ref": str(model_understanding_request.get("request_id") or ""),
-            "understanding_arbitration_ref": str(understanding_arbitration.get("arbitration_id") or ""),
-            "communication_frame_ref": str(communication_frame.get("frame_id") or ""),
+            "task_requirement_contract_ref": str(semantic_contract.get("contract_id") or ""),
             "task_domain_binding_ref": str(task_domain_binding.get("binding_id") or ""),
             "goal_hypothesis_set_ref": str(goal_hypothesis_set.get("hypothesis_set_id") or ""),
             "agent_plan_ref": str(agent_plan_draft.get("plan_id") or ""),
@@ -389,10 +355,6 @@ class PromptSelector:
             "recipe_step_count": len(context.recipe_steps),
             "step_sequence": list(context.step_sequence),
             "task_graph_node_runtime": context.task_graph_node_runtime,
-            "task_understanding_frame_ref": str(context.task_understanding_frame.get("frame_id") or ""),
-            "model_understanding_request_ref": str(context.model_understanding_request.get("request_id") or ""),
-            "understanding_arbitration_ref": str(context.understanding_arbitration.get("arbitration_id") or ""),
-            "communication_frame_ref": str(context.communication_frame.get("frame_id") or ""),
             "task_domain_binding_ref": str(context.task_domain_binding.get("binding_id") or ""),
             "goal_hypothesis_set_ref": str(context.goal_hypothesis_set.get("hypothesis_set_id") or ""),
             "agent_plan_ref": str(context.agent_plan_draft.get("plan_id") or ""),

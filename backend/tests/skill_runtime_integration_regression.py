@@ -10,6 +10,7 @@ if str(ROOT) not in sys.path:
 from agent_system.assembly.runtime_chain import AgentRuntimeChainAssembler
 from capability_system.skill_registry import SkillRegistry
 from capability_system.tool_registry import ToolRegistry
+from tests.support.runtime_stubs import model_turn_context
 
 
 class _MemoryFacadeStub:
@@ -66,6 +67,13 @@ def test_agent_runtime_chain_uses_realtime_network_without_active_skill() -> Non
         task_id="task-test",
         message="帮我联网查 OpenAI API 最新更新",
         source="regression",
+        current_turn_context_override=model_turn_context(
+            action_intent="search_external",
+            work_mode="read_only_analysis",
+            interaction_intent="answer",
+            desired_outcome="联网查 OpenAI API 最新更新",
+            deliverables=["source_backed_answer"],
+        ),
     )
 
     task_operation = dict(runtime.get("task_operation") or {})
@@ -79,9 +87,12 @@ def test_agent_runtime_chain_uses_realtime_network_without_active_skill() -> Non
     prompt_assembly_plan = dict(diagnostics.get("prompt_assembly_plan") or {})
 
     assert active_skill == {}
-    assert understanding["route"] == "realtime_network"
-    assert understanding["tool_name"] == "web_search"
-    assert any(item["candidate_type"] == "tool" and item["name"] == "web_search" for item in list(understanding.get("candidate_capabilities") or []))
+    assert understanding["authority"] == "request_facts.frame"
+    assert understanding["model_turn_decision"]["action_intent"] == "search_external"
+    assert understanding["capability_intent"]["tool_selection_allowed"] is False
+    assert "route_hint" not in understanding["capability_intent"]
+    assert "tool_name" not in understanding
+    assert "candidate_tools" not in understanding
     assert "op.web_search" in list(operation_requirement.get("required_operations") or [])
     assert memory_request_profile["requested_memory_layers"] == ["conversation"]
     sections = list(dict(task_body_orchestration.get("soul_runtime_view") or {}).get("sections") or [])
@@ -111,6 +122,14 @@ def test_agent_runtime_chain_uses_intent_gated_state_recall_for_followup() -> No
         task_id="task-test",
         message="按仓库汇总前五。",
         source="regression",
+        current_turn_context_override=model_turn_context(
+            action_intent="read_context",
+            work_mode="read_only_analysis",
+            interaction_intent="continue",
+            target_objects=["Data/inventory.xlsx"],
+            desired_outcome="按仓库汇总前五",
+            deliverables=["structured_summary"],
+        ),
     )
 
     task_operation = dict(runtime.get("task_operation") or {})
@@ -129,12 +148,15 @@ def test_agent_runtime_chain_uses_intent_gated_state_recall_for_followup() -> No
     ]
     assert [] in requested_layers_by_call
     assert ["state"] in requested_layers_by_call
-    assert active_skill == {}
-    assert understanding["route"] == "agent"
-    assert understanding["tool_name"] is None
-    assert understanding["skill_name"] is None
-    assert understanding["candidate_tools"] == []
-    assert understanding["tool_input"] == {"query": "按仓库汇总前五。"}
+    assert active_skill.get("name") == "structured-data-analysis"
+    assert understanding["authority"] == "request_facts.frame"
+    assert understanding["model_turn_decision"]["action_intent"] == "read_context"
+    assert understanding["capability_intent"]["tool_selection_allowed"] is False
+    assert "route" not in understanding
+    assert "tool_name" not in understanding
+    assert "skill_name" not in understanding
+    assert "candidate_tools" not in understanding
+    assert "tool_input" not in understanding
     assert current_turn["resolved_bindings"] == []
     assert current_turn["context_recall_candidates"][0]["recall_payload"]["active_dataset"] == "Data/inventory.xlsx"
     assert recall_context["candidate_policy"] == "candidate_only_child_must_verify_before_use"

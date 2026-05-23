@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-
 USER_POSTURES = {"ask", "explore", "execute", "correct", "continue", "review", "dissatisfied", "conversation"}
 AGENT_POSTURES = {
     "answer",
@@ -103,7 +102,7 @@ def build_communication_frame(
         latest_user_instruction_priority=True,
         evidence={
             "posture_markers": _posture_markers(lowered),
-            "query_route": str(query.get("route") or query.get("route_hint") or ""),
+            "model_turn_decision": dict(query.get("model_turn_decision") or {}),
         },
     )
 
@@ -163,9 +162,6 @@ def _collaboration_mode(
         return "planning"
     if action_intent in {"modify", "create"}:
         return "long_task" if len(user_provided_flow) >= 3 else "implementation"
-    posture = str(query_understanding.get("execution_posture") or "").strip()
-    if posture in {"task_runtime", "bounded_agent"}:
-        return "implementation"
     return "conversation"
 
 

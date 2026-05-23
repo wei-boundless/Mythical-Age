@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import sys
-from dataclasses import asdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -11,8 +10,9 @@ if str(ROOT) not in sys.path:
 from prompt_library.assembler import assemble_runtime_prompt_contract
 from runtime.professional_runtime.agent_plan import build_agent_plan_draft
 from runtime.professional_runtime.plan_coverage import review_plan_coverage
+from request_intent.request_signals import build_request_signals
 from task_system.services.assembly_builder import build_task_execution_assembly_bundle
-from understanding.query_understanding import analyze_query_understanding
+from tests.support.runtime_stubs import model_turn_context
 
 
 def _frontend_contract() -> dict[str, object]:
@@ -118,21 +118,39 @@ def test_model_agent_plan_draft_is_accepted_when_schema_valid() -> None:
 
 def test_plan_coverage_hard_gate_blocks_execution_steps_when_model_plan_misses_contract() -> None:
     message = "请重构前端任务图编辑器，做成可运行的编辑器体验，并用浏览器验证关键工作流。"
+    turn_context = model_turn_context(
+        action_intent="edit_workspace",
+        work_mode="implementation",
+        interaction_intent="modify",
+        desired_outcome=message,
+        deliverables=["runnable_artifact_refs", "workflow_acceptance", "verification_evidence"],
+        planning_required=True,
+        todo_required=True,
+        task_goal_type="frontend_app_delivery",
+        task_domain="development",
+    )
+    query_understanding = {
+        **build_request_signals(message).to_dict(),
+        "model_turn_decision": dict(turn_context["model_turn_decision"]),
+        "request_facts": dict(turn_context["request_facts"]),
+        "boundary_policy": dict(turn_context["boundary_policy"]),
+        "action_permit": dict(turn_context["action_permit"]),
+    }
     bundle = build_task_execution_assembly_bundle(
         base_dir=ROOT,
         session_id="plan-gate-session",
         task_id="plan-gate-task",
         user_goal=message,
         source="test",
-        query_understanding=asdict(analyze_query_understanding(message)),
+        query_understanding=query_understanding,
         current_turn_context={
+            **turn_context,
             "interaction_mode": "professional_mode",
             "runtime_interaction_mode": "professional_mode",
-            "intent_decision": {"execution_strategy": "professional_task_run", "interaction_mode": "professional_mode"},
-            "runtime_assembly_hint": {
+            "mode_policy": {
                 "execution_strategy": "professional_task_run",
                 "interaction_mode": "professional_mode",
-                "runtime_mode": "professional_task",
+                "runtime_lane": "professional_task",
             },
             "model_agent_plan_draft": {
                 "authority": "runtime.agent_plan_draft",
@@ -182,7 +200,7 @@ def test_prompt_sections_explain_scaffold_and_hard_gate() -> None:
         user_goal="重构前端",
         task_contract={
             "user_goal": "重构前端",
-            "semantic_task_contract": _frontend_contract(),
+            "task_requirement_contract": _frontend_contract(),
             "mode_policy": {"interaction_mode": "professional_mode"},
         },
         task_execution_assembly={"task_family": "runtime", "task_mode": "professional_mode", "metadata": {}},

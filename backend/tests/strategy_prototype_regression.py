@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from prompting.professional_profiles import get_professional_prompt_profile
 from prompting.strategy_prototypes import get_strategy_prototype, strategy_prototype_for_task_goal
+from request_intent.request_signals import build_request_signals
 from task_system.services.assembly_support import build_runtime_task_intent_contract
 
 
@@ -10,11 +11,11 @@ def test_unknown_professional_goal_keeps_generic_strategy_without_losing_obligat
         session_id="session-generic-prototype",
         task_id="task-generic",
         user_goal="执行一个新的复杂仓库治理任务，修改相关文件，并运行 pytest 验证。",
-        query_understanding={"route": "workspace_read", "source_kind": "workspace"},
+        query_understanding=build_request_signals("执行一个新的复杂仓库治理任务，修改相关文件，并运行 pytest 验证。").to_dict(),
         current_turn_context={"semantic_task_type": "unregistered_professional_goal"},
     )
 
-    semantic = contract.semantic_task_contract
+    semantic = contract.task_requirement_contract
     obligation = contract.execution_obligation
 
     assert semantic["strategy_prototype_id"] == "generic_professional_task"

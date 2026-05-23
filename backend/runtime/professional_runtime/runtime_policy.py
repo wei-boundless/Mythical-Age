@@ -199,8 +199,8 @@ def _professional_runtime_policy(selected_recipe_payload: dict[str, Any]) -> dic
         "verification_policy": dict(metadata.get("verification_policy") or mode_policy.get("verification_policy") or {}),
         "sandbox_policy": dict(metadata.get("sandbox_policy") or mode_policy.get("sandbox_policy") or {}),
         "mode_policy": mode_policy,
-        "semantic_task_contract": dict(metadata.get("semantic_task_contract") or {}),
-        "execution_obligation": dict(metadata.get("execution_obligation") or dict(metadata.get("semantic_task_contract") or {}).get("execution_obligation") or {}),
+        "task_requirement_contract": dict(metadata.get("task_requirement_contract") or {}),
+        "execution_obligation": dict(metadata.get("execution_obligation") or dict(metadata.get("task_requirement_contract") or {}).get("execution_obligation") or {}),
         "interaction_mode": str(metadata.get("interaction_mode") or mode_policy.get("interaction_mode") or ""),
     }
 

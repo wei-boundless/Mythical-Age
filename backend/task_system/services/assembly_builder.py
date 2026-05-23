@@ -5,7 +5,7 @@ from typing import Any
 
 from agent_system.profiles.runtime_profile_models import AgentRuntimeProfile
 from permissions.resource_policy_builder import RuntimeApprovalContext
-from intent import build_task_goal_frame
+from request_intent.frame_access import capability_needs
 from task_system.contracts.capability_requirements import build_operation_requirement
 
 from task_system.services.assembly_models import ProjectionSelectionResult, TaskExecutionAssembly
@@ -67,11 +67,10 @@ def build_task_execution_assembly_bundle(
         current_turn_payload=current_turn_payload,
         registered_task=registered_task,
     )
-    current_turn_payload = _ensure_task_goal_frame(
-        user_goal=user_goal,
-        query_understanding=dict(query_understanding or {}),
-        current_turn_payload=current_turn_payload,
-    )
+    if not dict(current_turn_payload.get("model_turn_decision") or {}):
+        raise RuntimeError("ModelTurnDecision is required before task assembly")
+    if not dict(current_turn_payload.get("task_goal_spec") or current_turn_payload.get("goal_frame") or {}):
+        raise RuntimeError("Task goal projection must be produced from ModelTurnDecision before task assembly")
     specific_task_record = (
         flow_registry.get_specific_task_record(str(registered_task.get("task_id") or ""))
         if registered_task and str(registered_task.get("task_type") or "") == "specific_task"
@@ -84,7 +83,7 @@ def build_task_execution_assembly_bundle(
         query_understanding=query_understanding,
         current_turn_context=current_turn_payload,
     )
-    semantic_task_contract = dict(task_intent_contract.semantic_task_contract or {})
+    task_requirement_contract = dict(task_intent_contract.task_requirement_contract or {})
     mode_policy = dict(task_intent_contract.mode_policy or {})
     execution_shape = resolve_execution_shape(
         task_intent_contract=task_intent_contract,
@@ -326,7 +325,7 @@ def build_task_execution_assembly_bundle(
             "current_turn": current_turn_payload,
         }
     task_contract_payload["task_intent_ref"] = task_intent_contract.task_intent_id
-    task_contract_payload["semantic_task_contract"] = semantic_task_contract
+    task_contract_payload["task_requirement_contract"] = task_requirement_contract
     task_contract_payload["mode_policy"] = mode_policy
     task_contract_payload["selected_recipe_id"] = selected_recipe.recipe_id
     task_contract_payload["bundle_spec_ref"] = bundle_spec.bundle_id if bundle_spec is not None else ""
@@ -380,10 +379,10 @@ def build_task_execution_assembly_bundle(
             "interaction_mode": str(mode_policy.get("interaction_mode") or ""),
             "runtime_lane_hint": runtime_lane_hint,
             "projection_strength": str(mode_policy.get("projection_strength") or ""),
-            "semantic_task_type": str(semantic_task_contract.get("task_goal_type") or ""),
-            "professional_profile_id": str(semantic_task_contract.get("professional_profile_id") or ""),
+            "semantic_task_type": str(task_requirement_contract.get("task_goal_type") or ""),
+            "professional_profile_id": str(task_requirement_contract.get("professional_profile_id") or ""),
             "mode_policy": mode_policy,
-            "semantic_task_contract": semantic_task_contract,
+            "task_requirement_contract": task_requirement_contract,
             "registered_task_id": registered_task_id,
             "binding_task_id": binding_task_id,
             "registered_task_type": str((registered_task or {}).get("task_type") or ""),
@@ -509,28 +508,6 @@ def _normalize_current_turn_for_registered_task(
     return payload
 
 
-def _ensure_task_goal_frame(
-    *,
-    user_goal: str,
-    query_understanding: dict[str, Any],
-    current_turn_payload: dict[str, Any],
-) -> dict[str, Any]:
-    payload = dict(current_turn_payload or {})
-    existing = dict(payload.get("task_goal_frame") or payload.get("goal_frame") or {})
-    if existing:
-        payload["task_goal_frame"] = existing
-        return payload
-    frame = build_task_goal_frame(
-        user_goal,
-        intent_frame=dict(payload.get("intent_frame") or {}),
-        intent_decision=dict(payload.get("intent_decision") or {}),
-        query_understanding=query_understanding,
-        model_understanding_draft=dict(payload.get("model_understanding_draft") or {}),
-    )
-    payload["task_goal_frame"] = frame.to_dict()
-    return payload
-
-
 def _registered_task_is_task_graph_node_runtime(registered_task: dict[str, Any] | None) -> bool:
     item = dict(registered_task or {})
     if not item:
@@ -624,18 +601,16 @@ def _memory_request_profile_payload(
     query_understanding: dict[str, Any],
 ) -> dict[str, Any]:
     payload = memory_request_profile.to_dict() if memory_request_profile is not None else {}
-    route = str(
-        query_understanding.get("route")
-        or query_understanding.get("route_hint")
-        or dict(query_understanding.get("capability_resolution") or {}).get("route")
-        or ""
-    ).strip()
-    posture = str(query_understanding.get("execution_posture") or "").strip()
+    needs = capability_needs(query_understanding)
+    model_turn_decision = dict(dict(query_understanding or {}).get("model_turn_decision") or {})
+    action_intent = str(model_turn_decision.get("action_intent") or "").strip()
+    work_mode = str(model_turn_decision.get("work_mode") or "").strip()
     if (
         not payload
         and (
             task_mode in {"short_realtime_lookup", "information_search"}
-            or route in {"realtime_network", "search"}
+            or action_intent == "search_external"
+            or bool(needs & {"latest_information", "weather", "gold_price"})
         )
     ):
         payload.update(
@@ -656,7 +631,9 @@ def _memory_request_profile_payload(
         not payload
         and (
             task_mode in {"capability_execution", "knowledge_retrieval"}
-            or route in {"structured_data", "pdf", "rag", "tool"}
+            or action_intent in {"read_context", "edit_workspace", "run_command"}
+            or work_mode in {"read_only_analysis", "implementation", "verification"}
+            or bool(needs & {"dataset_analysis", "document_analysis", "workspace_material"})
         )
     ):
         payload.update(
@@ -676,8 +653,8 @@ def _memory_request_profile_payload(
     if (
         task_family == "memory"
         or task_mode == "memory_recall"
-        or route == "memory"
-        or posture == "direct_memory"
+        or action_intent == "read_context"
+        or "memory_recall" in needs
     ):
         requested_layers = _dedupe(
             [
@@ -849,12 +826,18 @@ def _skill_runtime_view_from_active_skill(active_skill: dict[str, Any]) -> Skill
     use_when = str(prompt_view.get("use_when") or "").strip()
     output_rule = str(prompt_view.get("output_rule") or "").strip()
     method_parts = [part for part in (capability, use_when, output_rule) if part]
+    skill_contract = dict(active_skill.get("skill_contract") or {})
     return SkillRuntimeView(
         skill_id=f"skill.{skill_id}",
         title=title,
         task_reason=", ".join(list(active_skill.get("reasons") or ())) or "Selected by skill policy.",
         method_summary=" ".join(method_parts) or title,
         output_boundary=output_rule,
+        required_operations=tuple(
+            str(item).strip()
+            for item in list(skill_contract.get("requires_operations") or [])
+            if str(item).strip()
+        ),
     )
 
 

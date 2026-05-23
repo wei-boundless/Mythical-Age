@@ -10,7 +10,7 @@ from .process_state import ProcessStateManager
 from .session_memory_view import DEFAULT_TEMPLATE, SessionMemoryViewBuilder
 from .session_processor import SessionUnderstandingProcessor
 from .text_utils import normalize_storage_text
-from .turn_understanding import FILE_PATTERN
+from .turn_projection import FILE_PATTERN
 
 
 class SessionMemoryManager:
@@ -177,25 +177,20 @@ class SessionMemoryManager:
             task_switch=task_switch,
         )
 
-        turn_analyzer = self.processor.turn_analyzer
         process_engine = self.processor.process_engine
-        understanding = turn_analyzer._understanding_for_text(active_goal)
-        flow_type = process_engine._infer_flow_type(
-            active_goal,
-            understanding,
-            previous_state,
-            file_hints,
-        )
+        turn_projector = self.processor.turn_projector
+        modality = "not_decided"
+        flow_type = "memory_projection"
         flow_id = (
             previous_state.flow_state.flow_id
-            if not task_switch and previous_state.flow_state.flow_type == flow_type
-            else f"{flow_type}:{turn_analyzer._slugify(active_goal or 'active')}"
+            if previous_state.flow_state.flow_type == flow_type
+            else f"{flow_type}:{turn_projector._slugify(active_goal or 'active')}"
         )
         flow_state = FlowState(
             flow_id=flow_id,
             flow_type=flow_type,
             status="awaiting_user" if normalized_task_summaries else "active",
-            confidence=round(max(understanding.confidence, 0.72 if active_goal else 0.0), 2),
+            confidence=1.0 if active_goal else 0.0,
         )
 
         context_slots = self._build_projection_context_slots(
@@ -301,7 +296,7 @@ class SessionMemoryManager:
             updated_at=utc_now_iso(),
             session_title=self._title_from_goal(active_goal),
             active_goal=active_goal,
-            active_goal_turn_type="task_switch" if task_switch else "goal_request",
+            active_goal_turn_type="user_message",
             last_turn_type=turn_trace[-1].turn_type if turn_trace else "summary_projection",
             flow_state=flow_state,
             task_state=task_state,
@@ -413,20 +408,15 @@ class SessionMemoryManager:
         previous_state: DialogueState,
         task_switch: bool,
     ) -> list[TurnUnderstanding]:
-        understanding = self.processor.turn_analyzer._understanding_for_text(active_goal)
-        flow_hint = self.processor.process_engine._infer_flow_type(
-            active_goal,
-            understanding,
-            previous_state,
-            self._extract_projection_file_hints([active_goal]),
-        )
+        flow_hint = "not_decided"
+        modality = "not_decided"
         turns = [
             TurnUnderstanding(
                 role="user",
-                turn_type="task_switch" if task_switch else "goal_request",
+                turn_type="user_message",
                 excerpt=self._shorten(active_goal, 180),
-                intent=active_work_item or understanding.intent,
-                modality=understanding.modality,
+                intent="not_decided",
+                modality=modality,
                 target_object="",
                 flow_hint=flow_hint,
                 constraints=list(constraint_items[:3]),
@@ -436,10 +426,10 @@ class SessionMemoryManager:
             turns.append(
                 TurnUnderstanding(
                     role="user",
-                    turn_type="correction_feedback",
+                    turn_type="user_message",
                     excerpt=self._shorten(correction, 180),
-                    intent="correction_feedback",
-                    modality=understanding.modality,
+                    intent="not_decided",
+                    modality=modality,
                     target_object="",
                     flow_hint=flow_hint,
                     constraints=[],
@@ -452,12 +442,12 @@ class SessionMemoryManager:
             turns.append(
                 TurnUnderstanding(
                     role="assistant",
-                    turn_type="result_delivery",
+                    turn_type="assistant_message",
                     excerpt=self._shorten(summary_text, 180),
-                    intent="result_delivery",
-                    modality=understanding.modality,
+                    intent="not_decided",
+                    modality=modality,
                     target_object="",
-                    flow_hint="assistant_support",
+                    flow_hint="not_decided",
                     constraints=[],
                 )
             )
@@ -469,12 +459,12 @@ class SessionMemoryManager:
             turns.append(
                 TurnUnderstanding(
                     role="assistant",
-                    turn_type="result_delivery",
+                    turn_type="assistant_message",
                     excerpt=self._shorten(f"子任务 {ordinal}: {summary_text}", 180),
-                    intent="bundle_result_delivery",
-                    modality=understanding.modality,
+                    intent="not_decided",
+                    modality=modality,
                     target_object="",
-                    flow_hint="assistant_support",
+                    flow_hint="not_decided",
                     constraints=[],
                 )
             )
@@ -541,58 +531,11 @@ class SessionMemoryManager:
         active_object_handle_id = self._coerce_text(self._read_value(main_context, "active_object_handle_id"))
         active_result_handle_id = self._coerce_text(self._read_value(main_context, "active_result_handle_id"))
         active_subset_handle_id = self._coerce_text(self._read_value(main_context, "active_subset_handle_id"))
-        source_kind = self._coerce_text(active_constraints.get("source_kind"))
         active_entity = ""
-        lowered_goal = active_goal.lower()
         if active_pdf:
             active_entity = "pdf_document"
         elif active_dataset:
             active_entity = "dataset"
-        elif "session memory" in lowered_goal:
-            active_entity = "session_memory"
-        elif "memory bridge" in lowered_goal:
-            active_entity = "memory_bridge"
-        elif "memory" in lowered_goal and "system" in lowered_goal:
-            active_entity = "memory_system"
-        elif source_kind == "pdf":
-            active_entity = "pdf_document"
-        elif source_kind == "dataset":
-            active_entity = "dataset"
-        elif not task_switch and self._can_carry_forward_active_entity(previous_state.context_slots.active_entity):
-            active_entity = previous_state.context_slots.active_entity
-        if flow_type == "external_lookup_flow":
-            active_pdf = ""
-            active_pdf_mode = ""
-            active_pdf_section = ""
-            active_pdf_pages = []
-            active_dataset = ""
-            active_binding_kind = ""
-            active_binding_identity = ""
-            active_binding_owner_task_id = ""
-            active_object_handle_id = ""
-            active_result_handle_id = ""
-            active_subset_handle_id = ""
-        if flow_type == "pdf_document_flow":
-            active_dataset = ""
-            if active_binding_kind == "active_dataset":
-                active_binding_kind = ""
-                active_binding_identity = self._binding_identity_from_slot_values(active_pdf=active_pdf, active_dataset="")
-                active_binding_owner_task_id = ""
-                active_object_handle_id = ""
-                active_result_handle_id = ""
-                active_subset_handle_id = ""
-        if flow_type == "structured_data_flow":
-            active_pdf = ""
-            active_pdf_mode = ""
-            active_pdf_section = ""
-            active_pdf_pages = []
-            if active_binding_kind == "active_pdf":
-                active_binding_kind = ""
-                active_binding_identity = self._binding_identity_from_slot_values(active_pdf="", active_dataset=active_dataset)
-                active_binding_owner_task_id = ""
-                active_object_handle_id = ""
-                active_result_handle_id = ""
-                active_subset_handle_id = ""
         if not active_pdf and not active_dataset:
             active_binding_kind = ""
             active_binding_identity = ""
@@ -814,17 +757,7 @@ class SessionMemoryManager:
         previous_state: DialogueState,
         active_goal: str,
     ) -> bool:
-        previous_goal = self._coerce_text(previous_state.active_goal)
-        current_goal = self._coerce_text(active_goal)
-        if not previous_goal or not current_goal or previous_goal == current_goal:
-            return False
-        if any(marker in current_goal for marker in ("换个问题", "新的问题", "另一个问题", "顺便")):
-            return True
-        previous_terms = self.processor.turn_analyzer._extract_terms(previous_goal)
-        current_terms = self.processor.turn_analyzer._extract_terms(current_goal)
-        if len(previous_terms) < 2 or len(current_terms) < 2:
-            return False
-        return len(previous_terms & current_terms) == 0
+        return False
 
     def _title_from_goal(self, active_goal: str) -> str:
         words = " ".join(self._coerce_text(active_goal).split()).split()[:8]

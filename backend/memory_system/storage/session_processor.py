@@ -3,17 +3,16 @@ from __future__ import annotations
 from .process_state import DialogueState
 from .models import Message
 from .process_engine import ProcessStateEngine
-from .turn_understanding import TurnUnderstandingAnalyzer
-from .understanding_reconciliation import UnderstandingReconciler
+from .turn_projection import TurnProjectionBuilder
 
 
 class SessionUnderstandingProcessor:
-    """Interprets session truth into flow-aware working memory state."""
+    """Projects session truth into working memory without deciding current-turn intent."""
 
     def __init__(self) -> None:
-        self.turn_analyzer = TurnUnderstandingAnalyzer()
-        self.reconciler = UnderstandingReconciler()
-        self.process_engine = ProcessStateEngine(self.turn_analyzer)
+        self.turn_projector = TurnProjectionBuilder()
+        self.turn_analyzer = self.turn_projector
+        self.process_engine = ProcessStateEngine(self.turn_projector)
 
     def process(
         self,
@@ -22,11 +21,9 @@ class SessionUnderstandingProcessor:
         *,
         max_items: int = 6,
     ) -> DialogueState:
-        snapshot = self.turn_analyzer.analyze(messages, previous_state)
-        reconciled = self.reconciler.review(snapshot, previous_state)
+        snapshot = self.turn_projector.project(messages, previous_state)
         return self.process_engine.assemble(
-            reconciled.snapshot,
+            snapshot,
             previous_state,
-            decision=reconciled.decision,
             max_items=max_items,
         )

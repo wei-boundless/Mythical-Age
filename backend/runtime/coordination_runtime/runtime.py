@@ -2253,6 +2253,9 @@ class LangGraphCoordinationRuntime:
             for item in list(dict(working_memory_context or {}).get("missing_required_records") or [])
             if isinstance(item, dict)
         ]
+        invalid_required_memory = _required_canonical_memory_content_violations(working_memory_context)
+        if invalid_required_memory:
+            missing_required_memory.extend(invalid_required_memory)
         if missing_required_memory:
             self._append_timeline_event(
                 state,
@@ -2267,6 +2270,7 @@ class LangGraphCoordinationRuntime:
                     "stage_id": stage_id,
                     "node_id": node_id,
                     "missing_required_records": missing_required_memory,
+                    "invalid_required_records": invalid_required_memory,
                     "repository_read_edges": list(dict(working_memory_context or {}).get("repository_read_edges") or []),
                 },
                 idempotency_key=f"{state.get('coordination_run_id')}:{stage_id}:missing_required_memory",
@@ -2289,6 +2293,7 @@ class LangGraphCoordinationRuntime:
                 "diagnostics": {
                     **dict(state.get("diagnostics") or {}),
                     "missing_required_memory_records": missing_required_memory,
+                    "invalid_required_memory_records": invalid_required_memory,
                     "stage_blocked_by_memory": True,
                 },
             }
@@ -4552,6 +4557,52 @@ def _readable_memory_snapshot_sections(memory_snapshot: dict[str, Any]) -> list[
             reason = str(item.get("reason") or "missing_required_record")
             lines.append(f"- {str(item.get('edge_id') or '')}: {address or 'unknown'} ({reason})")
     return lines
+
+
+def _required_canonical_memory_content_violations(working_memory_context: dict[str, Any] | None) -> list[dict[str, Any]]:
+    context = dict(working_memory_context or {})
+    records: list[dict[str, Any]] = []
+    for item in list(context.get("formal_memory.required_records") or []):
+        if isinstance(item, dict):
+            records.append(dict(item))
+    for item in list(dict(context.get("formal_memory") or {}).get("required_records") or []):
+        if isinstance(item, dict):
+            records.append(dict(item))
+
+    violations: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for record in records:
+        ref = str(record.get("version_id") or record.get("record_id") or record.get("record_key") or "")
+        if ref and ref in seen:
+            continue
+        if ref:
+            seen.add(ref)
+        requirement = dict(record.get("content_requirement") or {})
+        canonical_required = bool(requirement.get("canonical_text_required"))
+        refs_only_allowed = bool(requirement.get("artifact_ref_only_allowed"))
+        if not canonical_required or refs_only_allowed:
+            continue
+        canonical_text = str(record.get("canonical_text") or "").strip()
+        content_state = str(record.get("content_state") or "").strip()
+        status = str(record.get("status") or "").strip()
+        if canonical_text and content_state != "refs_only" and status != "candidate":
+            continue
+        violations.append(
+            {
+                "edge_id": str(record.get("read_edge_id") or ""),
+                "repository": str(record.get("repository_id") or ""),
+                "collection": str(record.get("collection_id") or ""),
+                "selector": {"record_key": str(record.get("record_key") or "")},
+                "version_id": str(record.get("version_id") or ""),
+                "record_id": str(record.get("record_id") or ""),
+                "record_key": str(record.get("record_key") or ""),
+                "status": status,
+                "content_state": content_state or "unknown",
+                "content_requirement": requirement,
+                "reason": "required_canonical_memory_content_invalid",
+            }
+        )
+    return violations
 
 
 def _memory_edge_allows_refs_only_auto_candidate(edge: dict[str, Any]) -> bool:

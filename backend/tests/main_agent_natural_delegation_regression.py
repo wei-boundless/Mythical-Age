@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import sys
-from dataclasses import asdict
 from pathlib import Path
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -12,11 +11,59 @@ from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from runtime.execution.agent_delegation_executor import AgentDelegationExecutor
 from runtime.shared.context_manager import _render_agent_delegation_guidance_block
 from runtime.shared.models import AgentRun
+from request_intent.request_signals import build_request_signals
 from task_system.services.assembly_builder import build_task_execution_assembly_bundle
-from understanding.task_understanding import analyze_task_understanding
+from tests.support.runtime_stubs import model_turn_context
 
 
-def _delegate_resolution(*, user_goal: str, understanding: dict) -> dict:
+def _task_goal_type_for_goal(user_goal: str) -> str:
+    lowered = user_goal.lower()
+    if ".pdf" in lowered:
+        return "pdf_analysis"
+    if any(suffix in lowered for suffix in (".xlsx", ".xls", ".csv", ".tsv")):
+        return "structured_data_analysis"
+    if "知识库" in user_goal or "knowledge/" in lowered:
+        return "knowledge_retrieval"
+    if "天气" in user_goal:
+        return "external_research"
+    return "conversation"
+
+
+def _target_objects_for_goal(user_goal: str) -> list[str]:
+    lowered = user_goal.lower()
+    if ".pdf" in lowered:
+        return ["knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf"]
+    if "inventory.xlsx" in lowered:
+        return ["inventory.xlsx"]
+    if "employees.xlsx" in lowered:
+        return ["employees.xlsx"]
+    if "知识库" in user_goal:
+        return ["knowledge/vector_recall_accuracy"]
+    return []
+
+
+def _query_understanding_for_goal(user_goal: str, *, action_intent: str, work_mode: str = "read_only_analysis") -> tuple[dict, dict]:
+    turn_context = model_turn_context(
+        action_intent=action_intent,
+        work_mode=work_mode,
+        interaction_intent="answer",
+        target_objects=_target_objects_for_goal(user_goal),
+        desired_outcome=user_goal,
+        deliverables=["grounded_answer"],
+        task_goal_type=_task_goal_type_for_goal(user_goal),
+        task_domain="external_web" if action_intent == "search_external" else "workspace",
+    )
+    understanding = {
+        **build_request_signals(user_goal).to_dict(),
+        "model_turn_decision": dict(turn_context["model_turn_decision"]),
+        "request_facts": dict(turn_context["request_facts"]),
+        "boundary_policy": dict(turn_context["boundary_policy"]),
+        "action_permit": dict(turn_context["action_permit"]),
+    }
+    return understanding, turn_context
+
+
+def _delegate_resolution(*, user_goal: str, understanding: dict, current_turn_context: dict) -> dict:
     profile = AgentRuntimeRegistry(BACKEND_DIR).get_profile("agent:0")
     assert profile is not None
     bundle = build_task_execution_assembly_bundle(
@@ -26,6 +73,7 @@ def _delegate_resolution(*, user_goal: str, understanding: dict) -> dict:
         user_goal=user_goal,
         source="test",
         query_understanding=understanding,
+        current_turn_context=current_turn_context,
         agent_runtime_profile=profile,
     )
     requirement = bundle["operation_requirement"]
@@ -62,8 +110,8 @@ def test_main_agent_natural_scenarios_select_expected_child_agents() -> None:
     ]
 
     for user_goal, expected_agent, fallback_operation in scenarios:
-        understanding = asdict(analyze_task_understanding(user_goal))
-        resolution = _delegate_resolution(user_goal=user_goal, understanding=understanding)
+        understanding, turn_context = _query_understanding_for_goal(user_goal, action_intent="read_context")
+        resolution = _delegate_resolution(user_goal=user_goal, understanding=understanding, current_turn_context=turn_context)
         assert resolution["execution_mode"] == "delegate"
         assert resolution["delegate_target_agent_id"] == expected_agent
         assert resolution["fallback_operation"] == fallback_operation
@@ -72,13 +120,18 @@ def test_main_agent_natural_scenarios_select_expected_child_agents() -> None:
 def test_realtime_information_uses_direct_web_search_not_child_delegation() -> None:
     profile = AgentRuntimeRegistry(BACKEND_DIR).get_profile("agent:0")
     assert profile is not None
+    understanding, turn_context = _query_understanding_for_goal(
+        "北京今天天气怎么样，直接给温度范围和时间口径。",
+        action_intent="search_external",
+    )
     bundle = build_task_execution_assembly_bundle(
         base_dir=BACKEND_DIR,
         session_id="session-realtime-direct",
         task_id="taskinst:realtime:direct",
         user_goal="北京今天天气怎么样，直接给温度范围和时间口径。",
         source="test",
-        query_understanding=asdict(analyze_task_understanding("北京今天天气怎么样，直接给温度范围和时间口径。")),
+        query_understanding=understanding,
+        current_turn_context=turn_context,
         agent_runtime_profile=profile,
     )
     requirement = bundle["operation_requirement"]
@@ -94,13 +147,19 @@ def test_realtime_information_uses_direct_web_search_not_child_delegation() -> N
 def test_general_conversation_does_not_mount_delegate_operation() -> None:
     profile = AgentRuntimeRegistry(BACKEND_DIR).get_profile("agent:0")
     assert profile is not None
+    understanding, turn_context = _query_understanding_for_goal(
+        "用一句话解释为什么要先给结论。",
+        action_intent="answer_only",
+        work_mode="conversation",
+    )
     bundle = build_task_execution_assembly_bundle(
         base_dir=BACKEND_DIR,
         session_id="session-natural-general",
         task_id="taskinst:natural:general",
         user_goal="用一句话解释为什么要先给结论。",
         source="test",
-        query_understanding={"route": "general"},
+        query_understanding=understanding,
+        current_turn_context=turn_context,
         agent_runtime_profile=profile,
     )
     requirement = bundle["operation_requirement"]

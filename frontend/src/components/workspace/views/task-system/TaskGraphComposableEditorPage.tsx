@@ -179,7 +179,7 @@ export function TaskGraphComposableEditorPage({
     <section className="task-graph-composer-page" aria-label="任务图编辑器">
       <section className="task-graph-standard-status task-graph-standard-status--diagnostic" aria-label="编译视图说明">
         <div className="task-graph-standard-status__identity">
-          <span>Compiled View</span>
+          <span>编译预览</span>
           <strong>标准视图用于诊断，不是第二套运行图编辑器</strong>
           <small>
             当前页面展示后端从 canonical nodes / edges 编译出的 units、interfaces、port edges 和图模块展开。

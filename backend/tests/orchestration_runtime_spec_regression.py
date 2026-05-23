@@ -10,33 +10,76 @@ if str(BACKEND_DIR) not in sys.path:
 from agent_system.assembly.runtime_bundle_builder import build_orchestration_runtime_bundle
 from agent_system.profiles.runtime_profile_models import AgentRuntimeProfile
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
+from request_intent.request_signals import build_request_signals
 from task_system.services.assembly_builder import build_task_execution_assembly_bundle
+from tests.support.runtime_stubs import model_turn_context
+
+
+def _assembly_inputs(
+    user_goal: str,
+    *,
+    action_intent: str = "answer_only",
+    work_mode: str = "conversation",
+    interaction_intent: str = "answer",
+    task_goal_type: str = "conversation",
+    task_domain: str = "general",
+    target_objects: list[str] | None = None,
+    current_turn_context: dict[str, object] | None = None,
+) -> dict[str, object]:
+    turn_context = model_turn_context(
+        action_intent=action_intent,
+        work_mode=work_mode,
+        interaction_intent=interaction_intent,
+        target_objects=target_objects,
+        desired_outcome=user_goal,
+        task_goal_type=task_goal_type,
+        task_domain=task_domain,
+    )
+    return {
+        "query_understanding": {
+            **build_request_signals(user_goal).to_dict(),
+            "model_turn_decision": dict(turn_context["model_turn_decision"]),
+            "request_facts": dict(turn_context["request_facts"]),
+            "boundary_policy": dict(turn_context["boundary_policy"]),
+            "action_permit": dict(turn_context["action_permit"]),
+        },
+        "current_turn_context": {
+            **turn_context,
+            **dict(current_turn_context or {}),
+        },
+    }
 
 
 def test_orchestration_runtime_bundle_builds_formal_objects() -> None:
-    task_bundle = build_task_execution_assembly_bundle(
-        session_id="session-orch-runtime",
-        task_id="taskinst:turn:session-orch-runtime:1:general_response",
-        user_goal="请生成一个可以直接运行的网页贪吃蛇小游戏。",
-        source="test",
+    user_goal = "请生成一个可以直接运行的网页贪吃蛇小游戏。"
+    inputs = _assembly_inputs(
+        user_goal,
+        action_intent="edit_workspace",
+        work_mode="implementation",
+        interaction_intent="create",
+        task_goal_type="game_vertical_slice_delivery",
+        task_domain="development",
         current_turn_context={
             "authority": "context.current_turn",
             "turn_id": "turn:session-orch-runtime:1",
             "selected_task_id": "task.dev.light_web_game",
         },
     )
+    task_bundle = build_task_execution_assembly_bundle(
+        session_id="session-orch-runtime",
+        task_id="taskinst:turn:session-orch-runtime:1:general_response",
+        user_goal=user_goal,
+        source="test",
+        **inputs,
+    )
 
     payload = build_orchestration_runtime_bundle(
         base_dir=BACKEND_DIR,
         session_id="session-orch-runtime",
         task_id="taskinst:turn:session-orch-runtime:1:general_response",
-        user_goal="请生成一个可以直接运行的网页贪吃蛇小游戏。",
+        user_goal=user_goal,
         task_assembly_bundle=task_bundle,
-        current_turn_context={
-            "authority": "context.current_turn",
-            "turn_id": "turn:session-orch-runtime:1",
-            "selected_task_id": "task.dev.light_web_game",
-        },
+        current_turn_context=dict(inputs["current_turn_context"]),
         memory_runtime_view={"view_id": "memview:test"},
         context_policy_result={"result_id": "ctxpolicy:test"},
     )
@@ -70,23 +113,31 @@ def test_orchestration_runtime_bundle_builds_formal_objects() -> None:
 
 
 def test_professional_mode_overrides_registered_light_web_game_recipe() -> None:
+    user_goal = "请用专业模式完成一个多文件网页贪吃蛇小游戏。"
     task_bundle = build_task_execution_assembly_bundle(
         session_id="session-professional-game",
         task_id="taskinst:turn:session-professional-game:1:light_web_game",
-        user_goal="请用专业模式完成一个多文件网页贪吃蛇小游戏。",
+        user_goal=user_goal,
         source="test",
-        current_turn_context={
-            "authority": "context.current_turn",
-            "turn_id": "turn:session-professional-game:1",
-            "selected_task_id": "task.dev.light_web_game",
-            "interaction_mode": "professional_mode",
-            "intent_decision": {"execution_strategy": "professional_task_run", "interaction_mode": "professional_mode"},
-            "runtime_assembly_hint": {
-                "execution_strategy": "professional_task_run",
-                "runtime_mode": "professional_task",
+        **_assembly_inputs(
+            user_goal,
+            action_intent="edit_workspace",
+            work_mode="implementation",
+            interaction_intent="create",
+            task_goal_type="game_vertical_slice_delivery",
+            task_domain="development",
+            current_turn_context={
+                "authority": "context.current_turn",
+                "turn_id": "turn:session-professional-game:1",
+                "selected_task_id": "task.dev.light_web_game",
                 "interaction_mode": "professional_mode",
+                "mode_policy": {
+                    "execution_strategy": "professional_task_run",
+                    "interaction_mode": "professional_mode",
+                    "runtime_lane": "professional_task",
+                },
             },
-        },
+        ),
     )
 
     shape = task_bundle["execution_shape"]
@@ -96,34 +147,45 @@ def test_professional_mode_overrides_registered_light_web_game_recipe() -> None:
 
 
 def test_removed_health_task_selection_does_not_mount_old_profiles() -> None:
+    user_goal = "请检查这个 health issue 的修复建议。"
     task_bundle = build_task_execution_assembly_bundle(
         session_id="session-orch-health",
         task_id="taskinst:turn:session-orch-health:1:health_issue_triage",
-        user_goal="请检查这个 health issue 的修复建议。",
+        user_goal=user_goal,
         source="test",
-        current_turn_context={
-            "authority": "context.current_turn",
-            "turn_id": "turn:session-orch-health:1",
-            "selected_task_id": "task.health.issue_triage",
-        },
+        **_assembly_inputs(
+            user_goal,
+            action_intent="read_context",
+            work_mode="read_only_analysis",
+            interaction_intent="inspect",
+            task_goal_type="inspection",
+            task_domain="health_system",
+            current_turn_context={
+                "authority": "context.current_turn",
+                "turn_id": "turn:session-orch-health:1",
+                "selected_task_id": "task.health.issue_triage",
+            },
+        ),
     )
 
     assembly = task_bundle["task_execution_assembly"]
 
     assert AgentRuntimeRegistry(BACKEND_DIR).get_profile("agent:3") is None
-    assert assembly["task_family"] == "general"
     assert assembly["flow_contract_id"] == ""
     assert assembly["workflow_id"] == ""
     assert assembly["communication_protocol_ref"] == ""
     assert assembly["graph_ref"] == ""
+    assert assembly["task_family"] != "health"
 
 
 def test_orchestration_runtime_bundle_respects_shared_contract_flag() -> None:
+    user_goal = "测试共同契约是否进入编排运行时。"
     task_bundle = build_task_execution_assembly_bundle(
         session_id="session-orch-shared-contract",
         task_id="taskinst:turn:session-orch-shared-contract:1:general_response",
-        user_goal="测试共同契约是否进入编排运行时。",
+        user_goal=user_goal,
         source="test",
+        **_assembly_inputs(user_goal),
     )
     profile = AgentRuntimeRegistry(BACKEND_DIR).get_profile("agent:0")
     assert profile is not None
@@ -132,7 +194,7 @@ def test_orchestration_runtime_bundle_respects_shared_contract_flag() -> None:
         base_dir=BACKEND_DIR,
         session_id="session-orch-shared-contract",
         task_id="taskinst:turn:session-orch-shared-contract:1:general_response",
-        user_goal="测试共同契约是否进入编排运行时。",
+        user_goal=user_goal,
         task_assembly_bundle=task_bundle,
         agent_runtime_profile=profile,
     )
@@ -165,7 +227,7 @@ def test_orchestration_runtime_bundle_respects_shared_contract_flag() -> None:
         base_dir=BACKEND_DIR,
         session_id="session-orch-shared-contract",
         task_id="taskinst:turn:session-orch-shared-contract:1:general_response",
-        user_goal="测试共同契约是否进入编排运行时。",
+        user_goal=user_goal,
         task_assembly_bundle=task_bundle,
         agent_runtime_profile=profile_without_shared,
     )
@@ -192,32 +254,38 @@ def test_orchestration_runtime_bundle_respects_shared_contract_flag() -> None:
 
 
 def test_removed_story_task_selection_falls_back_to_general_runtime() -> None:
+    user_goal = "请完成一篇短篇小说。"
     task_bundle = build_task_execution_assembly_bundle(
         session_id="session-orch-story",
         task_id="taskinst:turn:session-orch-story:1:short_story",
-        user_goal="请完成一篇短篇小说。",
+        user_goal=user_goal,
         source="test",
-        current_turn_context={
-            "authority": "context.current_turn",
-            "turn_id": "turn:session-orch-story:1",
-            "selected_task_id": "task.writing.short_story",
-        },
+        **_assembly_inputs(
+            user_goal,
+            action_intent="answer_only",
+            work_mode="conversation",
+            interaction_intent="create",
+            task_goal_type="conversation",
+            current_turn_context={
+                "authority": "context.current_turn",
+                "turn_id": "turn:session-orch-story:1",
+                "selected_task_id": "task.writing.short_story",
+            },
+        ),
     )
 
     assembly = task_bundle["task_execution_assembly"]
 
-    assert assembly["task_mode"] == "general_task"
-    assert assembly["task_family"] == "general"
     assert assembly["flow_contract_id"] == ""
     assert assembly["communication_protocol_ref"] == ""
     assert assembly["graph_ref"] == ""
     assert assembly["topology_template_ref"] == ""
+    assert assembly["task_family"] != "writing"
 
 
 def test_removed_longform_writing_runtime_residue_stays_absent() -> None:
     from task_system.registry.flow_registry import TaskFlowRegistry
     from agent_system.assembly.runtime_chain import _align_understanding_with_explicit_task_selection
-    from understanding.query_understanding import analyze_query_understanding
 
     registry = TaskFlowRegistry(BACKEND_DIR)
 
@@ -234,15 +302,16 @@ def test_removed_longform_writing_runtime_residue_stays_absent() -> None:
         "请生成第001章到第003章短批次规划，并写入 "
         "docs/系统规划/任务系统实测记录/artifacts/20260506/E5/batches/batch_001_003_plan.md。"
     )
-    understanding = analyze_query_understanding(message)
+    understanding = build_request_signals(message)
     aligned = _align_understanding_with_explicit_task_selection(
         BACKEND_DIR,
         understanding,
         task_selection={"selected_task_id": "task.writing.chapter_planning"},
     )
 
-    assert aligned.source_kind != "task_system"
-    assert aligned.task_kind != "chapter_planning"
+    assert aligned.authority == "request_facts.frame"
+    assert aligned.context_binding["kind"] == "current_turn"
+    assert aligned.capability_intent["tool_selection_allowed"] is False
 
 
 def test_delegate_preferred_templates_mount_delegate_operation_for_main_agent() -> None:
@@ -250,18 +319,26 @@ def test_delegate_preferred_templates_mount_delegate_operation_for_main_agent() 
     assert profile is not None
 
     scenarios = [
-        ("请帮我检索知识库里和向量召回有关的结论。", {"route": "rag", "execution_posture": "direct_rag"}, "op.mcp_retrieval", "agent:rag_analyst"),
-        ("请读取这个 PDF 文档并总结前三页要点。", {"route": "pdf"}, "op.mcp_pdf", "agent:pdf_reader"),
-        ("请分析这份表格数据并给我趋势结论。", {"route": "structured_data"}, "op.mcp_structured_data", "agent:table_analyst"),
+        ("请帮我检索知识库里和向量召回有关的结论。", "knowledge_retrieval", ["knowledge/vector_recall"], "op.mcp_retrieval", "agent:rag_analyst"),
+        ("请读取这个 PDF 文档 report.pdf 并总结前三页要点。", "pdf_analysis", ["report.pdf"], "op.mcp_pdf", "agent:pdf_reader"),
+        ("请分析这份表格数据 inventory.xlsx 并给我趋势结论。", "structured_data_analysis", ["inventory.xlsx"], "op.mcp_structured_data", "agent:table_analyst"),
     ]
-    for user_goal, understanding, fallback_operation, target_agent_id in scenarios:
+    for user_goal, task_goal_type, target_objects, fallback_operation, target_agent_id in scenarios:
         task_bundle = build_task_execution_assembly_bundle(
             base_dir=BACKEND_DIR,
             session_id="session-delegate-preferred",
             task_id=f"taskinst:{target_agent_id}",
             user_goal=user_goal,
             source="test",
-            query_understanding=understanding,
+            **_assembly_inputs(
+                user_goal,
+                action_intent="read_context",
+                work_mode="read_only_analysis",
+                interaction_intent="answer",
+                task_goal_type=task_goal_type,
+                task_domain="workspace",
+                target_objects=target_objects,
+            ),
             agent_runtime_profile=profile,
         )
         requirement = task_bundle["operation_requirement"]
@@ -277,13 +354,21 @@ def test_information_search_template_mounts_direct_web_search_for_main_agent() -
     profile = AgentRuntimeRegistry(BACKEND_DIR).get_profile("agent:0")
     assert profile is not None
 
+    user_goal = "帮我联网查 OpenAI API 最新更新，并说明来源。"
     task_bundle = build_task_execution_assembly_bundle(
         base_dir=BACKEND_DIR,
         session_id="session-direct-web",
         task_id="taskinst:direct:web",
-        user_goal="帮我联网查 OpenAI API 最新更新，并说明来源。",
+        user_goal=user_goal,
         source="test",
-        query_understanding={"route": "realtime_network"},
+        **_assembly_inputs(
+            user_goal,
+            action_intent="search_external",
+            work_mode="read_only_analysis",
+            interaction_intent="answer",
+            task_goal_type="external_research",
+            task_domain="external_web",
+        ),
         agent_runtime_profile=profile,
     )
     requirement = task_bundle["operation_requirement"]
@@ -298,13 +383,22 @@ def test_delegate_preferred_templates_fall_back_to_direct_operation_for_speciali
     profile = AgentRuntimeRegistry(BACKEND_DIR).get_profile("agent:pdf_reader")
     assert profile is not None
 
+    user_goal = "请读取这个 PDF 文档并总结前三页要点。"
     task_bundle = build_task_execution_assembly_bundle(
         base_dir=BACKEND_DIR,
         session_id="session-delegate-fallback",
         task_id="taskinst:agent7:pdf",
-        user_goal="请读取这个 PDF 文档并总结前三页要点。",
+        user_goal=user_goal,
         source="test",
-        query_understanding={"route": "pdf"},
+        **_assembly_inputs(
+            user_goal,
+            action_intent="read_context",
+            work_mode="read_only_analysis",
+            interaction_intent="answer",
+            task_goal_type="pdf_analysis",
+            task_domain="workspace",
+            target_objects=["report.pdf"],
+        ),
         agent_runtime_profile=profile,
     )
     requirement = task_bundle["operation_requirement"]

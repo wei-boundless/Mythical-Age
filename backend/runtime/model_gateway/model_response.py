@@ -139,6 +139,31 @@ class ModelResponseRuntimeExecutor:
         except ModelRuntimeError as exc:
             if stream_enabled and exc.retryable and _stream_recovery_enabled(stream_policy):
                 fallback_timeout_seconds = _stream_recovery_timeout_seconds(stream_policy)
+                if delta_index > 0:
+                    yield {
+                        "type": "stream_recovery",
+                        "status": "suppressed",
+                        "reason": "partial_output_already_emitted",
+                        "code": exc.code,
+                        "provider": exc.provider,
+                        "model": exc.model,
+                        "detail": exc.detail,
+                        "partial_delta_count": delta_index,
+                        "fallback_timeout_seconds": fallback_timeout_seconds,
+                        "directive_ref": directive.directive_id,
+                    }
+                    yield {
+                        "type": "error",
+                        "error": exc.user_message,
+                        "content": exc.user_message,
+                        "code": exc.code,
+                        "provider": exc.provider,
+                        "model": exc.model,
+                        "detail": exc.detail,
+                        "answer_channel": "orchestration_fail_closed",
+                        "answer_source": "runtime_directive_executor",
+                    }
+                    return
                 yield {
                     "type": "stream_recovery",
                     "status": "started",

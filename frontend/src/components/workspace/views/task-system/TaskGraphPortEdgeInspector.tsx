@@ -147,7 +147,7 @@ export function TaskGraphPortEdgeInspector({
       />
       <div className="task-graph-note">
         <strong>未找到可写回的原始边</strong>
-        <span>这条端口边来自标准视图或覆盖层诊断。需要运行时生效时，请回到 Graph Builder 创建 canonical edge。</span>
+        <span>这条端口边来自标准视图或覆盖层诊断。需要运行时生效时，请回到拓扑编辑创建规范边。</span>
       </div>
     </TaskGraphInspectorSection>
   );
@@ -178,7 +178,7 @@ function OverlayPortEdgeInspector({
       />
       <div className="task-graph-note">
         <strong>覆盖边只读</strong>
-        <span>它会进入标准视图诊断，但不是 canonical 运行边。需要运行时生效时，请在 Graph Builder 中创建或修改 canonical edge。</span>
+        <span>它会进入标准视图诊断，但不是规范运行边。需要运行时生效时，请在拓扑编辑中创建或修改规范边。</span>
       </div>
       <button className="task-graph-inline-danger" onClick={() => removeOverlayEdge(edge.edge_id)} type="button">
         <Trash2 aria-hidden="true" size={14} />
@@ -354,7 +354,7 @@ function LegacyPortEdgeInspector({
       <TaskGraphInspectorSection icon={<Cable aria-hidden="true" size={15} />} title="端口映射诊断">
         <div className="task-graph-note">
           <strong>端口边由 canonical edge 派生</strong>
-          <span>这里不再新增 metadata 覆盖边；需要运行时生效的连接应在 Graph Builder 中创建或修改 canonical edge。</span>
+          <span>这里不再新增 metadata 覆盖边；需要运行时生效的连接应在拓扑编辑中创建或修改规范边。</span>
         </div>
       </TaskGraphInspectorSection>
     </>

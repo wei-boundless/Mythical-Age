@@ -154,9 +154,14 @@ def test_runtime_context_prompt_applies_agent_assembly_contract() -> None:
     assert "runtime 节点" not in system_prompt
 
 
-def test_runtime_context_prompt_includes_user_visible_receipt_protocol() -> None:
+def test_runtime_context_prompt_keeps_single_user_visible_receipt_protocol_source() -> None:
     manager = RuntimeContextManager(
-        system_prompt_builder=lambda **_: "基础系统提示"
+        system_prompt_builder=lambda **_: (
+            "基础系统提示\n\n"
+            "用户可见回执协议：当你完成用户命令、工具操作、文件编辑或任务执行时，必须用自然语言说明做了什么、影响范围是什么、"
+            "是否产生了文件或其它产物。默认可见内容必须面向用户，不要把 taskrun_id、taskinst_id、node_id、event_name、"
+            "运行状态字段、装配字段或权限记录作为回答正文或状态摘要。这些内部标识只能进入 debug、diagnostics、运行监控详情或开发者可展开区域。"
+        )
     )
 
     snapshot = manager.prepare_model_context(
@@ -171,6 +176,7 @@ def test_runtime_context_prompt_includes_user_visible_receipt_protocol() -> None
     assert "文件编辑或任务执行" in system_prompt
     assert "taskrun_id" in system_prompt
     assert "开发者可展开区域" in system_prompt
+    assert system_prompt.count("用户可见回执协议") == 1
 
 
 def test_runtime_execution_block_includes_current_time_for_realtime_search() -> None:

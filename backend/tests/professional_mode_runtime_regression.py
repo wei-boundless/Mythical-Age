@@ -7,21 +7,45 @@ from orchestration.runtime_lane_registry import DEFAULT_RUNTIME_LANE_REGISTRY
 from runtime.contracts.deliverable_validator import validate_deliverable
 from runtime.memory.evidence_packet import build_evidence_packet
 from prompting.professional_profiles import get_professional_prompt_profile
+from request_intent.request_signals import build_request_signals
 from task_system.services.assembly_builder import build_task_execution_assembly_bundle
+from tests.support.runtime_stubs import model_turn_context
+
+
+def _professional_triage_inputs(user_goal: str) -> dict[str, object]:
+    turn_context = model_turn_context(
+        action_intent="read_context",
+        work_mode="read_only_analysis",
+        interaction_intent="review",
+        target_objects=["backend/tests/fixtures/professional_task_suite/failing_sixty_turn_summary.json"],
+        desired_outcome=user_goal,
+        task_goal_type="test_report_triage",
+        task_domain="testing",
+    )
+    return {
+        "query_understanding": {
+            **build_request_signals(user_goal).to_dict(),
+            "model_turn_decision": dict(turn_context["model_turn_decision"]),
+            "request_facts": dict(turn_context["request_facts"]),
+            "boundary_policy": dict(turn_context["boundary_policy"]),
+            "action_permit": dict(turn_context["action_permit"]),
+        },
+        "current_turn_context": dict(turn_context),
+    }
 
 
 def test_professional_mode_recipe_uses_new_runtime_names() -> None:
+    user_goal = (
+        "分析 backend/tests/fixtures/professional_task_suite/failing_sixty_turn_summary.json "
+        "里的失败，输出失败归类、结构性根因和回归测试建议。"
+    )
     bundle = build_task_execution_assembly_bundle(
         base_dir=Path("backend"),
         session_id="session-professional-recipe",
         task_id="task-professional-recipe",
-        user_goal=(
-            "分析 backend/tests/fixtures/professional_task_suite/failing_sixty_turn_summary.json "
-            "里的失败，输出失败归类、结构性根因和回归测试建议。"
-        ),
+        user_goal=user_goal,
         source="test",
-        query_understanding={"route": "workspace_read", "source_kind": "workspace"},
-        current_turn_context={},
+        **_professional_triage_inputs(user_goal),
     )
 
     shape = bundle["execution_shape"]
@@ -33,32 +57,29 @@ def test_professional_mode_recipe_uses_new_runtime_names() -> None:
     assert metadata["runtime_driver"] == "professional_task_run"
     assert metadata["interaction_mode"] == "professional_mode"
     assert metadata["runtime_lane_hint"] == "professional_task"
-    assert metadata["semantic_task_contract"]["task_goal_type"] == "test_report_triage"
+    assert metadata["task_requirement_contract"]["task_goal_type"] == "test_report_triage"
     retired_mode_key = "_".join(("autonomy", "mode"))
     assert retired_mode_key not in metadata
 
 
 def test_professional_profile_is_injected_into_soul_runtime_view() -> None:
+    user_goal = (
+        "分析 backend/tests/fixtures/professional_task_suite/failing_sixty_turn_summary.json "
+        "里的失败，输出失败归类、结构性根因和回归测试建议。"
+    )
     task_bundle = build_task_execution_assembly_bundle(
         base_dir=Path("backend"),
         session_id="session-professional-prompt",
         task_id="task-professional-prompt",
-        user_goal=(
-            "分析 backend/tests/fixtures/professional_task_suite/failing_sixty_turn_summary.json "
-            "里的失败，输出失败归类、结构性根因和回归测试建议。"
-        ),
+        user_goal=user_goal,
         source="test",
-        query_understanding={"route": "workspace_read", "source_kind": "workspace"},
-        current_turn_context={},
+        **_professional_triage_inputs(user_goal),
     )
     runtime = build_orchestration_runtime_bundle(
         base_dir=Path("backend"),
         session_id="session-professional-prompt",
         task_id="task-professional-prompt",
-        user_goal=(
-            "分析 backend/tests/fixtures/professional_task_suite/failing_sixty_turn_summary.json "
-            "里的失败，输出失败归类、结构性根因和回归测试建议。"
-        ),
+        user_goal=user_goal,
         task_assembly_bundle=task_bundle,
         current_turn_context=task_bundle["current_turn_context"],
     )
@@ -82,7 +103,7 @@ def test_professional_profile_is_injected_into_soul_runtime_view() -> None:
     assert "计划覆盖审查" in sections["plan_coverage_section"]["content"]
 
     requirement = task_bundle["operation_requirement"]
-    assert "op.agent_todo" in set(requirement["optional_operations"])
+    assert "op.agent_todo" in set(requirement["required_operations"])
 
 
 def test_evidence_packet_and_validator_require_triage_deliverables() -> None:

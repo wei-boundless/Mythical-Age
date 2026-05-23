@@ -173,6 +173,7 @@ class MemoryBundleService:
         query: str | None = None,
         memory_intent: Any | None = None,
         memory_request_profile: dict[str, Any] | None = None,
+        memory_view: Any | None = None,
         relevant_notes: list[Any] | None = None,
         retrieval_results: list[dict[str, Any]] | None = None,
         note_limit: int = 5,
@@ -185,14 +186,15 @@ class MemoryBundleService:
             memory_request_profile,
             has_relevant_notes=bool(relevant_notes),
         )
-        memory_view = self.build_memory_runtime_view(
-            session_id=session_id,
-            query=query,
-            memory_intent=memory_intent,
-            memory_request_profile=effective_memory_request_profile,
-            relevant_notes=relevant_notes,
-            note_limit=note_limit,
-        )
+        if memory_view is None:
+            memory_view = self.build_memory_runtime_view(
+                session_id=session_id,
+                query=query,
+                memory_intent=memory_intent,
+                memory_request_profile=effective_memory_request_profile,
+                relevant_notes=relevant_notes,
+                note_limit=note_limit,
+            )
         return build_context_package_result(
             memory_view,
             rebuild_reason="memory_bundle_service_context_package_result",
@@ -215,6 +217,7 @@ class MemoryBundleService:
         pending_user_message: str | None = None,
         memory_intent: Any | None = None,
         memory_request_profile: dict[str, Any] | None = None,
+        memory_view: Any | None = None,
         relevant_notes: list[Any] | None = None,
         retrieval_results: list[dict[str, Any]] | None = None,
         note_limit: int = 5,
@@ -224,6 +227,7 @@ class MemoryBundleService:
             query=pending_user_message,
             memory_intent=memory_intent,
             memory_request_profile=memory_request_profile,
+            memory_view=memory_view,
             relevant_notes=relevant_notes,
             retrieval_results=retrieval_results,
             note_limit=note_limit,

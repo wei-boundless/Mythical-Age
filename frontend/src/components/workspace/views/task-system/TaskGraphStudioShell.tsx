@@ -23,12 +23,12 @@ const LAYER_CONTEXT: Record<TaskGraphStudioLayerId, { title: string; summary: st
     checkpoints: ["执行器", "Agent 引用", "Projection"],
   },
   topology: {
-    title: "Graph Builder",
-    summary: "维护当前任务图唯一可运行结构：canonical nodes、edges、入口、出口和图模块占位。",
+    title: "拓扑编辑",
+    summary: "维护当前任务图唯一可运行结构：规范节点、边、入口、出口和图模块占位。",
     checkpoints: ["canonical 节点", "canonical 边", "入口/出口"],
   },
   modules: {
-    title: "Compiled View",
+    title: "编译预览",
     summary: "查看后端标准视图、端口映射和图模块展开；这里用于诊断，不作为第二套运行图真相。",
     checkpoints: ["标准视图", "端口诊断", "图模块展开"],
   },

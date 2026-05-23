@@ -5,7 +5,7 @@
   "context_budget_preset": "deepseek_1m",
   "model_provider": {
     "provider": "deepseek",
-    "model": "deepseek-v4-flash",
+    "model": "deepseek-v4-pro",
     "base_url": "https://api.deepseek.com/v1"
   },
   "system_config": {
@@ -14,7 +14,7 @@
       "llm_long_output_timeout_seconds": 360.0,
       "llm_max_retries": 2,
       "llm_max_output_tokens": 65536,
-      "llm_thinking_mode": "disabled",
+      "llm_thinking_mode": "enabled",
       "llm_reasoning_effort": "high"
     }
   },

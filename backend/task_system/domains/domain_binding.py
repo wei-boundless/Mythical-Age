@@ -46,7 +46,7 @@ def bind_task_domain(
     task_id: str,
     requested_domain: str,
     task_goal_domain: str = "",
-    task_understanding_frame: dict[str, Any] | None = None,
+    goal_evidence: dict[str, Any] | None = None,
     forbidden_actions: list[str] | tuple[str, ...] = (),
 ) -> TaskDomainBinding:
     normalized = _normalize_domain(requested_domain or task_goal_domain)
@@ -60,8 +60,8 @@ def bind_task_domain(
     practices = _default_practices(family=family, domain_id=bound_domain_id, metadata=metadata)
     validation = _validation_practices(family=family, domain_id=bound_domain_id, metadata=metadata)
     risks = _risk_controls(family=family, domain_id=bound_domain_id, metadata=metadata)
-    understanding = dict(task_understanding_frame or {})
-    has_user_flow = bool(list(understanding.get("user_provided_flow") or []))
+    evidence = dict(goal_evidence or {})
+    has_user_flow = bool(list(evidence.get("user_provided_flow") or []))
     return TaskDomainBinding(
         binding_id=f"taskdomainbind:{task_id or 'runtime'}:{bound_domain_id}",
         requested_domain=str(requested_domain or task_goal_domain or "").strip(),

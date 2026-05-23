@@ -92,9 +92,9 @@ def build_execution_obligation(
     }
     reads = _collect_required_reads(text=text, explicit_inputs=inputs, current_turn=current_turn)
     forbid_write = _has_any(lowered, _FORBID_WRITE_MARKERS)
-    goal_frame = dict(current_turn.get("task_goal_frame") or current_turn.get("goal_frame") or {})
+    goal_frame = dict(current_turn.get("task_goal_spec") or current_turn.get("goal_frame") or {})
     profile_obligation = _profile_obligation_requirements(
-        task_goal_frame=goal_frame,
+        task_goal_spec=goal_frame,
         current_turn=current_turn,
     )
     write_required = (_requires_real_write(lowered) or bool(profile_obligation["required_writes"])) and not forbid_write
@@ -168,16 +168,16 @@ def build_execution_obligation(
 
 def _profile_obligation_requirements(
     *,
-    task_goal_frame: dict[str, Any],
+    task_goal_spec: dict[str, Any],
     current_turn: dict[str, Any],
 ) -> dict[str, Any]:
     explicit_task_goal_type = str(
         current_turn.get("semantic_task_type")
         or current_turn.get("task_goal_type")
-        or dict(current_turn.get("semantic_task_contract") or {}).get("task_goal_type")
+        or dict(current_turn.get("task_requirement_contract") or {}).get("task_goal_type")
         or ""
     ).strip()
-    task_goal_type = str(explicit_task_goal_type or task_goal_frame.get("task_goal_type") or "").strip()
+    task_goal_type = str(explicit_task_goal_type or task_goal_spec.get("task_goal_type") or "").strip()
     profile = get_task_goal_profile(task_goal_type)
     if profile is None:
         return {
@@ -203,7 +203,7 @@ def _profile_obligation_requirements(
         if explicit_task_goal_type
         else [
             dict(item)
-            for item in list(task_goal_frame.get("required_verifications") or [])
+            for item in list(task_goal_spec.get("required_verifications") or [])
             if isinstance(item, dict)
         ]
     )
@@ -214,7 +214,7 @@ def _profile_obligation_requirements(
                 "criterion_id": str(item.get("criterion_id") or ""),
                 "title": str(item.get("title") or ""),
                 "required": item.get("required") is not False,
-                "source": "task_goal_frame",
+                "source": "task_goal_spec",
             }
         )
     return {
@@ -228,7 +228,7 @@ def _profile_obligation_requirements(
             "profile_id": profile.task_goal_type,
             "required_actions": sorted(actions),
             "explicit_task_goal_type": explicit_task_goal_type,
-            "task_goal_frame_type": str(task_goal_frame.get("task_goal_type") or ""),
+            "task_goal_spec_type": str(task_goal_spec.get("task_goal_type") or ""),
         },
     }
 
