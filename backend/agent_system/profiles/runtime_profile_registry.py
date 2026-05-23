@@ -17,6 +17,7 @@ from .runtime_mode_config import (
     PROFESSIONAL_MODE,
     ROLE_MODE,
     STANDARD_MODE,
+    VIBE_CODING_MODE,
     modes_for_runtime_lanes_or_custom,
     normalize_default_runtime_mode,
     normalize_runtime_modes,
@@ -65,7 +66,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
         AgentRuntimeProfile(
             agent_profile_id="main_interactive_agent",
             agent_id="agent:0",
-            enabled_runtime_modes=(ROLE_MODE, STANDARD_MODE, PROFESSIONAL_MODE, CUSTOM_MODE),
+            enabled_runtime_modes=(ROLE_MODE, STANDARD_MODE, PROFESSIONAL_MODE, VIBE_CODING_MODE, CUSTOM_MODE),
             default_runtime_mode=STANDARD_MODE,
             allowed_runtime_lanes=(
                 "full_interactive",
@@ -73,6 +74,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 "role_interaction",
                 "standard_task",
                 "professional_task",
+                "vibe_coding_task",
             ),
             allowed_operations=(
                 "op.model_response",

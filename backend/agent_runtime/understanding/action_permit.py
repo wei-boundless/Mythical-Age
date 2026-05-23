@@ -51,7 +51,7 @@ def build_action_permit(
     elif action == "run_command":
         required.append("op.shell")
     elif action == "use_browser":
-        required.append("op.browser")
+        required.append("op.browser_control")
     elif action == "delegate":
         required.append("op.delegate_to_agent")
     return ActionPermit(

@@ -100,6 +100,10 @@ class LocalOverlaySandboxBackend:
             return
         if not _is_inside(target, context.sandbox_root):
             return
+        if not source.exists():
+            alternate_source = _backend_relative_source(context.workspace_root, relative_path)
+            if alternate_source is not None:
+                source = alternate_source
         if target.exists() or not source.exists() or not source.is_file():
             return
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -122,3 +126,13 @@ def normalize_relative_path(value: Any) -> str:
 
 def _is_inside(path: Path, root: Path) -> bool:
     return path == root or root in path.parents
+
+
+def _backend_relative_source(workspace_root: Path, relative_path: str) -> Path | None:
+    backend_root = (workspace_root / "backend").resolve()
+    if not backend_root.exists():
+        return None
+    candidate = (backend_root / relative_path).resolve()
+    if candidate == backend_root or backend_root in candidate.parents:
+        return candidate
+    return None

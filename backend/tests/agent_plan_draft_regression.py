@@ -83,7 +83,7 @@ def test_model_agent_plan_draft_is_accepted_when_schema_valid() -> None:
                 "step_id": "verify",
                 "title": "Verify",
                 "purpose": "Open browser and verify workflow",
-                "required_operations": ["op.shell", "op.browser"],
+                "required_operations": ["op.shell", "op.browser_control"],
                 "contract_refs": ["run_browser_verification", "verification_evidence"],
                 "evidence_expectations": ["browser_open", "workflow_check"],
             },

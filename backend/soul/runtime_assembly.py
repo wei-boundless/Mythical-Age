@@ -77,8 +77,23 @@ class SoulRuntimeAssemblyBuilder:
             projection_id = hashlib.sha1(
                 f"{request.task_id}:{request.role_type}:{request.task_mode}:runtime".encode("utf-8")
             ).hexdigest()[:16]
-        manifest = build_prompt_manifest(request.task_id, projection_id, runtime_view)
         metadata = contract.get("metadata", {}) if isinstance(contract.get("metadata"), dict) else {}
+        interaction_mode = str(
+            dict(metadata.get("prompt_selection_context") or {}).get("interaction_mode")
+            or dict(metadata.get("mode_policy") or {}).get("interaction_mode")
+            or projection.get("interaction_mode")
+            or ""
+        ).strip()
+        manifest = build_prompt_manifest(
+            request.task_id,
+            projection_id,
+            runtime_view,
+            interaction_mode=interaction_mode,
+            metadata={
+                "interaction_mode": interaction_mode,
+                "agent_id": str(metadata.get("agent_id") or "agent:runtime"),
+            },
+        )
         bundle = build_agent_prompt_bundle(
             agent_id=str(metadata.get("agent_id") or "agent:runtime"),
             agent_profile_id=request.agent_profile_id,

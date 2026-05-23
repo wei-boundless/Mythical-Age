@@ -102,20 +102,24 @@ def _validate_test_report_triage(
     protocol_leak_detected: bool,
     strict: bool,
 ) -> DeliverableValidationResult:
-    _ = semantic_contract
-    checks = {
-        "failure_classification": _contains_any(final_answer, ("失败归类", "故障归类", "分类", "system layer", "层")),
-        "structural_root_causes": _contains_any(final_answer, ("结构性根因", "根因", "结构问题", "不是孤立")),
-        "regression_test_plan": _contains_any(final_answer, ("回归测试", "补充测试", "测试建议", "regression")),
-        "evidence_limits": _contains_any(final_answer, ("证据不足", "仍需确认", "边界", "限制")),
-    }
-    missing = [key for key, present in checks.items() if not present]
+    required = [
+        str(item).strip()
+        for item in list(semantic_contract.get("deliverables") or [])
+        if str(item).strip()
+    ] or ["failure_classification", "structural_root_causes", "regression_test_plan", "evidence_limits"]
     facts = [dict(item) for item in list(evidence_packet.get("facts") or []) if isinstance(item, dict)]
     classifications = [
         dict(item)
         for item in list(evidence_packet.get("classifications") or [])
         if isinstance(item, dict)
     ]
+    coverage = _triage_coverage_from_evidence(
+        required=required,
+        evidence_packet=evidence_packet,
+        facts=facts,
+        classifications=classifications,
+    )
+    missing = [key for key in required if not bool(dict(coverage.get(key) or {}).get("satisfied"))]
     if strict and not facts:
         missing.append("evidence_packet_facts")
     if strict and facts and not classifications:
@@ -133,13 +137,64 @@ def _validate_test_report_triage(
         protocol_leak_detected=protocol_leak_detected,
         unsupported_claims=tuple(unsupported_claims),
         evidence_alignment={
-            "accepted": bool(facts) or not strict,
+            "accepted": (bool(facts) or not strict) and not missing,
             "fact_count": len(facts),
             "classification_count": len(classifications),
             "strict": bool(strict),
+            "coverage": coverage,
         },
-        diagnostics={"section_checks": checks},
+        diagnostics={"coverage_checks": coverage},
     )
+
+
+def _triage_coverage_from_evidence(
+    *,
+    required: list[str],
+    evidence_packet: dict[str, Any],
+    facts: list[dict[str, Any]],
+    classifications: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    packet_coverage = {
+        str(key): dict(value)
+        for key, value in dict(evidence_packet.get("deliverable_coverage") or {}).items()
+        if isinstance(value, dict)
+    }
+    coverage: dict[str, dict[str, Any]] = {}
+    failure_facts = [fact for fact in facts if str(fact.get("fact_type") or "") == "failure"]
+    has_write_evidence = bool(_artifact_write_paths_from_facts(facts)) or any(
+        _contains_any(str(fact.get("preview") or fact.get("summary") or ""), ("write succeeded", "edit succeeded", "写入成功", "已写入"))
+        for fact in facts
+    )
+    has_verification_evidence = any(
+        _contains_any(
+            str(fact.get("preview") or fact.get("summary") or ""),
+            ("pytest", "PYTEST_OK", "passed", "verification", "terminal", "验证", "测试通过"),
+        )
+        for fact in facts
+    )
+    computed = {
+        "failure_classification": bool(classifications),
+        "structural_root_causes": bool(failure_facts and classifications),
+        "regression_test_plan": bool(failure_facts),
+        "evidence_limits": True,
+        "change_summary": has_write_evidence,
+        "changed_files": has_write_evidence,
+        "verification_result_or_limitation": has_verification_evidence,
+    }
+    for item in required:
+        declared = dict(packet_coverage.get(item) or {})
+        if declared:
+            coverage[item] = {
+                **declared,
+                "satisfied": bool(declared.get("satisfied")),
+                "source": "evidence_packet.deliverable_coverage",
+            }
+            continue
+        coverage[item] = {
+            "satisfied": bool(computed.get(item, False)),
+            "source": "computed_from_evidence",
+        }
+    return coverage
 
 
 def _validate_artifact_delivery(

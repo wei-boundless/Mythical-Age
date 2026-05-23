@@ -229,27 +229,10 @@ def _resolve_task_goal_type(
 ) -> str:
     if _is_task_graph_node_runtime_context(current_turn_context):
         return "task_graph_node_execution"
-    model_turn_decision = dict(current_turn_context.get("model_turn_decision") or {})
-    if model_turn_decision:
-        projected = str(dict(task_goal_spec or {}).get("task_goal_type") or "").strip()
-        if projected:
-            return projected
-        work_mode = str(model_turn_decision.get("work_mode") or "").strip()
-        action_intent = str(model_turn_decision.get("action_intent") or "").strip()
-        interaction_intent = str(model_turn_decision.get("interaction_intent") or "").strip()
-        if action_intent == "block":
-            return "blocked"
-        if work_mode == "implementation" or action_intent == "edit_workspace":
-            return "implementation"
-        if work_mode == "verification" or action_intent == "run_command":
-            return "verification"
-        if work_mode == "planning" or interaction_intent == "plan":
-            return "planning"
-        if action_intent == "search_external":
-            return "external_research"
-        if action_intent == "read_context":
-            return "inspection"
-        return "conversation"
+    goal_frame = dict(task_goal_spec or {})
+    framed_type = str(goal_frame.get("task_goal_type") or "").strip()
+    if framed_type:
+        return framed_type
     explicit = str(
         current_turn_context.get("semantic_task_type")
         or current_turn_context.get("task_goal_type")
@@ -258,11 +241,12 @@ def _resolve_task_goal_type(
     ).strip()
     if explicit:
         return explicit
-    goal_frame = dict(task_goal_spec or {})
-    framed_type = str(goal_frame.get("task_goal_type") or "").strip()
-    if framed_type:
-        return framed_type
-    raise RuntimeError("ModelTurnDecision is required to resolve task goal type")
+    model_turn_decision = dict(current_turn_context.get("model_turn_decision") or {})
+    if model_turn_decision:
+        concrete_model_goal = str(model_turn_decision.get("task_goal_type") or "").strip()
+        if concrete_model_goal:
+            return concrete_model_goal
+    raise RuntimeError("ModelTurnDecision.task_goal_type is required to resolve task goal type")
 
 
 def _task_goal_spec_type_is_authoritative(task_goal_type: str, task_goal_spec: dict[str, Any]) -> bool:
@@ -488,16 +472,6 @@ def _domain_for_goal_type(task_goal_type: str, query_understanding: dict[str, An
     profile = get_task_goal_profile(task_goal_type)
     if profile is not None:
         return profile.task_domain
-    if task_goal_type == "task_graph_node_execution":
-        return "task_graph"
-    if task_goal_type == "game_vertical_slice_delivery":
-        return "development"
-    if task_goal_type == "frontend_app_delivery":
-        return "development"
-    if task_goal_type in {"test_report_triage", "runtime_trace_analysis"}:
-        return "agent_runtime_quality"
-    if task_goal_type in {"code_fix_execution", "regression_test_design"}:
-        return "development"
     decision = dict(dict(query_understanding or {}).get("model_turn_decision") or {})
     action_intent = str(decision.get("action_intent") or "").strip()
     work_mode = str(decision.get("work_mode") or "").strip()
@@ -514,88 +488,21 @@ def _professional_profile_id(task_goal_type: str) -> str:
     profile = get_task_goal_profile(task_goal_type)
     if profile is not None and profile.professional_profile_id:
         return profile.professional_profile_id
-    return {
-        "test_report_triage": "professional.test_report_triage",
-        "runtime_trace_analysis": "professional.runtime_trace_analysis",
-        "code_fix_execution": "professional.code_fix_execution",
-        "regression_test_design": "professional.regression_test_design",
-        "material_synthesis": "professional.material_synthesis",
-        "game_vertical_slice_delivery": "professional.game_vertical_slice_delivery",
-        "frontend_app_delivery": "professional.frontend_app_delivery",
-    }.get(task_goal_type, "")
+    return ""
 
 
 def _deliverables_for_goal_type(task_goal_type: str) -> list[str]:
     profile = get_task_goal_profile(task_goal_type)
     if profile is not None and profile.default_core_deliverables:
         return list(profile.default_core_deliverables)
-    return {
-        "task_graph_node_execution": ["node_contract_output", "artifact_refs_or_structured_output", "blocking_issue_if_any"],
-        "test_report_triage": ["failure_classification", "structural_root_causes", "regression_test_plan", "evidence_limits"],
-        "runtime_trace_analysis": ["event_chain", "turning_points", "structural_root_causes", "recovery_candidates"],
-        "code_fix_execution": ["change_summary", "changed_files", "verification_result_or_limitation"],
-        "regression_test_design": ["reproduction_inputs", "assertions", "coverage_risks", "target_files"],
-        "artifact_delivery": ["artifact_refs", "completion_status", "limitations"],
-        "material_synthesis": ["material_findings", "cross_material_conclusions", "limitations"],
-        "game_vertical_slice_delivery": [
-            "runnable_artifact_refs",
-            "gameplay_acceptance",
-            "visual_asset_refs",
-            "verification_evidence",
-            "final_report",
-        ],
-        "frontend_app_delivery": [
-            "runnable_artifact_refs",
-            "workflow_acceptance",
-            "verification_evidence",
-            "limitations",
-        ],
-        "bounded_tool_task": ["tool_grounded_answer", "limitations"],
-        "light_qa": ["direct_answer", "source_or_memory_boundary"],
-        "role_conversation": ["conversational_response"],
-    }.get(task_goal_type, ["final_answer"])
+    return ["final_answer"]
 
 
 def _reasoning_steps_for_goal_type(task_goal_type: str) -> list[str]:
     profile = get_task_goal_profile(task_goal_type)
     if profile is not None and profile.default_reasoning_steps:
         return list(profile.default_reasoning_steps)
-    return {
-        "task_graph_node_execution": [
-            "read_node_contract_packet",
-            "execute_professional_node_role",
-            "produce_declared_node_output",
-            "report_blocking_issue_if_contract_cannot_be_satisfied",
-        ],
-        "test_report_triage": [
-            "extract_failures",
-            "classify_failures_by_system_layer",
-            "infer_structural_root_causes",
-            "map_regression_tests",
-            "synthesize_final_answer",
-        ],
-        "runtime_trace_analysis": ["extract_events", "identify_turning_points", "map_state_owners", "synthesize_recovery_plan"],
-        "code_fix_execution": ["inspect_relevant_code", "plan_structural_change", "edit_scoped_files", "run_or_explain_verification"],
-        "regression_test_design": ["identify_regression_surface", "design_repro_inputs", "define_assertions", "map_test_files"],
-        "material_synthesis": ["read_materials", "extract_facts", "compare_findings", "synthesize_answer"],
-        "game_vertical_slice_delivery": [
-            "understand_product_goal",
-            "inspect_project_entrypoints",
-            "plan_vertical_slice",
-            "implement_core_gameplay",
-            "integrate_visual_asset",
-            "run_browser_verification",
-            "write_final_report",
-        ],
-        "frontend_app_delivery": [
-            "understand_product_goal",
-            "inspect_frontend_structure",
-            "plan_user_workflow",
-            "implement_frontend_changes",
-            "run_browser_verification",
-            "synthesize_delivery",
-        ],
-    }.get(task_goal_type, ["understand_request", "answer_with_boundaries"])
+    return ["understand_request", "answer_with_boundaries"]
 
 
 def _required_actions_for_goal_type(task_goal_type: str, *, materials: tuple[dict[str, Any], ...]) -> list[str]:
@@ -606,18 +513,6 @@ def _required_actions_for_goal_type(task_goal_type: str, *, materials: tuple[dic
     if profile is not None and profile.required_actions:
         actions.extend(profile.required_actions)
         return _dedupe(actions)
-    if task_goal_type == "task_graph_node_execution":
-        actions.extend(["execute_node_contract", "produce_contract_output"])
-    if task_goal_type in {"test_report_triage", "runtime_trace_analysis", "material_synthesis"}:
-        actions.append("build_evidence_packet")
-    if task_goal_type in {"test_report_triage", "runtime_trace_analysis", "code_fix_execution", "regression_test_design"}:
-        actions.append("validate_deliverables")
-    if task_goal_type == "code_fix_execution":
-        actions.extend(["inspect_code", "apply_real_change"])
-    if task_goal_type == "game_vertical_slice_delivery":
-        actions.extend(["inspect_code", "apply_real_change", "integrate_asset", "run_browser_verification", "validate_deliverables"])
-    if task_goal_type == "frontend_app_delivery":
-        actions.extend(["inspect_code", "apply_real_change", "run_browser_verification", "validate_deliverables"])
     return _dedupe(actions)
 
 
@@ -626,29 +521,11 @@ def _forbidden_actions_for_goal_type(task_goal_type: str, *, write_required: boo
     profile = get_task_goal_profile(task_goal_type)
     if profile is not None and profile.forbidden_actions:
         actions = list(profile.forbidden_actions)
-        if task_goal_type == "test_report_triage":
-            if not write_required:
-                actions.append("modify_code_without_request")
-            if write_forbidden:
-                actions.append("modify_code")
-        elif write_forbidden:
-            actions.append("modify_code")
-        return _dedupe(actions)
-    if task_goal_type == "task_graph_node_execution":
-        return [*common, "override_node_role_with_chat_intent", "treat_orchestration_artifact_write_as_code_patch"]
-    if task_goal_type == "test_report_triage":
-        actions = [*common, "invent_test_result"]
-        if not write_required:
+        if not write_required and task_goal_type in {"test_report_triage", "inspection"}:
             actions.append("modify_code_without_request")
         if write_forbidden:
             actions.append("modify_code")
         return _dedupe(actions)
-    if task_goal_type == "code_fix_execution":
-        return [*common, "claim_unrun_tests_as_passed"]
-    if task_goal_type == "game_vertical_slice_delivery":
-        return [*common, "treat_supporting_report_as_core_output", "claim_unverified_game_as_complete"]
-    if task_goal_type == "frontend_app_delivery":
-        return [*common, "surface_only_ui_claim", "claim_unverified_frontend_as_complete"]
     if write_forbidden:
         return [*common, "modify_code"]
     return common
@@ -665,9 +542,9 @@ def _material_policy_for_goal_type(
     profile_policy = dict(getattr(profile, "material_policy", None) or {}) if profile is not None else {}
     return {
         "requires_material_read": bool(materials),
-        "structured_extraction": bool(profile_policy.get("structured_extraction")) or task_goal_type in {"test_report_triage", "runtime_trace_analysis"},
-        "evidence_packet_required": bool(profile_policy.get("evidence_packet_required")) or task_goal_type in {"test_report_triage", "runtime_trace_analysis", "material_synthesis"},
-        "stage_prompt_profiles_required": bool(profile_policy.get("stage_prompt_profiles_required")) or task_goal_type in {"game_vertical_slice_delivery", "frontend_app_delivery"},
+        "structured_extraction": bool(profile_policy.get("structured_extraction")),
+        "evidence_packet_required": bool(profile_policy.get("evidence_packet_required")),
+        "stage_prompt_profiles_required": bool(profile_policy.get("stage_prompt_profiles_required")),
         "material_count": len(materials),
         "execution_obligation_required_reads": len(list(obligation.get("required_reads") or [])),
         "execution_obligation_required_writes": len(list(obligation.get("required_writes") or [])),
@@ -684,10 +561,13 @@ def _output_schema_for_goal_type(task_goal_type: str, *, deliverables: list[str]
 
 def _validation_schema_for_goal_type(task_goal_type: str, *, execution_obligation: dict[str, Any] | None = None) -> dict[str, Any]:
     obligation = dict(execution_obligation or {})
+    profile = get_task_goal_profile(task_goal_type)
+    profile_policy = dict(getattr(profile, "material_policy", None) or {}) if profile is not None else {}
+    validator_id = str(getattr(profile, "validator_profile_id", "") or f"deliverable.{task_goal_type}")
     return {
-        "validator": f"deliverable.{task_goal_type}",
+        "validator": validator_id,
         "reject_protocol_leak": True,
-        "require_evidence_alignment": task_goal_type in {"test_report_triage", "runtime_trace_analysis", "material_synthesis"},
+        "require_evidence_alignment": bool(profile_policy.get("evidence_packet_required")),
         "require_write_observation": _obligation_has_writes(obligation) and task_goal_type != "task_graph_node_execution",
         "require_verification_observation": _obligation_has_verification(obligation),
         "completion_judgment_statuses": ["verified", "partially_verified", "unverified", "blocked", "contradicted"],

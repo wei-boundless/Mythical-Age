@@ -1221,7 +1221,7 @@ class ProfessionalTaskRunDriver:
                 model_messages=closeout_messages,
                 directive=_model_only_directive(safe_directive, mode=interaction_mode),
                 tool_instances=[],
-                model_stream_policy=model_stream_policy,
+                model_stream_policy=_silent_model_stream_policy(model_stream_policy),
                 model_spec=resolved_model_spec,
             ):
                 if _event_protocol_leak_detected(event):
@@ -1622,7 +1622,7 @@ class ProfessionalTaskRunDriver:
                 model_messages=repair_messages,
                 directive=_model_only_directive(safe_directive, mode=interaction_mode),
                 tool_instances=[],
-                model_stream_policy=model_stream_policy,
+                model_stream_policy=_silent_model_stream_policy(model_stream_policy),
                 model_spec=resolved_model_spec,
             ):
                 runtime_events = await self.execution_engine.translate_event(
@@ -2492,6 +2492,10 @@ def _enabled_flag(policy: dict[str, Any], key: str, *, default: bool) -> bool:
     return bool(value is True)
 
 
+def _silent_model_stream_policy(policy: dict[str, Any] | None) -> dict[str, Any]:
+    return {**dict(policy or {}), "emit_content_delta": False}
+
+
 def _sidecar_invoker(model_response_executor: Any, *, enabled: bool) -> Any | None:
     if not enabled:
         return None
@@ -2542,9 +2546,6 @@ def _control_plan_from_agent_plan_draft(
             }
         )
     return converted
-
-
-
 
 
 

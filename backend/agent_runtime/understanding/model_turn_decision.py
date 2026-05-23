@@ -16,6 +16,8 @@ class ModelTurnDecision:
     interaction_intent: str
     action_intent: str
     work_mode: str
+    task_goal_type: str = ""
+    task_domain: str = ""
     target_objects: tuple[str, ...] = ()
     desired_outcome: str = ""
     deliverables: tuple[str, ...] = ()
@@ -56,6 +58,12 @@ def model_turn_decision_from_payload(
     interaction = _normalized(raw.get("interaction_intent"), INTERACTION_INTENTS, errors, "interaction_intent")
     action = _normalized(raw.get("action_intent"), ACTION_INTENTS, errors, "action_intent")
     work_mode = _normalized(raw.get("work_mode"), WORK_MODES, errors, "work_mode")
+    task_goal_type = str(raw.get("task_goal_type") or "").strip()
+    task_domain = str(raw.get("task_domain") or "").strip()
+    if not task_goal_type:
+        errors.append("task_goal_type_required")
+    if not task_domain:
+        errors.append("task_domain_required")
     confidence = _confidence(raw.get("confidence"), errors)
     binding = raw.get("context_binding_decision") or {}
     if not isinstance(binding, dict):
@@ -69,6 +77,8 @@ def model_turn_decision_from_payload(
         interaction_intent=interaction,
         action_intent=action,
         work_mode=work_mode,
+        task_goal_type=task_goal_type,
+        task_domain=task_domain,
         target_objects=tuple(_sequence(raw.get("target_objects"))),
         desired_outcome=str(raw.get("desired_outcome") or "").strip(),
         deliverables=tuple(_sequence(raw.get("deliverables"))),

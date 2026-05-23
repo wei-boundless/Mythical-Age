@@ -179,7 +179,8 @@ class ToolRuntimeExecutor:
                 "error": error,
             }
 
-        text = str(result or "")
+        result_payload = _structured_tool_result_payload(result)
+        text = str(result_payload.get("text") if result_payload else result or "")
         limit = max(0, int(max_result_size_chars or 0))
         truncated = bool(limit and len(text) > limit)
         if truncated:
@@ -188,7 +189,10 @@ class ToolRuntimeExecutor:
         envelope = build_tool_result_envelope(
             tool_name=tool_name,
             tool_args=tool_args,
-            result=text,
+            result={
+                "text": text,
+                "structured_payload": dict(result_payload.get("structured_payload") or {}),
+            } if result_payload else text,
             execution_receipt=build_execution_receipt(current_record).to_dict(),
             result_ref=result_ref,
             truncated=truncated,
@@ -317,3 +321,15 @@ def _contract_decision_error(decision: ToolContractDecision) -> str:
         details.append(f"missing bindings: {', '.join(decision.missing_bindings)}")
     suffix = f" ({'; '.join(details)})" if details else ""
     return f"Tool execution blocked by contract: {decision.reason}{suffix}."
+
+
+def _structured_tool_result_payload(result: Any) -> dict[str, Any]:
+    if not isinstance(result, dict):
+        return {}
+    payload = dict(result)
+    if "structured_payload" not in payload:
+        return {}
+    return {
+        "text": str(payload.get("text") or payload.get("summary") or ""),
+        "structured_payload": dict(payload.get("structured_payload") or {}),
+    }

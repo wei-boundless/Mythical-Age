@@ -60,6 +60,7 @@ class ModelResponseRuntimeExecutor:
         tool_streamer = getattr(self.model_runtime, "astream_messages_with_tools", None)
         stream_policy = dict(model_stream_policy or {})
         stream_enabled = bool(stream_policy.get("enabled") is True)
+        emit_content_delta = bool(stream_policy.get("emit_content_delta") is not False)
         response_timeout_seconds = _model_response_timeout_seconds(
             self.model_runtime,
             model_spec=model_spec,
@@ -85,16 +86,17 @@ class ModelResponseRuntimeExecutor:
                     delta_text = _chunk_text(chunk)
                     if not delta_text:
                         continue
-                    delta_index += 1
                     raw_content += delta_text
-                    yield {
-                        "type": "content_delta",
-                        "content": delta_text,
-                        "delta_index": delta_index,
-                        "delta_chars": len(delta_text),
-                        "accumulated_chars": len(raw_content),
-                        "stream_ref": directive.directive_id,
-                    }
+                    if emit_content_delta:
+                        delta_index += 1
+                        yield {
+                            "type": "content_delta",
+                            "content": delta_text,
+                            "delta_index": delta_index,
+                            "delta_chars": len(delta_text),
+                            "accumulated_chars": len(raw_content),
+                            "stream_ref": directive.directive_id,
+                        }
                 response = aggregated_chunk if aggregated_chunk is not None else raw_content
             elif stream_enabled:
                 raw_content = ""
@@ -109,16 +111,17 @@ class ModelResponseRuntimeExecutor:
                     delta_text = _chunk_text(chunk)
                     if not delta_text:
                         continue
-                    delta_index += 1
                     raw_content += delta_text
-                    yield {
-                        "type": "content_delta",
-                        "content": delta_text,
-                        "delta_index": delta_index,
-                        "delta_chars": len(delta_text),
-                        "accumulated_chars": len(raw_content),
-                        "stream_ref": directive.directive_id,
-                    }
+                    if emit_content_delta:
+                        delta_index += 1
+                        yield {
+                            "type": "content_delta",
+                            "content": delta_text,
+                            "delta_index": delta_index,
+                            "delta_chars": len(delta_text),
+                            "accumulated_chars": len(raw_content),
+                            "stream_ref": directive.directive_id,
+                        }
                 response = raw_content
             elif tools and callable(tool_invoker):
                 response = await _await_with_hard_timeout(
@@ -314,7 +317,7 @@ class ModelResponseRuntimeExecutor:
         stream_preview_text = ""
         if stream_enabled and delta_index <= 0:
             stream_preview_text = raw_content.strip() or reasoning_content
-        if stream_preview_text:
+        if stream_preview_text and emit_content_delta:
             yield {
                 "type": "content_delta",
                 "content": stream_preview_text,
@@ -469,7 +472,7 @@ def _model_only_finalization(directive: RuntimeDirective) -> bool:
     return (
         bool(diagnostics.get("model_only") is True)
         and str(diagnostics.get("professional_task_mode") or diagnostics.get("interaction_mode") or "").strip()
-        in {"role_mode", "standard_mode", "professional_mode"}
+        in {"role_mode", "standard_mode", "professional_mode", "vibe_coding"}
     )
 
 

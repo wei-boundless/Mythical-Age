@@ -33,6 +33,8 @@ class _DecisionInvoker:
                     "interaction_intent": "answer",
                     "action_intent": "answer_only",
                     "work_mode": "conversation",
+                    "task_goal_type": "light_qa",
+                    "task_domain": "general",
                     "confidence": 0.95,
                     "target_objects": [],
                     "desired_outcome": "answer",

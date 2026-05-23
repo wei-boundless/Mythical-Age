@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from runtime.model_gateway.structured_sidecar import invoke_structured_json_sidecar
+from task_system.goal_profiles import known_task_goal_types
 
 from .model_turn_decision import model_turn_decision_from_payload
 
@@ -71,13 +72,16 @@ async def invoke_model_turn_decision(
 
 
 def _schema() -> dict[str, Any]:
+    allowed_task_goal_types = list(known_task_goal_types())
     return {
         "authority": "agent_runtime.model_turn_decision",
-        "required": ["decision_id", "user_message", "interaction_intent", "action_intent", "work_mode", "confidence", "authority"],
+        "required": ["decision_id", "user_message", "interaction_intent", "action_intent", "work_mode", "task_goal_type", "task_domain", "confidence", "authority"],
         "fields": {
             "interaction_intent": "answer|explain|inspect|review|plan|modify|create|run|verify|continue|stop|restore",
             "action_intent": "answer_only|read_context|search_external|edit_workspace|run_command|start_service|use_browser|delegate|ask_clarification|block",
             "work_mode": "conversation|read_only_analysis|implementation|verification|planning|delegated|background",
+            "task_goal_type": "string, concrete task contract type. Must be one of allowed_task_goal_types unless the user explicitly names a new unsupported contract type.",
+            "task_domain": "string, domain of the task, for example software_engineering|workspace|general",
             "target_objects": "list[str]",
             "desired_outcome": "string",
             "deliverables": "list[str]",
@@ -91,17 +95,22 @@ def _schema() -> dict[str, Any]:
             "clarification_question": "string",
             "ambiguity": "list[str]",
         },
+        "allowed_task_goal_types": allowed_task_goal_types,
     }
 
 
 def _role_prompt() -> str:
+    allowed = ", ".join(known_task_goal_types())
     return "\n".join(
         [
             "你是当前轮请求判断者。",
             "你负责判断用户本轮到底是在问、解释、审查、规划、修改、运行、验证、继续、停止还是恢复。",
             "你还要判断 agent 下一步行动：直接回答、读取上下文、搜索外部信息、编辑工作区、运行命令、启动服务、使用浏览器、委派、澄清或阻塞。",
+            "你必须给出当前轮的 task_goal_type。它表示任务契约，不是执行姿态；例如分析失败报告是 test_report_triage，修代码并验证是 code_fix_execution，交付文件是 artifact_delivery，普通问答是 light_qa，闲聊是 role_conversation。",
+            f"当前正式任务类型注册表：{allowed}。",
             "RequestFacts 只是不带裁决的事实；BoundaryPolicy 是不能越过的硬边界；ContextCandidates 只是候选上下文。",
             "你不能选择具体工具，不能绕过 BoundaryPolicy，不能把候选上下文当成当前轮事实。",
+            "如果请求有明确专业任务类型，你必须在 task_goal_type 写出具体任务契约类型；不要用 planning 代替任务目标。",
             "如果用户禁止修改，action_intent 不能是 edit_workspace；如果用户要求先计划，planning_required 必须为 true。",
             "请只输出符合 agent_runtime.model_turn_decision schema 的 JSON object。",
         ]
@@ -122,6 +131,8 @@ def _blocked_decision(*, user_message: str, request: dict[str, Any]) -> dict[str
         "interaction_intent": "stop",
         "action_intent": "block",
         "work_mode": "conversation",
+        "task_goal_type": "blocked",
+        "task_domain": "general",
         "target_objects": [],
         "desired_outcome": "Model turn decision was not available; execution is blocked instead of falling back to heuristics.",
         "deliverables": [],

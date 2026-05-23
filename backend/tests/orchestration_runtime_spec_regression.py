@@ -108,8 +108,12 @@ def test_orchestration_runtime_bundle_builds_formal_objects() -> None:
     assert orchestration["projection_requirement"]["resolution_source"] in {"task_requirement", "agent_default", "no_projection"}
     assert orchestration["diagnostics"]["projection_resolution"]["status"] in {"ok", "warning"}
     assert orchestration["prompt_manifest"]["manifest_id"]
+    assert orchestration["prompt_manifest"]["validation"]["interaction_mode"]
+    assert orchestration["diagnostics"]["prompt_manifest_validation"]["interaction_mode"]
+    assert "prompt_manifest_validation_passed" in orchestration["fallback_plan"]
     assert orchestration["soul_runtime_view"]["sections"]
     assert orchestration["projection_ref"] == orchestration["projection_requirement"]["projection_id"] or not orchestration["projection_requirement"]["projection_id"]
+    assert "prompt_manifest_validation_passed" in runtime_spec["diagnostics"]
 
 
 def test_professional_mode_overrides_registered_light_web_game_recipe() -> None:

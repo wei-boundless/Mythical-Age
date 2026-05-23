@@ -25,7 +25,8 @@
       "applies_to_modes": [
         "role_mode",
         "standard_mode",
-        "professional_mode"
+        "professional_mode",
+        "vibe_coding"
       ],
       "applies_to_agents": [],
       "priority": 100,
@@ -75,7 +76,8 @@
       "applies_to_modes": [
         "role_mode",
         "standard_mode",
-        "professional_mode"
+        "professional_mode",
+        "vibe_coding"
       ],
       "applies_to_agents": [],
       "priority": 100,
@@ -125,7 +127,8 @@
       "applies_to_modes": [
         "role_mode",
         "standard_mode",
-        "professional_mode"
+        "professional_mode",
+        "vibe_coding"
       ],
       "applies_to_agents": [],
       "priority": 100,
@@ -175,7 +178,8 @@
       "applies_to_modes": [
         "role_mode",
         "standard_mode",
-        "professional_mode"
+        "professional_mode",
+        "vibe_coding"
       ],
       "applies_to_agents": [],
       "priority": 100,
@@ -225,7 +229,8 @@
       "applies_to_modes": [
         "role_mode",
         "standard_mode",
-        "professional_mode"
+        "professional_mode",
+        "vibe_coding"
       ],
       "applies_to_agents": [],
       "priority": 100,
@@ -275,7 +280,8 @@
       "applies_to_modes": [
         "role_mode",
         "standard_mode",
-        "professional_mode"
+        "professional_mode",
+        "vibe_coding"
       ],
       "applies_to_agents": [],
       "priority": 100,
@@ -325,7 +331,8 @@
       "applies_to_modes": [
         "role_mode",
         "standard_mode",
-        "professional_mode"
+        "professional_mode",
+        "vibe_coding"
       ],
       "applies_to_agents": [],
       "priority": 100,
@@ -375,7 +382,8 @@
       "applies_to_modes": [
         "role_mode",
         "standard_mode",
-        "professional_mode"
+        "professional_mode",
+        "vibe_coding"
       ],
       "applies_to_agents": [],
       "priority": 100,
@@ -425,7 +433,8 @@
       "applies_to_modes": [
         "role_mode",
         "standard_mode",
-        "professional_mode"
+        "professional_mode",
+        "vibe_coding"
       ],
       "applies_to_agents": [],
       "priority": 100,
@@ -475,7 +484,8 @@
       "applies_to_modes": [
         "role_mode",
         "standard_mode",
-        "professional_mode"
+        "professional_mode",
+        "vibe_coding"
       ],
       "applies_to_agents": [],
       "priority": 100,
@@ -525,7 +535,8 @@
       "applies_to_modes": [
         "role_mode",
         "standard_mode",
-        "professional_mode"
+        "professional_mode",
+        "vibe_coding"
       ],
       "applies_to_agents": [],
       "priority": 100,
@@ -575,7 +586,8 @@
       "applies_to_modes": [
         "role_mode",
         "standard_mode",
-        "professional_mode"
+        "professional_mode",
+        "vibe_coding"
       ],
       "applies_to_agents": [],
       "priority": 100,
@@ -625,7 +637,8 @@
       "applies_to_modes": [
         "role_mode",
         "standard_mode",
-        "professional_mode"
+        "professional_mode",
+        "vibe_coding"
       ],
       "applies_to_agents": [],
       "priority": 100,
@@ -675,7 +688,8 @@
       "applies_to_modes": [
         "role_mode",
         "standard_mode",
-        "professional_mode"
+        "professional_mode",
+        "vibe_coding"
       ],
       "applies_to_agents": [],
       "priority": 100,
@@ -725,7 +739,8 @@
       "applies_to_modes": [
         "role_mode",
         "standard_mode",
-        "professional_mode"
+        "professional_mode",
+        "vibe_coding"
       ],
       "applies_to_agents": [],
       "priority": 100,
@@ -775,7 +790,8 @@
       "applies_to_modes": [
         "role_mode",
         "standard_mode",
-        "professional_mode"
+        "professional_mode",
+        "vibe_coding"
       ],
       "applies_to_agents": [],
       "priority": 100,
@@ -825,7 +841,8 @@
       "applies_to_modes": [
         "role_mode",
         "standard_mode",
-        "professional_mode"
+        "professional_mode",
+        "vibe_coding"
       ],
       "applies_to_agents": [],
       "priority": 100,
@@ -875,7 +892,8 @@
       "applies_to_modes": [
         "role_mode",
         "standard_mode",
-        "professional_mode"
+        "professional_mode",
+        "vibe_coding"
       ],
       "applies_to_agents": [],
       "priority": 100,
@@ -925,7 +943,8 @@
       "applies_to_modes": [
         "role_mode",
         "standard_mode",
-        "professional_mode"
+        "professional_mode",
+        "vibe_coding"
       ],
       "applies_to_agents": [],
       "priority": 100,
@@ -975,7 +994,8 @@
       "applies_to_modes": [
         "role_mode",
         "standard_mode",
-        "professional_mode"
+        "professional_mode",
+        "vibe_coding"
       ],
       "applies_to_agents": [],
       "priority": 100,
@@ -1025,7 +1045,8 @@
       "applies_to_modes": [
         "role_mode",
         "standard_mode",
-        "professional_mode"
+        "professional_mode",
+        "vibe_coding"
       ],
       "applies_to_agents": [],
       "priority": 100,
@@ -1075,7 +1096,8 @@
       "applies_to_modes": [
         "role_mode",
         "standard_mode",
-        "professional_mode"
+        "professional_mode",
+        "vibe_coding"
       ],
       "applies_to_agents": [],
       "priority": 100,
@@ -1125,7 +1147,8 @@
       "applies_to_modes": [
         "role_mode",
         "standard_mode",
-        "professional_mode"
+        "professional_mode",
+        "vibe_coding"
       ],
       "applies_to_agents": [],
       "priority": 100,
@@ -1175,7 +1198,8 @@
       "applies_to_modes": [
         "role_mode",
         "standard_mode",
-        "professional_mode"
+        "professional_mode",
+        "vibe_coding"
       ],
       "applies_to_agents": [],
       "priority": 100,
@@ -1225,7 +1249,8 @@
       "applies_to_modes": [
         "role_mode",
         "standard_mode",
-        "professional_mode"
+        "professional_mode",
+        "vibe_coding"
       ],
       "applies_to_agents": [],
       "priority": 100,
@@ -1275,7 +1300,8 @@
       "applies_to_modes": [
         "role_mode",
         "standard_mode",
-        "professional_mode"
+        "professional_mode",
+        "vibe_coding"
       ],
       "applies_to_agents": [],
       "priority": 100,
@@ -1325,7 +1351,8 @@
       "applies_to_modes": [
         "role_mode",
         "standard_mode",
-        "professional_mode"
+        "professional_mode",
+        "vibe_coding"
       ],
       "applies_to_agents": [],
       "priority": 100,
@@ -1375,7 +1402,8 @@
       "applies_to_modes": [
         "role_mode",
         "standard_mode",
-        "professional_mode"
+        "professional_mode",
+        "vibe_coding"
       ],
       "applies_to_agents": [],
       "priority": 100,
@@ -1425,7 +1453,8 @@
       "applies_to_modes": [
         "role_mode",
         "standard_mode",
-        "professional_mode"
+        "professional_mode",
+        "vibe_coding"
       ],
       "applies_to_agents": [],
       "priority": 100,

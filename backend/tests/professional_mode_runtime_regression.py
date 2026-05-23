@@ -10,6 +10,7 @@ from prompting.professional_profiles import get_professional_prompt_profile
 from request_intent.request_signals import build_request_signals
 from task_system.services.assembly_builder import build_task_execution_assembly_bundle
 from tests.support.runtime_stubs import model_turn_context
+from runtime.tool_runtime.tool_result_envelope import build_tool_result_envelope
 
 
 def _professional_triage_inputs(user_goal: str) -> dict[str, object]:
@@ -147,6 +148,83 @@ def test_evidence_packet_and_validator_require_triage_deliverables() -> None:
     assert evidence.facts
     assert evidence.classifications
     assert result.passed is True
+
+
+def test_structured_file_payload_builds_triage_evidence_without_summary_parsing() -> None:
+    semantic_contract = {
+        "contract_id": "semantic-task:test",
+        "task_goal_type": "test_report_triage",
+        "deliverables": ["failure_classification", "structural_root_causes", "regression_test_plan", "evidence_limits"],
+        "materials": [{"path": "failing_summary.json", "kind": "json", "role": "failure_report"}],
+    }
+    envelope = build_tool_result_envelope(
+        tool_name="read_structured_file",
+        tool_args={"path": "failing_summary.json"},
+        result={
+            "text": "root_type: dict\n$: object keys=['failures']",
+            "structured_payload": {
+                "tool_result": {
+                    "kind": "structured_file",
+                    "path": "failing_summary.json",
+                    "format": "json",
+                    "root_type": "dict",
+                    "data": {
+                        "run_id": "run-structured",
+                        "failures": [
+                            {
+                                "turn": 8,
+                                "check": "response.nonempty",
+                                "symptom": "final answer was empty after tool loop",
+                                "evidence": "tool loop returned observation but no final content",
+                            }
+                        ],
+                    },
+                }
+            },
+        },
+    )
+    evidence = build_evidence_packet(
+        task_run_id="taskrun:structured",
+        semantic_contract=semantic_contract,
+        observations=[
+            {
+                "observation_ref": "obs:structured",
+                "tool_name": "read_structured_file",
+                "result": envelope.text,
+                "result_envelope": envelope.to_dict(),
+                "structured_payload": dict(envelope.structured_payload),
+            }
+        ],
+    )
+
+    result = validate_deliverable(
+        final_answer="结论：失败集中在输出边界。原因是工具观察没有可靠转换为最终回答。建议增加长跑回归，并说明现有证据只覆盖该报告。",
+        semantic_contract=semantic_contract,
+        evidence_packet=evidence.to_dict(),
+        strict=True,
+    )
+
+    failure_facts = [fact for fact in evidence.facts if fact.get("fact_type") == "failure"]
+    assert failure_facts
+    assert failure_facts[0]["turn"] == 8
+    assert evidence.deliverable_coverage["failure_classification"]["satisfied"] is True
+    assert result.passed is True
+
+
+def test_triage_validator_rejects_polished_answer_without_evidence() -> None:
+    result = validate_deliverable(
+        final_answer="结论：这是输出边界问题。需要补充长跑回归，并说明证据边界。",
+        semantic_contract={
+            "task_goal_type": "test_report_triage",
+            "deliverables": ["failure_classification", "structural_root_causes", "regression_test_plan", "evidence_limits"],
+        },
+        evidence_packet={"facts": [], "classifications": []},
+        strict=True,
+    )
+
+    assert result.passed is False
+    assert "failure_classification" in result.missing_deliverables
+    assert "evidence_packet_facts" in result.missing_deliverables
 
 
 def test_deliverable_validator_flags_read_file_tag_leak() -> None:
@@ -287,10 +365,65 @@ def test_profile_driven_validator_requires_frontend_workflow_evidence() -> None:
     assert "claims_functional_acceptance_without_evidence" in result.unsupported_claims
 
 
+def test_profile_driven_validator_accepts_frontend_write_browser_and_workflow_evidence() -> None:
+    result = validate_deliverable(
+        final_answer=(
+            "已完成前端工作流交付：文件 frontend/src/App.tsx 已修改；"
+            "浏览器验证已覆盖点击、输入和页面状态更新；限制是未覆盖生产构建。"
+        ),
+        semantic_contract={
+            "task_goal_type": "frontend_app_delivery",
+            "deliverables": [
+                "runnable_artifact_refs",
+                "workflow_acceptance",
+                "verification_evidence",
+                "limitations",
+            ],
+            "required_actions": [
+                "inspect_code",
+                "apply_real_change",
+                "run_browser_verification",
+                "validate_deliverables",
+            ],
+        },
+        evidence_packet={
+            "facts": [
+                {"fact_type": "observation", "preview": "write succeeded frontend/src/App.tsx"},
+                {"fact_type": "observation", "preview": "browser opened localhost:3000 DOM screenshot"},
+                {"fact_type": "observation", "preview": "workflow acceptance click input state updated navigation"},
+            ]
+        },
+    )
+
+    assert result.passed is True
+    assert result.missing_deliverables == ()
+    assert result.unsupported_claims == ()
+
+
+def test_artifact_delivery_requires_each_declared_output_path() -> None:
+    result = validate_deliverable(
+        final_answer="已交付 output/a.md，output/b.md 尚未写入，限制已说明。",
+        semantic_contract={
+            "task_goal_type": "artifact_delivery",
+            "deliverables": ["artifact_refs", "completion_status", "limitations"],
+        },
+        evidence_packet={
+            "facts": [
+                {"fact_type": "observation", "preview": "write succeeded output/a.md"},
+            ]
+        },
+        required_output_paths=["output/a.md", "output/b.md"],
+    )
+
+    assert result.passed is False
+    assert "output_path:output/b.md" in result.missing_deliverables
+
+
 def test_runtime_lane_registry_exposes_three_modes_and_removes_old_lane() -> None:
     assert DEFAULT_RUNTIME_LANE_REGISTRY.get("role_interaction") is not None
     assert DEFAULT_RUNTIME_LANE_REGISTRY.get("standard_task") is not None
     assert DEFAULT_RUNTIME_LANE_REGISTRY.get("professional_task") is not None
+    assert DEFAULT_RUNTIME_LANE_REGISTRY.get("vibe_coding_task") is not None
     assert DEFAULT_RUNTIME_LANE_REGISTRY.get("autonomous_task") is None
 
 

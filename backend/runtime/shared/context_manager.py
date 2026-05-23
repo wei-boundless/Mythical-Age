@@ -338,6 +338,7 @@ def _prompt_source_report(
         "runtime_system_prompt_chars": runtime_system_prompt_chars,
         "projection_ref": str(getattr(stage_projection_snapshot, "projection_ref", "") or ""),
         "prompt_manifest_ref": str(getattr(stage_projection_snapshot, "prompt_manifest_ref", "") or ""),
+        "prompt_manifest_validation": dict(prompt_manifest.get("validation") or {}),
         "task_body_orchestration_ref": task_body_orchestration_ref,
         "runtime_spec_ref": runtime_spec_ref,
         "manifest_section_count": len(manifest_sections),

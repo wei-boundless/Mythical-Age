@@ -414,6 +414,8 @@ class SoulPromptManifest:
     projection_id: str
     sections: tuple[PromptSectionManifest, ...]
     prompt_hash: str
+    validation: Mapping[str, Any] = field(default_factory=dict)
+    metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -423,6 +425,8 @@ class SoulPromptManifest:
             "projection_id": self.projection_id,
             "sections": [section.to_dict() for section in self.sections],
             "prompt_hash": self.prompt_hash,
+            "validation": dict(self.validation),
+            "metadata": dict(self.metadata),
         }
 
 

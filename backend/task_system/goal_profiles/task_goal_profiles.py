@@ -52,6 +52,10 @@ def task_goal_profiles() -> tuple[TaskGoalProfile, ...]:
     return tuple(_PROFILES.values())
 
 
+def known_task_goal_types() -> tuple[str, ...]:
+    return tuple(_PROFILES.keys())
+
+
 def get_task_goal_profile(task_goal_type: str) -> TaskGoalProfile | None:
     normalized = str(task_goal_type or "").strip()
     return _PROFILES.get(normalized)
@@ -61,6 +65,115 @@ _COMMON_FORBIDDEN = ("invent_evidence", "visible_tool_markup", "surface_only_sum
 
 
 _PROFILES: dict[str, TaskGoalProfile] = {
+    "blocked": TaskGoalProfile(
+        task_domain="general",
+        task_goal_type="blocked",
+        title="Blocked Request",
+        description="Represent a request that cannot proceed until the blocking reason is explained.",
+        default_core_deliverables=("blocking_reason", "next_required_input"),
+        default_reasoning_steps=("identify_blocker", "explain_boundary", "ask_for_required_input"),
+        forbidden_actions=(*_COMMON_FORBIDDEN, "pretend_task_completed"),
+        validator_profile_id="deliverable.blocked",
+    ),
+    "role_conversation": TaskGoalProfile(
+        task_domain="conversation",
+        task_goal_type="role_conversation",
+        title="Role Conversation",
+        description="Respond conversationally without creating a workspace task contract.",
+        default_core_deliverables=("conversational_response",),
+        default_reasoning_steps=("understand_conversation_turn", "respond_with_context_boundary"),
+        forbidden_actions=(*_COMMON_FORBIDDEN, "perform_unrequested_workspace_action"),
+        validator_profile_id="deliverable.role_conversation",
+    ),
+    "light_qa": TaskGoalProfile(
+        task_domain="general",
+        task_goal_type="light_qa",
+        title="Light Question Answering",
+        description="Answer a bounded question directly, stating evidence or memory boundaries when relevant.",
+        default_core_deliverables=("direct_answer", "source_or_memory_boundary"),
+        default_reasoning_steps=("understand_question", "answer_with_boundaries"),
+        forbidden_actions=(*_COMMON_FORBIDDEN, "perform_unrequested_workspace_action"),
+        validator_profile_id="deliverable.light_qa",
+    ),
+    "inspection": TaskGoalProfile(
+        task_domain="workspace",
+        task_goal_type="inspection",
+        title="Workspace Inspection",
+        description="Read or inspect project materials and report findings without modifying files.",
+        required_capabilities=("workspace_read",),
+        default_core_deliverables=("inspection_findings", "evidence_refs", "limitations"),
+        default_reasoning_steps=("bind_target_objects", "read_relevant_materials", "summarize_findings_with_refs"),
+        required_actions=("read_material", "validate_deliverables"),
+        forbidden_actions=(*_COMMON_FORBIDDEN, "modify_code_without_request"),
+        validator_profile_id="deliverable.inspection",
+        material_policy={"evidence_packet_required": True},
+    ),
+    "bounded_tool_task": TaskGoalProfile(
+        task_domain="general",
+        task_goal_type="bounded_tool_task",
+        title="Bounded Tool Task",
+        description="Use a small number of tools to answer a bounded request with explicit limitations.",
+        required_capabilities=("tool_use",),
+        default_core_deliverables=("tool_grounded_answer", "limitations"),
+        default_reasoning_steps=("identify_required_tool", "execute_bounded_tool_action", "answer_from_observation"),
+        required_actions=("validate_deliverables",),
+        forbidden_actions=_COMMON_FORBIDDEN,
+        validator_profile_id="deliverable.bounded_tool_task",
+    ),
+    "external_research": TaskGoalProfile(
+        task_domain="external_web",
+        task_goal_type="external_research",
+        title="External Research",
+        description="Search or fetch external sources and answer with source boundaries.",
+        required_capabilities=("web_search", "fetch_url"),
+        default_core_deliverables=("source_backed_findings", "source_refs", "limitations"),
+        default_reasoning_steps=("search_sources", "compare_source_evidence", "answer_with_citations"),
+        required_actions=("validate_deliverables",),
+        forbidden_actions=(*_COMMON_FORBIDDEN, "cite_unread_source"),
+        validator_profile_id="deliverable.external_research",
+        material_policy={"evidence_packet_required": True},
+    ),
+    "implementation": TaskGoalProfile(
+        task_domain="development",
+        task_goal_type="implementation",
+        title="Implementation",
+        description="Implement a requested code or product change with verification or explicit limits.",
+        required_capabilities=("workspace_read", "workspace_write", "terminal"),
+        default_core_deliverables=("change_summary", "changed_files", "verification_result_or_limitation"),
+        default_reasoning_steps=("inspect_relevant_code", "plan_structural_change", "edit_scoped_files", "run_or_explain_verification"),
+        required_actions=("inspect_code", "apply_real_change", "validate_deliverables"),
+        forbidden_actions=(*_COMMON_FORBIDDEN, "claim_unrun_tests_as_passed"),
+        strategy_prototype_id="code_change_execution",
+        professional_profile_id="professional.code_fix_execution",
+        validator_profile_id="deliverable.implementation",
+        material_policy={"runtime_mode": "vibe_coding"},
+    ),
+    "verification": TaskGoalProfile(
+        task_domain="development",
+        task_goal_type="verification",
+        title="Verification",
+        description="Run or inspect verification evidence and report pass, failure, or limits.",
+        required_capabilities=("workspace_read", "terminal"),
+        default_core_deliverables=("verification_result_or_limitation", "evidence_refs"),
+        default_reasoning_steps=("identify_verification_target", "run_or_read_verification", "report_result_with_limits"),
+        required_actions=("run_verification", "validate_deliverables"),
+        forbidden_actions=(*_COMMON_FORBIDDEN, "claim_unrun_tests_as_passed"),
+        validator_profile_id="deliverable.verification",
+        material_policy={"evidence_packet_required": True},
+    ),
+    "pdf_analysis": TaskGoalProfile(
+        task_domain="document_analysis",
+        task_goal_type="pdf_analysis",
+        title="PDF Analysis",
+        description="Read PDF material and answer with page or evidence boundaries.",
+        required_capabilities=("workspace_read", "pdf_read"),
+        default_core_deliverables=("document_findings", "evidence_refs", "limitations"),
+        default_reasoning_steps=("read_pdf_material", "extract_relevant_evidence", "answer_with_document_boundaries"),
+        required_actions=("read_material", "build_evidence_packet"),
+        forbidden_actions=_COMMON_FORBIDDEN,
+        validator_profile_id="deliverable.pdf_analysis",
+        material_policy={"evidence_packet_required": True},
+    ),
     "task_graph_node_execution": TaskGoalProfile(
         task_domain="task_graph",
         task_goal_type="task_graph_node_execution",
@@ -129,6 +242,7 @@ _PROFILES: dict[str, TaskGoalProfile] = {
         strategy_prototype_id="code_change_execution",
         professional_profile_id="professional.code_fix_execution",
         validator_profile_id="deliverable.code_fix_execution",
+        material_policy={"runtime_mode": "vibe_coding"},
     ),
     "regression_test_design": TaskGoalProfile(
         task_domain="development",
@@ -143,6 +257,7 @@ _PROFILES: dict[str, TaskGoalProfile] = {
         forbidden_actions=_COMMON_FORBIDDEN,
         professional_profile_id="professional.regression_test_design",
         validator_profile_id="deliverable.regression_test_design",
+        material_policy={"runtime_mode": "vibe_coding"},
     ),
     "artifact_delivery": TaskGoalProfile(
         task_domain="general",
@@ -220,6 +335,6 @@ _PROFILES: dict[str, TaskGoalProfile] = {
         strategy_prototype_id="frontend_app_delivery",
         professional_profile_id="professional.frontend_app_delivery",
         validator_profile_id="deliverable.frontend_app_delivery",
-        material_policy={"stage_prompt_profiles_required": True},
+        material_policy={"runtime_mode": "vibe_coding", "stage_prompt_profiles_required": True},
     ),
 }

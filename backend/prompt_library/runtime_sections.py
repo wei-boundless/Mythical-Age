@@ -23,10 +23,20 @@ def assemble_runtime_prompt_sections(
     from soul.registry import CORE_PATH, read_text
 
     metadata = dict(contract.get("metadata") or {})
+    prompt_selection_context = dict(metadata.get("prompt_selection_context") or {})
+    interaction_mode = str(
+        prompt_selection_context.get("interaction_mode")
+        or dict(metadata.get("mode_policy") or {}).get("interaction_mode")
+        or ""
+    ).strip()
     shared_contract = _load_shared_contract(base_dir)
     resource_content = _resource_projection_content(soul_tool_views)
     resource_policy_ref = str(metadata.get("resource_policy_ref") or "")
-    projection_content = _projection_content(contract=contract, projection=projection)
+    projection_content = _projection_content(
+        contract=contract,
+        projection=projection,
+        interaction_mode=interaction_mode,
+    )
     node_prompt = _node_prompt_source(
         contract=contract,
         metadata=metadata,
@@ -183,7 +193,7 @@ def assemble_runtime_prompt_sections(
             source_id=str(getattr(request, "task_id", "") or contract.get("task_id") or ""),
             owner_layer="projection",
             cache_scope="dynamic",
-            visible_to_model=True,
+            visible_to_model=interaction_mode == "role_mode",
             content=projection_content,
             source_refs=(str(projection.get("task_id") or getattr(request, "task_id", "")),),
         ),
@@ -231,7 +241,9 @@ def assemble_runtime_prompt_sections(
     return tuple(section for section in candidate_sections if section.visible_to_model and section.content.strip())
 
 
-def _projection_content(*, contract: dict[str, Any], projection: dict[str, Any]) -> str:
+def _projection_content(*, contract: dict[str, Any], projection: dict[str, Any], interaction_mode: str) -> str:
+    if str(interaction_mode or "").strip() != "role_mode":
+        return ""
     projection_lines = [str(contract.get("projection_section") or "").strip()]
     projection_identity = str(projection.get("identity_anchor") or "").strip()
     if projection_identity:

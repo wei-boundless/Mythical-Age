@@ -169,6 +169,114 @@ def test_prompt_selector_uses_current_step_kind_when_no_node_resource_exists() -
     assert plan.diagnostics["step_sequence"] == ["write_artifact", "verify_result"]
 
 
+def test_prompt_selector_uses_work_mode_and_action_intent_for_verification_and_execution() -> None:
+    verification_context = PromptSelectionContext(
+        task_id="runtime-task",
+        interaction_mode="professional_mode",
+        work_mode="verification",
+        action_intent="run_command",
+        task_goal_type="frontend_app_delivery",
+        task_domain="development",
+    )
+    execution_context = PromptSelectionContext(
+        task_id="runtime-task",
+        interaction_mode="professional_mode",
+        work_mode="implementation",
+        action_intent="edit_workspace",
+        task_goal_type="frontend_app_delivery",
+        task_domain="development",
+    )
+
+    resources = (
+        PromptResource(
+            resource_id="prompt.verify",
+            resource_type="verification",
+            title="验证规则",
+            content="你是一名交付验证员。",
+            applies_to_modes=("professional_mode",),
+        ),
+        PromptResource(
+            resource_id="prompt.execute",
+            resource_type="stage_role",
+            title="执行职责",
+            content="你是一名前端实现负责人。",
+            applies_to_modes=("professional_mode",),
+            applies_to_domains=("development", "implementation", "edit_workspace"),
+        ),
+    )
+
+    verification_plan = PromptSelector(resources).select(verification_context)
+    execution_plan = PromptSelector(resources).select(execution_context)
+
+    assert any(item.resource_id == "prompt.verify" for item in verification_plan.selected)
+    execution_stage = next(item for item in execution_plan.selected if item.resource_id == "prompt.execute")
+    assert "execution_stage_context" in execution_stage.selection_reason
+    assert execution_plan.diagnostics["work_mode"] == "implementation"
+    assert verification_plan.diagnostics["action_intent"] == "run_command"
+
+
+def test_prompt_selector_matches_new_high_value_stage_roles() -> None:
+    resources = (
+        PromptResource(
+            resource_id="prompt.stage.contract_compilation",
+            resource_type="stage_role",
+            title="任务合同编译员",
+            content="你是一名任务合同编译员。",
+            step_kind="contract_compilation",
+            applies_to_modes=("professional_mode",),
+        ),
+        PromptResource(
+            resource_id="prompt.stage.plan_coverage_review",
+            resource_type="stage_role",
+            title="计划覆盖审查员",
+            content="你是一名计划覆盖审查员。",
+            step_kind="plan_coverage_review",
+            applies_to_modes=("professional_mode",),
+        ),
+        PromptResource(
+            resource_id="prompt.stage.step_execution",
+            resource_type="stage_role",
+            title="任务执行员",
+            content="你是一名任务执行员。",
+            step_kind="step_execution",
+            applies_to_modes=("professional_mode",),
+        ),
+    )
+
+    contract_plan = PromptSelector(resources).select(
+        PromptSelectionContext(
+            task_id="runtime-task",
+            interaction_mode="professional_mode",
+            current_step_id="contract_compilation",
+            current_step_kind="contract_compilation",
+        )
+    )
+    plan_review_plan = PromptSelector(resources).select(
+        PromptSelectionContext(
+            task_id="runtime-task",
+            interaction_mode="professional_mode",
+            current_step_id="plan_coverage_review",
+            current_step_kind="plan_coverage_review",
+            work_mode="planning",
+        )
+    )
+    execution_plan = PromptSelector(resources).select(
+        PromptSelectionContext(
+            task_id="runtime-task",
+            interaction_mode="professional_mode",
+            current_step_id="step_execution.implement_core_gameplay",
+            current_step_kind="step_execution",
+            work_mode="implementation",
+            action_intent="edit_workspace",
+        )
+    )
+
+    assert any(item.resource_id == "prompt.stage.contract_compilation" for item in contract_plan.selected)
+    assert any(item.resource_id == "prompt.stage.plan_coverage_review" for item in plan_review_plan.selected)
+    execution_stage = next(item for item in execution_plan.selected if item.resource_id == "prompt.stage.step_execution")
+    assert "step_kind_exact" in execution_stage.selection_reason
+
+
 def test_build_prompt_selection_context_preserves_task_flow_from_runtime_payload() -> None:
     context = build_prompt_selection_context(
         task_id="runtime-task",
@@ -274,3 +382,54 @@ def test_prompt_selection_context_exposes_goal_and_plan_contracts() -> None:
     assert context.agent_plan_draft["plan_id"] == "agent-plan:runtime-task"
     assert context.plan_coverage_review["passed"] is True
     assert context.metadata["agent_plan_ref"] == "agent-plan:runtime-task"
+
+
+def test_prompt_selection_context_exposes_model_owned_understanding_inputs() -> None:
+    context = build_prompt_selection_context(
+        task_id="runtime-task",
+        user_goal="重构任务系统并验证",
+        task_contract={
+            "task_requirement_contract": {
+                "contract_id": "semantic-task:test:runtime-task",
+                "task_goal_type": "implementation",
+                "domain": "development",
+            },
+            "mode_policy": {"interaction_mode": "professional_mode", "runtime_lane": "professional_task"},
+            "bindings": {
+                "model_turn_decision": {"decision_id": "decision:test"},
+                "action_permit": {"permit_id": "permit:test"},
+                "boundary_policy": {"policy_id": "boundary:test"},
+                "request_facts": {"explicit_paths": ["frontend/src/app/page.tsx"]},
+            },
+        },
+        task_execution_assembly={"task_family": "runtime", "task_mode": "professional_mode", "metadata": {}},
+        selected_recipe={},
+        task_workflow={},
+        registered_task={},
+        skill_runtime_views=[],
+        active_skill={},
+        agent_id="agent:0",
+        current_turn_context={
+            "model_turn_decision": {
+                "decision_id": "decision:current",
+                "interaction_intent": "modify",
+                "action_intent": "edit_workspace",
+                "work_mode": "implementation",
+                "planning_required": True,
+                "context_binding_decision": {"kind": "workspace_context"},
+            },
+            "action_permit": {"permit_id": "permit:current"},
+            "boundary_policy": {"policy_id": "boundary:current"},
+            "request_facts": {"explicit_paths": ["backend/prompt_library/selector.py"]},
+        },
+    )
+
+    assert context.work_mode == "implementation"
+    assert context.interaction_intent == "modify"
+    assert context.action_intent == "edit_workspace"
+    assert context.model_turn_decision["decision_id"] == "decision:current"
+    assert context.action_permit["permit_id"] == "permit:current"
+    assert context.boundary_policy["policy_id"] == "boundary:current"
+    assert context.request_facts["explicit_paths"] == ["backend/prompt_library/selector.py"]
+    assert context.context_binding["kind"] == "workspace_context"
+    assert context.task_requirement_contract["contract_id"] == "semantic-task:test:runtime-task"

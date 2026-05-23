@@ -16,6 +16,11 @@ def test_prompt_library_lists_default_static_resources_without_storage_file(tmp_
     assert resource_by_id["prompt.default.common_contract.core"].resource_type == "common_contract"
     assert resource_by_id["prompt.default.understanding_policy.goal_first"].resource_type == "understanding_policy"
     assert resource_by_id["prompt.default.flow_matching_policy.goal_profile_binding"].step_kind == "domain_flow_matching"
+    assert resource_by_id["prompt.default.mode_policy.vibe_coding"].resource_type == "mode_policy"
+    assert resource_by_id["prompt.default.stage_role.task_goal_understanding"].step_kind == "task_goal_understanding"
+    assert resource_by_id["prompt.default.stage_role.contract_compilation"].step_kind == "contract_compilation"
+    assert resource_by_id["prompt.default.stage_role.plan_coverage_review"].step_kind == "plan_coverage_review"
+    assert resource_by_id["prompt.default.stage_role.step_execution"].step_kind == "step_execution"
     assert resource_by_id["prompt.default.domain_role.game_vertical_slice_delivery"].resource_type == "domain_role"
     assert resource_by_id["prompt.default.skill_prompt.image_prompt_design"].resource_type == "skill_prompt"
     assert not (tmp_path / "storage" / "prompt_library" / "prompt_resources.json").exists()

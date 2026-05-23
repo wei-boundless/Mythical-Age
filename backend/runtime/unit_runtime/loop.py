@@ -5425,14 +5425,21 @@ def _recipe_requires_model_finalize(selected_recipe: ExecutionRecipe) -> bool:
 def _is_professional_task_run_recipe(selected_recipe_payload: dict[str, Any]) -> bool:
     payload = dict(selected_recipe_payload or {})
     metadata = dict(payload.get("metadata") or {})
+    interaction_modes = {"role_mode", "standard_mode", "professional_mode", "vibe_coding"}
+    interaction_recipe_ids = {
+        "runtime.recipe.role_interaction",
+        "runtime.recipe.standard_task",
+        "runtime.recipe.professional_task",
+        "runtime.recipe.vibe_coding",
+    }
     return (
         str(payload.get("recipe_id") or "").strip()
-        in {"runtime.recipe.role_interaction", "runtime.recipe.standard_task", "runtime.recipe.professional_task"}
+        in interaction_recipe_ids
         or str(metadata.get("runtime_driver") or "").strip() == "professional_task_run"
         or str(metadata.get("interaction_mode") or "").strip()
-        in {"role_mode", "standard_mode", "professional_mode"}
+        in interaction_modes
         or str(payload.get("task_mode") or "").strip()
-        in {"role_mode", "standard_mode", "professional_mode"}
+        in interaction_modes
     )
 
 

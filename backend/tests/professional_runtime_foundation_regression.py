@@ -16,6 +16,7 @@ from runtime.memory.tool_observation_ledger import (
     build_tool_observation_record,
 )
 from prompting.strategy_prototypes import strategy_prototype_for_task_goal
+from task_system.goal_profiles import get_task_goal_profile, known_task_goal_types
 
 
 def test_resource_inventory_keeps_domain_and_projection_non_authoritative() -> None:
@@ -49,6 +50,29 @@ def test_strategy_prototype_is_soft_profile_not_obligation_source() -> None:
     assert prototype.prototype_id == "test_report_triage"
     assert prototype.prompt_profile_id == "professional.test_report_triage"
     assert prototype.authority == "runtime.strategy_prototype"
+
+
+def test_task_goal_registry_contains_conversation_tool_and_delivery_families() -> None:
+    known = set(known_task_goal_types())
+
+    assert {
+        "light_qa",
+        "role_conversation",
+        "inspection",
+        "bounded_tool_task",
+        "test_report_triage",
+        "code_fix_execution",
+        "artifact_delivery",
+        "frontend_app_delivery",
+        "game_vertical_slice_delivery",
+    }.issubset(known)
+    assert get_task_goal_profile("frontend_app_delivery").default_core_deliverables
+    assert get_task_goal_profile("game_vertical_slice_delivery").required_actions
+
+
+def test_strategy_prototype_reads_task_goal_registry_binding() -> None:
+    assert strategy_prototype_for_task_goal("implementation").prototype_id == "code_change_execution"
+    assert strategy_prototype_for_task_goal("light_qa").prototype_id == "generic_professional_task"
 
 
 def test_tool_observation_ledger_classifies_write_and_verification() -> None:

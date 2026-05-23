@@ -134,6 +134,7 @@ def _runtime_safe_prompt_manifest(payload: dict[str, Any], runtime_view: dict[st
     ]
     manifest["total_sections"] = len(manifest["sections"])
     manifest["total_chars"] = sum(int(dict(section).get("chars") or 0) for section in manifest["sections"])
+    manifest["validation"] = dict(manifest.get("validation") or {})
     return manifest
 
 

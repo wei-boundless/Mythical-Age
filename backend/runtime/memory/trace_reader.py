@@ -674,14 +674,20 @@ def _professional_task_summary(
     session_event = _latest_runtime_event(events, "professional_run_session_updated")
     verification_event = _latest_runtime_event(events, "professional_task_deliverable_validation_checked")
     diagnostics = dict(loop_state.get("diagnostics") or {})
+    interaction_lanes = {"role_interaction", "standard_task", "professional_task", "vibe_coding_task"}
+    interaction_recipe_ids = {
+        "runtime.recipe.role_interaction",
+        "runtime.recipe.standard_task",
+        "runtime.recipe.professional_task",
+        "runtime.recipe.vibe_coding",
+    }
     is_professional_task = bool(
         started_event is not None
         or plan_event is not None
         or verification_event is not None
-        or str(task_run.get("runtime_lane") or "") in {"role_interaction", "standard_task", "professional_task"}
-        or str(loop_state.get("runtime_lane") or "") in {"role_interaction", "standard_task", "professional_task"}
-        or str(loop_state.get("task_template_id") or "")
-        in {"runtime.recipe.role_interaction", "runtime.recipe.standard_task", "runtime.recipe.professional_task"}
+        or str(task_run.get("runtime_lane") or "") in interaction_lanes
+        or str(loop_state.get("runtime_lane") or "") in interaction_lanes
+        or str(loop_state.get("task_template_id") or "") in interaction_recipe_ids
         or str(diagnostics.get("interaction_mode") or "")
     )
     if not is_professional_task:

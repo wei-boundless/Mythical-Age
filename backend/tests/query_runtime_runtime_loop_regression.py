@@ -312,6 +312,7 @@ def test_main_agent_assembly_modes_select_expected_runtime_lanes() -> None:
         "role": ("role_mode", "role_interaction", "runtime.recipe.role_interaction"),
         "standard": ("standard_mode", "standard_task", "runtime.recipe.standard_task"),
         "professional": ("professional_mode", "professional_task", "runtime.recipe.professional_task"),
+        "vibe_coding": ("vibe_coding", "vibe_coding_task", "runtime.recipe.vibe_coding"),
     }
 
     for mode, (interaction_mode, runtime_lane, recipe_id) in cases.items():
@@ -320,7 +321,7 @@ def test_main_agent_assembly_modes_select_expected_runtime_lanes() -> None:
             interaction_mode=interaction_mode,
             runtime_lane=runtime_lane,
             recipe_id=recipe_id,
-            professional=mode == "professional",
+            professional=mode in {"professional", "vibe_coding"},
         )
 
         async def _collect() -> list[dict[str, object]]:
@@ -365,8 +366,8 @@ def test_main_agent_assembly_modes_select_expected_runtime_lanes() -> None:
         assert selected_recipe["recipe_id"] == recipe_id
         assert mode_policy["interaction_mode"] == interaction_mode
         assert mode_policy["runtime_lane"] == runtime_lane
-        if mode == "professional":
-            assert selected_recipe["execution_kind"] == "professional_mode"
+        if mode in {"professional", "vibe_coding"}:
+            assert selected_recipe["execution_kind"] == interaction_mode
 
 
 def test_runtime_trace_exposes_worker_spawn_trace_for_light_web_game(tmp_path: Path) -> None:

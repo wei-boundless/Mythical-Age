@@ -66,7 +66,7 @@ def compile_understanding_runtime_steps(
             ),
         )
 
-    if mode == "professional_mode":
+    if mode in {"professional_mode", "vibe_coding"}:
         core = (
             *_core_understanding_steps(contract=contract, policy=policy, obligation=obligation),
             _step(
@@ -256,7 +256,7 @@ def _execution_operations(
     if "integrate_asset" in actions:
         allowed.extend(["op.write_file", "op.edit_file"])
     if "run_browser_verification" in actions:
-        allowed.extend(["op.shell", "op.browser"])
+        allowed.extend(["op.shell", "op.browser_control"])
     if list(obligation.get("required_commands") or []):
         allowed.append("op.shell")
     return _dedupe_tuple(allowed)
@@ -271,7 +271,7 @@ def _verification_operations(
     operations = list(_execution_operations(policy=policy, contract=contract, obligation=obligation))
     actions = {str(item).strip() for item in list(contract.get("required_actions") or []) if str(item).strip()}
     if "run_browser_verification" in actions:
-        operations.extend(["op.shell", "op.browser"])
+        operations.extend(["op.shell", "op.browser_control"])
     if list(obligation.get("required_verifications") or []):
         operations.append("op.shell")
     return _dedupe_tuple(operations)

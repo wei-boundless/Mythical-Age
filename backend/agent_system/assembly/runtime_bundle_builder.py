@@ -156,6 +156,7 @@ def build_orchestration_runtime_bundle(
     )
     soul_runtime_view = dict(soul_runtime.get("runtime_view") or {})
     prompt_manifest = dict(soul_runtime.get("prompt_manifest") or {})
+    prompt_manifest_validation = dict(prompt_manifest.get("validation") or {})
     projection_ref = str(soul_runtime.get("projection_id") or prompt_manifest.get("projection_id") or "")
     prompt_manifest_ref = str(prompt_manifest.get("manifest_id") or "")
 
@@ -190,6 +191,7 @@ def build_orchestration_runtime_bundle(
             "runtime_executable_default": True,
             "fallback_policy": "fail_closed",
             "on_projection_gap": "continue_with_minimal_projection",
+            "prompt_manifest_validation_passed": bool(prompt_manifest_validation.get("passed") is True),
         },
         projection_requirement=projection_requirement,
         soul_runtime_view=soul_runtime_view,
@@ -203,6 +205,7 @@ def build_orchestration_runtime_bundle(
             "prompt_selection_context": prompt_selection_context,
             "prompt_assembly_plan": prompt_assembly_plan,
             "prompt_flow_trace": prompt_flow_trace,
+            "prompt_manifest_validation": prompt_manifest_validation,
             "memory_view_ref": str(memory_view.get("view_id") or ""),
             "context_policy_ref": _context_policy_ref(context_policy),
             "runtime_lane": runtime_lane_profile.lane_id,
@@ -242,6 +245,8 @@ def build_orchestration_runtime_bundle(
             "requested_runtime_lane": requested_runtime_lane,
             "output_boundary_profile_ref": output_boundary_profile.profile_id,
             "projection_resolution": projection_diagnostics,
+            "prompt_manifest_validation_passed": bool(prompt_manifest_validation.get("passed") is True),
+            "prompt_manifest_validation_issue_count": len(list(prompt_manifest_validation.get("issues") or [])),
             "continuation_decision": dict(current_turn_payload.get("continuation_decision") or {}),
         },
     )

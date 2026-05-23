@@ -43,7 +43,8 @@ def build_tool_result_envelope(
 ) -> ToolResultEnvelope:
     name = str(tool_name or "").strip()
     args = dict(tool_args or {})
-    text = str(result or "")
+    result_payload = _structured_result_payload(result)
+    text = str(result_payload.get("text") if result_payload else result or "")
     status = "error" if _looks_failed(text) else "ok"
     observed_paths = tuple(_observed_paths(name, args, text))
     matched_paths = tuple(_matched_paths(name, text))
@@ -53,6 +54,8 @@ def build_tool_result_envelope(
         "truncated": bool(truncated),
         "sandbox": dict(sandbox or {}),
     }
+    if result_payload:
+        structured_payload.update(dict(result_payload.get("structured_payload") or {}))
     if matched_paths:
         structured_payload["matched_paths"] = list(matched_paths)
     if observed_paths:
@@ -76,6 +79,18 @@ def build_tool_result_envelope(
         result_ref=str(result_ref or ""),
         error=text if status == "error" else "",
     )
+
+
+def _structured_result_payload(result: Any) -> dict[str, Any]:
+    if not isinstance(result, dict):
+        return {}
+    payload = dict(result)
+    if "structured_payload" not in payload:
+        return {}
+    return {
+        "text": str(payload.get("text") or payload.get("summary") or ""),
+        "structured_payload": dict(payload.get("structured_payload") or {}),
+    }
 
 
 def tool_result_envelope_from_payload(payload: dict[str, Any] | None) -> ToolResultEnvelope | None:

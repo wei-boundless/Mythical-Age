@@ -306,6 +306,12 @@ def _response_term_for_deliverable(deliverable: str) -> str:
         "runnable_artifact_refs": "runnable_artifact_refs",
         "workflow_acceptance": "workflow_acceptance",
         "verification_evidence": "verification_evidence",
+        "tool_grounded_answer": "",
+        "direct_answer": "",
+        "source_or_memory_boundary": "",
+        "conversational_response": "",
+        "inspection_findings": "",
+        "evidence_refs": "",
     }
     return mapping.get(str(deliverable or "").strip(), "")
 

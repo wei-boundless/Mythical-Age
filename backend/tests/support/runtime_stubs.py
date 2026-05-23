@@ -136,9 +136,15 @@ def model_turn_context(
     planning_required: bool = False,
     todo_required: bool = False,
     completion_criteria: list[str] | None = None,
-    task_goal_type: str = "",
-    task_domain: str = "",
+    task_goal_type: str = "light_qa",
+    task_domain: str = "general",
 ) -> dict[str, object]:
+    resolved_task_goal_type = str(task_goal_type or "").strip()
+    resolved_task_domain = str(task_domain or "").strip()
+    if not resolved_task_goal_type:
+        raise ValueError("model_turn_context requires task_goal_type")
+    if not resolved_task_domain:
+        raise ValueError("model_turn_context requires task_domain")
     decision = {
         "authority": "agent_runtime.model_turn_decision",
         "decision_id": "model-turn-decision:test",
@@ -146,6 +152,8 @@ def model_turn_context(
         "interaction_intent": interaction_intent,
         "action_intent": action_intent,
         "work_mode": work_mode,
+        "task_goal_type": resolved_task_goal_type,
+        "task_domain": resolved_task_domain,
         "target_objects": list(target_objects or []),
         "desired_outcome": desired_outcome,
         "deliverables": list(deliverables or []),
@@ -186,15 +194,13 @@ def model_turn_context(
             {
                 "task_goal_spec": {
                     "authority": "agent_runtime.model_turn_goal_projection",
-                    "task_goal_type": task_goal_type,
-                    "task_domain": task_domain or "general",
+                    "task_goal_type": resolved_task_goal_type,
+                    "task_domain": resolved_task_domain,
                     "forbidden_actions": list(forbidden_actions or []),
                     "required_verifications": [],
                     "required_capabilities": [],
                 }
             }
-            if task_goal_type
-            else {}
         ),
     }
 
@@ -219,9 +225,12 @@ def _sidecar_payload_from_messages(messages: Any) -> dict[str, object] | None:
     explicit_selection = dict(request_facts.get("explicit_selection") or {})
     mode_policy = dict(explicit_selection.get("mode_policy") or {})
     if (
-        str(explicit_selection.get("interaction_mode") or "") == "professional_mode"
+        str(explicit_selection.get("interaction_mode") or "") in {"professional_mode", "vibe_coding"}
         or str(mode_policy.get("execution_strategy") or "") == "professional_task_run"
     ):
+        task_goal_type = str(explicit_selection.get("semantic_task_type") or "").strip()
+        if not task_goal_type:
+            task_goal_type = "test_report_triage" if "failing_sixty_turn_summary.json" in user_message else "bounded_tool_task"
         return {
             "authority": "agent_runtime.model_turn_decision",
             "decision_id": "model-turn-decision:test-sidecar-professional",
@@ -229,6 +238,8 @@ def _sidecar_payload_from_messages(messages: Any) -> dict[str, object] | None:
             "interaction_intent": "plan",
             "action_intent": "answer_only",
             "work_mode": "planning",
+            "task_goal_type": task_goal_type,
+            "task_domain": "software_engineering" if task_goal_type in {"test_report_triage", "code_fix_execution"} else "general",
             "target_objects": [],
             "desired_outcome": "按专业任务模式完成追踪并交付结论",
             "deliverables": ["final_answer"],
@@ -253,6 +264,8 @@ def _sidecar_payload_from_messages(messages: Any) -> dict[str, object] | None:
         "interaction_intent": "answer",
         "action_intent": action_intent,
         "work_mode": work_mode,
+        "task_goal_type": "inspection" if action_intent == "read_context" else "light_qa",
+        "task_domain": "workspace" if action_intent == "read_context" else "general",
         "target_objects": [],
         "desired_outcome": "直接回答用户",
         "deliverables": ["final_answer"],

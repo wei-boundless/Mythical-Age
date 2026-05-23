@@ -175,6 +175,13 @@ def _interaction_policy_instruction(mode_policy: dict[str, Any]) -> str:
             f"当前模式策略：professional_mode，投影强度 {projection_strength or 'style_only'}。"
             "专业职责和语义契约优先，灵魂投影只影响表达温度。\n"
         )
+    if interaction_mode == "vibe_coding":
+        return (
+            f"当前模式策略：vibe_coding，投影强度 {projection_strength or 'style_only'}。"
+            "你是一名代码任务执行 Agent。请先理解项目结构和相关文件职责，再做必要、可维护的真实修改。"
+            "修改后需要运行测试、构建、浏览器检查或给出无法验证的真实限制；最终回答只能基于真实变更、差异、命令或浏览器证据收口。"
+            "不要把角色投影、灵魂设定或实现计划当作已完成证据。\n"
+        )
     if interaction_mode == "standard_mode":
         return (
             f"当前模式策略：standard_mode，投影强度 {projection_strength or 'companion'}。"

@@ -44,7 +44,7 @@ def _runtime_for_goal(user_goal: str) -> dict:
     )
 
 
-def test_professional_mode_projection_is_style_only_and_non_authoritative() -> None:
+def test_vibe_coding_projection_is_style_only_and_non_authoritative() -> None:
     runtime = _runtime_for_goal(
         "追踪 backend/tests/fixtures/professional_task_suite/failing_sixty_turn_summary.json 的失败原因，修复代码，然后运行 pytest 验证。"
     )
@@ -52,14 +52,14 @@ def test_professional_mode_projection_is_style_only_and_non_authoritative() -> N
     projection = orchestration["projection_requirement"]
     sections = {section["section_id"]: section for section in orchestration["soul_runtime_view"]["sections"]}
 
-    assert projection["interaction_mode"] == "professional_mode"
+    assert projection["interaction_mode"] == "vibe_coding"
     assert projection["projection_strength"] == "style_only"
     assert projection["mode_policy_ref"] == "orchestration.runtime_interaction_mode_policy"
-    assert sections["projection_section"]["owner_layer"] == "projection"
+    assert "projection_section" not in sections
     assert sections["semantic_task_section"]["owner_layer"] == "task"
     assert sections["professional_profile_section"]["owner_layer"] == "task"
     assert sections["mode_policy_section"]["owner_layer"] == "task"
-    assert "不能覆盖交付物和验证要求" in sections["mode_policy_section"]["content"]
+    assert "代码任务执行 Agent" in sections["mode_policy_section"]["content"]
     assert "执行义务" in sections["professional_profile_section"]["content"]
 
 
@@ -74,5 +74,6 @@ def test_prompt_manifest_tracks_task_and_projection_section_sources() -> None:
     assert sections["semantic_task_section"]["owner_layer"] == "task"
     assert sections["professional_profile_section"]["source_type"] == "professional_prompt_profile"
     assert sections["mode_policy_section"]["source_type"] == "runtime_interaction_mode_policy"
-    assert sections["projection_section"]["source_type"] == "projection_requirement"
-    assert sections["projection_section"]["owner_layer"] == "projection"
+    assert manifest["validation"]["interaction_mode"] == "professional_mode"
+    assert manifest["validation"]["passed"] is True
+    assert "projection_section" not in sections

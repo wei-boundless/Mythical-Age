@@ -110,15 +110,6 @@ def test_professional_game_goal_compiles_understanding_and_domain_steps_into_rec
 def test_frontend_goal_compiles_browser_verification_operations() -> None:
     bundle = _runtime_bundle(
         "请重构前端任务图编辑器，做成可运行的编辑器体验，并用浏览器验证关键工作流。",
-        task_selection={
-            "interaction_mode": "professional_mode",
-            "runtime_interaction_mode": "professional_mode",
-            "mode_policy": {
-                "execution_strategy": "professional_task_run",
-                "interaction_mode": "professional_mode",
-                "runtime_lane": "professional_task",
-            },
-        },
     )
 
     recipe = dict(dict(bundle["task_operation"])["selected_recipe"])
@@ -128,14 +119,48 @@ def test_frontend_goal_compiles_browser_verification_operations() -> None:
     ids = _step_ids(recipe)
     verification = next(item for item in list(recipe["step_blueprints"]) if item["step_id"] == "verification")
 
+    assert recipe["recipe_id"] == "runtime.recipe.vibe_coding"
+    assert recipe["execution_kind"] == "vibe_coding"
     assert metadata["semantic_task_type"] == "frontend_app_delivery"
+    assert metadata["interaction_mode"] == "vibe_coding"
+    assert metadata["runtime_lane_hint"] == "vibe_coding_task"
     assert agent_plan["task_goal_type"] == "frontend_app_delivery"
     assert coverage["passed"] is True
     assert "run_browser_verification" in coverage["covered_actions"]
     assert "step_execution.plan_user_workflow" in ids
     assert "step_execution.implement_frontend_changes" in ids
     assert "step_execution.run_browser_verification" in ids
-    assert "op.browser" in verification["optional_operations"]
+    assert "op.browser_control" in verification["optional_operations"]
+
+
+def test_code_fix_goal_compiles_vibe_coding_recipe() -> None:
+    bundle = _runtime_bundle(
+        "请修复 backend/app.py 里的一个代码问题，然后运行 pytest 验证。",
+        task_selection=model_turn_context(
+            action_intent="edit_workspace",
+            work_mode="implementation",
+            interaction_intent="modify",
+            desired_outcome="修复代码并验证",
+            deliverables=["change_summary", "changed_files", "verification_result_or_limitation"],
+            planning_required=True,
+            todo_required=True,
+            task_goal_type="code_fix_execution",
+            task_domain="development",
+        ),
+    )
+
+    recipe = dict(dict(bundle["task_operation"])["selected_recipe"])
+    metadata = dict(recipe["metadata"])
+    ids = _step_ids(recipe)
+
+    assert recipe["recipe_id"] == "runtime.recipe.vibe_coding"
+    assert recipe["execution_kind"] == "vibe_coding"
+    assert metadata["interaction_mode"] == "vibe_coding"
+    assert metadata["runtime_lane_hint"] == "vibe_coding_task"
+    assert metadata["requires_evidence_packet"] is True
+    assert "step_execution.inspect_relevant_code" in ids
+    assert "step_execution.edit_scoped_files" in ids
+    assert "step_execution.run_or_explain_verification" in ids
 
 
 def test_role_mode_uses_lightweight_understanding_steps_without_professional_domain_execution() -> None:
@@ -151,6 +176,8 @@ def test_role_mode_uses_lightweight_understanding_steps_without_professional_dom
                 interaction_intent="answer",
                 desired_outcome="陪用户聊天",
                 deliverables=["conversational_response"],
+                task_goal_type="role_conversation",
+                task_domain="general",
             ),
         },
     )

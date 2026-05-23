@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from task_system.goal_profiles import get_task_goal_profile
+
 
 @dataclass(frozen=True, slots=True)
 class StrategyPrototype:
@@ -123,13 +125,6 @@ def get_strategy_prototype(prototype_id: str) -> StrategyPrototype | None:
 
 def strategy_prototype_for_task_goal(task_goal_type: str) -> StrategyPrototype:
     normalized = str(task_goal_type or "").strip()
-    mapping = {
-        "code_fix_execution": "code_change_execution",
-        "test_report_triage": "test_report_triage",
-        "runtime_trace_analysis": "runtime_trace_analysis",
-        "artifact_delivery": "artifact_delivery",
-        "material_synthesis": "material_synthesis",
-        "game_vertical_slice_delivery": "game_vertical_slice_delivery",
-        "frontend_app_delivery": "frontend_app_delivery",
-    }
-    return _PROTOTYPES.get(mapping.get(normalized, ""), _PROTOTYPES["generic_professional_task"])
+    profile = get_task_goal_profile(normalized)
+    prototype_id = str(getattr(profile, "strategy_prototype_id", "") or normalized)
+    return _PROTOTYPES.get(prototype_id, _PROTOTYPES["generic_professional_task"])

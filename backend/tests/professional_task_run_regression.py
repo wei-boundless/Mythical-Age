@@ -916,19 +916,18 @@ def _latest_event(runtime_events: list[dict[str, object]], event_type: str) -> d
     return next(event for event in reversed(runtime_events) if event.get("event_type") == event_type)
 
 
-def test_professional_task_run_recipe_is_selected_from_new_intent_strategy() -> None:
+def test_vibe_coding_recipe_is_selected_from_code_fix_intent_strategy() -> None:
     current_turn_context = {
-        **_professional_task_selection(),
         **model_turn_context(
-            action_intent="modify_code",
-            work_mode="code_edit",
-            interaction_intent="delegate",
+            action_intent="edit_workspace",
+            work_mode="implementation",
+            interaction_intent="modify",
             desired_outcome="追踪问题、修复代码并验证结果",
             deliverables=["code_changes", "verification_report"],
             planning_required=True,
             todo_required=True,
-            task_goal_type="code_change",
-            task_domain="software_engineering",
+            task_goal_type="code_fix_execution",
+            task_domain="development",
         ),
     }
     contract = build_runtime_task_intent_contract(
@@ -947,12 +946,14 @@ def test_professional_task_run_recipe_is_selected_from_new_intent_strategy() -> 
     recipe = build_execution_recipe(base_dir=_isolated_backend_root(), execution_shape=shape)
     metadata = dict(recipe.metadata)
 
-    assert shape.recipe_id == "runtime.recipe.professional_task"
-    assert shape.execution_kind == "professional_mode"
-    assert "interaction_mode:professional_mode" in shape.resolution_reasons
+    assert shape.recipe_id == "runtime.recipe.vibe_coding"
+    assert shape.execution_kind == "vibe_coding"
+    assert "interaction_mode:vibe_coding" in shape.resolution_reasons
     assert metadata["runtime_driver"] == "professional_task_run"
-    assert metadata["interaction_mode"] == "professional_mode"
-    assert metadata["runtime_lane_hint"] == "professional_task"
+    assert metadata["interaction_mode"] == "vibe_coding"
+    assert metadata["runtime_lane_hint"] == "vibe_coding_task"
+    assert "op.browser_control" in set(metadata["tool_execution_policy"]["allowed_operation_refs"])
+    assert "edit_file" in set(metadata["tool_execution_policy"]["allowed_tool_names"])
     retired_mode_key = "_".join(("autonomy", "mode"))
     assert retired_mode_key not in metadata
 

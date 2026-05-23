@@ -78,6 +78,7 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
         "runtime.recipe.role_interaction",
         "runtime.recipe.standard_task",
         "runtime.recipe.professional_task",
+        "runtime.recipe.vibe_coding",
     }:
         mode_policy = dict(execution_shape.diagnostics.get("mode_policy") or {})
         semantic_contract = dict(execution_shape.diagnostics.get("task_requirement_contract") or {})
@@ -97,8 +98,10 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
         output_policy = dict(mode_policy.get("output_policy") or {})
         execution_obligation = dict(semantic_contract.get("execution_obligation") or execution_shape.diagnostics.get("execution_obligation") or {})
         strict = bool(verification_policy.get("strict") is True)
-        standard_or_professional = interaction_mode in {"standard_mode", "professional_mode"}
-        professional = interaction_mode == "professional_mode"
+        professional_modes = {"professional_mode", "vibe_coding"}
+        standard_or_professional = interaction_mode in {"standard_mode", *professional_modes}
+        professional = interaction_mode in professional_modes
+        vibe_coding = interaction_mode == "vibe_coding"
         runtime_task_id = _runtime_task_id_from_contract(semantic_contract)
         agent_plan_draft = build_agent_plan_draft(
             task_id=runtime_task_id,
@@ -161,10 +164,10 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
                 "projection_strength": str(mode_policy.get("projection_strength") or ""),
                 "requires_evidence_packet": bool(tool_policy.get("requires_evidence_packet") or professional),
                 "runtime_limits": {
-                    "max_turns": 12 if professional else (4 if standard_or_professional else 2),
-                    "max_model_calls": 32 if professional else (12 if standard_or_professional else 4),
-                    "max_runtime_seconds": 1800 if professional else (600 if standard_or_professional else 120),
-                    "max_events": 480 if professional else (180 if standard_or_professional else 80),
+                    "max_turns": 14 if vibe_coding else (12 if professional else (4 if standard_or_professional else 2)),
+                    "max_model_calls": 36 if vibe_coding else (32 if professional else (12 if standard_or_professional else 4)),
+                    "max_runtime_seconds": 2400 if vibe_coding else (1800 if professional else (600 if standard_or_professional else 120)),
+                    "max_events": 560 if vibe_coding else (480 if professional else (180 if standard_or_professional else 80)),
                     "repair_budget": 3 if professional else (1 if standard_or_professional else 0),
                     "stall_detector": standard_or_professional,
                 },
@@ -397,6 +400,7 @@ def _interaction_mode_title(interaction_mode: str) -> str:
         "role_mode": "Main Agent role interaction",
         "standard_mode": "Main Agent standard task",
         "professional_mode": "Main Agent professional task",
+        "vibe_coding": "Main Agent vibe coding task",
     }.get(str(interaction_mode or ""), "Main Agent interaction task")
 
 
@@ -414,7 +418,7 @@ def _needs_agent_todo(
     agent_plan_draft: dict[str, Any],
     step_blueprints: tuple[TaskStepBlueprint, ...],
 ) -> bool:
-    if interaction_mode == "professional_mode":
+    if interaction_mode in {"professional_mode", "vibe_coding"}:
         return True
     steps = [item for item in list(agent_plan_draft.get("steps") or []) if isinstance(item, dict)]
     if len(steps) > 1 or len(step_blueprints) > 2:

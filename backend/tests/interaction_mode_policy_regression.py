@@ -116,6 +116,60 @@ def test_standard_mode_is_bounded_tool_task_without_delegation() -> None:
     assert payload["verification_policy"]["required"] is True
 
 
+def test_vibe_coding_alias_is_accepted_for_explicit_mode() -> None:
+    policy = build_runtime_interaction_mode_policy(
+        task_requirement_contract={"task_goal_type": "code_fix_execution"},
+        query_understanding={},
+        current_turn_context={"interaction_mode": "vibe_code"},
+    ).to_dict()
+
+    assert policy["interaction_mode"] == "vibe_coding"
+    assert policy["runtime_lane"] == "vibe_coding_task"
+    assert policy["recipe_id"] == "runtime.recipe.vibe_coding"
+    assert policy["output_policy"]["answer_boundary"] == "coding_change_evidence"
+    assert policy["diagnostics"]["vibe_coding"] is True
+
+
+def test_regression_test_design_selects_vibe_coding_mode() -> None:
+    turn_context = model_turn_context(
+        action_intent="read_context",
+        work_mode="planning",
+        interaction_intent="plan",
+        desired_outcome="为这个代码风险补回归测试设计。",
+        task_goal_type="regression_test_design",
+        task_domain="development",
+    )
+    policy = build_runtime_interaction_mode_policy(
+        task_requirement_contract={"task_goal_type": "regression_test_design"},
+        query_understanding={"model_turn_decision": dict(turn_context["model_turn_decision"])},
+        current_turn_context=turn_context,
+    ).to_dict()
+
+    assert policy["interaction_mode"] == "vibe_coding"
+    assert policy["runtime_lane"] == "vibe_coding_task"
+
+
+def test_frontend_delivery_selects_vibe_coding_mode() -> None:
+    turn_context = model_turn_context(
+        action_intent="edit_workspace",
+        work_mode="implementation",
+        interaction_intent="create",
+        desired_outcome="重构前端页面并用浏览器验证。",
+        task_goal_type="frontend_app_delivery",
+        task_domain="development",
+    )
+    policy = build_runtime_interaction_mode_policy(
+        task_requirement_contract={"task_goal_type": "frontend_app_delivery"},
+        query_understanding={"model_turn_decision": dict(turn_context["model_turn_decision"])},
+        current_turn_context=turn_context,
+    ).to_dict()
+
+    assert policy["interaction_mode"] == "vibe_coding"
+    assert policy["runtime_lane"] == "vibe_coding_task"
+    assert policy["recipe_id"] == "runtime.recipe.vibe_coding"
+    assert policy["verification_policy"]["strict"] is True
+
+
 def test_troubleshooting_with_repair_advice_is_not_code_fix_execution() -> None:
     goal = (
         "请用专业模式排查 backend/tests/fixtures/professional_task_suite/ops_incident_snapshot.json "
@@ -161,7 +215,7 @@ def test_draft_artifact_delivery_is_not_code_fix_execution() -> None:
     assert contract.execution_obligation["required_writes"]
 
 
-def test_failure_repair_with_pytest_is_obligation_driven_professional_mode() -> None:
+def test_failure_repair_with_pytest_is_obligation_driven_vibe_coding_mode() -> None:
     goal = (
         "追踪 backend/tests/fixtures/professional_task_suite/failing_sixty_turn_summary.json 的失败原因，"
         "修复代码，然后运行 pytest 验证。"
@@ -186,9 +240,14 @@ def test_failure_repair_with_pytest_is_obligation_driven_professional_mode() -> 
     assert "apply_real_change" in semantic["required_actions"]
     assert "run_verification" in semantic["required_actions"]
     assert "modify_code_without_request" not in semantic["forbidden_actions"]
-    assert policy["interaction_mode"] == "professional_mode"
+    assert policy["interaction_mode"] == "vibe_coding"
     assert policy["mode_reason"] == "execution_obligation:write_or_verify"
     assert policy["projection_strength"] == "style_only"
+    assert policy["runtime_lane"] == "vibe_coding_task"
+    assert policy["recipe_id"] == "runtime.recipe.vibe_coding"
+    assert policy["verification_policy"]["strict"] is True
+    assert "edit_file" in policy["tool_policy"]["allowed_tool_names"]
+    assert "terminal" in policy["tool_policy"]["allowed_tool_names"]
 
 
 def test_analysis_only_goal_does_not_escalate_from_forbidden_write() -> None:

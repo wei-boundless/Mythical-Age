@@ -43,7 +43,7 @@ class AgentRuntimeChainAssembler:
         agent_runtime_profile: Any | None = None,
         current_turn_context_override: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        turn_memory_cache: dict[str, dict[str, Any]] = {}
+        turn_memory_cache: dict[str, Any] = {}
         task_selection_payload = build_task_selection_payload(
             task_selection=task_selection,
         )
@@ -74,7 +74,7 @@ class AgentRuntimeChainAssembler:
             {},
             task_selection=task_selection_payload,
         )
-        memory_payload = self.build_memory_runtime_view_payload(
+        memory_view = self.build_memory_runtime_view(
             turn_memory_cache=turn_memory_cache,
             task_id=task_id,
             agent_id=str(getattr(effective_agent_runtime_profile, "agent_id", "") or "agent:0"),
@@ -83,6 +83,7 @@ class AgentRuntimeChainAssembler:
             memory_intent=memory_intent,
             memory_request_profile=initial_memory_request_profile,
         )
+        memory_payload = _to_dict(memory_view)
         query_understanding = build_request_signals(
             message,
             memory_intent,
@@ -94,7 +95,7 @@ class AgentRuntimeChainAssembler:
             task_selection=task_selection_payload,
         )
         if _should_request_state_recall(message=message, query_understanding=query_understanding):
-            memory_payload = self.build_memory_runtime_view_payload(
+            memory_view = self.build_memory_runtime_view(
                 turn_memory_cache=turn_memory_cache,
                 task_id=task_id,
                 agent_id=str(getattr(effective_agent_runtime_profile, "agent_id", "") or "agent:0"),
@@ -108,6 +109,7 @@ class AgentRuntimeChainAssembler:
                     "allow_long_term_memory": False,
                 },
             )
+            memory_payload = _to_dict(memory_view)
             query_understanding = build_request_signals(
                 message,
                 memory_intent,
@@ -152,6 +154,7 @@ class AgentRuntimeChainAssembler:
             model_turn_decision=model_turn_decision,
             query_understanding=query_understanding_payload,
             explicit_task_goal_spec=dict(early_context_payload.get("task_goal_spec") or {}),
+            explicit_semantic_task_type=str(early_context_payload.get("semantic_task_type") or ""),
         )
         current_turn_context = ContextResolver().resolve(
             session_id=session_id,
@@ -191,7 +194,7 @@ class AgentRuntimeChainAssembler:
             current_turn_context=current_turn_context_payload,
         )
         task_operation["task_memory_request_profile"] = memory_request_profile
-        memory_payload = self.build_memory_runtime_view_payload(
+        memory_view = self.build_memory_runtime_view(
             turn_memory_cache=turn_memory_cache,
             task_id=task_id,
             agent_id=str(getattr(effective_agent_runtime_profile, "agent_id", "") or "agent:0"),
@@ -200,12 +203,13 @@ class AgentRuntimeChainAssembler:
             memory_intent=memory_intent,
             memory_request_profile=memory_request_profile,
         )
+        memory_payload = _to_dict(memory_view)
         context_policy_result = self.build_context_policy_result(
             session_id=session_id,
             message=message,
             memory_intent=memory_intent,
             memory_request_profile=memory_request_profile,
-            memory_runtime_view=memory_payload,
+            memory_runtime_view=memory_view,
             retrieval_allowed=_task_operation_allows_retrieval(task_operation),
         )
         context_payload = _to_dict(context_policy_result)
@@ -246,10 +250,10 @@ class AgentRuntimeChainAssembler:
             "runtime_executable": True,
         }
 
-    def build_memory_runtime_view_payload(
+    def build_memory_runtime_view(
         self,
         *,
-        turn_memory_cache: dict[str, dict[str, Any]] | None = None,
+        turn_memory_cache: dict[str, Any] | None = None,
         task_id: str = "task-runtime",
         agent_id: str = "agent:0",
         session_id: str,
@@ -266,7 +270,7 @@ class AgentRuntimeChainAssembler:
             memory_request_profile=memory_request_profile,
         )
         if turn_memory_cache is not None and cache_key in turn_memory_cache:
-            return dict(turn_memory_cache[cache_key])
+            return turn_memory_cache[cache_key]
         bundle_builder = getattr(self.memory_facade, "build_memory_bundle", None)
         if callable(bundle_builder):
             bundle = bundle_builder(
@@ -277,10 +281,12 @@ class AgentRuntimeChainAssembler:
                 memory_intent=memory_intent,
                 memory_request_profile=memory_request_profile,
             )
-            payload = bundle.to_dict() if hasattr(bundle, "to_dict") else dict(bundle)
-            runtime_view = dict(payload.get("runtime_view") or {})
+            runtime_view = getattr(bundle, "runtime_view", None)
+            if runtime_view is None:
+                payload = bundle.to_dict() if hasattr(bundle, "to_dict") else dict(bundle)
+                runtime_view = dict(payload.get("runtime_view") or {})
             if turn_memory_cache is not None:
-                turn_memory_cache[cache_key] = dict(runtime_view)
+                turn_memory_cache[cache_key] = runtime_view
             return runtime_view
         builder = getattr(self.memory_facade, "build_memory_runtime_view", None)
         if not callable(builder):
@@ -291,10 +297,12 @@ class AgentRuntimeChainAssembler:
             memory_intent=memory_intent,
             memory_request_profile=memory_request_profile,
         )
-        runtime_view = _to_dict(view)
         if turn_memory_cache is not None:
-            turn_memory_cache[cache_key] = dict(runtime_view)
-        return runtime_view
+            turn_memory_cache[cache_key] = view
+        return view
+
+    def build_memory_runtime_view_payload(self, **kwargs) -> dict[str, Any]:
+        return _to_dict(self.build_memory_runtime_view(**kwargs))
 
     def build_context_policy_result(
         self,
@@ -303,7 +311,7 @@ class AgentRuntimeChainAssembler:
         message: str | None,
         memory_intent: Any,
         memory_request_profile: dict[str, Any] | None = None,
-        memory_runtime_view: dict[str, Any] | None = None,
+        memory_runtime_view: Any | None = None,
         relevant_memory_notes: list[Any] | None = None,
         retrieval_results: list[dict[str, Any]] | None = None,
         retrieval_allowed: bool = True,
@@ -612,35 +620,27 @@ def _task_goal_spec_from_model_turn_decision(
     model_turn_decision: dict[str, Any],
     query_understanding: dict[str, Any],
     explicit_task_goal_spec: dict[str, Any] | None = None,
+    explicit_semantic_task_type: str = "",
 ) -> dict[str, Any]:
     explicit_goal = _authoritative_explicit_task_goal_spec(
         explicit_task_goal_spec,
         model_turn_decision=model_turn_decision,
     )
-    work_mode = str(model_turn_decision.get("work_mode") or "").strip()
     action_intent = str(model_turn_decision.get("action_intent") or "").strip()
-    interaction_intent = str(model_turn_decision.get("interaction_intent") or "").strip()
+    model_task_goal_type = str(model_turn_decision.get("task_goal_type") or "").strip()
+    model_task_domain = str(model_turn_decision.get("task_domain") or "").strip()
+    selected_task_goal_type = str(explicit_semantic_task_type or "").strip()
     if explicit_goal:
         task_goal_type = str(explicit_goal.get("task_goal_type") or "").strip()
         task_domain = str(explicit_goal.get("task_domain") or "").strip() or "general"
-    elif work_mode == "implementation" or action_intent == "edit_workspace":
-        task_goal_type = "implementation"
-        task_domain = "workspace"
-    elif work_mode == "verification" or action_intent == "run_command":
-        task_goal_type = "verification"
-        task_domain = "workspace"
-    elif work_mode == "planning" or interaction_intent == "plan":
-        task_goal_type = "planning"
-        task_domain = "general"
-    elif action_intent == "search_external":
-        task_goal_type = "external_research"
-        task_domain = "external_web"
-    elif action_intent == "read_context":
-        task_goal_type = "inspection"
-        task_domain = "workspace"
+    elif selected_task_goal_type:
+        task_goal_type = selected_task_goal_type
+        task_domain = _domain_for_concrete_task_goal(selected_task_goal_type)
+    elif model_task_goal_type:
+        task_goal_type = model_task_goal_type
+        task_domain = model_task_domain or _domain_for_concrete_task_goal(model_task_goal_type)
     else:
-        task_goal_type = "conversation"
-        task_domain = "general"
+        raise RuntimeError("ModelTurnDecision.task_goal_type is required before task goal projection")
     deliverables = [
         {"deliverable_id": _slug(value), "title": value, "kind": "deliverable", "role": "core", "required": True, "metadata": {}}
         for value in list(model_turn_decision.get("deliverables") or [])
@@ -674,6 +674,7 @@ def _task_goal_spec_from_model_turn_decision(
         "evidence": {
             "model_turn_decision": model_turn_decision,
             "request_signals_diagnostics_only": query_understanding,
+            "explicit_semantic_task_type": selected_task_goal_type,
         },
         "confidence": float(model_turn_decision.get("confidence") or 0.0),
     }
@@ -723,6 +724,23 @@ def _authoritative_explicit_task_goal_spec(
     if decision_authority != "agent_runtime.model_turn_decision":
         return {}
     return goal
+
+
+def _domain_for_concrete_task_goal(task_goal_type: str) -> str:
+    if str(task_goal_type or "").strip() in {
+        "test_report_triage",
+        "runtime_trace_analysis",
+        "code_fix_execution",
+        "regression_test_design",
+        "artifact_delivery",
+        "frontend_app_delivery",
+        "game_vertical_slice_delivery",
+        "implementation",
+        "verification",
+        "inspection",
+    }:
+        return "workspace"
+    return "general"
 
 
 def _slug(value: str) -> str:

@@ -79,7 +79,14 @@ def assemble_runtime_prompt_contract(
         resources=prompt_resources,
         resource_type="stage_role",
     )
+    selected_domain_role = selected_prompt_resource(
+        plan=prompt_assembly_plan,
+        resources=prompt_resources,
+        resource_type="domain_role",
+    )
     node_prompt_resource = selected_stage_role.to_dict() if selected_stage_role is not None else {}
+    model_turn_decision = dict(prompt_selection_context.model_turn_decision or {})
+    interaction_mode = str(prompt_selection_context.interaction_mode or mode_policy.get("interaction_mode") or "").strip()
     return {
         "contract_id": f"orchprompt:{task_id}",
         "task_id": task_id,
@@ -106,8 +113,12 @@ def assemble_runtime_prompt_contract(
         "goal_understanding_section": _goal_understanding_section(
             semantic_contract=semantic_contract,
             current_turn_context=dict(current_turn_context or {}),
+            current_step_kind=str(prompt_selection_context.current_step_kind or ""),
         ),
-        "domain_playbook_section": _domain_playbook_section(semantic_contract),
+        "domain_playbook_section": _domain_playbook_section(
+            semantic_contract,
+            selected_domain_role=selected_domain_role.to_dict() if selected_domain_role is not None else {},
+        ),
         "professional_profile_section": professional_profile.prompt if professional_profile is not None else "",
         "agent_plan_section": _agent_plan_section(
             dict(selected_metadata.get("agent_plan_draft") or {}),
@@ -118,9 +129,15 @@ def assemble_runtime_prompt_contract(
             dict(selected_metadata.get("completion_judgment") or {}),
             verification_review=dict(selected_metadata.get("verification_review") or {}),
         ),
-        "mode_policy_section": _mode_policy_section(mode_policy),
+        "mode_policy_section": _mode_policy_section(
+            mode_policy,
+            model_turn_decision=model_turn_decision,
+        ),
         "resource_section": "",
-        "projection_section": _projection_section(projection_requirement),
+        "projection_section": _projection_section(
+            projection_requirement,
+            interaction_mode=interaction_mode,
+        ),
         "output_section": _output_section(task_execution_assembly=task_execution_assembly, task_spec=task_spec),
         "guardrail_section": _communication_guardrail_section(task_spec),
         "metadata": {
@@ -215,7 +232,10 @@ def _goal_understanding_section(
     *,
     semantic_contract: dict[str, Any],
     current_turn_context: dict[str, Any],
+    current_step_kind: str = "",
 ) -> str:
+    if str(current_step_kind or "").strip() != "task_goal_understanding":
+        return ""
     diagnostics = dict(semantic_contract.get("diagnostics") or {})
     frame = dict(current_turn_context.get("task_goal_spec") or diagnostics.get("task_goal_spec") or {})
     contract_goal_type = str(semantic_contract.get("task_goal_type") or "").strip()
@@ -276,7 +296,10 @@ def _goal_understanding_section(
     return "\n".join(line for line in lines if line.strip())
 
 
-def _domain_playbook_section(semantic_contract: dict[str, Any]) -> str:
+def _domain_playbook_section(semantic_contract: dict[str, Any], *, selected_domain_role: dict[str, Any] | None = None) -> str:
+    role_prompt = str(dict(selected_domain_role or {}).get("content") or "").strip()
+    if role_prompt:
+        return role_prompt
     playbook = dict(semantic_contract.get("domain_playbook") or {})
     if not playbook:
         return ""
@@ -400,23 +423,41 @@ def _completion_judgment_section(judgment: dict[str, Any], *, verification_revie
     return "\n".join(lines)
 
 
-def _mode_policy_section(mode_policy: dict[str, Any]) -> str:
+def _mode_policy_section(
+    mode_policy: dict[str, Any],
+    *,
+    model_turn_decision: dict[str, Any] | None = None,
+) -> str:
     if not mode_policy:
         return ""
+    decision = dict(model_turn_decision or {})
     interaction_mode = str(mode_policy.get("interaction_mode") or "").strip()
     projection_strength = str(mode_policy.get("projection_strength") or "").strip()
+    work_mode = str(decision.get("work_mode") or "").strip()
+    action_intent = str(decision.get("action_intent") or "").strip()
     verification_policy = dict(mode_policy.get("verification_policy") or {})
     tool_policy = dict(mode_policy.get("tool_policy") or {})
     lines = [
         f"当前交互模式：{interaction_mode or 'role_mode'}。",
-        f"投影参与强度：{projection_strength or 'primary'}。",
     ]
+    if work_mode:
+        lines.append(f"当前工作模式：{work_mode}。")
+    if action_intent:
+        lines.append(f"当前行动意图：{action_intent}。")
+    if interaction_mode == "role_mode":
+        lines.append(f"角色参与强度：{projection_strength or 'primary'}。")
     if interaction_mode == "role_mode":
         lines.append("请优先保持角色与灵魂投影的自然表达，只在真实可用的只读能力范围内辅助回答。")
     elif interaction_mode == "standard_mode":
         lines.append("请在当前回合内用有限工具解决明确问题，结论必须说明真实依据和限制。")
     elif interaction_mode == "professional_mode":
-        lines.append("请以专业任务职责和语义契约为最高优先级，灵魂投影只影响表达温度，不能覆盖交付物和验证要求。")
+        lines.append("请以专业任务职责和语义契约为最高优先级推进，不要引入角色投影、灵魂设定或人格包袱来覆盖交付物和验证要求。")
+    elif interaction_mode == "vibe_coding":
+        lines.append(
+            "你是一名代码任务执行 Agent。请先理解项目结构和相关文件职责，再做必要、可维护的真实修改；"
+            "修改后需要运行测试、构建、浏览器检查或给出无法验证的真实限制。"
+        )
+        lines.append("最终回答必须基于真实变更、差异、命令或浏览器证据收口，不要把实现计划写成已完成结果。")
     if bool(tool_policy.get("requires_evidence_packet")):
         lines.append("工具或委派观察必须先沉淀为证据包，再进入最终结论。")
     if bool(verification_policy.get("deliverable_validator")):
@@ -490,16 +531,21 @@ def _node_professional_prompt_section(
     return str(metadata.get("role_prompt") or metadata.get("prompt") or "").strip()
 
 
-def _projection_section(projection_requirement: dict[str, Any]) -> str:
+def _projection_section(
+    projection_requirement: dict[str, Any],
+    *,
+    interaction_mode: str = "",
+) -> str:
+    if str(interaction_mode or "").strip() != "role_mode":
+        return ""
     posture_tags = [str(item).strip() for item in list(projection_requirement.get("posture_tags") or ()) if str(item).strip()]
     attention_focus = [str(item).strip() for item in list(projection_requirement.get("attention_focus") or ()) if str(item).strip()]
-    interaction_mode = str(projection_requirement.get("interaction_mode") or "").strip()
     projection_strength = str(projection_requirement.get("projection_strength") or "").strip()
     lines = [
         f"当前表达姿态：{str(projection_requirement.get('role_type') or 'task_default')}。",
     ]
-    if interaction_mode == "professional_mode" or projection_strength == "style_only":
-        lines.append("表达姿态只影响语气和协作温度，不能覆盖任务职责、语义契约、证据要求或交付边界。")
+    if projection_strength == "style_only":
+        lines.append("表达姿态只影响语气和协作温度，不能覆盖事实边界。")
     elif posture_tags:
         lines.append("表达侧重：" + "、".join(posture_tags) + "。")
     identity_anchor = str(projection_requirement.get("identity_anchor") or "").strip()

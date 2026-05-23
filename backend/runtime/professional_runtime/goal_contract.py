@@ -570,6 +570,12 @@ def _response_term_for_deliverable(deliverable: Any) -> str:
         "artifact_refs": "产物",
         "completion_status": "完成状态",
         "limitations": "限制",
+        "tool_grounded_answer": "",
+        "direct_answer": "",
+        "source_or_memory_boundary": "",
+        "conversational_response": "",
+        "inspection_findings": "",
+        "evidence_refs": "",
     }
     return mapping.get(normalized, normalized)
 
