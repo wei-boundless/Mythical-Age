@@ -245,10 +245,6 @@ def _resolve_task_goal_type(
 ) -> str:
     if _is_task_graph_node_runtime_context(current_turn_context):
         return "task_graph_node_execution"
-    goal_frame = dict(task_goal_frame or {})
-    framed_type = str(goal_frame.get("task_goal_type") or "").strip()
-    if framed_type and _task_goal_frame_type_is_authoritative(framed_type, goal_frame):
-        return framed_type
     explicit = str(
         current_turn_context.get("semantic_task_type")
         or current_turn_context.get("task_goal_type")
@@ -257,6 +253,10 @@ def _resolve_task_goal_type(
     ).strip()
     if explicit:
         return explicit
+    goal_frame = dict(task_goal_frame or {})
+    framed_type = str(goal_frame.get("task_goal_type") or "").strip()
+    if framed_type and _task_goal_frame_type_is_authoritative(framed_type, goal_frame):
+        return framed_type
     text = str(user_goal or "").lower()
     route = str(query_understanding.get("route") or query_understanding.get("route_hint") or "").strip().lower()
     posture = str(query_understanding.get("execution_posture") or "").strip().lower()

@@ -17,7 +17,8 @@ def test_work_mode_uses_work_prompt_without_world_or_story() -> None:
     )
 
     ids = _section_ids(preview)
-    assert "common_contract" in ids
+    assert "protected_system_rules" in ids
+    assert "shared_common_contract" in ids
     assert "task_contract" in ids
     assert "work_prompt" in ids
     assert "world" not in ids
@@ -35,7 +36,8 @@ def test_role_mode_includes_world_story_and_projection() -> None:
     )
 
     ids = _section_ids(preview)
-    assert "common_contract" in ids
+    assert "protected_system_rules" in ids
+    assert "shared_common_contract" in ids
     assert "world" in ids
     assert "story" in ids
     assert "projection" in ids

@@ -134,11 +134,23 @@ class AgentRuntimeChainAssembler:
             query_understanding,
             task_selection=task_selection_payload,
         )
+        override_payload = build_turn_context_payload(
+            current_turn_context=current_turn_context_override
+        )
+        selection_override_payload = build_turn_context_payload(
+            current_turn_context=task_selection_payload
+        )
+        early_context_payload = {
+            **override_payload,
+            **selection_override_payload,
+        }
         task_goal_frame = build_task_goal_frame(
             message,
             intent_frame=intent_frame.to_dict(),
             intent_decision=intent_decision.to_dict(),
             query_understanding=asdict(query_understanding),
+            current_turn_context=early_context_payload,
+            model_understanding_draft=dict(early_context_payload.get("model_understanding_draft") or {}),
         )
         current_turn_context = ContextResolver().resolve(
             session_id=session_id,
@@ -154,16 +166,12 @@ class AgentRuntimeChainAssembler:
             continuation_decision=continuation_decision.to_dict(),
         )
         current_turn_context_payload = current_turn_context.to_dict()
-        if current_turn_context_override:
-            current_turn_context_payload.update(
-                build_turn_context_payload(current_turn_context=current_turn_context_override)
-            )
+        if override_payload:
+            current_turn_context_payload.update(override_payload)
         if turn_id:
             current_turn_context_payload["turn_id"] = turn_id
-        if task_selection:
-            current_turn_context_payload.update(
-                build_turn_context_payload(current_turn_context=task_selection_payload)
-            )
+        if selection_override_payload:
+            current_turn_context_payload.update(selection_override_payload)
         skill_frame = _resolve_skill_frame(self.skill_registry, query_understanding)
         task_bundle = build_task_execution_assembly_bundle(
             base_dir=self.base_dir,

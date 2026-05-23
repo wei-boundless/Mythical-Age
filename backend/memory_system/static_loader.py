@@ -1,17 +1,25 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 
 from .models import StaticContextBundle, StaticContextEntry, StaticContextSection
 
 
 STATIC_SOUL_COMPONENTS: tuple[StaticContextSection, ...] = (
     StaticContextSection(
-        key="agent_core",
-        label="Common Contract",
-        prompt_heading="共同契约",
+        key="protected_system_contract",
+        label="Protected System Contract",
+        prompt_heading="系统硬契约",
         relative_paths=("soul/agent_core/CORE.md",),
         injection_order=20,
+    ),
+    StaticContextSection(
+        key="shared_common_contract",
+        label="Shared Common Contract",
+        prompt_heading="用户共同契约",
+        relative_paths=("soul/common_contracts/catalog.json",),
+        injection_order=30,
     ),
     StaticContextSection(
         key="active_soul_seed",
@@ -26,8 +34,29 @@ def _read_component(base_dir: Path, relative_paths: tuple[str, ...]) -> tuple[st
     for relative_path in relative_paths:
         path = base_dir / relative_path
         if path.exists():
-            return relative_path, path.read_text(encoding="utf-8")
+            content = path.read_text(encoding="utf-8")
+            if relative_path.endswith("common_contracts/catalog.json"):
+                content = _common_contract_catalog_content(content)
+            return relative_path, content
     return relative_paths[0], f"[missing component: {relative_paths[0]}]"
+
+
+def _common_contract_catalog_content(raw_content: str) -> str:
+    try:
+        payload = json.loads(raw_content or "{}")
+    except json.JSONDecodeError:
+        return raw_content
+    items = payload.get("items", []) if isinstance(payload, dict) else []
+    if not isinstance(items, list):
+        return ""
+    chunks: list[str] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        content = str(item.get("content") or "").strip()
+        if content:
+            chunks.append(content)
+    return "\n\n".join(chunks)
 
 
 def load_static_context(base_dir: Path) -> StaticContextBundle:

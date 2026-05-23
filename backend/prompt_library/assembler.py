@@ -255,13 +255,8 @@ def _task_understanding_section(
         )
     interaction = str(frame.get("interaction_intent") or "").strip()
     action = str(frame.get("action_intent") or "").strip()
-    mode = str(frame.get("execution_mode_hint") or "").strip()
-    domain = str(frame.get("task_domain_hint") or "").strip()
-    goal_type = str(frame.get("task_goal_type_hint") or "").strip()
     if interaction or action:
         lines.append(f"本轮交互意图：{interaction or 'unspecified'}；行动意图：{action or 'unspecified'}。")
-    if domain or goal_type or mode:
-        lines.append(f"任务域提示：{domain or 'general'}；目标类型提示：{goal_type or 'unspecified'}；执行方式提示：{mode or 'answer'}。")
     flow = [
         str(item).strip()
         for item in list(frame.get("user_provided_flow") or [])
@@ -352,6 +347,21 @@ def _domain_playbook_section(semantic_contract: dict[str, Any]) -> str:
     binding = dict(diagnostics.get("task_domain_binding") or {})
     if not binding:
         return ""
+    contract_domain = str(semantic_contract.get("domain") or "").strip()
+    binding_diagnostics = dict(binding.get("diagnostics") or {})
+    bound_domains = {
+        str(binding.get("bound_domain_id") or "").strip(),
+        str(binding.get("domain_id") or "").strip(),
+        str(binding.get("requested_domain") or "").strip(),
+        str(binding_diagnostics.get("normalized_domain") or "").strip(),
+    }
+    normalized_domains = {
+        item.removeprefix("domain.")
+        for item in bound_domains
+        if item
+    }
+    if contract_domain and normalized_domains and contract_domain.removeprefix("domain.") not in normalized_domains:
+        return ""
     lines = [
         "你需要把任务域当作成熟工作制式，而不是用户目标裁判。",
         "任务域可以补充默认工作习惯、风险控制和验证习惯；用户明确流程、用户禁令和语义任务合同优先。",
@@ -380,11 +390,20 @@ def _goal_understanding_section(
 ) -> str:
     diagnostics = dict(semantic_contract.get("diagnostics") or {})
     frame = dict(current_turn_context.get("task_goal_frame") or diagnostics.get("task_goal_frame") or {})
+    contract_goal_type = str(semantic_contract.get("task_goal_type") or "").strip()
+    frame_goal_type = str(frame.get("task_goal_type") or "").strip()
+    if contract_goal_type and frame_goal_type and frame_goal_type != contract_goal_type:
+        return ""
     hypothesis_set = dict(
         diagnostics.get("goal_hypothesis_set")
         or dict(frame.get("evidence") or {}).get("goal_hypothesis_set")
         or {}
     )
+    chosen = dict(hypothesis_set.get("chosen") or {})
+    chosen_goal_type = str(chosen.get("task_goal_type") or "").strip()
+    if contract_goal_type and chosen_goal_type and chosen_goal_type != contract_goal_type:
+        hypothesis_set = {}
+        chosen = {}
     rejected = [
         dict(item)
         for item in list(frame.get("rejected_goal_candidates") or diagnostics.get("rejected_goal_candidates") or [])
@@ -397,7 +416,6 @@ def _goal_understanding_section(
     ]
     if not frame and not hypothesis_set and not rejected and not unacceptable:
         return ""
-    chosen = dict(hypothesis_set.get("chosen") or {})
     lines = [
         "你需要以目标理解结果作为任务边界，不要让路径、报告名或旧路由覆盖用户真实目标。",
     ]

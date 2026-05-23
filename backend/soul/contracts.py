@@ -165,9 +165,14 @@ class CommonContractPrompt:
     source_ref: str
     version: str = "v1"
     cache_scope: str = "static"
+    contract_layer: str = "user_common"
+    editable: bool = True
+    authority: str = "soul.common_contract"
+    metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
+        payload["metadata"] = dict(self.metadata)
         payload["chars"] = len(self.content)
         return payload
 
@@ -289,6 +294,7 @@ class SoulResourceCatalog:
     stories: tuple[SoulStory, ...]
     cards: tuple[SoulCard, ...]
     work_prompts: tuple[WorkPrompt, ...]
+    system_contracts: tuple[CommonContractPrompt, ...]
     common_contracts: tuple[CommonContractPrompt, ...]
     manifestations: tuple[SoulManifestation, ...]
     modes: tuple[SoulModeProfile, ...]
@@ -302,6 +308,7 @@ class SoulResourceCatalog:
             "stories": [item.to_dict() for item in self.stories],
             "cards": [item.to_dict() for item in self.cards],
             "work_prompts": [item.to_dict() for item in self.work_prompts],
+            "system_contracts": [item.to_dict() for item in self.system_contracts],
             "common_contracts": [item.to_dict() for item in self.common_contracts],
             "manifestations": [item.to_dict() for item in self.manifestations],
             "modes": [item.to_dict() for item in self.modes],

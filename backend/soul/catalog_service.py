@@ -35,6 +35,7 @@ class SoulCatalogService:
             self._work_prompt_from_payload(item)
             for item in self.store.ensure_bucket("work_prompts", self._default_work_prompts())
         ]
+        system_contracts = [self._system_contract()]
         common_contracts = [
             self._common_contract_from_payload(item)
             for item in self.store.ensure_bucket("common_contracts", self._default_common_contracts())
@@ -54,6 +55,7 @@ class SoulCatalogService:
             stories=tuple(stories),
             cards=tuple(cards),
             work_prompts=tuple(work_prompts),
+            system_contracts=tuple(system_contracts),
             common_contracts=tuple(common_contracts),
             manifestations=tuple(manifestations),
             modes=tuple(default_mode_profiles()),
@@ -130,15 +132,24 @@ class SoulCatalogService:
         ]
 
     def _default_common_contracts(self) -> list[dict[str, Any]]:
-        content = read_text(self.base_dir / CORE_PATH).strip()
         return [
             {
                 "prompt_id": "common_contract.default",
-                "title": "默认共同契约",
-                "content": content or "遵守用户当前目标、事实边界、执行义务和输出要求。",
-                "source_ref": CORE_PATH,
-                "version": "v1",
+                "title": "默认用户共同契约",
+                "content": (
+                    "## 工作偏好\n\n"
+                    "- 优先按用户当前真实目标推进，不把内部流程名称当作用户目标。\n"
+                    "- 需要行动时先确认关键边界，再给出可执行结果。\n"
+                    "- 表达要清楚、直接、有人味；不要为了显得完整而堆叠无关内容。\n\n"
+                    "## 项目约定\n\n"
+                    "- Agent prompt 应写成角色职责、工作边界、可执行任务和裁决标准。\n"
+                    "- 当项目要求真实验证时，交付前需要说明验证方式和结果。"
+                ),
+                "source_ref": "soul/common_contracts/catalog.json",
+                "version": "v2",
                 "cache_scope": "static",
+                "contract_layer": "user_common",
+                "editable": True,
             }
         ]
 
@@ -217,6 +228,29 @@ class SoulCatalogService:
             source_ref=str(payload.get("source_ref") or ""),
             version=str(payload.get("version") or "v1"),
             cache_scope=str(payload.get("cache_scope") or "static"),
+            contract_layer=str(payload.get("contract_layer") or "user_common"),
+            editable=bool(payload.get("editable", True)),
+            authority=str(payload.get("authority") or "soul.common_contract"),
+            metadata=dict(payload.get("metadata") or {}),
+        )
+
+    def _system_contract(self) -> CommonContractPrompt:
+        content = read_text(self.base_dir / CORE_PATH).strip()
+        return CommonContractPrompt(
+            prompt_id="system_contract.core",
+            title="系统硬契约",
+            content=content or "遵守事实、执行、权限、测试和输出底线。",
+            source_ref=CORE_PATH,
+            version="v2",
+            cache_scope="static",
+            contract_layer="protected_system",
+            editable=False,
+            authority="soul.protected_system_contract",
+            metadata={
+                "protected": True,
+                "user_edit_bucket": False,
+                "runtime_required": True,
+            },
         )
 
     @staticmethod
@@ -256,7 +290,7 @@ def default_mode_profiles() -> list[SoulModeProfile]:
         SoulModeProfile(
             mode="role_mode",
             title="角色模式",
-            section_order=("common_contract", "world", "story", "projection"),
+            section_order=("protected_system_rules", "shared_common_contract", "world", "story", "projection"),
             includes_world=True,
             includes_story=True,
             includes_work_prompt=False,
@@ -265,7 +299,7 @@ def default_mode_profiles() -> list[SoulModeProfile]:
         SoulModeProfile(
             mode="standard_mode",
             title="标准模式",
-            section_order=("common_contract", "story", "projection"),
+            section_order=("protected_system_rules", "shared_common_contract", "story", "projection"),
             includes_world=False,
             includes_story=True,
             includes_work_prompt=False,
@@ -274,7 +308,7 @@ def default_mode_profiles() -> list[SoulModeProfile]:
         SoulModeProfile(
             mode="work_mode",
             title="工作模式",
-            section_order=("common_contract", "task_contract", "work_prompt"),
+            section_order=("protected_system_rules", "shared_common_contract", "task_contract", "work_prompt"),
             includes_world=False,
             includes_story=False,
             includes_work_prompt=True,

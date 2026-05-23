@@ -12,7 +12,10 @@ from .models import (
 
 
 _RESOURCE_SECTION_IDS = {
-    "common_contract": "static_common_rules",
+    "common_contract": "shared_common_contract",
+    "mode_policy": "mode_policy_section",
+    "understanding_policy": "understanding_policy_section",
+    "flow_matching_policy": "flow_matching_policy_section",
     "role_prompt": "role_prompt_section",
     "domain_role": "domain_role_prompt_section",
     "stage_role": "node_professional_prompt_section",
@@ -23,7 +26,10 @@ _RESOURCE_SECTION_IDS = {
 }
 
 _RESOURCE_ORDERS = {
-    "common_contract": 5,
+    "common_contract": 8,
+    "mode_policy": 12,
+    "understanding_policy": 18,
+    "flow_matching_policy": 19,
     "role_prompt": 15,
     "domain_role": 25,
     "stage_role": 35,
@@ -505,6 +511,15 @@ def _score_resource(resource: PromptResource, context: PromptSelectionContext) -
     if resource.resource_type == "common_contract":
         score += 50
         reasons.append("common_contract")
+    if resource.resource_type == "mode_policy" and context.interaction_mode:
+        score += 45
+        reasons.append("mode_policy")
+    if resource.resource_type == "understanding_policy" and context.current_step_kind == "task_goal_understanding":
+        score += 140
+        reasons.append("task_goal_understanding_stage")
+    if resource.resource_type == "flow_matching_policy" and context.current_step_kind == "domain_flow_matching":
+        score += 140
+        reasons.append("domain_flow_matching_stage")
     if resource.resource_type == "output_boundary":
         score += 40
         reasons.append("output_boundary")
@@ -641,6 +656,12 @@ def _winner_key(resource: PromptResource) -> str:
         return "verification"
     if resource.resource_type == "output_boundary":
         return "output_boundary"
+    if resource.resource_type == "mode_policy":
+        return "mode_policy"
+    if resource.resource_type == "understanding_policy":
+        return "understanding_policy"
+    if resource.resource_type == "flow_matching_policy":
+        return "flow_matching_policy"
     if resource.resource_type == "common_contract":
         return resource.resource_id
     if resource.resource_type in {"skill_prompt", "tool_guidance"}:

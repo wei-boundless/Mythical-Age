@@ -27,7 +27,6 @@ SOUL_PORTRAIT_MAX_BYTES = 8 * 1024 * 1024
 SEED_PATHS = BUILTIN_SEED_PATHS
 EDITABLE_SOUL_PATHS = {
     ACTIVE_SEED_PATH,
-    CORE_PATH,
     *SEED_PATHS.values(),
 }
 HIDDEN_STYLE_SECTION_PATTERN = re.compile(r"^##\s+(?:身份锚点|Identity Anchor)\s*[\r\n]+[\s\S]*?(?=^##\s+|\Z)", re.MULTILINE)
@@ -223,6 +222,12 @@ async def save_soul_common_contract(prompt_id: str, payload: SoulCommonContractS
         "source_ref": "soul/common_contracts/catalog.json",
         "version": payload.version.strip() or "v1",
         "cache_scope": payload.cache_scope.strip() or "static",
+        "contract_layer": "user_common",
+        "editable": True,
+        "metadata": {
+            "user_editable": True,
+            "contains_prohibitions": False,
+        },
     }
     replaced = False
     next_items: list[dict[str, Any]] = []

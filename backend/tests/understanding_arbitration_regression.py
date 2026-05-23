@@ -184,3 +184,52 @@ def test_assembly_builder_passes_model_understanding_draft_into_goal_frame() -> 
     understanding = dict(goal_frame["task_understanding_frame"])
     assert understanding["understanding_arbitration"]["model_draft_ref"] == "modeldraft:assembly-builder"
     assert understanding["conflict_set"]
+
+
+def test_model_understanding_draft_can_reselect_top_level_goal_type() -> None:
+    message = (
+        "请用专业模式根据 tests/fixtures/professional_task_suite/node_status_filter_contract.json，"
+        "在 sandbox overlay 中写入一份状态筛选功能草案，并说明验证结果。"
+    )
+    query = analyze_query_understanding(message)
+    heuristic_goal = build_task_goal_frame(message, query_understanding=asdict(query)).to_dict()
+    model_goal = build_task_goal_frame(
+        message,
+        query_understanding=asdict(query),
+        model_understanding_draft={
+            "authority": "intent.model_understanding_draft",
+            "draft_id": "modeldraft:artifact-goal",
+            "task_goal_type_hint": "artifact_delivery",
+            "task_domain_hint": "general",
+            "action_intent": "create",
+            "desired_outcomes": ["scoped_artifact_file", "verification_result_or_limitation"],
+            "confidence": 0.88,
+        },
+    ).to_dict()
+
+    assert heuristic_goal["task_goal_type"] == "frontend_app_delivery"
+    assert model_goal["task_goal_type"] == "artifact_delivery"
+    assert model_goal["task_understanding_frame"]["understanding_arbitration"]["model_draft_ref"] == "modeldraft:artifact-goal"
+    assert model_goal["evidence"]["goal_hypothesis_set"]["chosen"]["matched_by"][0] == "model_understanding_draft"
+
+
+def test_explicit_semantic_task_type_overrides_model_goal_reselection() -> None:
+    message = "请继续推进理解系统。"
+    query = analyze_query_understanding(message)
+    goal = build_task_goal_frame(
+        message,
+        query_understanding=asdict(query),
+        current_turn_context={"semantic_task_type": "code_fix_execution"},
+        model_understanding_draft={
+            "authority": "intent.model_understanding_draft",
+            "draft_id": "modeldraft:wrong-goal",
+            "task_goal_type_hint": "material_synthesis",
+            "task_domain_hint": "general",
+            "confidence": 0.91,
+        },
+    ).to_dict()
+
+    assert goal["task_goal_type"] == "code_fix_execution"
+    arbitration = goal["task_understanding_frame"]["understanding_arbitration"]
+    assert arbitration["model_draft_ref"] == "modeldraft:wrong-goal"
+    assert any(item["field"] == "task_goal_type_hint" for item in arbitration["conflict_set"])

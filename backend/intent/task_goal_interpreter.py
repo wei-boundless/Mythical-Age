@@ -28,28 +28,56 @@ def build_task_goal_frame(
     intent_frame: dict[str, Any] | None = None,
     intent_decision: dict[str, Any] | None = None,
     query_understanding: dict[str, Any] | None = None,
+    current_turn_context: dict[str, Any] | None = None,
     model_understanding_draft: dict[str, Any] | None = None,
 ) -> TaskGoalFrame:
     text = str(message or "").strip()
     understanding = dict(query_understanding or {})
     intent = dict(intent_decision or {})
     frame = dict(intent_frame or {})
+    current_turn = dict(current_turn_context or {})
     hypothesis_set = build_goal_hypothesis_set(
         text,
         intent_frame=frame,
         intent_decision=intent,
         query_understanding=understanding,
+        current_turn_context=current_turn,
     )
-    candidate = _candidate_from_hypothesis(hypothesis_set.chosen)
-    task_understanding_frame = build_task_understanding_frame(
+    initial_candidate = _candidate_from_hypothesis(hypothesis_set.chosen)
+    initial_understanding_frame = build_task_understanding_frame(
         text,
         intent_frame=frame,
         intent_decision=intent,
         query_understanding=understanding,
-        task_goal_type_hint=candidate.task_goal_type,
-        task_domain_hint=candidate.task_domain,
+        task_goal_type_hint=initial_candidate.task_goal_type,
+        task_domain_hint=initial_candidate.task_domain,
+        goal_hint_source=initial_candidate.matched_by,
+        domain_hint_source=initial_candidate.matched_by,
         model_understanding_draft=model_understanding_draft,
     )
+    candidate = _candidate_from_understanding_frame(
+        task_understanding_frame=initial_understanding_frame,
+        fallback=initial_candidate,
+        current_turn_context=current_turn,
+    )
+    task_understanding_frame = initial_understanding_frame
+    if candidate.task_goal_type != initial_candidate.task_goal_type or candidate.task_domain != initial_candidate.task_domain:
+        hypothesis_set = _hypothesis_set_with_selected_candidate(
+            text=text,
+            candidate=candidate,
+            previous=hypothesis_set,
+        )
+        task_understanding_frame = build_task_understanding_frame(
+            text,
+            intent_frame=frame,
+            intent_decision=intent,
+            query_understanding=understanding,
+            task_goal_type_hint=candidate.task_goal_type,
+            task_domain_hint=candidate.task_domain,
+            goal_hint_source=candidate.matched_by,
+            domain_hint_source=candidate.matched_by,
+            model_understanding_draft=model_understanding_draft,
+        )
     profile = candidate.profile
     if profile is None:
         return _fallback_goal_frame(
@@ -79,11 +107,29 @@ def build_goal_hypothesis_set(
     intent_frame: dict[str, Any] | None = None,
     intent_decision: dict[str, Any] | None = None,
     query_understanding: dict[str, Any] | None = None,
+    current_turn_context: dict[str, Any] | None = None,
 ) -> GoalHypothesisSet:
     text = str(message or "").strip()
     frame = dict(intent_frame or {})
     intent = dict(intent_decision or {})
     understanding = dict(query_understanding or {})
+    current_turn = dict(current_turn_context or {})
+    explicit = _explicit_goal_candidate(current_turn)
+    if explicit is not None:
+        candidates = _goal_candidates(
+            text,
+            intent_frame=frame,
+            intent_decision=intent,
+            query_understanding=understanding,
+        )
+        if not any(item.task_goal_type == explicit.task_goal_type for item in candidates):
+            candidates.append(explicit)
+        return _hypothesis_set_from_candidate(
+            text=text,
+            selected=explicit,
+            candidates=candidates,
+            source="explicit_task_goal_type",
+        )
     selected = _select_goal_candidate(
         text,
         intent_frame=frame,
@@ -572,6 +618,109 @@ def _candidate_from_hypothesis(hypothesis: GoalHypothesis) -> TaskGoalCandidate:
         profile=profile,
         signals=tuple(hypothesis.supporting_evidence),
         rejection_reason=hypothesis.rejection_reason,
+    )
+
+
+def _explicit_goal_candidate(current_turn_context: dict[str, Any]) -> TaskGoalCandidate | None:
+    goal_type = str(
+        current_turn_context.get("semantic_task_type")
+        or current_turn_context.get("task_goal_type")
+        or dict(current_turn_context.get("semantic_task_contract") or {}).get("task_goal_type")
+        or ""
+    ).strip()
+    if not goal_type:
+        return None
+    profile = next((item for item in task_goal_profiles() if item.task_goal_type == goal_type), None)
+    return TaskGoalCandidate(
+        task_goal_type=goal_type,
+        task_domain=str(getattr(profile, "task_domain", "") or current_turn_context.get("task_domain") or "general"),
+        matched_by="explicit_task_goal_type",
+        score=0.99,
+        profile=profile,
+        signals=("explicit_task_selection",),
+    )
+
+
+def _candidate_from_understanding_frame(
+    *,
+    task_understanding_frame: TaskUnderstandingFrame,
+    fallback: TaskGoalCandidate,
+    current_turn_context: dict[str, Any],
+) -> TaskGoalCandidate:
+    explicit = _explicit_goal_candidate(current_turn_context)
+    if explicit is not None:
+        return explicit
+    arbitration = dict(task_understanding_frame.understanding_arbitration or {})
+    diagnostics = dict(arbitration.get("diagnostics") or {})
+    if str(diagnostics.get("model_draft_status") or "") != "accepted":
+        return fallback
+    goal_type = str(task_understanding_frame.task_goal_type_hint or "").strip()
+    if not goal_type or goal_type == fallback.task_goal_type:
+        return fallback
+    profile = next((item for item in task_goal_profiles() if item.task_goal_type == goal_type), None)
+    if profile is None and not _known_fallback_goal_type(goal_type):
+        return fallback
+    domain = str(task_understanding_frame.task_domain_hint or getattr(profile, "task_domain", "") or fallback.task_domain or "general").strip()
+    return TaskGoalCandidate(
+        task_goal_type=goal_type,
+        task_domain=domain,
+        matched_by="model_understanding_draft",
+        score=max(float(fallback.score or 0.0), float(diagnostics.get("model_draft_confidence") or 0.0), 0.62),
+        profile=profile,
+        signals=("model_goal_type_hint",),
+    )
+
+
+def _known_fallback_goal_type(goal_type: str) -> bool:
+    return goal_type in {
+        "bounded_tool_task",
+        "light_qa",
+        "role_conversation",
+        "task_graph_node_execution",
+    }
+
+
+def _hypothesis_set_from_candidate(
+    *,
+    text: str,
+    selected: TaskGoalCandidate,
+    candidates: list[TaskGoalCandidate],
+    source: str,
+) -> GoalHypothesisSet:
+    if not any(item.task_goal_type == selected.task_goal_type for item in candidates):
+        candidates = [selected, *candidates]
+    rejected = _rejected_candidates(
+        chosen=selected,
+        candidates=candidates,
+        lowered=text.lower(),
+    )
+    ambiguity = _ambiguity_points(chosen=selected, candidates=candidates)
+    if source == "model_understanding_draft":
+        ambiguity = [item for item in ambiguity if not item.startswith("close_goal_candidate:")]
+    return GoalHypothesisSet(
+        hypothesis_set_id=f"goalhyp:{_slug(text)[:48] or 'runtime'}",
+        user_goal=text,
+        chosen=_hypothesis_from_candidate(selected),
+        candidates=tuple(_hypothesis_from_candidate(item) for item in candidates),
+        rejected=tuple(rejected),
+        ambiguity_points=tuple(ambiguity),
+        clarification_needed=False,
+        clarification_question="",
+    )
+
+
+def _hypothesis_set_with_selected_candidate(
+    *,
+    text: str,
+    candidate: TaskGoalCandidate,
+    previous: GoalHypothesisSet,
+) -> GoalHypothesisSet:
+    candidates = [_candidate_from_hypothesis(item) for item in previous.candidates]
+    return _hypothesis_set_from_candidate(
+        text=text,
+        selected=candidate,
+        candidates=candidates,
+        source=candidate.matched_by,
     )
 
 

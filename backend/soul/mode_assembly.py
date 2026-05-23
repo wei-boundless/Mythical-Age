@@ -70,12 +70,24 @@ class SoulModeAssemblyService:
         resolved_work_prompt_id = work_prompt_id or str(card.get("default_work_prompt_id") or "work_prompt.default")
         sections: list[SoulModeSection] = []
 
+        system_contract = self._first(catalog.get("system_contracts", []))
+        if system_contract:
+            sections.append(
+                SoulModeSection(
+                    section_id="protected_system_rules",
+                    title="系统硬契约",
+                    owner_layer="system_contract",
+                    source_id=str(system_contract.get("prompt_id") or ""),
+                    content=str(system_contract.get("content") or ""),
+                )
+            )
+
         common_contract = self._first(catalog["common_contracts"])
         if common_contract:
             sections.append(
                 SoulModeSection(
-                    section_id="common_contract",
-                    title="共同契约",
+                    section_id="shared_common_contract",
+                    title="用户共同契约",
                     owner_layer="common_contract",
                     source_id=str(common_contract.get("prompt_id") or ""),
                     content=str(common_contract.get("content") or ""),

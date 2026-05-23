@@ -26,6 +26,7 @@ class SoulRegistryService:
                 "stories",
                 "cards",
                 "work_prompts",
+                "system_contracts",
                 "common_contracts",
                 "manifestations",
                 "activity",

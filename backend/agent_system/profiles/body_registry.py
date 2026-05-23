@@ -63,7 +63,8 @@ class BodyProfileRegistry:
             profile_id=f"promptstruct:{agent_id}:single_agent",
             section_order=(
                 "identity_view",
-                "static_common_rules",
+                "protected_system_rules",
+                "shared_common_contract",
                 "dynamic_task_contract",
                 "role_view",
                 "task_section",

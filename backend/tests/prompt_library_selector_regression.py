@@ -11,6 +11,51 @@ from prompt_library import PromptResource, PromptSelector, PromptSelectionContex
 from prompt_library.selector import build_prompt_selection_context
 
 
+def test_prompt_selector_selects_static_default_resource_types_for_matching_context() -> None:
+    context = PromptSelectionContext(
+        task_id="runtime-task",
+        interaction_mode="professional_mode",
+        task_goal_type="game_vertical_slice_delivery",
+        task_domain="development",
+        current_step_id="domain_flow_matching",
+        current_step_kind="domain_flow_matching",
+    )
+    plan = PromptSelector(
+        (
+            PromptResource(
+                resource_id="prompt.default.mode_policy.professional_mode",
+                resource_type="mode_policy",
+                title="专业模式边界",
+                content="当前是专业任务模式。",
+                applies_to_modes=("professional_mode",),
+            ),
+            PromptResource(
+                resource_id="prompt.default.flow_matching_policy.goal_profile_binding",
+                resource_type="flow_matching_policy",
+                title="目标流程匹配规则",
+                content="你负责把已经理解出的任务目标绑定到合适的任务流程和目标模板。",
+                step_kind="domain_flow_matching",
+            ),
+            PromptResource(
+                resource_id="prompt.default.domain_role.game_vertical_slice_delivery",
+                resource_type="domain_role",
+                title="浏览器游戏垂直切片开发负责人",
+                content="你是一名浏览器游戏垂直切片开发负责人。",
+                applies_to_task_goal_types=("game_vertical_slice_delivery",),
+                applies_to_domains=("development",),
+                applies_to_modes=("professional_mode",),
+            ),
+        )
+    ).select(context)
+
+    selected_by_type = {item.resource_type: item for item in plan.selected}
+
+    assert selected_by_type["mode_policy"].section_id == "mode_policy_section"
+    assert selected_by_type["flow_matching_policy"].section_id == "flow_matching_policy_section"
+    assert selected_by_type["domain_role"].resource_id == "prompt.default.domain_role.game_vertical_slice_delivery"
+    assert "domain_flow_matching_stage" in selected_by_type["flow_matching_policy"].selection_reason
+
+
 def test_prompt_selector_prefers_workflow_stage_role_over_generic_domain_role() -> None:
     context = PromptSelectionContext(
         task_id="runtime-task",

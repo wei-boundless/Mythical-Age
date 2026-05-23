@@ -6,6 +6,7 @@ from typing import Any
 
 from project_layout import ProjectLayout
 
+from .default_resources import list_default_prompt_resources
 from .models import PromptResource, prompt_resource_from_dict
 
 
@@ -62,29 +63,23 @@ class PromptLibraryRegistry:
     def list_resources(self, *, sync_workflow_prompts: bool = True) -> list[PromptResource]:
         if sync_workflow_prompts:
             self.sync_task_workflow_prompts()
-        payload = _read_json(_resources_path(self.base_dir), {"resources": []})
-        resources = [
-            prompt_resource_from_dict(item)
-            for item in list(payload.get("resources") or [])
-            if isinstance(item, dict)
-        ]
-        normalized = [item.to_dict() for item in resources]
-        if payload.get("resources") != normalized:
-            _write_json(_resources_path(self.base_dir), {"resources": normalized})
-        return resources
+        default_resources = {item.resource_id: item for item in list_default_prompt_resources()}
+        stored_resources = {item.resource_id: item for item in self._list_stored_resources(normalize=True)}
+        merged = {**default_resources, **stored_resources}
+        return sorted(merged.values(), key=lambda item: (item.resource_type, item.workflow_id, item.task_id, item.resource_id))
 
     def upsert_resource(self, resource: PromptResource) -> PromptResource:
         target = str(resource.resource_id or "").strip()
         if not target:
             raise ValueError("PromptResource requires resource_id")
-        resources = [item for item in self.list_resources(sync_workflow_prompts=False) if item.resource_id != target]
+        resources = [item for item in self._list_stored_resources(normalize=True) if item.resource_id != target]
         resources.append(resource)
         resources.sort(key=lambda item: (item.resource_type, item.workflow_id, item.task_id, item.resource_id))
         _write_json(_resources_path(self.base_dir), {"resources": [item.to_dict() for item in resources]})
         return resource
 
     def upsert_resources(self, resources: list[PromptResource] | tuple[PromptResource, ...]) -> tuple[PromptResource, ...]:
-        existing = {item.resource_id: item for item in self.list_resources(sync_workflow_prompts=False)}
+        existing = {item.resource_id: item for item in self._list_stored_resources(normalize=True)}
         for resource in resources:
             if not str(resource.resource_id or "").strip():
                 continue
@@ -98,6 +93,19 @@ class PromptLibraryRegistry:
         if not target:
             return None
         return next((item for item in self.list_resources() if item.resource_id == target and item.enabled), None)
+
+    def _list_stored_resources(self, *, normalize: bool) -> list[PromptResource]:
+        payload = _read_json(_resources_path(self.base_dir), {"resources": []})
+        resources = [
+            prompt_resource_from_dict(item)
+            for item in list(payload.get("resources") or [])
+            if isinstance(item, dict)
+        ]
+        if normalize:
+            normalized = [item.to_dict() for item in resources]
+            if payload.get("resources") != normalized:
+                _write_json(_resources_path(self.base_dir), {"resources": normalized})
+        return resources
 
     def resolve_stage_role(
         self,

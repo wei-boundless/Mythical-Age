@@ -171,12 +171,13 @@ def _profile_obligation_requirements(
     task_goal_frame: dict[str, Any],
     current_turn: dict[str, Any],
 ) -> dict[str, Any]:
-    task_goal_type = str(
-        task_goal_frame.get("task_goal_type")
+    explicit_task_goal_type = str(
+        current_turn.get("semantic_task_type")
         or current_turn.get("task_goal_type")
-        or current_turn.get("semantic_task_type")
+        or dict(current_turn.get("semantic_task_contract") or {}).get("task_goal_type")
         or ""
     ).strip()
+    task_goal_type = str(explicit_task_goal_type or task_goal_frame.get("task_goal_type") or "").strip()
     profile = get_task_goal_profile(task_goal_type)
     if profile is None:
         return {
@@ -197,11 +198,15 @@ def _profile_obligation_requirements(
     if "run_browser_verification" in actions:
         commands.append({"kind": "browser_or_runtime_check", "command_hint": "start_or_open_app", "required": True, "source": "task_goal_profile"})
         verifications.append({"kind": "browser_verification", "required": True, "source": "task_goal_profile"})
-    required_verifications = [
-        dict(item)
-        for item in list(task_goal_frame.get("required_verifications") or [])
-        if isinstance(item, dict)
-    ]
+    required_verifications = (
+        []
+        if explicit_task_goal_type
+        else [
+            dict(item)
+            for item in list(task_goal_frame.get("required_verifications") or [])
+            if isinstance(item, dict)
+        ]
+    )
     for item in required_verifications:
         verifications.append(
             {
@@ -222,6 +227,8 @@ def _profile_obligation_requirements(
             "task_goal_type": task_goal_type,
             "profile_id": profile.task_goal_type,
             "required_actions": sorted(actions),
+            "explicit_task_goal_type": explicit_task_goal_type,
+            "task_goal_frame_type": str(task_goal_frame.get("task_goal_type") or ""),
         },
     }
 

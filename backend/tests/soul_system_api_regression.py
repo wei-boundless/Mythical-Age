@@ -31,6 +31,7 @@ def test_soul_catalog_exposes_injection_chain_and_seed_contracts(tmp_path: Path)
     assert [item["path"] for item in catalog["injection_chain"]] == [
         ACTIVE_SEED_PATH,
         CORE_PATH,
+        "soul/common_contracts/catalog.json",
     ]
     assert {seed["key"] for seed in catalog["seeds"]} == set(SEED_PATHS)
     assert {profile["soul_id"] for profile in catalog["soul_profiles"]} == set(SEED_PATHS)

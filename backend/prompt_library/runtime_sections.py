@@ -23,6 +23,7 @@ def assemble_runtime_prompt_sections(
     from soul.registry import CORE_PATH, read_text
 
     metadata = dict(contract.get("metadata") or {})
+    shared_contract = _load_shared_contract(base_dir)
     resource_content = _resource_projection_content(soul_tool_views)
     resource_policy_ref = str(metadata.get("resource_policy_ref") or "")
     projection_content = _projection_content(contract=contract, projection=projection)
@@ -33,15 +34,26 @@ def assemble_runtime_prompt_sections(
     )
     candidate_sections = [
         PromptSection(
-            section_id="static_common_rules",
-            title="静态共同准则",
-            source_type="core",
+            section_id="protected_system_rules",
+            title="系统硬契约",
+            source_type="protected_system_contract",
             source_id=CORE_PATH,
-            owner_layer="soul_core",
+            owner_layer="system_contract",
             cache_scope="static",
-            visible_to_model=use_shared_contract,
-            content=read_text(Path(base_dir) / CORE_PATH).strip() or "当前未配置静态共同准则。",
+            visible_to_model=True,
+            content=read_text(Path(base_dir) / CORE_PATH).strip() or "当前未配置系统硬契约。",
             source_refs=(CORE_PATH,),
+        ),
+        PromptSection(
+            section_id="shared_common_contract",
+            title="用户共同契约",
+            source_type="common_contract",
+            source_id=str(shared_contract.get("prompt_id") or "common_contract.default"),
+            owner_layer="common_contract",
+            cache_scope=str(shared_contract.get("cache_scope") or "static"),
+            visible_to_model=use_shared_contract,
+            content=str(shared_contract.get("content") or ""),
+            source_refs=(str(shared_contract.get("source_ref") or "soul/common_contracts/catalog.json"),),
         ),
         PromptSection(
             section_id="task_section",
@@ -239,6 +251,20 @@ def _projection_content(*, contract: dict[str, Any], projection: dict[str, Any])
     if projection_prompt:
         projection_lines.append(f"表达参考：{projection_prompt}")
     return "\n".join(line for line in projection_lines if line)
+
+
+def _load_shared_contract(base_dir: Path) -> dict[str, Any]:
+    from soul.catalog_store import SoulCatalogStore
+    from soul.catalog_service import SoulCatalogService
+
+    items = SoulCatalogStore(base_dir).load_bucket("common_contracts")
+    if not items:
+        items = SoulCatalogService(base_dir)._default_common_contracts()
+    for item in items:
+        content = str(dict(item).get("content") or "").strip()
+        if content:
+            return dict(item)
+    return {}
 
 
 def _node_prompt_source(

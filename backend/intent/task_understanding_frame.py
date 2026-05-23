@@ -80,6 +80,8 @@ def build_task_understanding_frame(
     query_understanding: dict[str, Any] | None = None,
     task_goal_type_hint: str = "",
     task_domain_hint: str = "",
+    goal_hint_source: str = "deterministic_signal",
+    domain_hint_source: str = "deterministic_signal",
     model_understanding_draft: dict[str, Any] | None = None,
 ) -> TaskUnderstandingFrame:
     text = str(message or "").strip()
@@ -129,8 +131,8 @@ def build_task_understanding_frame(
         ),
         "ambiguity_points": deterministic_ambiguity,
         "_source_strength": {
-            "task_domain_hint": "caller_hint" if str(task_domain_hint or "").strip() else "deterministic_signal",
-            "task_goal_type_hint": "caller_hint" if deterministic_goal_hint else "deterministic_signal",
+            "task_domain_hint": _hint_source(domain_hint_source, has_hint=bool(str(task_domain_hint or "").strip())),
+            "task_goal_type_hint": _hint_source(goal_hint_source, has_hint=bool(deterministic_goal_hint)),
         },
     }
     arbitration = arbitrate_task_understanding(
@@ -209,6 +211,15 @@ def _understanding_confidence(*, base: float, arbitration: UnderstandingArbitrat
         return base
     penalty = min(0.18, 0.04 * len(arbitration.conflict_set))
     return min(max((base * 0.45) + (model_confidence * 0.55) - penalty, 0.0), 0.98)
+
+
+def _hint_source(source: str, *, has_hint: bool) -> str:
+    if not has_hint:
+        return "deterministic_signal"
+    normalized = str(source or "").strip()
+    if normalized in {"caller_hint", "explicit_task_goal_type", "platform_selection"}:
+        return "caller_hint"
+    return "deterministic_signal"
 
 
 def _interaction_intent(lowered: str) -> str:

@@ -2837,6 +2837,7 @@ export type SoulResourceCatalog = {
   stories: SoulResourceStory[];
   cards: SoulResourceCard[];
   work_prompts: Array<Record<string, unknown>>;
+  system_contracts?: Array<Record<string, unknown>>;
   common_contracts: Array<Record<string, unknown>>;
   manifestations: SoulResourceManifestation[];
   modes: Array<Record<string, unknown>>;

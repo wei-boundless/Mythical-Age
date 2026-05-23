@@ -458,6 +458,8 @@ def build_system_prompt_with_manifest(
 def _static_context_source(heading: str) -> str:
     if heading == "当前风格":
         return "soul/agent_core/ACTIVE_SEED.md"
-    if heading in {"稳定原则", "共同契约", "用户与项目偏好"}:
+    if heading in {"稳定原则", "系统硬契约"}:
         return "soul/agent_core/CORE.md"
+    if heading in {"共同契约", "用户共同契约", "用户与项目偏好"}:
+        return "soul/common_contracts/catalog.json"
     return "memory.static_loader"

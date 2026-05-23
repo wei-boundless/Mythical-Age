@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 
 from soul.agent_prompt_bundle import build_agent_prompt_bundle
+from soul.catalog_store import SoulCatalogStore
 from soul.contracts import PromptSection, SoulProjectionRequest, SoulRuntimeView
 from soul.prompt_assembly import build_prompt_manifest
 from soul.registry import CORE_PATH, SoulRegistry, read_text
@@ -82,6 +83,7 @@ class SoulProjectionBuilder:
         projection_identity = str(request.identity_anchor or "").strip()
         if projection_identity:
             role_view_content = f"{projection_identity}\n\n{role_view_content}"
+        shared_contract = _shared_contract(self.registry.base_dir)
         return (
             PromptSection(
                 section_id="identity_view",
@@ -95,15 +97,26 @@ class SoulProjectionBuilder:
                 source_refs=(seed_path,),
             ),
             PromptSection(
-                section_id="static_common_rules",
-                title="静态共同准则",
-                source_type="core",
+                section_id="protected_system_rules",
+                title="系统硬契约",
+                source_type="protected_system_contract",
                 source_id=CORE_PATH,
-                owner_layer="soul_core",
+                owner_layer="system_contract",
                 cache_scope="static",
                 visible_to_model=True,
-                content=read_text(self.registry.base_dir / CORE_PATH).strip() or "当前未配置静态共同准则。",
+                content=read_text(self.registry.base_dir / CORE_PATH).strip() or "当前未配置系统硬契约。",
                 source_refs=(CORE_PATH,),
+            ),
+            PromptSection(
+                section_id="shared_common_contract",
+                title="用户共同契约",
+                source_type="common_contract",
+                source_id=str(shared_contract.get("prompt_id") or "common_contract.default"),
+                owner_layer="common_contract",
+                cache_scope=str(shared_contract.get("cache_scope") or "static"),
+                visible_to_model=True,
+                content=str(shared_contract.get("content") or ""),
+                source_refs=(str(shared_contract.get("source_ref") or "soul/common_contracts/catalog.json"),),
             ),
             PromptSection(
                 section_id="dynamic_task_contract",
@@ -185,3 +198,12 @@ def _strip_identity_anchor(content: str) -> str:
         if not skipping:
             kept.append(line)
     return "\n".join(kept).strip()
+
+
+def _shared_contract(base_dir) -> dict[str, object]:
+    from soul.catalog_service import SoulCatalogService
+
+    items = SoulCatalogStore(base_dir).load_bucket("common_contracts")
+    if not items:
+        items = SoulCatalogService(base_dir)._default_common_contracts()
+    return next((dict(item) for item in items if str(dict(item).get("content") or "").strip()), {})

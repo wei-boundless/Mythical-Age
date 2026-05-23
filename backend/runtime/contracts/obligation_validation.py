@@ -202,6 +202,15 @@ def validate_obligations(
     )
     if protocol_leak and "protocol_boundary" not in missing_deliverables:
         missing_deliverables.append("protocol_boundary")
+    if bool(deliverable.get("passed") is True):
+        missing_response_terms = [
+            term
+            for term in missing_response_terms
+            if term not in _schema_response_terms(
+                obligation=obligation,
+                contract=contract,
+            )
+        ]
 
     passed = bool(
         text
@@ -258,6 +267,47 @@ def _refs_for(ledger: ToolObservationLedger, obligation_key: str) -> list[str]:
         for record in ledger.records
         if obligation_key in record.satisfies and record.observation_ref
     ]
+
+
+def _schema_response_terms(*, obligation: dict[str, Any], contract: dict[str, Any]) -> set[str]:
+    deliverables = [
+        *[
+            str(item).strip()
+            for item in list(contract.get("deliverables") or [])
+            if str(item).strip()
+        ],
+        *[
+            str(item).strip()
+            for item in list(obligation.get("required_deliverables") or [])
+            if str(item).strip()
+        ],
+    ]
+    return {
+        value
+        for value in (_response_term_for_deliverable(item) for item in deliverables)
+        if value
+    }
+
+
+def _response_term_for_deliverable(deliverable: str) -> str:
+    mapping = {
+        "change_summary": "修改",
+        "changed_files": "文件",
+        "verification_result_or_limitation": "验证",
+        "failure_classification": "失败归类",
+        "structural_root_causes": "结构性根因",
+        "regression_test_plan": "回归测试",
+        "evidence_limits": "证据边界",
+        "artifact_refs": "产物",
+        "completion_status": "完成状态",
+        "limitations": "限制",
+        "material_findings": "material_findings",
+        "cross_material_conclusions": "cross_material_conclusions",
+        "runnable_artifact_refs": "runnable_artifact_refs",
+        "workflow_acceptance": "workflow_acceptance",
+        "verification_evidence": "verification_evidence",
+    }
+    return mapping.get(str(deliverable or "").strip(), "")
 
 
 def _dedupe(values: list[Any] | tuple[Any, ...]) -> list[str]:

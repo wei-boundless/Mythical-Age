@@ -141,6 +141,11 @@ def test_orchestration_runtime_bundle_respects_shared_contract_flag() -> None:
         for section in payload_with_shared["task_body_orchestration"]["soul_runtime_view"].get("sections", [])
         if isinstance(section, dict)
     ]
+    sections_with_shared = [
+        dict(section)
+        for section in payload_with_shared["task_body_orchestration"]["soul_runtime_view"].get("sections", [])
+        if isinstance(section, dict)
+    ]
 
     profile_without_shared = AgentRuntimeProfile(
         agent_profile_id=profile.agent_profile_id,
@@ -170,8 +175,20 @@ def test_orchestration_runtime_bundle_respects_shared_contract_flag() -> None:
         if isinstance(section, dict)
     ]
 
-    assert "static_common_rules" in section_ids_with_shared
-    assert "static_common_rules" not in section_ids_without_shared
+    assert "protected_system_rules" in section_ids_with_shared
+    assert "protected_system_rules" in section_ids_without_shared
+    assert "shared_common_contract" in section_ids_with_shared
+    assert "shared_common_contract" not in section_ids_without_shared
+    system_contract = next(section for section in sections_with_shared if section.get("section_id") == "protected_system_rules")
+    system_content = str(system_contract.get("content") or "")
+    assert "## 禁令等级" in system_content
+    assert "## 通用禁止条例" in system_content
+    assert "禁止伪造事实" in system_content
+    assert "禁止把开发说明当作给 agent 的 prompt" in system_content
+    shared_contract = next(section for section in sections_with_shared if section.get("section_id") == "shared_common_contract")
+    shared_content = str(shared_contract.get("content") or "")
+    assert "## 禁令等级" not in shared_content
+    assert "## 通用禁止条例" not in shared_content
 
 
 def test_removed_story_task_selection_falls_back_to_general_runtime() -> None:

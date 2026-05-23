@@ -67,6 +67,8 @@ TASK_SEMANTIC_CONTEXT_KEYS = frozenset(
         "mode_policy",
         "runtime_mode_policy",
         "semantic_task_type",
+        "model_understanding_draft",
+        "model_understanding_sidecar_diagnostics",
         "execution_obligation",
         "structural_signals",
     }

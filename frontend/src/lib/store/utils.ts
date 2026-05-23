@@ -3,7 +3,6 @@ import { type ToolCall, type SessionHistory } from "@/lib/api";
 import type { Message, SkillSummary } from "./types";
 
 export const FIXED_FILES = [
-  "soul/agent_core/CORE.md",
   "soul/agent_core/ACTIVE_SEED.md",
   "durable_memory/index/MEMORY.md"
 ];
