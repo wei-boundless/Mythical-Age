@@ -12,6 +12,7 @@ if str(BACKEND_DIR) not in sys.path:
 from query import QueryRuntime
 from query.models import QueryRequest
 from runtime.agent_assembly import NodeWorkOrder, build_agent_invocation
+from runtime.unit_runtime.finalizer import FinishedTaskRunResult
 from task_system import TaskFlowRegistry
 from tests.support.runtime_stubs import (
     DefaultPermissionStub,
@@ -230,9 +231,8 @@ def test_removed_health_task_selection_falls_back_to_general_runtime() -> None:
 
     assert task_run["agent_id"] == "agent:0"
     assert task_run["agent_profile_id"] == "main_interactive_agent"
-    assert assembly["task_family"] in {"general", "runtime"}
+    assert "task_family" not in assembly
     assert assembly["flow_contract_id"] == ""
-    assert "health" not in str(assembly.get("task_family") or "").lower()
 
 
 def test_graph_node_assembly_contract_overrides_stale_task_selection_agent() -> None:
@@ -312,7 +312,6 @@ def test_main_agent_assembly_modes_select_expected_runtime_lanes() -> None:
         "role": ("role_mode", "role_interaction", "runtime.recipe.role_interaction"),
         "standard": ("standard_mode", "standard_task", "runtime.recipe.standard_task"),
         "professional": ("professional_mode", "professional_task", "runtime.recipe.professional_task"),
-        "vibe_coding": ("vibe_coding", "vibe_coding_task", "runtime.recipe.vibe_coding"),
     }
 
     for mode, (interaction_mode, runtime_lane, recipe_id) in cases.items():
@@ -321,7 +320,7 @@ def test_main_agent_assembly_modes_select_expected_runtime_lanes() -> None:
             interaction_mode=interaction_mode,
             runtime_lane=runtime_lane,
             recipe_id=recipe_id,
-            professional=mode in {"professional", "vibe_coding"},
+            professional=mode == "professional",
         )
 
         async def _collect() -> list[dict[str, object]]:
@@ -366,7 +365,7 @@ def test_main_agent_assembly_modes_select_expected_runtime_lanes() -> None:
         assert selected_recipe["recipe_id"] == recipe_id
         assert mode_policy["interaction_mode"] == interaction_mode
         assert mode_policy["runtime_lane"] == runtime_lane
-        if mode in {"professional", "vibe_coding"}:
+        if mode == "professional":
             assert selected_recipe["execution_kind"] == interaction_mode
 
 
@@ -486,6 +485,49 @@ def test_terminal_state_index_failure_still_yields_done() -> None:
     output_commit = dict(done_event.get("output_commit") or {})
     assert output_commit["state_index_degraded"] is True
     assert dict(done_event.get("runtime_state_index") or {})["phase"] == "finished_task_run_state_write"
+
+
+def test_terminal_done_ends_stream_even_when_coordination_continuation_exists() -> None:
+    runtime = _build_stream_runtime()
+    original_upsert = runtime.task_run_loop.task_run_finalizer.upsert_finished_task_run
+    continuation_called = False
+
+    def _upsert_with_continuation(*args, **kwargs):
+        finished = original_upsert(*args, **kwargs)
+        return FinishedTaskRunResult(
+            events=finished.events,
+            continuation_payload={
+                "next_task_ref": "task.dev.followup",
+                "message": "继续执行后续节点。",
+            },
+        )
+
+    async def _unexpected_continuation(**_kwargs):
+        nonlocal continuation_called
+        continuation_called = True
+        yield {"type": "content_delta", "content": "不应该出现在当前回答流里"}
+
+    runtime.task_run_loop.task_run_finalizer.upsert_finished_task_run = _upsert_with_continuation  # type: ignore[method-assign]
+    runtime.task_run_loop._continue_coordination_delivery_stream = _unexpected_continuation  # type: ignore[method-assign]
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            QueryRequest(
+                session_id="session-done-ends-stream",
+                message="你好",
+                history=[],
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+
+    assert continuation_called is False
+    assert events[-1].get("type") == "done"
+    assert events[-1].get("content") == "单轮收口回答"
+    assert not any(event.get("content") == "不应该出现在当前回答流里" for event in events)
 
 
 def test_assistant_commit_enqueues_memory_maintenance_without_waiting(tmp_path: Path) -> None:

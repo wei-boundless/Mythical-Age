@@ -4,8 +4,10 @@ from pathlib import Path
 from typing import Any
 
 from agent_system.profiles.runtime_profile_models import AgentRuntimeProfile
+from capability_system.skill_registry import SkillRegistry
 from permissions.resource_policy_builder import RuntimeApprovalContext
 from request_intent.frame_access import capability_needs
+from request_intent.frame_access import material_kinds
 from task_system.contracts.capability_requirements import build_operation_requirement
 
 from task_system.services.assembly_models import ProjectionSelectionResult, TaskExecutionAssembly
@@ -20,7 +22,6 @@ from task_system.services.assembly_support import (
     _projection_tags,
     _resolve_operation_approval_policy,
     _resolve_registered_task,
-    _resolve_task_family,
     _resolve_task_mode,
     _resolve_task_workflow,
     _task_contract_execution_mode,
@@ -31,7 +32,7 @@ from task_system.tasks.definitions import select_runtime_task_definitions
 from task_system.planning.execution_recipe_builder import build_execution_recipe
 from task_system.planning.execution_shape_resolver import resolve_execution_shape
 from task_system.registry.flow_registry import TaskFlowRegistry
-from task_system.contracts.runtime_contracts import SkillRuntimeView, skill_runtime_views_for_refs
+from task_system.contracts.runtime_contracts import SkillRuntimeView, skill_runtime_views_from_registry
 from task_system.registry.workflow_registry import TaskWorkflowRegistry
 
 
@@ -45,7 +46,6 @@ def build_task_execution_assembly_bundle(
     approval_context: RuntimeApprovalContext | None = None,
     query_understanding: dict[str, Any] | None = None,
     current_turn_context: dict[str, Any] | None = None,
-    active_skill: dict[str, Any] | None = None,
     runtime_required_operations: tuple[str, ...] | list[str] | None = None,
     agent_runtime_profile: AgentRuntimeProfile | None = None,
 ) -> dict[str, Any]:
@@ -56,9 +56,9 @@ def build_task_execution_assembly_bundle(
         query_understanding=query_understanding,
     )
     current_turn_payload = dict(current_turn_context or {})
-    active_skill_payload = dict(active_skill or {})
     flow_registry = TaskFlowRegistry(registry_base_dir)
     workflow_registry = TaskWorkflowRegistry(registry_base_dir)
+    skill_registry = SkillRegistry(registry_base_dir)
     registered_task = _resolve_registered_task(
         flow_registry=flow_registry,
         current_turn_context=current_turn_payload,
@@ -110,10 +110,10 @@ def build_task_execution_assembly_bundle(
         merge_task_bindings(bindings),
         selected_recipe=selected_recipe,
     )
-    task_family = _resolve_task_family(
-        registered_task=registered_task,
-        selected_recipe=selected_recipe,
-        definitions=definitions,
+    merged_binding = _augment_skill_scope_from_runtime_intent(
+        merged_binding=merged_binding,
+        query_understanding=dict(query_understanding or {}),
+        current_turn_context=current_turn_payload,
     )
     task_mode = _resolve_task_mode(
         registered_task=registered_task,
@@ -126,13 +126,12 @@ def build_task_execution_assembly_bundle(
         user_goal=user_goal,
         source=source,
         recipe_id=selected_recipe.recipe_id,
-        task_family=task_family,
         task_mode=task_mode,
         task_spec_ref=f"taskspec:{task_id}",
     )
     skill_views = _skill_views_for_task_binding(
+        skill_registry=skill_registry,
         merged_binding=merged_binding,
-        active_skill=active_skill_payload,
     )
     runtime_operations = _dedupe(list(runtime_required_operations or ()))
     resolved_runtime_operations = _resolve_runtime_recipe_operations(
@@ -177,6 +176,18 @@ def build_task_execution_assembly_bundle(
             *[operation for skill in skill_views for operation in skill.required_operations],
         ]
     )
+    if str(resolved_runtime_operations.get("execution_mode") or "").strip() == "delegate":
+        delegated_specialist_ops = {
+            str(item).strip()
+            for skill in skill_views
+            for item in list(skill.required_operations or ())
+            if str(item).strip() and str(item).strip() != "op.delegate_to_agent"
+        }
+        skill_operations = [
+            operation
+            for operation in skill_operations
+            if operation not in delegated_specialist_ops
+        ]
     if allowed_operations:
         default_operations = [
             operation
@@ -253,7 +264,7 @@ def build_task_execution_assembly_bundle(
         current_turn_context=current_turn_payload,
         query_understanding=dict(query_understanding or {}),
         operation_requirement_ref=operation_requirement.requirement_id,
-        active_skill=active_skill_payload,
+        skill_runtime_views=skill_views,
         operation_requirement=operation_requirement.to_dict(),
     )
     task_workflow = _resolve_task_workflow(
@@ -294,7 +305,6 @@ def build_task_execution_assembly_bundle(
     memory_request_profile_payload = _memory_request_profile_payload(
         memory_request_profile,
         task_id=binding_task_id or task_contract.task_id,
-        task_family=task_family,
         task_mode=task_mode,
         query_understanding=dict(query_understanding or {}),
     )
@@ -346,7 +356,6 @@ def build_task_execution_assembly_bundle(
         assembly_id=f"taskasm:{task_id}",
         task_id=task_contract.task_id,
         session_id=session_id,
-        task_family=task_family,
         task_mode=task_mode,
         task_kind=str((registered_task or {}).get("task_type") or "conversation_entry_policy"),
         task_intent_ref=task_intent_contract.task_intent_id,
@@ -429,7 +438,6 @@ def build_task_execution_assembly_bundle(
         "registered_task": dict(registered_task or {}),
         "query_understanding": dict(query_understanding or {}),
         "current_turn_context": current_turn_payload,
-        "active_skill": active_skill_payload,
         "status": "assembled",
         "_definitions_obj": definitions,
         "_selected_recipe_obj": selected_recipe,
@@ -506,6 +514,45 @@ def _normalize_current_turn_for_registered_task(
     payload.setdefault("task_goal_type", "task_graph_node_execution")
     payload.setdefault("execution_obligation_policy", "orchestration_owns_task_graph_node_side_effects")
     return payload
+
+
+def _augment_skill_scope_from_runtime_intent(
+    *,
+    merged_binding: Any,
+    query_understanding: dict[str, Any],
+    current_turn_context: dict[str, Any],
+):
+    needs = capability_needs(query_understanding)
+    kinds = material_kinds(query_understanding)
+    action_intent = str(dict(current_turn_context.get("model_turn_decision") or {}).get("action_intent") or "").strip()
+    target_objects = [
+        str(item).strip().lower()
+        for item in list(dict(current_turn_context.get("model_turn_decision") or {}).get("target_objects") or [])
+        if str(item).strip()
+    ]
+    additions: list[str] = []
+    if "knowledge_lookup" in needs:
+        additions.append("skill.rag-skill")
+    if (
+        "dataset_analysis" in needs
+        or "dataset" in kinds
+        or any(item.endswith((".csv", ".tsv", ".xlsx", ".xls", ".parquet", ".json")) for item in target_objects)
+    ):
+        additions.append("skill.structured-data-analysis")
+    if "document_analysis" in needs or "pdf" in kinds or any(item.endswith(".pdf") for item in target_objects):
+        additions.append("skill.pdf-analysis")
+    if action_intent in {"run_browser_verification", "open_browser"}:
+        additions.append("skill.browser-operation")
+    current_scope = [str(item).strip() for item in list(getattr(merged_binding, "skill_scope", ()) or ()) if str(item).strip()]
+    merged_scope = tuple(_dedupe([*current_scope, *additions]))
+    if merged_scope == tuple(current_scope):
+        return merged_binding
+    return merged_binding.__class__(
+        **{
+            **merged_binding.to_dict(),
+            "skill_scope": merged_scope,
+        }
+    )
 
 
 def _registered_task_is_task_graph_node_runtime(registered_task: dict[str, Any] | None) -> bool:
@@ -596,7 +643,6 @@ def _memory_request_profile_payload(
     memory_request_profile: Any,
     *,
     task_id: str,
-    task_family: str,
     task_mode: str,
     query_understanding: dict[str, Any],
 ) -> dict[str, Any]:
@@ -651,8 +697,7 @@ def _memory_request_profile_payload(
             }
         )
     if (
-        task_family == "memory"
-        or task_mode == "memory_recall"
+        task_mode == "memory_recall"
         or action_intent == "read_context"
         or "memory_recall" in needs
     ):
@@ -814,43 +859,16 @@ def _align_projection_selection_with_binding(
     )
 
 
-def _skill_runtime_view_from_active_skill(active_skill: dict[str, Any]) -> SkillRuntimeView | None:
-    if not active_skill:
-        return None
-    prompt_view = dict(active_skill.get("prompt_view") or {})
-    skill_id = str(active_skill.get("name") or prompt_view.get("name") or "").strip()
-    if not skill_id:
-        return None
-    title = str(active_skill.get("title") or prompt_view.get("title") or skill_id).strip()
-    capability = str(prompt_view.get("capability") or "").strip()
-    use_when = str(prompt_view.get("use_when") or "").strip()
-    output_rule = str(prompt_view.get("output_rule") or "").strip()
-    method_parts = [part for part in (capability, use_when, output_rule) if part]
-    skill_contract = dict(active_skill.get("skill_contract") or {})
-    return SkillRuntimeView(
-        skill_id=f"skill.{skill_id}",
-        title=title,
-        task_reason=", ".join(list(active_skill.get("reasons") or ())) or "Selected by skill policy.",
-        method_summary=" ".join(method_parts) or title,
-        output_boundary=output_rule,
-        required_operations=tuple(
-            str(item).strip()
-            for item in list(skill_contract.get("requires_operations") or [])
-            if str(item).strip()
-        ),
-    )
-
-
 def _skill_views_for_task_binding(
     *,
+    skill_registry: SkillRegistry,
     merged_binding: Any,
-    active_skill: dict[str, Any],
 ) -> list[SkillRuntimeView]:
-    skill_views = skill_runtime_views_for_refs(merged_binding.skill_scope)
-    active_skill_view = _skill_runtime_view_from_active_skill(active_skill)
-    if active_skill_view is None:
-        return skill_views
-    return [active_skill_view, *[view for view in skill_views if view.skill_id != active_skill_view.skill_id]]
+    return skill_runtime_views_from_registry(
+        registry=skill_registry,
+        skill_refs=tuple(merged_binding.skill_scope or ()),
+        task_reason="Candidate capability available under current task binding.",
+    )
 
 
 def _registry_base_dir():
@@ -875,8 +893,6 @@ def _select_communication_protocol(
         explicit_protocol = flow_registry.get_task_communication_protocol(explicit_protocol_id)
         if explicit_protocol is not None:
             return explicit_protocol
-    task_id = str((registered_task or {}).get("task_id") or "").strip()
-    task_family = str((registered_task or {}).get("task_family") or "").strip()
     metadata = dict((registered_task or {}).get("metadata") or {})
     metadata_protocol_id = str(metadata.get("communication_protocol_id") or "").strip()
     if metadata_protocol_id:
@@ -923,7 +939,6 @@ def _select_task_graph(
         if resolved is not None:
             return resolved
     task_id = str((registered_task or {}).get("task_id") or "").strip()
-    task_family = str((registered_task or {}).get("task_family") or "").strip()
     metadata = dict((registered_task or {}).get("metadata") or {})
     metadata_graph_ref = str(
         metadata.get("graph_id")

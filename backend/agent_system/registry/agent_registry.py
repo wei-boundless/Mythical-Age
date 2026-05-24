@@ -436,8 +436,6 @@ def _migrate_agent_payload(payload: dict[str, Any]) -> dict[str, Any]:
                 metadata["agent_template_id"] = f"builtin.system.{canonical_agent_id.removeprefix('agent:')}"
             else:
                 metadata["agent_template_id"] = f"builtin.specialist.{canonical_agent_id.removeprefix('agent:')}"
-        elif str(metadata.get("task_family") or "").strip():
-            metadata["agent_template_id"] = f"task_graph.{str(metadata.get('task_family')).strip()}.node_agent"
     return {
         "agent_id": canonical_agent_id,
         "agent_name": display_name,

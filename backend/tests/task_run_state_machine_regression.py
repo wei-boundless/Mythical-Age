@@ -20,7 +20,6 @@ def _recipe(*steps: TaskStepBlueprint) -> ExecutionRecipe:
         title="State Machine Test",
         description="",
         execution_kind="single_agent",
-        task_family="test",
         task_mode="test",
         source_kind="runtime",
         input_schema={"message": "string"},

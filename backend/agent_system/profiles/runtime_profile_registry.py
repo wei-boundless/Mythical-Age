@@ -231,18 +231,23 @@ def _profile_from_dict(payload: dict[str, Any]) -> AgentRuntimeProfile:
     normalized_agent_id = normalize_agent_id(str(payload.get("agent_id") or ""))
     metadata = dict(payload.get("metadata") or {})
     allow_unregistered_lanes = bool(metadata.get("allow_unregistered_runtime_lanes", False))
+    raw_enabled_modes = [
+        str(item or "").strip()
+        for item in list(payload.get("enabled_runtime_modes") or metadata.get("enabled_runtime_modes") or [])
+        if str(item or "").strip() and str(item or "").strip() != VIBE_CODING_MODE
+    ]
     explicit_modes = normalize_runtime_modes(
-        payload.get("enabled_runtime_modes") or metadata.get("enabled_runtime_modes"),
+        raw_enabled_modes,
         fallback=(),
     )
     if not explicit_modes:
-        explicit_modes = modes_for_runtime_lanes_or_custom(payload.get("allowed_runtime_lanes"))
+        explicit_modes = modes_for_runtime_lanes_or_custom(_active_runtime_lanes(payload.get("allowed_runtime_lanes")))
     default_runtime_mode = normalize_default_runtime_mode(
         payload.get("default_runtime_mode") or metadata.get("default_runtime_mode") or DEFAULT_RUNTIME_MODE,
         explicit_modes,
     )
     mode_lanes = runtime_lanes_for_modes(explicit_modes)
-    raw_runtime_lanes = list(payload.get("allowed_runtime_lanes") or []) if CUSTOM_MODE in explicit_modes else []
+    raw_runtime_lanes = _active_runtime_lanes(payload.get("allowed_runtime_lanes")) if CUSTOM_MODE in explicit_modes else []
     allowed_runtime_lanes = normalize_runtime_lane_sequence(
         [*mode_lanes, *raw_runtime_lanes],
         allow_unregistered=allow_unregistered_lanes,
@@ -283,7 +288,6 @@ def _infer_runtime_template_id(agent_id: str, payload: dict[str, Any]) -> str:
     explicit = str(metadata.get("runtime_template_id") or payload.get("runtime_template_id") or "").strip()
     if explicit:
         return explicit
-    task_family = str(metadata.get("task_family") or "").strip()
     source_refs = [str(item).strip() for item in list(metadata.get("source_task_graph_refs") or []) if str(item).strip()]
     return ""
 
@@ -512,8 +516,13 @@ def _migrate_profile_payload(payload: dict[str, Any]) -> dict[str, Any]:
     metadata.pop("legacy_agent_id", None)
     metadata.pop("allowed_task_modes", None)
     metadata.pop("custom_runtime_modes", None)
+    raw_enabled_modes = [
+        str(item or "").strip()
+        for item in list(payload.get("enabled_runtime_modes") or metadata.pop("enabled_runtime_modes", None) or [])
+        if str(item or "").strip() and str(item or "").strip() != VIBE_CODING_MODE
+    ]
     enabled_runtime_modes = normalize_runtime_modes(
-        payload.get("enabled_runtime_modes") or metadata.pop("enabled_runtime_modes", None),
+        raw_enabled_modes,
         fallback=(),
     )
     if not enabled_runtime_modes:
@@ -530,7 +539,11 @@ def _migrate_profile_payload(payload: dict[str, Any]) -> dict[str, Any]:
         normalize_runtime_lane_sequence(
             [
                 *runtime_lanes_for_modes(enabled_runtime_modes),
-                *(list(payload.get("allowed_runtime_lanes") or []) if CUSTOM_MODE in enabled_runtime_modes else []),
+                *(
+                    _active_runtime_lanes(payload.get("allowed_runtime_lanes"))
+                    if CUSTOM_MODE in enabled_runtime_modes
+                    else []
+                ),
             ],
             allow_unregistered=bool(metadata.get("allow_unregistered_runtime_lanes", False)),
             allow_system_only=True,
@@ -544,6 +557,17 @@ def _migrate_profile_payload(payload: dict[str, Any]) -> dict[str, Any]:
     next_payload.pop("allowed_delegate_agent_categories", None)
     next_payload.pop("output_contracts", None)
     return next_payload
+
+
+def _active_runtime_lanes(lanes: Any) -> list[str]:
+    result: list[str] = []
+    for item in list(lanes or []):
+        lane = str(item or "").strip()
+        if lane == "vibe_coding_task":
+            lane = "professional_task"
+        if lane:
+            result.append(lane)
+    return result
 
 
 def _enforce_system_builtin_profile_payload(

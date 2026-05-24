@@ -88,6 +88,7 @@ export type WorkspaceView =
   | "test-system"
   | "health-system"
   | "capability-system"
+  | "soul-system"
   | "evidence"
   | "task-system"
   | "orchestration"
@@ -179,6 +180,7 @@ export type StoreState = {
   workspaceContext: WorkspaceContext | null;
   sessions: SessionSummary[];
   currentSessionId: string | null;
+  workspaceInitializing: boolean;
   messages: Message[];
   isStreaming: boolean;
   activeStreamSessionIds: string[];

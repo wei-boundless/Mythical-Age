@@ -20,6 +20,7 @@ const MAIN_AGENT_MODE_ORDER: MainAgentAssemblyMode[] = ["role", "standard", "pro
 
 export function ChatInput({
   disabled,
+  streaming,
   modelProviderConfig,
   soulImageAssetConfig,
   onSend,
@@ -35,6 +36,7 @@ export function ChatInput({
   taskSelection,
 }: {
   disabled: boolean;
+  streaming: boolean;
   modelProviderConfig: ModelProviderConfig | null;
   soulImageAssetConfig: SoulImageAssetConfig | null;
   onSend: (value: string) => Promise<void>;
@@ -50,7 +52,9 @@ export function ChatInput({
   taskSelection: TaskSelectionState | null;
 }) {
   const [value, setValue] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const modelOptions = useMemo(() => buildChatModelOptions(modelProviderConfig, soulImageAssetConfig), [modelProviderConfig, soulImageAssetConfig]);
+  const inputDisabled = disabled || submitting;
   const activeModelId = modelOptions.some((option) => option.id === selectedChatModelId)
     ? selectedChatModelId
     : "system-default";
@@ -60,6 +64,21 @@ export function ChatInput({
   const selectionLabel = taskSelection?.label?.trim()
     || taskSelection?.selected_task_id?.trim()
     || "";
+  const submit = async () => {
+    const nextValue = value.trim();
+    if (inputDisabled || !nextValue) {
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await onSend(nextValue);
+      setValue("");
+    } catch (error) {
+      console.error("Failed to send chat message", error);
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <div className="chat-input-panel chat-input-panel--inline">
@@ -74,20 +93,15 @@ export function ChatInput({
       <div className="chat-input-panel__composer">
         <textarea
           className="chat-input-panel__textarea"
-          disabled={disabled}
+          disabled={inputDisabled}
           onChange={(event) => setValue(event.target.value)}
           onKeyDown={(event) => {
-            if (disabled) {
+            if (inputDisabled) {
               return;
             }
             if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
               event.preventDefault();
-              const nextValue = value.trim();
-              if (!nextValue) {
-                return;
-              }
-              void onSend(nextValue);
-              setValue("");
+              void submit();
             }
           }}
           placeholder="输入消息，Cmd/Ctrl + Enter 发送"
@@ -100,7 +114,7 @@ export function ChatInput({
             <BrainCircuit size={15} />
             <select
               aria-label="选择本轮模型"
-              disabled={disabled || modelOptions.length <= 1}
+              disabled={inputDisabled || modelOptions.length <= 1}
               onChange={(event) => onSelectChatModel(event.target.value)}
               value={activeModelId}
             >
@@ -116,7 +130,7 @@ export function ChatInput({
               aria-label="DeepSeek 思考模式"
               aria-pressed={deepSeekThinkingEnabled}
               className={deepSeekThinkingEnabled ? "chat-thinking-toggle chat-thinking-toggle--active" : "chat-thinking-toggle"}
-              disabled={disabled}
+              disabled={inputDisabled}
               onClick={() => onToggleDeepSeekThinking(!deepSeekThinkingEnabled)}
               title="DeepSeek 思考模式"
               type="button"
@@ -132,7 +146,7 @@ export function ChatInput({
                 <button
                   aria-pressed={active}
                   className={active ? "chat-main-agent-mode__item chat-main-agent-mode__item--active" : "chat-main-agent-mode__item"}
-                  disabled={disabled}
+                  disabled={inputDisabled}
                   key={mode}
                   onClick={() => onSelectMainAgentAssemblyMode(mode)}
                   type="button"
@@ -161,7 +175,7 @@ export function ChatInput({
           </div>
         </div>
         <div className="chat-input-panel__actions">
-          {disabled ? (
+          {streaming ? (
             <button
               className="action-button action-button--danger navbar-action-button"
               onClick={onStop}
@@ -174,15 +188,8 @@ export function ChatInput({
           <button
             aria-label="发送"
             className="chat-send-button disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={disabled || !value.trim()}
-            onClick={() => {
-              const nextValue = value.trim();
-              if (!nextValue) {
-                return;
-              }
-              void onSend(nextValue);
-              setValue("");
-            }}
+            disabled={inputDisabled || !value.trim()}
+            onClick={() => void submit()}
             type="button"
           >
             <ArrowUp size={18} />

@@ -50,7 +50,6 @@ export type TaskGraphEdge = Record<string, unknown> & {
 export type TaskGraphDomainRecordLike = {
   domain_id: string;
   title: string;
-  task_family: string;
   description: string;
   enabled: boolean;
   sort_order: number;

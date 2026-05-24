@@ -145,7 +145,6 @@ class PromptLibraryRegistry:
             workflow_id = str(workflow.workflow_id or "").strip()
             task_id = str(metadata.get("task_id") or _task_id_from_workflow(workflow_id)).strip()
             node_id = str(metadata.get("node_id") or _node_id_from_workflow(workflow_id)).strip()
-            task_family = str(metadata.get("task_family") or "").strip()
             domain_id = str(metadata.get("domain_id") or "").strip()
             legacy_projection_ids = tuple(
                 dict.fromkeys(
@@ -169,9 +168,9 @@ class PromptLibraryRegistry:
                     task_id=task_id,
                     node_id=node_id,
                     stage_id=node_id,
-                    tags=tuple(item for item in ("task_graph", task_family, domain_id) if item),
+                    tags=tuple(item for item in ("task_graph", domain_id) if item),
                     applies_to_task_goal_types=("task_graph_node_execution",),
-                    applies_to_domains=tuple(item for item in ("task_graph", domain_id, task_family) if item),
+                    applies_to_domains=tuple(item for item in ("task_graph", domain_id) if item),
                     applies_to_modes=("role_mode", "standard_mode", "professional_mode", "vibe_coding"),
                     cache_scope="static",
                     model_visible=True,
@@ -182,7 +181,6 @@ class PromptLibraryRegistry:
                     metadata={
                         "managed_by": "prompt_library.task_workflow_sync",
                         "source_type": "task_workflow_prompt",
-                        "task_family": task_family,
                         "domain_id": domain_id,
                         "output_contract_id": str(workflow.output_contract_id or ""),
                         "legacy_projection_ids": list(legacy_projection_ids),
@@ -200,7 +198,7 @@ class PromptLibraryRegistry:
         *,
         graph_id: str,
         graph_title: str,
-        task_family: str,
+        domain_id: str,
         node: dict[str, Any],
         prompt: str,
     ) -> PromptResource:
@@ -222,9 +220,9 @@ class PromptLibraryRegistry:
             graph_id=str(graph_id or "").strip(),
             node_id=node_id,
             stage_id=node_id,
-            tags=tuple(item for item in ("task_graph", task_family, graph_id) if item),
+            tags=tuple(item for item in ("task_graph", domain_id, graph_id) if item),
             applies_to_task_goal_types=("task_graph_node_execution",),
-            applies_to_domains=tuple(item for item in ("task_graph", task_family) if item),
+            applies_to_domains=tuple(item for item in ("task_graph", domain_id) if item),
             applies_to_modes=("role_mode", "standard_mode", "professional_mode", "vibe_coding"),
             cache_scope="static",
             model_visible=True,
@@ -236,7 +234,7 @@ class PromptLibraryRegistry:
                 "managed_by": "prompt_library.task_graph_api_migration",
                 "graph_id": str(graph_id or "").strip(),
                 "graph_title": str(graph_title or "").strip(),
-                "task_family": str(task_family or "").strip(),
+                "domain_id": str(domain_id or "").strip(),
             },
         )
         return self.upsert_resource(resource)

@@ -624,7 +624,6 @@ def _task_durable_memory_sections(task_durable_context: dict[str, Any] | None) -
                 metadata={
                     "profile_context_section": "task_durable_memory",
                     "namespace_id": namespace_id,
-                    "task_family": str(payload.get("task_family") or ""),
                     "domain_id": str(payload.get("domain_id") or ""),
                     "task_id": task_id,
                     "graph_id": graph_id,

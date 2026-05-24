@@ -7,7 +7,6 @@
         "role",
         "standard",
         "professional",
-        "vibe_coding",
         "custom"
       ],
       "default_runtime_mode": "custom",
@@ -15,7 +14,6 @@
         "role_interaction",
         "standard_task",
         "professional_task",
-        "vibe_coding_task",
         "full_interactive",
         "game_delivery"
       ],
@@ -143,21 +141,6 @@
           "builtin": true,
           "editable": false,
           "description": ""
-        },
-        {
-          "mode": "vibe_coding",
-          "label": "Vibe Coding",
-          "interaction_mode": "vibe_coding",
-          "runtime_lane": "vibe_coding_task",
-          "recipe_id": "runtime.recipe.vibe_coding",
-          "projection_strength": "style_only",
-          "runtime_lanes": [
-            "vibe_coding_task"
-          ],
-          "execution_strategy": "professional_task_run",
-          "builtin": true,
-          "editable": false,
-          "description": "面向代码修改、调试、重构、测试和前端实现的专业代码任务模式。"
         },
         {
           "mode": "custom",
@@ -298,21 +281,6 @@
           "description": ""
         },
         {
-          "mode": "vibe_coding",
-          "label": "Vibe Coding",
-          "interaction_mode": "vibe_coding",
-          "runtime_lane": "vibe_coding_task",
-          "recipe_id": "runtime.recipe.vibe_coding",
-          "projection_strength": "style_only",
-          "runtime_lanes": [
-            "vibe_coding_task"
-          ],
-          "execution_strategy": "professional_task_run",
-          "builtin": true,
-          "editable": false,
-          "description": "面向代码修改、调试、重构、测试和前端实现的专业代码任务模式。"
-        },
-        {
           "mode": "custom",
           "label": "自定义模式",
           "interaction_mode": "custom_mode",
@@ -437,21 +405,6 @@
           "builtin": true,
           "editable": false,
           "description": ""
-        },
-        {
-          "mode": "vibe_coding",
-          "label": "Vibe Coding",
-          "interaction_mode": "vibe_coding",
-          "runtime_lane": "vibe_coding_task",
-          "recipe_id": "runtime.recipe.vibe_coding",
-          "projection_strength": "style_only",
-          "runtime_lanes": [
-            "vibe_coding_task"
-          ],
-          "execution_strategy": "professional_task_run",
-          "builtin": true,
-          "editable": false,
-          "description": "面向代码修改、调试、重构、测试和前端实现的专业代码任务模式。"
         },
         {
           "mode": "custom",
@@ -580,21 +533,6 @@
           "description": ""
         },
         {
-          "mode": "vibe_coding",
-          "label": "Vibe Coding",
-          "interaction_mode": "vibe_coding",
-          "runtime_lane": "vibe_coding_task",
-          "recipe_id": "runtime.recipe.vibe_coding",
-          "projection_strength": "style_only",
-          "runtime_lanes": [
-            "vibe_coding_task"
-          ],
-          "execution_strategy": "professional_task_run",
-          "builtin": true,
-          "editable": false,
-          "description": "面向代码修改、调试、重构、测试和前端实现的专业代码任务模式。"
-        },
-        {
           "mode": "custom",
           "label": "自定义模式",
           "interaction_mode": "custom_mode",
@@ -719,21 +657,6 @@
           "builtin": true,
           "editable": false,
           "description": ""
-        },
-        {
-          "mode": "vibe_coding",
-          "label": "Vibe Coding",
-          "interaction_mode": "vibe_coding",
-          "runtime_lane": "vibe_coding_task",
-          "recipe_id": "runtime.recipe.vibe_coding",
-          "projection_strength": "style_only",
-          "runtime_lanes": [
-            "vibe_coding_task"
-          ],
-          "execution_strategy": "professional_task_run",
-          "builtin": true,
-          "editable": false,
-          "description": "面向代码修改、调试、重构、测试和前端实现的专业代码任务模式。"
         },
         {
           "mode": "custom",
@@ -867,21 +790,6 @@
           "description": ""
         },
         {
-          "mode": "vibe_coding",
-          "label": "Vibe Coding",
-          "interaction_mode": "vibe_coding",
-          "runtime_lane": "vibe_coding_task",
-          "recipe_id": "runtime.recipe.vibe_coding",
-          "projection_strength": "style_only",
-          "runtime_lanes": [
-            "vibe_coding_task"
-          ],
-          "execution_strategy": "professional_task_run",
-          "builtin": true,
-          "editable": false,
-          "description": "面向代码修改、调试、重构、测试和前端实现的专业代码任务模式。"
-        },
-        {
           "mode": "custom",
           "label": "自定义模式",
           "interaction_mode": "custom_mode",
@@ -1013,21 +921,6 @@
           "description": ""
         },
         {
-          "mode": "vibe_coding",
-          "label": "Vibe Coding",
-          "interaction_mode": "vibe_coding",
-          "runtime_lane": "vibe_coding_task",
-          "recipe_id": "runtime.recipe.vibe_coding",
-          "projection_strength": "style_only",
-          "runtime_lanes": [
-            "vibe_coding_task"
-          ],
-          "execution_strategy": "professional_task_run",
-          "builtin": true,
-          "editable": false,
-          "description": "面向代码修改、调试、重构、测试和前端实现的专业代码任务模式。"
-        },
-        {
           "mode": "custom",
           "label": "自定义模式",
           "interaction_mode": "custom_mode",
@@ -1157,21 +1050,6 @@
           "builtin": true,
           "editable": false,
           "description": ""
-        },
-        {
-          "mode": "vibe_coding",
-          "label": "Vibe Coding",
-          "interaction_mode": "vibe_coding",
-          "runtime_lane": "vibe_coding_task",
-          "recipe_id": "runtime.recipe.vibe_coding",
-          "projection_strength": "style_only",
-          "runtime_lanes": [
-            "vibe_coding_task"
-          ],
-          "execution_strategy": "professional_task_run",
-          "builtin": true,
-          "editable": false,
-          "description": "面向代码修改、调试、重构、测试和前端实现的专业代码任务模式。"
         },
         {
           "mode": "custom",
@@ -1310,21 +1188,6 @@
           "description": ""
         },
         {
-          "mode": "vibe_coding",
-          "label": "Vibe Coding",
-          "interaction_mode": "vibe_coding",
-          "runtime_lane": "vibe_coding_task",
-          "recipe_id": "runtime.recipe.vibe_coding",
-          "projection_strength": "style_only",
-          "runtime_lanes": [
-            "vibe_coding_task"
-          ],
-          "execution_strategy": "professional_task_run",
-          "builtin": true,
-          "editable": false,
-          "description": "面向代码修改、调试、重构、测试和前端实现的专业代码任务模式。"
-        },
-        {
           "mode": "custom",
           "label": "自定义模式",
           "interaction_mode": "custom_mode",
@@ -1408,7 +1271,6 @@
       },
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
-        "task_family": "writing_modular_novel",
         "source_task_graph_refs": [
           "graph.writing.modular_novel.master",
           "graph.writing.modular_novel.design_init",
@@ -1475,21 +1337,6 @@
           "builtin": true,
           "editable": false,
           "description": ""
-        },
-        {
-          "mode": "vibe_coding",
-          "label": "Vibe Coding",
-          "interaction_mode": "vibe_coding",
-          "runtime_lane": "vibe_coding_task",
-          "recipe_id": "runtime.recipe.vibe_coding",
-          "projection_strength": "style_only",
-          "runtime_lanes": [
-            "vibe_coding_task"
-          ],
-          "execution_strategy": "professional_task_run",
-          "builtin": true,
-          "editable": false,
-          "description": "面向代码修改、调试、重构、测试和前端实现的专业代码任务模式。"
         },
         {
           "mode": "custom",
@@ -1575,7 +1422,6 @@
       },
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
-        "task_family": "writing_modular_novel",
         "source_task_graph_refs": [
           "graph.writing.modular_novel.master",
           "graph.writing.modular_novel.design_init",
@@ -1642,21 +1488,6 @@
           "builtin": true,
           "editable": false,
           "description": ""
-        },
-        {
-          "mode": "vibe_coding",
-          "label": "Vibe Coding",
-          "interaction_mode": "vibe_coding",
-          "runtime_lane": "vibe_coding_task",
-          "recipe_id": "runtime.recipe.vibe_coding",
-          "projection_strength": "style_only",
-          "runtime_lanes": [
-            "vibe_coding_task"
-          ],
-          "execution_strategy": "professional_task_run",
-          "builtin": true,
-          "editable": false,
-          "description": "面向代码修改、调试、重构、测试和前端实现的专业代码任务模式。"
         },
         {
           "mode": "custom",
@@ -1741,7 +1572,6 @@
       },
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
-        "task_family": "writing_modular_novel",
         "source_task_graph_refs": [
           "graph.writing.modular_novel.master",
           "graph.writing.modular_novel.design_init",
@@ -1808,21 +1638,6 @@
           "builtin": true,
           "editable": false,
           "description": ""
-        },
-        {
-          "mode": "vibe_coding",
-          "label": "Vibe Coding",
-          "interaction_mode": "vibe_coding",
-          "runtime_lane": "vibe_coding_task",
-          "recipe_id": "runtime.recipe.vibe_coding",
-          "projection_strength": "style_only",
-          "runtime_lanes": [
-            "vibe_coding_task"
-          ],
-          "execution_strategy": "professional_task_run",
-          "builtin": true,
-          "editable": false,
-          "description": "面向代码修改、调试、重构、测试和前端实现的专业代码任务模式。"
         },
         {
           "mode": "custom",
@@ -1908,7 +1723,6 @@
       },
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
-        "task_family": "writing_modular_novel",
         "source_task_graph_refs": [
           "graph.writing.modular_novel.master",
           "graph.writing.modular_novel.design_init",
@@ -1975,21 +1789,6 @@
           "builtin": true,
           "editable": false,
           "description": ""
-        },
-        {
-          "mode": "vibe_coding",
-          "label": "Vibe Coding",
-          "interaction_mode": "vibe_coding",
-          "runtime_lane": "vibe_coding_task",
-          "recipe_id": "runtime.recipe.vibe_coding",
-          "projection_strength": "style_only",
-          "runtime_lanes": [
-            "vibe_coding_task"
-          ],
-          "execution_strategy": "professional_task_run",
-          "builtin": true,
-          "editable": false,
-          "description": "面向代码修改、调试、重构、测试和前端实现的专业代码任务模式。"
         },
         {
           "mode": "custom",
@@ -2075,7 +1874,6 @@
       },
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
-        "task_family": "writing_modular_novel",
         "source_task_graph_refs": [
           "graph.writing.modular_novel.master",
           "graph.writing.modular_novel.design_init",
@@ -2142,21 +1940,6 @@
           "builtin": true,
           "editable": false,
           "description": ""
-        },
-        {
-          "mode": "vibe_coding",
-          "label": "Vibe Coding",
-          "interaction_mode": "vibe_coding",
-          "runtime_lane": "vibe_coding_task",
-          "recipe_id": "runtime.recipe.vibe_coding",
-          "projection_strength": "style_only",
-          "runtime_lanes": [
-            "vibe_coding_task"
-          ],
-          "execution_strategy": "professional_task_run",
-          "builtin": true,
-          "editable": false,
-          "description": "面向代码修改、调试、重构、测试和前端实现的专业代码任务模式。"
         },
         {
           "mode": "custom",

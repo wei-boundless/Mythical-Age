@@ -29,7 +29,6 @@ export type TaskGraphDraftV2 = {
   graph_id: string;
   title: string;
   domain_id: string;
-  task_family: string;
   task_id: string;
   graph_kind: "single_agent" | "multi_agent" | "coordination";
   entry_node_id: string;
@@ -152,7 +151,6 @@ export function emptyTaskGraphDraftV2(): TaskGraphDraftV2 {
     graph_id: "graph.draft",
     title: "任务图",
     domain_id: "",
-    task_family: "",
     task_id: "",
     graph_kind: "multi_agent",
     entry_node_id: "",
@@ -221,7 +219,6 @@ export function taskGraphRecordToDraftV2(graph: TaskGraphRecord): TaskGraphDraft
     graph_id: graph.graph_id,
     title: graph.title || graph.graph_id || "任务图",
     domain_id: graph.domain_id || String(metadata.domain_id ?? ""),
-    task_family: graph.task_family || String(metadata.task_family ?? ""),
     task_id: String(metadata.task_id ?? ""),
     graph_kind: graph.graph_kind ?? "multi_agent",
     entry_node_id: boundaries.entry_node_id,

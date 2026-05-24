@@ -39,7 +39,6 @@
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
-        "task_family": "",
         "domain_id": "",
         "output_contract_id": "AssistantFinalAnswer",
         "legacy_projection_ids": []
@@ -62,7 +61,6 @@
       "step_kind": "",
       "tags": [
         "task_graph",
-        "writing_modular_novel",
         "domain.writing.modular_novel"
       ],
       "applies_to_task_goal_types": [
@@ -70,8 +68,7 @@
       ],
       "applies_to_domains": [
         "task_graph",
-        "domain.writing.modular_novel",
-        "writing_modular_novel"
+        "domain.writing.modular_novel"
       ],
       "applies_to_modes": [
         "role_mode",
@@ -90,7 +87,6 @@
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
-        "task_family": "writing_modular_novel",
         "domain_id": "domain.writing.modular_novel",
         "output_contract_id": "contract.writing.modular_novel.baseline_commit",
         "legacy_projection_ids": []
@@ -113,7 +109,6 @@
       "step_kind": "",
       "tags": [
         "task_graph",
-        "writing_modular_novel",
         "domain.writing.modular_novel"
       ],
       "applies_to_task_goal_types": [
@@ -121,8 +116,7 @@
       ],
       "applies_to_domains": [
         "task_graph",
-        "domain.writing.modular_novel",
-        "writing_modular_novel"
+        "domain.writing.modular_novel"
       ],
       "applies_to_modes": [
         "role_mode",
@@ -141,7 +135,6 @@
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
-        "task_family": "writing_modular_novel",
         "domain_id": "domain.writing.modular_novel",
         "output_contract_id": "contract.writing.modular_novel.chapter_draft",
         "legacy_projection_ids": []
@@ -164,7 +157,6 @@
       "step_kind": "",
       "tags": [
         "task_graph",
-        "writing_modular_novel",
         "domain.writing.modular_novel"
       ],
       "applies_to_task_goal_types": [
@@ -172,8 +164,7 @@
       ],
       "applies_to_domains": [
         "task_graph",
-        "domain.writing.modular_novel",
-        "writing_modular_novel"
+        "domain.writing.modular_novel"
       ],
       "applies_to_modes": [
         "role_mode",
@@ -192,7 +183,6 @@
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
-        "task_family": "writing_modular_novel",
         "domain_id": "domain.writing.modular_novel",
         "output_contract_id": "contract.writing.modular_novel.chapter_outline",
         "legacy_projection_ids": []
@@ -215,7 +205,6 @@
       "step_kind": "",
       "tags": [
         "task_graph",
-        "writing_modular_novel",
         "domain.writing.modular_novel"
       ],
       "applies_to_task_goal_types": [
@@ -223,8 +212,7 @@
       ],
       "applies_to_domains": [
         "task_graph",
-        "domain.writing.modular_novel",
-        "writing_modular_novel"
+        "domain.writing.modular_novel"
       ],
       "applies_to_modes": [
         "role_mode",
@@ -243,7 +231,6 @@
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
-        "task_family": "writing_modular_novel",
         "domain_id": "domain.writing.modular_novel",
         "output_contract_id": "contract.writing.modular_novel.progress_route",
         "legacy_projection_ids": []
@@ -266,7 +253,6 @@
       "step_kind": "",
       "tags": [
         "task_graph",
-        "writing_modular_novel",
         "domain.writing.modular_novel"
       ],
       "applies_to_task_goal_types": [
@@ -274,8 +260,7 @@
       ],
       "applies_to_domains": [
         "task_graph",
-        "domain.writing.modular_novel",
-        "writing_modular_novel"
+        "domain.writing.modular_novel"
       ],
       "applies_to_modes": [
         "role_mode",
@@ -294,7 +279,6 @@
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
-        "task_family": "writing_modular_novel",
         "domain_id": "domain.writing.modular_novel",
         "output_contract_id": "contract.writing.modular_novel.chapter_review",
         "legacy_projection_ids": []
@@ -317,7 +301,6 @@
       "step_kind": "",
       "tags": [
         "task_graph",
-        "writing_modular_novel",
         "domain.writing.modular_novel"
       ],
       "applies_to_task_goal_types": [
@@ -325,8 +308,7 @@
       ],
       "applies_to_domains": [
         "task_graph",
-        "domain.writing.modular_novel",
-        "writing_modular_novel"
+        "domain.writing.modular_novel"
       ],
       "applies_to_modes": [
         "role_mode",
@@ -345,7 +327,6 @@
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
-        "task_family": "writing_modular_novel",
         "domain_id": "domain.writing.modular_novel",
         "output_contract_id": "contract.writing.modular_novel.character_design",
         "legacy_projection_ids": []
@@ -368,7 +349,6 @@
       "step_kind": "",
       "tags": [
         "task_graph",
-        "writing_modular_novel",
         "domain.writing.modular_novel"
       ],
       "applies_to_task_goal_types": [
@@ -376,8 +356,7 @@
       ],
       "applies_to_domains": [
         "task_graph",
-        "domain.writing.modular_novel",
-        "writing_modular_novel"
+        "domain.writing.modular_novel"
       ],
       "applies_to_modes": [
         "role_mode",
@@ -396,7 +375,6 @@
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
-        "task_family": "writing_modular_novel",
         "domain_id": "domain.writing.modular_novel",
         "output_contract_id": "contract.writing.modular_novel.character_review",
         "legacy_projection_ids": []
@@ -419,7 +397,6 @@
       "step_kind": "",
       "tags": [
         "task_graph",
-        "writing_modular_novel",
         "domain.writing.modular_novel"
       ],
       "applies_to_task_goal_types": [
@@ -427,8 +404,7 @@
       ],
       "applies_to_domains": [
         "task_graph",
-        "domain.writing.modular_novel",
-        "writing_modular_novel"
+        "domain.writing.modular_novel"
       ],
       "applies_to_modes": [
         "role_mode",
@@ -447,7 +423,6 @@
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
-        "task_family": "writing_modular_novel",
         "domain_id": "domain.writing.modular_novel",
         "output_contract_id": "contract.writing.modular_novel.design_alignment",
         "legacy_projection_ids": []
@@ -470,7 +445,6 @@
       "step_kind": "",
       "tags": [
         "task_graph",
-        "writing_modular_novel",
         "domain.writing.modular_novel"
       ],
       "applies_to_task_goal_types": [
@@ -478,8 +452,7 @@
       ],
       "applies_to_domains": [
         "task_graph",
-        "domain.writing.modular_novel",
-        "writing_modular_novel"
+        "domain.writing.modular_novel"
       ],
       "applies_to_modes": [
         "role_mode",
@@ -498,7 +471,6 @@
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
-        "task_family": "writing_modular_novel",
         "domain_id": "domain.writing.modular_novel",
         "output_contract_id": "contract.writing.modular_novel.extension_commit",
         "legacy_projection_ids": []
@@ -521,7 +493,6 @@
       "step_kind": "",
       "tags": [
         "task_graph",
-        "writing_modular_novel",
         "domain.writing.modular_novel"
       ],
       "applies_to_task_goal_types": [
@@ -529,8 +500,7 @@
       ],
       "applies_to_domains": [
         "task_graph",
-        "domain.writing.modular_novel",
-        "writing_modular_novel"
+        "domain.writing.modular_novel"
       ],
       "applies_to_modes": [
         "role_mode",
@@ -549,7 +519,6 @@
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
-        "task_family": "writing_modular_novel",
         "domain_id": "domain.writing.modular_novel",
         "output_contract_id": "contract.writing.modular_novel.extension_review",
         "legacy_projection_ids": []
@@ -572,7 +541,6 @@
       "step_kind": "",
       "tags": [
         "task_graph",
-        "writing_modular_novel",
         "domain.writing.modular_novel"
       ],
       "applies_to_task_goal_types": [
@@ -580,8 +548,7 @@
       ],
       "applies_to_domains": [
         "task_graph",
-        "domain.writing.modular_novel",
-        "writing_modular_novel"
+        "domain.writing.modular_novel"
       ],
       "applies_to_modes": [
         "role_mode",
@@ -600,7 +567,6 @@
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
-        "task_family": "writing_modular_novel",
         "domain_id": "domain.writing.modular_novel",
         "output_contract_id": "contract.writing.modular_novel.final_manuscript",
         "legacy_projection_ids": []
@@ -623,7 +589,6 @@
       "step_kind": "",
       "tags": [
         "task_graph",
-        "writing_modular_novel",
         "domain.writing.modular_novel"
       ],
       "applies_to_task_goal_types": [
@@ -631,8 +596,7 @@
       ],
       "applies_to_domains": [
         "task_graph",
-        "domain.writing.modular_novel",
-        "writing_modular_novel"
+        "domain.writing.modular_novel"
       ],
       "applies_to_modes": [
         "role_mode",
@@ -651,7 +615,6 @@
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
-        "task_family": "writing_modular_novel",
         "domain_id": "domain.writing.modular_novel",
         "output_contract_id": "contract.writing.modular_novel.final_review",
         "legacy_projection_ids": []
@@ -674,7 +637,6 @@
       "step_kind": "",
       "tags": [
         "task_graph",
-        "writing_modular_novel",
         "domain.writing.modular_novel"
       ],
       "applies_to_task_goal_types": [
@@ -682,8 +644,7 @@
       ],
       "applies_to_domains": [
         "task_graph",
-        "domain.writing.modular_novel",
-        "writing_modular_novel"
+        "domain.writing.modular_novel"
       ],
       "applies_to_modes": [
         "role_mode",
@@ -702,7 +663,6 @@
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
-        "task_family": "writing_modular_novel",
         "domain_id": "domain.writing.modular_novel",
         "output_contract_id": "contract.writing.modular_novel.chapter_batch_commit",
         "legacy_projection_ids": []
@@ -725,7 +685,6 @@
       "step_kind": "",
       "tags": [
         "task_graph",
-        "writing_modular_novel",
         "domain.writing.modular_novel"
       ],
       "applies_to_task_goal_types": [
@@ -733,8 +692,7 @@
       ],
       "applies_to_domains": [
         "task_graph",
-        "domain.writing.modular_novel",
-        "writing_modular_novel"
+        "domain.writing.modular_novel"
       ],
       "applies_to_modes": [
         "role_mode",
@@ -753,7 +711,6 @@
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
-        "task_family": "writing_modular_novel",
         "domain_id": "domain.writing.modular_novel",
         "output_contract_id": "contract.writing.modular_novel.character_commit",
         "legacy_projection_ids": []
@@ -776,7 +733,6 @@
       "step_kind": "",
       "tags": [
         "task_graph",
-        "writing_modular_novel",
         "domain.writing.modular_novel"
       ],
       "applies_to_task_goal_types": [
@@ -784,8 +740,7 @@
       ],
       "applies_to_domains": [
         "task_graph",
-        "domain.writing.modular_novel",
-        "writing_modular_novel"
+        "domain.writing.modular_novel"
       ],
       "applies_to_modes": [
         "role_mode",
@@ -804,7 +759,6 @@
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
-        "task_family": "writing_modular_novel",
         "domain_id": "domain.writing.modular_novel",
         "output_contract_id": "contract.writing.modular_novel.world_commit",
         "legacy_projection_ids": []
@@ -827,7 +781,6 @@
       "step_kind": "",
       "tags": [
         "task_graph",
-        "writing_modular_novel",
         "domain.writing.modular_novel"
       ],
       "applies_to_task_goal_types": [
@@ -835,8 +788,7 @@
       ],
       "applies_to_domains": [
         "task_graph",
-        "domain.writing.modular_novel",
-        "writing_modular_novel"
+        "domain.writing.modular_novel"
       ],
       "applies_to_modes": [
         "role_mode",
@@ -855,7 +807,6 @@
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
-        "task_family": "writing_modular_novel",
         "domain_id": "domain.writing.modular_novel",
         "output_contract_id": "contract.writing.modular_novel.final_memory_seal",
         "legacy_projection_ids": []
@@ -878,7 +829,6 @@
       "step_kind": "",
       "tags": [
         "task_graph",
-        "writing_modular_novel",
         "domain.writing.modular_novel"
       ],
       "applies_to_task_goal_types": [
@@ -886,8 +836,7 @@
       ],
       "applies_to_domains": [
         "task_graph",
-        "domain.writing.modular_novel",
-        "writing_modular_novel"
+        "domain.writing.modular_novel"
       ],
       "applies_to_modes": [
         "role_mode",
@@ -906,7 +855,6 @@
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
-        "task_family": "writing_modular_novel",
         "domain_id": "domain.writing.modular_novel",
         "output_contract_id": "contract.writing.modular_novel.volume_route",
         "legacy_projection_ids": []
@@ -929,7 +877,6 @@
       "step_kind": "",
       "tags": [
         "task_graph",
-        "writing_modular_novel",
         "domain.writing.modular_novel"
       ],
       "applies_to_task_goal_types": [
@@ -937,8 +884,7 @@
       ],
       "applies_to_domains": [
         "task_graph",
-        "domain.writing.modular_novel",
-        "writing_modular_novel"
+        "domain.writing.modular_novel"
       ],
       "applies_to_modes": [
         "role_mode",
@@ -957,7 +903,6 @@
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
-        "task_family": "writing_modular_novel",
         "domain_id": "domain.writing.modular_novel",
         "output_contract_id": "contract.writing.modular_novel.outline_design",
         "legacy_projection_ids": []
@@ -980,7 +925,6 @@
       "step_kind": "",
       "tags": [
         "task_graph",
-        "writing_modular_novel",
         "domain.writing.modular_novel"
       ],
       "applies_to_task_goal_types": [
@@ -988,8 +932,7 @@
       ],
       "applies_to_domains": [
         "task_graph",
-        "domain.writing.modular_novel",
-        "writing_modular_novel"
+        "domain.writing.modular_novel"
       ],
       "applies_to_modes": [
         "role_mode",
@@ -1008,7 +951,6 @@
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
-        "task_family": "writing_modular_novel",
         "domain_id": "domain.writing.modular_novel",
         "output_contract_id": "contract.writing.modular_novel.outline_review",
         "legacy_projection_ids": []
@@ -1031,7 +973,6 @@
       "step_kind": "",
       "tags": [
         "task_graph",
-        "writing_modular_novel",
         "domain.writing.modular_novel"
       ],
       "applies_to_task_goal_types": [
@@ -1039,8 +980,7 @@
       ],
       "applies_to_domains": [
         "task_graph",
-        "domain.writing.modular_novel",
-        "writing_modular_novel"
+        "domain.writing.modular_novel"
       ],
       "applies_to_modes": [
         "role_mode",
@@ -1059,7 +999,6 @@
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
-        "task_family": "writing_modular_novel",
         "domain_id": "domain.writing.modular_novel",
         "output_contract_id": "contract.writing.modular_novel.plot_design",
         "legacy_projection_ids": []
@@ -1082,7 +1021,6 @@
       "step_kind": "",
       "tags": [
         "task_graph",
-        "writing_modular_novel",
         "domain.writing.modular_novel"
       ],
       "applies_to_task_goal_types": [
@@ -1090,8 +1028,7 @@
       ],
       "applies_to_domains": [
         "task_graph",
-        "domain.writing.modular_novel",
-        "writing_modular_novel"
+        "domain.writing.modular_novel"
       ],
       "applies_to_modes": [
         "role_mode",
@@ -1110,7 +1047,6 @@
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
-        "task_family": "writing_modular_novel",
         "domain_id": "domain.writing.modular_novel",
         "output_contract_id": "contract.writing.modular_novel.project_brief",
         "legacy_projection_ids": []
@@ -1133,7 +1069,6 @@
       "step_kind": "",
       "tags": [
         "task_graph",
-        "writing_modular_novel",
         "domain.writing.modular_novel"
       ],
       "applies_to_task_goal_types": [
@@ -1141,8 +1076,7 @@
       ],
       "applies_to_domains": [
         "task_graph",
-        "domain.writing.modular_novel",
-        "writing_modular_novel"
+        "domain.writing.modular_novel"
       ],
       "applies_to_modes": [
         "role_mode",
@@ -1161,7 +1095,6 @@
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
-        "task_family": "writing_modular_novel",
         "domain_id": "domain.writing.modular_novel",
         "output_contract_id": "contract.writing.modular_novel.volume_commit",
         "legacy_projection_ids": []
@@ -1184,7 +1117,6 @@
       "step_kind": "",
       "tags": [
         "task_graph",
-        "writing_modular_novel",
         "domain.writing.modular_novel"
       ],
       "applies_to_task_goal_types": [
@@ -1192,8 +1124,7 @@
       ],
       "applies_to_domains": [
         "task_graph",
-        "domain.writing.modular_novel",
-        "writing_modular_novel"
+        "domain.writing.modular_novel"
       ],
       "applies_to_modes": [
         "role_mode",
@@ -1212,7 +1143,6 @@
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
-        "task_family": "writing_modular_novel",
         "domain_id": "domain.writing.modular_novel",
         "output_contract_id": "contract.writing.modular_novel.volume_plan",
         "legacy_projection_ids": []
@@ -1235,7 +1165,6 @@
       "step_kind": "",
       "tags": [
         "task_graph",
-        "writing_modular_novel",
         "domain.writing.modular_novel"
       ],
       "applies_to_task_goal_types": [
@@ -1243,8 +1172,7 @@
       ],
       "applies_to_domains": [
         "task_graph",
-        "domain.writing.modular_novel",
-        "writing_modular_novel"
+        "domain.writing.modular_novel"
       ],
       "applies_to_modes": [
         "role_mode",
@@ -1263,7 +1191,6 @@
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
-        "task_family": "writing_modular_novel",
         "domain_id": "domain.writing.modular_novel",
         "output_contract_id": "contract.writing.modular_novel.volume_postmortem",
         "legacy_projection_ids": []
@@ -1286,7 +1213,6 @@
       "step_kind": "",
       "tags": [
         "task_graph",
-        "writing_modular_novel",
         "domain.writing.modular_novel"
       ],
       "applies_to_task_goal_types": [
@@ -1294,8 +1220,7 @@
       ],
       "applies_to_domains": [
         "task_graph",
-        "domain.writing.modular_novel",
-        "writing_modular_novel"
+        "domain.writing.modular_novel"
       ],
       "applies_to_modes": [
         "role_mode",
@@ -1314,7 +1239,6 @@
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
-        "task_family": "writing_modular_novel",
         "domain_id": "domain.writing.modular_novel",
         "output_contract_id": "contract.writing.modular_novel.volume_review",
         "legacy_projection_ids": []
@@ -1337,7 +1261,6 @@
       "step_kind": "",
       "tags": [
         "task_graph",
-        "writing_modular_novel",
         "domain.writing.modular_novel"
       ],
       "applies_to_task_goal_types": [
@@ -1345,8 +1268,7 @@
       ],
       "applies_to_domains": [
         "task_graph",
-        "domain.writing.modular_novel",
-        "writing_modular_novel"
+        "domain.writing.modular_novel"
       ],
       "applies_to_modes": [
         "role_mode",
@@ -1365,7 +1287,6 @@
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
-        "task_family": "writing_modular_novel",
         "domain_id": "domain.writing.modular_novel",
         "output_contract_id": "contract.writing.modular_novel.world_candidate",
         "legacy_projection_ids": []
@@ -1388,7 +1309,6 @@
       "step_kind": "",
       "tags": [
         "task_graph",
-        "writing_modular_novel",
         "domain.writing.modular_novel"
       ],
       "applies_to_task_goal_types": [
@@ -1396,8 +1316,7 @@
       ],
       "applies_to_domains": [
         "task_graph",
-        "domain.writing.modular_novel",
-        "writing_modular_novel"
+        "domain.writing.modular_novel"
       ],
       "applies_to_modes": [
         "role_mode",
@@ -1416,7 +1335,6 @@
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
-        "task_family": "writing_modular_novel",
         "domain_id": "domain.writing.modular_novel",
         "output_contract_id": "contract.writing.modular_novel.extension_proposal",
         "legacy_projection_ids": []
@@ -1439,7 +1357,6 @@
       "step_kind": "",
       "tags": [
         "task_graph",
-        "writing_modular_novel",
         "domain.writing.modular_novel"
       ],
       "applies_to_task_goal_types": [
@@ -1447,8 +1364,7 @@
       ],
       "applies_to_domains": [
         "task_graph",
-        "domain.writing.modular_novel",
-        "writing_modular_novel"
+        "domain.writing.modular_novel"
       ],
       "applies_to_modes": [
         "role_mode",
@@ -1467,7 +1383,6 @@
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
-        "task_family": "writing_modular_novel",
         "domain_id": "domain.writing.modular_novel",
         "output_contract_id": "contract.writing.modular_novel.world_review",
         "legacy_projection_ids": []

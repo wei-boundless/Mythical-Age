@@ -89,24 +89,28 @@ def test_sandbox_python_repl_blocks_absolute_workspace_escape(tmp_path: Path) ->
     assert "Blocked:" in result["observation"].payload["result"]
 
 
-def test_tool_runtime_executor_enforces_contract_before_tool_invocation(tmp_path: Path) -> None:
+def test_tool_runtime_executor_returns_recoverable_contract_feedback_before_tool_invocation(tmp_path: Path) -> None:
     workspace = tmp_path / "project"
     workspace.mkdir(parents=True)
 
     result = _run_tool(
         workspace=workspace,
         sandbox_root=tmp_path / "sandbox" / "workspace",
-        tool_name="read_file",
-        tool_args={},
-        operation_id="op.read_file",
+        tool_name="write_file",
+        tool_args={"filepath": "docs/note.md", "content": "hello"},
+        operation_id="op.write_file",
     )
 
     assert result["execution_record"].status == "failed"
-    assert "Tool execution blocked by contract" in result["error"]
-    assert "missing_required_input" in result["error"]
-    assert "path" in result["error"]
-    assert result["observation"].observation_type == "executor_error"
-    assert result["observation"].payload["error"] == result["error"]
+    assert "recoverable_error" in result
+    assert "error" not in result
+    assert result["observation"].observation_type == "tool_result"
+    assert result["observation"].needs_model_followup is True
+    assert result["observation"].payload["recoverable"] is True
+    assert result["observation"].payload["repair_kind"] == "tool_contract"
+    assert result["observation"].payload["missing_inputs"] == ["path"]
+    assert result["observation"].payload["required_inputs"] == ["path", "content"]
+    assert "Retry the same tool" in result["observation"].payload["result"]
 
 
 def test_tool_runtime_executor_blocks_operation_mismatch_before_tool_invocation(tmp_path: Path) -> None:

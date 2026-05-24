@@ -86,7 +86,7 @@ def resolve_execution_shape(
             diagnostics=diagnostics,
         )
 
-    if interaction_mode in {"role_mode", "standard_mode", "professional_mode", "vibe_coding"}:
+    if interaction_mode in {"role_mode", "standard_mode", "professional_mode"}:
         if interaction_mode == "standard_mode" and action_intent == "read_context":
             specialized_shape = _standard_read_context_shape(
                 source_kind=source_kind,

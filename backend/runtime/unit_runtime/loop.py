@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import inspect
 import json
+import os
 import re
 import time
 import uuid
@@ -61,7 +62,6 @@ from agent_runtime.understanding import (
     build_context_candidates,
     build_request_facts,
     build_runtime_start_packet,
-    invoke_model_turn_decision,
 )
 
 from context_system.projection.projection import (
@@ -113,6 +113,7 @@ from ..execution_permit import (
     execute_approved_tool_from_state,
     tool_instances_for_policy_and_permit,
 )
+from ..capabilities import build_current_turn_capability_plan
 from ..execution_engine import (
     ModelToolCallAccumulator,
     RuntimeExecutionEngine,
@@ -1016,7 +1017,6 @@ class TaskRunLoop:
                 "task_graph_run": True,
                 "task_graph_id": graph.graph_id,
                 "task_graph_title": graph.title,
-                "task_family": str(getattr(graph, "task_family", "") or ""),
                 "task_graph_publish_state": graph.publish_state,
                 "task_graph_definition_ref": graph_definition_ref,
                 "task_graph_runtime_spec_ref": graph_runtime_spec_ref,
@@ -1079,7 +1079,6 @@ class TaskRunLoop:
                     project_id=project_id,
                     session_id=session_id,
                     graph_id=graph.graph_id,
-                    task_family=str(getattr(graph, "task_family", "") or ""),
                     project_title=str(effective_initial_inputs.get("project_title") or project_id),
                     metric_label=str(effective_initial_inputs.get("metric_label") or "units"),
                     target_metric_total=int(
@@ -1323,17 +1322,10 @@ class TaskRunLoop:
             memory_runtime_view={},
             current_turn_context=runtime_context_override,
         ).to_dict()
-        model_turn_invoker = _structured_sidecar_invoker(
-            model_response_executor,
-            enabled=True,
-        )
-        model_turn_decision, model_turn_diagnostics = await _invoke_model_turn_decision_with_turn_cache(
-            cache_owner=self,
-            invoker=model_turn_invoker,
+        model_turn_decision, model_turn_diagnostics = _main_model_owned_turn_decision(
             user_message=user_message,
             request_facts=request_facts,
-            boundary_policy=boundary_policy,
-            context_candidates=context_candidates,
+            task_selection=runtime_chain_task_selection,
         )
         action_permit = build_action_permit(
             model_turn_decision=model_turn_decision,
@@ -1832,6 +1824,17 @@ class TaskRunLoop:
             agent_runtime_profile=effective_agent_runtime_profile,
             sandbox_policy=sandbox_policy,
         )
+        current_turn_capability_plan = build_current_turn_capability_plan(
+            tool_instances=tool_instances,
+            resource_policy=resource_policy,
+            definitions_by_name=self.tool_authorization_index.definitions_by_name,
+            normalize_operation_id=self.operation_gate.registry.normalize_id,
+            task_operation=task_operation,
+            allowed_search_sources=allowed_search_sources,
+            execution_permit=execution_permit,
+        )
+        current_turn_capability_plan_payload = current_turn_capability_plan.to_dict()
+        task_operation["current_turn_capability_plan"] = current_turn_capability_plan_payload
         resolved_model_spec = None
         model_resolution: dict[str, Any] = {}
         settings_service = getattr(getattr(model_response_executor, "model_runtime", None), "settings_service", None)
@@ -1876,16 +1879,14 @@ class TaskRunLoop:
             allowed_search_sources=allowed_search_sources,
             sandbox_policy=sandbox_policy,
             execution_permit=execution_permit,
+            task_operation=task_operation,
+            capability_plan=current_turn_capability_plan,
         )
         runtime_capability_state = build_runtime_capability_state(
             task_operation,
             resource_policy=resource_policy,
             agent_runtime_profile=effective_agent_runtime_profile,
-            visible_tool_names=[
-                str(getattr(tool, "name", "") or "")
-                for tool in list(runtime_tool_instances)
-                if str(getattr(tool, "name", "") or "")
-            ],
+            visible_tool_names=list(current_turn_capability_plan.model_visible_tools),
             sandbox_policy=sandbox_policy,
         )
         effective_runtime_execution_facts = {
@@ -2084,6 +2085,7 @@ class TaskRunLoop:
                 "resource_policy": resource_policy.to_dict(),
                 "search_policy": list(search_policy) if search_policy is not None else None,
                 "allowed_search_sources": sorted(allowed_search_sources),
+                "current_turn_capability_plan": current_turn_capability_plan_payload,
                 "runtime_capability_state": runtime_capability_state,
                 "sandbox_policy": sandbox_policy,
                 "effective_tool_names": [
@@ -2104,6 +2106,7 @@ class TaskRunLoop:
             "resource_policy": resource_policy.to_dict(),
             "search_policy": list(search_policy) if search_policy is not None else None,
             "allowed_search_sources": sorted(allowed_search_sources),
+            "current_turn_capability_plan": current_turn_capability_plan_payload,
             "runtime_capability_state": runtime_capability_state,
             "sandbox_policy": sandbox_policy,
             "effective_tool_names": [
@@ -2249,26 +2252,43 @@ class TaskRunLoop:
                 task_summary_refs=[dict(item) for item in final_task_summary_refs],
                 bundle_summary_refs=[dict(item) for item in final_bundle_summary_refs],
             )
-            async for event in driver.run_stream(
-                outcome=outcome,
-                user_message=user_message,
-                task_id=task_id,
-                task_operation=task_operation,
-                task_contract_ref=task_contract_ref,
-                selected_recipe_payload=selected_recipe_payload,
-                context_snapshot=context_snapshot,
-                directive=directive,
-                resource_policy=resource_policy,
-                model_response_executor=model_response_executor,
-                runtime_context_manager=runtime_context_manager,
-                model_stream_policy=model_stream_policy,
-                resolved_model_spec=resolved_model_spec,
-                tool_runtime_executor=tool_runtime_executor,
-                runtime_tool_instances=runtime_tool_instances,
-                allowed_search_sources=allowed_search_sources,
-                sandbox_policy=sandbox_policy,
-            ):
-                yield event
+            try:
+                async for event in driver.run_stream(
+                    outcome=outcome,
+                    user_message=user_message,
+                    task_id=task_id,
+                    task_operation=task_operation,
+                    task_contract_ref=task_contract_ref,
+                    selected_recipe_payload=selected_recipe_payload,
+                    context_snapshot=context_snapshot,
+                    directive=directive,
+                    resource_policy=resource_policy,
+                    model_response_executor=model_response_executor,
+                    runtime_context_manager=runtime_context_manager,
+                    model_stream_policy=model_stream_policy,
+                    resolved_model_spec=resolved_model_spec,
+                    tool_runtime_executor=tool_runtime_executor,
+                    runtime_tool_instances=runtime_tool_instances,
+                    allowed_search_sources=allowed_search_sources,
+                    sandbox_policy=sandbox_policy,
+                ):
+                    yield event
+            except Exception as exc:
+                if not str(outcome.final_content or "").strip():
+                    raise
+                outcome.terminal_reason = "partially_completed"
+                degraded_event = self.event_log.append(
+                    state.task_run_id,
+                    "professional_task_driver_degraded_after_closeout",
+                    payload={
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                        "final_content_chars": len(str(outcome.final_content or "")),
+                        "recovered_as": outcome.terminal_reason,
+                    },
+                    refs={"task_contract_ref": task_contract_ref},
+                )
+                yield {"type": "runtime_loop_event", "event": degraded_event.to_dict()}
             runtime_task_ledger = outcome.ledger
             state = outcome.state
             result_refs = list(_dedupe_refs([*result_refs, *outcome.result_refs]))
@@ -3058,24 +3078,7 @@ class TaskRunLoop:
             except Exception:
                 pass
         yield done_event
-        if continuation_payload:
-            async for event in self._continue_coordination_delivery_stream(
-                session_id=session_id,
-                history=history,
-                source=source,
-                agent_runtime_chain=agent_runtime_chain,
-                model_response_executor=model_response_executor,
-                runtime_context_manager=runtime_context_manager,
-                stage_projection_cycle=stage_projection_cycle,
-                memory_intent=memory_intent,
-                assistant_message_committer=assistant_message_committer,
-                tool_runtime_executor=tool_runtime_executor,
-                tool_instances=tool_instances,
-                agent_runtime_profile=agent_runtime_profile,
-                continuation_payload=continuation_payload,
-            ):
-                yield event
-            return
+        return
 
     def recover_completed_checkpoint_task_run(
         self,
@@ -5425,12 +5428,11 @@ def _recipe_requires_model_finalize(selected_recipe: ExecutionRecipe) -> bool:
 def _is_professional_task_run_recipe(selected_recipe_payload: dict[str, Any]) -> bool:
     payload = dict(selected_recipe_payload or {})
     metadata = dict(payload.get("metadata") or {})
-    interaction_modes = {"role_mode", "standard_mode", "professional_mode", "vibe_coding"}
+    interaction_modes = {"role_mode", "standard_mode", "professional_mode"}
     interaction_recipe_ids = {
         "runtime.recipe.role_interaction",
         "runtime.recipe.standard_task",
         "runtime.recipe.professional_task",
-        "runtime.recipe.vibe_coding",
     }
     return (
         str(payload.get("recipe_id") or "").strip()
@@ -5488,7 +5490,6 @@ def _recipe_from_payload(payload: dict[str, Any]) -> ExecutionRecipe | None:
             title=str(payload.get("title") or ""),
             description=str(payload.get("description") or ""),
             execution_kind=str(payload.get("execution_kind") or ""),
-            task_family=str(payload.get("task_family") or ""),
             task_mode=str(payload.get("task_mode") or ""),
             source_kind=str(payload.get("source_kind") or ""),
             input_schema=dict(payload.get("input_schema") or {}),
@@ -6424,72 +6425,60 @@ def _assistant_commit_metadata(final_answer_metadata: dict[str, Any] | None) -> 
     }
 
 
-def _structured_sidecar_invoker(model_response_executor: Any, *, enabled: bool) -> Any | None:
-    if not enabled:
-        return None
-    model_runtime = getattr(model_response_executor, "model_runtime", None)
-    if getattr(model_runtime, "supports_structured_sidecars", False) is not True:
-        return None
-    invoker = getattr(model_runtime, "invoke_messages", None)
-    return invoker if callable(invoker) else None
-
-
-async def _invoke_model_turn_decision_with_turn_cache(
+def _main_model_owned_turn_decision(
     *,
-    cache_owner: Any,
-    invoker: Any,
     user_message: str,
     request_facts: dict[str, Any],
-    boundary_policy: dict[str, Any],
-    context_candidates: dict[str, Any],
+    task_selection: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    cache_key = _model_turn_decision_cache_key(
-        user_message=user_message,
-        request_facts=request_facts,
-        boundary_policy=boundary_policy,
-        context_candidates=context_candidates,
-    )
-    cache = getattr(cache_owner, "_model_turn_decision_cache", None)
-    if isinstance(cache, dict) and cache_key in cache:
-        cached_decision, cached_diagnostics = cache[cache_key]
-        return dict(cached_decision), {
-            **dict(cached_diagnostics or {}),
-            "sidecar_status": "cached_accepted",
-            "model_call_performed": False,
-            "cache_key": cache_key,
-        }
-
-    decision, diagnostics = await invoke_model_turn_decision(
-        invoker=invoker,
-        user_message=user_message,
-        request_facts=request_facts,
-        boundary_policy=boundary_policy,
-        context_candidates=context_candidates,
-    )
-    if (
-        isinstance(cache, dict)
-        and dict(diagnostics or {}).get("sidecar_status") == "accepted"
-        and str(dict(decision or {}).get("action_intent") or "") != "block"
-    ):
-        cache[cache_key] = (dict(decision or {}), {**dict(diagnostics or {}), "cache_key": cache_key})
-    return decision, diagnostics
-
-
-def _model_turn_decision_cache_key(
-    *,
-    user_message: str,
-    request_facts: dict[str, Any],
-    boundary_policy: dict[str, Any],
-    context_candidates: dict[str, Any],
-) -> str:
-    payload = {
-        "user_message": str(user_message or ""),
-        "request_facts": dict(request_facts or {}),
-        "boundary_policy": dict(boundary_policy or {}),
-        "context_candidates": dict(context_candidates or {}),
+    explicit_mode = dict(task_selection or {}).get("interaction_mode") or dict(dict(task_selection or {}).get("mode_policy") or {}).get("interaction_mode")
+    semantic_task_type = str(dict(task_selection or {}).get("semantic_task_type") or "").strip()
+    if not semantic_task_type and str(explicit_mode or "") == "professional_mode":
+        semantic_task_type = "game_vertical_slice_delivery" if _looks_like_browser_game_delivery(user_message) else "implementation"
+    decision = {
+        "decision_id": f"model-turn-decision:main-model-owned:{uuid.uuid4().hex[:8]}",
+        "user_message": str(user_message or "").strip(),
+        "interaction_intent": "create" if _looks_like_creation_request(user_message) else "modify",
+        "action_intent": "edit_workspace",
+        "work_mode": "implementation",
+        "task_goal_type": semantic_task_type or "implementation",
+        "task_domain": "development",
+        "target_objects": list(dict(request_facts or {}).get("explicit_paths") or []),
+        "desired_outcome": str(user_message or "").strip(),
+        "deliverables": [],
+        "constraints": [],
+        "forbidden_actions": [],
+        "selected_skill_ids": [],
+        "context_binding_decision": {
+            "mode": "main_model_owned_understanding",
+        },
+        "planning_required": True,
+        "todo_required": True,
+        "completion_criteria": [],
+        "needs_clarification": False,
+        "clarification_question": "",
+        "confidence": 1.0 if semantic_task_type else 0.6,
+        "ambiguity": [],
+        "diagnostics": {
+            "main_model_owns_task_understanding": True,
+        },
+        "authority": "agent_runtime.model_turn_decision",
     }
-    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str, separators=(",", ":"))
-    return "model-turn-decision-cache:" + hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+    return decision, {
+        "decision_status": "main_model_owned_understanding",
+        "model_call_performed": False,
+        "model_authority_used": False,
+    }
+
+
+def _looks_like_browser_game_delivery(message: str) -> bool:
+    text = str(message or "").lower()
+    return any(marker in text for marker in ("游戏", "浏览器小游戏", "browser game", "roguelike", "肉鸽"))
+
+
+def _looks_like_creation_request(message: str) -> bool:
+    text = str(message or "")
+    return any(marker in text for marker in ("创建", "生成", "写入", "完成", "实现", "开发"))
 
 
 def _truthy(value: Any) -> bool:

@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import sys
+import threading
 import time
 from collections import Counter
 from dataclasses import asdict, dataclass, field
@@ -474,6 +475,44 @@ def _collect_critical_quality_failures(turn: TurnResult) -> list[str]:
     return failures
 
 
+def _collect_professional_completion_failures(events: list[dict[str, Any]]) -> list[str]:
+    if not any(str(item.get("event") or "") == "runtime_loop_event" for item in events):
+        return []
+    failures: list[str] = []
+    validation_payload = _latest_runtime_loop_payload(events, "professional_task_deliverable_validation_checked")
+    if validation_payload:
+        verification = dict(validation_payload.get("verification") or {})
+        if verification.get("passed") is not True:
+            missing = [
+                str(item)
+                for item in [
+                    *list(verification.get("missing_required_actions") or []),
+                    *list(verification.get("missing_deliverables") or []),
+                    *list(verification.get("missing_output_paths") or []),
+                    *list(verification.get("unsupported_claims") or []),
+                ]
+                if str(item).strip()
+            ]
+            suffix = f" ({', '.join(missing[:6])})" if missing else ""
+            failures.append(f"professional.validation_failed{suffix}")
+    judgment_payload = _latest_runtime_loop_payload(events, "professional_task_completion_judged")
+    if judgment_payload:
+        judgment = dict(judgment_payload.get("completion_judgment") or {})
+        if judgment.get("completion_allowed") is False:
+            reasons = [str(item) for item in list(judgment.get("reasons") or []) if str(item).strip()]
+            suffix = f" ({', '.join(reasons[:6])})" if reasons else ""
+            failures.append(f"professional.completion_not_allowed{suffix}")
+    terminal_payload = _latest_runtime_loop_payload(events, "loop_terminal")
+    if terminal_payload:
+        status = str(terminal_payload.get("status") or "")
+        terminal_reason = str(terminal_payload.get("terminal_reason") or "")
+        if status in {"failed", "blocked", "aborted"} or (
+            terminal_reason and terminal_reason not in {"completed", "waiting_approval"}
+        ):
+            failures.append(f"professional.loop_terminal={status or 'unknown'}:{terminal_reason or 'unknown'}")
+    return _dedupe_strings(failures)
+
+
 def _ensure_session(client: TestClient, session_ids: dict[str, str], alias: str, *, title: str = "") -> str:
     existing = session_ids.get(alias)
     if existing:
@@ -530,6 +569,11 @@ def _runtime_loop_payloads(events: list[dict[str, Any]], runtime_event_type: str
 def _first_runtime_loop_payload(events: list[dict[str, Any]], runtime_event_type: str) -> dict[str, Any]:
     payloads = _runtime_loop_payloads(events, runtime_event_type)
     return payloads[0] if payloads else {}
+
+
+def _latest_runtime_loop_payload(events: list[dict[str, Any]], runtime_event_type: str) -> dict[str, Any]:
+    payloads = _runtime_loop_payloads(events, runtime_event_type)
+    return payloads[-1] if payloads else {}
 
 
 def _runtime_operation_refs(events: list[dict[str, Any]]) -> list[str]:
@@ -789,6 +833,189 @@ def _write_long_progress(
     return event
 
 
+def _write_turn_partial_artifact(
+    *,
+    artifact_path: Path,
+    turn_index: int,
+    turn: LongScenarioTurn,
+    session_id: str,
+    request_started_at: str,
+    request_started: float,
+    events: list[dict[str, Any]],
+    timing: TimingSnapshot | None = None,
+    status: str = "running",
+) -> None:
+    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+    task_run_id = _task_run_id_from_events(events)
+    latest_runtime_event = next(
+        (
+            dict(dict(item.get("data") or {}).get("event") or {})
+            for item in reversed(events)
+            if str(item.get("event") or "") == "runtime_loop_event"
+        ),
+        {},
+    )
+    payload = {
+        "status": status,
+        "partial": True,
+        "turn": {
+            "index": turn_index,
+            "session": turn.session,
+            "speaker": turn.speaker,
+            "content": turn.content,
+            "checks": list(turn.checks),
+        },
+        "session_id": session_id,
+        "request_started_at": request_started_at,
+        "elapsed_ms": round((time.perf_counter() - request_started) * 1000.0, 2),
+        "event_count": len(events),
+        "event_types": [str(item.get("event") or "") for item in events],
+        "task_run_id": task_run_id,
+        "latest_runtime_event_type": str(latest_runtime_event.get("event_type") or ""),
+        "latest_runtime_event": latest_runtime_event,
+        "events": events,
+        "timing": timing.to_dict() if timing is not None else {},
+    }
+    artifact_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _latest_session_sandbox_snapshot(session_id: str) -> dict[str, Any]:
+    root = REPO_ROOT / "output" / "sandbox_runs"
+    prefix = f"session_{_safe_sandbox_component(session_id)}"
+    candidates = [
+        path
+        for path in root.glob(f"{prefix}*")
+        if path.is_dir()
+    ]
+    if not candidates:
+        return {}
+    latest = max(candidates, key=lambda path: path.stat().st_mtime)
+    workspace = latest / "workspace"
+    files = [
+        {
+            "path": str(path.relative_to(workspace)).replace("\\", "/"),
+            "size": path.stat().st_size,
+            "mtime": path.stat().st_mtime,
+        }
+        for path in workspace.rglob("*")
+        if path.is_file()
+    ] if workspace.exists() else []
+    return {
+        "sandbox_run_root": str(latest),
+        "workspace": str(workspace) if workspace.exists() else "",
+        "file_count": len(files),
+        "files": sorted(files, key=lambda item: str(item["path"])),
+    }
+
+
+def _safe_sandbox_component(value: str) -> str:
+    return "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in str(value or ""))
+
+
+def _session_trace_snapshot(runtime: Any, session_id: str) -> dict[str, Any]:
+    try:
+        trace_summary = runtime.query_runtime.task_run_loop.list_session_traces(session_id)
+    except Exception as exc:
+        return {"error": str(exc)}
+    summary = dict(trace_summary or {})
+    task_runs = [dict(item) for item in list(summary.get("task_runs") or []) if isinstance(item, dict)]
+    latest_task_run = task_runs[-1] if task_runs else {}
+    latest_task_run_id = str(
+        latest_task_run.get("task_run_id")
+        or dict(latest_task_run.get("task_run") or {}).get("task_run_id")
+        or ""
+    )
+    latest_events: list[dict[str, Any]] = []
+    if latest_task_run_id:
+        try:
+            latest_events = [
+                item.to_dict()
+                for item in runtime.query_runtime.task_run_loop.event_log.list_events(latest_task_run_id)[-80:]
+            ]
+        except Exception:
+            latest_events = []
+    return {
+        "task_run_count": int(summary.get("task_run_count") or len(task_runs)),
+        "latest_task_run_id": latest_task_run_id,
+        "latest_event_types": [str(item.get("event_type") or "") for item in latest_events],
+        "latest_events": latest_events,
+    }
+
+
+class TurnEvidenceWatchdog:
+    def __init__(
+        self,
+        *,
+        runtime: Any,
+        output_dir: Path,
+        scenario_id: str,
+        artifact_path: Path,
+        turn_index: int,
+        turn: LongScenarioTurn,
+        session_id: str,
+        request_started_at: str,
+        request_started: float,
+    ) -> None:
+        self.runtime = runtime
+        self.output_dir = output_dir
+        self.scenario_id = scenario_id
+        self.artifact_path = artifact_path
+        self.turn_index = turn_index
+        self.turn = turn
+        self.session_id = session_id
+        self.request_started_at = request_started_at
+        self.request_started = request_started
+        self.stop_event = threading.Event()
+        self.thread = threading.Thread(target=self._run, name=f"turn-evidence-{turn_index}", daemon=True)
+
+    def start(self) -> None:
+        self.thread.start()
+
+    def stop(self) -> None:
+        self.stop_event.set()
+        self.thread.join(timeout=3.0)
+
+    def write_snapshot(self, *, status: str) -> None:
+        trace = _session_trace_snapshot(self.runtime, self.session_id)
+        sandbox = _latest_session_sandbox_snapshot(self.session_id)
+        payload = {
+            "status": status,
+            "partial": True,
+            "turn": {
+                "index": self.turn_index,
+                "session": self.turn.session,
+                "speaker": self.turn.speaker,
+                "content": self.turn.content,
+                "checks": list(self.turn.checks),
+            },
+            "session_id": self.session_id,
+            "request_started_at": self.request_started_at,
+            "elapsed_ms": round((time.perf_counter() - self.request_started) * 1000.0, 2),
+            "trace_snapshot": trace,
+            "sandbox_snapshot": sandbox,
+        }
+        self.artifact_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def _run(self) -> None:
+        while not self.stop_event.wait(2.0):
+            self.write_snapshot(status="running_watchdog")
+            _write_long_progress(
+                output_dir=self.output_dir,
+                event_type="turn_heartbeat",
+                status="running",
+                scenario_ref=self.scenario_id,
+                turn_ref=f"turn-{self.turn_index:02d}",
+                artifact_ref=str(self.artifact_path),
+                message=f"Turn {self.turn_index} heartbeat for {self.scenario_id}.",
+                metadata={
+                    "turn_index": self.turn_index,
+                    "session_alias": self.turn.session,
+                    "partial_artifact_path": str(self.artifact_path),
+                    "latest_artifact_mtime": _latest_artifact_mtime(self.artifact_path.parent),
+                },
+            )
+
+
 def _resolve_nonnegative_int_env(name: str, default: int) -> int:
     raw = os.getenv(name)
     if not raw or not raw.strip():
@@ -917,6 +1144,8 @@ def _execute_user_turn(
     *,
     client: TestClient,
     runtime,
+    output_dir: Path,
+    scenario_id: str,
     scenario_dir: Path,
     turn_index: int,
     turn: LongScenarioTurn,
@@ -926,21 +1155,82 @@ def _execute_user_turn(
 
     request_started_at = iso_now()
     request_started = time.perf_counter()
-    with client.stream(
-        "POST",
-        "/api/chat",
-        json={
-            "message": turn.content,
-            "session_id": session_id,
-            "stream": True,
-            "task_selection": _task_selection_payload(turn),
+    artifact_path = scenario_dir / f"turn-{turn_index:02d}-{slug(turn.session)}.json"
+    partial_artifact_path = scenario_dir / f"turn-{turn_index:02d}-{slug(turn.session)}.partial.json"
+    _write_turn_partial_artifact(
+        artifact_path=partial_artifact_path,
+        turn_index=turn_index,
+        turn=turn,
+        session_id=session_id,
+        request_started_at=request_started_at,
+        request_started=request_started,
+        events=[],
+        status="request_started",
+    )
+    _write_long_progress(
+        output_dir=output_dir,
+        event_type="turn_started",
+        status="running",
+        scenario_ref=scenario_id,
+        turn_ref=f"turn-{turn_index:02d}",
+        artifact_ref=str(partial_artifact_path),
+        message=f"Turn {turn_index} started for {scenario_id}.",
+        metadata={
+            "turn_index": turn_index,
+            "session_alias": turn.session,
+            "partial_artifact_path": str(partial_artifact_path),
         },
-    ) as response:
-        events, timing = collect_sse_events(
-            response,
-            request_start=request_started,
-            request_start_ts=request_started_at,
+    )
+    watchdog = TurnEvidenceWatchdog(
+        runtime=runtime,
+        output_dir=output_dir,
+        scenario_id=scenario_id,
+        artifact_path=partial_artifact_path,
+        turn_index=turn_index,
+        turn=turn,
+        session_id=session_id,
+        request_started_at=request_started_at,
+        request_started=request_started,
+    )
+    watchdog.start()
+
+    def _persist_stream_event(
+        _event: dict[str, Any],
+        current_events: list[dict[str, Any]],
+        current_timing: TimingSnapshot,
+    ) -> None:
+        _write_turn_partial_artifact(
+            artifact_path=partial_artifact_path,
+            turn_index=turn_index,
+            turn=turn,
+            session_id=session_id,
+            request_started_at=request_started_at,
+            request_started=request_started,
+            events=current_events,
+            timing=current_timing,
+            status="streaming",
         )
+
+    try:
+        with client.stream(
+            "POST",
+            "/api/chat",
+            json={
+                "message": turn.content,
+                "session_id": session_id,
+                "stream": True,
+                "task_selection": _task_selection_payload(turn),
+            },
+        ) as response:
+            events, timing = collect_sse_events(
+                response,
+                request_start=request_started,
+                request_start_ts=request_started_at,
+                on_event=_persist_stream_event,
+            )
+    finally:
+        watchdog.write_snapshot(status="request_finished")
+        watchdog.stop()
     inferred = _infer_plan_fields_from_runtime(events)
     sync_details: dict[str, Any] | None = None
     memory_sync_ms = 0.0
@@ -1126,7 +1416,6 @@ def _execute_user_turn(
     turn_result.failed_checks.extend(_collect_critical_quality_failures(turn_result))
     turn_result.passed = not turn_result.failed_checks and "error" not in turn_result.event_types
 
-    artifact_path = scenario_dir / f"turn-{turn_index:02d}-{slug(turn.session)}.json"
     artifact_path.write_text(
         json.dumps(
             {
@@ -1159,6 +1448,17 @@ def _execute_user_turn(
             indent=2,
         ),
         encoding="utf-8",
+    )
+    _write_turn_partial_artifact(
+        artifact_path=partial_artifact_path,
+        turn_index=turn_index,
+        turn=turn,
+        session_id=session_id,
+        request_started_at=request_started_at,
+        request_started=request_started,
+        events=events,
+        timing=timing,
+        status="completed",
     )
     return turn_result
 
@@ -1212,6 +1512,8 @@ def _execute_scenario(
             turn_result = _execute_user_turn(
                 client=client,
                 runtime=runtime,
+                output_dir=output_dir,
+                scenario_id=scenario.id,
                 scenario_dir=scenario_dir,
                 turn_index=index,
                 turn=turn,
@@ -1226,7 +1528,9 @@ def _execute_scenario(
                 ]
             turn_results.append(turn_result)
             artifact_path = scenario_dir / f"turn-{index:02d}-{slug(turn.session)}.json"
+            partial_artifact_path = scenario_dir / f"turn-{index:02d}-{slug(turn.session)}.partial.json"
             artifact_paths.append(str(artifact_path))
+            artifact_paths.append(str(partial_artifact_path))
             _write_long_progress(
                 output_dir=output_dir,
                 event_type="turn_completed",

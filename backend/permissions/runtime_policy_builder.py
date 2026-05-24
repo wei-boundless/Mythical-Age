@@ -4,12 +4,15 @@ from typing import Any
 
 from capability_system.operation_registry import OperationDescriptor, OperationRegistry
 from agent_system.profiles.runtime_profile_models import AgentRuntimeProfile
+from permissions.model_visible_operations import (
+    is_model_visible_agent_operation,
+    is_model_visible_state_operation,
+)
 from permissions.resource_policy import ResourceDecision, ResourcePolicy
 from permissions.resource_policy_builder import RuntimeApprovalContext
 from permissions.resource_scope_mapping import map_operations_to_resource_scopes
 from orchestration.runtime_directive import RuntimeDirective
 
-MODEL_VISIBLE_AGENT_OPERATIONS = {"op.delegate_to_agent"}
 SANDBOX_SIDE_EFFECT_OPERATIONS = {"op.write_file", "op.edit_file", "op.shell", "op.python_repl"}
 
 
@@ -276,7 +279,7 @@ def _decide_runtime_operation(
             reason="operation blocked by agent capability profile",
             risk_tags=tuple(descriptor.risk_tags) if descriptor is not None else (),
         )
-    if operation_id not in agent_allowed:
+    if operation_id not in agent_allowed and not is_model_visible_state_operation(operation_id):
         return ResourceDecision(
             operation_id=operation_id,
             decision="deny",
@@ -290,11 +293,18 @@ def _decide_runtime_operation(
             reason="unknown operation",
             diagnostics={"fail_closed": True},
         )
-    if descriptor.operation_id in MODEL_VISIBLE_AGENT_OPERATIONS:
+    if is_model_visible_agent_operation(descriptor.operation_id):
         return ResourceDecision(
             operation_id=descriptor.operation_id,
             decision="allow",
             reason="delegate operation is exposed as a bounded model-visible tool",
+            risk_tags=descriptor.risk_tags,
+        )
+    if is_model_visible_state_operation(descriptor.operation_id):
+        return ResourceDecision(
+            operation_id=descriptor.operation_id,
+            decision="allow",
+            reason="non-destructive task state operation is exposed as a bounded model-visible tool",
             risk_tags=descriptor.risk_tags,
         )
     if descriptor.operation_type in {"mcp", "agent"}:

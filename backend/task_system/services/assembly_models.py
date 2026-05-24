@@ -32,7 +32,6 @@ class TaskExecutionAssembly:
     assembly_id: str
     task_id: str
     session_id: str
-    task_family: str
     task_mode: str
     task_kind: str = ""
     task_intent_ref: str = ""

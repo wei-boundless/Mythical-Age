@@ -111,7 +111,7 @@ def validate_obligations(
         path for path in required_material_paths if not tool_observation_ledger.has_read(path)
     ]
     missing_output_paths = [
-        path for path in required_output_paths if not tool_observation_ledger.has_write(path)
+        path for path in required_output_paths if not _output_path_satisfied(tool_observation_ledger, path)
     ]
     satisfactions: list[ObligationSatisfaction] = []
 
@@ -212,6 +212,12 @@ def validate_obligations(
             )
         ]
 
+    evidence_backed_partial = bool(
+        text
+        and tool_observation_ledger.has_write()
+        and terminal_reason == "completed"
+        and not protocol_leak
+    )
     passed = bool(
         text
         and terminal_reason == "completed"
@@ -250,6 +256,7 @@ def validate_obligations(
             "tool_budget_exhausted": bool(tool_budget_exhausted),
             "contract_gate_blocked": bool(contract_gate_blocked),
             "contract_passed": bool(not missing_actions and not missing_response_terms and not protocol_leak),
+            "evidence_backed_partial": evidence_backed_partial,
             "missing_required_actions": _dedupe(missing_actions),
             "missing_response_terms": _dedupe(missing_response_terms),
             "protocol_leak_detected": protocol_leak,
@@ -267,6 +274,23 @@ def _refs_for(ledger: ToolObservationLedger, obligation_key: str) -> list[str]:
         for record in ledger.records
         if obligation_key in record.satisfies and record.observation_ref
     ]
+
+
+def _output_path_satisfied(ledger: ToolObservationLedger, path: str) -> bool:
+    normalized = str(path or "").strip().replace("\\", "/")
+    if not normalized:
+        return True
+    name = normalized.rstrip("/").rsplit("/", 1)[-1]
+    if "." in name:
+        return ledger.has_write(normalized)
+    keep_path = normalized.rstrip("/") + "/.keep"
+    if ledger.has_write(keep_path):
+        return True
+    normalized_dir = normalized.strip("/").lower()
+    return any(
+        str(observed or "").strip().replace("\\", "/").strip("/").lower().startswith(normalized_dir + "/")
+        for observed in ledger.observed_paths()
+    )
 
 
 def _schema_response_terms(*, obligation: dict[str, Any], contract: dict[str, Any]) -> set[str]:

@@ -5,6 +5,10 @@ from typing import Any
 
 from orchestration.artifact_policy_view import render_artifact_policy_instructions
 from prompting.professional_profiles import get_professional_prompt_profile
+from task_system.contracts.runtime_contracts import (
+    expand_selected_skill_bodies,
+    render_skill_candidate_cards,
+)
 
 from .registry import PromptLibraryRegistry
 from .selector import (
@@ -29,7 +33,6 @@ def assemble_runtime_prompt_contract(
     skill_runtime_views: list[dict[str, Any]],
     projection_requirement: dict[str, Any],
     operation_requirement: dict[str, Any],
-    active_skill: dict[str, Any],
     agent_id: str,
     current_turn_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -56,8 +59,6 @@ def assemble_runtime_prompt_contract(
         for item in skill_runtime_views
         if str(item.get("skill_id") or "").strip()
     ]
-    if not skill_ids and active_skill:
-        skill_ids.append(str(active_skill.get("name") or "").strip())
     prompt_registry = PromptLibraryRegistry(base_dir)
     prompt_resources = prompt_registry.list_resources()
     prompt_selection_context = build_prompt_selection_context(
@@ -69,7 +70,6 @@ def assemble_runtime_prompt_contract(
         task_workflow=task_workflow,
         registered_task=registered_task,
         skill_runtime_views=skill_runtime_views,
-        active_skill=active_skill,
         agent_id=agent_id,
         current_turn_context=current_turn_context,
     )
@@ -86,11 +86,21 @@ def assemble_runtime_prompt_contract(
     )
     node_prompt_resource = selected_stage_role.to_dict() if selected_stage_role is not None else {}
     model_turn_decision = dict(prompt_selection_context.model_turn_decision or {})
+    selected_skill_ids = [
+        str(item).strip()
+        for item in list(model_turn_decision.get("selected_skill_ids") or [])
+        if str(item).strip()
+    ]
+    skill_detail_section, skill_activation = expand_selected_skill_bodies(
+        base_dir=base_dir,
+        skill_runtime_views=skill_runtime_views,
+        selected_skill_ids=selected_skill_ids,
+    )
     interaction_mode = str(prompt_selection_context.interaction_mode or mode_policy.get("interaction_mode") or "").strip()
     return {
         "contract_id": f"orchprompt:{task_id}",
         "task_id": task_id,
-        "definition_id": str(binding.get("definition_id") or task_execution_assembly.get("task_family") or "runtime"),
+        "definition_id": str(binding.get("definition_id") or "runtime"),
         "binding_id": str(binding.get("binding_id") or ""),
         "task_section": "\n".join(
             [
@@ -104,6 +114,8 @@ def assemble_runtime_prompt_contract(
             workflow_steps=workflow_steps,
             skill_ids=skill_ids,
         ),
+        "skill_catalog_section": render_skill_candidate_cards(skill_runtime_views),
+        "skill_detail_section": skill_detail_section,
         "node_professional_prompt_section": _node_professional_prompt_section(
             task_workflow=task_workflow,
             registered_task=registered_task,
@@ -146,11 +158,15 @@ def assemble_runtime_prompt_contract(
             "registered_task_id": str(registered_task.get("task_id") or ""),
             "selected_recipe_id": str(selected_recipe.get("recipe_id") or ""),
             "task_workflow_id": str(task_workflow.get("workflow_id") or ""),
-            "task_family": str(task_execution_assembly.get("task_family") or "").strip(),
             "task_mode": str(task_execution_assembly.get("task_mode") or "").strip(),
             "requested_outputs": list(task_execution_assembly.get("requested_outputs") or ()),
             "workflow_steps": workflow_steps,
             "visible_skill_ids": skill_ids,
+            "model_selected_skill_ids": selected_skill_ids,
+            "activated_skill_ids": list(skill_activation.get("accepted_skill_ids") or []),
+            "rejected_skill_ids": list(skill_activation.get("rejected_skill_ids") or []),
+            "skill_detail_source_refs": list(skill_activation.get("source_refs") or []),
+            "skill_runtime_views": skill_runtime_views,
             "node_professional_prompt_resource": node_prompt_resource,
             "prompt_selection_context": prompt_selection_context.to_dict(),
             "prompt_assembly_plan": prompt_assembly_plan.to_dict(),

@@ -9,6 +9,14 @@
     linear-gradient(180deg, rgba(4, 12, 18, 0.94), rgba(5, 10, 16, 0.98));
 }
 
+.portalEmbedded {
+  height: 100%;
+  min-height: 0;
+  border-radius: 8px;
+  overflow: auto;
+  scrollbar-color: rgba(174, 199, 226, 0.58) transparent;
+}
+
 .portalPlain {
   --portal-accent: #cde8ff;
   --portal-accent-bright: #eff9ff;
@@ -90,6 +98,12 @@
   gap: clamp(0.8rem, 2vh, 1.35rem);
 }
 
+.portalEmbedded .home {
+  min-height: min(48rem, 100%);
+  padding: clamp(0.8rem, 1.5vw, 1.35rem);
+  grid-template-rows: auto minmax(18rem, 1fr);
+}
+
 .homeBackdrop {
   opacity: 0.48;
   filter: saturate(1.05) contrast(1.04);
@@ -144,6 +158,11 @@
   text-shadow: 0 18px 62px rgba(0, 0, 0, 0.48);
 }
 
+.portalEmbedded .homeTitle h1 {
+  max-width: 38rem;
+  font-size: clamp(2.1rem, 3.8vw, 4.2rem);
+}
+
 .homeTitle p {
   margin: 1rem 0 0;
   max-width: 34rem;
@@ -180,6 +199,11 @@
   padding: clamp(1.2rem, 3vw, 2.2rem) 0;
   display: grid;
   align-items: center;
+}
+
+.portalEmbedded .gateDock {
+  width: min(100%, 72rem);
+  padding-block: clamp(0.8rem, 2vw, 1.4rem);
 }
 
 .gateDock::before {
@@ -232,6 +256,12 @@
   user-select: none;
   mask-image: linear-gradient(90deg, transparent, black 11%, black 89%, transparent);
   scroll-padding-inline: max(2rem, 14vw);
+}
+
+.portalEmbedded .homeGates {
+  width: min(45rem, 84vw);
+  padding-inline: max(1.25rem, 9vw);
+  scroll-padding-inline: max(1.25rem, 9vw);
 }
 
 .homeGates::-webkit-scrollbar {
@@ -305,6 +335,11 @@
   transition: transform 240ms ease, filter 240ms ease, box-shadow 240ms ease, opacity 240ms ease;
   clip-path: ellipse(46% 50% at 50% 50%);
   scroll-snap-align: center;
+}
+
+.portalEmbedded .worldGate {
+  flex-basis: clamp(11.5rem, 17vw, 15rem);
+  height: clamp(14rem, 21vw, 18rem);
 }
 
 .worldGate:nth-child(odd) {
@@ -452,6 +487,10 @@
   overflow: hidden;
 }
 
+.portalEmbedded .transition {
+  min-height: min(40rem, 100%);
+}
+
 .transitionScene {
   opacity: 0.36;
   filter: blur(2px) saturate(1.05);
@@ -463,6 +502,10 @@
   width: min(72vw, 34rem);
   aspect-ratio: 1 / 1.18;
   z-index: 2;
+}
+
+.portalEmbedded .transitionPortal {
+  width: min(48vw, 24rem);
 }
 
 .transitionRing {
@@ -523,6 +566,10 @@
   line-height: 0.96;
 }
 
+.portalEmbedded .transitionCopy strong {
+  font-size: clamp(1.7rem, 3vw, 2.7rem);
+}
+
 .transitionCopy p {
   max-width: 28rem;
   color: rgba(246, 249, 255, 0.78);
@@ -534,6 +581,11 @@
   padding: clamp(1rem, 2.2vw, 1.8rem);
   display: grid;
   gap: 1rem;
+}
+
+.portalEmbedded .world {
+  min-height: 100%;
+  padding: clamp(0.8rem, 1.6vw, 1.35rem);
 }
 
 .worldBackdrop {
@@ -963,6 +1015,10 @@
   text-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
 }
 
+.portalEmbedded .heroCopy h2 {
+  font-size: clamp(1.9rem, 3.2vw, 3.4rem);
+}
+
 .heroCopy p {
   margin: 0;
   max-width: 40rem;
@@ -994,6 +1050,11 @@
   gap: clamp(1rem, 2.4vw, 2rem);
 }
 
+.portalEmbedded .worldBody {
+  grid-template-columns: minmax(14rem, 19rem) minmax(0, 1fr);
+  gap: clamp(0.85rem, 1.7vw, 1.35rem);
+}
+
 .worldRail {
   display: grid;
   gap: 1rem;
@@ -1022,6 +1083,10 @@
   gap: 1.15rem;
 }
 
+.portalEmbedded .rail {
+  gap: 0.78rem;
+}
+
 .sigil {
   position: relative;
   display: grid;
@@ -1035,6 +1100,11 @@
   text-align: left;
   cursor: pointer;
   transition: transform 180ms ease, opacity 180ms ease;
+}
+
+.portalEmbedded .sigil {
+  grid-template-columns: 5.4rem minmax(0, 1fr);
+  gap: 0.75rem;
 }
 
 .sigilActive {
@@ -1065,6 +1135,11 @@
   animation: soulFlame 3.8s ease-in-out infinite;
 }
 
+.portalEmbedded .sigilFire {
+  width: 6.8rem;
+  height: 7.8rem;
+}
+
 .sigilActive .sigilFire,
 .sigil:hover .sigilFire,
 .sigil:focus-visible .sigilFire {
@@ -1085,6 +1160,11 @@
   border-radius: 48% 52% 48% 52% / 58% 58% 42% 42%;
   background: transparent;
   mask-image: radial-gradient(ellipse at 50% 44%, black 0 58%, transparent 80%);
+}
+
+.portalEmbedded .sigilImage {
+  width: 5.4rem;
+  height: 7rem;
 }
 
 .sigilImage img {
@@ -1130,6 +1210,12 @@
   border-radius: 42% 58% 38% 62% / 8% 10% 12% 14%;
 }
 
+.portalEmbedded .presence {
+  min-height: clamp(27rem, 56vh, 36rem);
+  padding: clamp(0.9rem, 1.8vw, 1.45rem);
+  border-radius: 2rem;
+}
+
 .presenceVeil {
   position: absolute;
   inset: 0;
@@ -1160,6 +1246,10 @@
   text-shadow: 0 18px 54px rgba(0, 0, 0, 0.54);
 }
 
+.portalEmbedded .presenceTitle strong {
+  font-size: clamp(1.8rem, 3vw, 2.8rem);
+}
+
 .presenceTitle p {
   margin: 0;
   color: rgba(247, 250, 255, 0.76);
@@ -1170,6 +1260,10 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.95rem;
   max-width: min(52rem, 100%);
+}
+
+.portalEmbedded .presenceGrid {
+  gap: 0.7rem;
 }
 
 .storyPanel {
@@ -1237,6 +1331,11 @@
     linear-gradient(180deg, black 0 72%, rgba(0, 0, 0, 0.15) 100%);
   pointer-events: none;
   mix-blend-mode: screen;
+}
+
+.portalEmbedded .presencePortrait {
+  width: min(22rem, 36vw);
+  height: min(31rem, 52vw);
 }
 
 .presencePortrait::before {
@@ -1348,6 +1447,10 @@
   gap: 0.8rem;
 }
 
+.portalEmbedded .modeSheetBody {
+  gap: 0.65rem;
+}
+
 .modePanel {
   display: grid;
   gap: 0.6rem;
@@ -1410,6 +1513,24 @@
 }
 
 @media (max-width: 1100px) {
+  .portalEmbedded .worldBody,
+  .portalEmbedded .presenceGrid,
+  .portalEmbedded .modeSheetBody {
+    grid-template-columns: 1fr;
+  }
+
+  .portalEmbedded .presenceBody {
+    max-width: 100%;
+  }
+
+  .portalEmbedded .presencePortrait {
+    position: relative;
+    inset: auto;
+    width: 100%;
+    height: 20rem;
+    margin-top: 0.5rem;
+  }
+
   .realityStage,
   .worldBody,
   .presenceGrid,
@@ -1459,6 +1580,29 @@
 }
 
 @media (max-width: 720px) {
+  .portalEmbedded {
+    border-radius: 0;
+  }
+
+  .portalEmbedded .home {
+    grid-template-rows: auto minmax(20rem, 1fr);
+  }
+
+  .portalEmbedded .homeTitle h1 {
+    font-size: clamp(2.1rem, 10vw, 3.4rem);
+  }
+
+  .portalEmbedded .homeGates {
+    width: 100%;
+    padding-inline: 20vw;
+    scroll-padding-inline: 20vw;
+  }
+
+  .portalEmbedded .worldGate {
+    flex-basis: clamp(11.5rem, 56vw, 15.5rem);
+    height: clamp(14rem, 66vw, 18rem);
+  }
+
   .home {
     grid-template-rows: auto minmax(22rem, 1fr);
   }

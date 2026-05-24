@@ -31,7 +31,6 @@ describe("TaskGraphDraftV2 mapping", () => {
       graph_id: "graph.test.story",
       title: "Story graph",
       domain_id: "domain.story",
-      task_family: "story",
       task_id: "task.story",
       entry_node_id: "draft",
       output_node_id: "review",
@@ -71,7 +70,6 @@ describe("TaskGraphDraftV2 mapping", () => {
     const payload = buildTaskGraphUpsertPayload({
       taskGraphDraft: draft,
       domain_id: "domain.story",
-      task_family: "story",
       task_id: "task.story",
       publish_state: "published",
     });
@@ -98,6 +96,8 @@ describe("TaskGraphDraftV2 mapping", () => {
     expect(payload.metadata?.runtime_policy).toBeUndefined();
     expect(payload.metadata?.working_memory_policy).toBeUndefined();
     expect(payload.metadata?.graph_contract_id).toBeUndefined();
+    expect(payload.metadata?.task_family).toBeUndefined();
+    expect((payload as Record<string, unknown>).task_family).toBeUndefined();
     expect(payload.metadata?.artifact_policy).toEqual({ enabled: true });
     expect(payload.metadata?.subtask_refs).toEqual(["task.review", "task.draft"]);
     expect(payload.enabled).toBe(true);
@@ -138,7 +138,6 @@ describe("TaskGraphDraftV2 mapping", () => {
     const payload = buildTaskGraphUpsertPayload({
       taskGraphDraft: draft,
       domain_id: "",
-      task_family: "",
       task_id: "",
       publish_state: "draft",
     });
@@ -208,7 +207,6 @@ describe("TaskGraphDraftV2 mapping", () => {
     const payload = buildTaskGraphUpsertPayload({
       taskGraphDraft: draft,
       domain_id: "",
-      task_family: "",
       task_id: "",
       publish_state: "draft",
     });
@@ -233,7 +231,6 @@ describe("TaskGraphDraftV2 mapping", () => {
       graph_id: "graph.restore",
       title: "Restore graph",
       domain_id: "domain.current",
-      task_family: "current",
       graph_kind: "multi_agent",
       entry_node_id: "draft",
       output_node_id: "review",

@@ -472,14 +472,13 @@ class WorkingMemoryStore:
             conn.execute(
                 """
                 INSERT INTO work_memory_policy_profiles (
-                    profile_id, task_family, profile_json, authority
-                ) VALUES (?, ?, ?, ?)
+                    profile_id, profile_json, authority
+                ) VALUES (?, ?, ?)
                 ON CONFLICT(profile_id) DO UPDATE SET
-                    task_family = excluded.task_family,
                     profile_json = excluded.profile_json,
                     authority = excluded.authority
                 """,
-                (profile.profile_id, profile.task_family, _json(profile.to_dict()), profile.authority),
+                (profile.profile_id, _json(profile.to_dict()), profile.authority),
             )
         return profile
 
@@ -620,7 +619,6 @@ class WorkingMemoryStore:
 
                 CREATE TABLE IF NOT EXISTS work_memory_policy_profiles (
                     profile_id TEXT PRIMARY KEY,
-                    task_family TEXT NOT NULL DEFAULT '',
                     profile_json TEXT NOT NULL,
                     authority TEXT NOT NULL
                 );
@@ -781,7 +779,6 @@ def _policy_profile_from_payload(payload: Any) -> WorkingMemoryPolicyProfile:
     data = dict(payload or {})
     return WorkingMemoryPolicyProfile(
         profile_id=str(data.get("profile_id") or ""),
-        task_family=str(data.get("task_family") or ""),
         allowed_kinds=tuple(_string_list(data.get("allowed_kinds"))),
         allowed_semantics=tuple(_string_list(data.get("allowed_semantics"))),  # type: ignore[arg-type]
         readable_scopes_by_node_role=dict(data.get("readable_scopes_by_node_role") or {}),

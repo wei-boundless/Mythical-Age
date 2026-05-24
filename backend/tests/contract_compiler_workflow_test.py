@@ -71,7 +71,6 @@ def test_workflow_contract_compiler_builds_valid_manifest(tmp_path: Path) -> Non
     task = flow_registry.upsert_specific_task_record(
         task_id="task.test.contract_manifest",
         task_title="契约编译测试任务",
-        task_family="test",
         input_contract_id="contract.test.user_goal",
         output_contract_id="contract.test.markdown_result",
         default_workflow_id=workflow.workflow_id,
@@ -117,7 +116,6 @@ def test_workflow_contract_compiler_reports_missing_contract_and_runtime_mismatc
     task = flow_registry.upsert_specific_task_record(
         task_id="task.test.invalid_contract_manifest",
         task_title="契约编译失败任务",
-        task_family="test",
         input_contract_id="contract.test.user_goal",
         output_contract_id="contract.test.missing_output",
         default_workflow_id=workflow.workflow_id,

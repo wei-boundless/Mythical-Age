@@ -79,7 +79,7 @@ def _tool_definitions() -> list[ToolDefinition]:
             factory=lambda base_dir: AgentTodoTool(root_dir=base_dir),
             contract=ToolExecutionContract(
                 required_inputs=[],
-                optional_inputs=["operation", "session_id", "task_id", "items", "todo_id", "status", "notes"],
+                optional_inputs=["operation", "session_id", "task_id", "items", "todos", "todo_id", "status", "notes"],
                 owner_scope="none",
                 missing_binding_behavior="clarify",
                 context_policy="inline",

@@ -472,7 +472,7 @@ def _model_only_finalization(directive: RuntimeDirective) -> bool:
     return (
         bool(diagnostics.get("model_only") is True)
         and str(diagnostics.get("professional_task_mode") or diagnostics.get("interaction_mode") or "").strip()
-        in {"role_mode", "standard_mode", "professional_mode", "vibe_coding"}
+        in {"role_mode", "standard_mode", "professional_mode"}
     )
 
 

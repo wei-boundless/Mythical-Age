@@ -2,7 +2,6 @@
   "flows": [
     {
       "flow_id": "flow.writing.modular_novel.node.project_brief",
-      "task_family": "writing_modular_novel",
       "title": "项目启动包",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.project_brief",
@@ -26,7 +25,6 @@
     },
     {
       "flow_id": "flow.writing.modular_novel.node.world_design",
-      "task_family": "writing_modular_novel",
       "title": "世界观设定候选",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.world_candidate",
@@ -50,7 +48,6 @@
     },
     {
       "flow_id": "flow.writing.modular_novel.node.world_review",
-      "task_family": "writing_modular_novel",
       "title": "世界观审核",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.world_review",
@@ -74,7 +71,6 @@
     },
     {
       "flow_id": "flow.writing.modular_novel.node.memory_commit_world",
-      "task_family": "writing_modular_novel",
       "title": "世界观提交",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.world_commit",
@@ -98,7 +94,6 @@
     },
     {
       "flow_id": "flow.writing.modular_novel.node.character_design",
-      "task_family": "writing_modular_novel",
       "title": "人设与关系设计",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.character_design",
@@ -122,7 +117,6 @@
     },
     {
       "flow_id": "flow.writing.modular_novel.node.character_review",
-      "task_family": "writing_modular_novel",
       "title": "人设与关系审核",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.character_review",
@@ -146,7 +140,6 @@
     },
     {
       "flow_id": "flow.writing.modular_novel.node.plot_design",
-      "task_family": "writing_modular_novel",
       "title": "剧情与伏笔设计",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.plot_design",
@@ -170,7 +163,6 @@
     },
     {
       "flow_id": "flow.writing.modular_novel.node.design_sync",
-      "task_family": "writing_modular_novel",
       "title": "创作架构对齐",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.design_alignment",
@@ -194,7 +186,6 @@
     },
     {
       "flow_id": "flow.writing.modular_novel.node.memory_commit_character",
-      "task_family": "writing_modular_novel",
       "title": "人设与关系提交",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.character_commit",
@@ -218,7 +209,6 @@
     },
     {
       "flow_id": "flow.writing.modular_novel.node.outline_design",
-      "task_family": "writing_modular_novel",
       "title": "全书细纲设计",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.outline_design",
@@ -242,7 +232,6 @@
     },
     {
       "flow_id": "flow.writing.modular_novel.node.outline_review",
-      "task_family": "writing_modular_novel",
       "title": "细纲审核",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.outline_review",
@@ -266,7 +255,6 @@
     },
     {
       "flow_id": "flow.writing.modular_novel.node.baseline_memory_seed",
-      "task_family": "writing_modular_novel",
       "title": "基准库初始化",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.baseline_commit",
@@ -290,7 +278,6 @@
     },
     {
       "flow_id": "flow.writing.modular_novel.node.volume_plan",
-      "task_family": "writing_modular_novel",
       "title": "分卷计划",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.volume_plan",
@@ -314,7 +301,6 @@
     },
     {
       "flow_id": "flow.writing.modular_novel.node.chapter_outline",
-      "task_family": "writing_modular_novel",
       "title": "章节批次细纲",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.chapter_outline",
@@ -338,7 +324,6 @@
     },
     {
       "flow_id": "flow.writing.modular_novel.node.chapter_draft",
-      "task_family": "writing_modular_novel",
       "title": "章节正文草稿",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.chapter_draft",
@@ -362,7 +347,6 @@
     },
     {
       "flow_id": "flow.writing.modular_novel.node.chapter_review",
-      "task_family": "writing_modular_novel",
       "title": "章节批次审核",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.chapter_review",
@@ -386,7 +370,6 @@
     },
     {
       "flow_id": "flow.writing.modular_novel.node.memory_commit_chapter",
-      "task_family": "writing_modular_novel",
       "title": "章节批次提交",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.chapter_batch_commit",
@@ -410,7 +393,6 @@
     },
     {
       "flow_id": "flow.writing.modular_novel.node.chapter_progress_router",
-      "task_family": "writing_modular_novel",
       "title": "章节进度路由",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.progress_route",
@@ -434,7 +416,6 @@
     },
     {
       "flow_id": "flow.writing.modular_novel.node.volume_review",
-      "task_family": "writing_modular_novel",
       "title": "卷级审核",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.volume_review",
@@ -458,7 +439,6 @@
     },
     {
       "flow_id": "flow.writing.modular_novel.node.volume_commit",
-      "task_family": "writing_modular_novel",
       "title": "卷级提交",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.volume_commit",
@@ -482,7 +462,6 @@
     },
     {
       "flow_id": "flow.writing.modular_novel.node.volume_postmortem",
-      "task_family": "writing_modular_novel",
       "title": "卷后复盘",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.volume_postmortem",
@@ -506,7 +485,6 @@
     },
     {
       "flow_id": "flow.writing.modular_novel.node.world_outline_extension_proposal",
-      "task_family": "writing_modular_novel",
       "title": "设定与大纲补充提案",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.extension_proposal",
@@ -530,7 +508,6 @@
     },
     {
       "flow_id": "flow.writing.modular_novel.node.extension_review",
-      "task_family": "writing_modular_novel",
       "title": "补充提案审核",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.extension_review",
@@ -554,7 +531,6 @@
     },
     {
       "flow_id": "flow.writing.modular_novel.node.extension_commit",
-      "task_family": "writing_modular_novel",
       "title": "动态记忆提交",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.extension_commit",
@@ -578,7 +554,6 @@
     },
     {
       "flow_id": "flow.writing.modular_novel.node.next_volume_router",
-      "task_family": "writing_modular_novel",
       "title": "下一卷路由",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.volume_route",
@@ -602,7 +577,6 @@
     },
     {
       "flow_id": "flow.writing.modular_novel.node.final_assemble",
-      "task_family": "writing_modular_novel",
       "title": "全书汇编",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.final_manuscript",
@@ -626,7 +600,6 @@
     },
     {
       "flow_id": "flow.writing.modular_novel.node.final_review",
-      "task_family": "writing_modular_novel",
       "title": "最终审查",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.final_review",
@@ -650,7 +623,6 @@
     },
     {
       "flow_id": "flow.writing.modular_novel.node.memory_finalize",
-      "task_family": "writing_modular_novel",
       "title": "最终记忆封存",
       "input_contract_id": "contract.user_request.basic",
       "output_contract_id": "contract.writing.modular_novel.final_memory_seal",

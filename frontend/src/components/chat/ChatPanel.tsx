@@ -16,6 +16,7 @@ export function ChatPanel() {
     activeStreamSessionIds,
     sessionActivity,
     currentSessionId,
+    workspaceInitializing,
     modelProviderConfig,
     soulImageAssetConfig,
     deepSeekThinkingEnabled,
@@ -79,7 +80,8 @@ export function ChatPanel() {
       <div className="chat-panel-footer min-w-0">
         <SessionActivityBar activity={sessionActivity} active={currentSessionStreaming} />
         <ChatInput
-          disabled={currentSessionStreaming}
+          disabled={workspaceInitializing || currentSessionStreaming}
+          streaming={currentSessionStreaming}
           onSend={sendMessage}
           onStop={stopCurrentStream}
           mainAgentAssemblyMode={mainAgentAssemblyMode}

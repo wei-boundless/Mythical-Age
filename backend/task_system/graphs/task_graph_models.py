@@ -176,7 +176,6 @@ class TaskGraphDefinition:
     graph_id: str
     title: str
     domain_id: str = ""
-    task_family: str = ""
     graph_kind: TaskGraphKind = "single_agent"
     entry_node_id: str = ""
     output_node_id: str = ""
@@ -441,7 +440,6 @@ def task_graph_from_dict(payload: dict[str, Any]) -> TaskGraphDefinition:
         graph_id=graph_id,
         title=str(payload.get("title") or graph_id or "未命名任务图").strip(),
         domain_id=str(payload.get("domain_id") or "").strip(),
-        task_family=str(payload.get("task_family") or "").strip(),
         graph_kind=_normalize_graph_kind(payload.get("graph_kind") or payload.get("coordination_mode"), nodes),
         entry_node_id=str(payload.get("entry_node_id") or _first_start_node(nodes, edges) or "").strip(),
         output_node_id=str(payload.get("output_node_id") or _first_terminal_node(nodes, edges) or "").strip(),

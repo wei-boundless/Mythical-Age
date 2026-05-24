@@ -173,7 +173,6 @@ class AgentRuntimeChainAssembler:
             current_turn_context_payload["turn_id"] = turn_id
         if selection_override_payload:
             current_turn_context_payload.update(selection_override_payload)
-        skill_frame = _resolve_skill_frame(self.skill_registry, query_understanding_payload)
         task_bundle = build_task_execution_assembly_bundle(
             base_dir=self.base_dir,
             session_id=session_id,
@@ -182,7 +181,6 @@ class AgentRuntimeChainAssembler:
             source=source,
             query_understanding=query_understanding_payload,
             current_turn_context=current_turn_context_payload,
-            active_skill=_skill_frame_payload(skill_frame),
             agent_runtime_profile=effective_agent_runtime_profile,
         )
         context_payload: dict[str, Any] = {}
@@ -222,7 +220,6 @@ class AgentRuntimeChainAssembler:
             memory_runtime_view=memory_payload,
             context_policy_result=context_payload,
             current_turn_context=current_turn_context_payload,
-            active_skill=_skill_frame_payload(skill_frame),
             agent_runtime_profile=effective_agent_runtime_profile,
         )
         task_operation.update(
@@ -530,7 +527,6 @@ def _align_understanding_with_explicit_task_selection(
     signals.update(
         {
             "selected_task_id": selected_task_id,
-            "selected_task_family": record.task_family,
             "selected_task_mode": record_task_mode,
             "explicit_task_selection": True,
         }
@@ -538,7 +534,6 @@ def _align_understanding_with_explicit_task_selection(
     context_binding = {
         "kind": "explicit_task_selection",
         "selected_task_id": selected_task_id,
-        "selected_task_family": record.task_family,
         "selected_task_mode": record_task_mode,
     }
     return RequestSignals(
@@ -591,29 +586,6 @@ def _resolve_task_selection_default_agent_id(
     if general_profile is not None:
         return normalize_agent_id(str(general_profile.default_agent_id or "").strip())
     return ""
-
-
-def _resolve_skill_frame(skill_registry: Any | None, task_frame: Any) -> Any | None:
-    if skill_registry is None:
-        return None
-    from capability_system.skill_policy import SkillPolicyResolver
-
-    return SkillPolicyResolver(skill_registry).resolve(task_frame=task_frame)
-
-
-def _skill_frame_payload(skill_frame: Any | None) -> dict[str, Any]:
-    if skill_frame is None:
-        return {}
-    payload = skill_frame.to_dict() if hasattr(skill_frame, "to_dict") else dict(skill_frame)
-    prompt_view = getattr(skill_frame, "prompt_view", None)
-    if prompt_view is not None:
-        if hasattr(prompt_view, "to_dict"):
-            payload["prompt_view"] = prompt_view.to_dict()
-        if hasattr(prompt_view, "render_block"):
-            payload["prompt_block"] = prompt_view.render_block()
-    return payload
-
-
 def _task_goal_spec_from_model_turn_decision(
     *,
     message: str,

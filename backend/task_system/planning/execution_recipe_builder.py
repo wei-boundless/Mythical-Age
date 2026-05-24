@@ -28,7 +28,6 @@ def build_execution_recipe(
         title=str(profile.get("title") or "Runtime task"),
         description=str(profile.get("description") or "Runtime assembly derived from capability resolution and TaskGraph context."),
         execution_kind=str(execution_shape.execution_kind or "conversation"),
-        task_family=str(profile.get("task_family") or execution_shape.source_kind or "general"),
         task_mode=str(profile.get("task_mode") or execution_shape.execution_kind or "runtime"),
         source_kind=str(execution_shape.source_kind or profile.get("source_kind") or ""),
         input_schema=dict(profile.get("input_schema") or {}),
@@ -78,7 +77,6 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
         "runtime.recipe.role_interaction",
         "runtime.recipe.standard_task",
         "runtime.recipe.professional_task",
-        "runtime.recipe.vibe_coding",
     }:
         mode_policy = dict(execution_shape.diagnostics.get("mode_policy") or {})
         semantic_contract = dict(execution_shape.diagnostics.get("task_requirement_contract") or {})
@@ -98,10 +96,9 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
         output_policy = dict(mode_policy.get("output_policy") or {})
         execution_obligation = dict(semantic_contract.get("execution_obligation") or execution_shape.diagnostics.get("execution_obligation") or {})
         strict = bool(verification_policy.get("strict") is True)
-        professional_modes = {"professional_mode", "vibe_coding"}
+        professional_modes = {"professional_mode"}
         standard_or_professional = interaction_mode in {"standard_mode", *professional_modes}
         professional = interaction_mode in professional_modes
-        vibe_coding = interaction_mode == "vibe_coding"
         runtime_task_id = _runtime_task_id_from_contract(semantic_contract)
         agent_plan_draft = build_agent_plan_draft(
             task_id=runtime_task_id,
@@ -136,7 +133,6 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
         return {
             "title": _interaction_mode_title(interaction_mode),
             "description": "Run the main Agent through the unified interaction-mode runtime with semantic contract, evidence, validation, and committed closeout.",
-            "task_family": "runtime",
             "task_mode": interaction_mode,
             "source_kind": execution_shape.source_kind or "runtime_task",
             "output_schema": {
@@ -164,10 +160,10 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
                 "projection_strength": str(mode_policy.get("projection_strength") or ""),
                 "requires_evidence_packet": bool(tool_policy.get("requires_evidence_packet") or professional),
                 "runtime_limits": {
-                    "max_turns": 14 if vibe_coding else (12 if professional else (4 if standard_or_professional else 2)),
-                    "max_model_calls": 36 if vibe_coding else (32 if professional else (12 if standard_or_professional else 4)),
-                    "max_runtime_seconds": 2400 if vibe_coding else (1800 if professional else (600 if standard_or_professional else 120)),
-                    "max_events": 560 if vibe_coding else (480 if professional else (180 if standard_or_professional else 80)),
+                    "max_turns": 12 if professional else (4 if standard_or_professional else 2),
+                    "max_model_calls": 32 if professional else (12 if standard_or_professional else 4),
+                    "max_runtime_seconds": 1800 if professional else (600 if standard_or_professional else 120),
+                    "max_events": 480 if professional else (180 if standard_or_professional else 80),
                     "repair_budget": 3 if professional else (1 if standard_or_professional else 0),
                     "stall_detector": standard_or_professional,
                 },
@@ -201,7 +197,6 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
         return _delegate_profile(
             title="Knowledge retrieval answer",
             description="Retrieve knowledge-base evidence and answer from grounded context.",
-            task_family="retrieval",
             task_mode="knowledge_retrieval",
             source_kind="knowledge",
             delegate_target_agent_id="agent:rag_analyst",
@@ -216,7 +211,6 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
         return _delegate_profile(
             title="PDF document analysis",
             description="Read PDF evidence and answer the current question.",
-            task_family="document",
             task_mode="capability_execution",
             source_kind="pdf",
             delegate_target_agent_id="agent:pdf_reader",
@@ -232,7 +226,6 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
         return _delegate_profile(
             title="Structured data analysis",
             description="Analyze table or dataset evidence and answer the current question.",
-            task_family="data",
             task_mode="capability_execution",
             source_kind="dataset",
             delegate_target_agent_id="agent:table_analyst",
@@ -248,7 +241,6 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
         return {
             "title": "Information search",
             "description": "Search external or realtime information and summarize traceable results.",
-            "task_family": "search",
             "task_mode": "information_search",
             "source_kind": "external_web",
             "required_operations": ("op.model_response", "op.web_search"),
@@ -268,7 +260,6 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
         return {
             "title": "Memory recall answer",
             "description": "Answer from conversation, state, and long-term memory context.",
-            "task_family": "memory",
             "task_mode": "memory_recall",
             "source_kind": "memory",
             "required_operations": ("op.model_response", "op.memory_read"),
@@ -285,7 +276,6 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
         return {
             "title": "Multi-capability bundle",
             "description": "Execute multiple bound runtime items and combine the result.",
-            "task_family": "bundle",
             "task_mode": "capability_execution",
             "source_kind": "mixed_sources",
             "output_schema": {"final_answer": {"type": "string", "required": True}, "bundle_result_refs": {"type": "array", "required": False}},
@@ -300,7 +290,6 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
         return {
             "title": "Builtin capability lane",
             "description": "Execute authorized capability operations and return grounded results.",
-            "task_family": "capability",
             "task_mode": "capability_execution",
             "source_kind": execution_shape.source_kind or "workspace",
             "required_operations": ("op.model_response",),
@@ -325,7 +314,6 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
         return {
             "title": "Light web game" if is_game else "Workspace patch",
             "description": "Produce a bounded workspace artifact or patch.",
-            "task_family": "development",
             "task_mode": "light_web_game" if is_game else "bounded_patch",
             "source_kind": "workspace",
             "output_schema": {"final_answer": {"type": "string", "required": True}, "artifact_refs": {"type": "array", "required": False}},
@@ -352,7 +340,6 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
     return {
         "title": "Main conversation",
         "description": "General runtime conversation and final answer.",
-        "task_family": "general",
         "task_mode": "general_task",
         "source_kind": execution_shape.source_kind or "conversation",
         "required_operations": ("op.model_response",),
@@ -368,7 +355,6 @@ def _delegate_profile(
     *,
     title: str,
     description: str,
-    task_family: str,
     task_mode: str,
     source_kind: str,
     delegate_target_agent_id: str,
@@ -380,7 +366,6 @@ def _delegate_profile(
     return {
         "title": title,
         "description": description,
-        "task_family": task_family,
         "task_mode": task_mode,
         "source_kind": source_kind,
         "output_schema": output_schema or {"final_answer": {"type": "string", "required": True}},
@@ -400,7 +385,6 @@ def _interaction_mode_title(interaction_mode: str) -> str:
         "role_mode": "Main Agent role interaction",
         "standard_mode": "Main Agent standard task",
         "professional_mode": "Main Agent professional task",
-        "vibe_coding": "Main Agent vibe coding task",
     }.get(str(interaction_mode or ""), "Main Agent interaction task")
 
 
@@ -418,7 +402,7 @@ def _needs_agent_todo(
     agent_plan_draft: dict[str, Any],
     step_blueprints: tuple[TaskStepBlueprint, ...],
 ) -> bool:
-    if interaction_mode in {"professional_mode", "vibe_coding"}:
+    if interaction_mode == "professional_mode":
         return True
     steps = [item for item in list(agent_plan_draft.get("steps") or []) if isinstance(item, dict)]
     if len(steps) > 1 or len(step_blueprints) > 2:

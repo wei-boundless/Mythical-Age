@@ -532,9 +532,10 @@ function realityProjectionView(card: SoulProjectionCard) {
 
 type PlaygroundViewProps = {
   onReturnToWorkspace?: () => void;
+  embedded?: boolean;
 };
 
-export function PlaygroundView({ onReturnToWorkspace }: PlaygroundViewProps) {
+export function PlaygroundView({ onReturnToWorkspace, embedded = false }: PlaygroundViewProps) {
   const { activeSoulKey, switchSoul } = useAppStore();
   const [catalog, setCatalog] = useState<SoulSystemCatalog>(() => buildFallbackCatalog(activeSoulKey));
   const [projectionCatalog, setProjectionCatalog] = useState<SoulProjectionCatalog>(FALLBACK_PROJECTION_CATALOG);
@@ -1475,7 +1476,11 @@ export function PlaygroundView({ onReturnToWorkspace }: PlaygroundViewProps) {
 
   return (
     <div
-      className={`${styles.portal} ${selectedWorldTheme === "honghuang" ? styles.portalHonghuang : styles.portalPlain}`}
+      className={[
+        styles.portal,
+        embedded ? styles.portalEmbedded : "",
+        selectedWorldTheme === "honghuang" ? styles.portalHonghuang : styles.portalPlain,
+      ].filter(Boolean).join(" ")}
       style={
         {
           ["--portal-backdrop" as never]: `url("${currentSoulBackdrop}")`,

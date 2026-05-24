@@ -58,13 +58,11 @@ export function taskGraphSelectionScore(graph: TaskGraphRecord) {
   const metadata = graphMetadata(graph);
   const graphId = text(graph.graph_id);
   const domainId = text(graph.domain_id);
-  const family = text(graph.task_family);
   const managedBy = text(metadata.managed_by);
   let score = 0;
 
   if (graphId === MODULAR_NOVEL_MASTER_GRAPH_ID) score += 10000;
   if (domainId === MODULAR_NOVEL_DOMAIN_ID) score += 2200;
-  if (family === "writing_modular_novel") score += 1800;
   if (graphId.includes(".modular_novel.")) score += 1500;
   if (managedBy.includes("modular_novel")) score += 1200;
   if (hasLinkedGraphModules(graph)) score += 900;

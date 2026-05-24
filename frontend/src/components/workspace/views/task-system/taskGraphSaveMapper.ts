@@ -6,7 +6,6 @@ import { asRecord, stringListOf } from "./taskGraphDraftV2";
 export type BuildTaskGraphUpsertPayloadInput = {
   taskGraphDraft: TaskGraphDraftV2;
   domain_id: string;
-  task_family: string;
   task_id: string;
   publish_state: "draft" | "published";
 };
@@ -41,7 +40,6 @@ function communicationModesFromEdges(edges: Array<Record<string, unknown>>): str
 export function buildTaskGraphUpsertPayload({
   taskGraphDraft,
   domain_id,
-  task_family,
   task_id,
   publish_state,
 }: BuildTaskGraphUpsertPayloadInput): TaskGraphRecord {
@@ -80,7 +78,6 @@ export function buildTaskGraphUpsertPayload({
     graph_id: taskGraphDraft.graph_id,
     title: taskGraphDraft.title,
     domain_id,
-    task_family,
     graph_kind: taskGraphDraft.graph_kind,
     entry_node_id: taskGraphDraft.entry_node_id,
     output_node_id: taskGraphDraft.output_node_id,
@@ -99,7 +96,6 @@ export function buildTaskGraphUpsertPayload({
       ...metadata,
       protocol_id: taskGraphDraft.default_protocol_id || String(metadata.protocol_id ?? ""),
       topology_template_id: String(metadata.topology_template_id ?? ""),
-      task_family,
       domain_id,
       ...(task_id ? { task_id } : {}),
       handoff_policy: String(taskGraphDraft.context_policy.handoff_policy ?? metadata.handoff_policy ?? ""),

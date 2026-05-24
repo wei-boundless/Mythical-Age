@@ -116,21 +116,20 @@ def test_standard_mode_is_bounded_tool_task_without_delegation() -> None:
     assert payload["verification_policy"]["required"] is True
 
 
-def test_vibe_coding_alias_is_accepted_for_explicit_mode() -> None:
+def test_vibe_coding_alias_falls_back_to_professional_mode() -> None:
     policy = build_runtime_interaction_mode_policy(
         task_requirement_contract={"task_goal_type": "code_fix_execution"},
         query_understanding={},
         current_turn_context={"interaction_mode": "vibe_code"},
     ).to_dict()
 
-    assert policy["interaction_mode"] == "vibe_coding"
-    assert policy["runtime_lane"] == "vibe_coding_task"
-    assert policy["recipe_id"] == "runtime.recipe.vibe_coding"
-    assert policy["output_policy"]["answer_boundary"] == "coding_change_evidence"
-    assert policy["diagnostics"]["vibe_coding"] is True
+    assert policy["interaction_mode"] == "professional_mode"
+    assert policy["runtime_lane"] == "professional_task"
+    assert policy["recipe_id"] == "runtime.recipe.professional_task"
+    assert policy["output_policy"]["answer_boundary"] == "professional_deliverable"
 
 
-def test_regression_test_design_selects_vibe_coding_mode() -> None:
+def test_regression_test_design_selects_professional_mode() -> None:
     turn_context = model_turn_context(
         action_intent="read_context",
         work_mode="planning",
@@ -145,11 +144,11 @@ def test_regression_test_design_selects_vibe_coding_mode() -> None:
         current_turn_context=turn_context,
     ).to_dict()
 
-    assert policy["interaction_mode"] == "vibe_coding"
-    assert policy["runtime_lane"] == "vibe_coding_task"
+    assert policy["interaction_mode"] == "professional_mode"
+    assert policy["runtime_lane"] == "professional_task"
 
 
-def test_frontend_delivery_selects_vibe_coding_mode() -> None:
+def test_frontend_delivery_selects_professional_mode() -> None:
     turn_context = model_turn_context(
         action_intent="edit_workspace",
         work_mode="implementation",
@@ -164,9 +163,9 @@ def test_frontend_delivery_selects_vibe_coding_mode() -> None:
         current_turn_context=turn_context,
     ).to_dict()
 
-    assert policy["interaction_mode"] == "vibe_coding"
-    assert policy["runtime_lane"] == "vibe_coding_task"
-    assert policy["recipe_id"] == "runtime.recipe.vibe_coding"
+    assert policy["interaction_mode"] == "professional_mode"
+    assert policy["runtime_lane"] == "professional_task"
+    assert policy["recipe_id"] == "runtime.recipe.professional_task"
     assert policy["verification_policy"]["strict"] is True
 
 
@@ -215,7 +214,7 @@ def test_draft_artifact_delivery_is_not_code_fix_execution() -> None:
     assert contract.execution_obligation["required_writes"]
 
 
-def test_failure_repair_with_pytest_is_obligation_driven_vibe_coding_mode() -> None:
+def test_failure_repair_with_pytest_is_obligation_driven_professional_mode() -> None:
     goal = (
         "追踪 backend/tests/fixtures/professional_task_suite/failing_sixty_turn_summary.json 的失败原因，"
         "修复代码，然后运行 pytest 验证。"
@@ -240,11 +239,11 @@ def test_failure_repair_with_pytest_is_obligation_driven_vibe_coding_mode() -> N
     assert "apply_real_change" in semantic["required_actions"]
     assert "run_verification" in semantic["required_actions"]
     assert "modify_code_without_request" not in semantic["forbidden_actions"]
-    assert policy["interaction_mode"] == "vibe_coding"
+    assert policy["interaction_mode"] == "professional_mode"
     assert policy["mode_reason"] == "execution_obligation:write_or_verify"
     assert policy["projection_strength"] == "style_only"
-    assert policy["runtime_lane"] == "vibe_coding_task"
-    assert policy["recipe_id"] == "runtime.recipe.vibe_coding"
+    assert policy["runtime_lane"] == "professional_task"
+    assert policy["recipe_id"] == "runtime.recipe.professional_task"
     assert policy["verification_policy"]["strict"] is True
     assert "edit_file" in policy["tool_policy"]["allowed_tool_names"]
     assert "terminal" in policy["tool_policy"]["allowed_tool_names"]

@@ -5,9 +5,68 @@ import platform
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from health_system.maintenance.harness.contracts import RunContext, TimingSnapshot
+
+
+class SseEventCollector:
+    def __init__(
+        self,
+        *,
+        request_start: float,
+        request_start_ts: str | None = None,
+        on_event: Callable[[dict[str, Any], list[dict[str, Any]], TimingSnapshot], None] | None = None,
+    ) -> None:
+        self.timing = TimingSnapshot(started_at=request_start_ts or iso_now())
+        self.events: list[dict[str, Any]] = []
+        self._request_start = request_start
+        self._on_event = on_event
+        self._event_name = "message"
+        self._data_lines: list[str] = []
+
+    def consume_line(self, raw: Any) -> None:
+        line = raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)
+        if line == "":
+            self.flush()
+            return
+        if line.startswith("event:"):
+            self._event_name = line[6:].strip()
+        elif line.startswith("data:"):
+            self._data_lines.append(line[5:].strip())
+
+    def finish(self) -> tuple[list[dict[str, Any]], TimingSnapshot]:
+        self.flush()
+        self.timing.ended_at = iso_now()
+        self.timing.duration_ms = round((time.perf_counter() - self._request_start) * 1000.0, 2)
+        self.timing.event_count = len(self.events)
+        return self.events, self.timing
+
+    def flush(self) -> None:
+        if not self._data_lines:
+            self._event_name = "message"
+            self._data_lines = []
+            return
+        delta_ms = round((time.perf_counter() - self._request_start) * 1000.0, 2)
+        try:
+            payload = json.loads("\n".join(self._data_lines))
+        except json.JSONDecodeError:
+            payload = {"raw": "\n".join(self._data_lines)}
+        event = {"event": self._event_name, "data": payload, "ts_ms": delta_ms}
+        self.events.append(event)
+        if self.timing.first_event_ms is None:
+            self.timing.first_event_ms = delta_ms
+        if self._event_name in {"token", "message"} and self.timing.first_token_ms is None:
+            content = str(payload.get("content", "") or "")
+            if content.strip():
+                self.timing.first_token_ms = delta_ms
+        if self._event_name in {"done", "error"}:
+            self.timing.done_ms = delta_ms
+            self.timing.terminal_event = self._event_name
+        if self._on_event is not None:
+            self._on_event(event, self.events, self.timing)
+        self._event_name = "message"
+        self._data_lines = []
 
 
 def iso_now() -> str:
@@ -32,51 +91,16 @@ def collect_sse_events(
     *,
     request_start: float,
     request_start_ts: str | None = None,
+    on_event: Callable[[dict[str, Any], list[dict[str, Any]], TimingSnapshot], None] | None = None,
 ) -> tuple[list[dict[str, Any]], TimingSnapshot]:
-    timing = TimingSnapshot(started_at=request_start_ts or iso_now())
-    events: list[dict[str, Any]] = []
-    event_name = "message"
-    data_lines: list[str] = []
-
-    def flush() -> None:
-        nonlocal event_name, data_lines
-        if not data_lines:
-            event_name = "message"
-            data_lines = []
-            return
-        delta_ms = round((time.perf_counter() - request_start) * 1000.0, 2)
-        try:
-            payload = json.loads("\n".join(data_lines))
-        except json.JSONDecodeError:
-            payload = {"raw": "\n".join(data_lines)}
-        events.append({"event": event_name, "data": payload, "ts_ms": delta_ms})
-        if timing.first_event_ms is None:
-            timing.first_event_ms = delta_ms
-        if event_name in {"token", "message"} and timing.first_token_ms is None:
-            content = str(payload.get("content", "") or "")
-            if content.strip():
-                timing.first_token_ms = delta_ms
-        if event_name in {"done", "error"}:
-            timing.done_ms = delta_ms
-            timing.terminal_event = event_name
-        event_name = "message"
-        data_lines = []
-
+    collector = SseEventCollector(
+        request_start=request_start,
+        request_start_ts=request_start_ts,
+        on_event=on_event,
+    )
     for raw in response.iter_lines():
-        line = raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)
-        if line == "":
-            flush()
-            continue
-        if line.startswith("event:"):
-            event_name = line[6:].strip()
-        elif line.startswith("data:"):
-            data_lines.append(line[5:].strip())
-
-    flush()
-    timing.ended_at = iso_now()
-    timing.duration_ms = round((time.perf_counter() - request_start) * 1000.0, 2)
-    timing.event_count = len(events)
-    return events, timing
+        collector.consume_line(raw)
+    return collector.finish()
 
 
 def final_text(events: list[dict[str, Any]]) -> str:

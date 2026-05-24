@@ -19,6 +19,7 @@ import {
   getRagMode,
   getSessionHistory,
   getSessionTokens,
+  isRequestAbortError,
   listSessions,
   listSkills,
   resumeOrchestrationTaskGraphRun,
@@ -68,9 +69,14 @@ export class WorkspaceRuntime {
   private globalRuntimeMonitorPolling = false;
   private globalRuntimeMonitorRequest = 0;
   private globalRuntimeMonitorEventSource: EventSource | null = null;
+  private globalRuntimeMonitorReconnectTimer: number | null = null;
   private globalRuntimeMonitorDetailRefreshTimer: number | null = null;
+  private globalRuntimeMonitorDetailInFlightTaskRunId: string | null = null;
+  private globalRuntimeMonitorQueuedDetailTaskRunId: string | null = null;
+  private globalRuntimeMonitorDetailLoadedAt = new Map<string, number>();
   private globalRuntimeMonitorVisibilityListener: (() => void) | null = null;
   private sessionRefreshTimers: number[] = [];
+  private sessionListFailureNotifiedAt = 0;
   private streamingSessionCache = new Map<string, Pick<StoreState, "messages" | "orchestrationSnapshot">>();
   private removedStreamingSessionIds = new Set<string>();
   private streamAbortControllers = new Map<string, AbortController>();
@@ -203,23 +209,74 @@ export class WorkspaceRuntime {
   }
 
   private async initializeWorkspace() {
-    const [sessions, rag, skills, souls, modelProviderConfig, soulImageAssetConfig, workspaceContext] = await Promise.all([
-      listSessions(),
-      getRagMode(),
-      listSkills(),
-      this.loadSouls(),
+    this.store.setState((prev) => ({
+      ...prev,
+      workspaceInitializing: true,
+    }));
+    try {
+      let sessions = await listSessions();
+      this.store.setState((prev) => ({
+        ...prev,
+        sessions,
+      }));
+
+      const currentSessionId = this.store.getState().currentSessionId;
+      if (!currentSessionId && sessions.length) {
+        const sessionId = sessions[0].id;
+        const restoredFromStreamCache = this.applySelectedSessionShell(sessionId);
+        if (!restoredFromStreamCache) {
+          void this.refreshSessionDetails(sessionId).catch(() => undefined);
+          void this.hydrateLatestOrchestrationSnapshot(sessionId).catch(() => undefined);
+        }
+      } else if (!currentSessionId) {
+        await this.createFreshSession();
+      }
+      this.store.setState((prev) => ({
+        ...prev,
+        workspaceInitializing: false,
+      }));
+    } catch (error) {
+      this.store.setState((prev) => ({
+        ...prev,
+        workspaceInitializing: false,
+        sessionActivity: {
+          level: "error",
+          title: "会话连接失败",
+          detail: this.errorMessage(error, "无法创建或读取会话，请确认后端服务仍在 127.0.0.1:8003。"),
+          event: "workspace_initialize_failed",
+          receipt: {
+            level: "error",
+            title: "会话连接失败",
+            body: this.errorMessage(error, "无法创建或读取会话，请确认后端服务仍在 127.0.0.1:8003。"),
+            debug: {
+              event: "workspace_initialize_failed",
+            },
+          },
+          updatedAt: Date.now(),
+        },
+      }));
+    }
+
+    void this.loadWorkspaceMetadata().catch(() => undefined);
+    void this.loadInspectorMemoryFile().catch(() => undefined);
+    this.restoreTaskGraphMonitorBinding();
+  }
+
+  private async loadWorkspaceMetadata() {
+    const [rag, skills, souls, modelProviderConfig, soulImageAssetConfig, workspaceContext] = await Promise.all([
+      getRagMode().catch(() => null),
+      listSkills().catch(() => []),
+      this.loadSouls().catch(() => ({ options: [], activeSoulKey: null })),
       getModelProviderConfig().catch(() => null),
       getSoulImageAssetConfig().catch(() => null),
       getWorkspaceContext().catch(() => null)
     ]);
-
     this.store.setState((prev) => ({
       ...prev,
-      sessions,
-      ragMode: rag.enabled,
+      ragMode: Boolean(rag?.enabled),
       searchPolicy: {
         ...prev.searchPolicy,
-        rag: rag.enabled
+        rag: Boolean(rag?.enabled)
       },
       modelProviderConfig,
       soulImageAssetConfig,
@@ -230,22 +287,19 @@ export class WorkspaceRuntime {
       selectedChatMode: this.resolveSelectedChatMode(prev.selectedChatModelId, modelProviderConfig),
       deepSeekThinkingEnabled: String(modelProviderConfig?.thinking_mode || "").trim().toLowerCase() === "enabled"
     }));
+  }
 
-    const currentSessionId = this.store.getState().currentSessionId;
-    if (!currentSessionId && sessions.length) {
-      await this.selectSession(sessions[0].id);
-    } else if (!currentSessionId) {
-      await this.createFreshSession();
+  private async loadInspectorMemoryFile() {
+    const file = await loadFile("durable_memory/index/MEMORY.md").catch(() => null);
+    if (!file) {
+      return;
     }
-
-    const file = await loadFile("durable_memory/index/MEMORY.md");
     this.store.setState((prev) => ({
       ...prev,
       inspectorPath: file.path,
       inspectorContent: file.content,
       inspectorDirty: false
     }));
-    this.restoreTaskGraphMonitorBinding();
   }
 
   dispose() {
@@ -262,7 +316,7 @@ export class WorkspaceRuntime {
     this.stopGlobalRuntimeMonitorEventStream();
   }
 
-  private scheduleSessionRefreshes(delays: number[] = [1500, 4000]) {
+  private scheduleSessionRefreshes(delays: number[] = [5000, 15000]) {
     if (typeof window === "undefined") {
       return;
     }
@@ -271,14 +325,51 @@ export class WorkspaceRuntime {
     }
     this.sessionRefreshTimers = delays.map((delay) =>
       window.setTimeout(() => {
-        void this.refreshSessions();
+        void this.refreshSessions().catch((error) => {
+          this.noteSessionRefreshFailure(error);
+        });
       }, delay)
     );
   }
 
   private async refreshSessions() {
     const sessions = await listSessions();
+    this.sessionListFailureNotifiedAt = 0;
     this.store.setState((prev) => ({ ...prev, sessions }));
+  }
+
+  private refreshSessionsInBackground() {
+    void this.refreshSessions().catch((error) => {
+      this.noteSessionRefreshFailure(error);
+    });
+  }
+
+  private noteSessionRefreshFailure(error: unknown) {
+    const now = Date.now();
+    if (now - this.sessionListFailureNotifiedAt < 15000) {
+      return;
+    }
+    this.sessionListFailureNotifiedAt = now;
+    this.store.setState((prev) => ({
+      ...prev,
+      sessionActivity: prev.isStreaming
+        ? prev.sessionActivity
+        : {
+            level: "error",
+            title: "会话列表暂时不可用",
+            detail: this.errorMessage(error, "会话列表读取超时，前端已保持当前页面不掉线。"),
+            event: "session_list_refresh_failed",
+            receipt: {
+              level: "error",
+              title: "会话列表暂时不可用",
+              body: this.errorMessage(error, "会话列表读取超时，前端已保持当前页面不掉线。"),
+              debug: {
+                event: "session_list_refresh_failed",
+              },
+            },
+            updatedAt: Date.now(),
+          },
+    }));
   }
 
   private async refreshSkills() {
@@ -297,18 +388,52 @@ export class WorkspaceRuntime {
 
   private async refreshSessionDetails(sessionId: string) {
     const requestId = ++this.sessionDetailsRequest;
-    const [history, tokens] = await Promise.all([
-      getSessionHistory(sessionId),
-      getSessionTokens(sessionId)
-    ]);
-    if (this.store.getState().currentSessionId !== sessionId || this.sessionDetailsRequest !== requestId) {
-      return;
+    try {
+      const [history, tokens] = await Promise.all([
+        getSessionHistory(sessionId),
+        getSessionTokens(sessionId)
+      ]);
+      if (this.store.getState().currentSessionId !== sessionId || this.sessionDetailsRequest !== requestId) {
+        return;
+      }
+      this.store.setState((prev) => ({
+        ...prev,
+        messages: toUiMessages(history.messages),
+        tokenStats: tokens,
+        sessionActivity: prev.sessionActivity.event === "session_history_load_failed"
+          ? {
+              level: "idle",
+              title: "待命",
+              detail: "输入消息后，会在这里显示当前处理阶段。",
+              event: "",
+              updatedAt: Date.now(),
+            }
+          : prev.sessionActivity,
+      }));
+    } catch (error) {
+      if (this.store.getState().currentSessionId !== sessionId || this.sessionDetailsRequest !== requestId) {
+        return;
+      }
+      this.store.setState((prev) => ({
+        ...prev,
+        sessionActivity: {
+          level: "error",
+          title: "历史读取超时",
+          detail: this.errorMessage(error, "会话历史暂时读取失败，当前页面不会中断，可以继续使用或稍后重试。"),
+          event: "session_history_load_failed",
+          receipt: {
+            level: "error",
+            title: "历史读取超时",
+            body: this.errorMessage(error, "会话历史暂时读取失败，当前页面不会中断，可以继续使用或稍后重试。"),
+            debug: {
+              event: "session_history_load_failed",
+              sessionId,
+            },
+          },
+          updatedAt: Date.now(),
+        },
+      }));
     }
-    this.store.setState((prev) => ({
-      ...prev,
-      messages: toUiMessages(history.messages),
-      tokenStats: tokens
-    }));
   }
 
   private addActiveStreamSession(sessionId: string) {
@@ -379,7 +504,13 @@ export class WorkspaceRuntime {
   }
 
   private async createNewSession() {
-    const sessionId = await this.createFreshSession();
+    let sessionId: string;
+    try {
+      sessionId = await this.createFreshSession();
+    } catch (error) {
+      this.noteSessionRefreshFailure(error);
+      return;
+    }
     this.store.setState((prev) => ({
       ...prev,
       currentSessionId: sessionId,
@@ -389,10 +520,21 @@ export class WorkspaceRuntime {
       taskGraphRunMonitor: null,
       tokenStats: null
     }));
-    await this.refreshSessions();
+    await this.refreshSessions().catch((error) => {
+      this.noteSessionRefreshFailure(error);
+    });
   }
 
   private async selectSession(sessionId: string) {
+    const restoredFromStreamCache = this.applySelectedSessionShell(sessionId);
+    if (restoredFromStreamCache) {
+      return;
+    }
+    await this.refreshSessionDetails(sessionId).catch(() => undefined);
+    await this.hydrateLatestOrchestrationSnapshot(sessionId).catch(() => false);
+  }
+
+  private applySelectedSessionShell(sessionId: string) {
     this.stopOrchestrationMonitorPolling();
     const streamingCache = this.streamingSessionCache.get(sessionId);
     if (this.store.getState().activeStreamSessionIds.includes(sessionId) && streamingCache) {
@@ -405,7 +547,7 @@ export class WorkspaceRuntime {
         taskGraphRunMonitor: null,
         tokenStats: null
       }));
-      return;
+      return true;
     }
     this.store.setState((prev) => ({
       ...prev,
@@ -416,8 +558,7 @@ export class WorkspaceRuntime {
       taskGraphRunMonitor: null,
       tokenStats: null
     }));
-    await this.refreshSessionDetails(sessionId);
-    await this.hydrateLatestOrchestrationSnapshot(sessionId);
+    return false;
   }
 
   private async sendMessage(value: string) {
@@ -427,9 +568,43 @@ export class WorkspaceRuntime {
       return;
     }
 
-    const sessionId = await this.ensureSession();
+    let sessionId: string;
+    try {
+      sessionId = await this.ensureSession();
+    } catch (error) {
+      this.store.setState((prev) => ({
+        ...prev,
+        sessionActivity: {
+          level: "error",
+          title: "会话连接失败",
+          detail: this.errorMessage(error, "无法创建会话，请确认后端服务仍在 127.0.0.1:8003。"),
+          event: "session_create_failed",
+          receipt: {
+            level: "error",
+            title: "会话连接失败",
+            body: this.errorMessage(error, "无法创建会话，请确认后端服务仍在 127.0.0.1:8003。"),
+            debug: {
+              event: "session_create_failed",
+            },
+          },
+          updatedAt: Date.now(),
+        },
+      }));
+      throw error;
+    }
     if (this.store.getState().activeStreamSessionIds.includes(sessionId)) {
-      return;
+      const error = new Error("当前会话仍在生成回答，请等待收口后再发送。");
+      this.store.setState((prev) => ({
+        ...prev,
+        sessionActivity: {
+          level: "running",
+          title: "正在生成回答",
+          detail: error.message,
+          event: "session_stream_already_active",
+          updatedAt: Date.now(),
+        },
+      }));
+      throw error;
     }
     this.removedStreamingSessionIds.delete(sessionId);
     this.stoppedStreamingSessionIds.delete(sessionId);
@@ -441,6 +616,7 @@ export class WorkspaceRuntime {
     const isImageGenerationTurn = Boolean(imageGeneration);
     let consumedEphemeralSystemMessages = false;
     let streamEndedWithError = false;
+    let streamEndedWithSynthesizedDone = false;
     this.store.setState((prev) => ({
       ...prev,
       orchestrationSnapshot: null,
@@ -480,6 +656,7 @@ export class WorkspaceRuntime {
       orchestrationSnapshot: streamState.orchestrationSnapshot
     });
     this.addActiveStreamSession(sessionId);
+    this.deferMonitorPollingForActiveStream();
     if (isImageGenerationTurn) {
       this.stopOrchestrationMonitorPolling();
       this.store.setState((prev) => ({
@@ -495,7 +672,7 @@ export class WorkspaceRuntime {
     }
 
     try {
-      await streamChat(
+      const streamResult = await streamChat(
         {
           message: trimmed,
           session_id: sessionId,
@@ -543,7 +720,12 @@ export class WorkspaceRuntime {
         },
         { signal: abortController.signal }
       );
-      consumedEphemeralSystemMessages = true;
+      consumedEphemeralSystemMessages = streamResult.terminalEvent === "done";
+      streamEndedWithError = streamResult.terminalEvent === "error";
+      streamEndedWithSynthesizedDone = streamResult.synthesized === true;
+      if (streamResult.terminalEvent === "stopped") {
+        this.stoppedStreamingSessionIds.add(sessionId);
+      }
     } catch (error) {
       if (this.removedStreamingSessionIds.has(sessionId)) {
         return;
@@ -610,13 +792,14 @@ export class WorkspaceRuntime {
         !streamSessionWasRemoved
         && !streamSessionWasStopped
         && !streamEndedWithError
+        && !streamEndedWithSynthesizedDone
         && !isImageGenerationTurn
         && this.store.getState().currentSessionId === sessionId
       ) {
         await this.refreshSessionDetails(sessionId);
         await this.hydrateLatestOrchestrationSnapshot(sessionId);
       }
-      await this.refreshSessions();
+      this.refreshSessionsInBackground();
       this.scheduleSessionRefreshes();
     }
   }
@@ -631,7 +814,15 @@ export class WorkspaceRuntime {
   }
 
   private isAbortError(error: unknown) {
-    return error instanceof DOMException && error.name === "AbortError";
+    return isRequestAbortError(error);
+  }
+
+  private isTransientMonitorError(error: unknown) {
+    if (isRequestAbortError(error)) {
+      return true;
+    }
+    const message = error instanceof Error ? error.message : String(error ?? "");
+    return /aborted|aborterror|timed out|timeout|signal is aborted/i.test(message);
   }
 
   private async resendEditedMessage(messageId: string, value: string) {
@@ -883,7 +1074,9 @@ export class WorkspaceRuntime {
       return;
     }
     await renameSession(currentSessionId, title.trim());
-    await this.refreshSessions();
+    await this.refreshSessions().catch((error) => {
+      this.noteSessionRefreshFailure(error);
+    });
   }
 
   private async removeSession(sessionId: string) {
@@ -895,11 +1088,16 @@ export class WorkspaceRuntime {
     this.store.setState((prev) => {
       return this.removeActiveStreamSession(prev, sessionId);
     });
-    await this.refreshSessions();
+    await this.refreshSessions().catch((error) => {
+      this.noteSessionRefreshFailure(error);
+    });
     if (this.store.getState().currentSessionId !== sessionId) {
       return;
     }
-    const nextSessions = await listSessions();
+    const nextSessions = await listSessions().catch((error) => {
+      this.noteSessionRefreshFailure(error);
+      return [];
+    });
     this.store.setState((prev) => ({
       ...prev,
       sessions: nextSessions
@@ -909,7 +1107,7 @@ export class WorkspaceRuntime {
         ...prev,
         currentSessionId: nextSessions[0].id
       }));
-      await this.refreshSessionDetails(nextSessions[0].id);
+      await this.refreshSessionDetails(nextSessions[0].id).catch(() => undefined);
       return;
     }
     this.store.setState((prev) => ({
@@ -1132,7 +1330,7 @@ export class WorkspaceRuntime {
     }
     this.taskGraphMonitorTimer = window.setTimeout(() => {
       void this.pollTaskGraphMonitor(taskRunId);
-    }, delayMs);
+    }, this.monitorPollDelay(delayMs, 5000));
   }
 
   private async pollTaskGraphMonitor(taskRunId: string) {
@@ -1141,7 +1339,7 @@ export class WorkspaceRuntime {
       return;
     }
     if (this.taskGraphMonitorInFlight) {
-      this.scheduleNextTaskGraphMonitorPoll(targetTaskRunId, 900);
+      this.scheduleNextTaskGraphMonitorPoll(targetTaskRunId, 3000);
       return;
     }
     this.taskGraphMonitorInFlight = true;
@@ -1296,7 +1494,7 @@ export class WorkspaceRuntime {
     }
     this.orchestrationMonitorTimer = window.setTimeout(() => {
       void this.pollOrchestrationMonitor(sessionId);
-    }, delayMs);
+    }, this.monitorPollDelay(delayMs, 5000));
   }
 
   private async pollOrchestrationMonitor(sessionId: string) {
@@ -1305,7 +1503,7 @@ export class WorkspaceRuntime {
       return;
     }
     if (this.orchestrationMonitorInFlight) {
-      this.scheduleNextOrchestrationMonitorPoll(targetSessionId, 800);
+      this.scheduleNextOrchestrationMonitorPoll(targetSessionId, 3000);
       return;
     }
     this.orchestrationMonitorInFlight = true;
@@ -1408,6 +1606,30 @@ export class WorkspaceRuntime {
     this.store.setState((prev) => ({ ...prev, mainAgentAssemblyMode: mode }));
   }
 
+  private hasActiveChatStream() {
+    return this.store.getState().activeStreamSessionIds.length > 0;
+  }
+
+  private monitorPollDelay(baseDelayMs: number, streamingDelayMs: number) {
+    return this.hasActiveChatStream() ? Math.max(baseDelayMs, streamingDelayMs) : baseDelayMs;
+  }
+
+  private deferMonitorPollingForActiveStream() {
+    if (typeof window === "undefined" || !this.hasActiveChatStream()) {
+      return;
+    }
+    if (this.taskGraphMonitorTimer !== null && this.taskGraphMonitorTaskRunId) {
+      window.clearTimeout(this.taskGraphMonitorTimer);
+      this.taskGraphMonitorTimer = null;
+      this.scheduleNextTaskGraphMonitorPoll(this.taskGraphMonitorTaskRunId, 5000);
+    }
+    if (this.globalRuntimeMonitorTimer !== null) {
+      window.clearTimeout(this.globalRuntimeMonitorTimer);
+      this.globalRuntimeMonitorTimer = null;
+      this.scheduleGlobalRuntimeMonitorPoll(90000);
+    }
+  }
+
   private startGlobalRuntimeMonitorPolling() {
     if (typeof window === "undefined") {
       return;
@@ -1435,6 +1657,10 @@ export class WorkspaceRuntime {
     if (this.globalRuntimeMonitorTimer !== null) {
       window.clearTimeout(this.globalRuntimeMonitorTimer);
       this.globalRuntimeMonitorTimer = null;
+    }
+    if (this.globalRuntimeMonitorReconnectTimer !== null) {
+      window.clearTimeout(this.globalRuntimeMonitorReconnectTimer);
+      this.globalRuntimeMonitorReconnectTimer = null;
     }
     this.globalRuntimeMonitorInFlight = false;
   }
@@ -1470,8 +1696,20 @@ export class WorkspaceRuntime {
     if (typeof window === "undefined") {
       return;
     }
+    if (typeof EventSource !== "function") {
+      this.store.setState((prev) => ({
+        ...prev,
+        globalRuntimeMonitorStreamStatus: "fallback",
+      }));
+      this.scheduleGlobalRuntimeMonitorPoll(1200);
+      return;
+    }
     if (this.globalRuntimeMonitorEventSource) {
       return;
+    }
+    if (this.globalRuntimeMonitorReconnectTimer !== null) {
+      window.clearTimeout(this.globalRuntimeMonitorReconnectTimer);
+      this.globalRuntimeMonitorReconnectTimer = null;
     }
     this.store.setState((prev) => ({
       ...prev,
@@ -1480,18 +1718,28 @@ export class WorkspaceRuntime {
     const eventSource = new EventSource(getRuntimeMonitorEventStreamUrl(40));
     this.globalRuntimeMonitorEventSource = eventSource;
     eventSource.onopen = () => {
+      if (this.globalRuntimeMonitorTimer !== null) {
+        window.clearTimeout(this.globalRuntimeMonitorTimer);
+        this.globalRuntimeMonitorTimer = null;
+      }
       this.store.setState((prev) => ({
         ...prev,
         globalRuntimeMonitorError: "",
         globalRuntimeMonitorStreamStatus: "connected",
       }));
+      this.scheduleGlobalRuntimeMonitorPoll(60000);
     };
     eventSource.onerror = () => {
+      if (this.globalRuntimeMonitorEventSource === eventSource) {
+        eventSource.close();
+        this.globalRuntimeMonitorEventSource = null;
+      }
       this.store.setState((prev) => ({
         ...prev,
         globalRuntimeMonitorStreamStatus: "fallback",
       }));
-      this.scheduleGlobalRuntimeMonitorPoll(1200);
+      this.scheduleGlobalRuntimeMonitorPoll(5000);
+      this.scheduleGlobalRuntimeMonitorStreamReconnect();
     };
     eventSource.addEventListener("runtime_monitor_snapshot", (event) => {
       this.applyGlobalRuntimeMonitorStreamPayload(this.parseRuntimeMonitorEventPayload(event));
@@ -1506,14 +1754,37 @@ export class WorkspaceRuntime {
       this.globalRuntimeMonitorEventSource.close();
       this.globalRuntimeMonitorEventSource = null;
     }
+    if (this.globalRuntimeMonitorReconnectTimer !== null && typeof window !== "undefined") {
+      window.clearTimeout(this.globalRuntimeMonitorReconnectTimer);
+      this.globalRuntimeMonitorReconnectTimer = null;
+    }
     if (this.globalRuntimeMonitorDetailRefreshTimer !== null && typeof window !== "undefined") {
       window.clearTimeout(this.globalRuntimeMonitorDetailRefreshTimer);
       this.globalRuntimeMonitorDetailRefreshTimer = null;
     }
+    this.globalRuntimeMonitorDetailInFlightTaskRunId = null;
+    this.globalRuntimeMonitorQueuedDetailTaskRunId = null;
     this.store.setState((prev) => ({
       ...prev,
       globalRuntimeMonitorStreamStatus: "closed",
     }));
+  }
+
+  private scheduleGlobalRuntimeMonitorStreamReconnect(delayMs = 5000) {
+    if (typeof window === "undefined" || !this.globalRuntimeMonitorPolling) {
+      return;
+    }
+    if (this.globalRuntimeMonitorReconnectTimer !== null || this.globalRuntimeMonitorEventSource) {
+      return;
+    }
+    const pageHidden = typeof document !== "undefined" && document.visibilityState === "hidden";
+    const effectiveDelay = pageHidden ? Math.max(delayMs, 60000) : delayMs;
+    this.globalRuntimeMonitorReconnectTimer = window.setTimeout(() => {
+      this.globalRuntimeMonitorReconnectTimer = null;
+      if (this.globalRuntimeMonitorPolling) {
+        this.startGlobalRuntimeMonitorEventStream();
+      }
+    }, effectiveDelay);
   }
 
   private parseRuntimeMonitorEventPayload(event: Event): RuntimeMonitorEventPayload | null {
@@ -1578,13 +1849,20 @@ export class WorkspaceRuntime {
     if (!normalized || normalized !== selected) {
       return;
     }
+    if (this.globalRuntimeMonitorDetailInFlightTaskRunId) {
+      this.globalRuntimeMonitorQueuedDetailTaskRunId = normalized;
+      return;
+    }
+    const lastLoadedAt = this.globalRuntimeMonitorDetailLoadedAt.get(normalized) ?? 0;
+    const cooldownRemainingMs = Math.max(0, 3000 - (Date.now() - lastLoadedAt));
+    const delayMs = Math.max(this.hasActiveChatStream() ? 6000 : 750, cooldownRemainingMs);
     if (this.globalRuntimeMonitorDetailRefreshTimer !== null) {
       window.clearTimeout(this.globalRuntimeMonitorDetailRefreshTimer);
     }
     this.globalRuntimeMonitorDetailRefreshTimer = window.setTimeout(() => {
       this.globalRuntimeMonitorDetailRefreshTimer = null;
       void this.loadGlobalRuntimeMonitorTaskRunDetail(normalized);
-    }, 180);
+    }, delayMs);
   }
 
   private scheduleGlobalRuntimeMonitorPoll(delayMs = 2500) {
@@ -1596,7 +1874,11 @@ export class WorkspaceRuntime {
     }
     const streamStatus = this.store.getState().globalRuntimeMonitorStreamStatus;
     const pageHidden = typeof document !== "undefined" && document.visibilityState === "hidden";
-    const streamDelay = streamStatus === "connected" ? Math.max(delayMs, 30000) : delayMs;
+    const connectedDelay = this.hasActiveChatStream() ? 90000 : 60000;
+    const fallbackDelay = this.hasActiveChatStream() ? 15000 : delayMs;
+    const streamDelay = streamStatus === "connected"
+      ? Math.max(delayMs, connectedDelay)
+      : Math.max(delayMs, fallbackDelay);
     const effectiveDelay = pageHidden ? Math.max(streamDelay, 60000) : streamDelay;
     if (this.globalRuntimeMonitorTimer !== null) {
       window.clearTimeout(this.globalRuntimeMonitorTimer);
@@ -1608,7 +1890,7 @@ export class WorkspaceRuntime {
 
   private async refreshGlobalRuntimeMonitor() {
     if (this.globalRuntimeMonitorInFlight) {
-      this.scheduleGlobalRuntimeMonitorPoll(1200);
+      this.scheduleGlobalRuntimeMonitorPoll(5000);
       return;
     }
     this.globalRuntimeMonitorInFlight = true;
@@ -1622,6 +1904,15 @@ export class WorkspaceRuntime {
       this.applyGlobalRuntimeMonitorSnapshot(monitor);
     } catch (error) {
       if (!this.globalRuntimeMonitorPolling || requestId !== this.globalRuntimeMonitorRequest) {
+        return;
+      }
+      if (this.isTransientMonitorError(error)) {
+        this.store.setState((prev) => ({
+          ...prev,
+          globalRuntimeMonitorStreamStatus: prev.globalRuntimeMonitorStreamStatus === "connected"
+            ? "fallback"
+            : prev.globalRuntimeMonitorStreamStatus,
+        }));
         return;
       }
       this.store.setState((prev) => ({
@@ -1648,7 +1939,7 @@ export class WorkspaceRuntime {
       globalRuntimeMonitorSelectedGraphMonitor: null,
     }));
     if (normalized && selectable) {
-      void this.loadGlobalRuntimeMonitorTaskRunDetail(normalized);
+      this.queueSelectedGlobalRuntimeMonitorDetailRefresh(normalized);
     }
   }
 
@@ -1662,6 +1953,11 @@ export class WorkspaceRuntime {
     if (!selected || !isTopLevelTaskGraphMonitorItem(selected)) {
       return;
     }
+    if (this.globalRuntimeMonitorDetailInFlightTaskRunId) {
+      this.globalRuntimeMonitorQueuedDetailTaskRunId = normalized;
+      return;
+    }
+    this.globalRuntimeMonitorDetailInFlightTaskRunId = normalized;
     try {
       const [liveMonitor, graphMonitor] = await Promise.all([
         getOrchestrationRuntimeLoopTaskRunLiveMonitor(normalized).catch(() => null),
@@ -1676,14 +1972,27 @@ export class WorkspaceRuntime {
         globalRuntimeMonitorSelectedGraphMonitor: graphMonitor,
         globalRuntimeMonitorError: "",
       }));
+      this.globalRuntimeMonitorDetailLoadedAt.set(normalized, Date.now());
     } catch (error) {
       if (this.store.getState().globalRuntimeMonitorSelectedTaskRunId !== normalized) {
+        return;
+      }
+      if (this.isTransientMonitorError(error)) {
         return;
       }
       this.store.setState((prev) => ({
         ...prev,
         globalRuntimeMonitorError: error instanceof Error ? error.message : "任务详情监控读取失败",
       }));
+    } finally {
+      if (this.globalRuntimeMonitorDetailInFlightTaskRunId === normalized) {
+        this.globalRuntimeMonitorDetailInFlightTaskRunId = null;
+      }
+      const queued = this.globalRuntimeMonitorQueuedDetailTaskRunId;
+      this.globalRuntimeMonitorQueuedDetailTaskRunId = null;
+      if (queued && queued === this.store.getState().globalRuntimeMonitorSelectedTaskRunId) {
+        this.queueSelectedGlobalRuntimeMonitorDetailRefresh(queued);
+      }
     }
   }
 
@@ -1783,5 +2092,9 @@ export class WorkspaceRuntime {
         },
       }));
     }
+  }
+
+  private errorMessage(error: unknown, fallback: string) {
+    return error instanceof Error && error.message.trim() ? error.message : fallback;
   }
 }

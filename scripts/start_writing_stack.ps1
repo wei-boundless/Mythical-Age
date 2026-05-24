@@ -1,6 +1,6 @@
 param(
     [string]$BindHost = "127.0.0.1",
-    [int]$BindPort = 8002,
+    [int]$BindPort = 8003,
     [string]$PythonExe = "C:\Users\admin\.conda\envs\agent\python.exe",
     [switch]$SkipBackendRestart,
     [switch]$SkipRunStart,

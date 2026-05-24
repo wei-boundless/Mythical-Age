@@ -85,7 +85,6 @@ def _runtime_spec_from_payload(payload: dict[str, Any]) -> TaskGraphRuntimeSpec 
         return TaskGraphRuntimeSpec(
             graph_id=str(payload.get("graph_id") or ""),
             domain_id=str(payload.get("domain_id") or ""),
-            task_family=str(payload.get("task_family") or ""),
             coordinator_agent_id=str(payload.get("coordinator_agent_id") or ""),
             graph_ref=str(payload.get("graph_ref") or payload.get("graph_id") or ""),
             agent_group_id=str(payload.get("agent_group_id") or ""),

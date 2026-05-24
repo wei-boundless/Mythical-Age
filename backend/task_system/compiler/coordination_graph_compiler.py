@@ -66,7 +66,6 @@ def compile_task_graph_definition_runtime_spec(
             raw_node=node,
             coordinator_agent_id=coordinator_agent_id,
             graph_agent_group_id=agent_group_id,
-            graph_task_family=graph.task_family,
             task_by_id=task_by_id,
             default_execution_mode=default_execution_mode,
             default_wait_policy=default_wait_policy,
@@ -90,7 +89,6 @@ def compile_task_graph_definition_runtime_spec(
                 node_type="coordinator",
                 role="coordinator",
                 agent_id=coordinator_agent_id,
-                task_family=graph.task_family,
                 metadata={
                     "effective_policy_sources": {
                         "agent_id": "graph.runtime_policy.coordinator_agent_id",
@@ -195,7 +193,6 @@ def compile_task_graph_definition_runtime_spec(
         graph_id=graph.graph_id,
         graph_ref=graph.graph_id,
         domain_id=graph.domain_id,
-        task_family=graph.task_family,
         coordinator_agent_id=coordinator_agent_id,
         agent_group_id=agent_group_id,
         nodes=tuple(nodes),
@@ -275,7 +272,6 @@ def _runtime_node_from_task_graph_node(
     raw_node: Any,
     coordinator_agent_id: str,
     graph_agent_group_id: str,
-    graph_task_family: str,
     task_by_id: dict[str, SpecificTaskRecord],
     default_execution_mode: str,
     default_wait_policy: str,
@@ -336,7 +332,6 @@ def _runtime_node_from_task_graph_node(
         runtime_lane="" if is_graph_module else str(raw_node.runtime_lane or "").strip(),
         projection_id="" if is_graph_module else str(raw_node.projection_id or raw_node.projection_overlay_id or "").strip(),
         task_id="" if is_graph_module else str(raw_node.task_id or "").strip(),
-        task_family=str(getattr(raw_node, "task_family", "") or getattr(task, "task_family", "") or graph_task_family).strip(),
         executor_policy=dict(getattr(raw_node, "executor_policy", {}) or node_metadata.get("executor_policy") or {}),
         execution_mode=execution_mode,
         wait_policy=wait_policy,
@@ -613,7 +608,6 @@ def _merge_explicit_graph_module_node(
         runtime_lane="",
         projection_id="",
         task_id=graph_module_runtime.task_id,
-        task_family=explicit.task_family or graph_module_runtime.task_family,
         executor_policy={
             **dict(explicit.executor_policy or {}),
             **dict(graph_module_runtime.executor_policy or {}),
@@ -1094,14 +1088,6 @@ def _validate_runtime_graph_for_tasks(
                 )
             )
             continue
-        if graph.task_family and task.task_family != graph.task_family:
-            issues.append(
-                TaskGraphRuntimeValidationIssue(
-                    code="cross_domain_subtask",
-                    message=f"节点引用了跨域特定任务：{node.task_id}",
-                    node_id=node.node_id,
-                )
-            )
     return issues
 
 
@@ -1137,7 +1123,6 @@ def _normalize_nodes(
                 runtime_lane=str(raw.get("lane") or raw.get("runtime_lane") or "").strip(),
                 projection_id=str(raw.get("projection_id") or raw.get("projection_overlay_id") or "").strip(),
                 task_id=task_id,
-                task_family=str(raw.get("task_family") or getattr(task, "task_family", "") or coordination_task.task_family).strip(),
                 execution_mode=str(raw.get("execution_mode") or "sync").strip() or "sync",
                 wait_policy=str(raw.get("wait_policy") or "wait_all_upstream_completed").strip() or "wait_all_upstream_completed",
                 join_policy=str(raw.get("join_policy") or "all_success").strip() or "all_success",
@@ -1158,7 +1143,7 @@ def _normalize_nodes(
                     for key, value in raw.items()
                     if key not in {
                         "node_id", "id", "title", "label", "node_type", "role", "agent_id", "lane", "runtime_lane",
-                        "projection_id", "projection_overlay_id", "task_id", "subtask_ref", "task_family",
+                        "projection_id", "projection_overlay_id", "task_id", "subtask_ref",
                         "execution_mode", "wait_policy", "join_policy", "dispatch_group", "phase_id", "sequence_index",
                         "timeline_group_id", "blocks_phase_exit", "context_visibility_policy", "memory_read_policy",
                         "memory_writeback_policy", "dynamic_memory_read_policy", "artifact_policy", "review_gate_policy",
@@ -1176,7 +1161,6 @@ def _normalize_nodes(
                 node_type="coordinator",
                 role="coordinator",
                 agent_id=coordination_task.coordinator_agent_id,
-                task_family=coordination_task.task_family,
             )
         )
     return normalized
@@ -1340,12 +1324,4 @@ def _validate_graph(
                 )
             )
             continue
-        if coordination_task.domain_id and task.task_family != coordination_task.task_family:
-            issues.append(
-                TaskGraphRuntimeValidationIssue(
-                    code="cross_domain_subtask",
-                    message=f"节点引用了跨域特定任务：{node.task_id}",
-                    node_id=node.node_id,
-                )
-            )
     return issues

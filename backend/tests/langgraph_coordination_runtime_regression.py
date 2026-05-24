@@ -834,7 +834,6 @@ def _loop_graph_from_derived_fields(derived_fields: list[dict], *, graph_id: str
     return TaskGraphDefinition(
         graph_id=graph_id,
         title="Loop Refresh",
-        task_family="test",
         graph_kind="multi_agent",
         nodes=nodes,
         edges=(
@@ -889,8 +888,8 @@ class _RefreshGraphRegistry:
             enabled=True,
         )
         self.tasks = (
-            SpecificTaskRecord(task_id="task.test.chapter_outline", task_title="Chapter Outline", task_family="test"),
-            SpecificTaskRecord(task_id="task.test.chapter_draft", task_title="Chapter Draft", task_family="test"),
+            SpecificTaskRecord(task_id="task.test.chapter_outline", task_title="Chapter Outline"),
+            SpecificTaskRecord(task_id="task.test.chapter_draft", task_title="Chapter Draft"),
         )
 
     def get_task_graph(self, graph_id: str):
@@ -903,7 +902,6 @@ class _RefreshGraphRegistry:
             title=graph.title,
             coordination_mode="pipeline",
             coordinator_agent_id="agent:0",
-            task_family="test",
             topology_template_id="topology.test.loop_refresh",
             graph_nodes=nodes,
             graph_edges=tuple(edge.to_dict() for edge in graph.edges),
@@ -951,7 +949,6 @@ def _task_graph_from_coordination(coordination: CoordinationTaskDefinition, *, p
     return TaskGraphDefinition(
         graph_id=coordination.graph_id,
         title=coordination.title,
-        task_family=coordination.task_family,
         graph_kind="multi_agent",
         nodes=nodes,
         edges=edges,
@@ -970,7 +967,6 @@ class _Registry:
             title="测试协调任务",
             coordination_mode="pipeline",
             coordinator_agent_id="agent:0",
-            task_family="test",
             topology_template_id="topology.test.bootstrap",
             subtask_refs=("task.test.project", "task.test.novel_bible"),
             graph_nodes=(
@@ -1048,14 +1044,12 @@ class _WorkingMemoryRegistry:
             SpecificTaskRecord(
                 task_id="task.test.source",
                 task_title="Source",
-                task_family="test",
                 input_contract_id="contract.user_request.basic",
                 output_contract_id="contract.agent_output.markdown",
             ),
             SpecificTaskRecord(
                 task_id="task.test.target",
                 task_title="Target",
-                task_family="test",
                 input_contract_id="contract.user_request.basic",
                 output_contract_id="contract.agent_output.markdown",
             ),
@@ -1065,7 +1059,6 @@ class _WorkingMemoryRegistry:
             title="工作记忆运行时测试",
             coordination_mode="pipeline",
             coordinator_agent_id="agent:0",
-            task_family="test",
             topology_template_id="topology.test.working_memory_runtime",
             graph_nodes=(
                 {"node_id": "source", "agent_id": "agent:0", "task_id": "task.test.source", "role": "writer"},
@@ -1100,7 +1093,6 @@ class _WorkingMemoryRegistry:
         return TaskGraphDefinition(
             graph_id=self.coordination.graph_id,
             title=self.coordination.title,
-            task_family=self.coordination.task_family,
             graph_kind="multi_agent",
             nodes=(
                 TaskGraphNodeDefinition(
@@ -1166,21 +1158,18 @@ class _FormalMemoryRegistry:
             SpecificTaskRecord(
                 task_id="task.test.world_author",
                 task_title="World Author",
-                task_family="test",
                 input_contract_id="contract.user_request.basic",
                 output_contract_id="contract.agent_output.markdown",
             ),
             SpecificTaskRecord(
                 task_id="task.test.memory_repo",
                 task_title="Memory Repo",
-                task_family="test",
                 input_contract_id="contract.user_request.basic",
                 output_contract_id="contract.agent_output.markdown",
             ),
             SpecificTaskRecord(
                 task_id="task.test.world_review",
                 task_title="World Review",
-                task_family="test",
                 input_contract_id="contract.user_request.basic",
                 output_contract_id="contract.agent_output.markdown",
             ),
@@ -1190,7 +1179,6 @@ class _FormalMemoryRegistry:
             title="正式记忆库运行时测试",
             coordination_mode="pipeline",
             coordinator_agent_id="agent:0",
-            task_family="test",
             topology_template_id="topology.test.formal_memory_runtime",
             graph_nodes=(
                 {"node_id": "world_author", "agent_id": "agent:0", "task_id": "task.test.world_author", "role": "writer"},
@@ -1287,7 +1275,6 @@ class _FormalMemoryRegistry:
         return TaskGraphDefinition(
             graph_id=self.coordination.graph_id,
             title=self.coordination.title,
-            task_family=self.coordination.task_family,
             graph_kind="multi_agent",
             nodes=(
                 TaskGraphNodeDefinition(
@@ -1448,7 +1435,6 @@ class _ApprovalSourceFormalMemoryRegistry(_FormalMemoryRegistry):
         return TaskGraphDefinition(
             graph_id=graph.graph_id,
             title=graph.title,
-            task_family=graph.task_family,
             graph_kind=graph.graph_kind,
             nodes=graph.nodes,
             edges=tuple(edges),
@@ -1466,14 +1452,12 @@ class _ArtifactContextRegistry:
             SpecificTaskRecord(
                 task_id="task.test.outline",
                 task_title="Outline",
-                task_family="test",
                 input_contract_id="contract.user_request.basic",
                 output_contract_id="contract.test.outline",
             ),
             SpecificTaskRecord(
                 task_id="task.test.writer",
                 task_title="Writer",
-                task_family="test",
                 input_contract_id="contract.test.outline",
                 output_contract_id="contract.test.draft",
             ),
@@ -1483,7 +1467,6 @@ class _ArtifactContextRegistry:
             title="产物交接测试",
             coordination_mode="pipeline",
             coordinator_agent_id="agent:0",
-            task_family="test",
             topology_template_id="topology.test.artifact_context",
             graph_nodes=(
                 {"node_id": "outline", "agent_id": "agent:0", "task_id": "task.test.outline", "role": "writer"},
@@ -2547,28 +2530,24 @@ class _DiamondRegistry:
             SpecificTaskRecord(
                 task_id="task.test.a",
                 task_title="A",
-                task_family="test",
                 input_contract_id="contract.user_request.basic",
                 output_contract_id="contract.artifact_refs.bundle",
             ),
             SpecificTaskRecord(
                 task_id="task.test.b",
                 task_title="B",
-                task_family="test",
                 input_contract_id="contract.user_request.basic",
                 output_contract_id="contract.artifact_refs.bundle",
             ),
             SpecificTaskRecord(
                 task_id="task.test.c",
                 task_title="C",
-                task_family="test",
                 input_contract_id="contract.user_request.basic",
                 output_contract_id="contract.artifact_refs.bundle",
             ),
             SpecificTaskRecord(
                 task_id="task.test.d",
                 task_title="D",
-                task_family="test",
                 input_contract_id="contract.user_request.basic",
                 output_contract_id="contract.agent_output.markdown",
             ),
@@ -2578,7 +2557,6 @@ class _DiamondRegistry:
             title="测试汇聚拓扑",
             coordination_mode="pipeline",
             coordinator_agent_id="agent:0",
-            task_family="test",
             topology_template_id="topology.test.diamond",
             graph_nodes=(
                 {"node_id": "a", "agent_id": "agent:0", "task_id": "task.test.a", "role": "coordinator", "runtime_lane": "task_dispatch"},
@@ -3007,16 +2985,15 @@ def test_langgraph_coordination_runtime_rewind_ignores_feedback_edges(tmp_path) 
 class _SequencedRegistry:
     def __init__(self) -> None:
         self.tasks = (
-            SpecificTaskRecord(task_id="task.test.a", task_title="A", task_family="test"),
-            SpecificTaskRecord(task_id="task.test.b", task_title="B", task_family="test"),
-            SpecificTaskRecord(task_id="task.test.c", task_title="C", task_family="test"),
+            SpecificTaskRecord(task_id="task.test.a", task_title="A"),
+            SpecificTaskRecord(task_id="task.test.b", task_title="B"),
+            SpecificTaskRecord(task_id="task.test.c", task_title="C"),
         )
         self.coordination = CoordinationTaskDefinition(
             graph_id="graph.test.sequence",
             title="测试显式时序",
             coordination_mode="pipeline",
             coordinator_agent_id="agent:0",
-            task_family="test",
             topology_template_id="topology.test.sequence",
             graph_nodes=(
                 {"node_id": "a", "agent_id": "agent:0", "task_id": "task.test.a", "role": "coordinator", "phase_id": "phase.write", "sequence_index": 1},
@@ -3410,7 +3387,6 @@ def test_parse_stage_contracts_derives_from_graph_nodes_when_metadata_is_missing
         title="测试派生契约",
         coordination_mode="pipeline",
         coordinator_agent_id="agent:0",
-        task_family="test",
         topology_template_id="topology.test.derived_contracts",
         graph_nodes=(
             {
@@ -3543,7 +3519,6 @@ class _GraphModuleRegistry:
             title=graph.title,
             coordination_mode="pipeline",
             coordinator_agent_id="agent:0",
-            task_family=graph.task_family,
             graph_nodes=tuple(node.to_dict() for node in runtime_spec.nodes),
             graph_edges=tuple(edge.to_dict() for edge in runtime_spec.edges),
             communication_modes=("handoff",),

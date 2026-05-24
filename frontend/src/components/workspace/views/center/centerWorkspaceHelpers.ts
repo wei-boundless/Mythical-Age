@@ -49,7 +49,7 @@ export function centerWorkspaceGraphLabel(graph: TaskGraphRecord) {
 }
 
 export function centerWorkspaceGraphSubtitle(graph: TaskGraphRecord) {
-  const parts = [text(graph.domain_id), text(graph.task_family), text(graph.publish_state, "draft")].filter(Boolean);
+  const parts = [text(graph.domain_id), text(graph.publish_state, "draft")].filter(Boolean);
   return parts.join(" / ");
 }
 

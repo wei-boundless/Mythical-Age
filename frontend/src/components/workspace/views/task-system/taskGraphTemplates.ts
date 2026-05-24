@@ -20,7 +20,7 @@ export type TaskGraphTemplateCard = {
 
 export type TaskGraphTemplateBuildInput = {
   template_id: TaskGraphTemplateId;
-  task_family: string;
+  domain_id: string;
   selected_task_title?: string;
   communication_mode?: string;
   task_intent?: string;
@@ -136,13 +136,12 @@ export const TASK_GRAPH_TEMPLATE_CARDS: TaskGraphTemplateCard[] = [
   },
 ];
 
-function makeNode(input: TemplateNodeInput, taskFamily: string): TaskGraphNode {
+function makeNode(input: TemplateNodeInput, domainId: string): TaskGraphNode {
   return {
     node_id: input.node_id,
     node_type: input.node_type ?? "agent_role",
     task_id: input.task_id ?? "",
     task_title: input.task_title ?? "",
-    task_family: taskFamily,
     agent_id: input.agent_id,
     role: input.role,
     work_posture: input.role,
@@ -177,6 +176,7 @@ function makeNode(input: TemplateNodeInput, taskFamily: string): TaskGraphNode {
       responsibility_scope: input.responsibility_scope,
       responsibility_exclusions: input.responsibility_exclusions,
       definition_of_done: input.definition_of_done,
+      domain_id: domainId,
       ...(input.metadata ?? {}),
     },
   };
@@ -545,8 +545,8 @@ function metadataFor(phases: Array<{ phase_id: string; title: string; node_ids: 
 export function buildTaskGraphTemplateDraft(input: TaskGraphTemplateBuildInput): TaskGraphTemplateBuildResult {
   const mode = input.communication_mode || "structured_handoff";
   const taskTitle = input.selected_task_title || "当前任务";
-  const taskFamily = input.task_family || "general";
-  const node = (item: TemplateNodeInput) => makeNode(item, taskFamily);
+  const domainId = input.domain_id || "domain.general";
+  const node = (item: TemplateNodeInput) => makeNode(item, domainId);
   const finalize = (result: TaskGraphTemplateBuildResult) => applyTemplateOptions(result, input);
   if (input.template_id === "single_agent") {
     const nodes = [

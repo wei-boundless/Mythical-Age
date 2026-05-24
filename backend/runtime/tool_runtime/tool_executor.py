@@ -7,7 +7,11 @@ from capability_system.tool_contracts import ToolContractDecision, ToolContractG
 from runtime.tool_runtime.tool_result_envelope import build_tool_result_envelope
 from runtime.tool_runtime.sandbox_backend import LocalOverlaySandboxBackend
 from orchestration.runtime_directive import RuntimeDirective
-from runtime.shared.action_request import RuntimeActionRequest, build_tool_result_observation
+from runtime.shared.action_request import (
+    RuntimeActionRequest,
+    build_recoverable_tool_contract_observation,
+    build_tool_result_observation,
+)
 from runtime.shared.action_request import build_tool_execution_error_observation
 from runtime.shared.execution_record import (
     OperationExecutionRecord,
@@ -101,6 +105,22 @@ class ToolRuntimeExecutor:
                     error=error,
                     diagnostics={"tool_contract_decision": contract_decision.to_dict()},
                 )
+            if _is_recoverable_contract_error(contract_decision):
+                return {
+                    "observation": build_recoverable_tool_contract_observation(
+                        task_run_id=task_run_id,
+                        request_ref=action_request.request_id,
+                        directive_ref=directive.directive_id,
+                        tool_name=tool_name,
+                        tool_call_id=tool_call_id,
+                        tool_args=tool_args,
+                        error=error,
+                        execution_receipt=build_execution_receipt(current_record, error=error).to_dict(),
+                        contract_decision=contract_decision.to_dict(),
+                    ),
+                    "execution_record": current_record,
+                    "recoverable_error": error,
+                }
             return {
                 "observation": build_tool_execution_error_observation(
                     task_run_id=task_run_id,
@@ -321,6 +341,12 @@ def _contract_decision_error(decision: ToolContractDecision) -> str:
         details.append(f"missing bindings: {', '.join(decision.missing_bindings)}")
     suffix = f" ({'; '.join(details)})" if details else ""
     return f"Tool execution blocked by contract: {decision.reason}{suffix}."
+
+
+def _is_recoverable_contract_error(decision: ToolContractDecision) -> bool:
+    if str(decision.reason or "") != "missing_required_input":
+        return False
+    return bool(decision.missing_inputs)
 
 
 def _structured_tool_result_payload(result: Any) -> dict[str, Any]:

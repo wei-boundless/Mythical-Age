@@ -16,7 +16,6 @@
       "lifecycle_state": "enabled",
       "metadata": {
         "managed_by": "orchestration_console",
-        "task_family": "writing_modular_novel",
         "domain_id": "domain.writing.modular_novel",
         "graph_ids": [
           "graph.writing.modular_novel.master",

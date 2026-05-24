@@ -12,7 +12,7 @@ export function getApiBase() {
     return explicitBase.replace(/\/$/, "");
   }
 
-  return "http://127.0.0.1:8002/api";
+  return "http://127.0.0.1:8003/api";
 }
 
 export function getRuntimeMonitorEventStreamUrl(limit = 40) {
@@ -20,10 +20,39 @@ export function getRuntimeMonitorEventStreamUrl(limit = 40) {
 }
 
 function requestTimeoutMs(path: string) {
-  if (path === "/tasks/overview" || path === "/soul/projections" || path === "/orchestration/agents") {
+  if (path === "/sessions") {
+    return 5000;
+  }
+  if (
+    path === "/tasks/overview"
+    || path === "/soul/projections"
+    || path === "/orchestration/agents"
+    || path.startsWith("/orchestration/runtime-loop/")
+  ) {
     return 30000;
   }
   return 12000;
+}
+
+export function isRequestAbortError(error: unknown) {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const name = String((error as { name?: unknown }).name ?? "");
+  return name === "AbortError" || name === "TimeoutError";
+}
+
+function requestTimeoutError(path: string, timeoutMs: number, cause?: unknown) {
+  const error = new Error(`Request timed out after ${timeoutMs}ms: ${path}`);
+  error.name = "RequestTimeoutError";
+  if (cause !== undefined) {
+    (error as Error & { cause?: unknown }).cause = cause;
+  }
+  return error;
+}
+
+function requestTimeoutReason(path: string, timeoutMs: number) {
+  return new DOMException(`Request timed out after ${timeoutMs}ms: ${path}`, "TimeoutError");
 }
 
 export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
@@ -36,7 +65,7 @@ export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T
   const timeoutMs = requestTimeoutMs(path);
   const runFetch = async () => {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const timer = setTimeout(() => controller.abort(requestTimeoutReason(path, timeoutMs)), timeoutMs);
     try {
       return await fetch(`${getApiBase()}${path}`, {
         ...init,
@@ -51,8 +80,17 @@ export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T
   try {
     response = await runFetch();
   } catch (error) {
-    if (method === "GET" && error instanceof DOMException && error.name === "AbortError") {
-      response = await runFetch();
+    if (method === "GET" && isRequestAbortError(error)) {
+      try {
+        response = await runFetch();
+      } catch (retryError) {
+        if (isRequestAbortError(retryError)) {
+          throw requestTimeoutError(path, timeoutMs, retryError);
+        }
+        throw retryError;
+      }
+    } else if (isRequestAbortError(error)) {
+      throw requestTimeoutError(path, timeoutMs, error);
     } else {
       throw error;
     }
@@ -65,4 +103,3 @@ export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T
 
   return (await response.json()) as T;
 }
-

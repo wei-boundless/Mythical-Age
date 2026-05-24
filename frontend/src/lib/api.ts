@@ -1,6 +1,6 @@
 import { apiRequest, getApiBase, getRuntimeMonitorEventStreamUrl } from "./api/client";
 
-export { getApiBase, getRuntimeMonitorEventStreamUrl } from "./api/client";
+export { getApiBase, getRuntimeMonitorEventStreamUrl, isRequestAbortError } from "./api/client";
 
 export type ToolCall = {
   tool: string;
@@ -393,7 +393,7 @@ export type AgentTaskConnectionProfile = {
   owner_system: string;
   profile_type: string;
   lifecycle_state: string;
-  task_family_refs: string[];
+  domain_refs: string[];
   available_task_modes: string[];
   flow_refs: string[];
   binding_refs: string[];
@@ -440,8 +440,6 @@ export type TaskSystemNextIds = {
 
 export type TaskSystemFlowUpsertPayload = {
   flow_id: string;
-  task_family: string;
-  task_mode: string;
   title: string;
   input_contract_id?: string;
   output_contract_id?: string;
@@ -471,8 +469,8 @@ export type ConversationEntryPolicy = {
 export type SpecificTaskRecord = {
   task_id: string;
   task_title: string;
-  task_family: string;
-  task_mode: string;
+  domain_id?: string;
+  task_mode?: string;
   description: string;
   input_contract_id: string;
   output_contract_id: string;
@@ -487,7 +485,6 @@ export type SpecificTaskRecord = {
 
 export type TaskDomainRecord = {
   domain_id: string;
-  task_family: string;
   title: string;
   description: string;
   enabled: boolean;
@@ -725,7 +722,6 @@ export type TaskGraphRuntimeSpec = {
   graph_id: string;
   coordination_task_id?: string;
   domain_id: string;
-  task_family: string;
   coordinator_agent_id: string;
   agent_group_id?: string;
   nodes: Array<Record<string, unknown>>;
@@ -1078,7 +1074,6 @@ export type TaskGraphRecord = {
   graph_id: string;
   title: string;
   domain_id?: string;
-  task_family?: string;
   graph_kind: "single_agent" | "multi_agent" | "coordination";
   entry_node_id: string;
   output_node_id: string;
@@ -1179,7 +1174,7 @@ export type TaskAgentConnectionOverview = {
   summary: {
     profile_count: number;
     invalid_profile_count: number;
-    task_family_count: number;
+    domain_count: number;
     topology_count: number;
   };
   diagnostics: Record<string, unknown>;
@@ -3324,6 +3319,159 @@ export type StreamHandlers = {
   onEvent: (event: string, data: Record<string, unknown>) => void;
 };
 
+export type StreamResult = {
+  terminalEvent: "done" | "error" | "stopped";
+  synthesized?: boolean;
+  syntheticReason?: "stable_answer" | "no_visible_answer";
+};
+
+const TERMINAL_STREAM_EVENTS = new Set(["done", "error", "stopped"]);
+const OUTPUT_BOUNDARY_STABLE_DELAY_MS = 8000;
+const ANSWER_CANDIDATE_STABLE_DELAY_MS = 20000;
+const NO_VISIBLE_ANSWER_TIMEOUT_MS = 90000;
+const NO_VISIBLE_ANSWER_TIMEOUT_SECONDS = Math.round(NO_VISIBLE_ANSWER_TIMEOUT_MS / 1000);
+const VISIBLE_ANSWER_IDLE_TIMEOUT_MS = 45000;
+const VISIBLE_ANSWER_IDLE_TIMEOUT_SECONDS = Math.round(VISIBLE_ANSWER_IDLE_TIMEOUT_MS / 1000);
+
+type StableAnswerCandidate = {
+  content: string;
+  data: Record<string, unknown>;
+  delayMs: number;
+  rank: number;
+  receivedAt: number;
+};
+
+function findSseBoundary(buffer: string): { index: number; length: number } | null {
+  const boundaries = [
+    { index: buffer.indexOf("\n\n"), length: 2 },
+    { index: buffer.indexOf("\r\n\r\n"), length: 4 },
+    { index: buffer.indexOf("\r\r"), length: 2 },
+  ].filter((item) => item.index >= 0);
+  if (!boundaries.length) {
+    return null;
+  }
+  return boundaries.sort((left, right) => left.index - right.index)[0];
+}
+
+function stableAnswerCandidateFromEvent(event: string, data: Record<string, unknown>): StableAnswerCandidate | null {
+  if (event === "output_boundary") {
+    const output = asRecord(data.output);
+    const content = String(output.visible_text ?? output.canonical_answer ?? "").trim();
+    if (!content) {
+      return null;
+    }
+    return {
+      content,
+      data: {
+        content,
+        answer_source: String(output.selected_source ?? data.answer_source ?? "output_boundary").trim(),
+        answer_channel: String(output.selected_channel ?? data.answer_channel ?? "answer_candidate").trim(),
+      },
+      delayMs: OUTPUT_BOUNDARY_STABLE_DELAY_MS,
+      rank: 2,
+      receivedAt: Date.now(),
+    };
+  }
+  if (event === "answer_candidate") {
+    const content = String(data.content ?? "").trim();
+    if (!content) {
+      return null;
+    }
+    return {
+      content,
+      data: {
+        content,
+        answer_source: String(data.source ?? data.answer_source ?? "answer_candidate").trim(),
+        answer_channel: "answer_candidate",
+      },
+      delayMs: ANSWER_CANDIDATE_STABLE_DELAY_MS,
+      rank: 1,
+      receivedAt: Date.now(),
+    };
+  }
+  return null;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function stableAnswerDonePayload(candidate: StableAnswerCandidate): Record<string, unknown> {
+  return {
+    ...candidate.data,
+    content: candidate.content,
+    terminal_reason: "frontend_stable_answer",
+    synthesized: true,
+  };
+}
+
+function stableAnswerDeadline(candidate: StableAnswerCandidate) {
+  return candidate.receivedAt + candidate.delayMs;
+}
+
+type StreamDeadlineKind = "stable_answer_timeout" | "no_visible_answer_timeout" | "visible_answer_idle_timeout";
+
+type StreamReadRaceResult =
+  | { kind: "read"; result: ReadableStreamReadResult<Uint8Array> }
+  | { kind: StreamDeadlineKind };
+
+function waitForStreamDeadline(kind: StreamDeadlineKind, deadlineAt: number): {
+  promise: Promise<{ kind: StreamDeadlineKind }>;
+  cancel: () => void;
+} {
+  const delayMs = Math.max(0, deadlineAt - Date.now());
+  if (delayMs <= 0) {
+    return {
+      promise: Promise.resolve({ kind }),
+      cancel: () => undefined,
+    };
+  }
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const promise = new Promise<{ kind: StreamDeadlineKind }>((resolve) => {
+    timer = setTimeout(() => {
+      timer = null;
+      resolve({ kind });
+    }, delayMs);
+  });
+  return {
+    promise,
+    cancel: () => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    },
+  };
+}
+
+function noVisibleAnswerTimeoutPayload(): Record<string, unknown> {
+  return {
+    error: `本轮生成超过 ${NO_VISIBLE_ANSWER_TIMEOUT_SECONDS} 秒仍未返回可见答案，已释放输入区；后端任务可能仍在运行，可在运行监控中继续查看。`,
+    terminal_reason: "frontend_no_visible_answer_timeout",
+    synthesized: true,
+  };
+}
+
+function visibleAnswerIdleTimeoutPayload(): Record<string, unknown> {
+  return {
+    error: `后端已返回部分可见内容，但连续 ${VISIBLE_ANSWER_IDLE_TIMEOUT_SECONDS} 秒没有继续输出或正常收口，已释放输入区；后端任务可能仍在运行，可在运行监控中继续查看。`,
+    terminal_reason: "frontend_visible_answer_idle_timeout",
+    synthesized: true,
+  };
+}
+
+function isVisibleAnswerEvent(event: string, data: Record<string, unknown>, candidate: StableAnswerCandidate | null) {
+  if (candidate) {
+    return true;
+  }
+  if (event === "token" || event === "content_delta") {
+    return String(data.content ?? "").trim().length > 0;
+  }
+  return false;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return apiRequest<T>(path, init);
 }
@@ -4642,7 +4790,7 @@ export async function streamChat(
   options: {
     signal?: AbortSignal;
   } = {}
-) {
+): Promise<StreamResult> {
   const response = await fetch(`${getApiBase()}/chat`, {
     method: "POST",
     headers: {
@@ -4662,9 +4810,16 @@ export async function streamChat(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  let terminalEvent: StreamResult["terminalEvent"] | "" = "";
+  let synthesized = false;
+  let syntheticReason: StreamResult["syntheticReason"] | undefined;
+  let visibleAnswerSeen = false;
+  let lastVisibleAnswerAt = 0;
+  const noVisibleAnswerDeadline = Date.now() + NO_VISIBLE_ANSWER_TIMEOUT_MS;
+  let stableAnswerCandidate: StableAnswerCandidate | null = null;
 
   const flushBlock = (block: string) => {
-    const lines = block.split("\n");
+    const lines = block.split(/\r?\n|\r/);
     let event = "message";
     const dataLines: string[] = [];
 
@@ -4678,29 +4833,134 @@ export async function streamChat(
     }
 
     if (!dataLines.length) {
-      return;
+      return "";
     }
 
     const data = JSON.parse(dataLines.join("\n")) as Record<string, unknown>;
     handlers.onEvent(event, data);
+    const candidate = stableAnswerCandidateFromEvent(event, data);
+    if (isVisibleAnswerEvent(event, data, candidate)) {
+      visibleAnswerSeen = true;
+      lastVisibleAnswerAt = Date.now();
+    }
+    if (
+      candidate
+      && (
+        !stableAnswerCandidate
+        || candidate.rank > stableAnswerCandidate.rank
+        || candidate.content !== stableAnswerCandidate.content
+      )
+    ) {
+      stableAnswerCandidate = candidate;
+    }
+    return event;
+  };
+
+  const synthesizeStableAnswerDone = async () => {
+    if (!stableAnswerCandidate) {
+      return;
+    }
+    handlers.onEvent("done", stableAnswerDonePayload(stableAnswerCandidate));
+    terminalEvent = "done";
+    synthesized = true;
+    syntheticReason = "stable_answer";
+    await reader.cancel().catch(() => undefined);
+  };
+
+  const synthesizeNoVisibleAnswerError = async () => {
+    handlers.onEvent("error", noVisibleAnswerTimeoutPayload());
+    terminalEvent = "error";
+    synthesized = true;
+    syntheticReason = "no_visible_answer";
+    await reader.cancel().catch(() => undefined);
+  };
+
+  const synthesizeVisibleAnswerIdleError = async () => {
+    handlers.onEvent("error", visibleAnswerIdleTimeoutPayload());
+    terminalEvent = "error";
+    synthesized = true;
+    syntheticReason = "no_visible_answer";
+    await reader.cancel().catch(() => undefined);
   };
 
   while (true) {
-    const { value, done } = await reader.read();
+    const cancelDeadlines: Array<() => void> = [];
+    const raceItems: Array<Promise<StreamReadRaceResult>> = [
+      reader.read().then((result) => ({ kind: "read" as const, result })),
+    ];
+    if (stableAnswerCandidate) {
+      const stableDeadline = waitForStreamDeadline("stable_answer_timeout", stableAnswerDeadline(stableAnswerCandidate));
+      cancelDeadlines.push(stableDeadline.cancel);
+      raceItems.push(stableDeadline.promise);
+    }
+    if (!visibleAnswerSeen) {
+      const visibleDeadline = waitForStreamDeadline("no_visible_answer_timeout", noVisibleAnswerDeadline);
+      cancelDeadlines.push(visibleDeadline.cancel);
+      raceItems.push(visibleDeadline.promise);
+    }
+    if (visibleAnswerSeen && !stableAnswerCandidate && lastVisibleAnswerAt > 0) {
+      const idleDeadline = waitForStreamDeadline(
+        "visible_answer_idle_timeout",
+        lastVisibleAnswerAt + VISIBLE_ANSWER_IDLE_TIMEOUT_MS
+      );
+      cancelDeadlines.push(idleDeadline.cancel);
+      raceItems.push(idleDeadline.promise);
+    }
+    const readResult = await Promise.race(raceItems).finally(() => {
+      cancelDeadlines.forEach((cancel) => cancel());
+    });
+    if (readResult.kind === "stable_answer_timeout") {
+      await synthesizeStableAnswerDone();
+      break;
+    }
+    if (readResult.kind === "no_visible_answer_timeout") {
+      await synthesizeNoVisibleAnswerError();
+      break;
+    }
+    if (readResult.kind === "visible_answer_idle_timeout") {
+      await synthesizeVisibleAnswerIdleError();
+      break;
+    }
+    if (readResult.kind !== "read") {
+      continue;
+    }
+    const { value, done } = readResult.result;
     buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
 
-    let boundary = buffer.indexOf("\n\n");
-    while (boundary >= 0) {
-      flushBlock(buffer.slice(0, boundary));
-      buffer = buffer.slice(boundary + 2);
-      boundary = buffer.indexOf("\n\n");
+    let boundary = findSseBoundary(buffer);
+    while (boundary) {
+      const event = flushBlock(buffer.slice(0, boundary.index));
+      buffer = buffer.slice(boundary.index + boundary.length);
+      if (TERMINAL_STREAM_EVENTS.has(event)) {
+        terminalEvent = event as StreamResult["terminalEvent"];
+        break;
+      }
+      boundary = findSseBoundary(buffer);
+    }
+
+    if (terminalEvent) {
+      if (!done) {
+        await reader.cancel().catch(() => undefined);
+      }
+      break;
     }
 
     if (done) {
       if (buffer.trim()) {
-        flushBlock(buffer);
+        const event = flushBlock(buffer);
+        if (TERMINAL_STREAM_EVENTS.has(event)) {
+          terminalEvent = event as StreamResult["terminalEvent"];
+        }
       }
       break;
     }
   }
+
+  if (!terminalEvent) {
+    throw new Error("Chat stream ended without a terminal event.");
+  }
+
+  return synthesized
+    ? { terminalEvent, synthesized, syntheticReason }
+    : { terminalEvent };
 }

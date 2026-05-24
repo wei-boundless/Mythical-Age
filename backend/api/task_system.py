@@ -116,7 +116,7 @@ def _migrate_task_graph_legacy_prompt_nodes(
     *,
     graph_id: str,
     graph_title: str,
-    task_family: str,
+    domain_id: str,
     nodes: tuple[dict[str, object], ...],
 ) -> tuple[dict[str, object], ...]:
     prompt_registry = PromptLibraryRegistry(base_dir)
@@ -130,7 +130,7 @@ def _migrate_task_graph_legacy_prompt_nodes(
             resource = prompt_registry.migrate_task_graph_node_prompt(
                 graph_id=graph_id,
                 graph_title=graph_title,
-                task_family=task_family,
+                domain_id=domain_id,
                 node=next_node,
                 prompt=prompt,
             )
@@ -177,7 +177,7 @@ class ConversationEntryPolicyUpsertRequest(BaseModel):
 class SpecificTaskRecordUpsertRequest(BaseModel):
     task_id: str = Field(..., min_length=3, max_length=160)
     task_title: str = Field(..., min_length=1, max_length=160)
-    task_family: str = Field(..., min_length=1, max_length=80)
+    domain_id: str = Field(default="", max_length=160)
     description: str = Field(default="", max_length=1000)
     runtime_lane: str = Field(default="", max_length=120)
     input_contract_id: str = Field(default="", max_length=160)
@@ -193,7 +193,6 @@ class SpecificTaskRecordUpsertRequest(BaseModel):
 
 class TaskDomainUpsertRequest(BaseModel):
     domain_id: str = Field(..., min_length=3, max_length=160)
-    task_family: str = Field(..., min_length=1, max_length=80)
     title: str = Field(..., min_length=1, max_length=160)
     description: str = Field(default="", max_length=1000)
     enabled: bool = True
@@ -255,7 +254,6 @@ class TaskGraphUpsertRequest(BaseModel):
     graph_id: str = Field(..., min_length=3, max_length=160)
     title: str = Field(..., min_length=1, max_length=160)
     domain_id: str = Field(default="", max_length=160)
-    task_family: str = Field(default="", max_length=80)
     graph_kind: str = Field(default="single_agent", max_length=80)
     entry_node_id: str = Field(default="", max_length=160)
     output_node_id: str = Field(default="", max_length=160)
@@ -288,7 +286,6 @@ class TaskGraphBundleUpsertRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=160)
     coordination_mode: str = Field(default="review_merge", max_length=120)
     coordinator_agent_id: str = Field(default="agent:0", max_length=160)
-    task_family: str = Field(default="", max_length=80)
     domain_id: str = Field(default="", max_length=160)
     agent_group_id: str = Field(default="", max_length=160)
     participant_agent_ids: list[str] = Field(default_factory=list)
@@ -376,7 +373,6 @@ def _task_graph_overview_item(graph) -> dict[str, object]:
         "graph_id": graph.graph_id,
         "title": graph.title,
         "domain_id": graph.domain_id,
-        "task_family": graph.task_family,
         "graph_kind": graph.graph_kind,
         "entry_node_id": graph.entry_node_id,
         "output_node_id": graph.output_node_id,
@@ -854,7 +850,6 @@ def _graph_module_execution_plans(
                     "graph_id": imported_graph.graph_id,
                     "title": imported_graph.title,
                     "domain_id": imported_graph.domain_id,
-                    "task_family": imported_graph.task_family,
                     "publish_state": imported_graph.publish_state,
                     "enabled": imported_graph.enabled,
                 }
@@ -1433,7 +1428,6 @@ async def upsert_task_system_task_graph_standard_view(
             graph_id=next_graph.graph_id,
             title=next_graph.title,
             domain_id=next_graph.domain_id,
-            task_family=next_graph.task_family,
             graph_kind=next_graph.graph_kind,
             entry_node_id=next_graph.entry_node_id,
             output_node_id=next_graph.output_node_id,
@@ -1540,7 +1534,6 @@ async def upsert_task_system_domain(domain_id: str, payload: TaskDomainUpsertReq
     try:
         TaskFlowRegistry(runtime.base_dir).upsert_task_domain(
             domain_id=payload.domain_id,
-            task_family=payload.task_family,
             title=payload.title,
             description=payload.description,
             enabled=payload.enabled,
@@ -1606,7 +1599,7 @@ async def upsert_task_system_specific_record(task_id: str, payload: SpecificTask
         TaskFlowRegistry(runtime.base_dir).upsert_specific_task_record(
             task_id=payload.task_id,
             task_title=payload.task_title,
-            task_family=payload.task_family,
+            domain_id=payload.domain_id,
             description=payload.description,
             enabled=payload.enabled,
             runtime_lane=payload.runtime_lane,
@@ -1738,14 +1731,13 @@ async def upsert_task_system_task_graph(
             runtime.base_dir,
             graph_id=payload.graph_id,
             graph_title=payload.title,
-            task_family=payload.task_family,
+            domain_id=payload.domain_id,
             nodes=tuple(dict(item) for item in payload.nodes),
         )
         TaskFlowRegistry(runtime.base_dir).upsert_task_graph(
             graph_id=payload.graph_id,
             title=payload.title,
             domain_id=payload.domain_id,
-            task_family=payload.task_family,
             graph_kind=payload.graph_kind,
             entry_node_id=payload.entry_node_id,
             output_node_id=payload.output_node_id,
@@ -1783,7 +1775,6 @@ async def upsert_task_system_task_graph_bundle(
             title=payload.title,
             coordination_mode=payload.coordination_mode,
             coordinator_agent_id=payload.coordinator_agent_id,
-            task_family=payload.task_family,
             domain_id=payload.domain_id,
             agent_group_id=payload.agent_group_id,
             participant_agent_ids=tuple(payload.participant_agent_ids),

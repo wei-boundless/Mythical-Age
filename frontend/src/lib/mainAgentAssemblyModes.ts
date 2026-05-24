@@ -11,7 +11,16 @@ type MainAgentAssemblyProfile = {
   runtime_lane: string;
   runtime_assembly_hint: Record<string, unknown>;
   mode_policy: Record<string, unknown>;
+  stream_policy: Record<string, unknown>;
   intent_decision?: Record<string, unknown>;
+};
+
+const INTERACTIVE_STREAM_POLICY = {
+  enabled: true,
+  mode: "interactive_answer",
+  monitor_visibility: "visible",
+  emit_content_delta: true,
+  fallback_to_non_stream_on_error: true,
 };
 
 export const MAIN_AGENT_ID = "agent:0";
@@ -32,6 +41,7 @@ export const MAIN_AGENT_ASSEMBLY_MODES: Record<MainAgentAssemblyMode, MainAgentA
       runtime_mode: "role_interaction",
       projection_strength: "primary",
     },
+    stream_policy: INTERACTIVE_STREAM_POLICY,
     mode_policy: {
       interaction_mode: "role_mode",
       runtime_lane: "role_interaction",
@@ -54,6 +64,7 @@ export const MAIN_AGENT_ASSEMBLY_MODES: Record<MainAgentAssemblyMode, MainAgentA
       runtime_mode: "standard_task",
       projection_strength: "companion",
     },
+    stream_policy: INTERACTIVE_STREAM_POLICY,
     mode_policy: {
       interaction_mode: "standard_mode",
       runtime_lane: "standard_task",
@@ -77,6 +88,7 @@ export const MAIN_AGENT_ASSEMBLY_MODES: Record<MainAgentAssemblyMode, MainAgentA
       execution_strategy: "professional_task_run",
       projection_strength: "style_only",
     },
+    stream_policy: INTERACTIVE_STREAM_POLICY,
     mode_policy: {
       interaction_mode: "professional_mode",
       runtime_lane: "professional_task",
@@ -113,6 +125,10 @@ export function buildMainAgentTaskSelection(
     runtime_assembly_hint: {
       ...(isRecord(current.runtime_assembly_hint) ? current.runtime_assembly_hint : {}),
       ...profile.runtime_assembly_hint,
+    },
+    stream_policy: {
+      ...profile.stream_policy,
+      ...(isRecord(current.stream_policy) ? current.stream_policy : {}),
     },
     mode_policy: {
       ...(isRecord(current.mode_policy) ? current.mode_policy : {}),

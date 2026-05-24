@@ -69,7 +69,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "task_family": "writing_modular_novel",
         "node_id": "project_brief"
       }
     },
@@ -108,7 +107,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "task_family": "writing_modular_novel",
         "node_id": "world_design"
       }
     },
@@ -147,7 +145,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "task_family": "writing_modular_novel",
         "node_id": "world_review"
       }
     },
@@ -186,7 +183,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "task_family": "writing_modular_novel",
         "node_id": "memory_commit_world"
       }
     },
@@ -225,7 +221,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "task_family": "writing_modular_novel",
         "node_id": "character_design"
       }
     },
@@ -264,7 +259,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "task_family": "writing_modular_novel",
         "node_id": "character_review"
       }
     },
@@ -303,7 +297,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "task_family": "writing_modular_novel",
         "node_id": "plot_design"
       }
     },
@@ -342,7 +335,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "task_family": "writing_modular_novel",
         "node_id": "design_sync"
       }
     },
@@ -381,7 +373,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "task_family": "writing_modular_novel",
         "node_id": "memory_commit_character"
       }
     },
@@ -420,7 +411,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "task_family": "writing_modular_novel",
         "node_id": "outline_design"
       }
     },
@@ -459,7 +449,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "task_family": "writing_modular_novel",
         "node_id": "outline_review"
       }
     },
@@ -498,7 +487,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "task_family": "writing_modular_novel",
         "node_id": "baseline_memory_seed"
       }
     },
@@ -537,7 +525,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "task_family": "writing_modular_novel",
         "node_id": "volume_plan"
       }
     },
@@ -576,7 +563,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "task_family": "writing_modular_novel",
         "node_id": "chapter_outline"
       }
     },
@@ -615,7 +601,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "task_family": "writing_modular_novel",
         "node_id": "chapter_draft"
       }
     },
@@ -654,7 +639,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "task_family": "writing_modular_novel",
         "node_id": "chapter_review"
       }
     },
@@ -693,7 +677,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "task_family": "writing_modular_novel",
         "node_id": "memory_commit_chapter"
       }
     },
@@ -732,7 +715,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "task_family": "writing_modular_novel",
         "node_id": "chapter_progress_router"
       }
     },
@@ -771,7 +753,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "task_family": "writing_modular_novel",
         "node_id": "volume_review"
       }
     },
@@ -810,7 +791,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "task_family": "writing_modular_novel",
         "node_id": "volume_commit"
       }
     },
@@ -849,7 +829,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "task_family": "writing_modular_novel",
         "node_id": "volume_postmortem"
       }
     },
@@ -888,7 +867,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "task_family": "writing_modular_novel",
         "node_id": "world_outline_extension_proposal"
       }
     },
@@ -927,7 +905,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "task_family": "writing_modular_novel",
         "node_id": "extension_review"
       }
     },
@@ -966,7 +943,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "task_family": "writing_modular_novel",
         "node_id": "extension_commit"
       }
     },
@@ -1005,7 +981,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "task_family": "writing_modular_novel",
         "node_id": "next_volume_router"
       }
     },
@@ -1044,7 +1019,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "task_family": "writing_modular_novel",
         "node_id": "final_assemble"
       }
     },
@@ -1083,7 +1057,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "task_family": "writing_modular_novel",
         "node_id": "final_review"
       }
     },
@@ -1122,7 +1095,6 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "task_family": "writing_modular_novel",
         "node_id": "memory_finalize"
       }
     }

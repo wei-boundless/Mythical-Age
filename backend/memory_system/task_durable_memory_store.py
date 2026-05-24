@@ -31,7 +31,6 @@ class TaskDurableMemoryStore:
         stored = replace(
             item,
             namespace_id=item.namespace_id or build_namespace_id(
-                task_family=item.task_family,
                 domain_id=item.domain_id,
                 task_id=item.task_id,
                 graph_id=item.graph_id,
@@ -47,7 +46,7 @@ class TaskDurableMemoryStore:
             conn.execute(
                 """
                 INSERT INTO task_durable_memory_items (
-                    task_memory_id, namespace_id, task_family, domain_id, task_id, graph_id,
+                    task_memory_id, namespace_id, domain_id, task_id, graph_id,
                     project_id, artifact_namespace, source_work_memory_ids_json,
                     source_artifact_refs_json, memory_type, memory_class, kind, memory_semantics,
                     title, canonical_statement, summary, payload_json, retrieval_hints_json,
@@ -55,7 +54,7 @@ class TaskDurableMemoryStore:
                     eligible_for_global_promotion, global_promotion_state, created_at, updated_at,
                     metadata_json, authority
                 ) VALUES (
-                    :task_memory_id, :namespace_id, :task_family, :domain_id, :task_id, :graph_id,
+                    :task_memory_id, :namespace_id, :domain_id, :task_id, :graph_id,
                     :project_id, :artifact_namespace, :source_work_memory_ids_json,
                     :source_artifact_refs_json, :memory_type, :memory_class, :kind, :memory_semantics,
                     :title, :canonical_statement, :summary, :payload_json, :retrieval_hints_json,
@@ -65,7 +64,6 @@ class TaskDurableMemoryStore:
                 )
                 ON CONFLICT(task_memory_id) DO UPDATE SET
                     namespace_id = excluded.namespace_id,
-                    task_family = excluded.task_family,
                     domain_id = excluded.domain_id,
                     task_id = excluded.task_id,
                     graph_id = excluded.graph_id,
@@ -126,7 +124,6 @@ class TaskDurableMemoryStore:
         params: list[Any] = []
         for column, value in (
             ("namespace_id", query.namespace_id),
-            ("task_family", query.task_family),
             ("domain_id", query.domain_id),
             ("task_id", query.task_id),
             ("graph_id", query.graph_id),
@@ -152,17 +149,16 @@ class TaskDurableMemoryStore:
         with self._connect() as conn:
             rows = conn.execute(
                 """
-                SELECT namespace_id, task_family, domain_id, task_id, graph_id, project_id,
+                SELECT namespace_id, domain_id, task_id, graph_id, project_id,
                        artifact_namespace, COUNT(*) AS item_count, MAX(updated_at) AS updated_at
                 FROM task_durable_memory_items
-                GROUP BY namespace_id, task_family, domain_id, task_id, graph_id, project_id, artifact_namespace
+                GROUP BY namespace_id, domain_id, task_id, graph_id, project_id, artifact_namespace
                 ORDER BY updated_at DESC
                 """
             ).fetchall()
         return tuple(
             TaskDurableMemoryNamespace(
                 namespace_id=str(row["namespace_id"]),
-                task_family=str(row["task_family"]),
                 domain_id=str(row["domain_id"]),
                 task_id=str(row["task_id"]),
                 graph_id=str(row["graph_id"]),
@@ -254,7 +250,6 @@ class TaskDurableMemoryStore:
                 CREATE TABLE IF NOT EXISTS task_durable_memory_items (
                     task_memory_id TEXT PRIMARY KEY,
                     namespace_id TEXT NOT NULL,
-                    task_family TEXT NOT NULL DEFAULT '',
                     domain_id TEXT NOT NULL DEFAULT '',
                     task_id TEXT NOT NULL DEFAULT '',
                     graph_id TEXT NOT NULL DEFAULT '',
@@ -287,7 +282,7 @@ class TaskDurableMemoryStore:
                 ON task_durable_memory_items(namespace_id, status, kind, memory_semantics);
 
                 CREATE INDEX IF NOT EXISTS idx_task_durable_scope
-                ON task_durable_memory_items(task_family, domain_id, task_id, graph_id, project_id, artifact_namespace);
+                ON task_durable_memory_items(domain_id, task_id, graph_id, project_id, artifact_namespace);
 
                 CREATE TABLE IF NOT EXISTS task_durable_memory_events (
                     event_id TEXT PRIMARY KEY,
@@ -314,7 +309,6 @@ def stable_task_memory_id(*parts: Any) -> str:
 
 def build_namespace_id(
     *,
-    task_family: str = "",
     domain_id: str = "",
     task_id: str = "",
     graph_id: str = "",
@@ -322,7 +316,6 @@ def build_namespace_id(
     artifact_namespace: str = "",
 ) -> str:
     parts = [
-        ("family", task_family),
         ("domain", domain_id),
         ("task", task_id),
         ("graph", graph_id),
@@ -357,7 +350,6 @@ def _item_from_row(row: sqlite3.Row) -> TaskDurableMemoryItem:
     return TaskDurableMemoryItem(
         task_memory_id=str(row["task_memory_id"]),
         namespace_id=str(row["namespace_id"]),
-        task_family=str(row["task_family"]),
         domain_id=str(row["domain_id"]),
         task_id=str(row["task_id"]),
         graph_id=str(row["graph_id"]),

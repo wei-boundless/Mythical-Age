@@ -13,7 +13,7 @@ class TaskDomainBinding:
     binding_id: str
     requested_domain: str
     bound_domain_id: str
-    task_family: str
+    semantic_domain: str
     title: str
     binding_source: str
     playbook_role: str = "mature_working_conventions"
@@ -53,20 +53,20 @@ def bind_task_domain(
     registry = TaskFlowRegistry(base_dir)
     domains = registry.list_task_domains()
     record, source = _resolve_domain_record(normalized, domains)
-    family = str(record.task_family if record is not None else normalized or "general").strip() or "general"
-    bound_domain_id = str(record.domain_id if record is not None else f"domain.{family}").strip()
-    title = str(record.title if record is not None else f"{family}任务域").strip()
+    semantic_domain = normalized or "general"
+    bound_domain_id = str(record.domain_id if record is not None else f"domain.{semantic_domain}").strip()
+    title = str(record.title if record is not None else f"{semantic_domain}任务域").strip()
     metadata = dict(record.metadata if record is not None else {})
-    practices = _default_practices(family=family, domain_id=bound_domain_id, metadata=metadata)
-    validation = _validation_practices(family=family, domain_id=bound_domain_id, metadata=metadata)
-    risks = _risk_controls(family=family, domain_id=bound_domain_id, metadata=metadata)
+    practices = _default_practices(semantic_domain=semantic_domain, domain_id=bound_domain_id, metadata=metadata)
+    validation = _validation_practices(semantic_domain=semantic_domain, domain_id=bound_domain_id, metadata=metadata)
+    risks = _risk_controls(semantic_domain=semantic_domain, domain_id=bound_domain_id, metadata=metadata)
     evidence = dict(goal_evidence or {})
     has_user_flow = bool(list(evidence.get("user_provided_flow") or []))
     return TaskDomainBinding(
         binding_id=f"taskdomainbind:{task_id or 'runtime'}:{bound_domain_id}",
         requested_domain=str(requested_domain or task_goal_domain or "").strip(),
         bound_domain_id=bound_domain_id,
-        task_family=family,
+        semantic_domain=semantic_domain,
         title=title,
         binding_source=source,
         user_flow_priority="higher_than_domain_playbook" if has_user_flow else "domain_playbook_can_fill_gaps",
@@ -94,35 +94,32 @@ def _resolve_domain_record(
     for record in domains:
         if record.domain_id == exact_id:
             return record, "domain_id"
-    for record in domains:
-        if record.task_family == normalized:
-            return record, "task_family"
     if normalized == "development":
         for record in domains:
-            if record.task_family in {"development", "custom_4"} or "开发" in record.title:
+            if record.domain_id in {"domain.development", "domain.custom_4"} or "开发" in record.title:
                 return record, "development_alias"
     if normalized in {"writing", "writing_modular_novel"}:
         for record in domains:
-            if record.task_family in {"writing", "writing_modular_novel"}:
+            if record.domain_id in {"domain.writing", "domain.writing_modular_novel"}:
                 return record, "writing_alias"
     for record in domains:
-        if record.task_family == "general" or record.domain_id == "domain.general":
+        if record.domain_id == "domain.general":
             return record, "general_fallback"
     return None, "derived_fallback"
 
 
-def _default_practices(*, family: str, domain_id: str, metadata: dict[str, Any]) -> list[str]:
+def _default_practices(*, semantic_domain: str, domain_id: str, metadata: dict[str, Any]) -> list[str]:
     configured = _metadata_list(metadata, "default_practices")
     if configured:
         return configured
-    if family in {"development", "custom_4"} or "development" in domain_id:
+    if semantic_domain in {"development", "custom_4"} or "development" in domain_id:
         return [
             "先观察真实代码和项目结构",
             "按用户明确流程推进",
             "保持变更范围受控",
             "真实修改后再汇报结果",
         ]
-    if family in {"writing", "writing_modular_novel"}:
+    if semantic_domain in {"writing", "writing_modular_novel"}:
         return [
             "先确认创作目标和材料边界",
             "保持设定一致性",
@@ -131,26 +128,26 @@ def _default_practices(*, family: str, domain_id: str, metadata: dict[str, Any])
     return ["按用户目标和显式约束选择最小充分行动"]
 
 
-def _validation_practices(*, family: str, domain_id: str, metadata: dict[str, Any]) -> list[str]:
+def _validation_practices(*, semantic_domain: str, domain_id: str, metadata: dict[str, Any]) -> list[str]:
     configured = _metadata_list(metadata, "validation_practices")
     if configured:
         return configured
-    if family in {"development", "custom_4"} or "development" in domain_id:
+    if semantic_domain in {"development", "custom_4"} or "development" in domain_id:
         return [
             "能运行测试时运行相关测试",
             "无法验证时明确说明限制",
             "不得声称未发生的构建、测试或浏览器验证",
         ]
-    if family in {"writing", "writing_modular_novel"}:
+    if semantic_domain in {"writing", "writing_modular_novel"}:
         return ["检查设定一致性、章节目标和输出边界"]
     return ["最终回答必须说明依据或限制"]
 
 
-def _risk_controls(*, family: str, domain_id: str, metadata: dict[str, Any]) -> list[str]:
+def _risk_controls(*, semantic_domain: str, domain_id: str, metadata: dict[str, Any]) -> list[str]:
     configured = _metadata_list(metadata, "risk_controls")
     if configured:
         return configured
-    if family in {"development", "custom_4"} or "development" in domain_id:
+    if semantic_domain in {"development", "custom_4"} or "development" in domain_id:
         return [
             "用户禁令优先于开发默认流程",
             "不要用兼容借口保留无用旧代码",

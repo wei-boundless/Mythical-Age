@@ -195,7 +195,6 @@ class WorkingMemoryHandoffTransaction:
 @dataclass(slots=True, frozen=True)
 class WorkingMemoryPolicyProfile:
     profile_id: str
-    task_family: str = ""
     allowed_kinds: tuple[str, ...] = ()
     allowed_semantics: tuple[WorkingMemorySemantics, ...] = ()
     readable_scopes_by_node_role: dict[str, list[str]] = field(default_factory=dict)

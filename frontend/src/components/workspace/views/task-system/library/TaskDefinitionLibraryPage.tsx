@@ -298,7 +298,7 @@ export function TaskDefinitionLibraryPage({
                   />
                 </Field>
                 <Field label="所属任务域">
-                  <input readOnly value={selectedDomain?.title || taskDraft.task_family || "未选择任务域"} />
+                  <input readOnly value={selectedDomain?.title || taskDraft.domain_id || "未选择任务域"} />
                 </Field>
                 <Field label="验收档案">
                   <input

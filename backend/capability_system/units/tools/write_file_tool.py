@@ -12,7 +12,7 @@ from capability_system.workspace_file_service import WorkspaceFileService
 
 
 class WriteFileInput(BaseModel):
-    path: str = Field(..., description="Relative path inside the project root")
+    path: str = Field(..., description="Relative path inside the project root. Use the argument name `path`, not `filepath` or `file_path`.")
     content: str = Field(..., description="Complete file content to write")
 
 

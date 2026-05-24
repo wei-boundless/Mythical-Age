@@ -88,11 +88,20 @@ def _with_professional_task_instruction(
     policy_line = _interaction_policy_instruction(dict(mode_policy or {}))
     if tool_execution_enabled:
         write_guidance = ""
+        if "agent_todo" in set(allowed_tools):
+            write_guidance += (
+                "如果任务是多文件开发、长任务、复杂调试或用户要求连续验收，"
+                "第一步应使用 agent_todo 建立可执行待办，并在每个真实动作后更新状态。"
+                "todo 要拆到可执行小步，尤其是大型源码文件应拆成骨架写入、分段 edit_file、验证和收口；"
+                "todo 不能替代真实文件写入、命令验证或最终证据。"
+            )
         if "write_file" in set(allowed_tools):
             write_guidance = (
+                f"{write_guidance}"
                 "如果用户明确要求写入、保存、产出草案文件或在 sandbox overlay 中交付文件，"
                 "在读到核心材料后应尽快调用 write_file 产出文件；不要把工具预算耗尽在泛化搜索上。"
-                "如果目标列出多个文件，你需要逐个文件真实写入，每次工具调用写一个完整文件，直到缺失路径全部补齐。"
+                "如果目标列出多个文件，你需要逐个文件真实写入或增量编辑，直到缺失路径全部补齐。"
+                "大型源码文件不要强行一次写完整；先写可运行骨架，再用 edit_file 分段补齐系统。"
             )
         tool_line = (
             "当前模式已开放预算受控的真实工具观察；只能基于真实工具结果写结论。"
@@ -174,13 +183,6 @@ def _interaction_policy_instruction(mode_policy: dict[str, Any]) -> str:
         return (
             f"当前模式策略：professional_mode，投影强度 {projection_strength or 'style_only'}。"
             "专业职责和语义契约优先，灵魂投影只影响表达温度。\n"
-        )
-    if interaction_mode == "vibe_coding":
-        return (
-            f"当前模式策略：vibe_coding，投影强度 {projection_strength or 'style_only'}。"
-            "你是一名代码任务执行 Agent。请先理解项目结构和相关文件职责，再做必要、可维护的真实修改。"
-            "修改后需要运行测试、构建、浏览器检查或给出无法验证的真实限制；最终回答只能基于真实变更、差异、命令或浏览器证据收口。"
-            "不要把角色投影、灵魂设定或实现计划当作已完成证据。\n"
         )
     if interaction_mode == "standard_mode":
         return (

@@ -2,7 +2,6 @@
   "task_domains": [
     {
       "domain_id": "domain.health",
-      "task_family": "health",
       "title": "健康任务",
       "description": "",
       "enabled": true,
@@ -13,7 +12,6 @@
     },
     {
       "domain_id": "domain.writing.modular_novel",
-      "task_family": "writing_modular_novel",
       "title": "模块化长篇写作",
       "description": "以任务图为一等对象组织设计初始化、章节批次创作与收尾交付的长篇写作任务域。",
       "enabled": true,
@@ -25,7 +23,6 @@
     },
     {
       "domain_id": "domain.custom_4",
-      "task_family": "custom_4",
       "title": "开发任务",
       "description": "",
       "enabled": true,
@@ -37,7 +34,6 @@
     },
     {
       "domain_id": "domain.general",
-      "task_family": "general",
       "title": "general任务域",
       "description": "",
       "enabled": true,
@@ -48,7 +44,6 @@
     },
     {
       "domain_id": "domain.writing_modular_novel",
-      "task_family": "writing_modular_novel",
       "title": "writing_modular_novel任务域",
       "description": "",
       "enabled": true,

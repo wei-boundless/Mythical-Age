@@ -6,6 +6,10 @@ from capability_system.operation_registry import OperationDescriptor, OperationR
 from task_system.contracts.capability_requirements import OperationRequirement
 
 from permissions.resource_policy import ResourceDecision, ResourcePolicy
+from permissions.model_visible_operations import (
+    is_model_visible_agent_operation,
+    is_model_visible_state_operation,
+)
 from permissions.resource_scope_mapping import map_operations_to_resource_scopes
 
 
@@ -28,8 +32,6 @@ DENY_BY_DEFAULT_RISK_TAGS = {
     "artifact_write_candidate",
 }
 NOT_EXECUTABLE_TYPES = {"mcp", "agent"}
-MODEL_VISIBLE_AGENT_OPERATIONS = {"op.delegate_to_agent"}
-MODEL_VISIBLE_STATE_OPERATIONS = {"op.agent_todo"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,7 +159,7 @@ def _decide_operation(
             risk_tags=descriptor.risk_tags,
         )
     if set(descriptor.risk_tags) & DENY_BY_DEFAULT_RISK_TAGS:
-        if descriptor.operation_id in MODEL_VISIBLE_STATE_OPERATIONS:
+        if is_model_visible_state_operation(descriptor.operation_id):
             return ResourceDecision(
                 operation_id=descriptor.operation_id,
                 decision="allow",
@@ -178,7 +180,7 @@ def _decide_operation(
             risk_tags=descriptor.risk_tags,
             diagnostics={"approval_policy": approval_policy},
         )
-    if descriptor.operation_id in MODEL_VISIBLE_AGENT_OPERATIONS:
+    if is_model_visible_agent_operation(descriptor.operation_id):
         return ResourceDecision(
             operation_id=descriptor.operation_id,
             decision="allow",

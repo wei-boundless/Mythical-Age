@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { Database, LayoutGrid, MessageSquare, Network, Settings, Workflow } from "lucide-react";
+import { Database, LayoutGrid, MessageSquare, Network, Settings, Sparkles, Workflow } from "lucide-react";
 
 import { AppProvider, useAppStore } from "@/lib/store";
 import { lazy, Suspense } from "react";
@@ -15,6 +15,7 @@ const CapabilitySystemView = lazy(() => import("@/components/workspace/views/Cap
 const MemoryView = lazy(() => import("@/components/workspace/views/MemoryView").then((module) => ({ default: module.MemoryView })));
 const OrchestrationView = lazy(() => import("@/components/workspace/views/OrchestrationView").then((module) => ({ default: module.OrchestrationView })));
 const PlaygroundView = lazy(() => import("@/components/workspace/views/PlaygroundView").then((module) => ({ default: module.PlaygroundView })));
+const SoulSystemView = lazy(() => import("@/components/workspace/views/PlaygroundView").then((module) => ({ default: module.PlaygroundView })));
 const SystemConfigView = lazy(() => import("@/components/workspace/views/SystemConfigView").then((module) => ({ default: module.SystemConfigView })));
 const SystemFrameworkView = lazy(() => import("@/components/workspace/views/SystemFrameworkView").then((module) => ({ default: module.SystemFrameworkView })));
 const TaskSystemView = lazy(() => import("@/components/workspace/views/TaskSystemView").then((module) => ({ default: module.TaskSystemView })));
@@ -34,6 +35,7 @@ const WORKSPACE_QUERY_VIEWS = new Set<WorkspaceView>([
   "task-system",
   "orchestration",
   "capability-system",
+  "soul-system",
   "system-framework",
   "system-config",
 ]);
@@ -46,6 +48,7 @@ const SYSTEM_NAV_ITEMS: Array<{ view: WorkspaceView; label: string; icon: typeof
   { view: "task-system", label: "任务", icon: Workflow },
   { view: "orchestration", label: "编排", icon: Network },
   { view: "capability-system", label: "能力", icon: LayoutGrid },
+  { view: "soul-system", label: "灵魂", icon: Sparkles },
   { view: "system-config", label: "配置", icon: Settings },
 ];
 
@@ -129,6 +132,7 @@ function Workspace() {
       && activeWorkspaceView !== "playground"
       && activeWorkspaceView !== "task-system"
       && activeWorkspaceView !== "capability-system"
+      && activeWorkspaceView !== "soul-system"
       && activeWorkspaceView !== "orchestration"
       && activeWorkspaceView !== "system-framework"
       && activeWorkspaceView !== "system-config"
@@ -166,7 +170,8 @@ function Workspace() {
     || activeWorkspaceView === "system-framework"
     || activeWorkspaceView === "orchestration"
     || activeWorkspaceView === "task-system"
-    || activeWorkspaceView === "capability-system";
+    || activeWorkspaceView === "capability-system"
+    || activeWorkspaceView === "soul-system";
 
   let content: ReactNode;
 
@@ -198,6 +203,12 @@ function Workspace() {
     content = (
       <SystemPageShell label="能力系统">
         <LazyView><CapabilitySystemView /></LazyView>
+      </SystemPageShell>
+    );
+  } else if (activeWorkspaceView === "soul-system") {
+    content = (
+      <SystemPageShell label="灵魂系统">
+        <LazyView><SoulSystemView embedded onReturnToWorkspace={returnToWorkspace} /></LazyView>
       </SystemPageShell>
     );
   } else if (activeWorkspaceView === "system-config") {

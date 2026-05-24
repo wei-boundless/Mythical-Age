@@ -46,7 +46,7 @@ def test_modular_writing_graph_config_compiles_graph_modules_and_chapter_batches
         assert graph_id in graphs
         assert graphs[graph_id].publish_state == "published"
         assert graphs[graph_id].enabled is True
-        assert graphs[graph_id].task_family == "writing_modular_novel"
+        assert graphs[graph_id].domain_id == "domain.writing.modular_novel"
 
     chapter_graph = graphs["graph.writing.modular_novel.chapter_cycle"]
     chapter_node_ids = {node.node_id for node in chapter_graph.nodes}

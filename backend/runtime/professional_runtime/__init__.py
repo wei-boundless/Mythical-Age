@@ -7,10 +7,6 @@ from .completion_judgment import (
     judge_completion,
     verification_review_from_payload,
 )
-from .model_sidecars import (
-    invoke_readonly_planner_draft,
-    invoke_readonly_verifier_review,
-)
 from .planner_verifier_requests import (
     ReadonlyPlannerRequest,
     ReadonlyVerifierRequest,
@@ -26,8 +22,6 @@ __all__ = [
     "build_readonly_planner_request",
     "build_readonly_verifier_request",
     "build_verification_review",
-    "invoke_readonly_planner_draft",
-    "invoke_readonly_verifier_review",
     "judge_completion",
     "verification_review_from_payload",
 ]

@@ -179,7 +179,7 @@ def test_removed_health_task_selection_does_not_mount_old_profiles() -> None:
     assert assembly["workflow_id"] == ""
     assert assembly["communication_protocol_ref"] == ""
     assert assembly["graph_ref"] == ""
-    assert assembly["task_family"] != "health"
+    assert "task_family" not in assembly
 
 
 def test_orchestration_runtime_bundle_respects_shared_contract_flag() -> None:
@@ -284,7 +284,7 @@ def test_removed_story_task_selection_falls_back_to_general_runtime() -> None:
     assert assembly["communication_protocol_ref"] == ""
     assert assembly["graph_ref"] == ""
     assert assembly["topology_template_ref"] == ""
-    assert assembly["task_family"] != "writing"
+    assert "task_family" not in assembly
 
 
 def test_removed_longform_writing_runtime_residue_stays_absent() -> None:

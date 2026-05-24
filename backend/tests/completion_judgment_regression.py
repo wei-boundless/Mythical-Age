@@ -15,16 +15,14 @@ SEMANTIC_CONTRACT = {
     "contract_id": "semantic-task:completion:test",
     "task_goal_type": "frontend_app_delivery",
     "deliverables": ["runnable_artifact_refs", "workflow_acceptance", "verification_evidence", "limitations"],
-    "required_actions": ["inspect_code", "apply_real_change", "run_browser_verification", "validate_deliverables"],
-}
+    "required_actions": ["inspect_code", "apply_real_change", "run_browser_verification", "validate_deliverables"]}
 
 
 def test_completion_judgment_verified_requires_passed_validation() -> None:
     evidence = {
         "packet_id": "evidence:completion:verified",
         "facts": [{"fact_type": "observation", "preview": "write succeeded frontend/src/App.tsx browser opened workflow click"}],
-        "limitations": [],
-    }
+        "limitations": []}
     deliverable = {"passed": True, "missing_deliverables": [], "unsupported_claims": []}
     obligation = {"passed": True, "unsatisfied_obligations": []}
 
@@ -87,8 +85,7 @@ def test_completion_judgment_marks_unsupported_claims_as_contradicted() -> None:
     deliverable = {
         "passed": False,
         "missing_deliverables": ["verification_evidence"],
-        "unsupported_claims": ["claims_runtime_or_browser_verification_without_evidence"],
-    }
+        "unsupported_claims": ["claims_runtime_or_browser_verification_without_evidence"]}
     obligation = {"passed": False, "unsatisfied_obligations": ["run_browser_verification"]}
 
     review = build_verification_review(
@@ -116,8 +113,7 @@ def test_completion_judgment_can_be_partially_verified_with_real_evidence_and_mi
     evidence = {
         "packet_id": "evidence:completion:partial",
         "facts": [{"fact_type": "observation", "preview": "write succeeded frontend/src/App.tsx"}],
-        "limitations": ["未运行浏览器验证。"],
-    }
+        "limitations": ["未运行浏览器验证。"]}
     deliverable = {"passed": False, "missing_deliverables": ["verification_evidence"], "unsupported_claims": []}
     obligation = {"passed": False, "unsatisfied_obligations": ["run_browser_verification"]}
 
@@ -149,13 +145,11 @@ def test_prompt_contract_renders_completion_judgment_section() -> None:
         "missing_deliverables": ["verification_evidence"],
         "unsatisfied_obligations": ["run_browser_verification"],
         "unsupported_claims": [],
-        "limitations": ["浏览器未运行。"],
-    }
+        "limitations": ["浏览器未运行。"]}
     review = {
         "review_id": "verification-review:prompt",
         "verifier_mode": "readonly_structured_review",
-        "passed": False,
-    }
+        "passed": False}
     prompt = assemble_runtime_prompt_contract(
         base_dir=ROOT.parent,
         task_id="completion-prompt",
@@ -163,24 +157,20 @@ def test_prompt_contract_renders_completion_judgment_section() -> None:
         task_contract={
             "user_goal": "验证前端交付",
             "task_requirement_contract": SEMANTIC_CONTRACT,
-            "mode_policy": {"interaction_mode": "professional_mode"},
-        },
-        task_execution_assembly={"task_family": "runtime", "task_mode": "professional_mode", "metadata": {}},
+            "mode_policy": {"interaction_mode": "professional_mode"}},
+        task_execution_assembly={"task_mode": "professional_mode", "metadata": {}},
         task_spec={"inputs": {}},
         selected_recipe={
             "recipe_id": "runtime.recipe.professional_task",
             "metadata": {
                 "completion_judgment": judgment,
-                "verification_review": review,
-            },
-        },
+                "verification_review": review}},
         task_workflow={},
         binding={},
         registered_task={},
         skill_runtime_views=[],
         projection_requirement={},
         operation_requirement={},
-        active_skill={},
         agent_id="agent:0",
         current_turn_context={},
     )

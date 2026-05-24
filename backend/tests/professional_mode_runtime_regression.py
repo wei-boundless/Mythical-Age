@@ -419,11 +419,11 @@ def test_artifact_delivery_requires_each_declared_output_path() -> None:
     assert "output_path:output/b.md" in result.missing_deliverables
 
 
-def test_runtime_lane_registry_exposes_three_modes_and_removes_old_lane() -> None:
+def test_runtime_lane_registry_exposes_active_modes_and_removes_old_lanes() -> None:
     assert DEFAULT_RUNTIME_LANE_REGISTRY.get("role_interaction") is not None
     assert DEFAULT_RUNTIME_LANE_REGISTRY.get("standard_task") is not None
     assert DEFAULT_RUNTIME_LANE_REGISTRY.get("professional_task") is not None
-    assert DEFAULT_RUNTIME_LANE_REGISTRY.get("vibe_coding_task") is not None
+    assert DEFAULT_RUNTIME_LANE_REGISTRY.get("vibe_coding_task") is None
     assert DEFAULT_RUNTIME_LANE_REGISTRY.get("autonomous_task") is None
 
 

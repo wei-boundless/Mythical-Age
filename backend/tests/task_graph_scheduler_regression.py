@@ -8,7 +8,6 @@ def _runtime_spec() -> TaskGraphRuntimeSpec:
     return TaskGraphRuntimeSpec(
         graph_id="graph.test.scheduler",
         domain_id="domain.test",
-        task_family="test",
         coordinator_agent_id="agent:0",
         nodes=(
             TaskGraphRuntimeNode(
@@ -83,7 +82,6 @@ def test_scheduler_blocks_wait_handoff_ack_until_edge_acknowledged() -> None:
     spec = TaskGraphRuntimeSpec(
         graph_id="graph.test.handoff_ack",
         domain_id="domain.test",
-        task_family="test",
         coordinator_agent_id="agent:0",
         nodes=(
             TaskGraphRuntimeNode(node_id="source", title="Source", node_type="agent", role="worker"),
@@ -150,7 +148,6 @@ def test_scheduler_does_not_require_ack_for_plain_completed_upstream() -> None:
     spec = TaskGraphRuntimeSpec(
         graph_id="graph.test.no_ack_gate",
         domain_id="domain.test",
-        task_family="test",
         coordinator_agent_id="agent:0",
         nodes=(
             TaskGraphRuntimeNode(node_id="source", title="Source", node_type="agent", role="worker"),
@@ -226,7 +223,6 @@ def test_scheduler_consumes_explicit_blocking_temporal_edges() -> None:
     spec = TaskGraphRuntimeSpec(
         graph_id="graph.test.temporal_dependency",
         domain_id="domain.test",
-        task_family="test",
         coordinator_agent_id="agent:0",
         nodes=(
             TaskGraphRuntimeNode(node_id="research", title="Research", node_type="agent", role="worker"),
@@ -279,7 +275,6 @@ def test_scheduler_supports_wait_any_shadow_readiness() -> None:
     spec = TaskGraphRuntimeSpec(
         graph_id="graph.test.wait_any",
         domain_id="domain.test",
-        task_family="test",
         coordinator_agent_id="agent:0",
         nodes=(
             TaskGraphRuntimeNode(node_id="a", title="A", node_type="agent", role="worker"),
@@ -306,7 +301,6 @@ def test_scheduler_does_not_serialize_independent_nodes_by_phase_coordinate() ->
     spec = TaskGraphRuntimeSpec(
         graph_id="graph.test.phase_gate",
         domain_id="domain.test",
-        task_family="test",
         coordinator_agent_id="agent:0",
         nodes=(
             TaskGraphRuntimeNode(node_id="plan", title="Plan", node_type="agent", role="planner", phase_id="phase.plan", sequence_index=1),
@@ -331,7 +325,6 @@ def test_scheduler_does_not_use_sequence_coordinate_as_merge_gate() -> None:
     spec = TaskGraphRuntimeSpec(
         graph_id="graph.test.sequence_group",
         domain_id="domain.test",
-        task_family="test",
         coordinator_agent_id="agent:0",
         nodes=(
             TaskGraphRuntimeNode(node_id="a", title="A", node_type="agent", role="worker", phase_id="phase.work", sequence_index=1, timeline_group_id="reviewers"),
@@ -355,7 +348,6 @@ def test_scheduler_join_waits_for_explicit_upstream_edges_not_sequence_coordinat
     spec = TaskGraphRuntimeSpec(
         graph_id="graph.test.explicit_join",
         domain_id="domain.test",
-        task_family="test",
         coordinator_agent_id="agent:0",
         nodes=(
             TaskGraphRuntimeNode(node_id="a", title="A", node_type="agent", role="worker", phase_id="phase.work", sequence_index=1),
@@ -390,7 +382,6 @@ def test_scheduler_timeline_dependency_can_use_latest_accepted_prior_scope_resul
     spec = TaskGraphRuntimeSpec(
         graph_id="graph.test.cross_scope",
         domain_id="domain.test",
-        task_family="test",
         coordinator_agent_id="agent:0",
         nodes=(
             TaskGraphRuntimeNode(node_id="world_commit", title="World", node_type="agent", role="memory"),
@@ -441,7 +432,6 @@ def test_scheduler_current_scope_timeline_dependency_does_not_fallback_to_prior_
     spec = TaskGraphRuntimeSpec(
         graph_id="graph.test.current_scope",
         domain_id="domain.test",
-        task_family="test",
         coordinator_agent_id="agent:0",
         nodes=(
             TaskGraphRuntimeNode(node_id="candidate", title="Candidate", node_type="agent", role="creator"),
@@ -486,7 +476,6 @@ def test_scheduler_allows_partial_join_after_upstreams_reach_terminal_state() ->
     spec = TaskGraphRuntimeSpec(
         graph_id="graph.test.partial_join",
         domain_id="domain.test",
-        task_family="test",
         coordinator_agent_id="agent:0",
         nodes=(
             TaskGraphRuntimeNode(node_id="a", title="A", node_type="agent", role="participant"),
@@ -525,7 +514,6 @@ def test_scheduler_blocks_partial_join_until_all_upstreams_are_terminal() -> Non
     spec = TaskGraphRuntimeSpec(
         graph_id="graph.test.partial_join_pending",
         domain_id="domain.test",
-        task_family="test",
         coordinator_agent_id="agent:0",
         nodes=(
             TaskGraphRuntimeNode(node_id="a", title="A", node_type="agent", role="participant"),
@@ -565,7 +553,6 @@ def test_scheduler_fail_downstream_propagates_failure_chain() -> None:
     spec = TaskGraphRuntimeSpec(
         graph_id="graph.test.fail_downstream",
         domain_id="domain.test",
-        task_family="test",
         coordinator_agent_id="agent:0",
         nodes=(
             TaskGraphRuntimeNode(node_id="source", title="Source", node_type="agent", role="worker"),
@@ -611,7 +598,6 @@ def test_scheduler_isolates_failure_without_releasing_downstream() -> None:
     spec = TaskGraphRuntimeSpec(
         graph_id="graph.test.isolate_failure",
         domain_id="domain.test",
-        task_family="test",
         coordinator_agent_id="agent:0",
         nodes=(
             TaskGraphRuntimeNode(node_id="source", title="Source", node_type="agent", role="worker"),
@@ -649,7 +635,6 @@ def test_scheduler_allow_partial_requires_target_partial_join() -> None:
     spec = TaskGraphRuntimeSpec(
         graph_id="graph.test.allow_partial_requires_join",
         domain_id="domain.test",
-        task_family="test",
         coordinator_agent_id="agent:0",
         nodes=(
             TaskGraphRuntimeNode(node_id="a", title="A", node_type="agent", role="worker"),
@@ -686,7 +671,6 @@ def test_scheduler_does_not_schedule_conditional_repair_or_failure_routes_by_def
     spec = TaskGraphRuntimeSpec(
         graph_id="graph.test.conditional_routes",
         domain_id="domain.test",
-        task_family="test",
         coordinator_agent_id="agent:0",
         nodes=(
             TaskGraphRuntimeNode(node_id="review", title="Review", node_type="review_gate", role="reviewer"),
@@ -745,7 +729,6 @@ def test_scheduler_excludes_resource_nodes_from_execution_queue() -> None:
     spec = TaskGraphRuntimeSpec(
         graph_id="graph.test.resource_nodes",
         domain_id="domain.test",
-        task_family="test",
         coordinator_agent_id="agent:0",
         nodes=(
             TaskGraphRuntimeNode(node_id="draft", title="Draft", node_type="agent", role="writer"),

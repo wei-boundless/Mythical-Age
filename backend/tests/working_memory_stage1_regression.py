@@ -300,7 +300,6 @@ def test_working_memory_policy_profile_round_trip(tmp_path) -> None:
     facade = MemoryFacade(tmp_path)
     profile = facade.save_working_memory_policy_profile(
         profile_id="wmprofile:novel",
-        task_family="novel_writing",
         allowed_kinds=["chapter_draft", "character_state_delta", "continuity_conflict"],
         allowed_semantics=["draft_artifact", "working_fact", "conflict"],
         dynamic_read_rules={"allow_dynamic_read": True, "max_dynamic_reads_per_node_run": 3},
@@ -312,7 +311,7 @@ def test_working_memory_policy_profile_round_trip(tmp_path) -> None:
 
     assert isinstance(profile, WorkingMemoryPolicyProfile)
     assert loaded is not None
-    assert loaded.task_family == "novel_writing"
+    assert loaded.profile_id == "wmprofile:novel"
     assert "chapter_draft" in loaded.allowed_kinds
     assert loaded.dynamic_read_rules["allow_dynamic_read"] is True
 

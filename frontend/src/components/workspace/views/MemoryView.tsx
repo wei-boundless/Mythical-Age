@@ -262,16 +262,6 @@ export function MemoryView() {
 
       {error ? <div className="workspace-alert">{error}</div> : null}
 
-      <section className="memory-hero">
-        <div className="memory-hero__copy">
-          <span>Long-term Memory</span>
-          <strong>管理跨会话仍然稳定、有价值的长期记忆。</strong>
-          <p>
-            只保留长期记忆的阅读、写入、合并、启停、归档和删除。
-          </p>
-        </div>
-      </section>
-
       <div className="workspace-search memory-search">
         <Search size={17} />
         <input

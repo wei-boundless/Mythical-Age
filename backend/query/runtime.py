@@ -106,7 +106,6 @@ class QueryRuntime:
         pending_user_message: str | None = None,
         memory_intent: Any | None = None,
         relevant_memory_notes: list[Any] | None = None,
-        active_skill: Any | None = None,
         retrieval_results: list[dict[str, Any]] | None = None,
     ) -> str:
         context_package = self.agent_runtime_chain.build_context_package(
@@ -122,7 +121,6 @@ class QueryRuntime:
             persistent_memory=None,
             session_memory=None,
             context_package=context_package,
-            active_skill=self._render_active_skill_prompt(active_skill),
         )
 
     async def abuild_system_prompt_for_session(self, *args, **kwargs) -> str:
@@ -479,17 +477,6 @@ class QueryRuntime:
         if not callable(getter):
             return None
         return getter(name)
-
-    def _render_active_skill_prompt(self, active_skill: Any | None) -> str | None:
-        if active_skill is None:
-            return None
-        prompt_view = getattr(active_skill, "prompt_view", None)
-        if prompt_view is not None:
-            if hasattr(prompt_view, "render_block"):
-                return str(prompt_view.render_block())
-            if hasattr(prompt_view, "to_prompt"):
-                return str(prompt_view.to_prompt())
-        return str(active_skill)
 
     @staticmethod
     def _user_visible_error(exc: Exception) -> str:

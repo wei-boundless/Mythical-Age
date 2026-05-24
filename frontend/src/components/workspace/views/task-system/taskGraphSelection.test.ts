@@ -14,7 +14,6 @@ function graph(partial: Partial<TaskGraphRecord>): TaskGraphRecord {
     graph_id: partial.graph_id ?? "graph.test",
     title: partial.title ?? partial.graph_id ?? "测试图",
     domain_id: partial.domain_id ?? "domain.test",
-    task_family: partial.task_family ?? "test",
     graph_kind: partial.graph_kind ?? "coordination",
     entry_node_id: partial.entry_node_id ?? "start",
     output_node_id: partial.output_node_id ?? "end",
@@ -49,7 +48,6 @@ describe("task graph selection", () => {
         graph_id: MODULAR_NOVEL_MASTER_GRAPH_ID,
         title: "模块化长篇写作总任务图",
         domain_id: "domain.writing.modular_novel",
-        task_family: "writing_modular_novel",
         metadata: {
           timeline_blocks: [
             { block_id: "block.design", linked_graph_id: "graph.writing.modular_novel.design_init" },

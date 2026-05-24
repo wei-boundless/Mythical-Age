@@ -466,7 +466,6 @@ class ProjectProgressLedger:
     project_id: str
     session_id: str
     graph_id: str
-    task_family: str = ""
     project_title: str = ""
     metric_label: str = "units"
     target_metric_total: int = 0
@@ -543,7 +542,6 @@ class ProjectRuntimeStatus:
     project_id: str
     session_id: str
     graph_id: str
-    task_family: str = ""
     project_title: str = ""
     active_task_run_id: str = ""
     active_coordination_run_id: str = ""

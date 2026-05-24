@@ -187,6 +187,34 @@ def assemble_runtime_prompt_sections(
             source_refs=tuple(str(getattr(item, "skill_id", "") or "") for item in soul_skill_views if str(getattr(item, "skill_id", "") or "")),
         ),
         PromptSection(
+            section_id="skill_catalog_section",
+            title="候选 Skills",
+            source_type="skill_candidate_catalog",
+            source_id="task_prompt_contract.skill_catalog_section",
+            owner_layer="capability",
+            cache_scope="dynamic",
+            visible_to_model=True,
+            content=str(contract.get("skill_catalog_section") or ""),
+            source_refs=(),
+            candidate_refs=tuple(
+                str(getattr(item, "skill_id", "") or "")
+                for item in soul_skill_views
+                if str(getattr(item, "skill_id", "") or "")
+            ),
+        ),
+        PromptSection(
+            section_id="skill_detail_section",
+            title="已激活 Skill 说明",
+            source_type="skill_activation_detail",
+            source_id="task_prompt_contract.skill_detail_section",
+            owner_layer="capability",
+            cache_scope="dynamic",
+            visible_to_model=True,
+            content=str(contract.get("skill_detail_section") or ""),
+            source_refs=tuple(str(item).strip() for item in list(metadata.get("skill_detail_source_refs") or []) if str(item).strip()),
+            candidate_refs=tuple(str(item).strip() for item in list(metadata.get("activated_skill_ids") or []) if str(item).strip()),
+        ),
+        PromptSection(
             section_id="projection_section",
             title="投影姿态",
             source_type="projection_requirement",

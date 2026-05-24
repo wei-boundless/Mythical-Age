@@ -406,6 +406,95 @@ def _should_apply_artifact_delivery_evidence_closeout(
     return False
 
 
+def _should_apply_profile_delivery_evidence_closeout(
+    *,
+    outcome: ProfessionalTaskRunOutcome,
+    semantic_contract: dict[str, Any],
+    tool_observation_ledger: ToolObservationLedger,
+    final_protocol_leak_detected: bool,
+) -> bool:
+    task_goal_type = str(semantic_contract.get("task_goal_type") or "").strip()
+    if task_goal_type not in {"game_vertical_slice_delivery", "frontend_app_delivery"}:
+        return False
+    if not tool_observation_ledger.has_write():
+        return False
+    content = str(outcome.final_content or "").strip()
+    if not content:
+        return True
+    if bool(final_protocol_leak_detected) or _contains_tool_call_markup(content):
+        return True
+    return outcome.terminal_reason in {"tool_call_markup_leaked", "tool_loop_budget_exceeded", "partial_contract_failed"}
+
+
+def _build_profile_delivery_evidence_closeout_answer(
+    *,
+    semantic_contract: dict[str, Any],
+    goal_contract: ProfessionalTaskGoalContract,
+    tool_observation_ledger: ToolObservationLedger,
+    evidence_packet: dict[str, Any],
+) -> str:
+    task_goal_type = str(semantic_contract.get("task_goal_type") or "").strip()
+    write_paths = _observation_paths_for_satisfaction(tool_observation_ledger, "write_output")
+    required_paths = [
+        str(path or "").replace("\\", "/").strip()
+        for path in list(goal_contract.required_output_paths or [])
+        if str(path or "").strip()
+    ]
+    missing_paths = [
+        path
+        for path in required_paths
+        if path and not any(_path_matches_for_closeout(path, observed) for observed in write_paths)
+    ]
+    verification_records = [
+        record
+        for record in tool_observation_ledger.records
+        if "verify_command" in record.satisfies or record.tool_name == "terminal"
+    ]
+    if tool_observation_ledger.verification_passed():
+        verification_line = "验证：已运行 terminal，最近一次验证观察显示通过。"
+    elif verification_records:
+        latest = verification_records[-1]
+        preview = str(latest.result_preview or "").strip()
+        verification_line = "验证：已运行 terminal，但没有取得可确认通过的最终验证。"
+        if preview:
+            verification_line += " 摘要：" + preview[:180]
+    else:
+        verification_line = "验证：尚未取得 terminal 验证观察。"
+    facts = [dict(item) for item in list(dict(evidence_packet or {}).get("facts") or []) if isinstance(item, dict)]
+    asset_paths = [
+        path
+        for path in write_paths
+        if "/assets/" in path.replace("\\", "/") or path.lower().endswith((".svg", ".png", ".jpg", ".jpeg", ".webp"))
+    ]
+    if task_goal_type == "game_vertical_slice_delivery":
+        headline = "阶段结果：已推进浏览器小游戏工程，但尚未证明全部验收项完成。"
+    else:
+        headline = "阶段结果：已推进前端交付任务，但尚未证明全部验收项完成。"
+    lines = [
+        headline,
+        "已写入：" + ("、".join(write_paths) if write_paths else "暂无可解析写入路径。"),
+    ]
+    if asset_paths:
+        lines.append("资源：" + "、".join(asset_paths[:10]))
+    lines.append(
+        "未完成或未证明："
+        + ("、".join(missing_paths) if missing_paths else "没有从目标路径契约中发现缺失写入。")
+    )
+    lines.append(verification_line)
+    lines.append(
+        "证据边界：本回答只基于本轮真实工具观察；未写入或未验证的文件不会声称完成。"
+    )
+    if facts:
+        lines.append("观察数量：" + str(len(facts)))
+    return "\n".join(lines)
+
+
+def _path_matches_for_closeout(target: str, observed: str) -> bool:
+    left = str(target or "").replace("\\", "/").strip().strip("/").lower()
+    right = str(observed or "").replace("\\", "/").strip().strip("/").lower()
+    return bool(left and right and (left == right or right.endswith("/" + left) or left.endswith("/" + right)))
+
+
 def _should_auto_write_artifact_delivery_after_blocked_tool(
     *,
     semantic_contract: dict[str, Any],

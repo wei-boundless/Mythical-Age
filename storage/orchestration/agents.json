@@ -502,7 +502,6 @@
       "updated_at": 1779522165.0585973,
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
-        "task_family": "writing_modular_novel",
         "agent_template_id": "task_graph.writing_modular_novel.node_agent",
         "delegation_enabled": true,
         "group_eligible": true,
@@ -526,7 +525,6 @@
       "updated_at": 1779522165.0883615,
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
-        "task_family": "writing_modular_novel",
         "agent_template_id": "task_graph.writing_modular_novel.node_agent",
         "delegation_enabled": true,
         "group_eligible": true,
@@ -550,7 +548,6 @@
       "updated_at": 1779522165.0735588,
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
-        "task_family": "writing_modular_novel",
         "agent_template_id": "task_graph.writing_modular_novel.node_agent",
         "delegation_enabled": true,
         "group_eligible": true,
@@ -574,7 +571,6 @@
       "updated_at": 1779522165.1052303,
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
-        "task_family": "writing_modular_novel",
         "agent_template_id": "task_graph.writing_modular_novel.node_agent",
         "delegation_enabled": true,
         "group_eligible": true,
@@ -598,7 +594,6 @@
       "updated_at": 1779522165.0464845,
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
-        "task_family": "writing_modular_novel",
         "agent_template_id": "task_graph.writing_modular_novel.node_agent",
         "delegation_enabled": true,
         "group_eligible": true,

@@ -352,7 +352,6 @@ def test_task_graph_definition_compiles_direct_runtime_spec_with_policy_diagnost
         graph_id="graph.test.direct_compile",
         title="直接编译图",
         domain_id="domain.story",
-        task_family="story",
         graph_kind="multi_agent",
         graph_contract_id="contract.story.graph",
         default_protocol_id="protocol.story",

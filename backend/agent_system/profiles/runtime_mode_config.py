@@ -10,7 +10,7 @@ PROFESSIONAL_MODE = "professional"
 VIBE_CODING_MODE = "vibe_coding"
 CUSTOM_MODE = "custom"
 DEFAULT_RUNTIME_MODE = CUSTOM_MODE
-RUNTIME_MODE_ORDER = (ROLE_MODE, STANDARD_MODE, PROFESSIONAL_MODE, VIBE_CODING_MODE, CUSTOM_MODE)
+RUNTIME_MODE_ORDER = (ROLE_MODE, STANDARD_MODE, PROFESSIONAL_MODE, CUSTOM_MODE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,16 +61,6 @@ MODE_CONFIGS: dict[str, AgentRuntimeModeConfig] = {
         recipe_id="runtime.recipe.professional_task",
         projection_strength="style_only",
         execution_strategy="professional_task_run",
-    ),
-    VIBE_CODING_MODE: AgentRuntimeModeConfig(
-        mode=VIBE_CODING_MODE,
-        label="Vibe Coding",
-        interaction_mode="vibe_coding",
-        runtime_lane="vibe_coding_task",
-        recipe_id="runtime.recipe.vibe_coding",
-        projection_strength="style_only",
-        execution_strategy="professional_task_run",
-        description="面向代码修改、调试、重构、测试和前端实现的专业代码任务模式。",
     ),
     CUSTOM_MODE: AgentRuntimeModeConfig(
         mode=CUSTOM_MODE,

@@ -18,7 +18,6 @@
       "error_signal_policy": "raise_to_coordinator",
       "enabled": true,
       "metadata": {
-        "task_family": "general",
         "task_id": "task.000001",
         "domain_id": "domain.general",
         "managed_by": "codex_smoke"
@@ -63,7 +62,6 @@
       "enabled": true,
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
-        "task_family": "writing_modular_novel",
         "domain_id": "domain.writing.modular_novel"
       },
       "authority": "task_system.task_communication_protocol"

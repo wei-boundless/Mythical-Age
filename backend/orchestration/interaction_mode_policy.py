@@ -10,7 +10,7 @@ STANDARD_MODE = "standard_mode"
 PROFESSIONAL_MODE = "professional_mode"
 VIBE_CODING_MODE = "vibe_coding"
 
-INTERACTION_MODES = {ROLE_MODE, STANDARD_MODE, PROFESSIONAL_MODE, VIBE_CODING_MODE}
+INTERACTION_MODES = {ROLE_MODE, STANDARD_MODE, PROFESSIONAL_MODE}
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,14 +170,14 @@ def _normalize_mode(value: Any) -> str:
         "standard_mode": STANDARD_MODE,
         "professional": PROFESSIONAL_MODE,
         "professional_mode": PROFESSIONAL_MODE,
-        "vibe": VIBE_CODING_MODE,
-        "vibe_code": VIBE_CODING_MODE,
-        "vibe_code_mode": VIBE_CODING_MODE,
-        "vibe_coding": VIBE_CODING_MODE,
-        "vibe_coding_mode": VIBE_CODING_MODE,
-        "coding": VIBE_CODING_MODE,
-        "code": VIBE_CODING_MODE,
-        "coder": VIBE_CODING_MODE,
+        "vibe": PROFESSIONAL_MODE,
+        "vibe_code": PROFESSIONAL_MODE,
+        "vibe_code_mode": PROFESSIONAL_MODE,
+        "vibe_coding": PROFESSIONAL_MODE,
+        "vibe_coding_mode": PROFESSIONAL_MODE,
+        "coding": PROFESSIONAL_MODE,
+        "code": PROFESSIONAL_MODE,
+        "coder": PROFESSIONAL_MODE,
     }
     return mapping.get(raw, "")
 
@@ -205,7 +205,7 @@ def _interaction_mode_for_profile(profile: Any) -> str:
     }
     material_policy = dict(getattr(profile, "material_policy", None) or {})
     if str(material_policy.get("runtime_mode") or "").strip() == "vibe_coding":
-        return VIBE_CODING_MODE
+        return PROFESSIONAL_MODE
     professional_capabilities = {
         "workspace_write",
         "terminal",
@@ -342,131 +342,6 @@ def _policy_for_mode(
             diagnostics=_diagnostics(contract, understanding, obligation),
         )
         return _with_contract_bound_tool_policy(policy, contract)
-    if interaction_mode == VIBE_CODING_MODE:
-        policy = RuntimeInteractionModePolicy(
-            interaction_mode=VIBE_CODING_MODE,
-            mode_reason=mode_reason,
-            runtime_lane="vibe_coding_task",
-            recipe_id="runtime.recipe.vibe_coding",
-            projection_strength="style_only",
-            semantic_contract_required=True,
-            professional_profile_required=True,
-            tool_policy={
-                "enabled": True,
-                "allowed_tool_names": [
-                    "agent_todo",
-                    "read_file",
-                    "read_structured_file",
-                    "list_dir",
-                    "stat_path",
-                    "path_exists",
-                    "glob_paths",
-                    "search_files",
-                    "search_text",
-                    "git_status",
-                    "git_diff",
-                    "write_file",
-                    "edit_file",
-                    "terminal",
-                    "browser_control",
-                    "delegate_to_agent",
-                    "web_search",
-                    "fetch_url",
-                ],
-                "allowed_operation_refs": [
-                    "op.agent_todo",
-                    "op.read_file",
-                    "op.read_structured_file",
-                    "op.list_dir",
-                    "op.stat_path",
-                    "op.path_exists",
-                    "op.glob_paths",
-                    "op.search_files",
-                    "op.search_text",
-                    "op.git_status",
-                    "op.git_diff",
-                    "op.write_file",
-                    "op.edit_file",
-                    "op.shell",
-                    "op.browser_control",
-                    "op.delegate_to_agent",
-                    "op.web_search",
-                    "op.fetch_url",
-                ],
-                "max_tool_rounds_per_task_run": 20,
-                "max_tool_calls_per_task_run": 40,
-                "max_tool_calls_per_round": 1,
-                "requires_evidence_packet": True,
-                "requires_change_evidence": True,
-                "requires_verification_after_write": True,
-            },
-            delegation_policy={
-                "enabled": True,
-                "max_delegate_calls_per_step": 1,
-                "max_delegate_calls_per_task_run": 2,
-                "delegate_retry_budget": 1,
-                "nested_delegation": False,
-                "child_result_is_evidence_packet": True,
-                "allowed_tool_name": "delegate_to_agent",
-                "allowed_operation_ref": "op.delegate_to_agent",
-                "allowed_agent_ids": [
-                    "agent:web_researcher",
-                    "agent:rag_analyst",
-                ],
-                "preferred_worker_blueprint_ids": [
-                    "worker.explorer",
-                    "worker.planner",
-                    "worker.vibe_coding.executor",
-                    "worker.execution",
-                    "worker.verification",
-                    "worker.review",
-                ],
-            },
-            checkpoint_policy={
-                "after_each_plan_item": True,
-                "after_each_tool_action": True,
-                "after_delegation": True,
-                "before_commit": True,
-                "terminal": True,
-            },
-            verification_policy={
-                "required": True,
-                "strict": True,
-                "deliverable_validator": True,
-                "require_summary_check": True,
-                "require_artifact_refs_for_write": True,
-                "require_test_or_limitation": True,
-                "require_changed_files_summary": True,
-            },
-            sandbox_policy={
-                "enabled": True,
-                "mode": "workspace_overlay",
-                "side_effect_root": "output/sandbox_runs",
-                "workspace_dir_name": "workspace",
-                "real_workspace_access": "read_only",
-                "approval_policy": "sandboxed_side_effects",
-                "side_effect_tools": ["write_file", "edit_file", "terminal", "browser_control"],
-                "side_effect_operations": ["op.write_file", "op.edit_file", "op.shell", "op.browser_control"],
-                "overlay_copy_on_write": True,
-            },
-            context_policy={
-                "main_session_history": "task_scoped_summary",
-                "memory": "refs_only",
-                "working_memory": "required",
-                "prefer_recent_diffs": True,
-            },
-            output_policy={
-                "answer_boundary": "coding_change_evidence",
-                "deliverable_validator": "strict",
-                "required_outputs": ["change_summary", "changed_files", "verification_result_or_limitation"],
-            },
-            diagnostics={
-                **_diagnostics(contract, understanding, obligation),
-                "vibe_coding": True,
-                "coding_mode_version": "v0_policy_overlay",
-            },
-        )
-        return _with_contract_bound_tool_policy(policy, contract)
     policy = RuntimeInteractionModePolicy(
         interaction_mode=PROFESSIONAL_MODE,
         mode_reason=mode_reason,
@@ -478,6 +353,7 @@ def _policy_for_mode(
         tool_policy={
             "enabled": True,
             "allowed_tool_names": [
+                "agent_todo",
                 "read_file",
                 "read_structured_file",
                 "search_text",
@@ -492,6 +368,7 @@ def _policy_for_mode(
                 "fetch_url",
             ],
             "allowed_operation_refs": [
+                "op.agent_todo",
                 "op.read_file",
                 "op.read_structured_file",
                 "op.search_text",
@@ -505,8 +382,8 @@ def _policy_for_mode(
                 "op.web_search",
                 "op.fetch_url",
             ],
-            "max_tool_rounds_per_task_run": 16,
-            "max_tool_calls_per_task_run": 32,
+            "max_tool_rounds_per_task_run": 48,
+            "max_tool_calls_per_task_run": 72,
             "max_tool_calls_per_round": 1,
             "requires_evidence_packet": True,
         },

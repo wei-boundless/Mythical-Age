@@ -1,5 +1,5 @@
 param(
-    [int[]]$Ports = @(3000, 3001, 8000, 8002),
+    [int[]]$Ports = @(3000, 8003),
     [switch]$IncludePidFiles,
     [switch]$ForceAnyOwner,
     [string]$RepoRoot = ""

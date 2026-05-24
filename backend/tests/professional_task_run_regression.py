@@ -25,10 +25,10 @@ from tests.support.runtime_stubs import (
     PrimarySettingsStub,
     QueryRuntimeMemoryFacadeStub,
     SingleMessageModelRuntimeStub,
-    _sidecar_payload_from_messages,
     isolated_backend_root,
     model_turn_context,
 )
+from runtime.model_gateway.model_runtime import ModelRuntimeError
 
 
 _MemoryFacadeStub = QueryRuntimeMemoryFacadeStub
@@ -88,6 +88,7 @@ class _ToolRuntimeWithSideEffectsStub:
     def __init__(self, root_dir: Path) -> None:
         self._definition_map = get_tool_definition_map()
         self._instances = [
+            self._definition_map["agent_todo"].build(root_dir),
             self._definition_map["read_file"].build(root_dir),
             self._definition_map["read_structured_file"].build(root_dir),
             self._definition_map["search_text"].build(root_dir),
@@ -99,6 +100,7 @@ class _ToolRuntimeWithSideEffectsStub:
     @property
     def definitions(self):
         return [
+            self._definition_map["agent_todo"],
             self._definition_map["read_file"],
             self._definition_map["read_structured_file"],
             self._definition_map["search_text"],
@@ -380,6 +382,152 @@ class _SandboxContinuationModelRuntimeStub:
                     "args": {
                         "path": "frontend/public/games/arcane_dungeon_studio/game.js",
                         "content": "const marker = 'first-pass';",
+                    },
+                    "type": "tool_call",
+                }
+            ],
+        )
+
+
+class _RecoverableTimeoutModelRuntimeStub:
+    def __init__(self) -> None:
+        self.tool_enabled_calls = 0
+        self.recovery_prompt_seen = False
+
+    async def invoke_messages(self, messages, **_kwargs):
+        return await self.invoke_messages_with_tools(messages, [], **_kwargs)
+
+    async def invoke_messages_with_tools(self, messages, tools, **_kwargs):
+        self.tool_enabled_calls += 1
+        tool_names = {str(getattr(tool, "name", "") or "") for tool in list(tools or [])}
+        message_text = "\n".join(
+            str(item.get("content") or "") if isinstance(item, dict) else str(getattr(item, "content", "") or "")
+            for item in list(messages or [])
+        )
+        self.recovery_prompt_seen = self.recovery_prompt_seen or (
+            "从模型超时处恢复" in message_text
+            and "frontend/public/games/arcane_dungeon_studio/game.js" in message_text
+        )
+        if self.tool_enabled_calls == 1:
+            assert "write_file" in tool_names
+            return AIMessage(
+                content="先写入口文件。",
+                tool_calls=[
+                    {
+                        "id": "call-write-timeout-index",
+                        "name": "write_file",
+                        "args": {
+                            "path": "frontend/public/games/arcane_dungeon_studio/index.html",
+                            "content": '<!doctype html><script src="game.js"></script>',
+                        },
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        if self.tool_enabled_calls == 2:
+            raise ModelRuntimeError(
+                code="timeout",
+                provider="deepseek",
+                model="deepseek-v4-pro",
+                detail="TimeoutError",
+                retryable=True,
+                user_message="模型请求超时，请稍后重试。",
+            )
+        if self.tool_enabled_calls == 3:
+            assert self.recovery_prompt_seen is True
+            assert "write_file" in tool_names
+            return AIMessage(
+                content="从超时处继续补齐缺失文件。",
+                tool_calls=[
+                    {
+                        "id": "call-write-timeout-game",
+                        "name": "write_file",
+                        "args": {
+                            "path": "frontend/public/games/arcane_dungeon_studio/game.js",
+                            "content": "const player = { hp: 3 };",
+                        },
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        return SimpleNamespace(
+            content=(
+                "完成状态：已完成，两个产物已写入。\n"
+                "修改：补齐超时后缺失的浏览器小游戏文件。\n"
+                "文件：frontend/public/games/arcane_dungeon_studio/index.html、"
+                "frontend/public/games/arcane_dungeon_studio/game.js。\n"
+                "产物路径：frontend/public/games/arcane_dungeon_studio/。\n"
+                "验证：write_file 已返回成功。限制：本测试只验证超时恢复链路。"
+            )
+        )
+
+
+class _TodoThenWriteModelRuntimeStub:
+    def __init__(self) -> None:
+        self.tool_enabled_calls = 0
+        self.seen_todo = False
+        self.tool_names_by_call: list[list[str]] = []
+
+    async def invoke_messages(self, messages, **_kwargs):
+        return await self.invoke_messages_with_tools(messages, [], **_kwargs)
+
+    async def invoke_messages_with_tools(self, messages, tools, **_kwargs):
+        self.tool_enabled_calls += 1
+        tool_names = [str(getattr(tool, "name", "") or "") for tool in list(tools or [])]
+        self.tool_names_by_call.append(tool_names)
+        tool_text = _tool_message_text(messages)
+        self.seen_todo = self.seen_todo or '"plan_id"' in tool_text or "agent-todo:" in tool_text
+        if not self.seen_todo:
+            assert "agent_todo" in tool_names
+            return AIMessage(
+                content="我先建立任务待办。",
+                tool_calls=[
+                    {
+                        "id": "call-agent-todo-game-slice",
+                        "name": "agent_todo",
+                        "args": {
+                            "operation": "replace",
+                            "session_id": "session-professional-todo",
+                            "task_id": "task-professional-todo",
+                            "items": [
+                                {
+                                    "todo_id": "skeleton",
+                                    "content": "写入游戏工程骨架文件",
+                                    "status": "in_progress",
+                                    "evidence_expectations": ["write_file"],
+                                },
+                                {
+                                    "todo_id": "gameplay",
+                                    "content": "分段补齐 game.js 玩法系统",
+                                    "status": "pending",
+                                    "evidence_expectations": ["edit_file"],
+                                },
+                            ],
+                        },
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        if "Write succeeded" in tool_text:
+            return SimpleNamespace(
+                content=(
+                    "完成状态：已完成骨架产物。\n"
+                    "修改：已根据 todo 写入第一份文件。\n"
+                    "文件：frontend/public/games/arcane_dungeon_studio/index.html。\n"
+                    "产物路径：frontend/public/games/arcane_dungeon_studio/。\n"
+                    "验证：write_file 已返回成功。限制：本测试只验证 todo 启动链路。"
+                )
+            )
+        assert "write_file" in tool_names
+        return AIMessage(
+            content="按待办先写入骨架入口文件。",
+            tool_calls=[
+                {
+                    "id": "call-write-todo-index",
+                    "name": "write_file",
+                    "args": {
+                        "path": "frontend/public/games/arcane_dungeon_studio/index.html",
+                        "content": '<!doctype html><script src="game.js"></script>',
                     },
                     "type": "tool_call",
                 }
@@ -885,27 +1033,8 @@ def _runtime(
         tool_runtime=tool_runtime or _ToolRuntimeStub(),
         skill_registry=_SkillRegistryStub(),
         permission_service=_PermissionStub(),
-        model_runtime=_with_model_turn_sidecar(resolved_model_runtime),
+        model_runtime=resolved_model_runtime,
     )
-
-
-def _with_model_turn_sidecar(model_runtime):
-    if getattr(model_runtime, "_professional_sidecar_wrapped", False):
-        return model_runtime
-    original = getattr(model_runtime, "invoke_messages", None)
-    if not callable(original):
-        return model_runtime
-
-    async def invoke_messages(messages, **kwargs):
-        sidecar_payload = _sidecar_payload_from_messages(messages)
-        if sidecar_payload is not None:
-            return SimpleNamespace(content=json.dumps(sidecar_payload, ensure_ascii=False))
-        return await original(messages, **kwargs)
-
-    model_runtime.supports_structured_sidecars = True
-    model_runtime.invoke_messages = invoke_messages
-    model_runtime._professional_sidecar_wrapped = True
-    return model_runtime
 
 
 def _event_types(runtime_events: list[dict[str, object]]) -> list[str]:
@@ -916,7 +1045,7 @@ def _latest_event(runtime_events: list[dict[str, object]], event_type: str) -> d
     return next(event for event in reversed(runtime_events) if event.get("event_type") == event_type)
 
 
-def test_vibe_coding_recipe_is_selected_from_code_fix_intent_strategy() -> None:
+def test_professional_recipe_is_selected_from_code_fix_intent_strategy() -> None:
     current_turn_context = {
         **model_turn_context(
             action_intent="edit_workspace",
@@ -946,13 +1075,13 @@ def test_vibe_coding_recipe_is_selected_from_code_fix_intent_strategy() -> None:
     recipe = build_execution_recipe(base_dir=_isolated_backend_root(), execution_shape=shape)
     metadata = dict(recipe.metadata)
 
-    assert shape.recipe_id == "runtime.recipe.vibe_coding"
-    assert shape.execution_kind == "vibe_coding"
-    assert "interaction_mode:vibe_coding" in shape.resolution_reasons
+    assert shape.recipe_id == "runtime.recipe.professional_task"
+    assert shape.execution_kind == "professional_mode"
+    assert "interaction_mode:professional_mode" in shape.resolution_reasons
     assert metadata["runtime_driver"] == "professional_task_run"
-    assert metadata["interaction_mode"] == "vibe_coding"
-    assert metadata["runtime_lane_hint"] == "vibe_coding_task"
-    assert "op.browser_control" in set(metadata["tool_execution_policy"]["allowed_operation_refs"])
+    assert metadata["interaction_mode"] == "professional_mode"
+    assert metadata["runtime_lane_hint"] == "professional_task"
+    assert "op.shell" in set(metadata["tool_execution_policy"]["allowed_operation_refs"])
     assert "edit_file" in set(metadata["tool_execution_policy"]["allowed_tool_names"])
     retired_mode_key = "_".join(("autonomy", "mode"))
     assert retired_mode_key not in metadata
@@ -1299,6 +1428,99 @@ def test_professional_task_reuses_sandbox_for_same_session_output_scope() -> Non
     assert str(first_done.get("terminal_reason") or "") in {"completed", "partial_contract_failed"}
     assert str(second_done.get("terminal_reason") or "") in {"completed", "partial_contract_failed"}
     assert model_runtime.seen_readback is True
+
+
+def test_professional_task_recovers_provider_timeout_with_missing_output_paths() -> None:
+    backend_root = _isolated_backend_root()
+    model_runtime = _RecoverableTimeoutModelRuntimeStub()
+    runtime = _runtime(
+        base_dir=backend_root,
+        model_runtime=model_runtime,
+        tool_runtime=_ToolRuntimeWithSideEffectsStub(backend_root),
+    )
+
+    _, runtime_events, done, _task_run_id = asyncio.run(
+        _collect_runtime_events(
+            runtime,
+            session_id="session-professional-provider-timeout-recovery",
+            message=(
+                "请用专业模式在 sandbox overlay 中完成浏览器小游戏工程，目录必须是 "
+                "frontend/public/games/arcane_dungeon_studio/。必须写入 index.html、game.js。"
+            ),
+            task_selection=_professional_task_selection(
+                semantic_task_type="artifact_delivery",
+                max_tool_rounds=5,
+            ),
+        )
+    )
+    event_types = _event_types(runtime_events)
+    timeout_recovery_event = next(
+        event
+        for event in runtime_events
+        if dict(event.get("payload") or {}).get("error") == "professional_task_model_timeout_recoverable"
+    )
+    recovery_payload = dict(timeout_recovery_event.get("payload") or {})
+    sandbox_root = Path(
+        str(
+            dict(dict(_latest_event(runtime_events, "runtime_sandbox_prepared").get("payload") or {}).get("sandbox_policy") or {}).get(
+                "sandbox_root"
+            )
+            or ""
+        )
+    )
+
+    assert "tool_result_received" in event_types
+    assert "write_file" in recovery_payload["next_required_tool_names"]
+    assert model_runtime.recovery_prompt_seen is True
+    assert model_runtime.tool_enabled_calls >= 4
+    assert done["terminal_reason"] == "completed"
+    assert (sandbox_root / "frontend/public/games/arcane_dungeon_studio/index.html").exists()
+    assert (sandbox_root / "frontend/public/games/arcane_dungeon_studio/game.js").exists()
+
+
+def test_professional_task_exposes_agent_todo_before_write_contract_gate() -> None:
+    backend_root = _isolated_backend_root()
+    model_runtime = _TodoThenWriteModelRuntimeStub()
+    runtime = _runtime(
+        base_dir=backend_root,
+        model_runtime=model_runtime,
+        tool_runtime=_ToolRuntimeWithSideEffectsStub(backend_root),
+    )
+
+    _, runtime_events, done, _task_run_id = asyncio.run(
+        _collect_runtime_events(
+            runtime,
+            session_id="session-professional-todo",
+            message=(
+                "请用专业模式在 sandbox overlay 中完成浏览器小游戏工程，目录必须是 "
+                "frontend/public/games/arcane_dungeon_studio/。必须写入 index.html。"
+            ),
+            task_selection=_professional_task_selection(
+                semantic_task_type="artifact_delivery",
+                max_tool_rounds=4,
+            ),
+        )
+    )
+    event_types = _event_types(runtime_events)
+    sandbox_root = Path(
+        str(
+            dict(dict(_latest_event(runtime_events, "runtime_sandbox_prepared").get("payload") or {}).get("sandbox_policy") or {}).get(
+                "sandbox_root"
+            )
+            or ""
+        )
+    )
+
+    assert "tool_result_received" in event_types
+    assert "agent_todo" in model_runtime.tool_names_by_call[0]
+    assert model_runtime.seen_todo is True
+    assert any(
+        str(dict(dict(event.get("payload") or {}).get("observation") or {}).get("payload") or {}).find("agent_todo") >= 0
+        or "agent_todo" in str(event.get("payload") or "")
+        for event in runtime_events
+    )
+    assert done["terminal_reason"] == "completed"
+    assert (sandbox_root / "frontend/public/games/arcane_dungeon_studio/index.html").exists()
 
 
 def test_professional_task_budget_exhaustion_forces_model_closeout() -> None:
@@ -1713,6 +1935,89 @@ def test_professional_obligation_requires_all_explicit_output_paths() -> None:
         "frontend/public/games/snake_plus/game.js",
         "frontend/public/games/snake_plus/README.md",
     )
+
+
+def test_professional_required_action_queue_selects_next_missing_path_and_state_obligations() -> None:
+    from runtime.professional_runtime.goal_contract import _goal_contract_from_semantic_contract
+    from runtime.professional_runtime.required_action_queue import build_required_action_queue
+    from runtime.professional_runtime.state_machine import initial_professional_run_state
+    from runtime.memory.tool_observation_ledger import (
+        ToolObservationLedger,
+        build_tool_observation_record,
+    )
+
+    goal_contract = _goal_contract_from_semantic_contract(
+        task_run_id="taskrun:required-action-queue",
+        user_message=(
+            "请在 sandbox overlay 中完成多文件网页工程，目录必须是 frontend/public/games/snake_plus/。"
+            "必须写入 index.html、styles.css、game.js、README.md，并创建 assets/ 目录。"
+        ),
+        semantic_contract={"task_goal_type": "artifact_delivery"},
+    )
+    ledger = ToolObservationLedger(
+        ledger_id="ledger:required-action-queue",
+        task_run_id="taskrun:required-action-queue",
+    )
+    for path in goal_contract.required_output_paths[:2]:
+        ledger = ledger.append(
+            build_tool_observation_record(
+                observation_ref=f"obs:{path}",
+                tool_name="write_file",
+                tool_args={"path": path},
+                result=f"Write succeeded: {path}",
+            )
+        )
+
+    queue = build_required_action_queue(goal_contract=goal_contract, tool_observation_ledger=ledger)
+    state = initial_professional_run_state("taskrun:required-action-queue")
+    state = state.advance("mode_policy_bound", reason="mode")
+    state = state.advance("obligation_bound", reason="obligation", unsatisfied_obligations=queue.missing_obligations())
+
+    assert queue.current_action is not None
+    assert queue.current_action.path == "frontend/public/games/snake_plus/game.js"
+    assert queue.required_tool_names() == ("write_file",)
+    assert "write_output:frontend/public/games/snake_plus/game.js" in state.unsatisfied_obligations
+    assert "ensure_dir:frontend/public/games/snake_plus/assets" in queue.missing_obligations()
+
+
+def test_professional_contract_gate_rejects_wrong_required_output_path() -> None:
+    from runtime.professional_runtime.goal_contract import _goal_contract_from_semantic_contract
+    from runtime.professional_runtime.tool_contract_gate import _contract_gate_tool_request
+    from runtime.memory.tool_observation_ledger import (
+        ToolObservationLedger,
+        build_tool_observation_record,
+    )
+
+    goal_contract = _goal_contract_from_semantic_contract(
+        task_run_id="taskrun:gate-path",
+        user_message=(
+            "请在 sandbox overlay 中完成多文件网页工程，目录必须是 frontend/public/games/snake_plus/。"
+            "必须写入 index.html、styles.css、game.js、README.md。"
+        ),
+        semantic_contract={"task_goal_type": "artifact_delivery"},
+    )
+    ledger = ToolObservationLedger(ledger_id="ledger:gate-path", task_run_id="taskrun:gate-path")
+    for path in goal_contract.required_output_paths[:2]:
+        ledger = ledger.append(
+            build_tool_observation_record(
+                observation_ref=f"obs:{path}",
+                tool_name="write_file",
+                tool_args={"path": path},
+                result=f"Write succeeded: {path}",
+            )
+        )
+
+    decision = _contract_gate_tool_request(
+        goal_contract=goal_contract,
+        tool_observation_ledger=ledger,
+        requested_tool_name="write_file",
+        requested_tool_args={"path": "frontend/public/games/snake_plus/README.md"},
+        allowed_tool_names=("agent_todo", "write_file", "edit_file", "terminal"),
+    )
+
+    assert decision.allowed is False
+    assert decision.error == "professional_task_goal_contract_requires_specific_write_path"
+    assert decision.next_required_path == "frontend/public/games/snake_plus/game.js"
 
 
 def test_professional_state_cycle_allows_terminal_then_read_before_closeout() -> None:

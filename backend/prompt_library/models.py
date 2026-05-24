@@ -61,7 +61,6 @@ class PromptSelectionContext:
     process_kind: str = ""
     task_goal_type: str = ""
     task_domain: str = ""
-    task_family: str = ""
     task_mode: str = ""
     workflow_id: str = ""
     workflow_title: str = ""

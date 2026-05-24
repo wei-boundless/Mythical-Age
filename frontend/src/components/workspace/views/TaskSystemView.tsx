@@ -109,7 +109,6 @@ type WorkflowDraft = TaskWorkflowRecord & {
 
 type DomainRecord = {
   domain_id: string;
-  task_family: string;
   task_modes: string[];
   title: string;
   description: string;
@@ -176,13 +175,6 @@ function slugFromTitle(value: string, fallback = "custom") {
     .replace(/[^a-z0-9_\-]+/g, "_")
     .replace(/^_+|_+$/g, "");
   return ascii || fallback;
-}
-
-function domainIdToLegacyFamily(domainId: string, fallback = "general") {
-  const raw = String(domainId || "").trim();
-  if (!raw) return fallback;
-  const normalized = raw.replace(/^domain\./, "").trim();
-  return normalized || fallback;
 }
 
 function parseJsonObject(value: string, label: string) {
@@ -302,7 +294,6 @@ function emptyEntryPolicy(workflowId = "", projectionId = ""): ConversationEntry
 function emptyTaskDomain(index = 0): TaskDomainRecord {
   return {
     domain_id: "domain.custom",
-    task_family: "custom",
     title: "新任务域",
     description: "",
     enabled: true,
@@ -315,7 +306,7 @@ function emptySpecificTaskRecord(workflowId = "", flowId = ""): SpecificTaskReco
   return {
     task_id: "task.dev.new_task",
     task_title: "新特定任务",
-    task_family: "development",
+    domain_id: "domain.development",
     task_mode: "bounded_patch",
     description: "",
     input_contract_id: "WorkspaceTaskInput",
@@ -517,9 +508,8 @@ function contractBelongsToDomain(spec: ContractSpec, domain: DomainRecord | null
   if (!domain) return true;
   const metadata = dictOf(spec.metadata);
   const domainId = String(metadata.domain_id ?? "").trim();
-  const taskFamily = String(metadata.task_family ?? "").trim();
-  if (domainId || taskFamily) {
-    return domainId === domain.domain_id || taskFamily === domainIdToLegacyFamily(domain.domain_id);
+  if (domainId) {
+    return domainId === domain.domain_id;
   }
   return true;
 }
@@ -531,7 +521,6 @@ function scopedContractSpecs(contractSpecs: ContractSpec[], domain: DomainRecord
 function deriveTaskGraphSpec(
   coordinationTaskId: string,
   domainId: string,
-  taskFamily: string,
   nodes: Array<Record<string, unknown>>,
   edges: Array<Record<string, unknown>>,
 ): TaskGraphRuntimeSpec {
@@ -583,7 +572,6 @@ function deriveTaskGraphSpec(
     graph_id: coordinationTaskId || "graph.draft",
     coordination_task_id: coordinationTaskId,
     domain_id: domainId,
-    task_family: taskFamily,
     coordinator_agent_id: "",
     agent_group_id: "",
     nodes,
@@ -609,37 +597,25 @@ function buildDomains(consolePayload: TaskSystemOverview | null): DomainRecord[]
   const grouped = new Map<string, SpecificTaskRecord[]>();
   for (const task of tasks) {
     const metadata = dictOf(task.metadata);
-    const domainId = String(metadata.domain_id ?? "").trim() || `domain.${task.task_family || "general"}`;
+    const domainId = String(task.domain_id ?? metadata.domain_id ?? "").trim() || "domain.general";
     grouped.set(domainId, [...(grouped.get(domainId) ?? []), task]);
   }
   const baseDomains: Array<TaskDomainRecord & { metadata?: Record<string, unknown> }> = formalDomains.length
-    ? formalDomains.map((domain) => ({
-        ...domain,
-        metadata: {
-          ...(domain.metadata ?? {}),
-          task_family_legacy: String((domain as { task_family?: string }).task_family ?? "").trim(),
-        },
-      }))
+    ? formalDomains
     : Array.from(grouped.keys()).map((domainId, index) => ({
         ...emptyTaskDomain(index),
         domain_id: domainId,
         title: domainTitle(String(domainId).replace(/^domain\./, "")),
-        metadata: {
-          ...(emptyTaskDomain(index).metadata ?? {}),
-          task_family_legacy: domainIdToLegacyFamily(domainId),
-        },
       }));
   if (!baseDomains.length) baseDomains.push({ ...emptyTaskDomain(), domain_id: "domain.general", title: "通用任务域" });
   return baseDomains
     .map((domain, index) => {
       const domainId = domain.domain_id || "domain.general";
-      const family = String(domainId).replace(/^domain\./, "") || "general";
       const items = grouped.get(domainId) ?? [];
       return {
         domain_id: domainId,
-        task_family: family,
         task_modes: uniqueStrings(items.map((task) => task.task_mode)),
-        title: domain.title || domainTitle(family),
+        title: domain.title || domainTitle(String(domainId).replace(/^domain\./, "") || "general"),
         description: domain.description || "",
         enabled: domain.enabled ?? true,
         sort_order: domain.sort_order ?? index * 10,
@@ -653,7 +629,7 @@ function buildDomains(consolePayload: TaskSystemOverview | null): DomainRecord[]
 
 function taskDomainId(task: SpecificTaskRecord) {
   const metadata = dictOf(task.metadata);
-  return String(metadata.domain_id ?? "").trim() || `domain.${task.task_family || "general"}`;
+  return String(task.domain_id ?? metadata.domain_id ?? "").trim() || "domain.general";
 }
 
 type LayerNavItem<T extends string> = {
@@ -832,7 +808,6 @@ export function TaskSystemView() {
       ...nextDomains,
       {
         domain_id: domainDraft.domain_id,
-        task_family: domainIdToLegacyFamily(domainDraft.domain_id),
         task_modes: draftTaskMissing && taskDomainId(taskDraft) === domainDraft.domain_id ? uniqueStrings([taskDraft.task_mode]) : [],
         title: domainDraft.title,
         description: domainDraft.description,
@@ -1078,7 +1053,6 @@ export function TaskSystemView() {
     if (!selectedDomain) return;
     setDomainDraft({
       domain_id: selectedDomain.domain_id,
-      task_family: selectedDomain.task_family,
       title: selectedDomain.title,
       description: selectedDomain.description,
       enabled: selectedDomain.enabled,
@@ -1095,7 +1069,6 @@ export function TaskSystemView() {
     }
     setDomainDraft({
       domain_id: selectedDomain.domain_id,
-      task_family: selectedDomain.task_family,
       title: selectedDomain.title,
       description: selectedDomain.description,
       enabled: selectedDomain.enabled,
@@ -1163,10 +1136,9 @@ export function TaskSystemView() {
       const ids = await getTaskSystemNextIds();
       const nextTask = emptySpecificTaskRecord(ids.workflow_id, ids.flow_id);
       const selectedDomainId = selectedDomain?.domain_id || "domain.general";
-      const legacyFamily = domainIdToLegacyFamily(selectedDomainId);
       nextTask.task_id = ids.task_id;
-      nextTask.task_family = legacyFamily;
-      nextTask.task_mode = nextTask.task_mode || `${legacyFamily}_task`;
+      nextTask.domain_id = selectedDomainId;
+      nextTask.task_mode = nextTask.task_mode || "specific_task";
       nextTask.task_title = `${ids.display_numbers.task} 特定任务`;
       nextTask.default_flow_contract_id = ids.flow_id;
       nextTask.default_workflow_id = ids.workflow_id;
@@ -1254,7 +1226,6 @@ export function TaskSystemView() {
       node_type: nextTask ? "subtask" : "agent_role",
       task_id: nextTask?.task_id ?? "",
       task_title: nextTask?.task_title ?? "",
-      task_family: graphContextFamily,
       agent_id: "",
       role: "participant",
       label: nextTask?.task_title ?? `节点 ${nextIndex}`,
@@ -1271,7 +1242,6 @@ export function TaskSystemView() {
       node_type: "subtask",
       task_id: task.task_id,
       task_title: task.task_title,
-      task_family: task.task_family || graphContextFamily,
       agent_id: "",
       role,
       label: task.task_title,
@@ -1353,7 +1323,6 @@ export function TaskSystemView() {
       node_type: isResourceNode ? normalizedRole : "agent_role",
       task_id: "",
       task_title: "",
-      task_family: graphContextFamily,
       agent_id: "",
       role: isResourceNode ? "resource" : normalizedRole,
       work_posture: isResourceNode ? "resource" : normalizedRole,
@@ -1388,7 +1357,7 @@ export function TaskSystemView() {
     const selectedTaskForNode = graphContextDomainTasks[0] ?? null;
     const templateDraft = buildTaskGraphTemplateDraft({
       template_id: template,
-      task_family: graphContextFamily,
+      domain_id: graphContextDomainId,
       selected_task_title: selectedTaskForNode?.task_title || "",
       communication_mode: mode,
       ...options,
@@ -1425,7 +1394,6 @@ export function TaskSystemView() {
       node_type: "agent_role",
       task_id: "",
       task_title: "",
-      task_family: graphContextFamily,
       agent_id: "",
       role: "participant",
       label: `节点 ${nextIndex}`,
@@ -1524,7 +1492,6 @@ export function TaskSystemView() {
   async function createTaskGraphDraft() {
     const draftDomain = taskLayer === "editor" ? editorDomain : selectedDomain;
     const draftDomainId = draftDomain?.domain_id || taskGraphDraftV2.domain_id || "";
-    const draftFamily = domainIdToLegacyFamily(draftDomainId, "");
     if (!draftDomainId) {
       setError("请先选择任务域，再创建任务图。");
       return;
@@ -1540,19 +1507,16 @@ export function TaskSystemView() {
         graph_id: graphId,
         title: `${ids.display_numbers.graph} 任务图`,
         domain_id: draftDomainId,
-        task_family: draftFamily,
         task_id: "",
         metadata: {
           managed_by: "task_domain_console",
           graph_source: "task_graph_editor_v2",
           draft_identity_locked: true,
-          task_family: draftFamily,
           domain_id: draftDomainId,
         },
       };
       nextDraft.metadata = {
         ...nextDraft.metadata,
-        task_family: draftFamily,
         domain_id: draftDomainId,
       };
       setEditorDomainId(draftDomainId);
@@ -1580,7 +1544,6 @@ export function TaskSystemView() {
     const draftDomain = taskLayer === "editor" ? editorDomain : selectedDomain;
     const sourceDraft = taskGraphRecordToDraftV2(sourceTaskGraph);
     const draftDomainId = draftDomain?.domain_id || sourceDraft.domain_id || "";
-    const draftFamily = sourceDraft.task_family || domainIdToLegacyFamily(draftDomainId, "");
     setSaving("task-graph-duplicate");
     setError("");
     setNotice("");
@@ -1596,7 +1559,6 @@ export function TaskSystemView() {
         graph_id: nextGraphId,
         title: nextTitle,
         domain_id: draftDomainId,
-        task_family: draftFamily,
         task_id: "",
         nodes: nextNodes,
         edges: nextEdges,
@@ -1607,7 +1569,6 @@ export function TaskSystemView() {
           ...asRecord(sourceDraft.metadata),
           graph_source: "task_graph_editor_v2",
           duplicated_from_graph_id: sourceDraft.graph_id,
-          task_family: draftFamily,
           domain_id: draftDomainId,
           task_id: undefined,
         },
@@ -1649,13 +1610,11 @@ export function TaskSystemView() {
     setNotice("");
     try {
       const isNewDraft = !domains.some((domain) => domain.domain_id === domainDraft.domain_id);
-      const normalizedFamily = domainIdToLegacyFamily(domainDraft.domain_id || `domain.${slugFromTitle(domainDraft.title)}`);
-      const normalizedDomainId = domainDraft.domain_id || `domain.${normalizedFamily}`;
+      const normalizedDomainId = domainDraft.domain_id || `domain.${slugFromTitle(domainDraft.title)}`;
       const payload = await upsertTaskSystemDomain(normalizedDomainId, {
         ...domainDraft,
         domain_id: normalizedDomainId,
-        task_family: normalizedFamily,
-        title: domainDraft.title.trim() || `${normalizedFamily}任务域`,
+        title: domainDraft.title.trim() || `${normalizedDomainId.replace(/^domain\./, "")}任务域`,
         metadata: {
           ...(domainDraft.metadata ?? {}),
         },
@@ -1760,7 +1719,6 @@ export function TaskSystemView() {
   async function saveTaskGraphStack(nextPublished?: boolean, nextEditorPublishState?: "draft" | "saved" | "preflight_passed" | "published" | "run_bound" | "archived") {
     const draftDomain = taskLayer === "editor" ? editorDomain : selectedDomain;
     const draftDomainId = draftDomain?.domain_id || taskGraphDraftV2.domain_id || "";
-    const draftFamily = taskGraphDraftV2.task_family || domainIdToLegacyFamily(draftDomainId, "");
     if (!draftDomainId) {
       setError("请先选择任务域，再保存任务图。");
       return;
@@ -1774,7 +1732,6 @@ export function TaskSystemView() {
       const effectiveTaskGraphDraftV2: TaskGraphDraftV2 = {
         ...taskGraphDraftV2,
         domain_id: draftDomainId,
-        task_family: draftFamily,
         task_id: "",
         nodes: graphNodes,
         edges: graphEdges,
@@ -1787,14 +1744,12 @@ export function TaskSystemView() {
           ...asRecord(taskGraphDraftV2.metadata),
           ...(nextEditorPublishState ? { editor_publish_state: nextEditorPublishState } : {}),
           domain_id: draftDomainId,
-          task_family: draftFamily,
           task_id: undefined,
         },
       };
       const taskGraphPayload = buildTaskGraphUpsertPayload({
         taskGraphDraft: effectiveTaskGraphDraftV2,
         domain_id: draftDomainId,
-        task_family: draftFamily,
         task_id: "",
         publish_state: nextPublished === true
           ? "published"
@@ -1840,7 +1795,6 @@ export function TaskSystemView() {
           metadata: {
             ...(spec.metadata ?? {}),
             domain_id: activeDomain.domain_id,
-            task_family: domainIdToLegacyFamily(activeDomain.domain_id),
           },
         }
         : spec;
@@ -1941,12 +1895,10 @@ export function TaskSystemView() {
   const boundTaskGraphTaskIds = new Set(activeGraphNodes.map((node) => graphNodeTaskId(node)).filter(Boolean));
   const graphContextDomain = taskLayer === "editor" ? editorDomain : selectedDomain;
   const graphContextDomainTasks = taskLayer === "editor" ? editorDomainTasks : selectedDomainTasks;
-  const graphContextFamily = taskGraphDraftV2.task_family || domainIdToLegacyFamily(graphContextDomain?.domain_id || taskGraphDraftV2.domain_id || "", "");
   const graphContextDomainId = graphContextDomain?.domain_id || taskGraphDraftV2.domain_id || "";
   const draftGraphSpec = deriveTaskGraphSpec(
     taskGraphDraftV2.graph_id || "",
     graphContextDomainId,
-    graphContextFamily,
     activeGraphNodes,
     activeGraphEdges,
   );
@@ -1970,7 +1922,7 @@ export function TaskSystemView() {
   const editorPublished = taskGraphDraftV2.publish_state === "published" || taskGraphDraftV2.publish_state === "run_bound";
   const topologyDirty = false;
   const eligibilityRows = [
-    { label: "任务范围", value: selectedTaskDomain?.title || domainTitle(domainIdToLegacyFamily(taskDomainId(taskDraft))) },
+    { label: "任务范围", value: selectedTaskDomain?.title || domainTitle(taskDomainId(taskDraft).replace(/^domain\./, "")) },
     { label: "运行准入", value: `${displayId(executionDraft.task_level)} / ${displayId(executionDraft.task_privilege)}` },
     { label: "输出契约", value: contractLabel(taskDraft.output_contract_id || workflowDraft.output_contract_id || "", domainContractSpecs, contractCatalog) },
   ];

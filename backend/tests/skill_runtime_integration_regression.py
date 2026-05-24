@@ -77,7 +77,8 @@ def test_agent_runtime_chain_uses_realtime_network_without_active_skill() -> Non
     )
 
     task_operation = dict(runtime.get("task_operation") or {})
-    active_skill = dict(task_operation.get("active_skill") or {})
+    skill_runtime_views = list(task_operation.get("skill_runtime_views") or [])
+    task_spec = dict(task_operation.get("task_spec") or {})
     understanding = dict(task_operation.get("query_understanding") or {})
     operation_requirement = dict(task_operation.get("operation_requirement") or {})
     task_body_orchestration = dict(task_operation.get("task_body_orchestration") or {})
@@ -86,7 +87,8 @@ def test_agent_runtime_chain_uses_realtime_network_without_active_skill() -> Non
     prompt_flow_trace = dict(diagnostics.get("prompt_flow_trace") or {})
     prompt_assembly_plan = dict(diagnostics.get("prompt_assembly_plan") or {})
 
-    assert active_skill == {}
+    assert skill_runtime_views == []
+    assert list(task_spec.get("selected_skill_ids") or []) == []
     assert understanding["authority"] == "request_facts.frame"
     assert understanding["model_turn_decision"]["action_intent"] == "search_external"
     assert understanding["capability_intent"]["tool_selection_allowed"] is False
@@ -104,7 +106,7 @@ def test_agent_runtime_chain_uses_realtime_network_without_active_skill() -> Non
     assert task_body_orchestration["stage_plan"]["section_order"]
     assert prompt_flow_trace["authority"] == "prompt_library.flow_trace"
     assert prompt_assembly_plan["authority"] == "prompt_library.assembly_plan"
-    assert prompt_assembly_plan["diagnostics"]["selector"] == "prompt_library.flow_aware_v1"
+    assert str(prompt_assembly_plan["diagnostics"]["selector"]).startswith("prompt_library.flow_aware_v")
     assert "prompt_flow_trace" in task_body_orchestration["stage_plan"]
 
 
@@ -133,7 +135,8 @@ def test_agent_runtime_chain_uses_intent_gated_state_recall_for_followup() -> No
     )
 
     task_operation = dict(runtime.get("task_operation") or {})
-    active_skill = dict(task_operation.get("active_skill") or {})
+    skill_runtime_views = list(task_operation.get("skill_runtime_views") or [])
+    task_spec = dict(task_operation.get("task_spec") or {})
     understanding = dict(task_operation.get("query_understanding") or {})
     operation_requirement = dict(task_operation.get("operation_requirement") or {})
     memory_request_profile = dict(task_operation.get("task_memory_request_profile") or {})
@@ -148,7 +151,9 @@ def test_agent_runtime_chain_uses_intent_gated_state_recall_for_followup() -> No
     ]
     assert [] in requested_layers_by_call
     assert ["state"] in requested_layers_by_call
-    assert active_skill.get("name") == "structured-data-analysis"
+    skill_ids = [str(dict(item).get("skill_id") or "") for item in skill_runtime_views if isinstance(item, dict)]
+    assert "skill.structured-data-analysis" in skill_ids
+    assert list(task_spec.get("selected_skill_ids") or []) == []
     assert understanding["authority"] == "request_facts.frame"
     assert understanding["model_turn_decision"]["action_intent"] == "read_context"
     assert understanding["capability_intent"]["tool_selection_allowed"] is False
@@ -163,3 +168,44 @@ def test_agent_runtime_chain_uses_intent_gated_state_recall_for_followup() -> No
     assert recall_context["candidates"][0]["recall_payload"]["active_dataset"] == "Data/inventory.xlsx"
     assert "op.mcp_structured_data" in list(operation_requirement.get("required_operations") or [])
     assert "conversation" in list(memory_request_profile.get("requested_memory_layers") or [])
+
+
+def test_agent_runtime_chain_expands_skill_only_after_model_selection() -> None:
+    memory_facade = _FileBindingMemoryFacadeStub()
+    assembler = AgentRuntimeChainAssembler(
+        base_dir=ROOT,
+        memory_facade=memory_facade,
+        skill_registry=SkillRegistry(ROOT),
+        tool_registry=ToolRegistry(ROOT),
+    )
+
+    runtime = assembler.build_runtime(
+        session_id="session-test",
+        task_id="task-test",
+        message="按仓库汇总前五。",
+        source="regression",
+        current_turn_context_override=model_turn_context(
+            action_intent="read_context",
+            work_mode="read_only_analysis",
+            interaction_intent="continue",
+            target_objects=["Data/inventory.xlsx"],
+            desired_outcome="按仓库汇总前五",
+            deliverables=["structured_summary"],
+            selected_skill_ids=["skill.structured-data-analysis"],
+        ),
+    )
+
+    task_operation = dict(runtime.get("task_operation") or {})
+    task_spec = dict(task_operation.get("task_spec") or {})
+    task_body_orchestration = dict(task_operation.get("task_body_orchestration") or {})
+    runtime_sections = {
+        str(dict(item).get("section_id") or ""): dict(item)
+        for item in list(dict(task_body_orchestration.get("soul_runtime_view") or {}).get("sections") or [])
+    }
+
+    assert list(task_spec.get("selected_skill_ids") or []) == ["skill.structured-data-analysis"]
+    assert "skill_catalog_section" in runtime_sections
+    assert "skill_detail_section" in runtime_sections
+    assert "候选 Skills（第一阶段）" in runtime_sections["skill_catalog_section"]["content"]
+    assert "已激活 Skills（第二阶段）" in runtime_sections["skill_detail_section"]["content"]
+    assert "structured-data-analysis" in runtime_sections["skill_detail_section"]["content"]

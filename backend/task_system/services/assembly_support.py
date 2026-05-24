@@ -403,7 +403,7 @@ def _build_task_spec(
     current_turn_context: dict[str, Any],
     query_understanding: dict[str, Any],
     operation_requirement_ref: str,
-    active_skill: dict[str, Any],
+    skill_runtime_views: list[Any],
     operation_requirement: dict[str, Any],
 ) -> TaskSpec:
     explicit_inputs = dict(current_turn_context.get("explicit_inputs") or {})
@@ -437,15 +437,21 @@ def _build_task_spec(
         bundle_spec=bundle_spec,
     )
     requested_outputs = tuple(str(key) for key in dict(selected_recipe.output_schema or {}).keys()) or ("final_answer",)
+    visible_skill_ids = {
+        str((item.to_dict() if hasattr(item, "to_dict") else dict(item)).get("skill_id") or "").strip()
+        for item in list(skill_runtime_views or [])
+        if str((item.to_dict() if hasattr(item, "to_dict") else dict(item)).get("skill_id") or "").strip()
+    }
+    model_selected_skill_ids = [
+        str(item).strip()
+        for item in list(dict(current_turn_context.get("model_turn_decision") or {}).get("selected_skill_ids") or [])
+        if str(item).strip()
+    ]
     selected_skill_ids = _dedupe(
         [
-            *[
-                str(skill or "").strip()
-                for definition in definitions
-                for skill in list(getattr(definition, "default_skill_refs", ()) or ())
-                if str(skill or "").strip()
-            ],
-            str(active_skill.get("name") or "").strip(),
+            skill_id if skill_id.startswith("skill.") else f"skill.{skill_id}"
+            for skill_id in model_selected_skill_ids
+            if (skill_id if skill_id.startswith("skill.") else f"skill.{skill_id}") in visible_skill_ids
         ]
     )
     default_artifact_path = _default_task_artifact_path(selected_recipe, current_turn_context)
@@ -750,7 +756,6 @@ def _resolve_registered_task(
                 "task_type": "specific_task",
                 "task_id": record.task_id,
                 "task_title": record.task_title,
-                "task_family": record.task_family,
                 "task_mode": _record_task_mode(record, flow),
                 "workflow_id": str(record.default_workflow_id or getattr(flow, "default_workflow_id", "") or "").strip(),
                 "projection_id": str(getattr(projection_binding, "default_projection_id", "") or "").strip(),
@@ -782,7 +787,6 @@ def _resolve_registered_task(
         "task_type": "conversation_entry_policy",
         "task_id": default_general_profile.profile_id,
         "task_title": default_general_profile.title,
-        "task_family": "conversation_entry",
         "task_mode": "main_conversation_entry",
         "workflow_id": default_general_profile.default_workflow_id,
         "projection_id": default_general_profile.default_projection_id,
@@ -791,20 +795,6 @@ def _resolve_registered_task(
         "conversation_entry_policy": default_general_profile.conversation_entry_policy,
         "metadata": dict(default_general_profile.metadata or {}),
     }
-
-
-def _resolve_task_family(
-    *,
-    registered_task: dict[str, Any] | None,
-    selected_recipe,
-    definitions: list[Any],
-) -> str:
-    registered_family = str((registered_task or {}).get("task_family") or "").strip()
-    if registered_family:
-        return registered_family
-    return str(selected_recipe.task_family or "") or "+".join(
-        _dedupe([definition.task_family for definition in definitions])
-    )
 
 
 def _resolve_task_mode(
@@ -890,8 +880,7 @@ def _resolve_operation_approval_policy(
         registered_task
         and str(registered_task.get("task_type") or "") == "specific_task"
         and (
-            str(getattr(selected_recipe, "task_family", "") or "") == "development"
-            or write_mode in {"bounded_create", "scoped_patch"}
+            write_mode in {"bounded_create", "scoped_patch"}
         )
     ):
         return "task_bounded_write"

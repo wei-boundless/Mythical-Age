@@ -94,7 +94,7 @@ function stageStatusForEvent(event: string, data: Record<string, unknown>) {
   if (event === "tool_end") {
     return "整理工具结果";
   }
-  if (event === "token" || event === "answer_candidate") {
+  if (event === "token" || event === "content_delta" || event === "answer_candidate") {
     return "生成回答";
   }
   if (event === "output_boundary") {
@@ -394,7 +394,7 @@ function eventNodeId(event: string) {
   if (event.startsWith("tool")) {
     return "tool";
   }
-  if (event === "token" || event === "debug") {
+  if (event === "token" || event === "content_delta" || event === "answer_candidate" || event === "debug") {
     return "model";
   }
   if (event === "done" || event === "error") {
@@ -623,7 +623,7 @@ function updateOrchestrationSnapshot(
     }
   ];
   const autoVisited = new Set<string>(["followup", "planner", "execution-mode", "capability"]);
-  if (["context_management", "memory_context", "prompt_manifest", "worker_start", "tool_start", "token", "done"].includes(event)) {
+  if (["context_management", "memory_context", "prompt_manifest", "worker_start", "tool_start", "token", "content_delta", "answer_candidate", "done"].includes(event)) {
     autoVisited.add("followup");
     autoVisited.add("planner");
     autoVisited.add("execution-mode");
@@ -768,7 +768,7 @@ export function reduceStreamEvent(
     };
   }
 
-  if (event === "token") {
+  if (event === "token" || event === "content_delta") {
     return {
       state: patchAssistant(stateWithOrchestration, session.assistantId, (message) => {
         const nextContent = `${message.content}${String(data.content ?? "")}`;
@@ -844,6 +844,19 @@ export function reduceStreamEvent(
               image: (data.image as Message["image"]) ?? message.image ?? null
             }
       ),
+      session
+    };
+  }
+
+  if (event === "answer_candidate") {
+    return {
+      state: patchAssistant(stateWithOrchestration, session.assistantId, (message) => {
+        if (message.content.trim()) {
+          return message;
+        }
+        const candidate = String(data.content ?? "").trim();
+        return candidate ? { ...message, content: candidate } : message;
+      }),
       session
     };
   }

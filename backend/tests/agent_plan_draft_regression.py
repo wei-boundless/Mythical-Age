@@ -31,8 +31,7 @@ def _frontend_contract() -> dict[str, object]:
             "workflow_acceptance",
             "verification_evidence",
             "limitations",
-        ],
-    }
+        ]}
 
 
 def test_missing_model_plan_is_explicit_scaffold_fallback() -> None:
@@ -69,34 +68,29 @@ def test_model_agent_plan_draft_is_accepted_when_schema_valid() -> None:
                 "purpose": "Read frontend structure",
                 "required_operations": ["op.read_file"],
                 "contract_refs": ["inspect_code"],
-                "evidence_expectations": ["source_tree_observation"],
-            },
+                "evidence_expectations": ["source_tree_observation"]},
             {
                 "step_id": "change",
                 "title": "Change",
                 "purpose": "Patch frontend code",
                 "required_operations": ["op.edit_file"],
                 "contract_refs": ["apply_real_change", "runnable_artifact_refs", "workflow_acceptance"],
-                "evidence_expectations": ["file_write", "workflow_check"],
-            },
+                "evidence_expectations": ["file_write", "workflow_check"]},
             {
                 "step_id": "verify",
                 "title": "Verify",
                 "purpose": "Open browser and verify workflow",
                 "required_operations": ["op.shell", "op.browser_control"],
                 "contract_refs": ["run_browser_verification", "verification_evidence"],
-                "evidence_expectations": ["browser_open", "workflow_check"],
-            },
+                "evidence_expectations": ["browser_open", "workflow_check"]},
             {
                 "step_id": "final",
                 "title": "Final",
                 "purpose": "Report delivery and limitations",
                 "required_operations": ["op.model_response"],
                 "contract_refs": ["validate_deliverables", "limitations"],
-                "evidence_expectations": ["completion_judgment"],
-            },
-        ],
-    }
+                "evidence_expectations": ["completion_judgment"]},
+        ]}
 
     plan = build_agent_plan_draft(
         task_id="plan-model",
@@ -134,8 +128,7 @@ def test_plan_coverage_hard_gate_blocks_execution_steps_when_model_plan_misses_c
         "model_turn_decision": dict(turn_context["model_turn_decision"]),
         "request_facts": dict(turn_context["request_facts"]),
         "boundary_policy": dict(turn_context["boundary_policy"]),
-        "action_permit": dict(turn_context["action_permit"]),
-    }
+        "action_permit": dict(turn_context["action_permit"])}
     bundle = build_task_execution_assembly_bundle(
         base_dir=ROOT,
         session_id="plan-gate-session",
@@ -150,8 +143,7 @@ def test_plan_coverage_hard_gate_blocks_execution_steps_when_model_plan_misses_c
             "mode_policy": {
                 "execution_strategy": "professional_task_run",
                 "interaction_mode": "professional_mode",
-                "runtime_lane": "professional_task",
-            },
+                "runtime_lane": "professional_task"},
             "model_agent_plan_draft": {
                 "authority": "runtime.agent_plan_draft",
                 "plan_id": "agent-plan:incomplete",
@@ -161,11 +153,8 @@ def test_plan_coverage_hard_gate_blocks_execution_steps_when_model_plan_misses_c
                         "title": "Inspect only",
                         "purpose": "Read current code",
                         "contract_refs": ["inspect_code"],
-                        "evidence_expectations": ["source_tree_observation"],
-                    }
-                ],
-            },
-        },
+                        "evidence_expectations": ["source_tree_observation"]}
+                ]}},
     )
 
     recipe = dict(bundle["selected_recipe"])
@@ -201,24 +190,20 @@ def test_prompt_sections_explain_scaffold_and_hard_gate() -> None:
         task_contract={
             "user_goal": "重构前端",
             "task_requirement_contract": _frontend_contract(),
-            "mode_policy": {"interaction_mode": "professional_mode"},
-        },
-        task_execution_assembly={"task_family": "runtime", "task_mode": "professional_mode", "metadata": {}},
+            "mode_policy": {"interaction_mode": "professional_mode"}},
+        task_execution_assembly={"task_mode": "professional_mode", "metadata": {}},
         task_spec={"inputs": {}},
         selected_recipe={
             "recipe_id": "runtime.recipe.professional_task",
             "metadata": {
                 "agent_plan_draft": plan,
-                "plan_coverage_review": coverage,
-            },
-        },
+                "plan_coverage_review": coverage}},
         task_workflow={},
         binding={},
         registered_task={},
         skill_runtime_views=[],
         projection_requirement={},
         operation_requirement={"optional_operations": ["op.agent_todo"]},
-        active_skill={},
         agent_id="agent:0",
         current_turn_context={},
     )

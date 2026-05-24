@@ -43,7 +43,6 @@ def test_coordination_contract_compiler_builds_node_and_edge_manifest(tmp_path: 
     task = SpecificTaskRecord(
         task_id="task.test.worker",
         task_title="测试工作节点",
-        task_family="test",
         input_contract_id="contract.test.node_input",
         output_contract_id="contract.test.node_output",
     )
@@ -52,7 +51,6 @@ def test_coordination_contract_compiler_builds_node_and_edge_manifest(tmp_path: 
         title="测试协调链路",
         coordination_mode="pipeline",
         coordinator_agent_id="agent:0",
-        task_family="test",
         graph_nodes=(
             {"node_id": "coordinator", "node_type": "coordinator", "agent_id": "agent:0", "role": "coordinator"},
             {
@@ -82,7 +80,6 @@ def test_coordination_contract_compiler_builds_node_and_edge_manifest(tmp_path: 
         graph_id=coordination.graph_id,
         title=coordination.title,
         graph_kind="multi_agent",
-        task_family=coordination.task_family,
         nodes=(
             TaskGraphNodeDefinition(
                 node_id="coordinator",
@@ -162,7 +159,6 @@ def test_coordination_contract_compiler_reports_missing_edge_contract(tmp_path: 
     task = SpecificTaskRecord(
         task_id="task.test.worker",
         task_title="测试工作节点",
-        task_family="test",
         input_contract_id="contract.test.node_input",
         output_contract_id="contract.test.node_override",
     )
@@ -171,7 +167,6 @@ def test_coordination_contract_compiler_reports_missing_edge_contract(tmp_path: 
         title="测试协调链路",
         coordination_mode="pipeline",
         coordinator_agent_id="agent:0",
-        task_family="test",
         graph_nodes=(
             {"node_id": "coordinator", "node_type": "coordinator", "agent_id": "agent:0", "role": "coordinator"},
             {"node_id": "worker", "node_type": "subtask", "task_id": task.task_id, "agent_id": "agent:test"},
@@ -184,7 +179,6 @@ def test_coordination_contract_compiler_reports_missing_edge_contract(tmp_path: 
         graph_id=coordination.graph_id,
         title=coordination.title,
         graph_kind="multi_agent",
-        task_family=coordination.task_family,
         nodes=(
             TaskGraphNodeDefinition(
                 node_id="coordinator",
@@ -236,7 +230,6 @@ def test_coordination_contract_compiler_uses_categorized_contract_bindings(tmp_p
     task = SpecificTaskRecord(
         task_id="task.test.worker",
         task_title="测试工作节点",
-        task_family="test",
         input_contract_id="contract.test.node_input",
         output_contract_id="contract.test.node_output",
     )
@@ -245,7 +238,6 @@ def test_coordination_contract_compiler_uses_categorized_contract_bindings(tmp_p
         title="契约绑定图",
         coordination_mode="pipeline",
         coordinator_agent_id="agent:0",
-        task_family="test",
         graph_nodes=(),
         graph_edges=(),
     )
@@ -253,7 +245,6 @@ def test_coordination_contract_compiler_uses_categorized_contract_bindings(tmp_p
         graph_id=coordination.graph_id,
         title=coordination.title,
         graph_kind="multi_agent",
-        task_family=coordination.task_family,
         contract_bindings={
             "schema": {"graph_contract_id": "contract.test.node_output"},
             "unit_batch": {"unit_label": "项", "unit_batch_size_key": "items_per_round"},
@@ -333,7 +324,6 @@ def test_coordination_contract_compiler_reports_contract_binding_conflict(tmp_pa
     task = SpecificTaskRecord(
         task_id="task.test.worker",
         task_title="测试工作节点",
-        task_family="test",
         input_contract_id="contract.test.node_input",
         output_contract_id="contract.test.node_output",
     )
@@ -342,7 +332,6 @@ def test_coordination_contract_compiler_reports_contract_binding_conflict(tmp_pa
         title="契约冲突图",
         coordination_mode="pipeline",
         coordinator_agent_id="agent:0",
-        task_family="test",
         graph_nodes=(),
         graph_edges=(),
     )
@@ -350,7 +339,6 @@ def test_coordination_contract_compiler_reports_contract_binding_conflict(tmp_pa
         graph_id=coordination.graph_id,
         title=coordination.title,
         graph_kind="multi_agent",
-        task_family=coordination.task_family,
         nodes=(
             TaskGraphNodeDefinition(
                 node_id="worker",
@@ -390,7 +378,6 @@ def test_coordination_contract_compiler_does_not_collect_conflicting_legacy_cont
     task = SpecificTaskRecord(
         task_id="task.test.worker",
         task_title="测试工作节点",
-        task_family="test",
         input_contract_id="contract.test.node_input",
         output_contract_id="contract.test.node_override",
     )
@@ -399,7 +386,6 @@ def test_coordination_contract_compiler_does_not_collect_conflicting_legacy_cont
         title="契约权威图",
         coordination_mode="pipeline",
         coordinator_agent_id="agent:0",
-        task_family="test",
         graph_nodes=(),
         graph_edges=(),
     )
@@ -407,7 +393,6 @@ def test_coordination_contract_compiler_does_not_collect_conflicting_legacy_cont
         graph_id=coordination.graph_id,
         title=coordination.title,
         graph_kind="multi_agent",
-        task_family=coordination.task_family,
         nodes=(
             TaskGraphNodeDefinition(
                 node_id="worker",
@@ -458,7 +443,6 @@ def test_coordination_contract_compiler_compiles_graph_module_handoff_contracts(
         title="图节点契约清单",
         coordination_mode="pipeline",
         coordinator_agent_id="agent:0",
-        task_family="test",
         graph_nodes=(),
         graph_edges=(),
     )
@@ -466,7 +450,6 @@ def test_coordination_contract_compiler_compiles_graph_module_handoff_contracts(
         graph_id=coordination.graph_id,
         title=coordination.title,
         graph_kind="coordination",
-        task_family=coordination.task_family,
         metadata={
             "timeline_blocks": [
                 {
@@ -513,7 +496,6 @@ def test_coordination_contract_compiler_reports_missing_graph_module_handoff_con
         title="图节点缺失交接契约",
         coordination_mode="pipeline",
         coordinator_agent_id="agent:0",
-        task_family="test",
         graph_nodes=(),
         graph_edges=(),
     )
@@ -521,7 +503,6 @@ def test_coordination_contract_compiler_reports_missing_graph_module_handoff_con
         graph_id=coordination.graph_id,
         title=coordination.title,
         graph_kind="coordination",
-        task_family=coordination.task_family,
         metadata={
             "timeline_blocks": [
                 {

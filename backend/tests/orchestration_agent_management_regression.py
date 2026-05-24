@@ -26,8 +26,7 @@ def test_builtin_agents_are_seeded_as_system_builtin_and_have_runtime_profiles(t
         "agent:rag_analyst",
         "agent:pdf_reader",
         "agent:table_analyst",
-        "agent:web_researcher",
-    }
+        "agent:web_researcher"}
     builtin_agents = [item for item in agents if item.agent_id in builtin_ids]
     builtin_by_id = {item.agent_id: item for item in builtin_agents}
     runtime_profile_expected_ids = builtin_ids - {"agent:3"}
@@ -166,8 +165,7 @@ def test_system_builtin_profile_storage_is_migrated_with_required_default_permis
                         "approval_policy": "default",
                         "trace_policy": "runtime_event_log",
                         "lifecycle_policy": "system_builtin",
-                        "metadata": {},
-                    }
+                        "metadata": {}}
                 ]
             },
             ensure_ascii=False,
@@ -301,8 +299,7 @@ def test_runtime_profile_migration_adds_custom_for_mixed_legacy_lanes(tmp_path):
                         "agent_id": "agent:mixed_lane_test",
                         "allowed_runtime_lanes": ["role_interaction", "readonly_exploration"],
                         "allowed_operations": ["op.model_response"],
-                        "metadata": {},
-                    }
+                        "metadata": {}}
                 ]
             },
             ensure_ascii=False,
@@ -343,12 +340,9 @@ def test_runtime_lane_profile_marks_denied_request_without_silent_success(tmp_pa
             "task_execution_assembly": {
                 "assembly_id": "assembly:runtime-lane-denied",
                 "task_mode": "test",
-                "task_family": "test",
                 "output_contract_id": "AssistantFinalAnswer",
-                "runtime_lane": "web_research_delegate",
-            },
-            "operation_requirement": {"requirement_id": "opreq:runtime-lane-denied"},
-        },
+                "runtime_lane": "web_research_delegate"},
+            "operation_requirement": {"requirement_id": "opreq:runtime-lane-denied"}},
         agent_runtime_profile=runtime_profile,
     )
 
@@ -393,9 +387,7 @@ def test_custom_agent_prompt_profile_metadata_is_not_runtime_adopted(tmp_path):
                 "system_prompt": "这段旧名册 Prompt 不能进入 runtime prompt。",
                 "guardrails": ["旧护栏不能进入 runtime prompt"],
                 "output_style": "旧输出风格不能进入 runtime prompt。",
-                "storage_policy": "agent_metadata_frontend_configured",
-            },
-        },
+                "storage_policy": "agent_metadata_frontend_configured"}},
     )
     runtime_registry = AgentRuntimeRegistry(tmp_path)
     runtime_registry.upsert_profile(
@@ -420,13 +412,10 @@ def test_custom_agent_prompt_profile_metadata_is_not_runtime_adopted(tmp_path):
             "task_execution_assembly": {
                 "assembly_id": "assembly:projection-test",
                 "task_mode": "projection_test",
-                "task_family": "test",
                 "output_contract_id": "AssistantFinalAnswer",
-                "requested_outputs": ["AssistantFinalAnswer"],
-            },
+                "requested_outputs": ["AssistantFinalAnswer"]},
             "projection_selection": {},
-            "operation_requirement": {"requirement_id": "opreq:projection-test"},
-        },
+            "operation_requirement": {"requirement_id": "opreq:projection-test"}},
         agent_runtime_profile=runtime_registry.get_profile("agent:9"),
     )
     orchestration = bundle["task_body_orchestration"]
@@ -520,8 +509,7 @@ def test_deleted_custom_agent_does_not_resurrect_from_defaults(tmp_path):
                         "agent_category": "custom_agent",
                         "interface_target": "worker_task_console",
                         "enabled": True,
-                        "metadata": {"definition_source": "user_custom_agent"},
-                    }
+                        "metadata": {"definition_source": "user_custom_agent"}}
                 ]
             },
             ensure_ascii=False,
@@ -538,8 +526,7 @@ def test_deleted_custom_agent_does_not_resurrect_from_defaults(tmp_path):
                         "agent_id": "agent:custom_deleted_worker",
                         "allowed_runtime_lanes": ["readonly_exploration"],
                         "allowed_operations": ["op.model_response"],
-                        "metadata": {"managed_by": "orchestration_console"},
-                    }
+                        "metadata": {"managed_by": "orchestration_console"}}
                 ]
             },
             ensure_ascii=False,
@@ -556,8 +543,7 @@ def test_deleted_custom_agent_does_not_resurrect_from_defaults(tmp_path):
                         "title": "自定义 Agent 组",
                         "group_kind": "coordination_team",
                         "coordinator_agent_id": "",
-                        "member_agent_ids": ["agent:custom_deleted_worker"],
-                    }
+                        "member_agent_ids": ["agent:custom_deleted_worker"]}
                 ]
             },
             ensure_ascii=False,
@@ -584,5 +570,4 @@ def test_worker_agent_blueprints_include_role_templates():
         "worker.planner",
         "worker.verification",
         "worker.execution",
-        "worker.review",
-    }.issubset(blueprint_ids)
+        "worker.review"}.issubset(blueprint_ids)

@@ -42,7 +42,6 @@ class TaskDurableMemoryService:
                 )
             ),
             namespace_id=namespace_id,
-            task_family=str(data.get("task_family") or ""),
             domain_id=str(data.get("domain_id") or ""),
             task_id=str(data.get("task_id") or ""),
             graph_id=str(data.get("graph_id") or ""),
@@ -75,7 +74,6 @@ class TaskDurableMemoryService:
             raise ValueError("Working memory item is not eligible for task durable promotion")
 
         namespace_payload = {
-            "task_family": str(payload.get("task_family") or item.metadata.get("task_family") or ""),
             "domain_id": str(payload.get("domain_id") or item.metadata.get("domain_id") or ""),
             "task_id": str(payload.get("task_id") or item.task_id or ""),
             "graph_id": str(payload.get("graph_id") or item.graph_id or ""),
@@ -100,7 +98,6 @@ class TaskDurableMemoryService:
             [
                 *_strings(payload.get("retrieval_hints")),
                 namespace_id,
-                namespace_payload["task_family"],
                 namespace_payload["domain_id"],
                 namespace_payload["task_id"],
                 namespace_payload["graph_id"],
@@ -167,7 +164,6 @@ class TaskDurableMemoryService:
         self,
         *,
         namespace_id: str = "",
-        task_family: str = "",
         domain_id: str = "",
         task_id: str = "",
         graph_id: str = "",
@@ -178,18 +174,16 @@ class TaskDurableMemoryService:
         limit: int = 20,
     ) -> tuple[MemoryContextCandidate, ...]:
         query_namespace = namespace_id or self.build_namespace_id(
-            task_family=task_family,
             domain_id=domain_id,
             task_id=task_id,
             graph_id=graph_id,
             project_id=project_id,
             artifact_namespace=artifact_namespace,
         )
-        if not query_namespace and not any([task_family, domain_id, task_id, graph_id, project_id, artifact_namespace]):
+        if not query_namespace and not any([domain_id, task_id, graph_id, project_id, artifact_namespace]):
             return ()
         items = self.query_items(
             namespace_id=query_namespace,
-            task_family=task_family,
             domain_id=domain_id,
             task_id=task_id,
             graph_id=graph_id,
@@ -229,7 +223,6 @@ class TaskDurableMemoryService:
                     authority="candidate_only",
                     metadata={
                         "namespace_id": item.namespace_id,
-                        "task_family": item.task_family,
                         "domain_id": item.domain_id,
                         "task_id": item.task_id,
                         "graph_id": item.graph_id,
@@ -247,7 +240,6 @@ class TaskDurableMemoryService:
     @staticmethod
     def build_namespace_id(**payload: Any) -> str:
         return build_namespace_id(
-            task_family=str(payload.get("task_family") or ""),
             domain_id=str(payload.get("domain_id") or ""),
             task_id=str(payload.get("task_id") or ""),
             graph_id=str(payload.get("graph_id") or ""),

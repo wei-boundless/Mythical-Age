@@ -163,7 +163,6 @@ def _dispatch_graph_payload_from_task_graph_runtime_spec(
         "task_graph_id": graph.graph_id,
         "title": graph.title,
         "domain_id": graph.domain_id,
-        "task_family": graph.task_family,
         "graph_kind": graph.graph_kind,
         "coordinator_agent_id": runtime_spec.coordinator_agent_id,
         "agent_group_id": runtime_spec.agent_group_id,
@@ -215,7 +214,6 @@ def _normalize_runtime_graph_payload(
         "task_graph_id": str(task_graph.get("graph_id") or graph_payload.get("task_graph_id") or graph_payload.get("graph_id") or ""),
         "title": str(task_graph.get("title") or graph_payload.get("title") or ""),
         "domain_id": str(task_graph.get("domain_id") or graph_payload.get("domain_id") or ""),
-        "task_family": str(task_graph.get("task_family") or graph_payload.get("task_family") or ""),
         "graph_kind": str(task_graph.get("graph_kind") or graph_payload.get("graph_kind") or "coordination"),
         "coordinator_agent_id": str(runtime_policy.get("coordinator_agent_id") or graph_payload.get("coordinator_agent_id") or "agent:0"),
         "agent_group_id": str(runtime_policy.get("agent_group_id") or graph_payload.get("agent_group_id") or ""),
@@ -241,7 +239,6 @@ def _runtime_spec_from_payload(payload: dict[str, Any]) -> TaskGraphRuntimeSpec 
         return TaskGraphRuntimeSpec(
             graph_id=str(payload.get("graph_id") or ""),
             domain_id=str(payload.get("domain_id") or ""),
-            task_family=str(payload.get("task_family") or ""),
             coordinator_agent_id=str(payload.get("coordinator_agent_id") or ""),
             graph_ref=str(payload.get("graph_ref") or payload.get("graph_id") or ""),
             agent_group_id=str(payload.get("agent_group_id") or ""),

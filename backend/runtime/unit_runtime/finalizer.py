@@ -971,7 +971,6 @@ class TaskRunFinalizer:
                 project_id=project_id,
                 session_id=task_run.session_id,
                 graph_id=str(diagnostics.get("task_graph_id") or diagnostics.get("graph_ref") or ""),
-                task_family=str(diagnostics.get("task_family") or ""),
                 project_title=str(normalized_inputs.get("project_title") or project_id),
                 metric_label=str(normalized_inputs.get("metric_label") or diagnostics.get("metric_label") or "units"),
                 target_metric_total=int(

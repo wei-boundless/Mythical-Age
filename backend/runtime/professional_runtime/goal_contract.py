@@ -290,7 +290,7 @@ def _build_goal_contract(
     goal = str(user_message or "").strip()
     output_paths = _extract_goal_output_paths(goal)
     material_paths = [
-        path for path in _extract_goal_material_paths(goal) if not _same_path_member(path, output_paths)
+        path for path in _extract_goal_material_paths(goal) if not _same_path_member(path, output_paths) and not _same_basename_member(path, output_paths)
     ]
     material_types = _dedupe_strings([_path_suffix(path) for path in material_paths if _path_suffix(path)])
     requires_write = _goal_text_requires_write_output(goal, material_paths=material_paths, output_paths=output_paths)
@@ -331,7 +331,7 @@ def _extract_goal_material_paths(text: str) -> list[str]:
         [
             path
             for path, prefix in _path_mentions_with_prefix(text)
-            if not _prefix_indicates_output_path(prefix)
+            if not _prefix_indicates_output_path(prefix) and _material_path_candidate_is_readable(path)
         ]
     )
 
@@ -342,7 +342,9 @@ def _extract_goal_output_paths(text: str) -> list[str]:
             for path, prefix in _path_mentions_with_prefix(text)
             if _prefix_indicates_output_path(prefix)
     ]
-    return _dedupe_strings([*direct_paths, *_expand_output_directory_file_lists(text)])
+    expanded_paths = _expand_output_directory_file_lists(text)
+    output_dirs = _extract_required_output_dirs(text, expanded_paths)
+    return _prefer_qualified_output_paths(_dedupe_strings([*direct_paths, *expanded_paths, *output_dirs]))
 
 
 def _expand_output_directory_file_lists(text: str) -> list[str]:
@@ -376,12 +378,40 @@ def _expand_output_directory_file_lists(text: str) -> list[str]:
     return _dedupe_strings(result)
 
 
+def _extract_required_output_dirs(text: str, expanded_paths: list[str]) -> list[str]:
+    normalized = str(text or "").replace("\\", "/")
+    base_dirs = _dedupe_strings(
+        [
+            path.rsplit("/", 1)[0]
+            for path in list(expanded_paths or [])
+            if "/" in str(path or "")
+        ]
+    )
+    if not base_dirs:
+        return []
+    result: list[str] = []
+    explicit_dir_pattern = re.compile(
+        r"(?P<dir>[\w.\-\u4e00-\u9fff]+/)\s*(?:目录|文件夹)",
+        re.IGNORECASE,
+    )
+    for match in explicit_dir_pattern.finditer(normalized):
+        directory = _clean_path_mention(str(match.group("dir") or "")).replace("\\", "/").strip("/")
+        if not directory:
+            continue
+        context = normalized[max(0, match.start() - 18) : match.end() + 18]
+        if not any(marker in context for marker in ("创建", "新建", "必须", "写入", "生成")):
+            continue
+        for base_dir in base_dirs:
+            result.append(f"{base_dir}/{directory}")
+    return _dedupe_strings(result)
+
+
 def _path_mentions_with_prefix(text: str) -> list[tuple[str, str]]:
     normalized = str(text or "")
-    suffixes = "py|json|md|txt|csv|xlsx|xls|pdf|yaml|yml|toml|docx|pptx"
+    suffixes = "py|json|md|txt|csv|xlsx|xls|pdf|yaml|yml|toml|docx|pptx|html|css|js|jsx|ts|tsx"
     patterns = [
         re.compile(
-            rf"(?P<path>(?:[\w.\-\u4e00-\u9fff]+[\\/])[\w.\-\u4e00-\u9fff /\\:：()（）]+?\.({suffixes}))",
+            rf"(?P<path>(?:[\w.\-\u4e00-\u9fff]+[\\/])+[\w.\-\u4e00-\u9fff]+\.({suffixes}))",
             re.IGNORECASE,
         ),
         re.compile(
@@ -403,7 +433,20 @@ def _path_mentions_with_prefix(text: str) -> list[tuple[str, str]]:
 
 
 def _clean_path_mention(path: str) -> str:
-    return str(path or "").strip().strip("`'\"“”‘’（）()[]{}，。；;、")
+    cleaned = str(path or "").strip().strip("`'\"“”‘’（）()[]{}，。；;、")
+    return cleaned.replace("\\", "/").strip("/")
+
+
+def _material_path_candidate_is_readable(path: str) -> bool:
+    normalized = _normalize_path_for_match(path)
+    if not normalized:
+        return False
+    basename = normalized.rsplit("/", 1)[-1]
+    if not basename or "." not in basename:
+        return False
+    if any(token in normalized for token in ("，", "。", "；", "、", "：", " ", "必须", "引用", "目录")):
+        return False
+    return True
 
 
 def _prefix_indicates_output_path(prefix: str) -> bool:
@@ -425,6 +468,28 @@ def _prefix_indicates_output_path(prefix: str) -> bool:
 def _same_path_member(path: str, paths: list[str]) -> bool:
     normalized = _normalize_path_for_match(path)
     return any(normalized == _normalize_path_for_match(item) for item in paths)
+
+
+def _same_basename_member(path: str, paths: list[str]) -> bool:
+    basename = _normalize_path_for_match(path).rsplit("/", 1)[-1]
+    if not basename:
+        return False
+    return any(basename == _normalize_path_for_match(item).rsplit("/", 1)[-1] for item in paths)
+
+
+def _prefer_qualified_output_paths(paths: list[str]) -> list[str]:
+    normalized_paths = [_normalize_path_for_match(path) for path in paths]
+    qualified_basenames = {
+        item.rsplit("/", 1)[-1]
+        for item in normalized_paths
+        if "/" in item and item.rsplit("/", 1)[-1]
+    }
+    result: list[str] = []
+    for original, normalized in zip(paths, normalized_paths):
+        if "/" not in normalized and normalized in qualified_basenames:
+            continue
+        result.append(original)
+    return _dedupe_strings(result)
 
 
 def _goal_material_path_is_credible(path: str, *, output_paths: list[str], goal_text: str) -> bool:

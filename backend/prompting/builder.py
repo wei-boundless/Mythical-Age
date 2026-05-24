@@ -210,13 +210,9 @@ def build_session_memoized_prompt(
     *,
     context_package: ContextPackage | None = None,
     session_memory: str | None = None,
-    active_skill: str | None = None,
 ) -> str:
     settings = get_settings()
     parts: list[str] = []
-    if active_skill:
-        parts.append(f"## 当前工作指引\n{_truncate(active_skill, settings.component_char_limit)}")
-
     rendered_session_memory = (
         _render_context_package_block(context_package, include_durable_context=False)
         if context_package is not None
@@ -268,7 +264,6 @@ def build_system_prompt(
     persistent_memory: str | None = None,
     session_memory: str | None = None,
     context_package: ContextPackage | None = None,
-    active_skill: str | None = None,
 ) -> str:
     long_term_context = build_long_term_context_bundle(
         base_dir,
@@ -283,7 +278,6 @@ def build_system_prompt(
         build_session_memoized_prompt(
             context_package=context_package,
             session_memory=session_memory,
-            active_skill=active_skill,
         ),
         build_turn_prompt(
             persistent_memory=persistent_memory,
@@ -300,7 +294,6 @@ def build_system_prompt_with_manifest(
     persistent_memory: str | None = None,
     session_memory: str | None = None,
     context_package: ContextPackage | None = None,
-    active_skill: str | None = None,
     *,
     session_id: str = "",
     turn_id: str = "",
@@ -318,7 +311,6 @@ def build_system_prompt_with_manifest(
     session_prompt = build_session_memoized_prompt(
         context_package=context_package,
         session_memory=session_memory,
-        active_skill=active_skill,
     )
     turn_prompt = build_turn_prompt(
         persistent_memory=persistent_memory,
@@ -369,24 +361,6 @@ def build_system_prompt_with_manifest(
             cache=static_cache.to_dict(),
         )
     )
-
-    if active_skill:
-        order += 1
-        sections.append(
-            prompt_section(
-                section_id="active_skill",
-                title="当前工作指引",
-                layer="session",
-                source="SkillDefinition.render_prompt_block",
-                content=active_skill,
-                order=order,
-                cache=uncached_prompt_diagnostic(
-                    scope="session",
-                    reason="active_skill_depends_on_current_runtime_selection",
-                    content=active_skill,
-                ).to_dict(),
-            )
-        )
 
     rendered_session_memory = (
         _render_context_package_block(context_package, include_durable_context=False)

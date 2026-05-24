@@ -334,6 +334,9 @@ PROFESSIONAL_ITERATIVE_GAME_DELIVERY_TURNS: tuple[LongScenarioTurn, ...] = (
             "frontend/public/games/arcane_dungeon_studio/。这不是一次性 demo，而是要能承受后续验收反馈的真实工程。"
             "第一版必须写入 index.html、styles.css、game.js、README.md，并创建 assets/ 目录。"
             "玩法要求：2D 地牢探索，玩家移动，至少两类敌人，金币，药水，生命值，胜负状态，暂停和重新开始。"
+            "视觉资产要求：玩家和至少两类敌人必须分别有对应立绘或清晰可见的角色资源；"
+            "场景也必须有明确美术资源，包括地牢地板、墙体/障碍、金币或药水等可见物件；"
+            "这些资源必须放入 assets/ 目录，game.js 或 index.html 必须真实引用玩家、怪物和场景资源。"
             "完成后请用 terminal 验证核心文件存在、index.html 引用了 styles.css 和 game.js，并说明产物路径与验证结果。"
         ),
         checks=(

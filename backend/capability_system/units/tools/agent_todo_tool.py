@@ -11,6 +11,8 @@ from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 
 class AgentTodoInput(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     operation: Literal["replace", "append", "start", "complete", "update_status", "remove", "clear", "view"] = Field(
         default="replace",
         description="Todo operation. Use replace for a fresh task list, append for discovered work, start/complete/update_status for progress, remove for irrelevant items, clear to reset, view to inspect.",
@@ -19,7 +21,7 @@ class AgentTodoInput(BaseModel):
     task_id: str = Field(default="runtime", description="Current task id; use runtime when no task id is provided.")
     items: list[dict[str, Any]] = Field(
         default_factory=list,
-        description="Todo items for replace/append. Each item should include content, optional active_form, status, evidence_expectations, and contract_refs.",
+        description="Todo items for replace/append. Each item should include content, optional active_form, status, evidence_expectations, and contract_refs. Use this field instead of todos.",
     )
     todo_id: str = Field(default="", description="Target todo id for start, complete, update_status, or remove.")
     status: str = Field(default="", description="Target status for update_status: pending, in_progress, or completed.")
@@ -50,6 +52,7 @@ class AgentTodoTool(BaseTool):
         session_id: str = "default",
         task_id: str = "runtime",
         items: list[dict[str, Any]] | None = None,
+        todos: list[dict[str, Any]] | None = None,
         todo_id: str = "",
         status: str = "",
         notes: str = "",
@@ -58,6 +61,7 @@ class AgentTodoTool(BaseTool):
         try:
             from runtime.professional_runtime.agent_todo import build_agent_todo_plan, update_agent_todo_plan
 
+            normalized_items = _normalize_items(items=items, todos=todos)
             current = self._read_state(session_id=session_id, task_id=task_id)
             if operation == "view":
                 plan = build_agent_todo_plan(
@@ -71,7 +75,7 @@ class AgentTodoTool(BaseTool):
                     session_id=session_id,
                     task_id=task_id,
                     operation=operation,
-                    items=list(items or []),
+                    items=normalized_items,
                     todo_id=todo_id,
                     status=status,
                     notes=notes,
@@ -99,12 +103,13 @@ class AgentTodoTool(BaseTool):
         session_id: str = "default",
         task_id: str = "runtime",
         items: list[dict[str, Any]] | None = None,
+        todos: list[dict[str, Any]] | None = None,
         todo_id: str = "",
         status: str = "",
         notes: str = "",
         run_manager: AsyncCallbackManagerForToolRun | None = None,
     ) -> str:
-        return await asyncio.to_thread(self._run, operation, session_id, task_id, items, todo_id, status, notes, None)
+        return await asyncio.to_thread(self._run, operation, session_id, task_id, items, todos, todo_id, status, notes, None)
 
     def _state_path(self, *, session_id: str, task_id: str) -> Path:
         safe_session = _safe_key(session_id or "default")
@@ -128,3 +133,14 @@ class AgentTodoTool(BaseTool):
 def _safe_key(value: str) -> str:
     result = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in str(value or ""))
     return result.strip("_")[:80] or "runtime"
+
+
+def _normalize_items(
+    *,
+    items: list[dict[str, Any]] | None = None,
+    todos: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    raw_items = list(items or [])
+    if not raw_items and todos:
+        raw_items = list(todos or [])
+    return [dict(item) for item in raw_items if isinstance(item, dict)]

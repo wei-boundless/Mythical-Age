@@ -37,6 +37,7 @@ export function getDefaultState(): StoreState {
     workspaceContext: null,
     sessions: [],
     currentSessionId: null,
+    workspaceInitializing: true,
     messages: [],
     isStreaming: false,
     activeStreamSessionIds: [],

@@ -28,7 +28,6 @@ def build_orchestration_runtime_bundle(
     memory_runtime_view: dict[str, Any] | None = None,
     context_policy_result: dict[str, Any] | None = None,
     current_turn_context: dict[str, Any] | None = None,
-    active_skill: dict[str, Any] | None = None,
     agent_runtime_profile: AgentRuntimeProfile | None = None,
 ) -> dict[str, Any]:
     base_dir = Path(base_dir)
@@ -48,7 +47,6 @@ def build_orchestration_runtime_bundle(
     ]
     registered_task = dict(task_assembly_bundle.get("registered_task") or {})
     current_turn_payload = dict(current_turn_context or task_assembly_bundle.get("current_turn_context") or {})
-    active_skill_payload = dict(active_skill or task_assembly_bundle.get("active_skill") or {})
     memory_view = dict(memory_runtime_view or {})
     context_policy = dict(context_policy_result or {})
 
@@ -128,7 +126,6 @@ def build_orchestration_runtime_bundle(
         skill_runtime_views=skill_runtime_views,
         projection_requirement=projection_requirement,
         operation_requirement=operation_requirement,
-        active_skill=active_skill_payload,
         agent_id=agent_id,
         current_turn_context=current_turn_payload,
     )
@@ -210,7 +207,6 @@ def build_orchestration_runtime_bundle(
             "context_policy_ref": _context_policy_ref(context_policy),
             "runtime_lane": runtime_lane_profile.lane_id,
             "requested_runtime_lane": requested_runtime_lane,
-            "active_skill_name": str(active_skill_payload.get("name") or ""),
             "continuation_decision": dict(current_turn_payload.get("continuation_decision") or {}),
         },
     )

@@ -27,7 +27,6 @@ def test_tool_result_step_transition_ignores_unmatched_current_step(tmp_path: Pa
             title="test",
             description="",
             execution_kind="single_agent",
-            task_family="test",
             task_mode="test",
             step_blueprints=(
                 TaskStepBlueprint(
@@ -80,7 +79,6 @@ def test_tool_result_step_transition_advances_matching_tool_step(tmp_path: Path)
             title="test",
             description="",
             execution_kind="single_agent",
-            task_family="test",
             task_mode="test",
             step_blueprints=(
                 TaskStepBlueprint(

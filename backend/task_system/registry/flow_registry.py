@@ -94,32 +94,17 @@ def _is_removed_health_task_config(payload: dict[str, Any]) -> bool:
     )
 
 
-def _memory_scope_for_family(task_family: str) -> str:
-    return {
-        "development": "workspace_state",
-        "writing": "story_project",
-        "health": "health_issue",
-        "retrieval": "knowledge_context",
-        "document": "source_document",
-        "data": "source_dataset",
-        "search": "search_context",
-        "capability": "tool_context",
-        "bundle": "bundle_context",
-    }.get(str(task_family or "").strip(), "conversation")
-
-
 def _synthetic_specific_task_record_for_runtime(task_id: str) -> SpecificTaskRecord | None:
     target = str(task_id or "").strip()
     spec = _system_task_specs().get(target)
     if spec is None:
         return None
     workflow_id = str(spec.get("workflow_id") or "").strip()
-    task_family = str(spec.get("task_family") or "").strip()
     runtime_lane = str(spec.get("runtime_lane") or "main_conversation").strip()
     return SpecificTaskRecord(
         task_id=target,
         task_title=str(spec.get("title") or target),
-        task_family=task_family,
+        domain_id=str(spec.get("domain_id") or "").strip(),
         description=str(spec.get("description") or spec.get("title") or target),
         enabled=True,
         runtime_lane=runtime_lane,
@@ -133,8 +118,7 @@ def _synthetic_specific_task_record_for_runtime(task_id: str) -> SpecificTaskRec
             "safety_policy": dict(spec.get("safety_policy") or {}),
             "task_structure": {
                 "runtime_lane_hint": runtime_lane,
-                "memory_scope_hint": _memory_scope_for_family(task_family),
-                "task_resource_kind": task_family,
+                "memory_scope_hint": "conversation",
             },
         },
         metadata={
@@ -360,7 +344,6 @@ def _default_coordination_graph(
     *,
     coordinator_agent_id: str,
     participant_agent_ids: tuple[str, ...],
-    task_family: str = "",
     subtask_refs: tuple[str, ...] = (),
 ) -> tuple[tuple[dict[str, Any], ...], tuple[dict[str, Any], ...]]:
     coordinator = str(coordinator_agent_id or "agent:0").strip() or "agent:0"
@@ -384,7 +367,6 @@ def _default_coordination_graph(
                 "node_id": node_id,
                 "node_type": "subtask" if task_id else "agent_role",
                 "task_id": task_id,
-                "task_family": task_family,
                 "agent_id": agent_id,
                 "role": "participant",
             }
@@ -508,37 +490,17 @@ def _default_adoption_plan(task: TaskAssignment) -> TaskAgentAdoptionPlan:
 
 
 def _default_memory_request_profile(task: TaskAssignment) -> TaskMemoryRequestProfile:
-    task_family = str(task.task_family or "").strip()
     memory_scope_hint = str(dict(task.task_structure or {}).get("memory_scope_hint") or "").strip()
     requested_layers = ["conversation"]
-    requested_topics = [task_family or task.task_id or "general_task"]
-    allow_long_term_memory = False
-    if task_family == "health":
-        requested_layers = ["state", "conversation"]
-        requested_topics = ["health_issue", task.task_id or "health"]
-    elif task_family == "development":
-        requested_layers = ["conversation", "state", "long_term"]
-        requested_topics = ["project_background", "recent_workspace_state", task.task_id or "development"]
-        allow_long_term_memory = True
-    elif task_family == "writing":
-        requested_layers = ["conversation", "state", "long_term"]
-        requested_topics = ["story_goal", "story_style", task.task_id or "writing"]
-        allow_long_term_memory = True
-    elif task_family == "memory":
-        requested_layers = ["conversation", "state", "long_term"]
-        requested_topics = ["user_preference", "memory_recall"]
-        allow_long_term_memory = True
-    elif task_family in {"general", "search"}:
-        requested_layers = ["conversation"]
-        requested_topics = ["current_conversation", task.task_id]
+    requested_topics = [task.task_id or "general_task"]
     return TaskMemoryRequestProfile(
         profile_id=f"taskmem:{task.task_id}",
         task_id=task.task_id,
         requested_memory_layers=tuple(requested_layers),
         requested_topics=tuple(requested_topics),
-        memory_priority="high" if task_family in {"health", "development"} else "normal",
+        memory_priority="normal",
         writeback_policy="task_default",
-        allow_long_term_memory=allow_long_term_memory,
+        allow_long_term_memory=False,
         memory_scope_hint=memory_scope_hint,
         metadata={"derived_from": "task_assignment"},
     )
@@ -549,7 +511,7 @@ def _specific_task_record_from_assignment(task: TaskAssignment) -> SpecificTaskR
     return SpecificTaskRecord(
         task_id=task.task_id,
         task_title=task.task_title,
-        task_family=task.task_family,
+        domain_id=task.domain_id,
         description=str(dict(task.metadata or {}).get("description") or task.task_title),
         enabled=task.enabled,
         runtime_lane=task.runtime_lane,
@@ -598,39 +560,19 @@ def _default_flow_contract_binding_from_specific_record(record: SpecificTaskReco
 
 
 def _default_memory_request_profile_from_specific_record(record: SpecificTaskRecord) -> TaskMemoryRequestProfile:
-    task_family = str(record.task_family or "").strip()
     task_policy = dict(record.task_policy or {})
     task_structure = dict(task_policy.get("task_structure") or {})
     memory_scope_hint = str(task_structure.get("memory_scope_hint") or "").strip()
     requested_layers = ["conversation"]
-    requested_topics = [task_family or record.task_id or "specific_task"]
-    allow_long_term_memory = False
-    if task_family == "health":
-        requested_layers = ["state", "conversation"]
-        requested_topics = ["health_issue", record.task_id or "health"]
-    elif task_family == "development":
-        requested_layers = ["conversation", "state", "long_term"]
-        requested_topics = ["project_background", "recent_workspace_state", record.task_id or "development"]
-        allow_long_term_memory = True
-    elif task_family == "writing":
-        requested_layers = ["conversation", "state", "long_term"]
-        requested_topics = ["story_goal", "story_style", record.task_id or "writing"]
-        allow_long_term_memory = True
-    elif task_family == "memory":
-        requested_layers = ["conversation", "state", "long_term"]
-        requested_topics = ["user_preference", "memory_recall"]
-        allow_long_term_memory = True
-    elif task_family == "search":
-        requested_layers = ["conversation"]
-        requested_topics = ["current_conversation", record.task_id]
+    requested_topics = [record.task_id or "specific_task"]
     return TaskMemoryRequestProfile(
         profile_id=f"taskmem:{record.task_id}",
         task_id=record.task_id,
         requested_memory_layers=tuple(requested_layers),
         requested_topics=tuple(requested_topics),
-        memory_priority="high" if task_family in {"health", "development"} else "normal",
+        memory_priority="normal",
         writeback_policy="task_default",
-        allow_long_term_memory=allow_long_term_memory,
+        allow_long_term_memory=False,
         memory_scope_hint=memory_scope_hint,
         metadata={"derived_from": "specific_task_record"},
     )
@@ -641,8 +583,8 @@ def _synthetic_task_from_general_profile(profile: GeneralTaskProfile) -> TaskAss
         task_id=profile.profile_id,
         task_title=profile.title,
         task_kind="general_task",
-        task_family="general",
         flow_id="flow.general.main_conversation",
+        domain_id="domain.general",
         runtime_lane="main_conversation",
         default_agent_id=normalize_agent_id(str(profile.default_agent_id or "agent:0").strip() or "agent:0"),
         participant_agent_ids=(),
@@ -765,7 +707,6 @@ class TaskFlowRegistry:
                 flows.append(
                     TaskFlowDefinition(
                         flow_id=str(item.get("flow_id") or ""),
-                        task_family=str(item.get("task_family") or ""),
                         title=str(item.get("title") or ""),
                         input_contract_id=str(item.get("input_contract_id") or ""),
                         output_contract_id=str(item.get("output_contract_id") or ""),
@@ -798,7 +739,6 @@ class TaskFlowRegistry:
         self,
         *,
         flow_id: str,
-        task_family: str,
         title: str,
         input_contract_id: str,
         output_contract_id: str,
@@ -814,7 +754,6 @@ class TaskFlowRegistry:
             raise ValueError("flow_id must start with flow.")
         flow = TaskFlowDefinition(
             flow_id=normalized_flow_id,
-            task_family=str(task_family or "").strip(),
             title=str(title or normalized_flow_id).strip(),
             input_contract_id=str(input_contract_id or "").strip(),
             output_contract_id=str(output_contract_id or "").strip(),
@@ -906,35 +845,17 @@ class TaskFlowRegistry:
         )
         domains: list[TaskDomainRecord] = []
         for item in merged_payload:
-            task_family = str(item.get("task_family") or "").strip()
-            domain_id = str(item.get("domain_id") or "").strip() or f"domain.{task_family or 'custom'}"
+            domain_id = str(item.get("domain_id") or "").strip()
+            if not domain_id:
+                continue
             domains.append(
                 TaskDomainRecord(
                     domain_id=domain_id,
-                    task_family=task_family,
                     title=str(item.get("title") or domain_id).strip(),
                     description=str(item.get("description") or "").strip(),
                     enabled=bool(item.get("enabled", True)),
                     sort_order=int(item.get("sort_order", 0) or 0),
                     metadata=dict(item.get("metadata") or {}),
-                )
-            )
-        known_families = {item.task_family for item in domains if item.task_family}
-        inferred_families = sorted({item.task_family for item in self.list_specific_task_records() if item.task_family})
-        next_sort = max((item.sort_order for item in domains), default=0)
-        for family in inferred_families:
-            if family in known_families:
-                continue
-            next_sort += 10
-            domains.append(
-                TaskDomainRecord(
-                    domain_id=f"domain.{family}",
-                    task_family=family,
-                    title=f"{family}任务域",
-                    description="",
-                    enabled=True,
-                    sort_order=next_sort,
-                    metadata={"derived": True},
                 )
             )
         domains = sorted(domains, key=lambda item: (item.sort_order, item.title, item.domain_id))
@@ -959,23 +880,18 @@ class TaskFlowRegistry:
         self,
         *,
         domain_id: str,
-        task_family: str,
         title: str,
         description: str = "",
         enabled: bool = True,
         sort_order: int = 0,
         metadata: dict[str, Any] | None = None,
     ) -> TaskDomainRecord:
-        normalized_family = str(task_family or "").strip()
-        normalized_domain_id = str(domain_id or "").strip() or f"domain.{normalized_family}"
-        if not normalized_family:
-            raise ValueError("task_family is required")
+        normalized_domain_id = str(domain_id or "").strip()
         if not normalized_domain_id.startswith("domain."):
             raise ValueError("domain_id must start with domain.")
         record = TaskDomainRecord(
             domain_id=normalized_domain_id,
-            task_family=normalized_family,
-            title=str(title or normalized_family).strip(),
+            title=str(title or normalized_domain_id).strip(),
             description=str(description or "").strip(),
             enabled=bool(enabled),
             sort_order=int(sort_order),
@@ -1005,37 +921,33 @@ class TaskFlowRegistry:
         domain = self.get_task_domain(target)
         if domain is None:
             raise ValueError("task domain not found")
-        task_family = domain.task_family
-        task_ids = {item.task_id for item in self.list_specific_task_records() if item.task_family == task_family}
+        task_ids = {
+            item.task_id
+            for item in self.list_specific_task_records()
+            if str(item.domain_id or item.metadata.get("domain_id") or "").strip() == target
+        }
         flow_ids = {
             item.flow_id
             for item in self.list_flows()
-            if item.task_family == task_family
+            if str(item.metadata.get("domain_id") or "").strip() == target
             or str(item.metadata.get("task_id") or "") in task_ids
-            or _family_from_ref(item.flow_id) == task_family
         }
         coordination_ids = {
             str(item.graph_id or "")
             for item in self.list_task_graphs()
-            if str(item.metadata.get("task_family") or item.task_family or "") == task_family
-            or str(item.metadata.get("domain_id") or item.domain_id or "") == target
+            if str(item.metadata.get("domain_id") or item.domain_id or "") == target
             or any(ref in task_ids for ref in item.to_dict().get("subtask_refs") or [])
-            or _family_from_ref(item.graph_id) == task_family
         }
         topology_ids = {
             item.template_id
             for item in self.list_topology_templates()
-            if str(item.metadata.get("task_family") or "") == task_family
-            or str(item.metadata.get("domain_id") or "") == target
-            or _family_from_ref(item.template_id) == task_family
+            if str(item.metadata.get("domain_id") or "") == target
         }
         protocol_ids = {
             item.protocol_id
             for item in self.list_task_communication_protocols()
-            if str(item.metadata.get("task_family") or "") == task_family
-            or str(item.metadata.get("domain_id") or "") == target
+            if str(item.metadata.get("domain_id") or "") == target
             or str(item.metadata.get("task_id") or "") in task_ids
-            or _family_from_ref(item.protocol_id) == task_family
         }
         workflow_ids = self._collect_deletable_workflow_ids(
             task_ids=task_ids,
@@ -1096,7 +1008,6 @@ class TaskFlowRegistry:
         deleted_workflow_ids = self.workflow_registry.delete_workflows(workflow_ids)
         return {
             "domain_id": target,
-            "task_family": task_family,
             "deleted_task_ids": sorted(task_ids),
             "deleted_flow_ids": sorted(flow_ids),
             "deleted_workflow_ids": list(deleted_workflow_ids),
@@ -1131,7 +1042,7 @@ class TaskFlowRegistry:
                 SpecificTaskRecord(
                     task_id=str(item.get("task_id") or ""),
                     task_title=str(item.get("task_title") or ""),
-                    task_family=str(item.get("task_family") or ""),
+                    domain_id=str(item.get("domain_id") or dict(item.get("metadata") or {}).get("domain_id") or ""),
                     description=str(item.get("description") or ""),
                     enabled=bool(item.get("enabled", True)),
                     runtime_lane=str(item.get("runtime_lane") or dict(dict(item.get("task_policy") or {}).get("task_structure") or {}).get("runtime_lane_hint") or ""),
@@ -1172,8 +1083,8 @@ class TaskFlowRegistry:
         task_id: str,
         task_title: str,
         task_kind: str,
-        task_family: str,
         flow_id: str,
+        domain_id: str = "",
         runtime_lane: str = "",
         default_agent_id: str,
         participant_agent_ids: tuple[str, ...] = (),
@@ -1198,7 +1109,7 @@ class TaskFlowRegistry:
         record = self.upsert_specific_task_record(
             task_id=target,
             task_title=task_title,
-            task_family=task_family,
+            domain_id=str(domain_id or normalized_metadata.get("domain_id") or "").strip(),
             description=str(normalized_metadata.get("description") or task_title or target).strip(),
             enabled=enabled,
             runtime_lane=runtime_lane,
@@ -1220,7 +1131,6 @@ class TaskFlowRegistry:
         )
         self.upsert_flow(
             flow_id=normalized_flow_id,
-            task_family=record.task_family,
             title=record.task_title,
             input_contract_id=record.input_contract_id,
             output_contract_id=record.output_contract_id,
@@ -1235,8 +1145,8 @@ class TaskFlowRegistry:
             task_id=target,
             task_title=record.task_title,
             task_kind=str(task_kind or "specific_task").strip(),
-            task_family=record.task_family,
             flow_id=normalized_flow_id,
+            domain_id=record.domain_id,
             runtime_lane=record.runtime_lane,
             default_agent_id=normalize_agent_id(str(default_agent_id or "agent:0").strip() or "agent:0"),
             participant_agent_ids=normalize_agent_id_sequence(str(item).strip() for item in participant_agent_ids if str(item).strip()),
@@ -1260,7 +1170,7 @@ class TaskFlowRegistry:
         *,
         task_id: str,
         task_title: str,
-        task_family: str,
+        domain_id: str = "",
         description: str = "",
         enabled: bool = True,
         runtime_lane: str = "",
@@ -1279,7 +1189,7 @@ class TaskFlowRegistry:
         record = SpecificTaskRecord(
             task_id=target,
             task_title=str(task_title or target).strip(),
-            task_family=str(task_family or "").strip(),
+            domain_id=str(domain_id or "").strip(),
             description=str(description or task_title or target).strip(),
             enabled=bool(enabled),
             runtime_lane=str(runtime_lane or "").strip(),
@@ -1368,7 +1278,6 @@ class TaskFlowRegistry:
         self._invalidate_cache()
         return {
             "task_id": target,
-            "task_family": record.task_family,
             "deleted_flow_ids": sorted(flow_ids),
             "deleted_workflow_ids": list(deleted_workflow_ids),
         }
@@ -1381,8 +1290,8 @@ class TaskFlowRegistry:
             task_id=task_id,
             task_title=flow.title,
             task_kind="specific_task",
-            task_family=flow.task_family,
             flow_id=flow.flow_id,
+            domain_id=str(flow.metadata.get("domain_id") or ""),
             runtime_lane=flow.default_runtime_lane,
             default_agent_id=flow.default_agent_id or "agent:0",
             participant_agent_ids=(),
@@ -1396,7 +1305,7 @@ class TaskFlowRegistry:
                 "runtime_lane_hint": flow.default_runtime_lane,
                 "memory_scope_hint": flow.default_memory_scope,
                 "workflow_steps": [dict(item) for item in workflow.steps] if workflow is not None else [],
-                "task_resource_kind": str(flow.metadata.get("task_resource") or flow.task_family or ""),
+                "task_resource_kind": str(flow.metadata.get("task_resource") or ""),
             },
             enabled=flow.enabled,
             metadata={**flow.metadata, "source_flow_id": flow.flow_id},
@@ -1442,8 +1351,8 @@ class TaskFlowRegistry:
             task_id=record.task_id,
             task_title=record.task_title,
             task_kind="specific_task",
-            task_family=record.task_family,
             flow_id=flow_id,
+            domain_id=record.domain_id,
             runtime_lane=record.runtime_lane or str(task_structure.get("runtime_lane_hint") or getattr(flow, "default_runtime_lane", "") or ""),
             default_agent_id=default_agent_id,
             participant_agent_ids=(),
@@ -1969,7 +1878,6 @@ class TaskFlowRegistry:
         return profile
 
     def derive_coordination_task_view_from_graph(self, graph: TaskGraphDefinition) -> CoordinationTaskDefinition:
-        records_by_task_id = {record.task_id: record for record in self.list_specific_task_records()}
         metadata = dict(graph.metadata or {})
         runtime_policy = dict(graph.runtime_policy or {})
         continuation_policy = {
@@ -1981,8 +1889,7 @@ class TaskFlowRegistry:
         if continuation_policy:
             metadata["continuation_policy"] = continuation_policy
         coordinator_agent_id = normalize_agent_id(str(runtime_policy.get("coordinator_agent_id") or "agent:0").strip() or "agent:0")
-        task_family = str(graph.task_family or metadata.get("task_family") or "").strip()
-        domain_id = str(graph.domain_id or metadata.get("domain_id") or (f"domain.{task_family}" if task_family else "")).strip()
+        domain_id = str(graph.domain_id or metadata.get("domain_id") or "").strip()
         stored_nodes = tuple(node.to_dict() for node in graph.nodes)
         metadata_task_id = str(metadata.get("task_id") or "").strip()
         raw_subtask_refs = [
@@ -1991,10 +1898,6 @@ class TaskFlowRegistry:
             *([metadata_task_id] if metadata_task_id.startswith("task.") else []),
         ]
         subtask_refs = tuple(dict.fromkeys(value for value in raw_subtask_refs if value.startswith("task.")))
-        if not task_family and subtask_refs:
-            task_family = str(getattr(records_by_task_id.get(subtask_refs[0]), "task_family", "") or "").strip()
-        if not domain_id and task_family:
-            domain_id = f"domain.{task_family}"
         participant_agent_ids = self._resolve_coordination_participants(
             coordinator_agent_id=coordinator_agent_id,
             agent_group_id=str(runtime_policy.get("agent_group_id") or metadata.get("agent_group_id") or ""),
@@ -2007,7 +1910,6 @@ class TaskFlowRegistry:
         fallback_nodes, fallback_edges = _default_coordination_graph(
             coordinator_agent_id=coordinator_agent_id,
             participant_agent_ids=participant_agent_ids,
-            task_family=task_family,
             subtask_refs=subtask_refs,
         )
         runtime_nodes, runtime_edges = _runtime_graph_view_nodes_and_edges(graph)
@@ -2033,7 +1935,6 @@ class TaskFlowRegistry:
             title=str(graph.title or ""),
             coordination_mode=str(runtime_policy.get("coordination_mode") or metadata.get("coordination_mode") or "review_merge"),
             coordinator_agent_id=coordinator_agent_id,
-            task_family=task_family,
             domain_id=domain_id,
             agent_group_id=str(runtime_policy.get("agent_group_id") or metadata.get("agent_group_id") or ""),
             participant_agent_ids=participant_agent_ids,
@@ -2084,7 +1985,6 @@ class TaskFlowRegistry:
         graph_id: str,
         title: str,
         domain_id: str = "",
-        task_family: str = "",
         graph_kind: str = "single_agent",
         entry_node_id: str = "",
         output_node_id: str = "",
@@ -2109,7 +2009,6 @@ class TaskFlowRegistry:
                 "graph_id": target,
                 "title": title,
                 "domain_id": domain_id,
-                "task_family": task_family,
                 "graph_kind": graph_kind,
                 "entry_node_id": entry_node_id,
                 "output_node_id": output_node_id,
@@ -2259,7 +2158,6 @@ class TaskFlowRegistry:
                 title=flow.title,
                 summary=f"{CONTRACT_TITLE_MAP.get(flow.input_contract_id, flow.input_contract_id)} -> {CONTRACT_TITLE_MAP.get(flow.output_contract_id, flow.output_contract_id)}",
                 metadata={
-                    "task_family": flow.task_family,
                     "default_workflow_id": flow.default_workflow_id,
                     "default_runtime_lane": flow.default_runtime_lane,
                 },
@@ -2357,7 +2255,6 @@ class TaskFlowRegistry:
         title: str,
         coordination_mode: str,
         coordinator_agent_id: str,
-        task_family: str = "",
         domain_id: str = "",
         agent_group_id: str = "",
         participant_agent_ids: tuple[str, ...] = (),
@@ -2378,8 +2275,7 @@ class TaskFlowRegistry:
         target = str(graph_id or "").strip()
         if not target.startswith("graph."):
             raise ValueError("graph_id must start with graph.")
-        normalized_family = str(task_family or "").strip() or _family_from_ref(target)
-        normalized_domain_id = str(domain_id or "").strip() or (f"domain.{normalized_family}" if normalized_family else "")
+        normalized_domain_id = str(domain_id or "").strip()
         normalized_subtask_refs = tuple(
             dict.fromkeys(str(item).strip() for item in subtask_refs if str(item).strip().startswith("task."))
         )
@@ -2400,21 +2296,14 @@ class TaskFlowRegistry:
             normalized_graph_nodes, default_edges = _default_coordination_graph(
                 coordinator_agent_id=normalize_agent_id(str(coordinator_agent_id or "agent:0").strip() or "agent:0"),
                 participant_agent_ids=normalize_agent_id_sequence(str(item).strip() for item in participant_agent_ids if str(item).strip()),
-                task_family=normalized_family,
                 subtask_refs=normalized_subtask_refs,
             )
             if not normalized_graph_edges:
                 normalized_graph_edges = default_edges
-        if not normalized_family and normalized_subtask_refs:
-            record = self.get_specific_task_record(normalized_subtask_refs[0])
-            normalized_family = str(getattr(record, "task_family", "") or "").strip()
-            if not normalized_domain_id and normalized_family:
-                normalized_domain_id = f"domain.{normalized_family}"
         graph = self.upsert_task_graph(
             graph_id=target,
             title=str(title or target).strip(),
             domain_id=normalized_domain_id,
-            task_family=normalized_family,
             graph_kind="coordination",
             nodes=tuple(_normalize_agent_refs_in_mapping(dict(item)) for item in normalized_graph_nodes),
             edges=normalized_graph_edges,
@@ -2440,7 +2329,6 @@ class TaskFlowRegistry:
             metadata={
                 **dict(metadata or {}),
                 "graph_id": target,
-                "task_family": normalized_family,
                 "domain_id": normalized_domain_id,
                 "topology_template_id": topology_ref,
                 "handoff_policy": str(handoff_policy or "filtered_handoff").strip(),
@@ -2563,7 +2451,6 @@ class TaskFlowRegistry:
         self,
         *,
         owner_system: str = "",
-        task_family: str = "",
     ) -> list[AgentTaskConnectionProfile]:
         flows = self.list_flows()
         bindings = self.list_bindings()
@@ -2573,8 +2460,6 @@ class TaskFlowRegistry:
             agent_bindings = [item for item in bindings if item.agent_id == agent.agent_id]
             agent_flows = [flow for flow in flows if any(binding.flow_id == flow.flow_id for binding in agent_bindings)]
             if owner_system and agent.owner_system != owner_system:
-                continue
-            if task_family and not any(flow.task_family == task_family for flow in agent_flows):
                 continue
             capability = self.agent_runtime_registry.get_profile(agent.agent_id)
             topology_refs = tuple(
@@ -2601,7 +2486,6 @@ class TaskFlowRegistry:
                     owner_system=agent.owner_system,
                     profile_type=agent.profile_type,
                     lifecycle_state=agent.lifecycle_state,
-                    task_family_refs=tuple(dict.fromkeys(flow.task_family for flow in agent_flows)),
                     task_refs=tuple(
                         dict.fromkeys(
                             str(flow.metadata.get("task_id") or flow.metadata.get("task_assignment_id") or f"task.{flow.flow_id.removeprefix('flow.')}")
@@ -2634,10 +2518,8 @@ class TaskFlowRegistry:
         self,
         *,
         owner_system: str = "",
-        task_family: str = "",
     ) -> dict[str, Any]:
-        profiles = self.list_agent_task_connection_profiles(owner_system=owner_system, task_family=task_family)
-        task_families = {family for profile in profiles for family in profile.task_family_refs}
+        profiles = self.list_agent_task_connection_profiles(owner_system=owner_system)
         topology_refs = {topology for profile in profiles for topology in profile.topology_refs}
         return {
             "authority": "task_system.agent_task_connections",
@@ -2645,12 +2527,10 @@ class TaskFlowRegistry:
             "summary": {
                 "profile_count": len(profiles),
                 "invalid_profile_count": sum(1 for item in profiles if item.validation_state == "invalid"),
-                "task_family_count": len(task_families),
                 "topology_count": len(topology_refs),
             },
             "diagnostics": {
                 "owner_system_filter": owner_system,
-                "task_family_filter": task_family,
             },
         }
 
@@ -2900,8 +2780,8 @@ def _assignment_from_dict(payload: dict[str, Any]) -> TaskAssignment:
         task_id=str(payload.get("task_id") or ""),
         task_title=str(payload.get("task_title") or ""),
         task_kind=str(payload.get("task_kind") or "specific_task"),
-        task_family=str(payload.get("task_family") or ""),
         flow_id=str(payload.get("flow_id") or ""),
+        domain_id=str(payload.get("domain_id") or dict(payload.get("metadata") or {}).get("domain_id") or ""),
         runtime_lane=str(payload.get("runtime_lane") or dict(payload.get("task_structure") or {}).get("runtime_lane_hint") or ""),
         default_agent_id=normalize_agent_id(str(payload.get("default_agent_id") or "agent:0")),
         participant_agent_ids=normalize_agent_id_sequence(str(item) for item in list(payload.get("participant_agent_ids") or []) if str(item)),

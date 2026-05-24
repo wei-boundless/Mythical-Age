@@ -477,7 +477,6 @@ def test_finalizer_suppresses_completed_result_after_task_run_stop(tmp_path: Pat
     registry.upsert_specific_task_record(
         task_id="task.test.artifact_writer",
         task_title="Artifact Writer",
-        task_family="test",
         runtime_lane="coordination_task",
         task_policy={
             "artifact_policy": {
@@ -575,7 +574,6 @@ def test_finalizer_materialized_stage_artifacts_are_coordination_output_refs(tmp
     registry.upsert_specific_task_record(
         task_id="task.test.stage_writer",
         task_title="Stage Writer",
-        task_family="test",
         runtime_lane="coordination_task",
     )
     state_index = RuntimeStateIndex(runtime_dir)
@@ -1373,7 +1371,6 @@ def test_task_domain_upsert_persists_and_returns_formal_domain_catalog(tmp_path:
                 "domain.research",
                 tasks_api.TaskDomainUpsertRequest(
                     domain_id="domain.research",
-                    task_family="research",
                     title="研究任务域",
                     description="用于实验性研究任务。",
                     enabled=True,
@@ -1388,7 +1385,7 @@ def test_task_domain_upsert_persists_and_returns_formal_domain_catalog(tmp_path:
     research = next(item for item in domains if item["domain_id"] == "domain.research")
 
     assert payload["summary"]["task_domain_count"] >= 1
-    assert research["task_family"] == "research"
+    assert "task_family" not in research
     assert research["title"] == "研究任务域"
     assert research["description"] == "用于实验性研究任务。"
 
@@ -1402,7 +1399,6 @@ def test_task_domain_delete_cascades_specific_tasks_and_domain_catalog(tmp_path:
                 "domain.research",
                 tasks_api.TaskDomainUpsertRequest(
                     domain_id="domain.research",
-                    task_family="research",
                     title="研究任务域",
                     description="用于实验性研究任务。",
                     enabled=True,
@@ -1425,11 +1421,11 @@ def test_task_domain_delete_cascades_specific_tasks_and_domain_catalog(tmp_path:
         asyncio.run(
             tasks_api.upsert_task_system_specific_record(
                 "task.research.experiment",
-                tasks_api.SpecificTaskRecordUpsertRequest(
-                    task_id="task.research.experiment",
-                    task_title="研究实验任务",
-                    task_family="research",
-                    task_mode="bounded_patch",
+                    tasks_api.SpecificTaskRecordUpsertRequest(
+                        task_id="task.research.experiment",
+                        task_title="研究实验任务",
+                        domain_id="domain.research",
+                        task_mode="bounded_patch",
                     description="research test",
                     default_flow_contract_id="flow.research.experiment",
                     default_workflow_id="workflow.900101",
@@ -1444,7 +1440,7 @@ def test_task_domain_delete_cascades_specific_tasks_and_domain_catalog(tmp_path:
     records = payload["task_management"]["specific_task_records"]
 
     assert all(item["domain_id"] != "domain.research" for item in domains)
-    assert all(item["task_family"] != "research" for item in records)
+    assert all(item.get("metadata", {}).get("domain_id") != "domain.research" for item in records)
     assert all(item["workflow_id"] != "workflow.900101" for item in payload["task_management"]["workflow_resources"])
     assert payload["last_deletion"]["domain_id"] == "domain.research"
     assert "task.research.experiment" in payload["last_deletion"]["deleted_task_ids"]
@@ -1473,7 +1469,6 @@ def test_specific_task_delete_cascades_task_assembly_objects(tmp_path: Path) -> 
                 tasks_api.SpecificTaskRecordUpsertRequest(
                     task_id="task.research.experiment",
                     task_title="研究实验任务",
-                    task_family="research",
                     task_mode="bounded_patch",
                     description="research test",
                     default_flow_contract_id="flow.research.experiment",
@@ -1832,7 +1827,6 @@ def test_coordination_task_is_domain_parent_with_specific_subtask_refs(tmp_path:
                 tasks_api.SpecificTaskRecordUpsertRequest(
                     task_id="task.research.plan",
                     task_title="研究规划",
-                    task_family="research",
                     task_mode="analysis_plan",
                     description="测试用规划子任务。",
                 ),
@@ -1844,7 +1838,6 @@ def test_coordination_task_is_domain_parent_with_specific_subtask_refs(tmp_path:
                 tasks_api.SpecificTaskRecordUpsertRequest(
                     task_id="task.research.report",
                     task_title="研究报告",
-                    task_family="research",
                     task_mode="analysis_report",
                     description="测试用报告子任务。",
                 ),
@@ -1858,7 +1851,6 @@ def test_coordination_task_is_domain_parent_with_specific_subtask_refs(tmp_path:
                     title="研究父级协调任务",
                     coordination_mode="review_merge",
                     coordinator_agent_id="agent:20",
-                    task_family="research",
                     domain_id="domain.research",
                     agent_group_id="group.research.test_parent",
                     participant_agent_ids=["agent:23", "agent:24"],
@@ -1890,7 +1882,7 @@ def test_coordination_task_is_domain_parent_with_specific_subtask_refs(tmp_path:
         if item["graph_id"] == "graph.research.test_parent"
     )
     assert coordination["domain_id"] == "domain.research"
-    assert coordination["task_family"] == "research"
+    assert "task_family" not in coordination
     assert coordination["overview_mode"] == "summary"
     assert coordination["node_count"] == 3
     assert coordination_detail["subtask_refs"] == ["task.research.plan", "task.research.report"]
@@ -1911,7 +1903,6 @@ def test_task_system_specific_record_is_canonical_and_assignment_becomes_compat_
                 tasks_api.SpecificTaskRecordUpsertRequest(
                     task_id="task.dev.light_web_game",
                     task_title="轻量网页小游戏开发",
-                    task_family="development",
                     task_mode="light_web_game",
                     description="canonical specific task record",
                     input_contract_id="LightWebGameTaskInput",
@@ -2077,7 +2068,6 @@ def test_task_graph_api_migrates_legacy_prompt_metadata_to_prompt_library(tmp_pa
                 tasks_api.TaskGraphUpsertRequest(
                     graph_id="graph.test.prompt_migration",
                     title="Prompt 迁移图",
-                    task_family="story",
                     graph_kind="multi_agent",
                     nodes=[
                         {
@@ -2134,7 +2124,6 @@ def test_task_graph_api_exposes_direct_runtime_spec_in_overview(tmp_path: Path) 
                     graph_id="graph.test.direct_spec",
                     title="直接运行规范图",
                     domain_id="domain.story",
-                    task_family="story",
                     graph_kind="multi_agent",
                     graph_contract_id="contract.story.graph",
                     runtime_policy={

@@ -19,7 +19,6 @@ TaskDurableGlobalPromotionState = Literal[
 class TaskDurableMemoryItem:
     task_memory_id: str
     namespace_id: str
-    task_family: str = ""
     domain_id: str = ""
     task_id: str = ""
     graph_id: str = ""
@@ -58,7 +57,6 @@ class TaskDurableMemoryItem:
 @dataclass(slots=True, frozen=True)
 class TaskDurableMemoryQuery:
     namespace_id: str = ""
-    task_family: str = ""
     domain_id: str = ""
     task_id: str = ""
     graph_id: str = ""
@@ -76,7 +74,6 @@ class TaskDurableMemoryQuery:
 @dataclass(slots=True, frozen=True)
 class TaskDurableMemoryNamespace:
     namespace_id: str
-    task_family: str = ""
     domain_id: str = ""
     task_id: str = ""
     graph_id: str = ""

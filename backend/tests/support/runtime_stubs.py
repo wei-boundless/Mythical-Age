@@ -4,7 +4,6 @@ import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-import json
 
 
 class RuntimeBaseDirStub:
@@ -101,15 +100,10 @@ class EmptyToolRuntimeStub:
 
 
 class SingleMessageModelRuntimeStub:
-    supports_structured_sidecars = True
-
     def __init__(self, content: str = "单轮收口回答") -> None:
         self.content = content
 
     async def invoke_messages(self, messages, **_kwargs):
-        sidecar_payload = _sidecar_payload_from_messages(messages)
-        if sidecar_payload is not None:
-            return SimpleNamespace(content=json.dumps(sidecar_payload, ensure_ascii=False))
         return SimpleNamespace(content=self.content)
 
 
@@ -133,6 +127,7 @@ def model_turn_context(
     deliverables: list[str] | None = None,
     constraints: list[str] | None = None,
     forbidden_actions: list[str] | None = None,
+    selected_skill_ids: list[str] | None = None,
     planning_required: bool = False,
     todo_required: bool = False,
     completion_criteria: list[str] | None = None,
@@ -159,6 +154,7 @@ def model_turn_context(
         "deliverables": list(deliverables or []),
         "constraints": list(constraints or []),
         "forbidden_actions": list(forbidden_actions or []),
+        "selected_skill_ids": list(selected_skill_ids or []),
         "context_binding_decision": {},
         "planning_required": planning_required,
         "todo_required": todo_required,
@@ -202,83 +198,6 @@ def model_turn_context(
                 }
             }
         ),
-    }
-
-
-def _sidecar_payload_from_messages(messages: Any) -> dict[str, object] | None:
-    items = [dict(item) for item in list(messages or []) if isinstance(item, dict)]
-    if len(items) != 2:
-        return None
-    system_content = str(items[0].get("content") or "")
-    user_content = str(items[1].get("content") or "")
-    if "你只能返回一个 JSON object" not in system_content:
-        return None
-    try:
-        payload = json.loads(user_content)
-    except Exception:
-        return None
-    request = dict(payload.get("request") or {})
-    if request.get("authority") != "agent_runtime.model_turn_decision_request":
-        return None
-    user_message = str(request.get("user_message") or "")
-    request_facts = dict(request.get("request_facts") or {})
-    explicit_selection = dict(request_facts.get("explicit_selection") or {})
-    mode_policy = dict(explicit_selection.get("mode_policy") or {})
-    if (
-        str(explicit_selection.get("interaction_mode") or "") in {"professional_mode", "vibe_coding"}
-        or str(mode_policy.get("execution_strategy") or "") == "professional_task_run"
-    ):
-        task_goal_type = str(explicit_selection.get("semantic_task_type") or "").strip()
-        if not task_goal_type:
-            task_goal_type = "test_report_triage" if "failing_sixty_turn_summary.json" in user_message else "bounded_tool_task"
-        return {
-            "authority": "agent_runtime.model_turn_decision",
-            "decision_id": "model-turn-decision:test-sidecar-professional",
-            "user_message": user_message,
-            "interaction_intent": "plan",
-            "action_intent": "answer_only",
-            "work_mode": "planning",
-            "task_goal_type": task_goal_type,
-            "task_domain": "software_engineering" if task_goal_type in {"test_report_triage", "code_fix_execution"} else "general",
-            "target_objects": [],
-            "desired_outcome": "按专业任务模式完成追踪并交付结论",
-            "deliverables": ["final_answer"],
-            "constraints": [],
-            "forbidden_actions": [],
-            "context_binding_decision": {"explicit_selection": explicit_selection},
-            "planning_required": True,
-            "todo_required": True,
-            "completion_criteria": ["final_answer"],
-            "needs_clarification": False,
-            "clarification_question": "",
-            "confidence": 0.9,
-            "ambiguity": [],
-        }
-    lowered = user_message.lower()
-    action_intent = "read_context" if any(marker in lowered for marker in (".pdf", ".csv", ".xlsx", "knowledge/")) else "answer_only"
-    work_mode = "read_only_analysis" if action_intent == "read_context" else "conversation"
-    return {
-        "authority": "agent_runtime.model_turn_decision",
-        "decision_id": "model-turn-decision:test-sidecar",
-        "user_message": user_message,
-        "interaction_intent": "answer",
-        "action_intent": action_intent,
-        "work_mode": work_mode,
-        "task_goal_type": "inspection" if action_intent == "read_context" else "light_qa",
-        "task_domain": "workspace" if action_intent == "read_context" else "general",
-        "target_objects": [],
-        "desired_outcome": "直接回答用户",
-        "deliverables": ["final_answer"],
-        "constraints": [],
-        "forbidden_actions": [],
-        "context_binding_decision": {},
-        "planning_required": False,
-        "todo_required": False,
-        "completion_criteria": ["answer_user"],
-        "needs_clarification": False,
-        "clarification_question": "",
-        "confidence": 0.9,
-        "ambiguity": [],
     }
 
 

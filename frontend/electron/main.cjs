@@ -10,7 +10,7 @@ const repoRoot = path.resolve(frontendRoot, "..");
 const backendRoot = path.join(repoRoot, "backend");
 const runtimeDir = path.join(repoRoot, "output", "electron-host");
 const preferredFrontendPort = Number(process.env.MYTHICAL_AGENT_FRONTEND_PORT || 3000);
-const preferredBackendPort = Number(process.env.MYTHICAL_AGENT_BACKEND_PORT || 8002);
+const preferredBackendPort = Number(process.env.MYTHICAL_AGENT_BACKEND_PORT || 8003);
 const pythonExe = process.env.MYTHICAL_AGENT_PYTHON || "C:\\Users\\admin\\.conda\\envs\\agent\\python.exe";
 
 const children = new Map();
@@ -68,15 +68,6 @@ async function isPortFree(port) {
     return false;
   }
   return true;
-}
-
-async function findFreePort(preferredPort) {
-  for (let port = preferredPort; port < preferredPort + 40; port += 1) {
-    if (await isPortFree(port)) {
-      return port;
-    }
-  }
-  throw new Error(`No free local port found near ${preferredPort}.`);
 }
 
 function requestOk(url) {
@@ -162,8 +153,14 @@ function stopChildren() {
 }
 
 async function startServices() {
-  const frontendPort = await findFreePort(preferredFrontendPort);
-  const backendPort = await findFreePort(preferredBackendPort);
+  const frontendPort = preferredFrontendPort;
+  const backendPort = preferredBackendPort;
+  if (!(await isPortFree(frontendPort))) {
+    throw new Error(`Fixed frontend port ${frontendPort} is occupied. Close the old project frontend process before starting.`);
+  }
+  if (!(await isPortFree(backendPort))) {
+    throw new Error(`Fixed backend port ${backendPort} is occupied. Close the old project backend process before starting.`);
+  }
   const frontendUrl = `http://127.0.0.1:${frontendPort}/`;
   const backendHealthUrl = `http://127.0.0.1:${backendPort}/health`;
   const apiBase = `http://127.0.0.1:${backendPort}/api`;

@@ -8,7 +8,10 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from capability_system import build_default_operation_registry
+from capability_system.tool_authorization import build_tool_authorization_index
+from capability_system.tool_definitions import build_tool_instances, get_tool_definitions
 from agent_system.profiles.runtime_profile_models import AgentRuntimeProfile
+from runtime.capabilities import build_current_turn_capability_plan, tool_instances_for_capability_plan
 from runtime.shared.context_manager import RuntimeContextManager
 from permissions import (
     OperationGate,
@@ -141,6 +144,83 @@ def test_execution_permit_operations_are_adopted_for_runtime_tools() -> None:
     assert "memory_search" in resource_policy.allowed_tools
     assert "op.memory_read" in tool_policy.allowed_operations
     assert gate_result.allowed is True
+
+
+def test_model_visible_state_operation_uses_turn_permit_without_profile_duplication() -> None:
+    profile = AgentRuntimeProfile(
+        agent_profile_id="main_interactive_agent",
+        agent_id="agent:0",
+        allowed_operations=("op.model_response",),
+        blocked_operations=(),
+    )
+    task_operation = {
+        "task_contract": {"task_id": "task:test:agent-todo"},
+        "operation_requirement": {
+            "required_operations": ["op.model_response"],
+            "optional_operations": ["op.agent_todo"],
+            "denied_operations": [],
+            "metadata": {"approval_policy": "default"},
+        },
+    }
+
+    _, resource_policy = build_model_response_runtime_adoption(
+        task_operation,
+        operation_registry=build_default_operation_registry(),
+        agent_runtime_profile=profile,
+    )
+
+    assert "op.agent_todo" in resource_policy.allowed_operations
+    assert "op.agent_todo" not in resource_policy.denied_operations
+
+
+def test_agent_todo_reaches_current_turn_capability_plan_and_tool_instances() -> None:
+    profile = AgentRuntimeProfile(
+        agent_profile_id="main_interactive_agent",
+        agent_id="agent:0",
+        allowed_operations=("op.model_response",),
+        blocked_operations=(),
+    )
+    task_operation = {
+        "task_contract": {"task_id": "task:test:agent-todo-final-tools"},
+        "operation_requirement": {
+            "required_operations": ["op.model_response"],
+            "optional_operations": ["op.agent_todo"],
+            "denied_operations": [],
+            "metadata": {"approval_policy": "default"},
+        },
+        "execution_permit": {
+            "allowed_operations": ["op.model_response", "op.agent_todo"],
+            "visible_tools": ["agent_todo"],
+            "dispatchable_tools": ["agent_todo"],
+            "model_visible_tool_refs": ["agent_todo"],
+        },
+    }
+    registry = build_default_operation_registry()
+    _, resource_policy = build_model_response_runtime_adoption(
+        task_operation,
+        operation_registry=registry,
+        agent_runtime_profile=profile,
+    )
+    tool_instances = build_tool_instances(ROOT)
+    index = build_tool_authorization_index(get_tool_definitions())
+    plan = build_current_turn_capability_plan(
+        tool_instances=tool_instances,
+        resource_policy=resource_policy,
+        definitions_by_name=index.definitions_by_name,
+        normalize_operation_id=registry.normalize_id,
+        task_operation=task_operation,
+        execution_permit=dict(task_operation["execution_permit"]),
+    )
+    final_tools = tool_instances_for_capability_plan(
+        tool_instances=tool_instances,
+        capability_plan=plan,
+    )
+    final_tool_names = {str(getattr(tool, "name", "") or "") for tool in final_tools}
+
+    assert "op.agent_todo" in plan.allowed_operations
+    assert "agent_todo" in plan.model_visible_tools
+    assert "agent_todo" in plan.dispatchable_tools
+    assert "agent_todo" in final_tool_names
 
     print("ALL PASSED (runtime capability state)")
 

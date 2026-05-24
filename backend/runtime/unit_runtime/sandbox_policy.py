@@ -171,7 +171,7 @@ def _resolve_inherited_sandbox_workspace_key(
 ) -> str:
     if str(dict(task_selection.get("sandbox_policy") or {}).get("workspace_key") or "").strip():
         return ""
-    if str(task_selection.get("interaction_mode") or "").strip() not in {"professional_mode", "vibe_coding"}:
+    if str(task_selection.get("interaction_mode") or "").strip() != "professional_mode":
         return ""
     previous_policy = _latest_session_sandbox_policy(
         session_id=session_id,

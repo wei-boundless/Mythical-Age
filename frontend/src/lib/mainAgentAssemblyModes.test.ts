@@ -21,6 +21,11 @@ describe("main agent assembly mode projection", () => {
         runtime_lane: runtimeLane,
         recipe_id: recipeId,
       },
+      stream_policy: {
+        enabled: true,
+        mode: "interactive_answer",
+        emit_content_delta: true,
+      },
       runtime_assembly_hint: {
         interaction_mode: interactionMode,
         runtime_mode: runtimeLane,
@@ -89,6 +94,11 @@ describe("main agent assembly mode projection", () => {
       selected_task_id: "task.dev.light_web_game",
       label: "小游戏",
       runtime_lane: "standard_task",
+      stream_policy: {
+        enabled: true,
+        mode: "interactive_answer",
+        emit_content_delta: true,
+      },
       mode_policy: {
         custom: true,
         interaction_mode: "standard_mode",

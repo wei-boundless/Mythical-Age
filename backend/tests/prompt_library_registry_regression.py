@@ -86,9 +86,7 @@ def test_prompt_library_syncs_workflow_prompt_as_stage_role_without_projection_b
         metadata={
             "task_id": "task.test.node.world_review",
             "node_id": "world_review",
-            "domain_id": "domain.test",
-            "task_family": "test_writing",
-        },
+            "domain_id": "domain.test"},
     )
 
     registry = PromptLibraryRegistry(tmp_path)

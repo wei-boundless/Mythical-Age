@@ -4,7 +4,6 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from request_intent.request_signals import build_request_signals
 from capability_system.paths import CapabilitySystemPaths
 from capability_system.skill_contracts import SkillContract, SkillPromptContract, SkillRuntimeContract
 
@@ -68,26 +67,3 @@ class SkillRegistry:
             if skill.name.lower() == target:
                 return skill
         return None
-
-    def match_for_query(
-        self,
-        message: str,
-        route: str,
-        modality: str,
-        *,
-        source_kind: str | None = None,
-    ) -> SkillDefinition | None:
-        from capability_system.skill_policy import SkillPolicyResolver
-
-        _ = (route, modality)
-        task_frame = build_request_signals(
-            message,
-            current_turn_context={"target_domain_hint": source_kind or ""},
-        )
-        frame = SkillPolicyResolver(self).resolve(task_frame=task_frame)
-        return frame.skill if frame is not None else None
-
-    def format_active_skill_block(self, skill: SkillDefinition | None) -> str | None:
-        if skill is None:
-            return None
-        return skill.render_prompt_block()

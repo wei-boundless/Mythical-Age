@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-from .assembler import assemble_runtime_prompt_contract
 from .default_resources import list_default_prompt_resources
-from .manifest_validation import build_prompt_manifest_validation
 from .models import PromptAssemblyPlan, PromptAssemblyPlanItem, PromptResource, PromptSelectionContext
 from .registry import PromptLibraryRegistry
-from .runtime_sections import assemble_runtime_prompt_sections
 from .selector import PromptSelector, build_prompt_selection_context
 
 __all__ = [
@@ -21,3 +18,21 @@ __all__ = [
     "build_prompt_manifest_validation",
     "build_prompt_selection_context",
 ]
+
+
+def assemble_runtime_prompt_contract(*args, **kwargs):
+    from .assembler import assemble_runtime_prompt_contract as _assemble_runtime_prompt_contract
+
+    return _assemble_runtime_prompt_contract(*args, **kwargs)
+
+
+def assemble_runtime_prompt_sections(*args, **kwargs):
+    from .runtime_sections import assemble_runtime_prompt_sections as _assemble_runtime_prompt_sections
+
+    return _assemble_runtime_prompt_sections(*args, **kwargs)
+
+
+def build_prompt_manifest_validation(*args, **kwargs):
+    from .manifest_validation import build_prompt_manifest_validation as _build_prompt_manifest_validation
+
+    return _build_prompt_manifest_validation(*args, **kwargs)

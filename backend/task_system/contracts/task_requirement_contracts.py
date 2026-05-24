@@ -77,22 +77,27 @@ def build_task_requirement_contract(
     }
     obligation = dict(execution_obligation or current_turn.get("execution_obligation") or {})
     task_goal_spec = dict(current_turn.get("task_goal_spec") or current_turn.get("goal_frame") or {})
+    task_goal_type = _resolve_task_goal_type(
+        user_goal=user_goal,
+        materials=(),
+        query_understanding=understanding,
+        current_turn_context=current_turn,
+        task_goal_spec=task_goal_spec,
+    )
     materials = tuple(
         _filter_output_materials(
             _merge_materials(
-                _collect_materials(user_goal=user_goal, explicit_inputs=inputs, current_turn=current_turn),
+                _collect_materials(
+                    user_goal=user_goal,
+                    explicit_inputs=inputs,
+                    current_turn=current_turn,
+                    task_goal_type=task_goal_type,
+                ),
                 [dict(item) for item in list(obligation.get("required_reads") or []) if isinstance(item, dict)],
             ),
             task_goal_spec=task_goal_spec,
             user_goal=user_goal,
         )
-    )
-    task_goal_type = _resolve_task_goal_type(
-        user_goal=user_goal,
-        materials=materials,
-        query_understanding=understanding,
-        current_turn_context=current_turn,
-        task_goal_spec=task_goal_spec,
     )
     goal_profile = get_task_goal_profile(task_goal_type)
     goal_profile_binding = bind_task_goal_profile(
@@ -269,9 +274,12 @@ def _collect_materials(
     user_goal: str,
     explicit_inputs: dict[str, Any],
     current_turn: dict[str, Any],
+    task_goal_type: str,
 ) -> list[dict[str, Any]]:
     materials: list[dict[str, Any]] = []
     seen: set[str] = set()
+    allow_goal_scan = _task_goal_allows_user_goal_material_scan(task_goal_type)
+    allow_broad_explicit_paths = _task_goal_allows_broad_explicit_material_paths(task_goal_type)
 
     def add(path: str, *, role: str = "material", required: bool = True) -> None:
         normalized = _normalize_path(path)
@@ -293,23 +301,50 @@ def _collect_materials(
         ("explicit_pdf_path", "document"),
         ("path", "material"),
         ("file_path", "material"),
-        ("target_path", "target"),
     ):
         value = explicit_inputs.get(key) or current_turn.get(key)
         if isinstance(value, str):
             add(value, role=role)
-    for key in ("material_paths", "input_paths", "paths", "files"):
+    for key in ("material_paths", "input_paths", "files"):
         for value in list(explicit_inputs.get(key) or current_turn.get(key) or []):
             if isinstance(value, str):
                 add(value)
             elif isinstance(value, dict):
                 add(str(value.get("path") or ""), role=str(value.get("role") or "material"), required=value.get("required") is not False)
-    for match in _PATH_RE.finditer(str(user_goal or "")):
-        path = _complete_partial_known_root_path(match.group("path"), text=str(user_goal or ""), start=match.start())
-        if _path_looks_like_command_argument(text=str(user_goal or ""), start=match.start(), path=path):
-            continue
-        add(path, role="failure_report" if path.lower().endswith(".json") else "material")
+    if allow_broad_explicit_paths:
+        for key in ("paths",):
+            for value in list(explicit_inputs.get(key) or current_turn.get(key) or []):
+                if isinstance(value, str):
+                    add(value)
+                elif isinstance(value, dict):
+                    add(str(value.get("path") or ""), role=str(value.get("role") or "material"), required=value.get("required") is not False)
+    if allow_goal_scan:
+        for match in _PATH_RE.finditer(str(user_goal or "")):
+            path = _complete_partial_known_root_path(match.group("path"), text=str(user_goal or ""), start=match.start())
+            if _path_looks_like_command_argument(text=str(user_goal or ""), start=match.start(), path=path):
+                continue
+            add(path, role="failure_report" if path.lower().endswith(".json") else "material")
     return materials
+
+
+def _task_goal_allows_user_goal_material_scan(task_goal_type: str) -> bool:
+    return str(task_goal_type or "").strip() in {
+        "inspection",
+        "test_report_triage",
+        "material_synthesis",
+        "pdf_question_answer",
+        "structured_data_analysis",
+        "runtime_trace_analysis",
+        "code_fix_execution",
+    }
+
+
+def _task_goal_allows_broad_explicit_material_paths(task_goal_type: str) -> bool:
+    return str(task_goal_type or "").strip() not in {
+        "game_vertical_slice_delivery",
+        "frontend_app_delivery",
+        "artifact_delivery",
+    }
 
 
 def _merge_materials(primary: list[dict[str, Any]], obligation_reads: list[dict[str, Any]]) -> list[dict[str, Any]]:

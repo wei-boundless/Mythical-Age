@@ -11,7 +11,6 @@ class TaskContract:
     user_goal: str
     source: str = "user_request"
     recipe_id: str = ""
-    task_family: str = "unknown"
     task_mode: str = "unknown"
     parent_task_id: str = ""
     task_spec_ref: str = ""
@@ -34,7 +33,6 @@ def build_task_contract(
     user_goal: str,
     source: str = "runtime",
     recipe_id: str = "",
-    task_family: str = "unknown",
     task_mode: str = "unknown",
     task_spec_ref: str = "",
 ) -> TaskContract:
@@ -44,7 +42,6 @@ def build_task_contract(
         user_goal=user_goal,
         source=source,
         recipe_id=recipe_id,
-        task_family=task_family,
         task_mode=task_mode,
         task_spec_ref=task_spec_ref,
     )

@@ -10,6 +10,7 @@ from .goal_contract import (
     _dedupe_strings,
     _normalize_path_for_match,
 )
+from .required_action_queue import RequiredActionQueue, build_required_action_queue
 from ..memory.tool_observation_ledger import ToolObservationLedger
 
 
@@ -20,6 +21,7 @@ class ProfessionalTaskContractGateDecision:
     message: str = ""
     repair_instruction: str = ""
     next_required_tool_names: tuple[str, ...] = ()
+    next_required_path: str = ""
 
 
 def _contract_gate_tool_request(
@@ -27,19 +29,23 @@ def _contract_gate_tool_request(
     goal_contract: ProfessionalTaskGoalContract,
     tool_observation_ledger: ToolObservationLedger,
     requested_tool_name: str,
+    requested_tool_args: dict[str, Any] | None = None,
     allowed_tool_names: list[str] | tuple[str, ...],
 ) -> ProfessionalTaskContractGateDecision:
     tool_name = str(requested_tool_name or "").strip()
+    tool_args = dict(requested_tool_args or {})
     allowed = set(str(item or "").strip() for item in list(allowed_tool_names or []) if str(item or "").strip())
     read_tools = {"read_file", "read_structured_file", "search_files", "search_text", "glob_paths"}
-    missing_output_paths = _missing_required_output_paths(goal_contract, tool_observation_ledger)
-    if goal_contract.requires_write_output and (
-        bool(missing_output_paths)
-        if goal_contract.required_output_paths
-        else not tool_observation_ledger.has_write()
-    ):
+    required_queue = build_required_action_queue(
+        goal_contract=goal_contract,
+        tool_observation_ledger=tool_observation_ledger,
+    )
+    current_action = required_queue.current_action
+    if current_action is not None and current_action.kind in {"write_output", "ensure_dir"}:
         if _material_review_satisfied(goal_contract, tool_observation_ledger):
-            write_tools = tuple(name for name in ("write_file", "edit_file") if name in allowed)
+            write_tools = tuple(name for name in current_action.tool_names if name in allowed)
+            if tool_name == "agent_todo":
+                return ProfessionalTaskContractGateDecision(allowed=True)
             if tool_name in read_tools or tool_name == "delegate_to_agent":
                 return ProfessionalTaskContractGateDecision(
                     allowed=False,
@@ -50,24 +56,44 @@ def _contract_gate_tool_request(
                         tool_observation_ledger=tool_observation_ledger,
                         next_required_tool_names=write_tools,
                     ),
-                    next_required_tool_names=_write_tool_priority(goal_contract, write_tools),
+                    next_required_tool_names=_write_tool_priority(goal_contract, write_tools, tool_observation_ledger),
+                    next_required_path=current_action.path,
                 )
-            if write_tools and tool_name not in write_tools:
+            if write_tools and tool_name not in write_tools and tool_name != "agent_todo":
                 return ProfessionalTaskContractGateDecision(
                     allowed=False,
                     error="professional_task_goal_contract_requires_write",
-                    message="目标契约要求下一步使用 write_file 或 edit_file 形成真实产物；写入完成前不能改用命令验证或继续泛化操作。",
+                    message="目标契约要求下一步使用当前动作指定工具形成真实产物；写入完成前不能改用命令验证或继续泛化操作。",
                     repair_instruction=_contract_repair_instruction(
                         goal_contract=goal_contract,
                         tool_observation_ledger=tool_observation_ledger,
                         next_required_tool_names=write_tools,
                     ),
-                    next_required_tool_names=_write_tool_priority(goal_contract, write_tools),
+                    next_required_tool_names=_write_tool_priority(goal_contract, write_tools, tool_observation_ledger),
+                    next_required_path=current_action.path,
                 )
+            if current_action.path and tool_name in write_tools:
+                requested_path = str(tool_args.get("path") or "").strip()
+                if not requested_path or not _path_matches(current_action.path, requested_path):
+                    return ProfessionalTaskContractGateDecision(
+                        allowed=False,
+                        error="professional_task_goal_contract_requires_specific_write_path",
+                        message=(
+                            "目标契约要求当前动作写入指定路径；不能跳过、改写其他路径或省略 path。"
+                            f"当前必须写入：{current_action.path}"
+                        ),
+                        repair_instruction=_contract_repair_instruction(
+                            goal_contract=goal_contract,
+                            tool_observation_ledger=tool_observation_ledger,
+                            next_required_tool_names=("write_file",),
+                        ),
+                        next_required_tool_names=("write_file",),
+                        next_required_path=current_action.path,
+                    )
+                return ProfessionalTaskContractGateDecision(allowed=True, next_required_path=current_action.path)
     if (
-        goal_contract.requires_verification_command
-        and _required_writes_satisfied(goal_contract, tool_observation_ledger)
-        and not tool_observation_ledger.verification_passed()
+        current_action is not None
+        and current_action.kind == "verify_command"
         and "terminal" in allowed
         and tool_name in read_tools.union({"write_file", "edit_file", "delegate_to_agent"})
     ):
@@ -88,13 +114,14 @@ def _contract_gate_tool_request(
 def _write_tool_priority(
     goal_contract: ProfessionalTaskGoalContract,
     available_write_tools: tuple[str, ...],
+    tool_observation_ledger: ToolObservationLedger | None = None,
 ) -> tuple[str, ...]:
     available = tuple(name for name in available_write_tools if name)
     if "write_file" in available and goal_contract.required_output_paths:
-        return ("write_file",)
+        return _with_agent_todo_if_available(("write_file",), tool_observation_ledger) if tool_observation_ledger is not None else ("write_file",)
     if "edit_file" in available and _goal_contract_targets_code_edit(goal_contract):
-        return ("edit_file",)
-    return available
+        return _with_agent_todo_if_available(("edit_file",), tool_observation_ledger) if tool_observation_ledger is not None else ("edit_file",)
+    return _with_agent_todo_if_available(available, tool_observation_ledger) if tool_observation_ledger is not None else available
 
 
 def _goal_contract_targets_code_edit(goal_contract: ProfessionalTaskGoalContract) -> bool:
@@ -122,8 +149,16 @@ def _contract_repair_instruction(
         return gate_decision.repair_instruction
     required_tools = tuple(next_required_tool_names or _next_required_tools(goal_contract, tool_observation_ledger))
     if "write_file" in required_tools or "edit_file" in required_tools:
-        missing_paths = _missing_required_output_paths(goal_contract, tool_observation_ledger)
-        next_missing_path = missing_paths[0] if missing_paths else ""
+        required_queue = build_required_action_queue(
+            goal_contract=goal_contract,
+            tool_observation_ledger=tool_observation_ledger,
+        )
+        missing_paths = [
+            action.path
+            for action in required_queue.actions
+            if action.kind in {"write_output", "ensure_dir"} and action.path and not action.satisfied
+        ]
+        next_missing_path = required_queue.current_path() or (missing_paths[0] if missing_paths else "")
         output_hint = (
             "缺失目标路径：" + "、".join(missing_paths)
             if missing_paths
@@ -137,7 +172,7 @@ def _contract_repair_instruction(
             f"{output_hint}"
             f"{next_path_hint}"
             f"下一步只能使用 {' 或 '.join(required_tools)}；不要再请求 read_file、search_files、search_text、terminal 或委派。"
-            "如果存在多个缺失路径，本轮只写一个完整文件，下一轮再继续补齐。"
+            "当前动作完成前不要切换到其他路径。"
             "文件内容必须完整可验收，不能写占位说明。"
             "如果确实无法写入，请只用普通中文说明阻塞原因，不要伪造工具调用。"
         )
@@ -160,7 +195,12 @@ def _contract_followup_guidance(
     required_tools = _next_required_tools(goal_contract, tool_observation_ledger)
     if not required_tools:
         return ""
-    return "目标契约下一步仍缺少：" + "、".join(required_tools) + "。"
+    required_queue = build_required_action_queue(
+        goal_contract=goal_contract,
+        tool_observation_ledger=tool_observation_ledger,
+    )
+    queue_guidance = required_queue.prompt_guidance()
+    return "目标契约下一步仍缺少：" + "、".join(required_tools) + "。" + queue_guidance
 
 
 def _next_required_tools(
@@ -173,10 +213,10 @@ def _next_required_tools(
         and _material_review_satisfied(goal_contract, tool_observation_ledger)
     ):
         if goal_contract.required_output_paths:
-            return ("write_file", "edit_file")
+            return _with_agent_todo_if_available(("write_file",), tool_observation_ledger)
         if _goal_contract_targets_code_edit(goal_contract):
-            return ("edit_file",)
-        return ("write_file", "edit_file")
+            return _with_agent_todo_if_available(("edit_file",), tool_observation_ledger)
+        return _with_agent_todo_if_available(("write_file", "edit_file"), tool_observation_ledger)
     if (
         goal_contract.requires_verification_command
         and _required_writes_satisfied(goal_contract, tool_observation_ledger)
@@ -188,6 +228,17 @@ def _next_required_tools(
     return ()
 
 
+def _with_agent_todo_if_available(
+    required_tools: tuple[str, ...],
+    tool_observation_ledger: ToolObservationLedger,
+) -> tuple[str, ...]:
+    if tuple(required_tools or ()) == ("edit_file",):
+        return required_tools
+    if any(record.tool_name == "agent_todo" for record in tool_observation_ledger.records):
+        return required_tools
+    return ("agent_todo", *required_tools)
+
+
 def _required_writes_satisfied(
     goal_contract: ProfessionalTaskGoalContract,
     tool_observation_ledger: ToolObservationLedger,
@@ -196,17 +247,25 @@ def _required_writes_satisfied(
         return True
     if not goal_contract.required_output_paths:
         return tool_observation_ledger.has_write()
-    return not _missing_required_output_paths(goal_contract, tool_observation_ledger)
+    required_queue = build_required_action_queue(
+        goal_contract=goal_contract,
+        tool_observation_ledger=tool_observation_ledger,
+    )
+    return all(action.satisfied for action in required_queue.actions if action.kind in {"write_output", "ensure_dir"})
 
 
 def _missing_required_output_paths(
     goal_contract: ProfessionalTaskGoalContract,
     tool_observation_ledger: ToolObservationLedger,
 ) -> list[str]:
+    required_queue = build_required_action_queue(
+        goal_contract=goal_contract,
+        tool_observation_ledger=tool_observation_ledger,
+    )
     return [
-        path
-        for path in list(goal_contract.required_output_paths or [])
-        if not tool_observation_ledger.has_write(path)
+        action.path
+        for action in required_queue.actions
+        if action.kind in {"write_output", "ensure_dir"} and action.path and not action.satisfied
     ]
 
 
@@ -239,10 +298,19 @@ def _compact_professional_recovery_messages(
     tool_observation_ledger: ToolObservationLedger,
     structured_observations: list[dict[str, Any]],
     next_required_tools: tuple[str, ...],
+    required_action_queue: RequiredActionQueue | None = None,
 ) -> list[Any]:
+    required_queue = required_action_queue or build_required_action_queue(
+        goal_contract=goal_contract,
+        tool_observation_ledger=tool_observation_ledger,
+    )
     written_paths = _observation_paths_for_satisfaction(tool_observation_ledger, "write_output")
-    missing_paths = _missing_required_output_paths(goal_contract, tool_observation_ledger)
-    next_missing_path = missing_paths[0] if missing_paths else ""
+    missing_paths = [
+        action.path
+        for action in required_queue.actions
+        if action.kind in {"write_output", "ensure_dir"} and action.path and not action.satisfied
+    ]
+    next_missing_path = required_queue.current_path() or (missing_paths[0] if missing_paths else "")
     latest_observations = [
         {
             "tool_name": str(item.get("tool_name") or ""),
@@ -262,7 +330,7 @@ def _compact_professional_recovery_messages(
                 f"必须补齐的输出路径：{'、'.join(missing_paths) if missing_paths else '无'}。"
                 f"本轮优先补齐路径：{next_missing_path or '无'}。"
                 f"已经写入的路径：{'、'.join(written_paths) if written_paths else '无'}。"
-                "如果需要写多个剩余文件，请逐轮每次只写一个完整文件，先写本轮优先路径。"
+                f"{required_queue.prompt_guidance()}"
                 "文件内容必须是可运行或可验收的完整内容，不能写占位说明。"
             ),
         },
@@ -324,3 +392,15 @@ def _observation_paths_for_satisfaction(
         paths.extend([str(path).strip() for path in list(record.observed_paths or []) if str(path).strip()])
         paths.extend([str(path).strip() for path in list(record.matched_paths or []) if str(path).strip()])
     return _dedupe_strings(paths)
+
+
+def _path_matches(target: str, candidate: str) -> bool:
+    normalized_target = _normalize_path_for_match(target)
+    normalized_candidate = _normalize_path_for_match(candidate)
+    if not normalized_target or not normalized_candidate:
+        return False
+    return (
+        normalized_candidate == normalized_target
+        or normalized_candidate.endswith("/" + normalized_target)
+        or normalized_target.endswith("/" + normalized_candidate)
+    )

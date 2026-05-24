@@ -156,8 +156,17 @@ def build_tool_observation_record(
         artifact_refs = tuple(_artifact_refs_from_text(name, args, result_text))
         command_receipt = _command_receipt_from_text(name, args, result_text)
         status = "error" if _looks_failed(result_text) else "ok"
-    side_effect_kind = _side_effect_kind(name)
-    satisfies = _satisfies_for_tool(name)
+    recoverable_repair = bool(result_payload.get("recoverable") is True or result_payload.get("repair_kind"))
+    if recoverable_repair:
+        side_effect_kind = "repair"
+        satisfies = ()
+        status = "error"
+        observed_paths = ()
+        matched_paths = ()
+        artifact_refs = ()
+    else:
+        side_effect_kind = _side_effect_kind(name)
+        satisfies = _satisfies_for_tool(name, args=args, result_text=result_text, status=status)
     return ToolObservationRecord(
         observation_ref=str(observation_ref or "").strip(),
         tool_name=name,
@@ -188,16 +197,64 @@ def _side_effect_kind(tool_name: str) -> str:
     return "read"
 
 
-def _satisfies_for_tool(tool_name: str) -> tuple[str, ...]:
+def _satisfies_for_tool(
+    tool_name: str,
+    *,
+    args: dict[str, Any] | None = None,
+    result_text: str = "",
+    status: str = "ok",
+) -> tuple[str, ...]:
     if tool_name in {"read_file", "read_structured_file", "search_text", "search_files", "glob_paths"}:
         return ("read_material",)
     if tool_name in {"write_file", "edit_file"}:
         return ("write_output",)
     if tool_name == "terminal":
-        return ("verify_command",)
+        return ("verify_command",) if _terminal_observation_is_verification(args or {}, result_text, status=status) else ()
     if tool_name == "delegate_to_agent":
         return ("delegate_review",)
     return ()
+
+
+def _terminal_observation_is_verification(args: dict[str, Any], result_text: str, *, status: str) -> bool:
+    command = str(args.get("command") or "").lower()
+    text = str(result_text or "").lower()
+    combined = f"{command}\n{text}"
+    verification_markers = (
+        "pytest",
+        "npm test",
+        "pnpm test",
+        "yarn test",
+        "npm run build",
+        "pnpm build",
+        "yarn build",
+        "tsc",
+        "playwright",
+        "verification",
+        "verify",
+        "验证",
+        "test-path",
+        "testpath",
+        "assert",
+        "检查",
+    )
+    output_reference_markers = (
+        "index.html",
+        "styles.css",
+        "game.js",
+        "readme.md",
+        "assets/",
+        "file exists",
+        "exists",
+        "引用",
+        "存在",
+    )
+    if any(marker in combined for marker in verification_markers):
+        return True
+    if status == "ok" and any(marker in combined for marker in output_reference_markers) and any(
+        marker in command for marker in ("test-path", "get-content", "select-string", "dir ", "ls ", "python", "node", "powershell")
+    ):
+        return True
+    return False
 
 
 def _side_effect_hash(*, name: str, args: dict[str, Any], result_text: str) -> str:

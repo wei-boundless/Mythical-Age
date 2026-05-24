@@ -7,7 +7,6 @@ from typing import Any
 @dataclass(frozen=True, slots=True)
 class TaskFlowDefinition:
     flow_id: str
-    task_family: str
     title: str
     input_contract_id: str
     output_contract_id: str
@@ -45,8 +44,8 @@ class TaskAssignment:
     task_id: str
     task_title: str
     task_kind: str
-    task_family: str
     flow_id: str
+    domain_id: str = ""
     runtime_lane: str = ""
     default_agent_id: str = "agent:0"
     participant_agent_ids: tuple[str, ...] = ()
@@ -86,7 +85,7 @@ class TaskAssignment:
 class SpecificTaskRecord:
     task_id: str
     task_title: str
-    task_family: str
+    domain_id: str = ""
     description: str = ""
     enabled: bool = True
     runtime_lane: str = ""
@@ -106,7 +105,6 @@ class SpecificTaskRecord:
 @dataclass(frozen=True, slots=True)
 class TaskDomainRecord:
     domain_id: str
-    task_family: str
     title: str
     description: str = ""
     enabled: bool = True
@@ -292,7 +290,6 @@ class CoordinationTaskDefinition:
     title: str
     coordination_mode: str
     coordinator_agent_id: str
-    task_family: str = ""
     domain_id: str = ""
     agent_group_id: str = ""
     participant_agent_ids: tuple[str, ...] = ()
@@ -386,7 +383,6 @@ class AgentTaskConnectionProfile:
     owner_system: str
     profile_type: str
     lifecycle_state: str
-    task_family_refs: tuple[str, ...] = ()
     task_refs: tuple[str, ...] = ()
     flow_refs: tuple[str, ...] = ()
     binding_refs: tuple[str, ...] = ()
@@ -402,7 +398,6 @@ class AgentTaskConnectionProfile:
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         for key in (
-            "task_family_refs",
             "task_refs",
             "flow_refs",
             "binding_refs",

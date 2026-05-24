@@ -72,7 +72,6 @@ def build_prompt_selection_context(
     task_workflow: dict[str, Any],
     registered_task: dict[str, Any],
     skill_runtime_views: list[dict[str, Any]],
-    active_skill: dict[str, Any],
     agent_id: str,
     current_turn_context: dict[str, Any] | None = None,
 ) -> PromptSelectionContext:
@@ -223,9 +222,6 @@ def build_prompt_selection_context(
         for item in list(skill_runtime_views or [])
         if isinstance(item, dict) and str(item.get("skill_id") or "").strip()
     ]
-    active_skill_name = str(active_skill.get("name") or active_skill.get("skill_id") or "").strip()
-    if active_skill_name and active_skill_name not in skill_ids:
-        skill_ids.append(active_skill_name)
     process_kind = _first_non_empty(
         "task_graph_node" if task_graph_node_runtime else "",
         assembly.get("execution_chain_type"),
@@ -282,7 +278,6 @@ def build_prompt_selection_context(
             or assembly_metadata.get("domain_id")
             or ""
         ).strip(),
-        task_family=str(assembly.get("task_family") or recipe.get("task_family") or workflow_metadata.get("task_family") or "").strip(),
         task_mode=str(assembly.get("task_mode") or recipe.get("task_mode") or "").strip(),
         workflow_id=workflow_id,
         workflow_title=str(workflow.get("title") or assembly_metadata.get("workflow_title") or "").strip(),
@@ -599,7 +594,6 @@ def _compatibility_score(
         reasons.append("agent_match")
     domain_values = {
         context.task_domain,
-        context.task_family,
         context.task_mode,
         context.process_kind,
         context.work_mode,
@@ -639,7 +633,7 @@ def _hard_omit_reason(resource: PromptResource, context: PromptSelectionContext)
         if (
             resource.applies_to_domains
             and context.task_domain
-            and not _matches_any(resource.applies_to_domains, {context.task_domain, context.task_family, context.task_mode, context.process_kind})
+            and not _matches_any(resource.applies_to_domains, {context.task_domain, context.task_mode, context.process_kind})
         ):
             return "domain_mismatch"
         if (

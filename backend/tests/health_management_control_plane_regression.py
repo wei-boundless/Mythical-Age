@@ -102,7 +102,7 @@ def test_health_command_admission_rejects_blocked_operation(tmp_path) -> None:
 
 
 def test_task_system_no_longer_exposes_old_health_connection_profile(tmp_path) -> None:
-    overview = TaskFlowRegistry(tmp_path).build_agent_task_connection_overview(task_family="health")
+    overview = TaskFlowRegistry(tmp_path).build_agent_task_connection_overview()
 
     assert overview["authority"] == "task_system.agent_task_connections"
     assert overview["profiles"] == []

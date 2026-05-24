@@ -8,7 +8,7 @@ describe("task graph templates", () => {
     for (const template of TASK_GRAPH_TEMPLATE_CARDS) {
       const draft = buildTaskGraphTemplateDraft({
         template_id: template.template_id,
-        task_family: "test",
+        domain_id: "domain.test",
         selected_task_title: "测试任务",
       });
 
@@ -27,7 +27,7 @@ describe("task graph templates", () => {
   it("generates responsibility-language fields instead of embedded prompt text", () => {
     const draft = buildTaskGraphTemplateDraft({
       template_id: "pdf_table_synthesis",
-      task_family: "analysis",
+      domain_id: "domain.analysis",
     });
 
     for (const node of draft.nodes) {
@@ -37,13 +37,15 @@ describe("task graph templates", () => {
       expect(String(metadata.responsibility_exclusions ?? "")).toContain("你不负责");
       expect(metadata.role_prompt).toBeUndefined();
       expect(metadata.legacy_prompt_migration).toBeUndefined();
+      expect(metadata.domain_id).toBe("domain.analysis");
+      expect(node.task_family).toBeUndefined();
     }
   });
 
   it("generates PDF and table specialist boundaries in the synthesis template", () => {
     const draft = buildTaskGraphTemplateDraft({
       template_id: "pdf_table_synthesis",
-      task_family: "analysis",
+      domain_id: "domain.analysis",
     });
 
     expect(draft.nodes.map((node) => node.agent_id)).toEqual([
@@ -58,7 +60,7 @@ describe("task graph templates", () => {
   it("applies setup parameters to metadata, loops, and specialist bindings", () => {
     const draft = buildTaskGraphTemplateDraft({
       template_id: "pdf_table_synthesis",
-      task_family: "analysis",
+      domain_id: "domain.analysis",
       task_intent: "形成投资决策简报",
       input_material_type: "pdf_and_table",
       artifact_type: "decision_brief",
@@ -90,7 +92,7 @@ describe("task graph templates", () => {
   it("builds long project cycles on explicit repositories and review-approved memory commits", () => {
     const draft = buildTaskGraphTemplateDraft({
       template_id: "long_project_cycle",
-      task_family: "project",
+      domain_id: "domain.project",
       selected_task_title: "长期项目",
     });
 
@@ -131,7 +133,7 @@ describe("task graph templates", () => {
   it("preflights generated long project cycles without publish-blocking errors", () => {
     const draft = buildTaskGraphTemplateDraft({
       template_id: "long_project_cycle",
-      task_family: "project",
+      domain_id: "domain.project",
       selected_task_title: "长期项目",
     });
 

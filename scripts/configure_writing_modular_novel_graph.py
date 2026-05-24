@@ -24,7 +24,7 @@ from task_system.registry.flow_registry import TaskFlowRegistry
 
 MANAGED_BY = "codex_writing_modular_novel_graph_20260521_native"
 DOMAIN_ID = "domain.writing.modular_novel"
-TASK_FAMILY = "writing_modular_novel"
+WRITING_MODULE_ID = "writing_modular_novel"
 PROTOCOL_ID = "protocol.writing.modular_novel"
 MODEL_PROFILE_REF = "llm.deepseek.flash_long_output_65536"
 WRITING_MODEL_PROVIDER = "deepseek"
@@ -1299,7 +1299,6 @@ def configure(base_dir: Path | str | None = None) -> dict[str, Any]:
 def _upsert_domain(registry: TaskFlowRegistry) -> None:
     registry.upsert_task_domain(
         domain_id=DOMAIN_ID,
-        task_family=TASK_FAMILY,
         title="模块化长篇写作",
         description="以任务图为一等对象组织设计初始化、章节批次创作与收尾交付的长篇写作任务域。",
         enabled=True,
@@ -1329,8 +1328,8 @@ def _upsert_agents(backend_dir: Path) -> None:
             default_projection_id=projection,
             metadata={
                 "managed_by": MANAGED_BY,
-                "task_family": TASK_FAMILY,
-                "agent_template_id": f"task_graph.{TASK_FAMILY}.node_agent",
+                "domain_id": DOMAIN_ID,
+                "agent_template_id": f"task_graph.{WRITING_MODULE_ID}.node_agent",
             },
         )
 
@@ -1428,7 +1427,7 @@ def _upsert_agents(backend_dir: Path) -> None:
             model_profile=writing_model_profile.to_dict(),
             metadata={
                 "managed_by": MANAGED_BY,
-                "task_family": TASK_FAMILY,
+                "domain_id": DOMAIN_ID,
                 "source_task_graph_refs": [MASTER_GRAPH_ID, DESIGN_GRAPH_ID, CHAPTER_GRAPH_ID, FINALIZE_GRAPH_ID],
                 "runtime_template_id": template_id,
                 "agent_mode": "text_artifact_worker",
@@ -1561,7 +1560,7 @@ def _contract_spec(
         ),
         version="1.0.0",
         enabled=True,
-        metadata={"managed_by": MANAGED_BY, "domain_id": DOMAIN_ID, "task_family": TASK_FAMILY},
+        metadata={"managed_by": MANAGED_BY, "domain_id": DOMAIN_ID},
     )
 
 
@@ -1620,7 +1619,7 @@ def _upsert_protocol(registry: TaskFlowRegistry) -> None:
         timeout_policy="fail_closed",
         error_signal_policy="raise_to_coordinator",
         enabled=True,
-        metadata={"managed_by": MANAGED_BY, "task_family": TASK_FAMILY, "domain_id": DOMAIN_ID},
+        metadata={"managed_by": MANAGED_BY, "domain_id": DOMAIN_ID},
     )
 
 
@@ -1680,11 +1679,10 @@ def _upsert_task_asset(
         output_contract_id=output_contract_id,
         prompt=prompt,
         enabled=True,
-        metadata={"managed_by": MANAGED_BY, "domain_id": DOMAIN_ID, "task_family": TASK_FAMILY, "node_id": node_id},
+        metadata={"managed_by": MANAGED_BY, "domain_id": DOMAIN_ID, "node_id": node_id},
     )
     registry.upsert_flow(
         flow_id=flow_id,
-        task_family=TASK_FAMILY,
         title=title,
         input_contract_id=input_contract_id,
         output_contract_id=output_contract_id,
@@ -1708,7 +1706,7 @@ def _upsert_task_asset(
     registry.upsert_specific_task_record(
         task_id=task_id,
         task_title=title,
-        task_family=TASK_FAMILY,
+        domain_id=DOMAIN_ID,
         description=f"{title}。由模块化写作任务图原生配置生成。",
         enabled=True,
         runtime_lane="coordination_task",
@@ -1732,7 +1730,7 @@ def _upsert_task_asset(
             "managed_by": MANAGED_BY,
             "domain_id": DOMAIN_ID,
             "node_id": node_id,
-            "package_template": TASK_FAMILY,
+            "package_template": WRITING_MODULE_ID,
             "runtime_interaction_mode": "role_mode",
             "interaction_mode": "role_mode",
             "execution_mode": "single",
@@ -1744,7 +1742,7 @@ def _upsert_task_asset(
         task_id=task_id,
         task_title=title,
         task_kind="specific_task",
-        task_family=TASK_FAMILY,
+        domain_id=DOMAIN_ID,
         flow_id=flow_id,
         runtime_lane="coordination_task",
         default_agent_id=agent_id,
@@ -1765,14 +1763,13 @@ def _upsert_task_asset(
                 {"step_id": "execute_node", "title": "执行节点职责"},
                 {"step_id": "commit_artifact_refs", "title": "提交结构化产物引用"},
             ],
-            "task_resource_kind": TASK_FAMILY,
         },
         enabled=True,
         metadata={
             "managed_by": MANAGED_BY,
             "domain_id": DOMAIN_ID,
             "node_id": node_id,
-            "package_template": TASK_FAMILY,
+            "package_template": WRITING_MODULE_ID,
             "runtime_interaction_mode": "role_mode",
             "interaction_mode": "role_mode",
             "execution_mode": "single",
@@ -1833,7 +1830,6 @@ def _upsert_imported_module_graph(
         graph_id=graph_id,
         title=_graph_title(graph_id),
         domain_id=DOMAIN_ID,
-        task_family=TASK_FAMILY,
         graph_kind="coordination",
         entry_node_id=nodes[0].node_id,
         output_node_id=nodes[-1].node_id,
@@ -3001,7 +2997,6 @@ def _upsert_master_graph(registry: TaskFlowRegistry) -> None:
         graph_id=MASTER_GRAPH_ID,
         title="模块化长篇写作总任务图",
         domain_id=DOMAIN_ID,
-        task_family=TASK_FAMILY,
         graph_kind="coordination",
         entry_node_id="graph_module.design_init",
         output_node_id="graph_module.finalize",

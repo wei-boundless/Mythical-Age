@@ -14,7 +14,6 @@ class TaskGraphRuntimeNode:
     runtime_lane: str = ""
     projection_id: str = ""
     task_id: str = ""
-    task_family: str = ""
     executor_policy: dict[str, Any] = field(default_factory=dict)
     execution_mode: str = "sync"
     wait_policy: str = "wait_all_upstream_completed"
@@ -99,7 +98,6 @@ class TaskGraphRuntimeValidationIssue:
 class TaskGraphRuntimeSpec:
     graph_id: str
     domain_id: str
-    task_family: str
     coordinator_agent_id: str
     graph_ref: str = ""
     agent_group_id: str = ""

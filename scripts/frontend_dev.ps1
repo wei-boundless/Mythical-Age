@@ -82,8 +82,11 @@ function Clear-ProjectOwnedPort {
 
 Set-Location -LiteralPath $FrontendRoot
 Clear-ProjectOwnedPort
+$env:API_PROXY_TARGET = "http://127.0.0.1:8003"
+$env:NEXT_PUBLIC_API_BASE = "http://127.0.0.1:8003/api"
 
-if ($CleanNext) {
+$shouldCleanNext = $CleanNext -or $Mode -eq "dev"
+if ($shouldCleanNext) {
     $nextCache = Join-Path $FrontendRoot ".next"
     if (Test-Path $nextCache) {
         Remove-Item -LiteralPath $nextCache -Recurse -Force
@@ -93,5 +96,5 @@ if ($CleanNext) {
 if ($Mode -eq "prod") {
     & npm run start:next
 } else {
-    & npm run dev:next
+    & npm run dev:next -- -p $Port
 }

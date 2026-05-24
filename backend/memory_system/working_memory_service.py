@@ -489,7 +489,6 @@ class WorkingMemoryService:
     def save_policy_profile(self, **payload: Any) -> WorkingMemoryPolicyProfile:
         profile = WorkingMemoryPolicyProfile(
             profile_id=_required(payload, "profile_id"),
-            task_family=str(payload.get("task_family") or ""),
             allowed_kinds=tuple(_strings(payload.get("allowed_kinds"))),
             allowed_semantics=tuple(_strings(payload.get("allowed_semantics"))),  # type: ignore[arg-type]
             readable_scopes_by_node_role=dict(payload.get("readable_scopes_by_node_role") or {}),

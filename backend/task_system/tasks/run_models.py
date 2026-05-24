@@ -9,7 +9,7 @@ from task_system.tasks.spec_models import TaskSpec
 
 
 TaskStepRunStatus = Literal["pending", "running", "completed", "failed", "skipped"]
-TaskRunLedgerStatus = Literal["created", "running", "completed", "failed", "aborted"]
+TaskRunLedgerStatus = Literal["created", "running", "completed", "partially_completed", "failed", "aborted"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -492,7 +492,12 @@ def task_run_step_count(ledger: TaskRunLedger | None) -> int:
 
 
 def task_run_terminal_status(terminal_reason: str) -> TaskRunLedgerStatus:
-    return "completed" if str(terminal_reason or "") == "completed" else "failed"
+    reason = str(terminal_reason or "").strip()
+    if reason == "completed":
+        return "completed"
+    if reason in {"partially_completed", "partial_contract_failed", "tool_loop_budget_exceeded"}:
+        return "partially_completed"
+    return "failed"
 
 
 def step_supports_operation(step_run: TaskStepRun | None, operation_id: str) -> bool:

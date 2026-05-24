@@ -138,7 +138,6 @@ def build_memory_runtime_view(
             memory_facade,
             "build_task_durable_memory_context_candidates",
             namespace_id=str(profile.get("task_durable_namespace_id") or profile.get("namespace_id") or ""),
-            task_family=str(profile.get("task_family") or ""),
             domain_id=str(profile.get("domain_id") or ""),
             task_id=str(profile.get("task_id") or ""),
             graph_id=str(profile.get("graph_id") or ""),
@@ -200,7 +199,6 @@ def build_memory_runtime_view(
             },
             "task_durable_memory_scope": {
                 "namespace_id": str(profile.get("task_durable_namespace_id") or profile.get("namespace_id") or ""),
-                "task_family": str(profile.get("task_family") or ""),
                 "domain_id": str(profile.get("domain_id") or ""),
                 "task_id": str(profile.get("task_id") or ""),
                 "graph_id": str(profile.get("graph_id") or ""),

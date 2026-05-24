@@ -23,6 +23,7 @@ class ModelTurnDecision:
     deliverables: tuple[str, ...] = ()
     constraints: tuple[str, ...] = ()
     forbidden_actions: tuple[str, ...] = ()
+    selected_skill_ids: tuple[str, ...] = ()
     context_binding_decision: dict[str, Any] = field(default_factory=dict)
     planning_required: bool = False
     todo_required: bool = False
@@ -36,7 +37,15 @@ class ModelTurnDecision:
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
-        for key in ("target_objects", "deliverables", "constraints", "forbidden_actions", "completion_criteria", "ambiguity"):
+        for key in (
+            "target_objects",
+            "deliverables",
+            "constraints",
+            "forbidden_actions",
+            "selected_skill_ids",
+            "completion_criteria",
+            "ambiguity",
+        ):
             payload[key] = list(payload.get(key) or [])
         payload["context_binding_decision"] = dict(self.context_binding_decision or {})
         payload["diagnostics"] = dict(self.diagnostics or {})
@@ -64,7 +73,8 @@ def model_turn_decision_from_payload(
         errors.append("task_goal_type_required")
     if not task_domain:
         errors.append("task_domain_required")
-    confidence = _confidence(raw.get("confidence"), errors)
+    warnings: list[str] = []
+    confidence = _confidence(raw.get("confidence"), warnings)
     binding = raw.get("context_binding_decision") or {}
     if not isinstance(binding, dict):
         errors.append("context_binding_decision_must_be_object")
@@ -84,6 +94,7 @@ def model_turn_decision_from_payload(
         deliverables=tuple(_sequence(raw.get("deliverables"))),
         constraints=tuple(_sequence(raw.get("constraints"))),
         forbidden_actions=tuple(_sequence(raw.get("forbidden_actions"))),
+        selected_skill_ids=tuple(_skill_ids(raw.get("selected_skill_ids"))),
         context_binding_decision=dict(binding),
         planning_required=bool(raw.get("planning_required") is True),
         todo_required=bool(raw.get("todo_required") is True),
@@ -95,9 +106,15 @@ def model_turn_decision_from_payload(
         diagnostics={
             **dict(raw.get("diagnostics") or {}),
             "model_authority_used": True,
+            "validation_warnings": warnings,
         },
     )
-    return decision, {"decision_status": "accepted", "model_authority_used": True, "validation_errors": []}
+    return decision, {
+        "decision_status": "accepted",
+        "model_authority_used": True,
+        "validation_errors": [],
+        "validation_warnings": warnings,
+    }
 
 
 def _normalized(value: Any, allowed: set[str], errors: list[str], field_name: str) -> str:
@@ -111,14 +128,14 @@ def _normalized(value: Any, allowed: set[str], errors: list[str], field_name: st
     return item
 
 
-def _confidence(value: Any, errors: list[str]) -> float:
+def _confidence(value: Any, warnings: list[str]) -> float:
     try:
         parsed = float(value)
     except (TypeError, ValueError):
-        errors.append("confidence_must_be_number")
+        warnings.append("confidence_defaulted_from_non_numeric")
         return 0.0
     if parsed < 0.0 or parsed > 1.0:
-        errors.append("confidence_must_be_between_0_and_1")
+        warnings.append("confidence_clamped_to_range")
         return min(max(parsed, 0.0), 1.0)
     return parsed
 
@@ -137,6 +154,14 @@ def _sequence(value: Any) -> list[str]:
             seen.add(item)
             result.append(item)
     return result
+
+
+def _skill_ids(value: Any) -> list[str]:
+    ids = []
+    for item in _sequence(value):
+        normalized = item if item.startswith("skill.") else f"skill.{item}"
+        ids.append(normalized)
+    return _sequence(ids)
 
 
 def _slug(value: str) -> str:

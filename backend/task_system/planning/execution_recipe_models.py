@@ -25,7 +25,6 @@ class ExecutionRecipe:
     title: str
     description: str
     execution_kind: str
-    task_family: str
     task_mode: str
     source_kind: str = ""
     input_schema: dict[str, Any] = field(default_factory=dict)

@@ -5,7 +5,7 @@ param(
     [string]$FrontendMode = "dev",
     [string]$HostName = "127.0.0.1",
     [int]$FrontendPort = 3000,
-    [int]$BackendPort = 8002,
+    [int]$BackendPort = 8003,
     [string]$PythonExe = "C:\Users\admin\.conda\envs\agent\python.exe",
     [int]$StartupTimeoutSeconds = 45
 )
@@ -24,7 +24,7 @@ $FrontendOutLog = Join-Path $RuntimeDir "frontend-$FrontendPort.out.log"
 $FrontendErrLog = Join-Path $RuntimeDir "frontend-$FrontendPort.err.log"
 $BackendHealthUrl = "http://$HostName`:$BackendPort/health"
 $CapabilityCatalogUrl = "http://$HostName`:$BackendPort/api/capability-system/catalog"
-$FrontendUrl = "http://localhost:$FrontendPort/"
+$FrontendUrl = "http://$HostName`:$FrontendPort/"
 
 function Ensure-RuntimeDir {
     if (-not (Test-Path $RuntimeDir)) {
@@ -159,15 +159,14 @@ function Start-Backend {
 function Start-Frontend {
     Ensure-RuntimeDir
     Assert-PortAvailableOrOwned -Port $FrontendPort -Role "frontend"
-    $frontendHomeResult = Test-HttpOk -Url $FrontendUrl
-    if ($frontendHomeResult.ok) { return "already_serving" }
-
     Stop-ManagedProcess -PidFile $FrontendPidFile -Port $FrontendPort -Role "frontend" | Out-Null
-    $nextMode = if ($FrontendMode -eq "prod") { "start" } else { "dev" }
+    $env:API_PROXY_TARGET = "http://127.0.0.1:$BackendPort"
+    $env:NEXT_PUBLIC_API_BASE = "http://127.0.0.1:$BackendPort/api"
+    $frontendScript = Join-Path $RepoRoot "scripts\frontend_dev.ps1"
     $frontendCommand = if ($FrontendMode -eq "prod") {
-        "npm run start:next"
+        "powershell -NoProfile -ExecutionPolicy Bypass -File `"$frontendScript`" -Mode prod -Port $FrontendPort"
     } else {
-        "npm run dev:next"
+        "powershell -NoProfile -ExecutionPolicy Bypass -File `"$frontendScript`" -Mode dev -Port $FrontendPort"
     }
     $process = Start-Process `
         -FilePath "cmd.exe" `

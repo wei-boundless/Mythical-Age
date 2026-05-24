@@ -87,7 +87,6 @@ class MemoryBundleService:
         self,
         *,
         namespace_id: str = "",
-        task_family: str = "",
         domain_id: str = "",
         task_id: str = "",
         graph_id: str = "",
@@ -101,7 +100,6 @@ class MemoryBundleService:
             return ()
         return self.task_durable_memory.context_candidates(
             namespace_id=namespace_id,
-            task_family=task_family,
             domain_id=domain_id,
             task_id=task_id,
             graph_id=graph_id,

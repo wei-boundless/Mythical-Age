@@ -219,6 +219,68 @@ def build_tool_execution_error_observation(
     )
 
 
+def build_recoverable_tool_contract_observation(
+    *,
+    task_run_id: str,
+    request_ref: str,
+    directive_ref: str,
+    tool_name: str,
+    error: str,
+    tool_args: dict[str, Any] | None = None,
+    tool_call_id: str = "",
+    execution_receipt: dict[str, Any] | None = None,
+    contract_decision: dict[str, Any] | None = None,
+) -> RuntimeObservation:
+    message = str(error or "").strip() or "tool_contract_error"
+    contract = dict(contract_decision or {})
+    required_inputs = [
+        str(item).strip()
+        for item in list(dict(contract.get("contract") or {}).get("required_inputs") or [])
+        if str(item).strip()
+    ]
+    missing_inputs = [
+        str(item).strip()
+        for item in list(contract.get("missing_inputs") or [])
+        if str(item).strip()
+    ]
+    repair_lines = [
+        f"Tool call rejected by contract for `{tool_name}`.",
+        message,
+    ]
+    if missing_inputs:
+        repair_lines.append("Missing required input(s): " + ", ".join(missing_inputs) + ".")
+    if required_inputs:
+        repair_lines.append("Retry the same tool using exactly these argument names: " + ", ".join(required_inputs) + ".")
+    repair_lines.append("Do not finish the task until the corrected tool call succeeds or a non-recoverable blocker is observed.")
+    receipt = dict(execution_receipt or {})
+    return RuntimeObservation(
+        observation_id=f"rtobs:{task_run_id}:{uuid.uuid4().hex[:8]}",
+        task_run_id=task_run_id,
+        observation_type="tool_result",
+        source=f"tool:{tool_name}:contract_repair",
+        request_ref=request_ref,
+        directive_ref=directive_ref,
+        content_chars=len("\n".join(repair_lines)),
+        payload={
+            "tool_name": str(tool_name or ""),
+            "tool_call_id": str(tool_call_id or ""),
+            "tool_args": dict(tool_args or {}),
+            "result": "\n".join(repair_lines),
+            "result_chars": len("\n".join(repair_lines)),
+            "truncated": False,
+            "execution_receipt": receipt,
+            "execution_id": str(receipt.get("execution_id") or ""),
+            "recoverable": True,
+            "repair_kind": "tool_contract",
+            "contract_decision": contract,
+            "missing_inputs": missing_inputs,
+            "required_inputs": required_inputs,
+        },
+        needs_model_followup=True,
+        created_at=time.time(),
+    )
+
+
 def build_tool_action_request(task_run_id: str, event: dict[str, Any], *, step_id: str = "") -> RuntimeActionRequest:
     payload = dict(event.get("tool_call") or event.get("payload") or {})
     tool_name = str(payload.get("tool_name") or payload.get("name") or event.get("tool_name") or "")

@@ -49,7 +49,6 @@
       "terminal_policy": "coordinator_terminal",
       "enabled": true,
       "metadata": {
-        "task_family": "general",
         "task_id": "task.000001",
         "domain_id": "domain.general",
         "managed_by": "codex_smoke"
