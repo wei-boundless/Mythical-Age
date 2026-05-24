@@ -10,30 +10,30 @@ export function ThoughtChain({ toolCalls }: { toolCalls: ToolCall[] }) {
   }
 
   return (
-    <details className="archive-detail-card archive-detail-card--thought mb-4 rounded-[26px] p-4">
-      <summary className="archive-detail-card__summary flex cursor-pointer list-none items-center gap-2 text-sm font-medium text-[var(--color-accent)]">
+    <details className="archive-detail-card archive-detail-card--thought runtime-tool-detail mb-3">
+      <summary className="archive-detail-card__summary runtime-tool-detail__summary">
         <TerminalSquare size={16} />
-        工具调用 {toolCalls.length} 次
+        工具 I/O 详情 {toolCalls.length} 次
       </summary>
-      <div className="mt-3 space-y-3">
+      <div className="runtime-tool-detail__list">
         {toolCalls.map((toolCall, index) => (
           <div
-            className="archive-detail-card__item rounded-[20px] p-3"
+            className="archive-detail-card__item runtime-tool-detail__item"
             key={`${toolCall.tool}-${index}`}
           >
-            <div className="mb-2 text-sm font-medium text-[var(--color-text)]">
+            <div className="runtime-tool-detail__tool">
               {toolCall.tool}
             </div>
-            <div className="space-y-2 text-xs">
+            <div className="runtime-tool-detail__io-list">
               {toolCall.input ? (
-                <div className="archive-detail-card__io rounded-[18px] p-3">
-                  <div className="archive-detail-card__io-label mb-1 font-medium text-[var(--color-text-soft)]">输入</div>
+                <div className="archive-detail-card__io runtime-tool-detail__io">
+                  <div className="archive-detail-card__io-label runtime-tool-detail__io-label">输入</div>
                   <pre className="mono whitespace-pre-wrap">{toolCall.input}</pre>
                 </div>
               ) : null}
               {toolCall.output ? (
-                <div className="archive-detail-card__io rounded-[18px] p-3">
-                  <div className="archive-detail-card__io-label mb-1 font-medium text-[var(--color-text-soft)]">输出</div>
+                <div className="archive-detail-card__io runtime-tool-detail__io">
+                  <div className="archive-detail-card__io-label runtime-tool-detail__io-label">输出</div>
                   <pre className="mono whitespace-pre-wrap">{toolCall.output}</pre>
                 </div>
               ) : null}

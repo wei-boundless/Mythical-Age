@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, BrainCircuit, CheckCircle2, Database, GitBranch, Info, KeyRound, ShieldCheck, XCircle } from "lucide-react";
+import { AlertTriangle, BrainCircuit, CheckCircle2, Database, GitBranch, Info, KeyRound, SearchCheck, ShieldCheck, XCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import {
@@ -58,6 +58,7 @@ type RuntimeDraftLike = {
     metadata?: Record<string, unknown>;
   };
   runtime_mode_catalog?: Array<Record<string, unknown>>;
+  metadata?: Record<string, unknown>;
 };
 
 type AgentDraftLike = {
@@ -126,6 +127,90 @@ function numberOrNull(value: string) {
   if (value.trim() === "") return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+type SearchRuntimeConfig = {
+  runtime_mode: "single_search" | "deepsearch";
+  search_sources: string[];
+  web_provider: string;
+  allow_fetch_url: boolean;
+  allow_local_files: boolean;
+  allow_memory_read: boolean;
+  max_iterations: number;
+  max_queries: number;
+  max_fetches: number;
+  max_sources: number;
+  search_depth: "basic" | "advanced";
+  include_raw_content: boolean;
+  prefer_primary_sources: boolean;
+  freshness_required_by_default: boolean;
+  evidence_packet_required: boolean;
+  stop_policy: string;
+};
+
+const DEFAULT_SEARCH_RUNTIME_CONFIG: SearchRuntimeConfig = {
+  runtime_mode: "deepsearch",
+  search_sources: ["web"],
+  web_provider: "tavily",
+  allow_fetch_url: true,
+  allow_local_files: false,
+  allow_memory_read: false,
+  max_iterations: 4,
+  max_queries: 6,
+  max_fetches: 8,
+  max_sources: 12,
+  search_depth: "advanced",
+  include_raw_content: false,
+  prefer_primary_sources: true,
+  freshness_required_by_default: false,
+  evidence_packet_required: true,
+  stop_policy: "enough_evidence_or_budget_exhausted",
+};
+
+const SEARCH_RUNTIME_REQUIRED_OPERATIONS = ["op.model_response", "op.web_search", "op.fetch_url"];
+const SEARCH_RUNTIME_LOCAL_OPERATIONS = ["op.search_files", "op.search_text", "op.read_file"];
+const SEARCH_RUNTIME_MEMORY_OPERATIONS = ["op.memory_read"];
+
+function searchRuntimeConfigFrom(metadata: Record<string, unknown> | undefined): SearchRuntimeConfig {
+  const raw = asRecord(metadata?.search_runtime);
+  const runtimeMode = String(raw.runtime_mode || DEFAULT_SEARCH_RUNTIME_CONFIG.runtime_mode);
+  const searchDepth = String(raw.search_depth || DEFAULT_SEARCH_RUNTIME_CONFIG.search_depth);
+  return {
+    ...DEFAULT_SEARCH_RUNTIME_CONFIG,
+    ...raw,
+    runtime_mode: runtimeMode === "single_search" ? "single_search" : "deepsearch",
+    search_sources: dedupe(Array.isArray(raw.search_sources) ? raw.search_sources.map(String) : DEFAULT_SEARCH_RUNTIME_CONFIG.search_sources),
+    web_provider: String(raw.web_provider || DEFAULT_SEARCH_RUNTIME_CONFIG.web_provider),
+    allow_fetch_url: Boolean(raw.allow_fetch_url ?? DEFAULT_SEARCH_RUNTIME_CONFIG.allow_fetch_url),
+    allow_local_files: Boolean(raw.allow_local_files ?? DEFAULT_SEARCH_RUNTIME_CONFIG.allow_local_files),
+    allow_memory_read: Boolean(raw.allow_memory_read ?? DEFAULT_SEARCH_RUNTIME_CONFIG.allow_memory_read),
+    max_iterations: Math.max(1, Math.min(12, Number(raw.max_iterations ?? DEFAULT_SEARCH_RUNTIME_CONFIG.max_iterations))),
+    max_queries: Math.max(1, Math.min(30, Number(raw.max_queries ?? DEFAULT_SEARCH_RUNTIME_CONFIG.max_queries))),
+    max_fetches: Math.max(0, Math.min(40, Number(raw.max_fetches ?? DEFAULT_SEARCH_RUNTIME_CONFIG.max_fetches))),
+    max_sources: Math.max(1, Math.min(60, Number(raw.max_sources ?? DEFAULT_SEARCH_RUNTIME_CONFIG.max_sources))),
+    search_depth: searchDepth === "basic" ? "basic" : "advanced",
+    include_raw_content: Boolean(raw.include_raw_content ?? DEFAULT_SEARCH_RUNTIME_CONFIG.include_raw_content),
+    prefer_primary_sources: Boolean(raw.prefer_primary_sources ?? DEFAULT_SEARCH_RUNTIME_CONFIG.prefer_primary_sources),
+    freshness_required_by_default: Boolean(raw.freshness_required_by_default ?? DEFAULT_SEARCH_RUNTIME_CONFIG.freshness_required_by_default),
+    evidence_packet_required: Boolean(raw.evidence_packet_required ?? DEFAULT_SEARCH_RUNTIME_CONFIG.evidence_packet_required),
+    stop_policy: String(raw.stop_policy || DEFAULT_SEARCH_RUNTIME_CONFIG.stop_policy),
+  };
+}
+
+function operationsForSearchRuntime(config: SearchRuntimeConfig) {
+  return dedupe([
+    ...SEARCH_RUNTIME_REQUIRED_OPERATIONS,
+    ...(config.allow_local_files ? SEARCH_RUNTIME_LOCAL_OPERATIONS : []),
+    ...(config.allow_memory_read ? SEARCH_RUNTIME_MEMORY_OPERATIONS : []),
+  ]);
+}
+
+function nextSearchSources(config: SearchRuntimeConfig) {
+  return dedupe([
+    "web",
+    ...(config.allow_local_files ? ["local_files"] : []),
+    ...(config.allow_memory_read ? ["memory"] : []),
+  ]);
 }
 
 type PendingRuntimeModeChange = {

@@ -85,8 +85,8 @@ export function ChatMessage({
         </div>
       ) : null}
       {!isUser && <RetrievalCard results={retrievals} />}
-      {!isUser && <ThoughtChain toolCalls={toolCalls} />}
       {!isUser && runtimeProgress.length ? <RuntimeProgressList entries={runtimeProgress} /> : null}
+      {!isUser && <ThoughtChain toolCalls={toolCalls} />}
       <div className={isUser ? "chat-message-shell__content whitespace-pre-wrap leading-7" : "chat-message-shell__content markdown"}>
         {isUser && editing ? (
           <div className="message-edit-form">

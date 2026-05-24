@@ -797,6 +797,98 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().taskSelection).toBeNull();
   });
 
+  it("attaches task order and tool runtime signals to the assistant task flow", () => {
+    let transition = startStreamingTurn(getDefaultState(), "执行前端任务");
+    transition = reduceStreamEvent(transition.state, transition.session, "task_order_projection", {
+      authority: "task_system.task_order_projection",
+      task_order: {
+        order_id: "order:specific_task:abc",
+        order_kind: "specific_task",
+        task_id: "task.dev.frontend_ui",
+        objective: "优化会话任务状态展示",
+      },
+      task_order_run: {
+        run_id: "orderrun:abc",
+        created_at: 1,
+      },
+      execution_channel: {
+        channel_id: "execchan:abc",
+      },
+      task_execution_envelope: {
+        envelope_id: "taskenv:abc",
+      },
+    });
+    transition = reduceStreamEvent(transition.state, transition.session, "runtime_loop_event", {
+      event: {
+        event_id: "rtevt:tool-request",
+        task_run_id: "taskrun:abc",
+        event_type: "tool_call_requested",
+        created_at: 2,
+        payload: {
+          action_request: {
+            request_id: "rtact:abc",
+            operation_id: "operation.write_file",
+            payload: {
+              tool_name: "write_file",
+              tool_call: { name: "write_file", args: { path: "docs/plan.md" } },
+            },
+          },
+        },
+      },
+    });
+    transition = reduceStreamEvent(transition.state, transition.session, "runtime_loop_event", {
+      event: {
+        event_id: "rtevt:tool-result",
+        task_run_id: "taskrun:abc",
+        event_type: "tool_result_received",
+        created_at: 3,
+        payload: {
+          observation: {
+            observation_id: "rtobs:abc",
+            source: "tool:write_file",
+            payload: {
+              tool_name: "write_file",
+              result: "wrote docs/plan.md",
+              observed_paths: ["docs/plan.md"],
+            },
+          },
+        },
+      },
+    });
+
+    const assistant = transition.state.messages.at(-1);
+    expect(assistant?.runtimeProgress?.map((entry) => entry.kind)).toEqual(["task_order", "tool", "tool"]);
+    expect(assistant?.runtimeProgress?.[0]).toMatchObject({
+      statusText: "已绑定",
+      eventType: "task_order_projection",
+    });
+    expect(assistant?.runtimeProgress?.[2]).toMatchObject({
+      statusText: "已返回",
+      toolName: "write_file",
+      artifacts: [{ label: "产物", path: "docs/plan.md" }],
+    });
+  });
+
+  it("attaches legacy stream tool events to the assistant task flow", () => {
+    let transition = startStreamingTurn(getDefaultState(), "读取文件");
+    transition = reduceStreamEvent(transition.state, transition.session, "tool_start", {
+      tool: "read_file",
+      input: "frontend/src/components/chat/ChatMessage.tsx",
+    });
+    transition = reduceStreamEvent(transition.state, transition.session, "tool_end", {
+      tool: "read_file",
+      output: "ok",
+    });
+
+    const assistant = transition.state.messages.at(-1);
+    expect(assistant?.runtimeProgress?.map((entry) => entry.statusText)).toEqual(["请求中", "已返回"]);
+    expect(assistant?.toolCalls).toHaveLength(1);
+    expect(assistant?.toolCalls[0]).toMatchObject({
+      tool: "read_file",
+      output: "ok",
+    });
+  });
+
   it("does not block send completion on post-stream session refresh", async () => {
     vi.useRealTimers();
     api.listSessions.mockImplementation(() => new Promise(() => undefined));

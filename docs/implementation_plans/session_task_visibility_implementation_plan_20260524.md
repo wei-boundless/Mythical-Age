@@ -2,7 +2,7 @@
 
 日期：2026-05-24
 
-状态：实施中
+状态：已实施
 
 ## 目标
 
@@ -58,3 +58,19 @@
 - 完成、等待、错误状态颜色和图标明确。
 - 普通聊天不会伪装成任务订单。
 - 任务系统权威来源仍然是 `TaskOrderProjection`，前端只做投影。
+
+## 实施结果
+
+- `RuntimeProgressEntry` 已扩展为结构化状态条目，支持 `kind`、`statusText`、`meta`、`toolName`、开始/完成时间和产物。
+- `runtimeVisibilityProjection` 已把 `task_order_projection`、`runtime_loop_event`、`tool_start`、`tool_end`、`done/error/stopped` 投影成会话任务流程信号。
+- 主聊天消息内已改为“会话任务流程”面板，任务订单作为锚点，阶段、工具、权限、验收、终止信号进入同一条时间线。
+- 工具输入输出保留在次级折叠区“工具 I/O 详情”，避免和主流程抢层级。
+- 已补充投影测试和 store 挂载测试，确保真实事件能进入 assistant 消息的 `runtimeProgress`。
+
+## 验证结果
+
+- `frontend\node_modules\.bin\tsc.cmd -p frontend\tsconfig.json --noEmit` 通过。
+- `npm --prefix frontend test -- --run src/lib/runtimeVisibilityProjection.test.ts src/lib/store/runtime.test.ts src/lib/mainAgentAssemblyModes.test.ts src/lib/runtimeWorkProjection.test.ts src/lib/api/client.test.ts` 通过，44 个测试通过。
+- `scripts\project_stack.ps1 -Action check` 通过，固定端口 `3000/8003` 健康。
+- Edge 桌面烟测通过，无 console/page error，截图：`output/session-task-flow-ui-verification.png`。
+- Edge 移动可见容器复测通过，无横向溢出，截图：`output/session-task-flow-ui-mobile-visible-verification.png`。
