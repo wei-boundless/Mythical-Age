@@ -15,6 +15,7 @@ from runtime.memory.tool_observation_ledger import (
     ToolObservationLedger,
     build_tool_observation_record,
 )
+from runtime.tool_runtime.tool_result_envelope import build_tool_result_envelope
 from prompting.strategy_prototypes import strategy_prototype_for_task_goal
 from task_system.goal_profiles import get_task_goal_profile, known_task_goal_types
 
@@ -76,13 +77,39 @@ def test_strategy_prototype_reads_task_goal_registry_binding() -> None:
 
 
 def test_tool_observation_ledger_classifies_write_and_verification() -> None:
+    write_envelope = build_tool_result_envelope(
+        tool_name="write_file",
+        tool_args={"path": "output/result.md"},
+        result={
+            "text": "Write succeeded: output/result.md",
+            "structured_payload": {
+                "observed_paths": ["output/result.md"],
+                "artifact_refs": [{"path": "output/result.md", "kind": "file", "source": "write_file"}],
+            },
+        },
+    )
+    terminal_envelope = build_tool_result_envelope(
+        tool_name="terminal",
+        tool_args={"command": "pytest -q"},
+        result={
+            "text": "1 passed",
+            "structured_payload": {
+                "command_receipt": {
+                    "command": "pytest -q",
+                    "exit_code": 0,
+                    "passed": True,
+                    "output_preview": "1 passed",
+                }
+            },
+        },
+    )
     ledger = ToolObservationLedger(ledger_id="ledger:test", task_run_id="taskrun:test")
     ledger = ledger.append(
         build_tool_observation_record(
             observation_ref="obs:write",
             tool_name="write_file",
             tool_args={"path": "output/result.md"},
-            result="Write succeeded: output/result.md",
+            result={"result_envelope": write_envelope.to_dict()},
         )
     )
     ledger = ledger.append(
@@ -90,7 +117,7 @@ def test_tool_observation_ledger_classifies_write_and_verification() -> None:
             observation_ref="obs:test",
             tool_name="terminal",
             tool_args={"command": "pytest -q"},
-            result="1 passed",
+            result={"result_envelope": terminal_envelope.to_dict()},
         )
     )
     summary = ledger.summary()

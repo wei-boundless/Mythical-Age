@@ -103,13 +103,13 @@ ACTIVE_CASES: tuple[TestCaseDefinition, ...] = (
         tags=("operation_catalog", "api"),
     ),
     TestCaseDefinition(
-        case_id="functional.tool.contract_gate",
-        title="工具合同门禁",
+        case_id="functional.tool.invocation_validation",
+        title="工具调用校验",
         layer="functional",
-        path="tests/tool_contract_gate_regression.py",
+        path="tests/tool_invocation_validation_regression.py",
         owner_system="capability_system",
         profiles=("functional", "system"),
-        tags=("tool", "contract", "operation_gate"),
+        tags=("tool", "invocation_validation", "operation_gate"),
     ),
     TestCaseDefinition(
         case_id="functional.tool.scope_contract",

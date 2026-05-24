@@ -151,7 +151,7 @@ class ToolProjectionContract:
 
 
 @dataclass(frozen=True, slots=True)
-class ToolContractDecision:
+class ToolInvocationValidationDecision:
     tool_name: str
     mode: str
     action: str
@@ -176,7 +176,7 @@ class ToolContractDecision:
 
 
 @dataclass(slots=True)
-class ToolContractGate:
+class ToolInvocationValidator:
     mode: str = "enforce"
 
     def evaluate(
@@ -187,7 +187,7 @@ class ToolContractGate:
         tool_input: dict[str, Any] | None,
         tool_scope: ToolScope | Iterable[str] | None = None,
         binding_context: dict[str, Any] | None = None,
-    ) -> ToolContractDecision:
+    ) -> ToolInvocationValidationDecision:
         normalized_input = dict(tool_input or {})
         normalized_bindings = dict(binding_context or {})
         normalized_mode = (self.mode or "enforce").strip().lower() or "enforce"
@@ -196,10 +196,10 @@ class ToolContractGate:
         effective_scope = coerce_tool_scope(
             tool_scope,
             source="global",
-            reason="tool_contract_gate",
+            reason="tool_invocation_validation",
         )
         if not effective_scope.allows(tool_name):
-            return ToolContractDecision(
+            return ToolInvocationValidationDecision(
                 tool_name=tool_name,
                 mode=normalized_mode,
                 action="deny",
@@ -213,7 +213,7 @@ class ToolContractGate:
             if _is_blank(normalized_input.get(field_name))
         ]
         if missing_inputs:
-            return ToolContractDecision(
+            return ToolInvocationValidationDecision(
                 tool_name=tool_name,
                 mode=normalized_mode,
                 action="clarify",
@@ -228,7 +228,7 @@ class ToolContractGate:
             binding_context=normalized_bindings,
         )
         if missing_bindings:
-            return ToolContractDecision(
+            return ToolInvocationValidationDecision(
                 tool_name=tool_name,
                 mode=normalized_mode,
                 action=contract.missing_binding_behavior,
@@ -237,7 +237,7 @@ class ToolContractGate:
                 contract=contract,
             )
 
-        return ToolContractDecision(
+        return ToolInvocationValidationDecision(
             tool_name=tool_name,
             mode=normalized_mode,
             action="allow",

@@ -27,6 +27,11 @@ CANONICAL_AGENT_ID_BY_ALIAS = {
     "builtin-web-researcher": "agent:web_researcher",
     "builtin-web-agent": "agent:web_researcher",
     "builtin-web-search-agent": "agent:web_researcher",
+    "agent.verifier": "agent:verifier",
+    "agent.completion_verifier": "agent:verifier",
+    "builtin-verifier": "agent:verifier",
+    "builtin-verifier-agent": "agent:verifier",
+    "builtin-completion-verifier": "agent:verifier",
 }
 
 WORKER_AGENT_ALIASES = {
@@ -34,6 +39,7 @@ WORKER_AGENT_ALIASES = {
     "agent:pdf_reader": ("agent:7", "agent.pdf_analyst", "agent.pdf_reader", "builtin-pdf-reader", "builtin-pdf-agent", "builtin-pdf-analyst"),
     "agent:table_analyst": ("agent:8", "agent.table_analyst", "builtin-table-analyzer", "builtin-structured-data-agent", "builtin-table-analyst"),
     "agent:web_researcher": ("agent.web_researcher", "agent.web_research", "builtin-web-researcher", "builtin-web-agent", "builtin-web-search-agent"),
+    "agent:verifier": ("agent.verifier", "agent.completion_verifier", "builtin-verifier", "builtin-verifier-agent", "builtin-completion-verifier"),
 }
 
 

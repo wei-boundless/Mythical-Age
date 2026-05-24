@@ -12,6 +12,7 @@ AGENT_SOURCE_CLASS = {
     "agent:pdf_reader": "document",
     "agent:table_analyst": "data",
     "agent:web_researcher": "web",
+    "agent:verifier": "general",
 }
 
 OPERATION_SOURCE_CLASS = {

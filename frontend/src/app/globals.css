@@ -3465,1063 +3465,6 @@ button:hover {
   font-size: 0.7rem;
 }
 
-.system-framework-visual {
-  position: relative;
-  display: flex;
-  min-height: 0;
-  flex: 1;
-}
-
-.system-framework-stage {
-  position: relative;
-  overflow: hidden;
-  padding: 0;
-}
-
-.system-framework-stage::before,
-.system-framework-stage::after {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-}
-
-.system-framework-stage::before {
-  background:
-    var(--shell-atmosphere),
-    radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--color-soul) 18%, transparent), transparent 34%);
-  opacity: 0.86;
-  mix-blend-mode: screen;
-}
-
-.system-framework-stage::after {
-  background: var(--shell-detail);
-  background-size: 96px 96px;
-  opacity: 0.32;
-}
-
-.system-framework-stage .system-framework-visual {
-  position: relative;
-  z-index: 1;
-  min-height: 100vh;
-  padding: clamp(0.75rem, 1.6vw, 1.5rem);
-}
-
-.system-framework-visual--graph {
-  align-items: stretch;
-}
-
-.system-framework-chat-switch {
-  position: absolute;
-  top: 0.9rem;
-  right: 0.9rem;
-  z-index: 8;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  border: 1px solid color-mix(in srgb, var(--color-soul) 42%, transparent);
-  border-radius: 999px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 48%),
-    var(--color-panel-strong);
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.035),
-    0 12px 28px rgba(0, 0, 0, 0.18);
-  color: var(--color-text);
-  padding: 0.58rem 0.86rem;
-  font-weight: 700;
-}
-
-.system-framework-chat-switch svg {
-  color: var(--color-soul);
-}
-
-.project-network {
-  display: grid;
-  width: 100%;
-  min-height: calc(100vh - clamp(1.5rem, 3.2vw, 3rem));
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: 0.9rem;
-  overflow: auto;
-  border: 1px solid var(--color-border);
-  border-radius: clamp(24px, 2.6vw, 42px);
-  background:
-    radial-gradient(circle at 45% 42%, color-mix(in srgb, var(--color-soul) 16%, transparent), transparent 26%),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
-    linear-gradient(0deg, rgba(255, 255, 255, 0.032) 1px, transparent 1px),
-    color-mix(in srgb, var(--color-panel-strong) 82%, transparent);
-  background-size:
-    auto,
-    40px 40px,
-    40px 40px,
-    auto;
-  padding: clamp(1rem, 1.8vw, 1.45rem);
-}
-
-.project-network__header {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.72fr);
-  gap: 1rem;
-  padding-right: 5.2rem;
-}
-
-.project-network__header p {
-  margin: 0;
-  color: var(--color-soul);
-  font-family: var(--font-brand-latin), "Times New Roman", serif;
-  font-size: 0.76rem;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-}
-
-.project-network__header h1 {
-  margin: 0.28rem 0 0;
-  color: var(--color-text);
-  font-size: clamp(1.8rem, 3vw, 3rem);
-  line-height: 1;
-}
-
-.project-network__edge-card {
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-card);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 48%),
-    var(--color-panel-strong);
-  padding: 0.85rem;
-}
-
-.project-network__edge-card span {
-  color: var(--color-soul);
-  font-family: var(--font-mono), monospace;
-  font-size: 0.72rem;
-}
-
-.project-network__edge-card strong {
-  display: block;
-  margin-top: 0.25rem;
-  color: var(--color-text);
-  font-size: 0.95rem;
-}
-
-.project-network__edge-card p {
-  margin: 0.42rem 0 0;
-  color: var(--color-text-soft);
-  font-family: inherit;
-  font-size: 0.82rem;
-  letter-spacing: 0;
-  line-height: 1.62;
-  text-transform: none;
-}
-
-.project-network__debug-focus {
-  margin-top: 0.72rem;
-  border: 1px solid color-mix(in srgb, var(--color-soul) 28%, transparent);
-  border-radius: var(--radius-inner);
-  background:
-    linear-gradient(180deg, var(--color-soul-soft), transparent 70%),
-    rgba(255, 255, 255, 0.025);
-  padding: 0.65rem;
-}
-
-.project-network__debug-focus small {
-  display: block;
-  color: var(--color-soul);
-  font-family: var(--font-mono), monospace;
-  font-size: 0.66rem;
-}
-
-.project-network__debug-focus p {
-  margin-top: 0.28rem;
-}
-
-.project-network__overlay-ribbon {
-  display: inline-grid;
-  max-width: 620px;
-  grid-template-columns: auto auto minmax(0, 1fr);
-  align-items: center;
-  gap: 0.45rem;
-  margin-top: 0.72rem;
-  border: 1px solid color-mix(in srgb, var(--color-soul) 26%, transparent);
-  border-radius: 999px;
-  background:
-    linear-gradient(90deg, var(--color-soul-soft), transparent 70%),
-    rgba(255, 255, 255, 0.035);
-  padding: 0.34rem 0.58rem;
-}
-
-.project-network__overlay-ribbon span {
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--color-soul) 22%, transparent);
-  color: var(--color-text);
-  font-family: var(--font-mono), monospace;
-  font-size: 0.64rem;
-  padding: 0.16rem 0.38rem;
-}
-
-.project-network__overlay-ribbon strong {
-  color: var(--color-text);
-  font-family: var(--font-mono), monospace;
-  font-size: 0.72rem;
-}
-
-.project-network__overlay-ribbon em {
-  overflow: hidden;
-  color: var(--color-text-muted);
-  font-size: 0.72rem;
-  font-style: normal;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.project-network__selected-title {
-  display: block;
-  margin-top: 0.3rem;
-  color: var(--color-text);
-  font-size: 0.9rem;
-}
-
-.project-network__problem-position {
-  display: inline-flex;
-  margin-top: 0.42rem;
-  border: 1px solid rgba(255, 197, 95, 0.38);
-  border-radius: 999px;
-  background:
-    radial-gradient(circle at 20% 0%, rgba(255, 197, 95, 0.18), transparent 48%),
-    rgba(255, 255, 255, 0.035);
-  color: #ffd47b;
-  font-family: var(--font-mono), monospace;
-  font-size: 0.7rem;
-  font-weight: 900;
-  padding: 0.26rem 0.5rem;
-}
-
-.project-network__debug-focus--failed {
-  border-color: rgba(255, 116, 91, 0.46);
-  background:
-    radial-gradient(circle at 12% 0%, rgba(255, 116, 91, 0.18), transparent 42%),
-    rgba(255, 255, 255, 0.025);
-}
-
-.project-network__debug-focus--warning {
-  border-color: rgba(255, 190, 96, 0.48);
-  background:
-    radial-gradient(circle at 12% 0%, rgba(255, 190, 96, 0.18), transparent 42%),
-    rgba(255, 255, 255, 0.025);
-}
-
-.project-network__event-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  margin-top: 0.52rem;
-}
-
-.project-network__event-tags span {
-  border: 1px solid color-mix(in srgb, var(--color-soul) 26%, transparent);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.035);
-  color: var(--color-text-soft);
-  font-family: var(--font-mono), monospace;
-  font-size: 0.62rem;
-  padding: 0.2rem 0.42rem;
-}
-
-.project-network__path-strip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.32rem;
-  margin-top: 0.62rem;
-}
-
-.project-network__path-strip span {
-  position: relative;
-  border: 1px solid rgba(255, 255, 255, 0.075);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.038);
-  color: var(--color-text-soft);
-  font-size: 0.68rem;
-  padding: 0.2rem 0.45rem;
-}
-
-.project-network__path-strip span:not(:last-child)::after {
-  content: ">";
-  margin-left: 0.42rem;
-  color: var(--color-soul);
-  font-family: var(--font-mono), monospace;
-}
-
-.project-network__hotspots {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  margin-top: 0.62rem;
-}
-
-.project-network__hotspots small {
-  width: 100%;
-}
-
-.project-network__hotspots button {
-  margin-top: 0;
-  border-color: rgba(255, 197, 95, 0.32);
-  background: rgba(255, 197, 95, 0.09);
-}
-
-.project-network__artifacts {
-  display: grid;
-  gap: 0.28rem;
-  margin-top: 0.62rem;
-}
-
-.project-network__artifacts span {
-  overflow: hidden;
-  color: var(--color-text-muted);
-  font-family: var(--font-mono), monospace;
-  font-size: 0.6rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.project-network__prompt-entry,
-.project-network__memory-entry {
-  display: grid;
-  gap: 0.28rem;
-  margin-top: 0.66rem;
-  border: 1px solid color-mix(in srgb, var(--color-soul) 22%, transparent);
-  border-radius: var(--radius-inner);
-  background:
-    linear-gradient(90deg, var(--color-soul-soft), transparent 76%),
-    rgba(255, 255, 255, 0.025);
-  padding: 0.54rem;
-}
-
-.project-network__memory-entry {
-  border-color: rgba(139, 216, 189, 0.26);
-  background:
-    linear-gradient(90deg, rgba(139, 216, 189, 0.12), transparent 76%),
-    rgba(255, 255, 255, 0.025);
-}
-
-.project-network__prompt-entry button,
-.project-network__memory-entry button {
-  width: fit-content;
-  margin-top: 0;
-}
-
-.project-network__prompt-entry button:disabled,
-.project-network__memory-entry button:disabled {
-  opacity: 0.58;
-}
-
-.project-network__prompt-entry span,
-.project-network__memory-entry span {
-  color: var(--color-text-muted);
-  font-family: var(--font-mono), monospace;
-  font-size: 0.62rem;
-}
-
-.prompt-manifest-panel {
-  display: grid;
-  gap: 0.58rem;
-  max-height: 420px;
-  overflow: auto;
-  margin-top: 0.62rem;
-  border: 1px solid rgba(255, 255, 255, 0.075);
-  border-radius: var(--radius-inner);
-  background: rgba(5, 9, 12, 0.28);
-  padding: 0.62rem;
-}
-
-.prompt-manifest-panel header {
-  display: grid;
-  gap: 0.15rem;
-}
-
-.prompt-manifest-panel header span {
-  color: var(--color-text-muted);
-  font-size: 0.68rem;
-  line-height: 1.45;
-}
-
-.prompt-manifest-panel header small,
-.prompt-manifest-section span {
-  color: var(--color-soul);
-  font-family: var(--font-mono), monospace;
-  font-size: 0.62rem;
-}
-
-.prompt-manifest-panel header strong {
-  overflow: hidden;
-  color: var(--color-text);
-  font-family: var(--font-mono), monospace;
-  font-size: 0.72rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.prompt-manifest-flow {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.42rem;
-}
-
-.prompt-manifest-flow__node {
-  position: relative;
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.075);
-  border-radius: 0.82rem;
-  background:
-    radial-gradient(circle at 15% 15%, rgba(255, 255, 255, 0.1), transparent 36%),
-    rgba(255, 255, 255, 0.028);
-  padding: 0.55rem;
-}
-
-.prompt-manifest-flow__node:not(:last-child)::after {
-  content: ">";
-  position: absolute;
-  top: 50%;
-  right: -0.15rem;
-  transform: translateY(-50%);
-  color: color-mix(in srgb, var(--color-soul) 76%, var(--color-text));
-  font-family: var(--font-mono), monospace;
-  font-size: 0.9rem;
-  font-weight: 900;
-}
-
-.prompt-manifest-flow__node b {
-  display: grid;
-  width: 1.35rem;
-  height: 1.35rem;
-  place-items: center;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--color-text);
-  font-family: var(--font-mono), monospace;
-  font-size: 0.62rem;
-}
-
-.prompt-manifest-flow__node strong,
-.prompt-manifest-flow__node span,
-.prompt-manifest-flow__node em {
-  display: block;
-}
-
-.prompt-manifest-flow__node strong {
-  margin-top: 0.36rem;
-  color: var(--color-text);
-  font-size: 0.78rem;
-}
-
-.prompt-manifest-flow__node span,
-.prompt-manifest-flow__node em {
-  color: var(--color-text-muted);
-  font-size: 0.62rem;
-  font-style: normal;
-  line-height: 1.35;
-}
-
-.prompt-manifest-flow__node em {
-  margin-top: 0.18rem;
-  color: var(--color-soul);
-  font-family: var(--font-mono), monospace;
-}
-
-.prompt-manifest-flow__node--static {
-  border-color: rgba(217, 200, 255, 0.22);
-}
-
-.prompt-manifest-flow__node--session {
-  border-color: rgba(242, 199, 111, 0.24);
-}
-
-.prompt-manifest-flow__node--turn {
-  border-color: rgba(139, 216, 189, 0.24);
-}
-
-.prompt-manifest-layer {
-  display: grid;
-  gap: 0.42rem;
-  border-left: 2px solid color-mix(in srgb, var(--color-soul) 42%, transparent);
-  padding-left: 0.55rem;
-}
-
-.prompt-manifest-layer h4 {
-  margin: 0;
-  color: var(--color-text);
-  font-size: 0.82rem;
-}
-
-.prompt-manifest-layer--static {
-  border-left-color: #d9c8ff;
-}
-
-.prompt-manifest-layer--session {
-  border-left-color: #f2c76f;
-}
-
-.prompt-manifest-layer--turn {
-  border-left-color: #8bd8bd;
-}
-
-.prompt-manifest-section {
-  display: grid;
-  gap: 0.3rem;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 0.75rem;
-  background: rgba(255, 255, 255, 0.03);
-  padding: 0.52rem;
-}
-
-.prompt-manifest-section strong {
-  display: block;
-  color: var(--color-text);
-  font-size: 0.76rem;
-}
-
-.prompt-manifest-section p {
-  margin: 0;
-  color: var(--color-text-soft);
-  font-size: 0.72rem;
-  line-height: 1.48;
-}
-
-.memory-trace-panel {
-  display: grid;
-  gap: 0.58rem;
-  max-height: 460px;
-  overflow: auto;
-  margin-top: 0.62rem;
-  border: 1px solid rgba(139, 216, 189, 0.16);
-  border-radius: var(--radius-inner);
-  background:
-    radial-gradient(circle at 0% 0%, rgba(139, 216, 189, 0.12), transparent 42%),
-    rgba(5, 9, 12, 0.28);
-  padding: 0.62rem;
-}
-
-.memory-trace-panel header {
-  display: grid;
-  gap: 0.12rem;
-}
-
-.memory-trace-panel header small,
-.memory-trace-panel header span,
-.memory-trace-section strong,
-.memory-trace-slots b {
-  color: #8bd8bd;
-  font-family: var(--font-mono), monospace;
-  font-size: 0.62rem;
-}
-
-.memory-trace-panel header strong {
-  overflow: hidden;
-  color: var(--color-text);
-  font-family: var(--font-mono), monospace;
-  font-size: 0.72rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.memory-trace-flow {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.42rem;
-}
-
-.memory-trace-flow article {
-  border: 1px solid rgba(139, 216, 189, 0.14);
-  border-radius: 0.82rem;
-  background: rgba(139, 216, 189, 0.045);
-  padding: 0.52rem;
-}
-
-.memory-trace-flow b {
-  display: grid;
-  width: 1.28rem;
-  height: 1.28rem;
-  place-items: center;
-  border-radius: 999px;
-  background: rgba(139, 216, 189, 0.12);
-  color: var(--color-text);
-  font-family: var(--font-mono), monospace;
-  font-size: 0.6rem;
-}
-
-.memory-trace-flow strong,
-.memory-trace-flow span {
-  display: block;
-}
-
-.memory-trace-flow strong {
-  margin-top: 0.32rem;
-  color: var(--color-text);
-  font-size: 0.78rem;
-}
-
-.memory-trace-flow span {
-  color: var(--color-text-muted);
-  font-size: 0.62rem;
-}
-
-.memory-trace-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.5rem;
-}
-
-.memory-trace-grid h4 {
-  margin: 0 0 0.38rem;
-  color: var(--color-text);
-  font-size: 0.82rem;
-}
-
-.memory-trace-section {
-  display: grid;
-  gap: 0.25rem;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 0.75rem;
-  background: rgba(255, 255, 255, 0.026);
-  padding: 0.48rem;
-}
-
-.memory-trace-section + .memory-trace-section {
-  margin-top: 0.4rem;
-}
-
-.memory-trace-section p,
-.memory-trace-grid > section > p {
-  margin: 0;
-  color: var(--color-text-soft);
-  font-size: 0.7rem;
-  line-height: 1.48;
-}
-
-.memory-trace-slots {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.34rem;
-}
-
-.memory-trace-slots span {
-  display: grid;
-  gap: 0.08rem;
-  min-width: 92px;
-  border: 1px solid rgba(139, 216, 189, 0.12);
-  border-radius: 0.72rem;
-  background: rgba(139, 216, 189, 0.045);
-  color: var(--color-text-soft);
-  font-size: 0.64rem;
-  padding: 0.38rem 0.46rem;
-}
-
-.project-network__debug-focus button {
-  margin-top: 0.5rem;
-  border: 1px solid color-mix(in srgb, var(--color-soul) 35%, transparent);
-  border-radius: 999px;
-  background: var(--color-soul-soft);
-  color: var(--color-text);
-  font-size: 0.72rem;
-  padding: 0.28rem 0.55rem;
-}
-
-.project-network__canvas {
-  position: relative;
-  min-height: 1500px;
-  min-width: 2400px;
-  overflow: auto;
-  border: 1px solid color-mix(in srgb, var(--color-soul) 18%, transparent);
-  border-radius: var(--radius-block);
-  background:
-    linear-gradient(90deg, transparent 0 17%, rgba(255, 255, 255, 0.035) 17% 17.1%, transparent 17.1% 39%, rgba(255, 255, 255, 0.035) 39% 39.1%, transparent 39.1% 61%, rgba(255, 255, 255, 0.035) 61% 61.1%, transparent 61.1% 82%, rgba(255, 255, 255, 0.035) 82% 82.1%, transparent 82.1%),
-    linear-gradient(0deg, transparent 0 28%, rgba(255, 255, 255, 0.026) 28% 28.1%, transparent 28.1% 71%, rgba(255, 255, 255, 0.026) 71% 71.1%, transparent 71.1%),
-    radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.045), transparent 28%),
-    rgba(0, 0, 0, 0.06);
-}
-
-.project-network--overlay-active .project-network__canvas {
-  background:
-    radial-gradient(circle at 54% 48%, color-mix(in srgb, var(--color-soul) 13%, transparent), transparent 30%),
-    linear-gradient(90deg, transparent 0 17%, rgba(255, 255, 255, 0.026) 17% 17.1%, transparent 17.1% 39%, rgba(255, 255, 255, 0.026) 39% 39.1%, transparent 39.1% 61%, rgba(255, 255, 255, 0.026) 61% 61.1%, transparent 61.1% 82%, rgba(255, 255, 255, 0.026) 82% 82.1%, transparent 82.1%),
-    linear-gradient(0deg, transparent 0 28%, rgba(255, 255, 255, 0.018) 28% 28.1%, transparent 28.1% 71%, rgba(255, 255, 255, 0.018) 71% 71.1%, transparent 71.1%),
-    rgba(0, 0, 0, 0.08);
-}
-
-.project-network__canvas::before {
-  content: "后端入口        接口边界        运行时装配        对话执行主链        能力 / 证据 / 模型边界";
-  position: absolute;
-  top: 0.8rem;
-  left: 1rem;
-  z-index: 1;
-  color: rgba(246, 245, 240, 0.34);
-  font-family: var(--font-mono), monospace;
-  font-size: 0.68rem;
-  letter-spacing: 0.12em;
-  pointer-events: none;
-  white-space: pre;
-}
-
-.project-network__canvas::after {
-  content: "上层：提示词、规划、工具与技能     中层：请求到模型的主运行链     下层：会话、记忆、检索、索引与测试闭环";
-  position: absolute;
-  bottom: 0.8rem;
-  left: 1rem;
-  z-index: 1;
-  color: rgba(246, 245, 240, 0.3);
-  font-family: var(--font-mono), monospace;
-  font-size: 0.68rem;
-  letter-spacing: 0.08em;
-  pointer-events: none;
-}
-
-.project-network__edges {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  width: 100%;
-  height: 100%;
-  overflow: visible;
-}
-
-.graph-edge marker path {
-  fill: color-mix(in srgb, var(--color-soul) 62%, rgba(255, 255, 255, 0.38));
-}
-
-.graph-edge__visible {
-  stroke: color-mix(in srgb, var(--color-soul) 42%, rgba(255, 255, 255, 0.22));
-  stroke-width: 0.28;
-  stroke-linecap: round;
-  opacity: 0.72;
-}
-
-.graph-edge__hit {
-  cursor: pointer;
-  pointer-events: stroke;
-  stroke: transparent;
-  stroke-width: 3.2;
-}
-
-.graph-edge--selected .graph-edge__visible {
-  stroke-width: 0.48;
-  opacity: 1;
-  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--color-soul) 55%, transparent));
-}
-
-.graph-edge--highlighted .graph-edge__visible {
-  stroke: #ffdd7a;
-  stroke-width: 0.62;
-  opacity: 1;
-  filter:
-    drop-shadow(0 0 7px rgba(255, 221, 122, 0.68))
-    drop-shadow(0 0 18px rgba(255, 221, 122, 0.22));
-}
-
-.graph-edge--overlay .graph-edge__visible {
-  stroke-width: 0.64;
-  opacity: 1;
-}
-
-.graph-edge--overlay-passed .graph-edge__visible {
-  stroke: #8ee7c4;
-  filter: drop-shadow(0 0 8px rgba(142, 231, 196, 0.32));
-}
-
-.graph-edge--overlay-warning .graph-edge__visible {
-  stroke: #ffc55f;
-  filter: drop-shadow(0 0 10px rgba(255, 197, 95, 0.42));
-}
-
-.graph-edge--overlay-failed .graph-edge__visible {
-  stroke: #ff715f;
-  filter:
-    drop-shadow(0 0 9px rgba(255, 113, 95, 0.55))
-    drop-shadow(0 0 22px rgba(255, 113, 95, 0.2));
-}
-
-.graph-edge--muted .graph-edge__visible {
-  opacity: 0.16;
-  stroke-width: 0.18;
-  filter: none;
-}
-
-.graph-edge--muted .graph-edge__label {
-  opacity: 0.28;
-}
-
-.graph-edge--request .graph-edge__visible {
-  stroke: #76c8ff;
-}
-
-.graph-edge--context .graph-edge__visible {
-  stroke: #f2c76f;
-}
-
-.graph-edge--capability .graph-edge__visible {
-  stroke: #f29a78;
-}
-
-.graph-edge--identity .graph-edge__visible {
-  stroke: #d9c8ff;
-}
-
-.graph-edge--evidence .graph-edge__visible {
-  stroke: #8bd8bd;
-}
-
-.graph-edge--storage .graph-edge__visible {
-  stroke: #c9ab7a;
-}
-
-.graph-edge__label {
-  cursor: pointer;
-  fill: color-mix(in srgb, var(--color-text) 82%, var(--color-soul));
-  font-family: var(--font-mono), monospace;
-  font-size: 0.72px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  paint-order: stroke;
-  pointer-events: auto;
-  stroke: color-mix(in srgb, var(--color-panel-strong) 96%, #000);
-  stroke-linejoin: round;
-  stroke-width: 0.36px;
-  text-anchor: middle;
-}
-
-.graph-edge__problem-label {
-  cursor: pointer;
-  fill: #ffd47b;
-  font-family: var(--font-mono), monospace;
-  font-size: 0.74px;
-  font-weight: 900;
-  letter-spacing: 0.04em;
-  paint-order: stroke;
-  pointer-events: auto;
-  stroke: color-mix(in srgb, var(--color-panel-strong) 96%, #000);
-  stroke-linejoin: round;
-  stroke-width: 0.42px;
-  text-anchor: middle;
-}
-
-.graph-edge--selected .graph-edge__label {
-  fill: var(--color-text);
-  font-size: 0.82px;
-}
-
-.graph-local-edge {
-  stroke: color-mix(in srgb, var(--color-soul) 24%, rgba(255, 255, 255, 0.16));
-  stroke-dasharray: 0.7 0.9;
-  stroke-linecap: round;
-  stroke-width: 0.18;
-  opacity: 0.68;
-}
-
-.network-node {
-  position: absolute;
-  z-index: 2;
-  width: 154px;
-  transform: translate(-50%, -50%);
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 42%),
-    color-mix(in srgb, var(--color-panel-strong) 94%, transparent);
-  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.16);
-  padding: 0.62rem;
-}
-
-.network-node::before {
-  content: "";
-  position: absolute;
-  inset: -0.35rem;
-  border: 1px solid color-mix(in srgb, var(--color-soul) 10%, transparent);
-  border-radius: 1.25rem;
-  pointer-events: none;
-}
-
-.network-node--highlighted {
-  border-color: rgba(255, 221, 122, 0.82);
-  box-shadow:
-    0 0 0 1px rgba(255, 221, 122, 0.22),
-    0 0 28px rgba(255, 221, 122, 0.2),
-    0 18px 42px rgba(0, 0, 0, 0.2);
-}
-
-.network-node--highlighted::before {
-  border-color: rgba(255, 221, 122, 0.42);
-}
-
-.network-node--overlay {
-  border-color: rgba(142, 231, 196, 0.52);
-  box-shadow:
-    0 0 0 1px rgba(142, 231, 196, 0.14),
-    0 16px 38px rgba(0, 0, 0, 0.2);
-}
-
-.network-node--overlay-warning {
-  border-color: rgba(255, 197, 95, 0.64);
-  box-shadow:
-    0 0 0 1px rgba(255, 197, 95, 0.16),
-    0 0 26px rgba(255, 197, 95, 0.15),
-    0 16px 38px rgba(0, 0, 0, 0.2);
-}
-
-.network-node--overlay-failed {
-  border-color: rgba(255, 113, 95, 0.72);
-  box-shadow:
-    0 0 0 1px rgba(255, 113, 95, 0.18),
-    0 0 30px rgba(255, 113, 95, 0.22),
-    0 16px 42px rgba(0, 0, 0, 0.24);
-}
-
-.network-node--prompt-manifest {
-  border-color: rgba(217, 200, 255, 0.66);
-  box-shadow:
-    0 0 0 1px rgba(217, 200, 255, 0.16),
-    0 0 30px rgba(217, 200, 255, 0.18),
-    0 16px 42px rgba(0, 0, 0, 0.22);
-}
-
-.network-node--prompt-manifest::before {
-  border-color: rgba(217, 200, 255, 0.32);
-}
-
-.network-node--memory-trace {
-  border-color: rgba(139, 216, 189, 0.64);
-  box-shadow:
-    0 0 0 1px rgba(139, 216, 189, 0.16),
-    0 0 30px rgba(139, 216, 189, 0.18),
-    0 16px 42px rgba(0, 0, 0, 0.22);
-}
-
-.network-node--memory-trace::before {
-  border-color: rgba(139, 216, 189, 0.32);
-}
-
-.network-node--muted {
-  opacity: 0.34;
-  filter: saturate(0.55);
-}
-
-.network-node__overlay-index {
-  position: absolute;
-  top: -0.68rem;
-  left: -0.52rem;
-  z-index: 4;
-  display: grid;
-  width: 1.55rem;
-  height: 1.55rem;
-  place-items: center;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 999px;
-  background:
-    radial-gradient(circle at 35% 28%, rgba(255, 255, 255, 0.28), transparent 38%),
-    color-mix(in srgb, var(--color-soul) 52%, #101418);
-  box-shadow:
-    0 0 0 4px rgba(0, 0, 0, 0.16),
-    0 0 18px color-mix(in srgb, var(--color-soul) 34%, transparent);
-  color: #fff;
-  font-family: var(--font-mono), monospace;
-  font-size: 0.68rem;
-  font-weight: 900;
-}
-
-.network-node__prompt-badge,
-.network-node__memory-badge {
-  position: absolute;
-  right: -0.45rem;
-  bottom: -0.7rem;
-  z-index: 4;
-  border: 1px solid rgba(217, 200, 255, 0.36);
-  border-radius: 999px;
-  background:
-    radial-gradient(circle at 12% 12%, rgba(255, 255, 255, 0.22), transparent 38%),
-    rgba(32, 26, 48, 0.92);
-  box-shadow: 0 0 18px rgba(217, 200, 255, 0.22);
-  color: #f0e9ff;
-  font-family: var(--font-mono), monospace;
-  font-size: 0.56rem;
-  font-weight: 900;
-  padding: 0.2rem 0.42rem;
-  pointer-events: none;
-}
-
-.network-node__memory-badge {
-  background:
-    radial-gradient(circle at 12% 12%, rgba(255, 255, 255, 0.22), transparent 38%),
-    rgba(20, 48, 40, 0.92);
-  border-color: rgba(139, 216, 189, 0.36);
-  box-shadow: 0 0 18px rgba(139, 216, 189, 0.22);
-  color: #defbf0;
-}
-
-.network-node__head {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  gap: 0.5rem;
-  border: 0;
-  background: transparent;
-  color: var(--color-text);
-  padding: 0;
-  text-align: left;
-}
-
-.network-node__head:disabled {
-  cursor: default;
-}
-
-.network-node__icon {
-  display: flex;
-  width: 1.9rem;
-  height: 1.9rem;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-control);
-  background: var(--color-soul-soft);
-  color: var(--color-soul);
-}
-
-.network-node__head small {
-  display: block;
-  color: var(--color-soul);
-  font-family: var(--font-mono), monospace;
-  font-size: 0.58rem;
-}
-
-.network-node__head strong {
-  display: block;
-  margin-top: 0.05rem;
-  color: var(--color-text);
-  font-size: 0.88rem;
-}
-
-.network-node__head em {
-  display: block;
-  overflow: hidden;
-  margin-top: 0.12rem;
-  color: var(--color-text-muted);
-  font-family: var(--font-mono), monospace;
-  font-size: 0.54rem;
-  font-style: normal;
-  line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.network-node__head b {
-  display: inline-flex;
-  margin-top: 0.22rem;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--color-text-soft);
-  font-family: var(--font-mono), monospace;
-  font-size: 0.56rem;
-  font-style: normal;
-  padding: 0.08rem 0.32rem;
-}
-
 .test-debug-hero {
   display: grid;
   grid-template-columns: minmax(0, 1.3fr) auto auto;
@@ -6763,121 +5706,6 @@ button:hover {
   flex: 1 1 110px;
 }
 
-.network-subnode {
-  position: absolute;
-  z-index: 2;
-  width: 128px;
-  transform: translate(-50%, -50%);
-  border: 1px solid color-mix(in srgb, var(--color-soul) 20%, var(--color-border));
-  border-radius: 0.78rem;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 45%),
-    color-mix(in srgb, var(--color-panel-strong) 88%, transparent);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
-  padding: 0.42rem 0.5rem;
-}
-
-.network-subnode--muted,
-.project-network--overlay-active .network-local-relation {
-  opacity: 0.24;
-}
-
-.network-subnode span {
-  display: block;
-  color: var(--color-soul);
-  font-family: var(--font-mono), monospace;
-  font-size: 0.54rem;
-}
-
-.network-subnode strong {
-  display: block;
-  overflow: hidden;
-  margin-top: 0.12rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--color-text);
-  font-size: 0.68rem;
-}
-
-.network-subnode em {
-  display: block;
-  overflow: hidden;
-  margin-top: 0.12rem;
-  color: var(--color-text-muted);
-  font-family: var(--font-mono), monospace;
-  font-size: 0.49rem;
-  font-style: normal;
-  line-height: 1.15;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.network-local-relation {
-  position: absolute;
-  z-index: 3;
-  transform: translate(-50%, -50%);
-  max-width: 126px;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--color-soul) 28%, transparent);
-  border-radius: 999px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 50%),
-    color-mix(in srgb, var(--color-panel-strong) 96%, transparent);
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.025),
-    0 8px 20px rgba(0, 0, 0, 0.12);
-  color: color-mix(in srgb, var(--color-text) 84%, var(--color-soul));
-  font-family: var(--font-mono), monospace;
-  font-size: 0.5rem;
-  font-weight: 800;
-  line-height: 1;
-  opacity: 0.86;
-  padding: 0.2rem 0.4rem;
-  pointer-events: none;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.project-network__legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-.legend-route {
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  background: var(--color-panel-strong);
-  color: var(--color-text-soft);
-  font-family: var(--font-mono), monospace;
-  font-size: 0.66rem;
-  padding: 0.35rem 0.62rem;
-}
-
-.legend-route--request {
-  border-color: rgba(118, 200, 255, 0.42);
-}
-
-.legend-route--context {
-  border-color: rgba(242, 199, 111, 0.42);
-}
-
-.legend-route--capability {
-  border-color: rgba(242, 154, 120, 0.42);
-}
-
-.legend-route--identity {
-  border-color: rgba(217, 200, 255, 0.42);
-}
-
-.legend-route--evidence {
-  border-color: rgba(139, 216, 189, 0.42);
-}
-
-.legend-route--storage {
-  border-color: rgba(201, 171, 122, 0.42);
-}
-
 .project-graph {
   display: grid;
   width: 100%;
@@ -7209,10 +6037,6 @@ button:hover {
   padding: clamp(1rem, 1.8vw, 1.6rem);
 }
 
-.system-framework-stage .family-tree--full {
-  min-height: calc(100vh - clamp(1.5rem, 3.2vw, 3rem));
-  border-radius: clamp(24px, 2.6vw, 42px);
-}
 
 .family-tree::before {
   content: "";
@@ -9044,20 +7868,6 @@ html[data-soul="xuannv"] .soul-portrait__label {
     padding-top: 3.7rem;
   }
 
-  .project-network {
-    overflow: auto;
-    padding-top: 3.7rem;
-  }
-
-  .project-network__header {
-    grid-template-columns: 1fr;
-    padding-right: 0;
-  }
-
-  .project-network__canvas {
-    min-width: 2400px;
-    min-height: 1500px;
-  }
 
   .project-graph__header {
     flex-direction: column;
@@ -9110,10 +7920,6 @@ html[data-soul="xuannv"] .soul-portrait__label {
     width: 100%;
   }
 
-  .system-framework-chat-switch {
-    top: 0.75rem;
-    right: 0.75rem;
-  }
 
   .family-tree::before,
   .family-tree__branch::before,
@@ -9207,26 +8013,12 @@ html[data-soul="xuannv"] .soul-portrait__label {
     justify-content: flex-start;
   }
 
-  .prompt-manifest-flow,
-  .memory-trace-flow,
-  .memory-trace-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .prompt-manifest-flow__node:not(:last-child)::after {
-    display: none;
-  }
 
   .turn-replay-filter {
     width: 100%;
     margin-left: 0;
   }
 
-  .project-network__overlay-ribbon {
-    max-width: 100%;
-    grid-template-columns: 1fr;
-    border-radius: var(--radius-card);
-  }
 
   .system-focus__summary {
     align-items: flex-start;
@@ -31809,81 +30601,6 @@ html[data-workspace-tone] .agent-workbench {
   }
 }
 
-.system-framework-stage {
-  --console-bg: #f3f5f8;
-  --console-surface: #ffffff;
-  --console-surface-soft: #f8fafc;
-  --console-line: #cbd3df;
-  --console-line-strong: #aeb8c7;
-  --console-text: #0f172a;
-  --console-muted: #64748b;
-  --console-blue: #1d5fd3;
-  min-height: 100dvh;
-  background: var(--console-bg);
-  color: var(--console-text);
-}
-
-.system-framework-stage::before,
-.system-framework-stage::after {
-  display: none;
-}
-
-.system-framework-stage .project-network,
-.system-framework-stage .project-network__canvas,
-.system-framework-stage .project-network__detail,
-.system-framework-stage .project-network__legend,
-.system-framework-stage .system-framework-chat-switch,
-.system-framework-stage .prompt-manifest-panel,
-.system-framework-stage .memory-trace-panel,
-.system-framework-stage .memory-trace-grid section,
-.system-framework-stage .network-node__head,
-.system-framework-stage .network-subnode,
-.system-framework-stage .project-network__overlay {
-  border: 1px solid var(--console-line);
-  border-radius: 8px;
-  background: var(--console-surface);
-  color: var(--console-text);
-  box-shadow: none;
-  backdrop-filter: none;
-}
-
-.system-framework-stage .project-network__canvas {
-  background:
-    linear-gradient(#e5ebf3 1px, transparent 1px),
-    linear-gradient(90deg, #e5ebf3 1px, transparent 1px),
-    #fff;
-  background-size: 32px 32px;
-}
-
-.system-framework-stage .project-network__header h2,
-.system-framework-stage .project-network__selected-title,
-.system-framework-stage .network-node__head strong,
-.system-framework-stage .network-subnode strong,
-.system-framework-stage .prompt-manifest-panel strong,
-.system-framework-stage .memory-trace-panel strong {
-  color: var(--console-text);
-}
-
-.system-framework-stage .project-network__header p,
-.system-framework-stage .network-node__head small,
-.system-framework-stage .network-node__head em,
-.system-framework-stage .network-subnode span,
-.system-framework-stage .network-subnode em,
-.system-framework-stage .prompt-manifest-panel span,
-.system-framework-stage .memory-trace-panel span {
-  color: var(--console-muted);
-}
-
-.system-framework-stage button {
-  border-radius: 6px;
-}
-
-.system-framework-stage button:hover:not(:disabled) {
-  border-color: #9db6ea;
-  background: #e8f0ff;
-  color: var(--console-blue);
-}
-
 @media (max-width: 1120px) {
   .agent-workbench .task-management-stage,
   .agent-workbench .task-system-control-grid,
@@ -32830,5 +31547,1134 @@ html[data-workspace-tone] .agent-workbench {
   .system-page-content .task-graph-editor-page .task-graph-topology-inspector {
     height: auto;
     max-height: 14rem;
+  }
+}
+
+/* Console workbench visual system: light, dense, precise. */
+:root {
+  --console-font: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "PingFang SC", "Noto Sans SC", system-ui, sans-serif;
+  --console-mono: "Cascadia Code", "Cascadia Mono", "Consolas", "SFMono-Regular", monospace;
+  --console-bg: #f6f7f9;
+  --console-bg-raised: #fafbfc;
+  --console-surface: #ffffff;
+  --console-surface-muted: #f2f4f7;
+  --console-hover: #edf2f7;
+  --console-selected: #eaf2ff;
+  --console-line: #d9dee7;
+  --console-line-soft: #e8ebf0;
+  --console-line-strong: #b8c1ce;
+  --console-text: #15181d;
+  --console-text-soft: #3f4651;
+  --console-muted: #697381;
+  --console-faint: #98a1ad;
+  --console-accent: #1f5fbf;
+  --console-accent-hover: #184f9f;
+  --console-accent-soft: #eaf2ff;
+  --console-success: #16735c;
+  --console-warning: #986300;
+  --console-danger: #b42318;
+  --console-focus: 0 0 0 3px rgba(31, 95, 191, 0.14);
+  --console-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+}
+
+html,
+body {
+  background: var(--console-bg);
+}
+
+body {
+  color: var(--console-text);
+  font-family: var(--console-font);
+  font-size: 13px;
+  letter-spacing: 0;
+  text-rendering: geometricPrecision;
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+textarea,
+select {
+  letter-spacing: 0;
+}
+
+button,
+a,
+[role="button"] {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 0;
+  box-shadow: var(--console-focus);
+}
+
+::selection {
+  background: rgba(31, 95, 191, 0.18);
+}
+
+.system-page-shell,
+.agent-workbench {
+  --workbench-font: var(--console-font);
+  --workbench-font-mono: var(--console-mono);
+  --workbench-bg: var(--console-bg);
+  --workbench-surface: var(--console-surface);
+  --workbench-surface-soft: var(--console-bg-raised);
+  --workbench-hover: var(--console-hover);
+  --workbench-line: var(--console-line);
+  --workbench-line-strong: var(--console-line-strong);
+  --workbench-text: var(--console-text);
+  --workbench-muted: var(--console-muted);
+  --workbench-soft: var(--console-faint);
+  --workbench-blue: var(--console-accent);
+  --workbench-blue-soft: var(--console-accent-soft);
+  --workbench-green: var(--console-success);
+  --workbench-texture: none;
+  --workbench-surface-texture: none;
+  --workbench-glow: none;
+  --workbench-input: var(--console-surface);
+  --console-bg: #f6f7f9;
+  --console-bg-soft: #fafbfc;
+  --console-surface: #ffffff;
+  --console-surface-soft: #f4f6f8;
+  --console-surface-strong: #eef1f5;
+  --console-line: #d9dee7;
+  --console-line-soft: #e8ebf0;
+  --console-line-strong: #b8c1ce;
+  --console-text: #15181d;
+  --console-text-soft: #3f4651;
+  --console-muted: #697381;
+  --console-faint: #98a1ad;
+  --console-blue: #1f5fbf;
+  --console-blue-soft: #eaf2ff;
+  --console-green: #16735c;
+  --console-green-soft: #e7f6ef;
+  --console-warn: #986300;
+  --console-warn-soft: #fff6df;
+  --console-danger: #b42318;
+  --console-danger-soft: #fff1ef;
+  font-family: var(--console-font);
+  font-size: 13px;
+}
+
+.system-page-shell {
+  grid-template-columns: 48px minmax(0, 1fr);
+  background: var(--console-bg);
+  color: var(--console-text);
+}
+
+.system-page-rail {
+  gap: 10px;
+  border-right: 1px solid var(--console-line);
+  background: var(--console-bg-raised);
+  padding: 10px 6px;
+}
+
+.system-page-rail__mark,
+.system-page-rail__button {
+  width: 34px;
+  height: 34px;
+  border-color: transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--console-muted);
+}
+
+.system-page-rail__mark {
+  border-color: var(--console-line);
+  background: var(--console-surface);
+  color: var(--console-accent);
+  box-shadow: var(--console-shadow);
+  font-size: 12px;
+}
+
+.system-page-rail nav {
+  gap: 5px;
+}
+
+.system-page-rail__button:hover,
+.system-page-rail__button--active {
+  border-color: var(--console-line);
+  background: var(--console-selected);
+  color: var(--console-accent);
+}
+
+.system-page-content {
+  background: var(--console-bg);
+  padding: 10px;
+}
+
+.agent-workbench {
+  background: var(--console-bg);
+  color: var(--console-text);
+}
+
+html[data-workspace-tone] .agent-workbench {
+  --workbench-bg: var(--console-bg);
+  --workbench-surface: var(--console-surface);
+  --workbench-surface-soft: var(--console-bg-raised);
+  --workbench-hover: var(--console-hover);
+  --workbench-line: var(--console-line);
+  --workbench-line-strong: var(--console-line-strong);
+  --workbench-text: var(--console-text);
+  --workbench-muted: var(--console-muted);
+  --workbench-soft: var(--console-faint);
+  --workbench-blue: var(--console-accent);
+  --workbench-blue-soft: var(--console-accent-soft);
+  --workbench-green: var(--console-success);
+  --workbench-texture: none;
+  --workbench-surface-texture: none;
+  --workbench-glow: none;
+  --workbench-input: var(--console-surface);
+}
+
+.workbench-resource-panel,
+.workbench-right-panel,
+.workbench-center,
+.workbench-main-toolbar,
+.workbench-center-content,
+.workbench-view-host {
+  background: var(--console-surface);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.workbench-resource-panel,
+.workbench-right-panel {
+  border-color: var(--console-line);
+}
+
+.workbench-panel-head,
+.workbench-main-toolbar {
+  min-height: 46px;
+  border-bottom-color: var(--console-line);
+  padding: 7px 10px;
+}
+
+.workbench-panel-head strong,
+.workbench-breadcrumb strong,
+.workbench-file-inspector header strong,
+.workbench-session-toolbar strong,
+.workbench-project-context strong,
+.workbench-session-row strong {
+  color: var(--console-text);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.workbench-panel-head span,
+.workbench-breadcrumb span,
+.workbench-file-inspector header span,
+.workbench-session-toolbar span,
+.workbench-project-context span,
+.workbench-project-context small,
+.workbench-session-row small {
+  color: var(--console-muted);
+  font-size: 11px;
+}
+
+.workbench-project-context,
+.workbench-session-toolbar,
+.workbench-right-tabs {
+  border-bottom-color: var(--console-line);
+  background: var(--console-bg-raised);
+}
+
+.workbench-project-context {
+  padding: 9px 10px;
+}
+
+.workbench-icon-button,
+.workbench-toolbar-actions button,
+.workbench-right-tabs button,
+.workbench-project-context button,
+.workbench-session-toolbar button,
+.workbench-browser-bar button,
+.workbench-file-inspector header button {
+  border-radius: 7px;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease, opacity 140ms ease;
+}
+
+.workbench-icon-button:hover:not(:disabled),
+.workbench-toolbar-actions button:hover:not(:disabled),
+.workbench-project-context button:hover,
+.workbench-browser-bar button:hover,
+.workbench-file-inspector header button:hover:not(:disabled) {
+  border-color: var(--console-line-strong);
+  background: var(--console-hover);
+  color: var(--console-text);
+}
+
+.workbench-session-toolbar button {
+  border-color: var(--console-accent);
+  background: var(--console-accent);
+  color: #fff;
+}
+
+.workbench-session-toolbar button:hover:not(:disabled) {
+  border-color: var(--console-accent-hover);
+  background: var(--console-accent-hover);
+  color: #fff;
+}
+
+.workbench-toolbar-actions button,
+.workbench-project-context button,
+.workbench-browser-bar button,
+.workbench-file-inspector header button {
+  border-color: var(--console-line);
+  background: var(--console-surface);
+  color: var(--console-text-soft);
+  box-shadow: var(--console-shadow);
+}
+
+.workbench-right-tabs {
+  gap: 3px;
+  padding: 6px;
+}
+
+.workbench-right-tabs button {
+  min-height: 28px;
+  color: var(--console-muted);
+  font-size: 11px;
+  font-weight: 620;
+}
+
+.workbench-right-tabs button:hover,
+.workbench-right-tabs button.is-active {
+  background: var(--console-surface);
+  color: var(--console-accent);
+  box-shadow: inset 0 0 0 1px var(--console-line);
+}
+
+.workbench-session-list {
+  border-top: 0;
+}
+
+.workbench-session-row {
+  border-bottom-color: var(--console-line-soft);
+}
+
+.workbench-session-row:hover,
+.workbench-session-row--active {
+  background: var(--console-selected);
+  box-shadow: inset 2px 0 0 var(--console-accent);
+}
+
+.workbench-session-row button:first-child {
+  padding: 8px 8px;
+}
+
+.workbench-empty-state,
+.center-workspace__empty,
+.center-workspace__monitor-empty,
+.boundary-empty {
+  border-color: var(--console-line);
+  background: var(--console-bg-raised);
+  color: var(--console-muted);
+}
+
+.workbench-resize-handle {
+  background: var(--console-bg);
+}
+
+.workbench-resize-handle:hover::after {
+  background: var(--console-line-strong);
+}
+
+.workbench-runtime-state {
+  color: var(--console-muted);
+}
+
+.workbench-runtime-state--active {
+  color: var(--console-success);
+}
+
+.workbench-browser-bar,
+.workbench-file-inspector header {
+  border-bottom: 1px solid var(--console-line);
+  background: var(--console-bg-raised);
+}
+
+.workbench-browser-bar input,
+.workbench-file-inspector textarea,
+.workspace-search,
+.boundary-field input,
+.boundary-field select,
+.boundary-field textarea,
+.boundary-form input,
+.boundary-form select,
+.boundary-form textarea,
+.mcp-form-grid input,
+.mcp-form-grid select,
+.mcp-form-grid textarea,
+.task-system-form-grid input,
+.task-system-form-grid select,
+.task-system-form-grid textarea,
+.task-graph-form-grid input,
+.task-graph-form-grid select,
+.task-graph-form-grid textarea,
+.health-case-form input,
+.health-case-form select,
+.health-case-form textarea {
+  border-color: var(--console-line);
+  border-radius: 7px;
+  background: var(--console-surface);
+  color: var(--console-text);
+  box-shadow: none;
+}
+
+.workbench-browser-bar input:focus,
+.workbench-file-inspector textarea:focus,
+.boundary-field input:focus,
+.boundary-field select:focus,
+.boundary-field textarea:focus,
+.boundary-form input:focus,
+.boundary-form select:focus,
+.boundary-form textarea:focus,
+.mcp-form-grid input:focus,
+.mcp-form-grid select:focus,
+.mcp-form-grid textarea:focus,
+.task-system-form-grid input:focus,
+.task-system-form-grid select:focus,
+.task-system-form-grid textarea:focus,
+.task-graph-form-grid input:focus,
+.task-graph-form-grid select:focus,
+.task-graph-form-grid textarea:focus,
+.health-case-form input:focus,
+.health-case-form select:focus,
+.health-case-form textarea:focus {
+  border-color: var(--console-accent);
+  outline: 0;
+  box-shadow: var(--console-focus);
+}
+
+.workbench-file-inspector textarea,
+.system-page-shell code,
+.system-page-shell pre,
+.workbench-browser-bar input {
+  font-family: var(--console-mono);
+}
+
+.center-workspace {
+  gap: 10px;
+  padding: 10px;
+}
+
+.center-workspace__launchpad,
+.center-workspace__monitor,
+.center-workspace__graph-card,
+.center-workspace__summary article,
+.center-workspace__notice,
+.system-page-shell .workspace-search,
+.system-page-shell .workspace-alert,
+.system-page-shell .capability-overview-bar,
+.system-page-shell .capability-group-card,
+.system-page-shell .capability-issue-panel,
+.system-page-shell .capability-mcp-section,
+.system-page-shell .capability-mcp-rail,
+.system-page-shell .capability-system-console .operation-switcher__item,
+.system-page-shell .capability-system-console .operation-skill-card,
+.system-page-shell .capability-system-console .operation-tool-card,
+.system-page-shell .capability-system-console .operation-unit-card,
+.system-page-shell .capability-system-console .operation-detail,
+.system-page-shell .capability-system-console .operation-inline-panel,
+.system-page-shell .capability-system-console .operation-foldout,
+.system-page-shell .capability-system-console .operation-fact-grid article,
+.system-page-shell .capability-system-console .operation-tool-control,
+.system-page-shell .capability-system-console .operation-json-stack article,
+.system-page-shell .capability-system-console .operation-inline-stack article,
+.system-page-shell .mcp-tool-row,
+.system-page-shell .capability-endpoint-row,
+.system-page-shell .mcp-server-row,
+.confirm-dialog {
+  border-color: var(--console-line);
+  border-radius: 8px;
+  background: var(--console-surface);
+  box-shadow: var(--console-shadow);
+}
+
+.center-workspace__graph-card--active,
+.system-page-shell .capability-group-card:hover,
+.system-page-shell .capability-system-console .operation-switcher__item--active,
+.system-page-shell .capability-system-console .operation-switcher__item:hover,
+.system-page-shell .capability-system-console .operation-skill-card--active,
+.system-page-shell .capability-system-console .operation-tool-card--active,
+.system-page-shell .capability-system-console .operation-unit-card--active,
+.system-page-shell .mcp-tool-row--active,
+.system-page-shell .capability-endpoint-row--active,
+.system-page-shell .capability-system-console .mcp-server-row--active {
+  border-color: #a9bee2;
+  background: var(--console-selected);
+  color: var(--console-text);
+}
+
+.system-page-shell .action-button,
+.system-page-shell .capability-mcp-actions button,
+.boundary-button,
+.confirm-dialog header > button,
+.confirm-dialog footer button {
+  border: 1px solid var(--console-line);
+  border-radius: 7px;
+  background: var(--console-surface);
+  color: var(--console-text);
+  box-shadow: var(--console-shadow);
+  font-weight: 620;
+}
+
+.system-page-shell .action-button:hover:not(:disabled),
+.system-page-shell .capability-mcp-actions button:hover:not(:disabled),
+.boundary-button:hover:not(:disabled),
+.confirm-dialog header > button:hover,
+.confirm-dialog footer button:hover {
+  border-color: var(--console-line-strong);
+  background: var(--console-hover);
+  color: var(--console-text);
+  transform: none;
+}
+
+.system-page-shell .action-button--primary,
+.boundary-button--primary,
+.confirm-dialog footer .confirm-dialog__primary {
+  border-color: var(--console-accent);
+  background: var(--console-accent);
+  color: #fff;
+}
+
+.system-page-shell .action-button--danger,
+.boundary-button--danger {
+  border-color: #e2aaa5;
+  background: var(--console-danger-soft);
+  color: var(--console-danger);
+}
+
+.system-page-shell .workspace-view,
+.system-page-shell .capability-system-console {
+  background: var(--console-bg);
+  color: var(--console-text);
+}
+
+.system-page-shell .workspace-view__title,
+.center-workspace__launchpad-head strong,
+.center-workspace__summary strong,
+.center-workspace__monitor-empty strong,
+.center-workspace__empty strong {
+  color: var(--console-text);
+}
+
+.system-page-shell .workspace-view__subtitle,
+.center-workspace__launchpad-head span,
+.center-workspace__summary span,
+.center-workspace__summary em,
+.center-workspace__notice,
+.center-workspace__monitor-empty span,
+.center-workspace__empty span {
+  color: var(--console-muted);
+}
+
+.system-page-shell pre,
+.system-page-shell code,
+.system-page-shell .capability-system-console .operation-json-stack pre,
+.system-page-shell .capability-system-console .operation-inline-panel pre,
+.system-page-shell .capability-system-console .operation-foldout pre,
+.system-page-shell .capability-system-console .mcp-call-result {
+  border: 1px solid var(--console-line);
+  border-radius: 7px;
+  background: #f1f3f6;
+  color: var(--console-text);
+}
+
+.system-page-content .task-system-boundary,
+.system-page-content .task-system-database-sidebar,
+.system-page-content .task-system-database-workspace,
+.system-page-content .task-graph-editor-page .task-graph-editor-rail,
+.system-page-content .task-graph-editor-page .task-graph-topology-rail,
+.system-page-content .task-graph-editor-page .task-graph-topology-inspector {
+  background: var(--console-bg-raised);
+  border-color: var(--console-line);
+}
+
+.system-page-content .task-system-database-header,
+.system-page-content .task-graph-editor-page .task-graph-topology-canvas-shell,
+.system-page-content .task-graph-editor-page .task-graph-topology-canvas-head,
+.system-page-content .task-graph-editor-page .task-graph-topology-layer-filter {
+  background: var(--console-surface);
+  border-color: var(--console-line);
+}
+
+.agent-workbench *,
+.system-page-shell * {
+  scrollbar-width: thin;
+  scrollbar-color: var(--console-line-strong) transparent;
+}
+
+.agent-workbench *::-webkit-scrollbar,
+.system-page-shell *::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+.agent-workbench *::-webkit-scrollbar-thumb,
+.system-page-shell *::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: var(--console-line-strong);
+  background-clip: padding-box;
+}
+
+.agent-workbench *::-webkit-scrollbar-track,
+.system-page-shell *::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (max-width: 900px) {
+  .system-page-shell {
+    grid-template-columns: 44px minmax(0, 1fr);
+  }
+
+  .system-page-content {
+    padding: 6px;
+  }
+
+  .center-workspace {
+    padding: 7px;
+  }
+}
+
+/* Shared console UI for every system page except the soul experience. */
+.system-page-shell:not(.system-page-shell--soul-system) .workspace-view,
+.system-page-shell:not(.system-page-shell--soul-system) .boundary-console,
+.system-page-shell:not(.system-page-shell--soul-system) .memory-console,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-console,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console,
+.system-page-shell:not(.system-page-shell--soul-system) .system-config-workbench {
+  min-height: 0;
+  height: 100%;
+  overflow: auto;
+  background: var(--console-bg);
+  color: var(--console-text);
+  font-family: var(--console-font);
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .workspace-view {
+  gap: 10px;
+  padding: 0;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .workspace-view__header,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-console-head {
+  align-items: center;
+  min-height: 54px;
+  border: 1px solid var(--console-line);
+  border-radius: 8px;
+  background: var(--console-surface);
+  box-shadow: var(--console-shadow);
+  padding: 10px 12px;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .workspace-view__eyebrow,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-console-head__title span p,
+.system-page-shell:not(.system-page-shell--soul-system) .system-config-editor__head span,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-page-head span,
+.system-page-shell:not(.system-page-shell--soul-system) .task-system-database-header span,
+.system-page-shell:not(.system-page-shell--soul-system) .task-graph-studio-topbar__identity span {
+  margin: 0;
+  color: var(--console-muted);
+  font-family: var(--console-font);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .workspace-view__title,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-console-head__title strong h1,
+.system-page-shell:not(.system-page-shell--soul-system) .system-config-editor__head strong,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-page-head strong,
+.system-page-shell:not(.system-page-shell--soul-system) .task-system-database-header h2,
+.system-page-shell:not(.system-page-shell--soul-system) .task-graph-studio-topbar__identity strong {
+  margin: 0;
+  color: var(--console-text);
+  font-family: var(--console-font);
+  font-size: 16px;
+  font-weight: 680;
+  letter-spacing: 0;
+  line-height: 1.3;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .workspace-view__subtitle,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-console-head__title p,
+.system-page-shell:not(.system-page-shell--soul-system) .system-config-editor__head p,
+.system-page-shell:not(.system-page-shell--soul-system) .task-system-database-header p,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .workspace-view__subtitle {
+  margin: 2px 0 0;
+  color: var(--console-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .workspace-view__actions,
+.system-page-shell:not(.system-page-shell--soul-system) .boundary-actions,
+.system-page-shell:not(.system-page-shell--soul-system) .system-config-actions,
+.system-page-shell:not(.system-page-shell--soul-system) .memory-durable-reader__actions,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-mcp-actions {
+  gap: 6px;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .workspace-alert,
+.system-page-shell:not(.system-page-shell--soul-system) .boundary-empty,
+.system-page-shell:not(.system-page-shell--soul-system) .task-graph-note,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-answer-assembly {
+  border: 1px solid var(--console-line);
+  border-radius: 8px;
+  background: var(--console-surface);
+  color: var(--console-text);
+  box-shadow: var(--console-shadow);
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .workspace-alert--danger,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-hero--failed,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-contract-panel__card--alert,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-contract-card--danger {
+  border-color: #e2aaa5;
+  background: var(--console-danger-soft);
+  color: var(--console-danger);
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .workspace-metrics-grid,
+.system-page-shell:not(.system-page-shell--soul-system) .system-config-overview,
+.system-page-shell:not(.system-page-shell--soul-system) .system-config-capability-metrics,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-hero__metrics,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-brief,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-contract-panel__grid,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-stage-grid,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-mode-grid,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-runtime-ledger,
+.system-page-shell:not(.system-page-shell--soul-system) .task-system-object-table,
+.system-page-shell:not(.system-page-shell--soul-system) .task-system-layer-grid {
+  gap: 8px;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .workspace-stat,
+.system-page-shell:not(.system-page-shell--soul-system) .workspace-section,
+.system-page-shell:not(.system-page-shell--soul-system) .workspace-record,
+.system-page-shell:not(.system-page-shell--soul-system) .workspace-chip-card,
+.system-page-shell:not(.system-page-shell--soul-system) .memory-durable-reader,
+.system-page-shell:not(.system-page-shell--soul-system) .memory-durable-reader__detail,
+.system-page-shell:not(.system-page-shell--soul-system) .memory-governance-editor__panel,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-hero,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-map,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-dry-run,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-brief__card,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-contract-panel,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-contract-panel__card,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-stage,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-node,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-branch,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-detail,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-events,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-event-filter,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-event,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-prompt-assembly,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-prompt-section,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-mode-hero,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-mode-card,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-runtime-ledger article,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-management-card,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-contract-card,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-overview-bar,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-group-card,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-issue-panel,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-mcp-section,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-mcp-rail,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-switcher__item,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-skill-card,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-tool-card,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-unit-card,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-detail,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-inline-panel,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-foldout,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-fact-grid article,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-tool-control,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-json-stack article,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-inline-stack article,
+.system-page-shell:not(.system-page-shell--soul-system) .system-config-overview article,
+.system-page-shell:not(.system-page-shell--soul-system) .system-config-nav,
+.system-page-shell:not(.system-page-shell--soul-system) .system-config-nav__item,
+.system-page-shell:not(.system-page-shell--soul-system) .system-config-editor,
+.system-page-shell:not(.system-page-shell--soul-system) .system-config-field-section,
+.system-page-shell:not(.system-page-shell--soul-system) .system-config-provider-panel,
+.system-page-shell:not(.system-page-shell--soul-system) .system-config-provider-summary article,
+.system-page-shell:not(.system-page-shell--soul-system) .system-config-budget,
+.system-page-shell:not(.system-page-shell--soul-system) .system-config-tool-list article,
+.system-page-shell:not(.system-page-shell--soul-system) .system-config-issue-list article,
+.system-page-shell:not(.system-page-shell--soul-system) .task-system-database-header,
+.system-page-shell:not(.system-page-shell--soul-system) .task-system-database-sidebar,
+.system-page-shell:not(.system-page-shell--soul-system) .task-system-database-workspace,
+.system-page-shell:not(.system-page-shell--soul-system) .task-system-domain-context,
+.system-page-shell:not(.system-page-shell--soul-system) .task-system-object-row,
+.system-page-shell:not(.system-page-shell--soul-system) .boundary-card,
+.system-page-shell:not(.system-page-shell--soul-system) .boundary-main,
+.system-page-shell:not(.system-page-shell--soul-system) .boundary-directory,
+.system-page-shell:not(.system-page-shell--soul-system) .boundary-form,
+.system-page-shell:not(.system-page-shell--soul-system) .contract-editor-section,
+.system-page-shell:not(.system-page-shell--soul-system) .contract-structured-row,
+.system-page-shell:not(.system-page-shell--soul-system) .package-template-card,
+.system-page-shell:not(.system-page-shell--soul-system) .contract-template-card,
+.system-page-shell:not(.system-page-shell--soul-system) .task-graph-editor-page,
+.system-page-shell:not(.system-page-shell--soul-system) .project-node-card {
+  border: 1px solid var(--console-line);
+  border-radius: 8px;
+  background: var(--console-surface);
+  color: var(--console-text);
+  box-shadow: var(--console-shadow);
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .workspace-stat,
+.system-page-shell:not(.system-page-shell--soul-system) .workspace-section,
+.system-page-shell:not(.system-page-shell--soul-system) .workspace-record,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-hero,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-contract-panel,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-overview-bar,
+.system-page-shell:not(.system-page-shell--soul-system) .system-config-editor,
+.system-page-shell:not(.system-page-shell--soul-system) .system-config-field-section,
+.system-page-shell:not(.system-page-shell--soul-system) .task-system-database-header {
+  padding: 10px 12px;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .memory-durable-row,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-runtime-entry,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-runtime-preview,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-execution-card,
+.system-page-shell:not(.system-page-shell--soul-system) .mcp-tool-row,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-endpoint-row,
+.system-page-shell:not(.system-page-shell--soul-system) .mcp-server-row,
+.system-page-shell:not(.system-page-shell--soul-system) .task-system-object-row,
+.system-page-shell:not(.system-page-shell--soul-system) .task-graph-editor-rail__item,
+.system-page-shell:not(.system-page-shell--soul-system) .task-graph-topology-actions button,
+.system-page-shell:not(.system-page-shell--soul-system) .task-graph-topology-task-list button,
+.system-page-shell:not(.system-page-shell--soul-system) .task-graph-memory-list-button {
+  border-color: var(--console-line);
+  border-radius: 7px;
+  background: var(--console-surface);
+  color: var(--console-text);
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .memory-durable-row:hover,
+.system-page-shell:not(.system-page-shell--soul-system) .memory-durable-row--active,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-event:hover,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-event--active,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-node--selected,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-branch--selected,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-mode-card--active,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-mode-hero--active,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-execution-card--selected,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-group-card:hover,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-switcher__item--active,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-switcher__item:hover,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-skill-card--active,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-tool-card--active,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-unit-card--active,
+.system-page-shell:not(.system-page-shell--soul-system) .system-config-nav__item:hover,
+.system-page-shell:not(.system-page-shell--soul-system) .system-config-nav__item--active,
+.system-page-shell:not(.system-page-shell--soul-system) .system-config-budget:hover,
+.system-page-shell:not(.system-page-shell--soul-system) .system-config-budget--active,
+.system-page-shell:not(.system-page-shell--soul-system) .system-config-provider-option:hover,
+.system-page-shell:not(.system-page-shell--soul-system) .system-config-provider-option--active,
+.system-page-shell:not(.system-page-shell--soul-system) .task-system-object-row:hover,
+.system-page-shell:not(.system-page-shell--soul-system) .task-system-object-row--active,
+.system-page-shell:not(.system-page-shell--soul-system) .task-graph-editor-rail__item:hover,
+.system-page-shell:not(.system-page-shell--soul-system) .task-graph-editor-rail__item--active,
+.system-page-shell:not(.system-page-shell--soul-system) .task-graph-memory-list-button--active {
+  border-color: #a9bee2;
+  background: var(--console-selected);
+  color: var(--console-accent);
+  transform: none;
+  box-shadow: inset 2px 0 0 var(--console-accent);
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) span,
+.system-page-shell:not(.system-page-shell--soul-system) small,
+.system-page-shell:not(.system-page-shell--soul-system) em,
+.system-page-shell:not(.system-page-shell--soul-system) p,
+.system-page-shell:not(.system-page-shell--soul-system) i {
+  letter-spacing: 0;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) p,
+.system-page-shell:not(.system-page-shell--soul-system) small,
+.system-page-shell:not(.system-page-shell--soul-system) em,
+.system-page-shell:not(.system-page-shell--soul-system) .workspace-copy,
+.system-page-shell:not(.system-page-shell--soul-system) .workspace-record p,
+.system-page-shell:not(.system-page-shell--soul-system) .workspace-stat span,
+.system-page-shell:not(.system-page-shell--soul-system) .memory-durable-reader__detail > span,
+.system-page-shell:not(.system-page-shell--soul-system) .memory-durable-row span,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-node span,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-branch span,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-detail > span,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-overview-bar span,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-group-card__copy span,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-group-card__copy i,
+.system-page-shell:not(.system-page-shell--soul-system) .system-config-nav__item small,
+.system-page-shell:not(.system-page-shell--soul-system) .system-config-field small {
+  color: var(--console-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) strong,
+.system-page-shell:not(.system-page-shell--soul-system) h2,
+.system-page-shell:not(.system-page-shell--soul-system) h3,
+.system-page-shell:not(.system-page-shell--soul-system) h4,
+.system-page-shell:not(.system-page-shell--soul-system) b {
+  color: var(--console-text);
+  letter-spacing: 0;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .workspace-stat strong,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-hero__metrics b,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-group-card__metric strong,
+.system-page-shell:not(.system-page-shell--soul-system) .system-config-overview strong,
+.system-page-shell:not(.system-page-shell--soul-system) .system-config-capability-metrics strong {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .workspace-search,
+.system-page-shell:not(.system-page-shell--soul-system) .memory-search,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-dry-run__body textarea,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-permission-bar select,
+.system-page-shell:not(.system-page-shell--soul-system) .memory-governance-editor__panel input,
+.system-page-shell:not(.system-page-shell--soul-system) .memory-governance-editor__panel textarea,
+.system-page-shell:not(.system-page-shell--soul-system) .memory-governance-editor__panel select,
+.system-page-shell:not(.system-page-shell--soul-system) .system-config-field input,
+.system-page-shell:not(.system-page-shell--soul-system) .system-config-field select,
+.system-page-shell:not(.system-page-shell--soul-system) .system-config-provider-trigger,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-inline-form textarea,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-inline-form input,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-prompt-editor input,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-prompt-editor textarea,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-tool-control select,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-tool-control textarea,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-tool-filters select,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .mcp-form-grid input,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .mcp-form-grid select,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .mcp-form-grid textarea,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .capability-mcp-call textarea {
+  border: 1px solid var(--console-line);
+  border-radius: 7px;
+  background: var(--console-surface);
+  color: var(--console-text);
+  box-shadow: none;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .workspace-search:focus-within,
+.system-page-shell:not(.system-page-shell--soul-system) .memory-search:focus-within,
+.system-page-shell:not(.system-page-shell--soul-system) .system-config-provider-select:focus-within {
+  border-color: var(--console-accent);
+  box-shadow: var(--console-focus);
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .action-button,
+.system-page-shell:not(.system-page-shell--soul-system) .boundary-button,
+.system-page-shell:not(.system-page-shell--soul-system) .memory-durable-reader__actions button,
+.system-page-shell:not(.system-page-shell--soul-system) .memory-status-filter button,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-tabs__item,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-dry-run__body > button,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-detail__actions button,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-event-filter button,
+.system-page-shell:not(.system-page-shell--soul-system) .system-config-toggle,
+.system-page-shell:not(.system-page-shell--soul-system) .system-config-provider-option,
+.system-page-shell:not(.system-page-shell--soul-system) .task-graph-topology-layer-filter button button {
+  border: 1px solid var(--console-line);
+  border-radius: 7px;
+  background: var(--console-surface);
+  color: var(--console-text);
+  box-shadow: var(--console-shadow);
+  font-weight: 620;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .action-button:hover:not(:disabled),
+.system-page-shell:not(.system-page-shell--soul-system) .boundary-button:hover:not(:disabled),
+.system-page-shell:not(.system-page-shell--soul-system) .memory-durable-reader__actions button:hover:not(:disabled),
+.system-page-shell:not(.system-page-shell--soul-system) .memory-status-filter button:hover,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-tabs__item:hover,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-dry-run__body > button:hover,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-detail__actions button:hover,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-event-filter button:hover:hover button:hover {
+  border-color: var(--console-line-strong);
+  background: var(--console-hover);
+  color: var(--console-text);
+  transform: none;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .action-button--primary,
+.system-page-shell:not(.system-page-shell--soul-system) .boundary-button--primary {
+  border-color: var(--console-accent);
+  background: var(--console-accent);
+  color: #fff;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .action-button--primary:hover:not(:disabled),
+.system-page-shell:not(.system-page-shell--soul-system) .boundary-button--primary:hover:not(:disabled) {
+  border-color: var(--console-accent-hover);
+  background: var(--console-accent-hover);
+  color: #fff;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .memory-status-filter .memory-status-filter__active,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-tabs__item--active,
+.system-page-shell:not(.system-page-shell--soul-system) .task-graph-topology-layer-filter button[aria-pressed="true"],
+.system-page-shell:not(.system-page-shell--soul-system) .system-config-toggle--on {
+  border-color: var(--console-accent);
+  background: var(--console-accent-soft);
+  color: var(--console-accent);
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) pre,
+.system-page-shell:not(.system-page-shell--soul-system) code,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-json,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-detail pre,
+.system-page-shell:not(.system-page-shell--soul-system) .memory-durable-reader__detail pre,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-json-stack pre,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-inline-panel pre,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-foldout pre,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .mcp-call-result {
+  border: 1px solid var(--console-line);
+  border-radius: 7px;
+  background: #f1f3f6;
+  color: var(--console-text);
+  font-family: var(--console-mono);
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .family-tree--full {
+  border: 1px solid var(--console-line);
+  border-radius: 8px;
+  background: var(--console-surface);
+  box-shadow: var(--console-shadow);
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .system-config-layout,
+.system-page-shell:not(.system-page-shell--soul-system) .memory-durable-reader__layout,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-layout,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-mcp-page,
+.system-page-shell:not(.system-page-shell--soul-system) .task-system-database-layout {
+  gap: 10px;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .system-config-nav {
+  align-content: start;
+  gap: 6px;
+  padding: 8px;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .system-config-nav__item {
+  min-height: 58px;
+  padding: 8px;
+  text-align: left;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .system-config-editor__mark,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-group-card__icon,
+.system-page-shell:not(.system-page-shell--soul-system) .task-resource-authority-row__icon {
+  border: 1px solid var(--console-line);
+  border-radius: 7px;
+  background: var(--console-accent-soft);
+  color: var(--console-accent);
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .task-system-boundary {
+  gap: 10px;
+  padding: 0;
+  background: var(--console-bg);
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .task-system-database-layout {
+  grid-template-columns: var(--task-system-sidebar-width, 320px) 8px minmax(0, 1fr);
+}
+
+.task-system-database-layout--resizable {
+  grid-template-columns: var(--task-system-sidebar-width, 320px) 8px minmax(0, 1fr);
+}
+
+.task-system-sidebar-resize-handle {
+  position: relative;
+  min-width: 8px;
+  width: 8px;
+  cursor: col-resize;
+  background: transparent;
+}
+
+.task-system-sidebar-resize-handle::after {
+  content: "";
+  position: absolute;
+  inset: 0 3px;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.task-system-sidebar-resize-handle:hover::after,
+.task-system-sidebar-resize-handle:focus-visible::after {
+  background: var(--console-line-strong);
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .task-system-database-sidebar,
+.system-page-shell:not(.system-page-shell--soul-system) .task-system-database-workspace {
+  padding: 8px;
+  background: var(--console-surface);
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .task-graph-editor-page,
+.system-page-shell:not(.system-page-shell--soul-system) .task-graph-studio-shell,
+.system-page-shell:not(.system-page-shell--soul-system) .task-graph-topology-canvas-shell {
+  background: var(--console-surface);
+  color: var(--console-text);
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .task-graph-editor-page .task-graph-editor-rail,
+.system-page-shell:not(.system-page-shell--soul-system) .task-graph-editor-page .task-graph-topology-rail,
+.system-page-shell:not(.system-page-shell--soul-system) .task-graph-editor-page .task-graph-topology-inspector {
+  background: var(--console-bg-raised);
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .capability-group-grid {
+  gap: 8px;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .capability-group-card {
+  min-height: 92px;
+  padding: 10px;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .memory-console,
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-console,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console,
+.system-page-shell:not(.system-page-shell--soul-system) .system-config-workbench {
+  padding: 0;
+}
+
+@media (max-width: 1180px) {
+  .system-page-shell:not(.system-page-shell--soul-system) .task-system-database-layout,
+  .system-page-shell:not(.system-page-shell--soul-system) .system-config-layout,
+  .system-page-shell:not(.system-page-shell--soul-system) .memory-durable-reader__layout,
+  .system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-layout,
+  .system-page-shell:not(.system-page-shell--soul-system) .capability-mcp-page {
+    grid-template-columns: 1fr;
+  }
+
+  .system-page-shell:not(.system-page-shell--soul-system) .task-system-sidebar-resize-handle {
+    display: none;
+  }
+
+  .system-page-shell:not(.system-page-shell--soul-system) .capability-group-grid,
+  .system-page-shell:not(.system-page-shell--soul-system) .orchestration-brief,
+  .system-page-shell:not(.system-page-shell--soul-system) .orchestration-contract-panel__grid,
+  .system-page-shell:not(.system-page-shell--soul-system) .system-config-capability-metrics {
+    grid-template-columns: 1fr;
   }
 }

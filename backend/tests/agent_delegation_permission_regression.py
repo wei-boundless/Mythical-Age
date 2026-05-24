@@ -294,6 +294,59 @@ def test_delegation_executor_rejects_plan_text_as_invalid_output(tmp_path) -> No
     assert result.diagnostics["quality_gate"]["status"] == "invalid"
 
 
+def test_delegation_executor_accepts_verifier_structured_review_without_evidence_refs(tmp_path) -> None:
+    async def _child_runner(_context):
+        return {
+            "status": "completed",
+            "summary": "候选交付仍缺少验证证据。",
+            "answer_candidate": "{\"summary\":\"候选交付仍缺少验证证据。\",\"verdict\":\"needs_revision\"}",
+            "verdict": "needs_revision",
+            "diagnostics": {
+                "verifier_review": {
+                    "summary": "候选交付仍缺少验证证据。",
+                    "verdict": "needs_revision",
+                    "missing_requirements": ["verification_evidence"],
+                    "unsupported_claims": [],
+                    "required_revisions": ["补充真实验证结果"],
+                    "evidence_refs": [],
+                    "artifact_refs": [],
+                    "confidence": "medium",
+                    "limitations": [],
+                },
+                "verdict": "needs_revision",
+            },
+        }
+
+    executor = AgentDelegationExecutor(tmp_path, child_runner=_child_runner)
+    parent_run = AgentRun(
+        agent_run_id="agrun:taskrun:test:main",
+        task_run_id="taskrun:test",
+        agent_id="agent:0",
+        agent_profile_id="main_interactive_agent",
+        status="running",
+    )
+    request = AgentDelegationRequest(
+        request_id="delegation:req:verifier",
+        task_run_id="taskrun:test",
+        session_id="session:test",
+        parent_agent_run_ref=parent_run.agent_run_id,
+        source_agent_id="agent:0",
+        target_agent_id="agent:verifier",
+        delegation_kind="completion_verification",
+        instruction="请复核候选交付是否满足用户目标。",
+        input_payload={"user_goal": "交付可运行页面", "final_answer_candidate": "已完成"},
+    )
+
+    outcome = asyncio.run(executor.execute(request=request, parent_agent_run=parent_run))
+    result = outcome["result"]
+    observation = outcome["observation"]
+
+    assert result.status == "completed"
+    assert result.diagnostics["quality_gate"]["status"] == "pass"
+    assert observation["verdict"] == "needs_revision"
+    assert observation["missing_requirements"] == ["verification_evidence"]
+
+
 def test_direct_delegation_does_not_create_coordination_run(tmp_path) -> None:
     async def _child_runner(_context):
         return {
@@ -413,9 +466,22 @@ def test_delegation_executor_enforces_max_delegate_calls_per_turn(tmp_path) -> N
         instruction="请再次检索证据。",
         input_payload={"query": "test"},
     )
+    third = AgentDelegationRequest(
+        request_id="delegation:req:third",
+        task_run_id="taskrun:test",
+        session_id="session:test",
+        parent_agent_run_ref=parent_run.agent_run_id,
+        source_agent_id="agent:0",
+        target_agent_id="agent:rag_analyst",
+        delegation_kind="evidence_lookup",
+        instruction="请第三次检索证据。",
+        input_payload={"query": "test"},
+    )
 
     asyncio.run(executor.execute(request=first, parent_agent_run=parent_run))
-    outcome = asyncio.run(executor.execute(request=second, parent_agent_run=parent_run))
+    second_outcome = asyncio.run(executor.execute(request=second, parent_agent_run=parent_run))
+    third_outcome = asyncio.run(executor.execute(request=third, parent_agent_run=parent_run))
 
-    assert outcome["result"].status == "blocked"
-    assert "max_delegate_calls_per_turn_exceeded" in outcome["result"].limitations
+    assert second_outcome["result"].status == "completed"
+    assert third_outcome["result"].status == "blocked"
+    assert "max_delegate_calls_per_turn_exceeded" in third_outcome["result"].limitations

@@ -219,7 +219,7 @@ def build_tool_execution_error_observation(
     )
 
 
-def build_recoverable_tool_contract_observation(
+def build_recoverable_tool_invocation_observation(
     *,
     task_run_id: str,
     request_ref: str,
@@ -229,22 +229,22 @@ def build_recoverable_tool_contract_observation(
     tool_args: dict[str, Any] | None = None,
     tool_call_id: str = "",
     execution_receipt: dict[str, Any] | None = None,
-    contract_decision: dict[str, Any] | None = None,
+    invocation_validation: dict[str, Any] | None = None,
 ) -> RuntimeObservation:
-    message = str(error or "").strip() or "tool_contract_error"
-    contract = dict(contract_decision or {})
+    message = str(error or "").strip() or "tool_invocation_validation_error"
+    validation = dict(invocation_validation or {})
     required_inputs = [
         str(item).strip()
-        for item in list(dict(contract.get("contract") or {}).get("required_inputs") or [])
+        for item in list(dict(validation.get("contract") or {}).get("required_inputs") or [])
         if str(item).strip()
     ]
     missing_inputs = [
         str(item).strip()
-        for item in list(contract.get("missing_inputs") or [])
+        for item in list(validation.get("missing_inputs") or [])
         if str(item).strip()
     ]
     repair_lines = [
-        f"Tool call rejected by contract for `{tool_name}`.",
+        f"Tool call rejected by invocation validation for `{tool_name}`.",
         message,
     ]
     if missing_inputs:
@@ -257,7 +257,7 @@ def build_recoverable_tool_contract_observation(
         observation_id=f"rtobs:{task_run_id}:{uuid.uuid4().hex[:8]}",
         task_run_id=task_run_id,
         observation_type="tool_result",
-        source=f"tool:{tool_name}:contract_repair",
+        source=f"tool:{tool_name}:invocation_validation_repair",
         request_ref=request_ref,
         directive_ref=directive_ref,
         content_chars=len("\n".join(repair_lines)),
@@ -271,8 +271,8 @@ def build_recoverable_tool_contract_observation(
             "execution_receipt": receipt,
             "execution_id": str(receipt.get("execution_id") or ""),
             "recoverable": True,
-            "repair_kind": "tool_contract",
-            "contract_decision": contract,
+            "repair_kind": "tool_invocation_validation",
+            "invocation_validation": validation,
             "missing_inputs": missing_inputs,
             "required_inputs": required_inputs,
         },

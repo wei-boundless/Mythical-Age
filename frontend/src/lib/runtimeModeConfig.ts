@@ -101,7 +101,10 @@ export function normalizeRuntimeModesWithLanes(values: unknown, runtimeLanes: un
 
 export function normalizeDefaultRuntimeMode(value: unknown, enabledModes: string[]): string {
   const mode = String(value || "").trim();
-  if (mode && enabledModes.includes(mode)) return mode;
+  const executableModes = enabledModes.filter((item) => item !== "custom");
+  if (mode && mode !== "custom" && executableModes.includes(mode)) return mode;
+  if (mode === "custom" && !executableModes.length && enabledModes.includes("custom")) return "custom";
+  if (executableModes.length) return executableModes[0];
   if (enabledModes.includes("custom")) return "custom";
   return enabledModes[0] || "";
 }

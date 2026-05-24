@@ -67,9 +67,10 @@
         "agent:rag_analyst",
         "agent:pdf_reader",
         "agent:table_analyst",
-        "agent:web_researcher"
+        "agent:web_researcher",
+        "agent:verifier"
       ],
-      "max_delegate_calls_per_turn": 1,
+      "max_delegate_calls_per_turn": 2,
       "delegate_context_policy": "summary_and_refs_only",
       "approval_policy": "default",
       "trace_policy": "runtime_event_log",
@@ -1141,6 +1142,149 @@
         "runtime_template_id": "builtin.specialist.web_researcher"
       },
       "runtime_template_id": "builtin.specialist.web_researcher",
+      "runtime_mode_catalog": [
+        {
+          "mode": "role",
+          "label": "角色模式",
+          "interaction_mode": "role_mode",
+          "runtime_lane": "role_interaction",
+          "recipe_id": "runtime.recipe.role_interaction",
+          "projection_strength": "primary",
+          "runtime_lanes": [
+            "role_interaction"
+          ],
+          "execution_strategy": "",
+          "builtin": true,
+          "editable": false,
+          "description": ""
+        },
+        {
+          "mode": "standard",
+          "label": "标准模式",
+          "interaction_mode": "standard_mode",
+          "runtime_lane": "standard_task",
+          "recipe_id": "runtime.recipe.standard_task",
+          "projection_strength": "companion",
+          "runtime_lanes": [
+            "standard_task"
+          ],
+          "execution_strategy": "",
+          "builtin": true,
+          "editable": false,
+          "description": ""
+        },
+        {
+          "mode": "professional",
+          "label": "专家模式",
+          "interaction_mode": "professional_mode",
+          "runtime_lane": "professional_task",
+          "recipe_id": "runtime.recipe.professional_task",
+          "projection_strength": "style_only",
+          "runtime_lanes": [
+            "professional_task"
+          ],
+          "execution_strategy": "professional_task_run",
+          "builtin": true,
+          "editable": false,
+          "description": ""
+        },
+        {
+          "mode": "custom",
+          "label": "自定义模式",
+          "interaction_mode": "custom_mode",
+          "runtime_lane": "",
+          "recipe_id": "runtime.recipe.custom",
+          "projection_strength": "manual",
+          "runtime_lanes": [],
+          "execution_strategy": "",
+          "builtin": true,
+          "editable": true,
+          "description": ""
+        }
+      ]
+    },
+    {
+      "agent_profile_id": "completion_verifier_agent",
+      "agent_id": "agent:verifier",
+      "enabled_runtime_modes": [
+        "custom"
+      ],
+      "default_runtime_mode": "custom",
+      "allowed_runtime_lanes": [
+        "verification_delegate",
+        "runtime_trace_read",
+        "readonly_exploration"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.read_file",
+        "op.search_files",
+        "op.search_text",
+        "op.git_diff",
+        "op.git_status"
+      ],
+      "blocked_operations": [
+        "op.write_file",
+        "op.edit_file",
+        "op.shell",
+        "op.python_repl",
+        "op.memory_write_candidate",
+        "op.delegate_to_agent"
+      ],
+      "allowed_memory_scopes": [
+        "conversation_readonly",
+        "state_readonly"
+      ],
+      "allowed_context_sections": [
+        "task",
+        "projection",
+        "runtime_trace",
+        "assertions",
+        "runtime_contracts",
+        "artifact_refs"
+      ],
+      "use_shared_contract": true,
+      "can_delegate_to_agents": false,
+      "allowed_delegate_agent_ids": [],
+      "max_delegate_calls_per_turn": 1,
+      "delegate_context_policy": "summary_and_refs_only",
+      "approval_policy": "read_only_first",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "system_builtin",
+      "model_profile": {
+        "profile_id": "",
+        "display_name": "",
+        "provider": "",
+        "model": "",
+        "credential_ref": "",
+        "max_output_tokens": null,
+        "timeout_seconds": null,
+        "long_output_timeout_seconds": null,
+        "max_retries": null,
+        "temperature": null,
+        "thinking_mode": "",
+        "reasoning_effort": "",
+        "stream_policy": {},
+        "fallback_profile_ref": "",
+        "capability_tags": [],
+        "metadata": {}
+      },
+      "metadata": {
+        "worker_kind": "completion_verification",
+        "delegation_kind": "completion_verification",
+        "delegation_kinds": [
+          "completion_verification",
+          "semantic_verification",
+          "deliverable_review",
+          "artifact_review",
+          "quality_review",
+          "plan_review"
+        ],
+        "when_to_use": "当主 Agent 已有候选回答、产物或执行证据，但需要独立检查是否满足用户目标、是否缺少证据、是否需要返工时使用。",
+        "runtime_template_id": "builtin.specialist.verifier",
+        "child_execution_mode": "model_only_review"
+      },
+      "runtime_template_id": "builtin.specialist.verifier",
       "runtime_mode_catalog": [
         {
           "mode": "role",

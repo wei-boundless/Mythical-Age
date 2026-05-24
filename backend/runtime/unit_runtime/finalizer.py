@@ -308,6 +308,7 @@ class TaskRunFinalizer:
             }
         if artifact_materialization.enabled and artifact_materialization.artifact_refs:
             task_result_payload = dict(task_result or {})
+            completion_payload = dict(task_result_payload.get("completion") or {})
             if output_contract_id:
                 task_result_payload["output_contract_id"] = output_contract_id
             task_result_payload["artifact_refs"] = self._dedupe_refs(
@@ -329,12 +330,17 @@ class TaskRunFinalizer:
             }
             final_outputs = dict(task_result_payload.get("final_outputs") or {})
             final_outputs["artifact_materialization"] = artifact_materialization_payload
+            if completion_payload:
+                final_outputs["completion"] = completion_payload
+                task_result_payload["completion"] = completion_payload
             task_result_payload["final_outputs"] = final_outputs
             task_result = task_result_payload
         elif artifact_materialization.enabled:
+            completion_payload = dict(dict(task_result or {}).get("completion") or {})
             task_result = {
                 **dict(task_result or {}),
                 **({"output_contract_id": output_contract_id} if output_contract_id else {}),
+                **({"completion": completion_payload} if completion_payload else {}),
                 "diagnostics": {
                     **dict(dict(task_result or {}).get("diagnostics") or {}),
                     **({"output_contract_id": output_contract_id} if output_contract_id else {}),

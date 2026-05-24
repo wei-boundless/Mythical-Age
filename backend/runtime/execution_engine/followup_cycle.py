@@ -11,11 +11,8 @@ from .final_output import (
     build_answer_readiness_judge_message,
     build_repeated_tool_halt_message,
     build_runtime_budget_exhausted_message,
-    forced_synthesis_answer_metadata,
-    forced_tool_synthesis_from_available_evidence,
     repeated_tool_halt_answer_metadata,
     runtime_budget_exhausted_answer_metadata,
-    should_force_answer_after_tool_results,
 )
 
 
@@ -92,21 +89,7 @@ def finalize_budget_exhausted_followup(
     control_message: str,
     tool_observation_count: int,
 ) -> FollowupFinalization:
-    synthesized = forced_tool_synthesis_from_available_evidence(
-        user_message=user_message,
-        aggregation=aggregation,
-        final_task_summary_refs=final_task_summary_refs,
-        final_main_context=final_main_context,
-    )
-    if synthesized:
-        return FollowupFinalization(
-            finalized=True,
-            content=synthesized,
-            answer_metadata=forced_synthesis_answer_metadata(
-                source="runtime_loop.budget_exhausted_force_synthesis"
-            ),
-            source="budget_exhausted_force_synthesis",
-        )
+    _ = user_message, aggregation, final_task_summary_refs, final_main_context
     return FollowupFinalization(
         finalized=True,
         content=build_runtime_budget_exhausted_message(
@@ -127,44 +110,9 @@ def finalize_after_followup_tool_results(
     repeated_tool_halt: bool,
     final_content: str,
     tool_observation_count: int,
-    retrieval_followup_force_synthesis: bool,
+    retrieval_followup_observed: bool,
 ) -> FollowupFinalization:
-    if should_force_answer_after_tool_results(
-        aggregation=aggregation,
-        final_task_summary_refs=final_task_summary_refs,
-        final_main_context=final_main_context,
-    ):
-        synthesized = forced_tool_synthesis_from_available_evidence(
-            user_message=user_message,
-            aggregation=aggregation,
-            final_task_summary_refs=final_task_summary_refs,
-            final_main_context=final_main_context,
-        )
-        if synthesized:
-            return FollowupFinalization(
-                finalized=True,
-                content=synthesized,
-                answer_metadata=forced_synthesis_answer_metadata(
-                    source="runtime_loop.post_tool_judgement_force_synthesis"
-                ),
-                source="post_tool_judgement_force_synthesis",
-            )
-    if retrieval_followup_force_synthesis:
-        synthesized = forced_tool_synthesis_from_available_evidence(
-            user_message=user_message,
-            aggregation=aggregation,
-            final_task_summary_refs=final_task_summary_refs,
-            final_main_context=final_main_context,
-        )
-        if synthesized:
-            return FollowupFinalization(
-                finalized=True,
-                content=synthesized,
-                answer_metadata=forced_synthesis_answer_metadata(
-                    source="runtime_loop.retrieval_followup_force_synthesis"
-                ),
-                source="retrieval_followup_force_synthesis",
-            )
+    _ = user_message, aggregation, final_task_summary_refs, final_main_context, retrieval_followup_observed
     if repeated_tool_halt and final_content:
         return FollowupFinalization(
             finalized=True,
@@ -173,19 +121,6 @@ def finalize_after_followup_tool_results(
             source="repeated_tool_halt_existing_answer",
         )
     if repeated_tool_halt:
-        synthesized = forced_tool_synthesis_from_available_evidence(
-            user_message=user_message,
-            aggregation=aggregation,
-            final_task_summary_refs=final_task_summary_refs,
-            final_main_context=final_main_context,
-        )
-        if synthesized:
-            return FollowupFinalization(
-                finalized=True,
-                content=synthesized,
-                answer_metadata=forced_synthesis_answer_metadata(source="runtime_loop.repeated_tool_halt"),
-                source="repeated_tool_halt_synthesis",
-            )
         return FollowupFinalization(
             finalized=True,
             content=build_repeated_tool_halt_message(tool_observation_count=tool_observation_count),

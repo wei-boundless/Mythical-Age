@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 import uuid
 from dataclasses import asdict, dataclass, field
 from typing import Any
@@ -46,24 +45,24 @@ def build_tool_result_envelope(
     result_payload = _structured_result_payload(result)
     text = str(result_payload.get("text") if result_payload else result or "")
     status = "error" if _looks_failed(text) else "ok"
-    observed_paths = tuple(_observed_paths(name, args, text))
-    matched_paths = tuple(_matched_paths(name, text))
-    artifact_refs = tuple(_artifact_refs(name, args, text, sandbox=sandbox))
-    command_receipt = _command_receipt(name, args, text, status=status)
     structured_payload = {
         "truncated": bool(truncated),
         "sandbox": dict(sandbox or {}),
     }
     if result_payload:
         structured_payload.update(dict(result_payload.get("structured_payload") or {}))
-    if matched_paths:
-        structured_payload["matched_paths"] = list(matched_paths)
+    observed_paths = tuple(_string_tuple(structured_payload.get("observed_paths")))
+    matched_paths = tuple(_string_tuple(structured_payload.get("matched_paths")))
+    artifact_refs = tuple(_dict_tuple(structured_payload.get("artifact_refs")))
+    command_receipt = dict(structured_payload.get("command_receipt") or {})
     if observed_paths:
         structured_payload["observed_paths"] = list(observed_paths)
     if artifact_refs:
         structured_payload["artifact_refs"] = [dict(item) for item in artifact_refs]
+    if matched_paths:
+        structured_payload["matched_paths"] = list(matched_paths)
     if command_receipt:
-        structured_payload["command_receipt"] = command_receipt
+        structured_payload["command_receipt"] = dict(command_receipt)
     return ToolResultEnvelope(
         envelope_id=f"tool-result:{uuid.uuid4().hex[:12]}",
         tool_name=name,
@@ -118,87 +117,6 @@ def tool_result_envelope_from_payload(payload: dict[str, Any] | None) -> ToolRes
     return None
 
 
-def _observed_paths(tool_name: str, args: dict[str, Any], text: str) -> list[str]:
-    if tool_name in {"read_file", "read_structured_file", "write_file", "edit_file", "stat_path", "path_exists"}:
-        return _dedupe([str(args.get("path") or "").strip()])
-    if tool_name == "glob_paths":
-        return _dedupe(_extract_plain_paths(text))
-    return []
-
-
-def _matched_paths(tool_name: str, text: str) -> list[str]:
-    if tool_name not in {"search_files", "search_text", "glob_paths"}:
-        return []
-    paths: list[str] = []
-    path_pattern = re.compile(
-        r"(?P<path>(?:[A-Za-z]:)?(?:[\w.\-\u4e00-\u9fff]+[\\/])+[\w.\-\u4e00-\u9fff ()（）]+?\.[A-Za-z0-9]+)",
-        flags=re.IGNORECASE,
-    )
-    for line in str(text or "").splitlines():
-        stripped = line.strip()
-        if not stripped:
-            continue
-        bracket = re.match(r"^\[\d+\]\s+(?P<path>.+)$", stripped)
-        if bracket:
-            paths.append(bracket.group("path").strip())
-            continue
-        search = re.match(r"^(?P<path>[^:\n]+?\.[A-Za-z0-9]+)(?::\d+:\d+:|:\d+:)", stripped)
-        if search:
-            paths.append(search.group("path").strip())
-            continue
-        matches = [match.group("path").strip() for match in path_pattern.finditer(stripped)]
-        if matches:
-            paths.extend(matches)
-            continue
-        if "/" in stripped or "\\" in stripped:
-            candidate = stripped.split(":", 1)[0].strip()
-            if "." in candidate:
-                paths.append(candidate)
-    return _dedupe(paths)
-
-
-def _artifact_refs(tool_name: str, args: dict[str, Any], text: str, *, sandbox: dict[str, Any] | None) -> list[dict[str, Any]]:
-    if tool_name not in {"write_file", "edit_file"}:
-        return []
-    path = str(args.get("path") or "").strip()
-    match = re.search(r"(?:Write|Edit) succeeded:\s*(?P<path>.+)$", str(text or ""), flags=re.IGNORECASE)
-    if match:
-        path = match.group("path").strip()
-    if not path:
-        return []
-    return [
-        {
-            "path": path,
-            "kind": "file",
-            "sandbox": dict(sandbox or {}),
-            "source": tool_name,
-        }
-    ]
-
-
-def _command_receipt(tool_name: str, args: dict[str, Any], text: str, *, status: str) -> dict[str, Any]:
-    if tool_name != "terminal":
-        return {}
-    command = str(args.get("command") or "").strip()
-    exit_code = 1 if status == "error" else 0
-    if "timed out" in str(text or "").lower() or "blocked:" in str(text or "").lower():
-        exit_code = 1
-    return {
-        "command": command,
-        "exit_code": exit_code,
-        "passed": exit_code == 0,
-        "output_preview": str(text or "")[:500],
-    }
-
-
-def _extract_plain_paths(text: str) -> list[str]:
-    return [
-        line.strip()
-        for line in str(text or "").splitlines()
-        if line.strip() and not line.strip().lower().startswith(("no ", "glob failed", "search failed"))
-    ]
-
-
 def _looks_failed(text: str) -> bool:
     lowered = str(text or "").lower()
     if lowered.startswith(("read failed", "structured read failed", "search failed", "write failed", "edit failed", "blocked:", "timed out")):
@@ -233,31 +151,48 @@ def _looks_like_failed_command_output(lowered: str) -> bool:
     if any(needle in text for needle in failure_needles):
         return True
     failure_patterns = (
-        r"(^|\s)[1-9]\d*\s+failed\b",
-        r"(^|\s)[1-9]\d*\s+errors?\b",
-        r"\bfailed,\s*[1-9]\d*\s+passed\b",
-        r"\b[1-9]\d*\s+passed,\s*[1-9]\d*\s+failed\b",
-        r"\berror:\s+",
+        "(^|\\s)[1-9]\\d*\\s+failed\\b",
+        "(^|\\s)[1-9]\\d*\\s+errors?\\b",
+        "\\bfailed,\\s*[1-9]\\d*\\s+passed\\b",
+        "\\b[1-9]\\d*\\s+passed,\\s*[1-9]\\d*\\s+failed\\b",
+        "\\berror:\\s+",
     )
+    import re
+
     if any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in failure_patterns):
         return True
     success_patterns = (
-        r"(^|\s)[1-9]\d*\s+passed\b",
-        r"\bpassed in \d",
-        r"\bno tests ran\b",
+        "(^|\\s)[1-9]\\d*\\s+passed\\b",
+        "\\bpassed in \\d",
+        "\\bno tests ran\\b",
     )
     if any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in success_patterns):
         return False
     return False
 
 
-def _dedupe(values: list[str]) -> list[str]:
+def _string_tuple(value: Any) -> tuple[str, ...]:
     result: list[str] = []
     seen: set[str] = set()
-    for value in values:
-        item = str(value or "").strip().replace("\\", "/")
+    for raw in list(value or []):
+        item = str(raw or "").strip().replace("\\", "/")
         if not item or item in seen:
             continue
         seen.add(item)
         result.append(item)
-    return result
+    return tuple(result)
+
+
+def _dict_tuple(value: Any) -> tuple[dict[str, Any], ...]:
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw in list(value or []):
+        if not isinstance(raw, dict):
+            continue
+        item = dict(raw)
+        key = str(item.get("path") or repr(sorted(item.items()))).strip()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        result.append(item)
+    return tuple(result)

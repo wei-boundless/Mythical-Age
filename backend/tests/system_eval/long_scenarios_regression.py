@@ -8,6 +8,11 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from tests.system_eval.long_scenarios import SCENARIO_SETS, SCENARIOS, scenario_map
+from tests.system_eval.long_runner import (
+    _completion_failure_check,
+    _completion_from_done_payload,
+    _turn_is_professional_task,
+)
 
 
 def test_long_scenarios_have_unique_ids_and_turns() -> None:
@@ -114,3 +119,24 @@ def test_long_scenarios_collectively_cover_runtime_capabilities() -> None:
         "ops",
     }
     assert expected.issubset(covered)
+
+
+def test_long_runner_uses_run_outcome_as_completion_authority() -> None:
+    completion = {
+        "status": "partial",
+        "completed": False,
+        "terminal_reason": "partial_contract_failed",
+        "missing_deliverables": ["verification_evidence"],
+    }
+    done_payload = {"completion": completion, "task_result": {"completion": {"completed": True}}}
+
+    assert _completion_from_done_payload(done_payload) == completion
+    assert "completion.completed=false" in _completion_failure_check(completion)
+    assert "verification_evidence" in _completion_failure_check(completion)
+
+
+def test_long_runner_requires_completion_envelope_for_professional_turn() -> None:
+    scenarios = scenario_map()
+    turn = scenarios["professional-iterative-game-delivery"].turns[0]
+
+    assert _turn_is_professional_task(turn=turn, inferred={"task_contract": {}}) is True

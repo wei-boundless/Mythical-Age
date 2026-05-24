@@ -1823,27 +1823,6 @@ export type HealthAgentRunStart = HealthAgentRunPreview & {
   trace?: Record<string, unknown> | null;
 };
 
-export type SystemGraphOverlayItem = {
-  id: string;
-  status: "passed" | "failed" | "warning" | "unknown";
-  label: string;
-  events: string[];
-  latency_ms: number | null;
-  reason: string;
-};
-
-export type SystemGraphOverlay = {
-  run_id: string;
-  turn_id: string | null;
-  mode: "inferred" | "observed";
-  status: "passed" | "failed" | "warning" | "unknown";
-  summary: string;
-  nodes: SystemGraphOverlayItem[];
-  edges: SystemGraphOverlayItem[];
-  artifacts: Record<string, string>;
-  prompt_manifest_id: string | null;
-};
-
 export type OrchestrationNodeStatus = "idle" | "visited" | "warning" | "failed" | "success" | "blocked" | "skipped";
 
 export type OrchestrationNode = {
@@ -2383,7 +2362,7 @@ export type OrchestrationCatalogTool = {
 export type OrchestrationCatalog = {
   permission_mode: string;
   supported_permission_modes: string[];
-  tool_contract_mode: string;
+  tool_invocation_validation_mode: string;
   orchestration_plan_mode: string;
   supported_orchestration_plan_modes: string[];
   skills: OrchestrationCatalogSkill[];
@@ -3760,16 +3739,6 @@ export async function getExperimentArtifacts(runId: string) {
 
 export async function listExperimentTurns(runId: string) {
   return request<ExperimentTurn[]>(`/health-system/maintenance/experiments/runs/${encodeURIComponent(runId)}/turns`);
-}
-
-export async function getExperimentGraphOverlay(runId: string) {
-  return request<SystemGraphOverlay>(`/health-system/maintenance/experiments/runs/${encodeURIComponent(runId)}/graph-overlay`);
-}
-
-export async function getExperimentTurnGraphOverlay(runId: string, turnId: string) {
-  return request<SystemGraphOverlay>(
-    `/health-system/maintenance/experiments/runs/${encodeURIComponent(runId)}/turns/${encodeURIComponent(turnId)}/graph-overlay`
-  );
 }
 
 export async function getExperimentTurnPromptManifest(runId: string, turnId: string) {

@@ -17,7 +17,6 @@ const OrchestrationView = lazy(() => import("@/components/workspace/views/Orches
 const PlaygroundView = lazy(() => import("@/components/workspace/views/PlaygroundView").then((module) => ({ default: module.PlaygroundView })));
 const SoulSystemView = lazy(() => import("@/components/workspace/views/PlaygroundView").then((module) => ({ default: module.PlaygroundView })));
 const SystemConfigView = lazy(() => import("@/components/workspace/views/SystemConfigView").then((module) => ({ default: module.SystemConfigView })));
-const SystemFrameworkView = lazy(() => import("@/components/workspace/views/SystemFrameworkView").then((module) => ({ default: module.SystemFrameworkView })));
 const TaskSystemView = lazy(() => import("@/components/workspace/views/TaskSystemView").then((module) => ({ default: module.TaskSystemView })));
 
 function LazyView({ children }: { children: ReactNode }) {
@@ -36,7 +35,6 @@ const WORKSPACE_QUERY_VIEWS = new Set<WorkspaceView>([
   "orchestration",
   "capability-system",
   "soul-system",
-  "system-framework",
   "system-config",
 ]);
 
@@ -55,13 +53,15 @@ const SYSTEM_NAV_ITEMS: Array<{ view: WorkspaceView; label: string; icon: typeof
 function SystemPageShell({
   children,
   label,
+  view,
 }: {
   children: ReactNode;
   label: string;
+  view: WorkspaceView;
 }) {
   const { activeWorkspaceView, setWorkspaceView } = useAppStore();
   return (
-    <main className="system-page-shell">
+    <main className={`system-page-shell system-page-shell--${view}`}>
       <aside className="system-page-rail" aria-label="系统导航">
         <div className="system-page-rail__mark">系</div>
         <nav>
@@ -134,7 +134,6 @@ function Workspace() {
       && activeWorkspaceView !== "capability-system"
       && activeWorkspaceView !== "soul-system"
       && activeWorkspaceView !== "orchestration"
-      && activeWorkspaceView !== "system-framework"
       && activeWorkspaceView !== "system-config"
     ) {
       setWorkspaceView("chat");
@@ -167,7 +166,6 @@ function Workspace() {
 
   const shouldShowTaskGraphRunInteractionDock =
     activeWorkspaceView === "chat"
-    || activeWorkspaceView === "system-framework"
     || activeWorkspaceView === "orchestration"
     || activeWorkspaceView === "task-system"
     || activeWorkspaceView === "capability-system"
@@ -175,45 +173,39 @@ function Workspace() {
 
   let content: ReactNode;
 
-  if (activeWorkspaceView === "system-framework") {
+  if (activeWorkspaceView === "orchestration") {
     content = (
-      <main className="system-framework-stage min-h-screen">
-        <LazyView><SystemFrameworkView /></LazyView>
-      </main>
-    );
-  } else if (activeWorkspaceView === "orchestration") {
-    content = (
-      <SystemPageShell label="编排系统">
+      <SystemPageShell label="编排系统" view="orchestration">
         <LazyView><OrchestrationView /></LazyView>
       </SystemPageShell>
     );
   } else if (activeWorkspaceView === "task-system") {
     content = (
-      <SystemPageShell label="任务系统">
+      <SystemPageShell label="任务系统" view="task-system">
         <LazyView><TaskSystemView /></LazyView>
       </SystemPageShell>
     );
   } else if (activeWorkspaceView === "memory") {
     content = (
-      <SystemPageShell label="长期记忆">
+      <SystemPageShell label="长期记忆" view="memory">
         <LazyView><MemoryView /></LazyView>
       </SystemPageShell>
     );
   } else if (activeWorkspaceView === "capability-system") {
     content = (
-      <SystemPageShell label="能力系统">
+      <SystemPageShell label="能力系统" view="capability-system">
         <LazyView><CapabilitySystemView /></LazyView>
       </SystemPageShell>
     );
   } else if (activeWorkspaceView === "soul-system") {
     content = (
-      <SystemPageShell label="灵魂系统">
+      <SystemPageShell label="灵魂系统" view="soul-system">
         <LazyView><SoulSystemView embedded onReturnToWorkspace={returnToWorkspace} /></LazyView>
       </SystemPageShell>
     );
   } else if (activeWorkspaceView === "system-config") {
     content = (
-      <SystemPageShell label="配置">
+      <SystemPageShell label="配置" view="system-config">
         <LazyView><SystemConfigView /></LazyView>
       </SystemPageShell>
     );
@@ -221,7 +213,7 @@ function Workspace() {
     content = <LazyView><PlaygroundView onReturnToWorkspace={returnToWorkspace} /></LazyView>;
   } else {
     content = (
-      <SystemPageShell label="主会话">
+      <SystemPageShell label="主会话" view="chat">
         <WorkbenchShell>
           <section className="workbench-view-host workbench-view-host--chat" aria-label="主会话">
             <CenterWorkspaceView />

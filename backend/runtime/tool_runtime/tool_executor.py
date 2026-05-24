@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any
 
-from capability_system.tool_contracts import ToolContractDecision, ToolContractGate
+from capability_system.tool_contracts import ToolInvocationValidationDecision, ToolInvocationValidator
+from runtime.environment import RuntimeEnvironment
 from runtime.tool_runtime.tool_result_envelope import build_tool_result_envelope
 from runtime.tool_runtime.sandbox_backend import LocalOverlaySandboxBackend
+from runtime.tool_runtime.native_tools import build_native_runtime_tool
+from runtime.tool_runtime.tool_adapter import RuntimeToolAdapter
+from runtime.tool_runtime.tool_use_context import ToolUseContext
 from orchestration.runtime_directive import RuntimeDirective
 from runtime.shared.action_request import (
     RuntimeActionRequest,
-    build_recoverable_tool_contract_observation,
+    build_recoverable_tool_invocation_observation,
     build_tool_result_observation,
 )
 from runtime.shared.action_request import build_tool_execution_error_observation
@@ -18,6 +23,7 @@ from runtime.shared.execution_record import (
     RuntimeExecutionStore,
     build_execution_receipt,
 )
+from runtime.shared.policy_rejection_observation import build_policy_rejection_observation
 
 
 class ToolRuntimeExecutor:
@@ -26,6 +32,76 @@ class ToolRuntimeExecutor:
     def __init__(self, *, tool_runtime, sandbox_backend: LocalOverlaySandboxBackend | None = None) -> None:
         self.tool_runtime = tool_runtime
         self.sandbox_backend = sandbox_backend or LocalOverlaySandboxBackend()
+
+    def preflight_validate(
+        self,
+        *,
+        task_run_id: str,
+        action_request: RuntimeActionRequest,
+        directive: RuntimeDirective,
+        sandbox_policy: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        tool_name = str(action_request.payload.get("tool_name") or "").strip()
+        tool_call = dict(action_request.payload.get("tool_call") or {})
+        tool_args = dict(tool_call.get("args") or {})
+        tool_call_id = str(tool_call.get("id") or action_request.request_id)
+        definition = self.tool_runtime.get_definition(tool_name)
+        if definition is None:
+            return {"allowed": True}
+        runtime_tool = build_native_runtime_tool(capability_definition=definition)
+        if runtime_tool is None:
+            sandbox_context = self.sandbox_backend.context_for_tool(tool_name=tool_name, sandbox_policy=sandbox_policy)
+            tool = (
+                definition.build(self.sandbox_backend.execution_root(sandbox_context))
+                if sandbox_context
+                else self.tool_runtime.get_instance(tool_name)
+            )
+            if tool is None:
+                return {"allowed": True}
+            runtime_tool = RuntimeToolAdapter.from_capability_definition(
+                capability_definition=definition,
+                tool_instance=tool,
+            )
+        else:
+            sandbox_context = self.sandbox_backend.context_for_tool(tool_name=tool_name, sandbox_policy=sandbox_policy)
+        workspace_root = Path(getattr(self.tool_runtime, "base_dir", ".")).resolve()
+        tool_context = ToolUseContext(
+            workspace_root=self.sandbox_backend.execution_root(sandbox_context) if sandbox_context else workspace_root,
+            sandbox_root=self.sandbox_backend.execution_root(sandbox_context) if sandbox_context else None,
+            read_scopes=tuple(str(item) for item in list(dict(sandbox_policy or {}).get("read_scopes") or [])),
+            write_scopes=tuple(str(item) for item in list(dict(sandbox_policy or {}).get("write_scopes") or [])),
+            material_mounts=tuple(dict(item) for item in list(dict(sandbox_policy or {}).get("material_mounts") or []) if isinstance(item, dict)),
+            artifact_root=str(dict(sandbox_policy or {}).get("artifact_root") or ""),
+            approval_policy=str(dict(sandbox_policy or {}).get("approval_policy") or ""),
+            permission_mode=str(dict(sandbox_policy or {}).get("permission_mode") or ""),
+            environment_snapshot=RuntimeEnvironment(
+                workspace_root=workspace_root,
+                sandbox_root=self.sandbox_backend.execution_root(sandbox_context) if sandbox_context else None,
+            ).snapshot(),
+            execution_receipt={},
+        )
+        validation = runtime_tool.validate_input(tool_args, tool_context)
+        if validation.allowed:
+            return {"allowed": True, "normalized_args": dict(validation.normalized_args or tool_args)}
+        error = validation.reason or "tool_input_validation_failed"
+        return {
+            "allowed": False,
+            "observation": build_recoverable_tool_invocation_observation(
+                task_run_id=task_run_id,
+                request_ref=action_request.request_id,
+                directive_ref=directive.directive_id,
+                tool_name=tool_name,
+                tool_call_id=tool_call_id,
+                tool_args=tool_args,
+                error=validation.repair_instruction or error,
+                execution_receipt={},
+                invocation_validation={
+                    "missing_inputs": list(validation.diagnostics.get("missing_inputs") or []),
+                    "contract": {"required_inputs": _required_inputs_from_definition(definition)},
+                },
+            ),
+            "error": error,
+        }
 
     async def run(
         self,
@@ -92,22 +168,47 @@ class ToolRuntimeExecutor:
                 "execution_record": current_record,
                 "error": error,
             }
-        contract_decision = ToolContractGate(mode="enforce").evaluate(
-            tool_name=tool_name,
-            contract=definition.contract,
-            tool_input=tool_args,
-        )
-        if contract_decision.should_block:
-            error = _contract_decision_error(contract_decision)
-            if execution_store is not None:
-                current_record = execution_store.mark_failed(
-                    current_record,
-                    error=error,
-                    diagnostics={"tool_contract_decision": contract_decision.to_dict()},
-                )
-            if _is_recoverable_contract_error(contract_decision):
+        runtime_tool = build_native_runtime_tool(capability_definition=definition)
+        sandbox_context = self.sandbox_backend.context_for_tool(tool_name=tool_name, sandbox_policy=sandbox_policy)
+        if sandbox_context:
+            self.sandbox_backend.prepare_tool_call(
+                tool_name=tool_name,
+                tool_args=tool_args,
+                context=sandbox_context,
+            )
+        tool = None
+        if runtime_tool is None:
+            invocation_validation = ToolInvocationValidator(mode="enforce").evaluate(
+                tool_name=tool_name,
+                contract=definition.contract,
+                tool_input=tool_args,
+            )
+            if invocation_validation.should_block:
+                error = _invocation_validation_error(invocation_validation)
+                if execution_store is not None:
+                    current_record = execution_store.mark_failed(
+                        current_record,
+                        error=error,
+                        diagnostics={"tool_invocation_validation": invocation_validation.to_dict()},
+                    )
+                if _is_recoverable_invocation_validation_error(invocation_validation):
+                    return {
+                        "observation": build_recoverable_tool_invocation_observation(
+                            task_run_id=task_run_id,
+                            request_ref=action_request.request_id,
+                            directive_ref=directive.directive_id,
+                            tool_name=tool_name,
+                            tool_call_id=tool_call_id,
+                            tool_args=tool_args,
+                            error=error,
+                            execution_receipt=build_execution_receipt(current_record, error=error).to_dict(),
+                            invocation_validation=invocation_validation.to_dict(),
+                        ),
+                        "execution_record": current_record,
+                        "recoverable_error": error,
+                    }
                 return {
-                    "observation": build_recoverable_tool_contract_observation(
+                    "observation": build_tool_execution_error_observation(
                         task_run_id=task_run_id,
                         request_ref=action_request.request_id,
                         directive_ref=directive.directive_id,
@@ -116,48 +217,21 @@ class ToolRuntimeExecutor:
                         tool_args=tool_args,
                         error=error,
                         execution_receipt=build_execution_receipt(current_record, error=error).to_dict(),
-                        contract_decision=contract_decision.to_dict(),
                     ),
                     "execution_record": current_record,
-                    "recoverable_error": error,
+                    "error": error,
                 }
-            return {
-                "observation": build_tool_execution_error_observation(
-                    task_run_id=task_run_id,
-                    request_ref=action_request.request_id,
-                    directive_ref=directive.directive_id,
-                    tool_name=tool_name,
-                    tool_call_id=tool_call_id,
-                    tool_args=tool_args,
-                    error=error,
-                    execution_receipt=build_execution_receipt(current_record, error=error).to_dict(),
-                ),
-                "execution_record": current_record,
-                "error": error,
-            }
-        sandbox_context = self.sandbox_backend.context_for_tool(tool_name=tool_name, sandbox_policy=sandbox_policy)
-        if sandbox_context:
-            self.sandbox_backend.prepare_tool_call(
-                tool_name=tool_name,
-                tool_args=tool_args,
-                context=sandbox_context,
+            tool = (
+                definition.build(self.sandbox_backend.execution_root(sandbox_context))
+                if sandbox_context
+                else self.tool_runtime.get_instance(tool_name)
             )
-        if execution_store is not None:
-            dispatch_diagnostics = {
-                "tool_name": tool_name,
-                "directive_ref": directive.directive_id,
-                "tool_dispatch_guard": dispatch_decision.to_dict(),
-                "tool_contract_decision": contract_decision.to_dict(),
-            }
-            if sandbox_context:
-                dispatch_diagnostics["sandbox"] = sandbox_context.to_dict()
-            current_record = execution_store.mark_dispatched(current_record, diagnostics=dispatch_diagnostics)
-        tool = (
-            definition.build(self.sandbox_backend.execution_root(sandbox_context))
-            if sandbox_context
-            else self.tool_runtime.get_instance(tool_name)
-        )
-        if tool is None:
+            if tool is not None:
+                runtime_tool = RuntimeToolAdapter.from_capability_definition(
+                    capability_definition=definition,
+                    tool_instance=tool,
+                )
+        if runtime_tool is None:
             error = f"Tool execution failed: {tool_name} is unavailable."
             if execution_store is not None:
                 current_record = execution_store.mark_failed(current_record, error=error)
@@ -175,11 +249,89 @@ class ToolRuntimeExecutor:
                 "execution_record": current_record,
                 "error": error,
             }
+        if execution_store is not None:
+            dispatch_diagnostics = {
+                "tool_name": tool_name,
+                "directive_ref": directive.directive_id,
+                "tool_dispatch_guard": dispatch_decision.to_dict(),
+                "runtime_tool_protocol": "native" if tool is None else "adapter",
+            }
+            if sandbox_context:
+                dispatch_diagnostics["sandbox"] = sandbox_context.to_dict()
+            current_record = execution_store.mark_dispatched(current_record, diagnostics=dispatch_diagnostics)
+        workspace_root = Path(getattr(self.tool_runtime, "base_dir", ".")).resolve()
+        execution_root = self.sandbox_backend.execution_root(sandbox_context) if sandbox_context else workspace_root
+        tool_context = ToolUseContext(
+            workspace_root=execution_root,
+            sandbox_root=self.sandbox_backend.execution_root(sandbox_context) if sandbox_context else None,
+            read_scopes=tuple(str(item) for item in list(dict(sandbox_policy or {}).get("read_scopes") or [])),
+            write_scopes=tuple(str(item) for item in list(dict(sandbox_policy or {}).get("write_scopes") or [])),
+            material_mounts=tuple(dict(item) for item in list(dict(sandbox_policy or {}).get("material_mounts") or []) if isinstance(item, dict)),
+            artifact_root=str(dict(sandbox_policy or {}).get("artifact_root") or ""),
+            approval_policy=str(dict(sandbox_policy or {}).get("approval_policy") or ""),
+            permission_mode=str(dict(sandbox_policy or {}).get("permission_mode") or ""),
+            environment_snapshot=RuntimeEnvironment(
+                workspace_root=workspace_root,
+                sandbox_root=self.sandbox_backend.execution_root(sandbox_context) if sandbox_context else None,
+            ).snapshot(),
+            execution_receipt=build_execution_receipt(current_record).to_dict(),
+        )
+        validation = runtime_tool.validate_input(tool_args, tool_context)
+        if not validation.allowed:
+            error = validation.reason or "tool_input_validation_failed"
+            if execution_store is not None:
+                current_record = execution_store.mark_failed(
+                    current_record,
+                    error=error,
+                    diagnostics={"tool_validation": validation.diagnostics},
+                )
+            return {
+                "observation": build_recoverable_tool_invocation_observation(
+                    task_run_id=task_run_id,
+                    request_ref=action_request.request_id,
+                    directive_ref=directive.directive_id,
+                    tool_name=tool_name,
+                    tool_call_id=tool_call_id,
+                    tool_args=tool_args,
+                    error=validation.repair_instruction or error,
+                    execution_receipt=build_execution_receipt(current_record, error=error).to_dict(),
+                    invocation_validation={
+                        "missing_inputs": list(validation.diagnostics.get("missing_inputs") or []),
+                        "contract": {"required_inputs": _required_inputs_from_definition(definition)},
+                    },
+                ),
+                "execution_record": current_record,
+                "recoverable_error": error,
+            }
+        tool_args = dict(validation.normalized_args or tool_args)
+        permission = runtime_tool.check_permissions(tool_args, tool_context)
+        if not permission.allowed:
+            error = permission.reason or "tool_permission_denied"
+            if execution_store is not None:
+                current_record = execution_store.mark_failed(
+                    current_record,
+                    error=error,
+                    diagnostics={"tool_permission": permission.diagnostics},
+                )
+            return {
+                "observation": build_policy_rejection_observation(
+                    task_run_id=task_run_id,
+                    request_ref=action_request.request_id,
+                    directive_ref=directive.directive_id,
+                    tool_name=tool_name,
+                    tool_call_id=tool_call_id,
+                    tool_args=tool_args,
+                    policy="tool_permission",
+                    reason=error,
+                    repair_instruction=permission.repair_instruction or error,
+                    execution_receipt=build_execution_receipt(current_record, error=error).to_dict(),
+                    diagnostics=permission.diagnostics,
+                ),
+                "execution_record": current_record,
+                "recoverable_error": error,
+            }
         try:
-            if hasattr(tool, "ainvoke"):
-                result = await tool.ainvoke(tool_args)
-            else:
-                result = tool.invoke(tool_args)
+            envelope = await runtime_tool.call(tool_args, tool_context)
         except Exception as exc:
             error = f"Tool execution failed: {exc}"
             if execution_store is not None:
@@ -199,20 +351,17 @@ class ToolRuntimeExecutor:
                 "error": error,
             }
 
-        result_payload = _structured_tool_result_payload(result)
-        text = str(result_payload.get("text") if result_payload else result or "")
+        text = str(envelope.text or "")
         limit = max(0, int(max_result_size_chars or 0))
         truncated = bool(limit and len(text) > limit)
         if truncated:
             text = text[:limit]
         result_ref = f"execution-result:{current_record.execution_id}"
-        envelope = build_tool_result_envelope(
+        envelope = _finalize_runtime_tool_envelope(
+            envelope=envelope,
             tool_name=tool_name,
             tool_args=tool_args,
-            result={
-                "text": text,
-                "structured_payload": dict(result_payload.get("structured_payload") or {}),
-            } if result_payload else text,
+            text=text,
             execution_receipt=build_execution_receipt(current_record).to_dict(),
             result_ref=result_ref,
             truncated=truncated,
@@ -324,6 +473,47 @@ def _evaluate_dispatch_guard(
     )
 
 
+def _finalize_runtime_tool_envelope(
+    *,
+    envelope,
+    tool_name: str,
+    tool_args: dict[str, Any],
+    text: str,
+    execution_receipt: dict[str, Any],
+    result_ref: str,
+    truncated: bool,
+    sandbox: dict[str, Any] | None,
+):
+    structured_payload = {
+        **dict(envelope.structured_payload or {}),
+        "truncated": bool(truncated),
+        "sandbox": dict(sandbox or {}),
+    }
+    if envelope.observed_paths:
+        structured_payload["observed_paths"] = list(envelope.observed_paths)
+    if envelope.matched_paths:
+        structured_payload["matched_paths"] = list(envelope.matched_paths)
+    if envelope.artifact_refs:
+        structured_payload["artifact_refs"] = [dict(item) for item in envelope.artifact_refs]
+    if envelope.command_receipt:
+        structured_payload["command_receipt"] = dict(envelope.command_receipt)
+    return type(envelope)(
+        envelope_id=envelope.envelope_id,
+        tool_name=str(tool_name or envelope.tool_name or ""),
+        tool_args=dict(tool_args or envelope.tool_args or {}),
+        status=str(envelope.status or "ok"),
+        text=str(text or ""),
+        structured_payload=structured_payload,
+        observed_paths=tuple(envelope.observed_paths or ()),
+        matched_paths=tuple(envelope.matched_paths or ()),
+        artifact_refs=tuple(dict(item) for item in tuple(envelope.artifact_refs or ())),
+        command_receipt=dict(envelope.command_receipt or {}),
+        execution_receipt=dict(execution_receipt or {}),
+        result_ref=str(result_ref or ""),
+        error=str(envelope.error or "") if envelope.status == "error" else "",
+    )
+
+
 def _dispatch_decision_error(decision: ToolDispatchGuardDecision) -> str:
     mismatch_text = ", ".join(decision.mismatches) if decision.mismatches else decision.reason
     return (
@@ -333,17 +523,17 @@ def _dispatch_decision_error(decision: ToolDispatchGuardDecision) -> str:
     )
 
 
-def _contract_decision_error(decision: ToolContractDecision) -> str:
+def _invocation_validation_error(decision: ToolInvocationValidationDecision) -> str:
     details = []
     if decision.missing_inputs:
         details.append(f"missing inputs: {', '.join(decision.missing_inputs)}")
     if decision.missing_bindings:
         details.append(f"missing bindings: {', '.join(decision.missing_bindings)}")
     suffix = f" ({'; '.join(details)})" if details else ""
-    return f"Tool execution blocked by contract: {decision.reason}{suffix}."
+    return f"Tool execution blocked by invocation validation: {decision.reason}{suffix}."
 
 
-def _is_recoverable_contract_error(decision: ToolContractDecision) -> bool:
+def _is_recoverable_invocation_validation_error(decision: ToolInvocationValidationDecision) -> bool:
     if str(decision.reason or "") != "missing_required_input":
         return False
     return bool(decision.missing_inputs)
@@ -359,3 +549,14 @@ def _structured_tool_result_payload(result: Any) -> dict[str, Any]:
         "text": str(payload.get("text") or payload.get("summary") or ""),
         "structured_payload": dict(payload.get("structured_payload") or {}),
     }
+
+
+def _required_inputs_from_definition(definition: Any) -> list[str]:
+    contract = getattr(definition, "contract", None)
+    if contract is None:
+        return []
+    if isinstance(contract, dict):
+        values = list(contract.get("required_inputs") or [])
+    else:
+        values = list(getattr(contract, "required_inputs", ()) or [])
+    return [str(item).strip() for item in values if str(item).strip()]

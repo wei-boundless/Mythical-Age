@@ -99,7 +99,7 @@
 }
 
 .portalEmbedded .home {
-  min-height: min(48rem, 100%);
+  min-height: 100%;
   padding: clamp(0.8rem, 1.5vw, 1.35rem);
   grid-template-rows: auto minmax(18rem, 1fr);
 }
@@ -388,8 +388,7 @@
 .worldGateHalo,
 .worldGateFrame,
 .worldGateThreshold,
-.worldGateCopy,
-.worldGateArrow {
+.worldGateCopy {
   position: relative;
   z-index: 1;
 }
@@ -465,20 +464,6 @@
   line-height: 1.35;
 }
 
-.worldGateArrow {
-  position: absolute;
-  right: 14%;
-  bottom: 9%;
-  display: grid;
-  place-items: center;
-  width: 2.4rem;
-  height: 2.4rem;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.14);
-  border: 1px solid rgba(255, 255, 255, 0.24);
-  backdrop-filter: blur(12px);
-}
-
 .transition {
   position: relative;
   min-height: 100dvh;
@@ -488,7 +473,7 @@
 }
 
 .portalEmbedded .transition {
-  min-height: min(40rem, 100%);
+  min-height: 100%;
 }
 
 .transitionScene {
@@ -653,8 +638,7 @@
   grid-template-columns: minmax(18rem, 0.72fr) minmax(0, 1.28fr);
   grid-template-areas:
     "contract library"
-    "instruction library"
-    "log library";
+    "instruction library";
   gap: clamp(1rem, 2.2vw, 1.7rem);
   align-items: start;
   padding: 0 clamp(0.2rem, 1vw, 0.6rem) clamp(1rem, 2vw, 1.5rem);
@@ -676,8 +660,7 @@
 
 .realityContract,
 .realityInstruction,
-.realityProjectionLibrary,
-.realityLog {
+.realityProjectionLibrary {
   position: relative;
   display: grid;
   gap: 0.9rem;
@@ -716,10 +699,6 @@
   pointer-events: none;
 }
 
-.realityLog {
-  grid-area: log;
-}
-
 .realitySectionHead {
   display: grid;
   gap: 0.22rem;
@@ -733,7 +712,6 @@
 
 .realityContract p,
 .realityInstruction p,
-.realityLog p,
 .projectionItem p {
   margin: 0;
   color: rgba(240, 248, 255, 0.76);
@@ -928,23 +906,6 @@
   gap: 0.55rem;
 }
 
-.realityLogList {
-  display: grid;
-  gap: 0.55rem;
-}
-
-.realityLogList span {
-  display: grid;
-  gap: 0.16rem;
-  padding: 0.55rem 0 0.55rem 0.8rem;
-  border-left: 1px solid rgba(214, 243, 255, 0.16);
-  background: linear-gradient(90deg, rgba(219, 244, 255, 0.055), transparent 80%);
-}
-
-.realityLogList small {
-  color: rgba(240, 248, 255, 0.58);
-}
-
 .worldHero {
   position: relative;
   z-index: 2;
@@ -1023,23 +984,6 @@
   margin: 0;
   max-width: 40rem;
   color: rgba(247, 250, 255, 0.78);
-}
-
-.heroMeta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem;
-}
-
-.heroMeta span {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  padding: 0.66rem 0.86rem;
-  border-radius: 999px;
-  background: rgba(8, 13, 18, 0.28);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  color: rgba(247, 250, 255, 0.84);
 }
 
 .worldBody {
@@ -1255,36 +1199,6 @@
   color: rgba(247, 250, 255, 0.76);
 }
 
-.presenceGrid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.95rem;
-  max-width: min(52rem, 100%);
-}
-
-.portalEmbedded .presenceGrid {
-  gap: 0.7rem;
-}
-
-.storyPanel {
-  display: grid;
-  gap: 0.62rem;
-  padding: 0.9rem 0.2rem 0.9rem 0.95rem;
-  background:
-    radial-gradient(ellipse at 0 50%, rgba(255, 255, 255, 0.1), transparent 62%),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.06), transparent 82%);
-  border-left: 1px solid rgba(255, 255, 255, 0.16);
-}
-
-.storyPanel p {
-  margin: 0;
-  color: rgba(247, 250, 255, 0.78);
-}
-
-.storyPanel small {
-  color: rgba(247, 250, 255, 0.62);
-}
-
 .sectionHead {
   display: inline-flex;
   align-items: center;
@@ -1356,31 +1270,6 @@
   object-fit: contain;
   object-position: bottom center;
   filter: contrast(1.12) saturate(0.92);
-}
-
-.logPanel {
-  display: grid;
-  gap: 0.65rem;
-  max-width: 28rem;
-  position: relative;
-  z-index: 1;
-}
-
-.logList {
-  display: grid;
-  gap: 0.55rem;
-}
-
-.logList span {
-  display: grid;
-  gap: 0.16rem;
-  padding: 0.65rem 0 0.65rem 0.8rem;
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0.06), transparent 88%);
-  border-left: 1px solid rgba(255, 255, 255, 0.12);
-}
-
-.logList small {
-  color: rgba(247, 250, 255, 0.62);
 }
 
 .workline {
@@ -1514,7 +1403,6 @@
 
 @media (max-width: 1100px) {
   .portalEmbedded .worldBody,
-  .portalEmbedded .presenceGrid,
   .portalEmbedded .modeSheetBody {
     grid-template-columns: 1fr;
   }
@@ -1533,7 +1421,6 @@
 
   .realityStage,
   .worldBody,
-  .presenceGrid,
   .modeSheetBody {
     grid-template-columns: 1fr;
   }
@@ -1542,8 +1429,7 @@
     grid-template-areas:
       "contract"
       "instruction"
-      "library"
-      "log";
+      "library";
     padding-inline: 0;
   }
 
@@ -1676,10 +1562,6 @@
   .realityContract,
   .realityInstruction,
   .realityProjectionLibrary,
-  .realityLog {
-    padding-left: 0.9rem;
-  }
-
   .projectionDetail {
     padding-left: 0;
     border-left: 0;

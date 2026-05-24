@@ -89,7 +89,7 @@ def test_sandbox_python_repl_blocks_absolute_workspace_escape(tmp_path: Path) ->
     assert "Blocked:" in result["observation"].payload["result"]
 
 
-def test_tool_runtime_executor_returns_recoverable_contract_feedback_before_tool_invocation(tmp_path: Path) -> None:
+def test_tool_runtime_executor_returns_recoverable_invocation_validation_feedback_before_tool_invocation(tmp_path: Path) -> None:
     workspace = tmp_path / "project"
     workspace.mkdir(parents=True)
 
@@ -107,10 +107,64 @@ def test_tool_runtime_executor_returns_recoverable_contract_feedback_before_tool
     assert result["observation"].observation_type == "tool_result"
     assert result["observation"].needs_model_followup is True
     assert result["observation"].payload["recoverable"] is True
-    assert result["observation"].payload["repair_kind"] == "tool_contract"
+    assert result["observation"].payload["repair_kind"] == "tool_invocation_validation"
     assert result["observation"].payload["missing_inputs"] == ["path"]
     assert result["observation"].payload["required_inputs"] == ["path", "content"]
     assert "Retry the same tool" in result["observation"].payload["result"]
+
+
+def test_tool_runtime_preflight_rejects_missing_input_before_execution_record(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    workspace.mkdir(parents=True)
+    executor = ToolRuntimeExecutor(tool_runtime=ToolRuntime(workspace))
+    action_request, directive = _tool_request_and_directive(
+        task_run_id="taskrun-preflight",
+        tool_name="write_file",
+        tool_args={"filepath": "docs/note.md", "content": "hello"},
+        operation_id="op.write_file",
+    )
+
+    preflight = executor.preflight_validate(
+        task_run_id="taskrun-preflight",
+        action_request=action_request,
+        directive=directive,
+        sandbox_policy={
+            "enabled": True,
+            "mode": "workspace_overlay",
+            "sandbox_root": str(tmp_path / "sandbox" / "workspace"),
+            "workspace_root": str(workspace),
+        },
+    )
+
+    assert preflight["allowed"] is False
+    observation = preflight["observation"]
+    assert observation.observation_type == "tool_result"
+    assert observation.needs_model_followup is True
+    assert observation.payload["missing_inputs"] == ["path"]
+    assert observation.payload["required_inputs"] == ["path", "content"]
+
+
+def test_native_write_file_permission_rejection_is_model_visible_tool_result(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    sandbox_root = tmp_path / "sandbox" / "workspace"
+
+    result = _run_tool(
+        workspace=workspace,
+        sandbox_root=sandbox_root,
+        tool_name="write_file",
+        tool_args={"path": "private/note.md", "content": "blocked"},
+        operation_id="op.write_file",
+        sandbox_policy_extra={"write_scopes": ["allowed"]},
+    )
+
+    observation = result["observation"]
+    assert result["execution_record"].status == "failed"
+    assert "recoverable_error" in result
+    assert observation.observation_type == "tool_result"
+    assert observation.payload["structured_payload"]["type"] == "tool_policy_rejection"
+    assert observation.payload["structured_payload"]["policy"] == "tool_permission"
+    assert observation.payload["structured_payload"]["reason"] == "path_outside_write_scopes"
+    assert observation.needs_model_followup is True
 
 
 def test_tool_runtime_executor_blocks_operation_mismatch_before_tool_invocation(tmp_path: Path) -> None:
@@ -162,30 +216,17 @@ def _run_tool(
     tool_args: dict[str, str],
     operation_id: str,
     tool_call_name: str | None = None,
+    sandbox_policy_extra: dict | None = None,
 ) -> dict:
     workspace.mkdir(parents=True, exist_ok=True)
     sandbox_root.mkdir(parents=True, exist_ok=True)
     task_run_id = f"taskrun-{tool_name}"
-    action_request = RuntimeActionRequest(
-        request_id=f"rtact:{tool_name}",
+    action_request, directive = _tool_request_and_directive(
         task_run_id=task_run_id,
-        request_type="tool_call",
-        step_id="step:1",
-        directive_ref=f"runtime-directive:{tool_name}",
+        tool_name=tool_name,
+        tool_args=tool_args,
         operation_id=operation_id,
-        payload={
-            "tool_name": tool_name,
-            "tool_call": {"id": f"call-{tool_name}", "name": tool_call_name or tool_name, "args": tool_args},
-        },
-    )
-    directive = RuntimeDirective(
-        directive_id=f"runtime-directive:{tool_name}",
-        task_id="task:sandbox-tool-runtime",
-        plan_ref="plan:sandbox-tool-runtime",
-        stage_ref="stage:sandbox-tool-runtime",
-        executor_type="tool",
-        adopted_resource_policy_ref="respol:sandbox-tool-runtime",
-        operation_refs=(operation_id,),
+        tool_call_name=tool_call_name,
     )
     execution_store = RuntimeExecutionStore(workspace / ".runtime-test")
     fingerprint = build_request_fingerprint(
@@ -222,6 +263,39 @@ def _run_tool(
                 "mode": "workspace_overlay",
                 "sandbox_root": str(sandbox_root),
                 "workspace_root": str(workspace),
+                **dict(sandbox_policy_extra or {}),
             },
         )
     )
+
+
+def _tool_request_and_directive(
+    *,
+    task_run_id: str,
+    tool_name: str,
+    tool_args: dict[str, str],
+    operation_id: str,
+    tool_call_name: str | None = None,
+) -> tuple[RuntimeActionRequest, RuntimeDirective]:
+    action_request = RuntimeActionRequest(
+        request_id=f"rtact:{tool_name}",
+        task_run_id=task_run_id,
+        request_type="tool_call",
+        step_id="step:1",
+        directive_ref=f"runtime-directive:{tool_name}",
+        operation_id=operation_id,
+        payload={
+            "tool_name": tool_name,
+            "tool_call": {"id": f"call-{tool_name}", "name": tool_call_name or tool_name, "args": tool_args},
+        },
+    )
+    directive = RuntimeDirective(
+        directive_id=f"runtime-directive:{tool_name}",
+        task_id="task:sandbox-tool-runtime",
+        plan_ref="plan:sandbox-tool-runtime",
+        stage_ref="stage:sandbox-tool-runtime",
+        executor_type="tool",
+        adopted_resource_policy_ref="respol:sandbox-tool-runtime",
+        operation_refs=(operation_id,),
+    )
+    return action_request, directive

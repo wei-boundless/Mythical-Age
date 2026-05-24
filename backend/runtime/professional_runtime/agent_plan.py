@@ -228,11 +228,11 @@ def _steps_for_contract(*, contract: dict[str, Any], obligation: dict[str, Any])
             steps.append(_step("read_required_materials", "读取必要材料", "读取并抽取任务所需材料证据。", ("op.read_file",), ("material_facts",), ("material_observation",), ("read_material",)))
         steps.extend([
             _step("inspect_project", "勘察项目入口", "确认项目结构、启动方式和游戏落点。", ("op.read_file", "op.search_text"), ("entrypoint_map",), ("source_tree_observation",), ("inspect_code",)),
-            _step("plan_vertical_slice", "规划垂直切片", "把用户目标拆成玩法、资源、验证和报告阶段。", ("op.model_response",), ("implementation_plan",), ("plan_coverage_notes",), ("gameplay_acceptance", "visual_asset_refs")),
-            _step("implement_core_gameplay", "实现核心玩法", "实现可观察的移动、攻击、敌人、推进和 HUD。", ("op.write_file", "op.edit_file"), ("source_changes",), ("file_write", "gameplay_check"), ("apply_real_change", "gameplay_acceptance")),
-            _step("integrate_visual_asset", "接入视觉资源", "生成或接入至少一个真实可见的视觉资源。", ("op.write_file", "op.edit_file"), ("asset_refs",), ("asset_file", "asset_visible"), ("integrate_asset", "visual_asset_refs")),
-            _step("run_browser_verification", "运行并浏览器验证", "启动项目或打开入口，检查画面、资源和关键玩法。", ("op.shell", "op.browser_control"), ("verification_evidence",), ("browser_open", "canvas_pixel_check", "gameplay_check"), ("run_browser_verification", "verification_evidence")),
-            _step("write_final_report", "撰写最终报告", "只在核心实现和验证之后汇报变更、证据和限制。", ("op.write_file", "op.model_response"), ("final_report",), ("file_write", "completion_judgment"), ("final_report",)),
+            _step("plan_vertical_slice", "规划垂直切片", "明确玩法闭环、核心对象、资产清单、文件结构和验证方式，避免只写展示页。", ("op.model_response",), ("implementation_plan",), ("plan_coverage_notes"), ("gameplay_acceptance", "visual_asset_refs")),
+            _step("implement_core_gameplay", "实现核心玩法", "实现玩家输入、碰撞、敌人行为、收集物、生命/分数、胜负、暂停和重启的可玩闭环。", ("op.write_file", "op.edit_file"), ("source_changes",), ("file_write", "gameplay_check"), ("apply_real_change", "gameplay_acceptance")),
+            _step("integrate_visual_asset", "接入视觉资源", "为玩家、敌人、场景地块、障碍和物件写入真实资源文件，并在源码中真实引用。", ("op.write_file", "op.edit_file"), ("asset_refs",), ("asset_file", "asset_visible"), ("integrate_asset", "visual_asset_refs")),
+            _step("run_browser_verification", "运行并浏览器验证", "启动或打开入口，检查画面渲染、资源加载和关键交互；不能用文件存在冒充玩法验收。", ("op.shell", "op.browser_control"), ("verification_evidence",), ("browser_open", "canvas_pixel_check", "gameplay_check"), ("run_browser_verification", "verification_evidence")),
+            _step("write_final_report", "撰写最终报告", "汇报产物、真实验证证据和未完成验收；缺浏览器证据时必须声明 partial。", ("op.write_file", "op.model_response"), ("final_report"), ("file_write", "completion_judgment"), ("final_report",)),
         ])
         return steps
     if task_goal_type == "frontend_app_delivery":

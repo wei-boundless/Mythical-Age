@@ -176,6 +176,9 @@ def test_main_agent_prompt_guidance_names_web_researcher() -> None:
     assert "web_research" in block
     assert "公开网页" in block
     assert "官方来源" in block
+    assert "agent:verifier" in block
+    assert "completion_verification" in block
+    assert "交付复核" in block
 
 
 def test_web_research_kind_resolves_to_web_researcher_at_runtime() -> None:
@@ -195,3 +198,22 @@ def test_web_research_kind_resolves_to_web_researcher_at_runtime() -> None:
     )
 
     assert resolved == "agent:web_researcher"
+
+
+def test_completion_verification_kind_resolves_to_verifier_at_runtime() -> None:
+    executor = AgentDelegationExecutor(BACKEND_DIR)
+    parent_run = AgentRun(
+        agent_run_id="agrun:taskrun:test:main",
+        task_run_id="taskrun:test",
+        agent_id="agent:0",
+        agent_profile_id="main_interactive_agent",
+        status="running",
+    )
+
+    resolved = executor._resolve_target_agent_id(
+        "",
+        delegation_kind="completion_verification",
+        parent_agent_run=parent_run,
+    )
+
+    assert resolved == "agent:verifier"

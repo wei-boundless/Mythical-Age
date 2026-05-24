@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable
 
 from langchain_core.messages import AIMessage, ToolMessage
 
+from runtime.tool_runtime.tool_call_policy import build_round_tool_call_options
+from runtime.environment import RuntimeEnvironment, check_runtime_connection_health
 from runtime.tool_runtime.provider_tool_call_adapter import tool_calls_for_langchain_messages
 from orchestration.runtime_directive import RuntimeDirective
 from task_system.tasks.run_models import (
@@ -27,9 +30,7 @@ from ..contracts.obligation_validation import validate_obligations
 from .evidence_closeout import (
     _adopt_runtime_event_ref,
     _answer_metadata_from_done_event,
-    _artifact_output_refs_from_observation,
     _artifact_output_refs_from_tool_payload,
-    _build_artifact_delivery_auto_write_observation,
     _build_artifact_delivery_evidence_closeout_answer,
     _build_code_fix_evidence_closeout_answer,
     _build_evidence_closeout_answer,
@@ -48,7 +49,6 @@ from .evidence_closeout import (
     _should_apply_generic_evidence_closeout,
     _should_apply_profile_delivery_evidence_closeout,
     _should_apply_protocol_leak_evidence_closeout,
-    _should_auto_write_artifact_delivery_after_blocked_tool,
     _should_repair_professional_closeout,
     _strip_tool_call_markup,
     _tool_observation_payload,
@@ -70,63 +70,64 @@ from .runtime_policy import (
     _standard_action_step_id,
     _with_professional_task_instruction,
 )
-from .required_action_queue import RequiredActionQueue, build_required_action_queue
+from .deliverable_progress import DeliverableProgress, build_deliverable_progress
+from .progress_policy import check_progress_policy
+from runtime.shared.policy_rejection_observation import build_policy_rejection_observation
+from .stage_summary import build_stage_summary
+from .timeout_recovery import build_timeout_recovery_observation, timeout_recovery_messages
 from .state_machine import initial_professional_run_state, unsatisfied_obligations_from_verification
-from .tool_contract_gate import (
-    _compact_professional_recovery_messages,
-    _contract_followup_guidance,
-    _contract_gate_tool_request,
-    _contract_repair_instruction,
-    _model_tools_for_required_next_step,
-    _next_required_tools,
-    _tool_call_options_for_round,
+from .closeout_repair import (
+    build_evidence_gap_guidance,
+    suggest_evidence_repair_tools,
 )
 from ..memory.tool_observation_ledger import ToolObservationLedger, build_tool_observation_record
+from ..outcome import build_professional_run_outcome
+from ..execution_engine.event_translation import append_executor_observation_event, append_tool_result_received_event
 
 
 RuntimeEventBuilder = Callable[..., Any]
 StateWithLedger = Callable[..., RuntimeLoopState]
 
 
-def _required_queue(
+def _deliverable_progress(
     goal_contract: ProfessionalTaskGoalContract,
     tool_observation_ledger: ToolObservationLedger,
-) -> RequiredActionQueue:
-    return build_required_action_queue(
+) -> DeliverableProgress:
+    return build_deliverable_progress(
         goal_contract=goal_contract,
         tool_observation_ledger=tool_observation_ledger,
     )
 
 
-def _queue_diagnostics(required_action_queue: RequiredActionQueue) -> dict[str, Any]:
-    return {"required_action_queue": required_action_queue.to_dict()}
+def _queue_diagnostics(deliverable_progress: DeliverableProgress) -> dict[str, Any]:
+    return {"deliverable_progress": deliverable_progress.to_dict()}
 
 
 def _professional_progress_page(
     *,
     goal_contract: ProfessionalTaskGoalContract,
     tool_observation_ledger: ToolObservationLedger,
-    required_action_queue: RequiredActionQueue,
+    deliverable_progress: DeliverableProgress,
     turn_count: int,
     tool_call_count: int,
     tool_observation_count: int,
 ) -> dict[str, Any]:
     written_paths = _ledger_paths_for_satisfaction(tool_observation_ledger, "write_output")
     verified = tool_observation_ledger.verification_passed()
-    pending_actions = [
+    pending_deliverables = [
         {
-            "action_id": action.action_id,
-            "kind": action.kind,
-            "path": action.path,
-            "tool_names": list(action.tool_names),
+            "obligation_id": obligation.obligation_id,
+            "kind": obligation.kind,
+            "path": obligation.path,
+            "suggested_tool_names": list(obligation.suggested_tool_names),
         }
-        for action in required_action_queue.actions
-        if not action.satisfied
+        for obligation in deliverable_progress.obligations
+        if not obligation.satisfied
     ]
-    current_action = required_action_queue.current_action
+    next_missing = deliverable_progress.next_missing_deliverable
     completed_kinds = sorted({item for record in tool_observation_ledger.records for item in record.satisfies})
-    if current_action is not None:
-        next_step = required_action_queue.prompt_guidance()
+    if next_missing is not None:
+        next_step = deliverable_progress.progress_hint()
     elif goal_contract.requires_verification_command and not verified:
         next_step = "下一步运行 terminal 验证命令，并基于真实输出收口。"
     else:
@@ -140,12 +141,12 @@ def _professional_progress_page(
         "completed": completed_kinds,
         "written_paths": written_paths,
         "verification_passed": bool(verified),
-        "pending_actions": pending_actions,
-        "current_action": current_action.to_dict() if current_action is not None else {},
+        "pending_deliverables": pending_deliverables,
+        "next_missing_deliverable": next_missing.to_dict() if next_missing is not None else {},
         "next_step": next_step,
         "summary": _progress_page_summary(
             written_paths=written_paths,
-            pending_actions=pending_actions,
+            pending_deliverables=pending_deliverables,
             verified=verified,
             next_step=next_step,
         ),
@@ -156,7 +157,7 @@ def _professional_progress_page(
 def _progress_page_summary(
     *,
     written_paths: list[str],
-    pending_actions: list[dict[str, Any]],
+    pending_deliverables: list[dict[str, Any]],
     verified: bool,
     next_step: str,
 ) -> str:
@@ -165,14 +166,77 @@ def _progress_page_summary(
         lines.append("已写入：" + "、".join(written_paths[-8:]))
     else:
         lines.append("已写入：暂无真实写入产物")
-    if pending_actions:
-        pending_paths = [str(item.get("path") or item.get("kind") or "").strip() for item in pending_actions[:8]]
+    if pending_deliverables:
+        pending_paths = [str(item.get("path") or item.get("kind") or "").strip() for item in pending_deliverables[:8]]
         lines.append("待完成：" + "、".join(path for path in pending_paths if path))
     else:
-        lines.append("待完成：无明确强制动作")
+        lines.append("待完成：无明确缺失交付物")
     lines.append("验证：" + ("已通过" if verified else "尚未通过或尚未运行"))
     lines.append("下一步：" + next_step)
     return "\n".join(lines)
+
+
+def _closeout_resubmission_tools(
+    *,
+    goal_contract: ProfessionalTaskGoalContract,
+    tool_observation_ledger: ToolObservationLedger,
+    deliverable_validation: dict[str, Any],
+    obligation_validation: dict[str, Any],
+    allowed_tool_names: list[str] | tuple[str, ...],
+) -> tuple[str, ...]:
+    allowed = {str(item or "").strip() for item in list(allowed_tool_names or []) if str(item or "").strip()}
+    deliverable_progress = _deliverable_progress(goal_contract, tool_observation_ledger)
+    if deliverable_progress.next_missing_deliverable is not None:
+        return tuple(name for name in deliverable_progress.next_missing_deliverable.suggested_tool_names if name in allowed)
+    missing = {
+        str(item or "").strip()
+        for item in [
+            *list(deliverable_validation.get("missing_deliverables") or []),
+            *list(deliverable_validation.get("unsupported_claims") or []),
+            *list(obligation_validation.get("missing_required_actions") or []),
+            *list(obligation_validation.get("missing_output_paths") or []),
+            *list(obligation_validation.get("missing_response_terms") or []),
+        ]
+        if str(item or "").strip()
+    }
+    if any(item.startswith("output_path:") for item in missing):
+        return tuple(name for name in ("write_file", "edit_file") if name in allowed)
+    verification_missing = bool(
+        missing.intersection({"verification_evidence", "verify_command", "run_verification", "run_browser_verification"})
+        or "verification_evidence" in missing
+    )
+    if verification_missing:
+        return tuple(name for name in ("browser_control", "terminal") if name in allowed)
+    if "visual_asset_refs" in missing or "runnable_artifact_refs" in missing or "gameplay_acceptance" in missing:
+        if not tool_observation_ledger.has_write():
+            return tuple(name for name in ("write_file", "edit_file") if name in allowed)
+        return tuple(name for name in ("browser_control", "terminal") if name in allowed)
+    return ()
+
+
+def _closeout_resubmission_instruction(
+    *,
+    suggested_tool_names: tuple[str, ...],
+    deliverable_validation: dict[str, Any],
+    obligation_validation: dict[str, Any],
+    goal_contract: ProfessionalTaskGoalContract,
+    tool_observation_ledger: ToolObservationLedger,
+) -> str:
+    missing_items = _dedupe_strings(
+        [
+            *[str(item) for item in list(deliverable_validation.get("missing_deliverables") or [])],
+            *[str(item) for item in list(obligation_validation.get("missing_required_actions") or [])],
+            *[str(item) for item in list(obligation_validation.get("missing_output_paths") or [])],
+        ]
+    )
+    deliverable_progress = _deliverable_progress(goal_contract, tool_observation_ledger)
+    return (
+        "上一轮最终回答还不能收口：运行时验收发现仍缺少真实证据或真实产物。"
+        f"缺失项：{'、'.join(missing_items) if missing_items else '未满足的执行义务'}。"
+        f"建议补交证据的工具：{'、'.join(suggested_tool_names)}。"
+        f"{deliverable_progress.progress_hint()}"
+        "不要重写总结来绕过验收；先补齐真实证据，工具返回后再基于真实结果收口。"
+    )
 
 
 def _ledger_paths_for_satisfaction(
@@ -200,6 +264,7 @@ class ProfessionalTaskRunOutcome:
     result_refs: list[str] = field(default_factory=list)
     final_content: str = ""
     final_answer_metadata: dict[str, Any] = field(default_factory=dict)
+    run_outcome: dict[str, Any] = field(default_factory=dict)
     terminal_reason: str = "completed"
     turn_count: int = 0
     model_call_count: int = 0
@@ -217,6 +282,7 @@ class ProfessionalTaskRunDriver:
     def __init__(
         self,
         *,
+        workspace_root: Path,
         event_log: Any,
         execution_engine: Any,
         record_task_run_step_event: RuntimeEventBuilder,
@@ -224,6 +290,7 @@ class ProfessionalTaskRunDriver:
         state_with_task_run_ledger: StateWithLedger,
         write_checkpoint_event: Callable[..., Any],
     ) -> None:
+        self.workspace_root = Path(workspace_root).resolve()
         self.event_log = event_log
         self.execution_engine = execution_engine
         self.record_task_run_step_event = record_task_run_step_event
@@ -308,6 +375,9 @@ class ProfessionalTaskRunDriver:
             user_message=user_message,
             semantic_contract=semantic_contract,
         )
+        runtime_environment = RuntimeEnvironment(workspace_root=self.workspace_root)
+        runtime_environment_snapshot = runtime_environment.snapshot()
+        runtime_environment_health = check_runtime_connection_health(runtime_environment)
         plan = _semantic_control_plan(
             user_message=user_message,
             semantic_contract=semantic_contract,
@@ -342,6 +412,8 @@ class ProfessionalTaskRunDriver:
                 "goal_contract": goal_contract.to_dict(),
                 "plan_item_count": len(plan),
                 "policy": policy,
+                "runtime_environment": runtime_environment_snapshot,
+                "runtime_environment_health": runtime_environment_health.to_dict(),
                 "professional_run_state": run_state.to_dict(),
             },
             refs={"task_contract_ref": task_contract_ref},
@@ -360,14 +432,14 @@ class ProfessionalTaskRunDriver:
             refs={"task_contract_ref": task_contract_ref},
         )
         yield {"type": "runtime_loop_event", "event": state_event.to_dict()}
-        initial_required_action_queue = _required_queue(goal_contract, tool_observation_ledger)
+        initial_deliverable_progress = _deliverable_progress(goal_contract, tool_observation_ledger)
         run_state = run_state.advance(
             "obligation_bound",
             reason="execution_obligation_bound",
-            unsatisfied_obligations=initial_required_action_queue.missing_obligations(),
+            unsatisfied_obligations=initial_deliverable_progress.missing_obligations(),
             diagnostics={
                 "execution_obligation": execution_obligation,
-                **_queue_diagnostics(initial_required_action_queue),
+                **_queue_diagnostics(initial_deliverable_progress),
             },
         )
         obligation_event = self.event_log.append(
@@ -515,10 +587,10 @@ class ProfessionalTaskRunDriver:
         run_state = run_state.advance(
             "action_dispatched",
             reason="action_dispatched",
-            unsatisfied_obligations=_required_queue(goal_contract, tool_observation_ledger).missing_obligations(),
+            unsatisfied_obligations=_deliverable_progress(goal_contract, tool_observation_ledger).missing_obligations(),
             diagnostics={
                 "tool_execution_enabled": tool_execution_enabled,
-                **_queue_diagnostics(_required_queue(goal_contract, tool_observation_ledger)),
+                **_queue_diagnostics(_deliverable_progress(goal_contract, tool_observation_ledger)),
             },
         )
         action_event = self.event_log.append(
@@ -571,6 +643,7 @@ class ProfessionalTaskRunDriver:
             goal_contract=goal_contract,
             semantic_contract=semantic_contract,
             mode_policy=mode_policy,
+            sandbox_policy=sandbox_policy,
         )
         write_output_required = bool(goal_contract.requires_write_output)
         pending_tool_calls: list[dict[str, Any]] = []
@@ -579,8 +652,6 @@ class ProfessionalTaskRunDriver:
         delegation_observation_count = 0
         write_observation_count = 0
         tool_call_budget_exceeded = False
-        write_budget_reserved = False
-        contract_gate_blocked = False
         action_observation_refs: list[str] = []
         structured_observations: list[dict[str, Any]] = []
         action_step_completed = False
@@ -605,14 +676,9 @@ class ProfessionalTaskRunDriver:
             outcome.model_call_count += 1
             round_tool_calls: list[dict[str, Any]] = []
             round_tool_messages: list[ToolMessage] = []
-            round_write_budget_reserved = False
             protocol_violation_repair_requested = False
             model_timeout_recovery_requested = False
             round_protocol_leak_detected = False
-            gate_repair_instruction = ""
-            gate_next_required_tools: tuple[str, ...] = ()
-            blocked_tool_calls_for_repair: list[dict[str, Any]] = []
-            blocked_tool_messages_for_repair: list[ToolMessage] = []
             assistant_tool_call_content = ""
             assistant_tool_call_kwargs: dict[str, Any] = {}
             if round_index > 1:
@@ -629,16 +695,12 @@ class ProfessionalTaskRunDriver:
                     refs={"task_contract_ref": task_contract_ref},
                 )
                 yield {"type": "runtime_loop_event", "event": followup_event.to_dict()}
-            required_action_queue = _required_queue(goal_contract, tool_observation_ledger)
-            required_next_tools = _next_required_tools(goal_contract, tool_observation_ledger)
-            round_model_tool_instances = _model_tools_for_required_next_step(
-                model_tool_instances=model_tool_instances,
-                required_next_tools=required_next_tools,
-            )
-            round_tool_call_options = _tool_call_options_for_round(
-                round_model_tool_instances=round_model_tool_instances,
-                required_next_tools=required_next_tools,
-                max_tool_calls=max_tool_calls,
+            deliverable_progress = _deliverable_progress(goal_contract, tool_observation_ledger)
+            round_model_tool_instances = list(model_tool_instances or [])
+            round_tool_call_options = (
+                build_round_tool_call_options(max_tool_calls=max_tool_calls)
+                if round_model_tool_instances
+                else None
             )
             async for event in self.execution_engine.stream_raw_model_events(
                 user_message=user_message,
@@ -655,78 +717,113 @@ class ProfessionalTaskRunDriver:
                     round_protocol_leak_detected = True
                 if event_type == "tool_call_requested":
                     requested_tool_name = str(event.get("tool_name") or dict(event.get("tool_call") or {}).get("name") or "")
-                    contract_gate = _contract_gate_tool_request(
+                    progress_decision = check_progress_policy(
                         goal_contract=goal_contract,
-                        tool_observation_ledger=tool_observation_ledger,
+                        ledger=tool_observation_ledger,
                         requested_tool_name=requested_tool_name,
                         requested_tool_args=dict(dict(event.get("tool_call") or {}).get("args") or {}),
-                        allowed_tool_names=allowed_tool_names,
+                        recent_observations=structured_observations,
                     )
-                    if not contract_gate.allowed:
-                        contract_gate_blocked = True
-                        if "write_file" in contract_gate.next_required_tool_names:
-                            write_budget_reserved = True
-                            round_write_budget_reserved = True
-                        gate_repair_instruction = contract_gate.repair_instruction
-                        gate_next_required_tools = tuple(contract_gate.next_required_tool_names)
+                    if not progress_decision.allowed:
                         blocked_tool_call = dict(event.get("tool_call") or {})
+                        repair_payload = dict(progress_decision.repair_observation or {})
+                        repair_text = str(repair_payload.get("repair_instruction") or progress_decision.reason)
+                        rejection_observation = build_policy_rejection_observation(
+                            task_run_id=task_run_id,
+                            request_ref=str(blocked_tool_call.get("id") or f"progress-policy:{task_run_id}:{round_index}"),
+                            directive_ref=directive.directive_id,
+                            tool_name=requested_tool_name,
+                            tool_call_id=str(blocked_tool_call.get("id") or requested_tool_name),
+                            tool_args=dict(blocked_tool_call.get("args") or {}),
+                            policy="progress_policy",
+                            reason=progress_decision.reason,
+                            repair_instruction=repair_text,
+                            diagnostics={
+                                "progress_policy": progress_decision.to_dict(),
+                                "deliverable_progress": deliverable_progress.to_dict(),
+                            },
+                        )
+                        context_record = runtime_context_manager.record_observation(rejection_observation)
+                        rejection_refs = {
+                            "task_contract_ref": task_contract_ref,
+                            "directive_ref": directive.directive_id,
+                            "tool_policy": "progress_policy",
+                        }
+                        result_event = append_tool_result_received_event(
+                            event_log=self.event_log,
+                            task_run_id=task_run_id,
+                            observation=rejection_observation,
+                            context_record=context_record,
+                            refs=rejection_refs,
+                        )
+                        observation_event = append_executor_observation_event(
+                            event_log=self.event_log,
+                            task_run_id=task_run_id,
+                            observation=rejection_observation,
+                            context_record=context_record,
+                            refs=rejection_refs,
+                        )
                         if blocked_tool_call:
-                            blocked_tool_calls_for_repair.append(blocked_tool_call)
-                            blocked_tool_messages_for_repair.append(
-                                ToolMessage(
-                                    content=(
-                                        "Runtime blocked this tool request before execution: "
-                                        f"{contract_gate.message} "
-                                        f"Next required tool: {', '.join(contract_gate.next_required_tool_names) or 'follow the goal contract'}."
-                                    ),
-                                    tool_call_id=str(blocked_tool_call.get("id") or getattr(event, "event_id", "") or requested_tool_name),
-                                )
-                            )
+                            round_tool_calls.append(blocked_tool_call)
+                            pending_tool_calls.append(blocked_tool_call)
                         assistant_tool_call_content = str(event.get("assistant_content") or assistant_tool_call_content)
                         event_kwargs = dict(event.get("assistant_additional_kwargs") or {})
                         if event_kwargs:
                             assistant_tool_call_kwargs.update(event_kwargs)
+                        rejection_payload = dict(rejection_observation.payload or {})
+                        rejection_ref = rejection_observation.observation_id
+                        tool_observation_count += 1
+                        action_observation_refs.append(rejection_ref)
+                        structured_observations.append(
+                            {
+                                "observation_ref": rejection_ref,
+                                "tool_name": str(rejection_payload.get("tool_name") or ""),
+                                "tool_args": dict(rejection_payload.get("tool_args") or {}),
+                                "result": rejection_payload.get("result"),
+                                "result_envelope": dict(rejection_payload.get("result_envelope") or {}),
+                                "structured_payload": dict(rejection_payload.get("structured_payload") or {}),
+                                "observed_paths": list(rejection_payload.get("observed_paths") or []),
+                                "matched_paths": list(rejection_payload.get("matched_paths") or []),
+                                "artifact_refs": [
+                                    dict(item)
+                                    for item in list(rejection_payload.get("artifact_refs") or [])
+                                    if isinstance(item, dict)
+                                ],
+                                "command_receipt": dict(rejection_payload.get("command_receipt") or {}),
+                            }
+                        )
+                        tool_observation_ledger = tool_observation_ledger.append(
+                            build_tool_observation_record(
+                                observation_ref=rejection_ref,
+                                tool_name=str(rejection_payload.get("tool_name") or requested_tool_name),
+                                tool_args=dict(rejection_payload.get("tool_args") or {}),
+                                result=rejection_payload,
+                            )
+                        )
+                        rejection_tool_message = ToolMessage(
+                            content=str(rejection_payload.get("result") or repair_text),
+                            tool_call_id=str(
+                                rejection_payload.get("tool_call_id")
+                                or blocked_tool_call.get("id")
+                                or getattr(event, "event_id", "")
+                                or requested_tool_name
+                            ),
+                        )
+                        round_tool_messages.append(rejection_tool_message)
+                        tool_messages.append(rejection_tool_message)
                         blocked_event = self.event_log.append(
                             task_run_id,
-                            "loop_error",
+                            "tool_call_blocked_by_progress_policy",
                             payload={
-                                "error": contract_gate.error,
-                                "message": contract_gate.message,
                                 "tool_name": requested_tool_name,
-                                "goal_contract": goal_contract.to_dict(),
-                                "tool_observation_ledger": tool_observation_ledger.summary(),
-                                "next_required_tool_names": list(contract_gate.next_required_tool_names),
-                                "next_required_path": contract_gate.next_required_path,
-                                "required_action_queue": required_action_queue.to_dict(),
+                                "progress_policy": progress_decision.to_dict(),
+                                "deliverable_progress": deliverable_progress.to_dict(),
                             },
                             refs={"task_contract_ref": task_contract_ref, "directive_ref": directive.directive_id},
                         )
                         yield {"type": "runtime_loop_event", "event": blocked_event.to_dict()}
-                        continue
-                    if (
-                        write_output_required
-                        and write_observation_count <= 0
-                        and "write_file" in set(allowed_tool_names)
-                        and len(pending_tool_calls) >= max(1, max_tool_calls_per_task_run - 1)
-                        and requested_tool_name != "write_file"
-                    ):
-                        tool_call_budget_exceeded = True
-                        write_budget_reserved = True
-                        round_write_budget_reserved = True
-                        blocked_event = self.event_log.append(
-                            task_run_id,
-                            "loop_error",
-                            payload={
-                                "error": "professional_task_write_budget_reserved",
-                                "message": "用户目标要求写入产物，运行时保留最后工具预算给 write_file，阻断继续泛化读搜。",
-                                "tool_name": requested_tool_name,
-                                "write_output_required": True,
-                                "write_observation_count": write_observation_count,
-                                "remaining_tool_budget": max_tool_calls_per_task_run - len(pending_tool_calls),
-                            },
-                            refs={"task_contract_ref": task_contract_ref, "directive_ref": directive.directive_id},
-                        )
-                        yield {"type": "runtime_loop_event", "event": blocked_event.to_dict()}
+                        yield {"type": "runtime_loop_event", "event": result_event.to_dict()}
+                        yield {"type": "runtime_loop_event", "event": observation_event.to_dict()}
                         continue
                     if requested_tool_name == "delegate_to_agent" and (
                         not delegation_enabled or delegation_observation_count >= max_delegate_calls
@@ -849,32 +946,61 @@ class ProfessionalTaskRunDriver:
                     if (
                         _is_model_response_timeout_event(event)
                         and tool_execution_enabled
-                        and _next_required_tools(goal_contract, tool_observation_ledger)
+                        and suggest_evidence_repair_tools(goal_contract, tool_observation_ledger)
                         and outcome.turn_count < max_tool_rounds
                     ):
+                        timeout_stage_summary = build_stage_summary(
+                            task_run_id=task_run_id,
+                            turn_count=outcome.turn_count,
+                            tool_call_count=len(pending_tool_calls),
+                            tool_observation_count=tool_observation_count,
+                            tool_observation_ledger=tool_observation_ledger,
+                            deliverable_progress=_deliverable_progress(goal_contract, tool_observation_ledger),
+                            structured_observations=structured_observations,
+                            environment_snapshot=runtime_environment_snapshot,
+                        )
+                        timeout_observation = build_timeout_recovery_observation(
+                            task_run_id=task_run_id,
+                            directive_ref=directive.directive_id,
+                            stage_summary=timeout_stage_summary.to_dict(),
+                            suggested_tool_names=suggest_evidence_repair_tools(goal_contract, tool_observation_ledger),
+                        )
+                        context_record = runtime_context_manager.record_observation(timeout_observation)
+                        timeout_result_event = append_tool_result_received_event(
+                            event_log=self.event_log,
+                            task_run_id=task_run_id,
+                            observation=timeout_observation,
+                            context_record=context_record,
+                            refs={"task_contract_ref": task_contract_ref, "directive_ref": directive.directive_id},
+                        )
+                        timeout_observation_event = append_executor_observation_event(
+                            event_log=self.event_log,
+                            task_run_id=task_run_id,
+                            observation=timeout_observation,
+                            context_record=context_record,
+                            refs={"task_contract_ref": task_contract_ref, "directive_ref": directive.directive_id},
+                        )
                         recovery_event = self.event_log.append(
                             task_run_id,
                             "loop_error",
                             payload={
                                 "error": "professional_task_model_timeout_recoverable",
                                 "message": "模型本轮响应超时，但目标契约仍有缺失动作，运行时将压缩上下文并继续下一轮。",
-                                "next_required_tool_names": list(_next_required_tools(goal_contract, tool_observation_ledger)),
-                                "required_action_queue": _required_queue(goal_contract, tool_observation_ledger).to_dict(),
+                                "suggested_tool_names": list(suggest_evidence_repair_tools(goal_contract, tool_observation_ledger)),
+                                "deliverable_progress": _deliverable_progress(goal_contract, tool_observation_ledger).to_dict(),
                                 "tool_observation_ledger": tool_observation_ledger.summary(),
+                                "stage_summary": timeout_stage_summary.to_dict(),
+                                "timeout_observation": timeout_observation.to_dict(),
                             },
                             refs={"task_contract_ref": task_contract_ref, "directive_ref": directive.directive_id},
                         )
                         yield {"type": "runtime_loop_event", "event": recovery_event.to_dict()}
-                        conversation_messages = [
-                            *_compact_professional_recovery_messages(
-                                user_message=user_message,
-                                goal_contract=goal_contract,
-                                tool_observation_ledger=tool_observation_ledger,
-                                structured_observations=structured_observations,
-                                next_required_tools=_next_required_tools(goal_contract, tool_observation_ledger),
-                                required_action_queue=_required_queue(goal_contract, tool_observation_ledger),
-                            )
-                        ]
+                        yield {"type": "runtime_loop_event", "event": timeout_result_event.to_dict()}
+                        yield {"type": "runtime_loop_event", "event": timeout_observation_event.to_dict()}
+                        conversation_messages = timeout_recovery_messages(
+                            user_message=user_message,
+                            timeout_observation=timeout_observation,
+                        )
                         outcome.final_content = ""
                         model_timeout_recovery_requested = True
                         continue
@@ -926,144 +1052,6 @@ class ProfessionalTaskRunDriver:
             if model_timeout_recovery_requested and outcome.terminal_reason == "completed":
                 continue
 
-            if gate_repair_instruction and outcome.terminal_reason == "completed" and not round_tool_messages:
-                fallback_tool_message = None
-                fallback_observation_payload: dict[str, Any] = {}
-                if _should_auto_write_artifact_delivery_after_blocked_tool(
-                    semantic_contract=semantic_contract,
-                    goal_contract=goal_contract,
-                    tool_observation_ledger=tool_observation_ledger,
-                ):
-                    fallback_observation_payload = _build_artifact_delivery_auto_write_observation(
-                        task_run_id=task_run_id,
-                        semantic_contract=semantic_contract,
-                        goal_contract=goal_contract,
-                        evidence_packet=build_evidence_packet(
-                            task_run_id=task_run_id,
-                            semantic_contract=semantic_contract,
-                            observations=structured_observations,
-                        ).to_dict(),
-                        sandbox_policy=sandbox_policy,
-                    )
-                    observation_ref = str(fallback_observation_payload.get("observation_ref") or "")
-                    if observation_ref:
-                        action_observation_refs.append(observation_ref)
-                    for artifact_ref in _artifact_output_refs_from_observation(fallback_observation_payload):
-                        if artifact_ref not in outcome.result_refs:
-                            outcome.result_refs.append(artifact_ref)
-                    write_observation_count += 1
-                    tool_observation_count += 1
-                    structured_observations.append(dict(fallback_observation_payload))
-                    tool_observation_ledger = tool_observation_ledger.append(
-                        build_tool_observation_record(
-                            observation_ref=observation_ref,
-                            tool_name="write_file",
-                            tool_args=dict(fallback_observation_payload.get("tool_args") or {}),
-                            result=fallback_observation_payload,
-                        )
-                    )
-                    fallback_tool_message = ToolMessage(
-                        content=str(fallback_observation_payload.get("result") or ""),
-                        tool_call_id=str(fallback_observation_payload.get("tool_call_id") or "auto-write-artifact-delivery"),
-                    )
-                    fallback_ai_message = AIMessage(
-                        content="",
-                        tool_calls=tool_calls_for_langchain_messages(
-                            [
-                                {
-                                    "id": str(
-                                        fallback_observation_payload.get("tool_call_id")
-                                        or "auto-write-artifact-delivery"
-                                    ),
-                                    "name": "write_file",
-                                    "args": dict(fallback_observation_payload.get("tool_args") or {}),
-                                    "type": "tool_call",
-                                }
-                            ]
-                        ),
-                    )
-                    auto_write_event = self.event_log.append(
-                        task_run_id,
-                        "professional_task_artifact_auto_write_applied",
-                        payload={
-                            "observation": dict(fallback_observation_payload),
-                            "tool_observation_ledger": tool_observation_ledger.to_dict(),
-                            "summary": tool_observation_ledger.summary(),
-                        },
-                        refs={"task_contract_ref": task_contract_ref, "directive_ref": directive.directive_id},
-                    )
-                    yield {"type": "runtime_loop_event", "event": auto_write_event.to_dict()}
-                    required_action_queue = _required_queue(goal_contract, tool_observation_ledger)
-                    run_state = run_state.advance(
-                        "artifact_written",
-                        reason="artifact_delivery_auto_write_after_blocked_tool",
-                        evidence_refs=(observation_ref,) if observation_ref else (),
-                        unsatisfied_obligations=required_action_queue.missing_obligations(),
-                        diagnostics={
-                            "tool_observation_ledger": tool_observation_ledger.summary(),
-                            **_queue_diagnostics(required_action_queue),
-                        },
-                    )
-                    evidence_packet = build_evidence_packet(
-                        task_run_id=task_run_id,
-                        semantic_contract=semantic_contract,
-                        observations=structured_observations,
-                    )
-                    evidence_event = self.event_log.append(
-                        task_run_id,
-                        "professional_task_evidence_packet_built",
-                        payload={"evidence_packet": evidence_packet.to_dict()},
-                        refs={"task_contract_ref": task_contract_ref},
-                    )
-                    yield {"type": "runtime_loop_event", "event": evidence_event.to_dict()}
-                    conversation_messages = [
-                        *conversation_messages,
-                        fallback_ai_message,
-                        fallback_tool_message,
-                        {
-                            "role": "system",
-                            "content": (
-                                "运行时已经根据已读材料生成并写入最小草案产物。"
-                                "请基于该真实写入观察收口，最终回答必须包含后端、前端、测试、文件和限制。"
-                                "不要继续请求工具，不要输出 DSML 或工具参数。"
-                            ),
-                        },
-                    ]
-                    outcome.final_content = ""
-                    continue
-                remaining_rounds = max_tool_rounds - outcome.turn_count
-                if remaining_rounds > 0:
-                    repair_messages: list[Any] = []
-                    if blocked_tool_calls_for_repair:
-                        repair_messages.extend(
-                            [
-                                AIMessage(
-                                    content=assistant_tool_call_content,
-                                    tool_calls=tool_calls_for_langchain_messages(blocked_tool_calls_for_repair),
-                                    additional_kwargs=assistant_tool_call_kwargs,
-                                ),
-                                *blocked_tool_messages_for_repair,
-                            ]
-                        )
-                    else:
-                        repair_messages.append({"role": "assistant", "content": _sanitize_final_content(outcome.final_content)})
-                    conversation_messages = [
-                        *conversation_messages,
-                        *repair_messages,
-                        {
-                            "role": "system",
-                            "content": (
-                                f"{gate_repair_instruction}"
-                                "运行时已经收窄下一轮可用工具："
-                                f"{'、'.join(gate_next_required_tools) or '按目标契约缺失动作'}。"
-                                "请直接调用真实工具接口完成缺失动作，不要输出解释、DSML、invoke 或工具参数文本。"
-                            ),
-                        },
-                    ]
-                    outcome.final_content = ""
-                    continue
-                tool_call_budget_exceeded = True
-
             if round_protocol_leak_detected or _contains_tool_call_markup(outcome.final_content):
                 if tool_execution_enabled and len(pending_tool_calls) < max_tool_calls_per_task_run and outcome.turn_count < max_tool_rounds:
                     repair_event = self.event_log.append(
@@ -1108,24 +1096,6 @@ class ProfessionalTaskRunDriver:
                     outcome.terminal_reason = "partial_contract_failed"
                 break
 
-            if round_write_budget_reserved and outcome.terminal_reason == "completed" and not round_tool_messages:
-                remaining_rounds = max_tool_rounds - outcome.turn_count
-                if remaining_rounds > 1:
-                    conversation_messages = [
-                        *conversation_messages,
-                        {"role": "system", "content": _contract_repair_instruction(goal_contract=goal_contract, tool_observation_ledger=tool_observation_ledger)},
-                    ]
-                    outcome.final_content = ""
-                    continue
-                if remaining_rounds == 1 and not write_budget_reserved:
-                    conversation_messages = [
-                        *conversation_messages,
-                        {"role": "system", "content": _contract_repair_instruction(goal_contract=goal_contract, tool_observation_ledger=tool_observation_ledger)},
-                    ]
-                    outcome.final_content = ""
-                    continue
-                tool_call_budget_exceeded = True
-
             if round_tool_messages and outcome.terminal_reason == "completed":
                 observation_state_event = self.event_log.append(
                     task_run_id,
@@ -1164,17 +1134,17 @@ class ProfessionalTaskRunDriver:
                     for item in latest_structured
                     if isinstance(item, dict)
                 }
-                required_action_queue = _required_queue(goal_contract, tool_observation_ledger)
+                deliverable_progress = _deliverable_progress(goal_contract, tool_observation_ledger)
                 state_diagnostics = {
                     "tool_observation_ledger": tool_observation_ledger.summary(),
-                    **_queue_diagnostics(required_action_queue),
+                    **_queue_diagnostics(deliverable_progress),
                 }
                 if "terminal" in latest_tool_names or "terminal" in latest_payload_tool_names:
                     run_state = run_state.advance(
                         "verification_observed",
                         reason="verification_observation_received",
                         evidence_refs=last_observation_refs,
-                        unsatisfied_obligations=required_action_queue.missing_obligations(),
+                        unsatisfied_obligations=deliverable_progress.missing_obligations(),
                         diagnostics=state_diagnostics,
                     )
                 elif tool_observation_ledger.has_write() and (
@@ -1185,7 +1155,7 @@ class ProfessionalTaskRunDriver:
                         "artifact_written",
                         reason="write_observation_received",
                         evidence_refs=last_observation_refs,
-                        unsatisfied_obligations=required_action_queue.missing_obligations(),
+                        unsatisfied_obligations=deliverable_progress.missing_obligations(),
                         diagnostics=state_diagnostics,
                     )
                 else:
@@ -1193,7 +1163,7 @@ class ProfessionalTaskRunDriver:
                         "tool_observed",
                         reason="tool_observation_received",
                         evidence_refs=last_observation_refs,
-                        unsatisfied_obligations=required_action_queue.missing_obligations(),
+                        unsatisfied_obligations=deliverable_progress.missing_obligations(),
                         diagnostics=state_diagnostics,
                     )
                 ledger_event = self.event_log.append(
@@ -1202,7 +1172,7 @@ class ProfessionalTaskRunDriver:
                     payload={
                         "tool_observation_ledger": tool_observation_ledger.to_dict(),
                         "summary": tool_observation_ledger.summary(),
-                        "required_action_queue": required_action_queue.to_dict(),
+                        "deliverable_progress": deliverable_progress.to_dict(),
                         "professional_run_state": run_state.to_dict(),
                     },
                     refs={"task_contract_ref": task_contract_ref},
@@ -1211,7 +1181,7 @@ class ProfessionalTaskRunDriver:
                 progress_page = _professional_progress_page(
                     goal_contract=goal_contract,
                     tool_observation_ledger=tool_observation_ledger,
-                    required_action_queue=required_action_queue,
+                    deliverable_progress=deliverable_progress,
                     turn_count=outcome.turn_count,
                     tool_call_count=len(pending_tool_calls),
                     tool_observation_count=tool_observation_count,
@@ -1223,6 +1193,23 @@ class ProfessionalTaskRunDriver:
                     refs={"task_contract_ref": task_contract_ref},
                 )
                 yield {"type": "runtime_loop_event", "event": progress_event.to_dict()}
+                stage_summary = build_stage_summary(
+                    task_run_id=task_run_id,
+                    turn_count=outcome.turn_count,
+                    tool_call_count=len(pending_tool_calls),
+                    tool_observation_count=tool_observation_count,
+                    tool_observation_ledger=tool_observation_ledger,
+                    deliverable_progress=deliverable_progress,
+                    structured_observations=structured_observations,
+                    environment_snapshot=runtime_environment_snapshot,
+                )
+                stage_summary_event = self.event_log.append(
+                    task_run_id,
+                    "professional_task_stage_summary",
+                    payload={"stage_summary": stage_summary.to_dict()},
+                    refs={"task_contract_ref": task_contract_ref, "directive_ref": directive.directive_id},
+                )
+                yield {"type": "runtime_loop_event", "event": stage_summary_event.to_dict()}
                 evidence_packet = build_evidence_packet(
                     task_run_id=task_run_id,
                     semantic_contract=semantic_contract,
@@ -1248,9 +1235,11 @@ class ProfessionalTaskRunDriver:
                         "用户目标包含写入/保存/产出文件要求；如果核心材料已经足够，"
                         "下一步应优先使用 write_file 在 sandbox overlay 中产出草案文件。"
                     )
-                contract_guidance = _contract_followup_guidance(goal_contract=goal_contract, tool_observation_ledger=tool_observation_ledger)
-                queue_guidance = required_action_queue.prompt_guidance()
+                contract_guidance = build_evidence_gap_guidance(goal_contract=goal_contract, tool_observation_ledger=tool_observation_ledger)
+                queue_guidance = deliverable_progress.progress_hint()
                 evidence_guidance = _evidence_packet_prompt(evidence_packet.to_dict())
+                access_recovery_guidance = _access_recovery_guidance(structured_observations)
+                material_mount_guidance = _material_mount_guidance(sandbox_policy)
                 conversation_messages = [
                     *conversation_messages,
                     AIMessage(
@@ -1264,6 +1253,8 @@ class ProfessionalTaskRunDriver:
                         "content": (
                             "你已经收到上一轮真实工具观察结果，并且运行时已经形成证据包。"
                             f"{evidence_guidance}"
+                            f"{material_mount_guidance}"
+                            f"{access_recovery_guidance}"
                             "如果还需要读文件、修改、验证或委派，请继续使用真实工具调用接口；"
                             "如果已经满足语义契约，请直接收口。"
                             f"{write_guidance}"
@@ -1275,6 +1266,83 @@ class ProfessionalTaskRunDriver:
                 ]
                 outcome.final_content = ""
                 continue
+
+            if (
+                tool_execution_enabled
+                and str(outcome.final_content or "").strip()
+                and outcome.terminal_reason == "completed"
+                and outcome.turn_count < max_tool_rounds
+                and len(pending_tool_calls) < max_tool_calls_per_task_run
+            ):
+                provisional_evidence_packet = build_evidence_packet(
+                    task_run_id=task_run_id,
+                    semantic_contract=semantic_contract,
+                    observations=structured_observations,
+                )
+                provisional_deliverable_validation = validate_deliverable(
+                    final_answer=outcome.final_content,
+                    semantic_contract=semantic_contract,
+                    evidence_packet=provisional_evidence_packet.to_dict(),
+                    strict=bool(verification_policy.get("strict") is True),
+                    required_output_paths=goal_contract.required_output_paths,
+                ).to_dict()
+                provisional_obligation_validation = validate_obligations(
+                    execution_obligation=execution_obligation,
+                    semantic_contract=semantic_contract,
+                    goal_contract=goal_contract,
+                    tool_observation_ledger=tool_observation_ledger,
+                    final_content=outcome.final_content,
+                    deliverable_validation=provisional_deliverable_validation,
+                    terminal_reason="completed",
+                    tool_execution_enabled=tool_execution_enabled,
+                    tool_call_count=len(pending_tool_calls),
+                    tool_observation_count=tool_observation_count,
+                    delegation_enabled=delegation_enabled,
+                    delegation_observation_count=delegation_observation_count,
+                    write_budget_reserved=False,
+                    tool_budget_exhausted=tool_call_budget_exceeded,
+                    contract_gate_blocked=False,
+                    protocol_leak_detected=round_protocol_leak_detected,
+                ).to_dict()
+                if not bool(provisional_obligation_validation.get("passed") is True):
+                    resubmission_tools = _closeout_resubmission_tools(
+                        goal_contract=goal_contract,
+                        tool_observation_ledger=tool_observation_ledger,
+                        deliverable_validation=provisional_deliverable_validation,
+                        obligation_validation=provisional_obligation_validation,
+                        allowed_tool_names=allowed_tool_names,
+                    )
+                    if resubmission_tools:
+                        resubmit_event = self.event_log.append(
+                            task_run_id,
+                            "professional_task_evidence_resubmission_requested",
+                            payload={
+                                "interaction_mode": interaction_mode,
+                                "reason": "closeout_validation_failed_with_recoverable_tool_actions",
+                                "suggested_tool_names": list(resubmission_tools),
+                                "deliverable_validation": provisional_deliverable_validation,
+                                "obligation_validation": provisional_obligation_validation,
+                                "tool_observation_ledger": tool_observation_ledger.summary(),
+                            },
+                            refs={"task_contract_ref": task_contract_ref, "directive_ref": directive.directive_id},
+                        )
+                        yield {"type": "runtime_loop_event", "event": resubmit_event.to_dict()}
+                        conversation_messages = [
+                            *conversation_messages,
+                            {"role": "assistant", "content": _sanitize_final_content(outcome.final_content)},
+                            {
+                                "role": "system",
+                                "content": _closeout_resubmission_instruction(
+                                    suggested_tool_names=resubmission_tools,
+                                    deliverable_validation=provisional_deliverable_validation,
+                                    obligation_validation=provisional_obligation_validation,
+                                    goal_contract=goal_contract,
+                                    tool_observation_ledger=tool_observation_ledger,
+                                ),
+                            },
+                        ]
+                        outcome.final_content = ""
+                        continue
 
             break
 
@@ -1291,7 +1359,7 @@ class ProfessionalTaskRunDriver:
                     "delegation_observation_count": delegation_observation_count,
                     "max_tool_calls_per_task_run": max_tool_calls_per_task_run,
                     "max_tool_rounds_per_task_run": max_tool_rounds,
-                    "write_budget_reserved": bool(write_budget_reserved),
+                    "write_budget_reserved": False,
                 },
                 refs={"task_contract_ref": task_contract_ref, "directive_ref": directive.directive_id},
             )
@@ -1342,15 +1410,15 @@ class ProfessionalTaskRunDriver:
             refs={"task_contract_ref": task_contract_ref},
         )
         yield {"type": "runtime_loop_event", "event": verification_ready_event.to_dict()}
-        final_required_action_queue = _required_queue(goal_contract, tool_observation_ledger)
+        final_deliverable_progress = _deliverable_progress(goal_contract, tool_observation_ledger)
         run_state = run_state.advance(
             "deliverable_validating",
             reason="deliverable_validation_ready",
             evidence_refs=tuple(action_observation_refs),
-            unsatisfied_obligations=final_required_action_queue.missing_obligations(),
+            unsatisfied_obligations=final_deliverable_progress.missing_obligations(),
             diagnostics={
                 "tool_observation_ledger": tool_observation_ledger.summary(),
-                **_queue_diagnostics(final_required_action_queue),
+                **_queue_diagnostics(final_deliverable_progress),
             },
         )
         if _should_apply_evidence_closeout(
@@ -1387,9 +1455,9 @@ class ProfessionalTaskRunDriver:
                     tool_observation_count=tool_observation_count,
                     delegation_enabled=delegation_enabled,
                     delegation_observation_count=delegation_observation_count,
-                    write_budget_reserved=write_budget_reserved,
+                    write_budget_reserved=False,
                     tool_budget_exhausted=tool_call_budget_exceeded,
-                    contract_gate_blocked=contract_gate_blocked,
+                    contract_gate_blocked=False,
                     protocol_leak_detected=False,
                 ).to_dict()
                 if bool(closeout_obligation_validation.get("passed") is True):
@@ -1444,9 +1512,9 @@ class ProfessionalTaskRunDriver:
                     tool_observation_count=tool_observation_count,
                     delegation_enabled=delegation_enabled,
                     delegation_observation_count=delegation_observation_count,
-                    write_budget_reserved=write_budget_reserved,
+                    write_budget_reserved=False,
                     tool_budget_exhausted=tool_call_budget_exceeded,
-                    contract_gate_blocked=contract_gate_blocked,
+                    contract_gate_blocked=False,
                     protocol_leak_detected=False,
                 ).to_dict()
                 if bool(closeout_obligation_validation.get("passed") is True):
@@ -1500,9 +1568,9 @@ class ProfessionalTaskRunDriver:
                     tool_observation_count=tool_observation_count,
                     delegation_enabled=delegation_enabled,
                     delegation_observation_count=delegation_observation_count,
-                    write_budget_reserved=write_budget_reserved,
+                    write_budget_reserved=False,
                     tool_budget_exhausted=tool_call_budget_exceeded,
-                    contract_gate_blocked=contract_gate_blocked,
+                    contract_gate_blocked=False,
                     protocol_leak_detected=False,
                 ).to_dict()
                 previous_terminal_reason = outcome.terminal_reason
@@ -1581,9 +1649,9 @@ class ProfessionalTaskRunDriver:
                     tool_observation_count=tool_observation_count,
                     delegation_enabled=delegation_enabled,
                     delegation_observation_count=delegation_observation_count,
-                    write_budget_reserved=write_budget_reserved,
+                    write_budget_reserved=False,
                     tool_budget_exhausted=tool_call_budget_exceeded,
-                    contract_gate_blocked=contract_gate_blocked,
+                    contract_gate_blocked=False,
                     protocol_leak_detected=False,
                 ).to_dict()
                 if bool(closeout_deliverable_validation.get("protocol_leak_detected") is not True):
@@ -1624,9 +1692,9 @@ class ProfessionalTaskRunDriver:
             tool_observation_count=tool_observation_count,
             delegation_enabled=delegation_enabled,
             delegation_observation_count=delegation_observation_count,
-            write_budget_reserved=write_budget_reserved,
+            write_budget_reserved=False,
             tool_budget_exhausted=tool_call_budget_exceeded,
-            contract_gate_blocked=contract_gate_blocked,
+            contract_gate_blocked=False,
             protocol_leak_detected=final_protocol_leak_detected,
         ).to_dict()
         verification = {
@@ -1758,9 +1826,9 @@ class ProfessionalTaskRunDriver:
                 tool_observation_count=tool_observation_count,
                 delegation_enabled=delegation_enabled,
                 delegation_observation_count=delegation_observation_count,
-                write_budget_reserved=write_budget_reserved,
+                write_budget_reserved=False,
                 tool_budget_exhausted=tool_call_budget_exceeded,
-                contract_gate_blocked=contract_gate_blocked,
+                contract_gate_blocked=False,
                 protocol_leak_detected=bool(repair_candidate_leaked),
             ).to_dict()
             repair_candidate_passed = bool(
@@ -1814,9 +1882,9 @@ class ProfessionalTaskRunDriver:
                 tool_observation_count=tool_observation_count,
                 delegation_enabled=delegation_enabled,
                 delegation_observation_count=delegation_observation_count,
-                write_budget_reserved=write_budget_reserved,
+                write_budget_reserved=False,
                 tool_budget_exhausted=tool_call_budget_exceeded,
-                contract_gate_blocked=contract_gate_blocked,
+                contract_gate_blocked=False,
                 protocol_leak_detected=final_protocol_leak_detected,
             ).to_dict()
             verification = {
@@ -1861,11 +1929,11 @@ class ProfessionalTaskRunDriver:
                 terminal_reason=outcome.terminal_reason,
             )
             verification["completion_judgment"] = completion_judgment.to_dict()
-        required_action_queue = _required_queue(goal_contract, tool_observation_ledger)
+        deliverable_progress = _deliverable_progress(goal_contract, tool_observation_ledger)
         unsatisfied = tuple(
             dict.fromkeys(
                 [
-                    *required_action_queue.missing_obligations(),
+                    *deliverable_progress.missing_obligations(),
                     *unsatisfied_obligations_from_verification(verification),
                 ]
             )
@@ -1887,7 +1955,7 @@ class ProfessionalTaskRunDriver:
                 "closeout_status": "completed" if verification_passed else "partially_completed" if closeout_has_content else "failed",
                 "terminal_reason": outcome.terminal_reason,
                 "tool_observation_ledger": tool_observation_ledger.summary(),
-                **_queue_diagnostics(required_action_queue),
+                **_queue_diagnostics(deliverable_progress),
             },
         )
         verification["professional_run_state"] = run_state.to_dict()
@@ -1914,6 +1982,29 @@ class ProfessionalTaskRunDriver:
             refs={"task_contract_ref": task_contract_ref, "task_step_ref": "professional.completion_judgment"},
         )
         yield {"type": "runtime_loop_event", "event": completion_judgment_event.to_dict()}
+        run_outcome = build_professional_run_outcome(
+            task_run_id=task_run_id,
+            task_id=task_id,
+            runtime_lane="professional_task",
+            terminal_reason=outcome.terminal_reason,
+            verification=verification,
+            completion_judgment=dict(verification.get("completion_judgment") or {}),
+            tool_observation_ledger=tool_observation_ledger.to_dict(),
+            result_refs=list(outcome.result_refs or []),
+            final_content=outcome.final_content,
+        ).to_dict()
+        outcome.run_outcome = run_outcome
+        outcome.final_answer_metadata = {
+            **dict(outcome.final_answer_metadata or {}),
+            "run_outcome": run_outcome,
+        }
+        run_outcome_event = self.event_log.append(
+            task_run_id,
+            "professional_task_run_outcome_built",
+            payload={"run_outcome": run_outcome},
+            refs={"task_contract_ref": task_contract_ref, "task_step_ref": "professional.completion_judgment"},
+        )
+        yield {"type": "runtime_loop_event", "event": run_outcome_event.to_dict()}
         session_event = self.event_log.append(
             task_run_id,
             "professional_run_session_updated",
@@ -2552,17 +2643,54 @@ def _is_model_response_timeout_event(event: dict[str, Any]) -> bool:
     return any(marker in combined for marker in ("timeouterror", "timed out", "timeout", "超时"))
 
 
+def _access_recovery_guidance(structured_observations: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None) -> str:
+    recent = [
+        str(item.get("result") or item.get("text") or item.get("content") or "")
+        for item in list(structured_observations or [])[-8:]
+        if isinstance(item, dict)
+    ]
+    combined = "\n".join(recent).lower()
+    markers = (
+        "path traversal detected",
+        "blocked: command references",
+        "outside the sandbox workspace",
+        "permission denied",
+        "read only",
+        "readonly",
+        "access denied",
+        "权限",
+        "沙箱",
+        "越界",
+        "只读",
+    )
+    if not any(marker in combined for marker in markers):
+        return ""
+    return (
+        "最近工具观察包含权限、沙箱、路径穿越、绝对路径越界或只读阻断。"
+        "不要重复同一个被拒绝的路径或命令；把阻断当作环境边界来调整执行方式。"
+        "优先改用当前 sandbox/workspace 内允许的相对路径、搜索工具、目录列表、已挂载材料、已有观察结果或目标目录内副本继续推进。"
+        "如果必要材料仍不可达，明确记录缺口，并先完成仍可合法完成的输出路径。"
+    )
 
 
-
-
-
-
-
-
-
-
-
+def _material_mount_guidance(sandbox_policy: dict[str, Any] | None) -> str:
+    mounts = [
+        dict(item)
+        for item in list(dict(sandbox_policy or {}).get("material_mounts") or [])
+        if isinstance(item, dict) and str(item.get("mount_path") or "").strip()
+    ]
+    if not mounts:
+        return ""
+    mounted = [
+        f"{item.get('mount_id')}: {item.get('mount_path')} ({item.get('role') or 'source'}, {item.get('status') or 'unknown'})"
+        for item in mounts
+    ]
+    return (
+        "运行时已把外部源材料导入 sandbox 内的只读材料入口。"
+        f"可用材料入口：{'; '.join(mounted)}。"
+        "读取源项目时使用这些 sandbox 相对路径，不要读取外部绝对源路径。"
+        "目标产物仍写入用户指定的目标输出目录。"
+    )
 
 
 

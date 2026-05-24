@@ -144,6 +144,7 @@ def build_pending_approval_state(
     descriptor: Any,
     sandbox_policy: dict[str, Any] | None,
     step_ref: str = "",
+    approval_risk_fingerprint: str = "",
 ) -> dict[str, Any]:
     tool_call = dict(action_request.payload.get("tool_call") or {})
     tool_args = dict(tool_call.get("args") or {})
@@ -166,11 +167,13 @@ def build_pending_approval_state(
         "sandbox_policy": dict(sandbox_policy or {}),
         "step_ref": step_ref,
         "created_at": time.time(),
+        "approval_risk_fingerprint": str(approval_risk_fingerprint or ""),
         "resume_contract": {
             "operation_id": str(gate_result.operation_id or ""),
             "directive_ref": directive.directive_id,
             "action_request_ref": action_request.request_id,
-            "token_binding": "operation_id+directive_ref",
+            "risk_fingerprint": str(approval_risk_fingerprint or ""),
+            "token_binding": "operation_id+directive_ref+risk_fingerprint",
         },
     }
 
@@ -254,6 +257,11 @@ async def execute_approved_tool_from_state(
         context=OperationGatePipelineContext(
             permission_mode=permission_mode,
             approval_token=approval_token,
+            approval_risk_fingerprint=str(
+                approval_state.get("approval_risk_fingerprint")
+                or dict(approval_state.get("resume_contract") or {}).get("risk_fingerprint")
+                or ""
+            ),
             operation_input={
                 "operation_id": operation_id,
                 **dict(action_request.payload.get("tool_call") or {}),

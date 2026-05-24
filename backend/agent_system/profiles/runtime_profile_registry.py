@@ -106,8 +106,8 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             allowed_context_sections=("conversation", "state", "task", "projection", "tool", "runtime_contracts"),
             use_shared_contract=True,
             can_delegate_to_agents=True,
-            allowed_delegate_agent_ids=("agent:rag_analyst", "agent:pdf_reader", "agent:table_analyst", "agent:web_researcher"),
-            max_delegate_calls_per_turn=1,
+            allowed_delegate_agent_ids=("agent:rag_analyst", "agent:pdf_reader", "agent:table_analyst", "agent:web_researcher", "agent:verifier"),
+            max_delegate_calls_per_turn=2,
             delegate_context_policy="summary_and_refs_only",
             lifecycle_policy="system_builtin",
             metadata={"runtime_template_id": "builtin.main.default"},
@@ -223,6 +223,35 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 "delegation_kind": "web_research",
                 "delegation_kinds": ("web_research", "external_web_lookup", "current_information_lookup", "official_source_lookup"),
                 "runtime_template_id": "builtin.specialist.web_researcher",
+            },
+        ),
+        AgentRuntimeProfile(
+            agent_profile_id="completion_verifier_agent",
+            agent_id="agent:verifier",
+            allowed_runtime_lanes=("verification_delegate", "runtime_trace_read", "readonly_exploration"),
+            allowed_operations=("op.model_response", "op.read_file", "op.search_files", "op.search_text", "op.git_diff", "op.git_status"),
+            blocked_operations=("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.memory_write_candidate", "op.delegate_to_agent"),
+            allowed_memory_scopes=("conversation_readonly", "state_readonly"),
+            allowed_context_sections=("task", "projection", "runtime_trace", "assertions", "runtime_contracts", "artifact_refs"),
+            use_shared_contract=True,
+            can_delegate_to_agents=False,
+            approval_policy="read_only_first",
+            trace_policy="runtime_event_log",
+            lifecycle_policy="system_builtin",
+            metadata={
+                "worker_kind": "completion_verification",
+                "delegation_kind": "completion_verification",
+                "delegation_kinds": (
+                    "completion_verification",
+                    "semantic_verification",
+                    "deliverable_review",
+                    "artifact_review",
+                    "quality_review",
+                    "plan_review",
+                ),
+                "when_to_use": "当主 Agent 已有候选回答、产物或执行证据，但需要独立检查是否满足用户目标、是否缺少证据、是否需要返工时使用。",
+                "runtime_template_id": "builtin.specialist.verifier",
+                "child_execution_mode": "model_only_review",
             },
         ),
     )
@@ -603,6 +632,11 @@ def _enforce_system_builtin_profile_payload(
         enforced.get("blocked_operations"),
         allowed_operations=enforced.get("allowed_operations"),
     )
+    if str(default_payload.get("agent_id") or "") == "agent:0":
+        enforced["max_delegate_calls_per_turn"] = max(
+            int(default_payload.get("max_delegate_calls_per_turn") or 0),
+            int(payload.get("max_delegate_calls_per_turn") or 0),
+        )
     enforced["metadata"] = {
         **dict(payload.get("metadata") or {}),
         **{

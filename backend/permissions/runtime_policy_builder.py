@@ -406,6 +406,7 @@ def _public_sandbox_policy(sandbox_policy: dict[str, Any] | None) -> dict[str, A
             "approval_policy",
             "side_effect_tools",
             "side_effect_operations",
+            "material_mounts",
         }
     }
 

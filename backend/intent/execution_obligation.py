@@ -90,7 +90,10 @@ def build_execution_obligation(
         **dict(explicit_inputs or {}),
         **dict(current_turn.get("explicit_inputs") or {}),
     }
-    reads = _collect_required_reads(text=text, explicit_inputs=inputs, current_turn=current_turn)
+    resource_contract = _resource_contract_from_current_turn(current_turn)
+    reads = _collect_required_reads_from_resource_contract(resource_contract)
+    if not reads:
+        reads = _collect_required_reads(text=text, explicit_inputs=inputs, current_turn=current_turn)
     forbid_write = _has_any(lowered, _FORBID_WRITE_MARKERS)
     goal_frame = dict(current_turn.get("task_goal_spec") or current_turn.get("goal_frame") or {})
     profile_obligation = _profile_obligation_requirements(
@@ -99,10 +102,18 @@ def build_execution_obligation(
     )
     write_required = (_requires_real_write(lowered) or bool(profile_obligation["required_writes"])) and not forbid_write
     verify_required = _has_any(lowered, _VERIFY_MARKERS) or bool(profile_obligation["required_verifications"])
+    contract_writes = _collect_required_writes_from_resource_contract(resource_contract)
     required_writes = tuple(
         _dedupe_dicts(
             [
-                *(_build_write_requirements(text=text, explicit_inputs=inputs) if _requires_real_write(lowered) and not forbid_write else []),
+                *(contract_writes if not forbid_write else []),
+                *(
+                    []
+                    if contract_writes or forbid_write
+                    else _build_write_requirements(text=text, explicit_inputs=inputs)
+                    if _requires_real_write(lowered)
+                    else []
+                ),
                 *([] if forbid_write else list(profile_obligation["required_writes"])),
             ],
             key_fields=("kind", "path", "source"),
@@ -142,6 +153,7 @@ def build_execution_obligation(
         "forbid_write": forbid_write,
         "deliverable_markers": [marker for marker in _DELIVER_MARKERS if marker in lowered],
         "profile_obligation": profile_obligation["evidence"],
+        "resource_contract_used": bool(resource_contract),
     }
     confidence = 0.35
     if reads:
@@ -164,6 +176,104 @@ def build_execution_obligation(
         confidence=min(confidence, 0.98),
         extraction_evidence=signals,
     )
+
+
+def _resource_contract_from_current_turn(current_turn: dict[str, Any]) -> dict[str, Any]:
+    decision = dict(current_turn.get("model_turn_decision") or {})
+    resource_contract = decision.get("resource_contract")
+    if isinstance(resource_contract, dict) and resource_contract:
+        return dict(resource_contract)
+    direct = current_turn.get("resource_contract")
+    return dict(direct) if isinstance(direct, dict) and direct else {}
+
+
+def _collect_required_reads_from_resource_contract(resource_contract: dict[str, Any]) -> list[dict[str, Any]]:
+    contract = dict(resource_contract or {})
+    source_projects = _project_paths(contract.get("source_projects"))
+    read_files = _relative_paths(contract.get("required_read_files"))
+    read_dirs = _relative_paths(contract.get("required_read_dirs"))
+    reads: list[dict[str, Any]] = []
+    for source_root in source_projects:
+        for path in read_files:
+            reads.append(
+                {
+                    "path": _join_path(source_root, path),
+                    "kind": _kind_from_path(path),
+                    "role": "source_file",
+                    "required": True,
+                    "source": "model_resource_contract",
+                }
+            )
+        for path in read_dirs:
+            reads.append(
+                {
+                    "path": _join_path(source_root, path),
+                    "kind": "asset_dir" if _is_asset_dir(path) else "directory",
+                    "role": "source_asset_dir" if _is_asset_dir(path) else "source_dir",
+                    "required": True,
+                    "source": "model_resource_contract",
+                }
+            )
+    return _dedupe_dicts(reads, key_fields=("path", "role", "source"))
+
+
+def _collect_required_writes_from_resource_contract(resource_contract: dict[str, Any]) -> list[dict[str, Any]]:
+    contract = dict(resource_contract or {})
+    target_projects = _project_paths(contract.get("target_projects"))
+    write_files = _relative_paths(contract.get("required_write_files"))
+    write_dirs = _relative_paths(contract.get("required_write_dirs"))
+    writes: list[dict[str, Any]] = []
+    for target_root in target_projects:
+        for path in write_files:
+            writes.append(
+                {
+                    "kind": "file_write",
+                    "path": _join_path(target_root, path),
+                    "required": True,
+                    "source": "model_resource_contract",
+                }
+            )
+        for path in write_dirs:
+            writes.append(
+                {
+                    "kind": "asset_dir_write" if _is_asset_dir(path) else "directory_write",
+                    "path": _join_path(target_root, path),
+                    "required": True,
+                    "source": "model_resource_contract",
+                }
+            )
+    return _dedupe_dicts(writes, key_fields=("kind", "path", "source"))
+
+
+def _project_paths(value: Any) -> list[str]:
+    paths: list[str] = []
+    for item in list(value or []):
+        if isinstance(item, dict):
+            path = str(item.get("path") or "").strip()
+        else:
+            path = str(item or "").strip()
+        path = path.replace("\\", "/").strip().strip("`'\"“”‘’ ，,。；;")
+        if path:
+            paths.append(path.rstrip("/"))
+    return _dedupe(paths)
+
+
+def _relative_paths(value: Any) -> list[str]:
+    return [
+        item.strip("/")
+        for item in _dedupe([str(raw or "").replace("\\", "/").strip() for raw in list(value or [])])
+        if item and not item.startswith(("/", "../")) and ":/" not in item
+    ]
+
+
+def _join_path(root: str, relative: str) -> str:
+    left = str(root or "").replace("\\", "/").strip().rstrip("/")
+    right = str(relative or "").replace("\\", "/").strip().strip("/")
+    return f"{left}/{right}" if left and right else left or right
+
+
+def _is_asset_dir(path: str) -> bool:
+    return str(path or "").replace("\\", "/").strip("/").lower().endswith("assets")
 
 
 def _profile_obligation_requirements(
@@ -338,18 +448,15 @@ def _extract_output_paths(text: str) -> list[str]:
 
 def _expand_output_directory_file_lists(text: str) -> list[str]:
     normalized = str(text or "").replace("\\", "/")
-    output_dirs: list[str] = []
+    output_dirs: list[str] = _explicit_output_directories(normalized)
     dir_pattern = re.compile(
         r"(?P<dir>(?:[\w.\-\u4e00-\u9fff]+/)+[\w.\-\u4e00-\u9fff]+/)",
         re.IGNORECASE,
     )
     for match in dir_pattern.finditer(normalized):
         directory = _normalize_path(str(match.group("dir") or "")).strip("/")
-        context = normalized[max(0, match.start() - 24) : match.end() + 24]
-        if directory and (
-            any(marker in context for marker in ("写入", "保存", "生成", "产出", "输出到", "落到", "创建", "新建"))
-            or any(marker in context for marker in ("目录", "工程", "项目", "sandbox overlay"))
-        ):
+        context = _local_path_context(normalized, start=match.start(), end=match.end(), radius=24)
+        if directory and _context_indicates_output_path(context):
             output_dirs.append(directory)
     if not output_dirs:
         return []
@@ -420,16 +527,86 @@ def _path_looks_like_required_input(*, text: str, start: int, path: str) -> bool
     normalized_path = str(path or "").replace("\\", "/").strip()
     if not normalized_path:
         return False
-    prefix = str(text or "")[max(0, start - 36) : start]
-    suffix = str(text or "")[start : start + len(str(path or "")) + 24]
-    context = f"{prefix}{suffix}"
-    if any(marker in context for marker in ("写入", "保存", "生成", "产出", "输出到", "落到", "创建", "新建", "必须是", "目录")):
+    context = _local_path_context(str(text or "").replace("\\", "/"), start=start, end=start + len(str(path or "")), radius=36)
+    if _context_indicates_output_path(context):
         return False
-    if any(marker in context for marker in ("读取", "打开", "查看", "分析", "追踪", "结合", "基于", "根据", "参考", "从", "载入", "检查")):
+    if _context_indicates_read_material_path(context):
         return True
     if normalized_path.startswith(("backend/", "docs/", "tests/", "knowledge/", "storage/")):
         return True
     return False
+
+
+def _explicit_output_directories(text: str) -> list[str]:
+    result: list[str] = []
+    pattern = re.compile(
+        r"(?:目标输出目录|输出目录|目标目录|写入目录|保存目录|产物目录)[^/\\]{0,48}(?P<dir>(?:frontend|backend|output|docs|storage|scripts|tests|src|app|packages|knowledge)/(?:[\w.\-\u4e00-\u9fff]+/)*[\w.\-\u4e00-\u9fff]+/?)",
+        re.IGNORECASE,
+    )
+    for match in pattern.finditer(str(text or "").replace("\\", "/")):
+        directory = _normalize_path(str(match.group("dir") or "")).strip("/")
+        if directory:
+            result.append(directory)
+    return _dedupe(result)
+
+
+def _local_path_context(text: str, *, start: int, end: int, radius: int) -> str:
+    value = str(text or "")
+    left = value.rfind("\n", 0, start)
+    right = value.find("\n", end)
+    line_start = 0 if left < 0 else left + 1
+    line_end = len(value) if right < 0 else right
+    return value[max(line_start, start - radius) : min(line_end, end + radius)]
+
+
+def _context_indicates_output_path(context: str) -> bool:
+    text = str(context or "")
+    if _context_indicates_read_material_path(text) and not any(marker in text for marker in ("目标输出", "输出目录", "输出到", "写入", "保存", "生成", "产出")):
+        return False
+    return any(
+        marker in text
+        for marker in (
+            "目标输出",
+            "输出目录",
+            "输出到",
+            "写入",
+            "保存",
+            "生成",
+            "产出",
+            "落到",
+            "创建",
+            "新建",
+            "目录必须是",
+            "sandbox overlay 中完成",
+            "sandbox overlay",
+        )
+    )
+
+
+def _context_indicates_read_material_path(context: str) -> bool:
+    return any(
+        marker in str(context or "")
+        for marker in (
+            "只读",
+            "源项目",
+            "源工程",
+            "源路径",
+            "源目录",
+            "读回",
+            "读取",
+            "打开",
+            "查看",
+            "分析",
+            "追踪",
+            "结合",
+            "基于",
+            "根据",
+            "参考",
+            "从",
+            "载入",
+            "检查",
+        )
+    )
 
 
 def _kind_from_path(path: str) -> str:

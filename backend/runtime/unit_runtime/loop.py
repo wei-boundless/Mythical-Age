@@ -62,6 +62,7 @@ from agent_runtime.understanding import (
     build_context_candidates,
     build_request_facts,
     build_runtime_start_packet,
+    model_turn_decision_from_payload,
 )
 
 from context_system.projection.projection import (
@@ -84,9 +85,6 @@ from ..coordination_runtime.checkpoint_adapter import LangGraphCheckpointStoreAd
 from ..shared.runtime_object_store import RuntimeObjectStore
 from .artifact_paths import (
     _artifact_repository_root_for_loop,
-    _build_required_artifact_write_messages,
-    _required_artifact_target_path,
-    _requires_write_file_artifact,
     _validate_required_artifact_file,
     _workspace_root_from_runtime_root,
 )
@@ -118,8 +116,6 @@ from ..execution_engine import (
     ModelToolCallAccumulator,
     RuntimeExecutionEngine,
     apply_observation_aggregation,
-    artifact_success_fallback_answer_metadata,
-    build_artifact_success_fallback_answer,
     build_initial_followup_messages,
     build_next_followup_messages,
     builtin_tool_lane_answer_from_observation,
@@ -128,8 +124,6 @@ from ..execution_engine import (
     classify_delegation_goal_alignment,
     finalize_after_followup_tool_results,
     finalize_budget_exhausted_followup,
-    forced_synthesis_answer_metadata,
-    forced_tool_synthesis_from_available_evidence,
     merge_task_spec_binding_into_delegation_payload,
     record_tool_observation_projection,
     select_final_answer_from_context,
@@ -185,6 +179,7 @@ from ..shared.tool_repetition_guard import ToolRepetitionGuard
 from agent_system.registry.worker_agent_blueprints import WorkerAgentSpawnRequest, WorkerAgentSpawnResult
 from agent_system.registry.worker_agent_factory import WorkerAgentFactory
 from evidence import MCPExecutionPlan, MCPRequest
+from runtime.model_gateway.model_runtime import stringify_content
 
 
 @dataclass(frozen=True, slots=True)
@@ -395,12 +390,18 @@ class TaskRunLoop:
             "message": str(message or "").strip(),
             "resolved_at": resolved_at,
         }
+        approval_risk_fingerprint = str(
+            approval_state.get("approval_risk_fingerprint")
+            or dict(approval_state.get("resume_contract") or {}).get("risk_fingerprint")
+            or ""
+        ).strip()
         token = ApprovalToken(
             token_id=f"approval:{task_run_id}:{uuid.uuid4().hex[:8]}",
             operation_id=operation_id,
             directive_ref=directive_ref,
             granted=approved,
             source="runtime_approval_api",
+            risk_fingerprint=approval_risk_fingerprint,
         )
         next_approval_state = {
             **approval_state,
@@ -412,6 +413,7 @@ class TaskRunLoop:
                 "directive_ref": token.directive_ref,
                 "granted": token.granted,
                 "source": token.source,
+                "risk_fingerprint": token.risk_fingerprint,
             },
         }
         resumed_event = self.event_log.append(
@@ -1322,10 +1324,11 @@ class TaskRunLoop:
             memory_runtime_view={},
             current_turn_context=runtime_context_override,
         ).to_dict()
-        model_turn_decision, model_turn_diagnostics = _main_model_owned_turn_decision(
+        model_turn_decision, model_turn_diagnostics = await _main_model_owned_turn_decision(
             user_message=user_message,
             request_facts=request_facts,
             task_selection=runtime_chain_task_selection,
+            model_runtime=getattr(model_response_executor, "model_runtime", None),
         )
         action_permit = build_action_permit(
             model_turn_decision=model_turn_decision,
@@ -1502,7 +1505,7 @@ class TaskRunLoop:
             task_contract=task_contract,
             user_message=user_message,
             selected_recipe_payload=selected_recipe_payload,
-            task_selection=dict(task_selection or {}),
+            task_selection={**dict(task_selection or {}), **dict(runtime_context_override or {})},
             state_index=self.state_index,
             event_log=self.event_log,
         )
@@ -2191,6 +2194,7 @@ class TaskRunLoop:
 
         final_content = ""
         final_answer_metadata: dict[str, Any] = {}
+        run_outcome: dict[str, Any] = {}
         terminal_reason = "completed"
         if final_main_context and self._final_main_context_can_finalize(
             selected_recipe_payload=selected_recipe_payload,
@@ -2232,6 +2236,7 @@ class TaskRunLoop:
         if _is_professional_task_run_recipe(selected_recipe_payload):
             professional_task_driver_ran = True
             driver = ProfessionalTaskRunDriver(
+                workspace_root=_workspace_root_from_runtime_root(self.root_dir),
                 event_log=self.event_log,
                 execution_engine=self.execution_engine,
                 record_task_run_step_event=self._record_task_run_step_event,
@@ -2294,6 +2299,7 @@ class TaskRunLoop:
             result_refs = list(_dedupe_refs([*result_refs, *outcome.result_refs]))
             final_content = outcome.final_content
             final_answer_metadata = dict(outcome.final_answer_metadata)
+            run_outcome = dict(outcome.run_outcome or {})
             terminal_reason = outcome.terminal_reason
             final_main_context = dict(outcome.main_context)
             final_task_summary_refs = [dict(item) for item in outcome.task_summary_refs]
@@ -2368,6 +2374,7 @@ class TaskRunLoop:
             result_refs = turn_application.result_refs
             final_content = turn_application.final_content
             final_answer_metadata = dict(turn_application.final_answer_metadata)
+            run_outcome = dict(final_answer_metadata.get("run_outcome") or final_answer_metadata.get("completion") or {})
             terminal_reason = turn_application.terminal_reason
             final_main_context = dict(turn_application.final_main_context)
             final_task_summary_refs = [dict(item) for item in turn_application.final_task_summary_refs]
@@ -2383,7 +2390,7 @@ class TaskRunLoop:
             turn_count = max(1, int(outcome.turn_count or 1))
             model_call_count = max(0, int(outcome.model_call_count or 0))
         followup_messages: list[Any] = []
-        retrieval_followup_force_synthesis = False
+        retrieval_followup_observed = False
         if len(tool_call_accumulator.pending_tool_calls) > 1 and terminal_reason == "completed":
             builtin_tool_lane_finalized = False
             final_content = ""
@@ -2548,7 +2555,7 @@ class TaskRunLoop:
                 and tool_observation_count > 0
                 and _is_retrieval_task_mode(str(task_spec_payload.get("task_mode") or ""))
             ):
-                retrieval_followup_force_synthesis = True
+                retrieval_followup_observed = True
             if next_tool_call_accumulator.pending_tool_calls and next_tool_messages and terminal_reason == "completed":
                 finalization = finalize_after_followup_tool_results(
                     user_message=user_message,
@@ -2558,7 +2565,7 @@ class TaskRunLoop:
                     repeated_tool_halt=repeated_tool_halt,
                     final_content=final_content,
                     tool_observation_count=tool_observation_count,
-                    retrieval_followup_force_synthesis=retrieval_followup_force_synthesis,
+                    retrieval_followup_observed=retrieval_followup_observed,
                 )
                 if finalization.finalized:
                     final_content = finalization.content
@@ -2586,167 +2593,6 @@ class TaskRunLoop:
             result_refs=tuple(result_refs),
             event_log_events=[item.to_dict() for item in self.event_log.list_events(state.task_run_id)],
         )
-        if (
-            not artifact_validation["passed"]
-            and terminal_reason == "completed"
-            and _requires_write_file_artifact(selected_recipe_payload)
-            and tool_runtime_executor is not None
-        ):
-            repair_tool_instances = [
-                tool
-                for tool in list(runtime_tool_instances)
-                if str(getattr(tool, "name", "") or "").strip() == "write_file"
-            ]
-            if not repair_tool_instances:
-                repair_tool_instances = list(runtime_tool_instances)
-            repair_attempt = 0
-            while (
-                not artifact_validation["passed"]
-                and terminal_reason == "completed"
-                and repair_attempt < 2
-            ):
-                repair_attempt += 1
-                repair_messages = _build_required_artifact_write_messages(
-                    model_messages=list(context_snapshot.model_messages),
-                    user_message=user_message,
-                    task_spec_payload=task_spec_payload,
-                    final_content=final_content,
-                    selected_recipe_payload=selected_recipe_payload,
-                )
-                repair_event = self.event_log.append(
-                    state.task_run_id,
-                    "required_artifact_write_repair_started",
-                    payload={
-                        "attempt": repair_attempt,
-                        "reason": artifact_validation["reason"],
-                        "target_path": _required_artifact_target_path(task_spec_payload=task_spec_payload, user_message=user_message),
-                        "final_content_chars": len(final_content),
-                        "allowed_tool_names": [str(getattr(tool, "name", "") or "") for tool in repair_tool_instances],
-                    },
-                    refs={"task_contract_ref": task_contract_ref},
-                )
-                yield {"type": "runtime_loop_event", "event": repair_event.to_dict()}
-                repair_tool_call_accumulator = ModelToolCallAccumulator()
-                turn_application = _ModelTurnApplicationState(
-                    loop_state=state,
-                    runtime_task_ledger=runtime_task_ledger,
-                    result_refs=result_refs,
-                    final_content=final_content,
-                    final_answer_metadata=final_answer_metadata,
-                    terminal_reason=terminal_reason,
-                    final_main_context=final_main_context,
-                    final_task_summary_refs=final_task_summary_refs,
-                    final_bundle_summary_refs=final_bundle_summary_refs,
-                    tool_observation_count=tool_observation_count,
-                    executed_bundle_ordinals=executed_bundle_ordinals,
-                    repeated_tool_halt=repeated_tool_halt,
-                    builtin_tool_lane_finalized=builtin_tool_lane_finalized,
-                )
-                async for model_turn_event in self.execution_engine.stream_model_turn(
-                    task_run_id=state.task_run_id,
-                    user_message=user_message,
-                    task_id=task_id,
-                    task_operation=task_operation,
-                    adopted_resource_policy=resource_policy,
-                    current_step_id_provider=lambda: (
-                        turn_application.runtime_task_ledger.current_step_id
-                        if turn_application.runtime_task_ledger is not None
-                        else turn_application.loop_state.current_step_id
-                    ),
-                    runtime_context_manager=runtime_context_manager,
-                    model_response_executor=model_response_executor,
-                    tool_runtime_executor=tool_runtime_executor,
-                    model_messages=repair_messages,
-                    directive=directive,
-                    tool_instances=repair_tool_instances,
-                    model_stream_policy=model_stream_policy,
-                    model_spec=resolved_model_spec,
-                    allowed_search_sources=allowed_search_sources,
-                    sandbox_policy=sandbox_policy,
-                ):
-                    async for emitted_event in self._apply_model_turn_event(
-                        application=turn_application,
-                        model_turn_event=model_turn_event,
-                        start_task_run=start.task_run,
-                        tool_call_accumulator=repair_tool_call_accumulator,
-                        collected_tool_messages=None,
-                        observation_aggregator=observation_aggregator,
-                        current_bundle_items=current_bundle_items,
-                        tool_repetition_guard=None,
-                        selected_recipe_payload=selected_recipe_payload,
-                        user_message=user_message,
-                        merge_existing_metadata=True,
-                        project_tool_observation=False,
-                        tool_result_transition_reason="required_artifact_write_repair",
-                        tool_result_transition_diagnostics={"repair_attempt": repair_attempt},
-                        emit_entered_step_for_tool_result=False,
-                        update_done_only_without_pending_tool_calls=True,
-                    ):
-                        yield emitted_event
-                    if turn_application.approval_waiting:
-                        return
-                state = turn_application.loop_state
-                runtime_task_ledger = turn_application.runtime_task_ledger
-                result_refs = turn_application.result_refs
-                final_content = turn_application.final_content
-                final_answer_metadata = dict(turn_application.final_answer_metadata)
-                terminal_reason = turn_application.terminal_reason
-                final_main_context = dict(turn_application.final_main_context)
-                final_task_summary_refs = [dict(item) for item in turn_application.final_task_summary_refs]
-                final_bundle_summary_refs = [dict(item) for item in turn_application.final_bundle_summary_refs]
-                tool_observation_count = turn_application.tool_observation_count
-                executed_bundle_ordinals = list(turn_application.executed_bundle_ordinals)
-                repeated_tool_halt = turn_application.repeated_tool_halt
-                builtin_tool_lane_finalized = turn_application.builtin_tool_lane_finalized
-                artifact_validation = _validate_required_artifact_file(
-                    root_dir=self.root_dir,
-                    selected_recipe_payload=selected_recipe_payload,
-                    artifact_policy=artifact_policy_for_validation,
-                    final_content=final_content,
-                    result_refs=tuple(result_refs),
-                    event_log_events=[item.to_dict() for item in self.event_log.list_events(state.task_run_id)],
-                )
-                repair_done_event = self.event_log.append(
-                    state.task_run_id,
-                    "required_artifact_write_repair_finished",
-                    payload={
-                        "attempt": repair_attempt,
-                        "validation": artifact_validation,
-                        "tool_call_count": len(repair_tool_call_accumulator.pending_tool_calls),
-                        "assistant_content_chars": len(repair_tool_call_accumulator.assistant_content),
-                        "assistant_additional_kwargs": repair_tool_call_accumulator.assistant_additional_kwargs,
-                    },
-                    refs={"task_contract_ref": task_contract_ref},
-                )
-                yield {"type": "runtime_loop_event", "event": repair_done_event.to_dict()}
-
-        if (
-            artifact_validation["passed"]
-            and terminal_reason == "executor_failed"
-            and _requires_write_file_artifact(selected_recipe_payload)
-        ):
-            terminal_reason = "completed"
-            final_content = build_artifact_success_fallback_answer(
-                selected_recipe_payload=selected_recipe_payload,
-                artifact_validation=artifact_validation,
-                final_task_summary_refs=final_task_summary_refs,
-                final_main_context=final_main_context,
-            )
-            final_answer_metadata = {
-                **artifact_success_fallback_answer_metadata(),
-            }
-            recovery_event = self.event_log.append(
-                state.task_run_id,
-                "artifact_success_fallback_finalized",
-                payload={
-                    "reason": "model_followup_failed_after_required_artifact_write",
-                    "artifact_validation": artifact_validation,
-                    "final_content_chars": len(final_content),
-                },
-                refs={"task_contract_ref": task_contract_ref},
-            )
-            yield {"type": "runtime_loop_event", "event": recovery_event.to_dict()}
-
         if not artifact_validation["passed"] and terminal_reason == "completed":
             terminal_reason = "artifact_validation_failed"
             final_answer_metadata = {
@@ -2867,6 +2713,7 @@ class TaskRunLoop:
                     "bundle_summary_refs": [dict(item) for item in final_bundle_summary_refs],
                     "answer_metadata": dict(final_answer_metadata),
                 },
+                completion=run_outcome,
                 diagnostics={
                     "tool_observation_count": int(tool_observation_count or 0),
                     "final_content_chars": len(str(final_content or "")),
@@ -2966,6 +2813,7 @@ class TaskRunLoop:
             "working_memory_finalization": working_memory_finalization_result,
             "task_run_ledger": final_task_run_ledger.to_dict() if final_task_run_ledger is not None else {},
             "task_result": task_result.to_dict() if task_result is not None else {},
+            "completion": dict(run_outcome or {}),
             "output_commit": {
                 "state": "committed" if assistant_commit_applied else "not_applied",
                 "assistant_commit_applied": assistant_commit_applied,
@@ -6425,60 +6273,236 @@ def _assistant_commit_metadata(final_answer_metadata: dict[str, Any] | None) -> 
     }
 
 
-def _main_model_owned_turn_decision(
+async def _main_model_owned_turn_decision(
     *,
     user_message: str,
     request_facts: dict[str, Any],
     task_selection: dict[str, Any],
+    model_runtime: Any | None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    explicit_mode = dict(task_selection or {}).get("interaction_mode") or dict(dict(task_selection or {}).get("mode_policy") or {}).get("interaction_mode")
-    semantic_task_type = str(dict(task_selection or {}).get("semantic_task_type") or "").strip()
-    if not semantic_task_type and str(explicit_mode or "") == "professional_mode":
-        semantic_task_type = "game_vertical_slice_delivery" if _looks_like_browser_game_delivery(user_message) else "implementation"
-    decision = {
-        "decision_id": f"model-turn-decision:main-model-owned:{uuid.uuid4().hex[:8]}",
-        "user_message": str(user_message or "").strip(),
-        "interaction_intent": "create" if _looks_like_creation_request(user_message) else "modify",
-        "action_intent": "edit_workspace",
-        "work_mode": "implementation",
-        "task_goal_type": semantic_task_type or "implementation",
-        "task_domain": "development",
-        "target_objects": list(dict(request_facts or {}).get("explicit_paths") or []),
-        "desired_outcome": str(user_message or "").strip(),
+    invoker = getattr(model_runtime, "invoke_messages", None)
+    if not callable(invoker):
+        return _blocked_model_turn_decision(
+            user_message=user_message,
+            reason="model_runtime_unavailable",
+            diagnostics={"model_call_performed": False, "model_authority_used": False},
+        )
+
+    messages = _model_turn_decision_messages(
+        user_message=user_message,
+        request_facts=request_facts,
+        task_selection=task_selection,
+    )
+    raw_text = ""
+    parse_diagnostics: dict[str, Any] = {}
+    validation: dict[str, Any] = {}
+    accepted_attempt = 0
+    for attempt in range(1, 3):
+        try:
+            response = await invoker(messages)
+        except Exception as exc:
+            return _blocked_model_turn_decision(
+                user_message=user_message,
+                reason="model_turn_decision_model_call_failed",
+                diagnostics={
+                    "model_call_performed": True,
+                    "model_authority_used": False,
+                    "error": str(exc)[:500],
+                    "understanding_attempts": attempt,
+                },
+            )
+
+        raw_text = stringify_content(getattr(response, "content", response)).strip()
+        payload, parse_diagnostics = _parse_model_turn_decision_payload(raw_text)
+        if payload is None:
+            validation = {"decision_status": "rejected_invalid", **parse_diagnostics}
+            messages = _model_turn_decision_repair_messages(
+                original_messages=messages,
+                invalid_response=raw_text,
+                validation=validation,
+            )
+            continue
+
+        decision, validation = model_turn_decision_from_payload(payload, user_message=user_message)
+        if decision is not None:
+            accepted_attempt = attempt
+            break
+        messages = _model_turn_decision_repair_messages(
+            original_messages=messages,
+            invalid_response=raw_text,
+            validation=validation,
+        )
+    else:
+        decision = None
+
+    if decision is None:
+        return _blocked_model_turn_decision(
+            user_message=user_message,
+            reason="model_turn_decision_invalid_after_repair",
+            diagnostics={
+                "model_call_performed": True,
+                "model_authority_used": False,
+                **parse_diagnostics,
+                **dict(validation or {}),
+                "understanding_attempts": 2,
+            },
+        )
+    decision_payload = decision.to_dict()
+    decision_payload["diagnostics"] = {
+        **dict(decision_payload.get("diagnostics") or {}),
+        "main_model_owns_task_understanding": True,
+        "model_call_performed": True,
+    }
+    return decision_payload, {
+        "decision_status": "accepted",
+        "model_call_performed": True,
+        "model_authority_used": True,
+        "understanding_attempts": accepted_attempt or 1,
+        **dict(validation or {}),
+        **parse_diagnostics,
+    }
+
+
+def _model_turn_decision_messages(
+    *,
+    user_message: str,
+    request_facts: dict[str, Any],
+    task_selection: dict[str, Any],
+) -> list[dict[str, str]]:
+    schema = {
+        "authority": "agent_runtime.model_turn_decision",
+        "decision_id": "model-turn-decision:<stable id or omit>",
+        "user_message": "<original user request>",
+        "interaction_intent": "answer|explain|inspect|review|plan|modify|create|run|verify|continue|stop|restore",
+        "action_intent": "answer_only|read_context|search_external|edit_workspace|run_command|start_service|use_browser|delegate|ask_clarification|block",
+        "work_mode": "conversation|read_only_analysis|implementation|verification|planning|delegated|background",
+        "task_goal_type": "<specific conventional task type>",
+        "task_domain": "<domain>",
+        "target_objects": [],
+        "desired_outcome": "",
         "deliverables": [],
         "constraints": [],
         "forbidden_actions": [],
         "selected_skill_ids": [],
-        "context_binding_decision": {
-            "mode": "main_model_owned_understanding",
+        "resource_contract": {
+            "source_projects": [{"path": "", "role": "source", "required": True}],
+            "target_projects": [{"path": "", "role": "target", "required": True}],
+            "required_read_files": [],
+            "required_read_dirs": [],
+            "required_write_files": [],
+            "required_write_dirs": [],
+            "asset_policy": {},
         },
-        "planning_required": True,
-        "todo_required": True,
+        "context_binding_decision": {},
+        "planning_required": False,
+        "todo_required": False,
         "completion_criteria": [],
         "needs_clarification": False,
         "clarification_question": "",
-        "confidence": 1.0 if semantic_task_type else 0.6,
+        "confidence": 0.0,
         "ambiguity": [],
-        "diagnostics": {
-            "main_model_owns_task_understanding": True,
+        "diagnostics": {},
+    }
+    system = (
+        "你是 agent 的当前轮理解决策器。你只负责理解用户请求并输出一个 JSON 对象，"
+        "不要执行任务，不要选择具体工具，不要写解释文字。\n"
+        "你的判断必须来自用户请求、request_facts、task_selection 和上下文显式事实。"
+        "不要用关键词模板代替理解；如果资源、目录、产物是任务成功的必要条件，必须写入 resource_contract。\n"
+        "如果请求要求基于已有项目继续开发，source_projects 表示必须读取和继承的源项目，"
+        "target_projects 表示必须写入或交付的目标项目。assets、public、static、images、textures、sprites "
+        "等资源目录如果需要继承或产出，必须进入 required_read_dirs / required_write_dirs。\n"
+        "只输出合法 JSON，不要 Markdown，不要代码块。"
+    )
+    user = {
+        "schema": schema,
+        "request_facts": dict(request_facts or {}),
+        "task_selection": dict(task_selection or {}),
+        "user_message": str(user_message or ""),
+    }
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": json.dumps(user, ensure_ascii=False)},
+    ]
+
+
+def _parse_model_turn_decision_payload(text: str) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    raw = str(text or "").strip()
+    if raw.startswith("```"):
+        raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE).strip()
+        raw = re.sub(r"\s*```$", "", raw).strip()
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        return None, {
+            "parse_error": str(exc),
+            "raw_response_preview": raw[:800],
+        }
+    if not isinstance(payload, dict):
+        return None, {"parse_error": "model_turn_decision_json_must_be_object"}
+    return payload, {"raw_response_chars": len(raw)}
+
+
+def _model_turn_decision_repair_messages(
+    *,
+    original_messages: list[dict[str, str]],
+    invalid_response: str,
+    validation: dict[str, Any],
+) -> list[dict[str, str]]:
+    return [
+        *list(original_messages),
+        {
+            "role": "assistant",
+            "content": str(invalid_response or "")[:4000],
         },
+        {
+            "role": "user",
+            "content": (
+                "上一次输出不能作为 ModelTurnDecision 使用。"
+                "请根据同一个用户请求重新输出一个合法 JSON 对象，只输出 JSON。\n"
+                f"校验结果：{json.dumps(dict(validation or {}), ensure_ascii=False)}"
+            ),
+        },
+    ]
+
+
+def _blocked_model_turn_decision(
+    *,
+    user_message: str,
+    reason: str,
+    diagnostics: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    details = dict(diagnostics or {})
+    decision = {
+        "decision_id": f"model-turn-decision:blocked:{uuid.uuid4().hex[:8]}",
+        "user_message": str(user_message or "").strip(),
+        "interaction_intent": "stop",
+        "action_intent": "block",
+        "work_mode": "conversation",
+        "task_goal_type": "blocked_understanding",
+        "task_domain": "runtime",
+        "target_objects": [],
+        "desired_outcome": "理解决策未通过，运行时停止。",
+        "deliverables": [],
+        "constraints": [],
+        "forbidden_actions": ["execute_without_model_turn_decision"],
+        "selected_skill_ids": [],
+        "resource_contract": {},
+        "context_binding_decision": {"mode": "blocked_model_turn_decision", "reason": reason},
+        "planning_required": False,
+        "todo_required": False,
+        "completion_criteria": [],
+        "needs_clarification": False,
+        "clarification_question": "",
+        "confidence": 0.0,
+        "ambiguity": [reason],
+        "diagnostics": details,
         "authority": "agent_runtime.model_turn_decision",
     }
     return decision, {
-        "decision_status": "main_model_owned_understanding",
-        "model_call_performed": False,
-        "model_authority_used": False,
+        "decision_status": "blocked",
+        "block_reason": reason,
+        **details,
     }
-
-
-def _looks_like_browser_game_delivery(message: str) -> bool:
-    text = str(message or "").lower()
-    return any(marker in text for marker in ("游戏", "浏览器小游戏", "browser game", "roguelike", "肉鸽"))
-
-
-def _looks_like_creation_request(message: str) -> bool:
-    text = str(message or "")
-    return any(marker in text for marker in ("创建", "生成", "写入", "完成", "实现", "开发"))
 
 
 def _truthy(value: Any) -> bool:

@@ -69,6 +69,7 @@ class ApprovalToken:
     directive_ref: str
     granted: bool = False
     source: str = ""
+    risk_fingerprint: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,9 +78,20 @@ class ApprovalState:
 
     tokens: tuple[ApprovalToken, ...] = ()
 
-    def find_granted_token(self, *, operation_id: str, directive_ref: str) -> ApprovalToken | None:
+    def find_granted_token(
+        self,
+        *,
+        operation_id: str,
+        directive_ref: str,
+        risk_fingerprint: str = "",
+    ) -> ApprovalToken | None:
         for token in self.tokens:
-            if token.granted and token.operation_id == operation_id and token.directive_ref == directive_ref:
+            if (
+                token.granted
+                and token.operation_id == operation_id
+                and token.directive_ref == directive_ref
+                and _approval_fingerprint_matches(token.risk_fingerprint, risk_fingerprint)
+            ):
                 return token
         return None
 
@@ -93,6 +105,7 @@ class OperationGatePipelineContext:
     headless_mode: bool = False
     approval_token: ApprovalToken | None = None
     approval_state: ApprovalState | None = None
+    approval_risk_fingerprint: str = ""
     operation_input: dict[str, Any] = field(default_factory=dict)
     denial_tracking: DenialTrackingState | None = None
     validators: dict[str, Any] = field(default_factory=dict)
@@ -237,38 +250,39 @@ class OperationGate:
             directive_ref=directive_ref,
             context=context,
         )
-        if context.permission_mode in {PERMISSION_MODE_DONT_ASK, PERMISSION_MODE_HEADLESS} or context.headless_mode:
-            if approval_token is None:
-                return OperationGateResult(
-                    operation_id=descriptor.operation_id,
-                    decision="deny",
-                    reason="approval required but unavailable in non-interactive context",
-                    pipeline_stage="headless_policy",
-                    diagnostics={
-                        "permission_mode": context.permission_mode,
-                        "headless_mode": context.headless_mode,
-                        "requires_user_interaction": descriptor.requires_user_interaction,
-                    },
-                )
         if approval_token is not None:
             return None
-        if context.approval_token is None:
+        if context.approval_token is not None:
             return OperationGateResult(
                 operation_id=descriptor.operation_id,
-                decision="requires_approval",
-                reason="operation requires approval",
-                requires_approval=True,
-                pipeline_stage="requires_approval_rule",
+                decision="deny",
+                reason="approval token does not match operation, directive, or risk fingerprint",
+                pipeline_stage="approval_token",
+                diagnostics={
+                    "approval_token_operation_id": context.approval_token.operation_id,
+                    "approval_token_directive_ref": context.approval_token.directive_ref,
+                    "approval_token_risk_fingerprint": context.approval_token.risk_fingerprint,
+                    "required_risk_fingerprint": context.approval_risk_fingerprint,
+                },
+            )
+        if context.permission_mode in {PERMISSION_MODE_DONT_ASK, PERMISSION_MODE_HEADLESS} or context.headless_mode:
+            return OperationGateResult(
+                operation_id=descriptor.operation_id,
+                decision="deny",
+                reason="approval required but unavailable in non-interactive context",
+                pipeline_stage="headless_policy",
+                diagnostics={
+                    "permission_mode": context.permission_mode,
+                    "headless_mode": context.headless_mode,
+                    "requires_user_interaction": descriptor.requires_user_interaction,
+                },
             )
         return OperationGateResult(
             operation_id=descriptor.operation_id,
-            decision="deny",
-            reason="approval token does not match operation or directive",
-            pipeline_stage="approval_token",
-            diagnostics={
-                "approval_token_operation_id": context.approval_token.operation_id,
-                "approval_token_directive_ref": context.approval_token.directive_ref,
-            },
+            decision="requires_approval",
+            reason="operation requires approval",
+            requires_approval=True,
+            pipeline_stage="requires_approval_rule",
         )
 
     def _resolve_approval_token(
@@ -283,12 +297,14 @@ class OperationGate:
             and context.approval_token.granted
             and context.approval_token.operation_id == operation_id
             and context.approval_token.directive_ref == directive_ref
+            and _approval_fingerprint_matches(context.approval_token.risk_fingerprint, context.approval_risk_fingerprint)
         ):
             return context.approval_token
         if context.approval_state is not None:
             return context.approval_state.find_granted_token(
                 operation_id=operation_id,
                 directive_ref=directive_ref,
+                risk_fingerprint=context.approval_risk_fingerprint,
             )
         return None
 
@@ -357,3 +373,10 @@ class OperationGate:
                 "fail_closed": True,
             },
         )
+
+
+def _approval_fingerprint_matches(token_fingerprint: str, required_fingerprint: str) -> bool:
+    required = str(required_fingerprint or "").strip()
+    if not required:
+        return True
+    return str(token_fingerprint or "").strip() == required

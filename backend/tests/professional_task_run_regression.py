@@ -29,6 +29,7 @@ from tests.support.runtime_stubs import (
     model_turn_context,
 )
 from runtime.model_gateway.model_runtime import ModelRuntimeError
+from runtime.tool_runtime.tool_result_envelope import build_tool_result_envelope
 
 
 _MemoryFacadeStub = QueryRuntimeMemoryFacadeStub
@@ -127,6 +128,71 @@ class _ModelRuntimeStub(SingleMessageModelRuntimeStub):
             "tool grounded answer：已锁定目标、按专业模式计划完成分析，并给出当前结论。"
             "限制：本轮没有执行额外工具。"
         )
+
+
+class _ModelTurnDecisionAwareRuntime:
+    def __init__(self, inner) -> None:
+        self.inner = inner
+
+    def __getattr__(self, name):
+        return getattr(self.inner, name)
+
+    async def invoke_messages(self, messages, **kwargs):
+        decision = _model_turn_decision_response_for_messages(messages)
+        if decision is not None:
+            return decision
+        return await self.inner.invoke_messages(messages, **kwargs)
+
+    async def invoke_messages_with_tools(self, messages, tools, **kwargs):
+        invoker = getattr(self.inner, "invoke_messages_with_tools", None)
+        if callable(invoker):
+            return await invoker(messages, tools, **kwargs)
+        return await self.inner.invoke_messages(messages, **kwargs)
+
+
+def _model_turn_decision_response_for_messages(messages) -> SimpleNamespace | None:
+    message_text = "\n".join(
+        str(item.get("content") or "") if isinstance(item, dict) else str(getattr(item, "content", "") or "")
+        for item in list(messages or [])
+    )
+    if "当前轮理解决策器" not in message_text and "agent_runtime.model_turn_decision" not in message_text:
+        return None
+    payload = _model_turn_decision_request_payload(messages)
+    selection = dict(payload.get("task_selection") or {})
+    user_message = str(payload.get("user_message") or "").strip()
+    decision = dict(selection.get("model_turn_decision") or {})
+    if not decision:
+        decision = dict(
+            model_turn_context(
+                action_intent="read_context",
+                work_mode="read_only_analysis",
+                interaction_intent="inspect",
+                desired_outcome=user_message,
+                task_goal_type=str(selection.get("semantic_task_type") or "bounded_tool_task"),
+                task_domain="analysis",
+            )["model_turn_decision"]
+        )
+    decision["user_message"] = user_message or str(decision.get("user_message") or "")
+    decision.setdefault("authority", "agent_runtime.model_turn_decision")
+    decision.setdefault("decision_id", "model-turn-decision:test")
+    decision.setdefault("context_binding_decision", {})
+    decision.setdefault("resource_contract", {})
+    decision.setdefault("confidence", 0.9)
+    return SimpleNamespace(content=json.dumps(decision, ensure_ascii=False))
+
+
+def _model_turn_decision_request_payload(messages) -> dict[str, object]:
+    for item in reversed(list(messages or [])):
+        content = str(item.get("content") or "") if isinstance(item, dict) else str(getattr(item, "content", "") or "")
+        if not content.strip().startswith("{"):
+            continue
+        try:
+            parsed = json.loads(content)
+        except Exception:
+            continue
+        if isinstance(parsed, dict) and "task_selection" in parsed:
+            return parsed
+    return {}
 
 
 class _ToolCallingModelRuntimeStub:
@@ -405,7 +471,7 @@ class _RecoverableTimeoutModelRuntimeStub:
             for item in list(messages or [])
         )
         self.recovery_prompt_seen = self.recovery_prompt_seen or (
-            "从模型超时处恢复" in message_text
+            "runtime_timeout_observation" in message_text
             and "frontend/public/games/arcane_dungeon_studio/game.js" in message_text
         )
         if self.tool_enabled_calls == 1:
@@ -566,7 +632,7 @@ class _WriteAfterReadModelRuntimeStub:
             )
         if self.seen_contract:
             assert "write_file" in tool_names
-            assert "read_file" not in tool_names
+            assert "read_file" in tool_names
             return AIMessage(
                 content="我已经读到契约，下一步写入草案文件。",
                 tool_calls=[
@@ -625,7 +691,7 @@ class _TerminalBeforeEditModelRuntimeStub:
         self.seen_edit = self.seen_edit or "Edit succeeded" in tool_text
         self.seen_pytest = self.seen_pytest or "PYTEST_OK" in tool_text
         self.blocked_terminal_attempted = self.blocked_terminal_attempted or "Runtime blocked this tool request before execution" in tool_text
-        self.blocked_terminal_attempted = self.blocked_terminal_attempted or "运行时已经收窄下一轮可用工具：edit_file" in system_text
+        self.blocked_terminal_attempted = self.blocked_terminal_attempted or "建议优先补齐：edit_file" in system_text
         if self.seen_pytest:
             return SimpleNamespace(
                 content=(
@@ -636,7 +702,7 @@ class _TerminalBeforeEditModelRuntimeStub:
                 )
             )
         if self.seen_edit:
-            assert tool_names == ["terminal"]
+            assert "terminal" in tool_names
             return AIMessage(
                 content="修改完成，运行验证。",
                 tool_calls=[
@@ -649,7 +715,7 @@ class _TerminalBeforeEditModelRuntimeStub:
                 ],
             )
         if self.seen_code:
-            assert tool_names == ["edit_file"]
+            assert "edit_file" in tool_names
             return AIMessage(
                 content="我按契约先修改代码。",
                 tool_calls=[
@@ -961,6 +1027,64 @@ class _VerificationThenReadModelRuntimeStub:
         )
 
 
+class _ProgressPolicyCorrectionModelRuntimeStub:
+    def __init__(self) -> None:
+        self.tool_enabled_calls = 0
+        self.seen_progress_rejection = False
+        self.seen_write = False
+
+    async def invoke_messages(self, messages, **_kwargs):
+        return await self.invoke_messages_with_tools(messages, [])
+
+    async def invoke_messages_with_tools(self, messages, tools, **_kwargs):
+        self.tool_enabled_calls += 1
+        tool_names = [str(getattr(tool, "name", "") or "") for tool in list(tools or [])]
+        tool_text = _tool_message_text(messages)
+        self.seen_progress_rejection = self.seen_progress_rejection or "tool_policy_rejection" in tool_text
+        self.seen_write = self.seen_write or "Write succeeded" in tool_text
+        if self.seen_write:
+            return SimpleNamespace(
+                content=(
+                    "完成状态：已完成。\n"
+                    "文件：frontend/public/games/progress_probe/game.js。\n"
+                    "验证：write_file 已返回成功。限制：本测试只验证 progress policy 纠错链路。"
+                )
+            )
+        if self.seen_progress_rejection:
+            assert "write_file" in tool_names
+            return AIMessage(
+                content="我收到进度策略反馈，改为写入缺失产物。",
+                tool_calls=[
+                    {
+                        "id": "call-write-after-progress-rejection",
+                        "name": "write_file",
+                        "args": {
+                            "path": "frontend/public/games/progress_probe/game.js",
+                            "content": "const progressProbe = true;",
+                        },
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        assert "search_text" in tool_names
+        return AIMessage(
+            content="我先继续搜索已有目录线索。",
+            tool_calls=[
+                {
+                    "id": f"call-search-progress-{self.tool_enabled_calls}",
+                    "name": "search_text",
+                    "args": {
+                        "query": "progress_probe",
+                        "roots": ["."],
+                        "glob": "**/*.md",
+                        "max_results": 5,
+                    },
+                    "type": "tool_call",
+                }
+            ],
+        )
+
+
 def _isolated_backend_root() -> Path:
     return isolated_backend_root("professional-task-run-")
 
@@ -970,7 +1094,38 @@ def _professional_task_selection(
     max_tool_rounds: int | None = None,
     semantic_task_type: str | None = "bounded_tool_task",
 ) -> dict[str, object]:
+    decision_goal_type = str(semantic_task_type or "bounded_tool_task")
+    action_intent = "edit_workspace" if decision_goal_type in {
+        "artifact_delivery",
+        "frontend_app_delivery",
+        "game_vertical_slice_delivery",
+        "code_fix_execution",
+        "test_report_triage",
+    } else "read_context"
+    interaction_intent = "create" if decision_goal_type in {
+        "artifact_delivery",
+        "frontend_app_delivery",
+        "game_vertical_slice_delivery",
+    } else "modify" if decision_goal_type == "code_fix_execution" else "inspect"
+    deliverables = (
+        ["runnable_artifact_refs", "verification_evidence"]
+        if decision_goal_type in {"artifact_delivery", "frontend_app_delivery", "game_vertical_slice_delivery"}
+        else ["change_summary", "changed_files", "verification_result_or_limitation"]
+        if decision_goal_type == "code_fix_execution"
+        else ["tool_grounded_answer"]
+    )
     selection: dict[str, object] = {
+        **model_turn_context(
+            action_intent=action_intent,
+            work_mode="implementation" if action_intent == "edit_workspace" else "read_only_analysis",
+            interaction_intent=interaction_intent,
+            desired_outcome="professional task test selection",
+            deliverables=deliverables,
+            planning_required=action_intent == "edit_workspace",
+            todo_required=action_intent == "edit_workspace",
+            task_goal_type=decision_goal_type,
+            task_domain="development" if action_intent == "edit_workspace" else "analysis",
+        ),
         "interaction_mode": "professional_mode",
         "mode_policy": {
             "execution_strategy": "professional_task_run",
@@ -1024,6 +1179,7 @@ def _runtime(
     tool_runtime=None,
 ) -> QueryRuntime:
     resolved_model_runtime = model_runtime or _ModelRuntimeStub()
+    resolved_model_runtime = _ModelTurnDecisionAwareRuntime(resolved_model_runtime)
     return QueryRuntime(
         base_dir=base_dir or _isolated_backend_root(),
         settings_service=_SettingsStub(),
@@ -1470,7 +1626,7 @@ def test_professional_task_recovers_provider_timeout_with_missing_output_paths()
     )
 
     assert "tool_result_received" in event_types
-    assert "write_file" in recovery_payload["next_required_tool_names"]
+    assert "write_file" in recovery_payload["suggested_tool_names"]
     assert model_runtime.recovery_prompt_seen is True
     assert model_runtime.tool_enabled_calls >= 4
     assert done["terminal_reason"] == "completed"
@@ -1565,7 +1721,7 @@ def test_professional_task_budget_exhaustion_forces_model_closeout() -> None:
     assert runtime.task_run_loop.get_trace(task_run_id, include_payloads=True)["coordination_runs"] == []
 
 
-def test_professional_task_restricts_next_tools_to_required_write_after_material_review() -> None:
+def test_professional_task_keeps_full_tool_pool_after_material_review_and_model_selects_write() -> None:
     backend_root = _isolated_backend_root()
     fixture = backend_root / "tests" / "fixtures" / "professional_task_suite" / "node_status_filter_contract.json"
     fixture.parent.mkdir(parents=True, exist_ok=True)
@@ -1596,7 +1752,7 @@ def test_professional_task_restricts_next_tools_to_required_write_after_material
     assert model_runtime.seen_contract is True
     assert model_runtime.seen_write is True
     write_call_options = model_runtime.tool_call_options_by_call[1]
-    assert getattr(write_call_options, "tool_choice", None) == "required"
+    assert getattr(write_call_options, "tool_choice", None) is None
     assert getattr(write_call_options, "parallel_tool_calls", None) is False
     assert "修改" in content
     assert "文件" in content
@@ -1639,8 +1795,8 @@ def test_professional_task_blocks_terminal_until_required_code_edit_is_observed(
     assert model_runtime.blocked_terminal_attempted is False
     assert model_runtime.seen_edit is True
     assert model_runtime.seen_pytest is True
-    assert model_runtime.tool_names_by_call[1] == ["edit_file"]
-    assert model_runtime.tool_names_by_call[2] == ["terminal"]
+    assert "edit_file" in model_runtime.tool_names_by_call[1]
+    assert "terminal" in model_runtime.tool_names_by_call[2]
     assert checks["write_observation_count"] >= 1
     assert checks["verification_command_count"] >= 1
     assert verification["passed"] is True
@@ -1672,6 +1828,10 @@ def test_professional_task_tool_markup_leak_cannot_pass_validation() -> None:
     assert "name=\"read_file\"" not in content
     assert "<｜｜DSML" not in content
     assert done["terminal_reason"] in {"tool_call_markup_leaked", "partial_contract_failed"}
+    completion = dict(done.get("completion") or {})
+    assert completion["completed"] is False
+    assert completion["status"] in {"partial", "failed"}
+    assert completion["terminal_reason"] == done["terminal_reason"]
 
 
 def test_professional_task_uses_evidence_closeout_after_final_markup_leak() -> None:
@@ -1806,64 +1966,10 @@ def test_professional_verification_blocks_complete_when_required_terms_are_missi
     assert run_state["state"] == "blocked"
     assert done["terminal_reason"] == "partial_contract_failed"
     assert model_runtime.seen_write is True
-
-
-def test_professional_artifact_auto_write_creates_real_sandbox_file_and_ref() -> None:
-    from runtime.professional_runtime.evidence_closeout import _build_artifact_delivery_auto_write_observation
-    from runtime.professional_runtime.goal_contract import _goal_contract_from_semantic_contract
-
-    backend_root = _isolated_backend_root()
-    sandbox_root = backend_root.parent / "output" / "sandbox_runs" / "auto-write-regression" / "workspace"
-    goal_contract = _goal_contract_from_semantic_contract(
-        task_run_id="taskrun:auto-write-regression",
-        user_message=(
-            "请根据 tests/fixtures/professional_task_suite/node_status_filter_contract.json "
-            "写入一份功能草案。"
-        ),
-        semantic_contract={
-            "task_goal_type": "artifact_delivery",
-            "execution_obligation": {
-                "required_outputs": ["后端", "前端", "测试"],
-                "required_material_paths": ["tests/fixtures/professional_task_suite/node_status_filter_contract.json"],
-                "write_output_required": True,
-            },
-        },
-    )
-
-    observation = _build_artifact_delivery_auto_write_observation(
-        task_run_id="taskrun:auto-write-regression",
-        semantic_contract={"task_goal_type": "artifact_delivery"},
-        goal_contract=goal_contract,
-        evidence_packet={
-            "observations": [
-                {
-                    "tool_name": "read_file",
-                    "result": (
-                        '{"feature":"task graph node status filter","backend":"GET nodes by status",'
-                        '"frontend":"status filter chips","tests":["valid status","invalid status"]}'
-                    ),
-                }
-            ]
-        },
-        sandbox_policy={
-            "enabled": True,
-            "sandbox_root": str(sandbox_root),
-            "workspace_root": str(backend_root.parent),
-            "real_workspace_access": "read_only",
-        },
-    )
-
-    payload = dict(observation.get("structured_payload") or {})
-    written_path = sandbox_root / str(payload.get("path") or "")
-    artifact_refs = list(observation.get("artifact_refs") or [])
-
-    assert str(observation.get("result") or "").startswith("Write succeeded:")
-    assert payload["write_applied"] is True
-    assert str(payload["artifact_ref"]).startswith("artifact:")
-    assert written_path.exists()
-    assert "后端" in written_path.read_text(encoding="utf-8")
-    assert artifact_refs and artifact_refs[0]["source"] == "artifact_delivery_auto_write"
-    assert (backend_root.parent / str(payload.get("path") or "")).exists() is False
+    completion = dict(done.get("completion") or {})
+    assert completion["completed"] is False
+    assert completion["status"] == "partial"
+    assert "后端" in str(completion)
 
 
 def test_professional_goal_contract_expands_output_directory_file_list() -> None:
@@ -1908,12 +2014,23 @@ def test_professional_obligation_requires_all_explicit_output_paths() -> None:
         task_run_id="taskrun:multifile-obligation",
     )
     for path in goal_contract.required_output_paths[:2]:
+        envelope = build_tool_result_envelope(
+            tool_name="write_file",
+            tool_args={"path": path},
+            result={
+                "text": f"Write succeeded: {path}",
+                "structured_payload": {
+                    "observed_paths": [path],
+                    "artifact_refs": [{"path": path, "kind": "file", "source": "write_file"}],
+                },
+            },
+        )
         ledger = ledger.append(
             build_tool_observation_record(
                 observation_ref=f"obs:{path}",
                 tool_name="write_file",
                 tool_args={"path": path},
-                result=f"Write succeeded: {path}",
+                result={"result_envelope": envelope.to_dict()},
             )
         )
 
@@ -1937,9 +2054,9 @@ def test_professional_obligation_requires_all_explicit_output_paths() -> None:
     )
 
 
-def test_professional_required_action_queue_selects_next_missing_path_and_state_obligations() -> None:
+def test_professional_deliverable_progress_selects_next_missing_path_and_state_obligations() -> None:
     from runtime.professional_runtime.goal_contract import _goal_contract_from_semantic_contract
-    from runtime.professional_runtime.required_action_queue import build_required_action_queue
+    from runtime.professional_runtime.deliverable_progress import build_deliverable_progress
     from runtime.professional_runtime.state_machine import initial_professional_run_state
     from runtime.memory.tool_observation_ledger import (
         ToolObservationLedger,
@@ -1947,7 +2064,7 @@ def test_professional_required_action_queue_selects_next_missing_path_and_state_
     )
 
     goal_contract = _goal_contract_from_semantic_contract(
-        task_run_id="taskrun:required-action-queue",
+        task_run_id="taskrun:deliverable-progress",
         user_message=(
             "请在 sandbox overlay 中完成多文件网页工程，目录必须是 frontend/public/games/snake_plus/。"
             "必须写入 index.html、styles.css、game.js、README.md，并创建 assets/ 目录。"
@@ -1955,69 +2072,40 @@ def test_professional_required_action_queue_selects_next_missing_path_and_state_
         semantic_contract={"task_goal_type": "artifact_delivery"},
     )
     ledger = ToolObservationLedger(
-        ledger_id="ledger:required-action-queue",
-        task_run_id="taskrun:required-action-queue",
+        ledger_id="ledger:deliverable-progress",
+        task_run_id="taskrun:deliverable-progress",
     )
     for path in goal_contract.required_output_paths[:2]:
+        envelope = build_tool_result_envelope(
+            tool_name="write_file",
+            tool_args={"path": path},
+            result={
+                "text": f"Write succeeded: {path}",
+                "structured_payload": {
+                    "observed_paths": [path],
+                    "artifact_refs": [{"path": path, "kind": "file", "source": "write_file"}],
+                },
+            },
+        )
         ledger = ledger.append(
             build_tool_observation_record(
                 observation_ref=f"obs:{path}",
                 tool_name="write_file",
                 tool_args={"path": path},
-                result=f"Write succeeded: {path}",
+                result={"result_envelope": envelope.to_dict()},
             )
         )
 
-    queue = build_required_action_queue(goal_contract=goal_contract, tool_observation_ledger=ledger)
-    state = initial_professional_run_state("taskrun:required-action-queue")
+    progress = build_deliverable_progress(goal_contract=goal_contract, tool_observation_ledger=ledger)
+    state = initial_professional_run_state("taskrun:deliverable-progress")
     state = state.advance("mode_policy_bound", reason="mode")
-    state = state.advance("obligation_bound", reason="obligation", unsatisfied_obligations=queue.missing_obligations())
+    state = state.advance("obligation_bound", reason="obligation", unsatisfied_obligations=progress.missing_obligations())
 
-    assert queue.current_action is not None
-    assert queue.current_action.path == "frontend/public/games/snake_plus/game.js"
-    assert queue.required_tool_names() == ("write_file",)
+    assert progress.next_missing_deliverable is not None
+    assert progress.next_missing_deliverable.path == "frontend/public/games/snake_plus/game.js"
+    assert progress.suggested_tool_names() == ("write_file",)
     assert "write_output:frontend/public/games/snake_plus/game.js" in state.unsatisfied_obligations
-    assert "ensure_dir:frontend/public/games/snake_plus/assets" in queue.missing_obligations()
-
-
-def test_professional_contract_gate_rejects_wrong_required_output_path() -> None:
-    from runtime.professional_runtime.goal_contract import _goal_contract_from_semantic_contract
-    from runtime.professional_runtime.tool_contract_gate import _contract_gate_tool_request
-    from runtime.memory.tool_observation_ledger import (
-        ToolObservationLedger,
-        build_tool_observation_record,
-    )
-
-    goal_contract = _goal_contract_from_semantic_contract(
-        task_run_id="taskrun:gate-path",
-        user_message=(
-            "请在 sandbox overlay 中完成多文件网页工程，目录必须是 frontend/public/games/snake_plus/。"
-            "必须写入 index.html、styles.css、game.js、README.md。"
-        ),
-        semantic_contract={"task_goal_type": "artifact_delivery"},
-    )
-    ledger = ToolObservationLedger(ledger_id="ledger:gate-path", task_run_id="taskrun:gate-path")
-    for path in goal_contract.required_output_paths[:2]:
-        ledger = ledger.append(
-            build_tool_observation_record(
-                observation_ref=f"obs:{path}",
-                tool_name="write_file",
-                tool_args={"path": path},
-                result=f"Write succeeded: {path}",
-            )
-        )
-
-    decision = _contract_gate_tool_request(
-        goal_contract=goal_contract,
-        tool_observation_ledger=ledger,
-        requested_tool_name="write_file",
-        requested_tool_args={"path": "frontend/public/games/snake_plus/README.md"},
-        allowed_tool_names=("agent_todo", "write_file", "edit_file", "terminal"),
-    )
-
-    assert decision.allowed is False
-    assert decision.error == "professional_task_goal_contract_requires_specific_write_path"
-    assert decision.next_required_path == "frontend/public/games/snake_plus/game.js"
+    assert "ensure_dir:frontend/public/games/snake_plus/assets" in progress.missing_obligations()
 
 
 def test_professional_state_cycle_allows_terminal_then_read_before_closeout() -> None:
@@ -2055,3 +2143,43 @@ def test_professional_state_cycle_allows_terminal_then_read_before_closeout() ->
     assert "原因" in content
     assert "修复建议" in content
     assert "验证步骤" in content
+
+
+def test_professional_progress_policy_rejection_returns_to_model_as_tool_result() -> None:
+    backend_root = _isolated_backend_root()
+    model_runtime = _ProgressPolicyCorrectionModelRuntimeStub()
+    runtime = _runtime(
+        base_dir=backend_root,
+        model_runtime=model_runtime,
+        tool_runtime=_ToolRuntimeWithSideEffectsStub(backend_root),
+    )
+
+    _, runtime_events, done, _task_run_id = asyncio.run(
+        _collect_runtime_events(
+            runtime,
+            session_id="session-professional-progress-policy-correction",
+            message=(
+                "请用专业模式在 sandbox overlay 中完成浏览器小游戏工程，目录必须是 "
+                "frontend/public/games/progress_probe/。必须写入 game.js。"
+            ),
+            task_selection=_professional_task_selection(
+                semantic_task_type="artifact_delivery",
+                max_tool_rounds=7,
+            ),
+        )
+    )
+    event_types = _event_types(runtime_events)
+    blocked_event = _latest_event(runtime_events, "tool_call_blocked_by_progress_policy")
+    stage_summary_events = [
+        event for event in runtime_events if event.get("event_type") == "professional_task_stage_summary"
+    ]
+    verify_event = _latest_event(runtime_events, "professional_task_deliverable_validation_checked")
+    verification = dict(dict(verify_event.get("payload") or {}).get("verification") or {})
+
+    assert "tool_call_blocked_by_progress_policy" in event_types
+    assert dict(blocked_event.get("payload") or {})["tool_name"] == "search_text"
+    assert model_runtime.seen_progress_rejection is True
+    assert model_runtime.seen_write is True
+    assert stage_summary_events
+    assert verification["passed"] is True
+    assert done["terminal_reason"] == "completed"

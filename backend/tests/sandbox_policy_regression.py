@@ -122,3 +122,64 @@ def test_sandbox_policy_does_not_inherit_workspace_for_unrelated_scope(tmp_path:
     )
 
     assert policy["workspace_key"] == "session:session-writing:scope:output/novel_artifacts/modular_novel/volume_001"
+
+
+def test_sandbox_policy_mounts_model_resource_contract_source_project(tmp_path: Path) -> None:
+    repo_root = tmp_path
+    backend_root = repo_root / "backend"
+    backend_root.mkdir()
+    source_project = repo_root / "external_source" / "game"
+    (source_project / "assets").mkdir(parents=True)
+    (source_project / "index.html").write_text("<html></html>", encoding="utf-8")
+    (source_project / "game.js").write_text("const player = 'assets/player.svg';", encoding="utf-8")
+    (source_project / "assets" / "player.svg").write_text("<svg></svg>", encoding="utf-8")
+
+    policy = prepare_runtime_sandbox_policy(
+        root_dir=backend_root,
+        session_id="session-game",
+        task_run_id="taskrun-game",
+        task_contract={
+            "task_requirement_contract": {
+                "execution_obligation": {
+                    "required_output_paths": ["frontend/public/games/demo/game.js"],
+                },
+            },
+        },
+        user_message="接手源项目并写入 frontend/public/games/demo",
+        selected_recipe_payload={"metadata": {"sandbox_policy": {"enabled": True}}},
+        task_selection={
+            "model_turn_decision": {
+                "resource_contract": {
+                    "source_projects": [
+                        {"path": str(source_project), "role": "source", "required": True}
+                    ]
+                }
+            }
+        },
+    )
+
+    mounts = list(policy.get("material_mounts") or [])
+    assert len(mounts) == 1
+    assert mounts[0]["status"] == "mounted"
+    assert mounts[0]["mount_path"] == ".materials/source_projects/source_01"
+    sandbox_root = Path(policy["sandbox_root"])
+    assert (sandbox_root / ".materials/source_projects/source_01/index.html").exists()
+    assert (sandbox_root / ".materials/source_projects/source_01/game.js").exists()
+    assert (sandbox_root / ".materials/source_projects/source_01/assets/player.svg").exists()
+
+
+def test_sandbox_policy_without_resource_contract_has_no_material_mounts(tmp_path: Path) -> None:
+    backend_root = tmp_path / "backend"
+    backend_root.mkdir()
+
+    policy = prepare_runtime_sandbox_policy(
+        root_dir=backend_root,
+        session_id="session-plain",
+        task_run_id="taskrun-plain",
+        task_contract={},
+        user_message="写一个普通文件",
+        selected_recipe_payload={"metadata": {"sandbox_policy": {"enabled": True}}},
+        task_selection={},
+    )
+
+    assert "material_mounts" not in policy

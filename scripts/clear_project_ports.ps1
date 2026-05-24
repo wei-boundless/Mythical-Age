@@ -14,12 +14,39 @@ if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
 }
 
 $OutputDir = Join-Path $RepoRoot "output"
+$RuntimeDir = Join-Path $OutputDir "runtime"
+
+function Remove-LegacyLogFiles {
+    if (-not (Test-Path $OutputDir)) {
+        return
+    }
+
+    $legacyFiles = @(
+        Get-ChildItem -Path $OutputDir -File -Filter "uvicorn-*.pid" -ErrorAction SilentlyContinue
+        Get-ChildItem -Path $OutputDir -File -Filter "uvicorn-*.out.log" -ErrorAction SilentlyContinue
+        Get-ChildItem -Path $OutputDir -File -Filter "uvicorn-*.err.log" -ErrorAction SilentlyContinue
+        Get-ChildItem -Path $OutputDir -File -Filter "verify-*.out.log" -ErrorAction SilentlyContinue
+        Get-ChildItem -Path $OutputDir -File -Filter "verify-*.err.log" -ErrorAction SilentlyContinue
+    )
+
+    foreach ($file in $legacyFiles) {
+        Remove-Item -LiteralPath $file.FullName -Force -ErrorAction SilentlyContinue
+    }
+}
 
 if (-not $ForceAnyOwner) {
     $projectStack = Join-Path $PSScriptRoot "project_stack.ps1"
     if (Test-Path $projectStack) {
-        & $projectStack -Action stop
-        exit $LASTEXITCODE
+        $child = Start-Process `
+            -FilePath "powershell.exe" `
+            -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $projectStack, "-Action", "stop" `
+            -WorkingDirectory $RepoRoot `
+            -WindowStyle Hidden `
+            -Wait `
+            -PassThru
+        if ($child.ExitCode -ne 0) {
+            exit $child.ExitCode
+        }
     }
 }
 
@@ -95,10 +122,19 @@ foreach ($port in $Ports) {
 
 if ($IncludePidFiles -and (Test-Path $OutputDir)) {
     foreach ($port in $Ports) {
-        $pidFile = Join-Path $OutputDir ("uvicorn-{0}.pid" -f $port)
-        $results += Stop-ProcessByPidFile -PidFile $pidFile -PortHint $port
+        $pidFiles = @(
+            Join-Path $OutputDir ("uvicorn-{0}.pid" -f $port),
+            Join-Path $OutputDir ("uvicorn-fixed-{0}.pid" -f $port),
+            Join-Path $RuntimeDir ("backend-fixed-{0}.pid" -f $port),
+            Join-Path $RuntimeDir ("frontend-fixed-{0}.pid" -f $port)
+        )
+        foreach ($pidFile in $pidFiles) {
+            $results += Stop-ProcessByPidFile -PidFile $pidFile -PortHint $port
+        }
     }
 }
+
+Remove-LegacyLogFiles
 
 Start-Sleep -Milliseconds 500
 

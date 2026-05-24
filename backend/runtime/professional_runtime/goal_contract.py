@@ -290,7 +290,7 @@ def _build_goal_contract(
     goal = str(user_message or "").strip()
     output_paths = _extract_goal_output_paths(goal)
     material_paths = [
-        path for path in _extract_goal_material_paths(goal) if not _same_path_member(path, output_paths) and not _same_basename_member(path, output_paths)
+        path for path in _extract_goal_material_paths(goal) if not _same_path_member(path, output_paths)
     ]
     material_types = _dedupe_strings([_path_suffix(path) for path in material_paths if _path_suffix(path)])
     requires_write = _goal_text_requires_write_output(goal, material_paths=material_paths, output_paths=output_paths)
@@ -329,9 +329,12 @@ def _build_goal_contract(
 def _extract_goal_material_paths(text: str) -> list[str]:
     return _dedupe_strings(
         [
-            path
-            for path, prefix in _path_mentions_with_prefix(text)
-            if not _prefix_indicates_output_path(prefix) and _material_path_candidate_is_readable(path)
+            *_expand_material_directory_file_lists(text),
+            *[
+                path
+                for path, prefix in _path_mentions_with_prefix(text)
+                if not _prefix_indicates_output_path(prefix) and _material_path_candidate_is_readable(path)
+            ],
         ]
     )
 
@@ -349,7 +352,7 @@ def _extract_goal_output_paths(text: str) -> list[str]:
 
 def _expand_output_directory_file_lists(text: str) -> list[str]:
     normalized = str(text or "").replace("\\", "/")
-    output_dirs: list[str] = []
+    output_dirs: list[str] = _explicit_output_directories(normalized)
     dir_pattern = re.compile(
         r"(?P<dir>(?:[\w.\-\u4e00-\u9fff]+/)+[\w.\-\u4e00-\u9fff]+/)",
         re.IGNORECASE,
@@ -358,8 +361,10 @@ def _expand_output_directory_file_lists(text: str) -> list[str]:
         directory = _clean_path_mention(str(match.group("dir") or "")).replace("\\", "/").strip("/")
         if not directory:
             continue
-        context = normalized[max(0, match.start() - 24) : match.end() + 24]
-        if _prefix_indicates_output_path(context) or any(marker in context for marker in ("目录", "工程", "项目", "sandbox overlay")):
+        context = _local_path_context(normalized, start=match.start(), end=match.end(), radius=24)
+        if _context_indicates_read_material_path(context):
+            continue
+        if _context_indicates_output_path(context):
             output_dirs.append(directory)
     if not output_dirs:
         return []
@@ -371,6 +376,37 @@ def _expand_output_directory_file_lists(text: str) -> list[str]:
     files = [_clean_path_mention(str(match.group("file") or "")) for match in file_pattern.finditer(normalized)]
     result: list[str] = []
     for directory in output_dirs:
+        for filename in files:
+            if not filename or "/" in filename:
+                continue
+            result.append(f"{directory}/{filename}")
+    return _dedupe_strings(result)
+
+
+def _expand_material_directory_file_lists(text: str) -> list[str]:
+    normalized = str(text or "").replace("\\", "/")
+    material_dirs: list[str] = _explicit_material_directories(normalized)
+    dir_pattern = re.compile(
+        r"(?P<dir>(?:[\w.\-\u4e00-\u9fff]+/)+[\w.\-\u4e00-\u9fff]+/)",
+        re.IGNORECASE,
+    )
+    for match in dir_pattern.finditer(normalized):
+        directory = _clean_path_mention(str(match.group("dir") or "")).replace("\\", "/").strip("/")
+        if not directory:
+            continue
+        context = _local_path_context(normalized, start=match.start(), end=match.end(), radius=32)
+        if _context_indicates_read_material_path(context) and not _context_indicates_output_path(context):
+            material_dirs.append(directory)
+    if not material_dirs:
+        return []
+    suffixes = "html|css|js|jsx|ts|tsx|py|json|md|txt|csv|yaml|yml|toml"
+    file_pattern = re.compile(
+        rf"(?<![\w/\\.-])(?P<file>[\w.\-\u4e00-\u9fff]+\.({suffixes}))(?![\w/\\.-])",
+        re.IGNORECASE,
+    )
+    files = [_clean_path_mention(str(match.group("file") or "")) for match in file_pattern.finditer(normalized)]
+    result: list[str] = []
+    for directory in material_dirs:
         for filename in files:
             if not filename or "/" in filename:
                 continue
@@ -398,7 +434,7 @@ def _extract_required_output_dirs(text: str, expanded_paths: list[str]) -> list[
         directory = _clean_path_mention(str(match.group("dir") or "")).replace("\\", "/").strip("/")
         if not directory:
             continue
-        context = normalized[max(0, match.start() - 18) : match.end() + 18]
+        context = _local_path_context(normalized, start=match.start(), end=match.end(), radius=18)
         if not any(marker in context for marker in ("创建", "新建", "必须", "写入", "生成")):
             continue
         for base_dir in base_dirs:
@@ -427,9 +463,44 @@ def _path_mentions_with_prefix(text: str) -> list[tuple[str, str]]:
             if not path or path in seen:
                 continue
             seen.add(path)
-            prefix = normalized[max(0, match.start() - 18) : match.start()]
+            prefix = _local_path_context(normalized, start=match.start(), end=match.start(), radius=18)
             mentions.append((path, prefix))
     return mentions
+
+
+def _explicit_output_directories(text: str) -> list[str]:
+    result: list[str] = []
+    pattern = re.compile(
+        r"(?:目标输出目录|输出目录|目标目录|写入目录|保存目录|产物目录)[^/\\]{0,48}(?P<dir>(?:frontend|backend|output|docs|storage|scripts|tests|src|app|packages|knowledge)/(?:[\w.\-\u4e00-\u9fff]+/)*[\w.\-\u4e00-\u9fff]+/?)",
+        re.IGNORECASE,
+    )
+    for match in pattern.finditer(str(text or "").replace("\\", "/")):
+        directory = _clean_path_mention(str(match.group("dir") or "")).replace("\\", "/").strip("/")
+        if directory:
+            result.append(directory)
+    return _dedupe_strings(result)
+
+
+def _explicit_material_directories(text: str) -> list[str]:
+    result: list[str] = []
+    pattern = re.compile(
+        r"(?:只读源项目|只读源工程|只读源目录|源项目|源工程|源目录|源路径)[^/\\]{0,48}(?P<dir>(?:frontend|backend|output|docs|storage|scripts|tests|src|app|packages|knowledge)/(?:[\w.\-\u4e00-\u9fff]+/)*[\w.\-\u4e00-\u9fff]+/?)",
+        re.IGNORECASE,
+    )
+    for match in pattern.finditer(str(text or "").replace("\\", "/")):
+        directory = _clean_path_mention(str(match.group("dir") or "")).replace("\\", "/").strip("/")
+        if directory:
+            result.append(directory)
+    return _dedupe_strings(result)
+
+
+def _local_path_context(text: str, *, start: int, end: int, radius: int) -> str:
+    value = str(text or "")
+    left = value.rfind("\n", 0, start)
+    right = value.find("\n", end)
+    line_start = 0 if left < 0 else left + 1
+    line_end = len(value) if right < 0 else right
+    return value[max(line_start, start - radius) : min(line_end, end + radius)]
 
 
 def _clean_path_mention(path: str) -> str:
@@ -450,17 +521,48 @@ def _material_path_candidate_is_readable(path: str) -> bool:
 
 
 def _prefix_indicates_output_path(prefix: str) -> bool:
+    return _context_indicates_output_path(prefix)
+
+
+def _context_indicates_output_path(context: str) -> bool:
+    text = str(context or "")
+    if _context_indicates_read_material_path(text) and not any(marker in text for marker in ("目标输出", "输出目录", "输出到", "写入", "保存", "生成", "产出")):
+        return False
     return any(
-        marker in str(prefix or "")
+        marker in text
         for marker in (
+            "目标输出",
+            "输出目录",
+            "输出到",
             "写入",
             "保存",
             "生成",
             "产出",
-            "输出到",
             "落到",
             "创建",
             "新建",
+            "目录必须是",
+            "sandbox overlay 中完成",
+            "sandbox overlay",
+        )
+    )
+
+
+def _context_indicates_read_material_path(context: str) -> bool:
+    return any(
+        marker in str(context or "")
+        for marker in (
+            "只读",
+            "源项目",
+            "源工程",
+            "源路径",
+            "源目录",
+            "读回",
+            "读取",
+            "检查",
+            "查看",
+            "基于",
+            "参考",
         )
     )
 
@@ -498,14 +600,11 @@ def _goal_material_path_is_credible(path: str, *, output_paths: list[str], goal_
         return False
     if _same_path_member(normalized, output_paths):
         return False
-    output_bases = {item.rsplit("/", 1)[-1] for item in (_normalize_path_for_match(path) for path in output_paths) if item}
-    if normalized.rsplit("/", 1)[-1] in output_bases:
-        return False
-    if not _path_suffix(normalized):
+    if not _path_suffix(normalized) and not _is_material_directory_path(normalized):
         return False
     if any(marker in normalized for marker in ("sandbox overlay", "必须是", "目录必须", "难度", "结束")):
         return False
-    if normalized.startswith(("frontend/public/games/", "output/sandbox_runs/")):
+    if normalized.startswith("frontend/public/games/"):
         return False
     goal = str(goal_text or "")
     if normalized in _extract_goal_output_paths(goal):
@@ -519,6 +618,13 @@ def _path_suffix(path: str) -> str:
         return ""
     suffix = "." + text.rsplit(".", 1)[-1].lower()
     return suffix if len(suffix) > 1 else ""
+
+
+def _is_material_directory_path(path: str) -> bool:
+    normalized = str(path or "").replace("\\", "/").strip().strip("/").lower()
+    if not normalized:
+        return False
+    return normalized.endswith("/assets") or normalized.endswith("/asset") or normalized.endswith("/static")
 
 
 def _goal_text_requires_write_output(
@@ -640,9 +746,15 @@ def _response_term_for_deliverable(deliverable: Any) -> str:
         "source_or_memory_boundary": "",
         "conversational_response": "",
         "inspection_findings": "",
+        "runnable_artifact_refs": "",
+        "gameplay_acceptance": "",
+        "workflow_acceptance": "",
+        "visual_asset_refs": "",
+        "verification_evidence": "",
+        "final_report": "",
         "evidence_refs": "",
     }
-    return mapping.get(normalized, normalized)
+    return mapping.get(normalized, "")
 
 
 def _forbidden_visible_markers() -> list[str]:

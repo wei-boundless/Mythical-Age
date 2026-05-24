@@ -533,7 +533,6 @@ export function ExperimentsView() {
     currentSessionId,
     orchestrationInspectorTarget,
     orchestrationSnapshot,
-    highlightSystemGraph,
     loadInspectorFile,
     setMemoryInspectorTarget,
     setOrchestrationInspectorTarget,
@@ -755,32 +754,6 @@ export function ExperimentsView() {
       void loadCatalog();
     }
   }, [activePanel, catalog, loadCatalog]);
-
-  function locateOnSystemGraph(node: OrchestrationNode) {
-    const map: Record<string, string[]> = {
-      input: ["api-router"],
-      followup: ["query-core"],
-      planner: ["planner"],
-      "execution-mode": ["query-core"],
-      context: ["query-core", "memory"],
-      memory: ["memory"],
-      restore: ["query-core", "memory"],
-      prompt: ["prompt"],
-      capability: ["query-core", "tooling"],
-      model: ["model"],
-      worker: ["evidence"],
-      tool: ["tooling"],
-      output: ["query-core"],
-      persistence: ["session-store", "storage"]
-    };
-    highlightSystemGraph({
-      nodeIds: map[node.id] ?? ["query-core"],
-      edgeIds: [],
-      reason: node.summary || node.description,
-      source: `orchestration:${node.id}`
-    });
-    setWorkspaceView("system-framework");
-  }
 
   function openMemoryNode() {
     if (snapshot.source === "test-turn" && snapshot.run_id && snapshot.turn_id) {
@@ -1011,7 +984,7 @@ export function ExperimentsView() {
             <ShieldCheck size={18} />
             <h3>工具管理</h3>
             <span className="tag-chip">permission: {catalog?.permission_mode ?? "-"}</span>
-            <span className="tag-chip">contract: {catalog?.tool_contract_mode ?? "-"}</span>
+            <span className="tag-chip">validation: {catalog?.tool_invocation_validation_mode ?? "-"}</span>
             <button className="action-button action-button--ghost" onClick={() => void refreshCatalog()} type="button">
               {catalogLoading ? <Loader2 className="animate-spin" size={14} /> : <RefreshCw size={14} />}
               刷新 Registry
@@ -1482,10 +1455,6 @@ export function ExperimentsView() {
                 </details>
               ) : null}
               <div className="orchestration-detail__actions">
-                <button onClick={() => locateOnSystemGraph(selectedNode)} type="button">
-                  <Network size={14} />
-                  系统框架定位
-                </button>
                 {selectedNode.id === "memory" ? (
                   <button onClick={openMemoryNode} type="button">
                     <BrainCircuit size={14} />

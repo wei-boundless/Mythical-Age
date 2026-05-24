@@ -25,9 +25,30 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $BackendRoot = Join-Path $RepoRoot "backend"
 $HealthUrl = "http://$BindHost`:$BindPort/health"
 $ApiBaseUrl = "http://$BindHost`:$BindPort/api"
-$PidFile = Join-Path $RepoRoot "output/uvicorn-$BindPort.pid"
-$OutLog = Join-Path $RepoRoot "output/uvicorn-$BindPort.out.log"
-$ErrLog = Join-Path $RepoRoot "output/uvicorn-$BindPort.err.log"
+$OutputDir = Join-Path $RepoRoot "output"
+$PidFile = Join-Path $OutputDir "uvicorn-fixed-8003.pid"
+$OutLog = Join-Path $OutputDir "uvicorn-fixed-8003.out.log"
+$ErrLog = Join-Path $OutputDir "uvicorn-fixed-8003.err.log"
+
+function Ensure-OutputDir {
+    if (-not (Test-Path $OutputDir)) {
+        New-Item -ItemType Directory -Path $OutputDir | Out-Null
+    }
+}
+
+function Clear-LegacyBackendLogs {
+    $legacyFiles = @(
+        Get-ChildItem -Path $OutputDir -File -Filter "uvicorn-*.pid" -ErrorAction SilentlyContinue
+        Get-ChildItem -Path $OutputDir -File -Filter "uvicorn-*.out.log" -ErrorAction SilentlyContinue
+        Get-ChildItem -Path $OutputDir -File -Filter "uvicorn-*.err.log" -ErrorAction SilentlyContinue
+    ) | Where-Object {
+        $_.FullName -notin @($PidFile, $OutLog, $ErrLog)
+    }
+
+    foreach ($file in $legacyFiles) {
+        Remove-Item -LiteralPath $file.FullName -Force -ErrorAction SilentlyContinue
+    }
+}
 
 function Test-BackendHealth {
     param([string]$Url)
@@ -113,6 +134,8 @@ function Wait-BackendHealthy {
 }
 
 if (-not $SkipBackendRestart) {
+    Ensure-OutputDir
+    Clear-LegacyBackendLogs
     Stop-BackendProcesses -BackendPort $BindPort -StoredPidFile $PidFile
     Start-Sleep -Seconds 1
     $backendProcess = Start-BackendProcess `

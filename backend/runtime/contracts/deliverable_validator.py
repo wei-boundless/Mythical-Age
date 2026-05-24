@@ -214,7 +214,7 @@ def _validate_artifact_delivery(
     observed_paths = _artifact_write_paths_from_facts(facts)
     required_paths = _dedupe([str(item).replace("\\", "/").strip() for item in list(required_output_paths or [])])
     missing_required_paths = [
-        path for path in required_paths if not any(_path_matches(path, observed) for observed in observed_paths)
+        path for path in required_paths if not _required_output_path_satisfied(path, observed_paths)
     ]
     checks = {
         "artifact_refs": has_write_evidence and _contains_any(final_answer, ("文件", "路径", "产物", "artifact", ".md", ".json", ".txt")),
@@ -311,13 +311,14 @@ def _validate_profile_driven_delivery(
     observed_paths = _artifact_write_paths_from_facts(facts)
     required_paths = _dedupe([str(item).replace("\\", "/").strip() for item in list(required_output_paths or [])])
     missing_required_paths = [
-        path for path in required_paths if not any(_path_matches(path, observed) for observed in observed_paths)
+        path for path in required_paths if not _required_output_path_satisfied(path, observed_paths)
     ]
+    asset_integrity = _asset_reference_integrity(facts=facts, observed_paths=observed_paths, required_output_paths=required_paths)
     dimensions = _profile_validation_dimensions(required_deliverables, required_actions)
     checks = {
         "source_or_artifact_evidence": not dimensions["source_or_artifact"] or _has_source_or_artifact_evidence(facts, final_answer),
         "runtime_or_browser_evidence": not dimensions["runtime_or_browser"] or _has_runtime_or_browser_evidence(facts),
-        "asset_evidence": not dimensions["asset"] or _has_asset_evidence(facts),
+        "asset_evidence": not dimensions["asset"] or bool(asset_integrity.get("accepted")),
         "functional_acceptance_evidence": not dimensions["functional_acceptance"] or _has_functional_acceptance_evidence(facts, final_answer, required_deliverables),
         "limitations": "limitations" not in required_deliverables or _generic_deliverable_present(final_answer, "limitations"),
         "final_report": "final_report" not in required_deliverables or _contains_any(final_answer, ("完成", "交付", "报告", "summary", "final")),
@@ -332,6 +333,7 @@ def _validate_profile_driven_delivery(
     }
     missing = [item for item, passed in deliverable_checks.items() if not passed]
     missing.extend(f"output_path:{path}" for path in missing_required_paths)
+    missing.extend(f"asset:{path}" for path in list(asset_integrity.get("missing_assets") or []))
     unsupported_claims = _unsupported_profile_claims(
         final_answer=final_answer,
         facts=facts,
@@ -361,6 +363,7 @@ def _validate_profile_driven_delivery(
             "required_output_paths": required_paths,
             "observed_output_paths": observed_paths,
             "missing_required_output_paths": missing_required_paths,
+            "asset_reference_integrity": asset_integrity,
         },
         diagnostics={
             "section_checks": checks,
@@ -514,6 +517,77 @@ def _has_asset_evidence(facts: list[dict[str, Any]]) -> bool:
     )
 
 
+def _asset_reference_integrity(
+    *,
+    facts: list[dict[str, Any]],
+    observed_paths: list[str],
+    required_output_paths: list[str],
+) -> dict[str, Any]:
+    refs = _asset_refs_from_facts(facts)
+    if not refs:
+        return {
+            "accepted": _has_asset_evidence(facts),
+            "mode": "no_explicit_asset_refs",
+            "asset_refs": [],
+            "missing_assets": [],
+        }
+    output_roots = _output_roots(required_output_paths)
+    observed = _dedupe([str(path or "").replace("\\", "/").strip().strip("/") for path in observed_paths])
+    missing: list[str] = []
+    for ref in refs:
+        if _asset_ref_observed(ref, observed, output_roots):
+            continue
+        missing.append(ref)
+    return {
+        "accepted": not missing,
+        "mode": "local_reference_integrity",
+        "asset_refs": refs,
+        "missing_assets": _dedupe(missing),
+        "output_roots": output_roots,
+    }
+
+
+def _asset_refs_from_facts(facts: list[dict[str, Any]]) -> list[str]:
+    refs: list[str] = []
+    pattern = re.compile(r"(?P<path>assets/[A-Za-z0-9_.\-/\u4e00-\u9fff]+\.(?:svg|png|jpg|jpeg|webp|gif))", re.IGNORECASE)
+    for fact in facts:
+        text = json.dumps(fact, ensure_ascii=False, sort_keys=True)
+        refs.extend(match.group("path").replace("\\", "/").strip("/") for match in pattern.finditer(text))
+    return _dedupe(refs)
+
+
+def _output_roots(required_output_paths: list[str]) -> list[str]:
+    roots: list[str] = []
+    for path in required_output_paths:
+        normalized = str(path or "").replace("\\", "/").strip().strip("/")
+        if not normalized:
+            continue
+        if "/assets" in normalized:
+            roots.append(normalized.split("/assets", 1)[0])
+            continue
+        if "/" in normalized and "." in normalized.rsplit("/", 1)[-1]:
+            roots.append(normalized.rsplit("/", 1)[0])
+    return _dedupe(roots)
+
+
+def _asset_ref_observed(ref: str, observed_paths: list[str], output_roots: list[str]) -> bool:
+    normalized_ref = str(ref or "").replace("\\", "/").strip().strip("/").lower()
+    candidates = {normalized_ref}
+    for root in output_roots:
+        root_norm = str(root or "").replace("\\", "/").strip().strip("/")
+        if root_norm:
+            candidates.add(f"{root_norm}/{normalized_ref}".lower())
+    for observed in observed_paths:
+        normalized_observed = str(observed or "").replace("\\", "/").strip().strip("/").lower()
+        if not normalized_observed:
+            continue
+        if normalized_observed in candidates:
+            return True
+        if any(normalized_observed.endswith("/" + candidate) for candidate in candidates):
+            return True
+    return False
+
+
 def _has_functional_acceptance_evidence(facts: list[dict[str, Any]], final_answer: str, deliverables: list[str]) -> bool:
     text = _facts_text(facts)
     if "gameplay_acceptance" in deliverables:
@@ -640,6 +714,20 @@ def _artifact_write_paths_from_facts(facts: list[dict[str, Any]]) -> list[str]:
         text = str(fact.get("preview") or fact.get("summary") or "").replace("\\", "/")
         paths.extend(match.group("path").strip() for match in path_pattern.finditer(text))
     return _dedupe(paths)
+
+
+def _required_output_path_satisfied(target: str, observed_paths: list[str]) -> bool:
+    normalized = str(target or "").replace("\\", "/").strip().strip("/")
+    if not normalized:
+        return True
+    name = normalized.rsplit("/", 1)[-1]
+    if "." in name:
+        return any(_path_matches(normalized, observed) for observed in observed_paths)
+    prefix = normalized.lower() + "/"
+    return any(
+        str(observed or "").replace("\\", "/").strip().strip("/").lower().startswith(prefix)
+        for observed in observed_paths
+    )
 
 
 def _path_matches(target: str, candidate: str) -> bool:

@@ -27,6 +27,7 @@ def _base_decision_payload(**overrides):
         "constraints": ["sandbox overlay"],
         "forbidden_actions": [],
         "selected_skill_ids": [],
+        "resource_contract": {},
         "context_binding_decision": {},
         "planning_required": True,
         "todo_required": True,
@@ -73,4 +74,30 @@ def test_model_turn_decision_normalizes_selected_skill_ids() -> None:
 
     assert decision is not None
     assert decision.selected_skill_ids == ("skill.structured-data-analysis",)
+    assert validation["decision_status"] == "accepted"
+
+
+def test_model_turn_decision_accepts_resource_contract() -> None:
+    decision, validation = model_turn_decision_from_payload(
+        _base_decision_payload(
+            resource_contract={
+                "source_projects": [{"path": "output/sandbox_runs/source/workspace/frontend/public/games/demo/"}],
+                "target_projects": [{"path": "frontend/public/games/demo/"}],
+                "required_read_files": ["index.html", "game.js"],
+                "required_read_dirs": ["assets/"],
+                "required_write_files": ["index.html", "game.js"],
+                "required_write_dirs": ["assets/"],
+                "asset_policy": {"must_preserve_existing_assets": True},
+            }
+        ),
+        user_message="接手旧游戏并增加第二层。",
+    )
+
+    assert decision is not None
+    contract = decision.resource_contract
+    assert contract["source_projects"][0]["path"] == "output/sandbox_runs/source/workspace/frontend/public/games/demo/"
+    assert contract["target_projects"][0]["path"] == "frontend/public/games/demo/"
+    assert contract["required_read_dirs"] == ["assets"]
+    assert contract["required_write_dirs"] == ["assets"]
+    assert contract["asset_policy"]["must_preserve_existing_assets"] is True
     assert validation["decision_status"] == "accepted"

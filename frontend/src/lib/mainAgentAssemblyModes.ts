@@ -23,6 +23,28 @@ const INTERACTIVE_STREAM_POLICY = {
   fallback_to_non_stream_on_error: true,
 };
 
+const MODE_OWNED_RUNTIME_HINT_KEYS = new Set([
+  "interaction_mode",
+  "runtime_mode",
+  "projection_strength",
+  "execution_strategy",
+  "recipe_id",
+]);
+
+const MODE_OWNED_POLICY_KEYS = new Set([
+  "interaction_mode",
+  "runtime_lane",
+  "recipe_id",
+  "projection_strength",
+  "execution_strategy",
+  "mode_reason",
+]);
+
+const MODE_OWNED_INTENT_KEYS = new Set([
+  "interaction_mode",
+  "execution_strategy",
+]);
+
 export const MAIN_AGENT_ID = "agent:0";
 export const MAIN_AGENT_PROFILE_ID = "main_interactive_agent";
 
@@ -111,7 +133,7 @@ export function buildMainAgentTaskSelection(
   if (isTaskGraphLaunchSelection(current)) {
     return undefined;
   }
-  if (hasExplicitAgentInvocation(current)) {
+  if (hasTaskOwnedAgentAssembly(current)) {
     return hasAnyKey(current) ? current : undefined;
   }
   const profile = MAIN_AGENT_ASSEMBLY_MODES[mode] ?? MAIN_AGENT_ASSEMBLY_MODES.role;
@@ -123,19 +145,16 @@ export function buildMainAgentTaskSelection(
     runtime_interaction_mode: profile.interaction_mode,
     runtime_lane: profile.runtime_lane,
     runtime_assembly_hint: {
-      ...(isRecord(current.runtime_assembly_hint) ? current.runtime_assembly_hint : {}),
+      ...omitModeOwnedKeys(current.runtime_assembly_hint, MODE_OWNED_RUNTIME_HINT_KEYS),
       ...profile.runtime_assembly_hint,
     },
-    stream_policy: {
-      ...profile.stream_policy,
-      ...(isRecord(current.stream_policy) ? current.stream_policy : {}),
-    },
+    stream_policy: profile.stream_policy,
     mode_policy: {
-      ...(isRecord(current.mode_policy) ? current.mode_policy : {}),
+      ...omitModeOwnedKeys(current.mode_policy, MODE_OWNED_POLICY_KEYS),
       ...profile.mode_policy,
     },
     intent_decision: {
-      ...(isRecord(current.intent_decision) ? current.intent_decision : {}),
+      ...omitModeOwnedKeys(current.intent_decision, MODE_OWNED_INTENT_KEYS),
       ...(profile.intent_decision ?? { interaction_mode: profile.interaction_mode }),
     },
   };
@@ -150,12 +169,27 @@ function isTaskGraphLaunchSelection(selection: Record<string, unknown>): boolean
   );
 }
 
-function hasExplicitAgentInvocation(selection: Record<string, unknown>): boolean {
-  return isRecord(selection.agent_invocation) || Boolean(String(selection.agent_invocation_id || "").trim());
+function hasTaskOwnedAgentAssembly(selection: Record<string, unknown>): boolean {
+  if (isRecord(selection.agent_invocation) || Boolean(String(selection.agent_invocation_id || "").trim())) {
+    return true;
+  }
+  const agentId = String(selection.agent_id || "").trim();
+  const agentProfileId = String(selection.agent_profile_id || "").trim();
+  return Boolean(
+    agentId && agentId !== MAIN_AGENT_ID
+    || agentProfileId && agentProfileId !== MAIN_AGENT_PROFILE_ID
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function omitModeOwnedKeys(value: unknown, ownedKeys: Set<string>) {
+  if (!isRecord(value)) {
+    return {};
+  }
+  return Object.fromEntries(Object.entries(value).filter(([key]) => !ownedKeys.has(key)));
 }
 
 function hasAnyKey(value: Record<string, unknown>): boolean {

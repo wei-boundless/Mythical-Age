@@ -776,6 +776,55 @@ PROFESSIONAL_DEEP_CODE_EXECUTION_TURNS: tuple[LongScenarioTurn, ...] = (
 )
 
 
+PROFESSIONAL_ROGUELIKE_CAMPAIGN_DELIVERY_TURNS: tuple[LongScenarioTurn, ...] = (
+    LongScenarioTurn(
+        session="main",
+        speaker="user",
+        content=(
+            "请接手这个已有浏览器肉鸽游戏项目，扩展成一个完整的五关剧情战役版本，并加入成长机制和 Boss 战。\n\n"
+            "只读源项目在：\n"
+            "D:\\AI应用\\langchain-agent\\output\\sandbox_runs\\session_b6b4dc6d2ed64a92a1a574d6149f4402_scope_frontend_public_games_arcane_dungeon_studio\\workspace\\frontend\\public\\games\\arcane_dungeon_studio\n\n"
+            "目标输出目录仍然是：\n"
+            "frontend/public/games/arcane_dungeon_studio\n\n"
+            "要求：\n"
+            "1. 必须先读取源项目的 index.html、styles.css、game.js、README.md。\n"
+            "2. 必须继承源项目 assets/ 目录里的全部美术资源，不允许丢失已有角色、怪物、地形、道具立绘。\n"
+            "3. 为游戏新增清晰的人物设定：主角身份、目标、核心冲突、至少两个敌对阵营或怪物来源。\n"
+            "4. 新增五关剧情战役结构：每一关都要有名称、剧情目标、主要敌人、关卡机制变化、奖励节奏和通关条件。\n"
+            "5. 加入成长机制：玩家通关或获得资源后可以提升至少三类能力，例如生命、攻击、闪避、技能冷却、道具效果等。成长必须真实影响游戏逻辑，不允许只写文案。\n"
+            "6. 加入最终 Boss 战：第五关必须是 Boss 或 Boss 前哨 + Boss 决战，Boss 要有独立行为、阶段变化或特殊攻击机制。\n"
+            "7. 人物、怪物、场景必须继续使用或扩展对应的美术资源；如果需要新增表现，可以用现有 SVG 风格补充资源，但不能用纯色方块代替。\n"
+            "8. 在游戏界面中呈现人物设定、剧情推进、当前关卡目标、成长状态和 Boss 状态，不允许只写在 README 里。\n"
+            "9. 必须更新 README，说明启动方式、人物设定、五关剧情流程、成长机制、Boss 战机制、素材继承情况和验证方式。\n"
+            "10. 完成后给出阶段性总结，列出实际修改文件、资产目录状态、验证结果和剩余风险。"
+        ),
+        checks=(
+            "response.nonempty",
+            "response.contains_all=五关|成长|Boss|assets|验证",
+            "task_run.nonempty",
+            "event=runtime_sandbox_prepared",
+            "event.tool=read_file",
+            "event.tool=write_file",
+            "event.tool=terminal",
+            "trace.coordination_runs=0",
+            "sandbox.enabled",
+            "sandbox.root.contains=output/sandbox_runs",
+            "sandbox.real_workspace_access=read_only",
+            "sandbox.file_exists=frontend/public/games/arcane_dungeon_studio/index.html",
+            "sandbox.file_exists=frontend/public/games/arcane_dungeon_studio/styles.css",
+            "sandbox.file_exists=frontend/public/games/arcane_dungeon_studio/game.js",
+            "sandbox.file_exists=frontend/public/games/arcane_dungeon_studio/README.md",
+            "sandbox.glob_count>=frontend/public/games/arcane_dungeon_studio/assets/*:6",
+            "sandbox.file_contains=frontend/public/games/arcane_dungeon_studio/index.html::styles.css|game.js",
+            "sandbox.file_contains=frontend/public/games/arcane_dungeon_studio/game.js::campaign|level|boss|upgrade|assets/",
+            "sandbox.file_contains=frontend/public/games/arcane_dungeon_studio/README.md::五关|成长|Boss|assets",
+        ),
+        params={"task_selection": PROFESSIONAL_TASK_SELECTION},
+        force_memory_sync=False,
+    ),
+)
+
+
 PERMISSION_BOUNDARY_TURNS: tuple[LongScenarioTurn, ...] = (
     operator("main", "set_permission_mode", mode="default"),
     user(
@@ -1306,6 +1355,13 @@ SCENARIOS: tuple[LongScenario, ...] = (
         turns=PROFESSIONAL_DEEP_CODE_EXECUTION_TURNS,
     ),
     LongScenario(
+        id="professional-roguelike-campaign-delivery",
+        title="专业模式肉鸽五关剧情战役交付",
+        goal="验证主 Agent 能接手已有游戏项目，继承资产，扩展五关剧情、成长机制和 Boss 战，并完成证据化交付。",
+        coverage=("professional_task", "development", "asset_inheritance", "campaign_design", "tool_route", "permissions", "stress", "sse"),
+        turns=PROFESSIONAL_ROGUELIKE_CAMPAIGN_DELIVERY_TURNS,
+    ),
+    LongScenario(
         id="permission-boundary-and-safe-fallback",
         title="权限边界与安全回退",
         goal="模拟用户先要求高风险操作，再退回到安全说明和只读分析。",
@@ -1379,6 +1435,9 @@ SCENARIO_SETS: dict[str, tuple[str, ...]] = {
     ),
     "professional_deep": (
         "professional-deep-code-execution",
+    ),
+    "roguelike_campaign": (
+        "professional-roguelike-campaign-delivery",
     ),
     "mega": ("sixty-turn-real-user-marathon",),
     "extended": tuple(scenario.id for scenario in SCENARIOS),

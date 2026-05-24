@@ -70,8 +70,6 @@ export function getDefaultState(): StoreState {
     sidebarWidth: 308,
     inspectorWidth: 300,
     tokenStats: null,
-    systemGraphHighlight: null,
-    systemGraphOverlay: null,
     memoryInspectorTarget: null,
     orchestrationSnapshot: null,
     taskGraphMonitorBinding: null,

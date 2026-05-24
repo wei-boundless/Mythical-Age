@@ -9,7 +9,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from permissions.service import PermissionService
-from capability_system.tool_contracts import SkillToolScope, ToolContractGate, ToolExecutionContract, ToolScope
+from capability_system.tool_contracts import SkillToolScope, ToolExecutionContract, ToolInvocationValidator, ToolScope
 from capability_system.tool_runtime import ToolRuntime
 
 
@@ -30,8 +30,8 @@ def main() -> None:
     assert not scope.allows("read_file")
     assert scope.to_allowed_tools() == ["web_search"]
 
-    gate = ToolContractGate(mode="enforce")
-    denied = gate.evaluate(
+    validator = ToolInvocationValidator(mode="enforce")
+    denied = validator.evaluate(
         tool_name="read_file",
         contract=ToolExecutionContract(required_inputs=["path"]),
         tool_input={"path": "docs/example.md"},
@@ -40,7 +40,7 @@ def main() -> None:
     assert denied.should_block
     assert denied.reason == "tool_not_allowed_by_skill_contract"
 
-    allowed = gate.evaluate(
+    allowed = validator.evaluate(
         tool_name="web_search",
         contract=ToolExecutionContract(required_inputs=["query"]),
         tool_input={"query": "北京天气"},

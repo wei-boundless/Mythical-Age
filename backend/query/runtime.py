@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import logging
-import os
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 from evidence import EvidenceOrchestrator, PDFWorker, RetrievalWorker, StructuredDataWorker
@@ -56,9 +54,7 @@ class QueryRuntime:
         self.tool_runtime = tool_runtime
         self.skill_registry = skill_registry
         self.unit_catalog = build_base_unit_catalog()
-        self.tool_contract_gate = SimpleNamespace(
-            mode=str(os.getenv("TOOL_CONTRACT_MODE", "enforce") or "enforce").strip().lower()
-        )
+        self.tool_invocation_validation_mode = "enforce"
         self.model_response_executor = ModelResponseRuntimeExecutor(
             model_runtime=model_runtime,
             tool_definition_resolver=self._get_tool_definition,

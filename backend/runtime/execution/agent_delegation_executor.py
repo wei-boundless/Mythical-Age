@@ -377,9 +377,10 @@ class AgentDelegationExecutor:
         request = AgentDelegationRequest(**dict(context.get("request") or {}))
         agent = type("AgentPayload", (), dict(context.get("agent") or {}))()
         profile = type("ProfilePayload", (), dict(context.get("runtime_profile") or {}))()
-        specialist_payload = await self.child_runtime_executor.run(request=request, agent=agent, profile=profile)
-        if str(specialist_payload.get("status") or "") != "failed" or specialist_payload.get("summary"):
-            return specialist_payload
+        if not _delegation_requires_model_only_review(request, profile):
+            specialist_payload = await self.child_runtime_executor.run(request=request, agent=agent, profile=profile)
+            if str(specialist_payload.get("status") or "") != "failed" or specialist_payload.get("summary"):
+                return specialist_payload
         invoker_owner = getattr(model_response_executor, "model_runtime", None)
         invoker = getattr(invoker_owner, "invoke_messages", None)
         if not callable(invoker):
@@ -421,10 +422,39 @@ class AgentDelegationExecutor:
                 "limitations": [str(exc) or exc.__class__.__name__],
                 "diagnostics": {"model_resolution": model_resolution} if model_resolution else {},
             }
+        content = stringify_content(getattr(response, "content", response)).strip()
+        structured = _parse_model_only_review_payload(content)
+        if structured:
+            verdict = str(structured.get("verdict") or "").strip()
+            limitations = [
+                str(item)
+                for item in list(structured.get("limitations") or [])
+                if str(item)
+            ]
+            status = "completed" if verdict in {"pass", "needs_revision", "blocked"} else "failed"
+            return {
+                "status": status,
+                "summary": str(structured.get("summary") or content or "复核 Agent 未返回有效摘要。").strip(),
+                "answer_candidate": content,
+                "verdict": verdict,
+                "confidence": str(structured.get("confidence") or "unknown"),
+                "limitations": limitations,
+                "evidence_refs": [str(item) for item in list(structured.get("evidence_refs") or []) if str(item)],
+                "artifact_refs": [str(item) for item in list(structured.get("artifact_refs") or []) if str(item)],
+                "diagnostics": {
+                    "child_execution_mode": "model_only_review",
+                    "model_resolution": model_resolution,
+                    "verifier_review": structured,
+                    "verdict": verdict,
+                    "missing_requirements": list(structured.get("missing_requirements") or []),
+                    "unsupported_claims": list(structured.get("unsupported_claims") or []),
+                    "required_revisions": list(structured.get("required_revisions") or []),
+                },
+            }
         return {
             "status": "completed",
-            "summary": stringify_content(getattr(response, "content", response)).strip() or "子 Agent 未返回有效摘要。",
-            "answer_candidate": stringify_content(getattr(response, "content", response)).strip(),
+            "summary": content or "子 Agent 未返回有效摘要。",
+            "answer_candidate": content,
             "confidence": "unknown",
             "diagnostics": {"model_resolution": model_resolution} if model_resolution else {},
         }
@@ -492,6 +522,7 @@ class AgentDelegationExecutor:
             "target_agent_id": result.target_agent_id,
             "summary": result.summary,
             "answer_candidate": result.answer_candidate,
+            **_verifier_observation_fields(result),
             "evidence_refs": list(result.evidence_refs),
             "artifact_refs": list(result.artifact_refs),
             "confidence": result.confidence,
@@ -578,6 +609,63 @@ def _delegation_timeout_seconds(request: AgentDelegationRequest) -> float:
     return min(max(value, 1.0), 300.0)
 
 
+def _delegation_requires_model_only_review(request: AgentDelegationRequest, profile: Any) -> bool:
+    if _profile_requires_model_only_review(profile):
+        return True
+    return _delegation_kind_is_model_only_review(request.delegation_kind)
+
+
+def _profile_requires_model_only_review(profile: Any) -> bool:
+    metadata = dict(getattr(profile, "metadata", {}) or {})
+    return str(metadata.get("child_execution_mode") or "").strip() == "model_only_review"
+
+
+def _delegation_kind_is_model_only_review(delegation_kind: str) -> bool:
+    kind = str(delegation_kind or "").strip()
+    return kind in {
+        "completion_verification",
+        "semantic_verification",
+        "deliverable_review",
+        "artifact_review",
+        "quality_review",
+        "plan_review",
+    }
+
+
+def _parse_model_only_review_payload(content: str) -> dict[str, Any]:
+    raw = str(content or "").strip()
+    if not raw:
+        return {}
+    candidates = [raw]
+    if raw.startswith("```"):
+        stripped = raw.strip("`").strip()
+        if stripped.lower().startswith("json"):
+            stripped = stripped[4:].strip()
+        candidates.append(stripped)
+    for candidate in candidates:
+        try:
+            payload = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            return dict(payload)
+    return {}
+
+
+def _verifier_observation_fields(result: AgentDelegationResult) -> dict[str, Any]:
+    diagnostics = dict(result.diagnostics or {})
+    review = dict(diagnostics.get("verifier_review") or {})
+    if not review:
+        return {}
+    return {
+        "verifier_review": review,
+        "verdict": str(review.get("verdict") or diagnostics.get("verdict") or ""),
+        "missing_requirements": list(review.get("missing_requirements") or diagnostics.get("missing_requirements") or []),
+        "unsupported_claims": list(review.get("unsupported_claims") or diagnostics.get("unsupported_claims") or []),
+        "required_revisions": list(review.get("required_revisions") or diagnostics.get("required_revisions") or []),
+    }
+
+
 def _first_text(values: Any) -> str:
     for item in list(values or []):
         text = str(item or "").strip()
@@ -599,6 +687,16 @@ def _child_system_prompt(agent: Any | None, profile: Any | None, *, projection_c
         lines.append(description or "你是一名受限子 Agent，只负责完成委派给你的边界化任务。")
     if projection_prompt:
         lines.append(projection_prompt)
+    if _profile_requires_model_only_review(profile):
+        lines.extend(
+            [
+                "## 复核职责",
+                "你是一名交付复核员。你只负责检查主 Agent 的候选回答、产物、证据和用户目标是否互相支撑。",
+                "你不修改文件，不替主 Agent 重写最终回答，不把缺失证据包装成已完成。",
+                "你的裁决只能是 pass、needs_revision 或 blocked。",
+                "请返回 JSON 对象，字段包括 summary、verdict、missing_requirements、unsupported_claims、required_revisions、evidence_refs、artifact_refs、confidence、limitations。",
+            ]
+        )
     lines.extend(
         [
             "## 协作边界",
@@ -625,26 +723,38 @@ def _child_user_message(request: AgentDelegationRequest) -> str:
             delegation_kind=request.delegation_kind,
         )
     )
-    return "\n".join(
-        [
-            f"委派类型：{request.delegation_kind}",
-            f"任务说明：{request.instruction}",
-            "通信协议：",
-            json.dumps(
-                {
-                    "protocol_id": str(protocol.get("protocol_id") or "protocol.agent.direct_delegation.v1"),
-                    "child_agent_contract": dict(protocol.get("child_agent_contract") or {}),
-                    "expected_output_contract": expected_output_contract,
-                },
-                ensure_ascii=False,
-                indent=2,
-            ),
-            "输入：",
-            json.dumps(payload, ensure_ascii=False, indent=2),
-            "请返回可供主 Agent 收口使用的中文结果摘要，只写已经完成的结果或明确失败原因。",
-            "不要写执行计划，不要输出 <op.*> 或 JSON action 这类工具调用文本。",
-        ]
-    )
+    lines = [
+        f"委派类型：{request.delegation_kind}",
+        f"任务说明：{request.instruction}",
+        "通信协议：",
+        json.dumps(
+            {
+                "protocol_id": str(protocol.get("protocol_id") or "protocol.agent.direct_delegation.v1"),
+                "child_agent_contract": dict(protocol.get("child_agent_contract") or {}),
+                "expected_output_contract": expected_output_contract,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        "输入：",
+        json.dumps(payload, ensure_ascii=False, indent=2),
+    ]
+    if _delegation_kind_is_model_only_review(request.delegation_kind):
+        lines.extend(
+            [
+                "请只返回一个 JSON 对象，不要写 Markdown，不要写执行计划。",
+                "JSON 字段：summary、verdict、missing_requirements、unsupported_claims、required_revisions、evidence_refs、artifact_refs、confidence、limitations。",
+                "verdict 只能是 pass、needs_revision 或 blocked。",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                "请返回可供主 Agent 收口使用的中文结果摘要，只写已经完成的结果或明确失败原因。",
+                "不要写执行计划，不要输出 <op.*> 或 JSON action 这类工具调用文本。",
+            ]
+        )
+    return "\n".join(lines)
 
 
 def _delegation_request_counts_against_budget(
@@ -802,6 +912,22 @@ def validate_delegation_result_quality(
     if any(marker.casefold() in lowered for marker in pseudo_tool_markers) and not (evidence_refs or artifact_refs):
         reasons.append("pseudo_tool_text_without_execution_refs")
     specialist_kind = str(request.delegation_kind or "").strip()
+    if _delegation_kind_is_model_only_review(specialist_kind):
+        verdict = str(child_payload.get("verdict") or dict(child_payload.get("diagnostics") or {}).get("verdict") or "").strip()
+        review = dict(dict(child_payload.get("diagnostics") or {}).get("verifier_review") or {})
+        if not verdict and review:
+            verdict = str(review.get("verdict") or "").strip()
+        if verdict not in {"pass", "needs_revision", "blocked"}:
+            reasons.append("verifier_result_missing_valid_verdict")
+        status = "invalid" if "verifier_result_missing_valid_verdict" in reasons else "pass"
+        normalized_status = str(child_payload.get("status") or "completed")
+        if status == "invalid":
+            normalized_status = "invalid_output"
+        return {
+            "status": status,
+            "reasons": reasons,
+            "normalized_status": normalized_status,
+        }
     if specialist_kind in {
         "pdf",
         "pdf_reading",

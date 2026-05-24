@@ -283,6 +283,8 @@ def _output_path_satisfied(ledger: ToolObservationLedger, path: str) -> bool:
     name = normalized.rstrip("/").rsplit("/", 1)[-1]
     if "." in name:
         return ledger.has_write(normalized)
+    if ledger.has_write(normalized):
+        return True
     keep_path = normalized.rstrip("/") + "/.keep"
     if ledger.has_write(keep_path):
         return True
@@ -328,8 +330,11 @@ def _response_term_for_deliverable(deliverable: str) -> str:
         "material_findings": "material_findings",
         "cross_material_conclusions": "cross_material_conclusions",
         "runnable_artifact_refs": "runnable_artifact_refs",
+        "gameplay_acceptance": "gameplay_acceptance",
         "workflow_acceptance": "workflow_acceptance",
+        "visual_asset_refs": "visual_asset_refs",
         "verification_evidence": "verification_evidence",
+        "final_report": "final_report",
         "tool_grounded_answer": "",
         "direct_answer": "",
         "source_or_memory_boundary": "",

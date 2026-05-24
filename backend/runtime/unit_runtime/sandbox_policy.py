@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -67,8 +68,8 @@ def prepare_runtime_sandbox_policy(
     policy.setdefault("workspace_dir_name", "workspace")
     policy.setdefault("real_workspace_access", "read_only")
     policy.setdefault("approval_policy", "sandboxed_side_effects")
-    policy.setdefault("side_effect_tools", ["write_file", "edit_file", "terminal", "python_repl"])
-    policy.setdefault("side_effect_operations", ["op.write_file", "op.edit_file", "op.shell", "op.python_repl"])
+    policy.setdefault("side_effect_tools", ["write_file", "edit_file", "terminal", "python_repl", "browser_control"])
+    policy.setdefault("side_effect_operations", ["op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.browser_control"])
     policy.setdefault("overlay_copy_on_write", True)
     workspace_root = workspace_root_for_runtime(root_dir)
     side_effect_root = Path(str(policy.get("side_effect_root") or "output/sandbox_runs"))
@@ -84,11 +85,122 @@ def prepare_runtime_sandbox_policy(
         )
     sandbox_root = side_effect_root / safe_path_component(workspace_key) / str(policy.get("workspace_dir_name") or "workspace")
     sandbox_root.mkdir(parents=True, exist_ok=True)
+    material_mounts = _prepare_material_mounts(
+        sandbox_root=sandbox_root,
+        task_contract=dict(task_contract or {}),
+        task_selection=dict(task_selection or {}),
+    )
     policy["sandbox_root"] = str(sandbox_root.resolve())
     policy["side_effect_root"] = str(side_effect_root.resolve())
     policy["workspace_root"] = str(workspace_root)
     policy["workspace_key"] = workspace_key
+    if material_mounts:
+        policy["material_mounts"] = material_mounts
     return policy
+
+
+def _prepare_material_mounts(
+    *,
+    sandbox_root: Path,
+    task_contract: dict[str, Any],
+    task_selection: dict[str, Any],
+) -> list[dict[str, Any]]:
+    resource_contract = _resource_contract_from_runtime_payload(
+        task_contract=task_contract,
+        task_selection=task_selection,
+    )
+    source_projects = [
+        dict(item)
+        for item in list(resource_contract.get("source_projects") or [])
+        if isinstance(item, dict) and str(item.get("path") or "").strip()
+    ]
+    if not source_projects:
+        return []
+    material_root = (sandbox_root / ".materials" / "source_projects").resolve()
+    material_root.mkdir(parents=True, exist_ok=True)
+    mounts: list[dict[str, Any]] = []
+    for index, source_project in enumerate(source_projects, start=1):
+        source_path = Path(str(source_project.get("path") or "")).expanduser()
+        if not source_path.is_absolute():
+            source_path = (workspace_root_for_runtime(sandbox_root) / source_path).resolve()
+        else:
+            source_path = source_path.resolve()
+        mount_relative = f".materials/source_projects/source_{index:02d}"
+        mount_path = (sandbox_root / mount_relative).resolve()
+        if not _is_inside(mount_path, sandbox_root):
+            continue
+        if not source_path.exists():
+            mounts.append(
+                {
+                    "mount_id": f"source_{index:02d}",
+                    "source_path": str(source_path),
+                    "mount_path": mount_relative,
+                    "status": "missing",
+                    "role": str(source_project.get("role") or "source"),
+                    "required": source_project.get("required") is not False,
+                }
+            )
+            continue
+        if mount_path.exists():
+            shutil.rmtree(mount_path) if mount_path.is_dir() else mount_path.unlink()
+        if source_path.is_dir():
+            shutil.copytree(source_path, mount_path, ignore=_material_copy_ignore)
+            copied_kind = "directory"
+        else:
+            mount_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_path, mount_path)
+            copied_kind = "file"
+        mounts.append(
+            {
+                "mount_id": f"source_{index:02d}",
+                "source_path": str(source_path),
+                "mount_path": mount_relative,
+                "status": "mounted",
+                "kind": copied_kind,
+                "role": str(source_project.get("role") or "source"),
+                "required": source_project.get("required") is not False,
+            }
+        )
+    return mounts
+
+
+def _resource_contract_from_runtime_payload(
+    *,
+    task_contract: dict[str, Any],
+    task_selection: dict[str, Any],
+) -> dict[str, Any]:
+    for candidate in (
+        dict(task_selection.get("model_turn_decision") or {}).get("resource_contract"),
+        task_selection.get("resource_contract"),
+        dict(dict(task_contract.get("task_requirement_contract") or {}).get("diagnostics") or {})
+        .get("task_goal_spec", {})
+        .get("evidence", {})
+        .get("model_turn_decision", {})
+        .get("resource_contract"),
+        dict(dict(task_contract.get("task_requirement_contract") or {}).get("diagnostics") or {})
+        .get("task_goal_spec", {})
+        .get("model_turn_decision", {})
+        .get("resource_contract"),
+    ):
+        if isinstance(candidate, dict) and candidate:
+            return dict(candidate)
+    return {}
+
+
+def _material_copy_ignore(directory: str, names: list[str]) -> set[str]:
+    ignored = {
+        "__pycache__",
+        ".git",
+        ".hg",
+        ".svn",
+        "node_modules",
+        ".pytest_cache",
+    }
+    return {name for name in names if name in ignored}
+
+
+def _is_inside(path: Path, root: Path) -> bool:
+    return path == root or root in path.parents
 
 
 def sandbox_workspace_key(
@@ -116,7 +228,7 @@ def sandbox_output_scope(*, task_contract: dict[str, Any], user_message: str) ->
                 value = str(item or "")
             if value.strip():
                 candidates.append(value)
-    candidates.extend(extract_workspace_path_scopes(user_message))
+    candidates.extend(extract_workspace_path_scopes(user_message, output_only=True))
     for candidate in candidates:
         normalized = str(candidate or "").replace("\\", "/").strip()
         if not normalized:
@@ -149,14 +261,64 @@ def safe_path_component(value: str) -> str:
     return safe.strip("._") or "sandbox"
 
 
-def extract_workspace_path_scopes(text: str) -> list[str]:
-    values: list[str] = []
+def extract_workspace_path_scopes(text: str, *, output_only: bool = False) -> list[str]:
+    values: list[str] = _explicit_output_directories(text) if output_only else []
     pattern = re.compile(r"((?:frontend|backend|output|docs|storage|scripts|tests)/[^\s，。；;：:]+)")
     for match in pattern.finditer(str(text or "").replace("\\", "/")):
         value = match.group(1).strip().strip("。,.，；;：:")
+        normalized = str(text or "").replace("\\", "/")
+        context = _local_path_context(normalized, start=match.start(), end=match.end(), radius=36)
+        if output_only and not _context_indicates_output_scope(context):
+            continue
         if value:
             values.append(value)
     return values
+
+
+def _explicit_output_directories(text: str) -> list[str]:
+    values: list[str] = []
+    pattern = re.compile(
+        r"(?:目标输出目录|输出目录|目标目录|写入目录|保存目录|产物目录)[^/\\]{0,48}(?P<dir>(?:frontend|backend|output|docs|storage|scripts|tests|src|app|packages|knowledge)/(?:[\w.\-\u4e00-\u9fff]+/)*[\w.\-\u4e00-\u9fff]+/?)",
+        re.IGNORECASE,
+    )
+    for match in pattern.finditer(str(text or "").replace("\\", "/")):
+        value = str(match.group("dir") or "").strip().strip("。,.，；;：:").strip("/")
+        if value and value not in values:
+            values.append(value)
+    return values
+
+
+def _local_path_context(text: str, *, start: int, end: int, radius: int) -> str:
+    value = str(text or "")
+    left = value.rfind("\n", 0, start)
+    right = value.find("\n", end)
+    line_start = 0 if left < 0 else left + 1
+    line_end = len(value) if right < 0 else right
+    return value[max(line_start, start - radius) : min(line_end, end + radius)]
+
+
+def _context_indicates_output_scope(context: str) -> bool:
+    text = str(context or "")
+    if any(marker in text for marker in ("只读", "源项目", "源工程", "源路径", "源目录", "读回", "读取", "检查", "查看", "参考")):
+        return any(marker in text for marker in ("目标输出", "输出目录", "输出到", "写入", "保存", "生成", "产出"))
+    return any(
+        marker in text
+        for marker in (
+            "目标输出",
+            "输出目录",
+            "输出到",
+            "写入",
+            "保存",
+            "生成",
+            "产出",
+            "落到",
+            "创建",
+            "新建",
+            "目录必须是",
+            "sandbox overlay 中完成",
+            "sandbox overlay",
+        )
+    )
 
 
 def _resolve_inherited_sandbox_workspace_key(

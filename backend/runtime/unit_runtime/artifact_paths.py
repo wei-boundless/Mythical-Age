@@ -3,9 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from langchain_core.messages import HumanMessage
-
-
 def _validate_required_artifact_file(
     *,
     root_dir: Path,
@@ -60,17 +57,6 @@ def _validate_required_artifact_file(
     }
 
 
-def _requires_write_file_artifact(selected_recipe_payload: dict[str, Any]) -> bool:
-    if "op.write_file" not in set(str(item) for item in list(selected_recipe_payload.get("required_operations") or [])):
-        return False
-    return any(
-        str(dict(item).get("validation_kind") or "") == "artifact_file_required"
-        and str(dict(item).get("severity") or "") == "error"
-        for item in list(selected_recipe_payload.get("validation_rules") or [])
-        if isinstance(item, dict)
-    )
-
-
 def _artifact_policy_requires_materialized_content(policy: dict[str, Any]) -> bool:
     artifact_policy = dict(policy or {})
     if not artifact_policy:
@@ -99,88 +85,6 @@ def _artifact_policy_target_paths(policy: dict[str, Any]) -> list[str]:
         if path and path not in targets:
             targets.append(path)
     return targets
-
-
-def _build_required_artifact_write_messages(
-    *,
-    model_messages: list[Any],
-    user_message: str,
-    task_spec_payload: dict[str, Any],
-    final_content: str,
-    selected_recipe_payload: dict[str, Any],
-) -> list[Any]:
-    target_path = _required_artifact_target_path(task_spec_payload=task_spec_payload, user_message=user_message)
-    task_title = str(selected_recipe_payload.get("title") or selected_recipe_payload.get("task_mode") or "artifact task")
-    if target_path:
-        path_line = f"目标文件：{target_path}"
-    else:
-        path_line = "目标文件：请从用户消息中的明确路径选择唯一目标文件。"
-    content_source = str(final_content or "").strip()
-    if not content_source:
-        content_source = str(task_spec_payload.get("user_goal") or user_message or "").strip()
-    repair_instruction = (
-        "上一轮没有产生正式 write_file 工具证据，因此任务仍未通过。"
-        "现在必须只调用 write_file 工具写入真实文件，不要用普通回答替代工具调用。\n"
-        f"任务：{task_title}\n"
-        f"{path_line}\n"
-        "文件内容必须是可验收的完整任务产物，不是状态说明。"
-        "如果上一轮回答包含可用内容，请扩展成目标文件内容；如果不够，请根据任务目标生成完整可验收内容。\n"
-        "工具参数要求：path 使用目标文件路径，content 使用完整文件内容。"
-        "不要声称已写入，必须发出 write_file 工具调用。\n\n"
-        f"用户原始要求：\n{user_message}\n\n"
-        f"上一轮模型输出：\n{content_source}"
-    )
-    return [
-        *list(model_messages),
-        HumanMessage(content=repair_instruction),
-    ]
-
-
-def _required_artifact_target_path(*, task_spec_payload: dict[str, Any], user_message: str) -> str:
-    inputs = dict(task_spec_payload.get("inputs") or {})
-    selected_recipe = dict(task_spec_payload.get("selected_recipe") or {})
-    template_metadata = dict(selected_recipe.get("metadata") or {})
-    tool_input = dict(inputs.get("tool_input") or {})
-    for value in (
-        tool_input.get("path"),
-        inputs.get("explicit_workspace_path"),
-        inputs.get("output_path"),
-        inputs.get("target_path"),
-    ):
-        cleaned = str(value or "").strip()
-        if cleaned:
-            return cleaned
-    default_artifact_name = str(template_metadata.get("default_artifact_name") or "").strip()
-    if default_artifact_name:
-        artifact_root = str(
-            inputs.get("artifact_root")
-            or inputs.get("workspace_root")
-            or template_metadata.get("default_write_root")
-            or template_metadata.get("default_write_roots", [""])[0]
-            or "docs/系统规划/任务系统实测记录/artifacts"
-        ).strip()
-        if artifact_root:
-            artifact_root = artifact_root.rstrip("/\\")
-            task_mode = str(selected_recipe.get("task_mode") or "").strip()
-            if task_mode:
-                return f"{artifact_root}/{task_mode}/{default_artifact_name}"
-            return f"{artifact_root}/{default_artifact_name}"
-    return _extract_workspace_path_from_text(user_message)
-
-
-def _extract_workspace_path_from_text(text: str) -> str:
-    normalized = str(text or "").replace("\\", "/")
-    for suffix in (".md", ".txt", ".json", ".html", ".css", ".js", ".py", ".tsx", ".ts"):
-        marker = normalized.find(suffix)
-        if marker < 0:
-            continue
-        start = marker
-        while start > 0 and normalized[start - 1] not in {" ", "\n", "\t", "，", "。", "：", ":", "`", "\"", "'", "写", "入"}:
-            start -= 1
-        candidate = normalized[start : marker + len(suffix)].strip("`'\"，。；;：:()（）[]【】")
-        if "/" in candidate and not candidate.startswith(("http://", "https://")):
-            return candidate
-    return ""
 
 
 def _successful_write_file_paths(

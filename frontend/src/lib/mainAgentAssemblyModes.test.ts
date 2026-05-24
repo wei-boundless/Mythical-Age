@@ -79,13 +79,60 @@ describe("main agent assembly mode projection", () => {
     });
   });
 
+  it("does not override task-system owned custom agent assembly", () => {
+    const taskAssembly = {
+      selected_task_id: "task.review.manuscript",
+      label: "审稿任务",
+      mode: "single_task" as const,
+      agent_id: "agent:reviewer",
+      agent_profile_id: "reviewer_runtime",
+      runtime_lane: "review_lane",
+      runtime_interaction_mode: "review_mode",
+      runtime_assembly_hint: {
+        runtime_mode: "review_lane",
+        projection_id: "projection.taskgraph.review",
+      },
+      mode_policy: {
+        interaction_mode: "review_mode",
+        runtime_lane: "review_lane",
+        recipe_id: "runtime.recipe.review",
+      },
+      stream_policy: {
+        enabled: false,
+        mode: "task_graph_controlled",
+      },
+    };
+
+    expect(buildMainAgentTaskSelection(taskAssembly, "professional")).toEqual(taskAssembly);
+  });
+
   it("keeps task selection fields while making the mode profile authoritative", () => {
     const payload = buildMainAgentTaskSelection(
       {
         selected_task_id: "task.dev.light_web_game",
         label: "小游戏",
         runtime_lane: "old_lane",
-        mode_policy: { runtime_lane: "old_lane", custom: true },
+        runtime_assembly_hint: {
+          runtime_mode: "professional_task",
+          execution_strategy: "professional_task_run",
+          task_hint: "keep",
+        },
+        mode_policy: {
+          interaction_mode: "professional_mode",
+          runtime_lane: "old_lane",
+          execution_strategy: "professional_task_run",
+          custom: true,
+        },
+        intent_decision: {
+          interaction_mode: "professional_mode",
+          execution_strategy: "professional_task_run",
+          user_intent: "keep",
+        },
+        stream_policy: {
+          enabled: false,
+          mode: "batch_answer",
+          emit_content_delta: false,
+        },
       },
       "standard",
     );
@@ -99,11 +146,30 @@ describe("main agent assembly mode projection", () => {
         mode: "interactive_answer",
         emit_content_delta: true,
       },
+      runtime_assembly_hint: {
+        interaction_mode: "standard_mode",
+        runtime_mode: "standard_task",
+        task_hint: "keep",
+      },
       mode_policy: {
         custom: true,
         interaction_mode: "standard_mode",
         runtime_lane: "standard_task",
+        recipe_id: "runtime.recipe.standard_task",
       },
+      intent_decision: {
+        interaction_mode: "standard_mode",
+        user_intent: "keep",
+      },
+    });
+    expect(payload?.runtime_assembly_hint).not.toMatchObject({
+      execution_strategy: "professional_task_run",
+    });
+    expect(payload?.mode_policy).not.toMatchObject({
+      execution_strategy: "professional_task_run",
+    });
+    expect(payload?.intent_decision).not.toMatchObject({
+      execution_strategy: "professional_task_run",
     });
   });
 });

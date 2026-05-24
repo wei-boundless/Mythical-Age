@@ -173,13 +173,23 @@ class DelegationCatalogBuilder:
             },
             output_contract={
                 "required": ["summary"],
-                "optional": ["answer_candidate", "evidence_refs", "artifact_refs", "confidence", "limitations"],
+                "optional": [
+                    "answer_candidate",
+                    "verdict",
+                    "missing_requirements",
+                    "unsupported_claims",
+                    "required_revisions",
+                    "evidence_refs",
+                    "artifact_refs",
+                    "confidence",
+                    "limitations",
+                ],
             },
             runtime_profile_ref=runtime_profile_ref,
             metadata={
                 key: value
                 for key, value in metadata.items()
-                if key in {"worker_kind", "delegation_kind", "delegation_kinds"}
+                if key in {"worker_kind", "delegation_kind", "delegation_kinds", "when_to_use"}
             },
         )
 
@@ -262,4 +272,6 @@ def _when_to_use(*, agent: Any, metadata: dict[str, Any]) -> str:
         return "当任务需要阅读 PDF、定位页码或抽取文档证据时使用。"
     if worker_kind == "structured_data_analysis":
         return "当任务需要读取表格或结构化数据并返回统计依据时使用。"
+    if worker_kind == "completion_verification":
+        return "当主 Agent 已有候选回答、产物或执行证据，但需要独立检查是否满足用户目标、是否缺少证据、是否需要返工时使用。"
     return str(getattr(agent, "description", "") or "").strip()

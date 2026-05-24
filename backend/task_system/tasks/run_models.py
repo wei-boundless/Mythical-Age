@@ -96,6 +96,7 @@ class TaskResult:
     output_refs: tuple[str, ...] = ()
     step_runs: tuple[TaskStepRun, ...] = ()
     final_outputs: dict[str, Any] = field(default_factory=dict)
+    completion: dict[str, Any] = field(default_factory=dict)
     refs: dict[str, Any] = field(default_factory=dict)
     diagnostics: dict[str, Any] = field(default_factory=dict)
     authority: str = "task_system.task_result"
@@ -116,6 +117,7 @@ class TaskResult:
         payload["result_refs"] = list(self.result_refs)
         payload["output_refs"] = list(self.output_refs)
         payload["step_runs"] = [item.to_dict() for item in self.step_runs]
+        payload["completion"] = dict(self.completion or {})
         return payload
 
 
@@ -439,6 +441,7 @@ def project_task_result_from_ledger(
     result_refs: tuple[str, ...] = (),
     output_refs: tuple[str, ...] = (),
     final_outputs: dict[str, Any] | None = None,
+    completion: dict[str, Any] | None = None,
     refs: dict[str, Any] | None = None,
     diagnostics: dict[str, Any] | None = None,
 ) -> TaskResult:
@@ -455,6 +458,7 @@ def project_task_result_from_ledger(
         output_refs=_dedupe_tuple(output_refs),
         step_runs=tuple(ledger.step_runs),
         final_outputs=dict(final_outputs or {}),
+        completion=dict(completion or {}),
         refs={
             "task_spec_ref": ledger.task_spec_ref,
             "template_id": ledger.template_id,

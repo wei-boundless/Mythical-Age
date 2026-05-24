@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, useState, type CSSProperties, type PointerEvent, type ReactNode } from "react";
 import { AlertTriangle, CheckCircle2, RefreshCw } from "lucide-react";
 
 import { TaskSystemToolbarButton as ToolbarButton } from "./TaskSystemWorkbenchUi";
@@ -13,6 +13,12 @@ export type TaskSystemShellNavItem<T extends string> = {
   meta: string;
   detail?: string;
 };
+
+const TASK_SYSTEM_SIDEBAR_WIDTH_KEY = "taskSystemShell.sidebarWidth";
+
+function clampSidebarWidth(value: number) {
+  return Math.min(560, Math.max(260, value));
+}
 
 export function TaskSystemShell<T extends string>({
   activeLayer,
@@ -43,6 +49,38 @@ export function TaskSystemShell<T extends string>({
   path: string;
   title: string;
 }) {
+  const [sidebarWidth, setSidebarWidth] = useState(320);
+
+  useEffect(() => {
+    const storedWidth = Number(window.localStorage.getItem(TASK_SYSTEM_SIDEBAR_WIDTH_KEY));
+    if (Number.isFinite(storedWidth) && storedWidth > 0) {
+      setSidebarWidth(clampSidebarWidth(storedWidth));
+    }
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(TASK_SYSTEM_SIDEBAR_WIDTH_KEY, String(sidebarWidth));
+  }, [sidebarWidth]);
+
+  function startSidebarResize(event: PointerEvent<HTMLDivElement>) {
+    event.preventDefault();
+    const handle = event.currentTarget;
+    const pointerId = event.pointerId;
+    const startX = event.clientX;
+    const startWidth = sidebarWidth;
+    handle.setPointerCapture(pointerId);
+    const move = (moveEvent: globalThis.PointerEvent) => {
+      setSidebarWidth(clampSidebarWidth(startWidth + moveEvent.clientX - startX));
+    };
+    const up = () => {
+      handle.releasePointerCapture(pointerId);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  }
+
   const fallbackLayerSlot = (
     <div className="task-system-object-table" aria-label="任务系统对象目录">
       <div className="task-system-object-table__head" aria-hidden="true">
@@ -92,7 +130,10 @@ export function TaskSystemShell<T extends string>({
           {children}
         </section>
       ) : (
-        <section className="task-system-database-layout">
+        <section
+          className="task-system-database-layout task-system-database-layout--resizable"
+          style={{ "--task-system-sidebar-width": `${sidebarWidth}px` } as CSSProperties}
+        >
           <aside className="task-system-database-sidebar" aria-label="任务系统数据库导航">
             {contextSlot ? (
               <section className="task-system-domain-context">
@@ -103,6 +144,12 @@ export function TaskSystemShell<T extends string>({
               {layerSlot ?? fallbackLayerSlot}
             </nav>
           </aside>
+          <div
+            aria-label="调整任务系统左侧栏宽度"
+            className="task-system-sidebar-resize-handle"
+            onPointerDown={startSidebarResize}
+            role="separator"
+          />
           <main className="task-system-database-workspace">
             {children}
           </main>

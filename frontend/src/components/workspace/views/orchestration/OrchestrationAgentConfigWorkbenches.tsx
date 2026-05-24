@@ -142,6 +142,11 @@ function runtimeModeSummary(mode: RuntimeModeConfig) {
   return runtimeLanesForModes([mode.mode], BUILTIN_RUNTIME_MODES).join(" / ") || mode.runtime_lane || "-";
 }
 
+function runtimeModeDefaultLabel(mode: RuntimeModeConfig, defaultMode: string) {
+  if (mode.mode === "custom") return "手工";
+  return defaultMode === mode.mode ? "默认" : "设默认";
+}
+
 export function OrchestrationModelRuntimeWorkbench({
   runtimeDraft,
   patchRuntimeDraft,
@@ -353,7 +358,9 @@ export function OrchestrationRuntimePermissionWorkbench({
       : enabledModes.filter((item) => item !== mode);
     const nonEmptyModes = nextModes.length ? nextModes : ["custom"];
     const nextDefaultMode = checked
-      ? mode
+      ? mode === "custom"
+        ? defaultMode
+        : mode
       : defaultMode === mode
         ? nonEmptyModes[0] || "custom"
         : defaultMode;
@@ -362,6 +369,7 @@ export function OrchestrationRuntimePermissionWorkbench({
   }
 
   function setDefaultMode(mode: string) {
+    if (mode === "custom") return;
     if (!enabledModeSet.has(mode)) return;
     patchRuntimeDraft({ default_runtime_mode: mode });
   }
@@ -415,11 +423,11 @@ export function OrchestrationRuntimePermissionWorkbench({
                   </button>
                   <button
                     className={defaultMode === mode.mode ? "orchestration-runtime-mode-default orchestration-runtime-mode-default--active" : "orchestration-runtime-mode-default"}
-                    disabled={!active}
+                    disabled={!active || mode.mode === "custom"}
                     onClick={() => setDefaultMode(mode.mode)}
                     type="button"
                   >
-                    {defaultMode === mode.mode ? "默认" : "设默认"}
+                    {runtimeModeDefaultLabel(mode, defaultMode)}
                   </button>
                 </div>
               );

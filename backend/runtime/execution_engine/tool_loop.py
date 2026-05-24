@@ -16,6 +16,7 @@ from runtime.shared.execution_record import (
     derive_replay_policy,
 )
 from runtime.shared.action_request import build_tool_result_observation
+from runtime.shared.approval_fingerprint import build_approval_risk_fingerprint
 from runtime.shared.safety import build_task_safety_validators
 
 from .event_translation import (
@@ -168,6 +169,14 @@ async def handle_tool_call_requested_event(
     action_step_ref = str(begin_result.get("action_step_ref") or "")
     requested_event = begin_result["requested_event"]
     operation_id = str(begin_result.get("operation_id") or "")
+    tool_name = str(action_request.payload.get("tool_name") or "")
+    tool_args = dict(dict(action_request.payload.get("tool_call") or {}).get("args") or {})
+    approval_risk_fingerprint = build_approval_risk_fingerprint(
+        operation_id=operation_id,
+        tool_name=tool_name,
+        tool_args=tool_args,
+        sandbox_policy=dict(sandbox_policy or {}),
+    )
     descriptor = operation_gate.registry.get_operation(operation_id)
     tool_directive, tool_policy = build_tool_request_runtime_adoption(
         action_request=action_request,
@@ -192,12 +201,52 @@ async def handle_tool_call_requested_event(
             "task_step_ref": action_step_ref,
         },
     )
+    if tool_runtime_executor is not None and hasattr(tool_runtime_executor, "preflight_validate"):
+        preflight = tool_runtime_executor.preflight_validate(
+            task_run_id=task_run_id,
+            action_request=action_request,
+            directive=tool_directive,
+            sandbox_policy=dict(sandbox_policy or {}),
+        )
+        if dict(preflight or {}).get("allowed") is False:
+            observation = dict(preflight or {}).get("observation")
+            events = [requested_event, directive_event]
+            if observation is not None:
+                context_record = runtime_context_manager.record_observation(observation)
+                refs = {
+                    "action_request_ref": action_request.request_id,
+                    "directive_ref": tool_directive.directive_id,
+                    "resource_policy_ref": tool_policy.policy_id,
+                    "task_step_ref": action_step_ref,
+                    "operation_id": operation_id,
+                    "tool_preflight": "runtime_tool_validation",
+                }
+                events.append(
+                    append_tool_result_received_event(
+                        event_log=event_log,
+                        task_run_id=task_run_id,
+                        observation=observation,
+                        context_record=context_record,
+                        refs=refs,
+                    )
+                )
+                events.append(
+                    append_executor_observation_event(
+                        event_log=event_log,
+                        task_run_id=task_run_id,
+                        observation=observation,
+                        context_record=context_record,
+                        refs=refs,
+                    )
+                )
+            return events
     gate_result = operation_gate.check(
         operation_id,
         resource_policy=tool_policy,
         directive_ref=tool_directive.directive_id,
         context=OperationGatePipelineContext(
             permission_mode=permission_mode,
+            approval_risk_fingerprint=approval_risk_fingerprint,
             operation_input={
                 "operation_id": operation_id,
                 **dict(action_request.payload.get("tool_call") or {}),
@@ -219,6 +268,7 @@ async def handle_tool_call_requested_event(
             "dispatch_enabled": bool(gate_result.allowed and tool_runtime_executor is not None),
             "tool_preflight_only": False,
             "sandbox_policy": dict(sandbox_policy or {}),
+            "approval_risk_fingerprint": approval_risk_fingerprint,
         },
         refs={
             "action_request_ref": action_request.request_id,
@@ -238,6 +288,7 @@ async def handle_tool_call_requested_event(
             descriptor=descriptor,
             sandbox_policy=sandbox_policy,
             step_ref=action_step_ref,
+            approval_risk_fingerprint=approval_risk_fingerprint,
         )
         events.append(
             event_log.append(

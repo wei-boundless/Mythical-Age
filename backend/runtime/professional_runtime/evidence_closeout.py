@@ -1,18 +1,16 @@
 from __future__ import annotations
 
 import re
-import uuid
-from pathlib import Path
 from typing import Any, Iterable
 
 from response_system.boundary.boundary import sanitize_visible_assistant_content
 
 from ..memory.evidence_packet import build_evidence_packet
 from .goal_contract import ProfessionalTaskGoalContract, _dedupe_strings
-from .tool_contract_gate import (
-    _material_review_satisfied,
-    _observation_paths_for_satisfaction,
-    _required_writes_satisfied,
+from .deliverable_progress import (
+    material_review_satisfied,
+    observation_paths_for_satisfaction,
+    required_writes_satisfied,
 )
 from task_system.runtime_semantics.protocol_boundary import has_protocol_leak, strip_protocol_leak
 from ..memory.tool_observation_ledger import ToolObservationLedger
@@ -184,7 +182,7 @@ def _should_apply_evidence_closeout(
 ) -> bool:
     if str(semantic_contract.get("task_goal_type") or "").strip() != "test_report_triage":
         return False
-    if not _material_review_satisfied(goal_contract, tool_observation_ledger):
+    if not material_review_satisfied(goal_contract, tool_observation_ledger):
         return False
     facts = [item for item in list(evidence_packet.get("facts") or []) if isinstance(item, dict)]
     classifications = [
@@ -271,7 +269,7 @@ def _should_apply_generic_evidence_closeout(
         return False
     if goal_contract.requires_write_output or goal_contract.requires_verification_command:
         return False
-    if not _material_review_satisfied(goal_contract, tool_observation_ledger):
+    if not material_review_satisfied(goal_contract, tool_observation_ledger):
         return False
     facts = [item for item in list(evidence_packet.get("facts") or []) if isinstance(item, dict)]
     if not facts:
@@ -306,7 +304,7 @@ def _should_apply_protocol_leak_evidence_closeout(
         return False
     if goal_contract.requires_write_output or goal_contract.requires_verification_command:
         return False
-    if not _material_review_satisfied(goal_contract, tool_observation_ledger):
+    if not material_review_satisfied(goal_contract, tool_observation_ledger):
         return False
     evidence_packet = build_evidence_packet(
         task_run_id=outcome.state.task_run_id,
@@ -394,7 +392,7 @@ def _should_apply_artifact_delivery_evidence_closeout(
 ) -> bool:
     if str(semantic_contract.get("task_goal_type") or "").strip() != "artifact_delivery":
         return False
-    if not _required_writes_satisfied(goal_contract, tool_observation_ledger):
+    if not required_writes_satisfied(goal_contract, tool_observation_ledger):
         return False
     content = str(outcome.final_content or "").strip()
     if not content:
@@ -434,7 +432,7 @@ def _build_profile_delivery_evidence_closeout_answer(
     evidence_packet: dict[str, Any],
 ) -> str:
     task_goal_type = str(semantic_contract.get("task_goal_type") or "").strip()
-    write_paths = _observation_paths_for_satisfaction(tool_observation_ledger, "write_output")
+    write_paths = observation_paths_for_satisfaction(tool_observation_ledger, "write_output")
     required_paths = [
         str(path or "").replace("\\", "/").strip()
         for path in list(goal_contract.required_output_paths or [])
@@ -495,146 +493,6 @@ def _path_matches_for_closeout(target: str, observed: str) -> bool:
     return bool(left and right and (left == right or right.endswith("/" + left) or left.endswith("/" + right)))
 
 
-def _should_auto_write_artifact_delivery_after_blocked_tool(
-    *,
-    semantic_contract: dict[str, Any],
-    goal_contract: ProfessionalTaskGoalContract,
-    tool_observation_ledger: ToolObservationLedger,
-) -> bool:
-    if str(semantic_contract.get("task_goal_type") or "").strip() != "artifact_delivery":
-        return False
-    if not goal_contract.requires_write_output or _required_writes_satisfied(goal_contract, tool_observation_ledger):
-        return False
-    if not _material_review_satisfied(goal_contract, tool_observation_ledger):
-        return False
-    goal = str(goal_contract.goal or "")
-    return any(marker in goal for marker in ("草案", "计划", "方案", "说明", "报告"))
-
-
-def _build_artifact_delivery_auto_write_observation(
-    *,
-    task_run_id: str,
-    semantic_contract: dict[str, Any],
-    goal_contract: ProfessionalTaskGoalContract,
-    evidence_packet: dict[str, Any],
-    sandbox_policy: dict[str, Any] | None,
-) -> dict[str, Any]:
-    output_path = _artifact_delivery_auto_output_path(goal_contract)
-    content = _build_artifact_delivery_auto_write_content(
-        semantic_contract=semantic_contract,
-        goal_contract=goal_contract,
-        evidence_packet=evidence_packet,
-    )
-    observation_ref = f"rtobs:{task_run_id}:{uuid.uuid4().hex[:8]}"
-    tool_call_id = f"auto-write:{uuid.uuid4().hex[:8]}"
-    sandbox_context = _sandbox_write_context(sandbox_policy)
-    write_result, artifact_refs, structured_payload = _write_artifact_delivery_file(
-        output_path=output_path,
-        content=content,
-        sandbox_context=sandbox_context,
-    )
-    return {
-        "observation_ref": observation_ref,
-        "tool_call_id": tool_call_id,
-        "tool_name": "write_file",
-        "tool_args": {"path": output_path, "content": content},
-        "result": write_result,
-        "result_envelope": {
-            "status": "ok" if write_result.startswith("Write succeeded:") else "error",
-            "tool_name": "write_file",
-            "text": write_result,
-            "structured_payload": structured_payload,
-            "observed_paths": [output_path],
-            "matched_paths": [output_path],
-            "artifact_refs": artifact_refs,
-        },
-        "structured_payload": structured_payload,
-        "observed_paths": [output_path],
-        "matched_paths": [output_path],
-        "artifact_refs": artifact_refs,
-        "command_receipt": {},
-    }
-
-
-def _sandbox_write_context(sandbox_policy: dict[str, Any] | None) -> dict[str, Any]:
-    policy = dict(sandbox_policy or {})
-    if policy.get("enabled") is not True:
-        return {}
-    sandbox_root = str(policy.get("sandbox_root") or "").strip()
-    if not sandbox_root:
-        return {}
-    return {
-        "sandbox_root": sandbox_root,
-        "workspace_root": str(policy.get("workspace_root") or ""),
-        "real_workspace_access": str(policy.get("real_workspace_access") or "read_only"),
-        "overlay_copy_on_write": bool(policy.get("overlay_copy_on_write") is True),
-    }
-
-
-def _write_artifact_delivery_file(
-    *,
-    output_path: str,
-    content: str,
-    sandbox_context: dict[str, Any],
-) -> tuple[str, list[dict[str, Any]], dict[str, Any]]:
-    path_text = str(output_path or "").replace("\\", "/").strip().strip("/")
-    if not path_text:
-        path_text = "sandbox/overlay/professional_artifact_delivery_draft.md"
-    root = Path(str(sandbox_context.get("sandbox_root") or "")).resolve() if sandbox_context else Path.cwd()
-    target = (root / path_text).resolve()
-    try:
-        target.relative_to(root)
-    except ValueError:
-        return (
-            "Write failed: path traversal detected.",
-            [],
-            {"path": path_text, "content_chars": len(content), "auto_generated": True, "write_applied": False},
-        )
-    try:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(str(content or ""), encoding="utf-8")
-    except Exception as exc:
-        return (
-            f"Write failed: {exc}",
-            [],
-            {"path": path_text, "content_chars": len(content), "auto_generated": True, "write_applied": False},
-        )
-    artifact_ref = _artifact_ref_for_auto_write(target=target, sandbox_context=sandbox_context)
-    return (
-        f"Write succeeded: {path_text}",
-        [{"path": path_text, "kind": "file", "sandbox": dict(sandbox_context), "source": "artifact_delivery_auto_write"}],
-        {
-            "path": path_text,
-            "absolute_path": str(target),
-            "artifact_ref": artifact_ref,
-            "content_chars": len(content),
-            "auto_generated": True,
-            "write_applied": True,
-        },
-    )
-
-
-def _artifact_ref_for_auto_write(*, target: Path, sandbox_context: dict[str, Any]) -> str:
-    workspace_root = Path(str(sandbox_context.get("workspace_root") or "")).resolve() if sandbox_context.get("workspace_root") else None
-    sandbox_root = Path(str(sandbox_context.get("sandbox_root") or "")).resolve() if sandbox_context.get("sandbox_root") else None
-    base = sandbox_root or workspace_root
-    if base is not None:
-        try:
-            return f"artifact:{target.resolve().relative_to(base).as_posix()}"
-        except ValueError:
-            pass
-    return f"artifact:{target.resolve().as_posix()}"
-
-
-def _artifact_output_refs_from_observation(observation: dict[str, Any]) -> list[str]:
-    refs: list[str] = []
-    structured_payload = dict(observation.get("structured_payload") or {})
-    artifact_ref = str(structured_payload.get("artifact_ref") or "").strip()
-    if artifact_ref:
-        refs.append(artifact_ref)
-    return [item for item in refs if item]
-
-
 def _artifact_output_refs_from_tool_payload(payload: dict[str, Any]) -> list[str]:
     refs: list[str] = []
     for item in list(dict(payload or {}).get("artifact_refs") or []):
@@ -667,105 +525,12 @@ def _dedupe_text(values: Iterable[str]) -> list[str]:
     return result
 
 
-def _artifact_delivery_auto_output_path(goal_contract: ProfessionalTaskGoalContract) -> str:
-    if goal_contract.required_output_paths:
-        return str(goal_contract.required_output_paths[0])
-    return "sandbox/overlay/professional_artifact_delivery_draft.md"
-
-
-def _build_artifact_delivery_auto_write_content(
-    *,
-    semantic_contract: dict[str, Any],
-    goal_contract: ProfessionalTaskGoalContract,
-    evidence_packet: dict[str, Any],
-) -> str:
-    facts = [dict(item) for item in list(dict(evidence_packet or {}).get("facts") or []) if isinstance(item, dict)]
-    previews = _generic_fact_previews(facts)
-    goal = str(goal_contract.goal or dict(semantic_contract or {}).get("user_goal") or "").strip()
-    output_path = _artifact_delivery_auto_output_path(goal_contract)
-    if output_path.endswith("/index.html"):
-        return """<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>贪吃蛇 Plus</title>
-  <link rel="stylesheet" href="styles.css">
-</head>
-<body>
-  <main class="container">
-    <h1>贪吃蛇 Plus</h1>
-    <section class="hud">
-      <span>分数 <strong id="score">0</strong></span>
-      <span>最高分 <strong id="highScore">0</strong></span>
-      <span>用时 <strong id="timer">00:00</strong></span>
-    </section>
-    <section class="controls">
-      <select id="difficulty" aria-label="难度">
-        <option value="easy">简单</option>
-        <option value="normal" selected>普通</option>
-        <option value="hard">困难</option>
-      </select>
-      <button id="startBtn">开始</button>
-      <button id="pauseBtn">暂停</button>
-      <button id="restartBtn">重新开始</button>
-    </section>
-    <canvas id="board" width="420" height="420"></canvas>
-    <p id="status">选择难度后点击开始。</p>
-  </main>
-  <script src="game.js"></script>
-</body>
-</html>
-"""
-    if output_path.endswith("/styles.css"):
-        return """body{margin:0;min-height:100vh;display:grid;place-items:center;background:#101820;color:#f5f7fb;font-family:Arial,'Microsoft YaHei',sans-serif}.container{text-align:center}.hud,.controls{display:flex;gap:12px;justify-content:center;align-items:center;margin:12px 0;flex-wrap:wrap}strong{color:#2dd4bf}button,select{padding:8px 12px;border:1px solid #2dd4bf;background:#17212b;color:#f5f7fb;border-radius:6px}canvas{background:#0b1220;border:2px solid #2dd4bf;max-width:92vw;height:auto}#status{min-height:24px;color:#cbd5e1}"""
-    if output_path.endswith("/game.js"):
-        return """const canvas=document.getElementById('board'),ctx=canvas.getContext('2d');const scoreEl=document.getElementById('score'),highEl=document.getElementById('highScore'),timerEl=document.getElementById('timer'),statusEl=document.getElementById('status'),difficultyEl=document.getElementById('difficulty');const speeds={easy:150,normal:110,hard:75};let snake,food,dir,nextDir,score,high=Number(localStorage.snakePlusHighScore||0),started=false,paused=false,ended=false,timer=null,loop=null,startAt=0;highEl.textContent=high;function reset(){snake=[{x:10,y:10},{x:9,y:10},{x:8,y:10}];dir={x:1,y:0};nextDir=dir;score=0;ended=false;paused=false;scoreEl.textContent=0;timerEl.textContent='00:00';placeFood();draw();statusEl.textContent='准备开始';}function placeFood(){do{food={x:Math.floor(Math.random()*21),y:Math.floor(Math.random()*21)}}while(snake.some(p=>p.x===food.x&&p.y===food.y));}function start(){clearInterval(loop);reset();started=true;startAt=Date.now();timer=setInterval(tickTimer,500);loop=setInterval(step,speeds[difficultyEl.value]);statusEl.textContent='游戏进行中';}function pause(){if(!started||ended)return;paused=!paused;statusEl.textContent=paused?'已暂停':'游戏进行中';}function restart(){start();}function tickTimer(){if(!started||paused||ended)return;const s=Math.floor((Date.now()-startAt)/1000);timerEl.textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');}function step(){if(paused||ended)return;dir=nextDir;const head={x:snake[0].x+dir.x,y:snake[0].y+dir.y};if(head.x<0||head.y<0||head.x>=21||head.y>=21||snake.some(p=>p.x===head.x&&p.y===head.y)){endGame('撞墙或撞到自己，游戏结束');return;}snake.unshift(head);if(head.x===food.x&&head.y===food.y){score+=10;scoreEl.textContent=score;if(score>high){high=score;localStorage.snakePlusHighScore=high;highEl.textContent=high;}placeFood();}else snake.pop();draw();}function endGame(msg){ended=true;started=false;clearInterval(loop);clearInterval(timer);statusEl.textContent=msg;}function draw(){ctx.clearRect(0,0,420,420);ctx.fillStyle='#17212b';ctx.fillRect(0,0,420,420);ctx.fillStyle='#ef4444';ctx.fillRect(food.x*20+2,food.y*20+2,16,16);ctx.fillStyle='#2dd4bf';snake.forEach((p,i)=>{ctx.fillStyle=i?'#2dd4bf':'#facc15';ctx.fillRect(p.x*20+2,p.y*20+2,16,16);});}document.getElementById('startBtn').onclick=start;document.getElementById('pauseBtn').onclick=pause;document.getElementById('restartBtn').onclick=restart;document.addEventListener('keydown',e=>{const k=e.key.toLowerCase();const map={arrowup:{x:0,y:-1},w:{x:0,y:-1},arrowdown:{x:0,y:1},s:{x:0,y:1},arrowleft:{x:-1,y:0},a:{x:-1,y:0},arrowright:{x:1,y:0},d:{x:1,y:0}};if(k===' '){pause();return;}const nd=map[k];if(nd&&(nd.x!==-dir.x||nd.y!==-dir.y))nextDir=nd;});reset();"""
-    if output_path.endswith("/README.md"):
-        return """# 贪吃蛇 Plus
-
-多文件网页小游戏，入口为 `index.html`，样式在 `styles.css`，逻辑在 `game.js`。
-
-## 功能
-- 开始、暂停、重新开始
-- 分数、最高分、本局用时
-- 简单、普通、困难三档速度
-- 撞墙或撞到自己后结束
-
-## 验证
-在项目根目录运行 terminal 检查四个文件存在，并确认 `index.html` 引用了 `styles.css` 与 `game.js`。
-"""
-    return "\n".join(
-        [
-            "# 最小端到端功能草案",
-            "",
-            f"目标：{goal}",
-            "",
-            "## 后端",
-            "- 提供按状态筛选的数据接口或服务函数。",
-            "- 对缺失、未知或空状态做稳定归一化处理。",
-            "",
-            "## 前端",
-            "- 提供状态筛选控件，并在选择变化时刷新列表。",
-            "- 空结果需要展示可理解的空态，而不是静默失败。",
-            "",
-            "## 测试",
-            "- 覆盖 ready/blocked 等有效状态筛选。",
-            "- 覆盖未知状态或空结果边界。",
-            "",
-            "## 证据边界",
-            "- 本草案由运行时根据已读材料生成，未运行完整端到端测试。",
-            "- 材料摘要：" + ("；".join(previews[:3]) if previews else "本轮只有材料读取记录，没有额外实现上下文。"),
-        ]
-    )
-
-
 def _build_artifact_delivery_evidence_closeout_answer(
     *,
     tool_observation_ledger: ToolObservationLedger,
     evidence_packet: dict[str, Any],
 ) -> str:
-    write_paths = _observation_paths_for_satisfaction(tool_observation_ledger, "write_output")
+    write_paths = observation_paths_for_satisfaction(tool_observation_ledger, "write_output")
     facts = [dict(item) for item in list(dict(evidence_packet or {}).get("facts") or []) if isinstance(item, dict)]
     material_preview = "；".join(_generic_fact_previews(facts)[:2])
     body_lines = [
@@ -785,7 +550,7 @@ def _build_code_fix_evidence_closeout_answer(
     tool_observation_ledger: ToolObservationLedger,
     evidence_packet: dict[str, Any],
 ) -> str:
-    write_paths = _observation_paths_for_satisfaction(tool_observation_ledger, "write_output")
+    write_paths = observation_paths_for_satisfaction(tool_observation_ledger, "write_output")
     verification_records = [
         record
         for record in tool_observation_ledger.records

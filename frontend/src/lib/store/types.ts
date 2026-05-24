@@ -9,7 +9,6 @@ import type {
   TaskGraphRunMonitorView,
   RuntimeLoopTaskRunLiveMonitor,
   SessionSummary,
-  SystemGraphOverlay,
   ToolCall,
   WorkspaceContext
 } from "@/lib/api";
@@ -92,7 +91,6 @@ export type WorkspaceView =
   | "evidence"
   | "task-system"
   | "orchestration"
-  | "system-framework"
   | "experiments"
   | "playground"
   | "system-config";
@@ -115,15 +113,8 @@ export type ChatMode = "chat" | "image";
 
 export type MainAgentAssemblyMode = "role" | "standard" | "professional";
 
-export type SystemGraphHighlight = {
-  nodeIds: string[];
-  edgeIds: string[];
-  reason: string;
-  source: string;
-};
-
 export type MemoryInspectorTarget = {
-  source: "test-system" | "system-framework" | "manual";
+  source: "test-system" | "manual";
   runId?: string;
   turnId?: string;
   turnIndex?: number;
@@ -203,8 +194,6 @@ export type StoreState = {
   sidebarWidth: number;
   inspectorWidth: number;
   tokenStats: TokenStats | null;
-  systemGraphHighlight: SystemGraphHighlight | null;
-  systemGraphOverlay: SystemGraphOverlay | null;
   memoryInspectorTarget: MemoryInspectorTarget | null;
   orchestrationSnapshot: OrchestrationSnapshot | null;
   taskGraphMonitorBinding: TaskGraphMonitorBinding | null;
@@ -250,8 +239,6 @@ export type StoreActions = {
   saveInspector: () => Promise<void>;
   setSidebarWidth: (width: number) => void;
   setInspectorWidth: (width: number) => void;
-  highlightSystemGraph: (highlight: SystemGraphHighlight | null) => void;
-  setSystemGraphOverlay: (overlay: SystemGraphOverlay | null) => void;
   setMemoryInspectorTarget: (target: MemoryInspectorTarget | null) => void;
   setOrchestrationInspectorTarget: (target: OrchestrationInspectorTarget | null) => void;
   setOrchestrationSnapshot: (snapshot: OrchestrationSnapshot | null) => void;

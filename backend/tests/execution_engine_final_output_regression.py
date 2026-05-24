@@ -12,11 +12,9 @@ from runtime.execution_engine import (
     ModelToolCallAccumulator,
     translate_executor_event,
     build_runtime_budget_exhausted_message,
-    forced_synthesis_answer_metadata,
-    forced_tool_synthesis_from_available_evidence,
+    finalize_budget_exhausted_followup,
     select_final_answer_from_context,
 )
-from runtime.memory.observation_aggregator import ObservationAggregator
 
 
 class _Event:
@@ -42,25 +40,22 @@ def test_execution_engine_final_output_selects_context_answer() -> None:
     assert select_final_answer_from_context({"canonical_answer": "稳定答案"}) == "稳定答案"
 
 
-def test_execution_engine_final_output_metadata_is_canonical_tool_summary() -> None:
-    metadata = forced_synthesis_answer_metadata(source="test.source")
-
-    assert metadata["answer_source"] == "test.source"
-    assert metadata["answer_channel"] == "tool_visible_summary"
-    assert metadata["answer_persist_policy"] == "persist_canonical"
-
-
-def test_execution_engine_final_output_synthesizes_from_task_summary_refs() -> None:
-    aggregation = ObservationAggregator().snapshot()
-    content = forced_tool_synthesis_from_available_evidence(
+def test_execution_engine_budget_followup_is_progress_only_not_canonical_synthesis() -> None:
+    finalization = finalize_budget_exhausted_followup(
         user_message="请总结",
-        aggregation=aggregation,
+        aggregation=None,
         final_task_summary_refs=[{"summary": "已经读取并完成摘要。"}],
         final_main_context={"active_constraints": {"active_pdf": "report.pdf"}},
+        control_message="max_model_calls",
+        tool_observation_count=2,
     )
 
-    assert "report.pdf" in content
-    assert "已经读取并完成摘要" in content
+    assert finalization.finalized is True
+    assert finalization.answer_metadata is not None
+    assert finalization.answer_metadata["answer_source"] == "runtime_loop_control"
+    assert finalization.answer_metadata["answer_canonical_state"] == "progress_only"
+    assert finalization.answer_metadata["answer_persist_policy"] == "persist_debug_only"
+    assert "已经读取并完成摘要" not in finalization.content
 
 
 def test_execution_engine_final_output_budget_message_mentions_tool_evidence() -> None:

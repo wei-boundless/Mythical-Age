@@ -146,12 +146,6 @@ export class WorkspaceRuntime {
       setInspectorWidth: (width) => {
         this.setInspectorWidth(width);
       },
-      highlightSystemGraph: (highlight) => {
-        this.highlightSystemGraph(highlight);
-      },
-      setSystemGraphOverlay: (overlay) => {
-        this.setSystemGraphOverlay(overlay);
-      },
       setMemoryInspectorTarget: (target) => {
         this.setMemoryInspectorTarget(target);
       },
@@ -1168,14 +1162,6 @@ export class WorkspaceRuntime {
 
   private setWorkspaceView(view: WorkspaceView) {
     this.store.setState((prev) => ({ ...prev, activeWorkspaceView: view }));
-  }
-
-  private highlightSystemGraph(highlight: StoreState["systemGraphHighlight"]) {
-    this.store.setState((prev) => ({ ...prev, systemGraphHighlight: highlight }));
-  }
-
-  private setSystemGraphOverlay(overlay: StoreState["systemGraphOverlay"]) {
-    this.store.setState((prev) => ({ ...prev, systemGraphOverlay: overlay }));
   }
 
   private setMemoryInspectorTarget(target: StoreState["memoryInspectorTarget"]) {

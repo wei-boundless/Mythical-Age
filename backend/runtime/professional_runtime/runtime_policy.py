@@ -76,6 +76,7 @@ def _with_professional_task_instruction(
     goal_contract: ProfessionalTaskGoalContract | None = None,
     semantic_contract: dict[str, Any] | None = None,
     mode_policy: dict[str, Any] | None = None,
+    sandbox_policy: dict[str, Any] | None = None,
 ) -> list[Any]:
     plan_lines = "\n".join(
         f"- {item['title']}: {item['summary']}"
@@ -86,6 +87,7 @@ def _with_professional_task_instruction(
     contract_line = _goal_contract_instruction(goal_contract)
     semantic_line = _semantic_contract_instruction(dict(semantic_contract or {}))
     policy_line = _interaction_policy_instruction(dict(mode_policy or {}))
+    material_mount_line = _material_mount_instruction(dict(sandbox_policy or {}))
     if tool_execution_enabled:
         write_guidance = ""
         if "agent_todo" in set(allowed_tools):
@@ -130,6 +132,7 @@ def _with_professional_task_instruction(
         "请先锁定用户目标和边界，再按运行时计划完成收口。\n"
         f"{semantic_line}"
         f"{policy_line}"
+        f"{material_mount_line}"
         f"{tool_line}\n"
         f"{delegation_line}\n"
         "如果当前可见上下文不足，请明确说明限制，并给出下一步建议。\n"
@@ -150,6 +153,25 @@ def _with_professional_task_instruction(
         insert_at = max(0, len(messages) - 1)
     messages.insert(insert_at, {"role": "system", "content": instruction})
     return messages
+
+
+def _material_mount_instruction(sandbox_policy: dict[str, Any]) -> str:
+    mounts = [
+        dict(item)
+        for item in list(sandbox_policy.get("material_mounts") or [])
+        if isinstance(item, dict) and str(item.get("mount_path") or "").strip()
+    ]
+    if not mounts:
+        return ""
+    entries = [
+        f"{item.get('mount_id')}: {item.get('mount_path')} ({item.get('status') or 'unknown'})"
+        for item in mounts
+    ]
+    return (
+        "外部源材料已由运行时导入 sandbox 内，只能通过这些相对材料入口读取："
+        + "；".join(entries)
+        + "。不要读取外部绝对源路径；目标产物仍写入用户指定的输出目录。\n"
+    )
 
 
 def _semantic_contract_instruction(semantic_contract: dict[str, Any]) -> str:

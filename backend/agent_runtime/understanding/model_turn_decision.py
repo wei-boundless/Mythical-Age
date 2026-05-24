@@ -24,6 +24,7 @@ class ModelTurnDecision:
     constraints: tuple[str, ...] = ()
     forbidden_actions: tuple[str, ...] = ()
     selected_skill_ids: tuple[str, ...] = ()
+    resource_contract: dict[str, Any] = field(default_factory=dict)
     context_binding_decision: dict[str, Any] = field(default_factory=dict)
     planning_required: bool = False
     todo_required: bool = False
@@ -48,6 +49,7 @@ class ModelTurnDecision:
         ):
             payload[key] = list(payload.get(key) or [])
         payload["context_binding_decision"] = dict(self.context_binding_decision or {})
+        payload["resource_contract"] = dict(self.resource_contract or {})
         payload["diagnostics"] = dict(self.diagnostics or {})
         return payload
 
@@ -79,6 +81,10 @@ def model_turn_decision_from_payload(
     if not isinstance(binding, dict):
         errors.append("context_binding_decision_must_be_object")
         binding = {}
+    resource_contract = raw.get("resource_contract") or {}
+    if not isinstance(resource_contract, dict):
+        errors.append("resource_contract_must_be_object")
+        resource_contract = {}
     if errors:
         return None, {"decision_status": "rejected_invalid", "validation_errors": errors, "model_authority_used": False}
     decision = ModelTurnDecision(
@@ -95,6 +101,7 @@ def model_turn_decision_from_payload(
         constraints=tuple(_sequence(raw.get("constraints"))),
         forbidden_actions=tuple(_sequence(raw.get("forbidden_actions"))),
         selected_skill_ids=tuple(_skill_ids(raw.get("selected_skill_ids"))),
+        resource_contract=_normalize_resource_contract(resource_contract),
         context_binding_decision=dict(binding),
         planning_required=bool(raw.get("planning_required") is True),
         todo_required=bool(raw.get("todo_required") is True),
@@ -162,6 +169,54 @@ def _skill_ids(value: Any) -> list[str]:
         normalized = item if item.startswith("skill.") else f"skill.{item}"
         ids.append(normalized)
     return _sequence(ids)
+
+
+def _normalize_resource_contract(value: dict[str, Any]) -> dict[str, Any]:
+    item = dict(value or {})
+
+    def project_entries(key: str) -> list[dict[str, Any]]:
+        entries: list[dict[str, Any]] = []
+        for raw_entry in list(item.get(key) or []):
+            if isinstance(raw_entry, str):
+                entry = {"path": raw_entry}
+            elif isinstance(raw_entry, dict):
+                entry = dict(raw_entry)
+            else:
+                continue
+            path = _clean_path(str(entry.get("path") or ""))
+            if not path:
+                continue
+            entries.append(
+                {
+                    **entry,
+                    "path": path,
+                    "role": str(entry.get("role") or "").strip(),
+                    "required": entry.get("required") is not False,
+                }
+            )
+        return entries
+
+    return {
+        "source_projects": project_entries("source_projects"),
+        "target_projects": project_entries("target_projects"),
+        "required_read_files": _relative_paths(item.get("required_read_files")),
+        "required_read_dirs": _relative_paths(item.get("required_read_dirs")),
+        "required_write_files": _relative_paths(item.get("required_write_files")),
+        "required_write_dirs": _relative_paths(item.get("required_write_dirs")),
+        "asset_policy": dict(item.get("asset_policy") or {}) if isinstance(item.get("asset_policy"), dict) else {},
+    }
+
+
+def _relative_paths(value: Any) -> list[str]:
+    return [
+        item.strip("/")
+        for item in (_clean_path(raw) for raw in _sequence(value))
+        if item and not item.startswith(("/", "../")) and ":/" not in item
+    ]
+
+
+def _clean_path(value: str) -> str:
+    return str(value or "").strip().strip("`'\"“”‘’ ，,。；;").replace("\\", "/").strip()
 
 
 def _slug(value: str) -> str:

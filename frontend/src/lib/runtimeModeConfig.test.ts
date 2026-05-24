@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   deriveAllowedRuntimeLanes,
   manualRuntimeLanes,
+  normalizeDefaultRuntimeMode,
   normalizeRuntimeModesWithLanes,
   runtimeModeCatalogFrom,
 } from "./runtimeModeConfig";
@@ -40,5 +41,11 @@ describe("runtime mode config", () => {
       "custom",
     ]);
     expect(normalizeRuntimeModesWithLanes([], ["readonly_exploration"])).toEqual(["custom"]);
+  });
+
+  it("keeps custom mode from taking the executable default", () => {
+    expect(normalizeDefaultRuntimeMode("custom", ["standard", "custom"])).toBe("standard");
+    expect(normalizeDefaultRuntimeMode("", ["role", "professional", "custom"])).toBe("role");
+    expect(normalizeDefaultRuntimeMode("custom", ["custom"])).toBe("custom");
   });
 });

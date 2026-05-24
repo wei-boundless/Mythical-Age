@@ -365,7 +365,7 @@ async def orchestration_catalog() -> dict[str, Any]:
     return {
         "permission_mode": runtime.permission_service.current_mode(),
         "supported_permission_modes": runtime.permission_service.supported_modes(),
-        "tool_contract_mode": runtime.query_runtime.tool_contract_gate.mode,
+        "tool_invocation_validation_mode": runtime.query_runtime.tool_invocation_validation_mode,
         "orchestration_plan_mode": runtime.settings.get_orchestration_plan_mode(),
         "orchestration_state": "wiring_cleared",
         "supported_orchestration_plan_modes": ["primary"],

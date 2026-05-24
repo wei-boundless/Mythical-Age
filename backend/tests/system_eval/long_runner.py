@@ -348,7 +348,7 @@ def _parse_checks(turn: TurnResult, checks: tuple[str, ...]) -> list[str]:
 _WARNING_OUTPUT_MARKERS = (
     "tool_not_safe_for_auto_route",
     "tool_permission_denied",
-    "tool_contract_blocked",
+    "tool_invocation_validation_blocked",
     "agent_tool_steps_exceeded",
     "explicit path is required",
     "file does not exist",
@@ -475,44 +475,6 @@ def _collect_critical_quality_failures(turn: TurnResult) -> list[str]:
     return failures
 
 
-def _collect_professional_completion_failures(events: list[dict[str, Any]]) -> list[str]:
-    if not any(str(item.get("event") or "") == "runtime_loop_event" for item in events):
-        return []
-    failures: list[str] = []
-    validation_payload = _latest_runtime_loop_payload(events, "professional_task_deliverable_validation_checked")
-    if validation_payload:
-        verification = dict(validation_payload.get("verification") or {})
-        if verification.get("passed") is not True:
-            missing = [
-                str(item)
-                for item in [
-                    *list(verification.get("missing_required_actions") or []),
-                    *list(verification.get("missing_deliverables") or []),
-                    *list(verification.get("missing_output_paths") or []),
-                    *list(verification.get("unsupported_claims") or []),
-                ]
-                if str(item).strip()
-            ]
-            suffix = f" ({', '.join(missing[:6])})" if missing else ""
-            failures.append(f"professional.validation_failed{suffix}")
-    judgment_payload = _latest_runtime_loop_payload(events, "professional_task_completion_judged")
-    if judgment_payload:
-        judgment = dict(judgment_payload.get("completion_judgment") or {})
-        if judgment.get("completion_allowed") is False:
-            reasons = [str(item) for item in list(judgment.get("reasons") or []) if str(item).strip()]
-            suffix = f" ({', '.join(reasons[:6])})" if reasons else ""
-            failures.append(f"professional.completion_not_allowed{suffix}")
-    terminal_payload = _latest_runtime_loop_payload(events, "loop_terminal")
-    if terminal_payload:
-        status = str(terminal_payload.get("status") or "")
-        terminal_reason = str(terminal_payload.get("terminal_reason") or "")
-        if status in {"failed", "blocked", "aborted"} or (
-            terminal_reason and terminal_reason not in {"completed", "waiting_approval"}
-        ):
-            failures.append(f"professional.loop_terminal={status or 'unknown'}:{terminal_reason or 'unknown'}")
-    return _dedupe_strings(failures)
-
-
 def _ensure_session(client: TestClient, session_ids: dict[str, str], alias: str, *, title: str = "") -> str:
     existing = session_ids.get(alias)
     if existing:
@@ -569,11 +531,6 @@ def _runtime_loop_payloads(events: list[dict[str, Any]], runtime_event_type: str
 def _first_runtime_loop_payload(events: list[dict[str, Any]], runtime_event_type: str) -> dict[str, Any]:
     payloads = _runtime_loop_payloads(events, runtime_event_type)
     return payloads[0] if payloads else {}
-
-
-def _latest_runtime_loop_payload(events: list[dict[str, Any]], runtime_event_type: str) -> dict[str, Any]:
-    payloads = _runtime_loop_payloads(events, runtime_event_type)
-    return payloads[-1] if payloads else {}
 
 
 def _runtime_operation_refs(events: list[dict[str, Any]]) -> list[str]:
@@ -685,6 +642,43 @@ def _runtime_trace_summary(runtime, task_run_id: str) -> dict[str, Any]:
     }
 
 
+def _completion_from_done_payload(done_payload: dict[str, Any]) -> dict[str, Any]:
+    completion = dict(done_payload.get("completion") or {})
+    if completion:
+        return completion
+    task_result = dict(done_payload.get("task_result") or {})
+    return dict(task_result.get("completion") or {})
+
+
+def _turn_is_professional_task(*, turn: LongScenarioTurn, inferred: dict[str, Any]) -> bool:
+    selection = _task_selection_payload(turn)
+    mode_policy = dict(selection.get("mode_policy") or {})
+    task_contract = dict(inferred.get("task_contract") or {})
+    return bool(
+        str(mode_policy.get("execution_strategy") or "") == "professional_task_run"
+        or str(mode_policy.get("runtime_lane") or "") == "professional_task"
+        or str(task_contract.get("recipe_id") or "") == "runtime.recipe.professional_task"
+        or str(task_contract.get("task_mode") or "") == "professional_mode"
+    )
+
+
+def _completion_failure_check(completion: dict[str, Any]) -> str:
+    status = str(completion.get("status") or "unknown")
+    terminal_reason = str(completion.get("terminal_reason") or "unknown")
+    missing = [
+        str(item)
+        for item in [
+            *list(completion.get("missing_deliverables") or []),
+            *list(completion.get("missing_output_paths") or []),
+            *list(completion.get("unsatisfied_obligations") or []),
+            *list(completion.get("unsupported_claims") or []),
+        ]
+        if str(item).strip()
+    ]
+    suffix = f" ({', '.join(missing[:6])})" if missing else ""
+    return f"completion.completed=false status={status} terminal_reason={terminal_reason}{suffix}"
+
+
 def _infer_plan_fields_from_runtime(events: list[dict[str, Any]]) -> dict[str, Any]:
     task_payload = _first_runtime_loop_payload(events, "task_contract_built")
     task_contract = dict(task_payload.get("task_contract") or {})
@@ -701,11 +695,6 @@ def _infer_plan_fields_from_runtime(events: list[dict[str, Any]]) -> dict[str, A
         for item in tool_requests
         if str(item.get("tool_name") or dict(item.get("tool_call") or {}).get("name") or "").strip()
     ]
-    for item in auto_write_events:
-        observation = dict(item.get("observation") or {})
-        name = str(observation.get("tool_name") or "").strip()
-        if name and name not in tool_names:
-            tool_names.append(name)
     if not tool_names:
         for operation_ref in directive_operations:
             if operation_ref.startswith("op.") and operation_ref != "op.model_response":
@@ -741,6 +730,7 @@ def _infer_plan_fields_from_runtime(events: list[dict[str, Any]]) -> dict[str, A
         "task_contract": task_contract,
         "current_turn_context": current_turn_context,
         "stage_projection": stage_projection,
+        "runtime_auto_write_violation_count": len(auto_write_events),
     }
 
 
@@ -1414,6 +1404,12 @@ def _execute_user_turn(
         )
     turn_result.quality_warnings = _collect_quality_warnings(turn=turn_result, events=events)
     turn_result.failed_checks.extend(_collect_critical_quality_failures(turn_result))
+    completion = _completion_from_done_payload(done_payload)
+    if completion:
+        if completion.get("completed") is not True:
+            turn_result.failed_checks.append(_completion_failure_check(completion))
+    elif _turn_is_professional_task(turn=turn, inferred=inferred):
+        turn_result.failed_checks.append("professional.completion_envelope_missing")
     turn_result.passed = not turn_result.failed_checks and "error" not in turn_result.event_types
 
     artifact_path.write_text(
@@ -1442,6 +1438,7 @@ def _execute_user_turn(
                 "orchestration_diff": orchestration_diff,
                 "memory_sync": sync_details or {},
                 "runtime_trace": runtime_trace,
+                "completion": completion,
                 "result": turn_result.to_dict(),
             },
             ensure_ascii=False,

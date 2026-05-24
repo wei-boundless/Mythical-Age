@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import re
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -22,6 +21,8 @@ class ToolObservationRecord:
     artifact_refs: tuple[dict[str, Any], ...] = ()
     command_receipt: dict[str, Any] = field(default_factory=dict)
     side_effect_hash: str = ""
+    evidence_source: str = "structured_envelope"
+    debug_hints: dict[str, Any] = field(default_factory=dict)
     authority: str = "orchestration.tool_observation_record"
 
     def to_dict(self) -> dict[str, Any]:
@@ -30,6 +31,7 @@ class ToolObservationRecord:
         payload["observed_paths"] = list(self.observed_paths)
         payload["matched_paths"] = list(self.matched_paths)
         payload["artifact_refs"] = [dict(item) for item in self.artifact_refs]
+        payload["debug_hints"] = dict(self.debug_hints)
         return payload
 
 
@@ -95,6 +97,8 @@ class ToolObservationLedger:
         if not str(path or "").strip():
             return any("read_material" in record.satisfies for record in self.records)
         target = _normalize_path(path)
+        if _path_is_directory(target):
+            return any(_directory_satisfied_by_path(target, observed) for observed in self.observed_paths())
         return any(_path_matches(target, observed) for observed in self.observed_paths())
 
     def has_write(self, path: str = "") -> bool:
@@ -102,6 +106,15 @@ class ToolObservationLedger:
         if not str(path or "").strip():
             return bool(write_records)
         target = _normalize_path(path)
+        if _path_is_directory(target):
+            for record in write_records:
+                paths = [
+                    *record.observed_paths,
+                    *(str(ref.get("path") or "") for ref in record.artifact_refs),
+                ]
+                if any(_directory_satisfied_by_path(target, candidate) for candidate in paths):
+                    return True
+            return False
         for record in write_records:
             paths = [
                 *record.observed_paths,
@@ -151,11 +164,22 @@ def build_tool_observation_record(
         status = envelope.status
     else:
         result_text = str(result or "")
-        observed_paths = tuple(_paths_from_args(name, args))
-        matched_paths = tuple(_matched_paths_from_text(name, result_text))
-        artifact_refs = tuple(_artifact_refs_from_text(name, args, result_text))
-        command_receipt = _command_receipt_from_text(name, args, result_text)
+        observed_paths = tuple(_legacy_observed_paths_from_args(name, args))
+        matched_paths = ()
+        artifact_refs = ()
+        command_receipt = {}
         status = "error" if _looks_failed(result_text) else "ok"
+    evidence_source = "structured_envelope" if envelope is not None else "legacy_text"
+    debug_hints = (
+        {}
+        if envelope is not None
+        else {
+            "legacy_text_preview": result_text[:500],
+            "args_paths": _legacy_observed_paths_from_args(name, args),
+            "text_path_candidates": _debug_path_candidates_from_text(result_text),
+            "hard_evidence_accepted": False,
+        }
+    )
     recoverable_repair = bool(result_payload.get("recoverable") is True or result_payload.get("repair_kind"))
     if recoverable_repair:
         side_effect_kind = "repair"
@@ -166,7 +190,23 @@ def build_tool_observation_record(
         artifact_refs = ()
     else:
         side_effect_kind = _side_effect_kind(name)
-        satisfies = _satisfies_for_tool(name, args=args, result_text=result_text, status=status)
+        satisfies = _satisfies_for_tool(
+            name,
+            args=args,
+            result_text=result_text,
+            status=status,
+            has_structured_envelope=envelope is not None,
+            observed_paths=observed_paths,
+            artifact_refs=artifact_refs,
+            command_receipt=command_receipt,
+        )
+    if name == "browser_control" and "verify_command" in satisfies and not command_receipt:
+        command_receipt = {
+            "command": str(args.get("action") or "browser_control").strip(),
+            "exit_code": 0 if status == "ok" else 1,
+            "passed": status == "ok",
+            "output_preview": result_text[:500],
+        }
     return ToolObservationRecord(
         observation_ref=str(observation_ref or "").strip(),
         tool_name=name,
@@ -184,13 +224,15 @@ def build_tool_observation_record(
             if side_effect_kind in {"write", "verification"}
             else ""
         ),
+        evidence_source=evidence_source,
+        debug_hints=debug_hints,
     )
 
 
 def _side_effect_kind(tool_name: str) -> str:
     if tool_name in {"write_file", "edit_file"}:
         return "write"
-    if tool_name == "terminal":
+    if tool_name in {"terminal", "browser_control"}:
         return "verification"
     if tool_name == "delegate_to_agent":
         return "delegation"
@@ -203,13 +245,26 @@ def _satisfies_for_tool(
     args: dict[str, Any] | None = None,
     result_text: str = "",
     status: str = "ok",
+    has_structured_envelope: bool = False,
+    observed_paths: tuple[str, ...] = (),
+    artifact_refs: tuple[dict[str, Any], ...] = (),
+    command_receipt: dict[str, Any] | None = None,
 ) -> tuple[str, ...]:
     if tool_name in {"read_file", "read_structured_file", "search_text", "search_files", "glob_paths"}:
-        return ("read_material",)
+        if has_structured_envelope and status == "ok" and (observed_paths or tool_name in {"search_text", "search_files", "glob_paths"}):
+            return ("read_material",)
+        return ()
     if tool_name in {"write_file", "edit_file"}:
-        return ("write_output",)
+        if has_structured_envelope and (artifact_refs or observed_paths) and status == "ok":
+            return ("write_output",)
+        return ()
     if tool_name == "terminal":
-        return ("verify_command",) if _terminal_observation_is_verification(args or {}, result_text, status=status) else ()
+        receipt = dict(command_receipt or {})
+        if has_structured_envelope and receipt and _terminal_observation_is_verification(args or {}, result_text, status=status):
+            return ("verify_command",)
+        return ()
+    if tool_name == "browser_control":
+        return ("verify_command",)
     if tool_name == "delegate_to_agent":
         return ("delegate_review",)
     return ()
@@ -262,20 +317,14 @@ def _side_effect_hash(*, name: str, args: dict[str, Any], result_text: str) -> s
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-def _paths_from_args(tool_name: str, args: dict[str, Any]) -> list[str]:
-    if tool_name in {"read_file", "read_structured_file", "write_file", "edit_file", "stat_path", "path_exists"}:
+def _legacy_observed_paths_from_args(tool_name: str, args: dict[str, Any]) -> list[str]:
+    if tool_name in {"read_file", "read_structured_file", "stat_path", "path_exists"}:
         return _dedupe([str(args.get("path") or "").strip()])
     return []
 
 
-def _matched_paths_from_text(tool_name: str, text: str) -> list[str]:
-    if tool_name not in {"search_files", "search_text", "glob_paths"}:
-        return []
+def _debug_path_candidates_from_text(text: str) -> list[str]:
     paths: list[str] = []
-    path_pattern = re.compile(
-        r"(?P<path>(?:[A-Za-z]:)?(?:[\w.\-\u4e00-\u9fff]+[\\/])+[\w.\-\u4e00-\u9fff ()（）]+?\.[A-Za-z0-9]+)",
-        flags=re.IGNORECASE,
-    )
     for line in str(text or "").splitlines():
         stripped = line.strip()
         if not stripped:
@@ -287,29 +336,7 @@ def _matched_paths_from_text(tool_name: str, text: str) -> list[str]:
         if ("/" in candidate or "\\" in candidate) and "." in candidate:
             paths.append(candidate)
             continue
-        paths.extend(match.group("path").strip() for match in path_pattern.finditer(stripped))
     return _dedupe(paths)
-
-
-def _artifact_refs_from_text(tool_name: str, args: dict[str, Any], text: str) -> list[dict[str, Any]]:
-    if tool_name not in {"write_file", "edit_file"}:
-        return []
-    path = str(args.get("path") or "").strip()
-    if not path:
-        return []
-    return [{"path": path, "kind": "file", "source": tool_name}]
-
-
-def _command_receipt_from_text(tool_name: str, args: dict[str, Any], text: str) -> dict[str, Any]:
-    if tool_name != "terminal":
-        return {}
-    status = "error" if _looks_failed(text) else "ok"
-    return {
-        "command": str(args.get("command") or "").strip(),
-        "exit_code": 1 if status == "error" else 0,
-        "passed": status != "error",
-        "output_preview": str(text or "")[:500],
-    }
 
 
 def _looks_failed(text: str) -> bool:
@@ -347,3 +374,16 @@ def _path_matches(target: str, candidate: str) -> bool:
         or target.endswith("/" + normalized)
         or bool(target_base and target_base == candidate_base)
     )
+
+
+def _path_is_directory(path: str) -> bool:
+    name = str(path or "").strip("/").rsplit("/", 1)[-1]
+    return bool(path) and "." not in name
+
+
+def _directory_satisfied_by_path(directory: str, candidate: str) -> bool:
+    target = _normalize_path(directory).strip("/")
+    observed = _normalize_path(candidate).strip("/")
+    if not target or not observed:
+        return False
+    return observed == target or observed.startswith(target + "/") or observed.endswith("/" + target) or ("/" + target + "/") in ("/" + observed + "/")

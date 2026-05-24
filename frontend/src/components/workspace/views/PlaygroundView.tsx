@@ -5,14 +5,11 @@ import Image from "next/image";
 import {
   ArrowLeft,
   ArrowRight,
-  BookOpenText,
-  History,
   Layers3,
   PanelTop,
   Send,
   Stars,
   Orbit,
-  Feather,
   WandSparkles,
   Save,
   Plus,
@@ -25,18 +22,15 @@ import {
   deleteSoulProjectionCard,
   getSoulProjectionCards,
   getSoulSystemCatalog,
-  getSoulWorkLog,
   saveSoulCommonContract,
   selectSoulProjectionCard,
   type SoulProjectionCard,
   type SoulProjectionCatalog,
   type SoulResourceCard,
   type SoulResourceCatalog,
-  type SoulResourceStory,
   type SoulResourceWorld,
   type SoulSystemCatalog,
   type SoulSystemSeed,
-  type SoulWorkLogView,
 } from "@/lib/api";
 import type { SoulKey } from "@/lib/souls";
 import { useAppStore } from "@/lib/store";
@@ -57,16 +51,12 @@ type PromptRecord = {
 
 const WORLD_ORDER = ["world.default", "world.honghuang"] as const;
 
-const WORLD_COPY: Record<string, { tagline: string; portal: string; intro: string }> = {
+const WORLD_COPY: Record<string, { tagline: string }> = {
   "world.default": {
     tagline: "现实世界",
-    portal: "真实任务、共同契约、执行投影",
-    intro: "这里存放共同契约、工作指令和无角色执行投影，不启用洪荒叙事。",
   },
   "world.honghuang": {
     tagline: "洪荒时代",
-    portal: "穿越、召唤、遇见灵魂",
-    intro: "只在这个世界里启用洪荒气质，强调召唤、气象和灵魂本体。",
   },
 };
 
@@ -450,11 +440,6 @@ function worldAsset(world: SoulResourceWorld | null | undefined, kind: "gate" | 
   return `/souls/generated/world-default-${kind}-v2.png`;
 }
 
-function worldLine(world: SoulResourceWorld | null) {
-  if (!world) return "未知世界";
-  return WORLD_COPY[world.world_id]?.portal || world.summary || world.title;
-}
-
 function promptText(prompt: PromptRecord | null | undefined) {
   return prompt?.content?.trim() || "";
 }
@@ -465,16 +450,6 @@ function promptTitle(prompt: PromptRecord | null | undefined) {
 
 function promptById(prompts: PromptRecord[] | undefined, promptId: string) {
   return prompts?.find((prompt) => prompt.prompt_id === promptId) ?? null;
-}
-
-function shortDateTime(value: number) {
-  if (!value) return "";
-  return new Intl.DateTimeFormat("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value * 1000));
 }
 
 function pickWorld(worlds: SoulResourceWorld[], worldId: string | null) {
@@ -495,10 +470,6 @@ function worldSoulIds(resourceCatalog: SoulResourceCatalog | null, worldId: stri
     ...resourceCatalog.stories.filter((story) => story.world_id === worldId).map((story) => story.soul_id),
     ...resourceCatalog.cards.filter((card) => card.world_id === worldId).map((card) => card.soul_id),
   ]);
-}
-
-function worldStories(resourceCatalog: SoulResourceCatalog | null, worldId: string) {
-  return resourceCatalog?.stories.filter((story) => story.world_id === worldId) ?? [];
 }
 
 function worldCards(resourceCatalog: SoulResourceCatalog | null, worldId: string) {
@@ -543,8 +514,6 @@ export function PlaygroundView({ onReturnToWorkspace, embedded = false }: Playgr
   const [selectedWorldId, setSelectedWorldId] = useState<string>("world.default");
   const [selectedSoulKey, setSelectedSoulKey] = useState<SoulKey | null>(null);
   const [selectedMode, setSelectedMode] = useState<SoulMode>("role");
-  const [workLog, setWorkLog] = useState<SoulWorkLogView | null>(null);
-  const [workLogLoading, setWorkLogLoading] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [selectedContractId, setSelectedContractId] = useState("common_contract.default");
@@ -622,7 +591,6 @@ export function PlaygroundView({ onReturnToWorkspace, embedded = false }: Playgr
   const selectedWorldGate = worldAsset(selectedWorld, "gate");
   const selectedWorldScene = worldAsset(selectedWorld, "scene");
   const selectedWorldSoulIds = worldSoulIds(resourceCatalog, selectedWorld?.world_id ?? "world.default");
-  const selectedWorldStories = worldStories(resourceCatalog, selectedWorld?.world_id ?? "world.default");
   const selectedWorldCards = worldCards(resourceCatalog, selectedWorld?.world_id ?? "world.default");
   const selectedWorldSeeds = selectedWorldSoulIds.size
     ? catalog.seeds.filter((seed) => selectedWorldSoulIds.has(seed.key))
@@ -639,7 +607,6 @@ export function PlaygroundView({ onReturnToWorkspace, embedded = false }: Playgr
     ?? selectedWorldSeeds[0]
     ?? null;
   const selectedCard = selectedWorldCards.find((card) => card.soul_id === selectedSeed?.key) ?? null;
-  const selectedStory = selectedWorldStories.find((story) => story.soul_id === selectedSeed?.key) ?? null;
   const selectedBackdrop = selectedWorldScene;
 
   const commonContracts = parsePromptList(resourceCatalog?.common_contracts);
@@ -686,29 +653,6 @@ export function PlaygroundView({ onReturnToWorkspace, embedded = false }: Playgr
       setSelectedProjectionId(realityProjectionCards[0].projection_id);
     }
   }, [realityProjectionCards, selectedRealityProjection]);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function loadWorkLog() {
-      if (!selectedSeed) {
-        setWorkLog(null);
-        return;
-      }
-      setWorkLogLoading(true);
-      try {
-        const payload = await getSoulWorkLog(selectedSeed.key, 5);
-        if (!cancelled) setWorkLog(payload);
-      } catch {
-        if (!cancelled) setWorkLog(null);
-      } finally {
-        if (!cancelled) setWorkLogLoading(false);
-      }
-    }
-    void loadWorkLog();
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedSeed]);
 
   useEffect(() => {
     if (selectedSoulKey) return;
@@ -944,9 +888,6 @@ export function PlaygroundView({ onReturnToWorkspace, embedded = false }: Playgr
           <strong>{world.title}</strong>
           <small>{world.summary}</small>
         </span>
-        <span className={styles.worldGateArrow} aria-hidden="true">
-          <ArrowRight size={18} />
-        </span>
       </button>
     );
   }
@@ -966,7 +907,6 @@ export function PlaygroundView({ onReturnToWorkspace, embedded = false }: Playgr
           <div className={styles.homeSummary}>
             <span><strong>当前世界</strong><em>{selectedWorld?.title || "未选择"}</em></span>
             <span><strong>当前灵魂</strong><em>{currentSoul?.name || "未点亮"}</em></span>
-            <span><strong>入口气质</strong><em>{worldLine(selectedWorld)}</em></span>
           </div>
         </header>
         <button className={styles.workspaceReturnButton} type="button" onClick={returnToWorkspace}>
@@ -1061,17 +1001,6 @@ export function PlaygroundView({ onReturnToWorkspace, embedded = false }: Playgr
             <span>角色模式</span>
             <strong>{selectedSeed?.name || "未选择灵魂"}</strong>
           </div>
-          <div className={styles.modeSheetBody}>
-            <section className={styles.modePanel}>
-              <div className={styles.sectionHead}><Feather size={16} /><span>背景故事</span></div>
-              <p>{selectedStory?.content || selectedSeed?.profile?.background || "这里会显示灵魂背景故事。"}</p>
-            </section>
-            <section className={styles.modePanel}>
-              <div className={styles.sectionHead}><Stars size={16} /><span>世界气象</span></div>
-              <p>{selectedWorldCopy.intro}</p>
-              <small>{selectedWorld?.content || "世界设定尚未展开。"}</small>
-            </section>
-          </div>
         </div>
       );
     }
@@ -1109,21 +1038,6 @@ export function PlaygroundView({ onReturnToWorkspace, embedded = false }: Playgr
             <section className={styles.modePanel}>
               <div className={styles.sectionHead}><WandSparkles size={16} /><span>工作指令</span></div>
               <p>{promptText(activeWorkPrompt)}</p>
-            </section>
-            <section className={styles.modePanel}>
-              <div className={styles.sectionHead}><History size={16} /><span>最近工作日志</span></div>
-              {workLogLoading ? <p>正在读取近期工作。</p> : null}
-              {!workLogLoading && workLog?.events?.length ? (
-                <div className={styles.logList}>
-                  {workLog.events.slice(0, 4).map((event) => (
-                    <span key={event.event_id}>
-                      <b>{event.title || event.task_id || "未命名记录"}</b>
-                      <small>{event.status || "unknown"} {shortDateTime(event.last_activity_at)}</small>
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-              {!workLogLoading && !workLog?.events?.length ? <p>最近没有可见工作记录。</p> : null}
             </section>
           </div>
         </div>
@@ -1319,24 +1233,6 @@ export function PlaygroundView({ onReturnToWorkspace, embedded = false }: Playgr
             </div>
           </section>
 
-          <section className={styles.realityLog}>
-            <div className={styles.realitySectionHead}>
-              <span>最近工作</span>
-              <strong>{currentSoul?.name ? `${currentSoul.name}的近期记录` : "近期记录"}</strong>
-            </div>
-            {workLogLoading ? <p>正在读取近期工作。</p> : null}
-            {!workLogLoading && workLog?.events?.length ? (
-              <div className={styles.realityLogList}>
-                {workLog.events.slice(0, 4).map((event) => (
-                  <span key={event.event_id}>
-                    <b>{event.title || event.task_id || "未命名记录"}</b>
-                    <small>{event.status || "unknown"} {shortDateTime(event.last_activity_at)}</small>
-                  </span>
-                ))}
-              </div>
-            ) : null}
-            {!workLogLoading && !workLog?.events?.length ? <p>最近没有可见工作记录。</p> : null}
-          </section>
         </main>
       </section>
     );
@@ -1365,10 +1261,6 @@ export function PlaygroundView({ onReturnToWorkspace, embedded = false }: Playgr
             <h2>{selectedWorld.title}</h2>
             <p>{selectedWorld.content}</p>
           </div>
-          <div className={styles.heroMeta}>
-            <span><Stars size={14} /> {selectedWorldCopy.portal}</span>
-            <span><BookOpenText size={14} /> {selectedWorld.summary}</span>
-          </div>
         </header>
         <div className={styles.worldBody}>
           <aside className={styles.worldRail}>
@@ -1385,23 +1277,7 @@ export function PlaygroundView({ onReturnToWorkspace, embedded = false }: Playgr
               <div className={styles.presenceTitle}>
                 <span>灵魂本体</span>
                 <strong>{selectedSeed?.name || "未选择灵魂"}</strong>
-                <p>{selectedStory?.summary || selectedCard?.description || selectedSeed?.profile?.description || "这里会显示灵魂的背景与本体。"}</p>
-              </div>
-              <div className={styles.presenceGrid}>
-                <section className={styles.storyPanel}>
-                  <div className={styles.sectionHead}><Feather size={16} /><span>背景故事</span></div>
-                  <p>{selectedStory?.content || selectedSeed?.profile?.background || "这里会显示灵魂背景故事。"}</p>
-                </section>
-                <section className={styles.storyPanel}>
-                  <div className={styles.sectionHead}><Orbit size={16} /><span>工作投影</span></div>
-                  <p>{activeProjectionPrompt}</p>
-                  <small>{activeProjectionLabel}</small>
-                </section>
-                <section className={styles.storyPanel}>
-                  <div className={styles.sectionHead}><PanelTop size={16} /><span>共同契约</span></div>
-                  <p>{promptText(activeContract).split("\n\n")[0]}</p>
-                  <small>{promptTitle(activeContract)}</small>
-                </section>
+                <p>{selectedCard?.description || selectedSeed?.profile?.description || "这里会显示灵魂的本体定位。"}</p>
               </div>
               <div className={styles.actionRow}>
                 {selectedSeed ? (
@@ -1427,21 +1303,6 @@ export function PlaygroundView({ onReturnToWorkspace, embedded = false }: Playgr
                 />
               </div>
             ) : null}
-            <div className={styles.logPanel}>
-              <div className={styles.sectionHead}><History size={16} /><span>最近工作日志</span></div>
-              {workLogLoading ? <p>正在读取近期工作。</p> : null}
-              {!workLogLoading && workLog?.events?.length ? (
-                <div className={styles.logList}>
-                  {workLog.events.slice(0, 4).map((event) => (
-                    <span key={event.event_id}>
-                      <b>{event.title || event.task_id || "未命名记录"}</b>
-                      <small>{event.status || "unknown"} {shortDateTime(event.last_activity_at)}</small>
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-              {!workLogLoading && !workLog?.events?.length ? <p>最近没有可见工作记录。</p> : null}
-            </div>
           </main>
         </div>
         <section className={styles.workline} aria-label="工作层">
