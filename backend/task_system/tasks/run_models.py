@@ -499,7 +499,12 @@ def task_run_terminal_status(terminal_reason: str) -> TaskRunLedgerStatus:
     reason = str(terminal_reason or "").strip()
     if reason == "completed":
         return "completed"
-    if reason in {"partially_completed", "partial_contract_failed", "tool_loop_budget_exceeded"}:
+    if reason in {
+        "partially_completed",
+        "partial_contract_failed",
+        "tool_loop_budget_exceeded",
+        "model_response_timeout_after_partial_output",
+    }:
         return "partially_completed"
     return "failed"
 

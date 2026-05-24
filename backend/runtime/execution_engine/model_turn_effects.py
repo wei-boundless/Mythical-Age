@@ -128,4 +128,8 @@ def answer_metadata_from_done_event(
         "answer_persist_policy": value("answer_persist_policy"),
         "answer_finalization_policy": value("answer_finalization_policy"),
         "answer_fallback_reason": value("answer_fallback_reason"),
+        "completion_state": value("completion_state"),
+        "terminal_reason": value("terminal_reason"),
+        "timeout_seconds": value("timeout_seconds"),
+        "partial_delta_count": value("partial_delta_count"),
     }

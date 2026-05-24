@@ -1131,15 +1131,46 @@
         "metadata": {}
       },
       "metadata": {
-        "worker_kind": "web_research",
-        "delegation_kind": "web_research",
+        "runtime_template_id": "builtin.specialist.web_researcher",
+        "runtime_config": {
+          "max_iterations": 4,
+          "runtime_kind": "search_agent",
+          "max_tool_calls": 14,
+          "stop_policy": "enough_evidence_or_budget_exhausted",
+          "template_id": "runtime.template.deepsearch",
+          "max_sources": 12,
+          "evidence_packet_required": true,
+          "runtime_mode": "deepsearch",
+          "search": {
+            "runtime_mode": "deepsearch",
+            "allow_fetch_url": true,
+            "evidence_packet_required": true,
+            "search_sources": [
+              "web"
+            ],
+            "include_raw_content": false,
+            "search_depth": "advanced",
+            "max_iterations": 4,
+            "max_sources": 12,
+            "stop_policy": "enough_evidence_or_budget_exhausted",
+            "max_queries": 6,
+            "allow_local_files": false,
+            "prefer_primary_sources": true,
+            "web_provider": "tavily",
+            "max_fetches": 8,
+            "allow_memory_read": false,
+            "freshness_required_by_default": false
+          }
+        },
         "delegation_kinds": [
           "web_research",
           "external_web_lookup",
           "current_information_lookup",
           "official_source_lookup"
         ],
-        "runtime_template_id": "builtin.specialist.web_researcher"
+        "delegation_kind": "web_research",
+        "worker_kind": "web_research",
+        "managed_by": "orchestration_console"
       },
       "runtime_template_id": "builtin.specialist.web_researcher",
       "runtime_mode_catalog": [

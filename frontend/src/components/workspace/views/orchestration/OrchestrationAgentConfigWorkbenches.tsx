@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, BrainCircuit, CheckCircle2, Database, GitBranch, Info, KeyRound, SearchCheck, ShieldCheck, XCircle } from "lucide-react";
+import { AlertTriangle, BrainCircuit, CheckCircle2, Database, GitBranch, Info, KeyRound, Save, Settings2, ShieldCheck, XCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import {
@@ -167,12 +167,49 @@ const DEFAULT_SEARCH_RUNTIME_CONFIG: SearchRuntimeConfig = {
   stop_policy: "enough_evidence_or_budget_exhausted",
 };
 
-const SEARCH_RUNTIME_REQUIRED_OPERATIONS = ["op.model_response", "op.web_search", "op.fetch_url"];
+type GenericRuntimeConfig = {
+  template_id: string;
+  runtime_kind: string;
+  runtime_mode: string;
+  max_iterations: number;
+  max_tool_calls: number;
+  max_sources: number;
+  evidence_packet_required: boolean;
+  stop_policy: string;
+  search?: SearchRuntimeConfig;
+};
+
+const DEFAULT_GENERIC_RUNTIME_CONFIG: GenericRuntimeConfig = {
+  template_id: "runtime.template.general_agent",
+  runtime_kind: "agent_loop",
+  runtime_mode: "standard",
+  max_iterations: 4,
+  max_tool_calls: 12,
+  max_sources: 12,
+  evidence_packet_required: false,
+  stop_policy: "task_complete_or_budget_exhausted",
+};
+
+const DEEPSEARCH_RUNTIME_TEMPLATE: GenericRuntimeConfig = {
+  ...DEFAULT_GENERIC_RUNTIME_CONFIG,
+  template_id: "runtime.template.deepsearch",
+  runtime_kind: "search_agent",
+  runtime_mode: "deepsearch",
+  max_iterations: DEFAULT_SEARCH_RUNTIME_CONFIG.max_iterations,
+  max_tool_calls: DEFAULT_SEARCH_RUNTIME_CONFIG.max_queries + DEFAULT_SEARCH_RUNTIME_CONFIG.max_fetches,
+  max_sources: DEFAULT_SEARCH_RUNTIME_CONFIG.max_sources,
+  evidence_packet_required: true,
+  stop_policy: DEFAULT_SEARCH_RUNTIME_CONFIG.stop_policy,
+  search: DEFAULT_SEARCH_RUNTIME_CONFIG,
+};
+
+const BASE_SEARCH_RUNTIME_OPERATIONS = ["op.model_response", "op.web_search"];
+const SEARCH_RUNTIME_FETCH_OPERATIONS = ["op.fetch_url"];
 const SEARCH_RUNTIME_LOCAL_OPERATIONS = ["op.search_files", "op.search_text", "op.read_file"];
 const SEARCH_RUNTIME_MEMORY_OPERATIONS = ["op.memory_read"];
 
-function searchRuntimeConfigFrom(metadata: Record<string, unknown> | undefined): SearchRuntimeConfig {
-  const raw = asRecord(metadata?.search_runtime);
+function searchRuntimeConfigFrom(value: unknown): SearchRuntimeConfig {
+  const raw = asRecord(value);
   const runtimeMode = String(raw.runtime_mode || DEFAULT_SEARCH_RUNTIME_CONFIG.runtime_mode);
   const searchDepth = String(raw.search_depth || DEFAULT_SEARCH_RUNTIME_CONFIG.search_depth);
   return {
@@ -197,12 +234,54 @@ function searchRuntimeConfigFrom(metadata: Record<string, unknown> | undefined):
   };
 }
 
+function runtimeConfigFrom(metadata: Record<string, unknown> | undefined): GenericRuntimeConfig {
+  const raw = asRecord(metadata?.runtime_config);
+  const nestedSearch = raw.search ? searchRuntimeConfigFrom(raw.search) : undefined;
+  const derivedToolCallBudget = (nestedSearch?.max_queries ?? 0) + (nestedSearch?.max_fetches ?? 0);
+  return {
+    ...DEFAULT_GENERIC_RUNTIME_CONFIG,
+    ...raw,
+    template_id: String(raw.template_id || (nestedSearch ? DEEPSEARCH_RUNTIME_TEMPLATE.template_id : DEFAULT_GENERIC_RUNTIME_CONFIG.template_id)),
+    runtime_kind: String(raw.runtime_kind || (nestedSearch ? "search_agent" : DEFAULT_GENERIC_RUNTIME_CONFIG.runtime_kind)),
+    runtime_mode: String(raw.runtime_mode || (nestedSearch ? "deepsearch" : DEFAULT_GENERIC_RUNTIME_CONFIG.runtime_mode)),
+    max_iterations: Math.max(1, Math.min(30, Number(raw.max_iterations ?? nestedSearch?.max_iterations ?? DEFAULT_GENERIC_RUNTIME_CONFIG.max_iterations))),
+    max_tool_calls: Math.max(1, Math.min(100, Number(raw.max_tool_calls ?? (derivedToolCallBudget || DEFAULT_GENERIC_RUNTIME_CONFIG.max_tool_calls)))),
+    max_sources: Math.max(1, Math.min(100, Number(raw.max_sources ?? nestedSearch?.max_sources ?? DEFAULT_GENERIC_RUNTIME_CONFIG.max_sources))),
+    evidence_packet_required: Boolean(raw.evidence_packet_required ?? nestedSearch?.evidence_packet_required ?? DEFAULT_GENERIC_RUNTIME_CONFIG.evidence_packet_required),
+    stop_policy: String(raw.stop_policy || nestedSearch?.stop_policy || DEFAULT_GENERIC_RUNTIME_CONFIG.stop_policy),
+    ...(nestedSearch ? { search: nestedSearch } : {}),
+  };
+}
+
 function operationsForSearchRuntime(config: SearchRuntimeConfig) {
   return dedupe([
-    ...SEARCH_RUNTIME_REQUIRED_OPERATIONS,
+    ...BASE_SEARCH_RUNTIME_OPERATIONS,
+    ...(config.allow_fetch_url && config.max_fetches > 0 ? SEARCH_RUNTIME_FETCH_OPERATIONS : []),
     ...(config.allow_local_files ? SEARCH_RUNTIME_LOCAL_OPERATIONS : []),
     ...(config.allow_memory_read ? SEARCH_RUNTIME_MEMORY_OPERATIONS : []),
   ]);
+}
+
+function runtimeTemplateRuntimeKind(templateId: string) {
+  if (templateId === DEEPSEARCH_RUNTIME_TEMPLATE.template_id) return DEEPSEARCH_RUNTIME_TEMPLATE.runtime_kind;
+  return DEFAULT_GENERIC_RUNTIME_CONFIG.runtime_kind;
+}
+
+function runtimeTemplateModes(templateId: string) {
+  if (templateId === DEEPSEARCH_RUNTIME_TEMPLATE.template_id) return ["deepsearch", "single_search"];
+  return ["standard"];
+}
+
+function validRuntimeModeForTemplate(templateId: string, runtimeMode: string) {
+  const modes = runtimeTemplateModes(templateId);
+  return modes.includes(runtimeMode) ? runtimeMode : modes[0];
+}
+
+function runtimeTemplateIssue(config: GenericRuntimeConfig) {
+  const expectedKind = runtimeTemplateRuntimeKind(config.template_id);
+  if (config.runtime_kind !== expectedKind) return `模板要求 Runtime Kind 为 ${expectedKind}`;
+  if (!runtimeTemplateModes(config.template_id).includes(config.runtime_mode)) return `模板不支持 Runtime Mode ${config.runtime_mode}`;
+  return "";
 }
 
 function nextSearchSources(config: SearchRuntimeConfig) {
@@ -942,6 +1021,273 @@ export function OrchestrationContextMemoryWorkbench({
           <p><span>写入治理</span><strong>{hasSessionMaintenance || hasDurableCandidate ? "由记忆管理 Agent 接管" : "当前未开放写入"}</strong></p>
         </div>
       </aside>
+    </section>
+  );
+}
+
+export function OrchestrationRuntimeConfigWorkbench({
+  runtimeDraft,
+  patchRuntimeDraft,
+  displayId,
+  runtimeSaveBlocked,
+  saveRuntimeProfile,
+  saving,
+}: {
+  runtimeDraft: RuntimeDraftLike;
+  patchRuntimeDraft: (patch: Partial<RuntimeDraftLike>) => void;
+  displayId: (value: unknown, fallback?: string) => string;
+  runtimeSaveBlocked: boolean;
+  saveRuntimeProfile: () => Promise<void>;
+  saving: "" | "agent" | "runtime" | "group" | "create" | "delete";
+}) {
+  const metadata = asRecord(runtimeDraft.metadata);
+  const runtimeConfig = runtimeConfigFrom(metadata);
+  const config = runtimeConfig.search ?? DEFAULT_SEARCH_RUNTIME_CONFIG;
+  const isSearchTemplate = runtimeConfig.runtime_kind === "search_agent" || runtimeConfig.template_id === DEEPSEARCH_RUNTIME_TEMPLATE.template_id;
+  const allowedOps = dedupe(runtimeDraft.allowed_operations ?? []);
+  const blockedOps = dedupe(runtimeDraft.blocked_operations ?? []);
+  const requiredOps = isSearchTemplate ? operationsForSearchRuntime(config) : ["op.model_response"];
+  const missingOps = requiredOps.filter((operation) => !allowedOps.includes(operation));
+  const blockedRequiredOps = requiredOps.filter((operation) => blockedOps.includes(operation));
+  const templateIssue = runtimeTemplateIssue(runtimeConfig);
+  const localEnabled = config.allow_local_files;
+  const memoryEnabled = config.allow_memory_read;
+
+  function writeRuntimeConfig(nextConfig: GenericRuntimeConfig) {
+    patchRuntimeDraft({
+      metadata: {
+        ...metadata,
+        runtime_config: nextConfig,
+        managed_by: String(metadata.managed_by || "orchestration_console"),
+      },
+    });
+  }
+
+  function patchRuntimeConfig(patch: Partial<GenericRuntimeConfig>) {
+    const nextTemplateId = String(patch.template_id ?? runtimeConfig.template_id);
+    const nextRuntimeMode = String(patch.runtime_mode ?? runtimeConfig.runtime_mode);
+    writeRuntimeConfig({
+      ...runtimeConfig,
+      ...patch,
+      runtime_kind: runtimeTemplateRuntimeKind(nextTemplateId),
+      runtime_mode: validRuntimeModeForTemplate(nextTemplateId, nextRuntimeMode),
+    });
+  }
+
+  function patchSearchRuntime(patch: Partial<SearchRuntimeConfig>) {
+    const nextConfig = {
+      ...config,
+      ...patch,
+    };
+    nextConfig.search_sources = nextSearchSources(nextConfig);
+    writeRuntimeConfig({
+      ...runtimeConfig,
+      template_id: runtimeConfig.template_id === DEFAULT_GENERIC_RUNTIME_CONFIG.template_id ? DEEPSEARCH_RUNTIME_TEMPLATE.template_id : runtimeConfig.template_id,
+      runtime_kind: "search_agent",
+      runtime_mode: nextConfig.runtime_mode,
+      max_iterations: nextConfig.max_iterations,
+      max_tool_calls: nextConfig.max_queries + nextConfig.max_fetches,
+      max_sources: nextConfig.max_sources,
+      evidence_packet_required: nextConfig.evidence_packet_required,
+      stop_policy: nextConfig.stop_policy,
+      search: nextConfig,
+    });
+  }
+
+  function applyPermissionPreset() {
+    const nextRequiredOps = isSearchTemplate ? operationsForSearchRuntime(config) : ["op.model_response"];
+    patchRuntimeDraft({
+      allowed_operations: dedupe([...allowedOps, ...nextRequiredOps]),
+      blocked_operations: dedupe(blockedOps.filter((operation) => !nextRequiredOps.includes(operation))),
+      metadata: {
+        ...metadata,
+        runtime_config: runtimeConfig,
+        managed_by: String(metadata.managed_by || "orchestration_console"),
+      },
+    });
+  }
+
+  function applyRuntimeTemplate(templateId: string) {
+    if (templateId === DEEPSEARCH_RUNTIME_TEMPLATE.template_id) {
+      writeRuntimeConfig(DEEPSEARCH_RUNTIME_TEMPLATE);
+      return;
+    }
+    writeRuntimeConfig({
+      ...DEFAULT_GENERIC_RUNTIME_CONFIG,
+      template_id: templateId,
+    });
+  }
+
+  return (
+    <section className="boundary-layer-grid boundary-layer-grid--wide">
+      <div className="boundary-card">
+        <header>
+          <strong>通用运行配置</strong>
+          <OrchestrationBadge tone={isSearchTemplate ? "ok" : "neutral"}>
+            {runtimeConfig.template_id}
+          </OrchestrationBadge>
+        </header>
+        <div className="orchestration-identity-note">
+          <span>配置落点：AgentRuntimeProfile.metadata.runtime_config。</span>
+          <strong>这里管理通用 runtime config；Search Agent、Verifier、Writer 后续都从同一份配置装配，不再做专用旁路。</strong>
+        </div>
+        <div className="boundary-form">
+          <OrchestrationField label="运行模板">
+            <select value={runtimeConfig.template_id} onChange={(event) => applyRuntimeTemplate(event.target.value)}>
+              <option value="runtime.template.general_agent">通用 Agent Loop</option>
+              <option value="runtime.template.deepsearch">DeepSearch Search Agent</option>
+            </select>
+          </OrchestrationField>
+          <OrchestrationField label="Runtime Kind">
+            <select value={runtimeConfig.runtime_kind} onChange={() => patchRuntimeConfig({ runtime_kind: runtimeTemplateRuntimeKind(runtimeConfig.template_id) })}>
+              <option value={runtimeTemplateRuntimeKind(runtimeConfig.template_id)}>{runtimeTemplateRuntimeKind(runtimeConfig.template_id)}</option>
+            </select>
+          </OrchestrationField>
+          <OrchestrationField label="Runtime Mode">
+            <select value={validRuntimeModeForTemplate(runtimeConfig.template_id, runtimeConfig.runtime_mode)} onChange={(event) => patchRuntimeConfig({ runtime_mode: event.target.value })}>
+              {runtimeTemplateModes(runtimeConfig.template_id).map((mode) => (
+                <option key={mode} value={mode}>{mode}</option>
+              ))}
+            </select>
+          </OrchestrationField>
+          <OrchestrationField label="最大迭代">
+            <input min={1} max={30} type="number" value={runtimeConfig.max_iterations} onChange={(event) => patchRuntimeConfig({ max_iterations: Number(event.target.value || DEFAULT_GENERIC_RUNTIME_CONFIG.max_iterations) })} />
+          </OrchestrationField>
+          <OrchestrationField label="最大工具调用">
+            <input min={1} max={100} type="number" value={runtimeConfig.max_tool_calls} onChange={(event) => patchRuntimeConfig({ max_tool_calls: Number(event.target.value || DEFAULT_GENERIC_RUNTIME_CONFIG.max_tool_calls) })} />
+          </OrchestrationField>
+          <OrchestrationField label="最大来源">
+            <input min={1} max={100} type="number" value={runtimeConfig.max_sources} onChange={(event) => patchRuntimeConfig({ max_sources: Number(event.target.value || DEFAULT_GENERIC_RUNTIME_CONFIG.max_sources) })} />
+          </OrchestrationField>
+          <OrchestrationField label="停止策略" wide>
+            <input value={runtimeConfig.stop_policy} onChange={(event) => patchRuntimeConfig({ stop_policy: event.target.value })} />
+          </OrchestrationField>
+          <label className="boundary-check">
+            <input checked={runtimeConfig.evidence_packet_required} onChange={(event) => patchRuntimeConfig({ evidence_packet_required: event.target.checked })} type="checkbox" />
+            必须输出证据包
+          </label>
+        </div>
+        {isSearchTemplate ? (
+          <>
+        <div className="orchestration-identity-note">
+          <span>模板参数：DeepSearch</span>
+          <strong>以下字段是通用 runtime_config.search 的结构化编辑，不是单独的 Search 专用配置页。</strong>
+        </div>
+        <div className="boundary-form">
+          <OrchestrationField label="运行模式">
+            <select value={config.runtime_mode} onChange={(event) => patchSearchRuntime({ runtime_mode: event.target.value === "single_search" ? "single_search" : "deepsearch" })}>
+              <option value="deepsearch">DeepSearch 多轮研究</option>
+              <option value="single_search">单次搜索</option>
+            </select>
+          </OrchestrationField>
+          <OrchestrationField label="Web Provider">
+            <select value={config.web_provider} onChange={(event) => patchSearchRuntime({ web_provider: event.target.value })}>
+              <option value="tavily">Tavily</option>
+            </select>
+          </OrchestrationField>
+          <OrchestrationField label="搜索深度">
+            <select value={config.search_depth} onChange={(event) => patchSearchRuntime({ search_depth: event.target.value === "basic" ? "basic" : "advanced" })}>
+              <option value="advanced">advanced</option>
+              <option value="basic">basic</option>
+            </select>
+          </OrchestrationField>
+          <OrchestrationField label="最大轮次">
+            <input min={1} max={12} type="number" value={config.max_iterations} onChange={(event) => patchSearchRuntime({ max_iterations: Number(event.target.value || DEFAULT_SEARCH_RUNTIME_CONFIG.max_iterations) })} />
+          </OrchestrationField>
+          <OrchestrationField label="最大查询数">
+            <input min={1} max={30} type="number" value={config.max_queries} onChange={(event) => patchSearchRuntime({ max_queries: Number(event.target.value || DEFAULT_SEARCH_RUNTIME_CONFIG.max_queries) })} />
+          </OrchestrationField>
+          <OrchestrationField label="最大抓取数">
+            <input min={0} max={40} type="number" value={config.max_fetches} onChange={(event) => patchSearchRuntime({ max_fetches: Number(event.target.value || DEFAULT_SEARCH_RUNTIME_CONFIG.max_fetches) })} />
+          </OrchestrationField>
+          <OrchestrationField label="最大来源数">
+            <input min={1} max={60} type="number" value={config.max_sources} onChange={(event) => patchSearchRuntime({ max_sources: Number(event.target.value || DEFAULT_SEARCH_RUNTIME_CONFIG.max_sources) })} />
+          </OrchestrationField>
+          <OrchestrationField label="停止策略" wide>
+            <select value={config.stop_policy} onChange={(event) => patchSearchRuntime({ stop_policy: event.target.value })}>
+              <option value="enough_evidence_or_budget_exhausted">证据足够或预算耗尽</option>
+              <option value="budget_exhausted_only">只按预算停止</option>
+              <option value="first_primary_source">找到首个一手来源后停止</option>
+            </select>
+          </OrchestrationField>
+          <label className="boundary-check">
+            <input checked={config.allow_fetch_url} onChange={(event) => patchSearchRuntime({ allow_fetch_url: event.target.checked })} type="checkbox" />
+            允许抓取搜索结果 URL
+          </label>
+          <label className="boundary-check">
+            <input checked={config.include_raw_content} onChange={(event) => patchSearchRuntime({ include_raw_content: event.target.checked })} type="checkbox" />
+            请求原文内容
+          </label>
+          <label className="boundary-check">
+            <input checked={config.prefer_primary_sources} onChange={(event) => patchSearchRuntime({ prefer_primary_sources: event.target.checked })} type="checkbox" />
+            优先一手 / 官方来源
+          </label>
+          <label className="boundary-check">
+            <input checked={config.freshness_required_by_default} onChange={(event) => patchSearchRuntime({ freshness_required_by_default: event.target.checked })} type="checkbox" />
+            默认要求时效核验
+          </label>
+          <label className="boundary-check">
+            <input checked={localEnabled} onChange={(event) => patchSearchRuntime({ allow_local_files: event.target.checked })} type="checkbox" />
+            允许本地文件搜索
+          </label>
+          <label className="boundary-check">
+            <input checked={memoryEnabled} onChange={(event) => patchSearchRuntime({ allow_memory_read: event.target.checked })} type="checkbox" />
+            允许记忆读取
+          </label>
+          <label className="boundary-check">
+            <input checked={config.evidence_packet_required} onChange={(event) => patchSearchRuntime({ evidence_packet_required: event.target.checked })} type="checkbox" />
+            必须输出 AgentEvidencePacket
+          </label>
+        </div>
+          </>
+        ) : null}
+        <div className="boundary-actions">
+          <button onClick={applyPermissionPreset} type="button"><CheckCircle2 size={14} />应用模板权限预设</button>
+          <button disabled={saving === "runtime" || runtimeSaveBlocked} onClick={() => void saveRuntimeProfile()} type="button">
+            <Save size={14} />{saving === "runtime" ? "保存中" : "保存运行档案"}
+          </button>
+          <button onClick={() => applyRuntimeTemplate(DEFAULT_GENERIC_RUNTIME_CONFIG.template_id)} type="button"><Settings2 size={14} />切换通用模板</button>
+        </div>
+      </div>
+
+      <aside className="boundary-card">
+        <header>
+          <strong>权限与生效诊断</strong>
+          <OrchestrationBadge tone={!missingOps.length && !blockedRequiredOps.length ? "ok" : "warn"}>
+            {!missingOps.length && !blockedRequiredOps.length ? "权限齐备" : "需调整"}
+          </OrchestrationBadge>
+        </header>
+        {isSearchTemplate ? <div className="boundary-readiness-list boundary-readiness-list--grid">
+          <OrchestrationReadinessCard label="Web Search" ready={allowedOps.includes("op.web_search") && !blockedOps.includes("op.web_search")} value={allowedOps.includes("op.web_search") ? "已允许" : "未允许"} />
+          <OrchestrationReadinessCard label="Fetch URL" ready={!config.allow_fetch_url || config.max_fetches <= 0 || (allowedOps.includes("op.fetch_url") && !blockedOps.includes("op.fetch_url"))} value={config.allow_fetch_url && config.max_fetches > 0 ? "需要" : "未启用"} />
+          <OrchestrationReadinessCard label="Local Files" ready={!localEnabled || SEARCH_RUNTIME_LOCAL_OPERATIONS.every((operation) => allowedOps.includes(operation) && !blockedOps.includes(operation))} value={localEnabled ? "需要权限" : "未启用"} />
+          <OrchestrationReadinessCard label="Memory Read" ready={!memoryEnabled || SEARCH_RUNTIME_MEMORY_OPERATIONS.every((operation) => allowedOps.includes(operation) && !blockedOps.includes(operation))} value={memoryEnabled ? "需要权限" : "未启用"} />
+        </div> : null}
+        <div className="boundary-kv">
+          <p><span>模板</span><strong>{runtimeConfig.template_id}</strong></p>
+          <p><span>类型</span><strong>{runtimeConfig.runtime_kind}</strong></p>
+          {isSearchTemplate ? <p><span>搜索源</span><strong>{config.search_sources.join(" / ")}</strong></p> : null}
+          <p><span>所需操作</span><strong>{requiredOps.map((operation) => displayId(operation)).join(" / ")}</strong></p>
+          <p><span>缺失操作</span><strong>{missingOps.length ? missingOps.join(" / ") : "无"}</strong></p>
+          <p><span>被阻断操作</span><strong>{blockedRequiredOps.length ? blockedRequiredOps.join(" / ") : "无"}</strong></p>
+          <p><span>模板约束</span><strong>{templateIssue || "通过"}</strong></p>
+          <p><span>预算</span><strong>{runtimeConfig.max_iterations} 迭代 / {runtimeConfig.max_tool_calls} 工具调用 / {runtimeConfig.max_sources} 来源</strong></p>
+        </div>
+        <div className={missingOps.length || blockedRequiredOps.length || templateIssue ? "boundary-notice boundary-notice--error" : "boundary-notice"}>
+          {missingOps.length || blockedRequiredOps.length || templateIssue ? <AlertTriangle size={16} /> : <Info size={16} />}
+          {templateIssue
+            ? "当前 runtime_config 与模板约束不一致，请重新选择运行模板或 Runtime Mode。"
+            : missingOps.length || blockedRequiredOps.length
+            ? "当前配置可以保存，但权限未齐备。请应用模板权限预设后保存运行档案。"
+            : "配置必须点击保存运行档案后才会生效；运行时读取 metadata.runtime_config 装配。"}
+        </div>
+        <div className="boundary-actions">
+          <button disabled={saving === "runtime" || runtimeSaveBlocked} onClick={() => void saveRuntimeProfile()} type="button">
+            <Save size={14} />{saving === "runtime" ? "保存中" : "保存运行档案"}
+          </button>
+        </div>
+      </aside>
+
     </section>
   );
 }

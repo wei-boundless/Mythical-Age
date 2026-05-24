@@ -67,10 +67,11 @@ class ModelResponseRuntimeExecutor:
             policy=stream_policy,
         )
         delta_index = 0
+        raw_content = ""
+        partial_timeout_metadata: dict[str, Any] = {}
         response: Any = None
         try:
             if stream_enabled and tools and callable(tool_streamer):
-                raw_content = ""
                 aggregated_chunk = None
                 async for chunk in _iterate_stream_with_hard_timeout(
                     _call_streamer_with_optional_model_spec(
@@ -99,7 +100,6 @@ class ModelResponseRuntimeExecutor:
                         }
                 response = aggregated_chunk if aggregated_chunk is not None else raw_content
             elif stream_enabled:
-                raw_content = ""
                 async for chunk in _iterate_stream_with_hard_timeout(
                     _call_streamer_with_optional_model_spec(
                         self.model_runtime.astream_messages,
@@ -285,19 +285,35 @@ class ModelResponseRuntimeExecutor:
                 }
                 return
         except asyncio.TimeoutError:
-            yield {
-                "type": "error",
-                "error": "model_response_timeout",
-                "content": "模型响应超过节点执行时限，本节点未产出有效结果，请从当前节点断点重跑。",
-                "code": "timeout",
-                "provider": str(getattr(model_spec, "provider", "") or ""),
-                "model": str(getattr(model_spec, "model", "") or ""),
-                "detail": f"model response exceeded {response_timeout_seconds:g}s",
-                "timeout_seconds": response_timeout_seconds,
-                "answer_channel": "orchestration_fail_closed",
-                "answer_source": "runtime_directive_executor",
-            }
-            return
+            if stream_enabled and raw_content.strip():
+                response = raw_content
+                partial_timeout_metadata = {
+                    "completion_state": "partial_timeout",
+                    "terminal_reason": "model_response_timeout_after_partial_output",
+                    "timeout_seconds": response_timeout_seconds,
+                    "partial_delta_count": delta_index,
+                    "provider": str(getattr(model_spec, "provider", "") or ""),
+                    "model": str(getattr(model_spec, "model", "") or ""),
+                    "detail": f"model response exceeded {response_timeout_seconds:g}s after partial output",
+                    "answer_canonical_state": "partial_timeout",
+                    "answer_persist_policy": "persist_canonical",
+                    "answer_finalization_policy": "partial_output_committed",
+                    "answer_fallback_reason": "model_response_timeout_after_partial_output",
+                }
+            else:
+                yield {
+                    "type": "error",
+                    "error": "model_response_timeout",
+                    "content": "模型响应超过节点执行时限，本节点未产出有效结果，请从当前节点断点重跑。",
+                    "code": "timeout",
+                    "provider": str(getattr(model_spec, "provider", "") or ""),
+                    "model": str(getattr(model_spec, "model", "") or ""),
+                    "detail": f"model response exceeded {response_timeout_seconds:g}s",
+                    "timeout_seconds": response_timeout_seconds,
+                    "answer_channel": "orchestration_fail_closed",
+                    "answer_source": "runtime_directive_executor",
+                }
+                return
         except Exception as exc:
             yield {
                 "type": "error",
@@ -422,6 +438,7 @@ class ModelResponseRuntimeExecutor:
             "content": content,
             "source": "runtime_directive:model_response",
             "directive_ref": directive.directive_id,
+            **partial_timeout_metadata,
         }
         yield {
             "type": "output_boundary",
@@ -448,13 +465,14 @@ class ModelResponseRuntimeExecutor:
             "task_summary_refs": [],
             "answer_channel": output_response.selected_channel,
             "answer_source": "runtime_directive:model_response",
-            "answer_canonical_state": output_response.canonical_state,
-            "answer_persist_policy": output_response.persist_policy,
-            "answer_finalization_policy": output_response.finalization_policy,
-            "answer_fallback_reason": output_response.fallback_reason,
+            "answer_canonical_state": str(partial_timeout_metadata.get("answer_canonical_state") or output_response.canonical_state),
+            "answer_persist_policy": str(partial_timeout_metadata.get("answer_persist_policy") or output_response.persist_policy),
+            "answer_finalization_policy": str(partial_timeout_metadata.get("answer_finalization_policy") or output_response.finalization_policy),
+            "answer_fallback_reason": str(partial_timeout_metadata.get("answer_fallback_reason") or output_response.fallback_reason),
             "answer_leak_flags": list(output_response.leak_flags),
-            "persist_policy": "commit_gate_blocked",
+            "persist_policy": "partial_timeout" if partial_timeout_metadata else "commit_gate_blocked",
             "commit_gate": runtime_commit_gate.to_dict(),
+            **partial_timeout_metadata,
         }
 
     def _operation_id_for_tool(self, tool_name: str) -> str:

@@ -320,11 +320,6 @@ function toolRequestProjection(eventType: string, payload: Record<string, unknow
       eventId: eventMeta.eventId,
       createdAt: eventMeta.createdAt,
       startedAt: eventMeta.createdAt,
-      meta: compactMeta([
-        metaItem("工具", toolName),
-        metaItem("请求", actionRequest.request_id, { shorten: true }),
-        metaItem("操作", actionRequest.operation_id || eventMeta.payload.operation_id, { shorten: true }),
-      ]),
     }),
   };
 }
@@ -356,10 +351,7 @@ function toolResultProjection(eventType: string, payload: Record<string, unknown
       createdAt: eventMeta.createdAt,
       completedAt: eventMeta.createdAt,
       meta: compactMeta([
-        metaItem("工具", toolName),
         metaItem("结果字符", resultChars),
-        metaItem("观察", observation.observation_id, { shorten: true }),
-        metaItem("执行", observationPayload.execution_id, { shorten: true }),
       ]),
       artifacts: toolResultArtifacts(payload),
     }),
@@ -371,26 +363,24 @@ function operationGateProjection(eventType: string, payload: Record<string, unkn
   const allowed = gate.allowed === true;
   const requiresApproval = gate.requires_approval === true || text(gate.decision).includes("approval");
   const level: SessionActivityLevel = requiresApproval ? "waiting" : allowed ? "running" : "warning";
-  const title = requiresApproval ? "等待操作批准" : "检查操作权限";
-  const detail = text(gate.reason) || (allowed ? "操作权限检查通过" : "操作未被直接放行");
+  const title = requiresApproval ? "等待确认" : "准备执行";
+  const detail = requiresApproval ? "需要你确认后才能继续执行。" : (allowed ? "执行条件已就绪。" : "当前执行受限。");
   return {
     stageStatus: title,
     activityTitle: title,
     activityDetail: detail,
     level,
-    progressEntry: entry(eventType, title, {
-      body: detail,
-      level,
-      kind: "permission",
-      statusText: requiresApproval ? "等待批准" : allowed ? "已放行" : "受限",
-      taskRunId: eventMeta.taskRunId,
-      eventId: eventMeta.eventId,
-      createdAt: eventMeta.createdAt,
-      meta: compactMeta([
-        metaItem("操作", gate.operation_id, { shorten: true }),
-        metaItem("决策", gate.decision),
-      ]),
-    }),
+    progressEntry: requiresApproval
+      ? entry(eventType, "等待确认", {
+          body: detail,
+          level,
+          kind: "stage",
+          statusText: "等待",
+          taskRunId: eventMeta.taskRunId,
+          eventId: eventMeta.eventId,
+          createdAt: eventMeta.createdAt,
+        })
+      : undefined,
   };
 }
 
@@ -484,7 +474,7 @@ export function projectRuntimeLoopEvent(data: Record<string, unknown>): RuntimeV
     },
     professional_run_session_updated: { title: "更新专业任务会话" },
     runtime_directive_issued: { title: "准备执行", kind: "stage", statusText: "已下发" },
-    approval_waiting: { title: "等待批准", level: "waiting", kind: "permission", statusText: "等待批准" },
+    approval_waiting: { title: "等待确认", level: "waiting", kind: "stage", statusText: "等待" },
     recovery_attempted: { title: "尝试纠错", level: "warning" },
     loop_error: { title: "运行出错", level: "error", body: text(payload.error), kind: "terminal", statusText: "失败" },
   };
@@ -493,7 +483,6 @@ export function projectRuntimeLoopEvent(data: Record<string, unknown>): RuntimeV
   const shouldShowProgress = eventType.startsWith("professional_")
     || eventType === "recovery_attempted"
     || eventType === "approval_waiting"
-    || eventType === "runtime_directive_issued"
     || eventType === "loop_error";
   return {
     stageStatus: projected.title,
@@ -552,8 +541,6 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
     const projection = projectionFromTaskOrderStream(data);
     const order = record(projection.task_order);
     const run = record(projection.task_order_run);
-    const channel = record(projection.execution_channel);
-    const envelope = record(projection.task_execution_envelope);
     const body = [
       text(order.objective),
       text(order.order_kind) ? `类型：${text(order.order_kind)}` : "",
@@ -575,10 +562,6 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
         meta: compactMeta([
           metaItem("类型", order.order_kind),
           metaItem("任务", order.task_id, { shorten: true }),
-          metaItem("订单", order.order_id, { shorten: true }),
-          metaItem("运行", run.run_id, { shorten: true }),
-          metaItem("通道", channel.channel_id, { shorten: true }),
-          metaItem("信封", envelope.envelope_id, { shorten: true }),
         ]),
       }),
     };
@@ -587,17 +570,18 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
     return projectRuntimeLoopEvent(data);
   }
   if (event === "done") {
+    const partialTimeout = text(data.completion_state) === "partial_timeout";
     return {
-      stageStatus: "完成",
-      activityTitle: "完成",
-      activityDetail: "回答已生成并写回会话",
-      level: "success",
+      stageStatus: partialTimeout ? "部分完成" : "完成",
+      activityTitle: partialTimeout ? "已生成部分内容" : "完成",
+      activityDetail: partialTimeout ? "模型结束信号超时，当前内容已保留。" : "回答已生成并写回会话",
+      level: partialTimeout ? "warning" : "success",
       terminalEvent: "done",
-      progressEntry: entry("done", "会话输出完成", {
-        body: text(data.receipt_summary ?? data.summary ?? data.answer_source) || "回答已生成并写回会话",
-        level: "success",
+      progressEntry: entry("done", partialTimeout ? "会话输出部分完成" : "会话输出完成", {
+        body: partialTimeout ? "模型结束信号超时，当前内容已保留。" : text(data.receipt_summary ?? data.summary ?? data.answer_source) || "回答已生成并写回会话",
+        level: partialTimeout ? "warning" : "success",
         kind: "terminal",
-        statusText: "完成",
+        statusText: partialTimeout ? "部分完成" : "完成",
         createdAt: Date.now(),
         completedAt: Date.now(),
         artifacts: artifactsFromMixed(data.artifacts ?? data.files ?? data.paths),

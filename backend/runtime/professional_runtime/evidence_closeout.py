@@ -724,4 +724,8 @@ def _answer_metadata_from_done_event(event: dict[str, Any]) -> dict[str, Any]:
         "answer_persist_policy": str(event.get("answer_persist_policy") or ""),
         "answer_finalization_policy": str(event.get("answer_finalization_policy") or ""),
         "answer_fallback_reason": str(event.get("answer_fallback_reason") or ""),
+        "completion_state": str(event.get("completion_state") or ""),
+        "terminal_reason": str(event.get("terminal_reason") or ""),
+        "timeout_seconds": str(event.get("timeout_seconds") or ""),
+        "partial_delta_count": str(event.get("partial_delta_count") or ""),
     }

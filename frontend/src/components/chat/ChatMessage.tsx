@@ -45,6 +45,7 @@ export function ChatMessage({
   const assistantMark = assistantName.slice(0, 1) || "灵";
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(content);
+  const showStageStatus = !isUser && stageStatus && !runtimeProgress.length;
 
   return (
     <article
@@ -78,7 +79,7 @@ export function ChatMessage({
           </button>
         ) : null}
       </div>
-      {!isUser && stageStatus ? (
+      {showStageStatus ? (
         <div className="message-stage-status chat-message-shell__stage" aria-label={`当前阶段：${stageStatus}`}>
           <span className="message-stage-status__dot" />
           <span>阶段：{stageStatus}</span>

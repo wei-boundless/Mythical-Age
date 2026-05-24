@@ -2640,8 +2640,19 @@ class TaskRunLoop:
         )
         yield {"type": "runtime_loop_event", "event": artifact_validation_event.to_dict()}
 
+        partial_terminal_reasons = {
+            "partially_completed",
+            "model_response_timeout_after_partial_output",
+        }
+        terminal_status = (
+            "completed"
+            if terminal_reason == "completed"
+            else "completed"
+            if terminal_reason in partial_terminal_reasons and final_content
+            else "failed"
+        )
         terminal_state = state.with_status(
-            "completed" if terminal_reason == "completed" else "failed",
+            terminal_status,
             transition="stop_after_final_output",
             terminal_reason=terminal_reason,
             diagnostics={"final_content_chars": len(final_content), "artifact_validation": artifact_validation},
@@ -2728,7 +2739,7 @@ class TaskRunLoop:
             project_task_result_from_ledger(
                 final_task_run_ledger,
                 result_id=f"taskresult:{terminal_state.task_run_id}",
-                status="completed" if terminal_reason == "completed" else "failed",
+                status=task_run_terminal_status(terminal_reason),
                 terminal_reason=terminal_reason,
                 result_refs=tuple(_dedupe_refs(result_refs)),
                 output_refs=tuple(_dedupe_refs(output_refs)),
@@ -6330,6 +6341,10 @@ def _assistant_commit_metadata(final_answer_metadata: dict[str, Any] | None) -> 
         "answer_persist_policy",
         "answer_finalization_policy",
         "answer_fallback_reason",
+        "completion_state",
+        "terminal_reason",
+        "timeout_seconds",
+        "partial_delta_count",
     }
     return {
         key: str(metadata.get(key) or "")

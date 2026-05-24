@@ -14,6 +14,12 @@ const nextConfig = {
   env: {
     API_PROXY_TARGET: apiProxyTarget,
   },
+  webpack: (config, { isServer }) => {
+    if (isServer) {
+      config.output.chunkFilename = "chunks/[name].js";
+    }
+    return config;
+  },
 };
 
 export default nextConfig;

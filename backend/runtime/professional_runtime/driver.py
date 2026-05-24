@@ -935,6 +935,9 @@ class ProfessionalTaskRunDriver:
                 if event_type == "done":
                     outcome.final_content = str(event.get("content") or "")
                     outcome.final_answer_metadata = _answer_metadata_from_done_event(event)
+                    event_terminal_reason = str(event.get("terminal_reason") or "").strip()
+                    if event_terminal_reason and event_terminal_reason != "completed":
+                        outcome.terminal_reason = event_terminal_reason
                     outcome.main_context = dict(event.get("main_context") or {})
                     outcome.task_summary_refs = [
                         dict(item) for item in list(event.get("task_summary_refs") or []) if isinstance(item, dict)
@@ -1793,6 +1796,9 @@ class ProfessionalTaskRunDriver:
                 if event_type == "done":
                     repair_candidate_content = _sanitize_final_content(str(event.get("content") or ""))
                     repair_candidate_metadata = _answer_metadata_from_done_event(event)
+                    event_terminal_reason = str(event.get("terminal_reason") or "").strip()
+                    if event_terminal_reason and event_terminal_reason != "completed":
+                        outcome.terminal_reason = event_terminal_reason
                     repair_candidate_main_context = dict(event.get("main_context") or {})
                     repair_candidate_task_summary_refs = [
                         dict(item) for item in list(event.get("task_summary_refs") or []) if isinstance(item, dict)

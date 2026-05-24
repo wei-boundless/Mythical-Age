@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type MouseEvent, type ReactNode } from "react";
+import { useMemo, useState, type MouseEvent, type ReactNode } from "react";
 
 export type CoordinationTopologyNode = {
   id: string;
@@ -264,6 +264,8 @@ export function CoordinationTopologyGraph({
   selectedEdgeIds = [],
   selectedFrameIds = [],
   linkingFromNodeId = "",
+  viewportPadding = 0,
+  enablePan = false,
 }: {
   nodes: CoordinationTopologyNode[];
   edges: CoordinationTopologyEdge[];
@@ -288,6 +290,8 @@ export function CoordinationTopologyGraph({
   selectedEdgeIds?: string[];
   selectedFrameIds?: string[];
   linkingFromNodeId?: string;
+  viewportPadding?: number;
+  enablePan?: boolean;
 }) {
   const [boxSelect, setBoxSelect] = useState<{ active: boolean; startX: number; startY: number; endX: number; endY: number }>({
     active: false,
@@ -296,7 +300,23 @@ export function CoordinationTopologyGraph({
     endX: 0,
     endY: 0,
   });
+  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
+  const [panDrag, setPanDrag] = useState<{ active: boolean; clientX: number; clientY: number }>({
+    active: false,
+    clientX: 0,
+    clientY: 0,
+  });
   const topology = buildCoordinationTopologyLayout(nodes, edges, currentNodeId, currentHandoffKey);
+  const safeViewportPadding = Math.max(0, viewportPadding);
+  const viewBox = useMemo(
+    () => ({
+      x: -safeViewportPadding + panOffset.x,
+      y: -safeViewportPadding + panOffset.y,
+      width: topology.width + safeViewportPadding * 2,
+      height: topology.height + safeViewportPadding * 2,
+    }),
+    [panOffset.x, panOffset.y, safeViewportPadding, topology.height, topology.width],
+  );
   const haloRadius = topology.dense ? 17 : topology.compact ? 20 : 24;
   const surfaceRadius = topology.dense ? 11 : topology.compact ? 14 : 17;
   const agentLabelY = topology.dense ? -32 : topology.compact ? -38 : -46;
@@ -360,25 +380,45 @@ export function CoordinationTopologyGraph({
 
   return (
     <svg
-      viewBox={`0 0 ${topology.width} ${topology.height}`}
+      className={`${enablePan ? "coordination-topology-graph is-pannable" : "coordination-topology-graph"} ${panDrag.active ? "is-panning" : ""}`}
+      viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.width} ${viewBox.height}`}
       aria-label="协调任务拓扑图"
       onContextMenu={(event) => {
         event.preventDefault();
         onCanvasContextMenu?.(event);
       }}
       onMouseDown={(event) => {
-        if (!onBoxSelect || event.button !== 0) return;
+        if (event.button !== 0) return;
         const targetElement = event.target as Element;
         if (targetElement.closest(".coordination-topology-node-group, .coordination-topology-edge, .coordination-topology-frame")) return;
+        if (enablePan && !onBoxSelect) {
+          setPanDrag({ active: true, clientX: event.clientX, clientY: event.clientY });
+          return;
+        }
+        if (!onBoxSelect) return;
         const point = svgPoint(event);
         setBoxSelect({ active: true, startX: point.x, startY: point.y, endX: point.x, endY: point.y });
       }}
       onMouseMove={(event) => {
+        if (panDrag.active) {
+          const svg = event.currentTarget;
+          const widthRatio = viewBox.width / Math.max(1, svg.clientWidth);
+          const heightRatio = viewBox.height / Math.max(1, svg.clientHeight);
+          const deltaX = (event.clientX - panDrag.clientX) * widthRatio;
+          const deltaY = (event.clientY - panDrag.clientY) * heightRatio;
+          setPanOffset((current) => ({ x: current.x - deltaX, y: current.y - deltaY }));
+          setPanDrag({ active: true, clientX: event.clientX, clientY: event.clientY });
+          return;
+        }
         if (!boxSelect.active) return;
         const point = svgPoint(event);
         setBoxSelect((current) => ({ ...current, endX: point.x, endY: point.y }));
       }}
       onMouseUp={() => {
+        if (panDrag.active) {
+          setPanDrag((current) => ({ ...current, active: false }));
+          return;
+        }
         if (!boxSelect.active) return;
         const box = normalizedBox();
         setBoxSelect((current) => ({ ...current, active: false }));
@@ -390,6 +430,11 @@ export function CoordinationTopologyGraph({
           .filter((edge) => edge.toolX >= box.x && edge.toolX <= box.x + box.width && edge.toolY >= box.y && edge.toolY <= box.y + box.height)
           .map((edge) => edge.id);
         onBoxSelect?.({ nodeIds, edgeIds });
+      }}
+      onMouseLeave={() => {
+        if (panDrag.active) {
+          setPanDrag((current) => ({ ...current, active: false }));
+        }
       }}
       role="img"
     >

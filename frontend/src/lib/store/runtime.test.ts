@@ -862,11 +862,36 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       statusText: "已绑定",
       eventType: "task_order_projection",
     });
+    expect(assistant?.runtimeProgress?.[0].meta?.map((item) => item.label)).toEqual(["类型", "任务"]);
     expect(assistant?.runtimeProgress?.[2]).toMatchObject({
       statusText: "已返回",
       toolName: "write_file",
       artifacts: [{ label: "产物", path: "docs/plan.md" }],
     });
+  });
+
+  it("does not attach permission gate checks to the assistant task flow", () => {
+    let transition = startStreamingTurn(getDefaultState(), "继续");
+    transition = reduceStreamEvent(transition.state, transition.session, "runtime_loop_event", {
+      event: {
+        event_id: "rtevt:gate",
+        task_run_id: "taskrun:abc",
+        event_type: "operation_gate_checked",
+        created_at: 2,
+        payload: {
+          gate: {
+            allowed: true,
+            decision: "allow",
+            operation_id: "op.model_response",
+            reason: "operation allowed by adopted resource policy",
+          },
+        },
+      },
+    });
+
+    const assistant = transition.state.messages.at(-1);
+    expect(assistant?.stageStatus).toBe("准备执行");
+    expect(assistant?.runtimeProgress).toEqual([]);
   });
 
   it("attaches legacy stream tool events to the assistant task flow", () => {

@@ -16,6 +16,7 @@ from evidence import (
     build_agent_evidence_packet_from_mcp_payload,
     build_agent_evidence_packet_from_web_payload,
 )
+from runtime.search_agent_runtime import DEEPSEARCH_TEMPLATE_ID, SearchAgentRuntime, normalize_runtime_config
 from runtime_encoding import utf8_subprocess_text_kwargs
 
 from .delegation_models import AgentDelegationRequest
@@ -24,11 +25,31 @@ from .delegation_models import AgentDelegationRequest
 class ChildAgentRuntimeExecutor:
     """Runs a registered child Agent through its profile-authorized specialist capability."""
 
-    def __init__(self, root_dir: Path, *, evidence_orchestrator: Any | None = None) -> None:
+    def __init__(
+        self,
+        root_dir: Path,
+        *,
+        evidence_orchestrator: Any | None = None,
+        search_runtime_factory: Any | None = None,
+    ) -> None:
         self.root_dir = Path(root_dir)
         self.evidence_orchestrator = evidence_orchestrator
+        self.search_runtime_factory = search_runtime_factory
 
     async def run(self, *, request: AgentDelegationRequest, agent: Any, profile: Any) -> dict[str, Any]:
+        runtime_config = normalize_runtime_config(dict(getattr(profile, "metadata", {}) or {}).get("runtime_config"))
+        if runtime_config.template_id == DEEPSEARCH_TEMPLATE_ID and _is_web_delegation(request=request, agent=agent, profile=profile):
+            search_runtime = (
+                self.search_runtime_factory(self.root_dir)
+                if self.search_runtime_factory is not None
+                else SearchAgentRuntime(self.root_dir)
+            )
+            return await search_runtime.run(
+                request=request,
+                agent=agent,
+                profile=profile,
+                config=runtime_config.search or normalize_runtime_config({"search": {}}).search,
+            )
         operation_id = _operation_for_delegation(request=request, profile=profile)
         if not operation_id:
             return {
@@ -216,6 +237,14 @@ def _operation_for_delegation(*, request: AgentDelegationRequest, profile: Any) 
     return ""
 
 
+def _is_web_delegation(*, request: AgentDelegationRequest, agent: Any, profile: Any) -> bool:
+    kind = str(request.delegation_kind or "").strip()
+    if kind in {"web", "web_research", "external_web_lookup", "current_information_lookup", "official_source_lookup"}:
+        return True
+    agent_id = str(getattr(agent, "agent_id", "") or getattr(profile, "agent_id", "") or request.target_agent_id or "").strip()
+    return agent_id == "agent:web_researcher"
+
+
 def _mcp_route_for_operation(operation_id: str) -> str:
     return {
         "op.mcp_pdf": "pdf",
@@ -230,6 +259,7 @@ def _run_web_search_sync(*, root_dir: Path, query: str, topic: str, time_range: 
         script_path = Path(root_dir) / "backend" / "capability_system" / "units" / "tools" / "tavily_search.py"
     if not script_path.exists():
         return {"ok": False, "query": query, "topic": topic, "results": [], "error": "web_search_script_not_found"}
+    script_path = script_path.resolve()
     command = [
         sys.executable,
         str(script_path),
@@ -253,13 +283,16 @@ def _run_web_search_sync(*, root_dir: Path, query: str, topic: str, time_range: 
         )
     except subprocess.TimeoutExpired:
         return {"ok": False, "query": query, "topic": topic, "results": [], "error": "web_search_timeout"}
-    raw = (completed.stdout or completed.stderr or "").strip()
+    raw = (completed.stdout or "").strip()
+    stderr = (completed.stderr or "").strip()
+    if not raw and stderr:
+        return {"ok": False, "query": query, "topic": topic, "results": [], "error": "web_search_process_error", "details": stderr[:1000]}
     if not raw:
         return {"ok": False, "query": query, "topic": topic, "results": [], "error": "web_search_empty_output"}
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError:
-        return {"ok": False, "query": query, "topic": topic, "results": [], "error": "web_search_invalid_json", "raw": raw[:1000]}
+        return {"ok": False, "query": query, "topic": topic, "results": [], "error": "web_search_invalid_json", "raw": raw[:1000], "stderr": stderr[:1000]}
     if "query" not in payload:
         payload["query"] = query
     if "topic" not in payload:

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+import html
 import json
+import re
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
@@ -221,7 +223,7 @@ def build_agent_evidence_packet_from_web_payload(
     for index, item in enumerate(results, start=1):
         url = str(item.get("url") or "").strip()
         title = _compact_text(item.get("title") or url or "web source", limit=160)
-        content = _compact_text(item.get("raw_content") or item.get("content") or "", limit=700)
+        content = _compact_text(_web_evidence_text(item), limit=700)
         evidence_items.append(
             AgentEvidenceItem(
                 evidence_id=f"web:evidence:{index}",
@@ -574,10 +576,56 @@ def _format_locator(locator: dict[str, Any]) -> str:
 
 
 def _compact_text(value: Any, *, limit: int) -> str:
-    text = " ".join(str(value or "").split())
+    text = _strip_html_for_evidence(str(value or ""))
+    text = " ".join(text.split())
     if len(text) <= limit:
         return text
     return f"{text[: max(0, limit - 3)]}..."
+
+
+def _web_evidence_text(item: dict[str, Any]) -> str:
+    for key in ("clean_text", "raw_content", "content", "answer"):
+        text = str(item.get(key) or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _strip_html_for_evidence(value: str) -> str:
+    text = str(value or "")
+    sample = text[:1000].lower()
+    if "<html" not in sample and "<!doctype html" not in sample and not re.search(r"<[a-zA-Z!/][^>]*>", sample):
+        return html.unescape(text)
+    text = re.sub(
+        r"<(script|style|noscript|svg|canvas|template|header|footer|nav|aside)\b[^>]*>.*?</\1>",
+        " ",
+        text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    text = re.sub(r"</?(p|br|div|section|article|main|li|h[1-6]|tr|td|th)\b[^>]*>", " ", text, flags=re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = html.unescape(text)
+    text = re.sub(
+        r"<(script|style|noscript|svg|canvas|template|header|footer|nav|aside)\b[^>]*>.*?(?:</\1>|$)",
+        " ",
+        text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    text = re.sub(r"<(meta|link)\b[^>]*>", " ", text, flags=re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", " ", text)
+    return " ".join(line for line in text.splitlines() if not _looks_like_style_noise(line))
+
+
+def _looks_like_style_noise(value: str) -> bool:
+    text = " ".join(str(value or "").split())
+    if not text:
+        return False
+    lowered = text.lower()
+    if any(token in lowered for token in (":where(", "scrollbar-", "var(--", "rgb(", "font-size:", "padding:", "margin:", "display:")):
+        return True
+    if sum(1 for char in text if char in "{};<>=") > max(8, len(text) // 10):
+        return True
+    return False
 
 
 def _host_from_url(value: str) -> str:

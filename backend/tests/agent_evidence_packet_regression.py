@@ -10,6 +10,8 @@ from runtime.execution.agent_delegation_executor import AgentDelegationExecutor
 from runtime.execution.agent_delegation_executor import _child_system_prompt
 from runtime.execution.child_agent_runtime_executor import ChildAgentRuntimeExecutor, _build_mcp_request
 from runtime.execution.delegation_models import AgentDelegationRequest
+from runtime.search_agent_runtime import SearchAgentRuntime
+from runtime.search_agent_runtime.evidence_builder import build_deepsearch_evidence_packet
 from runtime.shared.models import AgentRun
 
 
@@ -232,6 +234,96 @@ class _FakeWebRuntimeExecutor(ChildAgentRuntimeExecutor):
         }
 
 
+class _FakeDeepSearchProvider:
+    def __init__(self) -> None:
+        self.queries: list[str] = []
+
+    async def search(self, *, query: str, topic: str, time_range: str, max_results: int, config) -> dict:
+        self.queries.append(query)
+        return {
+            "ok": True,
+            "query": query,
+            "topic": topic,
+            "time_range": time_range,
+            "results": [
+                {
+                    "title": f"Official source for {query}",
+                    "url": f"https://example.com/{len(self.queries)}",
+                    "score": 0.92,
+                    "published_date": "2026-05-01",
+                    "content": f"Evidence collected for {query}.",
+                }
+            ],
+        }
+
+
+class _GapThenOfficialProvider:
+    def __init__(self) -> None:
+        self.queries: list[str] = []
+
+    async def search(self, *, query: str, topic: str, time_range: str, max_results: int, config) -> dict:
+        self.queries.append(query)
+        if "official announcement" in query:
+            return {
+                "ok": True,
+                "query": query,
+                "topic": topic,
+                "time_range": time_range,
+                "results": [
+                    {
+                        "title": "Official announcement",
+                        "url": "https://example.gov/announcement",
+                        "score": 0.96,
+                        "published_date": "2026-05-02",
+                        "content": "Official announcement confirms the evidence.",
+                    }
+                ],
+            }
+        return {
+            "ok": True,
+            "query": query,
+            "topic": topic,
+            "time_range": time_range,
+            "results": [
+                {
+                    "title": "Community discussion",
+                    "url": "https://example.com/community",
+                    "score": 0.7,
+                    "content": "A non-primary source discusses the topic.",
+                }
+            ],
+        }
+
+
+class _FakeFetchProvider:
+    def __init__(self) -> None:
+        self.urls: list[str] = []
+
+    async def fetch(self, *, url: str) -> dict:
+        self.urls.append(url)
+        return {"ok": True, "url": url, "content": f"Fetched content from {url}"}
+
+
+class _HtmlFetchProvider:
+    def __init__(self) -> None:
+        self.urls: list[str] = []
+
+    async def fetch(self, *, url: str) -> dict:
+        self.urls.append(url)
+        return {
+            "ok": True,
+            "url": url,
+            "content_type": "text/html",
+            "content": """
+            <!DOCTYPE html><html><head><title>Official announcement</title>
+            <style>body{display:none}</style></head><body>
+            <header>Navigation</header>
+            <main><p>Official announcement confirms the policy update with primary evidence.</p></main>
+            </body></html>
+            """,
+        }
+
+
 def test_child_agent_runtime_attaches_shadow_evidence_packet() -> None:
     executor = _FakeChildRuntimeExecutor(root_dir=Path("."))
     request = AgentDelegationRequest(
@@ -312,6 +404,82 @@ def test_web_payload_maps_search_results_to_web_evidence_packet() -> None:
     assert packet.confidence in {"high", "medium"}
 
 
+def test_web_payload_cleans_html_before_fact_extraction() -> None:
+    packet = build_agent_evidence_packet_from_web_payload(
+        web_payload={
+            "ok": True,
+            "query": "OpenAI web search docs",
+            "topic": "general",
+            "results": [
+                {
+                    "title": "Web search | OpenAI API",
+                    "url": "https://developers.openai.com/api/docs/guides/tools-web-search",
+                    "score": 0.95,
+                    "raw_content": """
+                    <!DOCTYPE html><html><head><title>Web search | OpenAI API</title>
+                    <meta name="description" content="Search the web using OpenAI API tools.">
+                    <script>window.__noise = true;</script></head>
+                    <body><nav>Docs nav</nav><main>
+                    <h1>Web search</h1>
+                    <p>Allow models to search the web for up-to-date information before generating a response.</p>
+                    <p>&lt;meta name="escaped-noise" content="should not survive"&gt;</p>
+                    <p>The web search tool is available through the Responses API.</p>
+                    </main></body></html>
+                    """,
+                }
+            ],
+        },
+        source_agent_id="agent:web_researcher",
+        target_task_id="taskrun-1",
+        task_goal="Find official web search documentation.",
+    )
+
+    fact = packet.facts[0].claim
+    assert "Responses API" in fact
+    assert "<!DOCTYPE" not in fact
+    assert "<meta" not in fact
+    assert "escaped-noise" not in fact
+    assert "window.__noise" not in fact
+
+
+def test_deepsearch_evidence_builder_ranks_official_sources_and_extracts_short_facts() -> None:
+    packet = build_deepsearch_evidence_packet(
+        web_payload={
+            "ok": True,
+            "query": "OpenAI Responses API web search tool official documentation",
+            "topic": "general",
+            "usage": {"queries_executed": 2, "fetches_executed": 1},
+            "results": [
+                {
+                    "title": "Blog tutorial",
+                    "url": "https://medium.com/example/openai-responses-api",
+                    "score": 0.98,
+                    "clean_text": "A blog explains the Responses API and mentions web search examples.",
+                },
+                {
+                    "title": "Web search | OpenAI API",
+                    "url": "https://developers.openai.com/api/docs/guides/tools-web-search",
+                    "score": 0.82,
+                    "clean_text": "Allow models to search the web for the latest information before generating a response. The web search tool is available through the Responses API.",
+                },
+            ],
+            "deepsearch": {"stop_reason": "enough_evidence"},
+        },
+        source_agent_id="agent:web_researcher",
+        target_task_id="taskrun-1",
+        task_goal="Find official web search documentation.",
+    )
+
+    ranking = packet.domain_payload["source_ranking"]
+    assert ranking[0]["host"] == "developers.openai.com"
+    assert ranking[0]["source_type"] == "official"
+    assert packet.facts[0].scope == "deepsearch.official"
+    assert packet.facts[0].source_refs == ("web:evidence:1",)
+    assert "Responses API" in packet.facts[0].claim
+    assert len(packet.facts[0].claim) < 430
+    assert packet.confidence == "high"
+
+
 def test_child_agent_runtime_runs_web_research_specialist_path() -> None:
     executor = _FakeWebRuntimeExecutor(root_dir=Path("."))
     request = AgentDelegationRequest(
@@ -335,6 +503,244 @@ def test_child_agent_runtime_runs_web_research_specialist_path() -> None:
     assert payload["diagnostics"]["specialist_route"] == "web_research"
     assert packet["domain"] == "web"
     assert packet["facts"]
+
+
+def test_child_agent_runtime_uses_deepsearch_runtime_config_without_fetch_permission() -> None:
+    search_provider = _FakeDeepSearchProvider()
+    fetch_provider = _FakeFetchProvider()
+
+    def runtime_factory(root_dir: Path) -> SearchAgentRuntime:
+        return SearchAgentRuntime(root_dir, search_provider=search_provider, fetch_provider=fetch_provider)
+
+    executor = ChildAgentRuntimeExecutor(root_dir=Path("."), search_runtime_factory=runtime_factory)
+    request = AgentDelegationRequest(
+        request_id="delegation:req:deepsearch",
+        task_run_id="taskrun-1",
+        session_id="session-1",
+        parent_agent_run_ref="agrun:main",
+        source_agent_id="agent:main",
+        target_agent_id="agent:web_researcher",
+        delegation_kind="web_research",
+        instruction="Find current official release evidence.",
+        input_payload={"query": "official model release notes", "topic": "general"},
+    )
+    agent = type("Agent", (), {"agent_id": "agent:web_researcher"})()
+    profile = type(
+        "Profile",
+        (),
+        {
+            "agent_id": "agent:web_researcher",
+            "allowed_operations": ("op.model_response", "op.web_search"),
+            "blocked_operations": (),
+            "metadata": {
+                "runtime_template_id": "builtin.specialist.web_researcher",
+                "runtime_config": {
+                    "template_id": "runtime.template.deepsearch",
+                    "runtime_kind": "search_agent",
+                    "runtime_mode": "deepsearch",
+                    "search": {
+                        "runtime_mode": "deepsearch",
+                        "allow_fetch_url": False,
+                        "max_queries": 2,
+                        "max_fetches": 0,
+                        "max_sources": 4,
+                    },
+                },
+            },
+        },
+    )()
+
+    payload = asyncio.run(executor.run(request=request, agent=agent, profile=profile))
+
+    diagnostics = dict(payload["diagnostics"])
+    packet = dict(diagnostics["agent_evidence_packet"])
+    assert payload["status"] == "completed"
+    assert diagnostics["child_execution_mode"] == "runtime_configured_search_agent"
+    assert diagnostics["runtime_template_id"] == "runtime.template.deepsearch"
+    assert len(search_provider.queries) == 2
+    assert fetch_provider.urls == []
+    assert packet["domain"] == "web"
+    assert packet["facts"]
+
+
+def test_child_agent_runtime_requires_fetch_permission_only_when_fetch_enabled() -> None:
+    executor = ChildAgentRuntimeExecutor(root_dir=Path("."))
+    request = AgentDelegationRequest(
+        request_id="delegation:req:deepsearch-fetch",
+        task_run_id="taskrun-1",
+        session_id="session-1",
+        parent_agent_run_ref="agrun:main",
+        source_agent_id="agent:main",
+        target_agent_id="agent:web_researcher",
+        delegation_kind="web_research",
+        instruction="Find current official release evidence.",
+        input_payload={"query": "official model release notes"},
+    )
+    agent = type("Agent", (), {"agent_id": "agent:web_researcher"})()
+    profile = type(
+        "Profile",
+        (),
+        {
+            "agent_id": "agent:web_researcher",
+            "allowed_operations": ("op.model_response", "op.web_search"),
+            "blocked_operations": (),
+            "metadata": {
+                "runtime_config": {
+                    "template_id": "runtime.template.deepsearch",
+                    "search": {"allow_fetch_url": True, "max_fetches": 1},
+                },
+            },
+        },
+    )()
+
+    payload = asyncio.run(executor.run(request=request, agent=agent, profile=profile))
+
+    assert payload["status"] == "failed"
+    assert "deepsearch_required_operation_missing" in payload["limitations"]
+    assert "op.fetch_url" in payload["limitations"]
+
+
+def test_deepsearch_strategy_adds_next_query_from_evidence_gap() -> None:
+    search_provider = _GapThenOfficialProvider()
+    fetch_provider = _FakeFetchProvider()
+
+    def runtime_factory(root_dir: Path) -> SearchAgentRuntime:
+        return SearchAgentRuntime(root_dir, search_provider=search_provider, fetch_provider=fetch_provider)
+
+    executor = ChildAgentRuntimeExecutor(root_dir=Path("."), search_runtime_factory=runtime_factory)
+    request = AgentDelegationRequest(
+        request_id="delegation:req:strategy-gap",
+        task_run_id="taskrun-1",
+        session_id="session-1",
+        parent_agent_run_ref="agrun:main",
+        source_agent_id="agent:main",
+        target_agent_id="agent:web_researcher",
+        delegation_kind="web_research",
+        instruction="Find primary evidence for a policy update.",
+        input_payload={"query": "policy update", "topic": "general"},
+    )
+    agent = type("Agent", (), {"agent_id": "agent:web_researcher"})()
+    profile = type(
+        "Profile",
+        (),
+        {
+            "agent_id": "agent:web_researcher",
+            "allowed_operations": ("op.model_response", "op.web_search"),
+            "blocked_operations": (),
+            "metadata": {
+                "runtime_config": {
+                    "template_id": "runtime.template.deepsearch",
+                    "search": {
+                        "runtime_mode": "deepsearch",
+                        "allow_fetch_url": False,
+                        "max_queries": 3,
+                        "max_fetches": 0,
+                        "max_sources": 5,
+                        "prefer_primary_sources": True,
+                    },
+                },
+            },
+        },
+    )()
+
+    payload = asyncio.run(executor.run(request=request, agent=agent, profile=profile))
+
+    state = dict(payload["diagnostics"]["research_state"])
+    deepsearch = dict(payload["diagnostics"]["web_payload"]["deepsearch"])
+    assert payload["status"] == "completed"
+    assert any("official announcement" in query for query in search_provider.queries)
+    assert any("primary_source_missing" in review["gaps"] for review in deepsearch["reviews"])
+    assert deepsearch["final_synthesis"]["covered_questions"]
+    assert state["final_synthesis"]["stop_reason"] in {"enough_evidence", "query_budget_exhausted", "enough_sources"}
+
+
+def test_deepsearch_fetch_cleans_html_before_evidence_packet() -> None:
+    search_provider = _GapThenOfficialProvider()
+    fetch_provider = _HtmlFetchProvider()
+
+    def runtime_factory(root_dir: Path) -> SearchAgentRuntime:
+        return SearchAgentRuntime(root_dir, search_provider=search_provider, fetch_provider=fetch_provider)
+
+    executor = ChildAgentRuntimeExecutor(root_dir=Path("."), search_runtime_factory=runtime_factory)
+    request = AgentDelegationRequest(
+        request_id="delegation:req:clean-html",
+        task_run_id="taskrun-1",
+        session_id="session-1",
+        parent_agent_run_ref="agrun:main",
+        source_agent_id="agent:main",
+        target_agent_id="agent:web_researcher",
+        delegation_kind="web_research",
+        instruction="Find primary evidence for a policy update.",
+        input_payload={"query": "policy update", "topic": "general"},
+    )
+    agent = type("Agent", (), {"agent_id": "agent:web_researcher"})()
+    profile = type(
+        "Profile",
+        (),
+        {
+            "agent_id": "agent:web_researcher",
+            "allowed_operations": ("op.model_response", "op.web_search", "op.fetch_url"),
+            "blocked_operations": (),
+            "metadata": {
+                "runtime_config": {
+                    "template_id": "runtime.template.deepsearch",
+                    "search": {
+                        "runtime_mode": "deepsearch",
+                        "allow_fetch_url": True,
+                        "max_queries": 3,
+                        "max_fetches": 1,
+                        "max_sources": 5,
+                        "prefer_primary_sources": True,
+                    },
+                },
+            },
+        },
+    )()
+
+    payload = asyncio.run(executor.run(request=request, agent=agent, profile=profile))
+
+    facts = list(dict(payload["diagnostics"]["agent_evidence_packet"])["facts"])
+    ranking = list(dict(payload["diagnostics"]["agent_evidence_packet"])["domain_payload"]["source_ranking"])
+    claims = "\n".join(str(item["claim"]) for item in facts)
+    assert payload["status"] == "completed"
+    assert ranking
+    assert ranking[0]["source_type"] in {"official", "primary"}
+    assert "Official announcement confirms the policy update" in claims
+    assert "<!DOCTYPE" not in claims
+    assert "<style" not in claims
+    assert "Navigation" not in claims
+
+
+def test_child_agent_runtime_ignores_legacy_runtime_template_id_for_deepsearch() -> None:
+    executor = _FakeWebRuntimeExecutor(root_dir=Path("."))
+    request = AgentDelegationRequest(
+        request_id="delegation:req:legacy-template",
+        task_run_id="taskrun-1",
+        session_id="session-1",
+        parent_agent_run_ref="agrun:main",
+        source_agent_id="agent:main",
+        target_agent_id="agent:web_researcher",
+        delegation_kind="web_research",
+        instruction="Find official release evidence.",
+        input_payload={"query": "official model release notes"},
+    )
+    agent = type("Agent", (), {"agent_id": "agent:web_researcher"})()
+    profile = type(
+        "Profile",
+        (),
+        {
+            "agent_id": "agent:web_researcher",
+            "allowed_operations": ("op.web_search",),
+            "blocked_operations": (),
+            "metadata": {"runtime_template_id": "runtime.template.deepsearch"},
+        },
+    )()
+
+    payload = asyncio.run(executor.run(request=request, agent=agent, profile=profile))
+
+    assert payload["status"] == "completed"
+    assert payload["diagnostics"]["child_execution_mode"] == "profile_authorized_specialist"
+    assert payload["diagnostics"]["specialist_route"] == "web_research"
 
 
 def test_child_agent_mcp_request_uses_first_file_paths_entry_for_pdf() -> None:

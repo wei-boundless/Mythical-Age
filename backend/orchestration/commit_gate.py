@@ -222,6 +222,10 @@ def build_assistant_session_message_commit_decision(
     answer_persist_policy: str = "",
     answer_finalization_policy: str = "",
     answer_fallback_reason: str = "",
+    completion_state: str = "",
+    terminal_reason: str = "",
+    timeout_seconds: str = "",
+    partial_delta_count: str = "",
     source: str = "orchestration.task_run_loop",
 ) -> RuntimeCommitGateDecision:
     normalized = str(content or "").strip()
@@ -259,6 +263,10 @@ def build_assistant_session_message_commit_decision(
             "answer_persist_policy": normalized_persist_policy,
             "answer_finalization_policy": str(answer_finalization_policy or ""),
             "answer_fallback_reason": str(answer_fallback_reason or ""),
+            "completion_state": str(completion_state or ""),
+            "terminal_reason": str(terminal_reason or ""),
+            "timeout_seconds": str(timeout_seconds or ""),
+            "partial_delta_count": str(partial_delta_count or ""),
         },
         producer="orchestration.runtime_commit_gate",
         allowed=allowed,

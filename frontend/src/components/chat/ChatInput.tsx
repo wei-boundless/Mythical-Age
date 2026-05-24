@@ -1,22 +1,27 @@
 "use client";
 
-import { ArrowUp, BrainCircuit, Lightbulb, Square } from "lucide-react";
+import { ArrowUp, BrainCircuit, Database, FolderLock, Globe2, Lightbulb, Square } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import type { ModelProviderConfig, SoulImageAssetConfig, TaskOrderProjection } from "@/lib/api";
-import { MAIN_AGENT_ASSEMBLY_MODES } from "@/lib/mainAgentAssemblyModes";
 import type { MainAgentAssemblyMode, SearchPolicySource, SearchPolicyState, TaskSelectionState } from "@/lib/store/types";
 
 const SEARCH_POLICY_OPTIONS: Array<{
   id: SearchPolicySource;
   label: string;
+  title: string;
 }> = [
-  { id: "rag", label: "启用知识库" },
-  { id: "local_files", label: "启用本地权限" },
-  { id: "web", label: "启用联网权限" }
+  { id: "rag", label: "知识库", title: "启用知识库" },
+  { id: "local_files", label: "本地", title: "启用本地权限" },
+  { id: "web", label: "联网", title: "启用联网权限" }
 ];
 
 const MAIN_AGENT_MODE_ORDER: MainAgentAssemblyMode[] = ["role", "standard", "professional"];
+const MAIN_AGENT_MODE_LABELS: Record<MainAgentAssemblyMode, string> = {
+  role: "角色模式",
+  standard: "标准模式",
+  professional: "专家模式",
+};
 
 export function ChatInput({
   disabled,
@@ -98,6 +103,26 @@ export function ChatInput({
         </div>
       ) : null}
       <div className="chat-input-panel__composer">
+        <div className="chat-control-cluster chat-control-cluster--scope">
+          <div className="chat-search-policy chat-search-policy--compact" aria-label="本轮能力权限">
+            {SEARCH_POLICY_OPTIONS.map((option) => {
+              const enabled = searchPolicy[option.id];
+              return (
+                <button
+                  aria-pressed={enabled}
+                  className={enabled ? "chat-search-policy__item chat-search-policy__item--active" : "chat-search-policy__item"}
+                  key={option.id}
+                  onClick={() => onToggleSearchPolicy(option.id)}
+                  title={option.title}
+                  type="button"
+                >
+                  {searchPolicyIcon(option.id)}
+                  <span>{option.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
         <textarea
           className="chat-input-panel__textarea"
           disabled={inputDisabled}
@@ -117,74 +142,61 @@ export function ChatInput({
       </div>
       <div className="chat-input-panel__footer">
         <div className="chat-input-panel__controls">
-          <label className="chat-model-select">
-            <BrainCircuit size={15} />
-            <select
-              aria-label="选择本轮模型"
-              disabled={inputDisabled || modelOptions.length <= 1}
-              onChange={(event) => onSelectChatModel(event.target.value)}
-              value={activeModelId}
-            >
-              {modelOptions.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          {showDeepSeekThinkingToggle ? (
-            <button
-              aria-label="DeepSeek 思考模式"
-              aria-pressed={deepSeekThinkingEnabled}
-              className={deepSeekThinkingEnabled ? "chat-thinking-toggle chat-thinking-toggle--active" : "chat-thinking-toggle"}
-              disabled={inputDisabled}
-              onClick={() => onToggleDeepSeekThinking(!deepSeekThinkingEnabled)}
-              title="DeepSeek 思考模式"
-              type="button"
-            >
-              <Lightbulb size={15} />
-            </button>
-          ) : null}
-          <div className="chat-main-agent-mode" aria-label="主 Agent 装配模式">
-            {MAIN_AGENT_MODE_ORDER.map((mode) => {
-              const option = MAIN_AGENT_ASSEMBLY_MODES[mode];
-              const active = mainAgentAssemblyMode === mode;
-              return (
-                <button
-                  aria-pressed={active}
-                  className={active ? "chat-main-agent-mode__item chat-main-agent-mode__item--active" : "chat-main-agent-mode__item"}
-                  disabled={inputDisabled}
-                  key={mode}
-                  onClick={() => onSelectMainAgentAssemblyMode(mode)}
-                  type="button"
-                >
-                  <span>{option.label}</span>
-                  <small>{option.summary}</small>
-                </button>
-              );
-            })}
+          <div className="chat-control-cluster chat-control-cluster--model">
+            <span className="chat-control-cluster__name">模型</span>
+            <label className="chat-model-select">
+              <BrainCircuit size={15} />
+              <select
+                aria-label="选择本轮模型"
+                disabled={inputDisabled || modelOptions.length <= 1}
+                onChange={(event) => onSelectChatModel(event.target.value)}
+                value={activeModelId}
+              >
+                {modelOptions.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {showDeepSeekThinkingToggle ? (
+              <button
+                aria-label="DeepSeek 思考模式"
+                aria-pressed={deepSeekThinkingEnabled}
+                className={deepSeekThinkingEnabled ? "chat-thinking-toggle chat-thinking-toggle--active" : "chat-thinking-toggle"}
+                disabled={inputDisabled}
+                onClick={() => onToggleDeepSeekThinking(!deepSeekThinkingEnabled)}
+                title="DeepSeek 思考模式"
+                type="button"
+              >
+                <Lightbulb size={15} />
+              </button>
+            ) : null}
           </div>
-          <div className="chat-search-policy chat-search-policy--compact" aria-label="本轮能力权限">
-            {SEARCH_POLICY_OPTIONS.map((option) => {
-              const enabled = searchPolicy[option.id];
-              return (
-                <button
-                  aria-pressed={enabled}
-                  className={enabled ? "chat-search-policy__item chat-search-policy__item--active" : "chat-search-policy__item"}
-                  key={option.id}
-                  onClick={() => onToggleSearchPolicy(option.id)}
-                  type="button"
-                >
-                  <span>{option.label}</span>
-                </button>
-              );
-            })}
+          <div className="chat-control-cluster chat-control-cluster--mode">
+            <span className="chat-control-cluster__name">模式</span>
+            <label className="chat-mode-select">
+              <select
+                aria-label="选择主 Agent 模式"
+                disabled={inputDisabled}
+                onChange={(event) => onSelectMainAgentAssemblyMode(event.target.value as MainAgentAssemblyMode)}
+                value={mainAgentAssemblyMode}
+              >
+                {MAIN_AGENT_MODE_ORDER.map((mode) => {
+                  return (
+                    <option key={mode} value={mode}>
+                      {MAIN_AGENT_MODE_LABELS[mode]}
+                    </option>
+                  );
+                })}
+              </select>
+            </label>
           </div>
         </div>
         <div className="chat-input-panel__actions">
           {streaming ? (
             <button
-              className="action-button action-button--danger navbar-action-button"
+              className="chat-stop-button"
               onClick={onStop}
               type="button"
             >
@@ -255,4 +267,10 @@ function resolveActiveChatModel(selectionId: string, config: ModelProviderConfig
   const normalizedProvider = provider.trim().toLowerCase();
   const model = modelParts.join("::").trim();
   return normalizedProvider && model ? { provider: normalizedProvider, model } : null;
+}
+
+function searchPolicyIcon(source: SearchPolicySource) {
+  if (source === "rag") return <Database size={13} />;
+  if (source === "local_files") return <FolderLock size={13} />;
+  return <Globe2 size={13} />;
 }

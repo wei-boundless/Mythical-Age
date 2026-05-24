@@ -107,6 +107,9 @@ function stageStatusForEvent(event: string, data: Record<string, unknown>) {
     return "整理输出";
   }
   if (event === "done") {
+    if (stringValue(data.completion_state) === "partial_timeout") {
+      return "部分完成";
+    }
     return "完成";
   }
   if (event === "error") {
@@ -117,6 +120,9 @@ function stageStatusForEvent(event: string, data: Record<string, unknown>) {
 
 function activityLevelForEvent(event: string, data: Record<string, unknown>) {
   if (event === "done") {
+    if (stringValue(data.completion_state) === "partial_timeout") {
+      return "warning" as const;
+    }
     return "success" as const;
   }
   if (event === "error") {
@@ -148,6 +154,9 @@ function activityDetailForEvent(event: string, data: Record<string, unknown>) {
     return results ? `已检索到 ${results} 条候选证据` : "正在检索可用证据";
   }
   if (event === "done") {
+    if (stringValue(data.completion_state) === "partial_timeout") {
+      return "模型已生成部分内容，但结束信号超时。";
+    }
     return "回答已生成并写回会话";
   }
   if (event === "error") {
@@ -221,10 +230,11 @@ function userReceiptForEvent(event: string, data: Record<string, unknown>): User
     const paths = extractArtifactPaths(data.files ?? data.paths ?? data.artifacts);
     const answerSource = stringValue(data.answer_source);
     const body = stringValue(data.receipt_summary ?? data.summary ?? data.message);
+    const partialTimeout = stringValue(data.completion_state) === "partial_timeout";
     return {
-      level: "success",
-      title: paths.length ? `已更新 ${paths.length} 个文件` : "已处理 1 个命令",
-      body: body && !isMachineReference(body) ? body : "结果已写回会话。",
+      level: partialTimeout ? "warning" : "success",
+      title: partialTimeout ? "已生成部分内容" : paths.length ? `已更新 ${paths.length} 个文件` : "已处理 1 个命令",
+      body: partialTimeout ? "模型结束信号超时，当前内容已保留。" : body && !isMachineReference(body) ? body : "结果已写回会话。",
       artifacts: paths.map((path) => ({ label: "文件已更新", path })),
       debug: {
         event,
@@ -300,7 +310,7 @@ function stageStatusForRuntimeEvent(eventType: string) {
     return "整理上下文";
   }
   if (eventType === "runtime_directive_issued" || eventType === "operation_gate_checked") {
-    return "检查权限";
+    return "准备执行";
   }
   if (eventType === "executor_started" || eventType === "executor_observation_received") {
     return "生成回答";
@@ -952,14 +962,15 @@ export function reduceStreamEvent(
   }
 
   if (event === "done") {
+    const partialTimeout = String(data.completion_state ?? "").trim() === "partial_timeout";
     return {
       state: patchAssistant(stateWithOrchestration, session.assistantId, (message) =>
         message.content
-          ? { ...message, stageStatus: "完成", image: (data.image as Message["image"]) ?? message.image ?? null }
+          ? { ...message, stageStatus: partialTimeout ? "部分完成" : "完成", image: (data.image as Message["image"]) ?? message.image ?? null }
           : {
               ...message,
               content: String(data.content ?? ""),
-              stageStatus: "完成",
+              stageStatus: partialTimeout ? "部分完成" : "完成",
               image: (data.image as Message["image"]) ?? message.image ?? null
             }
       ),

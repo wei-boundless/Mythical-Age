@@ -31,7 +31,29 @@ describe("runtimeVisibilityProjection", () => {
       title: "已绑定任务订单",
       level: "running",
     });
-    expect(projection.progressEntry?.meta?.map((item) => item.label)).toContain("运行");
+    expect(projection.progressEntry?.meta?.map((item) => item.label)).toEqual(["类型", "任务"]);
+  });
+
+  it("keeps permission gate diagnostics out of the user-visible task flow", () => {
+    const projection = projectRuntimeStreamEvent("runtime_loop_event", {
+      event: {
+        event_id: "rtevt:gate",
+        task_run_id: "taskrun:1",
+        event_type: "operation_gate_checked",
+        created_at: 19,
+        payload: {
+          gate: {
+            allowed: true,
+            decision: "allow",
+            operation_id: "op.model_response",
+            reason: "operation allowed by adopted resource policy",
+          },
+        },
+      },
+    });
+
+    expect(projection.stageStatus).toBe("准备执行");
+    expect(projection.progressEntry).toBeUndefined();
   });
 
   it("projects runtime loop tool request and result as tool flow entries", () => {

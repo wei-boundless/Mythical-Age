@@ -100,6 +100,16 @@ class _HangingStreamRuntime:
         return SimpleNamespace(content="unused fallback")
 
 
+class _PartialThenHangingStreamRuntime:
+    async def astream_messages(self, _messages):
+        yield SimpleNamespace(content="partial answer")
+        await asyncio.sleep(10)
+        yield SimpleNamespace(content="late stream content")
+
+    async def invoke_messages(self, _messages):
+        return SimpleNamespace(content="unused fallback")
+
+
 def test_stream_retryable_error_with_partial_output_suppresses_non_stream_fallback() -> None:
     runtime = _RecoveringRuntime()
     executor = ModelResponseRuntimeExecutor(model_runtime=runtime)
@@ -227,6 +237,31 @@ def test_stream_model_response_has_hard_timeout() -> None:
     assert events[-1]["type"] == "error"
     assert events[-1]["error"] == "model_response_timeout"
     assert events[-1]["answer_channel"] == "orchestration_fail_closed"
+
+
+def test_stream_model_response_timeout_after_partial_output_commits_partial_done() -> None:
+    executor = ModelResponseRuntimeExecutor(model_runtime=_PartialThenHangingStreamRuntime())
+
+    async def _collect():
+        events = []
+        async for event in executor.stream(
+            user_message="run",
+            model_messages=[{"role": "user", "content": "run"}],
+            directive=_directive(),
+            model_stream_policy={"enabled": True, "model_response_timeout_seconds": 0.01},
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+
+    assert any(event.get("type") == "content_delta" and event.get("content") == "partial answer" for event in events)
+    assert not any(event.get("type") == "error" and event.get("error") == "model_response_timeout" for event in events)
+    assert events[-1]["type"] == "done"
+    assert events[-1]["content"] == "partial answer"
+    assert events[-1]["completion_state"] == "partial_timeout"
+    assert events[-1]["terminal_reason"] == "model_response_timeout_after_partial_output"
+    assert events[-1]["answer_canonical_state"] == "partial_timeout"
 
 
 def test_task_stream_policy_preserves_recovery_timeout_fields() -> None:

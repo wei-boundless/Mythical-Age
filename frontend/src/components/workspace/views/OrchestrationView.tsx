@@ -41,6 +41,7 @@ import {
   OrchestrationDiagnosticsWorkbench,
   OrchestrationModelRuntimeWorkbench,
   OrchestrationRuntimePermissionWorkbench,
+  OrchestrationRuntimeConfigWorkbench,
 } from "@/components/workspace/views/orchestration/OrchestrationAgentConfigWorkbenches";
 import { OrchestrationGroupWorkbench } from "@/components/workspace/views/orchestration/OrchestrationGroupWorkbench";
 import { OrchestrationRegistryWorkbench } from "@/components/workspace/views/orchestration/OrchestrationRegistryWorkbench";
@@ -56,7 +57,7 @@ import {
 } from "@/lib/runtimeModeConfig";
 
 type AgentCategory = "main_agent" | "builtin_agent" | "custom_agent";
-type OrchestrationLayer = "identity" | "groups" | "runtime_permissions" | "model_runtime" | "context_memory" | "collaboration" | "overview" | "diagnostics";
+type OrchestrationLayer = "identity" | "groups" | "runtime_permissions" | "runtime_config" | "model_runtime" | "context_memory" | "collaboration" | "overview" | "diagnostics";
 type CustomDirectoryMode = "grouped" | "ungrouped";
 type AssemblySelectionKind = "agent" | "group" | "empty";
 
@@ -643,6 +644,10 @@ export function OrchestrationView() {
   const runtimeSaveBlocked = agentMode === "new" || !agentDraft.agent_id.trim();
   const builtinManagedAgent = Boolean(selectedAgent?.builtin);
   const modelProfile = runtimeDraft.model_profile ?? {};
+  const runtimeConfig = (runtimeDraft.metadata?.runtime_config && typeof runtimeDraft.metadata.runtime_config === "object")
+    ? runtimeDraft.metadata.runtime_config as Record<string, unknown>
+    : {};
+  const runtimeConfigMode = String(runtimeConfig.runtime_mode || runtimeConfig.template_id || "默认");
   const modelSummary = modelProfile.provider || modelProfile.model
     ? `${modelProfile.provider || "继承默认"} / ${modelProfile.model || "继承模型"}`
     : "继承系统默认";
@@ -659,6 +664,7 @@ export function OrchestrationView() {
   const agentLayerTabs: Array<[OrchestrationLayer, string, string]> = [
     ["identity", "身份", agentMode === "new" ? "草稿" : "名册"],
     ["runtime_permissions", "权限", runtimeDraft.agent_profile_id && !runtimeSaveBlocked ? `${allowedOps.length} 项` : "待保存"],
+    ["runtime_config", "运行配置", runtimeConfigMode],
     ["model_runtime", "模型", modelProfile.provider || modelProfile.model ? "覆盖" : "继承"],
     ["context_memory", "上下文", `${uniqueList(runtimeDraft.allowed_context_sections).length + uniqueList(runtimeDraft.allowed_memory_scopes).length}`],
     ["collaboration", "协作", runtimeDraft.can_delegate_to_agents ? "开放" : "关闭"],
@@ -1122,6 +1128,17 @@ export function OrchestrationView() {
                   patchRuntimeDraft={(patch) => setRuntimeDraft((current) => ({ ...current, ...patch }))}
                   providerCatalog={(catalog?.options as { model_provider_catalog?: Record<string, unknown> } | undefined)?.model_provider_catalog}
                   runtimeDraft={runtimeDraft}
+                />
+              ) : null}
+
+              {activeLayer === "runtime_config" ? (
+                <OrchestrationRuntimeConfigWorkbench
+                  displayId={displayId}
+                  patchRuntimeDraft={(patch) => setRuntimeDraft((current) => ({ ...current, ...patch }))}
+                  runtimeDraft={runtimeDraft}
+                  runtimeSaveBlocked={runtimeSaveBlocked}
+                  saveRuntimeProfile={saveRuntimeProfile}
+                  saving={saving}
                 />
               ) : null}
 

@@ -10,7 +10,8 @@ import {
   GitBranch,
   Loader2,
   PauseCircle,
-  ShieldCheck,
+  PenLine,
+  Search,
   TerminalSquare,
   XCircle,
 } from "lucide-react";
@@ -19,16 +20,26 @@ import type { RuntimeProgressEntry } from "@/lib/store/types";
 
 const MAX_FLOW_ENTRIES = 10;
 const MAX_TOOL_ENTRIES = 4;
+const USER_VISIBLE_KINDS = new Set<RuntimeProgressEntry["kind"]>([
+  "task_order",
+  "task_draft",
+  "stage",
+  "tool",
+  "artifact",
+  "verification",
+  "terminal",
+]);
 
 function iconForEntry(entry: RuntimeProgressEntry) {
   if (entry.kind === "task_order" || entry.kind === "task_draft") return <Boxes size={14} />;
   if (entry.kind === "tool") return <TerminalSquare size={14} />;
-  if (entry.kind === "verification" || entry.kind === "permission") return <ShieldCheck size={14} />;
+  if (entry.kind === "verification") return <Search size={14} />;
   if (entry.kind === "terminal") {
     if (entry.level === "error") return <XCircle size={14} />;
     if (entry.level === "stopped") return <Clock3 size={14} />;
     return <CheckCircle2 size={14} />;
   }
+  if (entry.title.includes("计划")) return <PenLine size={14} />;
   if (entry.level === "success") return <CheckCircle2 size={14} />;
   if (entry.level === "warning") return <AlertTriangle size={14} />;
   if (entry.level === "error") return <XCircle size={14} />;
@@ -43,11 +54,10 @@ function cleanTitle(value: string) {
 }
 
 function flowLabel(entry: RuntimeProgressEntry) {
-  if (entry.kind === "task_order") return "任务";
+  if (entry.kind === "task_order") return "订单";
   if (entry.kind === "task_draft") return "确认";
   if (entry.kind === "tool") return "工具";
   if (entry.kind === "verification") return "验收";
-  if (entry.kind === "permission") return "权限";
   if (entry.kind === "terminal") return "结束";
   return "阶段";
 }
@@ -61,6 +71,28 @@ function terminalSummary(entries: RuntimeProgressEntry[]) {
   if (latest?.level === "waiting") return "等待";
   if (latest?.level === "error") return "异常";
   return "运行中";
+}
+
+function isUserVisibleEntry(entry: RuntimeProgressEntry) {
+  if (!entry.kind) return false;
+  return USER_VISIBLE_KINDS.has(entry.kind);
+}
+
+function currentStage(entries: RuntimeProgressEntry[]) {
+  const latest = entries[entries.length - 1];
+  if (!latest) return "准备中";
+  if (latest.kind === "terminal") return latest.statusText || terminalSummary(entries);
+  if (latest.kind === "tool") return latest.toolName ? `调用 ${latest.toolName}` : "调用工具";
+  return cleanTitle(latest.title);
+}
+
+function progressCountLabel(entries: RuntimeProgressEntry[]) {
+  const toolCount = entries.filter((entry) => entry.kind === "tool").length;
+  const stageCount = entries.filter((entry) => entry.kind !== "tool").length;
+  return [
+    stageCount ? `${stageCount} 个阶段` : "",
+    toolCount ? `${toolCount} 次工具` : "",
+  ].filter(Boolean).join(" / ") || "等待阶段";
 }
 
 function bodyText(entry: RuntimeProgressEntry) {
@@ -102,11 +134,15 @@ function toolName(entry: RuntimeProgressEntry) {
 }
 
 export function RuntimeProgressList({ entries }: { entries: RuntimeProgressEntry[] }) {
-  const visibleEntries = entries.slice(-MAX_FLOW_ENTRIES);
+  const userVisibleEntries = entries.filter(isUserVisibleEntry);
+  const anchor = [...userVisibleEntries].find((entry) => entry.kind === "task_order" || entry.kind === "task_draft");
+  const recentEntries = userVisibleEntries
+    .filter((entry) => entry.id !== anchor?.id)
+    .slice(-(MAX_FLOW_ENTRIES - (anchor ? 1 : 0)));
+  const visibleEntries = anchor ? [anchor, ...recentEntries] : recentEntries;
   if (!visibleEntries.length) return null;
 
-  const anchor = [...visibleEntries].find((entry) => entry.kind === "task_order" || entry.kind === "task_draft");
-  const flowEntries = visibleEntries.filter((entry) => entry.id !== anchor?.id);
+  const flowEntries = visibleEntries.filter((entry) => entry.id !== anchor?.id && entry.kind !== "tool");
   const toolEntries = visibleEntries.filter((entry) => entry.kind === "tool").slice(-MAX_TOOL_ENTRIES);
   const artifactEntries = visibleEntries.filter((entry) => entry.artifacts?.length);
   const status = terminalSummary(visibleEntries);
@@ -120,7 +156,8 @@ export function RuntimeProgressList({ entries }: { entries: RuntimeProgressEntry
         </div>
         <div className="runtime-task-flow__summary">
           <span>{status}</span>
-          <span>{visibleEntries.length} 条信号</span>
+          <span>{currentStage(visibleEntries)}</span>
+          <span>{progressCountLabel(visibleEntries)}</span>
         </div>
       </header>
 
@@ -151,9 +188,6 @@ export function RuntimeProgressList({ entries }: { entries: RuntimeProgressEntry
                 <strong>{entry.kind === "tool" ? toolName(entry) : cleanTitle(entry.title)}</strong>
                 {entry.statusText ? <span className="runtime-task-flow__status">{entry.statusText}</span> : null}
               </div>
-              {entry.kind === "tool" && cleanTitle(entry.title) !== toolName(entry) ? (
-                <p className="runtime-task-flow__tool-action">{cleanTitle(entry.title)}</p>
-              ) : null}
               {bodyText(entry) ? <p>{bodyText(entry)}</p> : null}
               {metaChips(entry)}
               {artifacts(entry)}

@@ -1,14 +1,16 @@
 "use client";
 
-import { ArrowUp, Network, Sparkles, Workflow } from "lucide-react";
+import { ArrowUp, Circle, GitBranch, Network, Sparkles, Workflow } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { ChatPanel } from "@/components/chat/ChatPanel";
-import { TaskGraphRunMonitorPanel } from "@/components/task-graph-monitor/TaskGraphRunMonitorPanel";
+import { CoordinationTopologyGraph, type CoordinationTopologyEdge, type CoordinationTopologyNode } from "@/components/coordination/CoordinationTopologyGraph";
 import {
   getTaskSystemOverview,
+  getTaskSystemTaskGraph,
   getTaskGraphRunMonitor,
   startTaskGraphRuntimeLoopRun,
+  type TaskGraphRecord,
   type TaskGraphRunMonitorView,
   type TaskSystemOverview,
 } from "@/lib/api";
@@ -16,8 +18,6 @@ import { useAppStore } from "@/lib/store";
 
 import {
   buildCenterWorkspaceTaskGraphInitialInputs,
-  centerWorkspaceGraphLabel,
-  centerWorkspaceGraphSubtitle,
   centerWorkspaceTaskGraphSessionId,
   listCenterWorkspaceTaskGraphs,
   resolveCenterWorkspaceSelectedGraphId,
@@ -37,16 +37,36 @@ export function CenterWorkspaceView() {
   const [loadingOverview, setLoadingOverview] = useState(false);
   const [overviewError, setOverviewError] = useState("");
   const [selectedGraphId, setSelectedGraphId] = useState("");
+  const [selectedGraphDetail, setSelectedGraphDetail] = useState<TaskGraphRecord | null>(null);
+  const [selectedGraphDetailError, setSelectedGraphDetailError] = useState("");
   const [taskMessage, setTaskMessage] = useState("");
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState("");
   const [runMonitor, setRunMonitor] = useState<TaskGraphRunMonitorView | null>(null);
 
   const taskGraphs = useMemo(() => listCenterWorkspaceTaskGraphs(overview), [overview]);
+  const taskDomains = useMemo(() => {
+    const ids = taskGraphs.map((graph) => String(graph.domain_id || "default").trim() || "default");
+    return Array.from(new Set(ids));
+  }, [taskGraphs]);
   const selectedGraph = useMemo(() => {
     if (!taskGraphs.length) return null;
-    return taskGraphs.find((graph) => graph.graph_id === selectedGraphId) ?? taskGraphs[0] ?? null;
+    const overviewGraph = taskGraphs.find((graph) => graph.graph_id === selectedGraphId) ?? taskGraphs[0] ?? null;
+    if (selectedGraphDetail && selectedGraphDetail.graph_id === overviewGraph?.graph_id) {
+      return { ...overviewGraph, ...selectedGraphDetail };
+    }
+    return overviewGraph;
+  }, [selectedGraphDetail, selectedGraphId, taskGraphs]);
+  const selectedGraphRequestId = useMemo(() => {
+    const explicitGraphId = String(selectedGraphId || "").trim();
+    if (explicitGraphId) return explicitGraphId;
+    return String(taskGraphs[0]?.graph_id || "").trim();
   }, [selectedGraphId, taskGraphs]);
+  const selectedDomainId = String(selectedGraph?.domain_id || taskDomains[0] || "default").trim() || "default";
+  const selectedDomainGraphs = useMemo(
+    () => taskGraphs.filter((graph) => (String(graph.domain_id || "default").trim() || "default") === selectedDomainId),
+    [selectedDomainId, taskGraphs],
+  );
   const boundTaskRunId = String(taskGraphMonitorBinding?.task_run_id ?? "").trim();
   const activeMonitor = useMemo(() => {
     const boundGraphId = String(taskGraphMonitorBinding?.graph_id ?? "").trim();
@@ -65,6 +85,49 @@ export function CenterWorkspaceView() {
     }
     return null;
   }, [runMonitor, selectedGraph?.graph_id, taskGraphBoundRunMonitor, taskGraphMonitorBinding?.graph_id]);
+  const graphDefinitionNodes = useMemo(() => {
+    const graphRecord = selectedGraph as (TaskGraphRecord & { graph_nodes?: unknown[] }) | null;
+    if (graphRecord?.nodes?.length) return graphRecord.nodes;
+    return Array.isArray(graphRecord?.graph_nodes) ? graphRecord.graph_nodes : [];
+  }, [selectedGraph]);
+  const graphDefinitionEdges = useMemo(() => {
+    const graphRecord = selectedGraph as (TaskGraphRecord & { graph_edges?: unknown[] }) | null;
+    if (graphRecord?.edges?.length) return graphRecord.edges;
+    return Array.isArray(graphRecord?.graph_edges) ? graphRecord.graph_edges : [];
+  }, [selectedGraph]);
+  const topologyLoading = Boolean(
+    selectedGraph
+    && !selectedGraphDetail
+    && ((selectedGraph.node_count ?? 0) > 0 || (selectedGraph.edge_count ?? 0) > 0)
+  );
+  const topologyNodes = useMemo<CoordinationTopologyNode[]>(() => {
+    const sourceNodes = activeMonitor?.topology?.nodes?.length
+      ? activeMonitor.topology.nodes
+      : graphDefinitionNodes;
+    return sourceNodes.map((node) => ({
+      id: textValue(recordValue(node).node_id),
+      title: textValue(recordValue(node).title, textValue(recordValue(node).node_id)),
+      agentLabel: textValue(recordValue(node).agent_id || recordValue(node).agent_group_id),
+      role: textValue(recordValue(node).role || recordValue(node).task_id || recordValue(node).node_type),
+      nodeKind: textValue(recordValue(node).node_type),
+      status: textValue(recordValue(node).status) || (textValue(recordValue(node).node_id) === selectedGraph?.entry_node_id ? "ready" : "idle"),
+    }));
+  }, [activeMonitor?.topology?.nodes, graphDefinitionNodes, selectedGraph?.entry_node_id]);
+  const topologyEdges = useMemo<CoordinationTopologyEdge[]>(() => {
+    const sourceEdges = activeMonitor?.topology?.edges?.length
+      ? activeMonitor.topology.edges
+      : graphDefinitionEdges;
+    return sourceEdges.map((edge) => ({
+      id: textValue(recordValue(edge).edge_id),
+      from: textValue(recordValue(edge).source_node_id),
+      to: textValue(recordValue(edge).target_node_id),
+      label: textValue(recordValue(edge).contract_id || recordValue(edge).payload_contract_id || recordValue(edge).edge_type),
+      edgeKind: textValue(recordValue(edge).edge_type),
+      status: textValue(recordValue(edge).status, "idle"),
+    }));
+  }, [activeMonitor?.topology?.edges, graphDefinitionEdges]);
+  const informationItems = useMemo(() => buildCenterWorkspaceInformationItems(activeMonitor), [activeMonitor]);
+  const activeNodeId = textValue(activeMonitor?.runtime?.active_node_id, selectedGraph?.entry_node_id || "");
 
   useEffect(() => {
     let cancelled = false;
@@ -92,6 +155,53 @@ export function CenterWorkspaceView() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    const graphId = selectedGraphRequestId;
+    if (!graphId) {
+      setSelectedGraphDetail(null);
+      setSelectedGraphDetailError("");
+      return;
+    }
+    let cancelled = false;
+    setSelectedGraphDetailError("");
+    void getTaskSystemTaskGraph(graphId)
+      .then((graph) => {
+        if (!cancelled) {
+          setSelectedGraphDetail(graph);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setSelectedGraphDetail(null);
+          setSelectedGraphDetailError(error instanceof Error ? error.message : "任务图详情读取失败");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedGraphRequestId]);
+
+  useEffect(() => {
+    if (!boundTaskRunId || layer !== "task-graph") {
+      return;
+    }
+    let cancelled = false;
+    async function refreshMonitor() {
+      const monitor = await getTaskGraphRunMonitor(boundTaskRunId).catch(() => null);
+      if (!cancelled && monitor) {
+        setRunMonitor(monitor);
+      }
+    }
+    void refreshMonitor();
+    const timer = window.setInterval(() => {
+      void refreshMonitor();
+    }, 1800);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [boundTaskRunId, layer]);
 
   async function handleStartGraph(message: string) {
     const graphId = selectedGraph?.graph_id.trim();
@@ -157,82 +267,87 @@ export function CenterWorkspaceView() {
       ) : (
         <div className="center-workspace__graph-layer">
           <div className="center-workspace__graph-body">
-            <section className="center-workspace__launchpad" aria-label="任务图选择">
-              <header className="center-workspace__launchpad-head">
+            <section className="center-workspace__structure" aria-label="任务结构">
+              <header className="center-workspace__panel-head">
                 <div>
-                  <span>当前任务图</span>
-                  <strong>{selectedGraph ? (selectedGraph.title || selectedGraph.graph_id) : "选择任务图"}</strong>
+                  <span>任务结构</span>
+                  <strong>{selectedGraph ? (selectedGraph.title || selectedGraph.graph_id) : "未选择任务"}</strong>
                 </div>
-                <div className="center-workspace__launchpad-meta">
-                  <span>{loadingOverview ? "读取中" : `${taskGraphs.length} 个任务图`}</span>
-                  <span>{boundTaskRunId ? `已绑定 ${boundTaskRunId}` : "尚未绑定运行"}</span>
+                <div className="center-workspace__panel-meta">
+                  <span>{loadingOverview ? "读取中" : `${taskGraphs.length} 个任务`}</span>
+                  <span>{boundTaskRunId ? "运行已绑定" : "等待启动"}</span>
                 </div>
               </header>
 
+              {selectedGraph ? (
+                <section className="center-workspace__structure-summary">
+                  <span><GitBranch size={13} /> {selectedGraph.node_count ?? selectedGraph.nodes?.length ?? 0} 节点 / {selectedGraph.edge_count ?? selectedGraph.edges?.length ?? 0} 边</span>
+                  <span><Circle size={13} /> {selectedGraph.publish_state} · {selectedGraph.enabled ? "可用" : "停用"}</span>
+                  <span><Workflow size={13} /> {selectedGraph.domain_id || "default"}</span>
+                </section>
+              ) : null}
+
               {overviewError ? <div className="center-workspace__notice center-workspace__notice--error">{overviewError}</div> : null}
               {startError ? <div className="center-workspace__notice center-workspace__notice--error">{startError}</div> : null}
+              {selectedGraphDetailError ? <div className="center-workspace__notice center-workspace__notice--error">{selectedGraphDetailError}</div> : null}
 
-              <div className="center-workspace__graph-list">
-                {loadingOverview ? (
+              <div className="center-workspace__structure-canvas">
+                {loadingOverview || topologyLoading ? (
                   <div className="center-workspace__empty">
                     <Network size={18} />
-                    <strong>正在读取任务图</strong>
-                    <span>任务图列表加载完成后，可以直接发送任务目标。</span>
+                    <strong>正在读取任务结构</strong>
+                    <span>任务图详情加载后会显示当前拓扑。</span>
                   </div>
-                ) : taskGraphs.length ? taskGraphs.map((graph) => {
-                  const active = graph.graph_id === selectedGraph?.graph_id;
-                  return (
-                    <button
-                      className={active ? "center-workspace__graph-card center-workspace__graph-card--active" : "center-workspace__graph-card"}
-                      key={graph.graph_id}
-                      onClick={() => setSelectedGraphId(graph.graph_id)}
-                      type="button"
-                    >
-                      <strong>{centerWorkspaceGraphLabel(graph)}</strong>
-                      <span>{centerWorkspaceGraphSubtitle(graph)}</span>
-                      <small>{graph.node_count ?? graph.nodes?.length ?? 0} 节点 · {graph.edge_count ?? graph.edges?.length ?? 0} 边</small>
-                    </button>
-                  );
-                }) : (
+                ) : selectedGraph ? (
+                  <div className="center-workspace__topology-canvas">
+                    <CoordinationTopologyGraph
+                      currentNodeId={activeNodeId}
+                      enablePan
+                      edges={topologyEdges}
+                      emptyDescription="当前具体任务没有可渲染的节点和边。"
+                      emptyTitle="当前任务没有拓扑"
+                      nodes={topologyNodes}
+                      viewportPadding={32}
+                    />
+                  </div>
+                ) : (
                   <div className="center-workspace__empty">
                     <Network size={18} />
-                    <strong>没有可用任务图</strong>
-                    <span>后端任务图列表为空，或者当前工作区还没有加载到可启动对象。</span>
+                    <strong>没有可用任务</strong>
+                    <span>后端任务列表为空，或者当前工作区还没有加载到可启动对象。</span>
                   </div>
                 )}
               </div>
 
-              {selectedGraph ? (
-                <section className="center-workspace__summary">
-                  <article>
-                    <span>当前图</span>
-                    <strong>{selectedGraph.title || selectedGraph.graph_id}</strong>
-                    <em>{selectedGraph.graph_id}</em>
-                  </article>
-                  <article>
-                    <span>发布状态</span>
-                    <strong>{selectedGraph.publish_state}</strong>
-                    <em>{selectedGraph.enabled ? "可用" : "停用"}</em>
-                  </article>
-                  <article>
-                    <span>拓扑</span>
-                    <strong>{selectedGraph.node_count ?? selectedGraph.nodes?.length ?? 0} / {selectedGraph.edge_count ?? selectedGraph.edges?.length ?? 0}</strong>
-                    <em>节点 / 边</em>
-                  </article>
-                </section>
-              ) : null}
+              <div className="center-workspace__selected-graph-id">{selectedGraph ? selectedGraph.graph_id : "未绑定任务图"}</div>
             </section>
 
             <section className="center-workspace__monitor" aria-label="任务图运行视图">
-              {activeMonitor ? (
-                <TaskGraphRunMonitorPanel monitor={activeMonitor} />
-              ) : (
-                <div className="center-workspace__monitor-empty">
-                  <Network size={20} />
-                  <strong>{selectedGraph ? "等待任务图运行监控" : "先选择一个任务图"}</strong>
-                  <span>{selectedGraph ? "在下方输入任务目标并发送，当前任务图会自动初始化运行。" : "左侧选择一个任务图，然后输入任务目标。"}</span>
+              <header className="center-workspace__panel-head center-workspace__panel-head--monitor">
+                <div>
+                  <span>运行信息流</span>
+                  <strong>{activeMonitor ? "实时监控" : "等待运行"}</strong>
                 </div>
-              )}
+              <div className="center-workspace__panel-meta">
+                  <span>{activeMonitor ? "实时" : "未启动"}</span>
+                  <span>{informationItems.length ? `${informationItems.length} 条` : "无记录"}</span>
+                </div>
+              </header>
+              <div className="center-workspace__info-stream">
+                {informationItems.length ? informationItems.map((item) => (
+                  <article className={`center-workspace__info-item center-workspace__info-item--${item.level}`} key={item.id}>
+                    <span>{item.label}</span>
+                    <strong>{item.title}</strong>
+                    {item.body ? <p>{item.body}</p> : null}
+                  </article>
+                )) : (
+                  <div className="center-workspace__monitor-empty">
+                    <Network size={20} />
+                    <strong>{selectedGraph ? "等待运行输出" : "先选择一个任务"}</strong>
+                    <span>{selectedGraph ? "运行后这里显示模型输出、事件和产物摘要。" : "先在底部选择任务域和具体任务。"}</span>
+                  </div>
+                )}
+              </div>
             </section>
           </div>
 
@@ -270,9 +385,35 @@ export function CenterWorkspaceView() {
               />
             </div>
             <div className="center-workspace__composer-footer">
-              <div className="center-workspace__composer-target">
-                <Workflow size={14} />
-                <span>{selectedGraph ? `发送到 ${selectedGraph.title || selectedGraph.graph_id}` : "未选择任务图"}</span>
+              <div className="center-workspace__composer-target" aria-label="任务选择">
+                <label>
+                  <span>任务域</span>
+                  <select
+                    disabled={starting || loadingOverview || !taskDomains.length}
+                    onChange={(event) => {
+                      const nextDomain = event.target.value;
+                      const nextGraph = taskGraphs.find((graph) => (String(graph.domain_id || "default").trim() || "default") === nextDomain);
+                      setSelectedGraphId(nextGraph?.graph_id || "");
+                    }}
+                    value={selectedDomainId}
+                  >
+                    {taskDomains.map((domainId) => (
+                      <option key={domainId} value={domainId}>{domainId}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span>具体任务</span>
+                  <select
+                    disabled={starting || loadingOverview || !selectedDomainGraphs.length}
+                    onChange={(event) => setSelectedGraphId(event.target.value)}
+                    value={selectedGraph?.graph_id || ""}
+                  >
+                    {selectedDomainGraphs.map((graph) => (
+                      <option key={graph.graph_id} value={graph.graph_id}>{graph.title || graph.graph_id}</option>
+                    ))}
+                  </select>
+                </label>
               </div>
               <button
                 aria-label="发送图任务"
@@ -288,4 +429,69 @@ export function CenterWorkspaceView() {
       )}
     </section>
   );
+}
+
+type CenterWorkspaceInformationItem = {
+  id: string;
+  label: string;
+  title: string;
+  body: string;
+  level: "normal" | "warning" | "error" | "success";
+};
+
+function buildCenterWorkspaceInformationItems(monitor: TaskGraphRunMonitorView | null): CenterWorkspaceInformationItem[] {
+  if (!monitor) return [];
+  const items: CenterWorkspaceInformationItem[] = [];
+  const failure = recordValue(monitor.runtime?.failure);
+  const failureMessage = textValue(failure.message);
+  if (failureMessage) {
+    items.push({
+      id: "failure",
+      label: "错误",
+      title: textValue(failure.code) || "运行异常",
+      body: failureMessage,
+      level: "error",
+    });
+  }
+  const streaming = monitor.streaming;
+  const streamPreview = textValue(streaming?.preview_text);
+  if (streamPreview) {
+    items.push({
+      id: "streaming-preview",
+      label: "模型输出",
+      title: `${Number(streaming?.accumulated_chars || 0)} 字`,
+      body: streamPreview,
+      level: "normal",
+    });
+  }
+  for (const [index, event] of [...(monitor.timeline?.recent_events || [])].reverse().slice(0, 8).entries()) {
+    const eventType = textValue(event.event_type || event.type || event.kind, "运行事件");
+    const payload = recordValue(event.payload);
+    items.push({
+      id: `event:${textValue(event.event_id) || index}`,
+      label: "事件",
+      title: eventType,
+      body: textValue(payload.message || payload.summary || payload.reason || payload.error || event.title || event.status),
+      level: eventType.includes("error") || textValue(payload.error) ? "error" : eventType.includes("completed") ? "success" : "normal",
+    });
+  }
+  for (const [index, artifact] of [...(monitor.artifacts || [])].reverse().slice(0, 4).entries()) {
+    items.push({
+      id: `artifact:${textValue(artifact.artifact_ref || artifact.path || artifact.ref) || index}`,
+      label: "产物",
+      title: textValue(artifact.title || artifact.label || artifact.artifact_ref || artifact.path, "产物引用"),
+      body: textValue(artifact.path || artifact.ref || artifact.producer_node_id),
+      level: "success",
+    });
+  }
+  return items.slice(0, 12);
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function textValue(value: unknown, fallback = "") {
+  const next = String(value ?? "").trim();
+  return next || fallback;
 }
