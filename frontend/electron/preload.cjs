@@ -7,6 +7,9 @@ const config = {
   frontendPort: Number(process.env.MYTHICAL_AGENT_FRONTEND_PORT || 3000),
   backendPort: Number(process.env.MYTHICAL_AGENT_BACKEND_PORT || 8003),
   mode: "dev",
+  hostMode: "desktop",
+  localRuntimeAvailable: true,
+  vibeCodingHostAvailable: true,
 };
 
 globalThis.__MYTHICAL_AGENT_HOST__ = config;

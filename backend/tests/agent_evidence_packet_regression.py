@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+from langchain_core.messages import AIMessage
+
 from evidence.agent_evidence_packet import build_agent_evidence_packet_from_mcp_payload, build_agent_evidence_packet_from_web_payload
 from evidence.mcp_models import MCPRequest
 from agent_system.registry.agent_registry import default_agent_descriptors
@@ -322,6 +324,49 @@ class _HtmlFetchProvider:
             </body></html>
             """,
         }
+
+
+class _LargeFetchProvider:
+    def __init__(self) -> None:
+        self.urls: list[str] = []
+
+    async def fetch(self, *, url: str) -> dict:
+        self.urls.append(url)
+        return {
+            "ok": True,
+            "url": url,
+            "content_type": "text/html",
+            "content": (
+                "<html><body><main>"
+                "<p>Official announcement confirms the policy update with primary evidence.</p>"
+                + "<p>Long supporting detail about implementation, dates, scope, and provenance.</p>" * 220
+                + "</main></body></html>"
+            ),
+        }
+
+
+class _ModelDistillerRuntime:
+    def __init__(self, content: str | Exception) -> None:
+        self.content = content
+        self.messages: list[list[dict[str, str]]] = []
+
+    async def invoke_messages(self, messages, **_kwargs):
+        self.messages.append(list(messages))
+        if isinstance(self.content, Exception):
+            raise self.content
+        return AIMessage(content=self.content)
+
+
+class _SequentialModelDistillerRuntime:
+    def __init__(self, contents: list[str]) -> None:
+        self.contents = list(contents)
+        self.messages: list[list[dict[str, str]]] = []
+
+    async def invoke_messages(self, messages, **_kwargs):
+        self.messages.append(list(messages))
+        if len(self.messages) <= len(self.contents):
+            return AIMessage(content=self.contents[len(self.messages) - 1])
+        return AIMessage(content=self.contents[-1])
 
 
 def test_child_agent_runtime_attaches_shadow_evidence_packet() -> None:
@@ -711,6 +756,246 @@ def test_deepsearch_fetch_cleans_html_before_evidence_packet() -> None:
     assert "Navigation" not in claims
 
 
+def test_deepsearch_persists_large_tool_results_and_keeps_distilled_evidence(tmp_path: Path) -> None:
+    search_provider = _GapThenOfficialProvider()
+    fetch_provider = _LargeFetchProvider()
+
+    def runtime_factory(root_dir: Path) -> SearchAgentRuntime:
+        return SearchAgentRuntime(root_dir, search_provider=search_provider, fetch_provider=fetch_provider)
+
+    executor = ChildAgentRuntimeExecutor(root_dir=tmp_path, search_runtime_factory=runtime_factory)
+    request = AgentDelegationRequest(
+        request_id="delegation:req:large-result",
+        task_run_id="taskrun-1",
+        session_id="session-1",
+        parent_agent_run_ref="agrun:main",
+        source_agent_id="agent:main",
+        target_agent_id="agent:web_researcher",
+        delegation_kind="web_research",
+        instruction="Find primary evidence for a policy update.",
+        input_payload={"query": "policy update", "topic": "general"},
+    )
+    agent = type("Agent", (), {"agent_id": "agent:web_researcher"})()
+    profile = type(
+        "Profile",
+        (),
+        {
+            "agent_id": "agent:web_researcher",
+            "allowed_operations": ("op.model_response", "op.web_search", "op.fetch_url"),
+            "blocked_operations": (),
+            "metadata": {
+                "runtime_config": {
+                    "template_id": "runtime.template.deepsearch",
+                    "search": {
+                        "runtime_mode": "deepsearch",
+                        "allow_fetch_url": True,
+                        "max_queries": 2,
+                        "max_fetches": 1,
+                        "max_sources": 4,
+                        "prefer_primary_sources": True,
+                        "tool_result_field_limit_bytes": 1200,
+                        "tool_result_preview_bytes": 300,
+                        "tool_result_payload_budget_bytes": 3000,
+                    },
+                },
+            },
+        },
+    )()
+
+    payload = asyncio.run(executor.run(request=request, agent=agent, profile=profile))
+
+    diagnostics = dict(payload["diagnostics"])
+    replacements = list(diagnostics["content_replacements"])
+    packet = dict(diagnostics["agent_evidence_packet"])
+    facts = "\n".join(str(item["claim"]) for item in packet["facts"])
+    assert payload["status"] == "completed"
+    assert replacements
+    assert Path(str(replacements[0]["path"])).exists()
+    assert "<persisted-output>" in str(diagnostics["web_payload"])
+    assert "Long supporting detail" not in facts
+    assert "Official announcement confirms the policy update" in facts
+    assert payload["artifact_refs"]
+    assert packet["domain_payload"]["distilled_claim_count"] >= 1
+    assert packet["evidence"][0]["locator"]["artifact_ref"]
+
+
+def test_deepsearch_uses_model_backed_distiller_when_model_runtime_available() -> None:
+    search_provider = _FakeDeepSearchProvider()
+    model_runtime = _ModelDistillerRuntime(
+        """
+        {
+          "claims": [
+            {
+              "claim": "The model distiller selected the strongest official source.",
+              "source_url": "https://example.com/1",
+              "source_title": "Official source for official model release notes",
+              "source_type": "official",
+              "confidence": "high",
+              "excerpt": "Evidence collected for official model release notes."
+            }
+          ],
+          "unknowns": [],
+          "conflicts": []
+        }
+        """
+    )
+    executor = ChildAgentRuntimeExecutor(root_dir=Path("."))
+    request = AgentDelegationRequest(
+        request_id="delegation:req:model-distiller",
+        task_run_id="taskrun-1",
+        session_id="session-1",
+        parent_agent_run_ref="agrun:main",
+        source_agent_id="agent:main",
+        target_agent_id="agent:web_researcher",
+        delegation_kind="web_research",
+        instruction="Find current official release evidence.",
+        input_payload={"query": "official model release notes", "topic": "general"},
+    )
+    agent = type("Agent", (), {"agent_id": "agent:web_researcher"})()
+    profile = type(
+        "Profile",
+        (),
+        {
+            "agent_id": "agent:web_researcher",
+            "allowed_operations": ("op.model_response", "op.web_search"),
+            "blocked_operations": (),
+            "metadata": {
+                "runtime_config": {
+                    "template_id": "runtime.template.deepsearch",
+                    "search": {"allow_fetch_url": False, "max_queries": 1, "max_fetches": 0, "max_sources": 3},
+                },
+            },
+        },
+    )()
+    runtime = SearchAgentRuntime(Path("."), search_provider=search_provider, model_runtime=model_runtime)
+    from runtime.search_agent_runtime import normalize_runtime_config
+
+    runtime_config = normalize_runtime_config(profile.metadata["runtime_config"])
+    payload = asyncio.run(runtime.run(request=request, agent=agent, profile=profile, config=runtime_config.search))
+
+    packet = dict(payload["diagnostics"]["agent_evidence_packet"])
+    assert payload["status"] == "completed"
+    assert payload["diagnostics"]["distillation"]["method"] == "model_distiller"
+    assert "model distiller selected" in packet["facts"][0]["claim"]
+    assert model_runtime.messages
+
+
+def test_deepsearch_model_distiller_falls_back_when_model_fails() -> None:
+    search_provider = _FakeDeepSearchProvider()
+    model_runtime = _ModelDistillerRuntime(RuntimeError("boom"))
+    runtime = SearchAgentRuntime(Path("."), search_provider=search_provider, model_runtime=model_runtime)
+    request = AgentDelegationRequest(
+        request_id="delegation:req:model-distiller-fallback",
+        task_run_id="taskrun-1",
+        session_id="session-1",
+        parent_agent_run_ref="agrun:main",
+        source_agent_id="agent:main",
+        target_agent_id="agent:web_researcher",
+        delegation_kind="web_research",
+        instruction="Find current official release evidence.",
+        input_payload={"query": "official model release notes", "topic": "general"},
+    )
+    agent = type("Agent", (), {"agent_id": "agent:web_researcher"})()
+    profile = type(
+        "Profile",
+        (),
+        {
+            "agent_id": "agent:web_researcher",
+            "allowed_operations": ("op.model_response", "op.web_search"),
+            "blocked_operations": (),
+            "metadata": {},
+        },
+    )()
+    from runtime.search_agent_runtime import normalize_runtime_config
+
+    config = normalize_runtime_config({"template_id": "runtime.template.deepsearch", "search": {"allow_fetch_url": False, "max_queries": 1, "max_fetches": 0}}).search
+    payload = asyncio.run(runtime.run(request=request, agent=agent, profile=profile, config=config))
+
+    assert payload["status"] == "completed"
+    assert payload["diagnostics"]["distillation"]["method"] == "deterministic_distiller_fallback"
+    assert any("model_distiller_failed" in item for item in payload["limitations"])
+
+
+def test_deepsearch_adds_followup_queries_from_distilled_unknowns() -> None:
+    search_provider = _FakeDeepSearchProvider()
+    model_runtime = _SequentialModelDistillerRuntime(
+        [
+            """
+            {
+              "claims": [
+                {
+                  "claim": "Initial source says the feature exists.",
+                  "source_url": "https://example.com/1",
+                  "source_title": "Official source for official model release notes",
+                  "source_type": "official",
+                  "confidence": "medium",
+                  "excerpt": "Evidence collected for official model release notes."
+                }
+              ],
+              "unknowns": ["Supported models and response structure are still unclear."],
+              "conflicts": []
+            }
+            """,
+            """
+            {
+              "claims": [
+                {
+                  "claim": "Follow-up evidence clarifies supported models and response structure.",
+                  "source_url": "https://example.com/2",
+                  "source_title": "Official source for official model release notes supported models",
+                  "source_type": "official",
+                  "confidence": "high",
+                  "excerpt": "Evidence collected for official model release notes supported models."
+                }
+              ],
+              "unknowns": [],
+              "conflicts": []
+            }
+            """,
+        ]
+    )
+    runtime = SearchAgentRuntime(Path("."), search_provider=search_provider, model_runtime=model_runtime)
+    request = AgentDelegationRequest(
+        request_id="delegation:req:followup-unknowns",
+        task_run_id="taskrun-1",
+        session_id="session-1",
+        parent_agent_run_ref="agrun:main",
+        source_agent_id="agent:main",
+        target_agent_id="agent:web_researcher",
+        delegation_kind="web_research",
+        instruction="Find current official release evidence.",
+        input_payload={"query": "official model release notes", "topic": "general"},
+    )
+    agent = type("Agent", (), {"agent_id": "agent:web_researcher"})()
+    profile = type(
+        "Profile",
+        (),
+        {
+            "agent_id": "agent:web_researcher",
+            "allowed_operations": ("op.model_response", "op.web_search"),
+            "blocked_operations": (),
+            "metadata": {},
+        },
+    )()
+    from runtime.search_agent_runtime import normalize_runtime_config
+
+    config = normalize_runtime_config(
+        {
+            "template_id": "runtime.template.deepsearch",
+            "search": {"allow_fetch_url": False, "max_queries": 4, "max_fetches": 0, "max_sources": 6},
+        }
+    ).search
+    payload = asyncio.run(runtime.run(request=request, agent=agent, profile=profile, config=config))
+
+    executed = list(payload["diagnostics"]["web_payload"]["deepsearch"]["executed_queries"])
+    reviews = list(payload["diagnostics"]["web_payload"]["deepsearch"]["reviews"])
+    assert payload["status"] == "completed"
+    assert len(model_runtime.messages) >= 2
+    assert any("supported models" in query for query in executed)
+    assert any(review["stop_reason"] == "distilled_evidence_gap" for review in reviews)
+    assert "Follow-up evidence clarifies" in payload["diagnostics"]["agent_evidence_packet"]["facts"][0]["claim"]
+
+
 def test_child_agent_runtime_ignores_legacy_runtime_template_id_for_deepsearch() -> None:
     executor = _FakeWebRuntimeExecutor(root_dir=Path("."))
     request = AgentDelegationRequest(
@@ -824,6 +1109,71 @@ def test_delegation_result_records_shadow_readiness_without_changing_summary() -
     assert shadow["mode"] == "shadow_only"
     assert shadow["evidence_sufficient"] is True
     assert shadow["summary_is_primary_path"] is True
+
+
+def test_parent_observation_microcompacts_large_child_answer_with_evidence_summary(tmp_path: Path) -> None:
+    executor = AgentDelegationExecutor(root_dir=tmp_path)
+    request = AgentDelegationRequest(
+        request_id="delegation:req:compact-child",
+        task_run_id="taskrun-1",
+        session_id="session-1",
+        parent_agent_run_ref="agrun:main",
+        source_agent_id="agent:main",
+        target_agent_id="agent:web_researcher",
+        delegation_kind="web_research",
+        instruction="Collect evidence.",
+        input_payload={},
+    )
+    child_run = AgentRun(
+        agent_run_id="agrun:child",
+        task_run_id="taskrun-1",
+        agent_id="agent:web_researcher",
+        agent_profile_id="profile:web",
+    )
+    packet = build_deepsearch_evidence_packet(
+        web_payload={
+            "ok": True,
+            "query": "official docs",
+            "topic": "general",
+            "results": [
+                {
+                    "title": "Official docs",
+                    "url": "https://developers.example.com/docs",
+                    "score": 0.95,
+                    "clean_text": "Official documentation confirms the evidence.",
+                }
+            ],
+        },
+        source_agent_id="agent:web_researcher",
+        target_task_id="taskrun-1",
+        task_goal="Collect evidence.",
+    )
+    result = executor.normalize_child_output(
+        request=request,
+        child_agent_run=child_run,
+        child_payload={
+            "status": "completed",
+            "summary": "Evidence collected.",
+            "answer_candidate": "LONG-ANSWER " * 2000,
+            "evidence_refs": ["web:evidence:1"],
+            "artifact_refs": ["artifact:web:1"],
+            "diagnostics": {
+                "agent_evidence_packet": packet.to_dict(),
+                "visible_packet_summary": packet.visible_summary(),
+            },
+        },
+        status="completed",
+    )
+
+    observation = executor.build_parent_observation(result)
+
+    assert observation["summary"] == "Evidence collected."
+    assert "Official documentation confirms" in observation["answer_candidate"]
+    assert "LONG-ANSWER " not in observation["answer_candidate"]
+    assert observation["evidence_refs"] == ["web:evidence:1"]
+    assert observation["artifact_refs"] == ["artifact:web:1"]
+    assert observation["context_compaction"]["applied"] is True
+    assert observation["context_compaction"]["model_visible_evidence_summary_used"] is True
 
 
 def test_builtin_specialist_agents_have_default_professional_projections() -> None:

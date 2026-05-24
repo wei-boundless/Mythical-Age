@@ -119,11 +119,11 @@ def test_frontend_goal_compiles_browser_verification_operations() -> None:
     ids = _step_ids(recipe)
     verification = next(item for item in list(recipe["step_blueprints"]) if item["step_id"] == "verification")
 
-    assert recipe["recipe_id"] == "runtime.recipe.professional_task"
-    assert recipe["execution_kind"] == "professional_mode"
+    assert recipe["recipe_id"] == "runtime.recipe.vibe_coding"
+    assert recipe["execution_kind"] == "vibe_coding"
     assert metadata["semantic_task_type"] == "frontend_app_delivery"
-    assert metadata["interaction_mode"] == "professional_mode"
-    assert metadata["runtime_lane_hint"] == "professional_task"
+    assert metadata["interaction_mode"] == "vibe_coding"
+    assert metadata["runtime_lane_hint"] == "vibe_coding_task"
     assert agent_plan["task_goal_type"] == "frontend_app_delivery"
     assert coverage["passed"] is True
     assert "run_browser_verification" in coverage["covered_actions"]
@@ -133,7 +133,7 @@ def test_frontend_goal_compiles_browser_verification_operations() -> None:
     assert "op.browser_control" in verification["optional_operations"]
 
 
-def test_code_fix_goal_compiles_professional_recipe() -> None:
+def test_code_fix_goal_compiles_vibe_coding_recipe() -> None:
     bundle = _runtime_bundle(
         "请修复 backend/app.py 里的一个代码问题，然后运行 pytest 验证。",
         task_selection=model_turn_context(
@@ -153,10 +153,10 @@ def test_code_fix_goal_compiles_professional_recipe() -> None:
     metadata = dict(recipe["metadata"])
     ids = _step_ids(recipe)
 
-    assert recipe["recipe_id"] == "runtime.recipe.professional_task"
-    assert recipe["execution_kind"] == "professional_mode"
-    assert metadata["interaction_mode"] == "professional_mode"
-    assert metadata["runtime_lane_hint"] == "professional_task"
+    assert recipe["recipe_id"] == "runtime.recipe.vibe_coding"
+    assert recipe["execution_kind"] == "vibe_coding"
+    assert metadata["interaction_mode"] == "vibe_coding"
+    assert metadata["runtime_lane_hint"] == "vibe_coding_task"
     assert metadata["requires_evidence_packet"] is True
     assert "step_execution.inspect_relevant_code" in ids
     assert "step_execution.edit_scoped_files" in ids

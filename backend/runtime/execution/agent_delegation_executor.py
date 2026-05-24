@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from capability_system.search_policy import agent_allowed_by_search_policy, normalize_search_policy
+from runtime.context_management import compact_child_result_observation
 from runtime.model_gateway.model_runtime import stringify_content
 from agent_system.identity import normalize_agent_id
 from agent_system.registry.agent_registry import AgentRegistry
@@ -378,7 +379,12 @@ class AgentDelegationExecutor:
         agent = type("AgentPayload", (), dict(context.get("agent") or {}))()
         profile = type("ProfilePayload", (), dict(context.get("runtime_profile") or {}))()
         if not _delegation_requires_model_only_review(request, profile):
-            specialist_payload = await self.child_runtime_executor.run(request=request, agent=agent, profile=profile)
+            specialist_payload = await self.child_runtime_executor.run(
+                request=request,
+                agent=agent,
+                profile=profile,
+                model_runtime=getattr(model_response_executor, "model_runtime", None),
+            )
             if str(specialist_payload.get("status") or "") != "failed" or specialist_payload.get("summary"):
                 return specialist_payload
         invoker_owner = getattr(model_response_executor, "model_runtime", None)
@@ -516,12 +522,13 @@ class AgentDelegationExecutor:
 
     def build_parent_observation(self, result: AgentDelegationResult) -> dict[str, Any]:
         context_writeback_hints = _context_writeback_hints_from_result(result)
-        return {
+        observation = {
             "type": "agent_delegation_result",
             "status": result.status,
             "target_agent_id": result.target_agent_id,
             "summary": result.summary,
             "answer_candidate": result.answer_candidate,
+            "diagnostics": dict(result.diagnostics or {}),
             **_verifier_observation_fields(result),
             "evidence_refs": list(result.evidence_refs),
             "artifact_refs": list(result.artifact_refs),
@@ -534,6 +541,11 @@ class AgentDelegationExecutor:
             "child_agent_run_ref": result.child_agent_run_ref,
             **({"context_writeback_hints": context_writeback_hints} if context_writeback_hints else {}),
         }
+        return compact_child_result_observation(
+            observation,
+            root_dir=self.root_dir,
+            run_id=result.result_id,
+        )
 
     def _blocked_result(self, request: AgentDelegationRequest, *, parent_agent_run: AgentRun, reasons: list[str]) -> AgentDelegationResult:
         _ = parent_agent_run

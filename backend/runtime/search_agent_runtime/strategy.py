@@ -44,6 +44,7 @@ class EvidenceReviewStep:
     next_queries: tuple[str, ...] = ()
     accepted_source_count: int = 0
     primary_source_count: int = 0
+    distilled_claim_count: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -53,6 +54,7 @@ class EvidenceReviewStep:
             "next_queries": list(self.next_queries),
             "accepted_source_count": self.accepted_source_count,
             "primary_source_count": self.primary_source_count,
+            "distilled_claim_count": self.distilled_claim_count,
         }
 
 
@@ -80,6 +82,7 @@ class ResearchState:
     executed_queries: list[str] = field(default_factory=list)
     candidate_sources: list[dict[str, Any]] = field(default_factory=list)
     fetched_sources: list[dict[str, Any]] = field(default_factory=list)
+    distilled_claims: list[dict[str, Any]] = field(default_factory=list)
     reviews: list[EvidenceReviewStep] = field(default_factory=list)
     unknowns: list[str] = field(default_factory=list)
     limits: list[str] = field(default_factory=list)
@@ -94,6 +97,7 @@ class ResearchState:
             "executed_queries": list(self.executed_queries),
             "candidate_sources": list(self.candidate_sources),
             "fetched_sources": list(self.fetched_sources),
+            "distilled_claims": list(self.distilled_claims),
             "reviews": [item.to_dict() for item in self.reviews],
             "unknowns": list(self.unknowns),
             "limits": list(self.limits),
@@ -103,7 +107,7 @@ class ResearchState:
 
 
 class DefaultDeepSearchStrategy:
-    """Deterministic strategy scaffold for DeepSearch until model-owned planning is wired in."""
+    """State-driven DeepSearch planning and evidence-gap review."""
 
     def plan(self, *, payload: dict[str, Any], goal: str, config: SearchRuntimeConfig) -> SearchPlanningStep:
         raw_queries = payload.get("queries")
@@ -131,6 +135,7 @@ class DefaultDeepSearchStrategy:
                 )
             )
             queries.append(f"{goal} official source")
+            queries.append(f"{goal} official announcement")
         if config.runtime_mode == "deepsearch" and config.freshness_required_by_default:
             questions.append(
                 ResearchQuestion(
@@ -141,16 +146,18 @@ class DefaultDeepSearchStrategy:
                 )
             )
             queries.append(f"{goal} latest update")
+            queries.append(f"{goal} release notes date")
         return SearchPlanningStep(
             research_questions=tuple(questions),
             initial_queries=_dedupe(queries)[: config.max_queries],
             rationale="Initial plan derived from delegated query, runtime budget, source quality policy, and freshness policy.",
         )
 
-    def review(self, *, state: ResearchState, config: SearchRuntimeConfig) -> EvidenceReviewStep:
+    def review(self, *, state: ResearchState, config: SearchRuntimeConfig, phase: str = "search") -> EvidenceReviewStep:
         accepted_sources = _unique_sources(state.candidate_sources)
         accepted_count = len(accepted_sources)
         primary_count = sum(1 for item in accepted_sources if _looks_primary_source(item))
+        distilled_claim_count = len(state.distilled_claims)
         gaps: list[str] = []
         next_queries: list[str] = []
         if accepted_count <= 0:
@@ -162,6 +169,15 @@ class DefaultDeepSearchStrategy:
         if config.freshness_required_by_default and not _has_dated_source(accepted_sources):
             gaps.append("dated_source_missing")
             next_queries.append(f"{state.goal} date")
+        if phase == "distilled":
+            if distilled_claim_count <= 0:
+                gaps.append("distilled_claim_missing")
+                next_queries.append(f"{state.goal} official documentation details")
+            for unknown in state.unknowns:
+                unknown_queries = _queries_for_unknown(state.goal, unknown)
+                if unknown_queries:
+                    gaps.append("distilled_unknown_followup_required")
+                    next_queries.extend(unknown_queries)
         if config.runtime_mode == "single_search":
             return EvidenceReviewStep(
                 should_stop=True,
@@ -170,6 +186,28 @@ class DefaultDeepSearchStrategy:
                 next_queries=(),
                 accepted_source_count=accepted_count,
                 primary_source_count=primary_count,
+                distilled_claim_count=distilled_claim_count,
+            )
+        remaining_query_budget = config.max_queries - len(state.executed_queries) - len(state.query_queue)
+        if phase != "distilled" and state.query_queue:
+            return EvidenceReviewStep(
+                should_stop=False,
+                stop_reason="query_queue_has_planned_work",
+                gaps=tuple(gaps),
+                next_queries=(),
+                accepted_source_count=accepted_count,
+                primary_source_count=primary_count,
+                distilled_claim_count=distilled_claim_count,
+            )
+        if phase == "distilled" and gaps and remaining_query_budget > 0:
+            return EvidenceReviewStep(
+                should_stop=False,
+                stop_reason="distilled_evidence_gap",
+                gaps=tuple(_dedupe(gaps)),
+                next_queries=tuple(_dedupe(next_queries)[:remaining_query_budget]),
+                accepted_source_count=accepted_count,
+                primary_source_count=primary_count,
+                distilled_claim_count=distilled_claim_count,
             )
         if accepted_count >= config.max_sources:
             return EvidenceReviewStep(
@@ -179,15 +217,16 @@ class DefaultDeepSearchStrategy:
                 next_queries=(),
                 accepted_source_count=accepted_count,
                 primary_source_count=primary_count,
+                distilled_claim_count=distilled_claim_count,
             )
-        if not gaps and accepted_count >= 2:
+        if not gaps and accepted_count >= 2 and (phase != "distilled" or distilled_claim_count >= 1):
             return EvidenceReviewStep(
                 should_stop=True,
                 stop_reason="enough_evidence",
                 accepted_source_count=accepted_count,
                 primary_source_count=primary_count,
+                distilled_claim_count=distilled_claim_count,
             )
-        remaining_query_budget = config.max_queries - len(state.executed_queries) - len(state.query_queue)
         if state.query_queue:
             return EvidenceReviewStep(
                 should_stop=False,
@@ -196,6 +235,7 @@ class DefaultDeepSearchStrategy:
                 next_queries=tuple(_dedupe(next_queries)[: max(0, remaining_query_budget)]),
                 accepted_source_count=accepted_count,
                 primary_source_count=primary_count,
+                distilled_claim_count=distilled_claim_count,
             )
         return EvidenceReviewStep(
             should_stop=remaining_query_budget <= 0,
@@ -204,6 +244,7 @@ class DefaultDeepSearchStrategy:
             next_queries=tuple(_dedupe(next_queries)[: max(0, remaining_query_budget)]),
             accepted_source_count=accepted_count,
             primary_source_count=primary_count,
+            distilled_claim_count=distilled_claim_count,
         )
 
     def synthesize(self, *, state: ResearchState) -> FinalSynthesisStep:
@@ -217,6 +258,8 @@ class DefaultDeepSearchStrategy:
             unresolved.extend(state.reviews[-1].gaps)
         if not state.candidate_sources:
             unresolved.append("no_accepted_sources")
+        if not state.distilled_claims:
+            unresolved.append("no_distilled_claims")
         return FinalSynthesisStep(
             summary=f"Executed {len(state.executed_queries)} search queries and accepted {len(_unique_sources(state.candidate_sources))} candidate sources.",
             stop_reason=state.stop_reason or "unknown",
@@ -225,16 +268,25 @@ class DefaultDeepSearchStrategy:
         )
 
 
-def enqueue_queries(state: ResearchState, queries: tuple[str, ...], *, max_queries: int) -> None:
+def enqueue_queries(state: ResearchState, queries: tuple[str, ...], *, max_queries: int, front: bool = False) -> None:
     seen = set(state.executed_queries) | set(state.query_queue)
+    accepted: list[str] = []
     for query in queries:
         item = str(query or "").strip()
         if not item or item in seen:
             continue
-        if len(state.executed_queries) + len(state.query_queue) >= max_queries:
+        if not front and len(state.executed_queries) + len(state.query_queue) >= max_queries:
             break
-        state.query_queue.append(item)
+        accepted.append(item)
         seen.add(item)
+    if not accepted:
+        return
+    if front:
+        state.query_queue = [*accepted, *state.query_queue]
+        remaining_slots = max(0, max_queries - len(state.executed_queries))
+        state.query_queue = state.query_queue[:remaining_slots]
+    else:
+        state.query_queue.extend(accepted)
 
 
 def _unique_sources(values: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -255,11 +307,27 @@ def _looks_primary_source(item: dict[str, Any]) -> bool:
         str(item.get(key) or "").lower()
         for key in ("title", "url", "content", "raw_content")
     )
-    return any(token in haystack for token in ("official", ".gov", "docs.", "developer.", "press release", "announcement"))
+    return any(token in haystack for token in ("official", ".gov", ".edu", "docs.", "developer.", "developers.", "learn.microsoft.com", "press release", "announcement"))
 
 
 def _has_dated_source(items: list[dict[str, Any]]) -> bool:
     return any(str(item.get("published_date") or "").strip() for item in items)
+
+
+def _queries_for_unknown(goal: str, unknown: str) -> list[str]:
+    text = str(unknown or "").lower()
+    queries: list[str] = []
+    if any(token in text for token in ("model", "models", "support", "supported")):
+        queries.append(f"{goal} supported models")
+    if any(token in text for token in ("pricing", "rate limit", "rate limits", "access restriction")):
+        queries.append(f"{goal} pricing rate limits")
+    if any(token in text for token in ("date", "released", "release", "latest", "current")):
+        queries.append(f"{goal} release notes latest date")
+    if any(token in text for token in ("parameter", "options", "response structure", "filters")):
+        queries.append(f"{goal} parameters response structure")
+    if any(token in text for token in ("citation", "citations", "source", "formatted")):
+        queries.append(f"{goal} citations source links")
+    return queries
 
 
 def _query_matches_question(query: str, question: str) -> bool:

@@ -483,6 +483,55 @@
       "agent_template_id": "builtin.specialist.web_researcher",
       "delegation_enabled": true,
       "group_eligible": false
+    },
+    {
+      "agent_id": "agent:verifier",
+      "agent_name": "交付复核Agent",
+      "agent_category": "builtin_agent",
+      "interface_target": "worker_task_console",
+      "description": "你是一名交付复核员。你负责检查主 Agent 的回答、产物、证据和用户目标是否一致，只给复核裁决和返工建议，不替主 Agent 修改产物或最终回答。",
+      "enabled": true,
+      "builtin": true,
+      "editable": true,
+      "default_soul_id": "xuannv",
+      "default_projection_id": "projection.worker.completion_verifier",
+      "created_at": 1779642331.0895808,
+      "updated_at": 1779642331.0895808,
+      "metadata": {
+        "role": "worker_specialist",
+        "builtin_kind": "specialist",
+        "worker_kind": "completion_verification",
+        "slot_index": 10,
+        "system_key": "builtin_specialist_pool",
+        "agent_template_id": "builtin.specialist.verifier",
+        "delegation_enabled": true,
+        "group_eligible": false,
+        "definition_source": "system_builtin",
+        "lifecycle_policy": "system_builtin"
+      },
+      "display_name": "交付复核Agent",
+      "profile_type": "builtin_agent",
+      "owner_system": "builtin_specialist_pool",
+      "lifecycle_state": "system_builtin",
+      "definition_source": "system_builtin",
+      "lifecycle_policy": "system_builtin",
+      "mutable_fields": [
+        "agent_name",
+        "interface_target",
+        "description",
+        "enabled",
+        "editable",
+        "default_soul_id",
+        "default_projection_id",
+        "metadata"
+      ],
+      "governance_status": "system_builtin",
+      "deletable": "delete_allowed",
+      "disable_allowed": true,
+      "builtin_kind": "specialist",
+      "agent_template_id": "builtin.specialist.verifier",
+      "delegation_enabled": true,
+      "group_eligible": false
     }
   ]
 }

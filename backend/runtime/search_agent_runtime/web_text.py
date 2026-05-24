@@ -49,12 +49,12 @@ class _TitleDescriptionParser(HTMLParser):
 
 
 def clean_web_text(value: Any, *, limit: int = 4000) -> str:
-    text = str(value or "").strip()
+    text = _strip_code_noise(str(value or "").strip())
     if not text:
         return ""
     if _looks_like_html(text):
         return _html_to_text(text, limit=limit)
-    return _clean_spacing(html.unescape(text))[:limit].strip()
+    return _clean_spacing(_strip_code_noise(html.unescape(text)))[:limit].strip()
 
 
 def best_web_excerpt(item: dict[str, Any], *, limit: int = 900) -> str:
@@ -94,12 +94,12 @@ def _html_to_text(value: str, *, limit: int) -> str:
         parser.feed(value[:20000])
     except Exception:
         pass
-    text = NOISE_RE.sub(" ", value)
+    text = _strip_code_noise(NOISE_RE.sub(" ", value))
     text = re.sub(r"<style\b[^>]*>.*?(?:</style>|$)", " ", text, flags=re.IGNORECASE | re.DOTALL)
     text = re.sub(r"<script\b[^>]*>.*?(?:</script>|$)", " ", text, flags=re.IGNORECASE | re.DOTALL)
     text = BLOCK_TAG_RE.sub("\n", text)
     text = re.sub(r"<[^>]+>", " ", text)
-    text = html.unescape(text)
+    text = _strip_code_noise(html.unescape(text))
     text = re.sub(
         r"<(script|style|noscript|svg|canvas|template|header|footer|nav|aside)\b[^>]*>.*?(?:</\1>|$)",
         " ",
@@ -171,3 +171,13 @@ def _looks_like_css_or_code(text: str) -> bool:
         return True
     symbol_count = sum(1 for char in text if not char.isalnum() and not char.isspace())
     return symbol_count > max(20, len(text) // 4) and len(words) < 12
+
+
+def _strip_code_noise(value: str) -> str:
+    text = str(value or "")
+    text = re.sub(r"<script\b[^>]*>.*?(?:</script>|$)", " ", text, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(r"<style\b[^>]*>.*?(?:</style>|$)", " ", text, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(r"<script\b[^>]*", " ", text, flags=re.IGNORECASE)
+    text = re.sub(r"<style\b[^>]*", " ", text, flags=re.IGNORECASE)
+    text = re.sub(r"/_astro/[^\s\"'<>]+", " ", text, flags=re.IGNORECASE)
+    return text

@@ -9,6 +9,9 @@ declare global {
         frontendPort: number;
         backendPort: number;
         mode: "dev";
+        hostMode?: "web" | "desktop";
+        localRuntimeAvailable?: boolean;
+        vibeCodingHostAvailable?: boolean;
       }
     | undefined;
 
@@ -22,6 +25,9 @@ declare global {
             frontendPort: number;
             backendPort: number;
             mode: "dev";
+            hostMode?: "web" | "desktop";
+            localRuntimeAvailable?: boolean;
+            vibeCodingHostAvailable?: boolean;
           };
         }
       | undefined;

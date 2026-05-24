@@ -3,6 +3,16 @@
   "permission_mode": "default",
   "orchestration_plan_mode": "primary",
   "context_budget_preset": "deepseek_1m",
+  "vibe_coding": {
+    "enabled": true,
+    "workspace_root_policy": "project_root",
+    "pi_sidecar": {
+      "enabled": false,
+      "mode": "diagnostic_only",
+      "pi_source_root": "D:/AI应用/pi-main",
+      "pi_cli_path": ""
+    }
+  },
   "model_provider": {
     "provider": "deepseek",
     "model": "deepseek-v4-pro",
@@ -11,7 +21,7 @@
   "system_config": {
     "runtime": {
       "llm_timeout_seconds": 60,
-      "llm_long_output_timeout_seconds": 120,
+      "llm_long_output_timeout_seconds": 360.0,
       "llm_max_retries": 2,
       "llm_max_output_tokens": 65536,
       "llm_thinking_mode": "enabled",

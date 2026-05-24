@@ -931,6 +931,16 @@ class RuntimeConfigManager:
             "permission_mode": "default",
             "orchestration_plan_mode": "primary",
             "context_budget_preset": "deepseek_1m",
+            "vibe_coding": {
+                "enabled": True,
+                "workspace_root_policy": "project_root",
+                "pi_sidecar": {
+                    "enabled": False,
+                    "mode": "diagnostic_only",
+                    "pi_source_root": "D:/AI应用/pi-main",
+                    "pi_cli_path": "",
+                },
+            },
         }
 
     def load(self) -> dict[str, Any]:
@@ -988,6 +998,26 @@ class RuntimeConfigManager:
         from context_system.budget.presets import normalize_context_budget_preset_id
 
         return self.save({"context_budget_preset": normalize_context_budget_preset_id(preset_id)})
+
+    def get_vibe_coding_config(self) -> dict[str, Any]:
+        payload = dict(self.load().get("vibe_coding") or {})
+        default = dict(self._default_config.get("vibe_coding") or {})
+        default_sidecar = dict(default.get("pi_sidecar") or {})
+        sidecar = {**default_sidecar, **dict(payload.get("pi_sidecar") or {})}
+        return {
+            **default,
+            **payload,
+            "enabled": bool(payload.get("enabled", default.get("enabled", True))),
+            "workspace_root_policy": str(payload.get("workspace_root_policy") or default.get("workspace_root_policy") or "project_root"),
+            "pi_sidecar": sidecar,
+        }
+
+    def set_vibe_coding_config(self, payload: dict[str, Any]) -> dict[str, Any]:
+        current = self.get_vibe_coding_config()
+        next_payload = dict(payload or {})
+        sidecar = {**dict(current.get("pi_sidecar") or {}), **dict(next_payload.get("pi_sidecar") or {})}
+        next_payload["pi_sidecar"] = sidecar
+        return self.save({"vibe_coding": {**current, **next_payload}})
 
 
 runtime_config = RuntimeConfigManager(get_settings().backend_dir / "config.json")

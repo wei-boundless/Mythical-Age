@@ -18,6 +18,7 @@ const PlaygroundView = lazy(() => import("@/components/workspace/views/Playgroun
 const SoulSystemView = lazy(() => import("@/components/workspace/views/PlaygroundView").then((module) => ({ default: module.PlaygroundView })));
 const SystemConfigView = lazy(() => import("@/components/workspace/views/SystemConfigView").then((module) => ({ default: module.SystemConfigView })));
 const TaskSystemView = lazy(() => import("@/components/workspace/views/TaskSystemView").then((module) => ({ default: module.TaskSystemView })));
+const VibeCodingView = lazy(() => import("@/components/workspace/views/VibeCodingView").then((module) => ({ default: module.VibeCodingView })));
 
 function LazyView({ children }: { children: ReactNode }) {
   return (
@@ -33,6 +34,7 @@ const WORKSPACE_QUERY_VIEWS = new Set<WorkspaceView>([
   "playground",
   "task-system",
   "orchestration",
+  "vibe-coding",
   "capability-system",
   "soul-system",
   "system-config",
@@ -134,6 +136,7 @@ function Workspace() {
       && activeWorkspaceView !== "capability-system"
       && activeWorkspaceView !== "soul-system"
       && activeWorkspaceView !== "orchestration"
+      && activeWorkspaceView !== "vibe-coding"
       && activeWorkspaceView !== "system-config"
     ) {
       setWorkspaceView("chat");
@@ -168,6 +171,7 @@ function Workspace() {
     activeWorkspaceView === "chat"
     || activeWorkspaceView === "orchestration"
     || activeWorkspaceView === "task-system"
+    || activeWorkspaceView === "vibe-coding"
     || activeWorkspaceView === "capability-system"
     || activeWorkspaceView === "soul-system";
 
@@ -183,6 +187,12 @@ function Workspace() {
     content = (
       <SystemPageShell label="任务系统" view="task-system">
         <LazyView><TaskSystemView /></LazyView>
+      </SystemPageShell>
+    );
+  } else if (activeWorkspaceView === "vibe-coding") {
+    content = (
+      <SystemPageShell label="Vibe Coding" view="vibe-coding">
+        <LazyView><VibeCodingView /></LazyView>
       </SystemPageShell>
     );
   } else if (activeWorkspaceView === "memory") {

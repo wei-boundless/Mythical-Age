@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import hashlib
+from pathlib import Path
 from datetime import datetime
 from dataclasses import asdict, dataclass, field
 from typing import Any, Callable
 
 from .action_request import RuntimeObservation
+from runtime.context_management import microcompact_history
 
 
 SystemPromptBuilder = Callable[..., str]
@@ -125,9 +127,23 @@ class RuntimeContextManager:
             memory_intent=memory_intent,
         )
         assembly_policy = _runtime_assembly_context_policy(runtime_assembly)
-        normalized_history = tuple(_normalize_history(history))
+        history_compaction = {
+            "applied": False,
+            "mode": "history_microcompact",
+            "compacted_message_count": 0,
+            "content_replacements": [],
+        }
+        normalized_history_list = _normalize_history(history)
         if assembly_policy.get("main_session_history") != "full":
-            normalized_history = ()
+            normalized_history_list = []
+        else:
+            normalized_history_list, history_compaction = microcompact_history(
+                normalized_history_list,
+                root_dir=_runtime_context_root(runtime_assembly=runtime_assembly, agent_assembly_contract=agent_assembly_contract),
+                session_id=session_id,
+                task_id=task_id,
+            )
+        normalized_history = tuple(normalized_history_list)
         pending = str(user_message or "")
         context_policy_ref = _context_policy_ref(context_policy_result)
         memory_view_ref = str((memory_runtime_view or {}).get("view_id") or "")
@@ -180,7 +196,8 @@ class RuntimeContextManager:
             diagnostics={
                 "context_owner": "RuntimeContextManager",
                 "model_message_count": len(model_messages),
-                "compression_applied": False,
+                "compression_applied": bool(history_compaction.get("applied") is True),
+                "history_compaction": history_compaction,
                 "tool_result_pairing_checked": False,
                 "stage_projection_consumed": bool(stage_projection_snapshot is not None),
                 "prompt_manifest_bound": bool(prompt_manifest_ref),
@@ -437,6 +454,16 @@ def _runtime_assembly_context_policy(runtime_assembly: dict[str, Any] | None) ->
     if main_history is None:
         return {"main_session_history": "hidden"}
     return {"main_session_history": str(main_history.get("content_mode") or "summary").strip() or "summary"}
+
+
+def _runtime_context_root(*, runtime_assembly: dict[str, Any] | None, agent_assembly_contract: dict[str, Any] | None) -> Path:
+    for payload in (runtime_assembly, agent_assembly_contract):
+        data = dict(payload or {})
+        for key in ("root_dir", "workspace_root", "backend_root"):
+            value = str(data.get(key) or "").strip()
+            if value:
+                return Path(value)
+    return Path(".")
 
 
 def _render_runtime_assembly_block(runtime_assembly: dict[str, Any] | None) -> str:

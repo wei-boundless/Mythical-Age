@@ -423,7 +423,10 @@ def test_runtime_lane_registry_exposes_active_modes_and_removes_old_lanes() -> N
     assert DEFAULT_RUNTIME_LANE_REGISTRY.get("role_interaction") is not None
     assert DEFAULT_RUNTIME_LANE_REGISTRY.get("standard_task") is not None
     assert DEFAULT_RUNTIME_LANE_REGISTRY.get("professional_task") is not None
-    assert DEFAULT_RUNTIME_LANE_REGISTRY.get("vibe_coding_task") is None
+    vibe_lane = DEFAULT_RUNTIME_LANE_REGISTRY.get("vibe_coding_task")
+    assert vibe_lane is not None
+    assert "op.git_show" in vibe_lane.default_operations
+    assert vibe_lane.metadata["interaction_mode"] == "vibe_coding"
     assert DEFAULT_RUNTIME_LANE_REGISTRY.get("autonomous_task") is None
 
 

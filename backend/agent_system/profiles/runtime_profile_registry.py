@@ -263,7 +263,7 @@ def _profile_from_dict(payload: dict[str, Any]) -> AgentRuntimeProfile:
     raw_enabled_modes = [
         str(item or "").strip()
         for item in list(payload.get("enabled_runtime_modes") or metadata.get("enabled_runtime_modes") or [])
-        if str(item or "").strip() and str(item or "").strip() != VIBE_CODING_MODE
+        if str(item or "").strip()
     ]
     explicit_modes = normalize_runtime_modes(
         raw_enabled_modes,
@@ -548,7 +548,7 @@ def _migrate_profile_payload(payload: dict[str, Any]) -> dict[str, Any]:
     raw_enabled_modes = [
         str(item or "").strip()
         for item in list(payload.get("enabled_runtime_modes") or metadata.pop("enabled_runtime_modes", None) or [])
-        if str(item or "").strip() and str(item or "").strip() != VIBE_CODING_MODE
+        if str(item or "").strip()
     ]
     enabled_runtime_modes = normalize_runtime_modes(
         raw_enabled_modes,
@@ -592,8 +592,6 @@ def _active_runtime_lanes(lanes: Any) -> list[str]:
     result: list[str] = []
     for item in list(lanes or []):
         lane = str(item or "").strip()
-        if lane == "vibe_coding_task":
-            lane = "professional_task"
         if lane:
             result.append(lane)
     return result

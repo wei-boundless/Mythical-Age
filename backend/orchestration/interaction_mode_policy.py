@@ -10,7 +10,7 @@ STANDARD_MODE = "standard_mode"
 PROFESSIONAL_MODE = "professional_mode"
 VIBE_CODING_MODE = "vibe_coding"
 
-INTERACTION_MODES = {ROLE_MODE, STANDARD_MODE, PROFESSIONAL_MODE}
+INTERACTION_MODES = {ROLE_MODE, STANDARD_MODE, PROFESSIONAL_MODE, VIBE_CODING_MODE}
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,14 +170,14 @@ def _normalize_mode(value: Any) -> str:
         "standard_mode": STANDARD_MODE,
         "professional": PROFESSIONAL_MODE,
         "professional_mode": PROFESSIONAL_MODE,
-        "vibe": PROFESSIONAL_MODE,
-        "vibe_code": PROFESSIONAL_MODE,
-        "vibe_code_mode": PROFESSIONAL_MODE,
-        "vibe_coding": PROFESSIONAL_MODE,
-        "vibe_coding_mode": PROFESSIONAL_MODE,
-        "coding": PROFESSIONAL_MODE,
-        "code": PROFESSIONAL_MODE,
-        "coder": PROFESSIONAL_MODE,
+        "vibe": VIBE_CODING_MODE,
+        "vibe_code": VIBE_CODING_MODE,
+        "vibe_code_mode": VIBE_CODING_MODE,
+        "vibe_coding": VIBE_CODING_MODE,
+        "vibe_coding_mode": VIBE_CODING_MODE,
+        "coding": VIBE_CODING_MODE,
+        "code": VIBE_CODING_MODE,
+        "coder": VIBE_CODING_MODE,
     }
     return mapping.get(raw, "")
 
@@ -205,7 +205,7 @@ def _interaction_mode_for_profile(profile: Any) -> str:
     }
     material_policy = dict(getattr(profile, "material_policy", None) or {})
     if str(material_policy.get("runtime_mode") or "").strip() == "vibe_coding":
-        return PROFESSIONAL_MODE
+        return VIBE_CODING_MODE
     professional_capabilities = {
         "workspace_write",
         "terminal",
@@ -342,6 +342,143 @@ def _policy_for_mode(
                 "working_memory": "light",
             },
             output_policy={"answer_boundary": "task", "deliverable_validator": "basic"},
+            diagnostics=_diagnostics(contract, understanding, obligation),
+        )
+        return _with_contract_bound_tool_policy(policy, contract)
+    if interaction_mode == VIBE_CODING_MODE:
+        policy = RuntimeInteractionModePolicy(
+            interaction_mode=VIBE_CODING_MODE,
+            mode_reason=mode_reason,
+            runtime_lane="vibe_coding_task",
+            recipe_id="runtime.recipe.vibe_coding",
+            projection_strength="style_only",
+            semantic_contract_required=True,
+            professional_profile_required=True,
+            tool_policy={
+                "enabled": True,
+                "allowed_tool_names": [
+                    "agent_todo",
+                    "read_file",
+                    "read_structured_file",
+                    "list_dir",
+                    "stat_path",
+                    "path_exists",
+                    "glob_paths",
+                    "search_text",
+                    "search_files",
+                    "git_status",
+                    "git_diff",
+                    "git_log",
+                    "git_show",
+                    "delegate_to_agent",
+                    "write_file",
+                    "edit_file",
+                    "terminal",
+                    "browser_control",
+                    "web_search",
+                    "fetch_url",
+                ],
+                "allowed_operation_refs": [
+                    "op.agent_todo",
+                    "op.read_file",
+                    "op.read_structured_file",
+                    "op.list_dir",
+                    "op.stat_path",
+                    "op.path_exists",
+                    "op.glob_paths",
+                    "op.search_text",
+                    "op.search_files",
+                    "op.git_status",
+                    "op.git_diff",
+                    "op.git_log",
+                    "op.git_show",
+                    "op.delegate_to_agent",
+                    "op.write_file",
+                    "op.edit_file",
+                    "op.shell",
+                    "op.browser_control",
+                    "op.web_search",
+                    "op.fetch_url",
+                ],
+                "max_tool_rounds_per_task_run": 120,
+                "max_tool_calls_per_task_run": 180,
+                "max_tool_calls_per_round": 1,
+                "requires_evidence_packet": True,
+                "requires_change_set_metadata": True,
+                "requires_workspace_receipts": True,
+                "coding_mode": True,
+            },
+            delegation_policy={
+                "enabled": True,
+                "max_delegate_calls_per_step": 1,
+                "max_delegate_calls_per_task_run": 4,
+                "delegate_retry_budget": 1,
+                "nested_delegation": False,
+                "child_result_is_evidence_packet": True,
+                "allowed_tool_name": "delegate_to_agent",
+                "allowed_operation_ref": "op.delegate_to_agent",
+                "allowed_agent_ids": [
+                    "agent:rag_analyst",
+                    "agent:pdf_reader",
+                    "agent:table_analyst",
+                    "agent:web_researcher",
+                    "agent:verifier",
+                ],
+            },
+            checkpoint_policy={
+                "after_each_plan_item": True,
+                "after_each_tool_action": True,
+                "after_each_file_change": True,
+                "after_delegation": True,
+                "before_commit": True,
+                "terminal": True,
+            },
+            verification_policy={
+                "required": True,
+                "strict": True,
+                "deliverable_validator": True,
+                "require_summary_check": True,
+                "require_artifact_refs_for_write": True,
+                "require_test_or_limitation": True,
+                "require_change_summary": True,
+                "require_changed_file_refs": True,
+            },
+            sandbox_policy={
+                "enabled": True,
+                "mode": "workspace_overlay",
+                "side_effect_root": "output/sandbox_runs",
+                "workspace_dir_name": "workspace",
+                "real_workspace_access": "read_only",
+                "approval_policy": "task_bounded_write",
+                "side_effect_tools": ["write_file", "edit_file", "terminal", "browser_control"],
+                "side_effect_operations": ["op.write_file", "op.edit_file", "op.shell", "op.browser_control"],
+                "overlay_tools": [
+                    "read_file",
+                    "read_structured_file",
+                    "search_text",
+                    "search_files",
+                    "glob_paths",
+                    "list_dir",
+                    "stat_path",
+                    "path_exists",
+                    "write_file",
+                    "edit_file",
+                    "terminal",
+                ],
+                "overlay_copy_on_write": True,
+            },
+            context_policy={
+                "main_session_history": "task_scoped_summary",
+                "memory": "refs_only",
+                "working_memory": "required",
+                "workspace_state": "required",
+            },
+            output_policy={
+                "answer_boundary": "coding_deliverable",
+                "deliverable_validator": "strict",
+                "include_changed_files": True,
+                "include_verification": True,
+            },
             diagnostics=_diagnostics(contract, understanding, obligation),
         )
         return _with_contract_bound_tool_policy(policy, contract)

@@ -49,6 +49,64 @@ export type WorkspaceContext = {
   readable_prefixes: string[];
 };
 
+export type VibeCodingEnvironmentDiagnostic = {
+  level: "info" | "warning" | "error";
+  code: string;
+  message: string;
+  path?: string | null;
+};
+
+export type VibeCodingEnvironmentStatus = {
+  authority: string;
+  host: {
+    mode: "web" | "desktop";
+    local_runtime_available: boolean;
+    vibe_coding_host_available: boolean;
+  };
+  pi: {
+    available: boolean;
+    mode: "web_only" | "desktop_host" | "sidecar_ready" | "sidecar_running" | "error";
+    enabled: boolean;
+    sidecar_enabled: boolean;
+    sidecar_mode: string;
+    pi_source_root: string;
+    pi_cli_path: string;
+    workspace_root: string;
+    config_source: string;
+    workspace_root_policy: string;
+    node_version: string;
+    npm_version: string;
+    package_name: string;
+    coding_agent_package_name: string;
+    cli_built: boolean;
+    rpc_source_available: boolean;
+    diagnostics: VibeCodingEnvironmentDiagnostic[];
+  };
+};
+
+export type PiSidecarStatus = {
+  running: boolean;
+  pid?: number | null;
+  workspace_root: string;
+  cli_path: string;
+  started_at?: number | null;
+  last_error: string;
+  stderr_tail: string;
+};
+
+export type PiSidecarLifecycleResponse = {
+  authority: string;
+  status: PiSidecarStatus;
+};
+
+export type PiSidecarCommandResponse = {
+  authority: string;
+  command: "get_state" | "get_available_models" | string;
+  success: boolean;
+  response: Record<string, unknown>;
+  error: string;
+};
+
 export type ExperimentProfile = {
   id: string;
   title: string;
@@ -4170,6 +4228,38 @@ export async function getSoulProjectionCards() {
 
 export async function getSoulWorkLog(soulId: string, limit = 6) {
   return request<SoulWorkLogView>(`/soul/${encodeURIComponent(soulId)}/activity?limit=${limit}`);
+}
+
+export async function getVibeCodingEnvironment(host?: {
+  mode?: "web" | "desktop";
+  localRuntimeAvailable?: boolean;
+  vibeCodingHostAvailable?: boolean;
+}) {
+  const params = new URLSearchParams({
+    host_mode: host?.mode || "web",
+    local_runtime_available: String(Boolean(host?.localRuntimeAvailable)),
+    vibe_coding_host_available: String(Boolean(host?.vibeCodingHostAvailable)),
+  });
+  return request<VibeCodingEnvironmentStatus>(`/vibe-coding/environment?${params.toString()}`);
+}
+
+export async function getPiSidecarStatus() {
+  return request<PiSidecarLifecycleResponse>("/vibe-coding/sidecar/status");
+}
+
+export async function startPiSidecar() {
+  return request<PiSidecarLifecycleResponse>("/vibe-coding/sidecar/start", { method: "POST" });
+}
+
+export async function stopPiSidecar() {
+  return request<PiSidecarLifecycleResponse>("/vibe-coding/sidecar/stop", { method: "POST" });
+}
+
+export async function runPiSidecarReadOnlyCommand(command: "get_state" | "get_available_models") {
+  return request<PiSidecarCommandResponse>("/vibe-coding/sidecar/read-only-command", {
+    method: "POST",
+    body: JSON.stringify({ command }),
+  });
 }
 
 export async function createSoulProjectionCard(payload: SoulProjectionCardCreatePayload) {

@@ -29,6 +29,10 @@ class SearchRuntimeConfig:
     freshness_required_by_default: bool = False
     evidence_packet_required: bool = True
     stop_policy: str = "enough_evidence_or_budget_exhausted"
+    persist_large_results: bool = True
+    tool_result_preview_bytes: int = 2000
+    tool_result_field_limit_bytes: int = 6000
+    tool_result_payload_budget_bytes: int = 24000
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -48,6 +52,10 @@ class SearchRuntimeConfig:
             "freshness_required_by_default": self.freshness_required_by_default,
             "evidence_packet_required": self.evidence_packet_required,
             "stop_policy": self.stop_policy,
+            "persist_large_results": self.persist_large_results,
+            "tool_result_preview_bytes": self.tool_result_preview_bytes,
+            "tool_result_field_limit_bytes": self.tool_result_field_limit_bytes,
+            "tool_result_payload_budget_bytes": self.tool_result_payload_budget_bytes,
         }
 
 
@@ -131,6 +139,10 @@ def normalize_search_runtime_config(value: Any) -> SearchRuntimeConfig:
         freshness_required_by_default=bool(raw.get("freshness_required_by_default", False)),
         evidence_packet_required=bool(raw.get("evidence_packet_required", True)),
         stop_policy=str(raw.get("stop_policy") or "enough_evidence_or_budget_exhausted"),
+        persist_large_results=bool(raw.get("persist_large_results", True)),
+        tool_result_preview_bytes=_clamp_int(raw.get("tool_result_preview_bytes"), 500, 10000, 2000),
+        tool_result_field_limit_bytes=_clamp_int(raw.get("tool_result_field_limit_bytes"), 1000, 100000, 6000),
+        tool_result_payload_budget_bytes=_clamp_int(raw.get("tool_result_payload_budget_bytes"), 4000, 400000, 24000),
     )
 
 

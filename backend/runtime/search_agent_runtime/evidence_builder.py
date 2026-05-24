@@ -16,6 +16,11 @@ OFFICIAL_HOST_MARKERS = (
     ".gov",
     ".edu",
 )
+COMMUNITY_HOST_MARKERS = (
+    "community.openai.com",
+    "forum.",
+    "discuss.",
+)
 SECONDARY_HOST_MARKERS = (
     "medium.com",
     "datacamp.com",
@@ -35,8 +40,9 @@ def build_deepsearch_evidence_packet(
 ) -> AgentEvidencePacket:
     query = str(web_payload.get("query") or task_goal or "").strip()
     results = _rank_sources([dict(item) for item in list(web_payload.get("results") or []) if isinstance(item, dict)], query=query)
-    evidence = tuple(_evidence_from_ranked_sources(results))
-    facts = tuple(_facts_from_ranked_sources(results, evidence))
+    distilled_claims = _distilled_claims(web_payload)
+    evidence = tuple(_evidence_from_distilled_claims(distilled_claims) or _evidence_from_ranked_sources(results))
+    facts = tuple(_facts_from_distilled_claims(distilled_claims, evidence) or _facts_from_ranked_sources(results, evidence))
     unknowns = _unknowns(web_payload=web_payload, evidence=evidence)
     hints = _hints(facts=facts, ranked_sources=results)
     confidence = _confidence(ranked_sources=results, unknowns=unknowns)
@@ -54,6 +60,7 @@ def build_deepsearch_evidence_packet(
             "query": query,
             "topic": str(web_payload.get("topic") or "general"),
             "source_ranking": source_ranking[:8],
+            "distillation_method": str(dict(dict(web_payload.get("deepsearch") or {}).get("distillation") or {}).get("method") or ""),
         },
         hints=hints,
         unknowns=unknowns,
@@ -72,8 +79,64 @@ def build_deepsearch_evidence_packet(
             "usage": dict(web_payload.get("usage") or {}),
             "deepsearch": dict(web_payload.get("deepsearch") or {}),
             "source_ranking": source_ranking,
+            "distilled_claim_count": len(distilled_claims),
         },
     )
+
+
+def _distilled_claims(web_payload: dict[str, Any]) -> list[dict[str, Any]]:
+    deepsearch = dict(web_payload.get("deepsearch") or {})
+    return [dict(item) for item in list(deepsearch.get("distilled_claims") or []) if isinstance(item, dict)]
+
+
+def _evidence_from_distilled_claims(claims: list[dict[str, Any]]) -> list[AgentEvidenceItem]:
+    evidence: list[AgentEvidenceItem] = []
+    for rank, claim in enumerate(claims, start=1):
+        url = str(claim.get("source_url") or "").strip()
+        title = clean_web_text(claim.get("source_title") or url or "web source", limit=180)
+        excerpt = clean_web_text(claim.get("excerpt") or claim.get("claim") or "", limit=900)
+        evidence.append(
+            AgentEvidenceItem(
+                evidence_id=f"web:evidence:{rank}",
+                kind="deepsearch_distilled_claim",
+                source=url or title,
+                locator={
+                    "url": url,
+                    "title": title,
+                    "host": _host(url),
+                    "rank": rank,
+                    "source_type": str(claim.get("source_type") or "secondary"),
+                    "artifact_ref": str(claim.get("artifact_ref") or ""),
+                },
+                text_or_value=excerpt or title,
+                confidence=_normalize_confidence(claim.get("confidence")),
+                visibility="model_visible",
+            )
+        )
+    return evidence
+
+
+def _facts_from_distilled_claims(claims: list[dict[str, Any]], evidence: tuple[AgentEvidenceItem, ...]) -> list[AgentEvidenceFact]:
+    facts: list[AgentEvidenceFact] = []
+    for index, claim in enumerate(claims, start=1):
+        if index > len(evidence):
+            break
+        claim_text = clean_web_text(claim.get("claim") or "", limit=430)
+        if not claim_text:
+            continue
+        source_type = str(claim.get("source_type") or "secondary")
+        host = _host(str(claim.get("source_url") or ""))
+        prefix = "官方/一手来源" if source_type in {"official", "primary"} else "二手来源"
+        facts.append(
+            AgentEvidenceFact(
+                fact_id=f"fact:{index}",
+                claim=f"{prefix} {host}: {claim_text}" if host else f"{prefix}: {claim_text}",
+                source_refs=(evidence[index - 1].evidence_id,),
+                confidence=_normalize_confidence(claim.get("confidence")),
+                scope=f"deepsearch.{source_type}",
+            )
+        )
+    return facts
 
 
 def _rank_sources(results: list[dict[str, Any]], *, query: str) -> list[dict[str, Any]]:
@@ -203,6 +266,8 @@ def _sentences(text: str) -> list[str]:
 def _source_type(*, host: str, item: dict[str, Any]) -> str:
     haystack = " ".join(str(item.get(key) or "").lower() for key in ("url", "title", "content", "clean_text"))
     lowered_host = host.lower()
+    if any(marker in lowered_host for marker in COMMUNITY_HOST_MARKERS):
+        return "secondary"
     if any(marker in lowered_host for marker in OFFICIAL_HOST_MARKERS):
         return "official"
     if any(token in haystack for token in ("official documentation", "official announcement", "press release")):
@@ -227,7 +292,7 @@ def _quality_score(*, item: dict[str, Any], host: str, source_type: str, origina
     if _query_overlap(query, " ".join(str(item.get(key) or "") for key in ("title", "clean_text", "content"))) >= 0.25:
         score += 0.08
     score -= min(max(original_rank - 1, 0), 10) * 0.01
-    if any(marker in host.lower() for marker in SECONDARY_HOST_MARKERS):
+    if any(marker in host.lower() for marker in (*SECONDARY_HOST_MARKERS, *COMMUNITY_HOST_MARKERS)):
         score -= 0.05
     return max(0.0, min(1.0, score))
 
@@ -327,6 +392,13 @@ def _confidence_from_quality(score: float) -> str:
         return "high"
     if score <= 0.35:
         return "low"
+    return "medium"
+
+
+def _normalize_confidence(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if text in {"high", "medium", "low", "unknown"}:
+        return text
     return "medium"
 
 

@@ -122,6 +122,7 @@ export type WorkspaceView =
   | "evidence"
   | "task-system"
   | "orchestration"
+  | "vibe-coding"
   | "experiments"
   | "playground"
   | "system-config";

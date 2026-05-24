@@ -36,13 +36,13 @@ class ChildAgentRuntimeExecutor:
         self.evidence_orchestrator = evidence_orchestrator
         self.search_runtime_factory = search_runtime_factory
 
-    async def run(self, *, request: AgentDelegationRequest, agent: Any, profile: Any) -> dict[str, Any]:
+    async def run(self, *, request: AgentDelegationRequest, agent: Any, profile: Any, model_runtime: Any | None = None) -> dict[str, Any]:
         runtime_config = normalize_runtime_config(dict(getattr(profile, "metadata", {}) or {}).get("runtime_config"))
         if runtime_config.template_id == DEEPSEARCH_TEMPLATE_ID and _is_web_delegation(request=request, agent=agent, profile=profile):
             search_runtime = (
                 self.search_runtime_factory(self.root_dir)
                 if self.search_runtime_factory is not None
-                else SearchAgentRuntime(self.root_dir)
+                else SearchAgentRuntime(self.root_dir, model_runtime=model_runtime)
             )
             return await search_runtime.run(
                 request=request,

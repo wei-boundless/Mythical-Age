@@ -2,6 +2,7 @@
 
 import {
   CircleDot,
+  Code2,
   FileCode2,
   FolderOpen,
   Globe2,
@@ -17,9 +18,10 @@ import { useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent, t
 
 import { TaskMonitorDock } from "@/components/layout/TaskMonitorDock";
 import { RuntimeMonitorDetailView } from "@/components/layout/RuntimeMonitorDetailView";
+import { VibeCodingView } from "@/components/workspace/views/VibeCodingView";
 import { useAppStore } from "@/lib/store";
 
-type RightPanel = "monitor" | "browser" | "details";
+type RightPanel = "monitor" | "coding" | "browser" | "details";
 
 const LEFT_WIDTH_KEY = "agentWorkbench.leftWidth";
 const RIGHT_WIDTH_KEY = "agentWorkbench.rightWidth";
@@ -310,6 +312,9 @@ function RightToolPanel({
         <button className={activePanel === "monitor" ? "is-active" : ""} onClick={() => onPanelChange("monitor")} type="button">
           <MonitorDot size={14} />监控
         </button>
+        <button className={activePanel === "coding" ? "is-active" : ""} onClick={() => onPanelChange("coding")} type="button">
+          <Code2 size={14} />Coding
+        </button>
         <button className={activePanel === "browser" ? "is-active" : ""} onClick={() => onPanelChange("browser")} type="button">
           <Globe2 size={14} />网页
         </button>
@@ -319,6 +324,7 @@ function RightToolPanel({
       </div>
       <div className="workbench-right-body">
         {activePanel === "monitor" ? <TaskMonitorDock embedded onOpenTaskDetail={onOpenMonitorDetail} /> : null}
+        {activePanel === "coding" ? <VibeCodingView embedded /> : null}
         {activePanel === "browser" ? <BrowserPanel /> : null}
         {activePanel === "details" ? <FileInspectorPanel /> : null}
       </div>

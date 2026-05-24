@@ -20,6 +20,7 @@ from api.souls import router as souls_router
 from api.task_system import router as task_system_router
 from api.task_orders import router as task_orders_router
 from api.tokens import router as tokens_router
+from api.vibe_coding import router as vibe_coding_router
 from bootstrap.lifespan import runtime_lifespan
 from sessions import InvalidSessionId
 from runtime_encoding import configure_process_utf8
@@ -57,6 +58,7 @@ app.include_router(orchestration_router, prefix="/api", tags=["orchestration"])
 app.include_router(orchestration_runtime_loop_router, prefix="/api", tags=["orchestration-runtime-loop"])
 app.include_router(capability_system_router, prefix="/api", tags=["capability-system"])
 app.include_router(souls_router, prefix="/api", tags=["souls"])
+app.include_router(vibe_coding_router, prefix="/api", tags=["vibe-coding"])
 
 
 @app.exception_handler(InvalidSessionId)

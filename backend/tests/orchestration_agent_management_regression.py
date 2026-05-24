@@ -292,8 +292,35 @@ def test_runtime_profile_custom_mode_preserves_manual_runtime_lanes(tmp_path):
         "role",
         "standard",
         "professional",
+        "vibe_coding",
         "custom",
     ]
+
+
+def test_runtime_profile_vibe_coding_mode_derives_project_owned_lane(tmp_path):
+    agent_registry = AgentRegistry(tmp_path)
+    runtime_registry = AgentRuntimeRegistry(tmp_path)
+    agent_registry.upsert_agent(
+        agent_id="agent:vibe_mode_test",
+        agent_name="Vibe Coding 模式测试 Agent",
+        agent_category="custom_agent",
+    )
+
+    profile = runtime_registry.upsert_profile(
+        agent_id="agent:vibe_mode_test",
+        agent_profile_id="agent_vibe_mode_test_runtime",
+        enabled_runtime_modes=("vibe_coding",),
+        default_runtime_mode="vibe_coding",
+        allowed_operations=("op.model_response", "op.read_file", "op.edit_file", "op.shell"),
+    )
+    loaded = runtime_registry.get_profile("agent:vibe_mode_test")
+
+    assert profile.enabled_runtime_modes == ("vibe_coding",)
+    assert profile.default_runtime_mode == "vibe_coding"
+    assert profile.allowed_runtime_lanes == ("vibe_coding_task",)
+    assert loaded is not None
+    assert loaded.enabled_runtime_modes == ("vibe_coding",)
+    assert loaded.allowed_runtime_lanes == ("vibe_coding_task",)
 
 
 def test_runtime_profile_migration_adds_custom_for_mixed_legacy_lanes(tmp_path):

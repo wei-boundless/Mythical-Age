@@ -66,7 +66,7 @@ def compile_understanding_runtime_steps(
             ),
         )
 
-    if mode == "professional_mode":
+    if mode in {"professional_mode", "vibe_coding"}:
         core = (
             *_core_understanding_steps(contract=contract, policy=policy, obligation=obligation),
             _step(

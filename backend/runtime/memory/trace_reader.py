@@ -684,11 +684,12 @@ def _professional_task_summary(
     completion_judgment_event = _latest_runtime_event(events, "professional_task_completion_judged")
     run_outcome_event = _latest_runtime_event(events, "professional_task_run_outcome_built")
     diagnostics = dict(loop_state.get("diagnostics") or {})
-    interaction_lanes = {"role_interaction", "standard_task", "professional_task"}
+    interaction_lanes = {"role_interaction", "standard_task", "professional_task", "vibe_coding_task"}
     interaction_recipe_ids = {
         "runtime.recipe.role_interaction",
         "runtime.recipe.standard_task",
         "runtime.recipe.professional_task",
+        "runtime.recipe.vibe_coding",
     }
     is_professional_task = bool(
         started_event is not None
