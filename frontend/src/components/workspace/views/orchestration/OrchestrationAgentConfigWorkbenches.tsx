@@ -150,11 +150,11 @@ type SearchRuntimeConfig = {
 
 const DEFAULT_SEARCH_RUNTIME_CONFIG: SearchRuntimeConfig = {
   runtime_mode: "deepsearch",
-  search_sources: ["web"],
+  search_sources: ["web", "local_files", "rag", "memory"],
   web_provider: "tavily",
   allow_fetch_url: true,
-  allow_local_files: false,
-  allow_memory_read: false,
+  allow_local_files: true,
+  allow_memory_read: true,
   max_iterations: 4,
   max_queries: 6,
   max_fetches: 8,
@@ -177,6 +177,7 @@ type GenericRuntimeConfig = {
   evidence_packet_required: boolean;
   stop_policy: string;
   search?: SearchRuntimeConfig;
+  context_compaction?: Record<string, unknown>;
 };
 
 const DEFAULT_GENERIC_RUNTIME_CONFIG: GenericRuntimeConfig = {
@@ -203,9 +204,30 @@ const DEEPSEARCH_RUNTIME_TEMPLATE: GenericRuntimeConfig = {
   search: DEFAULT_SEARCH_RUNTIME_CONFIG,
 };
 
+const CONTEXT_COMPACTOR_RUNTIME_TEMPLATE: GenericRuntimeConfig = {
+  ...DEFAULT_GENERIC_RUNTIME_CONFIG,
+  template_id: "runtime.template.context_compactor",
+  runtime_kind: "context_compactor",
+  runtime_mode: "llm_compaction",
+  max_iterations: 1,
+  max_tool_calls: 0,
+  max_sources: 0,
+  evidence_packet_required: false,
+  stop_policy: "recovery_point_ready_or_fallback",
+  context_compaction: {
+    output_contract: "context_recovery_point",
+    fallback: "deterministic",
+    keep_last_messages: 6,
+    max_summary_chars: 4000,
+    trigger_pressure_levels: ["high", "critical"],
+    actual_context_bytes_threshold: 120000,
+  },
+};
+
 const BASE_SEARCH_RUNTIME_OPERATIONS = ["op.model_response", "op.web_search"];
 const SEARCH_RUNTIME_FETCH_OPERATIONS = ["op.fetch_url"];
 const SEARCH_RUNTIME_LOCAL_OPERATIONS = ["op.search_files", "op.search_text", "op.read_file"];
+const SEARCH_RUNTIME_RAG_OPERATIONS = ["op.mcp_retrieval"];
 const SEARCH_RUNTIME_MEMORY_OPERATIONS = ["op.memory_read"];
 
 function searchRuntimeConfigFrom(value: unknown): SearchRuntimeConfig {
@@ -254,21 +276,26 @@ function runtimeConfigFrom(metadata: Record<string, unknown> | undefined): Gener
 }
 
 function operationsForSearchRuntime(config: SearchRuntimeConfig) {
+  const sources = new Set(config.search_sources.length ? config.search_sources : ["web"]);
   return dedupe([
-    ...BASE_SEARCH_RUNTIME_OPERATIONS,
-    ...(config.allow_fetch_url && config.max_fetches > 0 ? SEARCH_RUNTIME_FETCH_OPERATIONS : []),
-    ...(config.allow_local_files ? SEARCH_RUNTIME_LOCAL_OPERATIONS : []),
-    ...(config.allow_memory_read ? SEARCH_RUNTIME_MEMORY_OPERATIONS : []),
+    "op.model_response",
+    ...(sources.has("web") ? ["op.web_search"] : []),
+    ...(sources.has("web") && config.allow_fetch_url && config.max_fetches > 0 ? SEARCH_RUNTIME_FETCH_OPERATIONS : []),
+    ...(sources.has("local_files") || config.allow_local_files ? SEARCH_RUNTIME_LOCAL_OPERATIONS : []),
+    ...(sources.has("rag") ? SEARCH_RUNTIME_RAG_OPERATIONS : []),
+    ...(sources.has("memory") || config.allow_memory_read ? SEARCH_RUNTIME_MEMORY_OPERATIONS : []),
   ]);
 }
 
 function runtimeTemplateRuntimeKind(templateId: string) {
   if (templateId === DEEPSEARCH_RUNTIME_TEMPLATE.template_id) return DEEPSEARCH_RUNTIME_TEMPLATE.runtime_kind;
+  if (templateId === CONTEXT_COMPACTOR_RUNTIME_TEMPLATE.template_id) return CONTEXT_COMPACTOR_RUNTIME_TEMPLATE.runtime_kind;
   return DEFAULT_GENERIC_RUNTIME_CONFIG.runtime_kind;
 }
 
 function runtimeTemplateModes(templateId: string) {
   if (templateId === DEEPSEARCH_RUNTIME_TEMPLATE.template_id) return ["deepsearch", "single_search"];
+  if (templateId === CONTEXT_COMPACTOR_RUNTIME_TEMPLATE.template_id) return ["llm_compaction", "deterministic_fallback"];
   return ["standard"];
 }
 
@@ -288,6 +315,7 @@ function nextSearchSources(config: SearchRuntimeConfig) {
   return dedupe([
     "web",
     ...(config.allow_local_files ? ["local_files"] : []),
+    ...(config.search_sources.includes("rag") ? ["rag"] : []),
     ...(config.allow_memory_read ? ["memory"] : []),
   ]);
 }
@@ -1044,6 +1072,7 @@ export function OrchestrationRuntimeConfigWorkbench({
   const runtimeConfig = runtimeConfigFrom(metadata);
   const config = runtimeConfig.search ?? DEFAULT_SEARCH_RUNTIME_CONFIG;
   const isSearchTemplate = runtimeConfig.runtime_kind === "search_agent" || runtimeConfig.template_id === DEEPSEARCH_RUNTIME_TEMPLATE.template_id;
+  const isContextCompactorTemplate = runtimeConfig.runtime_kind === "context_compactor" || runtimeConfig.template_id === CONTEXT_COMPACTOR_RUNTIME_TEMPLATE.template_id;
   const allowedOps = dedupe(runtimeDraft.allowed_operations ?? []);
   const blockedOps = dedupe(runtimeDraft.blocked_operations ?? []);
   const requiredOps = isSearchTemplate ? operationsForSearchRuntime(config) : ["op.model_response"];
@@ -1051,6 +1080,7 @@ export function OrchestrationRuntimeConfigWorkbench({
   const blockedRequiredOps = requiredOps.filter((operation) => blockedOps.includes(operation));
   const templateIssue = runtimeTemplateIssue(runtimeConfig);
   const localEnabled = config.allow_local_files;
+  const ragEnabled = config.search_sources.includes("rag");
   const memoryEnabled = config.allow_memory_read;
 
   function writeRuntimeConfig(nextConfig: GenericRuntimeConfig) {
@@ -1112,6 +1142,10 @@ export function OrchestrationRuntimeConfigWorkbench({
       writeRuntimeConfig(DEEPSEARCH_RUNTIME_TEMPLATE);
       return;
     }
+    if (templateId === CONTEXT_COMPACTOR_RUNTIME_TEMPLATE.template_id) {
+      writeRuntimeConfig(CONTEXT_COMPACTOR_RUNTIME_TEMPLATE);
+      return;
+    }
     writeRuntimeConfig({
       ...DEFAULT_GENERIC_RUNTIME_CONFIG,
       template_id: templateId,
@@ -1136,6 +1170,7 @@ export function OrchestrationRuntimeConfigWorkbench({
             <select value={runtimeConfig.template_id} onChange={(event) => applyRuntimeTemplate(event.target.value)}>
               <option value="runtime.template.general_agent">通用 Agent Loop</option>
               <option value="runtime.template.deepsearch">DeepSearch Search Agent</option>
+              <option value="runtime.template.context_compactor">Context Compactor Agent</option>
             </select>
           </OrchestrationField>
           <OrchestrationField label="Runtime Kind">
@@ -1231,6 +1266,18 @@ export function OrchestrationRuntimeConfigWorkbench({
             允许本地文件搜索
           </label>
           <label className="boundary-check">
+            <input
+              checked={ragEnabled}
+              onChange={(event) => patchSearchRuntime({
+                search_sources: event.target.checked
+                  ? dedupe([...config.search_sources, "rag"])
+                  : config.search_sources.filter((source) => source !== "rag"),
+              })}
+              type="checkbox"
+            />
+            允许 RAG / 知识库检索
+          </label>
+          <label className="boundary-check">
             <input checked={memoryEnabled} onChange={(event) => patchSearchRuntime({ allow_memory_read: event.target.checked })} type="checkbox" />
             允许记忆读取
           </label>
@@ -1239,6 +1286,50 @@ export function OrchestrationRuntimeConfigWorkbench({
             必须输出 AgentEvidencePacket
           </label>
         </div>
+          </>
+        ) : null}
+        {isContextCompactorTemplate ? (
+          <>
+            <div className="orchestration-identity-note">
+              <span>模板参数：Context Compactor</span>
+              <strong>压缩 Agent 只能调用模型生成恢复点；不能搜索、读写文件或发起委派。</strong>
+            </div>
+            <div className="boundary-form">
+              <OrchestrationField label="输出契约">
+                <input readOnly value={String(asRecord(runtimeConfig.context_compaction).output_contract || "context_recovery_point")} />
+              </OrchestrationField>
+              <OrchestrationField label="失败回退">
+                <input readOnly value={String(asRecord(runtimeConfig.context_compaction).fallback || "deterministic")} />
+              </OrchestrationField>
+              <OrchestrationField label="保留最近消息">
+                <input
+                  min={1}
+                  max={20}
+                  type="number"
+                  value={Number(asRecord(runtimeConfig.context_compaction).keep_last_messages ?? 6)}
+                  onChange={(event) => patchRuntimeConfig({
+                    context_compaction: {
+                      ...asRecord(runtimeConfig.context_compaction),
+                      keep_last_messages: Number(event.target.value || 6),
+                    },
+                  })}
+                />
+              </OrchestrationField>
+              <OrchestrationField label="摘要字符上限">
+                <input
+                  min={500}
+                  max={20000}
+                  type="number"
+                  value={Number(asRecord(runtimeConfig.context_compaction).max_summary_chars ?? 4000)}
+                  onChange={(event) => patchRuntimeConfig({
+                    context_compaction: {
+                      ...asRecord(runtimeConfig.context_compaction),
+                      max_summary_chars: Number(event.target.value || 4000),
+                    },
+                  })}
+                />
+              </OrchestrationField>
+            </div>
           </>
         ) : null}
         <div className="boundary-actions">
@@ -1261,7 +1352,14 @@ export function OrchestrationRuntimeConfigWorkbench({
           <OrchestrationReadinessCard label="Web Search" ready={allowedOps.includes("op.web_search") && !blockedOps.includes("op.web_search")} value={allowedOps.includes("op.web_search") ? "已允许" : "未允许"} />
           <OrchestrationReadinessCard label="Fetch URL" ready={!config.allow_fetch_url || config.max_fetches <= 0 || (allowedOps.includes("op.fetch_url") && !blockedOps.includes("op.fetch_url"))} value={config.allow_fetch_url && config.max_fetches > 0 ? "需要" : "未启用"} />
           <OrchestrationReadinessCard label="Local Files" ready={!localEnabled || SEARCH_RUNTIME_LOCAL_OPERATIONS.every((operation) => allowedOps.includes(operation) && !blockedOps.includes(operation))} value={localEnabled ? "需要权限" : "未启用"} />
+          <OrchestrationReadinessCard label="RAG Retrieval" ready={!ragEnabled || SEARCH_RUNTIME_RAG_OPERATIONS.every((operation) => allowedOps.includes(operation) && !blockedOps.includes(operation))} value={ragEnabled ? "需要权限" : "未启用"} />
           <OrchestrationReadinessCard label="Memory Read" ready={!memoryEnabled || SEARCH_RUNTIME_MEMORY_OPERATIONS.every((operation) => allowedOps.includes(operation) && !blockedOps.includes(operation))} value={memoryEnabled ? "需要权限" : "未启用"} />
+        </div> : null}
+        {isContextCompactorTemplate ? <div className="boundary-readiness-list boundary-readiness-list--grid">
+          <OrchestrationReadinessCard label="Model Only" ready={allowedOps.includes("op.model_response") && !blockedOps.includes("op.model_response")} value="op.model_response" />
+          <OrchestrationReadinessCard label="No Web" ready={!allowedOps.includes("op.web_search") && !allowedOps.includes("op.fetch_url")} value="不搜索" />
+          <OrchestrationReadinessCard label="No Write" ready={!allowedOps.includes("op.write_file") && !allowedOps.includes("op.edit_file") && !allowedOps.includes("op.shell")} value="不写入" />
+          <OrchestrationReadinessCard label="Contract" ready={String(asRecord(runtimeConfig.context_compaction).output_contract || "") === "context_recovery_point"} value="恢复点" />
         </div> : null}
         <div className="boundary-kv">
           <p><span>模板</span><strong>{runtimeConfig.template_id}</strong></p>

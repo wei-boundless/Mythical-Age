@@ -35,6 +35,9 @@ export function getDefaultState(): StoreState {
   return {
     activeWorkspaceView: "chat",
     workspaceContext: null,
+    workspaceTree: null,
+    workspaceTreeLoading: false,
+    workspaceTreeError: "",
     sessions: [],
     currentSessionId: null,
     workspaceInitializing: true,

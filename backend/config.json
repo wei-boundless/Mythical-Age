@@ -3,7 +3,7 @@
   "permission_mode": "default",
   "orchestration_plan_mode": "primary",
   "context_budget_preset": "deepseek_1m",
-  "vibe_coding": {
+  "code_environment": {
     "enabled": true,
     "workspace_root_policy": "project_root",
     "pi_sidecar": {

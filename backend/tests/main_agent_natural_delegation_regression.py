@@ -174,8 +174,12 @@ def test_main_agent_prompt_guidance_names_web_researcher() -> None:
 
     assert "agent:web_researcher" in block
     assert "web_research" in block
+    assert "local_search" in block
+    assert "memory_lookup" in block
     assert "公开网页" in block
-    assert "官方来源" in block
+    assert "本地文件" in block
+    assert "知识库" in block
+    assert "正式记忆" in block
     assert "agent:verifier" in block
     assert "completion_verification" in block
     assert "交付复核" in block

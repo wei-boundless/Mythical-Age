@@ -11,6 +11,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from query import QueryRuntime
 from query.models import QueryRequest
+from query.runtime import _task_selection_for_runtime
 from runtime.agent_assembly import NodeWorkOrder, build_agent_invocation
 from runtime.unit_runtime.finalizer import FinishedTaskRunResult
 from task_system import TaskFlowRegistry
@@ -25,6 +26,13 @@ from tests.support.runtime_stubs import (
     StreamingMessageModelRuntimeStub,
     isolated_backend_root,
 )
+from task_system.orders.models import ConversationTurn, TaskIntentDecision, TaskOrder, TaskExecutionEnvelope
+from task_system.orders.order_factory import TaskOrderCreation
+
+
+class _FailingDecisionModelRuntime:
+    async def invoke_messages(self, _messages, **_kwargs):
+        raise RuntimeError("simulated provider unavailable")
 
 
 def _build_stream_runtime() -> QueryRuntime:
@@ -193,6 +201,100 @@ def test_query_runtime_assembles_compressed_context_before_model_history() -> No
     assert captured_history[0]["role"] == "assistant"
     assert "旧历史已经压缩为项目审查摘要" in str(captured_history[0]["content"])
     assert [item["content"] for item in captured_history[1:]] == [f"old-{index}" for index in range(2, 14)]
+
+
+def test_runtime_task_selection_preserves_order_projection_resource_contract() -> None:
+    projected_selection = {
+        "interaction_mode": "professional_mode",
+        "resource_contract": {
+            "source_projects": [
+                {"path": "D:/AI应用/agent-vibe-sandboxes/langchain-mini-clean", "role": "source"}
+            ]
+        },
+        "sandbox_policy": {"enabled": True, "workspace_key": "langchain-mini-clean-agent-smoke"},
+    }
+    creation = TaskOrderCreation(
+        conversation_turn=ConversationTurn(turn_id="turn:session:1", session_id="session"),
+        intent_decision=TaskIntentDecision(
+            decision_id="intent:turn:1",
+            turn_id="turn:session:1",
+            decision="executable_task",
+        ),
+        order=TaskOrder(
+            order_id="order:test",
+            session_id="session",
+            order_kind="ad_hoc_task",
+            source="conversation_turn",
+            source_ref="conversation.turn:1",
+            objective="审查代码",
+            input_contract={"task_selection_projection": projected_selection},
+        ),
+        envelope=TaskExecutionEnvelope(
+            envelope_id="taskenv:test",
+            order_id="order:test",
+            order_run_id="orderrun:test",
+            execution_channel_id="channel:test",
+            session_id="session",
+            context_package={"task_selection_projection": projected_selection},
+        ),
+    )
+
+    task_selection = _task_selection_for_runtime(
+        request_task_selection={"interaction_mode": "professional_mode"},
+        task_order_creation=creation,
+        turn_id="turn:session:1",
+    )
+
+    assert task_selection["turn_id"] == "turn:session:1"
+    assert task_selection["sandbox_policy"]["workspace_key"] == "langchain-mini-clean-agent-smoke"
+    assert task_selection["resource_contract"]["source_projects"][0]["path"].endswith("langchain-mini-clean")
+
+
+def test_astream_marks_task_order_failed_when_runtime_blocks_before_start() -> None:
+    runtime = QueryRuntime(
+        base_dir=isolated_backend_root("query-runtime-prestart-failure-"),
+        settings_service=PrimarySettingsStub(),
+        session_manager=InMemorySessionManagerStub(),
+        memory_facade=QueryRuntimeMemoryFacadeStub(),
+        retrieval_service=SimpleNamespace(),
+        tool_runtime=EmptyToolRuntimeStub(),
+        skill_registry=EmptySkillRegistryStub(),
+        permission_service=DefaultPermissionStub(),
+        model_runtime=_FailingDecisionModelRuntime(),
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            QueryRequest(
+                session_id="session-prestart-failure",
+                message="请检查 backend/api/chat.py 并写一份代码审查报告。",
+                history=[],
+                task_selection={
+                    "interaction_mode": "professional_mode",
+                    "runtime_lane": "professional_task",
+                    "sandbox_policy": {"enabled": True, "workspace_key": "prestart-failure"},
+                },
+                task_order_intent={"action": "run_task"},
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    projection = next(event for event in events if event.get("type") == "task_order_projection")
+    order_run_id = str(dict(projection.get("task_order_run") or {}).get("run_id") or "")
+    run = runtime.task_run_loop.state_index.get_task_order_run(order_run_id)
+
+    assert any(
+        dict(event.get("event") or {}).get("event_type") == "runtime_blocked_before_assembly"
+        for event in events
+        if event.get("type") == "runtime_loop_event"
+    )
+    assert run is not None
+    assert run.status == "failed"
+    assert run.task_run_id == ""
+    assert "model_turn_decision_unavailable_or_blocked" in run.terminal_reason
 
 
 def test_removed_health_task_selection_falls_back_to_general_runtime() -> None:
@@ -496,7 +598,7 @@ def test_terminal_state_index_failure_still_yields_done() -> None:
     assert dict(done_event.get("runtime_state_index") or {})["phase"] == "finished_task_run_state_write"
 
 
-def test_terminal_done_ends_stream_even_when_coordination_continuation_exists() -> None:
+def test_coordination_continuation_is_consumed_before_terminal_done() -> None:
     runtime = _build_stream_runtime()
     original_upsert = runtime.task_run_loop.task_run_finalizer.upsert_finished_task_run
     continuation_called = False
@@ -511,13 +613,13 @@ def test_terminal_done_ends_stream_even_when_coordination_continuation_exists() 
             },
         )
 
-    async def _unexpected_continuation(**_kwargs):
+    async def _continuation_stream(**_kwargs):
         nonlocal continuation_called
         continuation_called = True
-        yield {"type": "content_delta", "content": "不应该出现在当前回答流里"}
+        yield {"type": "content_delta", "content": "后续节点已调度"}
 
     runtime.task_run_loop.task_run_finalizer.upsert_finished_task_run = _upsert_with_continuation  # type: ignore[method-assign]
-    runtime.task_run_loop._continue_coordination_delivery_stream = _unexpected_continuation  # type: ignore[method-assign]
+    runtime.task_run_loop._continue_coordination_delivery_stream = _continuation_stream  # type: ignore[method-assign]
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
@@ -533,10 +635,10 @@ def test_terminal_done_ends_stream_even_when_coordination_continuation_exists() 
 
     events = asyncio.run(_collect())
 
-    assert continuation_called is False
-    assert events[-1].get("type") == "done"
-    assert events[-1].get("content") == "单轮收口回答"
-    assert not any(event.get("content") == "不应该出现在当前回答流里" for event in events)
+    assert continuation_called is True
+    assert events[-1].get("type") == "content_delta"
+    assert events[-1].get("content") == "后续节点已调度"
+    assert not any(event.get("type") == "done" and event.get("content") == "单轮收口回答" for event in events)
 
 
 def test_assistant_commit_enqueues_memory_maintenance_without_waiting(tmp_path: Path) -> None:

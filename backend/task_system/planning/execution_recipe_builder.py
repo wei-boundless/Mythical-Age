@@ -77,7 +77,6 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
         "runtime.recipe.role_interaction",
         "runtime.recipe.standard_task",
         "runtime.recipe.professional_task",
-        "runtime.recipe.vibe_coding",
     }:
         mode_policy = dict(execution_shape.diagnostics.get("mode_policy") or {})
         semantic_contract = dict(execution_shape.diagnostics.get("task_requirement_contract") or {})
@@ -97,9 +96,8 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
         output_policy = dict(mode_policy.get("output_policy") or {})
         execution_obligation = dict(semantic_contract.get("execution_obligation") or execution_shape.diagnostics.get("execution_obligation") or {})
         strict = bool(verification_policy.get("strict") is True)
-        professional_modes = {"professional_mode", "vibe_coding"}
-        standard_or_professional = interaction_mode in {"standard_mode", *professional_modes}
-        professional = interaction_mode in professional_modes
+        professional = interaction_mode == "professional_mode"
+        standard_or_professional = interaction_mode in {"standard_mode", "professional_mode"}
         runtime_task_id = _runtime_task_id_from_contract(semantic_contract)
         agent_plan_draft = build_agent_plan_draft(
             task_id=runtime_task_id,
@@ -147,7 +145,6 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
                 "execution_strategy": "interaction_mode_run",
                 "runtime_lane_hint": runtime_lane,
                 "runtime_driver": "professional_task_run",
-                "coding_mode": interaction_mode == "vibe_coding",
                 "interaction_mode": interaction_mode,
                 "understanding_step_compiler": "task_system.planning.understanding_step_compiler",
                 "compiled_step_count": len(step_blueprints),
@@ -387,7 +384,6 @@ def _interaction_mode_title(interaction_mode: str) -> str:
         "role_mode": "Main Agent role interaction",
         "standard_mode": "Main Agent standard task",
         "professional_mode": "Main Agent professional task",
-        "vibe_coding": "Main Agent vibe coding task",
     }.get(str(interaction_mode or ""), "Main Agent interaction task")
 
 
@@ -405,7 +401,7 @@ def _needs_agent_todo(
     agent_plan_draft: dict[str, Any],
     step_blueprints: tuple[TaskStepBlueprint, ...],
 ) -> bool:
-    if interaction_mode in {"professional_mode", "vibe_coding"}:
+    if interaction_mode == "professional_mode":
         return True
     steps = [item for item in list(agent_plan_draft.get("steps") or []) if isinstance(item, dict)]
     if len(steps) > 1 or len(step_blueprints) > 2:

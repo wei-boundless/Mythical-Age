@@ -3,12 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from capability_system.search_policy import normalize_search_policy, operation_allowed_by_search_policy
 from runtime.execution.delegation_models import AgentDelegationRequest
 
 from .distiller import ModelBackedSearchEvidenceDistiller, SearchEvidenceDistiller
 from .evidence_builder import build_deepsearch_evidence_packet
 from .models import SearchRuntimeConfig, required_operations_for_search_config
-from .providers import FetchUrlProvider, TavilySearchProvider
+from .providers import FetchUrlProvider, LocalFilesSearchProvider, MemorySearchProvider, RAGSearchProvider, TavilySearchProvider
 from .result_storage import SearchToolResultStore
 from .strategy import DefaultDeepSearchStrategy, ResearchState, enqueue_queries
 from .web_text import normalize_web_result_item
@@ -21,6 +22,9 @@ class SearchAgentRuntime:
         *,
         search_provider: Any | None = None,
         fetch_provider: Any | None = None,
+        local_files_provider: Any | None = None,
+        rag_provider: Any | None = None,
+        memory_provider: Any | None = None,
         strategy: Any | None = None,
         distiller: Any | None = None,
         model_runtime: Any | None = None,
@@ -29,6 +33,9 @@ class SearchAgentRuntime:
         self.root_dir = Path(root_dir)
         self.search_provider = search_provider or TavilySearchProvider(self.root_dir)
         self.fetch_provider = fetch_provider or FetchUrlProvider()
+        self.local_files_provider = local_files_provider or LocalFilesSearchProvider(self.root_dir)
+        self.rag_provider = rag_provider or RAGSearchProvider(self.root_dir)
+        self.memory_provider = memory_provider or MemorySearchProvider(self.root_dir)
         self.strategy = strategy or DefaultDeepSearchStrategy()
         self.distiller = distiller or (
             ModelBackedSearchEvidenceDistiller(model_runtime)
@@ -48,6 +55,19 @@ class SearchAgentRuntime:
         available_ops = _available_operations(profile)
         required_ops = set(required_operations_for_search_config(config))
         missing_ops = sorted(required_ops - available_ops)
+        blocked_by_search_policy = _operations_blocked_by_search_policy(request=request, required_ops=required_ops)
+        if blocked_by_search_policy:
+            return _failed_result(
+                summary="Search Agent 的 DeepSearch 搜索源被当前任务搜索策略阻断。",
+                limitations=["deepsearch_search_policy_blocked", *blocked_by_search_policy],
+                diagnostics={
+                    "child_execution_mode": "runtime_configured_search_agent",
+                    "runtime_template_id": "runtime.template.deepsearch",
+                    "required_operations": sorted(required_ops),
+                    "search_policy_blocked_operations": blocked_by_search_policy,
+                    "allowed_search_sources": sorted(_allowed_search_sources_from_request(request)),
+                },
+            )
         if missing_ops:
             return _failed_result(
                 summary="Search Agent 缺少 DeepSearch 模板所需权限。",
@@ -92,7 +112,7 @@ class SearchAgentRuntime:
                 total_tool_calls=total_tool_calls,
                 max_queries_this_cycle=1,
             )
-            if config.allow_fetch_url and config.max_fetches > 0:
+            if "web" in set(config.search_sources or ("web",)) and config.allow_fetch_url and config.max_fetches > 0:
                 total_tool_calls = await self._fetch_sources(state=state, config=config, total_tool_calls=total_tool_calls)
             combined_payload = _combine_search_payloads(
                 goal=goal,
@@ -174,8 +194,8 @@ class SearchAgentRuntime:
             "limitations": limitations,
             "diagnostics": {
                 "child_execution_mode": "runtime_configured_search_agent",
-                "operation_id": "op.web_search",
-                "specialist_route": "web_research",
+                "operation_id": "op.search_agent",
+                "specialist_route": "deepsearch",
                 "runtime_template_id": "runtime.template.deepsearch",
                 "runtime_config": config.to_dict(),
                 "web_payload": diagnostics_payload,
@@ -213,14 +233,15 @@ class SearchAgentRuntime:
             if query in state.executed_queries:
                 continue
             total_tool_calls += 1
-            payload_result = await self.search_provider.search(
+            source_payloads = await self._run_source_providers(
                 query=query,
                 topic=topic,
                 time_range=time_range,
                 max_results=per_query_results,
                 config=config,
             )
-            search_payloads.append(dict(payload_result))
+            payload_result = _merge_source_payloads(query=query, topic=topic, time_range=time_range, payloads=source_payloads)
+            search_payloads.extend(source_payloads)
             state.executed_queries.append(query)
             executed_this_cycle += 1
             if not bool(payload_result.get("ok", True)):
@@ -235,6 +256,42 @@ class SearchAgentRuntime:
                 state.stop_reason = review.stop_reason
                 break
         return total_tool_calls
+
+    async def _run_source_providers(
+        self,
+        *,
+        query: str,
+        topic: str,
+        time_range: str,
+        max_results: int,
+        config: SearchRuntimeConfig,
+    ) -> list[dict[str, Any]]:
+        sources = _configured_sources(config)
+        providers: list[tuple[str, Any]] = []
+        if "web" in sources:
+            providers.append(("web", self.search_provider))
+        if "local_files" in sources:
+            providers.append(("local_files", self.local_files_provider))
+        if "rag" in sources:
+            providers.append(("rag", self.rag_provider))
+        if "memory" in sources:
+            providers.append(("memory", self.memory_provider))
+        payloads: list[dict[str, Any]] = []
+        for source_id, provider in providers:
+            try:
+                payload = await provider.search(
+                    query=query,
+                    topic=topic,
+                    time_range=time_range,
+                    max_results=max_results,
+                    config=config,
+                )
+            except Exception as exc:
+                payload = {"ok": False, "query": query, "topic": topic, "source": source_id, "results": [], "error": str(exc)}
+            payload = dict(payload)
+            payload.setdefault("source", source_id)
+            payloads.append(payload)
+        return payloads
 
     async def _fetch_sources(self, *, state: ResearchState, config: SearchRuntimeConfig, total_tool_calls: int) -> int:
         fetch_budget = max(0, config.max_fetches - len(state.fetched_sources))
@@ -263,6 +320,23 @@ def _available_operations(profile: Any) -> set[str]:
     return allowed - blocked
 
 
+def _allowed_search_sources_from_request(request: AgentDelegationRequest) -> set[str]:
+    diagnostics = dict(request.diagnostics or {})
+    if "allowed_search_sources" not in diagnostics and "search_policy" not in diagnostics:
+        return normalize_search_policy(None)
+    raw = diagnostics.get("allowed_search_sources", diagnostics.get("search_policy"))
+    return normalize_search_policy(list(raw or []))
+
+
+def _operations_blocked_by_search_policy(*, request: AgentDelegationRequest, required_ops: set[str]) -> list[str]:
+    allowed_sources = _allowed_search_sources_from_request(request)
+    return sorted(
+        operation
+        for operation in required_ops
+        if not operation_allowed_by_search_policy(operation, allowed_sources)
+    )
+
+
 def _failed_result(*, summary: str, limitations: list[str], diagnostics: dict[str, Any]) -> dict[str, Any]:
     return {
         "status": "failed",
@@ -283,12 +357,49 @@ def _unique_result_items(value: Any) -> list[dict[str, Any]]:
         if not isinstance(item, dict):
             continue
         url = str(item.get("url") or "").strip()
-        key = url or str(item.get("title") or "")
+        key = url or str(item.get("source") or item.get("title") or "")
         if key in seen_urls:
             continue
         seen_urls.add(key)
         results.append(normalize_web_result_item(dict(item)))
     return results
+
+
+def _configured_sources(config: SearchRuntimeConfig) -> set[str]:
+    sources = {str(item).strip() for item in tuple(config.search_sources or ("web",)) if str(item).strip()}
+    if not sources:
+        sources.add("web")
+    if config.allow_local_files:
+        sources.add("local_files")
+    if config.allow_memory_read:
+        sources.add("memory")
+    return sources
+
+
+def _merge_source_payloads(*, query: str, topic: str, time_range: str, payloads: list[dict[str, Any]]) -> dict[str, Any]:
+    results: list[dict[str, Any]] = []
+    errors: list[str] = []
+    sources: list[str] = []
+    for payload in payloads:
+        source = str(payload.get("source") or "").strip()
+        if source and source not in sources:
+            sources.append(source)
+        if not bool(payload.get("ok", True)):
+            error = str(payload.get("error") or payload.get("degraded_reason_typed") or "").strip()
+            if error:
+                errors.append(f"{source}:{error}" if source else error)
+        results.extend(_unique_result_items(payload.get("results")))
+    return {
+        "ok": bool(results) and not all(not bool(item.get("ok", True)) for item in payloads),
+        "query": query,
+        "topic": topic,
+        "time_range": time_range,
+        "source": "multi_source",
+        "sources": sources,
+        "results": _unique_result_items(results),
+        "error": "; ".join(errors),
+        "source_payloads": payloads,
+    }
 
 
 def _per_query_results(*, config: SearchRuntimeConfig, queued_count: int) -> int:
@@ -315,6 +426,7 @@ def _combine_search_payloads(
         "results": results,
         "usage": {
             "runtime_mode": config.runtime_mode,
+            "search_sources": list(_configured_sources(config)),
             "queries_executed": len(state.executed_queries),
             "fetches_executed": len(state.fetched_sources),
             "tool_calls": total_tool_calls,

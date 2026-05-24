@@ -4,6 +4,63 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 
+_GLOBAL_WRITE_FORBID_MARKERS = (
+    "不要写任何文件",
+    "不要写入任何文件",
+    "不要生成任何文件",
+    "不要创建任何文件",
+    "不要新建任何文件",
+    "不要保存任何文件",
+    "不要产出任何文件",
+    "不要写文件",
+    "不要写入文件",
+    "不要生成文件",
+    "只分析，不要写",
+    "只分析不要写",
+    "do not write",
+    "don't write",
+    "no file writes",
+    "analysis only",
+)
+_BROAD_NO_MODIFY_MARKERS = (
+    "先分析不要改",
+    "先分析，不要改",
+    "先不要改",
+    "不要改代码",
+    "不要修改代码",
+    "不要动代码",
+    "不用改代码",
+    "别改代码",
+    "不要改文件",
+    "不要修改文件",
+    "不用改文件",
+    "别改文件",
+    "do not modify",
+    "don't modify",
+    "read only",
+    "readonly",
+)
+_SCOPED_SOURCE_WRITE_FORBID_MARKERS = (
+    "不要修改源项目",
+    "不要改源项目",
+    "不要动源项目",
+    "不要修改源工程",
+    "不要改源工程",
+    "不要动源工程",
+    "不要修改源目录",
+    "不要改源目录",
+    "不要动源目录",
+    "源项目只读",
+    "源工程只读",
+    "源目录只读",
+    "只读源项目",
+    "只读源工程",
+    "只读源目录",
+    "do not modify source project",
+    "don't modify source project",
+)
+
+
 @dataclass(frozen=True, slots=True)
 class BoundaryPolicy:
     policy_id: str
@@ -35,7 +92,11 @@ def build_boundary_policy(
     context = dict(current_turn_context or {})
     forbidden: list[str] = []
     required: list[str] = []
-    if any(marker in text for marker in ("不要改", "不要修改", "不要动代码", "只分析", "readonly", "read only", "do not modify")):
+    write_required_by_context = _write_required_by_context(text=text, context=context)
+    scoped_source_readonly = any(marker in text for marker in _SCOPED_SOURCE_WRITE_FORBID_MARKERS)
+    global_write_forbidden = any(marker in text for marker in _GLOBAL_WRITE_FORBID_MARKERS)
+    broad_no_modify = any(marker in text for marker in _BROAD_NO_MODIFY_MARKERS)
+    if global_write_forbidden or (broad_no_modify and not write_required_by_context and not scoped_source_readonly):
         forbidden.extend(["edit_workspace", "write_file", "modify_code"])
     if any(marker in text for marker in ("不要联网", "不要搜索", "不要查网页", "no web", "do not search")):
         forbidden.extend(["search_external", "fetch_url"])
@@ -56,8 +117,32 @@ def build_boundary_policy(
         shell_allowed="run_command" not in forbidden,
         browser_allowed="use_browser" not in forbidden,
         approval_policy=approval_policy,
-        diagnostics={"source": "latest_user_message_and_context", "hard_boundary": True},
+        diagnostics={
+            "source": "latest_user_message_and_context",
+            "hard_boundary": True,
+            "global_write_forbidden": global_write_forbidden,
+            "scoped_source_readonly": scoped_source_readonly,
+            "write_required_by_context": write_required_by_context,
+        },
     )
+
+
+def _write_required_by_context(*, text: str, context: dict[str, Any]) -> bool:
+    if any(marker in str(text or "") for marker in ("写入", "输出到", "保存", "生成", "产出", "创建", "新建")):
+        return True
+    if "output/" in str(text or "").replace("\\", "/").lower():
+        return True
+    resource_contract = dict(
+        context.get("resource_contract")
+        or dict(context.get("model_turn_decision") or {}).get("resource_contract")
+        or {}
+    )
+    if list(resource_contract.get("required_write_files") or []) or list(resource_contract.get("required_write_dirs") or []):
+        return True
+    if list(dict(context.get("artifact_policy") or {}).get("required_output_paths") or []):
+        return True
+    explicit_inputs = dict(context.get("explicit_inputs") or {})
+    return any(str(explicit_inputs.get(key) or "").strip() for key in ("output_path", "artifact_path", "target_output_path"))
 
 
 def _dedupe(values: list[str]) -> list[str]:

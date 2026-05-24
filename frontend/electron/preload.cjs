@@ -9,7 +9,7 @@ const config = {
   mode: "dev",
   hostMode: "desktop",
   localRuntimeAvailable: true,
-  vibeCodingHostAvailable: true,
+  codeEnvironmentHostAvailable: true,
 };
 
 globalThis.__MYTHICAL_AGENT_HOST__ = config;

@@ -18,7 +18,7 @@ const PlaygroundView = lazy(() => import("@/components/workspace/views/Playgroun
 const SoulSystemView = lazy(() => import("@/components/workspace/views/PlaygroundView").then((module) => ({ default: module.PlaygroundView })));
 const SystemConfigView = lazy(() => import("@/components/workspace/views/SystemConfigView").then((module) => ({ default: module.SystemConfigView })));
 const TaskSystemView = lazy(() => import("@/components/workspace/views/TaskSystemView").then((module) => ({ default: module.TaskSystemView })));
-const VibeCodingView = lazy(() => import("@/components/workspace/views/VibeCodingView").then((module) => ({ default: module.VibeCodingView })));
+const CodeEnvironmentView = lazy(() => import("@/components/workspace/views/CodeEnvironmentView").then((module) => ({ default: module.CodeEnvironmentView })));
 
 function LazyView({ children }: { children: ReactNode }) {
   return (
@@ -34,7 +34,7 @@ const WORKSPACE_QUERY_VIEWS = new Set<WorkspaceView>([
   "playground",
   "task-system",
   "orchestration",
-  "vibe-coding",
+  "code-environment",
   "capability-system",
   "soul-system",
   "system-config",
@@ -98,7 +98,9 @@ function Workspace() {
     activeWorkspaceView,
     setWorkspaceView,
     clearTaskGraphMonitorRun,
+    continueBoundTaskGraphRun,
     evaluateBoundTaskGraphMonitor,
+    refreshAndContinueBoundTaskGraphRun,
     setTaskGraphRunInteractionOpen,
     submitTaskGraphMonitorDecision,
     taskGraphBoundRunMonitor,
@@ -136,7 +138,7 @@ function Workspace() {
       && activeWorkspaceView !== "capability-system"
       && activeWorkspaceView !== "soul-system"
       && activeWorkspaceView !== "orchestration"
-      && activeWorkspaceView !== "vibe-coding"
+      && activeWorkspaceView !== "code-environment"
       && activeWorkspaceView !== "system-config"
     ) {
       setWorkspaceView("chat");
@@ -160,8 +162,10 @@ function Workspace() {
       monitor={taskGraphBoundRunMonitor}
       monitorLoading={taskGraphMonitorLoading}
       onClear={clearTaskGraphMonitorRun}
+      onContinue={() => void continueBoundTaskGraphRun()}
       onEvaluate={() => void evaluateBoundTaskGraphMonitor()}
       onOpenChange={setTaskGraphRunInteractionOpen}
+      onRefreshContinue={() => void refreshAndContinueBoundTaskGraphRun()}
       onSubmitDecision={(decision, controlAction, resumePayload) => void submitTaskGraphMonitorDecision(decision, controlAction, resumePayload)}
       open={taskGraphRunInteractionOpen}
     />
@@ -171,7 +175,7 @@ function Workspace() {
     activeWorkspaceView === "chat"
     || activeWorkspaceView === "orchestration"
     || activeWorkspaceView === "task-system"
-    || activeWorkspaceView === "vibe-coding"
+    || activeWorkspaceView === "code-environment"
     || activeWorkspaceView === "capability-system"
     || activeWorkspaceView === "soul-system";
 
@@ -189,10 +193,10 @@ function Workspace() {
         <LazyView><TaskSystemView /></LazyView>
       </SystemPageShell>
     );
-  } else if (activeWorkspaceView === "vibe-coding") {
+  } else if (activeWorkspaceView === "code-environment") {
     content = (
-      <SystemPageShell label="Vibe Coding" view="vibe-coding">
-        <LazyView><VibeCodingView /></LazyView>
+      <SystemPageShell label="代码环境" view="code-environment">
+        <LazyView><CodeEnvironmentView /></LazyView>
       </SystemPageShell>
     );
   } else if (activeWorkspaceView === "memory") {

@@ -49,19 +49,19 @@ export type WorkspaceContext = {
   readable_prefixes: string[];
 };
 
-export type VibeCodingEnvironmentDiagnostic = {
+export type CodeEnvironmentDiagnostic = {
   level: "info" | "warning" | "error";
   code: string;
   message: string;
   path?: string | null;
 };
 
-export type VibeCodingEnvironmentStatus = {
+export type CodeEnvironmentStatus = {
   authority: string;
   host: {
     mode: "web" | "desktop";
     local_runtime_available: boolean;
-    vibe_coding_host_available: boolean;
+    code_environment_host_available: boolean;
   };
   pi: {
     available: boolean;
@@ -80,8 +80,28 @@ export type VibeCodingEnvironmentStatus = {
     coding_agent_package_name: string;
     cli_built: boolean;
     rpc_source_available: boolean;
-    diagnostics: VibeCodingEnvironmentDiagnostic[];
+    diagnostics: CodeEnvironmentDiagnostic[];
   };
+};
+
+export type CodeEnvironmentTreeNode = {
+  name: string;
+  path: string;
+  kind: "directory" | "file";
+  depth: number;
+  children: CodeEnvironmentTreeNode[];
+  truncated: boolean;
+};
+
+export type CodeEnvironmentWorkspaceTree = {
+  authority: string;
+  root_name: string;
+  root_path: string;
+  max_depth: number;
+  max_entries: number;
+  total_entries: number;
+  truncated: boolean;
+  tree: CodeEnvironmentTreeNode;
 };
 
 export type PiSidecarStatus = {
@@ -3991,6 +4011,44 @@ export async function continueOrchestrationCurrentStage(
   );
 }
 
+export async function rewindOrchestrationFromStage(
+  coordinationRunId: string,
+  payload: {
+    stage_id: string;
+    reason?: string;
+    source?: string;
+    artifact_root?: string;
+    include_downstream?: boolean;
+    move_artifacts?: boolean;
+    refresh_graph_spec?: boolean;
+    continue_after_rewind?: boolean;
+    current_turn_context?: Record<string, unknown>;
+  }
+) {
+  return request<{
+    authority: string;
+    coordination_run_id: string;
+    task_run_id: string;
+    session_id: string;
+    stage_id: string;
+    reason: string;
+    invalidated_stage_ids: string[];
+    invalidated_task_runs: Array<Record<string, unknown>>;
+    invalidated_artifact_refs: Array<Record<string, unknown>>;
+    moved_artifacts: Array<Record<string, unknown>>;
+    checkpoint_ref: string;
+    stage_execution_request: Record<string, unknown> | null;
+    background_started: boolean;
+    diagnostics: Record<string, unknown>;
+  }>(
+    `/orchestration/coordination-runs/${encodeURIComponent(coordinationRunId)}/rewind-from-stage`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
 export async function dispatchCoordinationReadyBatches(
   coordinationRunId: string,
   payload: {
@@ -4230,33 +4288,44 @@ export async function getSoulWorkLog(soulId: string, limit = 6) {
   return request<SoulWorkLogView>(`/soul/${encodeURIComponent(soulId)}/activity?limit=${limit}`);
 }
 
-export async function getVibeCodingEnvironment(host?: {
+export async function getCodeEnvironment(host?: {
   mode?: "web" | "desktop";
   localRuntimeAvailable?: boolean;
-  vibeCodingHostAvailable?: boolean;
+  codeEnvironmentHostAvailable?: boolean;
 }) {
   const params = new URLSearchParams({
     host_mode: host?.mode || "web",
     local_runtime_available: String(Boolean(host?.localRuntimeAvailable)),
-    vibe_coding_host_available: String(Boolean(host?.vibeCodingHostAvailable)),
+    code_environment_host_available: String(Boolean(host?.codeEnvironmentHostAvailable)),
   });
-  return request<VibeCodingEnvironmentStatus>(`/vibe-coding/environment?${params.toString()}`);
+  return request<CodeEnvironmentStatus>(`/code-environment/environment?${params.toString()}`);
+}
+
+export async function getCodeEnvironmentWorkspaceTree(options: {
+  maxDepth?: number;
+  maxEntries?: number;
+} = {}) {
+  const params = new URLSearchParams({
+    max_depth: String(options.maxDepth || 10),
+    max_entries: String(options.maxEntries || 10000),
+  });
+  return request<CodeEnvironmentWorkspaceTree>(`/code-environment/workspace-tree?${params.toString()}`);
 }
 
 export async function getPiSidecarStatus() {
-  return request<PiSidecarLifecycleResponse>("/vibe-coding/sidecar/status");
+  return request<PiSidecarLifecycleResponse>("/code-environment/sidecar/status");
 }
 
 export async function startPiSidecar() {
-  return request<PiSidecarLifecycleResponse>("/vibe-coding/sidecar/start", { method: "POST" });
+  return request<PiSidecarLifecycleResponse>("/code-environment/sidecar/start", { method: "POST" });
 }
 
 export async function stopPiSidecar() {
-  return request<PiSidecarLifecycleResponse>("/vibe-coding/sidecar/stop", { method: "POST" });
+  return request<PiSidecarLifecycleResponse>("/code-environment/sidecar/stop", { method: "POST" });
 }
 
 export async function runPiSidecarReadOnlyCommand(command: "get_state" | "get_available_models") {
-  return request<PiSidecarCommandResponse>("/vibe-coding/sidecar/read-only-command", {
+  return request<PiSidecarCommandResponse>("/code-environment/sidecar/read-only-command", {
     method: "POST",
     body: JSON.stringify({ command }),
   });

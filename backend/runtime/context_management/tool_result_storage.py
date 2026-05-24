@@ -85,6 +85,25 @@ class ToolResultStore:
             has_more=len(encoded) > preview_size,
         )
 
+    def resolve(self, replacement_id_or_path: str) -> str:
+        target = str(replacement_id_or_path or "").strip()
+        if not target:
+            raise ValueError("replacement id or path is required")
+        if target.startswith("tool_result:"):
+            digest = target.split(":", 1)[1]
+            matches = sorted(self.base_dir.glob(f"*-{digest}.txt"))
+            if not matches:
+                raise FileNotFoundError(target)
+            return matches[0].read_text(encoding="utf-8")
+        path = Path(target)
+        if not path.is_absolute():
+            path = self.base_dir / target
+        resolved = path.resolve()
+        base = self.base_dir.resolve()
+        if base not in [resolved, *resolved.parents]:
+            raise ValueError("replacement path is outside tool result store")
+        return resolved.read_text(encoding="utf-8")
+
 
 def replacement_text(content: str, replacement: ContentReplacement, *, preview_size_bytes: int) -> str:
     preview = _preview_bytes(content, preview_size_bytes)
@@ -184,4 +203,3 @@ def _safe_path_part(value: str) -> str:
     while "--" in safe:
         safe = safe.replace("--", "-")
     return safe.strip("-")[:120] or "payload"
-

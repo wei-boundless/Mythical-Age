@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from context_system import ContextPackage
 from runtime import RuntimeContextManager
+from runtime.shared.action_request import build_tool_result_observation
 from runtime.shared.context_manager import _render_runtime_execution_block
 from prompting.builder import _render_context_package_block
 
@@ -117,6 +118,191 @@ def test_runtime_context_prompt_includes_runtime_assembly_block() -> None:
     assert snapshot.diagnostics["runtime_assembly_context_applied"] is True
     assert snapshot.diagnostics["runtime_assembly_ref"] == "runtime-assembly:test"
     assert "可用参考材料" in snapshot.model_messages[0]["content"]
+
+
+def test_runtime_context_microcompacts_large_old_history_and_keeps_recent_messages(tmp_path) -> None:
+    manager = RuntimeContextManager(
+        system_prompt_builder=lambda **_: "基础系统提示"
+    )
+    large_old_observation = "agent_evidence_packet " + ("大量旧证据 " * 2000)
+
+    snapshot = manager.prepare_model_context(
+        session_id="session:test",
+        task_id="task:test",
+        user_message="继续处理当前问题",
+        history=[
+            {"role": "assistant", "content": large_old_observation},
+            {"role": "user", "content": "中间历史 1"},
+            {"role": "assistant", "content": "中间历史 2"},
+            {"role": "user", "content": "中间历史 3"},
+            {"role": "assistant", "content": "中间历史 4"},
+            {"role": "user", "content": "中间历史 5"},
+            {"role": "assistant", "content": "中间历史 6"},
+            {"role": "user", "content": "最近问题需要完整保留"},
+            {"role": "assistant", "content": "最近回答也要完整保留"},
+        ],
+        runtime_assembly={
+            "assembly_id": "runtime-assembly:test",
+            "root_dir": str(tmp_path),
+            "context_sections": [
+                {
+                    "section_id": "main_session_history",
+                    "content_mode": "full",
+                }
+            ],
+        },
+    )
+
+    history_messages = list(snapshot.model_messages[1:-1])
+    assert snapshot.diagnostics["compression_applied"] is True
+    assert snapshot.diagnostics["history_compaction"]["compacted_message_count"] == 1
+    assert "<persisted-output>" in history_messages[0]["content"]
+    assert len(history_messages[0]["content"]) < len(large_old_observation)
+    assert history_messages[-2]["content"] == "最近问题需要完整保留"
+    assert history_messages[-1]["content"] == "最近回答也要完整保留"
+    assert snapshot.model_messages[-1]["content"] == "继续处理当前问题"
+    replacement = snapshot.diagnostics["history_compaction"]["content_replacements"][0]
+    assert replacement["path"]
+
+
+def test_runtime_context_marks_context_compactor_required_when_pressure_high(tmp_path) -> None:
+    manager = RuntimeContextManager(
+        system_prompt_builder=lambda **_: "基础系统提示"
+    )
+    history = [
+        {"role": "user", "content": "请研究 Responses API web search 能力"},
+        {
+            "role": "assistant",
+            "content": (
+                '{"summary":"完成一轮搜索","evidence_refs":["web:evidence:1"],'
+                '"artifact_refs":["artifact:web:1"],"limitations":["pricing unknown"],'
+                '"diagnostics":{"agent_evidence_packet":{"facts":[{"claim":"官方文档确认 web_search 工具可用"}],'
+                '"unknowns":[{"description":"支持模型未知"}]}}}'
+            ),
+        },
+        {"role": "user", "content": "中间历史 1"},
+        {"role": "assistant", "content": "中间历史 2"},
+        {"role": "user", "content": "中间历史 3"},
+        {"role": "assistant", "content": "中间历史 4"},
+        {"role": "user", "content": "最近问题需要完整保留"},
+        {"role": "assistant", "content": "最近回答也要完整保留"},
+    ]
+
+    snapshot = manager.prepare_model_context(
+        session_id="session:test",
+        task_id="task:test",
+        user_message="继续深搜",
+        history=history,
+        context_policy_result={
+            "package": {
+                "pressure_level": "high",
+                "compaction_strategy": "autocompact",
+            }
+        },
+        runtime_assembly={
+            "assembly_id": "runtime-assembly:test",
+            "root_dir": str(tmp_path),
+            "context_sections": [
+                {
+                    "section_id": "main_session_history",
+                    "content_mode": "full",
+                }
+            ],
+        },
+    )
+
+    messages = list(snapshot.model_messages)
+    history_messages = messages[1:-1]
+    assert snapshot.diagnostics["context_compactor_agent_required"] is True
+    assert "上下文压缩恢复点" not in history_messages[0]["content"]
+    assert "官方文档确认 web_search 工具可用" in history_messages[1]["content"]
+    assert history_messages[-2]["content"] == "最近问题需要完整保留"
+    assert history_messages[-1]["content"] == "最近回答也要完整保留"
+    assert messages[-1]["content"] == "继续深搜"
+
+
+def test_runtime_context_marks_context_compactor_required_when_actual_history_is_large(tmp_path) -> None:
+    manager = RuntimeContextManager(
+        system_prompt_builder=lambda **_: "基础系统提示"
+    )
+    history = [
+        {"role": "user", "content": "请继续研究 deepsearch runtime"},
+        {"role": "assistant", "content": "已确认需要保留证据引用。"},
+        *[
+            {"role": "assistant", "content": "旧的大段工具输出 " + ("证据片段 " * 6000)}
+            for _ in range(4)
+        ],
+        {"role": "user", "content": "最近问题需要完整保留"},
+        {"role": "assistant", "content": "最近回答也要完整保留"},
+    ]
+
+    snapshot = manager.prepare_model_context(
+        session_id="session:test",
+        task_id="task:test",
+        user_message="继续优化",
+        history=history,
+        context_policy_result={"package": {"pressure_level": "normal"}},
+        runtime_assembly={
+            "assembly_id": "runtime-assembly:test",
+            "root_dir": str(tmp_path),
+            "context_sections": [{"section_id": "main_session_history", "content_mode": "full"}],
+        },
+    )
+
+    assert snapshot.token_pressure["pressure_level"] in {"high", "critical"}
+    assert snapshot.token_pressure["actual_pressure_level"] in {"high", "critical"}
+    assert snapshot.diagnostics["context_compactor_agent_required"] is True
+    assert all("上下文压缩恢复点" not in item["content"] for item in snapshot.model_messages)
+    assert snapshot.model_messages[-2]["content"] == "最近回答也要完整保留"
+    assert snapshot.model_messages[-1]["content"] == "继续优化"
+
+
+def test_runtime_context_does_not_require_context_compactor_when_pressure_normal(tmp_path) -> None:
+    manager = RuntimeContextManager(system_prompt_builder=lambda **_: "基础系统提示")
+
+    snapshot = manager.prepare_model_context(
+        session_id="session:test",
+        task_id="task:test",
+        user_message="继续",
+        history=[{"role": "user", "content": f"历史 {index}"} for index in range(8)],
+        context_policy_result={"package": {"pressure_level": "normal"}},
+        runtime_assembly={
+            "assembly_id": "runtime-assembly:test",
+            "root_dir": str(tmp_path),
+            "context_sections": [{"section_id": "main_session_history", "content_mode": "full"}],
+        },
+    )
+
+    assert snapshot.diagnostics["context_compactor_agent_required"] is False
+    assert all("上下文压缩恢复点" not in item["content"] for item in snapshot.model_messages)
+
+
+def test_runtime_context_record_observation_builds_tool_use_summary() -> None:
+    manager = RuntimeContextManager(system_prompt_builder=lambda **_: "基础系统提示")
+    observation = build_tool_result_observation(
+        task_run_id="taskrun:test",
+        request_ref="rtact:test",
+        directive_ref="directive:test",
+        tool_name="deepsearch",
+        tool_call_id="call:test",
+        tool_args={"query": "Codex search runtime"},
+        result=(
+            '{"summary":"检索完成","diagnostics":{"agent_evidence_packet":'
+            '{"facts":[{"claim":"官方文档确认 web search 工具存在"}],'
+            '"unknowns":[{"description":"价格仍需核验"}],'
+            '"evidence_refs":["web:evidence:1"]}}}'
+        ),
+    )
+
+    record = manager.record_observation(observation)
+    summary = record.context_update["tool_use_summary"]
+
+    assert record.diagnostics["tool_use_summary_built"] is True
+    assert summary["tool_name"] == "deepsearch"
+    assert summary["tool_call_id"] == "call:test"
+    assert "官方文档确认 web search 工具存在" in summary["facts"]
+    assert "价格仍需核验" in summary["unknowns"]
+    assert "web:evidence:1" in summary["evidence_refs"]
 
 
 def test_runtime_context_prompt_applies_agent_assembly_contract() -> None:

@@ -17,7 +17,7 @@ def build_prompt_manifest_validation(
     interaction_mode: str,
     sections: list[dict[str, Any]] | tuple[dict[str, Any], ...],
 ) -> dict[str, Any]:
-    normalized_mode = str(interaction_mode or "").strip() or "standard_mode"
+    normalized_mode = _normalize_interaction_mode(interaction_mode)
     visible_sections = [dict(item) for item in list(sections or []) if isinstance(item, dict)]
     section_ids = [str(item.get("section_id") or "").strip() for item in visible_sections if str(item.get("section_id") or "").strip()]
     issues: list[str] = []
@@ -28,12 +28,11 @@ def build_prompt_manifest_validation(
         if leaked:
             issues.append("forbidden_role_or_projection_sections_outside_role_mode:" + ",".join(leaked))
 
-    if normalized_mode in {"professional_mode", "vibe_coding"}:
+    if normalized_mode == "professional_mode":
         required = {"semantic_task_section", "mode_policy_section", "output_section"}
         missing = [section_id for section_id in sorted(required) if section_id not in section_ids]
         if missing:
-            issue_mode = "professional" if normalized_mode == "professional_mode" else normalized_mode
-            issues.append(f"missing_required_{issue_mode}_sections:" + ",".join(missing))
+            issues.append("missing_required_professional_sections:" + ",".join(missing))
 
     leaked_markers = _detect_internal_marker_leaks(visible_sections)
     if leaked_markers:
@@ -47,6 +46,11 @@ def build_prompt_manifest_validation(
         "section_ids": section_ids,
         "visible_section_count": len(section_ids),
     }
+
+
+def _normalize_interaction_mode(value: str) -> str:
+    normalized = str(value or "").strip() or "standard_mode"
+    return normalized
 
 
 def _detect_internal_marker_leaks(sections: list[dict[str, Any]]) -> list[str]:

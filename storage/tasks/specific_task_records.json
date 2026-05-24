@@ -36,7 +36,7 @@
               "title": "提交结构化产物引用"
             }
           ],
-          "task_resource_kind": "writing_modular_novel",
+          "task_resource_kind": "",
           "execution_chain_type": "coordination_node",
           "node_id": "project_brief",
           "runtime_interaction_mode": "role_mode",
@@ -57,8 +57,7 @@
         "suppress_bundle_projection": true,
         "task_graph_node_runtime": true,
         "task_assignment_id": "task.writing.modular_novel.node.project_brief",
-        "source_flow_id": "flow.writing.modular_novel.node.project_brief",
-        "projection_id": "projection.writing.modular_novel.project_brief"
+        "source_flow_id": "flow.writing.modular_novel.node.project_brief"
       }
     },
     {
@@ -97,7 +96,7 @@
               "title": "提交结构化产物引用"
             }
           ],
-          "task_resource_kind": "writing_modular_novel",
+          "task_resource_kind": "",
           "execution_chain_type": "coordination_node",
           "node_id": "world_design",
           "runtime_interaction_mode": "role_mode",
@@ -118,8 +117,7 @@
         "suppress_bundle_projection": true,
         "task_graph_node_runtime": true,
         "task_assignment_id": "task.writing.modular_novel.node.world_design",
-        "source_flow_id": "flow.writing.modular_novel.node.world_design",
-        "projection_id": "projection.writing.modular_novel.world_designer"
+        "source_flow_id": "flow.writing.modular_novel.node.world_design"
       }
     },
     {
@@ -158,7 +156,7 @@
               "title": "提交结构化产物引用"
             }
           ],
-          "task_resource_kind": "writing_modular_novel",
+          "task_resource_kind": "",
           "execution_chain_type": "coordination_node",
           "node_id": "world_review",
           "runtime_interaction_mode": "role_mode",
@@ -179,8 +177,7 @@
         "suppress_bundle_projection": true,
         "task_graph_node_runtime": true,
         "task_assignment_id": "task.writing.modular_novel.node.world_review",
-        "source_flow_id": "flow.writing.modular_novel.node.world_review",
-        "projection_id": "projection.writing.modular_novel.world_reviewer"
+        "source_flow_id": "flow.writing.modular_novel.node.world_review"
       }
     },
     {
@@ -219,7 +216,7 @@
               "title": "提交结构化产物引用"
             }
           ],
-          "task_resource_kind": "writing_modular_novel",
+          "task_resource_kind": "",
           "execution_chain_type": "coordination_node",
           "node_id": "memory_commit_world",
           "runtime_interaction_mode": "role_mode",
@@ -240,8 +237,7 @@
         "suppress_bundle_projection": true,
         "task_graph_node_runtime": true,
         "task_assignment_id": "task.writing.modular_novel.node.memory_commit_world",
-        "source_flow_id": "flow.writing.modular_novel.node.memory_commit_world",
-        "projection_id": "projection.writing.modular_novel.memory_steward"
+        "source_flow_id": "flow.writing.modular_novel.node.memory_commit_world"
       }
     },
     {
@@ -280,7 +276,7 @@
               "title": "提交结构化产物引用"
             }
           ],
-          "task_resource_kind": "writing_modular_novel",
+          "task_resource_kind": "",
           "execution_chain_type": "coordination_node",
           "node_id": "character_design",
           "runtime_interaction_mode": "role_mode",
@@ -301,8 +297,7 @@
         "suppress_bundle_projection": true,
         "task_graph_node_runtime": true,
         "task_assignment_id": "task.writing.modular_novel.node.character_design",
-        "source_flow_id": "flow.writing.modular_novel.node.character_design",
-        "projection_id": "projection.writing.modular_novel.character_designer"
+        "source_flow_id": "flow.writing.modular_novel.node.character_design"
       }
     },
     {
@@ -341,7 +336,7 @@
               "title": "提交结构化产物引用"
             }
           ],
-          "task_resource_kind": "writing_modular_novel",
+          "task_resource_kind": "",
           "execution_chain_type": "coordination_node",
           "node_id": "character_review",
           "runtime_interaction_mode": "role_mode",
@@ -362,8 +357,7 @@
         "suppress_bundle_projection": true,
         "task_graph_node_runtime": true,
         "task_assignment_id": "task.writing.modular_novel.node.character_review",
-        "source_flow_id": "flow.writing.modular_novel.node.character_review",
-        "projection_id": "projection.writing.modular_novel.character_reviewer"
+        "source_flow_id": "flow.writing.modular_novel.node.character_review"
       }
     },
     {
@@ -402,7 +396,7 @@
               "title": "提交结构化产物引用"
             }
           ],
-          "task_resource_kind": "writing_modular_novel",
+          "task_resource_kind": "",
           "execution_chain_type": "coordination_node",
           "node_id": "plot_design",
           "runtime_interaction_mode": "role_mode",
@@ -423,8 +417,7 @@
         "suppress_bundle_projection": true,
         "task_graph_node_runtime": true,
         "task_assignment_id": "task.writing.modular_novel.node.plot_design",
-        "source_flow_id": "flow.writing.modular_novel.node.plot_design",
-        "projection_id": "projection.writing.modular_novel.plot_designer"
+        "source_flow_id": "flow.writing.modular_novel.node.plot_design"
       }
     },
     {
@@ -463,7 +456,7 @@
               "title": "提交结构化产物引用"
             }
           ],
-          "task_resource_kind": "writing_modular_novel",
+          "task_resource_kind": "",
           "execution_chain_type": "coordination_node",
           "node_id": "design_sync",
           "runtime_interaction_mode": "role_mode",
@@ -484,8 +477,7 @@
         "suppress_bundle_projection": true,
         "task_graph_node_runtime": true,
         "task_assignment_id": "task.writing.modular_novel.node.design_sync",
-        "source_flow_id": "flow.writing.modular_novel.node.design_sync",
-        "projection_id": "projection.writing.modular_novel.design_sync"
+        "source_flow_id": "flow.writing.modular_novel.node.design_sync"
       }
     },
     {
@@ -524,7 +516,7 @@
               "title": "提交结构化产物引用"
             }
           ],
-          "task_resource_kind": "writing_modular_novel",
+          "task_resource_kind": "",
           "execution_chain_type": "coordination_node",
           "node_id": "memory_commit_character",
           "runtime_interaction_mode": "role_mode",
@@ -545,8 +537,7 @@
         "suppress_bundle_projection": true,
         "task_graph_node_runtime": true,
         "task_assignment_id": "task.writing.modular_novel.node.memory_commit_character",
-        "source_flow_id": "flow.writing.modular_novel.node.memory_commit_character",
-        "projection_id": "projection.writing.modular_novel.memory_steward"
+        "source_flow_id": "flow.writing.modular_novel.node.memory_commit_character"
       }
     },
     {
@@ -585,7 +576,7 @@
               "title": "提交结构化产物引用"
             }
           ],
-          "task_resource_kind": "writing_modular_novel",
+          "task_resource_kind": "",
           "execution_chain_type": "coordination_node",
           "node_id": "outline_design",
           "runtime_interaction_mode": "role_mode",
@@ -606,8 +597,7 @@
         "suppress_bundle_projection": true,
         "task_graph_node_runtime": true,
         "task_assignment_id": "task.writing.modular_novel.node.outline_design",
-        "source_flow_id": "flow.writing.modular_novel.node.outline_design",
-        "projection_id": "projection.writing.modular_novel.outline_designer"
+        "source_flow_id": "flow.writing.modular_novel.node.outline_design"
       }
     },
     {
@@ -646,7 +636,7 @@
               "title": "提交结构化产物引用"
             }
           ],
-          "task_resource_kind": "writing_modular_novel",
+          "task_resource_kind": "",
           "execution_chain_type": "coordination_node",
           "node_id": "outline_review",
           "runtime_interaction_mode": "role_mode",
@@ -667,8 +657,7 @@
         "suppress_bundle_projection": true,
         "task_graph_node_runtime": true,
         "task_assignment_id": "task.writing.modular_novel.node.outline_review",
-        "source_flow_id": "flow.writing.modular_novel.node.outline_review",
-        "projection_id": "projection.writing.modular_novel.outline_reviewer"
+        "source_flow_id": "flow.writing.modular_novel.node.outline_review"
       }
     },
     {
@@ -707,7 +696,7 @@
               "title": "提交结构化产物引用"
             }
           ],
-          "task_resource_kind": "writing_modular_novel",
+          "task_resource_kind": "",
           "execution_chain_type": "coordination_node",
           "node_id": "baseline_memory_seed",
           "runtime_interaction_mode": "role_mode",
@@ -728,8 +717,7 @@
         "suppress_bundle_projection": true,
         "task_graph_node_runtime": true,
         "task_assignment_id": "task.writing.modular_novel.node.baseline_memory_seed",
-        "source_flow_id": "flow.writing.modular_novel.node.baseline_memory_seed",
-        "projection_id": "projection.writing.modular_novel.baseline_memory_steward"
+        "source_flow_id": "flow.writing.modular_novel.node.baseline_memory_seed"
       }
     },
     {
@@ -768,7 +756,7 @@
               "title": "提交结构化产物引用"
             }
           ],
-          "task_resource_kind": "writing_modular_novel",
+          "task_resource_kind": "",
           "execution_chain_type": "coordination_node",
           "node_id": "volume_plan",
           "runtime_interaction_mode": "role_mode",
@@ -789,8 +777,7 @@
         "suppress_bundle_projection": true,
         "task_graph_node_runtime": true,
         "task_assignment_id": "task.writing.modular_novel.node.volume_plan",
-        "source_flow_id": "flow.writing.modular_novel.node.volume_plan",
-        "projection_id": "projection.writing.modular_novel.volume_planner"
+        "source_flow_id": "flow.writing.modular_novel.node.volume_plan"
       }
     },
     {
@@ -829,7 +816,7 @@
               "title": "提交结构化产物引用"
             }
           ],
-          "task_resource_kind": "writing_modular_novel",
+          "task_resource_kind": "",
           "execution_chain_type": "coordination_node",
           "node_id": "chapter_outline",
           "runtime_interaction_mode": "role_mode",
@@ -850,8 +837,7 @@
         "suppress_bundle_projection": true,
         "task_graph_node_runtime": true,
         "task_assignment_id": "task.writing.modular_novel.node.chapter_outline",
-        "source_flow_id": "flow.writing.modular_novel.node.chapter_outline",
-        "projection_id": "projection.writing.modular_novel.chapter_outliner"
+        "source_flow_id": "flow.writing.modular_novel.node.chapter_outline"
       }
     },
     {
@@ -890,7 +876,7 @@
               "title": "提交结构化产物引用"
             }
           ],
-          "task_resource_kind": "writing_modular_novel",
+          "task_resource_kind": "",
           "execution_chain_type": "coordination_node",
           "node_id": "chapter_draft",
           "runtime_interaction_mode": "role_mode",
@@ -911,8 +897,7 @@
         "suppress_bundle_projection": true,
         "task_graph_node_runtime": true,
         "task_assignment_id": "task.writing.modular_novel.node.chapter_draft",
-        "source_flow_id": "flow.writing.modular_novel.node.chapter_draft",
-        "projection_id": "projection.writing.modular_novel.chapter_writer"
+        "source_flow_id": "flow.writing.modular_novel.node.chapter_draft"
       }
     },
     {
@@ -951,7 +936,7 @@
               "title": "提交结构化产物引用"
             }
           ],
-          "task_resource_kind": "writing_modular_novel",
+          "task_resource_kind": "",
           "execution_chain_type": "coordination_node",
           "node_id": "chapter_review",
           "runtime_interaction_mode": "role_mode",
@@ -972,8 +957,7 @@
         "suppress_bundle_projection": true,
         "task_graph_node_runtime": true,
         "task_assignment_id": "task.writing.modular_novel.node.chapter_review",
-        "source_flow_id": "flow.writing.modular_novel.node.chapter_review",
-        "projection_id": "projection.writing.modular_novel.chapter_reviewer"
+        "source_flow_id": "flow.writing.modular_novel.node.chapter_review"
       }
     },
     {
@@ -1012,7 +996,7 @@
               "title": "提交结构化产物引用"
             }
           ],
-          "task_resource_kind": "writing_modular_novel",
+          "task_resource_kind": "",
           "execution_chain_type": "coordination_node",
           "node_id": "memory_commit_chapter",
           "runtime_interaction_mode": "role_mode",
@@ -1033,8 +1017,7 @@
         "suppress_bundle_projection": true,
         "task_graph_node_runtime": true,
         "task_assignment_id": "task.writing.modular_novel.node.memory_commit_chapter",
-        "source_flow_id": "flow.writing.modular_novel.node.memory_commit_chapter",
-        "projection_id": "projection.writing.modular_novel.memory_steward"
+        "source_flow_id": "flow.writing.modular_novel.node.memory_commit_chapter"
       }
     },
     {
@@ -1073,7 +1056,7 @@
               "title": "提交结构化产物引用"
             }
           ],
-          "task_resource_kind": "writing_modular_novel",
+          "task_resource_kind": "",
           "execution_chain_type": "coordination_node",
           "node_id": "chapter_progress_router",
           "runtime_interaction_mode": "role_mode",
@@ -1094,8 +1077,7 @@
         "suppress_bundle_projection": true,
         "task_graph_node_runtime": true,
         "task_assignment_id": "task.writing.modular_novel.node.chapter_progress_router",
-        "source_flow_id": "flow.writing.modular_novel.node.chapter_progress_router",
-        "projection_id": "projection.writing.modular_novel.chapter_progress_router"
+        "source_flow_id": "flow.writing.modular_novel.node.chapter_progress_router"
       }
     },
     {
@@ -1134,7 +1116,7 @@
               "title": "提交结构化产物引用"
             }
           ],
-          "task_resource_kind": "writing_modular_novel",
+          "task_resource_kind": "",
           "execution_chain_type": "coordination_node",
           "node_id": "volume_review",
           "runtime_interaction_mode": "role_mode",
@@ -1155,8 +1137,7 @@
         "suppress_bundle_projection": true,
         "task_graph_node_runtime": true,
         "task_assignment_id": "task.writing.modular_novel.node.volume_review",
-        "source_flow_id": "flow.writing.modular_novel.node.volume_review",
-        "projection_id": "projection.writing.modular_novel.volume_reviewer"
+        "source_flow_id": "flow.writing.modular_novel.node.volume_review"
       }
     },
     {
@@ -1195,7 +1176,7 @@
               "title": "提交结构化产物引用"
             }
           ],
-          "task_resource_kind": "writing_modular_novel",
+          "task_resource_kind": "",
           "execution_chain_type": "coordination_node",
           "node_id": "volume_commit",
           "runtime_interaction_mode": "role_mode",
@@ -1216,8 +1197,7 @@
         "suppress_bundle_projection": true,
         "task_graph_node_runtime": true,
         "task_assignment_id": "task.writing.modular_novel.node.volume_commit",
-        "source_flow_id": "flow.writing.modular_novel.node.volume_commit",
-        "projection_id": "projection.writing.modular_novel.memory_steward"
+        "source_flow_id": "flow.writing.modular_novel.node.volume_commit"
       }
     },
     {
@@ -1256,7 +1236,7 @@
               "title": "提交结构化产物引用"
             }
           ],
-          "task_resource_kind": "writing_modular_novel",
+          "task_resource_kind": "",
           "execution_chain_type": "coordination_node",
           "node_id": "volume_postmortem",
           "runtime_interaction_mode": "role_mode",
@@ -1277,8 +1257,7 @@
         "suppress_bundle_projection": true,
         "task_graph_node_runtime": true,
         "task_assignment_id": "task.writing.modular_novel.node.volume_postmortem",
-        "source_flow_id": "flow.writing.modular_novel.node.volume_postmortem",
-        "projection_id": "projection.writing.modular_novel.volume_postmortem"
+        "source_flow_id": "flow.writing.modular_novel.node.volume_postmortem"
       }
     },
     {
@@ -1317,7 +1296,7 @@
               "title": "提交结构化产物引用"
             }
           ],
-          "task_resource_kind": "writing_modular_novel",
+          "task_resource_kind": "",
           "execution_chain_type": "coordination_node",
           "node_id": "world_outline_extension_proposal",
           "runtime_interaction_mode": "role_mode",
@@ -1338,8 +1317,7 @@
         "suppress_bundle_projection": true,
         "task_graph_node_runtime": true,
         "task_assignment_id": "task.writing.modular_novel.node.world_outline_extension_proposal",
-        "source_flow_id": "flow.writing.modular_novel.node.world_outline_extension_proposal",
-        "projection_id": "projection.writing.modular_novel.extension_proposer"
+        "source_flow_id": "flow.writing.modular_novel.node.world_outline_extension_proposal"
       }
     },
     {
@@ -1378,7 +1356,7 @@
               "title": "提交结构化产物引用"
             }
           ],
-          "task_resource_kind": "writing_modular_novel",
+          "task_resource_kind": "",
           "execution_chain_type": "coordination_node",
           "node_id": "extension_review",
           "runtime_interaction_mode": "role_mode",
@@ -1399,8 +1377,7 @@
         "suppress_bundle_projection": true,
         "task_graph_node_runtime": true,
         "task_assignment_id": "task.writing.modular_novel.node.extension_review",
-        "source_flow_id": "flow.writing.modular_novel.node.extension_review",
-        "projection_id": "projection.writing.modular_novel.extension_reviewer"
+        "source_flow_id": "flow.writing.modular_novel.node.extension_review"
       }
     },
     {
@@ -1439,7 +1416,7 @@
               "title": "提交结构化产物引用"
             }
           ],
-          "task_resource_kind": "writing_modular_novel",
+          "task_resource_kind": "",
           "execution_chain_type": "coordination_node",
           "node_id": "extension_commit",
           "runtime_interaction_mode": "role_mode",
@@ -1460,8 +1437,7 @@
         "suppress_bundle_projection": true,
         "task_graph_node_runtime": true,
         "task_assignment_id": "task.writing.modular_novel.node.extension_commit",
-        "source_flow_id": "flow.writing.modular_novel.node.extension_commit",
-        "projection_id": "projection.writing.modular_novel.memory_steward"
+        "source_flow_id": "flow.writing.modular_novel.node.extension_commit"
       }
     },
     {
@@ -1500,7 +1476,7 @@
               "title": "提交结构化产物引用"
             }
           ],
-          "task_resource_kind": "writing_modular_novel",
+          "task_resource_kind": "",
           "execution_chain_type": "coordination_node",
           "node_id": "next_volume_router",
           "runtime_interaction_mode": "role_mode",
@@ -1521,8 +1497,7 @@
         "suppress_bundle_projection": true,
         "task_graph_node_runtime": true,
         "task_assignment_id": "task.writing.modular_novel.node.next_volume_router",
-        "source_flow_id": "flow.writing.modular_novel.node.next_volume_router",
-        "projection_id": "projection.writing.modular_novel.next_volume_router"
+        "source_flow_id": "flow.writing.modular_novel.node.next_volume_router"
       }
     },
     {
@@ -1561,7 +1536,7 @@
               "title": "提交结构化产物引用"
             }
           ],
-          "task_resource_kind": "writing_modular_novel",
+          "task_resource_kind": "",
           "execution_chain_type": "coordination_node",
           "node_id": "final_assemble",
           "runtime_interaction_mode": "role_mode",
@@ -1582,8 +1557,7 @@
         "suppress_bundle_projection": true,
         "task_graph_node_runtime": true,
         "task_assignment_id": "task.writing.modular_novel.node.final_assemble",
-        "source_flow_id": "flow.writing.modular_novel.node.final_assemble",
-        "projection_id": "projection.writing.modular_novel.final_assembler"
+        "source_flow_id": "flow.writing.modular_novel.node.final_assemble"
       }
     },
     {
@@ -1622,7 +1596,7 @@
               "title": "提交结构化产物引用"
             }
           ],
-          "task_resource_kind": "writing_modular_novel",
+          "task_resource_kind": "",
           "execution_chain_type": "coordination_node",
           "node_id": "final_review",
           "runtime_interaction_mode": "role_mode",
@@ -1643,8 +1617,7 @@
         "suppress_bundle_projection": true,
         "task_graph_node_runtime": true,
         "task_assignment_id": "task.writing.modular_novel.node.final_review",
-        "source_flow_id": "flow.writing.modular_novel.node.final_review",
-        "projection_id": "projection.writing.modular_novel.final_reviewer"
+        "source_flow_id": "flow.writing.modular_novel.node.final_review"
       }
     },
     {
@@ -1683,7 +1656,7 @@
               "title": "提交结构化产物引用"
             }
           ],
-          "task_resource_kind": "writing_modular_novel",
+          "task_resource_kind": "",
           "execution_chain_type": "coordination_node",
           "node_id": "memory_finalize",
           "runtime_interaction_mode": "role_mode",
@@ -1704,8 +1677,7 @@
         "suppress_bundle_projection": true,
         "task_graph_node_runtime": true,
         "task_assignment_id": "task.writing.modular_novel.node.memory_finalize",
-        "source_flow_id": "flow.writing.modular_novel.node.memory_finalize",
-        "projection_id": "projection.writing.modular_novel.memory_steward"
+        "source_flow_id": "flow.writing.modular_novel.node.memory_finalize"
       }
     },
     {

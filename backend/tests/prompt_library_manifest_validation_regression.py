@@ -39,17 +39,18 @@ def test_manifest_validation_requires_professional_core_sections() -> None:
     assert any("missing_required_professional_sections" in item for item in validation["issues"])
 
 
-def test_manifest_validation_requires_vibe_coding_core_sections() -> None:
+def test_manifest_validation_keeps_unknown_mode_outside_professional_requirements() -> None:
     validation = build_prompt_manifest_validation(
-        interaction_mode="vibe_coding",
+        interaction_mode="retired_code_mode",
         sections=[
             {"section_id": "task_section", "content": "任务契约"},
             {"section_id": "mode_policy_section", "content": "模式策略"},
         ],
     )
 
-    assert validation["passed"] is False
-    assert any("missing_required_vibe_coding_sections" in item for item in validation["issues"])
+    assert validation["interaction_mode"] == "retired_code_mode"
+    assert validation["passed"] is True
+    assert not any("missing_required_professional_sections" in item for item in validation["issues"])
 
 
 def test_manifest_validation_detects_internal_marker_leak() -> None:

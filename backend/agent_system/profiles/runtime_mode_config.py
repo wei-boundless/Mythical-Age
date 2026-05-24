@@ -7,10 +7,9 @@ from typing import Any
 ROLE_MODE = "role"
 STANDARD_MODE = "standard"
 PROFESSIONAL_MODE = "professional"
-VIBE_CODING_MODE = "vibe_coding"
 CUSTOM_MODE = "custom"
 DEFAULT_RUNTIME_MODE = CUSTOM_MODE
-RUNTIME_MODE_ORDER = (ROLE_MODE, STANDARD_MODE, PROFESSIONAL_MODE, VIBE_CODING_MODE, CUSTOM_MODE)
+RUNTIME_MODE_ORDER = (ROLE_MODE, STANDARD_MODE, PROFESSIONAL_MODE, CUSTOM_MODE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,16 +60,6 @@ MODE_CONFIGS: dict[str, AgentRuntimeModeConfig] = {
         recipe_id="runtime.recipe.professional_task",
         projection_strength="style_only",
         execution_strategy="professional_task_run",
-    ),
-    VIBE_CODING_MODE: AgentRuntimeModeConfig(
-        mode=VIBE_CODING_MODE,
-        label="Vibe Coding",
-        interaction_mode="vibe_coding",
-        runtime_lane="vibe_coding_task",
-        recipe_id="runtime.recipe.vibe_coding",
-        projection_strength="style_only",
-        execution_strategy="professional_task_run",
-        description="项目自有代码任务模式，使用本项目 runtime、权限、工具和验证链路承接代码修改、运行与验证。",
     ),
     CUSTOM_MODE: AgentRuntimeModeConfig(
         mode=CUSTOM_MODE,

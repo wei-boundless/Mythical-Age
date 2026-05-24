@@ -7,7 +7,6 @@
         "role",
         "standard",
         "professional",
-        "vibe_coding",
         "custom"
       ],
       "default_runtime_mode": "custom",
@@ -15,7 +14,6 @@
         "role_interaction",
         "standard_task",
         "professional_task",
-        "vibe_coding_task",
         "full_interactive",
         "game_delivery"
       ],
@@ -144,21 +142,6 @@
           "builtin": true,
           "editable": false,
           "description": ""
-        },
-        {
-          "mode": "vibe_coding",
-          "label": "Vibe Coding",
-          "interaction_mode": "vibe_coding",
-          "runtime_lane": "vibe_coding_task",
-          "recipe_id": "runtime.recipe.vibe_coding",
-          "projection_strength": "style_only",
-          "runtime_lanes": [
-            "vibe_coding_task"
-          ],
-          "execution_strategy": "professional_task_run",
-          "builtin": true,
-          "editable": false,
-          "description": "项目自有代码任务模式，使用本项目 runtime、权限、工具和验证链路承接代码修改、运行与验证。"
         },
         {
           "mode": "custom",
@@ -299,21 +282,6 @@
           "description": ""
         },
         {
-          "mode": "vibe_coding",
-          "label": "Vibe Coding",
-          "interaction_mode": "vibe_coding",
-          "runtime_lane": "vibe_coding_task",
-          "recipe_id": "runtime.recipe.vibe_coding",
-          "projection_strength": "style_only",
-          "runtime_lanes": [
-            "vibe_coding_task"
-          ],
-          "execution_strategy": "professional_task_run",
-          "builtin": true,
-          "editable": false,
-          "description": "项目自有代码任务模式，使用本项目 runtime、权限、工具和验证链路承接代码修改、运行与验证。"
-        },
-        {
           "mode": "custom",
           "label": "自定义模式",
           "interaction_mode": "custom_mode",
@@ -438,21 +406,6 @@
           "builtin": true,
           "editable": false,
           "description": ""
-        },
-        {
-          "mode": "vibe_coding",
-          "label": "Vibe Coding",
-          "interaction_mode": "vibe_coding",
-          "runtime_lane": "vibe_coding_task",
-          "recipe_id": "runtime.recipe.vibe_coding",
-          "projection_strength": "style_only",
-          "runtime_lanes": [
-            "vibe_coding_task"
-          ],
-          "execution_strategy": "professional_task_run",
-          "builtin": true,
-          "editable": false,
-          "description": "项目自有代码任务模式，使用本项目 runtime、权限、工具和验证链路承接代码修改、运行与验证。"
         },
         {
           "mode": "custom",
@@ -581,21 +534,6 @@
           "description": ""
         },
         {
-          "mode": "vibe_coding",
-          "label": "Vibe Coding",
-          "interaction_mode": "vibe_coding",
-          "runtime_lane": "vibe_coding_task",
-          "recipe_id": "runtime.recipe.vibe_coding",
-          "projection_strength": "style_only",
-          "runtime_lanes": [
-            "vibe_coding_task"
-          ],
-          "execution_strategy": "professional_task_run",
-          "builtin": true,
-          "editable": false,
-          "description": "项目自有代码任务模式，使用本项目 runtime、权限、工具和验证链路承接代码修改、运行与验证。"
-        },
-        {
           "mode": "custom",
           "label": "自定义模式",
           "interaction_mode": "custom_mode",
@@ -722,19 +660,155 @@
           "description": ""
         },
         {
-          "mode": "vibe_coding",
-          "label": "Vibe Coding",
-          "interaction_mode": "vibe_coding",
-          "runtime_lane": "vibe_coding_task",
-          "recipe_id": "runtime.recipe.vibe_coding",
+          "mode": "custom",
+          "label": "自定义模式",
+          "interaction_mode": "custom_mode",
+          "runtime_lane": "",
+          "recipe_id": "runtime.recipe.custom",
+          "projection_strength": "manual",
+          "runtime_lanes": [],
+          "execution_strategy": "",
+          "builtin": true,
+          "editable": true,
+          "description": ""
+        }
+      ]
+    },
+    {
+      "agent_profile_id": "context_compactor_agent",
+      "agent_id": "agent:context_compactor",
+      "enabled_runtime_modes": [
+        "custom"
+      ],
+      "default_runtime_mode": "custom",
+      "allowed_runtime_lanes": [
+        "context_compaction",
+        "runtime_trace_read"
+      ],
+      "allowed_operations": [
+        "op.model_response"
+      ],
+      "blocked_operations": [
+        "op.web_search",
+        "op.fetch_url",
+        "op.read_file",
+        "op.write_file",
+        "op.edit_file",
+        "op.shell",
+        "op.python_repl",
+        "op.memory_write_candidate",
+        "op.delegate_to_agent"
+      ],
+      "allowed_memory_scopes": [
+        "conversation_readonly",
+        "state_readonly"
+      ],
+      "allowed_context_sections": [
+        "task",
+        "runtime_trace",
+        "memory_runtime_view",
+        "prompt_manifest",
+        "runtime_contracts",
+        "artifact_refs"
+      ],
+      "use_shared_contract": true,
+      "can_delegate_to_agents": false,
+      "allowed_delegate_agent_ids": [],
+      "max_delegate_calls_per_turn": 1,
+      "delegate_context_policy": "summary_and_refs_only",
+      "approval_policy": "read_only_first",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "system_builtin",
+      "model_profile": {
+        "profile_id": "",
+        "display_name": "",
+        "provider": "",
+        "model": "",
+        "credential_ref": "",
+        "max_output_tokens": null,
+        "timeout_seconds": null,
+        "long_output_timeout_seconds": null,
+        "max_retries": null,
+        "temperature": null,
+        "thinking_mode": "",
+        "reasoning_effort": "",
+        "stream_policy": {},
+        "fallback_profile_ref": "",
+        "capability_tags": [],
+        "metadata": {}
+      },
+      "metadata": {
+        "system_key": "context_management",
+        "manager_kind": "context_compaction",
+        "runtime_template_id": "builtin.system.context_compactor",
+        "runtime_config": {
+          "template_id": "runtime.template.context_compactor",
+          "runtime_kind": "context_compactor",
+          "runtime_mode": "llm_compaction",
+          "max_iterations": 1,
+          "max_tool_calls": 0,
+          "max_sources": 0,
+          "evidence_packet_required": false,
+          "stop_policy": "recovery_point_ready_or_fallback",
+          "context_compaction": {
+            "output_contract": "context_recovery_point",
+            "fallback": "deterministic",
+            "keep_last_messages": 6,
+            "max_summary_chars": 4000,
+            "trigger_pressure_levels": [
+              "high",
+              "critical"
+            ],
+            "actual_context_bytes_threshold": 120000
+          }
+        }
+      },
+      "runtime_template_id": "builtin.system.context_compactor",
+      "runtime_mode_catalog": [
+        {
+          "mode": "role",
+          "label": "角色模式",
+          "interaction_mode": "role_mode",
+          "runtime_lane": "role_interaction",
+          "recipe_id": "runtime.recipe.role_interaction",
+          "projection_strength": "primary",
+          "runtime_lanes": [
+            "role_interaction"
+          ],
+          "execution_strategy": "",
+          "builtin": true,
+          "editable": false,
+          "description": ""
+        },
+        {
+          "mode": "standard",
+          "label": "标准模式",
+          "interaction_mode": "standard_mode",
+          "runtime_lane": "standard_task",
+          "recipe_id": "runtime.recipe.standard_task",
+          "projection_strength": "companion",
+          "runtime_lanes": [
+            "standard_task"
+          ],
+          "execution_strategy": "",
+          "builtin": true,
+          "editable": false,
+          "description": ""
+        },
+        {
+          "mode": "professional",
+          "label": "专家模式",
+          "interaction_mode": "professional_mode",
+          "runtime_lane": "professional_task",
+          "recipe_id": "runtime.recipe.professional_task",
           "projection_strength": "style_only",
           "runtime_lanes": [
-            "vibe_coding_task"
+            "professional_task"
           ],
           "execution_strategy": "professional_task_run",
           "builtin": true,
           "editable": false,
-          "description": "项目自有代码任务模式，使用本项目 runtime、权限、工具和验证链路承接代码修改、运行与验证。"
+          "description": ""
         },
         {
           "mode": "custom",
@@ -868,21 +942,6 @@
           "description": ""
         },
         {
-          "mode": "vibe_coding",
-          "label": "Vibe Coding",
-          "interaction_mode": "vibe_coding",
-          "runtime_lane": "vibe_coding_task",
-          "recipe_id": "runtime.recipe.vibe_coding",
-          "projection_strength": "style_only",
-          "runtime_lanes": [
-            "vibe_coding_task"
-          ],
-          "execution_strategy": "professional_task_run",
-          "builtin": true,
-          "editable": false,
-          "description": "项目自有代码任务模式，使用本项目 runtime、权限、工具和验证链路承接代码修改、运行与验证。"
-        },
-        {
           "mode": "custom",
           "label": "自定义模式",
           "interaction_mode": "custom_mode",
@@ -1012,21 +1071,6 @@
           "builtin": true,
           "editable": false,
           "description": ""
-        },
-        {
-          "mode": "vibe_coding",
-          "label": "Vibe Coding",
-          "interaction_mode": "vibe_coding",
-          "runtime_lane": "vibe_coding_task",
-          "recipe_id": "runtime.recipe.vibe_coding",
-          "projection_strength": "style_only",
-          "runtime_lanes": [
-            "vibe_coding_task"
-          ],
-          "execution_strategy": "professional_task_run",
-          "builtin": true,
-          "editable": false,
-          "description": "项目自有代码任务模式，使用本项目 runtime、权限、工具和验证链路承接代码修改、运行与验证。"
         },
         {
           "mode": "custom",
@@ -1160,21 +1204,6 @@
           "description": ""
         },
         {
-          "mode": "vibe_coding",
-          "label": "Vibe Coding",
-          "interaction_mode": "vibe_coding",
-          "runtime_lane": "vibe_coding_task",
-          "recipe_id": "runtime.recipe.vibe_coding",
-          "projection_strength": "style_only",
-          "runtime_lanes": [
-            "vibe_coding_task"
-          ],
-          "execution_strategy": "professional_task_run",
-          "builtin": true,
-          "editable": false,
-          "description": "项目自有代码任务模式，使用本项目 runtime、权限、工具和验证链路承接代码修改、运行与验证。"
-        },
-        {
           "mode": "custom",
           "label": "自定义模式",
           "interaction_mode": "custom_mode",
@@ -1205,7 +1234,12 @@
       "allowed_operations": [
         "op.model_response",
         "op.web_search",
-        "op.fetch_url"
+        "op.fetch_url",
+        "op.search_files",
+        "op.search_text",
+        "op.read_file",
+        "op.mcp_retrieval",
+        "op.memory_read"
       ],
       "blocked_operations": [
         "op.write_file",
@@ -1255,43 +1289,51 @@
       "metadata": {
         "runtime_template_id": "builtin.specialist.web_researcher",
         "runtime_config": {
-          "max_iterations": 4,
-          "runtime_kind": "search_agent",
-          "max_tool_calls": 14,
-          "stop_policy": "enough_evidence_or_budget_exhausted",
           "template_id": "runtime.template.deepsearch",
+          "runtime_kind": "search_agent",
+          "runtime_mode": "deepsearch",
+          "max_iterations": 4,
+          "max_tool_calls": 18,
           "max_sources": 12,
           "evidence_packet_required": true,
-          "runtime_mode": "deepsearch",
+          "stop_policy": "enough_evidence_or_budget_exhausted",
           "search": {
             "runtime_mode": "deepsearch",
-            "allow_fetch_url": true,
-            "evidence_packet_required": true,
             "search_sources": [
-              "web"
+              "web",
+              "local_files",
+              "rag",
+              "memory"
             ],
-            "include_raw_content": false,
-            "search_depth": "advanced",
-            "max_iterations": 4,
-            "max_sources": 12,
-            "stop_policy": "enough_evidence_or_budget_exhausted",
-            "max_queries": 6,
-            "allow_local_files": false,
-            "prefer_primary_sources": true,
             "web_provider": "tavily",
+            "allow_fetch_url": true,
+            "allow_local_files": true,
+            "allow_memory_read": true,
+            "max_iterations": 4,
+            "max_queries": 6,
             "max_fetches": 8,
-            "allow_memory_read": false,
-            "freshness_required_by_default": false
+            "max_sources": 12,
+            "search_depth": "advanced",
+            "include_raw_content": false,
+            "prefer_primary_sources": true,
+            "freshness_required_by_default": false,
+            "evidence_packet_required": true,
+            "stop_policy": "enough_evidence_or_budget_exhausted"
           }
         },
         "delegation_kinds": [
           "web_research",
           "external_web_lookup",
           "current_information_lookup",
-          "official_source_lookup"
+          "official_source_lookup",
+          "retrieval",
+          "evidence_lookup",
+          "knowledge_retrieval",
+          "local_search",
+          "memory_lookup"
         ],
         "delegation_kind": "web_research",
-        "worker_kind": "web_research",
+        "worker_kind": "search_research",
         "managed_by": "orchestration_console"
       },
       "runtime_template_id": "builtin.specialist.web_researcher",
@@ -1340,21 +1382,6 @@
           "builtin": true,
           "editable": false,
           "description": ""
-        },
-        {
-          "mode": "vibe_coding",
-          "label": "Vibe Coding",
-          "interaction_mode": "vibe_coding",
-          "runtime_lane": "vibe_coding_task",
-          "recipe_id": "runtime.recipe.vibe_coding",
-          "projection_strength": "style_only",
-          "runtime_lanes": [
-            "vibe_coding_task"
-          ],
-          "execution_strategy": "professional_task_run",
-          "builtin": true,
-          "editable": false,
-          "description": "项目自有代码任务模式，使用本项目 runtime、权限、工具和验证链路承接代码修改、运行与验证。"
         },
         {
           "mode": "custom",
@@ -1500,21 +1527,6 @@
           "description": ""
         },
         {
-          "mode": "vibe_coding",
-          "label": "Vibe Coding",
-          "interaction_mode": "vibe_coding",
-          "runtime_lane": "vibe_coding_task",
-          "recipe_id": "runtime.recipe.vibe_coding",
-          "projection_strength": "style_only",
-          "runtime_lanes": [
-            "vibe_coding_task"
-          ],
-          "execution_strategy": "professional_task_run",
-          "builtin": true,
-          "editable": false,
-          "description": "项目自有代码任务模式，使用本项目 runtime、权限、工具和验证链路承接代码修改、运行与验证。"
-        },
-        {
           "mode": "custom",
           "label": "自定义模式",
           "interaction_mode": "custom_mode",
@@ -1536,7 +1548,7 @@
         "standard",
         "custom"
       ],
-      "default_runtime_mode": "custom",
+      "default_runtime_mode": "standard",
       "allowed_runtime_lanes": [
         "standard_task",
         "coordination_task"
@@ -1598,6 +1610,7 @@
       },
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel",
         "source_task_graph_refs": [
           "graph.writing.modular_novel.master",
           "graph.writing.modular_novel.design_init",
@@ -1666,21 +1679,6 @@
           "description": ""
         },
         {
-          "mode": "vibe_coding",
-          "label": "Vibe Coding",
-          "interaction_mode": "vibe_coding",
-          "runtime_lane": "vibe_coding_task",
-          "recipe_id": "runtime.recipe.vibe_coding",
-          "projection_strength": "style_only",
-          "runtime_lanes": [
-            "vibe_coding_task"
-          ],
-          "execution_strategy": "professional_task_run",
-          "builtin": true,
-          "editable": false,
-          "description": "项目自有代码任务模式，使用本项目 runtime、权限、工具和验证链路承接代码修改、运行与验证。"
-        },
-        {
           "mode": "custom",
           "label": "自定义模式",
           "interaction_mode": "custom_mode",
@@ -1702,7 +1700,7 @@
         "standard",
         "custom"
       ],
-      "default_runtime_mode": "custom",
+      "default_runtime_mode": "standard",
       "allowed_runtime_lanes": [
         "standard_task",
         "coordination_task"
@@ -1764,6 +1762,7 @@
       },
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel",
         "source_task_graph_refs": [
           "graph.writing.modular_novel.master",
           "graph.writing.modular_novel.design_init",
@@ -1832,21 +1831,6 @@
           "description": ""
         },
         {
-          "mode": "vibe_coding",
-          "label": "Vibe Coding",
-          "interaction_mode": "vibe_coding",
-          "runtime_lane": "vibe_coding_task",
-          "recipe_id": "runtime.recipe.vibe_coding",
-          "projection_strength": "style_only",
-          "runtime_lanes": [
-            "vibe_coding_task"
-          ],
-          "execution_strategy": "professional_task_run",
-          "builtin": true,
-          "editable": false,
-          "description": "项目自有代码任务模式，使用本项目 runtime、权限、工具和验证链路承接代码修改、运行与验证。"
-        },
-        {
           "mode": "custom",
           "label": "自定义模式",
           "interaction_mode": "custom_mode",
@@ -1868,7 +1852,7 @@
         "standard",
         "custom"
       ],
-      "default_runtime_mode": "custom",
+      "default_runtime_mode": "standard",
       "allowed_runtime_lanes": [
         "standard_task",
         "coordination_task"
@@ -1929,6 +1913,7 @@
       },
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel",
         "source_task_graph_refs": [
           "graph.writing.modular_novel.master",
           "graph.writing.modular_novel.design_init",
@@ -1997,21 +1982,6 @@
           "description": ""
         },
         {
-          "mode": "vibe_coding",
-          "label": "Vibe Coding",
-          "interaction_mode": "vibe_coding",
-          "runtime_lane": "vibe_coding_task",
-          "recipe_id": "runtime.recipe.vibe_coding",
-          "projection_strength": "style_only",
-          "runtime_lanes": [
-            "vibe_coding_task"
-          ],
-          "execution_strategy": "professional_task_run",
-          "builtin": true,
-          "editable": false,
-          "description": "项目自有代码任务模式，使用本项目 runtime、权限、工具和验证链路承接代码修改、运行与验证。"
-        },
-        {
           "mode": "custom",
           "label": "自定义模式",
           "interaction_mode": "custom_mode",
@@ -2033,7 +2003,7 @@
         "standard",
         "custom"
       ],
-      "default_runtime_mode": "custom",
+      "default_runtime_mode": "standard",
       "allowed_runtime_lanes": [
         "standard_task",
         "coordination_task",
@@ -2095,6 +2065,7 @@
       },
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel",
         "source_task_graph_refs": [
           "graph.writing.modular_novel.master",
           "graph.writing.modular_novel.design_init",
@@ -2163,21 +2134,6 @@
           "description": ""
         },
         {
-          "mode": "vibe_coding",
-          "label": "Vibe Coding",
-          "interaction_mode": "vibe_coding",
-          "runtime_lane": "vibe_coding_task",
-          "recipe_id": "runtime.recipe.vibe_coding",
-          "projection_strength": "style_only",
-          "runtime_lanes": [
-            "vibe_coding_task"
-          ],
-          "execution_strategy": "professional_task_run",
-          "builtin": true,
-          "editable": false,
-          "description": "项目自有代码任务模式，使用本项目 runtime、权限、工具和验证链路承接代码修改、运行与验证。"
-        },
-        {
           "mode": "custom",
           "label": "自定义模式",
           "interaction_mode": "custom_mode",
@@ -2199,7 +2155,7 @@
         "standard",
         "custom"
       ],
-      "default_runtime_mode": "custom",
+      "default_runtime_mode": "standard",
       "allowed_runtime_lanes": [
         "standard_task",
         "task_graph_monitor"
@@ -2261,6 +2217,7 @@
       },
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel",
         "source_task_graph_refs": [
           "graph.writing.modular_novel.master",
           "graph.writing.modular_novel.design_init",
@@ -2327,21 +2284,6 @@
           "builtin": true,
           "editable": false,
           "description": ""
-        },
-        {
-          "mode": "vibe_coding",
-          "label": "Vibe Coding",
-          "interaction_mode": "vibe_coding",
-          "runtime_lane": "vibe_coding_task",
-          "recipe_id": "runtime.recipe.vibe_coding",
-          "projection_strength": "style_only",
-          "runtime_lanes": [
-            "vibe_coding_task"
-          ],
-          "execution_strategy": "professional_task_run",
-          "builtin": true,
-          "editable": false,
-          "description": "项目自有代码任务模式，使用本项目 runtime、权限、工具和验证链路承接代码修改、运行与验证。"
         },
         {
           "mode": "custom",

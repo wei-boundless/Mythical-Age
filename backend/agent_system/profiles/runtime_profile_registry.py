@@ -17,7 +17,6 @@ from .runtime_mode_config import (
     PROFESSIONAL_MODE,
     ROLE_MODE,
     STANDARD_MODE,
-    VIBE_CODING_MODE,
     modes_for_runtime_lanes_or_custom,
     normalize_default_runtime_mode,
     normalize_runtime_modes,
@@ -66,7 +65,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
         AgentRuntimeProfile(
             agent_profile_id="main_interactive_agent",
             agent_id="agent:0",
-            enabled_runtime_modes=(ROLE_MODE, STANDARD_MODE, PROFESSIONAL_MODE, VIBE_CODING_MODE, CUSTOM_MODE),
+            enabled_runtime_modes=(ROLE_MODE, STANDARD_MODE, PROFESSIONAL_MODE, CUSTOM_MODE),
             default_runtime_mode=STANDARD_MODE,
             allowed_runtime_lanes=(
                 "full_interactive",
@@ -74,7 +73,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 "role_interaction",
                 "standard_task",
                 "professional_task",
-                "vibe_coding_task",
             ),
             allowed_operations=(
                 "op.model_response",
@@ -165,6 +163,53 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             metadata={"system_key": "capability_system", "manager_kind": "capability", "runtime_template_id": "builtin.system.capability_manager"},
         ),
         AgentRuntimeProfile(
+            agent_profile_id="context_compactor_agent",
+            agent_id="agent:context_compactor",
+            allowed_runtime_lanes=("context_compaction", "runtime_trace_read"),
+            allowed_operations=("op.model_response",),
+            blocked_operations=(
+                "op.web_search",
+                "op.fetch_url",
+                "op.read_file",
+                "op.write_file",
+                "op.edit_file",
+                "op.shell",
+                "op.python_repl",
+                "op.memory_write_candidate",
+                "op.delegate_to_agent",
+            ),
+            allowed_memory_scopes=("conversation_readonly", "state_readonly"),
+            allowed_context_sections=("task", "runtime_trace", "memory_runtime_view", "prompt_manifest", "runtime_contracts", "artifact_refs"),
+            use_shared_contract=True,
+            can_delegate_to_agents=False,
+            approval_policy="read_only_first",
+            trace_policy="runtime_event_log",
+            lifecycle_policy="system_builtin",
+            metadata={
+                "system_key": "context_management",
+                "manager_kind": "context_compaction",
+                "runtime_template_id": "builtin.system.context_compactor",
+                "runtime_config": {
+                    "template_id": "runtime.template.context_compactor",
+                    "runtime_kind": "context_compactor",
+                    "runtime_mode": "llm_compaction",
+                    "max_iterations": 1,
+                    "max_tool_calls": 0,
+                    "max_sources": 0,
+                    "evidence_packet_required": False,
+                    "stop_policy": "recovery_point_ready_or_fallback",
+                    "context_compaction": {
+                        "output_contract": "context_recovery_point",
+                        "fallback": "deterministic",
+                        "keep_last_messages": 6,
+                        "max_summary_chars": 4000,
+                        "trigger_pressure_levels": ("high", "critical"),
+                        "actual_context_bytes_threshold": 120000,
+                    },
+                },
+            },
+        ),
+        AgentRuntimeProfile(
             agent_profile_id="rag_analysis_agent",
             agent_id="agent:rag_analyst",
             allowed_runtime_lanes=("retrieval_delegate", "readonly_exploration"),
@@ -210,7 +255,16 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             agent_profile_id="web_research_agent",
             agent_id="agent:web_researcher",
             allowed_runtime_lanes=("web_research_delegate", "readonly_exploration"),
-            allowed_operations=("op.model_response", "op.web_search", "op.fetch_url"),
+            allowed_operations=(
+                "op.model_response",
+                "op.web_search",
+                "op.fetch_url",
+                "op.search_files",
+                "op.search_text",
+                "op.read_file",
+                "op.mcp_retrieval",
+                "op.memory_read",
+            ),
             blocked_operations=("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.memory_write_candidate", "op.delegate_to_agent"),
             allowed_memory_scopes=("conversation_readonly", "state_readonly"),
             allowed_context_sections=("task", "projection", "tool", "runtime_contracts", "artifact_refs"),
@@ -219,10 +273,48 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             approval_policy="read_only_first",
             lifecycle_policy="system_builtin",
             metadata={
-                "worker_kind": "web_research",
+                "worker_kind": "search_research",
                 "delegation_kind": "web_research",
-                "delegation_kinds": ("web_research", "external_web_lookup", "current_information_lookup", "official_source_lookup"),
+                "delegation_kinds": (
+                    "web_research",
+                    "external_web_lookup",
+                    "current_information_lookup",
+                    "official_source_lookup",
+                    "retrieval",
+                    "evidence_lookup",
+                    "knowledge_retrieval",
+                    "local_search",
+                    "memory_lookup",
+                ),
                 "runtime_template_id": "builtin.specialist.web_researcher",
+                "runtime_config": {
+                    "template_id": "runtime.template.deepsearch",
+                    "runtime_kind": "search_agent",
+                    "runtime_mode": "deepsearch",
+                    "max_iterations": 4,
+                    "max_tool_calls": 18,
+                    "max_sources": 12,
+                    "evidence_packet_required": True,
+                    "stop_policy": "enough_evidence_or_budget_exhausted",
+                    "search": {
+                        "runtime_mode": "deepsearch",
+                        "search_sources": ("web", "local_files", "rag", "memory"),
+                        "web_provider": "tavily",
+                        "allow_fetch_url": True,
+                        "allow_local_files": True,
+                        "allow_memory_read": True,
+                        "max_iterations": 4,
+                        "max_queries": 6,
+                        "max_fetches": 8,
+                        "max_sources": 12,
+                        "search_depth": "advanced",
+                        "include_raw_content": False,
+                        "prefer_primary_sources": True,
+                        "freshness_required_by_default": False,
+                        "evidence_packet_required": True,
+                        "stop_policy": "enough_evidence_or_budget_exhausted",
+                    },
+                },
             },
         ),
         AgentRuntimeProfile(
@@ -270,7 +362,8 @@ def _profile_from_dict(payload: dict[str, Any]) -> AgentRuntimeProfile:
         fallback=(),
     )
     if not explicit_modes:
-        explicit_modes = modes_for_runtime_lanes_or_custom(_active_runtime_lanes(payload.get("allowed_runtime_lanes")))
+        lanes = _active_runtime_lanes(payload.get("allowed_runtime_lanes"))
+        explicit_modes = modes_for_runtime_lanes_or_custom(lanes)
     default_runtime_mode = normalize_default_runtime_mode(
         payload.get("default_runtime_mode") or metadata.get("default_runtime_mode") or DEFAULT_RUNTIME_MODE,
         explicit_modes,
@@ -402,10 +495,13 @@ class AgentRuntimeRegistry:
         current = self.get_profile(target)
         metadata_payload = dict(metadata or {})
         metadata_payload.pop("custom_runtime_modes", None)
+        requested_runtime_modes = enabled_runtime_modes or metadata_payload.get("enabled_runtime_modes") or (current.enabled_runtime_modes if current else ())
         normalized_modes = normalize_runtime_modes(
-            enabled_runtime_modes or metadata_payload.get("enabled_runtime_modes") or (current.enabled_runtime_modes if current else ()),
+            requested_runtime_modes,
             fallback=(),
         )
+        if requested_runtime_modes and not normalized_modes:
+            raise ValueError("enabled_runtime_modes must include at least one supported runtime mode")
         if not normalized_modes and allowed_runtime_lanes:
             normalized_modes = modes_for_runtime_lanes_or_custom(allowed_runtime_lanes)
         normalized_default_mode = normalize_default_runtime_mode(

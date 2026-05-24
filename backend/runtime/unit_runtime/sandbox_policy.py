@@ -169,9 +169,10 @@ def _resource_contract_from_runtime_payload(
     task_contract: dict[str, Any],
     task_selection: dict[str, Any],
 ) -> dict[str, Any]:
-    for candidate in (
-        dict(task_selection.get("model_turn_decision") or {}).get("resource_contract"),
+    ordered_candidates = (
         task_selection.get("resource_contract"),
+        _task_order_projection_selection(task_selection).get("resource_contract"),
+        dict(task_selection.get("model_turn_decision") or {}).get("resource_contract"),
         dict(dict(task_contract.get("task_requirement_contract") or {}).get("diagnostics") or {})
         .get("task_goal_spec", {})
         .get("evidence", {})
@@ -181,10 +182,49 @@ def _resource_contract_from_runtime_payload(
         .get("task_goal_spec", {})
         .get("model_turn_decision", {})
         .get("resource_contract"),
-    ):
+    )
+    for candidate in ordered_candidates:
         if isinstance(candidate, dict) and candidate:
-            return dict(candidate)
+            return _sanitize_resource_contract(candidate)
     return {}
+
+
+def _task_order_projection_selection(task_selection: dict[str, Any]) -> dict[str, Any]:
+    projection = dict(task_selection.get("task_order_projection") or {})
+    input_selection = dict(
+        dict(projection.get("input_contract") or {}).get("task_selection_projection")
+        or {}
+    )
+    envelope_selection = dict(
+        dict(
+            dict(projection.get("task_execution_envelope") or {}).get("context_package")
+            or {}
+        ).get("task_selection_projection")
+        or {}
+    )
+    return {**input_selection, **envelope_selection}
+
+
+def _sanitize_resource_contract(candidate: dict[str, Any]) -> dict[str, Any]:
+    contract = dict(candidate or {})
+    source_projects = []
+    for item in list(contract.get("source_projects") or []):
+        if not isinstance(item, dict):
+            continue
+        path = str(item.get("path") or "").strip()
+        if not path or _is_material_mount_alias(path):
+            continue
+        source_projects.append({**dict(item), "path": path})
+    if source_projects:
+        contract["source_projects"] = source_projects
+    else:
+        contract.pop("source_projects", None)
+    return contract
+
+
+def _is_material_mount_alias(path: str) -> bool:
+    normalized = str(path or "").replace("\\", "/").strip("/")
+    return normalized.startswith(".materials/source_projects/")
 
 
 def _material_copy_ignore(directory: str, names: list[str]) -> set[str]:

@@ -142,6 +142,23 @@ class TaskIntentDecisionService:
         explicit_action = str(explicit_intent.get("action") or explicit_intent.get("intent") or "").strip()
         explicit_order_kind = str(explicit_intent.get("order_kind") or "").strip()
 
+        if explicit_action == "clarify_task_continuation":
+            return TaskIntentDecision(
+                decision_id=f"intent:{turn_id}:{uuid.uuid4().hex[:8]}",
+                turn_id=turn_id,
+                decision="task_order_draft",
+                confidence=0.82,
+                contract_signals=("task_order_intent:clarify_task_continuation",),
+                missing_fields=("task_order_continuation_target",),
+                lifecycle_needs=("task_continuation_recovery",),
+                reason="The user requested continuation, but no single executable task order candidate was safe to resume.",
+                created_at=now,
+                metadata={
+                    "classifier": "deterministic_shadow_classifier",
+                    "continuation_recovery": dict(explicit_intent.get("continuation_recovery") or {}),
+                },
+            )
+
         if explicit_action in {"run_task", "execute_task", "create_order", "start_graph"} or explicit_order_kind:
             hard_signals.append(f"task_order_intent:{explicit_action or explicit_order_kind}")
             evidence_spans.append(_evidence("task_order_intent", explicit_action or explicit_order_kind))

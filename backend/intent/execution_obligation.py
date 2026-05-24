@@ -14,20 +14,74 @@ _PATH_RE = re.compile(
     flags=re.IGNORECASE,
 )
 
-_FORBID_WRITE_MARKERS = (
+_GLOBAL_FORBID_WRITE_MARKERS = (
+    "不要写任何文件",
+    "不要写入任何文件",
+    "不要生成任何文件",
+    "不要创建任何文件",
+    "不要新建任何文件",
+    "不要保存任何文件",
+    "不要产出任何文件",
+    "不要写文件",
+    "不要写入文件",
+    "不要生成文件",
+    "不要创建文件",
+    "不要新建文件",
+    "不要保存文件",
+    "只分析，不要写",
+    "只分析不要写",
+    "只读分析，不要写",
+    "do not write",
+    "don't write",
+    "do not create files",
+    "don't create files",
+    "no file writes",
+    "analysis only",
+)
+_BROAD_NO_MODIFY_MARKERS = (
     "先分析不要改",
     "先分析，不要改",
-    "不要改",
-    "不要修改",
-    "不用改",
-    "别改",
-    "只分析",
-    "不要动代码",
     "先不要改",
+    "不要改代码",
+    "不要修改代码",
+    "不要动代码",
+    "不用改代码",
+    "别改代码",
+    "不要改文件",
+    "不要修改文件",
+    "不用改文件",
+    "别改文件",
     "do not modify",
     "don't modify",
     "read only",
     "readonly",
+)
+_SCOPED_SOURCE_WRITE_FORBID_MARKERS = (
+    "不要修改源项目",
+    "不要改源项目",
+    "不要动源项目",
+    "不要修改源工程",
+    "不要改源工程",
+    "不要动源工程",
+    "不要修改源目录",
+    "不要改源目录",
+    "不要动源目录",
+    "不要修改原项目",
+    "不要改原项目",
+    "不要修改原目录",
+    "不要改原目录",
+    "不要修改原始目录",
+    "不要改原始目录",
+    "源项目只读",
+    "源工程只读",
+    "源目录只读",
+    "只读源项目",
+    "只读源工程",
+    "只读源目录",
+    "source project read only",
+    "source directory read only",
+    "do not modify source project",
+    "don't modify source project",
 )
 _WRITE_MARKERS = (
     "写入",
@@ -94,15 +148,29 @@ def build_execution_obligation(
     reads = _collect_required_reads_from_resource_contract(resource_contract)
     if not reads:
         reads = _collect_required_reads(text=text, explicit_inputs=inputs, current_turn=current_turn)
-    forbid_write = _has_any(lowered, _FORBID_WRITE_MARKERS)
     goal_frame = dict(current_turn.get("task_goal_spec") or current_turn.get("goal_frame") or {})
     profile_obligation = _profile_obligation_requirements(
         task_goal_spec=goal_frame,
         current_turn=current_turn,
     )
-    write_required = (_requires_real_write(lowered) or bool(profile_obligation["required_writes"])) and not forbid_write
-    verify_required = _has_any(lowered, _VERIFY_MARKERS) or bool(profile_obligation["required_verifications"])
     contract_writes = _collect_required_writes_from_resource_contract(resource_contract)
+    scoped_write_constraints = _scoped_write_constraints(
+        text=text,
+        current_turn=current_turn,
+        resource_contract=resource_contract,
+    )
+    forbid_write = _global_write_forbidden(
+        lowered=lowered,
+        required_contract_writes=contract_writes,
+        required_profile_writes=list(profile_obligation["required_writes"]),
+        explicit_inputs=inputs,
+    )
+    write_required = (
+        _requires_real_write(lowered)
+        or bool(contract_writes)
+        or bool(profile_obligation["required_writes"])
+    ) and not forbid_write
+    verify_required = _has_any(lowered, _VERIFY_MARKERS) or bool(profile_obligation["required_verifications"])
     required_writes = tuple(
         _dedupe_dicts(
             [
@@ -146,11 +214,16 @@ def build_execution_obligation(
         )
     )
     forbidden_actions = ("modify_code", "write_file", "edit_file") if forbid_write else ()
+    if scoped_write_constraints:
+        for item in required_writes:
+            item.setdefault("write_scope_policy", "sandbox_or_target_only")
+            item.setdefault("forbidden_source_writes", scoped_write_constraints)
     signals = {
         "read_paths": [item["path"] for item in reads if item.get("path")],
         "write_required": write_required,
         "verify_required": verify_required,
         "forbid_write": forbid_write,
+        "scoped_write_constraints": scoped_write_constraints,
         "deliverable_markers": [marker for marker in _DELIVER_MARKERS if marker in lowered],
         "profile_obligation": profile_obligation["evidence"],
         "resource_contract_used": bool(resource_contract),
@@ -193,11 +266,33 @@ def _collect_required_reads_from_resource_contract(resource_contract: dict[str, 
     read_files = _relative_paths(contract.get("required_read_files"))
     read_dirs = _relative_paths(contract.get("required_read_dirs"))
     reads: list[dict[str, Any]] = []
+    if not source_projects:
+        for path in read_files:
+            reads.append(
+                {
+                    "path": path,
+                    "kind": _kind_from_path(path),
+                    "role": "source_file" if _is_material_mount_path(path) else "material",
+                    "required": True,
+                    "source": "model_resource_contract",
+                }
+            )
+        for path in read_dirs:
+            reads.append(
+                {
+                    "path": path,
+                    "kind": "asset_dir" if _is_asset_dir(path) else "directory",
+                    "role": "source_asset_dir" if _is_asset_dir(path) else "source_dir",
+                    "required": True,
+                    "source": "model_resource_contract",
+                }
+            )
+        return _dedupe_dicts(reads, key_fields=("path", "role", "source"))
     for source_root in source_projects:
         for path in read_files:
             reads.append(
                 {
-                    "path": _join_path(source_root, path),
+                    "path": _source_contract_path(source_root, path),
                     "kind": _kind_from_path(path),
                     "role": "source_file",
                     "required": True,
@@ -207,7 +302,7 @@ def _collect_required_reads_from_resource_contract(resource_contract: dict[str, 
         for path in read_dirs:
             reads.append(
                 {
-                    "path": _join_path(source_root, path),
+                    "path": _source_contract_path(source_root, path),
                     "kind": "asset_dir" if _is_asset_dir(path) else "directory",
                     "role": "source_asset_dir" if _is_asset_dir(path) else "source_dir",
                     "required": True,
@@ -223,6 +318,26 @@ def _collect_required_writes_from_resource_contract(resource_contract: dict[str,
     write_files = _relative_paths(contract.get("required_write_files"))
     write_dirs = _relative_paths(contract.get("required_write_dirs"))
     writes: list[dict[str, Any]] = []
+    if not target_projects:
+        for path in write_files:
+            writes.append(
+                {
+                    "kind": "file_write",
+                    "path": path,
+                    "required": True,
+                    "source": "model_resource_contract",
+                }
+            )
+        for path in write_dirs:
+            writes.append(
+                {
+                    "kind": "asset_dir_write" if _is_asset_dir(path) else "directory_write",
+                    "path": path,
+                    "required": True,
+                    "source": "model_resource_contract",
+                }
+            )
+        return _dedupe_dicts(writes, key_fields=("kind", "path", "source"))
     for target_root in target_projects:
         for path in write_files:
             writes.append(
@@ -272,8 +387,90 @@ def _join_path(root: str, relative: str) -> str:
     return f"{left}/{right}" if left and right else left or right
 
 
+def _source_contract_path(source_root: str, path: str) -> str:
+    normalized_path = str(path or "").replace("\\", "/").strip().strip("/")
+    if _is_material_mount_path(normalized_path):
+        return normalized_path
+    normalized_root = str(source_root or "").replace("\\", "/").strip().rstrip("/")
+    if normalized_root and normalized_path.startswith(normalized_root.strip("/") + "/"):
+        return normalized_path
+    return _join_path(normalized_root, normalized_path)
+
+
+def _is_material_mount_path(path: str) -> bool:
+    return str(path or "").replace("\\", "/").strip("/").startswith(".materials/source_projects/")
+
+
 def _is_asset_dir(path: str) -> bool:
     return str(path or "").replace("\\", "/").strip("/").lower().endswith("assets")
+
+
+def _global_write_forbidden(
+    *,
+    lowered: str,
+    required_contract_writes: list[dict[str, Any]],
+    required_profile_writes: list[dict[str, Any]],
+    explicit_inputs: dict[str, Any],
+) -> bool:
+    text = str(lowered or "").lower()
+    if _has_any(text, _GLOBAL_FORBID_WRITE_MARKERS):
+        return True
+    if required_contract_writes or required_profile_writes or _explicit_output_path_present(explicit_inputs):
+        return False
+    if _has_any(text, _SCOPED_SOURCE_WRITE_FORBID_MARKERS):
+        return False
+    if _has_any(text, _BROAD_NO_MODIFY_MARKERS):
+        return True
+    if _analysis_only_without_output(text):
+        return True
+    return False
+
+
+def _scoped_write_constraints(
+    *,
+    text: str,
+    current_turn: dict[str, Any],
+    resource_contract: dict[str, Any],
+) -> list[dict[str, Any]]:
+    normalized = str(text or "").lower()
+    raw_constraints = [
+        str(item or "").strip()
+        for item in [
+            *list(dict(current_turn.get("model_turn_decision") or {}).get("constraints") or []),
+            *list(dict(current_turn.get("model_turn_decision") or {}).get("forbidden_actions") or []),
+            *list(dict(current_turn.get("task_goal_spec") or current_turn.get("goal_frame") or {}).get("explicit_constraints") or []),
+            *list(dict(current_turn.get("task_goal_spec") or current_turn.get("goal_frame") or {}).get("forbidden_actions") or []),
+        ]
+        if str(item or "").strip()
+    ]
+    joined_constraints = "\n".join(raw_constraints).lower()
+    if not (_has_any(normalized, _SCOPED_SOURCE_WRITE_FORBID_MARKERS) or _has_any(joined_constraints, _SCOPED_SOURCE_WRITE_FORBID_MARKERS)):
+        return []
+    source_paths = _project_paths(dict(resource_contract or {}).get("source_projects"))
+    if not source_paths:
+        source_paths = [".materials/source_projects"]
+    return [
+        {
+            "target": "source_project",
+            "access": "read_only",
+            "paths": source_paths,
+            "source": "user_or_model_constraint",
+        }
+    ]
+
+
+def _explicit_output_path_present(explicit_inputs: dict[str, Any]) -> bool:
+    for key in ("output_path", "artifact_path", "target_output_path"):
+        if str(dict(explicit_inputs or {}).get(key) or "").strip():
+            return True
+    return False
+
+
+def _analysis_only_without_output(text: str) -> bool:
+    normalized = str(text or "").lower()
+    if not any(marker in normalized for marker in ("只分析", "仅分析", "analysis only", "read only", "readonly")):
+        return False
+    return not any(marker in normalized for marker in ("写", "写入", "保存", "生成", "产出", "output/", "输出到", "报告"))
 
 
 def _profile_obligation_requirements(

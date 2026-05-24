@@ -91,7 +91,7 @@ def default_worker_agent_blueprints() -> tuple[WorkerAgentBlueprint, ...]:
             blueprint_id="worker.execution",
             agent_name_template="执行 Agent {n}",
             description="执行子 Agent，用于领取有明确边界的实现、写入或修复任务。",
-            default_runtime_lanes=("vibe_coding_task", "game_delivery"),
+            default_runtime_lanes=("professional_task", "game_delivery"),
             allowed_operations=(
                 "op.model_response",
                 "op.read_file",
@@ -109,10 +109,10 @@ def default_worker_agent_blueprints() -> tuple[WorkerAgentBlueprint, ...]:
             metadata={"worker_kind": "execution", "prompt_role": "bounded_execution_worker"},
         ),
         WorkerAgentBlueprint(
-            blueprint_id="worker.vibe_coding.executor",
+            blueprint_id="worker.code.executor",
             agent_name_template="代码执行 Agent {n}",
             description="代码执行子 Agent，用于领取边界清楚的代码修改、测试修复和前端实现任务。",
-            default_runtime_lanes=("vibe_coding_task",),
+            default_runtime_lanes=("professional_task",),
             allowed_operations=(
                 "op.model_response",
                 "op.agent_todo",
@@ -136,7 +136,7 @@ def default_worker_agent_blueprints() -> tuple[WorkerAgentBlueprint, ...]:
             allowed_context_sections=("task", "projection", "tool", "runtime_contracts", "upstream_outputs", "artifact_refs"),
             approval_policy="task_bounded_write",
             trace_policy="full_trace",
-            metadata={"worker_kind": "vibe_coding_execution", "prompt_role": "bounded_coding_executor"},
+            metadata={"worker_kind": "code_execution", "prompt_role": "bounded_code_executor"},
         ),
         WorkerAgentBlueprint(
             blueprint_id="worker.review",

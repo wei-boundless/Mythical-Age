@@ -109,7 +109,9 @@ export function TaskGraphPublishRunPage({
 }) {
   const {
     bindTaskGraphMonitorRun,
+    continueBoundTaskGraphRun,
     evaluateBoundTaskGraphMonitor,
+    refreshAndContinueBoundTaskGraphRun,
     setTaskGraphRunInteractionOpen,
     taskGraphBoundRunMonitor,
     taskGraphMonitorBinding,
@@ -497,6 +499,12 @@ export function TaskGraphPublishRunPage({
           </TaskSystemToolbarButton>
           <TaskSystemToolbarButton disabled={!taskGraphMonitorBinding || taskGraphMonitorLoading} onClick={() => void evaluateBoundTaskGraphMonitor()}>
             <TriangleAlert size={15} />执行一次监测
+          </TaskSystemToolbarButton>
+          <TaskSystemToolbarButton disabled={!taskGraphMonitorBinding || taskGraphMonitorLoading} onClick={() => void continueBoundTaskGraphRun()}>
+            <PlayCircle size={15} />续跑当前阶段
+          </TaskSystemToolbarButton>
+          <TaskSystemToolbarButton disabled={!taskGraphMonitorBinding || taskGraphMonitorLoading} onClick={() => void refreshAndContinueBoundTaskGraphRun()}>
+            <RefreshCw size={15} />刷新快照续跑
           </TaskSystemToolbarButton>
           <TaskSystemToolbarButton disabled={!taskGraphMonitorBinding} onClick={() => setTaskGraphRunInteractionOpen(true)}>
             <MessageSquareShare size={15} />打开交互窗口

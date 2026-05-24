@@ -9,6 +9,7 @@ from .tool_result_storage import (
     ContentReplacement,
     ToolResultStore,
 )
+from .tool_use_summary import ToolUseSummary, build_tool_use_summary
 
 __all__ = [
     "ContentReplacement",
@@ -17,6 +18,8 @@ __all__ = [
     "DEFAULT_PREVIEW_SIZE_BYTES",
     "PERSISTED_OUTPUT_TAG",
     "ToolResultStore",
+    "ToolUseSummary",
+    "build_tool_use_summary",
     "compact_child_result_observation",
     "estimate_json_bytes",
     "estimate_text_bytes",

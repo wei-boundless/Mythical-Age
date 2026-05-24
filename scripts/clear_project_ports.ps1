@@ -60,17 +60,17 @@ function Stop-ProcessByPort {
 
     foreach ($connection in $connections) {
         $pidValue = if ($null -ne $connection -and $null -ne $connection.OwningProcess) { $connection.OwningProcess } else { 0 }
-        $pid = [int]$pidValue
-        if ($pid -le 0) { continue }
+        $processId = [int]$pidValue
+        if ($processId -le 0) { continue }
 
-        $process = Get-Process -Id $pid -ErrorAction SilentlyContinue
+        $process = Get-Process -Id $processId -ErrorAction SilentlyContinue
         if ($null -eq $process) { continue }
 
         try {
-            Stop-Process -Id $pid -Force -ErrorAction Stop
+            Stop-Process -Id $processId -Force -ErrorAction Stop
             $stopped += [pscustomobject]@{
                 port = $Port
-                pid = $pid
+                pid = $processId
                 process_name = $process.ProcessName
                 via = "tcp_port"
             }
@@ -94,14 +94,14 @@ function Stop-ProcessByPidFile {
 
     $storedPid = (Get-Content -LiteralPath $PidFile -ErrorAction SilentlyContinue | Select-Object -First 1).Trim()
     if ($storedPid -match '^\d+$') {
-        $pid = [int]$storedPid
-        $process = Get-Process -Id $pid -ErrorAction SilentlyContinue
+        $processId = [int]$storedPid
+        $process = Get-Process -Id $processId -ErrorAction SilentlyContinue
         if ($null -ne $process) {
             try {
-                Stop-Process -Id $pid -Force -ErrorAction Stop
+                Stop-Process -Id $processId -Force -ErrorAction Stop
                 $stopped += [pscustomobject]@{
                     port = $PortHint
-                    pid = $pid
+                    pid = $processId
                     process_name = $process.ProcessName
                     via = "pid_file"
                 }
@@ -123,10 +123,10 @@ foreach ($port in $Ports) {
 if ($IncludePidFiles -and (Test-Path $OutputDir)) {
     foreach ($port in $Ports) {
         $pidFiles = @(
-            Join-Path $OutputDir ("uvicorn-{0}.pid" -f $port),
-            Join-Path $OutputDir ("uvicorn-fixed-{0}.pid" -f $port),
-            Join-Path $RuntimeDir ("backend-fixed-{0}.pid" -f $port),
-            Join-Path $RuntimeDir ("frontend-fixed-{0}.pid" -f $port)
+            (Join-Path $OutputDir ("uvicorn-{0}.pid" -f $port)),
+            (Join-Path $OutputDir ("uvicorn-fixed-{0}.pid" -f $port)),
+            (Join-Path $RuntimeDir ("backend-fixed-{0}.pid" -f $port)),
+            (Join-Path $RuntimeDir ("frontend-fixed-{0}.pid" -f $port))
         )
         foreach ($pidFile in $pidFiles) {
             $results += Stop-ProcessByPidFile -PidFile $pidFile -PortHint $port

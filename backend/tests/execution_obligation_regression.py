@@ -126,6 +126,101 @@ def test_execution_obligation_derives_browser_game_requirements_from_goal_frame(
     assert obligation["extraction_evidence"]["profile_obligation"]["matched"] is True
 
 
+def test_execution_obligation_scopes_do_not_modify_source_project_without_global_write_ban() -> None:
+    obligation = build_execution_obligation(
+        session_id="session-vibe-code",
+        task_id="task-source-readonly-report",
+        user_goal=(
+            "请在 sandbox 中读取 .materials/source_projects/source_01/README.md 和 "
+            ".materials/source_projects/source_01/backend/api/chat.py，不要修改源项目，"
+            "然后写入 output/vibe-code-smoke/langchain-mini-chat-api-review.md。"
+        ),
+        current_turn_context={
+            "model_turn_decision": {
+                "resource_contract": {
+                    "source_projects": [
+                        {"path": ".materials/source_projects/source_01", "role": "source", "required": True}
+                    ],
+                    "required_read_files": [
+                        ".materials/source_projects/source_01/README.md",
+                        ".materials/source_projects/source_01/backend/api/chat.py",
+                    ],
+                    "required_write_files": ["output/vibe-code-smoke/langchain-mini-chat-api-review.md"],
+                }
+            }
+        },
+    ).to_dict()
+
+    assert obligation["forbidden_actions"] == []
+    assert [item["path"] for item in obligation["required_reads"]] == [
+        ".materials/source_projects/source_01/README.md",
+        ".materials/source_projects/source_01/backend/api/chat.py",
+    ]
+    assert [item["path"] for item in obligation["required_writes"]] == [
+        "output/vibe-code-smoke/langchain-mini-chat-api-review.md",
+    ]
+    assert obligation["required_writes"][0]["write_scope_policy"] == "sandbox_or_target_only"
+    assert obligation["extraction_evidence"]["scoped_write_constraints"][0]["target"] == "source_project"
+
+
+def test_execution_obligation_keeps_contract_writes_without_target_projects() -> None:
+    obligation = build_execution_obligation(
+        session_id="session-vibe-code",
+        task_id="task-contract-write-no-target",
+        user_goal="写入 output/vibe-code-smoke/report.md。",
+        current_turn_context={
+            "model_turn_decision": {
+                "resource_contract": {
+                    "source_projects": [{"path": "D:/AI应用/agent-vibe-sandboxes/langchain-mini-clean"}],
+                    "target_projects": [],
+                    "required_write_files": ["output/vibe-code-smoke/report.md"],
+                    "required_write_dirs": ["output/vibe-code-smoke"],
+                }
+            }
+        },
+    ).to_dict()
+
+    assert [item["path"] for item in obligation["required_writes"]] == [
+        "output/vibe-code-smoke/report.md",
+        "output/vibe-code-smoke",
+    ]
+
+
+def test_execution_obligation_preserves_material_mount_paths_from_resource_contract() -> None:
+    obligation = build_execution_obligation(
+        session_id="session-vibe-code",
+        task_id="task-mounted-material-read",
+        user_goal="读取挂载材料并写报告。",
+        current_turn_context={
+            "model_turn_decision": {
+                "resource_contract": {
+                    "source_projects": [{"path": "D:/AI应用/agent-vibe-sandboxes/langchain-mini-clean"}],
+                    "required_read_files": [
+                        ".materials/source_projects/source_01/README.md",
+                        ".materials/source_projects/source_01/backend/api/chat.py",
+                    ],
+                }
+            }
+        },
+    ).to_dict()
+
+    assert [item["path"] for item in obligation["required_reads"]] == [
+        ".materials/source_projects/source_01/README.md",
+        ".materials/source_projects/source_01/backend/api/chat.py",
+    ]
+
+
+def test_execution_obligation_global_no_file_write_still_forbids_writes() -> None:
+    obligation = build_execution_obligation(
+        session_id="session-global-no-write",
+        task_id="task-analysis-only",
+        user_goal="只分析 backend/app.py，不要写任何文件，也不要生成报告文件。",
+    ).to_dict()
+
+    assert obligation["required_writes"] == []
+    assert "write_file" in obligation["forbidden_actions"]
+
+
 def _decision(
     *,
     action_intent: str,

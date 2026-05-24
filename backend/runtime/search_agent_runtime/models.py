@@ -147,12 +147,17 @@ def normalize_search_runtime_config(value: Any) -> SearchRuntimeConfig:
 
 
 def required_operations_for_search_config(config: SearchRuntimeConfig) -> tuple[str, ...]:
-    operations = ["op.model_response", "op.web_search"]
-    if config.allow_fetch_url and config.max_fetches > 0:
+    sources = set(config.search_sources or ("web",))
+    operations = ["op.model_response"]
+    if "web" in sources:
+        operations.append("op.web_search")
+    if "web" in sources and config.allow_fetch_url and config.max_fetches > 0:
         operations.append("op.fetch_url")
-    if config.allow_local_files:
+    if "local_files" in sources or config.allow_local_files:
         operations.extend(["op.search_files", "op.search_text", "op.read_file"])
-    if config.allow_memory_read:
+    if "rag" in sources:
+        operations.append("op.mcp_retrieval")
+    if "memory" in sources or config.allow_memory_read:
         operations.append("op.memory_read")
     return _dedupe(operations)
 

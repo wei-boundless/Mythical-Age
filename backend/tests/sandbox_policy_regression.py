@@ -168,6 +168,45 @@ def test_sandbox_policy_mounts_model_resource_contract_source_project(tmp_path: 
     assert (sandbox_root / ".materials/source_projects/source_01/assets/player.svg").exists()
 
 
+def test_sandbox_policy_mounts_order_projection_resource_contract_source_project(tmp_path: Path) -> None:
+    repo_root = tmp_path
+    backend_root = repo_root / "backend"
+    backend_root.mkdir()
+    source_project = repo_root / "external_source" / "codebase"
+    (source_project / "backend" / "api").mkdir(parents=True)
+    (source_project / "README.md").write_text("# Source", encoding="utf-8")
+    (source_project / "backend" / "api" / "chat.py").write_text("def chat(): pass", encoding="utf-8")
+
+    policy = prepare_runtime_sandbox_policy(
+        root_dir=backend_root,
+        session_id="session-code",
+        task_run_id="taskrun-code",
+        task_contract={},
+        user_message="审查源项目，输出到 output/vibe-code-smoke",
+        selected_recipe_payload={"metadata": {"sandbox_policy": {"enabled": True}}},
+        task_selection={
+            "task_order_projection": {
+                "input_contract": {
+                    "task_selection_projection": {
+                        "resource_contract": {
+                            "source_projects": [
+                                {"path": str(source_project), "role": "source", "required": True}
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+    )
+
+    mounts = list(policy.get("material_mounts") or [])
+    assert len(mounts) == 1
+    assert mounts[0]["status"] == "mounted"
+    sandbox_root = Path(policy["sandbox_root"])
+    assert (sandbox_root / ".materials/source_projects/source_01/README.md").exists()
+    assert (sandbox_root / ".materials/source_projects/source_01/backend/api/chat.py").exists()
+
+
 def test_sandbox_policy_without_resource_contract_has_no_material_mounts(tmp_path: Path) -> None:
     backend_root = tmp_path / "backend"
     backend_root.mkdir()

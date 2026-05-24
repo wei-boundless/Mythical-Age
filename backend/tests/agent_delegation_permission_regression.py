@@ -67,7 +67,7 @@ def test_delegation_executor_blocks_when_parent_cannot_delegate(tmp_path) -> Non
     assert "parent_delegation_not_authorized" in result["blocked_reasons"]
 
 
-def test_delegation_executor_blocks_target_disabled_by_search_policy(tmp_path) -> None:
+def test_delegation_executor_allows_multi_source_search_agent_when_policy_excludes_web(tmp_path) -> None:
     executor = AgentDelegationExecutor(tmp_path)
     request = AgentDelegationRequest(
         request_id="delegation:req:search-policy",
@@ -91,10 +91,10 @@ def test_delegation_executor_blocks_target_disabled_by_search_policy(tmp_path) -
 
     result = executor.validate_request(request, parent_agent_run=parent_run)
 
-    assert "target_agent_blocked_by_search_policy" in result["blocked_reasons"]
+    assert "target_agent_blocked_by_search_policy" not in result["blocked_reasons"]
 
 
-def test_delegation_executor_treats_empty_search_policy_as_no_sources(tmp_path) -> None:
+def test_delegation_executor_does_not_block_multi_source_search_agent_at_agent_level_for_empty_policy(tmp_path) -> None:
     executor = AgentDelegationExecutor(tmp_path)
     request = AgentDelegationRequest(
         request_id="delegation:req:empty-search-policy",
@@ -118,7 +118,7 @@ def test_delegation_executor_treats_empty_search_policy_as_no_sources(tmp_path) 
 
     result = executor.validate_request(request, parent_agent_run=parent_run)
 
-    assert "target_agent_blocked_by_search_policy" in result["blocked_reasons"]
+    assert "target_agent_blocked_by_search_policy" not in result["blocked_reasons"]
 
 
 def test_delegation_executor_blocks_nested_delegation(tmp_path) -> None:

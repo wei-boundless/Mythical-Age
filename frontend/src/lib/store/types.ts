@@ -11,7 +11,8 @@ import type {
   RuntimeLoopTaskRunLiveMonitor,
   SessionSummary,
   ToolCall,
-  WorkspaceContext
+  WorkspaceContext,
+  CodeEnvironmentWorkspaceTree
 } from "@/lib/api";
 import type { SoulKey, SoulSummary } from "@/lib/souls";
 
@@ -122,7 +123,7 @@ export type WorkspaceView =
   | "evidence"
   | "task-system"
   | "orchestration"
-  | "vibe-coding"
+  | "code-environment"
   | "experiments"
   | "playground"
   | "system-config";
@@ -205,6 +206,9 @@ export type TaskGraphMonitorBinding = {
 export type StoreState = {
   activeWorkspaceView: WorkspaceView;
   workspaceContext: WorkspaceContext | null;
+  workspaceTree: CodeEnvironmentWorkspaceTree | null;
+  workspaceTreeLoading: boolean;
+  workspaceTreeError: string;
   sessions: SessionSummary[];
   currentSessionId: string | null;
   workspaceInitializing: boolean;
@@ -260,6 +264,7 @@ export type StoreState = {
 
 export type StoreActions = {
   setWorkspaceView: (view: WorkspaceView) => void;
+  refreshWorkspaceTree: () => Promise<void>;
   createNewSession: () => Promise<void>;
   selectSession: (sessionId: string) => Promise<void>;
   sendMessage: (value: string) => Promise<void>;
@@ -286,6 +291,8 @@ export type StoreActions = {
   clearTaskGraphMonitorRun: () => void;
   setTaskGraphRunInteractionOpen: (open: boolean) => void;
   evaluateBoundTaskGraphMonitor: () => Promise<void>;
+  continueBoundTaskGraphRun: () => Promise<void>;
+  refreshAndContinueBoundTaskGraphRun: () => Promise<void>;
   submitTaskGraphMonitorDecision: (decision: string, controlAction: string, resumePayload?: Record<string, unknown>) => Promise<void>;
   resumeTaskGraphRun: (taskGraphRunId: string, payload?: Record<string, unknown>) => Promise<void>;
   resolveRuntimeApproval: (taskRunId: string, decision: "approve" | "reject", message?: string) => Promise<void>;

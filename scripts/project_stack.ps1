@@ -109,6 +109,7 @@ function Test-IsProjectProcess {
     if ($commandLine -match "npm\s+run\s+(dev|start)") { return $true }
     if ($commandLine -match "next(.cmd)?\s+(dev|start)" -and $commandLine -match "$FrontendPort") { return $true }
     if ($commandLine -match "uvicorn" -and $commandLine -match "app:app" -and $commandLine -match "$BackendPort") { return $true }
+    if ($commandLine -match "run_uvicorn\.py" -and $commandLine -match "$BackendPort") { return $true }
     return $false
 }
 
@@ -194,7 +195,7 @@ function Start-Backend {
     $env:PYTHONPATH = $BackendRoot
     $process = Start-Process `
         -FilePath $PythonExe `
-        -ArgumentList "-m", "uvicorn", "app:app", "--host", $HostName, "--port", "$BackendPort" `
+        -ArgumentList "run_uvicorn.py", "--host", $HostName, "--port", "$BackendPort" `
         -WorkingDirectory $BackendRoot `
         -RedirectStandardOutput $BackendOutLog `
         -RedirectStandardError $BackendErrLog `

@@ -21,14 +21,9 @@ function statusIcon(status: string) {
   return <Activity size={14} />;
 }
 
-export function TaskMonitorDock({
-  embedded = false,
-  onOpenTaskDetail,
-}: {
-  embedded?: boolean;
-  onOpenTaskDetail?: () => void;
-}) {
+export function TaskMonitorDock({ embedded = false }: { embedded?: boolean }) {
   const {
+    bindTaskGraphMonitorRun,
     globalRuntimeMonitor,
     globalRuntimeMonitorError,
     globalRuntimeMonitorLoading,
@@ -36,6 +31,7 @@ export function TaskMonitorDock({
     globalRuntimeMonitorStreamStatus,
     refreshGlobalRuntimeMonitor,
     selectGlobalRuntimeMonitorTaskRun,
+    setTaskGraphRunInteractionOpen,
   } = useAppStore();
   const [collapsed, setCollapsed] = useState(false);
   const runs = useMemo(() => visibleRuntimeMonitorItems(globalRuntimeMonitor), [globalRuntimeMonitor]);
@@ -160,7 +156,18 @@ export function TaskMonitorDock({
                   key={item.task_run_id}
                   onClick={() => {
                     selectGlobalRuntimeMonitorTaskRun(item.task_run_id);
-                    onOpenTaskDetail?.();
+                    if (work.displayTypeLabel === "任务图" || item.has_coordination || item.graph_id) {
+                      bindTaskGraphMonitorRun({
+                        task_run_id: item.task_run_id,
+                        coordination_run_id: item.coordination_run_id,
+                        graph_id: item.graph_id,
+                        project_id: item.project_id,
+                        session_id: item.session_id,
+                        title: work.title || taskTitle(item),
+                      });
+                      setTaskGraphRunInteractionOpen(true);
+                      return;
+                    }
                   }}
                   type="button"
                 >

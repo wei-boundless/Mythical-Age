@@ -38,7 +38,7 @@ class ChildAgentRuntimeExecutor:
 
     async def run(self, *, request: AgentDelegationRequest, agent: Any, profile: Any, model_runtime: Any | None = None) -> dict[str, Any]:
         runtime_config = normalize_runtime_config(dict(getattr(profile, "metadata", {}) or {}).get("runtime_config"))
-        if runtime_config.template_id == DEEPSEARCH_TEMPLATE_ID and _is_web_delegation(request=request, agent=agent, profile=profile):
+        if runtime_config.template_id == DEEPSEARCH_TEMPLATE_ID:
             search_runtime = (
                 self.search_runtime_factory(self.root_dir)
                 if self.search_runtime_factory is not None
@@ -235,14 +235,6 @@ def _operation_for_delegation(*, request: AgentDelegationRequest, profile: Any) 
         if operation_id in available:
             return operation_id
     return ""
-
-
-def _is_web_delegation(*, request: AgentDelegationRequest, agent: Any, profile: Any) -> bool:
-    kind = str(request.delegation_kind or "").strip()
-    if kind in {"web", "web_research", "external_web_lookup", "current_information_lookup", "official_source_lookup"}:
-        return True
-    agent_id = str(getattr(agent, "agent_id", "") or getattr(profile, "agent_id", "") or request.target_agent_id or "").strip()
-    return agent_id == "agent:web_researcher"
 
 
 def _mcp_route_for_operation(operation_id: str) -> str:

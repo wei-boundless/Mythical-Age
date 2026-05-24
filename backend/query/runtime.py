@@ -23,6 +23,10 @@ from query.models import QueryRequest
 from request_intent import analyze_memory_intent
 from task_system.orders.intent_decision import TaskIntentDecisionService
 from task_system.orders.models import ConversationTurn
+from task_system.orders.continuation_recovery import (
+    TaskContinuationRecoveryDecision,
+    recover_task_order_continuation,
+)
 from task_system.orders.order_factory import TaskOrderCreation, TaskOrderFactory
 from task_system.orders.order_registry import TaskOrderRegistry
 
@@ -198,6 +202,14 @@ class QueryRuntime:
                         "type": "task_order_projection",
                         **task_order_creation.projection(),
                     }
+                recovery_decision = dict(task_order_creation.conversation_turn.metadata or {}).get(
+                    "task_continuation_recovery"
+                )
+                if isinstance(recovery_decision, dict) and recovery_decision:
+                    yield {
+                        "type": "task_continuation_recovery",
+                        "decision": recovery_decision,
+                    }
 
                 image_generation = dict(request.image_generation or {})
                 image_model = str(image_generation.get("model") or "").strip().lower()
@@ -252,6 +264,11 @@ class QueryRuntime:
 
                 memory_intent = analyze_memory_intent(request.message)
                 agent_runtime_profile = self.agent_runtime_registry.get_profile("agent:0")
+                runtime_task_selection = _task_selection_for_runtime(
+                    request_task_selection=dict(request.task_selection or {}),
+                    task_order_creation=task_order_creation,
+                    turn_id=turn_id,
+                )
                 async for event in self.task_run_loop.run_single_agent_stream(
                     session_id=request.session_id,
                     task_id=task_id,
@@ -262,7 +279,7 @@ class QueryRuntime:
                     model_response_executor=self.model_response_executor,
                     runtime_context_manager=self.runtime_context_manager,
                     memory_intent=memory_intent,
-                    task_selection={"turn_id": turn_id, **dict(request.task_selection or {})},
+                    task_selection=runtime_task_selection,
                     task_order_ref=(
                         task_order_creation.order.to_dict()
                         if task_order_creation.order is not None
@@ -337,11 +354,20 @@ class QueryRuntime:
         runtime_event = dict(event.get("event") or {}) if event_type == "runtime_loop_event" else {}
         runtime_event_type = str(runtime_event.get("event_type") or "")
         payload = dict(runtime_event.get("payload") or {}) if runtime_event else dict(event)
-        if event_type not in {"done", "error", "stopped"} and runtime_event_type not in {"loop_terminal", "loop_error"}:
+        if (
+            event_type not in {"done", "error", "stopped"}
+            and runtime_event_type not in {
+                "loop_terminal",
+                "loop_error",
+                "runtime_blocked_before_assembly",
+            }
+        ):
             return
         raw_status = str(payload.get("status") or "")
         terminal_reason = str(payload.get("terminal_reason") or payload.get("reason") or "")
-        task_run_id = str(runtime_event.get("task_run_id") or creation.order_run.task_run_id or "")
+        runtime_event_task_run_id = str(runtime_event.get("task_run_id") or "")
+        bound_task_run_id = str(creation.order_run.task_run_id or "")
+        task_run_id = bound_task_run_id or runtime_event_task_run_id
         if event_type == "done":
             raw_status = raw_status or "completed"
             terminal_reason = terminal_reason or "completed"
@@ -351,6 +377,9 @@ class QueryRuntime:
         elif event_type == "stopped":
             raw_status = raw_status or "cancelled"
             terminal_reason = terminal_reason or "stopped"
+        elif runtime_event_type == "runtime_blocked_before_assembly":
+            raw_status = raw_status or "failed"
+            terminal_reason = terminal_reason or str(payload.get("reason") or "runtime_blocked_before_assembly")
         if raw_status in {"completed", "failed", "cancelled"}:
             order_run_status = raw_status
         elif raw_status == "aborted":
@@ -362,9 +391,9 @@ class QueryRuntime:
             "terminal_event_type": event_type,
             "runtime_event_type": runtime_event_type,
         }
-        if task_run_id:
+        if bound_task_run_id:
             self.task_order_registry.sync_runtime_terminal(
-                task_run_id=task_run_id,
+                task_run_id=bound_task_run_id,
                 status=order_run_status,
                 terminal_reason=terminal_reason,
                 diagnostics=diagnostics,
@@ -431,12 +460,79 @@ class QueryRuntime:
             return existing
         if _has_task_order_reference(task_selection, task_order_intent):
             raise ValueError("Task order reference was not found or does not belong to this session.")
+        recovery = self._recover_implicit_task_order_continuation(
+            session_id=session_id,
+            message=message,
+        )
+        if recovery.decision_kind == "selected":
+            recovered = self._existing_task_order_creation(
+                session_id=session_id,
+                task_selection={
+                    "task_order_id": recovery.selected_order_id,
+                    "task_order_run_id": recovery.selected_order_run_id,
+                },
+                task_order_intent={},
+            )
+            if recovered is None:
+                raise ValueError("Recovered task order reference was not found or does not belong to this session.")
+            self._claim_existing_task_order_run(recovered)
+            return self._with_continuation_recovery_metadata(recovered, recovery)
+        if recovery.decision_kind == "clarify":
+            return self._create_task_order_for_turn(
+                session_id=session_id,
+                turn_id=turn_id,
+                message=message,
+                task_selection={
+                    **dict(task_selection or {}),
+                    "task_continuation_recovery": recovery.to_dict(),
+                },
+                task_order_intent={
+                    **dict(task_order_intent or {}),
+                    "continuation_recovery": recovery.to_dict(),
+                    "action": "clarify_task_continuation",
+                },
+            )
         return self._create_task_order_for_turn(
             session_id=session_id,
             turn_id=turn_id,
             message=message,
             task_selection=task_selection,
             task_order_intent=task_order_intent,
+        )
+
+    def _recover_implicit_task_order_continuation(
+        self,
+        *,
+        session_id: str,
+        message: str,
+    ) -> TaskContinuationRecoveryDecision:
+        return recover_task_order_continuation(
+            message=message,
+            session_orders=self.task_run_loop.state_index.list_session_task_orders(session_id),
+            session_runs=self.task_run_loop.state_index.list_session_task_order_runs(session_id),
+        )
+
+    @staticmethod
+    def _with_continuation_recovery_metadata(
+        creation: TaskOrderCreation,
+        recovery: TaskContinuationRecoveryDecision,
+    ) -> TaskOrderCreation:
+        return TaskOrderCreation(
+            conversation_turn=ConversationTurn(
+                **{
+                    **creation.conversation_turn.to_dict(),
+                    "metadata": {
+                        **dict(creation.conversation_turn.metadata or {}),
+                        "task_continuation_recovery": recovery.to_dict(),
+                    },
+                }
+            ),
+            intent_decision=creation.intent_decision,
+            order=creation.order,
+            order_run=creation.order_run,
+            execution_channel=creation.execution_channel,
+            envelope=creation.envelope,
+            draft=creation.draft,
         )
 
     def _claim_existing_task_order_run(self, creation: TaskOrderCreation) -> None:
@@ -764,4 +860,30 @@ def _has_task_order_reference(
             "task_execution_envelope_id",
         )
     )
+
+
+def _task_selection_for_runtime(
+    *,
+    request_task_selection: dict[str, Any],
+    task_order_creation: TaskOrderCreation,
+    turn_id: str,
+) -> dict[str, Any]:
+    order_projection = {}
+    if task_order_creation.order is not None:
+        order_projection = dict(
+            dict(task_order_creation.order.input_contract or {}).get("task_selection_projection")
+            or {}
+        )
+    envelope_projection = {}
+    if task_order_creation.envelope is not None:
+        envelope_projection = dict(
+            dict(task_order_creation.envelope.context_package or {}).get("task_selection_projection")
+            or {}
+        )
+    return {
+        **order_projection,
+        **envelope_projection,
+        **dict(request_task_selection or {}),
+        "turn_id": turn_id,
+    }
 

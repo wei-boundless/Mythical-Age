@@ -1,9 +1,13 @@
 "use client";
 
 import {
+  ChevronDown,
+  ChevronRight,
   CircleDot,
   Code2,
+  File,
   FileCode2,
+  Folder,
   FolderOpen,
   Globe2,
   MessageSquare,
@@ -11,14 +15,15 @@ import {
   PanelRightOpen,
   MonitorDot,
   Plus,
+  RefreshCw,
   Save,
   Trash2,
 } from "lucide-react";
-import { useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 
 import { TaskMonitorDock } from "@/components/layout/TaskMonitorDock";
-import { RuntimeMonitorDetailView } from "@/components/layout/RuntimeMonitorDetailView";
-import { VibeCodingView } from "@/components/workspace/views/VibeCodingView";
+import { CodeEnvironmentView } from "@/components/workspace/views/CodeEnvironmentView";
+import type { CodeEnvironmentTreeNode } from "@/lib/api";
 import { useAppStore } from "@/lib/store";
 
 type RightPanel = "monitor" | "coding" | "browser" | "details";
@@ -103,38 +108,58 @@ function ResizeHandle({
   );
 }
 
+function WorkbenchProjectTreeNode({ node }: { node: CodeEnvironmentTreeNode }) {
+  const directory = node.kind === "directory";
+  const [expanded, setExpanded] = useState(false);
+  const hasChildren = directory && node.children.length > 0;
+  return (
+    <li>
+      <button
+        aria-expanded={hasChildren ? expanded : undefined}
+        className={directory ? "workbench-project-tree-row workbench-project-tree-row--directory" : "workbench-project-tree-row"}
+        onClick={() => {
+          if (hasChildren) setExpanded((value) => !value);
+        }}
+        style={{ "--tree-depth": node.depth } as CSSProperties}
+        title={node.path || node.name}
+        type="button"
+      >
+        {hasChildren ? (expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />) : <span className="workbench-project-tree-row__spacer" />}
+        {directory ? (expanded ? <FolderOpen size={13} /> : <Folder size={13} />) : <File size={13} />}
+        <span>{node.name}</span>
+        {node.truncated ? <small>截断</small> : null}
+      </button>
+      {hasChildren && expanded ? (
+        <ul>
+          {node.children.map((child) => (
+            <WorkbenchProjectTreeNode key={`${child.kind}:${child.path}`} node={child} />
+          ))}
+        </ul>
+      ) : null}
+    </li>
+  );
+}
+
 function WorkspaceManagerPanel() {
-  const [loadedProjectLabel, setLoadedProjectLabel] = useState("");
   const {
     currentSessionId,
     inspectorDirty,
     sessions,
     createNewSession,
+    refreshWorkspaceTree,
     removeSession,
     saveInspector,
     selectSession,
     workspaceContext,
+    workspaceTree,
+    workspaceTreeError,
+    workspaceTreeLoading,
   } = useAppStore();
   const visibleSessions = [...sessions].sort((a, b) => b.updated_at - a.updated_at);
   const currentSession = sessions.find((session) => session.id === currentSessionId) ?? null;
   const projectName = workspaceContext?.project_name || "当前工作区";
   const projectRoot = workspaceContext?.project_root || "未加载项目根";
-
-  async function handleLoadProject() {
-    const picker = (window as unknown as {
-      showDirectoryPicker?: () => Promise<{ name?: string }>;
-    }).showDirectoryPicker;
-    if (!picker) {
-      setLoadedProjectLabel("当前浏览器暂不支持目录选择");
-      return;
-    }
-    try {
-      const directory = await picker();
-      setLoadedProjectLabel(directory.name ? `已选择 ${directory.name}` : "已选择项目目录");
-    } catch {
-      setLoadedProjectLabel("");
-    }
-  }
+  const projectTreeNodes = workspaceTree?.tree.children || [];
 
   return (
     <aside className="workbench-resource-panel" aria-label="工作区管理">
@@ -155,45 +180,71 @@ function WorkspaceManagerPanel() {
             <strong>{projectName}</strong>
             <small title={projectRoot}>{projectRoot}</small>
           </div>
-          <button onClick={() => void handleLoadProject()} type="button">
-            <FolderOpen size={14} />
-            <span>加载项目</span>
+          <button disabled={workspaceTreeLoading} onClick={() => void refreshWorkspaceTree()} type="button">
+            <RefreshCw size={14} />
+            <span>刷新</span>
           </button>
         </div>
-        {loadedProjectLabel ? <p className="workbench-project-context__notice">{loadedProjectLabel}</p> : null}
       </section>
 
-      <section className="workbench-session-panel" aria-label="对话记录">
-        <div className="workbench-session-toolbar">
-          <div>
-            <strong>对话</strong>
-            <span>{currentSession?.title || "未选择"}</span>
+      <div className="workbench-left-body">
+        <section className="workbench-file-tree" aria-label="项目文件">
+          <div className="workbench-file-tree__head">
+            <div>
+              <strong>项目文件</strong>
+              <span>{workspaceTree ? `${workspaceTree.total_entries} 项` : workspaceTreeLoading ? "加载中" : "未加载"}</span>
+            </div>
+            <FolderOpen size={15} />
           </div>
-          <button aria-label="新会话" onClick={() => void createNewSession()} type="button">
-            <Plus size={15} />
-            <span>新建</span>
-          </button>
-        </div>
-        <div className="workbench-session-list">
-          {visibleSessions.length ? visibleSessions.map((session) => (
-            <div className={session.id === currentSessionId ? "workbench-session-row workbench-session-row--active" : "workbench-session-row"} key={session.id}>
-              <button aria-current={session.id === currentSessionId ? "page" : undefined} onClick={() => void selectSession(session.id)} type="button">
-                <strong>{session.title || "未命名会话"}</strong>
-                <small>{session.message_count} · {formatSessionTime(session.updated_at)}</small>
-              </button>
-              <button aria-label={`删除 ${session.title}`} onClick={() => void removeSession(session.id)} type="button">
-                <Trash2 size={13} />
-              </button>
+          <div className="workbench-project-file-list">
+            {workspaceTreeError ? <div className="workbench-tree-state workbench-tree-state--error">{workspaceTreeError}</div> : null}
+            {workspaceTreeLoading && !workspaceTree ? <div className="workbench-tree-state">正在读取项目目录。</div> : null}
+            {!workspaceTreeLoading && !workspaceTreeError && workspaceTree && !projectTreeNodes.length ? (
+              <div className="workbench-tree-state">未发现可显示文件。</div>
+            ) : null}
+            {projectTreeNodes.length ? (
+              <ul className="workbench-project-tree">
+                {projectTreeNodes.map((node) => (
+                  <WorkbenchProjectTreeNode key={`${node.kind}:${node.path}`} node={node} />
+                ))}
+              </ul>
+            ) : null}
+            {workspaceTree?.truncated ? <div className="workbench-tree-state">文件较多，已显示前 {workspaceTree.max_entries} 项。</div> : null}
+          </div>
+        </section>
+
+        <section className="workbench-session-panel" aria-label="对话记录">
+          <div className="workbench-session-toolbar">
+            <div>
+              <strong>对话</strong>
+              <span>{currentSession?.title || "未选择"}</span>
             </div>
-          )) : (
-            <div className="workbench-empty-state">
-              <MessageSquare size={18} />
-              <strong>还没有对话</strong>
-              <span>新建后开始</span>
-            </div>
-          )}
-        </div>
-      </section>
+            <button aria-label="新会话" onClick={() => void createNewSession()} type="button">
+              <Plus size={15} />
+              <span>新建</span>
+            </button>
+          </div>
+          <div className="workbench-session-list">
+            {visibleSessions.length ? visibleSessions.map((session) => (
+              <div className={session.id === currentSessionId ? "workbench-session-row workbench-session-row--active" : "workbench-session-row"} key={session.id}>
+                <button aria-current={session.id === currentSessionId ? "page" : undefined} onClick={() => void selectSession(session.id)} type="button">
+                  <strong>{session.title || "未命名会话"}</strong>
+                  <small>{session.message_count} · {formatSessionTime(session.updated_at)}</small>
+                </button>
+                <button aria-label={`删除 ${session.title}`} onClick={() => void removeSession(session.id)} type="button">
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            )) : (
+              <div className="workbench-empty-state">
+                <MessageSquare size={18} />
+                <strong>还没有对话</strong>
+                <span>新建后开始</span>
+              </div>
+            )}
+          </div>
+        </section>
+      </div>
     </aside>
   );
 }
@@ -293,11 +344,9 @@ function FileInspectorPanel() {
 
 function RightToolPanel({
   activePanel,
-  onOpenMonitorDetail,
   onPanelChange,
 }: {
   activePanel: RightPanel;
-  onOpenMonitorDetail: () => void;
   onPanelChange: (panel: RightPanel) => void;
 }) {
   return (
@@ -323,8 +372,8 @@ function RightToolPanel({
         </button>
       </div>
       <div className="workbench-right-body">
-        {activePanel === "monitor" ? <TaskMonitorDock embedded onOpenTaskDetail={onOpenMonitorDetail} /> : null}
-        {activePanel === "coding" ? <VibeCodingView embedded /> : null}
+        {activePanel === "monitor" ? <TaskMonitorDock embedded /> : null}
+        {activePanel === "coding" ? <CodeEnvironmentView embedded /> : null}
         {activePanel === "browser" ? <BrowserPanel /> : null}
         {activePanel === "details" ? <FileInspectorPanel /> : null}
       </div>
@@ -336,7 +385,6 @@ export function WorkbenchShell({ children }: { children: ReactNode }) {
   const { inspectorWidth, setInspectorWidth, setSidebarWidth, sidebarWidth } = useAppStore();
   const [rightPanel, setRightPanel] = useState<RightPanel>("monitor");
   const [rightCollapsed, setRightCollapsed] = useState(false);
-  const [centerMode, setCenterMode] = useState<"workspace" | "monitor-detail">("workspace");
   usePersistedWorkbenchWidths();
 
   const effectiveLeftWidth = clamp(sidebarWidth, 220, 420);
@@ -354,9 +402,7 @@ export function WorkbenchShell({ children }: { children: ReactNode }) {
       <section className="workbench-center" aria-label="主工作区">
         <MainToolbar onToggleRightPanel={() => setRightCollapsed((value) => !value)} rightPanelCollapsed={rightCollapsed} />
         <div className="workbench-center-content">
-          {centerMode === "monitor-detail" ? (
-            <RuntimeMonitorDetailView onClose={() => setCenterMode("workspace")} />
-          ) : children}
+          {children}
         </div>
       </section>
       {rightCollapsed ? null : (
@@ -365,7 +411,6 @@ export function WorkbenchShell({ children }: { children: ReactNode }) {
       {rightCollapsed ? null : (
         <RightToolPanel
           activePanel={rightPanel}
-          onOpenMonitorDetail={() => setCenterMode("monitor-detail")}
           onPanelChange={setRightPanel}
         />
       )}

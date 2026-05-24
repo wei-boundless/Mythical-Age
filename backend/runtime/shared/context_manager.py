@@ -7,7 +7,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Callable
 
 from .action_request import RuntimeObservation
-from runtime.context_management import microcompact_history
+from runtime.context_management import build_tool_use_summary, estimate_json_bytes, microcompact_history
 
 
 SystemPromptBuilder = Callable[..., str]
@@ -134,6 +134,12 @@ class RuntimeContextManager:
             "content_replacements": [],
         }
         normalized_history_list = _normalize_history(history)
+        token_pressure = _token_pressure(context_policy_result)
+        token_pressure = _merge_actual_history_pressure(
+            token_pressure,
+            history=normalized_history_list,
+            pending_user_message=user_message,
+        )
         if assembly_policy.get("main_session_history") != "full":
             normalized_history_list = []
         else:
@@ -182,7 +188,7 @@ class RuntimeContextManager:
             history_message_count=history_message_count,
             pending_user_message_chars=len(pending),
             system_prompt_chars=len(runtime_prompt),
-            token_pressure=_token_pressure(context_policy_result),
+            token_pressure=token_pressure,
             prompt_source_report=_prompt_source_report(
                 stage_projection_snapshot=stage_projection_snapshot,
                 context_policy_result=context_policy_result,
@@ -198,6 +204,7 @@ class RuntimeContextManager:
                 "model_message_count": len(model_messages),
                 "compression_applied": bool(history_compaction.get("applied") is True),
                 "history_compaction": history_compaction,
+                "context_compactor_agent_required": str(token_pressure.get("pressure_level") or "normal") in {"high", "critical"},
                 "tool_result_pairing_checked": False,
                 "stage_projection_consumed": bool(stage_projection_snapshot is not None),
                 "prompt_manifest_bound": bool(prompt_manifest_ref),
@@ -219,11 +226,14 @@ class RuntimeContextManager:
         worker_result observations will use before a next_turn model call.
         """
 
+        tool_summary = build_tool_use_summary(observation)
         context_update = {
             "mode": "no_followup_required" if not observation.needs_model_followup else "append_for_next_turn",
             "content_chars": observation.content_chars,
             "observation_type": observation.observation_type,
         }
+        if tool_summary is not None:
+            context_update["tool_use_summary"] = tool_summary.to_dict()
         return RuntimeContextObservationRecord(
             record_id=f"ctxobs:{observation.observation_id}",
             task_run_id=observation.task_run_id,
@@ -236,6 +246,7 @@ class RuntimeContextManager:
                 "context_owner": "RuntimeContextManager",
                 "tool_result_pairing_checked": False,
                 "next_turn_required": observation.needs_model_followup,
+                "tool_use_summary_built": tool_summary is not None,
             },
         )
 
@@ -495,11 +506,11 @@ def _render_agent_delegation_guidance_block(runtime_assembly: dict[str, Any] | N
     return "\n".join(
         [
             "## 专业子 Agent 调度方式",
-            "你是主 Agent。遇到需要专业证据、PDF 阅读、表格分析、公开网页核验或交付复核的问题时，可以把边界清楚的子任务交给内置专业子 Agent，自己负责最终整合和回答。",
+            "你是主 Agent。遇到需要专业证据、PDF 阅读、表格分析、多源搜索核验或交付复核的问题时，可以把边界清楚的子任务交给内置专业子 Agent，自己负责最终整合和回答。",
             "- `agent:rag_analyst` / `evidence_lookup`：适合从知识库或检索证据中找依据、出处和可引用片段。",
             "- `agent:pdf_reader` / `pdf_reading`：适合读取明确的 PDF、指定页码、章节或全文总览。",
             "- `agent:table_analyst` / `table_analysis`：适合 Excel、CSV、数据表的筛选、排序、分组汇总、缺口计算和口径说明。",
-            "- `agent:web_researcher` / `web_research`：适合公开网页检索、最新信息、官方来源核验、多来源比较和外部证据整理。",
+            "- `agent:web_researcher` / `web_research` / `evidence_lookup` / `local_search` / `memory_lookup`：适合按配置检索公开网页、本地文件、知识库和正式记忆，并整理可追溯证据。",
             "- `agent:verifier` / `completion_verification`：适合在已有候选回答、产物或证据后，独立检查是否覆盖用户目标、是否有无证据声明、是否需要返工。",
             "委派时请像给专业同事派任务一样，把目标对象、文件路径、页码、数据口径、查询主题、时效要求、来源范围和用户真正要的输出一次说明清楚。",
             "子 Agent 的结果是专业证据包或复核意见，不是最终回复。你需要根据它的摘要、证据引用、产物引用、裁决和限制说明，给用户一个清楚、诚实、可继续推进的答案。",
@@ -616,6 +627,36 @@ def _render_context_policy_block(context_policy_result: dict[str, Any] | None) -
             *lines,
         ]
     )
+
+
+def _merge_actual_history_pressure(
+    token_pressure: dict[str, Any],
+    *,
+    history: list[dict[str, str]],
+    pending_user_message: str,
+    high_bytes: int = 120_000,
+    critical_bytes: int = 220_000,
+) -> dict[str, Any]:
+    actual_bytes = estimate_json_bytes({"history": history, "pending_user_message": pending_user_message})
+    upstream = str(token_pressure.get("pressure_level") or "normal")
+    actual = "normal"
+    if actual_bytes >= critical_bytes:
+        actual = "critical"
+    elif actual_bytes >= high_bytes:
+        actual = "high"
+    merged = _max_pressure(upstream, actual)
+    return {
+        **dict(token_pressure),
+        "pressure_level": merged,
+        "actual_context_bytes": actual_bytes,
+        "actual_pressure_level": actual,
+        "pressure_source": "actual_history" if merged != upstream else "context_policy",
+    }
+
+
+def _max_pressure(first: str, second: str) -> str:
+    order = {"normal": 0, "medium": 1, "high": 2, "critical": 3}
+    return first if order.get(str(first or "normal"), 0) >= order.get(str(second or "normal"), 0) else second
 
 
 def _context_package_allows_hot_truth_prompt(package: dict[str, Any]) -> bool:

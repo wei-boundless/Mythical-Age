@@ -146,7 +146,7 @@ _PROFILES: dict[str, TaskGoalProfile] = {
         strategy_prototype_id="code_change_execution",
         professional_profile_id="professional.code_fix_execution",
         validator_profile_id="deliverable.implementation",
-        material_policy={"runtime_mode": "vibe_coding"},
+        material_policy={"evidence_packet_required": True},
     ),
     "verification": TaskGoalProfile(
         task_domain="development",
@@ -242,7 +242,7 @@ _PROFILES: dict[str, TaskGoalProfile] = {
         strategy_prototype_id="code_change_execution",
         professional_profile_id="professional.code_fix_execution",
         validator_profile_id="deliverable.code_fix_execution",
-        material_policy={"runtime_mode": "vibe_coding"},
+        material_policy={"evidence_packet_required": True},
     ),
     "regression_test_design": TaskGoalProfile(
         task_domain="development",
@@ -257,7 +257,7 @@ _PROFILES: dict[str, TaskGoalProfile] = {
         forbidden_actions=_COMMON_FORBIDDEN,
         professional_profile_id="professional.regression_test_design",
         validator_profile_id="deliverable.regression_test_design",
-        material_policy={"runtime_mode": "vibe_coding"},
+        material_policy={"evidence_packet_required": True},
     ),
     "artifact_delivery": TaskGoalProfile(
         task_domain="general",
@@ -335,6 +335,6 @@ _PROFILES: dict[str, TaskGoalProfile] = {
         strategy_prototype_id="frontend_app_delivery",
         professional_profile_id="professional.frontend_app_delivery",
         validator_profile_id="deliverable.frontend_app_delivery",
-        material_policy={"runtime_mode": "vibe_coding", "stage_prompt_profiles_required": True},
+        material_policy={"stage_prompt_profiles_required": True},
     ),
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowUp, Circle, GitBranch, Network, Sparkles, Workflow } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { CoordinationTopologyGraph, type CoordinationTopologyEdge, type CoordinationTopologyNode } from "@/components/coordination/CoordinationTopologyGraph";
@@ -24,6 +24,12 @@ import {
   type CenterWorkspaceLayer,
 } from "./centerWorkspaceHelpers";
 
+const GRAPH_PANEL_WIDTH_KEY = "centerWorkspace.taskGraph.leftPanelRatio";
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
 export function CenterWorkspaceView() {
   const {
     bindTaskGraphMonitorRun,
@@ -43,6 +49,9 @@ export function CenterWorkspaceView() {
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState("");
   const [runMonitor, setRunMonitor] = useState<TaskGraphRunMonitorView | null>(null);
+  const [selectedNodeId, setSelectedNodeId] = useState("");
+  const [graphPanelRatio, setGraphPanelRatio] = useState(0.68);
+  const graphBodyRef = useRef<HTMLDivElement | null>(null);
 
   const taskGraphs = useMemo(() => listCenterWorkspaceTaskGraphs(overview), [overview]);
   const taskDomains = useMemo(() => {
@@ -128,6 +137,44 @@ export function CenterWorkspaceView() {
   }, [activeMonitor?.topology?.edges, graphDefinitionEdges]);
   const informationItems = useMemo(() => buildCenterWorkspaceInformationItems(activeMonitor), [activeMonitor]);
   const activeNodeId = textValue(activeMonitor?.runtime?.active_node_id, selectedGraph?.entry_node_id || "");
+  const focusedNodeId = selectedNodeId || activeNodeId;
+
+  useEffect(() => {
+    const saved = Number(window.localStorage.getItem(GRAPH_PANEL_WIDTH_KEY));
+    if (Number.isFinite(saved) && saved > 0) {
+      setGraphPanelRatio(clamp(saved, 0.45, 0.82));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!focusedNodeId) return;
+    const element = document.getElementById(`center-node-output-${cssId(focusedNodeId)}`);
+    element?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [focusedNodeId]);
+
+  function handleGraphPanelResize(event: ReactPointerEvent<HTMLDivElement>) {
+    const container = graphBodyRef.current;
+    if (!container) return;
+    event.preventDefault();
+    const startX = event.clientX;
+    const startRatio = graphPanelRatio;
+    let latestRatio = startRatio;
+    const rect = container.getBoundingClientRect();
+    const pointerId = event.pointerId;
+    event.currentTarget.setPointerCapture(pointerId);
+    const move = (moveEvent: PointerEvent) => {
+      const nextRatio = clamp(startRatio + (moveEvent.clientX - startX) / Math.max(1, rect.width), 0.45, 0.82);
+      latestRatio = nextRatio;
+      setGraphPanelRatio(nextRatio);
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.localStorage.setItem(GRAPH_PANEL_WIDTH_KEY, String(latestRatio));
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -266,7 +313,11 @@ export function CenterWorkspaceView() {
         </div>
       ) : (
         <div className="center-workspace__graph-layer">
-          <div className="center-workspace__graph-body">
+          <div
+            className="center-workspace__graph-body"
+            ref={graphBodyRef}
+            style={{ gridTemplateColumns: `minmax(0, ${graphPanelRatio}fr) 8px minmax(160px, ${1 - graphPanelRatio}fr)` }}
+          >
             <section className="center-workspace__structure" aria-label="任务结构">
               <header className="center-workspace__panel-head">
                 <div>
@@ -307,6 +358,8 @@ export function CenterWorkspaceView() {
                       emptyDescription="当前具体任务没有可渲染的节点和边。"
                       emptyTitle="当前任务没有拓扑"
                       nodes={topologyNodes}
+                      onSelectNode={(nodeId) => setSelectedNodeId(nodeId)}
+                      selectedNodeId={focusedNodeId}
                       viewportPadding={32}
                     />
                   </div>
@@ -322,10 +375,17 @@ export function CenterWorkspaceView() {
               <div className="center-workspace__selected-graph-id">{selectedGraph ? selectedGraph.graph_id : "未绑定任务图"}</div>
             </section>
 
+            <div
+              aria-label="调整拓扑和节点输出宽度"
+              className="center-workspace__graph-resize"
+              onPointerDown={handleGraphPanelResize}
+              role="separator"
+            />
+
             <section className="center-workspace__monitor" aria-label="任务图运行视图">
               <header className="center-workspace__panel-head center-workspace__panel-head--monitor">
                 <div>
-                  <span>运行信息流</span>
+                  <span>节点输出</span>
                   <strong>{activeMonitor ? "实时监控" : "等待运行"}</strong>
                 </div>
               <div className="center-workspace__panel-meta">
@@ -335,7 +395,15 @@ export function CenterWorkspaceView() {
               </header>
               <div className="center-workspace__info-stream">
                 {informationItems.length ? informationItems.map((item) => (
-                  <article className={`center-workspace__info-item center-workspace__info-item--${item.level}`} key={item.id}>
+                  <article
+                    className={[
+                      `center-workspace__info-item center-workspace__info-item--${item.level}`,
+                      item.nodeId && item.nodeId === focusedNodeId ? "center-workspace__info-item--selected" : "",
+                    ].filter(Boolean).join(" ")}
+                    id={item.nodeId ? `center-node-output-${cssId(item.nodeId)}` : undefined}
+                    key={item.id}
+                    onClick={() => item.nodeId ? setSelectedNodeId(item.nodeId) : undefined}
+                  >
                     <span>{item.label}</span>
                     <strong>{item.title}</strong>
                     {item.body ? <p>{item.body}</p> : null}
@@ -344,7 +412,7 @@ export function CenterWorkspaceView() {
                   <div className="center-workspace__monitor-empty">
                     <Network size={20} />
                     <strong>{selectedGraph ? "等待运行输出" : "先选择一个任务"}</strong>
-                    <span>{selectedGraph ? "运行后这里显示模型输出、事件和产物摘要。" : "先在底部选择任务域和具体任务。"}</span>
+                    <span>{selectedGraph ? "运行后这里显示各节点的输出、结果引用和产物。" : "先在底部选择任务域和具体任务。"}</span>
                   </div>
                 )}
               </div>
@@ -437,6 +505,7 @@ type CenterWorkspaceInformationItem = {
   title: string;
   body: string;
   level: "normal" | "warning" | "error" | "success";
+  nodeId?: string;
 };
 
 function buildCenterWorkspaceInformationItems(monitor: TaskGraphRunMonitorView | null): CenterWorkspaceInformationItem[] {
@@ -451,37 +520,51 @@ function buildCenterWorkspaceInformationItems(monitor: TaskGraphRunMonitorView |
       title: textValue(failure.code) || "运行异常",
       body: failureMessage,
       level: "error",
+      nodeId: textValue(failure.stage_id || failure.step_id),
     });
   }
-  const streaming = monitor.streaming;
-  const streamPreview = textValue(streaming?.preview_text);
-  if (streamPreview) {
-    items.push({
-      id: "streaming-preview",
-      label: "模型输出",
-      title: `${Number(streaming?.accumulated_chars || 0)} 字`,
-      body: streamPreview,
-      level: "normal",
-    });
+  const resultsByNode = new Map((monitor.stage_results || []).map((result) => [textValue(result.node_id), recordValue(result)]));
+  const artifactsByNode = new Map<string, string[]>();
+  for (const artifact of monitor.artifacts || []) {
+    const producerNodeId = textValue(artifact.producer_node_id);
+    const artifactRef = textValue(artifact.artifact_ref || artifact.path || artifact.ref);
+    if (!producerNodeId || !artifactRef) continue;
+    artifactsByNode.set(producerNodeId, [...(artifactsByNode.get(producerNodeId) || []), artifactRef]);
   }
-  for (const [index, event] of [...(monitor.timeline?.recent_events || [])].reverse().slice(0, 8).entries()) {
-    const eventType = textValue(event.event_type || event.type || event.kind, "运行事件");
-    const payload = recordValue(event.payload);
-    items.push({
-      id: `event:${textValue(event.event_id) || index}`,
-      label: "事件",
-      title: eventType,
-      body: textValue(payload.message || payload.summary || payload.reason || payload.error || event.title || event.status),
-      level: eventType.includes("error") || textValue(payload.error) ? "error" : eventType.includes("completed") ? "success" : "normal",
-    });
+  const timelineResultByNode = new Map<string, Record<string, unknown>>();
+  for (const record of monitor.timeline_result_records || []) {
+    const item = recordValue(record);
+    const nodeId = textValue(item.node_id || item.stage_id || item.producer_node_id);
+    if (nodeId) timelineResultByNode.set(nodeId, item);
   }
-  for (const [index, artifact] of [...(monitor.artifacts || [])].reverse().slice(0, 4).entries()) {
+  const activeNodeId = textValue(monitor.runtime?.active_node_id);
+  const streamPreview = textValue(monitor.streaming?.preview_text);
+  for (const node of monitor.topology?.nodes || []) {
+    const nodeId = textValue(node.node_id);
+    if (!nodeId) continue;
+    const result = resultsByNode.get(nodeId) || {};
+    const timelineResult = timelineResultByNode.get(nodeId) || recordValue(result.timeline_result_record);
+    const artifactRefs = [
+      ...arrayTextValue(result.artifact_refs),
+      ...(artifactsByNode.get(nodeId) || []),
+    ];
+    const workingMemoryRefs = arrayTextValue(result.working_memory_refs);
+    const taskResultRef = textValue(result.task_result_ref || result.agent_run_result_ref || timelineResult.result_ref || timelineResult.artifact_ref);
+    const accepted = result.accepted === true || timelineResult.accepted === true;
+    const status = textValue(node.status || result.status, nodeId === activeNodeId ? "running" : "pending");
+    const bodyParts = [
+      nodeId === activeNodeId && streamPreview ? streamPreview : "",
+      taskResultRef ? `结果 ${taskResultRef}` : "",
+      artifactRefs.length ? `产物 ${artifactRefs.slice(-3).join(", ")}` : "",
+      workingMemoryRefs.length ? `记忆 ${workingMemoryRefs.slice(-3).join(", ")}` : "",
+    ].filter(Boolean);
     items.push({
-      id: `artifact:${textValue(artifact.artifact_ref || artifact.path || artifact.ref) || index}`,
-      label: "产物",
-      title: textValue(artifact.title || artifact.label || artifact.artifact_ref || artifact.path, "产物引用"),
-      body: textValue(artifact.path || artifact.ref || artifact.producer_node_id),
-      level: "success",
+      id: `node:${nodeId}`,
+      label: "节点",
+      title: textValue(node.title, nodeId),
+      body: bodyParts.join("\n"),
+      level: status === "failed" ? "error" : accepted || status === "completed" ? "success" : status === "running" ? "warning" : "normal",
+      nodeId,
     });
   }
   return items.slice(0, 12);
@@ -494,4 +577,12 @@ function recordValue(value: unknown): Record<string, unknown> {
 function textValue(value: unknown, fallback = "") {
   const next = String(value ?? "").trim();
   return next || fallback;
+}
+
+function arrayTextValue(value: unknown) {
+  return Array.isArray(value) ? value.map((item) => textValue(item)).filter(Boolean) : [];
+}
+
+function cssId(value: string) {
+  return value.replace(/[^a-zA-Z0-9_-]+/g, "_");
 }

@@ -11,7 +11,7 @@ AGENT_SOURCE_CLASS = {
     "agent:rag_analyst": "rag",
     "agent:pdf_reader": "document",
     "agent:table_analyst": "data",
-    "agent:web_researcher": "web",
+    "agent:web_researcher": "general",
     "agent:verifier": "general",
 }
 

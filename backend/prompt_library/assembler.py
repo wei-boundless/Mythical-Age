@@ -468,12 +468,9 @@ def _mode_policy_section(
         lines.append("请在当前回合内用有限工具解决明确问题，结论必须说明真实依据和限制。")
     elif interaction_mode == "professional_mode":
         lines.append("请以专业任务职责和语义契约为最高优先级推进，不要引入角色投影、灵魂设定或人格包袱来覆盖交付物和验证要求。")
-    elif interaction_mode == "vibe_coding":
-        lines.append(
-            "你是一名代码任务执行 Agent。请先理解项目结构和相关文件职责，再做必要、可维护的真实修改；"
-            "修改后需要运行测试、构建、浏览器检查或给出无法验证的真实限制。"
-        )
-        lines.append("最终回答必须基于真实变更、差异、命令或浏览器证据收口，不要把实现计划写成已完成结果。")
+        if action_intent in {"edit_workspace", "run_command", "start_service", "use_browser"} or work_mode in {"implementation", "verification"}:
+            lines.append("当专业任务涉及代码、命令或浏览器验证时，需要先理解项目结构和相关文件职责，再做必要、可维护的真实修改或检查。")
+            lines.append("最终回答必须基于真实变更、差异、命令或浏览器证据收口，不要把实现计划写成已完成结果。")
     if bool(tool_policy.get("requires_evidence_packet")):
         lines.append("工具或委派观察必须先沉淀为证据包，再进入最终结论。")
     if bool(verification_policy.get("deliverable_validator")):

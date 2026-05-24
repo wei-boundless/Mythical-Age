@@ -7,6 +7,7 @@ import type { StoreState } from "./types";
 
 const api = vi.hoisted(() => ({
   createSession: vi.fn(),
+  getCodeEnvironmentWorkspaceTree: vi.fn(),
   getGlobalRuntimeMonitor: vi.fn(),
   getModelProviderConfig: vi.fn(),
   getOrchestrationRuntimeLoopTaskRunLiveMonitor: vi.fn(),
@@ -29,6 +30,7 @@ vi.mock("@/lib/api", () => ({
   deleteSession: vi.fn(),
   evaluateTaskGraphRunMonitor: vi.fn(),
   getCoordinationRunTaskGraphMonitor: vi.fn(),
+  getCodeEnvironmentWorkspaceTree: api.getCodeEnvironmentWorkspaceTree,
   getGlobalRuntimeMonitor: api.getGlobalRuntimeMonitor,
   getRuntimeMonitorEventStreamUrl: vi.fn(() => "http://127.0.0.1:8003/api/orchestration/runtime-loop/monitor-events"),
   getModelProviderConfig: api.getModelProviderConfig,
@@ -77,6 +79,24 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       summary: { total: 0, running: 0, waiting: 0, completed: 0, failed: 0 },
       task_runs: [],
       updated_at: 1,
+    });
+    api.getCodeEnvironmentWorkspaceTree.mockReset();
+    api.getCodeEnvironmentWorkspaceTree.mockResolvedValue({
+      authority: "langchain-agent.code_environment.workspace_tree",
+      root_name: "langchain-agent",
+      root_path: "D:/AI应用/langchain-agent",
+      max_depth: 10,
+      max_entries: 10000,
+      total_entries: 0,
+      truncated: false,
+      tree: {
+        name: "langchain-agent",
+        path: "",
+        kind: "directory",
+        depth: 0,
+        children: [],
+        truncated: false,
+      },
     });
     api.getOrchestrationRuntimeLoopSessionLiveMonitor.mockReset();
     api.getOrchestrationRuntimeLoopSessionLiveMonitor.mockResolvedValue({ monitor: null });

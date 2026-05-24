@@ -8,6 +8,7 @@ import {
   deleteSession,
   getCoordinationRunTaskGraphMonitor,
   getGlobalRuntimeMonitor,
+  getCodeEnvironmentWorkspaceTree,
   getRuntimeMonitorEventStreamUrl,
   getModelProviderConfig,
   getSoulImageAssetConfig,
@@ -23,6 +24,7 @@ import {
   listSessions,
   listSkills,
   resumeOrchestrationTaskGraphRun,
+  rewindOrchestrationFromStage,
   renameSession,
   resolveRuntimeLoopTaskRunApproval,
   saveFile,
@@ -115,6 +117,9 @@ export class WorkspaceRuntime {
       setWorkspaceView: (view) => {
         this.setWorkspaceView(view);
       },
+      refreshWorkspaceTree: async () => {
+        await this.refreshWorkspaceTree();
+      },
       createNewSession: async () => {
         await this.createNewSession();
       },
@@ -192,6 +197,12 @@ export class WorkspaceRuntime {
       },
       evaluateBoundTaskGraphMonitor: async () => {
         await this.evaluateBoundTaskGraphMonitor();
+      },
+      continueBoundTaskGraphRun: async () => {
+        await this.continueBoundTaskGraphRun();
+      },
+      refreshAndContinueBoundTaskGraphRun: async () => {
+        await this.refreshAndContinueBoundTaskGraphRun();
       },
       submitTaskGraphMonitorDecision: async (decision, controlAction, resumePayload) => {
         await this.submitTaskGraphMonitorDecision(decision, controlAction, resumePayload);
@@ -281,6 +292,7 @@ export class WorkspaceRuntime {
     }
 
     void this.loadWorkspaceMetadata().catch(() => undefined);
+    void this.refreshWorkspaceTree().catch(() => undefined);
     void this.loadInspectorMemoryFile().catch(() => undefined);
     this.restoreTaskGraphMonitorBinding();
   }
@@ -1186,6 +1198,29 @@ export class WorkspaceRuntime {
     }));
   }
 
+  private async refreshWorkspaceTree() {
+    this.store.setState((prev) => ({
+      ...prev,
+      workspaceTreeLoading: true,
+      workspaceTreeError: ""
+    }));
+    try {
+      const workspaceTree = await getCodeEnvironmentWorkspaceTree();
+      this.store.setState((prev) => ({
+        ...prev,
+        workspaceTree,
+        workspaceTreeLoading: false,
+        workspaceTreeError: ""
+      }));
+    } catch (error) {
+      this.store.setState((prev) => ({
+        ...prev,
+        workspaceTreeLoading: false,
+        workspaceTreeError: this.errorMessage(error, "无法读取项目文件树。")
+      }));
+    }
+  }
+
   private async loadSouls(): Promise<{ options: SoulSummary[]; activeSoulKey: SoulKey }> {
     const [activeSeed, ...seedFiles] = await Promise.all([
       loadFile(ACTIVE_SOUL_PATH),
@@ -1442,6 +1477,118 @@ export class WorkspaceRuntime {
       }));
     } finally {
       this.store.setState((prev) => ({ ...prev, taskGraphMonitorLoading: false }));
+    }
+  }
+
+  private async continueBoundTaskGraphRun() {
+    const state = this.store.getState();
+    const binding = state.taskGraphMonitorBinding;
+    const coordinationRunId = String(
+      binding?.coordination_run_id
+      || state.taskGraphBoundRunMonitor?.coordination_run_id
+      || ""
+    ).trim();
+    const taskRunId = String(binding?.task_run_id || state.taskGraphBoundRunMonitor?.task_run_id || "").trim();
+    if (!coordinationRunId) {
+      this.store.setState((prev) => ({ ...prev, taskGraphMonitorError: "当前没有可续跑的 CoordinationRun。" }));
+      return;
+    }
+    this.store.setState((prev) => ({ ...prev, taskGraphMonitorActionLoading: true, taskGraphMonitorError: "" }));
+    try {
+      await continueOrchestrationCurrentStage(coordinationRunId, {
+        source: "task_graph_run_manual_continue",
+        current_turn_context: {
+          operator_action: "manual_continue_current_stage",
+          task_run_id: taskRunId,
+        },
+      });
+      if (taskRunId) {
+        const monitor = await getTaskGraphRunMonitor(taskRunId);
+        this.store.setState((prev) => ({
+          ...prev,
+          taskGraphBoundRunMonitor: monitor,
+        }));
+      } else {
+        const monitor = await getCoordinationRunTaskGraphMonitor(coordinationRunId);
+        this.store.setState((prev) => ({
+          ...prev,
+          taskGraphBoundRunMonitor: monitor,
+        }));
+      }
+    } catch (error) {
+      this.store.setState((prev) => ({
+        ...prev,
+        taskGraphMonitorError: error instanceof Error ? error.message : "续跑失败",
+      }));
+    } finally {
+      this.store.setState((prev) => ({ ...prev, taskGraphMonitorActionLoading: false }));
+    }
+  }
+
+  private async refreshAndContinueBoundTaskGraphRun() {
+    const state = this.store.getState();
+    const binding = state.taskGraphMonitorBinding;
+    const monitor = state.taskGraphBoundRunMonitor;
+    const coordinationRunId = String(
+      binding?.coordination_run_id
+      || monitor?.coordination_run_id
+      || ""
+    ).trim();
+    const taskRunId = String(binding?.task_run_id || monitor?.task_run_id || "").trim();
+    const currentRequest = monitor?.current_stage_execution_request && typeof monitor.current_stage_execution_request === "object"
+      ? monitor.current_stage_execution_request
+      : {};
+    const stageId = String(
+      currentRequest.stage_id
+      || monitor?.runtime?.active_node_id
+      || ""
+    ).trim();
+    const artifactRoot = String(monitor?.supervision?.latest_artifact_root || "").trim();
+    if (!coordinationRunId) {
+      this.store.setState((prev) => ({ ...prev, taskGraphMonitorError: "当前没有可刷新快照的 CoordinationRun。" }));
+      return;
+    }
+    if (!stageId) {
+      this.store.setState((prev) => ({ ...prev, taskGraphMonitorError: "当前运行缺少活跃节点，无法刷新快照续跑。" }));
+      return;
+    }
+    this.store.setState((prev) => ({ ...prev, taskGraphMonitorActionLoading: true, taskGraphMonitorError: "" }));
+    try {
+      await rewindOrchestrationFromStage(coordinationRunId, {
+        stage_id: stageId,
+        reason: "refresh_running_graph_snapshot",
+        source: "task_graph_run_refresh_snapshot_continue",
+        artifact_root: artifactRoot,
+        include_downstream: true,
+        move_artifacts: false,
+        refresh_graph_spec: true,
+        continue_after_rewind: true,
+        current_turn_context: {
+          operator_action: "refresh_running_graph_snapshot_continue",
+          task_run_id: taskRunId,
+          artifact_root: artifactRoot,
+        },
+      });
+      if (taskRunId) {
+        const nextMonitor = await getTaskGraphRunMonitor(taskRunId);
+        this.store.setState((prev) => ({
+          ...prev,
+          taskGraphBoundRunMonitor: nextMonitor,
+        }));
+      } else {
+        const nextMonitor = await getCoordinationRunTaskGraphMonitor(coordinationRunId);
+        this.store.setState((prev) => ({
+          ...prev,
+          taskGraphBoundRunMonitor: nextMonitor,
+        }));
+      }
+    } catch (error) {
+      this.store.setState((prev) => ({
+        ...prev,
+        taskGraphMonitorError: error instanceof Error ? error.message : "刷新快照续跑失败",
+      }));
+    } finally {
+      this.store.setState((prev) => ({ ...prev, taskGraphMonitorActionLoading: false }));
     }
   }
 

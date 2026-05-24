@@ -2962,6 +2962,24 @@ class TaskRunLoop:
                 yield {"type": "runtime_loop_event", "event": degraded_event.to_dict()}
             except Exception:
                 pass
+        if continuation_payload:
+            async for event in self._continue_coordination_delivery_stream(
+                session_id=session_id,
+                history=history,
+                source=source,
+                agent_runtime_chain=agent_runtime_chain,
+                model_response_executor=model_response_executor,
+                runtime_context_manager=runtime_context_manager,
+                stage_projection_cycle=stage_projection_cycle,
+                memory_intent=memory_intent,
+                assistant_message_committer=assistant_message_committer,
+                tool_runtime_executor=tool_runtime_executor,
+                tool_instances=tool_instances,
+                agent_runtime_profile=agent_runtime_profile,
+                continuation_payload=continuation_payload,
+            ):
+                yield event
+            return
         yield done_event
         return
 
@@ -5313,12 +5331,11 @@ def _recipe_requires_model_finalize(selected_recipe: ExecutionRecipe) -> bool:
 def _is_professional_task_run_recipe(selected_recipe_payload: dict[str, Any]) -> bool:
     payload = dict(selected_recipe_payload or {})
     metadata = dict(payload.get("metadata") or {})
-    interaction_modes = {"role_mode", "standard_mode", "professional_mode", "vibe_coding"}
+    interaction_modes = {"role_mode", "standard_mode", "professional_mode"}
     interaction_recipe_ids = {
         "runtime.recipe.role_interaction",
         "runtime.recipe.standard_task",
         "runtime.recipe.professional_task",
-        "runtime.recipe.vibe_coding",
     }
     return (
         str(payload.get("recipe_id") or "").strip()

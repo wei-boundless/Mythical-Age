@@ -116,22 +116,22 @@ def test_standard_mode_is_bounded_tool_task_without_delegation() -> None:
     assert payload["verification_policy"]["required"] is True
 
 
-def test_vibe_coding_alias_selects_project_owned_coding_mode() -> None:
+def test_code_alias_selects_professional_mode() -> None:
     policy = build_runtime_interaction_mode_policy(
         task_requirement_contract={"task_goal_type": "code_fix_execution"},
         query_understanding={},
-        current_turn_context={"interaction_mode": "vibe_code"},
+        current_turn_context={"interaction_mode": "code"},
     ).to_dict()
 
-    assert policy["interaction_mode"] == "vibe_coding"
-    assert policy["runtime_lane"] == "vibe_coding_task"
-    assert policy["recipe_id"] == "runtime.recipe.vibe_coding"
-    assert policy["output_policy"]["answer_boundary"] == "coding_deliverable"
-    assert policy["tool_policy"]["requires_change_set_metadata"] is True
+    assert policy["interaction_mode"] == "professional_mode"
+    assert policy["runtime_lane"] == "professional_task"
+    assert policy["recipe_id"] == "runtime.recipe.professional_task"
+    assert policy["output_policy"]["answer_boundary"] == "professional_deliverable"
+    assert policy["tool_policy"]["requires_evidence_packet"] is True
     assert "git_show" in policy["tool_policy"]["allowed_tool_names"]
 
 
-def test_regression_test_design_selects_vibe_coding_mode() -> None:
+def test_regression_test_design_selects_professional_mode() -> None:
     turn_context = model_turn_context(
         action_intent="read_context",
         work_mode="planning",
@@ -146,11 +146,11 @@ def test_regression_test_design_selects_vibe_coding_mode() -> None:
         current_turn_context=turn_context,
     ).to_dict()
 
-    assert policy["interaction_mode"] == "vibe_coding"
-    assert policy["runtime_lane"] == "vibe_coding_task"
+    assert policy["interaction_mode"] == "professional_mode"
+    assert policy["runtime_lane"] == "professional_task"
 
 
-def test_frontend_delivery_selects_vibe_coding_mode() -> None:
+def test_frontend_delivery_selects_professional_mode() -> None:
     turn_context = model_turn_context(
         action_intent="edit_workspace",
         work_mode="implementation",
@@ -165,9 +165,9 @@ def test_frontend_delivery_selects_vibe_coding_mode() -> None:
         current_turn_context=turn_context,
     ).to_dict()
 
-    assert policy["interaction_mode"] == "vibe_coding"
-    assert policy["runtime_lane"] == "vibe_coding_task"
-    assert policy["recipe_id"] == "runtime.recipe.vibe_coding"
+    assert policy["interaction_mode"] == "professional_mode"
+    assert policy["runtime_lane"] == "professional_task"
+    assert policy["recipe_id"] == "runtime.recipe.professional_task"
     assert policy["verification_policy"]["strict"] is True
 
 
@@ -216,7 +216,7 @@ def test_draft_artifact_delivery_is_not_code_fix_execution() -> None:
     assert contract.execution_obligation["required_writes"]
 
 
-def test_failure_repair_with_pytest_is_obligation_driven_vibe_coding_mode() -> None:
+def test_failure_repair_with_pytest_is_obligation_driven_professional_mode() -> None:
     goal = (
         "追踪 backend/tests/fixtures/professional_task_suite/failing_sixty_turn_summary.json 的失败原因，"
         "修复代码，然后运行 pytest 验证。"
@@ -241,11 +241,11 @@ def test_failure_repair_with_pytest_is_obligation_driven_vibe_coding_mode() -> N
     assert "apply_real_change" in semantic["required_actions"]
     assert "run_verification" in semantic["required_actions"]
     assert "modify_code_without_request" not in semantic["forbidden_actions"]
-    assert policy["interaction_mode"] == "vibe_coding"
+    assert policy["interaction_mode"] == "professional_mode"
     assert policy["mode_reason"] == "execution_obligation:write_or_verify"
     assert policy["projection_strength"] == "style_only"
-    assert policy["runtime_lane"] == "vibe_coding_task"
-    assert policy["recipe_id"] == "runtime.recipe.vibe_coding"
+    assert policy["runtime_lane"] == "professional_task"
+    assert policy["recipe_id"] == "runtime.recipe.professional_task"
     assert policy["verification_policy"]["strict"] is True
     assert "edit_file" in policy["tool_policy"]["allowed_tool_names"]
     assert "terminal" in policy["tool_policy"]["allowed_tool_names"]
@@ -273,3 +273,45 @@ def test_analysis_only_goal_does_not_escalate_from_forbidden_write() -> None:
     assert not contract.execution_obligation["required_writes"]
     assert "apply_real_change" not in semantic["required_actions"]
     assert policy["interaction_mode"] == "standard_mode"
+
+
+def test_source_project_readonly_report_still_escalates_to_professional_write() -> None:
+    goal = (
+        "请在受控 sandbox 中审查源项目 .materials/source_projects/source_01 的聊天接口代码，"
+        "重点查看 README.md 和 backend/api/chat.py。不要修改源项目。"
+        "请只在 sandbox 工作区 output/vibe-code-smoke/langchain-mini-chat-api-review.md 写入一份中文审查报告。"
+    )
+    contract = _runtime_contract(
+        session_id="session-source-readonly-report",
+        task_id="task-source-readonly-report",
+        user_goal=goal,
+        action_intent="edit_workspace",
+        work_mode="verification",
+        interaction_intent="review",
+        task_goal_type="code_review",
+        task_domain="development",
+        current_turn_context={
+            "interaction_mode": "professional_mode",
+            "resource_contract": {
+                "source_projects": [
+                    {"path": ".materials/source_projects/source_01", "role": "source", "required": True}
+                ],
+                "required_read_files": [
+                    ".materials/source_projects/source_01/README.md",
+                    ".materials/source_projects/source_01/backend/api/chat.py",
+                ],
+                "required_write_files": ["output/vibe-code-smoke/langchain-mini-chat-api-review.md"],
+            },
+        },
+    )
+
+    semantic = contract.task_requirement_contract
+    policy = contract.mode_policy
+
+    assert "write_file" not in contract.execution_obligation["forbidden_actions"]
+    assert [item["path"] for item in contract.execution_obligation["required_writes"]] == [
+        "output/vibe-code-smoke/langchain-mini-chat-api-review.md"
+    ]
+    assert "apply_real_change" in semantic["required_actions"]
+    assert policy["interaction_mode"] == "professional_mode"
+    assert policy["mode_reason"] == "execution_obligation:write_or_verify"

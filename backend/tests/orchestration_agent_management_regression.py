@@ -76,7 +76,18 @@ def test_builtin_agents_are_seeded_as_system_builtin_and_have_runtime_profiles(t
         "op.read_file",
     )
     assert profile_by_agent["agent:table_analyst"].can_delegate_to_agents is False
-    assert profile_by_agent["agent:web_researcher"].allowed_operations == ("op.model_response", "op.web_search", "op.fetch_url")
+    assert profile_by_agent["agent:web_researcher"].allowed_operations == (
+        "op.model_response",
+        "op.web_search",
+        "op.fetch_url",
+        "op.search_files",
+        "op.search_text",
+        "op.read_file",
+        "op.mcp_retrieval",
+        "op.memory_read",
+    )
+    assert profile_by_agent["agent:web_researcher"].metadata["runtime_config"]["template_id"] == "runtime.template.deepsearch"
+    assert set(profile_by_agent["agent:web_researcher"].metadata["runtime_config"]["search"]["search_sources"]) == {"web", "local_files", "rag", "memory"}
     assert profile_by_agent["agent:web_researcher"].can_delegate_to_agents is False
     assert profile_by_agent["agent:verifier"].allowed_operations == (
         "op.model_response",
@@ -292,35 +303,47 @@ def test_runtime_profile_custom_mode_preserves_manual_runtime_lanes(tmp_path):
         "role",
         "standard",
         "professional",
-        "vibe_coding",
         "custom",
     ]
 
 
-def test_runtime_profile_vibe_coding_mode_derives_project_owned_lane(tmp_path):
+def test_runtime_profile_does_not_accept_unknown_runtime_mode(tmp_path):
     agent_registry = AgentRegistry(tmp_path)
     runtime_registry = AgentRuntimeRegistry(tmp_path)
     agent_registry.upsert_agent(
-        agent_id="agent:vibe_mode_test",
-        agent_name="Vibe Coding 模式测试 Agent",
+        agent_id="agent:unknown_mode_test",
+        agent_name="未知模式拒绝测试 Agent",
         agent_category="custom_agent",
     )
 
+    try:
+        runtime_registry.upsert_profile(
+            agent_id="agent:unknown_mode_test",
+            agent_profile_id="agent_unknown_mode_test_runtime",
+            enabled_runtime_modes=("retired_code_mode",),
+            default_runtime_mode="retired_code_mode",
+            allowed_operations=("op.model_response", "op.read_file", "op.edit_file", "op.shell"),
+        )
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("retracted code mode must not be accepted as a runtime mode")
+
     profile = runtime_registry.upsert_profile(
-        agent_id="agent:vibe_mode_test",
-        agent_profile_id="agent_vibe_mode_test_runtime",
-        enabled_runtime_modes=("vibe_coding",),
-        default_runtime_mode="vibe_coding",
+        agent_id="agent:unknown_mode_test",
+        agent_profile_id="agent_unknown_mode_test_runtime",
+        enabled_runtime_modes=("professional",),
+        default_runtime_mode="professional",
         allowed_operations=("op.model_response", "op.read_file", "op.edit_file", "op.shell"),
     )
-    loaded = runtime_registry.get_profile("agent:vibe_mode_test")
+    loaded = runtime_registry.get_profile("agent:unknown_mode_test")
 
-    assert profile.enabled_runtime_modes == ("vibe_coding",)
-    assert profile.default_runtime_mode == "vibe_coding"
-    assert profile.allowed_runtime_lanes == ("vibe_coding_task",)
+    assert profile.enabled_runtime_modes == ("professional",)
+    assert profile.default_runtime_mode == "professional"
+    assert profile.allowed_runtime_lanes == ("professional_task",)
     assert loaded is not None
-    assert loaded.enabled_runtime_modes == ("vibe_coding",)
-    assert loaded.allowed_runtime_lanes == ("vibe_coding_task",)
+    assert loaded.enabled_runtime_modes == ("professional",)
+    assert loaded.allowed_runtime_lanes == ("professional_task",)
 
 
 def test_runtime_profile_migration_adds_custom_for_mixed_legacy_lanes(tmp_path):

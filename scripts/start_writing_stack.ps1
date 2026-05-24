@@ -9,7 +9,7 @@ param(
     [string]$SessionId = "",
     [string]$ProjectId = "project:honghuang-times",
     [string]$ProjectTitle = "洪荒时代",
-    [string]$ProjectBriefFile = "output/novel_artifacts/modular_novel/project_brief.md",
+    [string]$ProjectBriefFile = "output/novel_artifacts/modular_novel/runs/project-honghuang-times-memoryscope-20260523-001/project_brief.md",
     [int]$TargetVolumes = 5,
     [int]$ChaptersPerVolume = 100,
     [int]$TargetWords = 1000000,
@@ -100,7 +100,7 @@ function Start-BackendProcess {
 
     $process = Start-Process `
         -FilePath $PythonPath `
-        -ArgumentList "-m", "uvicorn", "app:app", "--host", $BindHost, "--port", "$BindPort" `
+        -ArgumentList "run_uvicorn.py", "--host", $BindHost, "--port", "$BindPort" `
         -WorkingDirectory $WorkingDirectory `
         -RedirectStandardOutput $StdOutLog `
         -RedirectStandardError $StdErrLog `

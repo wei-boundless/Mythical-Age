@@ -411,7 +411,8 @@ def _expand_material_directory_file_lists(text: str) -> list[str]:
             if not filename or "/" in filename:
                 continue
             result.append(f"{directory}/{filename}")
-    return _dedupe_strings(result)
+    explicit_paths = [path for path, _prefix in _path_mentions_with_prefix(normalized)]
+    return _dedupe_strings([*explicit_paths, *result])
 
 
 def _extract_required_output_dirs(text: str, expanded_paths: list[str]) -> list[str]:

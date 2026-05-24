@@ -11,7 +11,7 @@ declare global {
         mode: "dev";
         hostMode?: "web" | "desktop";
         localRuntimeAvailable?: boolean;
-        vibeCodingHostAvailable?: boolean;
+        codeEnvironmentHostAvailable?: boolean;
       }
     | undefined;
 
@@ -27,7 +27,7 @@ declare global {
             mode: "dev";
             hostMode?: "web" | "desktop";
             localRuntimeAvailable?: boolean;
-            vibeCodingHostAvailable?: boolean;
+            codeEnvironmentHostAvailable?: boolean;
           };
         }
       | undefined;

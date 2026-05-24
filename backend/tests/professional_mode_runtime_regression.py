@@ -422,11 +422,12 @@ def test_artifact_delivery_requires_each_declared_output_path() -> None:
 def test_runtime_lane_registry_exposes_active_modes_and_removes_old_lanes() -> None:
     assert DEFAULT_RUNTIME_LANE_REGISTRY.get("role_interaction") is not None
     assert DEFAULT_RUNTIME_LANE_REGISTRY.get("standard_task") is not None
-    assert DEFAULT_RUNTIME_LANE_REGISTRY.get("professional_task") is not None
-    vibe_lane = DEFAULT_RUNTIME_LANE_REGISTRY.get("vibe_coding_task")
-    assert vibe_lane is not None
-    assert "op.git_show" in vibe_lane.default_operations
-    assert vibe_lane.metadata["interaction_mode"] == "vibe_coding"
+    professional_lane = DEFAULT_RUNTIME_LANE_REGISTRY.get("professional_task")
+    assert professional_lane is not None
+    assert "op.git_show" in professional_lane.default_operations
+    assert "op.browser_control" in professional_lane.default_operations
+    assert professional_lane.metadata["interaction_mode"] == "professional_mode"
+    assert DEFAULT_RUNTIME_LANE_REGISTRY.get("retired_code_task") is None
     assert DEFAULT_RUNTIME_LANE_REGISTRY.get("autonomous_task") is None
 
 
@@ -437,3 +438,25 @@ def test_professional_profile_registry_has_test_report_triage_role_prompt() -> N
     assert "你是一名专业长任务测试报告诊断员" in profile.prompt
     assert "不负责修改代码" not in profile.prompt
     assert "如果用户本轮明确要求修复或修改" in profile.prompt
+
+
+def test_professional_profile_registry_has_code_task_role_prompt() -> None:
+    profile = get_professional_prompt_profile("professional.code_fix_execution")
+
+    assert profile is not None
+    assert profile.title == "专业代码任务执行员"
+    assert "你是一名专业代码任务执行员" in profile.prompt
+    assert "必须优先阅读当前项目的真实目录结构" in profile.prompt
+    assert "不能保留无用旧逻辑作为兼容或兜底" in profile.prompt
+    assert "不能把开发说明写成 agent prompt" in profile.prompt
+    assert "验证结果是什么" in profile.prompt
+
+
+def test_non_code_professional_profile_does_not_receive_code_execution_contract() -> None:
+    profile = get_professional_prompt_profile("professional.material_synthesis")
+
+    assert profile is not None
+    assert "你是一名材料证据综合分析员" in profile.prompt
+    assert "专业代码任务执行员" not in profile.prompt
+    assert "修改后检查差异" not in profile.prompt
+    assert "执行了哪些验证命令" not in profile.prompt

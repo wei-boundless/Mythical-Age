@@ -5,7 +5,7 @@ param(
     [string]$SessionId = "",
     [string]$ProjectId = "project:honghuang-times",
     [string]$ProjectTitle = "洪荒时代",
-    [string]$ProjectBriefFile = "output/novel_artifacts/modular_novel/project_brief.md",
+    [string]$ProjectBriefFile = "output/novel_artifacts/modular_novel/runs/project-honghuang-times-memoryscope-20260523-001/project_brief.md",
     [int]$TargetVolumes = 5,
     [int]$ChaptersPerVolume = 100,
     [int]$TargetWords = 1000000,
@@ -32,7 +32,9 @@ if ([string]::IsNullOrWhiteSpace($ProjectBrief)) {
 }
 
 if ([string]::IsNullOrWhiteSpace($ArtifactRoot)) {
-    $ArtifactRoot = "output/novel_artifacts/modular_novel/runs/$([Regex]::Replace($ProjectId, '[^0-9A-Za-z\u4e00-\u9fff]+', '-').Trim('-').ToLower())"
+    $ProjectSlug = [Regex]::Replace($ProjectId, '[^0-9A-Za-z\u4e00-\u9fff]+', '-').Trim('-').ToLower()
+    $SessionSlug = [Regex]::Replace($SessionId, '[^0-9A-Za-z\u4e00-\u9fff]+', '-').Trim('-').ToLower()
+    $ArtifactRoot = "output/novel_artifacts/modular_novel/runs/$ProjectSlug/$SessionSlug"
 }
 
 $Payload = @{

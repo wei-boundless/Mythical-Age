@@ -281,3 +281,140 @@ def test_chat_rejects_missing_task_order_ref_without_creating_legacy_order() -> 
     assert runtime.task_run_loop.state_index.list_session_task_orders("session-missing-ref") == []
     error = next(event for event in events if event.get("type") == "error")
     assert "fail-closed" in str(error.get("error") or "")
+
+
+def test_chat_auto_recovers_single_created_task_order_from_continue_message() -> None:
+    runtime = _runtime("task-order-implicit-recovery-")
+    creation = runtime.task_order_factory.create_specific_task_order(
+        session_id="session-implicit-recovery",
+        task_record={
+            "task_id": "task.dev.frontend_ui",
+            "task_title": "前端 UI 优化",
+            "domain_id": "domain.development",
+            "description": "优化前端 UI。",
+            "enabled": True,
+        },
+        objective="优化前端 UI",
+        source="task_library",
+    )
+    runtime.task_order_registry.upsert_creation(creation)
+    assert creation.order is not None
+    assert creation.order_run is not None
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            QueryRequest(
+                session_id="session-implicit-recovery",
+                message="继续。",
+                history=[],
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+
+    recovery_event = next(event for event in events if event.get("type") == "task_continuation_recovery")
+    assert dict(recovery_event["decision"])["decision_kind"] == "selected"
+    projection_event = next(event for event in events if event.get("type") == "task_order_projection")
+    assert dict(projection_event["task_order"])["order_id"] == creation.order.order_id
+    assert runtime.task_run_loop.state_index.get_task_order_run(creation.order_run.run_id).status == "completed"
+    orders = runtime.task_run_loop.state_index.list_session_task_orders("session-implicit-recovery")
+    assert [item.order_id for item in orders] == [creation.order.order_id]
+
+
+def test_chat_asks_for_clarification_when_multiple_created_task_orders_match_continue() -> None:
+    runtime = _runtime("task-order-implicit-ambiguous-")
+    first = runtime.task_order_factory.create_specific_task_order(
+        session_id="session-implicit-ambiguous",
+        task_record={
+            "task_id": "task.dev.frontend_ui",
+            "task_title": "前端 UI 优化",
+            "domain_id": "domain.development",
+            "description": "优化前端 UI。",
+            "enabled": True,
+        },
+        objective="优化前端 UI",
+        source="task_library",
+    )
+    second = runtime.task_order_factory.create_specific_task_order(
+        session_id="session-implicit-ambiguous",
+        task_record={
+            "task_id": "task.dev.backend_api",
+            "task_title": "后端 API 优化",
+            "domain_id": "domain.development",
+            "description": "优化后端 API。",
+            "enabled": True,
+        },
+        objective="优化后端 API",
+        source="task_library",
+    )
+    runtime.task_order_registry.upsert_creation(first)
+    runtime.task_order_registry.upsert_creation(second)
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            QueryRequest(
+                session_id="session-implicit-ambiguous",
+                message="继续。",
+                history=[],
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+
+    decision_event = next(event for event in events if event.get("type") == "task_intent_decision")
+    assert dict(decision_event["decision"])["decision"] == "task_order_draft"
+    draft_event = next(event for event in events if event.get("type") == "task_order_draft")
+    assert "task_order_continuation_target" in dict(draft_event["draft"])["missing_fields"]
+    assert not any(event.get("type") == "task_order_projection" for event in events)
+    assert runtime.task_run_loop.state_index.get_task_order_run(first.order_run.run_id).status == "created"
+    assert runtime.task_run_loop.state_index.get_task_order_run(second.order_run.run_id).status == "created"
+
+
+def test_chat_does_not_recover_completed_task_order_from_continue_only_message() -> None:
+    runtime = _runtime("task-order-implicit-completed-")
+    creation = runtime.task_order_factory.create_specific_task_order(
+        session_id="session-implicit-completed",
+        task_record={
+            "task_id": "task.dev.frontend_ui",
+            "task_title": "前端 UI 优化",
+            "domain_id": "domain.development",
+            "description": "优化前端 UI。",
+            "enabled": True,
+        },
+        objective="优化前端 UI",
+        source="task_library",
+    )
+    runtime.task_order_registry.upsert_creation(creation)
+    assert creation.order is not None
+    assert creation.order_run is not None
+    runtime.task_order_registry.finish_order_run(
+        order_run_id=creation.order_run.run_id,
+        status="completed",
+        terminal_reason="completed",
+        diagnostics={"test": "completed_before_continue"},
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            QueryRequest(
+                session_id="session-implicit-completed",
+                message="继续。",
+                history=[],
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+
+    decision_event = next(event for event in events if event.get("type") == "task_intent_decision")
+    assert dict(decision_event["decision"])["decision"] == "task_order_draft"
+    assert not any(event.get("type") == "task_order_projection" for event in events)
+    assert runtime.task_run_loop.state_index.get_task_order_run(creation.order_run.run_id).status == "completed"

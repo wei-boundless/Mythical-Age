@@ -44,7 +44,7 @@ def microcompact_history(
             field_limit_bytes=field_limit_bytes,
             preview_size_bytes=preview_size_bytes,
         )
-        replacement_text = str(dict(dict(budgeted.get("message") or {}).get("content") or "") or "")
+        replacement_text = str(dict(budgeted.get("message") or {}).get("content") or "")
         if not replacement_text:
             replacement_text = _fallback_summary(message, index=index, original_bytes=estimate_text_bytes(content))
         compacted.append({"role": str(message.get("role") or "user"), "content": replacement_text})
@@ -91,4 +91,3 @@ def _fallback_summary(message: dict[str, str], *, index: int, original_bytes: in
         "preview": preview,
     }
     return "Compacted prior context:\n" + json.dumps(payload, ensure_ascii=False, indent=2)
-
