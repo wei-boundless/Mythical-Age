@@ -7,8 +7,10 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { RetrievalCard } from "@/components/chat/RetrievalCard";
+import { RuntimeProgressList } from "@/components/chat/RuntimeProgressList";
 import { ThoughtChain } from "@/components/chat/ThoughtChain";
 import type { RetrievalResult, ToolCall } from "@/lib/api";
+import type { RuntimeProgressEntry } from "@/lib/store/types";
 
 export function ChatMessage({
   id,
@@ -16,6 +18,7 @@ export function ChatMessage({
   content,
   image,
   stageStatus,
+  runtimeProgress = [],
   toolCalls,
   retrievals,
   assistantName = "河伯",
@@ -31,6 +34,7 @@ export function ChatMessage({
     caption?: string;
   } | null;
   stageStatus?: string;
+  runtimeProgress?: RuntimeProgressEntry[];
   toolCalls: ToolCall[];
   retrievals: RetrievalResult[];
   assistantName?: string;
@@ -82,6 +86,7 @@ export function ChatMessage({
       ) : null}
       {!isUser && <RetrievalCard results={retrievals} />}
       {!isUser && <ThoughtChain toolCalls={toolCalls} />}
+      {!isUser && runtimeProgress.length ? <RuntimeProgressList entries={runtimeProgress} /> : null}
       <div className={isUser ? "chat-message-shell__content whitespace-pre-wrap leading-7" : "chat-message-shell__content markdown"}>
         {isUser && editing ? (
           <div className="message-edit-form">
@@ -132,7 +137,7 @@ export function ChatMessage({
           </figure>
         ) : (
           <ReactMarkdown remarkPlugins={[remarkGfm]}>
-            {content || "正在思考..."}
+            {content || (runtimeProgress.length ? "" : "正在思考...")}
           </ReactMarkdown>
         )}
       </div>

@@ -7,6 +7,7 @@ import type { SessionActivityState } from "@/lib/store/types";
 function statusIcon(level: SessionActivityState["level"], hasTool: boolean) {
   if (hasTool) return <Wrench size={14} />;
   if (level === "success") return <CheckCircle2 size={14} />;
+  if (level === "warning") return <AlertTriangle size={14} />;
   if (level === "error") return <AlertTriangle size={14} />;
   if (level === "stopped") return <Square size={13} />;
   if (level === "waiting") return <PauseCircle size={14} />;

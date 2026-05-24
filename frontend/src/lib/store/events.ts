@@ -6,10 +6,12 @@ import {
   OrchestrationSnapshot,
   RetrievalResult,
   RuntimeLoopTaskRunTrace,
+  TaskOrderProjection,
   ToolCall
 } from "@/lib/api";
+import { projectRuntimeStreamEvent, type RuntimeVisibilityProjection } from "../runtimeVisibilityProjection";
 
-import type { Message, StoreState, UserReceipt } from "./types";
+import type { Message, RuntimeProgressEntry, StoreState, UserReceipt } from "./types";
 import {
   looksLikeSkillDocument,
   looksLikeSkillDocumentPrefix,
@@ -26,6 +28,10 @@ type StreamTransition = {
   state: StoreState;
   session: StreamSession;
 };
+
+const MAX_MESSAGE_PROGRESS_ENTRIES = 12;
+const MAX_PROGRESS_BODY_CHARS = 360;
+const MAX_PROGRESS_ARTIFACTS = 6;
 
 const ORCHESTRATION_NODES: Array<{ id: string; label: string; description: string }> = [
   { id: "input", label: "用户输入", description: "接收本轮用户请求，并绑定当前会话。" },
@@ -156,6 +162,12 @@ function activityDetailForEvent(event: string, data: Record<string, unknown>) {
 
 function stringValue(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
 }
 
 function isMachineReference(value: string) {
@@ -314,16 +326,24 @@ function makeOrchestrationSnapshot(state: StoreState, userContent: string): Orch
     source_event: node.id === "input" ? "user_message" : ""
   }));
   const taskSelection = state.taskSelection?.mode === "coordination" ? null : state.taskSelection ?? null;
+  const order = state.taskOrderProjection?.task_order && typeof state.taskOrderProjection.task_order === "object" ? state.taskOrderProjection.task_order : {};
+  const run = state.taskOrderProjection?.task_order_run && typeof state.taskOrderProjection.task_order_run === "object" ? state.taskOrderProjection.task_order_run : {};
+  const orderId = state.taskOrderProjectionConsumed ? "" : String(order.order_id ?? state.selectedTaskOrderId ?? "").trim();
+  const runId = state.taskOrderProjectionConsumed ? "" : String(run.run_id ?? state.selectedTaskOrderRunId ?? "").trim();
   const initialEvents = taskSelection
     ? [{
         index: 1,
-        event: "task_selection_bound",
+        event: orderId ? "task_order_bound" : "task_selection_bound",
         node_id: "input",
-        summary: taskSelection.coordination_task_id
+        summary: orderId
+          ? `已绑定任务订单 ${orderId}`
+          : taskSelection.coordination_task_id
           ? `已绑定协调任务 ${String(taskSelection.coordination_task_id)}`
           : `已绑定特定任务 ${String(taskSelection.selected_task_id ?? "")}`,
         data: {
           task_selection: taskSelection,
+          task_order_id: orderId,
+          task_order_run_id: runId,
           coordination_task_id: taskSelection.coordination_task_id ?? "",
           selected_task_id: taskSelection.selected_task_id ?? "",
         }
@@ -698,6 +718,95 @@ function patchAssistantStage(
   }));
 }
 
+function normalizeProgressEntry(entry: RuntimeProgressEntry): RuntimeProgressEntry {
+  const body = entry.body
+    ? entry.body.length > MAX_PROGRESS_BODY_CHARS
+      ? `${entry.body.slice(0, MAX_PROGRESS_BODY_CHARS - 1)}...`
+      : entry.body
+    : undefined;
+  return {
+    ...entry,
+    body,
+    artifacts: entry.artifacts?.slice(0, MAX_PROGRESS_ARTIFACTS),
+  };
+}
+
+function appendAssistantProgress(
+  state: StoreState,
+  assistantId: string,
+  entry: RuntimeProgressEntry | undefined,
+): StoreState {
+  if (!entry?.title) {
+    return state;
+  }
+  const normalized = normalizeProgressEntry(entry);
+  return patchAssistant(state, assistantId, (message) => {
+    const existing = message.runtimeProgress ?? [];
+    if (existing.some((item) => item.id === normalized.id)) {
+      return message;
+    }
+    return {
+      ...message,
+      runtimeProgress: [...existing, normalized].slice(-MAX_MESSAGE_PROGRESS_ENTRIES),
+    };
+  });
+}
+
+function applyVisibilitySessionActivity(
+  state: StoreState,
+  event: string,
+  visibility: RuntimeVisibilityProjection,
+): StoreState {
+  const title = visibility.activityTitle || visibility.stageStatus || "";
+  if (!title) {
+    return state;
+  }
+  return {
+    ...state,
+    sessionActivity: {
+      level: visibility.level || "running",
+      title,
+      detail: visibility.activityDetail || "",
+      event,
+      receipt: {
+        level: visibility.level || "running",
+        title,
+        body: visibility.activityDetail || undefined,
+        debug: { event },
+      },
+      updatedAt: Date.now(),
+    },
+  };
+}
+
+function applyTaskOrderProjection(state: StoreState, projection: TaskOrderProjection | null | undefined): StoreState {
+  if (!projection) {
+    return state;
+  }
+  const order = recordValue(projection.task_order);
+  const run = recordValue(projection.task_order_run);
+  const channel = recordValue(projection.execution_channel);
+  const envelope = recordValue(projection.task_execution_envelope);
+  const orderId = String(order.order_id ?? "").trim();
+  const runId = String(run.run_id ?? "").trim();
+  const channelId = String(channel.channel_id ?? "").trim();
+  const envelopeId = String(envelope.envelope_id ?? "").trim();
+  return {
+    ...state,
+    taskOrderProjection: projection,
+    selectedTaskOrderId: orderId,
+    selectedTaskOrderRunId: runId,
+    taskOrderProjectionConsumed: false,
+    taskSelection: {
+      ...(state.taskSelection ?? {}),
+      task_order_id: orderId,
+      task_order_run_id: runId,
+      execution_channel_id: channelId,
+      task_execution_envelope_id: envelopeId,
+    },
+  };
+}
+
 export function startStreamingTurn(state: StoreState, userContent: string): StreamTransition {
   const userMessage: Message = {
     id: makeId(),
@@ -712,6 +821,7 @@ export function startStreamingTurn(state: StoreState, userContent: string): Stre
     content: "",
     toolCalls: [],
     retrievals: [],
+    runtimeProgress: [],
     stageStatus: "接收请求"
   };
 
@@ -748,15 +858,24 @@ export function reduceStreamEvent(
   event: string,
   data: Record<string, unknown>
 ): StreamTransition {
+  const visibility = projectRuntimeStreamEvent(event, data);
   const withOrchestration = updateOrchestrationSnapshot(state.orchestrationSnapshot, event, data);
   const stateWithOrchestrationBase = withOrchestration === state.orchestrationSnapshot
     ? state
     : { ...state, orchestrationSnapshot: withOrchestration };
-  const stateWithOrchestration = patchSessionActivity(patchAssistantStage(
+  const stateWithStage = patchAssistantStage(
     stateWithOrchestrationBase,
     session.assistantId,
-    stageStatusForEvent(event, data)
-  ), event, data);
+    visibility.stageStatus || stageStatusForEvent(event, data)
+  );
+  const stateWithLegacyActivity = patchSessionActivity(stateWithStage, event, data);
+  const stateWithVisibilityActivity = applyVisibilitySessionActivity(stateWithLegacyActivity, event, visibility);
+  const stateWithTaskOrder = applyTaskOrderProjection(stateWithVisibilityActivity, visibility.taskOrderProjection);
+  const stateWithOrchestration = appendAssistantProgress(
+    stateWithTaskOrder,
+    session.assistantId,
+    visibility.progressEntry,
+  );
 
   if (event === "retrieval") {
     return {

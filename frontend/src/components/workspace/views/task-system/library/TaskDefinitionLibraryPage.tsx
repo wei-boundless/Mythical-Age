@@ -214,7 +214,7 @@ export function TaskDefinitionLibraryPage({
   onOpenTaskGraph: (graphId: string) => void;
   onSaveTask: () => void;
   onSelectTask: (taskId: string) => void;
-  onSendTaskToChat: () => void;
+  onSendTaskToChat: () => void | Promise<void>;
   onSetArtifactPolicyDraft: Dispatch<SetStateAction<ArtifactPolicyDraft>>;
   onSetTaskConfigPanel: (panel: TaskConfigPanel) => void;
   onSetTaskDraft: Dispatch<SetStateAction<SpecificTaskRecord>>;
@@ -267,7 +267,9 @@ export function TaskDefinitionLibraryPage({
             <p>这里只定义可复用的具体任务。任务图是同一任务域下的独立编排对象，图模块可以引用这里的任务定义。</p>
           </div>
           <div className="boundary-actions">
-            <ToolbarButton disabled={!selectedTask} onClick={onSendTaskToChat}>带入主会话</ToolbarButton>
+            <ToolbarButton disabled={saving === "task-order-create" || !selectedTask} onClick={() => void onSendTaskToChat()}>
+              {saving === "task-order-create" ? "创建订单中" : "带入主会话"}
+            </ToolbarButton>
             <ToolbarButton disabled={saving === "task-stack" || !selectedTask} onClick={onSaveTask} variant="primary">
               <Save size={15} />保存任务
             </ToolbarButton>

@@ -1264,9 +1264,19 @@ class TaskRunLoop:
         search_policy: list[str] | None = None,
         model_selection: dict[str, Any] | None = None,
         agent_invocation: dict[str, Any] | None = None,
+        task_order_ref: dict[str, Any] | None = None,
+        task_order_run_ref: dict[str, Any] | None = None,
+        execution_channel_ref: dict[str, Any] | None = None,
+        task_execution_envelope_ref: dict[str, Any] | None = None,
     ):
         """Run the current single-agent lane inside the TaskRunLoop trace spine."""
 
+        task_order_binding = _task_order_runtime_binding_diagnostics(
+            task_order_ref=task_order_ref,
+            task_order_run_ref=task_order_run_ref,
+            execution_channel_ref=execution_channel_ref,
+            task_execution_envelope_ref=task_execution_envelope_ref,
+        )
         invocation_payload = _agent_invocation_payload(
             agent_invocation
             or dict(dict(task_selection or {}).get("agent_invocation") or {})
@@ -1305,6 +1315,8 @@ class TaskRunLoop:
             **dict(invocation_model_context or {}),
             **dict(runtime_chain_task_selection or {}),
         }
+        if task_order_binding.get("task_order_id"):
+            runtime_context_override["task_order_projection"] = dict(task_order_binding)
         request_facts = build_request_facts(
             user_message=user_message,
             session_id=session_id,
@@ -1494,6 +1506,20 @@ class TaskRunLoop:
                 "agent_invocation_id": str(invocation_payload.get("invocation_id") or ""),
                 "agent_assembly_contract": _assembly_contract_diagnostics(assembly_contract),
                 "execution_permit": _execution_permit_diagnostics(execution_permit),
+                "task_order_binding": dict(task_order_binding),
+                **{
+                    key: value
+                    for key, value in dict(task_order_binding).items()
+                    if key
+                    in {
+                        "task_order_id",
+                        "task_order_run_id",
+                        "execution_channel_id",
+                        "task_execution_envelope_id",
+                        "task_order_kind",
+                    }
+                    and value
+                },
                 **_stage_execution_request_diagnostics(dict(task_selection or {})),
             },
         )
@@ -5628,6 +5654,45 @@ def _stage_execution_request_diagnostics(selection: dict[str, Any]) -> dict[str,
     }
 
 
+def _task_order_runtime_binding_diagnostics(
+    *,
+    task_order_ref: dict[str, Any] | None,
+    task_order_run_ref: dict[str, Any] | None,
+    execution_channel_ref: dict[str, Any] | None,
+    task_execution_envelope_ref: dict[str, Any] | None,
+) -> dict[str, Any]:
+    order = dict(task_order_ref or {})
+    run = dict(task_order_run_ref or {})
+    channel = dict(execution_channel_ref or {})
+    envelope = dict(task_execution_envelope_ref or {})
+    order_id = str(order.get("order_id") or run.get("order_id") or channel.get("order_id") or envelope.get("order_id") or "")
+    run_id = str(run.get("run_id") or channel.get("order_run_id") or envelope.get("order_run_id") or "")
+    channel_id = str(channel.get("channel_id") or run.get("primary_execution_channel_id") or envelope.get("execution_channel_id") or "")
+    envelope_id = str(envelope.get("envelope_id") or "")
+    if not any((order_id, run_id, channel_id, envelope_id)):
+        return {
+            "binding_kind": "unbound_chat_turn_runtime",
+            "task_order_bound": False,
+            "authority": "task_system.task_order_runtime_binding",
+        }
+    return {
+        "projection_kind": "task_order",
+        "task_order_bound": True,
+        "task_order_id": order_id,
+        "task_order_run_id": run_id,
+        "execution_channel_id": channel_id,
+        "task_execution_envelope_id": envelope_id,
+        "task_order_kind": str(order.get("order_kind") or ""),
+        "task_order_source": str(order.get("source") or ""),
+        "task_order_source_ref": str(order.get("source_ref") or ""),
+        "task_order_task_id": str(order.get("task_id") or ""),
+        "task_order_status": str(order.get("status") or ""),
+        "task_order_run_status": str(run.get("status") or ""),
+        "execution_channel_status": str(channel.get("status") or ""),
+        "authority": "task_system.task_order_runtime_binding",
+    }
+
+
 def _extract_task_search_policy(selection: dict[str, Any]) -> list[str] | tuple[str, ...] | set[str] | None:
     for key in ("search_policy", "allowed_search_sources"):
         value = selection.get(key)
@@ -6336,9 +6401,11 @@ async def _main_model_owned_turn_decision(
         decision = None
 
     if decision is None:
-        return _blocked_model_turn_decision(
+        return _fallback_model_turn_decision(
             user_message=user_message,
             reason="model_turn_decision_invalid_after_repair",
+            task_selection=task_selection,
+            request_facts=request_facts,
             diagnostics={
                 "model_call_performed": True,
                 "model_authority_used": False,
@@ -6361,6 +6428,122 @@ async def _main_model_owned_turn_decision(
         **dict(validation or {}),
         **parse_diagnostics,
     }
+
+
+def _fallback_model_turn_decision(
+    *,
+    user_message: str,
+    reason: str,
+    task_selection: dict[str, Any],
+    request_facts: dict[str, Any] | None = None,
+    diagnostics: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    selection = dict(task_selection or {})
+    facts = dict(request_facts or {})
+    selected_task_id = str(selection.get("selected_task_id") or "").strip()
+    task_order_projection = dict(selection.get("task_order_projection") or {})
+    has_task_projection = bool(selected_task_id or task_order_projection.get("task_order_id"))
+    target_objects = _fallback_target_objects(user_message=user_message, request_facts=facts, selected_task_id=selected_task_id)
+    read_only_material = _fallback_has_read_only_material(target_objects)
+    action_intent = "read_context" if read_only_material else "answer_only"
+    work_mode = "read_only_analysis" if read_only_material else "conversation"
+    details = dict(diagnostics or {})
+    decision = {
+        "authority": "agent_runtime.model_turn_decision",
+        "decision_id": f"model-turn-decision:fallback:{uuid.uuid4().hex[:8]}",
+        "user_message": str(user_message or "").strip(),
+        "interaction_intent": "inspect" if read_only_material else "run" if has_task_projection else "answer",
+        "action_intent": action_intent,
+        "work_mode": work_mode,
+        "task_goal_type": selected_task_id or "conservative_frontstage_response",
+        "task_domain": str(selection.get("domain_id") or selection.get("task_domain") or "general"),
+        "target_objects": target_objects,
+        "desired_outcome": (
+            "Read explicitly referenced material and produce a front-stage analysis without side effects."
+            if read_only_material
+            else "Produce a front-stage response without authorizing side effects from fallback understanding."
+        ),
+        "deliverables": [],
+        "constraints": ["fallback_understanding_cannot_authorize_side_effects"],
+        "forbidden_actions": [
+            "edit_workspace",
+            "run_command",
+            "start_service",
+            "use_browser",
+            "delegate",
+            "background_execution",
+        ],
+        "selected_skill_ids": [],
+        "resource_contract": {},
+        "context_binding_decision": {
+            "mode": "fallback_model_turn_decision",
+            "reason": reason,
+            "selected_task_id": selected_task_id,
+            "runtime_lane": str(selection.get("runtime_lane") or ""),
+            "interaction_mode": str(selection.get("interaction_mode") or selection.get("runtime_interaction_mode") or ""),
+            "explicit_paths": list(target_objects),
+        },
+        "planning_required": False,
+        "todo_required": False,
+        "completion_criteria": [],
+        "needs_clarification": False,
+        "clarification_question": "",
+        "confidence": 0.2,
+        "ambiguity": [reason],
+        "diagnostics": {
+            **details,
+            "fallback_understanding": True,
+            "fallback_policy": "answer_only_no_side_effect_authority",
+            "model_authority_used": False,
+        },
+    }
+    parsed, validation = model_turn_decision_from_payload(decision, user_message=user_message)
+    if parsed is None:
+        return _blocked_model_turn_decision(
+            user_message=user_message,
+            reason=f"{reason}:fallback_invalid",
+            diagnostics={**details, **dict(validation or {})},
+        )
+    payload = parsed.to_dict()
+    payload["diagnostics"] = {
+        **dict(payload.get("diagnostics") or {}),
+        "main_model_owns_task_understanding": False,
+        "fallback_understanding": True,
+    }
+    return payload, {
+        "decision_status": "fallback_conservative",
+        "fallback_reason": reason,
+        "model_call_performed": True,
+        "model_authority_used": False,
+        **details,
+        **dict(validation or {}),
+    }
+
+
+def _fallback_target_objects(
+    *,
+    user_message: str,
+    request_facts: dict[str, Any],
+    selected_task_id: str,
+) -> list[str]:
+    targets: list[str] = []
+    for key in ("explicit_paths", "target_objects", "material_paths"):
+        targets.extend(str(item).strip() for item in list(request_facts.get(key) or []) if str(item).strip())
+    for match in re.finditer(r"[\w./\\\-\u4e00-\u9fff\s:]+?\.(?:pdf|csv|tsv|xlsx|xls|parquet|md|txt)", str(user_message or ""), flags=re.IGNORECASE):
+        targets.append(match.group(0).strip(" `\"'“”‘’，,。；;"))
+    if selected_task_id:
+        targets.append(selected_task_id)
+    return list(dict.fromkeys(item for item in targets if item))
+
+
+def _fallback_has_read_only_material(targets: list[str]) -> bool:
+    for target in targets:
+        item = str(target or "").strip().lower().replace("\\", "/")
+        if item.endswith((".pdf", ".csv", ".tsv", ".xlsx", ".xls", ".parquet", ".md", ".txt")):
+            return True
+        if item.startswith(("knowledge/", "kb:", "knowledge:")):
+            return True
+    return False
 
 
 def _model_turn_decision_messages(

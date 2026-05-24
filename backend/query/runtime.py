@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,10 @@ from project_layout import ProjectLayout
 from prompting import build_static_prompt, build_system_prompt
 from query.models import QueryRequest
 from request_intent import analyze_memory_intent
+from task_system.orders.intent_decision import TaskIntentDecisionService
+from task_system.orders.models import ConversationTurn
+from task_system.orders.order_factory import TaskOrderCreation, TaskOrderFactory
+from task_system.orders.order_registry import TaskOrderRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +93,9 @@ class QueryRuntime:
                 settings_service=settings_service,
             ),
         )
+        self.task_order_registry = TaskOrderRegistry(self.task_run_loop.state_index)
+        self.task_intent_decision_service = TaskIntentDecisionService()
+        self.task_order_factory = TaskOrderFactory()
 
         self.runtime_components = {
             "query_runtime": "adapter_only",
@@ -141,14 +149,20 @@ class QueryRuntime:
         history = [dict(item) for item in history_assembly.model_history]
         turn_index = len(history_record.get("messages", [])) + 1
         turn_id = f"turn:{request.session_id}:{turn_index}"
-        task_id = f"taskinst:{turn_id}:{_task_instance_suffix(dict(request.task_selection or {}))}"
-        input_commit_gate = self._commit_user_message(
-            session_id=request.session_id,
-            content=request.message,
-            task_id=task_id,
-        )
-
         try:
+            task_order_creation = self._resolve_or_create_task_order(
+                session_id=request.session_id,
+                turn_id=turn_id,
+                message=request.message,
+                task_selection=dict(request.task_selection or {}),
+                task_order_intent=dict(request.task_order_intent or {}),
+            )
+            task_id = f"taskinst:{turn_id}:{_task_instance_suffix(dict(request.task_selection or {}))}"
+            input_commit_gate = self._commit_user_message(
+                session_id=request.session_id,
+                content=request.message,
+                task_id=task_id,
+            )
             with start_turn_trace(
                 session_id=request.session_id,
                 user_message=request.message,
@@ -167,6 +181,23 @@ class QueryRuntime:
                     "type": "input_commit_gate",
                     "commit_gate": input_commit_gate.to_dict(),
                 }
+                yield {
+                    "type": "task_intent_decision",
+                    "conversation_turn": task_order_creation.conversation_turn.to_dict(),
+                    "decision": task_order_creation.intent_decision.to_dict(),
+                }
+                if task_order_creation.draft is not None:
+                    yield {
+                        "type": "task_order_draft",
+                        "draft": task_order_creation.draft.to_dict(),
+                        "conversation_turn": task_order_creation.conversation_turn.to_dict(),
+                        "decision": task_order_creation.intent_decision.to_dict(),
+                    }
+                if task_order_creation.order is not None:
+                    yield {
+                        "type": "task_order_projection",
+                        **task_order_creation.projection(),
+                    }
 
                 image_generation = dict(request.image_generation or {})
                 image_model = str(image_generation.get("model") or "").strip().lower()
@@ -232,6 +263,26 @@ class QueryRuntime:
                     runtime_context_manager=self.runtime_context_manager,
                     memory_intent=memory_intent,
                     task_selection={"turn_id": turn_id, **dict(request.task_selection or {})},
+                    task_order_ref=(
+                        task_order_creation.order.to_dict()
+                        if task_order_creation.order is not None
+                        else None
+                    ),
+                    task_order_run_ref=(
+                        task_order_creation.order_run.to_dict()
+                        if task_order_creation.order_run is not None
+                        else None
+                    ),
+                    execution_channel_ref=(
+                        task_order_creation.execution_channel.to_dict()
+                        if task_order_creation.execution_channel is not None
+                        else None
+                    ),
+                    task_execution_envelope_ref=(
+                        task_order_creation.envelope.to_dict()
+                        if task_order_creation.envelope is not None
+                        else None
+                    ),
                     assistant_message_committer=lambda payload: self._apply_assistant_message_commit_async(
                         request.session_id,
                         {**dict(payload or {}), "turn_id": turn_id},
@@ -242,6 +293,30 @@ class QueryRuntime:
                     search_policy=list(request.search_policy) if request.search_policy is not None else None,
                     model_selection=dict(request.model_selection or {}),
                 ):
+                    if (
+                        event.get("type") == "runtime_loop_started"
+                        and task_order_creation.order_run is not None
+                    ):
+                        task_run = dict(event.get("task_run") or {})
+                        agent_run = dict(event.get("agent_run") or {})
+                        coordination_run = dict(event.get("coordination_run") or {})
+                        self.task_order_registry.bind_runtime(
+                            order_run_id=task_order_creation.order_run.run_id,
+                            task_run_id=str(task_run.get("task_run_id") or ""),
+                            execution_channel_id=(
+                                task_order_creation.execution_channel.channel_id
+                                if task_order_creation.execution_channel is not None
+                                else ""
+                            ),
+                            coordination_run_id=str(coordination_run.get("coordination_run_id") or ""),
+                            agent_run_id=str(agent_run.get("agent_run_id") or ""),
+                            status="running",
+                            diagnostics={"bound_by": "query_runtime.task_order_binding"},
+                        )
+                    self._maybe_update_task_order_run_from_event(
+                        creation=task_order_creation,
+                        event=event,
+                    )
                     yield event
         except Exception as exc:
             failure_text = self._user_visible_error(exc)
@@ -249,6 +324,167 @@ class QueryRuntime:
             if isinstance(exc, ModelRuntimeError):
                 error_payload["code"] = exc.code
             yield error_payload
+
+    def _maybe_update_task_order_run_from_event(
+        self,
+        *,
+        creation: TaskOrderCreation,
+        event: dict[str, Any],
+    ) -> None:
+        if creation.order_run is None:
+            return
+        event_type = str(event.get("type") or "")
+        runtime_event = dict(event.get("event") or {}) if event_type == "runtime_loop_event" else {}
+        runtime_event_type = str(runtime_event.get("event_type") or "")
+        payload = dict(runtime_event.get("payload") or {}) if runtime_event else dict(event)
+        if event_type not in {"done", "error", "stopped"} and runtime_event_type not in {"loop_terminal", "loop_error"}:
+            return
+        raw_status = str(payload.get("status") or "")
+        terminal_reason = str(payload.get("terminal_reason") or payload.get("reason") or "")
+        task_run_id = str(runtime_event.get("task_run_id") or creation.order_run.task_run_id or "")
+        if event_type == "done":
+            raw_status = raw_status or "completed"
+            terminal_reason = terminal_reason or "completed"
+        elif event_type == "error" or runtime_event_type == "loop_error":
+            raw_status = raw_status or "failed"
+            terminal_reason = terminal_reason or str(payload.get("error") or "error")
+        elif event_type == "stopped":
+            raw_status = raw_status or "cancelled"
+            terminal_reason = terminal_reason or "stopped"
+        if raw_status in {"completed", "failed", "cancelled"}:
+            order_run_status = raw_status
+        elif raw_status == "aborted":
+            order_run_status = "cancelled"
+        else:
+            order_run_status = "failed" if terminal_reason and terminal_reason != "completed" else "completed"
+        diagnostics = {
+            "finished_by": "query_runtime.runtime_terminal",
+            "terminal_event_type": event_type,
+            "runtime_event_type": runtime_event_type,
+        }
+        if task_run_id:
+            self.task_order_registry.sync_runtime_terminal(
+                task_run_id=task_run_id,
+                status=order_run_status,
+                terminal_reason=terminal_reason,
+                diagnostics=diagnostics,
+            )
+            return
+        self.task_order_registry.finish_order_run(
+            order_run_id=creation.order_run.run_id,
+            status=order_run_status,
+            terminal_reason=terminal_reason,
+            diagnostics=diagnostics,
+        )
+
+    def _create_task_order_for_turn(
+        self,
+        *,
+        session_id: str,
+        turn_id: str,
+        message: str,
+        task_selection: dict[str, Any],
+        task_order_intent: dict[str, Any],
+    ) -> TaskOrderCreation:
+        now = time.time()
+        turn = ConversationTurn(
+            turn_id=turn_id,
+            session_id=session_id,
+            user_message_ref=f"session:{session_id}:message:{turn_id}",
+            created_at=now,
+            status="created",
+            metadata={"source": "query_runtime.adapter"},
+        )
+        decision = self.task_intent_decision_service.decide(
+            turn_id=turn_id,
+            message=message,
+            task_selection=task_selection,
+            task_order_intent=task_order_intent,
+            created_at=now,
+        )
+        creation = self.task_order_factory.create_from_conversation_turn(
+            conversation_turn=turn,
+            intent_decision=decision,
+            message=message,
+            task_selection=task_selection,
+            task_order_intent=task_order_intent,
+        )
+        self.task_order_registry.upsert_creation(creation)
+        return creation
+
+    def _resolve_or_create_task_order(
+        self,
+        *,
+        session_id: str,
+        turn_id: str,
+        message: str,
+        task_selection: dict[str, Any],
+        task_order_intent: dict[str, Any],
+    ) -> TaskOrderCreation:
+        existing = self._existing_task_order_creation(
+            session_id=session_id,
+            task_selection=task_selection,
+            task_order_intent=task_order_intent,
+        )
+        if existing is not None:
+            self._claim_existing_task_order_run(existing)
+            return existing
+        if _has_task_order_reference(task_selection, task_order_intent):
+            raise ValueError("Task order reference was not found or does not belong to this session.")
+        return self._create_task_order_for_turn(
+            session_id=session_id,
+            turn_id=turn_id,
+            message=message,
+            task_selection=task_selection,
+            task_order_intent=task_order_intent,
+        )
+
+    def _claim_existing_task_order_run(self, creation: TaskOrderCreation) -> None:
+        if creation.order_run is None:
+            raise ValueError("Task order reference is missing its executable run.")
+        ok, current_status = self.task_order_registry.claim_order_run_for_execution(
+            order_run_id=creation.order_run.run_id,
+            diagnostics={"claimed_by": "query_runtime.resolve_existing_order"},
+        )
+        if not ok:
+            raise ValueError(
+                f"Task order run is not executable from status {current_status}; create a new run instead."
+            )
+
+    def _existing_task_order_creation(
+        self,
+        *,
+        session_id: str,
+        task_selection: dict[str, Any],
+        task_order_intent: dict[str, Any],
+    ) -> TaskOrderCreation | None:
+        refs = {
+            **dict(task_selection or {}),
+            **dict(task_order_intent or {}),
+        }
+        order_run_id = str(
+            refs.get("task_order_run_id")
+            or refs.get("order_run_id")
+            or refs.get("run_id")
+            or ""
+        ).strip()
+        if order_run_id:
+            creation = self.task_order_registry.creation_for_order_run(order_run_id)
+            if creation is not None and creation.conversation_turn.session_id == session_id:
+                return creation
+            return None
+        order_id = str(
+            refs.get("task_order_id")
+            or refs.get("order_id")
+            or refs.get("task_order_ref")
+            or ""
+        ).strip()
+        if order_id:
+            creation = self.task_order_registry.creation_for_order(order_id)
+            if creation is not None and creation.conversation_turn.session_id == session_id:
+                return creation
+            return None
+        return None
 
     async def _execution_events(
         self,
@@ -505,4 +741,27 @@ def _task_instance_suffix(task_selection: dict[str, Any]) -> str:
         if tail:
             return tail
     return "general_response"
+
+
+def _has_task_order_reference(
+    task_selection: dict[str, Any],
+    task_order_intent: dict[str, Any],
+) -> bool:
+    refs = {
+        **dict(task_selection or {}),
+        **dict(task_order_intent or {}),
+    }
+    return any(
+        str(refs.get(key) or "").strip()
+        for key in (
+            "task_order_id",
+            "order_id",
+            "task_order_ref",
+            "task_order_run_id",
+            "order_run_id",
+            "run_id",
+            "execution_channel_id",
+            "task_execution_envelope_id",
+        )
+    )
 

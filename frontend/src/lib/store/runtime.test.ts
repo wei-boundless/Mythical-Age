@@ -696,16 +696,116 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().sessionActivity.level).toBe("error");
   });
 
+  it("sends existing task order refs as the task execution authority", async () => {
+    vi.useRealTimers();
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:order",
+      taskSelection: {
+        selected_task_id: "task.dev.frontend_ui",
+        label: "前端 UI 优化",
+        mode: "single_task",
+        task_order_id: "order:specific_task:abc",
+        task_order_run_id: "orderrun:abc",
+      },
+      taskOrderProjection: {
+        authority: "task_system.task_orders_api",
+        task_order: {
+          order_id: "order:specific_task:abc",
+          order_kind: "specific_task",
+          task_id: "task.dev.frontend_ui",
+        },
+        task_order_run: {
+          run_id: "orderrun:abc",
+        },
+        execution_channel: {
+          channel_id: "execchan:abc",
+        },
+        task_execution_envelope: {
+          envelope_id: "taskenv:abc",
+        },
+      },
+      selectedTaskOrderId: "order:specific_task:abc",
+      selectedTaskOrderRunId: "orderrun:abc",
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.sendMessage("开始执行。");
+
+    expect(api.streamChat).toHaveBeenCalledTimes(1);
+    expect(api.streamChat.mock.calls[0]?.[0]?.task_order_intent).toEqual({
+      action: "execute_task_order_run",
+      order_kind: "specific_task",
+      task_order_id: "order:specific_task:abc",
+      task_order_run_id: "orderrun:abc",
+      execution_channel_id: "execchan:abc",
+      task_execution_envelope_id: "taskenv:abc",
+      task_id: "task.dev.frontend_ui",
+      source: "frontend_task_order_intent",
+    });
+  });
+
+  it("consumes a task order projection after its run starts", async () => {
+    vi.useRealTimers();
+    api.streamChat.mockImplementation(async (_payload, handlers) => {
+      handlers.onEvent("runtime_loop_started", {
+        task_run: { task_run_id: "taskrun:abc" },
+        agent_run: { agent_run_id: "agentrun:abc" },
+      });
+      handlers.onEvent("done", { content: "done" });
+      return { terminalEvent: "done" };
+    });
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:order",
+      taskSelection: {
+        selected_task_id: "task.dev.frontend_ui",
+        label: "前端 UI 优化",
+        mode: "single_task",
+        task_order_id: "order:specific_task:abc",
+        task_order_run_id: "orderrun:abc",
+      },
+      taskOrderProjection: {
+        authority: "task_system.task_orders_api",
+        task_order: {
+          order_id: "order:specific_task:abc",
+          order_kind: "specific_task",
+          task_id: "task.dev.frontend_ui",
+        },
+        task_order_run: {
+          run_id: "orderrun:abc",
+        },
+        execution_channel: {
+          channel_id: "execchan:abc",
+        },
+        task_execution_envelope: {
+          envelope_id: "taskenv:abc",
+        },
+      },
+      selectedTaskOrderId: "order:specific_task:abc",
+      selectedTaskOrderRunId: "orderrun:abc",
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.sendMessage("开始执行。");
+    await runtime.actions.sendMessage("普通后续聊天。");
+
+    expect(api.streamChat).toHaveBeenCalledTimes(2);
+    expect(api.streamChat.mock.calls[0]?.[0]?.task_order_intent?.task_order_run_id).toBe("orderrun:abc");
+    expect(api.streamChat.mock.calls[1]?.[0]?.task_order_intent).toBeUndefined();
+    expect(store.getState().taskOrderProjectionConsumed).toBe(true);
+    expect(store.getState().taskSelection).toBeNull();
+  });
+
   it("does not block send completion on post-stream session refresh", async () => {
     vi.useRealTimers();
     api.listSessions.mockImplementation(() => new Promise(() => undefined));
     api.streamChat.mockImplementation(async (_payload, handlers) => {
       handlers.onEvent("error", {
-        error: "本轮生成超过 90 秒仍未返回可见答案，已释放输入区；后端任务可能仍在运行，可在运行监控中继续查看。",
-        synthesized: true,
-        terminal_reason: "frontend_no_visible_answer_timeout",
+        error: "backend failed",
+        terminal_reason: "backend_error",
       });
-      return { terminalEvent: "error", synthesized: true, syntheticReason: "no_visible_answer" };
+      return { terminalEvent: "error" };
     });
     const store = createStore<StoreState>({
       ...getDefaultState(),

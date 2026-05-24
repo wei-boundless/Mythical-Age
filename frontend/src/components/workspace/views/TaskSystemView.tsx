@@ -57,6 +57,7 @@ import {
   getTaskSystemTaskGraphStandardView,
   getTaskSystemNextIds,
   getTaskSystemOverview,
+  createTaskOrder,
   deleteTaskSystemContract,
   upsertTaskSystemContract,
   upsertTaskSystemDomain,
@@ -646,6 +647,7 @@ export function TaskSystemView() {
     currentSessionId,
     setOrchestrationInspectorTarget,
     setTaskGraphRunInteractionOpen,
+    setTaskOrderProjection,
     setTaskSelection,
     setWorkspaceView,
     taskGraphLiveMonitor,
@@ -958,17 +960,57 @@ export function TaskSystemView() {
     }
     void refreshTaskGraphStandardView();
   }, [activeTaskGraphId, activeWorkspaceView, refreshTaskGraphStandardView]);
-  const sendTaskToChat = useCallback((task: SpecificTaskRecord | null, domain: DomainRecord | null) => {
+  const sendTaskToChat = useCallback(async (task: SpecificTaskRecord | null, domain: DomainRecord | null) => {
     if (!task) return;
-    setTaskSelection({
-      selected_task_id: task.task_id,
-      domain_id: domain?.domain_id || "",
-      label: task.task_title,
-      mode: "single_task",
-    });
-    setWorkspaceView("chat");
-    setNotice(`已将特定任务“${task.task_title}”带入主会话。`);
-  }, [setTaskSelection, setWorkspaceView]);
+    if (!currentSessionId) {
+      setError("当前没有可绑定的主会话，无法创建任务订单。");
+      return;
+    }
+    setSaving("task-order-create");
+    setError("");
+    try {
+      const projection = await createTaskOrder({
+        session_id: currentSessionId,
+        task_id: task.task_id,
+        domain_id: domain?.domain_id || "",
+        objective: task.description || task.task_title,
+        source: "task_library",
+        source_ref: `task_system.specific_task:${task.task_id}`,
+        task_selection: {
+          selected_task_id: task.task_id,
+          domain_id: domain?.domain_id || "",
+          label: task.task_title,
+          mode: "specific_task",
+        },
+        task_order_intent: {
+          action: "create_order",
+          order_kind: "specific_task",
+          task_id: task.task_id,
+        },
+      });
+      const order = dictOf(projection.task_order);
+      const run = dictOf(projection.task_order_run);
+      const channel = dictOf(projection.execution_channel);
+      const envelope = dictOf(projection.task_execution_envelope);
+      setTaskOrderProjection(projection);
+      setTaskSelection({
+        selected_task_id: task.task_id,
+        domain_id: domain?.domain_id || "",
+        label: task.task_title,
+        mode: "single_task",
+        task_order_id: String(order.order_id || ""),
+        task_order_run_id: String(run.run_id || ""),
+        execution_channel_id: String(channel.channel_id || ""),
+        task_execution_envelope_id: String(envelope.envelope_id || ""),
+      });
+      setWorkspaceView("chat");
+      setNotice(`已创建任务订单“${task.task_title}”，主会话将承接这次运行。`);
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "任务订单创建失败");
+    } finally {
+      setSaving("");
+    }
+  }, [currentSessionId, setTaskOrderProjection, setTaskSelection, setWorkspaceView]);
 
   const openOrchestrationControl = useCallback((focus?: {
     agentId?: string;
@@ -2383,7 +2425,7 @@ export function TaskSystemView() {
               onOpenTaskGraph={openTaskGraphEditor}
               onSaveTask={() => void saveTaskStack()}
               onSelectTask={setSelectedTaskId}
-              onSendTaskToChat={() => selectedTask ? sendTaskToChat(selectedTask, selectedTaskDomain) : undefined}
+              onSendTaskToChat={() => selectedTask ? void sendTaskToChat(selectedTask, selectedTaskDomain) : undefined}
               onSetArtifactPolicyDraft={setArtifactPolicyDraft}
               onSetTaskConfigPanel={setTaskConfigPanel}
               onSetTaskDraft={setTaskDraft}

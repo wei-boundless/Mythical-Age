@@ -7554,6 +7554,94 @@ button:hover {
   box-shadow: none;
 }
 
+.runtime-progress-list {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 10px;
+  padding-left: 2.2rem;
+}
+
+.runtime-progress-item {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  border: 1px solid rgba(148, 163, 184, 0.26);
+  border-radius: 8px;
+  padding: 8px 9px;
+  background: rgba(15, 23, 42, 0.035);
+  color: #334155;
+}
+
+.runtime-progress-item__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding-top: 2px;
+  color: #64748b;
+}
+
+.runtime-progress-item__main {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.runtime-progress-item__main strong {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.runtime-progress-item__main > span {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-line;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.runtime-progress-item--success {
+  border-color: rgba(34, 197, 94, 0.28);
+  background: rgba(34, 197, 94, 0.06);
+}
+
+.runtime-progress-item--warning,
+.runtime-progress-item--waiting {
+  border-color: rgba(245, 158, 11, 0.32);
+  background: rgba(245, 158, 11, 0.07);
+}
+
+.runtime-progress-item--error {
+  border-color: rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.06);
+}
+
+.runtime-progress-artifacts {
+  display: flex !important;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 2px;
+  -webkit-line-clamp: unset !important;
+}
+
+.runtime-progress-artifact {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  border-radius: 6px;
+  padding: 3px 6px;
+  background: rgba(255, 255, 255, 0.72);
+  color: #334155 !important;
+  font-size: 11px !important;
+  line-height: 1.2 !important;
+  white-space: nowrap !important;
+}
+
 .chat-message-shell__head {
   align-items: flex-start;
 }
@@ -27318,6 +27406,10 @@ html[data-workspace-tone] .agent-workbench {
 
 .session-activity-bar--success .session-activity-bar__icon {
   color: #15803d;
+}
+
+.session-activity-bar--warning .session-activity-bar__icon {
+  color: #b7791f;
 }
 
 .session-activity-bar--error .session-activity-bar__icon {

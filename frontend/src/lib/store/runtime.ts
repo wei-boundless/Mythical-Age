@@ -46,11 +46,37 @@ import {
 
 import type { Store } from "./core";
 import { reduceStreamEvent, startStreamingTurn, type StreamSession } from "./events";
-import { isTopLevelTaskGraphMonitorItem, topLevelTaskGraphMonitorItems } from "../runtimeMonitorLayering";
+import { isVisibleRuntimeMonitorItem, runtimeWorkProjectionFromMonitorItem, visibleRuntimeMonitorItems } from "../runtimeWorkProjection";
 import type { ChatMode, ChatModelSelection, MainAgentAssemblyMode, SearchPolicySource, StoreActions, StoreState, TaskGraphMonitorBinding, TaskSelectionState, WorkspaceView } from "./types";
 import { toUiMessages } from "./utils";
 
 const TASK_GRAPH_MONITOR_BINDING_STORAGE_KEY = "task-graph-monitor-binding";
+
+function buildTaskOrderIntent(state: StoreState): Record<string, unknown> | undefined {
+  if (state.taskOrderProjectionConsumed) {
+    return undefined;
+  }
+  const projection = state.taskOrderProjection;
+  const order = projection?.task_order && typeof projection.task_order === "object" ? projection.task_order : {};
+  const run = projection?.task_order_run && typeof projection.task_order_run === "object" ? projection.task_order_run : {};
+  const channel = projection?.execution_channel && typeof projection.execution_channel === "object" ? projection.execution_channel : {};
+  const envelope = projection?.task_execution_envelope && typeof projection.task_execution_envelope === "object" ? projection.task_execution_envelope : {};
+  const orderId = String(order.order_id ?? state.selectedTaskOrderId ?? "").trim();
+  const runId = String(run.run_id ?? state.selectedTaskOrderRunId ?? "").trim();
+  if (!orderId && !runId) {
+    return undefined;
+  }
+  return {
+    action: "execute_task_order_run",
+    order_kind: String(order.order_kind ?? "specific_task"),
+    task_order_id: orderId,
+    task_order_run_id: runId,
+    execution_channel_id: String(channel.channel_id ?? "").trim(),
+    task_execution_envelope_id: String(envelope.envelope_id ?? "").trim(),
+    task_id: String(order.task_id ?? "").trim(),
+    source: "frontend_task_order_intent",
+  };
+}
 
 export class WorkspaceRuntime {
   private initializePromise: Promise<void> | null = null;
@@ -77,7 +103,7 @@ export class WorkspaceRuntime {
   private globalRuntimeMonitorVisibilityListener: (() => void) | null = null;
   private sessionRefreshTimers: number[] = [];
   private sessionListFailureNotifiedAt = 0;
-  private streamingSessionCache = new Map<string, Pick<StoreState, "messages" | "orchestrationSnapshot">>();
+  private streamingSessionCache = new Map<string, Pick<StoreState, "messages" | "orchestrationSnapshot" | "taskOrderProjection" | "selectedTaskOrderId" | "selectedTaskOrderRunId" | "taskOrderProjectionConsumed">>();
   private removedStreamingSessionIds = new Set<string>();
   private streamAbortControllers = new Map<string, AbortController>();
   private stoppedStreamingSessionIds = new Set<string>();
@@ -178,6 +204,9 @@ export class WorkspaceRuntime {
       },
       setTaskSelection: (selection) => {
         this.setTaskSelection(selection);
+      },
+      setTaskOrderProjection: (projection) => {
+        this.setTaskOrderProjection(projection);
       },
       selectGlobalRuntimeMonitorTaskRun: (taskRunId) => {
         this.selectGlobalRuntimeMonitorTaskRun(taskRunId);
@@ -457,6 +486,10 @@ export class WorkspaceRuntime {
       ...prev,
       messages: streamState.messages,
       orchestrationSnapshot: streamState.orchestrationSnapshot,
+      taskOrderProjection: streamState.taskOrderProjection,
+      selectedTaskOrderId: streamState.selectedTaskOrderId,
+      selectedTaskOrderRunId: streamState.selectedTaskOrderRunId,
+      taskOrderProjectionConsumed: streamState.taskOrderProjectionConsumed,
       taskGraphLiveMonitor: null,
       taskGraphRunMonitor: null,
       activeStreamSessionIds,
@@ -537,6 +570,10 @@ export class WorkspaceRuntime {
         currentSessionId: sessionId,
         messages: streamingCache.messages,
         orchestrationSnapshot: streamingCache.orchestrationSnapshot,
+        taskOrderProjection: streamingCache.taskOrderProjection,
+        selectedTaskOrderId: streamingCache.selectedTaskOrderId,
+        selectedTaskOrderRunId: streamingCache.selectedTaskOrderRunId,
+        taskOrderProjectionConsumed: streamingCache.taskOrderProjectionConsumed,
         taskGraphLiveMonitor: null,
         taskGraphRunMonitor: null,
         tokenStats: null
@@ -608,9 +645,13 @@ export class WorkspaceRuntime {
     const searchPolicy = this.enabledSearchPolicy(state);
     const imageGeneration = this.chatImageGenerationPayload(state);
     const isImageGenerationTurn = Boolean(imageGeneration);
+    const taskOrderIntent = buildTaskOrderIntent(state);
+    const taskOrderRunIdForTurn = typeof taskOrderIntent?.task_order_run_id === "string"
+      ? taskOrderIntent.task_order_run_id
+      : "";
     let consumedEphemeralSystemMessages = false;
     let streamEndedWithError = false;
-    let streamEndedWithSynthesizedDone = false;
+    let taskOrderRunStarted = false;
     this.store.setState((prev) => ({
       ...prev,
       orchestrationSnapshot: null,
@@ -647,7 +688,11 @@ export class WorkspaceRuntime {
     };
     this.streamingSessionCache.set(sessionId, {
       messages: streamState.messages,
-      orchestrationSnapshot: streamState.orchestrationSnapshot
+      orchestrationSnapshot: streamState.orchestrationSnapshot,
+      taskOrderProjection: streamState.taskOrderProjection,
+      selectedTaskOrderId: streamState.selectedTaskOrderId,
+      selectedTaskOrderRunId: streamState.selectedTaskOrderRunId,
+      taskOrderProjectionConsumed: streamState.taskOrderProjectionConsumed
     });
     this.addActiveStreamSession(sessionId);
     this.deferMonitorPollingForActiveStream();
@@ -673,6 +718,7 @@ export class WorkspaceRuntime {
           ephemeral_system_messages: ephemeralSystemMessages,
           search_policy: searchPolicy,
           task_selection: buildMainAgentTaskSelection(state.taskSelection, state.mainAgentAssemblyMode),
+          task_order_intent: taskOrderIntent,
           model_selection: this.chatModelSelectionPayload(state),
           image_generation: imageGeneration
             ? {
@@ -686,6 +732,9 @@ export class WorkspaceRuntime {
           onEvent: (event, data) => {
             if (this.removedStreamingSessionIds.has(sessionId)) {
               return;
+            }
+            if (event === "runtime_loop_started" && taskOrderRunIdForTurn) {
+              taskOrderRunStarted = true;
             }
             const isCurrentStreamSession = this.store.getState().currentSessionId === sessionId;
             const baseState = isCurrentStreamSession ? this.store.getState() : streamState;
@@ -705,7 +754,11 @@ export class WorkspaceRuntime {
             };
             this.streamingSessionCache.set(sessionId, {
               messages: streamState.messages,
-              orchestrationSnapshot: streamState.orchestrationSnapshot
+              orchestrationSnapshot: streamState.orchestrationSnapshot,
+              taskOrderProjection: streamState.taskOrderProjection,
+              selectedTaskOrderId: streamState.selectedTaskOrderId,
+              selectedTaskOrderRunId: streamState.selectedTaskOrderRunId,
+              taskOrderProjectionConsumed: streamState.taskOrderProjectionConsumed
             });
             if (isCurrentStreamSession) {
               this.applyVisibleStreamState(streamState, currentActiveStreamSessionIds);
@@ -716,7 +769,6 @@ export class WorkspaceRuntime {
       );
       consumedEphemeralSystemMessages = streamResult.terminalEvent === "done";
       streamEndedWithError = streamResult.terminalEvent === "error";
-      streamEndedWithSynthesizedDone = streamResult.synthesized === true;
       if (streamResult.terminalEvent === "stopped") {
         this.stoppedStreamingSessionIds.add(sessionId);
       }
@@ -745,7 +797,11 @@ export class WorkspaceRuntime {
       };
       this.streamingSessionCache.set(sessionId, {
         messages: streamState.messages,
-        orchestrationSnapshot: streamState.orchestrationSnapshot
+        orchestrationSnapshot: streamState.orchestrationSnapshot,
+        taskOrderProjection: streamState.taskOrderProjection,
+        selectedTaskOrderId: streamState.selectedTaskOrderId,
+        selectedTaskOrderRunId: streamState.selectedTaskOrderRunId,
+        taskOrderProjectionConsumed: streamState.taskOrderProjectionConsumed
       });
       if (this.store.getState().currentSessionId === sessionId) {
         this.applyVisibleStreamState(streamState, currentActiveStreamSessionIds);
@@ -775,6 +831,14 @@ export class WorkspaceRuntime {
         ) {
           next.pendingEphemeralSystemMessages = ephemeralSystemMessages;
         }
+        if (
+          taskOrderRunStarted
+          && taskOrderRunIdForTurn
+          && prev.selectedTaskOrderRunId === taskOrderRunIdForTurn
+        ) {
+          next.taskOrderProjectionConsumed = true;
+          next.taskSelection = null;
+        }
         return next;
       });
       this.streamingSessionCache.delete(sessionId);
@@ -786,7 +850,6 @@ export class WorkspaceRuntime {
         !streamSessionWasRemoved
         && !streamSessionWasStopped
         && !streamEndedWithError
-        && !streamEndedWithSynthesizedDone
         && !isImageGenerationTurn
         && this.store.getState().currentSessionId === sessionId
       ) {
@@ -1588,6 +1651,20 @@ export class WorkspaceRuntime {
     this.store.setState((prev) => ({ ...prev, taskSelection: selection }));
   }
 
+  private setTaskOrderProjection(projection: StoreState["taskOrderProjection"]) {
+    this.store.setState((prev) => {
+      const order = projection?.task_order && typeof projection.task_order === "object" ? projection.task_order : {};
+      const run = projection?.task_order_run && typeof projection.task_order_run === "object" ? projection.task_order_run : {};
+      return {
+        ...prev,
+        taskOrderProjection: projection,
+        selectedTaskOrderId: projection ? String(order.order_id ?? "") : "",
+        selectedTaskOrderRunId: projection ? String(run.run_id ?? "") : "",
+        taskOrderProjectionConsumed: false,
+      };
+    });
+  }
+
   private setMainAgentAssemblyMode(mode: MainAgentAssemblyMode) {
     this.store.setState((prev) => ({ ...prev, mainAgentAssemblyMode: mode }));
   }
@@ -1808,10 +1885,10 @@ export class WorkspaceRuntime {
     } = {},
   ) {
     const currentSelected = this.store.getState().globalRuntimeMonitorSelectedTaskRunId;
-    const visibleTaskGraphs = topLevelTaskGraphMonitorItems(monitor);
-    const currentStillVisible = visibleTaskGraphs.some((item) => item.task_run_id === currentSelected);
-    const nextSelected = currentStillVisible ? currentSelected : visibleTaskGraphs[0]?.task_run_id || "";
-    const detailTaskRunId = visibleTaskGraphs.some((item) => item.task_run_id === options.detailTaskRunId)
+    const visibleRuns = visibleRuntimeMonitorItems(monitor);
+    const currentStillVisible = visibleRuns.some((item) => item.task_run_id === currentSelected);
+    const nextSelected = currentStillVisible ? currentSelected : visibleRuns[0]?.task_run_id || "";
+    const detailTaskRunId = visibleRuns.some((item) => item.task_run_id === options.detailTaskRunId)
       ? options.detailTaskRunId
       : nextSelected;
     this.store.setState((prev) => ({
@@ -1916,8 +1993,8 @@ export class WorkspaceRuntime {
 
   private selectGlobalRuntimeMonitorTaskRun(taskRunId: string) {
     const normalized = taskRunId.trim();
-    const visibleTaskGraphs = topLevelTaskGraphMonitorItems(this.store.getState().globalRuntimeMonitor);
-    const selectable = visibleTaskGraphs.some((item) => item.task_run_id === normalized);
+    const visibleRuns = visibleRuntimeMonitorItems(this.store.getState().globalRuntimeMonitor);
+    const selectable = visibleRuns.some((item) => item.task_run_id === normalized);
     this.store.setState((prev) => ({
       ...prev,
       globalRuntimeMonitorSelectedTaskRunId: selectable ? normalized : "",
@@ -1934,20 +2011,23 @@ export class WorkspaceRuntime {
     if (!normalized) {
       return;
     }
-    const selected = topLevelTaskGraphMonitorItems(this.store.getState().globalRuntimeMonitor)
+    const selected = visibleRuntimeMonitorItems(this.store.getState().globalRuntimeMonitor)
       .find((item) => item.task_run_id === normalized);
-    if (!selected || !isTopLevelTaskGraphMonitorItem(selected)) {
+    if (!selected || !isVisibleRuntimeMonitorItem(selected)) {
       return;
     }
     if (this.globalRuntimeMonitorDetailInFlightTaskRunId) {
       this.globalRuntimeMonitorQueuedDetailTaskRunId = normalized;
       return;
     }
+    const work = runtimeWorkProjectionFromMonitorItem(selected);
     this.globalRuntimeMonitorDetailInFlightTaskRunId = normalized;
     try {
       const [liveMonitor, graphMonitor] = await Promise.all([
         getOrchestrationRuntimeLoopTaskRunLiveMonitor(normalized).catch(() => null),
-        getTaskGraphRunMonitor(normalized).catch(() => null),
+        work.workKind === "task_graph_run"
+          ? getTaskGraphRunMonitor(normalized).catch(() => null)
+          : Promise.resolve(null),
       ]);
       if (this.store.getState().globalRuntimeMonitorSelectedTaskRunId !== normalized) {
         return;

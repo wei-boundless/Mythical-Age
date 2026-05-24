@@ -132,13 +132,13 @@ def build_task_graph_run_monitor_view(
         "human_work_packet": dict(stage_request.get("human_work_packet") or {}),
     }
     if not dict(stage_request.get("stream_policy") or {}):
-        synthesized_stream_policy = (
+        resolved_stream_policy = (
             dict(runtime_assembly_metadata.get("stream_policy") or {})
             or dict(runtime_assembly_diagnostics.get("stream_policy") or {})
             or dict(active_node.get("stream_policy") or {})
         )
-        if synthesized_stream_policy:
-            stage_request["stream_policy"] = synthesized_stream_policy
+        if resolved_stream_policy:
+            stage_request["stream_policy"] = resolved_stream_policy
     stream_preview = _stream_preview(
         recent_events or [],
         configured_policy=dict(stage_request.get("stream_policy") or {}),

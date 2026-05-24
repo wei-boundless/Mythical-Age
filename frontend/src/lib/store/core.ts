@@ -91,6 +91,10 @@ export function getDefaultState(): StoreState {
     taskGraphMonitorError: "",
     taskGraphRunInteractionOpen: false,
     orchestrationInspectorTarget: null,
-    taskSelection: null
+    taskSelection: null,
+    taskOrderProjection: null,
+    selectedTaskOrderId: "",
+    selectedTaskOrderRunId: "",
+    taskOrderProjectionConsumed: false
   };
 }

@@ -1,0 +1,685 @@
+import type { TaskOrderProjection } from "./api";
+import type { RuntimeProgressEntry, SessionActivityLevel, UserReceiptArtifact } from "./store/types";
+
+export type RuntimeVisibilityProjection = {
+  stageStatus?: string;
+  activityTitle?: string;
+  activityDetail?: string;
+  level?: SessionActivityLevel;
+  progressEntry?: RuntimeProgressEntry;
+  taskOrderProjection?: TaskOrderProjection | null;
+  terminalEvent?: "done" | "error" | "stopped";
+};
+
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function text(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+function numberValue(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function short(value: unknown, limit = 360) {
+  const normalized = text(value).replace(/\s+/g, " ");
+  return normalized.length > limit ? `${normalized.slice(0, limit - 1)}...` : normalized;
+}
+
+function shortId(value: unknown, limit = 18) {
+  const normalized = text(value);
+  if (!normalized) return "";
+  if (normalized.length <= limit) return normalized;
+  const parts = normalized.split(":").filter(Boolean);
+  const tail = parts.at(-1) || normalized;
+  return tail.length <= limit ? tail : `${tail.slice(0, Math.max(6, limit - 1))}...`;
+}
+
+function arrayText(value: unknown, limit = 6) {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => text(item)).filter(Boolean).slice(0, limit);
+}
+
+function artifactsFromPaths(paths: string[]): UserReceiptArtifact[] {
+  return paths.slice(0, 6).map((path) => ({ label: "产物", path }));
+}
+
+function artifactPathFromRecord(value: unknown) {
+  const item = record(value);
+  return text(item.path ?? item.file ?? item.file_path ?? item.artifact_path ?? item.ref ?? item.uri);
+}
+
+function artifactsFromMixed(value: unknown): UserReceiptArtifact[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (typeof item === "string") {
+        const path = text(item);
+        return path ? { label: "产物", path } : null;
+      }
+      const path = artifactPathFromRecord(item);
+      if (path) return { label: text(record(item).label) || "产物", path };
+      const label = text(record(item).label ?? record(item).title);
+      return label ? { label } : null;
+    })
+    .filter((item): item is UserReceiptArtifact => Boolean(item))
+    .slice(0, 6);
+}
+
+function metaItem(label: string, value: unknown, options: { shorten?: boolean } = {}) {
+  const normalized = options.shorten ? shortId(value) : text(value);
+  return normalized ? { label, value: normalized } : null;
+}
+
+function compactMeta(items: Array<{ label: string; value: string } | null | undefined>) {
+  return items.filter((item): item is { label: string; value: string } => Boolean(item?.label && item.value)).slice(0, 6);
+}
+
+function runtimeEvent(data: Record<string, unknown>) {
+  const event = record(data.event);
+  if (Object.keys(event).length) {
+    return {
+      eventId: text(event.event_id),
+      taskRunId: text(event.task_run_id),
+      eventType: text(event.event_type),
+      createdAt: numberValue(event.created_at),
+      payload: record(event.payload),
+    };
+  }
+  return {
+    eventId: text(data.event_id),
+    taskRunId: text(data.task_run_id),
+    eventType: text(data.event_type),
+    createdAt: numberValue(data.created_at),
+    payload: record(data.payload),
+  };
+}
+
+function entry(
+  eventType: string,
+  title: string,
+  options: {
+    body?: string;
+    level?: SessionActivityLevel;
+    kind?: RuntimeProgressEntry["kind"];
+    statusText?: string;
+    meta?: RuntimeProgressEntry["meta"];
+    toolName?: string;
+    taskRunId?: string;
+    eventId?: string;
+    createdAt?: number;
+    startedAt?: number;
+    completedAt?: number;
+    artifacts?: UserReceiptArtifact[];
+  } = {},
+): RuntimeProgressEntry {
+  return {
+    id: options.eventId || `${eventType}:${options.taskRunId || ""}:${options.createdAt || Date.now()}:${title}`,
+    level: options.level || "running",
+    title,
+    body: options.body ? short(options.body) : undefined,
+    eventType,
+    kind: options.kind,
+    statusText: options.statusText,
+    meta: options.meta?.slice(0, 6),
+    toolName: options.toolName,
+    taskRunId: options.taskRunId,
+    createdAt: options.createdAt,
+    startedAt: options.startedAt,
+    completedAt: options.completedAt,
+    artifacts: options.artifacts?.slice(0, 6),
+  };
+}
+
+function projectionFromTaskOrderStream(data: Record<string, unknown>): TaskOrderProjection {
+  return {
+    authority: text(data.authority) || "task_system.task_order_creation_projection",
+    projection_kind: text(data.projection_kind),
+    conversation_turn: record(data.conversation_turn),
+    task_intent_decision: record(data.task_intent_decision),
+    task_order: record(data.task_order),
+    task_order_run: record(data.task_order_run),
+    execution_channel: record(data.execution_channel),
+    task_execution_envelope: record(data.task_execution_envelope),
+    task_order_draft: record(data.task_order_draft),
+  };
+}
+
+function stageSummaryProjection(eventType: string, payload: Record<string, unknown>, meta: ReturnType<typeof runtimeEvent>): RuntimeVisibilityProjection {
+  const stageSummary = record(payload.stage_summary);
+  const written = arrayText(stageSummary.written_paths ?? stageSummary.written_artifacts ?? stageSummary.artifact_paths);
+  const artifacts = [
+    ...artifactsFromPaths(written),
+    ...artifactsFromMixed(stageSummary.artifact_refs),
+  ].slice(0, 6);
+  const pending = arrayText(stageSummary.pending_paths ?? stageSummary.pending_deliverables);
+  const verified = stageSummary.verified === true || stageSummary.verification_passed === true || text(stageSummary.validation_status) === "passed";
+  const observations = Array.isArray(stageSummary.latest_observations)
+    ? stageSummary.latest_observations
+        .map((item) => {
+          const itemRecord = record(item);
+          const tool = text(itemRecord.tool_name ?? itemRecord.source);
+          const result = short(itemRecord.result ?? itemRecord.text ?? itemRecord.summary, 120);
+          return [tool, result].filter(Boolean).join(" ");
+        })
+        .filter(Boolean)
+        .slice(0, 3)
+    : arrayText(stageSummary.observations, 3);
+  const nextStep = text(stageSummary.next_step);
+  const parts = [
+    written.length ? `已写入：${written.join("、")}` : "",
+    pending.length ? `待完成：${pending.join("、")}` : "",
+    observations.length ? `观察：${observations.join("；")}` : "",
+    `验证：${verified ? "已通过" : "未通过或未完成"}`,
+    nextStep ? `下一步：${nextStep}` : "",
+  ].filter(Boolean);
+  return {
+    stageStatus: "阶段总结",
+    activityTitle: "阶段总结",
+    activityDetail: parts[0] || "专业任务已更新阶段摘要",
+    level: verified ? "success" : "running",
+    progressEntry: entry(eventType, "阶段总结", {
+      body: parts.join("\n"),
+      level: verified ? "success" : "running",
+      kind: "stage",
+      statusText: verified ? "已验证" : "进行中",
+      taskRunId: meta.taskRunId,
+      eventId: meta.eventId,
+      createdAt: meta.createdAt,
+      meta: compactMeta([
+        metaItem("轮次", stageSummary.turn_count),
+        metaItem("工具请求", stageSummary.tool_call_count),
+        metaItem("工具返回", stageSummary.tool_observation_count),
+      ]),
+      artifacts,
+    }),
+  };
+}
+
+function progressPageProjection(eventType: string, payload: Record<string, unknown>, meta: ReturnType<typeof runtimeEvent>): RuntimeVisibilityProjection {
+  const page = record(payload.progress_page);
+  const summary = short(
+    page.summary
+    ?? page.current_status
+    ?? page.progress_summary
+    ?? page.next_step
+    ?? "专业任务进度已更新",
+  );
+  return {
+    stageStatus: "更新任务进度",
+    activityTitle: "更新任务进度",
+    activityDetail: summary,
+    level: "running",
+    progressEntry: entry(eventType, "更新任务进度", {
+      body: summary,
+      kind: "stage",
+      statusText: text(page.status) || "进行中",
+      taskRunId: meta.taskRunId,
+      eventId: meta.eventId,
+      createdAt: meta.createdAt,
+      meta: compactMeta([
+        metaItem("轮次", page.turn_count),
+        metaItem("工具请求", page.tool_call_count),
+        metaItem("工具返回", page.tool_observation_count),
+        metaItem("已完成", Array.isArray(page.completed) ? page.completed.length : ""),
+      ]),
+      artifacts: artifactsFromPaths(arrayText(page.written_paths, 6)),
+    }),
+  };
+}
+
+function verificationProjection(eventType: string, payload: Record<string, unknown>, meta: ReturnType<typeof runtimeEvent>): RuntimeVisibilityProjection {
+  const verification = record(payload.verification);
+  const review = record(verification.verification_review);
+  const judgment = record(verification.completion_judgment);
+  const passed = verification.passed === true || review.passed === true || judgment.completed === true;
+  const body = short(
+    review.summary
+    ?? judgment.reason
+    ?? verification.summary
+    ?? (passed ? "交付物验证通过" : "交付物仍有缺口"),
+  );
+  return {
+    stageStatus: "检查交付物",
+    activityTitle: "检查交付物",
+    activityDetail: body,
+    level: passed ? "success" : "warning",
+    progressEntry: entry(eventType, "检查交付物", {
+      body,
+      level: passed ? "success" : "warning",
+      kind: "verification",
+      statusText: passed ? "通过" : "有缺口",
+      taskRunId: meta.taskRunId,
+      eventId: meta.eventId,
+      createdAt: meta.createdAt,
+    }),
+  };
+}
+
+function toolNameFromActionRequest(payload: Record<string, unknown>) {
+  const actionRequest = record(payload.action_request);
+  const requestPayload = record(actionRequest.payload);
+  const toolCall = record(requestPayload.tool_call);
+  return text(
+    payload.tool_name
+    ?? requestPayload.tool_name
+    ?? toolCall.tool_name
+    ?? toolCall.name
+    ?? payload.tool
+  );
+}
+
+function toolNameFromObservation(payload: Record<string, unknown>) {
+  const observation = record(payload.observation);
+  const observationPayload = record(observation.payload);
+  return text(
+    payload.tool_name
+    ?? observationPayload.tool_name
+    ?? observation.source
+  ).replace(/^tool:/, "");
+}
+
+function toolResultArtifacts(payload: Record<string, unknown>) {
+  const observation = record(payload.observation);
+  const observationPayload = record(observation.payload);
+  return [
+    ...artifactsFromPaths(arrayText(observationPayload.observed_paths, 6)),
+    ...artifactsFromPaths(arrayText(observationPayload.matched_paths, 6)),
+    ...artifactsFromMixed(observationPayload.artifact_refs),
+  ].slice(0, 6);
+}
+
+function toolRequestProjection(eventType: string, payload: Record<string, unknown>, eventMeta: ReturnType<typeof runtimeEvent>): RuntimeVisibilityProjection {
+  const actionRequest = record(payload.action_request);
+  const requestPayload = record(actionRequest.payload);
+  const toolCall = record(requestPayload.tool_call);
+  const toolName = toolNameFromActionRequest(payload) || "工具";
+  const body = short(
+    requestPayload.assistant_content_preview
+    ?? requestPayload.assistant_reasoning_preview
+    ?? toolCall.args
+    ?? actionRequest.request_type
+    ?? "已发起工具请求",
+  );
+  return {
+    stageStatus: `调用 ${toolName}`,
+    activityTitle: `正在调用 ${toolName}`,
+    activityDetail: "工具返回后会继续整理状态",
+    level: "running",
+    progressEntry: entry(eventType, "调用工具", {
+      body,
+      kind: "tool",
+      statusText: "请求中",
+      toolName,
+      taskRunId: eventMeta.taskRunId,
+      eventId: eventMeta.eventId,
+      createdAt: eventMeta.createdAt,
+      startedAt: eventMeta.createdAt,
+      meta: compactMeta([
+        metaItem("工具", toolName),
+        metaItem("请求", actionRequest.request_id, { shorten: true }),
+        metaItem("操作", actionRequest.operation_id || eventMeta.payload.operation_id, { shorten: true }),
+      ]),
+    }),
+  };
+}
+
+function toolResultProjection(eventType: string, payload: Record<string, unknown>, eventMeta: ReturnType<typeof runtimeEvent>): RuntimeVisibilityProjection {
+  const observation = record(payload.observation);
+  const observationPayload = record(observation.payload);
+  const toolName = toolNameFromObservation(payload) || "工具";
+  const resultChars = numberValue(observationPayload.result_chars ?? observation.content_chars);
+  const truncated = observationPayload.truncated === true;
+  const resultText = short(
+    observationPayload.result
+    ?? observationPayload.error
+    ?? observation.source
+    ?? "工具结果已写入运行上下文",
+  );
+  return {
+    stageStatus: "整理工具结果",
+    activityTitle: `${toolName} 已返回`,
+    activityDetail: resultText,
+    level: "running",
+    progressEntry: entry(eventType, "工具返回", {
+      body: resultText,
+      kind: "tool",
+      statusText: truncated ? "已截断" : "已返回",
+      toolName,
+      taskRunId: eventMeta.taskRunId,
+      eventId: eventMeta.eventId,
+      createdAt: eventMeta.createdAt,
+      completedAt: eventMeta.createdAt,
+      meta: compactMeta([
+        metaItem("工具", toolName),
+        metaItem("结果字符", resultChars),
+        metaItem("观察", observation.observation_id, { shorten: true }),
+        metaItem("执行", observationPayload.execution_id, { shorten: true }),
+      ]),
+      artifacts: toolResultArtifacts(payload),
+    }),
+  };
+}
+
+function operationGateProjection(eventType: string, payload: Record<string, unknown>, eventMeta: ReturnType<typeof runtimeEvent>): RuntimeVisibilityProjection {
+  const gate = record(payload.gate);
+  const allowed = gate.allowed === true;
+  const requiresApproval = gate.requires_approval === true || text(gate.decision).includes("approval");
+  const level: SessionActivityLevel = requiresApproval ? "waiting" : allowed ? "running" : "warning";
+  const title = requiresApproval ? "等待操作批准" : "检查操作权限";
+  const detail = text(gate.reason) || (allowed ? "操作权限检查通过" : "操作未被直接放行");
+  return {
+    stageStatus: title,
+    activityTitle: title,
+    activityDetail: detail,
+    level,
+    progressEntry: entry(eventType, title, {
+      body: detail,
+      level,
+      kind: "permission",
+      statusText: requiresApproval ? "等待批准" : allowed ? "已放行" : "受限",
+      taskRunId: eventMeta.taskRunId,
+      eventId: eventMeta.eventId,
+      createdAt: eventMeta.createdAt,
+      meta: compactMeta([
+        metaItem("操作", gate.operation_id, { shorten: true }),
+        metaItem("决策", gate.decision),
+      ]),
+    }),
+  };
+}
+
+function loopTerminalProjection(eventType: string, payload: Record<string, unknown>, eventMeta: ReturnType<typeof runtimeEvent>): RuntimeVisibilityProjection {
+  const status = text(payload.status) || "completed";
+  const terminalReason = text(payload.terminal_reason) || "completed";
+  return {
+    stageStatus: status === "completed" ? "完成" : "结束",
+    activityTitle: status === "completed" ? "任务运行完成" : "任务运行结束",
+    activityDetail: terminalReason,
+    level: status === "completed" ? "success" : "warning",
+    progressEntry: entry(eventType, status === "completed" ? "任务运行完成" : "任务运行结束", {
+      body: terminalReason,
+      level: status === "completed" ? "success" : "warning",
+      kind: "terminal",
+      statusText: status,
+      taskRunId: eventMeta.taskRunId,
+      eventId: eventMeta.eventId,
+      createdAt: eventMeta.createdAt,
+      completedAt: eventMeta.createdAt,
+      meta: compactMeta([
+        metaItem("状态", status),
+        metaItem("结果", record(payload.task_result).result_id, { shorten: true }),
+      ]),
+    }),
+  };
+}
+
+export function projectRuntimeLoopEvent(data: Record<string, unknown>): RuntimeVisibilityProjection {
+  const meta = runtimeEvent(data);
+  const eventType = meta.eventType;
+  const payload = meta.payload;
+  if (!eventType) return {};
+  if (eventType === "professional_task_stage_summary") {
+    return stageSummaryProjection(eventType, payload, meta);
+  }
+  if (eventType === "professional_task_progress_page") {
+    return progressPageProjection(eventType, payload, meta);
+  }
+  if (eventType === "professional_task_deliverable_validation_checked") {
+    return verificationProjection(eventType, payload, meta);
+  }
+  if (eventType === "tool_call_requested") {
+    return toolRequestProjection(eventType, payload, meta);
+  }
+  if (eventType === "tool_result_received") {
+    return toolResultProjection(eventType, payload, meta);
+  }
+  if (eventType === "operation_gate_checked") {
+    return operationGateProjection(eventType, payload, meta);
+  }
+  if (eventType === "loop_terminal") {
+    return loopTerminalProjection(eventType, payload, meta);
+  }
+  const simple: Record<string, { title: string; level?: SessionActivityLevel; body?: string; kind?: RuntimeProgressEntry["kind"]; statusText?: string }> = {
+    professional_task_started: { title: "开始专业任务", body: text(payload.goal) },
+    professional_task_model_plan_bound: { title: "绑定任务计划" },
+    professional_task_semantic_plan_drafted: {
+      title: "形成任务计划",
+      body: `计划步骤：${Array.isArray(payload.plan_items) ? payload.plan_items.length : 0}`,
+    },
+    professional_tool_observation_ledger_updated: { title: "整理工具观察" },
+    professional_task_evidence_packet_built: { title: "构建证据包" },
+    professional_task_evidence_resubmission_requested: {
+      title: "重新提交证据",
+      level: "warning",
+      body: text(payload.reason),
+    },
+    professional_task_evidence_closeout_applied: { title: "收口证据" },
+    professional_task_deliverable_repair_started: {
+      title: "开始修正交付物",
+      level: "warning",
+      body: text(payload.reason),
+    },
+    professional_task_deliverable_repair_rejected: {
+      title: "修正被拒绝",
+      level: "error",
+      body: text(payload.reason),
+    },
+    professional_task_completion_judged: {
+      title: "判断完成度",
+      level: record(payload.completion_judgment).completed === true ? "success" : "warning",
+      body: text(record(payload.completion_judgment).reason),
+    },
+    professional_task_run_outcome_built: {
+      title: "生成运行结果",
+      level: "success",
+      body: text(record(payload.run_outcome).terminal_reason),
+      kind: "terminal",
+      statusText: "已生成",
+    },
+    professional_run_session_updated: { title: "更新专业任务会话" },
+    runtime_directive_issued: { title: "准备执行", kind: "stage", statusText: "已下发" },
+    approval_waiting: { title: "等待批准", level: "waiting", kind: "permission", statusText: "等待批准" },
+    recovery_attempted: { title: "尝试纠错", level: "warning" },
+    loop_error: { title: "运行出错", level: "error", body: text(payload.error), kind: "terminal", statusText: "失败" },
+  };
+  const projected = simple[eventType];
+  if (!projected) return {};
+  const shouldShowProgress = eventType.startsWith("professional_")
+    || eventType === "recovery_attempted"
+    || eventType === "approval_waiting"
+    || eventType === "runtime_directive_issued"
+    || eventType === "loop_error";
+  return {
+    stageStatus: projected.title,
+    activityTitle: projected.title,
+    activityDetail: short(projected.body || projected.title),
+    level: projected.level || "running",
+    progressEntry: shouldShowProgress
+      ? entry(eventType, projected.title, {
+          body: projected.body,
+          level: projected.level || "running",
+          kind: projected.kind || (eventType.startsWith("professional_") ? "stage" : "system"),
+          statusText: projected.statusText || (projected.level === "success" ? "完成" : projected.level === "waiting" ? "等待" : "进行中"),
+          taskRunId: meta.taskRunId,
+          eventId: meta.eventId,
+          createdAt: meta.createdAt,
+          completedAt: (projected.level === "success" || projected.level === "error") ? meta.createdAt : undefined,
+        })
+      : undefined,
+  };
+}
+
+export function projectRuntimeStreamEvent(event: string, data: Record<string, unknown>): RuntimeVisibilityProjection {
+  if (event === "task_intent_decision") {
+    const decision = record(data.decision);
+    const draft = text(decision.decision) === "task_order_draft";
+    return {
+      stageStatus: draft ? "等待任务确认" : "判断任务边界",
+      activityTitle: draft ? "需要确认任务信息" : "判断任务边界",
+      activityDetail: text(decision.reason),
+      level: draft ? "waiting" : "running",
+    };
+  }
+  if (event === "task_order_draft") {
+    const draft = record(data.draft);
+    const missing = arrayText(draft.missing_fields, 8);
+    return {
+      stageStatus: "等待任务确认",
+      activityTitle: "任务需要确认",
+      activityDetail: missing.length ? `缺少：${missing.join("、")}` : "需要补充任务信息",
+      level: "waiting",
+      progressEntry: entry("task_order_draft", "任务需要确认", {
+        body: missing.length ? `缺少：${missing.join("、")}` : "需要补充任务信息",
+        level: "waiting",
+        kind: "task_draft",
+        statusText: "待确认",
+        eventId: text(draft.draft_id),
+        createdAt: numberValue(draft.updated_at ?? draft.created_at),
+        meta: compactMeta([
+          metaItem("草稿", draft.draft_id, { shorten: true }),
+          metaItem("缺少字段", missing.length),
+        ]),
+      }),
+    };
+  }
+  if (event === "task_order_projection") {
+    const projection = projectionFromTaskOrderStream(data);
+    const order = record(projection.task_order);
+    const run = record(projection.task_order_run);
+    const channel = record(projection.execution_channel);
+    const envelope = record(projection.task_execution_envelope);
+    const body = [
+      text(order.objective),
+      text(order.order_kind) ? `类型：${text(order.order_kind)}` : "",
+      text(order.task_id) ? `任务：${text(order.task_id)}` : "",
+      text(run.run_id) ? `运行：${shortId(run.run_id)}` : "",
+    ].filter(Boolean).join("\n");
+    return {
+      stageStatus: "已绑定任务订单",
+      activityTitle: "已绑定任务订单",
+      activityDetail: text(order.objective) || text(run.run_id),
+      level: "running",
+      taskOrderProjection: projection,
+      progressEntry: entry("task_order_projection", "已绑定任务订单", {
+        body,
+        kind: "task_order",
+        statusText: "已绑定",
+        eventId: text(run.run_id) || text(order.order_id),
+        createdAt: numberValue(run.updated_at ?? run.created_at),
+        meta: compactMeta([
+          metaItem("类型", order.order_kind),
+          metaItem("任务", order.task_id, { shorten: true }),
+          metaItem("订单", order.order_id, { shorten: true }),
+          metaItem("运行", run.run_id, { shorten: true }),
+          metaItem("通道", channel.channel_id, { shorten: true }),
+          metaItem("信封", envelope.envelope_id, { shorten: true }),
+        ]),
+      }),
+    };
+  }
+  if (event === "runtime_loop_event") {
+    return projectRuntimeLoopEvent(data);
+  }
+  if (event === "done") {
+    return {
+      stageStatus: "完成",
+      activityTitle: "完成",
+      activityDetail: "回答已生成并写回会话",
+      level: "success",
+      terminalEvent: "done",
+      progressEntry: entry("done", "会话输出完成", {
+        body: text(data.receipt_summary ?? data.summary ?? data.answer_source) || "回答已生成并写回会话",
+        level: "success",
+        kind: "terminal",
+        statusText: "完成",
+        createdAt: Date.now(),
+        completedAt: Date.now(),
+        artifacts: artifactsFromMixed(data.artifacts ?? data.files ?? data.paths),
+      }),
+    };
+  }
+  if (event === "error") {
+    return {
+      stageStatus: "出错",
+      activityTitle: "处理失败",
+      activityDetail: text(data.error),
+      level: "error",
+      terminalEvent: "error",
+      progressEntry: entry("error", "处理失败", {
+        body: text(data.error) || "请求执行失败",
+        level: "error",
+        kind: "terminal",
+        statusText: "失败",
+        createdAt: Date.now(),
+        completedAt: Date.now(),
+      }),
+    };
+  }
+  if (event === "stopped") {
+    return {
+      stageStatus: "已停止",
+      activityTitle: "已停止本轮生成",
+      activityDetail: "已按你的操作中断当前处理",
+      level: "stopped",
+      terminalEvent: "stopped",
+      progressEntry: entry("stopped", "已停止本轮生成", {
+        body: "已按你的操作中断当前处理",
+        level: "stopped",
+        kind: "terminal",
+        statusText: "已停止",
+        createdAt: Date.now(),
+        completedAt: Date.now(),
+      }),
+    };
+  }
+  if (event === "tool_start") {
+    const tool = text(data.tool) || "工具";
+    return {
+      stageStatus: `调用 ${tool}`,
+      activityTitle: `正在调用 ${tool}`,
+      activityDetail: "工具完成后会继续更新结果",
+      level: "running",
+      progressEntry: entry("tool_start", "调用工具", {
+        body: short(data.input || "工具完成后会继续更新结果"),
+        kind: "tool",
+        statusText: "请求中",
+        toolName: tool,
+        createdAt: Date.now(),
+        startedAt: Date.now(),
+        meta: compactMeta([metaItem("工具", tool)]),
+      }),
+    };
+  }
+  if (event === "tool_end") {
+    const tool = text(data.tool) || "工具";
+    return {
+      stageStatus: "整理工具结果",
+      activityTitle: `${tool} 已返回`,
+      activityDetail: "正在整理工具结果",
+      level: "running",
+      progressEntry: entry("tool_end", "工具返回", {
+        body: short(data.output || "正在整理工具结果"),
+        kind: "tool",
+        statusText: "已返回",
+        toolName: tool,
+        createdAt: Date.now(),
+        completedAt: Date.now(),
+        meta: compactMeta([metaItem("工具", tool)]),
+      }),
+    };
+  }
+  if (event === "retrieval") {
+    const results = Array.isArray(data.results) ? data.results.length : 0;
+    return { stageStatus: "检索证据", activityTitle: results ? `已检索到 ${results} 条候选证据` : "正在检索可用证据", level: "running" };
+  }
+  if (event === "output_boundary") {
+    return { stageStatus: "整理输出", activityTitle: "整理输出", level: "running" };
+  }
+  return {};
+}

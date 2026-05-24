@@ -2,7 +2,7 @@
 
 日期：2026-05-24
 
-状态：实施方案 / 待开工
+状态：已实施主链路 / 历史实施方案
 
 依据设计书：`docs/系统规划/214-任务系统权威统一重构设计书-20260524.md`
 
@@ -29,7 +29,7 @@ ConversationTurn
 - 所有任务型工作必须有 `order_id/run_id/execution_channel_id`。
 - 普通前台只读检索可以属于 `ConversationTurn` 的观察性运行轨迹，不强行订单化。
 - 文件修改、持久写入、后台运行、任务图启动、worker spawn、人工 gate 前必须存在 `TaskOrderRun`。
-- Shadow 阶段允许兼容投影；Cutover 完成后必须删除无用旧入口和旧测试。
+- Cutover 后不保留无用兼容投影；没有 `TaskOrderRun` 绑定的普通 `TaskRun` 不生成任务订单投射。
 
 ## 2. 当前代码依据
 
@@ -153,6 +153,34 @@ backend/runtime/agent_assembly/models.py
 - 不重写 `TaskRunLoop`。
 - 先新增上游 `TaskOrderAuthority`，再把现有 `TaskRun` 绑定到 `TaskOrderRun`。
 - 现有监控从 `TaskRun` 视角扩展为 order/run/channel projection。
+
+### 2.6 `task_selection` 使用面比入口层更广
+
+实施前代码搜索显示，`task_selection` 还被以下系统使用：
+
+```text
+backend/agent_system/assembly/runtime_chain.py
+backend/runtime/agent_assembly/boundary.py
+backend/runtime/agent_assembly/assembler.py
+backend/runtime/unit_runtime/sandbox_policy.py
+backend/health_system/registry.py
+backend/api/orchestration_catalog.py
+backend/tests/system_eval/*
+backend/tests/professional_task_run_regression.py
+backend/tests/query_runtime_runtime_loop_regression.py
+```
+
+因此实施时不能在早期“一刀切删除” `task_selection`。正确处理顺序是：
+
+1. Shadow 阶段：保留 `task_selection` 作为 projection / current_turn_context 输入，同时新增 order refs。
+2. Cutover 阶段：所有任务型执行必须以 `TaskOrderRun` 为事实源，`task_selection` 只能由 order/envelope 投影生成。
+3. Cleanup 阶段：删除仍把 `task_selection` 当执行事实的分支和测试。
+
+特别注意：
+
+- `runtime_chain.py` 中的 `explicit_task_selection` 需要迁移为 `task_order_projection` 或 `task_execution_envelope`。
+- `sandbox_policy.py` 可以读取投影，但权限上限必须来自 envelope / effective assembly。
+- health/test/system eval 入口必须迁移为标准 order facade，不能长期保留独立任务真相。
 
 ## 3. 目标工程结构
 
@@ -407,8 +435,8 @@ backend/app.py
 完成标准：
 
 - 现有 `/chat`、任务图、监控行为不变。
-- 可以通过 API 查询 shadow order/run/channel。
-- 旧 `TaskRun` 没有 order 时显示 `legacy_projection`，不伪装为新对象。
+- 可以通过 API 查询 order/run/channel。
+- `TaskRun` 没有 order 时不返回 `task_order_projection`，只能作为会话运行观察轨迹显示，不能伪装为任务订单。
 
 测试：
 
@@ -758,7 +786,7 @@ npm --prefix frontend test
 - 任务图 start API 直接创建运行的独立真相。
 - 图节点 scheduler 直接执行而无 node order/run/channel 的路径。
 - worker spawn 创建孤立 `AgentRun` 的路径。
-- shadow legacy projection 的临时写入逻辑。
+- 无订单绑定时生成任务订单投射的临时写入逻辑。
 - 迁移期专用旧测试。
 
 保留内容：
@@ -912,7 +940,7 @@ taskSelection
 
 - 删除无用兼容字段。
 - 删除无用旧测试。
-- 删除 shadow-only 写入分支。
+- 删除仅用于迁移期的写入分支。
 - 删除旧执行入口。
 
 不得：
@@ -933,7 +961,7 @@ taskSelection
 
 控制：
 
-- 先 root shadow，再 node cutover。
+- 先 root order/run/channel，再 node cutover。
 - 任务图现有 `TaskRun/CoordinationRun` 不替换，只加绑定。
 
 风险 3：并行节点共享通道。
@@ -982,7 +1010,7 @@ taskSelection
 
 正式实施时不要一次性改全链路。推荐按以下顺序提交：
 
-1. Phase 1：新增对象和 registry，全部 shadow。
+1. Phase 1：新增对象和 registry，先写入标准 order/run/channel。
 2. Phase 2：`/chat` 判定和草稿，但不切任务库。
 3. Phase 3 + Phase 4：特定任务订单化并绑定 `TaskRunLoop`。
 4. Phase 5：任务图 root 订单化。

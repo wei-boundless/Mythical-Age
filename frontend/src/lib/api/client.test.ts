@@ -110,18 +110,23 @@ describe("streamChat", () => {
     expect(events).toEqual([{ event: "done", data: { content: "ok" } }]);
   });
 
-  it("synthesizes done after a stable output boundary when backend keeps running", async () => {
-    vi.useFakeTimers();
+  it("keeps reading after output_boundary until the backend sends done", async () => {
     vi.stubGlobal("window", {});
     const cancel = vi.fn(async () => undefined);
     const chunks = [
       new TextEncoder().encode(
         'event: output_boundary\ndata: {"output":{"visible_text":"你好，我是四岳。","selected_channel":"answer_candidate","selected_source":"model_response"}}\n\n'
       ),
+      new TextEncoder().encode(
+        'event: runtime_loop_event\ndata: {"event":{"event_id":"rtevt:1","task_run_id":"taskrun:1","event_type":"professional_task_stage_summary","payload":{"stage_summary":{"verified":false}}}}\n\n'
+      ),
+      new TextEncoder().encode('event: done\ndata: {"content":"完成"}\n\n'),
     ];
     const reader = {
       read: vi.fn()
         .mockResolvedValueOnce({ value: chunks[0], done: false })
+        .mockResolvedValueOnce({ value: chunks[1], done: false })
+        .mockResolvedValueOnce({ value: chunks[2], done: false })
         .mockImplementation(() => new Promise(() => undefined)),
       cancel,
     };
@@ -135,72 +140,42 @@ describe("streamChat", () => {
       { message: "你好", session_id: "session:stable" },
       { onEvent: (event, data) => events.push({ event, data }) },
     );
-    await vi.advanceTimersByTimeAsync(8000);
-    const result = await pending;
 
-    expect(result).toEqual({
-      terminalEvent: "done",
-      synthesized: true,
-      syntheticReason: "stable_answer",
-    });
+    const result = await pending;
+    expect(result).toEqual({ terminalEvent: "done" });
     expect(cancel).toHaveBeenCalledTimes(1);
-    expect(events.map((item) => item.event)).toEqual(["output_boundary", "done"]);
-    expect(events.at(-1)?.data).toMatchObject({
-      content: "你好，我是四岳。",
-      synthesized: true,
-      terminal_reason: "frontend_stable_answer",
-    });
+    expect(events.map((item) => item.event)).toEqual(["output_boundary", "runtime_loop_event", "done"]);
   });
 
-  it("releases the stream when no visible answer arrives before the frontend timeout", async () => {
-    vi.useFakeTimers();
+  it("rejects when the stream closes without a terminal event", async () => {
     vi.stubGlobal("window", {});
     const cancel = vi.fn(async () => undefined);
-    const reader = {
-      read: vi.fn().mockImplementation(() => new Promise(() => undefined)),
-      cancel,
-    };
-    vi.stubGlobal("fetch", vi.fn(async () => ({
-      ok: true,
-      body: { getReader: () => reader },
-    })));
-    const events: Array<{ event: string; data: Record<string, unknown> }> = [];
-
-    const pending = streamChat(
-      { message: "你好", session_id: "session:no-visible" },
-      { onEvent: (event, data) => events.push({ event, data }) },
-    );
-    await vi.advanceTimersByTimeAsync(90000);
-    const result = await pending;
-
-    expect(result).toEqual({
-      terminalEvent: "error",
-      synthesized: true,
-      syntheticReason: "no_visible_answer",
-    });
-    expect(cancel).toHaveBeenCalledTimes(1);
-    expect(events).toHaveLength(1);
-    expect(events[0]).toMatchObject({
-      event: "error",
-      data: {
-        terminal_reason: "frontend_no_visible_answer_timeout",
-        synthesized: true,
-      },
-    });
-    expect(String(events[0].data.error)).toContain("已释放输入区");
-  });
-
-  it("releases the stream when visible deltas arrive but the backend never closes", async () => {
-    vi.useFakeTimers();
-    vi.stubGlobal("window", {});
-    const cancel = vi.fn(async () => undefined);
-    const chunks = [
-      new TextEncoder().encode('event: content_delta\ndata: {"content":"你好"}\n\n'),
-    ];
     const reader = {
       read: vi.fn()
-        .mockResolvedValueOnce({ value: chunks[0], done: false })
-        .mockImplementation(() => new Promise(() => undefined)),
+        .mockResolvedValueOnce({ value: new TextEncoder().encode('event: content_delta\ndata: {"content":"你好"}\n\n'), done: false })
+        .mockResolvedValueOnce({ value: undefined, done: true }),
+      cancel,
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      body: { getReader: () => reader },
+    })));
+    const events: Array<{ event: string; data: Record<string, unknown> }> = [];
+
+    await expect(streamChat(
+      { message: "你好", session_id: "session:no-visible" },
+      { onEvent: (event, data) => events.push({ event, data }) },
+    )).rejects.toThrow("Chat stream ended without a terminal event.");
+    expect(cancel).not.toHaveBeenCalled();
+    expect(events.map((item) => item.event)).toEqual(["content_delta"]);
+  });
+
+  it("returns backend terminal events without frontend completion fields", async () => {
+    vi.stubGlobal("window", {});
+    const cancel = vi.fn(async () => undefined);
+    const reader = {
+      read: vi.fn()
+        .mockResolvedValueOnce({ value: new TextEncoder().encode('event: error\ndata: {"error":"backend failed"}\n\n'), done: false }),
       cancel,
     };
     vi.stubGlobal("fetch", vi.fn(async () => ({
@@ -210,22 +185,13 @@ describe("streamChat", () => {
     const events: Array<{ event: string; data: Record<string, unknown> }> = [];
 
     const pending = streamChat(
-      { message: "你好", session_id: "session:visible-idle" },
+      { message: "你好", session_id: "session:backend-error" },
       { onEvent: (event, data) => events.push({ event, data }) },
     );
-    await vi.advanceTimersByTimeAsync(45000);
     const result = await pending;
 
-    expect(result).toEqual({
-      terminalEvent: "error",
-      synthesized: true,
-      syntheticReason: "no_visible_answer",
-    });
+    expect(result).toEqual({ terminalEvent: "error" });
     expect(cancel).toHaveBeenCalledTimes(1);
-    expect(events.map((item) => item.event)).toEqual(["content_delta", "error"]);
-    expect(events.at(-1)?.data).toMatchObject({
-      terminal_reason: "frontend_visible_answer_idle_timeout",
-      synthesized: true,
-    });
+    expect(events).toEqual([{ event: "error", data: { error: "backend failed" } }]);
   });
 });

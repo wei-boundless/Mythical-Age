@@ -190,6 +190,7 @@ class RuntimeLoopTraceReader:
         now = float(now if now is not None else time.time())
         coordination_runs = self.state_index.list_task_coordination_runs(task_run.task_run_id)
         coordination_run = _pick_coordination_run(coordination_runs)
+        task_order_projection = self.state_index.task_order_projection_for_task_run(task_run.task_run_id)
         project_id = str(dict(task_run.diagnostics or {}).get("project_id") or "")
         project_status = self.state_index.get_project_runtime_status(project_id) if project_id else None
         events = self.event_log.list_events(task_run.task_run_id)
@@ -254,6 +255,7 @@ class RuntimeLoopTraceReader:
             "project_title": str(dict(task_run.diagnostics or {}).get("project_title") or ""),
             "project_runtime_status": project_status.to_dict() if project_status is not None else None,
             "has_coordination": coordination_run is not None,
+            "task_order_projection": task_order_projection,
         }
 
     def get_task_run_live_monitor(self, task_run_id: str) -> dict[str, Any] | None:
@@ -488,8 +490,10 @@ class RuntimeLoopTraceReader:
             events=events,
             checkpoint=checkpoint,
         )
+        task_order_projection = self.state_index.task_order_projection_for_task_run(task_run_id)
         return {
             "task_run": task_run,
+            "task_order_projection": task_order_projection,
             "latest_checkpoint": _checkpoint_summary(checkpoint) if checkpoint is not None else None,
             "loop_state": _loop_state_summary(loop_state),
             "coordination_run": coordination_view,
@@ -595,6 +599,7 @@ class RuntimeLoopTraceReader:
             "coordination_run_ref": str(dict(task_run.diagnostics or {}).get("coordination_run_ref") or ""),
             "created_at": task_run.created_at,
             "updated_at": task_run.updated_at,
+            "task_order_projection": self.state_index.task_order_projection_for_task_run(task_run.task_run_id),
             "authority": task_run.authority,
         }
 
@@ -605,6 +610,7 @@ class RuntimeLoopTraceReader:
         coordination_runs = self.state_index.list_task_coordination_runs(task_run.task_run_id)
         return {
             "task_run": task_run.to_dict(),
+            "task_order_projection": self.state_index.task_order_projection_for_task_run(task_run.task_run_id),
             "agent_run_count": len(agent_runs),
             "coordination_run_count": len(coordination_runs),
             "event_count": len(events),
@@ -673,6 +679,10 @@ def _professional_task_summary(
     ledger_event = _latest_runtime_event(events, "professional_tool_observation_ledger_updated")
     session_event = _latest_runtime_event(events, "professional_run_session_updated")
     verification_event = _latest_runtime_event(events, "professional_task_deliverable_validation_checked")
+    progress_page_event = _latest_runtime_event(events, "professional_task_progress_page")
+    stage_summary_event = _latest_runtime_event(events, "professional_task_stage_summary")
+    completion_judgment_event = _latest_runtime_event(events, "professional_task_completion_judged")
+    run_outcome_event = _latest_runtime_event(events, "professional_task_run_outcome_built")
     diagnostics = dict(loop_state.get("diagnostics") or {})
     interaction_lanes = {"role_interaction", "standard_task", "professional_task"}
     interaction_recipe_ids = {
@@ -758,8 +768,12 @@ def _professional_task_summary(
         },
         "current_plan_item": _current_plan_item_summary(ledger, current_step_id=current_step_id),
         "progress": _professional_ledger_progress(ledger, current_step_id=current_step_id),
+        "progress_page": _professional_progress_page_summary(progress_page_event),
+        "stage_summary": _professional_stage_summary(stage_summary_event),
         "observation": observation,
         "verification": verification,
+        "completion_judgment": _professional_completion_judgment_summary(completion_judgment_event),
+        "run_outcome": _professional_run_outcome_summary(run_outcome_event),
         "professional_run_state": professional_run_state,
         "professional_run_session": professional_run_session,
         "tool_observation_ledger": tool_observation_ledger,
@@ -988,6 +1002,127 @@ def _professional_ledger_progress(ledger: dict[str, Any], *, current_step_id: st
         "pending_count": sum(1 for item in step_runs if str(item.get("status") or "") == "pending"),
         "failed_count": sum(1 for item in step_runs if str(item.get("status") or "") == "failed"),
         "skipped_count": sum(1 for item in step_runs if str(item.get("status") or "") == "skipped"),
+    }
+
+
+def _professional_progress_page_summary(event: RuntimeEvent | None) -> dict[str, Any]:
+    progress_page = _first_record_payload((event, "progress_page"))
+    if not progress_page:
+        return {}
+    return {
+        "summary": str(
+            progress_page.get("summary")
+            or progress_page.get("current_status")
+            or progress_page.get("progress_summary")
+            or ""
+        ),
+        "turn_count": int(progress_page.get("turn_count") or 0),
+        "tool_call_count": int(progress_page.get("tool_call_count") or 0),
+        "tool_observation_count": int(progress_page.get("tool_observation_count") or 0),
+        "written_paths": [
+            str(item)
+            for item in list(
+                progress_page.get("written_paths")
+                or progress_page.get("artifact_paths")
+                or []
+            )
+            if str(item)
+        ][:8],
+        "pending_paths": [
+            str(item)
+            for item in list(
+                progress_page.get("pending_paths")
+                or progress_page.get("pending_deliverables")
+                or []
+            )
+            if str(item)
+        ][:8],
+        "event_id": event.event_id if event is not None else "",
+        "created_at": event.created_at if event is not None else 0.0,
+    }
+
+
+def _professional_stage_summary(event: RuntimeEvent | None) -> dict[str, Any]:
+    stage_summary = _first_record_payload((event, "stage_summary"))
+    if not stage_summary:
+        return {}
+    written_paths = [
+        str(item)
+        for item in list(
+            stage_summary.get("written_paths")
+            or stage_summary.get("written_artifacts")
+            or stage_summary.get("artifact_paths")
+            or []
+        )
+        if str(item)
+    ]
+    pending_paths = [
+        str(item)
+        for item in list(
+            stage_summary.get("pending_paths")
+            or stage_summary.get("pending_deliverables")
+            or []
+        )
+        if str(item)
+    ]
+    return {
+        "written_paths": written_paths[:8],
+        "pending_paths": pending_paths[:8],
+        "verified": bool(stage_summary.get("verified") is True),
+        "validation_status": str(stage_summary.get("validation_status") or ""),
+        "next_step": str(stage_summary.get("next_step") or ""),
+        "latest_observations": [
+            str(item)
+            for item in list(stage_summary.get("latest_observations") or stage_summary.get("observations") or [])
+            if str(item)
+        ][:5],
+        "turn_count": int(stage_summary.get("turn_count") or 0),
+        "tool_call_count": int(stage_summary.get("tool_call_count") or 0),
+        "tool_observation_count": int(stage_summary.get("tool_observation_count") or 0),
+        "event_id": event.event_id if event is not None else "",
+        "created_at": event.created_at if event is not None else 0.0,
+    }
+
+
+def _professional_completion_judgment_summary(event: RuntimeEvent | None) -> dict[str, Any]:
+    judgment = _first_record_payload((event, "completion_judgment"))
+    review = _first_record_payload((event, "verification_review"))
+    if not judgment and not review:
+        return {}
+    return {
+        "completed": bool(judgment.get("completed") is True),
+        "reason": str(judgment.get("reason") or review.get("summary") or ""),
+        "missing": [
+            str(item)
+            for item in list(judgment.get("missing") or judgment.get("missing_deliverables") or [])
+            if str(item)
+        ][:8],
+        "review_status": str(review.get("status") or ""),
+        "event_id": event.event_id if event is not None else "",
+        "created_at": event.created_at if event is not None else 0.0,
+    }
+
+
+def _professional_run_outcome_summary(event: RuntimeEvent | None) -> dict[str, Any]:
+    outcome = _first_record_payload((event, "run_outcome"))
+    if not outcome:
+        return {}
+    return {
+        "terminal_reason": str(outcome.get("terminal_reason") or ""),
+        "status": str(outcome.get("status") or ""),
+        "result_refs": [
+            str(item)
+            for item in list(outcome.get("result_refs") or [])
+            if str(item)
+        ][:8],
+        "artifact_refs": [
+            str(item)
+            for item in list(outcome.get("artifact_refs") or [])
+            if str(item)
+        ][:8],
+        "final_content_preview": str(outcome.get("final_content") or "")[:240],
+        "event_id": event.event_id if event is not None else "",
+        "created_at": event.created_at if event is not None else 0.0,
     }
 
 

@@ -5,6 +5,7 @@ import type {
   RetrievalResult,
   RuntimeMonitorEventPayload,
   SoulImageAssetConfig,
+  TaskOrderProjection,
   TaskGraphMonitorDecision,
   TaskGraphRunMonitorView,
   RuntimeLoopTaskRunLiveMonitor,
@@ -20,6 +21,7 @@ export type Message = {
   content: string;
   toolCalls: ToolCall[];
   retrievals: RetrievalResult[];
+  runtimeProgress?: RuntimeProgressEntry[];
   stageStatus?: string;
   sourceIndex?: number;
   image?: {
@@ -29,7 +31,7 @@ export type Message = {
   } | null;
 };
 
-export type SessionActivityLevel = "idle" | "running" | "waiting" | "success" | "error" | "stopped";
+export type SessionActivityLevel = "idle" | "running" | "waiting" | "success" | "warning" | "error" | "stopped";
 export type RuntimeMonitorStreamStatus = "connecting" | "connected" | "fallback" | "closed";
 
 export type UserReceiptArtifact = {
@@ -45,6 +47,35 @@ export type UserReceipt = {
   scope?: string;
   artifacts?: UserReceiptArtifact[];
   debug?: Record<string, string>;
+};
+
+export type RuntimeProgressEntry = {
+  id: string;
+  level: SessionActivityLevel;
+  title: string;
+  body?: string;
+  eventType: string;
+  kind?:
+    | "task_order"
+    | "task_draft"
+    | "stage"
+    | "tool"
+    | "artifact"
+    | "verification"
+    | "permission"
+    | "context"
+    | "memory"
+    | "model"
+    | "terminal"
+    | "system";
+  statusText?: string;
+  meta?: Array<{ label: string; value: string }>;
+  toolName?: string;
+  taskRunId?: string;
+  createdAt?: number;
+  startedAt?: number;
+  completedAt?: number;
+  artifacts?: UserReceiptArtifact[];
 };
 
 export type SessionActivityState = {
@@ -154,6 +185,10 @@ export type TaskSelectionState = {
   intent_decision?: Record<string, unknown>;
   agent_invocation?: Record<string, unknown>;
   agent_invocation_id?: string;
+  task_order_id?: string;
+  task_order_run_id?: string;
+  execution_channel_id?: string;
+  task_execution_envelope_id?: string;
 };
 
 export type TaskGraphMonitorBinding = {
@@ -216,6 +251,10 @@ export type StoreState = {
   taskGraphRunInteractionOpen: boolean;
   orchestrationInspectorTarget: OrchestrationInspectorTarget | null;
   taskSelection: TaskSelectionState | null;
+  taskOrderProjection: TaskOrderProjection | null;
+  selectedTaskOrderId: string;
+  selectedTaskOrderRunId: string;
+  taskOrderProjectionConsumed: boolean;
 };
 
 export type StoreActions = {
@@ -250,6 +289,7 @@ export type StoreActions = {
   resumeTaskGraphRun: (taskGraphRunId: string, payload?: Record<string, unknown>) => Promise<void>;
   resolveRuntimeApproval: (taskRunId: string, decision: "approve" | "reject", message?: string) => Promise<void>;
   setTaskSelection: (selection: TaskSelectionState | null) => void;
+  setTaskOrderProjection: (projection: TaskOrderProjection | null) => void;
   selectGlobalRuntimeMonitorTaskRun: (taskRunId: string) => void;
   refreshGlobalRuntimeMonitor: () => Promise<void>;
 };

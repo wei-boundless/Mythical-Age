@@ -4,7 +4,7 @@ import { AlertTriangle, CheckCircle2, Clock3, Network, RefreshCw, RotateCcw } fr
 
 import { TaskGraphRunMonitorPanel } from "@/components/task-graph-monitor/TaskGraphRunMonitorPanel";
 import { useAppStore } from "@/lib/store";
-import { topLevelTaskGraphMonitorItems } from "../../lib/runtimeMonitorLayering";
+import { runtimeWorkProjectionFromMonitorItem, visibleRuntimeMonitorItems } from "@/lib/runtimeWorkProjection";
 import {
   formatTime,
   monitorStatusLabel,
@@ -29,22 +29,29 @@ export function RuntimeMonitorDetailView({ onClose }: { onClose: () => void }) {
     globalRuntimeMonitorSelectedTaskRunId,
     refreshGlobalRuntimeMonitor,
   } = useAppStore();
-  const tasks = topLevelTaskGraphMonitorItems(globalRuntimeMonitor);
-  const selectedTask = tasks.find((item) => item.task_run_id === globalRuntimeMonitorSelectedTaskRunId) ?? tasks[0] ?? null;
+  const runs = visibleRuntimeMonitorItems(globalRuntimeMonitor);
+  const selectedTask = runs.find((item) => item.task_run_id === globalRuntimeMonitorSelectedTaskRunId) ?? runs[0] ?? null;
+  const selectedWork = selectedTask ? runtimeWorkProjectionFromMonitorItem(selectedTask) : null;
   const selectedTaskRunId = selectedTask?.task_run_id ?? "";
   const selectedTaskBucket = selectedTask?.display_bucket ?? "";
   const selectedTaskLive = selectedTask?.is_live ?? false;
   const nowSeconds = useRuntimeNowTicker(Boolean(selectedTaskRunId && (selectedTaskLive || selectedTaskBucket === "stale")));
   const liveMonitor = globalRuntimeMonitorSelectedLiveMonitor;
   const graphMonitor = globalRuntimeMonitorSelectedGraphMonitor;
+  const liveWork = liveMonitor ? selectedWork : null;
+  const professionalSummary = liveMonitor?.professional_task_summary ?? null;
+  const orderProjection = liveMonitor?.task_order_projection ?? selectedTask?.task_order_projection ?? null;
+  const order = orderProjection?.task_order ?? null;
+  const run = orderProjection?.task_order_run ?? null;
+  const channel = orderProjection?.execution_channel ?? null;
 
   return (
     <section className="runtime-monitor-center" aria-label="任务详细监控">
       <header className="runtime-monitor-center__head">
         <div>
           <span>详细监控</span>
-          <h2>{selectedTask ? taskTitle(selectedTask) : "未选择任务"}</h2>
-          <p>{selectedTask ? selectedTask.task_run_id : "从右侧监控列表选择一个任务图后，这里显示运行细节。"}</p>
+          <h2>{selectedWork ? selectedWork.title : "未选择任务"}</h2>
+          <p>{selectedWork ? `${selectedWork.displayTypeLabel} · ${selectedWork.primaryRunId}` : "从右侧监控列表选择一个运行任务后，这里显示运行细节。"}</p>
         </div>
         <div className="runtime-monitor-center__actions">
           <button disabled={globalRuntimeMonitorLoading} onClick={() => void refreshGlobalRuntimeMonitor()} type="button">
@@ -82,8 +89,8 @@ export function RuntimeMonitorDetailView({ onClose }: { onClose: () => void }) {
           </article>
           <article>
             <span>类型</span>
-            <strong>任务图</strong>
-            <em>{selectedTask.active_node_id || "等待节点"}</em>
+            <strong>{selectedWork?.displayTypeLabel || "运行任务"}</strong>
+            <em>{selectedWork?.orderRunId || selectedTask.active_node_id || "等待运行"}</em>
           </article>
           <article>
             <span>最近更新</span>
@@ -96,40 +103,82 @@ export function RuntimeMonitorDetailView({ onClose }: { onClose: () => void }) {
       {!selectedTask ? (
         <div className="runtime-monitor-center__empty">
           <Clock3 size={22} />
-          <strong>当前没有可监控任务图</strong>
-          <span>启动任务图后，右侧会出现顶层任务图；选择后可在这里查看节点和子进程。</span>
+          <strong>当前没有可监控运行</strong>
+          <span>任务订单、专业任务和任务图运行会在右侧出现；选择后可查看细节。</span>
         </div>
-      ) : graphMonitor ? (
+      ) : selectedWork?.workKind === "task_graph_run" && graphMonitor ? (
         <div className="runtime-monitor-center__graph">
           <TaskGraphRunMonitorPanel monitor={graphMonitor} />
         </div>
       ) : liveMonitor ? (
-        <section className="runtime-monitor-center__live" aria-label="运行循环详情">
-          <article>
-            <span>TaskRun</span>
-            <strong>{text(liveMonitor.task_run?.task_run_id, selectedTask.task_run_id)}</strong>
-          </article>
-          <article>
-            <span>状态</span>
-            <strong>{statusLabel(liveMonitor.status)}</strong>
-          </article>
-          <article>
-            <span>终止原因</span>
-            <strong>{liveMonitor.terminal_reason || "-"}</strong>
-          </article>
-          <article>
-            <span>Checkpoint</span>
-            <strong>{text(liveMonitor.latest_checkpoint?.checkpoint_id)}</strong>
-          </article>
-          <article>
-            <span>Coordination</span>
-            <strong>{liveMonitor.has_coordination ? "已绑定" : "未绑定"}</strong>
-          </article>
-          <article>
-            <span>更新时间</span>
-            <strong>{formatTime(liveMonitor.updated_at)}</strong>
-          </article>
-        </section>
+        <>
+          {orderProjection ? (
+            <section className="runtime-monitor-center__live" aria-label="任务订单详情">
+              <article>
+                <span>TaskOrder</span>
+                <strong>{text(order?.order_id)}</strong>
+              </article>
+              <article>
+                <span>OrderRun</span>
+                <strong>{text(run?.run_id, liveWork?.orderRunId || "-")}</strong>
+              </article>
+              <article>
+                <span>ExecutionChannel</span>
+                <strong>{text(channel?.channel_id, liveWork?.channelId || "-")}</strong>
+              </article>
+              <article>
+                <span>订单目标</span>
+                <strong>{text(order?.objective, selectedWork?.title || "-")}</strong>
+              </article>
+            </section>
+          ) : null}
+          {professionalSummary ? (
+            <section className="runtime-monitor-center__live" aria-label="专业任务摘要">
+              <article>
+                <span>专业任务</span>
+                <strong>{text(professionalSummary.goal, selectedWork?.title || "-")}</strong>
+              </article>
+              <article>
+                <span>当前状态</span>
+                <strong>{text(professionalSummary.state, statusLabel(liveMonitor.status))}</strong>
+              </article>
+              <article>
+                <span>当前步骤</span>
+                <strong>{text((professionalSummary.current_plan_item as Record<string, unknown> | undefined)?.title)}</strong>
+              </article>
+              <article>
+                <span>验证</span>
+                <strong>{text((professionalSummary.verification as Record<string, unknown> | undefined)?.status, "-")}</strong>
+              </article>
+            </section>
+          ) : null}
+          <section className="runtime-monitor-center__live" aria-label="运行循环详情">
+            <article>
+              <span>TaskRun</span>
+              <strong>{text(liveMonitor.task_run?.task_run_id, selectedTask.task_run_id)}</strong>
+            </article>
+            <article>
+              <span>状态</span>
+              <strong>{statusLabel(liveMonitor.status)}</strong>
+            </article>
+            <article>
+              <span>终止原因</span>
+              <strong>{liveMonitor.terminal_reason || "-"}</strong>
+            </article>
+            <article>
+              <span>Checkpoint</span>
+              <strong>{text(liveMonitor.latest_checkpoint?.checkpoint_id)}</strong>
+            </article>
+            <article>
+              <span>Coordination</span>
+              <strong>{liveMonitor.has_coordination ? "已绑定" : "未绑定"}</strong>
+            </article>
+            <article>
+              <span>更新时间</span>
+              <strong>{formatTime(liveMonitor.updated_at)}</strong>
+            </article>
+          </section>
+        </>
       ) : (
         <div className="runtime-monitor-center__empty">
           {globalRuntimeMonitorLoading ? <RefreshCw className="runtime-monitor-center__spin" size={22} /> : <Network size={22} />}
@@ -141,7 +190,7 @@ export function RuntimeMonitorDetailView({ onClose }: { onClose: () => void }) {
       {selectedTask && !graphMonitor ? (
         <section className="runtime-monitor-center__footnote">
           {liveMonitor ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}
-          <span>{liveMonitor ? "当前任务没有任务图详情，已显示运行循环摘要。" : "暂无任务图或运行循环详情，保留全局任务摘要。"}</span>
+          <span>{liveMonitor ? "已显示运行循环摘要。" : "暂无运行循环详情，保留全局运行摘要。"}</span>
         </section>
       ) : null}
     </section>

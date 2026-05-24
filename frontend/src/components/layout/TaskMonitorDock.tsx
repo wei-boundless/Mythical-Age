@@ -4,7 +4,7 @@ import { Activity, AlertTriangle, CheckCircle2, ChevronRight, Clock3, Minimize2,
 import { useEffect, useMemo, useState } from "react";
 
 import { useAppStore } from "@/lib/store";
-import { summarizeTopLevelTaskGraphMonitor, topLevelTaskGraphMonitorItems } from "../../lib/runtimeMonitorLayering";
+import { runtimeWorkProjectionFromMonitorItem, summarizeRuntimeMonitorItems, visibleRuntimeMonitorItems } from "@/lib/runtimeWorkProjection";
 import {
   isWaitingStatus,
   formatTime,
@@ -38,14 +38,14 @@ export function TaskMonitorDock({
     selectGlobalRuntimeMonitorTaskRun,
   } = useAppStore();
   const [collapsed, setCollapsed] = useState(false);
-  const tasks = useMemo(() => topLevelTaskGraphMonitorItems(globalRuntimeMonitor), [globalRuntimeMonitor]);
-  const summary = useMemo(() => summarizeTopLevelTaskGraphMonitor(tasks), [tasks]);
-  const selectedTask = useMemo(
-    () => tasks.find((item) => item.task_run_id === globalRuntimeMonitorSelectedTaskRunId) ?? tasks[0] ?? null,
-    [globalRuntimeMonitorSelectedTaskRunId, tasks]
+  const runs = useMemo(() => visibleRuntimeMonitorItems(globalRuntimeMonitor), [globalRuntimeMonitor]);
+  const summary = useMemo(() => summarizeRuntimeMonitorItems(runs), [runs]);
+  const selectedRun = useMemo(
+    () => runs.find((item) => item.task_run_id === globalRuntimeMonitorSelectedTaskRunId) ?? runs[0] ?? null,
+    [globalRuntimeMonitorSelectedTaskRunId, runs]
   );
-  const hasActiveSignal = tasks.some((item) => item.is_live || item.display_bucket === "live");
-  const hasSignal = tasks.length > 0;
+  const hasActiveSignal = runs.some((item) => item.is_live || item.display_bucket === "live");
+  const hasSignal = runs.length > 0;
   const nowSeconds = useRuntimeNowTicker(hasActiveSignal);
   const streamLabel = globalRuntimeMonitorStreamStatus === "connected"
     ? "事件流"
@@ -75,7 +75,7 @@ export function TaskMonitorDock({
     if (summary.running) return `${summary.running} 运行中`;
     if (summary.stale) return `${summary.stale} 个停滞`;
     if (summary.recent) return `${summary.recent} 个刚结束`;
-    if (summary.total) return `${summary.total} 个任务图`;
+    if (summary.total) return `${summary.total} 个运行`;
     return "待命";
   }, [globalRuntimeMonitor, globalRuntimeMonitorLoading, summary.recent, summary.running, summary.stale, summary.total, summary.waiting]);
 
@@ -126,13 +126,13 @@ export function TaskMonitorDock({
         <div className="task-monitor-dock__body">
           <section className={hasSignal ? "task-monitor-summary task-monitor-summary--active" : "task-monitor-summary"}>
             <div>
-              <span>任务图监控</span>
+              <span>运行监控</span>
               <strong>{statusText}</strong>
             </div>
             <small>
               {globalRuntimeMonitor?.updated_at
-                ? `${streamLabel} · ${selectedTask?.latest_event_type || `校准 ${formatTime(globalRuntimeMonitor.updated_at)}`}`
-                : "任务图开始后，这里显示顶层运行信息。"}
+                ? `${streamLabel} · ${selectedRun?.latest_event_type || `校准 ${formatTime(globalRuntimeMonitor.updated_at)}`}`
+                : "任务订单、专业任务和任务图运行会在这里显示。"}
             </small>
           </section>
 
@@ -150,9 +150,10 @@ export function TaskMonitorDock({
             </section>
           ) : null}
 
-          <section className="runtime-monitor-list" aria-label="运行任务图列表">
-            {tasks.length ? tasks.map((item) => {
-              const active = item.task_run_id === selectedTask?.task_run_id;
+          <section className="runtime-monitor-list" aria-label="运行任务列表">
+            {runs.length ? runs.map((item) => {
+              const active = item.task_run_id === selectedRun?.task_run_id;
+              const work = runtimeWorkProjectionFromMonitorItem(item);
               return (
                 <button
                   className={active ? "runtime-monitor-row runtime-monitor-row--active" : "runtime-monitor-row"}
@@ -167,8 +168,8 @@ export function TaskMonitorDock({
                     {statusIcon(item.status)}
                   </span>
                   <span className="runtime-monitor-row__main">
-                    <strong>{taskTitle(item)}</strong>
-                    <small>任务图</small>
+                    <strong>{work.title || taskTitle(item)}</strong>
+                    <small>{work.displayTypeLabel}</small>
                   </span>
                   <span className="runtime-monitor-row__meta">
                     <strong>{monitorStatusLabel(item)}</strong>
@@ -179,8 +180,8 @@ export function TaskMonitorDock({
             }) : (
               <div className="runtime-monitor-empty">
                 <Clock3 size={18} />
-                <strong>当前没有运行任务图</strong>
-                <span>启动任务图后，这里只显示顶层任务图；节点和 Agent 进程在详情里查看。</span>
+                <strong>当前没有运行任务</strong>
+                <span>任务订单、专业任务和任务图运行会在这里显示。</span>
               </div>
             )}
           </section>
