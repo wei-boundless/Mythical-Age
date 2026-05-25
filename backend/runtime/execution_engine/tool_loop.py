@@ -145,6 +145,7 @@ async def handle_tool_call_requested_event(
     root_dir: Any,
     allowed_search_sources: set[str] | None,
     sandbox_policy: dict[str, Any] | None,
+    file_management_policy: dict[str, Any] | None,
     execution_store: RuntimeExecutionStore,
     record_execution_event: Callable[..., Any],
     build_pending_approval_state: Callable[..., dict[str, Any]],
@@ -176,6 +177,7 @@ async def handle_tool_call_requested_event(
         tool_name=tool_name,
         tool_args=tool_args,
         sandbox_policy=dict(sandbox_policy or {}),
+        file_management_policy=dict(file_management_policy or {}),
     )
     descriptor = operation_gate.registry.get_operation(operation_id)
     tool_directive, tool_policy = build_tool_request_runtime_adoption(
@@ -207,6 +209,7 @@ async def handle_tool_call_requested_event(
             action_request=action_request,
             directive=tool_directive,
             sandbox_policy=dict(sandbox_policy or {}),
+            file_management_policy=dict(file_management_policy or {}),
         )
         if dict(preflight or {}).get("allowed") is False:
             observation = dict(preflight or {}).get("observation")
@@ -287,6 +290,7 @@ async def handle_tool_call_requested_event(
             gate_result=gate_result,
             descriptor=descriptor,
             sandbox_policy=sandbox_policy,
+            file_management_policy=file_management_policy,
             step_ref=action_step_ref,
             approval_risk_fingerprint=approval_risk_fingerprint,
         )
@@ -406,6 +410,7 @@ async def handle_tool_call_requested_event(
         tool_runtime_executor=tool_runtime_executor,
         gate_result=gate_result,
         sandbox_policy=dict(sandbox_policy or {}),
+        file_management_policy=dict(file_management_policy or {}),
         record_execution_event=record_execution_event,
         observation_refs={"task_step_ref": action_step_ref},
     )
@@ -540,6 +545,7 @@ async def execute_prepared_tool_call(
     tool_runtime_executor: Any,
     gate_result: Any,
     sandbox_policy: dict[str, Any] | None,
+    file_management_policy: dict[str, Any] | None = None,
     record_execution_event: Callable[..., Any],
     dispatch_reason: str = "tool_dispatch_started",
     result_record_reason: str = "tool_execution_finished",
@@ -662,6 +668,7 @@ async def execute_prepared_tool_call(
         execution_store=execution_store,
         max_result_size_chars=int(dict(gate_result.diagnostics or {}).get("max_result_size_chars") or 0),
         sandbox_policy=dict(sandbox_policy or {}),
+        file_management_policy=dict(file_management_policy or {}),
     )
     final_record = execution_outcome.get("execution_record")
     if isinstance(final_record, OperationExecutionRecord):

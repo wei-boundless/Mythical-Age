@@ -143,6 +143,7 @@ def build_pending_approval_state(
     gate_result: Any,
     descriptor: Any,
     sandbox_policy: dict[str, Any] | None,
+    file_management_policy: dict[str, Any] | None = None,
     step_ref: str = "",
     approval_risk_fingerprint: str = "",
 ) -> dict[str, Any]:
@@ -165,6 +166,7 @@ def build_pending_approval_state(
         "directive": directive.to_dict(),
         "resource_policy": resource_policy.to_dict(),
         "sandbox_policy": dict(sandbox_policy or {}),
+        "file_management_policy": dict(file_management_policy or {}),
         "step_ref": step_ref,
         "created_at": time.time(),
         "approval_risk_fingerprint": str(approval_risk_fingerprint or ""),
@@ -296,6 +298,18 @@ async def execute_approved_tool_from_state(
             "events": [gate_event.to_dict()],
             "result_refs": [],
         }
+    approved_file_management_policy = {
+        **dict(approval_state.get("file_management_policy") or {}),
+        "approval_fingerprint": str(approval_token.risk_fingerprint or approval_token.token_id or ""),
+        "approval_token": {
+            "token_id": str(approval_token.token_id or ""),
+            "operation_id": str(approval_token.operation_id or ""),
+            "directive_ref": str(approval_token.directive_ref or ""),
+            "granted": bool(approval_token.granted),
+            "risk_fingerprint": str(approval_token.risk_fingerprint or ""),
+            "source": str(approval_token.source or ""),
+        },
+    }
     execution_events, execution_decision = await execute_prepared_tool_call(
         event_log=event_log,
         runtime_context_manager=runtime_context_manager,
@@ -310,6 +324,7 @@ async def execute_approved_tool_from_state(
         tool_runtime_executor=tool_runtime_executor,
         gate_result=gate_result,
         sandbox_policy=dict(approval_state.get("sandbox_policy") or {}),
+        file_management_policy=approved_file_management_policy,
         record_execution_event=record_execution_event,
         dispatch_reason="tool_dispatch_started_after_approval",
         result_record_reason="tool_execution_finished_after_approval",

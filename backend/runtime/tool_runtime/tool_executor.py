@@ -40,6 +40,7 @@ class ToolRuntimeExecutor:
         action_request: RuntimeActionRequest,
         directive: RuntimeDirective,
         sandbox_policy: dict[str, Any] | None = None,
+        file_management_policy: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         tool_name = str(action_request.payload.get("tool_name") or "").strip()
         tool_call = dict(action_request.payload.get("tool_call") or {})
@@ -65,15 +66,23 @@ class ToolRuntimeExecutor:
         else:
             sandbox_context = self.sandbox_backend.context_for_tool(tool_name=tool_name, sandbox_policy=sandbox_policy)
         workspace_root = Path(getattr(self.tool_runtime, "base_dir", ".")).resolve()
+        policy_payload = dict(sandbox_policy or {})
+        file_policy_payload = dict(file_management_policy or {})
         tool_context = ToolUseContext(
             workspace_root=self.sandbox_backend.execution_root(sandbox_context) if sandbox_context else workspace_root,
             sandbox_root=self.sandbox_backend.execution_root(sandbox_context) if sandbox_context else None,
-            read_scopes=tuple(str(item) for item in list(dict(sandbox_policy or {}).get("read_scopes") or [])),
-            write_scopes=tuple(str(item) for item in list(dict(sandbox_policy or {}).get("write_scopes") or [])),
-            material_mounts=tuple(dict(item) for item in list(dict(sandbox_policy or {}).get("material_mounts") or []) if isinstance(item, dict)),
-            artifact_root=str(dict(sandbox_policy or {}).get("artifact_root") or ""),
-            approval_policy=str(dict(sandbox_policy or {}).get("approval_policy") or ""),
-            permission_mode=str(dict(sandbox_policy or {}).get("permission_mode") or ""),
+            task_run_id=task_run_id,
+            agent_run_id=_agent_run_id_from_policy(policy_payload, task_run_id),
+            tool_call_id=tool_call_id,
+            read_scopes=tuple(str(item) for item in list(policy_payload.get("read_scopes") or [])),
+            write_scopes=tuple(str(item) for item in list(policy_payload.get("write_scopes") or [])),
+            material_mounts=tuple(dict(item) for item in list(policy_payload.get("material_mounts") or []) if isinstance(item, dict)),
+            artifact_root=str(policy_payload.get("artifact_root") or ""),
+            approval_policy=str(policy_payload.get("approval_policy") or ""),
+            approval_fingerprint=_approval_fingerprint_from_policy(file_policy_payload, fallback_policy=policy_payload),
+            permission_mode=str(policy_payload.get("permission_mode") or ""),
+            sandbox_policy=policy_payload,
+            file_management_policy=file_policy_payload,
             environment_snapshot=RuntimeEnvironment(
                 workspace_root=workspace_root,
                 sandbox_root=self.sandbox_backend.execution_root(sandbox_context) if sandbox_context else None,
@@ -113,6 +122,7 @@ class ToolRuntimeExecutor:
         execution_store: RuntimeExecutionStore | None = None,
         max_result_size_chars: int = 0,
         sandbox_policy: dict[str, Any] | None = None,
+        file_management_policy: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         tool_name = str(action_request.payload.get("tool_name") or "").strip()
         tool_call = dict(action_request.payload.get("tool_call") or {})
@@ -261,15 +271,23 @@ class ToolRuntimeExecutor:
             current_record = execution_store.mark_dispatched(current_record, diagnostics=dispatch_diagnostics)
         workspace_root = Path(getattr(self.tool_runtime, "base_dir", ".")).resolve()
         execution_root = self.sandbox_backend.execution_root(sandbox_context) if sandbox_context else workspace_root
+        policy_payload = dict(sandbox_policy or {})
+        file_policy_payload = dict(file_management_policy or {})
         tool_context = ToolUseContext(
             workspace_root=execution_root,
             sandbox_root=self.sandbox_backend.execution_root(sandbox_context) if sandbox_context else None,
-            read_scopes=tuple(str(item) for item in list(dict(sandbox_policy or {}).get("read_scopes") or [])),
-            write_scopes=tuple(str(item) for item in list(dict(sandbox_policy or {}).get("write_scopes") or [])),
-            material_mounts=tuple(dict(item) for item in list(dict(sandbox_policy or {}).get("material_mounts") or []) if isinstance(item, dict)),
-            artifact_root=str(dict(sandbox_policy or {}).get("artifact_root") or ""),
-            approval_policy=str(dict(sandbox_policy or {}).get("approval_policy") or ""),
-            permission_mode=str(dict(sandbox_policy or {}).get("permission_mode") or ""),
+            task_run_id=task_run_id,
+            agent_run_id=_agent_run_id_from_policy(policy_payload, task_run_id),
+            tool_call_id=tool_call_id,
+            read_scopes=tuple(str(item) for item in list(policy_payload.get("read_scopes") or [])),
+            write_scopes=tuple(str(item) for item in list(policy_payload.get("write_scopes") or [])),
+            material_mounts=tuple(dict(item) for item in list(policy_payload.get("material_mounts") or []) if isinstance(item, dict)),
+            artifact_root=str(policy_payload.get("artifact_root") or ""),
+            approval_policy=str(policy_payload.get("approval_policy") or ""),
+            approval_fingerprint=_approval_fingerprint_from_policy(file_policy_payload, fallback_policy=policy_payload),
+            permission_mode=str(policy_payload.get("permission_mode") or ""),
+            sandbox_policy=policy_payload,
+            file_management_policy=file_policy_payload,
             environment_snapshot=RuntimeEnvironment(
                 workspace_root=workspace_root,
                 sandbox_root=self.sandbox_backend.execution_root(sandbox_context) if sandbox_context else None,
@@ -560,3 +578,22 @@ def _required_inputs_from_definition(definition: Any) -> list[str]:
     else:
         values = list(getattr(contract, "required_inputs", ()) or [])
     return [str(item).strip() for item in values if str(item).strip()]
+
+
+def _agent_run_id_from_policy(policy: dict[str, Any], task_run_id: str) -> str:
+    explicit = str(policy.get("agent_run_id") or "").strip()
+    if explicit:
+        return explicit
+    return f"agrun:{task_run_id}:main"
+
+
+def _approval_fingerprint_from_policy(policy: dict[str, Any], *, fallback_policy: dict[str, Any] | None = None) -> str:
+    explicit = str(policy.get("approval_fingerprint") or "").strip()
+    if explicit:
+        return explicit
+    token = policy.get("approval_token")
+    if isinstance(token, dict):
+        return str(token.get("risk_fingerprint") or token.get("token_id") or "").strip()
+    if fallback_policy:
+        return _approval_fingerprint_from_policy(dict(fallback_policy or {}))
+    return ""

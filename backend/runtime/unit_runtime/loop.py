@@ -168,6 +168,7 @@ from ..shared.models import (
 )
 from ..memory.observation_aggregator import ObservationAggregator
 from ..shared.safety import build_task_safety_validators
+from .file_management_policy import prepare_runtime_file_management_policy_for_turn
 from .sandbox_policy import prepare_runtime_sandbox_policy_for_turn
 from ..shared.stage_projection import StageProjectionCycle
 from ..memory.state_index import RuntimeStateIndex
@@ -1572,6 +1573,13 @@ class TaskRunLoop:
             state_index=self.state_index,
             event_log=self.event_log,
         )
+        file_management_policy = prepare_runtime_file_management_policy_for_turn(
+            root_dir=self.root_dir,
+            task_run_id=state.task_run_id,
+            selected_recipe_payload=selected_recipe_payload,
+            task_selection={**dict(task_selection or {}), **dict(runtime_context_override or {})},
+            sandbox_policy=sandbox_policy,
+        )
         if sandbox_policy.get("enabled") is True:
             sandbox_event = self.event_log.append(
                 state.task_run_id,
@@ -1587,6 +1595,22 @@ class TaskRunLoop:
                 },
             )
             yield {"type": "runtime_loop_event", "event": sandbox_event.to_dict()}
+        if file_management_policy.get("enabled") is True:
+            file_management_event = self.event_log.append(
+                state.task_run_id,
+                "runtime_file_management_prepared",
+                payload={
+                    "file_management_policy": file_management_policy,
+                    "scope": "system_owned_file_environment",
+                    "profile_id": str(file_management_policy.get("profile_id") or ""),
+                    "environment_id": str(file_management_policy.get("environment_id") or ""),
+                },
+                refs={
+                    "task_contract_ref": str(task_contract.get("task_id") or task_id),
+                    "file_profile_ref": str(file_management_policy.get("profile_id") or ""),
+                },
+            )
+            yield {"type": "runtime_loop_event", "event": file_management_event.to_dict()}
         search_policy_event = self.event_log.append(
             state.task_run_id,
             "search_policy_resolved",
@@ -1594,6 +1618,7 @@ class TaskRunLoop:
                 "search_policy": list(search_policy) if search_policy is not None else None,
                 "allowed_sources": sorted(allowed_search_sources),
                 "sandbox_policy": sandbox_policy,
+                "file_management_policy": file_management_policy,
             },
         )
         yield {"type": "runtime_loop_event", "event": search_policy_event.to_dict()}
@@ -2154,6 +2179,7 @@ class TaskRunLoop:
                 "current_turn_capability_plan": current_turn_capability_plan_payload,
                 "runtime_capability_state": runtime_capability_state,
                 "sandbox_policy": sandbox_policy,
+                "file_management_policy": file_management_policy,
                 "effective_tool_names": [
                     str(getattr(tool, "name", "") or "")
                     for tool in list(runtime_tool_instances)
@@ -2175,6 +2201,7 @@ class TaskRunLoop:
             "current_turn_capability_plan": current_turn_capability_plan_payload,
             "runtime_capability_state": runtime_capability_state,
             "sandbox_policy": sandbox_policy,
+            "file_management_policy": file_management_policy,
             "effective_tool_names": [
                 str(getattr(tool, "name", "") or "")
                 for tool in list(runtime_tool_instances)
@@ -2339,6 +2366,7 @@ class TaskRunLoop:
                     runtime_tool_instances=runtime_tool_instances,
                     allowed_search_sources=allowed_search_sources,
                     sandbox_policy=sandbox_policy,
+                    file_management_policy=file_management_policy,
                 ):
                     yield event
             except Exception as exc:
@@ -2412,6 +2440,7 @@ class TaskRunLoop:
                 model_spec=resolved_model_spec,
                 allowed_search_sources=allowed_search_sources,
                 sandbox_policy=sandbox_policy,
+                file_management_policy=file_management_policy,
             ):
                 async for emitted_event in self._apply_model_turn_event(
                     application=turn_application,
@@ -2579,6 +2608,7 @@ class TaskRunLoop:
                 model_spec=resolved_model_spec,
                 allowed_search_sources=allowed_search_sources,
                 sandbox_policy=sandbox_policy,
+                file_management_policy=file_management_policy,
             ):
                 async for emitted_event in self._apply_model_turn_event(
                     application=turn_application,

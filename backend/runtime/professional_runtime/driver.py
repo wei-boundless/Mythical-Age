@@ -988,6 +988,7 @@ class ProfessionalTaskRunDriver:
         runtime_tool_instances: list[Any] | None = None,
         allowed_search_sources: set[str] | None = None,
         sandbox_policy: dict[str, Any] | None = None,
+        file_management_policy: dict[str, Any] | None = None,
     ):
         task_run_id = outcome.state.task_run_id
         policy = _professional_runtime_policy(selected_recipe_payload)
@@ -1972,6 +1973,7 @@ class ProfessionalTaskRunDriver:
                     event=event,
                     allowed_search_sources=allowed_search_sources,
                     sandbox_policy=sandbox_policy,
+                    file_management_policy=file_management_policy,
                 )
                 for runtime_event in runtime_events:
                     _adopt_runtime_event_ref(outcome, runtime_event)
@@ -2928,6 +2930,7 @@ class ProfessionalTaskRunDriver:
                     event=event,
                     allowed_search_sources=allowed_search_sources,
                     sandbox_policy=sandbox_policy,
+                    file_management_policy=file_management_policy,
                 )
                 for runtime_event in runtime_events:
                     _adopt_runtime_event_ref(outcome, runtime_event)

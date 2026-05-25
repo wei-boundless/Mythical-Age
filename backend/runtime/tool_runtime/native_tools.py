@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import subprocess
+import sys
 import tomllib
 import uuid
 from dataclasses import dataclass
@@ -20,7 +21,16 @@ from capability_system.workspace_file_service import (
     WorkspaceFileService,
 )
 from config import get_settings
+from file_management import (
+    FileGateway,
+    FileGatewayApprovalRequired,
+    FileGatewayPermissionError,
+    FileGatewayRequestContext,
+    build_file_access_table,
+    resolve_file_environment,
+)
 from runtime_encoding import build_windows_powershell_command, is_windows, utf8_subprocess_text_kwargs
+from runtime.tool_runtime.docker_sandbox_backend import DockerSandboxBackend
 from runtime.tool_runtime.tool_definition import ToolPermissionResult, ToolValidationResult
 from runtime.tool_runtime.tool_result_envelope import ToolResultEnvelope
 from runtime.tool_runtime.tool_use_context import ToolUseContext
@@ -38,6 +48,7 @@ NATIVE_RUNTIME_TOOL_NAMES = {
     "write_file",
     "edit_file",
     "terminal",
+    "python_repl",
 }
 
 
@@ -54,6 +65,8 @@ def build_native_runtime_tool(
         return NativeEditFileTool(capability_definition)
     if name == "terminal":
         return NativeTerminalTool(capability_definition)
+    if name == "python_repl":
+        return NativePythonReplTool(capability_definition)
     if name == "read_structured_file":
         return NativeReadStructuredFileTool(capability_definition)
     if name == "search_files":
@@ -108,6 +121,47 @@ class _NativeToolBase:
     def _files(self, context: ToolUseContext) -> WorkspaceFileService:
         return WorkspaceFileService(context.workspace_root)
 
+    def _file_gateway(self, context: ToolUseContext) -> FileGateway | None:
+        config = _file_management_config(context)
+        if not config:
+            return None
+        profile_id = str(config.get("profile_id") or "").strip()
+        if not profile_id:
+            return None
+        environment = resolve_file_environment(
+            profile_id,
+            repository_requirements=dict(config.get("repository_requirements") or {}),
+        )
+        table = build_file_access_table(
+            environment,
+            task_file_requirements=dict(config.get("task_file_requirements") or {}),
+            agent_allowed_actions=tuple(
+                str(item)
+                for item in list(config.get("agent_allowed_file_actions") or [])
+                if str(item).strip()
+            ),
+            table_id=str(config.get("file_access_table_id") or ""),
+        )
+        project_root = _real_workspace_root(context)
+        sandbox_root = context.sandbox_root or _sandbox_root_from_policy(context)
+        managed_storage_root = _managed_storage_root(context, project_root)
+        return FileGateway.for_roots(
+            environment=environment,
+            access_table=table,
+            project_root=project_root,
+            sandbox_root=sandbox_root,
+            managed_storage_root=managed_storage_root,
+            runtime_output_root=_runtime_output_root(context, managed_storage_root),
+        )
+
+    def _gateway_context(self, context: ToolUseContext) -> FileGatewayRequestContext:
+        return FileGatewayRequestContext(
+            task_run_id=context.task_run_id,
+            agent_run_id=context.agent_run_id,
+            tool_call_id=context.tool_call_id,
+            actor_id=context.agent_run_id,
+        )
+
     def _envelope(
         self,
         *,
@@ -152,6 +206,9 @@ class NativeReadFileTool(_NativeToolBase):
 
     def _call_sync(self, args: dict[str, Any], context: ToolUseContext) -> ToolResultEnvelope:
         path = str(args.get("path") or "").strip()
+        gateway = self._file_gateway(context)
+        if gateway is not None:
+            return self._call_gateway_read(args=args, context=context, gateway=gateway, path=path)
         files = self._files(context)
         try:
             file_path = files.resolve(path, require_path=True)
@@ -185,9 +242,65 @@ class NativeReadFileTool(_NativeToolBase):
             execution_receipt=context.execution_receipt,
         )
 
+    def _call_gateway_read(
+        self,
+        *,
+        args: dict[str, Any],
+        context: ToolUseContext,
+        gateway: FileGateway,
+        path: str,
+    ) -> ToolResultEnvelope:
+        limit = int(args.get("limit") or 10000)
+        repository_id = _repository_for_action(context, "read")
+        try:
+            result = gateway.read_text(
+                repository_id,
+                path,
+                self._gateway_context(context),
+                operation_id=self.operation_id,
+            )
+            text = result.content[: max(0, limit)]
+        except Exception as exc:
+            return self._envelope(
+                tool_args=args,
+                status="error",
+                text=f"Read failed: {exc}",
+                structured_payload={"tool_result": {"kind": "text_file", "status": "error", "error": str(exc)}},
+                execution_receipt=context.execution_receipt,
+            )
+        return self._envelope(
+            tool_args=args,
+            status="ok",
+            text=text,
+            structured_payload={
+                "tool_result": {
+                    "kind": "text_file",
+                    "path": result.logical_path,
+                    "repository_id": result.repository_id,
+                    "managed_file_ref": result.managed_file_ref.to_dict(),
+                    "size_chars": len(result.content),
+                    "truncated": len(result.content) > len(text),
+                },
+                "file_gateway": {
+                    "access_decision": result.access_decision,
+                    "root_binding": result.metadata.get("root_binding"),
+                },
+            },
+            observed_paths=(result.logical_path,),
+            execution_receipt=context.execution_receipt,
+        )
+
 
 class NativeWriteFileTool(_NativeToolBase):
     def check_permissions(self, args: dict[str, Any], context: ToolUseContext) -> ToolPermissionResult:
+        gateway_permission = _check_gateway_file_permission(
+            tool=self,
+            args=args,
+            context=context,
+            action="write",
+        )
+        if gateway_permission is not None and not gateway_permission.allowed:
+            return gateway_permission
         files = self._files(context)
         path = str(args.get("path") or "").strip()
         if not _path_within_scopes(files, path, context.write_scopes):
@@ -218,6 +331,9 @@ class NativeWriteFileTool(_NativeToolBase):
     def _call_sync(self, args: dict[str, Any], context: ToolUseContext) -> ToolResultEnvelope:
         path = str(args.get("path") or "").strip()
         content = str(args.get("content") or "")
+        gateway = self._file_gateway(context)
+        if gateway is not None:
+            return self._call_gateway_write(args=args, context=context, gateway=gateway, path=path, content=content)
         try:
             file_path = self._files(context).write_text(path, content)
             rel = self._files(context).relative_path(file_path)
@@ -241,9 +357,69 @@ class NativeWriteFileTool(_NativeToolBase):
             execution_receipt=context.execution_receipt,
         )
 
+    def _call_gateway_write(
+        self,
+        *,
+        args: dict[str, Any],
+        context: ToolUseContext,
+        gateway: FileGateway,
+        path: str,
+        content: str,
+    ) -> ToolResultEnvelope:
+        repository_id = _repository_for_action(context, "write")
+        try:
+            result = gateway.write_text(
+                repository_id,
+                path,
+                content,
+                self._gateway_context(context),
+                operation_id=self.operation_id,
+                approval_fingerprint=context.approval_fingerprint,
+            )
+        except Exception as exc:
+            return self._envelope(tool_args=args, status="error", text=f"Write failed: {exc}", execution_receipt=context.execution_receipt)
+        artifact = {
+            "path": result.logical_path,
+            "kind": "file",
+            "source": self.name,
+            "repository_id": result.repository_id,
+        }
+        receipt = result.receipt.to_dict() if result.receipt is not None else {}
+        return self._envelope(
+            tool_args=args,
+            status="ok",
+            text=f"Write succeeded: {result.logical_path}",
+            structured_payload={
+                "tool_result": {
+                    "kind": "file_write",
+                    "path": result.logical_path,
+                    "repository_id": result.repository_id,
+                    "managed_file_ref": result.managed_file_ref.to_dict(),
+                    "size_bytes": len(content.encode("utf-8")),
+                    "sha256": result.managed_file_ref.content_hash,
+                },
+                "file_gateway": {
+                    "access_decision": result.access_decision,
+                    "receipt": receipt,
+                    "root_binding": result.metadata.get("root_binding"),
+                },
+            },
+            observed_paths=(result.logical_path,),
+            artifact_refs=(artifact,),
+            execution_receipt={**dict(context.execution_receipt), "file_operation_receipt": receipt},
+        )
+
 
 class NativeEditFileTool(_NativeToolBase):
     def check_permissions(self, args: dict[str, Any], context: ToolUseContext) -> ToolPermissionResult:
+        gateway_permission = _check_gateway_file_permission(
+            tool=self,
+            args=args,
+            context=context,
+            action="edit",
+        )
+        if gateway_permission is not None and not gateway_permission.allowed:
+            return gateway_permission
         path = str(args.get("path") or "").strip()
         if not _path_within_scopes(self._files(context), path, context.write_scopes):
             return ToolPermissionResult(
@@ -260,6 +436,9 @@ class NativeEditFileTool(_NativeToolBase):
 
     def _call_sync(self, args: dict[str, Any], context: ToolUseContext) -> ToolResultEnvelope:
         path = str(args.get("path") or "").strip()
+        gateway = self._file_gateway(context)
+        if gateway is not None:
+            return self._call_gateway_edit(args=args, context=context, gateway=gateway, path=path)
         try:
             file_path = self._files(context).edit_text(path, str(args.get("old_text") or ""), str(args.get("new_text") or ""))
             rel = self._files(context).relative_path(file_path)
@@ -283,6 +462,58 @@ class NativeEditFileTool(_NativeToolBase):
             execution_receipt=context.execution_receipt,
         )
 
+    def _call_gateway_edit(
+        self,
+        *,
+        args: dict[str, Any],
+        context: ToolUseContext,
+        gateway: FileGateway,
+        path: str,
+    ) -> ToolResultEnvelope:
+        repository_id = _repository_for_action(context, "edit")
+        try:
+            result = gateway.edit_text(
+                repository_id,
+                path,
+                str(args.get("old_text") or ""),
+                str(args.get("new_text") or ""),
+                self._gateway_context(context),
+                operation_id=self.operation_id,
+                approval_fingerprint=context.approval_fingerprint,
+            )
+        except Exception as exc:
+            return self._envelope(tool_args=args, status="error", text=f"Edit failed: {exc}", execution_receipt=context.execution_receipt)
+        artifact = {
+            "path": result.logical_path,
+            "kind": "file",
+            "source": self.name,
+            "repository_id": result.repository_id,
+        }
+        receipt = result.receipt.to_dict() if result.receipt is not None else {}
+        return self._envelope(
+            tool_args=args,
+            status="ok",
+            text=f"Edit succeeded: {result.logical_path}",
+            structured_payload={
+                "tool_result": {
+                    "kind": "file_edit",
+                    "path": result.logical_path,
+                    "repository_id": result.repository_id,
+                    "managed_file_ref": result.managed_file_ref.to_dict(),
+                    "size_bytes": len(result.content.encode("utf-8")),
+                    "sha256": result.managed_file_ref.content_hash,
+                },
+                "file_gateway": {
+                    "access_decision": result.access_decision,
+                    "receipt": receipt,
+                    "root_binding": result.metadata.get("root_binding"),
+                },
+            },
+            observed_paths=(result.logical_path,),
+            artifact_refs=(artifact,),
+            execution_receipt={**dict(context.execution_receipt), "file_operation_receipt": receipt},
+        )
+
 
 class NativeTerminalTool(_NativeToolBase):
     async def call(self, args: dict[str, Any], context: ToolUseContext) -> ToolResultEnvelope:
@@ -301,6 +532,28 @@ class NativeTerminalTool(_NativeToolBase):
                 execution_receipt=context.execution_receipt,
             )
         settings = get_settings()
+        docker = DockerSandboxBackend()
+        if docker.is_enabled(context.sandbox_policy):
+            sandbox_root = context.sandbox_root or context.workspace_root
+            execution = docker.run_shell(
+                command=command,
+                workspace_root=context.environment_snapshot.get("workspace_root") or context.workspace_root,
+                sandbox_root=sandbox_root,
+                sandbox_policy={
+                    **dict(context.sandbox_policy),
+                    "sbx": {
+                        **dict(dict(context.sandbox_policy).get("sbx") or {}),
+                        "timeout_seconds": settings.terminal_timeout_seconds,
+                    },
+                },
+            )
+            return self._envelope(
+                tool_args=args,
+                status="ok" if execution.exit_code == 0 else "error",
+                text=execution.output,
+                command_receipt={"command": command, **execution.receipt},
+                execution_receipt=context.execution_receipt,
+            )
         shell_command = build_windows_powershell_command(command) if is_windows() else ["bash", "-lc", command]
         try:
             completed = subprocess.run(
@@ -318,6 +571,69 @@ class NativeTerminalTool(_NativeToolBase):
             exit_code = 124
         text = combined[:5000]
         receipt = {"command": command, "exit_code": exit_code, "passed": exit_code == 0, "output_preview": text[:500]}
+        return self._envelope(
+            tool_args=args,
+            status="ok" if exit_code == 0 else "error",
+            text=text,
+            command_receipt=receipt,
+            execution_receipt=context.execution_receipt,
+        )
+
+
+class NativePythonReplTool(_NativeToolBase):
+    async def call(self, args: dict[str, Any], context: ToolUseContext) -> ToolResultEnvelope:
+        return await asyncio.to_thread(self._call_sync, dict(args or {}), context)
+
+    def _call_sync(self, args: dict[str, Any], context: ToolUseContext) -> ToolResultEnvelope:
+        code = str(args.get("code") or "")
+        blocked_reason = validate_sandbox_command_text(code, kind="code")
+        if blocked_reason:
+            receipt = {"command": "python -c <code>", "exit_code": 1, "passed": False, "output_preview": blocked_reason}
+            return self._envelope(
+                tool_args=args,
+                status="error",
+                text=blocked_reason,
+                command_receipt=receipt,
+                execution_receipt=context.execution_receipt,
+            )
+        docker = DockerSandboxBackend()
+        if docker.is_enabled(context.sandbox_policy):
+            sandbox_root = context.sandbox_root or context.workspace_root
+            execution = docker.run_python(
+                code=code,
+                workspace_root=context.environment_snapshot.get("workspace_root") or context.workspace_root,
+                sandbox_root=sandbox_root,
+                sandbox_policy={
+                    **dict(context.sandbox_policy),
+                    "sbx": {
+                        **dict(dict(context.sandbox_policy).get("sbx") or {}),
+                        "timeout_seconds": min(get_settings().terminal_timeout_seconds, 30),
+                    },
+                },
+            )
+            return self._envelope(
+                tool_args=args,
+                status="ok" if execution.exit_code == 0 else "error",
+                text=execution.output,
+                command_receipt={"command": "python -c <code>", **execution.receipt},
+                execution_receipt=context.execution_receipt,
+            )
+        try:
+            completed = subprocess.run(
+                [sys.executable, "-c", code],
+                cwd=context.workspace_root,
+                capture_output=True,
+                timeout=15,
+                check=False,
+                **utf8_subprocess_text_kwargs(),
+            )
+            combined = ((completed.stdout or "") + (completed.stderr or "")).strip() or "[no output]"
+            exit_code = int(completed.returncode or 0)
+        except subprocess.TimeoutExpired:
+            combined = "Timed out after 15 seconds."
+            exit_code = 124
+        text = combined[:5000]
+        receipt = {"command": "python -c <code>", "exit_code": exit_code, "passed": exit_code == 0, "output_preview": text[:500]}
         return self._envelope(
             tool_args=args,
             status="ok" if exit_code == 0 else "error",
@@ -575,6 +891,131 @@ def _walk(value: Any, path: str, lines: list[str], *, max_items: int) -> None:
         lines.append(f"{path}: {type(value).__name__} = {preview}")
         return
     lines.append(f"{path}: {type(value).__name__}")
+
+
+def _file_management_config(context: ToolUseContext) -> dict[str, Any]:
+    config = dict(context.file_management_policy or {})
+    if not config:
+        snapshot_config = context.environment_snapshot.get("file_management")
+        if isinstance(snapshot_config, dict):
+            config = dict(snapshot_config)
+    payload = dict(config or {})
+    if payload.get("enabled") is False:
+        return {}
+    if not str(payload.get("profile_id") or "").strip():
+        return {}
+    return payload
+
+
+def _repository_for_action(context: ToolUseContext, action: str) -> str:
+    config = _file_management_config(context)
+    repositories = dict(config.get("repositories") or {})
+    action_name = str(action or "").strip()
+    explicit = str(repositories.get(action_name) or "").strip()
+    if explicit:
+        return explicit
+    profile_id = str(config.get("profile_id") or "").strip()
+    if profile_id == "file_profile.vibe_coding_project":
+        if action_name in {"write", "edit"}:
+            return "repo.coding.sandbox_workspace"
+        return "repo.coding.sandbox_workspace" if context.sandbox_root is not None else "repo.coding.project_workspace"
+    if profile_id == "file_profile.writing_manuscript":
+        if action_name in {"write", "edit"}:
+            return "repo.writing.draft_workspace"
+        return "repo.writing.official_work"
+    if profile_id == "file_profile.web_research_evidence":
+        if action_name in {"write", "edit"}:
+            return "repo.research.evidence_archive"
+        return "repo.research.evidence_archive"
+    return str(config.get("default_repository_id") or "").strip()
+
+
+def _check_gateway_file_permission(
+    *,
+    tool: _NativeToolBase,
+    args: dict[str, Any],
+    context: ToolUseContext,
+    action: str,
+) -> ToolPermissionResult | None:
+    gateway = tool._file_gateway(context)
+    if gateway is None:
+        return None
+    repository_id = _repository_for_action(context, action)
+    path = str(args.get("path") or "").strip()
+    try:
+        gateway.check_access(
+            repository_id,
+            action,
+            approval_fingerprint=context.approval_fingerprint,
+        )
+    except FileGatewayApprovalRequired as exc:
+        return ToolPermissionResult(
+            allowed=False,
+            decision="requires_approval",
+            reason="file_gateway_approval_required",
+            requires_approval=True,
+            repair_instruction="This file operation requires platform approval before execution.",
+            diagnostics={
+                "repository_id": exc.repository_id,
+                "action": exc.action,
+                "reason": exc.reason,
+                "source": exc.source,
+                "path": path,
+            },
+        )
+    except (FileGatewayPermissionError, KeyError, ValueError) as exc:
+        return ToolPermissionResult(
+            allowed=False,
+            decision="deny",
+            reason="file_gateway_permission_denied",
+            repair_instruction="Retry with a path and operation allowed by the active task environment.",
+            diagnostics={
+                "repository_id": repository_id,
+                "action": action,
+                "path": path,
+                "error": str(exc),
+            },
+        )
+    return ToolPermissionResult(
+        allowed=True,
+        decision="allow",
+        diagnostics={"repository_id": repository_id, "action": action, "path": path},
+    )
+
+
+def _real_workspace_root(context: ToolUseContext) -> Path:
+    snapshot_root = str(context.environment_snapshot.get("workspace_root") or "").strip()
+    if snapshot_root:
+        return Path(snapshot_root).resolve()
+    policy_root = str(dict(context.sandbox_policy or {}).get("workspace_root") or "").strip()
+    if policy_root:
+        return Path(policy_root).resolve()
+    return Path(context.workspace_root).resolve()
+
+
+def _sandbox_root_from_policy(context: ToolUseContext) -> Path | None:
+    value = str(dict(context.sandbox_policy or {}).get("sandbox_root") or "").strip()
+    if not value:
+        return None
+    return Path(value).resolve()
+
+
+def _managed_storage_root(context: ToolUseContext, project_root: Path) -> Path:
+    config = _file_management_config(context)
+    explicit = str(config.get("managed_storage_root") or "").strip()
+    if explicit:
+        root = Path(explicit)
+        return root.resolve() if root.is_absolute() else (project_root / root).resolve()
+    return (project_root / ".managed-files").resolve()
+
+
+def _runtime_output_root(context: ToolUseContext, managed_storage_root: Path) -> Path:
+    config = _file_management_config(context)
+    explicit = str(config.get("runtime_output_root") or "").strip()
+    if explicit:
+        root = Path(explicit)
+        return root.resolve() if root.is_absolute() else (_real_workspace_root(context) / root).resolve()
+    return (managed_storage_root / "runtime").resolve()
 
 
 def _workspace_files(files: WorkspaceFileService, *, safe_roots: list[Path], using_default_roots: bool) -> list[str]:

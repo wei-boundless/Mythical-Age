@@ -222,3 +222,34 @@ def test_sandbox_policy_without_resource_contract_has_no_material_mounts(tmp_pat
     )
 
     assert "material_mounts" not in policy
+
+
+def test_sandbox_policy_does_not_embed_file_management_policy(tmp_path: Path) -> None:
+    backend_root = tmp_path / "backend"
+    backend_root.mkdir()
+
+    policy = prepare_runtime_sandbox_policy(
+        root_dir=backend_root,
+        session_id="session-file-policy",
+        task_run_id="taskrun-file-policy",
+        task_contract={},
+        user_message="修改项目文件",
+        selected_recipe_payload={
+            "metadata": {
+                "sandbox_policy": {"enabled": True},
+                "file_management_policy": {
+                    "enabled": True,
+                    "profile_id": "file_profile.vibe_coding_project",
+                },
+            }
+        },
+        task_selection={
+            "file_management_policy": {
+                "repositories": {"write": "repo.coding.project_workspace"},
+            }
+        },
+    )
+
+    assert policy["enabled"] is True
+    assert "file_management" not in policy
+    assert "file_management_policy" not in policy

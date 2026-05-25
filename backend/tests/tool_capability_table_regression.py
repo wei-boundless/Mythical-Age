@@ -1,0 +1,69 @@
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
+
+from runtime.tooling import ToolCapabilityBuildRequest, build_tool_capability_table
+from task_system.environments import resolve_task_environment
+
+
+def test_vibe_coding_tool_table_intersects_environment_task_agent_and_file_access() -> None:
+    resolved = resolve_task_environment("env.vibe_coding")
+    table = build_tool_capability_table(
+        ToolCapabilityBuildRequest(
+            environment=resolved.spec,
+            file_access_tables=resolved.file_access_tables,
+            task_required_operations=("op.read_file", "op.search_text", "op.edit_file", "op.shell"),
+            agent_profile_allowed_operations=("op.model_response", "op.read_file", "op.search_text", "op.edit_file"),
+        )
+    )
+
+    assert "read_file" in table.dispatchable_tools
+    assert "search_text" in table.dispatchable_tools
+    assert "edit_file" in table.dispatchable_tools
+    assert "terminal" not in table.visible_tools
+    assert any(issue.operation_id == "op.shell" and issue.source == "agent_profile" for issue in table.filtered)
+    edit_capability = table.capability_for_operation("op.edit_file")
+    assert edit_capability is not None
+    assert any(grant.startswith("repo.coding.sandbox_workspace:edit") for grant in edit_capability.file_repository_grants)
+
+
+def test_writing_tool_table_denies_shell_and_gates_official_write() -> None:
+    resolved = resolve_task_environment("env.writing")
+    table = build_tool_capability_table(
+        ToolCapabilityBuildRequest(
+            environment=resolved.spec,
+            file_access_tables=resolved.file_access_tables,
+            task_required_operations=("op.read_file", "op.write_file", "op.shell"),
+            agent_profile_allowed_operations=("op.model_response", "op.read_file", "op.write_file", "op.shell"),
+        )
+    )
+
+    assert "terminal" not in table.visible_tools
+    assert any(issue.operation_id == "op.shell" and issue.source == "task_environment" for issue in table.filtered)
+
+    write_capability = table.capability_for_operation("op.write_file")
+    assert write_capability is not None
+    assert "write_file" in table.dispatchable_tools
+    assert write_capability.requires_approval is True
+    assert any(grant.startswith("repo.writing.draft_workspace:write") for grant in write_capability.file_repository_grants)
+    assert any(grant.startswith("repo.writing.official_work:write") for grant in write_capability.file_repository_grants)
+
+
+def test_file_operation_without_file_access_table_is_filtered() -> None:
+    resolved = resolve_task_environment("env.vibe_coding")
+    table = build_tool_capability_table(
+        ToolCapabilityBuildRequest(
+            environment=resolved.spec,
+            file_access_tables=(),
+            task_required_operations=("op.read_file",),
+            agent_profile_allowed_operations=("op.read_file",),
+        )
+    )
+
+    assert "read_file" not in table.dispatchable_tools
+    assert any(issue.operation_id == "op.read_file" and issue.source == "file_access_table" for issue in table.filtered)

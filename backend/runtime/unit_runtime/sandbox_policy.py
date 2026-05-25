@@ -64,6 +64,8 @@ def prepare_runtime_sandbox_policy(
         return {"enabled": False, "mode": str(policy.get("mode") or "disabled")}
     policy["enabled"] = True
     policy.setdefault("mode", "workspace_overlay")
+    policy.setdefault("backend", "local_overlay")
+    policy.setdefault("execution_backend", "docker_sandboxes")
     policy.setdefault("side_effect_root", "output/sandbox_runs")
     policy.setdefault("workspace_dir_name", "workspace")
     policy.setdefault("real_workspace_access", "read_only")
@@ -71,6 +73,14 @@ def prepare_runtime_sandbox_policy(
     policy.setdefault("side_effect_tools", ["write_file", "edit_file", "terminal", "python_repl", "browser_control"])
     policy.setdefault("side_effect_operations", ["op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.browser_control"])
     policy.setdefault("overlay_copy_on_write", True)
+    policy.setdefault(
+        "sbx",
+        {
+            "memory": "1g",
+            "cpus": "1.0",
+            "timeout_seconds": 30,
+        },
+    )
     workspace_root = workspace_root_for_runtime(root_dir)
     side_effect_root = Path(str(policy.get("side_effect_root") or "output/sandbox_runs"))
     if not side_effect_root.is_absolute():

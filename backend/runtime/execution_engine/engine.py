@@ -48,6 +48,7 @@ class RuntimeExecutionEngine:
         event: dict[str, Any],
         allowed_search_sources: set[str] | None = None,
         sandbox_policy: dict[str, Any] | None = None,
+        file_management_policy: dict[str, Any] | None = None,
     ) -> list[Any]:
         return await translate_executor_event(
             event_log=self.event_log,
@@ -67,6 +68,7 @@ class RuntimeExecutionEngine:
             root_dir=self.root_dir,
             allowed_search_sources=allowed_search_sources,
             sandbox_policy=sandbox_policy,
+            file_management_policy=file_management_policy,
             execution_store=self.execution_store,
             record_execution_event=self.record_execution_event,
             build_pending_approval_state=self.build_pending_approval_state,
@@ -94,6 +96,7 @@ class RuntimeExecutionEngine:
         model_spec: Any = None,
         allowed_search_sources: set[str] | None = None,
         sandbox_policy: dict[str, Any] | None = None,
+        file_management_policy: dict[str, Any] | None = None,
     ):
         async for raw_event in self.stream_raw_model_events(
             user_message=user_message,
@@ -117,6 +120,7 @@ class RuntimeExecutionEngine:
                 event=raw_event,
                 allowed_search_sources=allowed_search_sources,
                 sandbox_policy=sandbox_policy,
+                file_management_policy=file_management_policy,
             )
             yield ModelTurnEvent(raw_event=raw_event, runtime_events=list(runtime_events or []))
 
@@ -165,6 +169,7 @@ async def translate_executor_event(
     root_dir: Any,
     allowed_search_sources: set[str] | None = None,
     sandbox_policy: dict[str, Any] | None = None,
+    file_management_policy: dict[str, Any] | None = None,
     execution_store: Any = None,
     record_execution_event: Callable[..., Any] | None = None,
     build_pending_approval_state: Callable[..., dict[str, Any]] | None = None,
@@ -211,6 +216,7 @@ async def translate_executor_event(
             root_dir=root_dir,
             allowed_search_sources=allowed_search_sources,
             sandbox_policy=sandbox_policy,
+            file_management_policy=file_management_policy,
             execution_store=execution_store,
             record_execution_event=record_execution_event,
             build_pending_approval_state=build_pending_approval_state,
