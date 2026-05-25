@@ -24,18 +24,18 @@ def build_operation_requirement(
     *,
     task_id: str,
     source: str,
-    operation_scope: list[str] | tuple[str, ...] = (),
+    required_task_operations: list[str] | tuple[str, ...] = (),
     denied_operations: list[str] | tuple[str, ...] = (),
     default_operation_requirements: list[str] | tuple[str, ...] = (),
-    skill_required_operations: list[str] | tuple[str, ...] = (),
+    capability_operations: list[str] | tuple[str, ...] = (),
     approval_policy: str = "default",
     review_policy: str = "optional",
     safety_envelope: dict[str, Any] | None = None,
     extra_metadata: dict[str, Any] | None = None,
     reason: str = "",
 ) -> OperationRequirement:
-    required = _dedupe([*default_operation_requirements, *operation_scope])
-    optional = _dedupe(skill_required_operations)
+    required = _dedupe([*default_operation_requirements, *required_task_operations])
+    optional = _dedupe(capability_operations)
     denied = _dedupe(denied_operations)
     return OperationRequirement(
         requirement_id=f"opreq:{task_id}:{source}",

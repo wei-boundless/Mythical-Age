@@ -51,7 +51,6 @@ def prepare_runtime_tool_capability_table_for_turn(
                 [
                     *list(requirement.get("optional_operations") or []),
                     *list(getattr(assembly_tool_requirements, "optional_operations", ()) or []),
-                    *list(requirement.get("skill_required_operations") or []),
                     *list(getattr_like(task_operation.get("resource_policy"), "requires_approval_operations") or []),
                 ]
             ),

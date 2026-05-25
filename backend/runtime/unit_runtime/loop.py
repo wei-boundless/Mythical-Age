@@ -1447,7 +1447,6 @@ class TaskRunLoop:
         task_projection_binding_payload = dict(task_operation.get("task_projection_binding") or {})
         task_flow_contract_binding_payload = dict(task_operation.get("task_flow_contract_binding") or {})
         task_execution_policy_payload = dict(task_operation.get("task_execution_policy") or {})
-        task_agent_adoption_plan_payload = dict(task_operation.get("task_agent_adoption_plan") or {})
         task_memory_request_profile_payload = dict(task_operation.get("task_memory_request_profile") or {})
         task_communication_protocol_payload = dict(task_operation.get("task_communication_protocol") or {})
         raw_graph_payload = dict(task_operation.get("graph_record") or {})
@@ -1516,7 +1515,7 @@ class TaskRunLoop:
             task_operation["execution_permit"] = execution_permit
         memory_view = dict(chain_runtime.get("memory_runtime_view") or {})
         context_policy = dict(chain_runtime.get("context_policy_result") or {})
-        adoption_mode = str(task_agent_adoption_plan_payload.get("adoption_mode") or "adopt_existing")
+        adoption_mode = str(task_execution_policy_payload.get("adoption_mode") or "adopt_existing")
         effective_limits = _runtime_limits_from_task_operation(task_operation, fallback=self.limits)
         result_refs: list[str] = []
         final_main_context: dict[str, Any] = {}
@@ -1671,7 +1670,6 @@ class TaskRunLoop:
                 "task_projection_binding": task_projection_binding_payload,
                 "task_flow_contract_binding": task_flow_contract_binding_payload,
                 "task_execution_policy": task_execution_policy_payload,
-                "task_agent_adoption_plan": task_agent_adoption_plan_payload,
                 "task_memory_request_profile": task_memory_request_profile_payload,
                 "task_communication_protocol": task_communication_protocol_payload,
                 "graph_record": graph_payload,
@@ -1696,7 +1694,6 @@ class TaskRunLoop:
                 "task_projection_binding_ref": str(task_projection_binding_payload.get("binding_id") or ""),
                 "task_flow_contract_binding_ref": str(task_flow_contract_binding_payload.get("binding_id") or ""),
                 "task_execution_policy_ref": str(task_execution_policy_payload.get("execution_policy_id") or task_execution_policy_payload.get("plan_id") or ""),
-                "task_agent_adoption_plan_ref": str(task_agent_adoption_plan_payload.get("plan_id") or ""),
                 "task_memory_request_profile_ref": str(task_memory_request_profile_payload.get("profile_id") or ""),
                 "task_communication_protocol_ref": str(task_communication_protocol_payload.get("protocol_id") or ""),
                 "graph_ref": str(
@@ -1727,7 +1724,7 @@ class TaskRunLoop:
             graph_payload=graph_payload,
             task_graph_payload=task_graph_payload,
             communication_protocol_payload=task_communication_protocol_payload,
-            task_agent_adoption_plan_payload=task_agent_adoption_plan_payload,
+            task_execution_policy_payload=task_execution_policy_payload,
             effective_limits=effective_limits,
             task_spec_payload=task_spec_payload,
         )
@@ -3774,12 +3771,12 @@ class TaskRunLoop:
         graph_payload: dict[str, Any],
         communication_protocol_payload: dict[str, Any],
         task_graph_payload: dict[str, Any] | None = None,
-        task_agent_adoption_plan_payload: dict[str, Any] | None = None,
+        task_execution_policy_payload: dict[str, Any] | None = None,
         effective_limits: RuntimeLoopLimits | None = None,
         task_spec_payload: dict[str, Any] | None = None,
     ) -> tuple[Any, ...]:
         events: list[Any] = []
-        adoption_plan_payload = dict(task_agent_adoption_plan_payload or {})
+        execution_policy_payload = dict(task_execution_policy_payload or {})
         task_graph_payload = dict(task_graph_payload or graph_payload or {})
         graph_payload = _normalize_runtime_graph_payload(
             raw_graph_payload=graph_payload,
@@ -4000,7 +3997,7 @@ class TaskRunLoop:
             coordination_run=current_coordination_run,
             adoption_mode=adoption_mode,
             task_agent_binding_ref=task_agent_binding_ref,
-            adoption_plan_payload=adoption_plan_payload,
+            execution_policy_payload=execution_policy_payload,
             event_offset=event_offset,
         )
         events.extend(spawn_events)
@@ -4023,12 +4020,12 @@ class TaskRunLoop:
         coordination_run: CoordinationRun | None,
         adoption_mode: str,
         task_agent_binding_ref: str,
-        adoption_plan_payload: dict[str, Any],
+        execution_policy_payload: dict[str, Any],
         event_offset: int,
     ) -> tuple[list[Any], CoordinationRun | None]:
         events: list[Any] = []
-        allow_spawn = bool(adoption_plan_payload.get("allow_worker_agent_spawn") is True)
-        blueprint_id = str(adoption_plan_payload.get("worker_agent_blueprint_id") or "").strip()
+        allow_spawn = bool(execution_policy_payload.get("allow_worker_agent_spawn") is True)
+        blueprint_id = str(execution_policy_payload.get("worker_agent_blueprint_id") or "").strip()
         if not allow_spawn:
             if blueprint_id:
                 blocked_result = WorkerAgentSpawnResult(
@@ -4119,7 +4116,7 @@ class TaskRunLoop:
             return events, coordination_run
         existing_count = len(existing_results) + 1
         requested_agent_name = self._render_worker_agent_name(
-            naming_rule=str(adoption_plan_payload.get("worker_agent_naming_rule") or "").strip(),
+            naming_rule=str(execution_policy_payload.get("worker_agent_naming_rule") or "").strip(),
             blueprint_template=blueprint.agent_name_template,
             index=existing_count,
         )
@@ -4136,7 +4133,7 @@ class TaskRunLoop:
             ),
             context_scope=parent_agent_run.context_scope,
             requested_by_agent_id=parent_agent_run.agent_id,
-            spawn_reason="task_agent_adoption_plan_authorized",
+            spawn_reason="task_execution_policy_authorized",
             requested_at=time.time(),
             diagnostics={
                 "adoption_mode": adoption_mode,
@@ -5575,10 +5572,10 @@ def _runtime_limits_from_task_operation(
 ) -> RuntimeLoopLimits:
     task_spec = dict(task_operation.get("task_spec") or {})
     task_assembly = dict(task_operation.get("task_execution_assembly") or {})
-    adoption_plan = dict(task_operation.get("task_execution_policy") or task_operation.get("task_agent_adoption_plan") or {})
+    execution_policy = dict(task_operation.get("task_execution_policy") or {})
     metadata = dict(task_assembly.get("metadata") or {})
     constraints = dict(task_spec.get("constraints") or {})
-    policy_metadata = dict(adoption_plan.get("metadata") or {})
+    policy_metadata = dict(execution_policy.get("metadata") or {})
     limits = {
         **dict(metadata.get("runtime_limits") or {}),
         **dict(policy_metadata.get("runtime_limits") or {}),

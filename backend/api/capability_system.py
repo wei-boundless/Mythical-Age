@@ -70,7 +70,7 @@ class ResourcePolicyCandidateRequest(BaseModel):
     operation_scope: list[str] = Field(default_factory=list)
     denied_operations: list[str] = Field(default_factory=list)
     default_operation_requirements: list[str] = Field(default_factory=list)
-    skill_required_operations: list[str] = Field(default_factory=list)
+    capability_operations: list[str] = Field(default_factory=list)
     approval_policy: str = Field(default="default")
     review_policy: str = Field(default="optional")
     reason: str = ""
@@ -223,10 +223,10 @@ async def resource_policy_candidate(payload: ResourcePolicyCandidateRequest) -> 
     requirement = build_operation_requirement(
         task_id=payload.task_id,
         source=payload.source,
-        operation_scope=payload.operation_scope,
+        required_task_operations=payload.operation_scope,
         denied_operations=payload.denied_operations,
         default_operation_requirements=payload.default_operation_requirements,
-        skill_required_operations=payload.skill_required_operations,
+        capability_operations=payload.capability_operations,
         approval_policy=payload.approval_policy,
         review_policy=payload.review_policy,
         reason=payload.reason,

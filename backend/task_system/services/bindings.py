@@ -16,7 +16,7 @@ class TaskBindingRecord:
     projection_selector: str = "task_default"
     skill_scope: tuple[str, ...] = ()
     denied_skills: tuple[str, ...] = ()
-    operation_scope: tuple[str, ...] = ()
+    required_operations: tuple[str, ...] = ()
     denied_operations: tuple[str, ...] = ()
     memory_scope: str = "session_read"
     output_contract_id: str = ""
@@ -37,7 +37,7 @@ def default_task_binding(definition: TaskDefinition) -> TaskBindingRecord:
         "op.python_repl",
         "op.memory_write_candidate",
     )
-    operation_scope = definition.default_operation_requirements
+    required_operations = definition.default_operation_requirements
     if definition.definition_id == "task.task_execution":
         denied_operations = ("op.shell", "op.python_repl", "op.memory_write_candidate")
     if definition.definition_id == "task.inspection_and_correction":
@@ -49,7 +49,7 @@ def default_task_binding(definition: TaskDefinition) -> TaskBindingRecord:
         definition_id=definition.definition_id,
         projection_selector=definition.default_projection_role or "task_default",
         skill_scope=definition.default_skill_refs,
-        operation_scope=operation_scope,
+        required_operations=required_operations,
         denied_operations=denied_operations,
         review_policy=definition.review_policy,
     )
@@ -66,7 +66,7 @@ def merge_task_bindings(bindings: list[TaskBindingRecord]) -> TaskBindingRecord:
         projection_selector=bindings[-1].projection_selector,
         skill_scope=tuple(_dedupe([skill for binding in bindings for skill in binding.skill_scope])),
         denied_skills=tuple(_dedupe([skill for binding in bindings for skill in binding.denied_skills])),
-        operation_scope=tuple(_dedupe([operation for binding in bindings for operation in binding.operation_scope])),
+        required_operations=tuple(_dedupe([operation for binding in bindings for operation in binding.required_operations])),
         denied_operations=tuple(_dedupe([operation for binding in bindings for operation in binding.denied_operations])),
         memory_scope=bindings[-1].memory_scope,
         output_contract_id=bindings[-1].output_contract_id,

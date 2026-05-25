@@ -365,7 +365,7 @@ def _agent_plan_section(
 
 def _operation_refs(operation_requirement: dict[str, Any]) -> list[str]:
     refs: list[str] = []
-    for key in ("required_operations", "optional_operations", "skill_required_operations"):
+    for key in ("required_operations", "optional_operations"):
         refs.extend(str(item).strip() for item in list(operation_requirement.get(key) or []) if str(item).strip())
     return _dedupe(refs)
 

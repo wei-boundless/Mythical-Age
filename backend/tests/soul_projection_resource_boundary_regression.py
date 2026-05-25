@@ -11,7 +11,7 @@ def test_resource_runtime_view_maps_to_soul_tool_view_without_execution_authorit
     requirement = build_operation_requirement(
         task_id="soul-task-1",
         source="task_binding_preview",
-        operation_scope=("op.read_file", "op.edit_file"),
+        required_task_operations=("op.read_file", "op.edit_file"),
     )
     policy = build_resource_policy_candidate(requirement, registry)
     views = {view.resource_id: view for view in build_resource_runtime_views(policy, registry)}
@@ -32,7 +32,7 @@ def test_soul_runtime_view_exposes_only_authorized_tool_sections() -> None:
     requirement = build_operation_requirement(
         task_id="soul-task-2",
         source="task_binding_preview",
-        operation_scope=("op.read_file", "op.edit_file"),
+        required_task_operations=("op.read_file", "op.edit_file"),
     )
     policy = build_resource_policy_candidate(requirement, registry)
     resource_views = build_resource_runtime_views(policy, registry)
@@ -88,7 +88,10 @@ def test_soul_runtime_view_carries_projection_identity_anchor_separately() -> No
         projection_section="Projection role: chapter_drafting.",
         output_section="Return chapter draft.",
         guardrail_section="Respect task boundary.",
-        metadata={"runtime_directive_enabled": True},
+        metadata={
+            "runtime_directive_enabled": True,
+            "mode_policy": {"interaction_mode": "role_mode"},
+        },
     )
 
     runtime = build_soul_runtime_view(

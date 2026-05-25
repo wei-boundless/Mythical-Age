@@ -862,7 +862,7 @@ def _align_task_binding_with_template(
             **binding.to_dict(),
             "skill_scope": tuple(binding.skill_scope or ()),
             "denied_skills": tuple(binding.denied_skills or ()),
-            "operation_scope": tuple(binding.operation_scope or ()),
+            "required_operations": tuple(binding.required_operations or ()),
             "denied_operations": allowed_denied,
         }
     )

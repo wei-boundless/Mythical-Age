@@ -991,7 +991,7 @@ class TaskFlowRegistry:
         )
         _write_json(
             _adoption_plans_path(self.base_dir),
-            {"adoption_plans": [item.to_legacy_dict() for item in self.list_task_agent_adoption_plans() if item.task_id not in task_ids]},
+            {"adoption_plans": [item.to_dict() for item in self.list_task_agent_adoption_plans() if item.task_id not in task_ids]},
         )
         _write_json(
             _memory_request_profiles_path(self.base_dir),
@@ -1268,7 +1268,7 @@ class TaskFlowRegistry:
         )
         _write_json(
             _adoption_plans_path(self.base_dir),
-            {"adoption_plans": [item.to_legacy_dict() for item in self.list_task_agent_adoption_plans() if item.task_id != target]},
+            {"adoption_plans": [item.to_dict() for item in self.list_task_agent_adoption_plans() if item.task_id != target]},
         )
         _write_json(
             _memory_request_profiles_path(self.base_dir),

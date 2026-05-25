@@ -260,14 +260,14 @@ def build_task_execution_assembly_bundle(
     operation_requirement = build_operation_requirement(
         task_id=task_contract.task_id,
         source="task_binding",
-        operation_scope=tuple(
+        required_task_operations=tuple(
             operation
-            for operation in list(merged_binding.operation_scope)
+            for operation in list(merged_binding.required_operations)
             if not allowed_operations or operation in allowed_operations
         ),
         denied_operations=tuple(policy_denied_operations),
         default_operation_requirements=tuple(default_operations),
-        skill_required_operations=tuple(skill_operations),
+        capability_operations=tuple(skill_operations),
         approval_policy=_resolve_operation_approval_policy(
             merged_binding=merged_binding,
             selected_recipe=selected_recipe,
@@ -459,7 +459,6 @@ def build_task_execution_assembly_bundle(
         "task_projection_binding": projection_binding.to_dict() if projection_binding is not None else {},
         "task_flow_contract_binding": flow_contract_binding.to_dict() if flow_contract_binding is not None else {},
         "task_execution_policy": execution_policy.to_dict() if execution_policy is not None else {},
-        "task_agent_adoption_plan": execution_policy.to_legacy_dict() if execution_policy is not None else {},
         "task_memory_request_profile": memory_request_profile_payload,
         "task_communication_protocol": communication_protocol.to_dict() if communication_protocol is not None else {},
         "graph_record": task_graph.to_dict() if task_graph is not None else {},

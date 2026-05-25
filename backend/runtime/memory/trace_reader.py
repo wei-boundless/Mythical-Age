@@ -1930,7 +1930,11 @@ def _payload_summary(event_type: str, payload: dict[str, Any]) -> dict[str, Any]
                 "requested_outputs": list(task_spec.get("requested_outputs") or []),
                 "step_count": len(list(task_run_ledger.get("step_runs") or [])),
                 "user_goal_chars": len(str(contract.get("user_goal") or "")),
-                "adoption_plan_ref": str(dict(payload.get("task_agent_adoption_plan") or {}).get("plan_id") or ""),
+                "task_execution_policy_ref": str(
+                    dict(payload.get("task_execution_policy") or {}).get("execution_policy_id")
+                    or dict(payload.get("task_execution_policy") or {}).get("plan_id")
+                    or ""
+                ),
                 "graph_ref": str(
                     dict(payload.get("task_graph_record") or {}).get("graph_id")
                     or dict(payload.get("graph_record") or {}).get("graph_id")

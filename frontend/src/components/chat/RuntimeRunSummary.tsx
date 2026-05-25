@@ -87,14 +87,26 @@ function currentStage(entries: RuntimeProgressEntry[]) {
   return cleanTitle(latest.title);
 }
 
+function completedActionCount(entries: RuntimeProgressEntry[]) {
+  return entries.filter((entry) => entry.kind !== "task_order" && entry.kind !== "task_draft").length;
+}
+
 function commandCountLabel(entries: RuntimeProgressEntry[]) {
   const toolCount = entries.filter((entry) => entry.kind === "tool").length;
   if (toolCount) return `已运行 ${toolCount} 条命令`;
-  const actionableCount = entries.filter((entry) => entry.kind !== "task_order" && entry.kind !== "task_draft").length;
+  const actionableCount = completedActionCount(entries);
   return actionableCount ? `已更新 ${actionableCount} 个步骤` : "正在准备";
 }
 
-function progressCountLabel(entries: RuntimeProgressEntry[]) {
+function compactStatus(entries: RuntimeProgressEntry[]) {
+  const status = terminalSummary(entries);
+  if (status === "完成" || status === "失败" || status === "等待" || status === "异常") {
+    return status;
+  }
+  return currentStage(entries);
+}
+
+function detailCountLabel(entries: RuntimeProgressEntry[]) {
   const toolCount = entries.filter((entry) => entry.kind === "tool").length;
   const stageCount = entries.filter((entry) => entry.kind !== "tool").length;
   return [
@@ -153,7 +165,7 @@ export function RuntimeRunSummary({ entries }: { entries: RuntimeProgressEntry[]
   const flowEntries = visibleEntries.filter((entry) => entry.id !== anchor?.id && entry.kind !== "tool");
   const toolEntries = visibleEntries.filter((entry) => entry.kind === "tool").slice(-MAX_TOOL_ENTRIES);
   const artifactEntries = visibleEntries.filter((entry) => entry.artifacts?.length);
-  const status = terminalSummary(visibleEntries);
+  const detailLabel = detailCountLabel(visibleEntries);
 
   return (
     <details className="runtime-run-summary" aria-label="执行流程摘要">
@@ -164,9 +176,8 @@ export function RuntimeRunSummary({ entries }: { entries: RuntimeProgressEntry[]
           <span>{commandCountLabel(visibleEntries)}</span>
         </div>
         <div className="runtime-run-summary__summary">
-          <span>{status}</span>
-          <span>{currentStage(visibleEntries)}</span>
-          <span>{progressCountLabel(visibleEntries)}</span>
+          <span>{compactStatus(visibleEntries)}</span>
+          <span>{detailLabel}</span>
         </div>
       </summary>
 

@@ -81,11 +81,12 @@ export function ChatInput({
       return;
     }
     setSubmitting(true);
+    setValue("");
     try {
       await onSend(nextValue);
-      setValue("");
     } catch (error) {
       console.error("Failed to send chat message", error);
+      setValue(nextValue);
     } finally {
       setSubmitting(false);
     }

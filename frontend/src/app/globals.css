@@ -34679,6 +34679,12 @@ html[data-workspace-tone] .agent-workbench {
   display: inline;
 }
 
+.agent-workbench .runtime-run-summary[open] .runtime-run-summary__summary span:last-child {
+  display: inline;
+  color: var(--console-muted);
+  opacity: 0.72;
+}
+
 .agent-workbench .runtime-run-summary__details {
   gap: 6px;
   margin-top: 6px;

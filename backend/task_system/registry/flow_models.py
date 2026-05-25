@@ -75,12 +75,6 @@ class TaskAssignment:
         payload["execution_chain_type"] = chain_type
         return payload
 
-    def to_legacy_dict(self) -> dict[str, Any]:
-        payload = asdict(self)
-        payload["participant_agent_ids"] = list(self.participant_agent_ids)
-        return payload
-
-
 @dataclass(frozen=True, slots=True)
 class SpecificTaskRecord:
     task_id: str
@@ -204,10 +198,6 @@ class TaskAgentAdoptionPlan:
         payload["task_level"] = str(metadata.get("task_level") or "standard")
         payload["task_privilege"] = str(metadata.get("task_privilege") or "bounded")
         return payload
-
-    def to_legacy_dict(self) -> dict[str, Any]:
-        return self.to_dict()
-
 
 @dataclass(frozen=True, slots=True)
 class TaskMemoryRequestProfile:

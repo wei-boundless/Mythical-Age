@@ -21,9 +21,9 @@ def test_operation_requirement_keeps_task_scope_required_and_skill_capabilities_
     requirement = build_operation_requirement(
         task_id="task-1",
         source="task_binding_preview",
-        operation_scope=("op.read_file", "op.edit_file"),
+        required_task_operations=("op.read_file", "op.edit_file"),
         denied_operations=("terminal",),
-        skill_required_operations=("op.search_text",),
+        capability_operations=("op.search_text",),
         approval_policy="default",
         review_policy="required",
     )
@@ -40,7 +40,7 @@ def test_resource_policy_candidate_denies_unknown_and_denied_aliases() -> None:
     requirement = build_operation_requirement(
         task_id="task-2",
         source="task_binding_preview",
-        operation_scope=("op.read_file", "op.shell", "op.unknown"),
+        required_task_operations=("op.read_file", "op.shell", "op.unknown"),
         denied_operations=("terminal",),
     )
 
@@ -68,7 +68,7 @@ def test_high_risk_operations_require_approval_but_do_not_become_executable() ->
     requirement = build_operation_requirement(
         task_id="task-3",
         source="task_binding_preview",
-        operation_scope=("op.read_file", "op.edit_file", "op.python_repl"),
+        required_task_operations=("op.read_file", "op.edit_file", "op.python_repl"),
     )
 
     policy = build_resource_policy_candidate(requirement, registry)
@@ -92,7 +92,7 @@ def test_headless_requires_approval_fails_closed_without_approval_channel() -> N
     requirement = build_operation_requirement(
         task_id="task-4",
         source="task_binding_preview",
-        operation_scope=("op.edit_file",),
+        required_task_operations=("op.edit_file",),
     )
 
     policy = build_resource_policy_candidate(
@@ -118,7 +118,7 @@ def test_headless_requires_approval_can_route_to_hook_without_allowing_execution
     requirement = build_operation_requirement(
         task_id="task-5",
         source="task_binding_preview",
-        operation_scope=("op.edit_file",),
+        required_task_operations=("op.edit_file",),
     )
 
     policy = build_resource_policy_candidate(
@@ -142,7 +142,7 @@ def test_mcp_and_memory_write_candidate_stay_hidden_or_denied() -> None:
     requirement = build_operation_requirement(
         task_id="task-6",
         source="task_binding_preview",
-        operation_scope=("op.mcp_pdf", "op.memory_write_candidate"),
+        required_task_operations=("op.mcp_pdf", "op.memory_write_candidate"),
     )
 
     policy = build_resource_policy_candidate(requirement, registry)
@@ -164,7 +164,7 @@ def test_operation_gate_rejects_preview_policy_even_for_allowed_preview_operatio
     requirement = build_operation_requirement(
         task_id="task-7",
         source="task_binding_preview",
-        operation_scope=("op.read_file",),
+        required_task_operations=("op.read_file",),
     )
     policy = build_resource_policy_candidate(requirement, registry)
     gate = OperationGate(registry)

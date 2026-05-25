@@ -50,10 +50,6 @@ def build_current_turn_capability_plan(
             requirement.get("optional_operations"),
             normalize_operation_id=normalize_operation_id,
         ),
-        "operation_requirement.skill_required": _normalize_operations(
-            requirement.get("skill_required_operations"),
-            normalize_operation_id=normalize_operation_id,
-        ),
         "execution_permit.allowed": _normalize_operations(
             permit.get("allowed_operations"),
             normalize_operation_id=normalize_operation_id,
@@ -84,7 +80,6 @@ def build_current_turn_capability_plan(
             "op.model_response",
             *source_operations["operation_requirement.required"],
             *source_operations["operation_requirement.optional"],
-            *source_operations["operation_requirement.skill_required"],
             *source_operations["execution_permit.allowed"],
             *source_operations["resource_policy.allowed"],
             *source_operations["resource_policy.requires_approval"],
