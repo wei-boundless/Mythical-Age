@@ -375,9 +375,14 @@ def _should_apply_code_fix_evidence_closeout(
     content = str(outcome.final_content or "").strip()
     if bool(final_protocol_leak_detected) or _contains_tool_call_markup(content):
         return True
-    if not content and outcome.terminal_reason in {"tool_call_markup_leaked", "tool_loop_budget_exceeded", "partial_contract_failed"}:
+    if not content:
         return True
-    if outcome.terminal_reason in {"executor_failed", "partial_contract_failed"} and not tool_observation_ledger.verification_passed():
+    if outcome.terminal_reason in {
+        "executor_failed",
+        "tool_call_markup_leaked",
+        "tool_loop_budget_exceeded",
+        "partial_contract_failed",
+    }:
         return True
     return False
 
@@ -551,6 +556,7 @@ def _build_code_fix_evidence_closeout_answer(
     evidence_packet: dict[str, Any],
 ) -> str:
     write_paths = observation_paths_for_satisfaction(tool_observation_ledger, "write_output")
+    read_paths = observation_paths_for_satisfaction(tool_observation_ledger, "read_material")
     verification_records = [
         record
         for record in tool_observation_ledger.records
@@ -574,6 +580,7 @@ def _build_code_fix_evidence_closeout_answer(
     return "\n".join(
         [
             "修复：已通过真实编辑工具提交代码修改，具体业务正确性以验证结果为准。",
+            "材料：" + ("、".join(read_paths) if read_paths else "本轮没有解析到具体已读材料路径。"),
             "文件：" + ("、".join(write_paths) if write_paths else "已发生写入观察，但未能解析具体路径。"),
             verification_line,
             "边界：" + ("；".join(limitations) if limitations else "仅基于本轮真实工具观察；未覆盖额外场景。"),

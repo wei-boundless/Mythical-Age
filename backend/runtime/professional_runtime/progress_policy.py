@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from ..memory.tool_observation_ledger import ToolObservationLedger
-from .deliverable_progress import build_deliverable_progress
+from .deliverable_progress import build_deliverable_progress, next_missing_material_read
 from .goal_contract import ProfessionalTaskGoalContract
 
 
@@ -33,6 +33,13 @@ def check_progress_policy(
     tool_name = str(requested_tool_name or "").strip()
     if tool_name in {"write_file", "edit_file", "agent_todo"}:
         return ProgressPolicyDecision(allowed=True, reason="progress_capable_tool")
+    if tool_name in {"read_file", "read_structured_file", "search_files", "search_text", "glob_paths"}:
+        missing_material = next_missing_material_read(goal_contract, ledger)
+        if _requested_tool_targets_missing_material(
+            missing_material_path=str(missing_material.path if missing_material is not None else ""),
+            requested_tool_args=dict(requested_tool_args or {}),
+        ):
+            return ProgressPolicyDecision(allowed=True, reason="required_material_read")
     progress = build_deliverable_progress(goal_contract=goal_contract, tool_observation_ledger=ledger)
     missing = progress.missing_obligations()
     if not missing:
@@ -59,6 +66,24 @@ def check_progress_policy(
     )
 
 
+def _requested_tool_targets_missing_material(*, missing_material_path: str, requested_tool_args: dict[str, Any]) -> bool:
+    target = _normalize_path(missing_material_path)
+    if not target:
+        return False
+    candidate_values = [
+        requested_tool_args.get("path"),
+        requested_tool_args.get("file_path"),
+        requested_tool_args.get("query"),
+        *list(requested_tool_args.get("paths") or []),
+        *list(requested_tool_args.get("roots") or []),
+    ]
+    for value in candidate_values:
+        candidate = _normalize_path(str(value or ""))
+        if candidate and (candidate == target or candidate in target or target in candidate):
+            return True
+    return False
+
+
 def _observation_is_non_progress(observation: dict[str, Any]) -> bool:
     payload = dict(observation.get("payload") or observation)
     tool_name = str(payload.get("tool_name") or "").strip()
@@ -70,3 +95,7 @@ def _observation_is_non_progress(observation: dict[str, Any]) -> bool:
     if structured.get("artifact_refs") or structured.get("command_receipt", {}).get("passed") is True:
         return False
     return True
+
+
+def _normalize_path(path: str) -> str:
+    return str(path or "").strip().strip("/").replace("\\", "/").lower()

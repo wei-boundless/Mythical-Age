@@ -42,6 +42,7 @@ def model_stream_policy_from_task_execution_assembly(
         "non_stream_fallback_timeout_seconds": float(policy.get("non_stream_fallback_timeout_seconds") or 0),
         "stream_recovery_timeout_seconds": float(policy.get("stream_recovery_timeout_seconds") or 0),
         "fallback_timeout_seconds": float(policy.get("fallback_timeout_seconds") or 0),
+        "action_gate_timeout_seconds": float(policy.get("action_gate_timeout_seconds") or 0),
         "authority": "orchestration.task_stream_policy",
     }
 

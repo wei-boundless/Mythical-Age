@@ -96,8 +96,6 @@ def build_boundary_policy(
     scoped_source_readonly = any(marker in text for marker in _SCOPED_SOURCE_WRITE_FORBID_MARKERS)
     global_write_forbidden = any(marker in text for marker in _GLOBAL_WRITE_FORBID_MARKERS)
     broad_no_modify = any(marker in text for marker in _BROAD_NO_MODIFY_MARKERS)
-    if global_write_forbidden or (broad_no_modify and not write_required_by_context and not scoped_source_readonly):
-        forbidden.extend(["edit_workspace", "write_file", "modify_code"])
     if any(marker in text for marker in ("不要联网", "不要搜索", "不要查网页", "no web", "do not search")):
         forbidden.extend(["search_external", "fetch_url"])
     if any(marker in text for marker in ("先写计划", "先给计划", "必须先写计划", "计划书")):
@@ -107,22 +105,34 @@ def build_boundary_policy(
     for item in list(context.get("forbidden_actions") or []):
         if str(item).strip():
             forbidden.append(str(item).strip())
+    for item in _structured_forbidden_actions(context):
+        forbidden.append(item)
     approval_policy = str(context.get("approval_policy") or context.get("permission_mode") or "").strip()
+    forbidden_actions = tuple(_dedupe(forbidden))
     return BoundaryPolicy(
         policy_id=f"boundary:{str(dict(request_facts or {}).get('facts_id') or 'runtime')}",
-        forbidden_actions=tuple(_dedupe(forbidden)),
+        forbidden_actions=forbidden_actions,
         required_process=tuple(_dedupe(required)),
-        write_allowed=not bool(set(forbidden) & {"edit_workspace", "write_file", "modify_code"}),
+        write_allowed=not bool(set(forbidden_actions) & {"edit_workspace", "write_file", "modify_code"}),
         network_allowed=not bool(set(forbidden) & {"search_external", "fetch_url"}),
         shell_allowed="run_command" not in forbidden,
         browser_allowed="use_browser" not in forbidden,
         approval_policy=approval_policy,
         diagnostics={
             "source": "latest_user_message_and_context",
-            "hard_boundary": True,
+            "hard_boundary": False,
+            "authority_boundary": "operation_gate_and_sandbox_policy",
+            "natural_language_markers_are_intent_signals": True,
             "global_write_forbidden": global_write_forbidden,
+            "global_write_forbid_signal": global_write_forbidden,
+            "broad_no_modify_signal": broad_no_modify,
             "scoped_source_readonly": scoped_source_readonly,
             "write_required_by_context": write_required_by_context,
+            "structured_forbidden_actions_used": [
+                item
+                for item in forbidden_actions
+                if item in {"edit_workspace", "write_file", "modify_code"}
+            ],
         },
     )
 
@@ -143,6 +153,19 @@ def _write_required_by_context(*, text: str, context: dict[str, Any]) -> bool:
         return True
     explicit_inputs = dict(context.get("explicit_inputs") or {})
     return any(str(explicit_inputs.get(key) or "").strip() for key in ("output_path", "artifact_path", "target_output_path"))
+
+
+def _structured_forbidden_actions(context: dict[str, Any]) -> list[str]:
+    actions: list[str] = []
+    for source in (
+        dict(context.get("model_turn_decision") or {}),
+        dict(context.get("task_goal_spec") or context.get("goal_frame") or {}),
+    ):
+        for item in list(source.get("forbidden_actions") or []):
+            value = str(item or "").strip()
+            if value:
+                actions.append(value)
+    return _dedupe(actions)
 
 
 def _dedupe(values: list[str]) -> list[str]:

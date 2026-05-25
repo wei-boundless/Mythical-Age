@@ -52,6 +52,16 @@ def _tool_message_count(messages) -> int:
     return sum(1 for item in list(messages or []) if item.__class__.__name__ == "ToolMessage")
 
 
+def _has_ai_tool_call(messages, *, call_id: str, name: str) -> bool:
+    for item in list(messages or []):
+        calls = list(getattr(item, "tool_calls", None) or [])
+        for call in calls:
+            payload = dict(call or {})
+            if str(payload.get("id") or "") == call_id and str(payload.get("name") or "") == name:
+                return True
+    return False
+
+
 class _ToolRuntimeWithSearchTextStub:
     registry = None
 
@@ -625,14 +635,16 @@ class _WriteAfterReadModelRuntimeStub:
         if self.seen_write:
             return SimpleNamespace(
                 content=(
+                    "完成状态：已完成。\n"
                     "修改：已写入功能草案。\n"
                     "文件：output/professional_feature_slice/status-filter-plan.md。\n"
-                    "验证：本轮写入已由 write_file 返回成功；未运行端到端测试。"
+                    "产物：output/professional_feature_slice/status-filter-plan.md。\n"
+                    "验证：本轮写入已由 write_file 返回成功；未运行端到端测试。\n"
+                    "限制：本测试只验证材料读取后转写入的工具门控链路。"
                 )
             )
         if self.seen_contract:
             assert "write_file" in tool_names
-            assert "read_file" in tool_names
             return AIMessage(
                 content="我已经读到契约，下一步写入草案文件。",
                 tool_calls=[
@@ -1047,8 +1059,26 @@ class _ProgressPolicyCorrectionModelRuntimeStub:
                 content=(
                     "完成状态：已完成。\n"
                     "文件：frontend/public/games/progress_probe/game.js。\n"
-                    "验证：write_file 已返回成功。限制：本测试只验证 progress policy 纠错链路。"
+                    "产物：frontend/public/games/progress_probe/game.js。\n"
+                    "修改：已写入最小 game.js。\n"
+                    "验证：write_file 已返回成功。\n"
+                    "限制：本测试只验证 action gate 初始写入门控链路。"
                 )
+            )
+        if "write_file" in tool_names:
+            return AIMessage(
+                content="运行时已要求优先写入缺失产物，我直接写入 game.js。",
+                tool_calls=[
+                    {
+                        "id": "call-write-progress-gate",
+                        "name": "write_file",
+                        "args": {
+                            "path": "frontend/public/games/progress_probe/game.js",
+                            "content": "const progressProbe = true;",
+                        },
+                        "type": "tool_call",
+                    }
+                ],
             )
         if self.seen_progress_rejection:
             assert "write_file" in tool_names
@@ -1079,6 +1109,541 @@ class _ProgressPolicyCorrectionModelRuntimeStub:
                         "glob": "**/*.md",
                         "max_results": 5,
                     },
+                    "type": "tool_call",
+                }
+            ],
+        )
+
+
+class _ActionGateCorrectionModelRuntimeStub:
+    def __init__(self) -> None:
+        self.tool_enabled_calls = 0
+        self.seen_contract = False
+        self.seen_action_gate_rejection = False
+        self.seen_paired_action_gate_rejection = False
+        self.seen_write = False
+        self.tool_names_by_call: list[list[str]] = []
+        self.tool_call_options_by_call: list[object] = []
+
+    async def invoke_messages(self, messages, **_kwargs):
+        return await self.invoke_messages_with_tools(messages, [], **_kwargs)
+
+    async def invoke_messages_with_tools(self, messages, tools, **_kwargs):
+        self.tool_enabled_calls += 1
+        tool_names = [str(getattr(tool, "name", "") or "") for tool in list(tools or [])]
+        self.tool_names_by_call.append(tool_names)
+        self.tool_call_options_by_call.append(_kwargs.get("tool_call_options"))
+        tool_text = _tool_message_text(messages)
+        self.seen_contract = self.seen_contract or "status_filter" in tool_text or _tool_message_count(messages) > 0
+        self.seen_action_gate_rejection = self.seen_action_gate_rejection or "action_gate" in tool_text
+        if "action_gate" in tool_text:
+            self.seen_paired_action_gate_rejection = self.seen_paired_action_gate_rejection or _has_ai_tool_call(
+                messages,
+                call_id="call-read-after-contract",
+                name="read_file",
+            )
+        self.seen_write = self.seen_write or "Write succeeded" in tool_text
+        if self.seen_write:
+            return SimpleNamespace(
+                content=(
+                    "完成状态：已完成。\n"
+                    "修改：已写入状态筛选审查报告。\n"
+                    "文件：output/vibe-code-smoke/status-filter-review.md。\n"
+                    "产物：output/vibe-code-smoke/status-filter-review.md。\n"
+                    "验证：write_file 已返回成功。\n"
+                    "限制：本测试只验证 action gate 的读取转写入闭环。"
+                )
+            )
+        if self.seen_action_gate_rejection:
+            assert "write_file" in tool_names
+            return AIMessage(
+                content="我收到运行时动作门反馈，改为写入缺失报告。",
+                tool_calls=[
+                    {
+                        "id": "call-write-after-action-gate",
+                        "name": "write_file",
+                        "args": {
+                            "path": "output/vibe-code-smoke/status-filter-review.md",
+                            "content": "后端：检查 status 参数。\n前端：检查筛选交互。\n测试：补 ready/blocked 用例。",
+                        },
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        if self.seen_contract:
+            return AIMessage(
+                content="我还想继续读取更多上下文。",
+                tool_calls=[
+                    {
+                        "id": "call-read-after-contract",
+                        "name": "read_file",
+                        "args": {"path": "tests/fixtures/professional_task_suite/extra_context.md"},
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        assert "read_file" in tool_names
+        return AIMessage(
+            content="我先读取功能契约。",
+            tool_calls=[
+                {
+                    "id": "call-read-action-gate-contract",
+                    "name": "read_file",
+                    "args": {"path": "tests/fixtures/professional_task_suite/node_status_filter_contract.json"},
+                    "type": "tool_call",
+                }
+            ],
+        )
+
+
+class _MaterialReadGateModelRuntimeStub:
+    def __init__(self) -> None:
+        self.tool_names_by_call: list[list[str]] = []
+        self.tool_call_options_by_call: list[object] = []
+        self.seen_first = False
+        self.seen_second = False
+        self.seen_write = False
+
+    async def invoke_messages(self, messages, **_kwargs):
+        return await self.invoke_messages_with_tools(messages, [], **_kwargs)
+
+    async def invoke_messages_with_tools(self, messages, tools, **_kwargs):
+        tool_names = [str(getattr(tool, "name", "") or "") for tool in list(tools or [])]
+        self.tool_names_by_call.append(tool_names)
+        self.tool_call_options_by_call.append(_kwargs.get("tool_call_options"))
+        tool_text = _tool_message_text(messages)
+        self.seen_first = self.seen_first or "first fixture" in tool_text
+        self.seen_second = self.seen_second or "second fixture" in tool_text
+        self.seen_write = self.seen_write or "Write succeeded" in tool_text
+        if self.seen_write:
+            return SimpleNamespace(
+                content=(
+                    "完成状态：已完成。\n"
+                    "文件：output/vibe-code-smoke/material-gate.md。\n"
+                    "产物：output/vibe-code-smoke/material-gate.md。\n"
+                    "验证：write_file 已返回成功。\n"
+                    "限制：本测试只验证材料读取门控。"
+                )
+            )
+        if self.seen_second:
+            assert "write_file" in tool_names
+            return AIMessage(
+                content="材料已读完，写入报告。",
+                tool_calls=[
+                    {
+                        "id": "call-write-material-gate",
+                        "name": "write_file",
+                        "args": {
+                            "path": "output/vibe-code-smoke/material-gate.md",
+                            "content": "material gate ok",
+                        },
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        if self.seen_first:
+            assert tool_names == ["read_file", "read_structured_file"]
+            return AIMessage(
+                content="继续读取第二个必读材料。",
+                tool_calls=[
+                    {
+                        "id": "call-read-material-second",
+                        "name": "read_file",
+                        "args": {"path": "tests/fixtures/professional_task_suite/material_second.md"},
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        assert tool_names == ["read_file", "read_structured_file"]
+        return AIMessage(
+            content="先读取第一个必读材料。",
+            tool_calls=[
+                {
+                    "id": "call-read-material-first",
+                    "name": "read_file",
+                    "args": {"path": "tests/fixtures/professional_task_suite/material_first.md"},
+                    "type": "tool_call",
+                }
+            ],
+        )
+
+
+class _WriteThenGetItemVerifyModelRuntimeStub:
+    def __init__(self) -> None:
+        self.tool_names_by_call: list[list[str]] = []
+        self.seen_write = False
+        self.seen_get_item = False
+
+    async def invoke_messages(self, messages, **_kwargs):
+        return await self.invoke_messages_with_tools(messages, [], **_kwargs)
+
+    async def invoke_messages_with_tools(self, messages, tools, **_kwargs):
+        tool_names = [str(getattr(tool, "name", "") or "") for tool in list(tools or [])]
+        self.tool_names_by_call.append(tool_names)
+        tool_text = _tool_message_text(messages)
+        self.seen_write = self.seen_write or "Write succeeded" in tool_text
+        self.seen_get_item = self.seen_get_item or ("verify-gate-report.md" in tool_text and "LastWriteTime" in tool_text)
+        if self.seen_get_item:
+            return SimpleNamespace(
+                content=(
+                    "完成状态：已完成。\n"
+                    "文件：output/vibe-code-smoke/verify-gate-report.md。\n"
+                    "产物：output/vibe-code-smoke/verify-gate-report.md。\n"
+                    "修改：已写入 verify gate 报告文件。\n"
+                    "验证：已通过 Get-Item 真实确认文件存在且有长度。\n"
+                    "限制：本测试只验证 verify_output gate 的结构化验证归因。"
+                )
+            )
+        if self.seen_write:
+            assert tool_names == ["terminal"]
+            return AIMessage(
+                content="写入已完成，现在用 Get-Item 验证目标产物。",
+                tool_calls=[
+                    {
+                        "id": "call-verify-get-item",
+                        "name": "terminal",
+                        "args": {
+                            "command": (
+                                'Get-Item -Path "output/vibe-code-smoke/verify-gate-report.md" | '
+                                "Select-Object Name, Length, LastWriteTime"
+                            )
+                        },
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        assert "write_file" in tool_names
+        return AIMessage(
+            content="先写入目标产物。",
+            tool_calls=[
+                {
+                    "id": "call-write-verify-gate-report",
+                    "name": "write_file",
+                    "args": {
+                        "path": "output/vibe-code-smoke/verify-gate-report.md",
+                        "content": "# Verify Gate Report\n\n真实写入后用 Get-Item 验证。",
+                    },
+                    "type": "tool_call",
+                }
+            ],
+        )
+
+
+class _WriteThenVerifyDriftModelRuntimeStub:
+    def __init__(self) -> None:
+        self.tool_names_by_call: list[list[str]] = []
+        self.seen_write = False
+        self.verify_drift_count = 0
+
+    async def invoke_messages(self, messages, **_kwargs):
+        return await self.invoke_messages_with_tools(messages, [], **_kwargs)
+
+    async def invoke_messages_with_tools(self, messages, tools, **_kwargs):
+        tool_names = [str(getattr(tool, "name", "") or "") for tool in list(tools or [])]
+        self.tool_names_by_call.append(tool_names)
+        tool_text = _tool_message_text(messages)
+        self.seen_write = self.seen_write or "Write succeeded" in tool_text
+        if "runtime_auto_verify_terminal" in tool_text or "auto_verification" in tool_text:
+            return SimpleNamespace(
+                content=(
+                    "完成状态：已完成。\n"
+                    "文件：output/vibe-code-smoke/verify-drift-report.md。\n"
+                    "产物：output/vibe-code-smoke/verify-drift-report.md。\n"
+                    "修改：已写入 verify drift 报告文件。\n"
+                    "验证：runtime 已用真实 terminal 命令确认文件存在。\n"
+                    "限制：本测试验证 verify_output 偏航后的确定性恢复。"
+                )
+            )
+        if self.seen_write:
+            self.verify_drift_count += 1
+            assert tool_names == ["terminal"]
+            return AIMessage(
+                content="我在验证阶段偏航，错误地想重新读取材料。",
+                tool_calls=[
+                    {
+                        "id": f"call-read-during-verify-{self.verify_drift_count}",
+                        "name": "read_file",
+                        "args": {"path": "tests/fixtures/professional_task_suite/extra_context.md"},
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        assert "write_file" in tool_names
+        return AIMessage(
+            content="先写入目标产物。",
+            tool_calls=[
+                {
+                    "id": "call-write-verify-drift-report",
+                    "name": "write_file",
+                    "args": {
+                        "path": "output/vibe-code-smoke/verify-drift-report.md",
+                        "content": "# Verify Drift Report\n\n真实写入后验证。",
+                    },
+                    "type": "tool_call",
+                }
+            ],
+        )
+
+
+class _ReadWriteThenVerifyDriftModelRuntimeStub:
+    def __init__(self) -> None:
+        self.tool_names_by_call: list[list[str]] = []
+        self.seen_material = False
+        self.seen_write = False
+        self.verify_drift_count = 0
+
+    async def invoke_messages(self, messages, **_kwargs):
+        return await self.invoke_messages_with_tools(messages, [], **_kwargs)
+
+    async def invoke_messages_with_tools(self, messages, tools, **_kwargs):
+        tool_names = [str(getattr(tool, "name", "") or "") for tool in list(tools or [])]
+        self.tool_names_by_call.append(tool_names)
+        tool_text = _tool_message_text(messages)
+        self.seen_material = self.seen_material or "closeout material" in tool_text
+        self.seen_write = self.seen_write or "Write succeeded" in tool_text
+        if self.seen_write:
+            self.verify_drift_count += 1
+            assert tool_names == ["terminal"]
+            return AIMessage(
+                content="我在验证阶段偏航，错误地想重新读取材料。",
+                tool_calls=[
+                    {
+                        "id": f"call-read-during-read-write-verify-{self.verify_drift_count}",
+                        "name": "read_file",
+                        "args": {"path": "tests/fixtures/professional_task_suite/README.md"},
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        if self.seen_material:
+            assert "write_file" in tool_names
+            return AIMessage(
+                content="材料已读，现在写入报告。",
+                tool_calls=[
+                    {
+                        "id": "call-write-read-write-verify-report",
+                        "name": "write_file",
+                        "args": {
+                            "path": "output/vibe-code-smoke/verify-drift-report.md",
+                            "content": "# Verify Drift Report\n\n真实写入后验证。",
+                        },
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        assert "read_file" in tool_names
+        return AIMessage(
+            content="先读取 README 材料。",
+            tool_calls=[
+                {
+                    "id": "call-read-closeout-readme",
+                    "name": "read_file",
+                    "args": {"path": "tests/fixtures/professional_task_suite/README.md"},
+                    "type": "tool_call",
+                }
+            ],
+        )
+
+
+class _ActionGateRecoverableProviderErrorModelRuntimeStub:
+    def __init__(self) -> None:
+        self.tool_enabled_calls = 0
+        self.seen_rejection = False
+        self.seen_material = False
+        self.provider_error_raised = False
+
+    async def invoke_messages(self, messages, **_kwargs):
+        return await self.invoke_messages_with_tools(messages, [], **_kwargs)
+
+    async def invoke_messages_with_tools(self, messages, tools, **_kwargs):
+        self.tool_enabled_calls += 1
+        tool_names = [str(getattr(tool, "name", "") or "") for tool in list(tools or [])]
+        tool_text = _tool_message_text(messages)
+        self.seen_rejection = self.seen_rejection or "tool_policy_rejection" in tool_text
+        self.seen_material = self.seen_material or "recoverable material" in tool_text
+        if self.seen_material:
+            return SimpleNamespace(
+                content=(
+                    "完成状态：已完成。\n"
+                    "当前结论：已读取材料。\n"
+                    "限制：本测试只验证 action gate provider 错误恢复。"
+                )
+            )
+        if self.seen_rejection:
+            self.seen_rejection = False
+            self.provider_error_raised = True
+            raise ModelRuntimeError(
+                code="provider_unavailable",
+                provider="test",
+                model="test-model",
+                detail="Connection error.",
+                retryable=True,
+                user_message="模型服务暂时不可用，请稍后重试。",
+            )
+        if ("read_file" in tool_names or "read_structured_file" in tool_names) and self.provider_error_raised:
+            return AIMessage(
+                content="provider 错误恢复后读取材料。",
+                tool_calls=[
+                    {
+                        "id": "call-read-after-provider-recovery",
+                        "name": "read_file",
+                        "args": {"path": "tests/fixtures/professional_task_suite/recoverable_material.md"},
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        if "read_file" in tool_names or "read_structured_file" in tool_names:
+            return AIMessage(
+                content="我先错误地搜索。",
+                tool_calls=[
+                    {
+                        "id": "call-wrong-search-before-read",
+                        "name": "search_text",
+                        "args": {"query": "recoverable_material", "roots": ["tests"]},
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        return AIMessage(
+            content="我先错误地请求 todo。",
+            tool_calls=[
+                {
+                    "id": "call-wrong-todo-before-read",
+                    "name": "agent_todo",
+                    "args": {"operation": "replace", "items": [{"content": "read", "status": "pending"}]},
+                    "type": "tool_call",
+                }
+            ],
+        )
+
+
+class _MultiToolSameRoundModelRuntimeStub:
+    def __init__(self) -> None:
+        self.tool_enabled_calls = 0
+        self.seen_report = False
+
+    async def invoke_messages(self, messages, **_kwargs):
+        return await self.invoke_messages_with_tools(messages, [], **_kwargs)
+
+    async def invoke_messages_with_tools(self, messages, tools, **_kwargs):
+        self.tool_enabled_calls += 1
+        tool_names = [str(getattr(tool, "name", "") or "") for tool in list(tools or [])]
+        tool_text = _tool_message_text(messages)
+        self.seen_report = self.seen_report or "fixture-professional-multitool" in tool_text
+        if self.seen_report:
+            return SimpleNamespace(
+                content=(
+                    "failure_classification：同轮多工具调用只应执行预算允许的第一个工具。\n"
+                    "structural_root_causes：每轮上限不是整任务预算耗尽。\n"
+                    "regression_test_plan：确认第二个工具请求被标记为 round scope，任务仍可基于已读证据收口。\n"
+                    "evidence_limits：只读取了指定 fixture。\n"
+                    "限制：本测试没有执行额外验证命令。\n"
+                    "验证：已基于真实 read_structured_file 工具观察收口。"
+                )
+            )
+        assert "read_structured_file" in tool_names
+        return AIMessage(
+            content="我同轮提出两个读取请求，运行时只能执行第一个。",
+            tool_calls=[
+                {
+                    "id": "call-read-multitool-first",
+                    "name": "read_structured_file",
+                    "args": {"path": "tests/fixtures/professional_task_suite/multitool_budget.json"},
+                    "type": "tool_call",
+                },
+                {
+                    "id": "call-read-multitool-second",
+                    "name": "read_file",
+                    "args": {"path": "tests/fixtures/professional_task_suite/extra_context.md"},
+                    "type": "tool_call",
+                },
+            ],
+        )
+
+
+class _ActionGateTimeoutThenWriteModelRuntimeStub:
+    def __init__(self) -> None:
+        self.tool_enabled_calls = 0
+        self.timeout_policy_seen = False
+        self.recovery_prompt_seen = False
+        self.recovery_prompt_text = ""
+        self.seen_read = False
+        self.seen_write = False
+        self.forced_model_spec = None
+
+    async def invoke_messages(self, messages, **_kwargs):
+        return await self.invoke_messages_with_tools(messages, [], **_kwargs)
+
+    async def invoke_messages_with_tools(self, messages, tools, **_kwargs):
+        self.tool_enabled_calls += 1
+        tool_names = [str(getattr(tool, "name", "") or "") for tool in list(tools or [])]
+        raw_tool_call_options = _kwargs.get("tool_call_options")
+        tool_choice = (
+            raw_tool_call_options.get("tool_choice")
+            if isinstance(raw_tool_call_options, dict)
+            else getattr(raw_tool_call_options, "tool_choice", None)
+        )
+        model_spec = _kwargs.get("model_spec")
+        message_text = "\n".join(
+            str(item.get("content") or "") if isinstance(item, dict) else str(getattr(item, "content", "") or "")
+            for item in list(messages or [])
+        )
+        tool_text = _tool_message_text(messages)
+        self.seen_read = self.seen_read or "status_filter" in tool_text
+        if "runtime_timeout_observation" in message_text:
+            self.recovery_prompt_seen = True
+            self.recovery_prompt_text = message_text
+        self.seen_write = self.seen_write or "Write succeeded" in tool_text
+        self.timeout_policy_seen = self.timeout_policy_seen or tool_choice == {
+            "type": "function",
+            "function": {"name": "write_file"},
+        }
+        if self.seen_write:
+            return SimpleNamespace(
+                content=(
+                    "完成状态：已完成。\n"
+                    "修改：已写入 action gate 超时恢复报告。\n"
+                    "文件：output/vibe-code-smoke/action-gate-timeout.md。\n"
+                    "产物：output/vibe-code-smoke/action-gate-timeout.md。\n"
+                    "验证：write_file 已返回成功。限制：本测试只验证强制动作轮超时恢复。"
+                )
+            )
+        if self.recovery_prompt_seen:
+            assert "write_file" in tool_names
+            return AIMessage(
+                content="我根据超时恢复观察补齐写入。",
+                tool_calls=[
+                    {
+                        "id": "call-write-after-gate-timeout",
+                        "name": "write_file",
+                        "args": {
+                            "path": "output/vibe-code-smoke/action-gate-timeout.md",
+                            "content": "action gate timeout recovered",
+                        },
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        if self.seen_read:
+            assert "write_file" in tool_names
+            self.forced_model_spec = model_spec
+            await asyncio.sleep(10)
+            raise ModelRuntimeError(
+                code="timeout",
+                provider="test",
+                model="test-model",
+                detail="forced action gate timeout",
+                retryable=True,
+                user_message="模型请求超时，请稍后重试。",
+            )
+        assert "read_file" in tool_names
+        return AIMessage(
+            content="我先读取功能契约。",
+            tool_calls=[
+                {
+                    "id": "call-read-gate-timeout-contract",
+                    "name": "read_file",
+                    "args": {"path": "tests/fixtures/professional_task_suite/node_status_filter_contract.json"},
                     "type": "tool_call",
                 }
             ],
@@ -1628,7 +2193,7 @@ def test_professional_task_recovers_provider_timeout_with_missing_output_paths()
     assert "tool_result_received" in event_types
     assert "write_file" in recovery_payload["suggested_tool_names"]
     assert model_runtime.recovery_prompt_seen is True
-    assert model_runtime.tool_enabled_calls >= 4
+    assert model_runtime.tool_enabled_calls >= 3
     assert done["terminal_reason"] == "completed"
     assert (sandbox_root / "frontend/public/games/arcane_dungeon_studio/index.html").exists()
     assert (sandbox_root / "frontend/public/games/arcane_dungeon_studio/game.js").exists()
@@ -1721,11 +2286,48 @@ def test_professional_task_budget_exhaustion_forces_model_closeout() -> None:
     assert runtime.task_run_loop.get_trace(task_run_id, include_payloads=True)["coordination_runs"] == []
 
 
-def test_professional_task_keeps_full_tool_pool_after_material_review_and_model_selects_write() -> None:
+def test_professional_round_tool_cap_does_not_exhaust_task_budget() -> None:
+    backend_root = _isolated_backend_root()
+    fixture = backend_root / "tests" / "fixtures" / "professional_task_suite" / "multitool_budget.json"
+    fixture.parent.mkdir(parents=True, exist_ok=True)
+    fixture.write_text(
+        '{"run_id":"fixture-professional-multitool","failed_turns":1}',
+        encoding="utf-8",
+    )
+    (fixture.parent / "extra_context.md").write_text("extra context should not be required", encoding="utf-8")
+    model_runtime = _MultiToolSameRoundModelRuntimeStub()
+    runtime = _runtime(
+        base_dir=backend_root,
+        model_runtime=model_runtime,
+        tool_runtime=_ToolRuntimeWithSideEffectsStub(backend_root),
+    )
+
+    _, runtime_events, done, _task_run_id = asyncio.run(
+        _collect_runtime_events(
+            runtime,
+            session_id="session-professional-round-cap",
+            message=(
+                "分析 tests/fixtures/professional_task_suite/multitool_budget.json，"
+                "找结构性根因并给回归测试。"
+            ),
+            task_selection=_professional_task_selection(semantic_task_type=None, max_tool_rounds=3),
+        )
+    )
+    budget_event = _latest_event(runtime_events, "loop_error")
+    verify_event = _latest_event(runtime_events, "professional_task_deliverable_validation_checked")
+    checks = dict(dict(dict(verify_event.get("payload") or {}).get("verification") or {}).get("checks") or {})
+
+    assert dict(budget_event.get("payload") or {})["budget_scope"] == "round"
+    assert checks["tool_budget_exhausted"] is False
+    assert done["terminal_reason"] in {"completed", "partial_contract_failed"}
+    assert "structural_root_causes" in str(done.get("content") or "")
+
+
+def test_professional_task_forces_write_tool_after_material_review() -> None:
     backend_root = _isolated_backend_root()
     fixture = backend_root / "tests" / "fixtures" / "professional_task_suite" / "node_status_filter_contract.json"
     fixture.parent.mkdir(parents=True, exist_ok=True)
-    fixture.write_text('{"feature":"status_filter","states":["ready","blocked"]}', encoding="utf-8")
+    fixture.write_text('{"feature":"status_filter","states":["ready","blocked"],"secret_marker":"compact_content_must_not_leak"}', encoding="utf-8")
     model_runtime = _WriteAfterReadModelRuntimeStub()
     runtime = _runtime(
         base_dir=backend_root,
@@ -1751,8 +2353,12 @@ def test_professional_task_keeps_full_tool_pool_after_material_review_and_model_
     assert done["terminal_reason"] == "completed"
     assert model_runtime.seen_contract is True
     assert model_runtime.seen_write is True
+    gate_event = _latest_event(runtime_events, "professional_task_action_gate_applied")
+    gate_payload = dict(gate_event.get("payload") or {})
+    gate = dict(gate_payload.get("action_gate") or {})
+    assert gate["stage"] == "write_output"
+    assert gate_payload["visible_tool_names"] == ["write_file", "edit_file"]
     write_call_options = model_runtime.tool_call_options_by_call[1]
-    assert getattr(write_call_options, "tool_choice", None) is None
     assert getattr(write_call_options, "parallel_tool_calls", None) is False
     assert "修改" in content
     assert "文件" in content
@@ -2169,17 +2775,483 @@ def test_professional_progress_policy_rejection_returns_to_model_as_tool_result(
         )
     )
     event_types = _event_types(runtime_events)
-    blocked_event = _latest_event(runtime_events, "tool_call_blocked_by_progress_policy")
+    gate_event = _latest_event(runtime_events, "professional_task_action_gate_applied")
     stage_summary_events = [
         event for event in runtime_events if event.get("event_type") == "professional_task_stage_summary"
     ]
     verify_event = _latest_event(runtime_events, "professional_task_deliverable_validation_checked")
     verification = dict(dict(verify_event.get("payload") or {}).get("verification") or {})
 
-    assert "tool_call_blocked_by_progress_policy" in event_types
-    assert dict(blocked_event.get("payload") or {})["tool_name"] == "search_text"
-    assert model_runtime.seen_progress_rejection is True
+    assert "professional_task_action_gate_applied" in event_types
+    assert dict(dict(gate_event.get("payload") or {}).get("action_gate") or {})["stage"] == "write_output"
     assert model_runtime.seen_write is True
     assert stage_summary_events
     assert verification["passed"] is True
     assert done["terminal_reason"] == "completed"
+
+
+def test_progress_policy_allows_forced_missing_material_read_after_non_progress_observations() -> None:
+    from runtime.memory.tool_observation_ledger import ToolObservationLedger, ToolObservationRecord
+    from runtime.professional_runtime.progress_policy import check_progress_policy
+    from runtime.professional_runtime.goal_contract import ProfessionalTaskGoalContract
+
+    ledger = ToolObservationLedger(
+        ledger_id="ledger:progress-material",
+        task_run_id="taskrun:progress-material",
+        records=(
+            ToolObservationRecord(
+                observation_ref="obs:todo",
+                tool_name="agent_todo",
+                side_effect_kind="read",
+                status="error",
+            ),
+            ToolObservationRecord(
+                observation_ref="obs:timeout-1",
+                tool_name="runtime_timeout",
+                side_effect_kind="repair",
+                status="error",
+            ),
+            ToolObservationRecord(
+                observation_ref="obs:timeout-2",
+                tool_name="runtime_timeout",
+                side_effect_kind="repair",
+                status="error",
+            ),
+            ToolObservationRecord(
+                observation_ref="obs:first-read",
+                tool_name="read_file",
+                side_effect_kind="read",
+                satisfies=("read_material",),
+                observed_paths=("tests/fixtures/professional_task_suite/material_first.md",),
+            ),
+        ),
+    )
+    goal_contract = ProfessionalTaskGoalContract(
+        contract_id="contract:progress-material",
+        goal="read both materials then write",
+        required_material_paths=[
+            "tests/fixtures/professional_task_suite/material_first.md",
+            "tests/fixtures/professional_task_suite/material_second.md",
+        ],
+        required_output_paths=["output/vibe-code-smoke/material-gate.md"],
+        requires_material_review=True,
+        requires_write_output=True,
+        requires_verification_command=True,
+    )
+    recent_observations = [
+        {"tool_name": "read_file", "observed_paths": ["tests/fixtures/professional_task_suite/material_first.md"]},
+        {"tool_name": "runtime_timeout"},
+        {"tool_name": "runtime_timeout"},
+    ]
+
+    decision = check_progress_policy(
+        goal_contract=goal_contract,
+        ledger=ledger,
+        requested_tool_name="read_file",
+        requested_tool_args={"path": "tests/fixtures/professional_task_suite/material_second.md"},
+        recent_observations=recent_observations,
+    )
+
+    assert decision.allowed is True
+    assert decision.reason == "required_material_read"
+
+
+def test_professional_action_gate_forces_write_after_required_material_read_without_spending_write_budget() -> None:
+    backend_root = _isolated_backend_root()
+    fixture = backend_root / "tests" / "fixtures" / "professional_task_suite" / "node_status_filter_contract.json"
+    fixture.parent.mkdir(parents=True, exist_ok=True)
+    fixture.write_text('{"feature":"status_filter","states":["ready","blocked"]}', encoding="utf-8")
+    model_runtime = _ActionGateCorrectionModelRuntimeStub()
+    runtime = _runtime(
+        base_dir=backend_root,
+        model_runtime=model_runtime,
+        tool_runtime=_ToolRuntimeWithSideEffectsStub(backend_root),
+    )
+
+    _, runtime_events, done, _task_run_id = asyncio.run(
+        _collect_runtime_events(
+            runtime,
+            session_id="session-professional-action-gate",
+            message=(
+                "请用专业模式根据 tests/fixtures/professional_task_suite/node_status_filter_contract.json，"
+                "审查状态筛选功能并写入 output/vibe-code-smoke/status-filter-review.md。"
+            ),
+            task_selection=_professional_task_selection(
+                semantic_task_type="artifact_delivery",
+                max_tool_rounds=4,
+            ),
+        )
+    )
+    event_types = _event_types(runtime_events)
+    blocked_event = _latest_event(runtime_events, "tool_call_blocked_by_action_gate")
+    gate_events = [
+        event for event in runtime_events if event.get("event_type") == "professional_task_action_gate_applied"
+    ]
+    verify_event = _latest_event(runtime_events, "professional_task_deliverable_validation_checked")
+    verification = dict(dict(verify_event.get("payload") or {}).get("verification") or {})
+    checks = dict(verification.get("checks") or {})
+
+    assert "tool_call_blocked_by_action_gate" in event_types
+    assert dict(blocked_event.get("payload") or {})["tool_name"] == "read_file"
+    assert gate_events
+    assert model_runtime.seen_action_gate_rejection is True
+    assert model_runtime.seen_paired_action_gate_rejection is True
+    assert model_runtime.seen_write is True
+    assert model_runtime.tool_names_by_call[1] == ["write_file"]
+    assert getattr(model_runtime.tool_call_options_by_call[1], "tool_choice", None) == {
+        "type": "function",
+        "function": {"name": "write_file"},
+    }
+    assert checks["tool_call_count"] == 2
+    assert checks["write_observation_count"] >= 1
+    assert verification["passed"] is True
+    assert done["terminal_reason"] == "completed"
+
+
+def test_professional_action_gate_forces_each_required_material_read_before_write() -> None:
+    backend_root = _isolated_backend_root()
+    fixture_dir = backend_root / "tests" / "fixtures" / "professional_task_suite"
+    fixture_dir.mkdir(parents=True, exist_ok=True)
+    (fixture_dir / "material_first.md").write_text("first fixture", encoding="utf-8")
+    (fixture_dir / "material_second.md").write_text("second fixture", encoding="utf-8")
+    model_runtime = _MaterialReadGateModelRuntimeStub()
+    runtime = _runtime(
+        base_dir=backend_root,
+        model_runtime=model_runtime,
+        tool_runtime=_ToolRuntimeWithSideEffectsStub(backend_root),
+    )
+
+    _, runtime_events, done, _task_run_id = asyncio.run(
+        _collect_runtime_events(
+            runtime,
+            session_id="session-professional-material-read-gate",
+            message=(
+                "请根据 tests/fixtures/professional_task_suite/material_first.md 和 "
+                "tests/fixtures/professional_task_suite/material_second.md，"
+                "写入 output/vibe-code-smoke/material-gate.md。"
+            ),
+            task_selection=_professional_task_selection(
+                semantic_task_type="artifact_delivery",
+                max_tool_rounds=5,
+            ),
+        )
+    )
+    gate_events = [
+        event for event in runtime_events
+        if event.get("event_type") == "professional_task_action_gate_applied"
+    ]
+    stages = [
+        dict(dict(event.get("payload") or {}).get("action_gate") or {}).get("stage")
+        for event in gate_events
+    ]
+    read_gate_payloads = [
+        dict(event.get("payload") or {})
+        for event in gate_events
+        if dict(dict(event.get("payload") or {}).get("action_gate") or {}).get("stage") == "read_material"
+    ]
+    verify_event = _latest_event(runtime_events, "professional_task_deliverable_validation_checked")
+    verification = dict(dict(verify_event.get("payload") or {}).get("verification") or {})
+
+    assert stages[:2] == ["read_material", "read_material"]
+    assert "write_output" in stages
+    assert all(payload["visible_tool_names"] == ["read_file", "read_structured_file"] for payload in read_gate_payloads)
+    assert model_runtime.tool_names_by_call[0] == ["read_file", "read_structured_file"]
+    assert model_runtime.tool_names_by_call[1] == ["read_file", "read_structured_file"]
+    assert model_runtime.seen_write is True
+    assert verification["passed"] is True
+    assert done["terminal_reason"] == "completed"
+
+
+def test_professional_action_gate_terminal_get_item_satisfies_verify_output() -> None:
+    backend_root = _isolated_backend_root()
+    model_runtime = _WriteThenGetItemVerifyModelRuntimeStub()
+    runtime = _runtime(
+        base_dir=backend_root,
+        model_runtime=model_runtime,
+        tool_runtime=_ToolRuntimeWithSideEffectsStub(backend_root),
+    )
+
+    _, runtime_events, done, _task_run_id = asyncio.run(
+        _collect_runtime_events(
+            runtime,
+            session_id="session-professional-verify-gate-get-item",
+            message=(
+                "请写入 output/vibe-code-smoke/verify-gate-report.md，"
+                "然后用终端命令确认这个文件存在。"
+            ),
+            task_selection=_professional_task_selection(
+                semantic_task_type="code_fix_execution",
+                max_tool_rounds=5,
+            ),
+        )
+    )
+    gate_events = [
+        event
+        for event in runtime_events
+        if event.get("event_type") == "professional_task_action_gate_applied"
+    ]
+    stages = [
+        dict(dict(event.get("payload") or {}).get("action_gate") or {}).get("stage")
+        for event in gate_events
+    ]
+    verify_event = _latest_event(runtime_events, "professional_task_deliverable_validation_checked")
+    verification = dict(dict(verify_event.get("payload") or {}).get("verification") or {})
+    tool_ledger = dict(verification.get("tool_observation_ledger") or {})
+    terminal_record = next(
+        dict(record)
+        for record in list(tool_ledger.get("records") or [])
+        if dict(record).get("tool_name") == "terminal"
+    )
+
+    assert "write_output" in stages
+    assert "verify_output" in stages
+    assert terminal_record["satisfies"] == ["verify_command"]
+    assert terminal_record["command_receipt"]["passed"] is True
+    assert verification["passed"] is True
+    assert done["terminal_reason"] == "completed"
+    assert model_runtime.seen_write is True
+    assert model_runtime.seen_get_item is True
+
+
+def test_professional_verify_gate_auto_verifies_after_wrong_tool_drift() -> None:
+    backend_root = _isolated_backend_root()
+    model_runtime = _WriteThenVerifyDriftModelRuntimeStub()
+    runtime = _runtime(
+        base_dir=backend_root,
+        model_runtime=model_runtime,
+        tool_runtime=_ToolRuntimeWithSideEffectsStub(backend_root),
+    )
+
+    _, runtime_events, done, _task_run_id = asyncio.run(
+        _collect_runtime_events(
+            runtime,
+            session_id="session-professional-verify-gate-auto-recovery",
+            message=(
+                "请写入 output/vibe-code-smoke/verify-drift-report.md，"
+                "然后用终端命令确认这个文件存在。"
+            ),
+            task_selection=_professional_task_selection(
+                semantic_task_type="code_fix_execution",
+                max_tool_rounds=6,
+            ),
+        )
+    )
+    verify_event = _latest_event(runtime_events, "professional_task_deliverable_validation_checked")
+    verification = dict(dict(verify_event.get("payload") or {}).get("verification") or {})
+    tool_ledger = dict(verification.get("tool_observation_ledger") or {})
+    terminal_record = next(
+        dict(record)
+        for record in list(tool_ledger.get("records") or [])
+        if dict(record).get("tool_name") == "terminal"
+    )
+
+    assert model_runtime.verify_drift_count >= 1
+    assert terminal_record["satisfies"] == ["verify_command"]
+    assert terminal_record["command_receipt"]["passed"] is True
+    assert terminal_record["command_receipt"]["auto_verification"] is True
+    assert verification["passed"] is True
+    assert done["terminal_reason"] == "completed"
+
+
+def test_professional_budget_closeout_auto_verifies_written_output() -> None:
+    backend_root = _isolated_backend_root()
+    model_runtime = _WriteThenVerifyDriftModelRuntimeStub()
+    runtime = _runtime(
+        base_dir=backend_root,
+        model_runtime=model_runtime,
+        tool_runtime=_ToolRuntimeWithSideEffectsStub(backend_root),
+    )
+
+    _, runtime_events, done, _task_run_id = asyncio.run(
+        _collect_runtime_events(
+            runtime,
+            session_id="session-professional-verify-budget-auto-recovery",
+            message=(
+                "请写入 output/vibe-code-smoke/verify-drift-report.md，"
+                "然后用终端命令确认这个文件存在。"
+            ),
+            task_selection=_professional_task_selection(
+                semantic_task_type="code_fix_execution",
+                max_tool_rounds=2,
+            ),
+        )
+    )
+    verify_event = _latest_event(runtime_events, "professional_task_deliverable_validation_checked")
+    verification = dict(dict(verify_event.get("payload") or {}).get("verification") or {})
+    tool_ledger = dict(verification.get("tool_observation_ledger") or {})
+    terminal_record = next(
+        dict(record)
+        for record in list(tool_ledger.get("records") or [])
+        if dict(record).get("tool_name") == "terminal"
+    )
+
+    assert model_runtime.verify_drift_count >= 1
+    assert terminal_record["satisfies"] == ["verify_command"]
+    assert terminal_record["command_receipt"]["passed"] is True
+    assert terminal_record["command_receipt"]["auto_verification"] is True
+    assert verification["passed"] is True
+    assert done["terminal_reason"] == "completed"
+
+
+def test_code_fix_evidence_closeout_reports_read_material_paths() -> None:
+    backend_root = _isolated_backend_root()
+    material = backend_root / "tests" / "fixtures" / "professional_task_suite" / "README.md"
+    material.parent.mkdir(parents=True, exist_ok=True)
+    material.write_text("# README\n\ncloseout material", encoding="utf-8")
+    model_runtime = _ReadWriteThenVerifyDriftModelRuntimeStub()
+    runtime = _runtime(
+        base_dir=backend_root,
+        model_runtime=model_runtime,
+        tool_runtime=_ToolRuntimeWithSideEffectsStub(backend_root),
+    )
+
+    _events, runtime_events, done, _task_run_id = asyncio.run(
+        _collect_runtime_events(
+            runtime,
+            session_id="session-professional-code-fix-closeout-material",
+            message=(
+                "请先读取 tests/fixtures/professional_task_suite/README.md，"
+                "再写入 output/vibe-code-smoke/verify-drift-report.md，"
+                "然后用 terminal 验证文件存在。"
+            ),
+            task_selection=_professional_task_selection(
+                semantic_task_type="code_fix_execution",
+                max_tool_rounds=3,
+            ),
+        )
+    )
+    verify_event = _latest_event(runtime_events, "professional_task_deliverable_validation_checked")
+    verification = dict(dict(verify_event.get("payload") or {}).get("verification") or {})
+
+    assert "README.md" in str(done.get("content") or "")
+    assert model_runtime.seen_material is True
+    assert model_runtime.verify_drift_count >= 1
+    assert verification["passed"] is True
+    assert done["terminal_reason"] == "completed"
+
+
+def test_professional_action_gate_recovers_provider_error_after_wrong_tool() -> None:
+    backend_root = _isolated_backend_root()
+    fixture = backend_root / "tests" / "fixtures" / "professional_task_suite" / "recoverable_material.md"
+    fixture.parent.mkdir(parents=True, exist_ok=True)
+    fixture.write_text("recoverable material", encoding="utf-8")
+    model_runtime = _ActionGateRecoverableProviderErrorModelRuntimeStub()
+    runtime = _runtime(
+        base_dir=backend_root,
+        model_runtime=model_runtime,
+        tool_runtime=_ToolRuntimeWithSideEffectsStub(backend_root),
+    )
+
+    _, runtime_events, done, _task_run_id = asyncio.run(
+        _collect_runtime_events(
+            runtime,
+            session_id="session-professional-action-gate-provider-recovery",
+            message=(
+                "请先读取 tests/fixtures/professional_task_suite/recoverable_material.md，"
+                "然后给出当前结论和限制。"
+            ),
+            task_selection=_professional_task_selection(
+                semantic_task_type="material_synthesis",
+                max_tool_rounds=4,
+            ),
+        )
+    )
+    event_types = _event_types(runtime_events)
+    recovery_event = next(
+        event for event in runtime_events
+        if dict(event.get("payload") or {}).get("error") == "professional_task_model_error_recoverable"
+    )
+    verify_event = _latest_event(runtime_events, "professional_task_deliverable_validation_checked")
+    verification = dict(dict(verify_event.get("payload") or {}).get("verification") or {})
+
+    assert "tool_call_blocked_by_action_gate" in event_types
+    assert dict(recovery_event.get("payload") or {})["source_error"]["code"] == "provider_unavailable"
+    assert model_runtime.seen_material is True
+    assert verification["passed"] is True
+    assert done["terminal_reason"] == "completed"
+
+
+def test_professional_action_gate_applies_short_timeout_and_recovers() -> None:
+    backend_root = _isolated_backend_root()
+    fixture = backend_root / "tests" / "fixtures" / "professional_task_suite" / "node_status_filter_contract.json"
+    fixture.parent.mkdir(parents=True, exist_ok=True)
+    fixture.write_text('{"feature":"status_filter","states":["ready","blocked"]}', encoding="utf-8")
+    model_runtime = _ActionGateTimeoutThenWriteModelRuntimeStub()
+    runtime = _runtime(
+        base_dir=backend_root,
+        model_runtime=model_runtime,
+        tool_runtime=_ToolRuntimeWithSideEffectsStub(backend_root),
+    )
+
+    _, runtime_events, done, _task_run_id = asyncio.run(
+        _collect_runtime_events(
+            runtime,
+            session_id="session-professional-action-gate-timeout",
+            message=(
+                "请根据 tests/fixtures/professional_task_suite/node_status_filter_contract.json，"
+                "写入 output/vibe-code-smoke/action-gate-timeout.md。"
+            ),
+            task_selection={
+                **_professional_task_selection(
+                    semantic_task_type="artifact_delivery",
+                    max_tool_rounds=5,
+                ),
+                "stream_policy": {
+                    "model_response_timeout_seconds": 240,
+                    "non_stream_fallback_timeout_seconds": 240,
+                    "action_gate_timeout_seconds": 0.2,
+                },
+            },
+        )
+    )
+    gate_event = _latest_event(runtime_events, "professional_task_action_gate_applied")
+    gate_payload = dict(gate_event.get("payload") or {})
+    timeout_event = next(
+        event for event in runtime_events
+        if dict(event.get("payload") or {}).get("error") == "professional_task_model_timeout_recoverable"
+    )
+    verify_event = _latest_event(runtime_events, "professional_task_deliverable_validation_checked")
+    verification = dict(dict(verify_event.get("payload") or {}).get("verification") or {})
+
+    assert dict(gate_payload.get("model_stream_policy") or {})["model_response_timeout_seconds"] == 0.2
+    assert "write_file" in dict(timeout_event.get("payload") or {})["suggested_tool_names"]
+    assert model_runtime.recovery_prompt_seen is True
+    timeout_observation_text = model_runtime.recovery_prompt_text.split("runtime_timeout_observation=", 1)[1]
+    assert "compact_content_must_not_leak" not in timeout_observation_text
+    assert "tests/fixtures/professional_task_suite/node_status_filter_contract.json" in model_runtime.recovery_prompt_text
+    assert "output/vibe-code-smoke/action-gate-timeout.md" in model_runtime.recovery_prompt_text
+    assert model_runtime.seen_write is True
+    assert verification["passed"] is True
+    assert done["terminal_reason"] == "completed"
+
+
+def test_professional_action_gate_reserves_write_budget_per_missing_target_path() -> None:
+    from runtime.professional_runtime.action_gate import ActionGateDecision
+    from runtime.professional_runtime.driver import _delivery_budget_remaining
+
+    pending_tool_calls = [
+        {
+            "id": "call-write-index",
+            "name": "write_file",
+            "args": {
+                "path": "frontend/public/games/arcane_dungeon_studio/index.html",
+                "content": "<!doctype html>",
+            },
+            "type": "tool_call",
+        }
+    ]
+    gate = ActionGateDecision(
+        allowed_tool_names=("write_file",),
+        forced=True,
+        stage="write_output",
+        reason="required_write_missing_after_material_review",
+        missing_obligations=("write_output:frontend/public/games/arcane_dungeon_studio/game.js",),
+        target_path="frontend/public/games/arcane_dungeon_studio/game.js",
+        reserved_tool_calls=1,
+    )
+
+    assert _delivery_budget_remaining(
+        pending_tool_calls,
+        gate=gate,
+        max_tool_calls_per_task_run=144,
+    ) == 1

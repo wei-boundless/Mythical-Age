@@ -28,11 +28,13 @@ def test_boundary_policy_scopes_source_readonly_without_blocking_sandbox_report_
     assert boundary["write_allowed"] is True
     assert not {"edit_workspace", "write_file", "modify_code"}.intersection(boundary["forbidden_actions"])
     assert boundary["diagnostics"]["scoped_source_readonly"] is True
+    assert boundary["diagnostics"]["hard_boundary"] is False
+    assert boundary["diagnostics"]["authority_boundary"] == "operation_gate_and_sandbox_policy"
     assert permit["allowed"] is True
     assert permit["denied_reasons"] == []
 
 
-def test_boundary_policy_global_no_file_write_still_blocks_edit_workspace() -> None:
+def test_boundary_policy_global_no_file_write_marker_is_diagnostic_not_hard_permission() -> None:
     boundary = build_boundary_policy(
         user_message="只分析 backend/app.py，不要写任何文件。",
     ).to_dict()
@@ -44,7 +46,33 @@ def test_boundary_policy_global_no_file_write_still_blocks_edit_workspace() -> N
         boundary_policy=boundary,
     ).to_dict()
 
+    assert boundary["write_allowed"] is True
+    assert "write_file" not in boundary["forbidden_actions"]
+    assert boundary["diagnostics"]["global_write_forbid_signal"] is True
+    assert boundary["diagnostics"]["natural_language_markers_are_intent_signals"] is True
+    assert permit["allowed"] is True
+    assert permit["denied_reasons"] == []
+
+
+def test_action_permit_honors_model_turn_structured_write_forbid() -> None:
+    boundary = build_boundary_policy(
+        user_message="只分析 backend/app.py，不要写任何文件。",
+        current_turn_context={
+            "model_turn_decision": {
+                "forbidden_actions": ["modify_code", "write_file", "edit_file"],
+            }
+        },
+    ).to_dict()
+    permit = build_action_permit(
+        model_turn_decision={
+            "decision_id": "model-turn-decision:test",
+            "action_intent": "edit_workspace",
+            "forbidden_actions": ["modify_code", "write_file", "edit_file"],
+        },
+        boundary_policy=boundary,
+    ).to_dict()
+
     assert boundary["write_allowed"] is False
     assert "write_file" in boundary["forbidden_actions"]
     assert permit["allowed"] is False
-    assert permit["denied_reasons"] == ["write_forbidden_by_boundary"]
+    assert permit["denied_reasons"] == ["write_forbidden_by_model_turn_decision"]

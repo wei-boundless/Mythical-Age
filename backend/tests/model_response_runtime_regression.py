@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -108,6 +109,25 @@ class _PartialThenHangingStreamRuntime:
 
     async def invoke_messages(self, _messages):
         return SimpleNamespace(content="unused fallback")
+
+
+class _CapturingSpecRuntime:
+    def __init__(self) -> None:
+        self.seen_model_spec = None
+
+    async def invoke_messages(self, _messages, **kwargs):
+        self.seen_model_spec = kwargs.get("model_spec")
+        return SimpleNamespace(content="bounded spec ok")
+
+    async def invoke_messages_with_tools(self, _messages, _tools, **kwargs):
+        self.seen_model_spec = kwargs.get("model_spec")
+        return SimpleNamespace(content="bounded spec ok")
+
+
+class _BlockingActionGateRuntime:
+    async def invoke_messages(self, _messages):
+        time.sleep(10)
+        return SimpleNamespace(content="late blocking content")
 
 
 def test_stream_retryable_error_with_partial_output_suppresses_non_stream_fallback() -> None:
@@ -262,6 +282,128 @@ def test_stream_model_response_timeout_after_partial_output_commits_partial_done
     assert events[-1]["completion_state"] == "partial_timeout"
     assert events[-1]["terminal_reason"] == "model_response_timeout_after_partial_output"
     assert events[-1]["answer_canonical_state"] == "partial_timeout"
+
+
+def test_model_response_policy_caps_underlying_model_spec_timeout() -> None:
+    runtime = _CapturingSpecRuntime()
+    executor = ModelResponseRuntimeExecutor(model_runtime=runtime)
+    original_spec = SimpleNamespace(
+        provider="test",
+        model="test-model",
+        api_key="key",
+        base_url="https://example.invalid/v1",
+        max_output_tokens=65536,
+        timeout_seconds=240.0,
+        long_output_timeout_seconds=360.0,
+        max_retries=2,
+        temperature=0.0,
+        thinking_mode="disabled",
+        reasoning_effort="high",
+        stream_policy={},
+        source_chain=("test",),
+        diagnostics={"source": "unit"},
+    )
+
+    async def _collect():
+        events = []
+        async for event in executor.stream(
+            user_message="run",
+            model_messages=[{"role": "user", "content": "run"}],
+            directive=_directive(),
+            tool_instances=[SimpleNamespace(name="write_file")],
+            model_spec=original_spec,
+            model_stream_policy={
+                "model_response_timeout_seconds": 0.05,
+                "action_gate_timeout_applied": True,
+            },
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+
+    assert events[-1]["type"] == "done"
+    assert original_spec.timeout_seconds == 240.0
+    assert runtime.seen_model_spec is not original_spec
+    assert runtime.seen_model_spec.timeout_seconds == 0.05
+    assert runtime.seen_model_spec.long_output_timeout_seconds == 0.05
+    assert runtime.seen_model_spec.max_retries == 0
+    assert runtime.seen_model_spec.diagnostics["runtime_policy_timeout_applied"] is True
+
+
+def test_forced_tool_choice_disables_deepseek_thinking_for_action_gate_round() -> None:
+    runtime = _CapturingSpecRuntime()
+    executor = ModelResponseRuntimeExecutor(model_runtime=runtime)
+    original_spec = SimpleNamespace(
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        api_key="key",
+        base_url="https://api.deepseek.com/v1",
+        max_output_tokens=65536,
+        timeout_seconds=240.0,
+        long_output_timeout_seconds=360.0,
+        max_retries=2,
+        temperature=0.0,
+        thinking_mode="enabled",
+        reasoning_effort="high",
+        stream_policy={},
+        source_chain=("test",),
+        diagnostics={"source": "unit"},
+    )
+
+    async def _collect():
+        events = []
+        async for event in executor.stream(
+            user_message="write",
+            model_messages=[{"role": "user", "content": "write"}],
+            directive=_directive(),
+            tool_instances=[SimpleNamespace(name="write_file")],
+            tool_call_options={
+                "tool_choice": {"type": "function", "function": {"name": "write_file"}},
+                "parallel_tool_calls": False,
+            },
+            model_spec=original_spec,
+            model_stream_policy={
+                "model_response_timeout_seconds": 0.05,
+                "action_gate_timeout_applied": True,
+            },
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+
+    assert events[-1]["type"] == "done"
+    assert original_spec.thinking_mode == "enabled"
+    assert runtime.seen_model_spec.thinking_mode == "disabled"
+    assert runtime.seen_model_spec.max_retries == 0
+    assert runtime.seen_model_spec.diagnostics["forced_tool_choice_name"] == "write_file"
+    assert runtime.seen_model_spec.diagnostics["deepseek_thinking_disabled_for_forced_tool_choice"] is True
+
+
+def test_action_gate_model_timeout_survives_blocking_async_invoker() -> None:
+    executor = ModelResponseRuntimeExecutor(model_runtime=_BlockingActionGateRuntime())
+
+    async def _collect():
+        events = []
+        started = time.monotonic()
+        async for event in executor.stream(
+            user_message="run",
+            model_messages=[{"role": "user", "content": "run"}],
+            directive=_directive(),
+            model_stream_policy={
+                "model_response_timeout_seconds": 0.05,
+                "action_gate_timeout_applied": True,
+            },
+        ):
+            events.append(event)
+        return events, time.monotonic() - started
+
+    events, elapsed = asyncio.run(_collect())
+
+    assert elapsed < 1.0
+    assert events[-1]["type"] == "error"
+    assert events[-1]["error"] == "model_response_timeout"
 
 
 def test_task_stream_policy_preserves_recovery_timeout_fields() -> None:

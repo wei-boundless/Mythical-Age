@@ -157,6 +157,7 @@ def build_tool_observation_record(
     if envelope is not None:
         args = dict(envelope.tool_args or args)
         result_text = str(envelope.text or "")
+        structured_payload = dict(envelope.structured_payload or {})
         observed_paths = envelope.observed_paths
         matched_paths = envelope.matched_paths
         artifact_refs = envelope.artifact_refs
@@ -164,6 +165,7 @@ def build_tool_observation_record(
         status = envelope.status
     else:
         result_text = str(result or "")
+        structured_payload = {}
         observed_paths = tuple(_legacy_observed_paths_from_args(name, args))
         matched_paths = ()
         artifact_refs = ()
@@ -199,6 +201,7 @@ def build_tool_observation_record(
             observed_paths=observed_paths,
             artifact_refs=artifact_refs,
             command_receipt=command_receipt,
+            structured_payload=structured_payload,
         )
     if name == "browser_control" and "verify_command" in satisfies and not command_receipt:
         command_receipt = {
@@ -249,6 +252,7 @@ def _satisfies_for_tool(
     observed_paths: tuple[str, ...] = (),
     artifact_refs: tuple[dict[str, Any], ...] = (),
     command_receipt: dict[str, Any] | None = None,
+    structured_payload: dict[str, Any] | None = None,
 ) -> tuple[str, ...]:
     if tool_name in {"read_file", "read_structured_file", "search_text", "search_files", "glob_paths"}:
         if has_structured_envelope and status == "ok" and (observed_paths or tool_name in {"search_text", "search_files", "glob_paths"}):
@@ -260,7 +264,17 @@ def _satisfies_for_tool(
         return ()
     if tool_name == "terminal":
         receipt = dict(command_receipt or {})
-        if has_structured_envelope and receipt and _terminal_observation_is_verification(args or {}, result_text, status=status):
+        if (
+            has_structured_envelope
+            and receipt
+            and _terminal_observation_is_verification(
+                args or {},
+                result_text,
+                status=status,
+                command_receipt=receipt,
+                structured_payload=dict(structured_payload or {}),
+            )
+        ):
             return ("verify_command",)
         return ()
     if tool_name == "browser_control":
@@ -270,7 +284,16 @@ def _satisfies_for_tool(
     return ()
 
 
-def _terminal_observation_is_verification(args: dict[str, Any], result_text: str, *, status: str) -> bool:
+def _terminal_observation_is_verification(
+    args: dict[str, Any],
+    result_text: str,
+    *,
+    status: str,
+    command_receipt: dict[str, Any] | None = None,
+    structured_payload: dict[str, Any] | None = None,
+) -> bool:
+    if _structured_verification_intent(structured_payload):
+        return True
     command = str(args.get("command") or "").lower()
     text = str(result_text or "").lower()
     combined = f"{command}\n{text}"
@@ -310,6 +333,18 @@ def _terminal_observation_is_verification(args: dict[str, Any], result_text: str
     ):
         return True
     return False
+
+
+def _structured_verification_intent(structured_payload: dict[str, Any] | None) -> bool:
+    payload = dict(structured_payload or {})
+    intent = dict(payload.get("verification_intent") or {})
+    if not intent:
+        return False
+    return bool(
+        str(intent.get("obligation") or "").strip() == "verify_command"
+        or str(intent.get("stage") or "").strip() == "verify_output"
+        or str(intent.get("required_action") or "").strip() == "verify_command"
+    )
 
 
 def _side_effect_hash(*, name: str, args: dict[str, Any], result_text: str) -> str:

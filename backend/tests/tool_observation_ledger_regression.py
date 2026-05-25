@@ -302,6 +302,49 @@ def test_terminal_pytest_success_is_a_passing_verification() -> None:
     assert ledger.verification_passed() is True
 
 
+def test_terminal_action_gate_verification_intent_satisfies_verify_command_without_keyword_guessing() -> None:
+    envelope = build_tool_result_envelope(
+        tool_name="terminal",
+        tool_args={
+            "command": (
+                'Get-Item -Path "output/vibe-code-smoke/langchain-mini-chat-api-review.md" | '
+                "Select-Object Name, Length, LastWriteTime"
+            )
+        },
+        result={
+            "text": "langchain-mini-chat-api-review.md   5367 2026/5/25 8:14:15",
+            "structured_payload": {
+                "command_receipt": {
+                    "command": (
+                        'Get-Item -Path "output/vibe-code-smoke/langchain-mini-chat-api-review.md" | '
+                        "Select-Object Name, Length, LastWriteTime"
+                    ),
+                    "exit_code": 0,
+                    "passed": True,
+                    "output_preview": "langchain-mini-chat-api-review.md   5367 2026/5/25 8:14:15",
+                },
+                "verification_intent": {
+                    "stage": "verify_output",
+                    "obligation": "verify_command",
+                    "authority": "professional_runtime.action_gate",
+                },
+            },
+        },
+    )
+    ledger = ToolObservationLedger(ledger_id="ledger:action-gate-verify", task_run_id="taskrun:action-gate-verify")
+    ledger = ledger.append(
+        build_tool_observation_record(
+            observation_ref="obs:terminal-get-item",
+            tool_name="terminal",
+            result={"result_envelope": envelope.to_dict()},
+        )
+    )
+
+    assert ledger.has_verification() is True
+    assert ledger.verification_passed() is True
+    assert "verify_command" in ledger.records[0].satisfies
+
+
 def test_plain_text_write_and_terminal_do_not_satisfy_hard_evidence() -> None:
     ledger = ToolObservationLedger(ledger_id="ledger:legacy-text", task_run_id="taskrun:legacy-text")
     ledger = ledger.append(

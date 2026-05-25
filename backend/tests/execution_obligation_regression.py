@@ -61,6 +61,10 @@ def test_execution_obligation_forbid_write_wins_for_analysis_only_goal() -> None
     assert "modify_code" in obligation["forbidden_actions"]
     assert "modify_code" in semantic["forbidden_actions"]
     assert "apply_real_change" not in semantic["required_actions"]
+    assert obligation["extraction_evidence"]["forbid_write_authority"] == "intent_signal_only"
+    assert obligation["extraction_evidence"]["hard_write_authority"] == "operation_gate_and_sandbox_policy"
+    assert obligation["extraction_evidence"]["natural_language_write_forbid_signal"] is True
+    assert obligation["extraction_evidence"]["structured_write_forbidden"] is True
 
 
 def test_execution_obligation_trims_material_path_before_following_chinese_clause() -> None:
@@ -95,6 +99,24 @@ def test_execution_obligation_treats_created_game_files_as_writes_not_reads() ->
         "frontend/public/games/snake_plus/styles.css",
         "frontend/public/games/snake_plus/game.js",
         "frontend/public/games/snake_plus/README.md",
+    ]
+
+
+def test_execution_obligation_extracts_input_material_and_output_file_from_same_sentence() -> None:
+    obligation = build_execution_obligation(
+        session_id="session-read-write-same-sentence",
+        task_id="task-review-report",
+        user_goal=(
+            "请根据 tests/fixtures/professional_task_suite/node_status_filter_contract.json，"
+            "审查状态筛选功能并写入 output/vibe-code-smoke/status-filter-review.md。"
+        ),
+    ).to_dict()
+
+    assert [item["path"] for item in obligation["required_reads"]] == [
+        "tests/fixtures/professional_task_suite/node_status_filter_contract.json",
+    ]
+    assert "output/vibe-code-smoke/status-filter-review.md" in [
+        item["path"] for item in obligation["required_writes"]
     ]
 
 
@@ -210,7 +232,7 @@ def test_execution_obligation_preserves_material_mount_paths_from_resource_contr
     ]
 
 
-def test_execution_obligation_global_no_file_write_still_forbids_writes() -> None:
+def test_execution_obligation_global_no_file_write_marker_is_diagnostic_without_structured_forbid() -> None:
     obligation = build_execution_obligation(
         session_id="session-global-no-write",
         task_id="task-analysis-only",
@@ -218,7 +240,31 @@ def test_execution_obligation_global_no_file_write_still_forbids_writes() -> Non
     ).to_dict()
 
     assert obligation["required_writes"] == []
+    assert obligation["forbidden_actions"] == []
+    assert obligation["extraction_evidence"]["natural_language_write_forbid_signal"] is True
+    assert obligation["extraction_evidence"]["structured_write_forbidden"] is False
+
+
+def test_execution_obligation_structured_no_write_forbids_writes() -> None:
+    obligation = build_execution_obligation(
+        session_id="session-structured-no-write",
+        task_id="task-analysis-only",
+        user_goal="只分析 backend/app.py，不要写任何文件，也不要生成报告文件。",
+        current_turn_context={
+            "model_turn_decision": {
+                "forbidden_actions": ["modify_code", "write_file", "edit_file"],
+            },
+            "task_goal_spec": {
+                "task_goal_type": "inspection",
+                "forbidden_actions": ["modify_code", "write_file", "edit_file"],
+            },
+        },
+    ).to_dict()
+
+    assert obligation["required_writes"] == []
     assert "write_file" in obligation["forbidden_actions"]
+    assert obligation["extraction_evidence"]["natural_language_write_forbid_signal"] is True
+    assert obligation["extraction_evidence"]["structured_write_forbidden"] is True
 
 
 def _decision(

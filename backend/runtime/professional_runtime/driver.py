@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -7,7 +9,10 @@ from typing import Any, Callable
 
 from langchain_core.messages import AIMessage, ToolMessage
 
-from runtime.tool_runtime.tool_call_policy import build_round_tool_call_options
+from config import get_settings
+from runtime_encoding import build_windows_powershell_command, is_windows, utf8_subprocess_text_kwargs
+from capability_system.units.tools.sandbox_command_guard import validate_sandbox_command_text
+from runtime.tool_runtime.tool_call_policy import ToolCallBindingOptions, build_round_tool_call_options
 from runtime.environment import RuntimeEnvironment, check_runtime_connection_health
 from runtime.tool_runtime.provider_tool_call_adapter import tool_calls_for_langchain_messages
 from orchestration.runtime_directive import RuntimeDirective
@@ -72,7 +77,9 @@ from .runtime_policy import (
 )
 from .deliverable_progress import DeliverableProgress, build_deliverable_progress
 from .progress_policy import check_progress_policy
+from .action_gate import ActionGateDecision, decide_next_action_gate
 from runtime.shared.policy_rejection_observation import build_policy_rejection_observation
+from runtime.shared.action_request import build_tool_result_observation
 from .stage_summary import build_stage_summary
 from .timeout_recovery import build_timeout_recovery_observation, timeout_recovery_messages
 from .state_machine import initial_professional_run_state, unsatisfied_obligations_from_verification
@@ -239,6 +246,440 @@ def _closeout_resubmission_instruction(
     )
 
 
+def _round_tool_instances_for_gate(
+    *,
+    model_tool_instances: list[Any] | tuple[Any, ...],
+    gate: ActionGateDecision,
+) -> list[Any]:
+    if not gate.forced:
+        return list(model_tool_instances or [])
+    allowed = set(gate.allowed_tool_names)
+    return [
+        tool
+        for tool in list(model_tool_instances or [])
+        if str(getattr(tool, "name", "") or "").strip() in allowed
+    ]
+
+
+def _round_tool_call_options_for_gate(
+    *,
+    max_tool_calls: int,
+    gate: ActionGateDecision,
+) -> ToolCallBindingOptions | None:
+    if gate.forced and len(gate.allowed_tool_names) == 1:
+        return ToolCallBindingOptions(
+            tool_choice={"type": "function", "function": {"name": gate.allowed_tool_names[0]}},
+            parallel_tool_calls=False,
+        )
+    if gate.forced and "agent_todo" in set(gate.allowed_tool_names):
+        return ToolCallBindingOptions(parallel_tool_calls=False)
+    return build_round_tool_call_options(max_tool_calls=max_tool_calls)
+
+
+def _round_model_stream_policy_for_gate(
+    *,
+    model_stream_policy: dict[str, Any] | None,
+    gate: ActionGateDecision,
+) -> dict[str, Any] | None:
+    policy = dict(model_stream_policy or {})
+    if not gate.forced:
+        return model_stream_policy
+    timeout_seconds = _action_gate_timeout_seconds(policy)
+    policy["model_response_timeout_seconds"] = timeout_seconds
+    policy["non_stream_fallback_timeout_seconds"] = min(
+        timeout_seconds,
+        _positive_float(policy.get("non_stream_fallback_timeout_seconds"), timeout_seconds),
+    )
+    policy["stream_recovery_timeout_seconds"] = min(
+        timeout_seconds,
+        _positive_float(policy.get("stream_recovery_timeout_seconds"), timeout_seconds),
+    )
+    policy["fallback_timeout_seconds"] = min(
+        timeout_seconds,
+        _positive_float(policy.get("fallback_timeout_seconds"), timeout_seconds),
+    )
+    policy["action_gate_forced_stage"] = gate.stage
+    policy["action_gate_timeout_applied"] = True
+    return policy
+
+
+def _action_gate_timeout_seconds(policy: dict[str, Any]) -> float:
+    configured = _positive_float(policy.get("action_gate_timeout_seconds"), 0.0)
+    if configured > 0:
+        return configured
+    current = _positive_float(policy.get("model_response_timeout_seconds"), 0.0)
+    if current > 0:
+        return min(current, 45.0)
+    return 45.0
+
+
+def _positive_float(value: Any, default: float) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
+
+
+def _delivery_tool_call_count(
+    tool_calls: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    *,
+    gate: ActionGateDecision,
+) -> int:
+    if not gate.forced:
+        return len(list(tool_calls or []))
+    forced_tools = set(gate.allowed_tool_names)
+    return sum(
+        1
+        for tool_call in list(tool_calls or [])
+        if _tool_call_counts_for_gate(tool_call, gate=gate, forced_tools=forced_tools)
+    )
+
+
+def _delivery_budget_remaining(
+    tool_calls: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    *,
+    gate: ActionGateDecision,
+    max_tool_calls_per_task_run: int,
+) -> int:
+    if not gate.forced:
+        return max(0, int(max_tool_calls_per_task_run or 0) - len(list(tool_calls or [])))
+    reserved = max(1, int(gate.reserved_tool_calls or 1))
+    return max(0, reserved - _delivery_tool_call_count(tool_calls, gate=gate))
+
+
+def _tool_call_budget_exhausted(
+    *,
+    round_tool_calls: list[dict[str, Any]],
+    pending_tool_calls: list[dict[str, Any]],
+    requested_tool_name: str,
+    gate: ActionGateDecision,
+    max_tool_calls: int,
+    max_tool_calls_per_task_run: int,
+) -> bool:
+    if len(round_tool_calls) >= max_tool_calls:
+        return True
+    if not gate.forced:
+        return len(pending_tool_calls) >= max_tool_calls_per_task_run
+    if str(requested_tool_name or "").strip() not in set(gate.allowed_tool_names):
+        return False
+    return _delivery_budget_remaining(
+        pending_tool_calls,
+        gate=gate,
+        max_tool_calls_per_task_run=max_tool_calls_per_task_run,
+    ) <= 0
+
+
+def _tool_call_budget_exhaustion_scope(
+    *,
+    round_tool_calls: list[dict[str, Any]],
+    requested_tool_name: str,
+    gate: ActionGateDecision,
+    max_tool_calls: int,
+) -> str:
+    if len(round_tool_calls) >= max_tool_calls:
+        return "round"
+    if gate.forced and str(requested_tool_name or "").strip() in set(gate.allowed_tool_names):
+        return "forced_delivery"
+    return "task"
+
+
+def _tool_call_counts_for_gate(
+    tool_call: dict[str, Any],
+    *,
+    gate: ActionGateDecision,
+    forced_tools: set[str],
+) -> bool:
+    item = dict(tool_call or {})
+    name = str(item.get("name") or "").strip()
+    if name not in forced_tools:
+        return False
+    if gate.stage == "write_output":
+        if name not in {"write_file", "edit_file"}:
+            return False
+        target_path = str(gate.target_path or "").strip()
+        if not target_path:
+            return True
+        args = dict(item.get("args") or {})
+        candidate_path = str(args.get("path") or "").strip()
+        return _paths_match_for_gate(target_path, candidate_path)
+    if gate.stage == "read_material":
+        if name not in {"read_file", "read_structured_file", "search_files", "search_text", "glob_paths", "list_dir", "path_exists", "stat_path"}:
+            return False
+        target_path = str(gate.target_path or "").strip()
+        if not target_path:
+            return True
+        args = dict(item.get("args") or {})
+        candidate_path = str(args.get("path") or args.get("query") or args.get("pattern") or "").strip()
+        return _paths_match_for_gate(target_path, candidate_path)
+    return True
+
+
+def _paths_match_for_gate(target_path: str, candidate_path: str) -> bool:
+    target = str(target_path or "").strip().strip("/").replace("\\", "/").lower()
+    candidate = str(candidate_path or "").strip().strip("/").replace("\\", "/").lower()
+    if not target or not candidate:
+        return False
+    return bool(
+        target == candidate
+        or target.endswith("/" + candidate)
+        or candidate.endswith("/" + target)
+    )
+
+
+def _gate_rejection_instruction(*, gate: ActionGateDecision, requested_tool_name: str) -> str:
+    instruction = gate.instruction()
+    requested = str(requested_tool_name or "").strip()
+    if requested:
+        return f"{instruction} 本次请求的 {requested} 不会推进当前强制交付阶段。"
+    return instruction
+
+
+def _action_gate_recovery_messages(
+    *,
+    user_message: str,
+    gate: ActionGateDecision,
+    repair_instruction: str,
+    stage_summary: dict[str, Any],
+    structured_observations: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    assistant_tool_call_content: str,
+    assistant_tool_call_kwargs: dict[str, Any],
+    round_message_tool_calls: list[dict[str, Any]],
+    round_tool_messages: list[ToolMessage],
+) -> list[Any]:
+    payload = {
+        "reason": "forced_action_gate_recovery",
+        "action_gate": gate.to_dict(),
+        "stage_summary": dict(stage_summary or {}),
+        "material_evidence": _action_gate_recovery_material_evidence(structured_observations),
+        "repair_instruction": str(repair_instruction or gate.instruction()).strip(),
+    }
+    messages: list[Any] = [
+        {
+            "role": "system",
+            "content": (
+                "你是一名正在恢复执行的专业 coding agent。上一轮工具请求没有推进当前强制交付阶段，"
+                "但任务没有失败；你需要基于已经取得的真实材料观察继续完成交付。"
+            ),
+        },
+        {"role": "user", "content": str(user_message or "")},
+        {
+            "role": "system",
+            "content": (
+                "下面是运行时压缩后的恢复上下文。它保留了任务目标、已读材料摘录、待完成交付物和当前动作门。"
+                "不要重新读取已经满足的材料；优先完成当前动作门指定的真实操作。\n"
+                "action_gate_recovery_context="
+                + json.dumps(payload, ensure_ascii=False, sort_keys=True)
+            ),
+        },
+    ]
+    paired_tool_calls = tool_calls_for_langchain_messages(round_message_tool_calls)
+    if paired_tool_calls and round_tool_messages:
+        messages.extend(
+            [
+                AIMessage(
+                    content=str(assistant_tool_call_content or ""),
+                    tool_calls=paired_tool_calls,
+                    additional_kwargs=dict(assistant_tool_call_kwargs or {}),
+                ),
+                *round_tool_messages,
+            ]
+        )
+    messages.append(
+        {
+            "role": "system",
+            "content": (
+                f"{gate.instruction()}"
+                "下一步必须使用当前可见工具完成该动作门要求；如果当前阶段是写入，就调用写入工具并写到目标路径。"
+                "不要把工具调用写成可见文本，不要用总结替代真实操作。"
+            ),
+        }
+    )
+    return messages
+
+
+def _action_gate_recovery_material_evidence(
+    structured_observations: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+) -> list[dict[str, Any]]:
+    evidence_by_path: dict[str, dict[str, Any]] = {}
+    for observation in list(structured_observations or []):
+        if not isinstance(observation, dict):
+            continue
+        item = dict(observation)
+        tool_name = str(item.get("tool_name") or "").strip()
+        if tool_name not in {"read_file", "read_structured_file"}:
+            continue
+        structured_payload = dict(item.get("structured_payload") or {})
+        if str(structured_payload.get("type") or "").strip() == "tool_policy_rejection":
+            continue
+        envelope = dict(item.get("result_envelope") or {})
+        if str(envelope.get("status") or "ok").strip().lower() == "error":
+            continue
+        tool_args = dict(item.get("tool_args") or envelope.get("tool_args") or {})
+        paths = [
+            str(tool_args.get("path") or "").strip(),
+            *[str(path).strip() for path in list(item.get("observed_paths") or []) if str(path).strip()],
+            *[str(path).strip() for path in list(envelope.get("observed_paths") or []) if str(path).strip()],
+        ]
+        path = next((candidate for candidate in paths if candidate), "")
+        if not path:
+            continue
+        result_text = str(item.get("result") or envelope.get("text") or "")
+        normalized_path = path.replace("\\", "/")
+        evidence_by_path[normalized_path] = {
+            "path": normalized_path,
+            "tool_name": tool_name,
+            "observation_ref": str(item.get("observation_ref") or ""),
+            "excerpt": result_text[:1800],
+            "result_chars": len(result_text),
+        }
+    return list(evidence_by_path.values())[-6:]
+
+
+def _observation_payload_with_action_gate_intent(
+    payload: dict[str, Any],
+    *,
+    gate: ActionGateDecision,
+) -> dict[str, Any]:
+    item = dict(payload or {})
+    tool_name = str(item.get("tool_name") or "").strip()
+    if not gate.forced or gate.stage != "verify_output" or tool_name not in {"terminal", "browser_control"}:
+        return item
+    verification_intent = {
+        "stage": gate.stage,
+        "obligation": "verify_command",
+        "reason": gate.reason,
+        "authority": "professional_runtime.action_gate",
+    }
+    structured_payload = {
+        **dict(item.get("structured_payload") or {}),
+        "verification_intent": verification_intent,
+    }
+    envelope = dict(item.get("result_envelope") or {})
+    if envelope:
+        envelope["structured_payload"] = {
+            **dict(envelope.get("structured_payload") or {}),
+            "verification_intent": verification_intent,
+        }
+    item["structured_payload"] = structured_payload
+    item["result_envelope"] = envelope
+    return item
+
+
+def _auto_verify_output_observation(
+    *,
+    task_run_id: str,
+    directive_ref: str,
+    goal_contract: ProfessionalTaskGoalContract,
+    tool_observation_ledger: ToolObservationLedger,
+    gate: ActionGateDecision,
+    sandbox_policy: dict[str, Any] | None,
+) -> Any | None:
+    if not gate.forced or gate.stage != "verify_output":
+        return None
+    if tool_observation_ledger.verification_passed():
+        return None
+    target_path = next(
+        (
+            str(path).strip().replace("\\", "/")
+            for path in list(goal_contract.required_output_paths or [])
+            if str(path).strip() and tool_observation_ledger.has_write(str(path).strip())
+        ),
+        "",
+    )
+    if not target_path:
+        written_paths = _ledger_paths_for_satisfaction(tool_observation_ledger, "write_output")
+        target_path = str(written_paths[0] if written_paths else "").strip().replace("\\", "/")
+    if not target_path:
+        return None
+    command = (
+        "$p = "
+        + _powershell_single_quoted(target_path)
+        + "; if (Test-Path -LiteralPath $p -PathType Leaf) { "
+        + "Get-Item -LiteralPath $p | Select-Object FullName,Length,LastWriteTime | ConvertTo-Json -Compress; exit 0 "
+        + "} else { Write-Error \"missing required output file: $p\"; exit 1 }"
+    )
+    sandbox = dict(sandbox_policy or {})
+    execution_root = Path(str(sandbox.get("sandbox_root") or sandbox.get("workspace_root") or ".")).resolve()
+    blocked_reason = validate_sandbox_command_text(command, kind="command")
+    if blocked_reason:
+        exit_code = 1
+        output_preview = blocked_reason
+    else:
+        settings = get_settings()
+        shell_command = build_windows_powershell_command(command) if is_windows() else ["bash", "-lc", command]
+        try:
+            completed = subprocess.run(
+                shell_command,
+                cwd=execution_root,
+                capture_output=True,
+                timeout=settings.terminal_timeout_seconds,
+                check=False,
+                **utf8_subprocess_text_kwargs(),
+            )
+            exit_code = int(completed.returncode or 0)
+            output_preview = (((completed.stdout or "") + (completed.stderr or "")).strip() or "[no output]")[:5000]
+        except subprocess.TimeoutExpired:
+            exit_code = 124
+            output_preview = f"Timed out after {settings.terminal_timeout_seconds} seconds."
+    passed = exit_code == 0
+    receipt = {
+        "command": command,
+        "exit_code": exit_code,
+        "passed": passed,
+        "output_preview": output_preview,
+        "auto_verification": True,
+    }
+    envelope = {
+        "envelope_id": f"tool-result:auto-verify:{task_run_id}",
+        "tool_name": "terminal",
+        "tool_args": {"command": command},
+        "status": "ok" if passed else "error",
+        "text": output_preview,
+        "structured_payload": {
+            "tool_result": {
+                "kind": "required_output_file_exists",
+                "path": target_path,
+                "exists": passed,
+            },
+            "verification_intent": {
+                "stage": gate.stage,
+                "obligation": "verify_command",
+                "reason": "auto_verify_required_output_file",
+                "authority": "professional_runtime.action_gate",
+            },
+            "command_receipt": receipt,
+        },
+        "observed_paths": [target_path] if passed else [],
+        "matched_paths": [target_path] if passed else [],
+        "artifact_refs": [{"path": target_path, "kind": "file", "source": "auto_verify"}] if passed else [],
+        "command_receipt": receipt,
+        "execution_receipt": {
+            "execution_mode": "runtime_auto_verify_terminal",
+            "passed": passed,
+            "workspace_root": str(execution_root),
+        },
+        "result_ref": "",
+        "error": "" if passed else output_preview,
+        "authority": "execution.tool_result_envelope",
+    }
+    return build_tool_result_observation(
+        task_run_id=task_run_id,
+        request_ref=f"auto-verify:{task_run_id}:{target_path}",
+        directive_ref=directive_ref,
+        tool_name="terminal",
+        tool_call_id=f"auto-verify:{task_run_id}",
+        tool_args={"command": command},
+        result=output_preview,
+        execution_receipt=dict(envelope.get("execution_receipt") or {}),
+        result_envelope=envelope,
+    )
+
+
+def _powershell_single_quoted(value: str) -> str:
+    return "'" + str(value or "").replace("'", "''") + "'"
+
+
 def _ledger_paths_for_satisfaction(
     tool_observation_ledger: ToolObservationLedger,
     satisfaction: str,
@@ -255,6 +696,29 @@ def _ledger_paths_for_satisfaction(
             if str(dict(ref).get("path") or "").strip()
         )
     return _dedupe_strings(paths)
+
+
+def _structured_observation_entry(
+    *,
+    observation_ref: str,
+    observation_payload: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "observation_ref": observation_ref,
+        "tool_name": str(observation_payload.get("tool_name") or ""),
+        "tool_args": dict(observation_payload.get("tool_args") or {}),
+        "result": observation_payload.get("result"),
+        "result_envelope": dict(observation_payload.get("result_envelope") or {}),
+        "structured_payload": dict(observation_payload.get("structured_payload") or {}),
+        "observed_paths": list(observation_payload.get("observed_paths") or []),
+        "matched_paths": list(observation_payload.get("matched_paths") or []),
+        "artifact_refs": [
+            dict(item)
+            for item in list(observation_payload.get("artifact_refs") or [])
+            if isinstance(item, dict)
+        ],
+        "command_receipt": dict(observation_payload.get("command_receipt") or {}),
+    }
 
 
 @dataclass(slots=True)
@@ -655,10 +1119,71 @@ class ProfessionalTaskRunDriver:
         action_observation_refs: list[str] = []
         structured_observations: list[dict[str, Any]] = []
         action_step_completed = False
+        forced_verify_round_count = 0
         conversation_messages: list[Any] = list(model_messages)
         while outcome.terminal_reason == "completed":
             round_index = int(outcome.turn_count or 0) + 1
             if round_index > max_tool_rounds:
+                budget_gate = decide_next_action_gate(
+                    goal_contract=goal_contract,
+                    tool_observation_ledger=tool_observation_ledger,
+                    allowed_tool_names=allowed_tool_names,
+                )
+                auto_verify_observation = _auto_verify_output_observation(
+                    task_run_id=task_run_id,
+                    directive_ref=directive.directive_id,
+                    goal_contract=goal_contract,
+                    tool_observation_ledger=tool_observation_ledger,
+                    gate=budget_gate,
+                    sandbox_policy=sandbox_policy,
+                )
+                if auto_verify_observation is not None:
+                    context_record = runtime_context_manager.record_observation(auto_verify_observation)
+                    auto_refs = {
+                        "task_contract_ref": task_contract_ref,
+                        "directive_ref": directive.directive_id,
+                        "tool_policy": "action_gate_auto_verify_budget_closeout",
+                    }
+                    result_event = append_tool_result_received_event(
+                        event_log=self.event_log,
+                        task_run_id=task_run_id,
+                        observation=auto_verify_observation,
+                        context_record=context_record,
+                        refs=auto_refs,
+                    )
+                    observation_event = append_executor_observation_event(
+                        event_log=self.event_log,
+                        task_run_id=task_run_id,
+                        observation=auto_verify_observation,
+                        context_record=context_record,
+                        refs=auto_refs,
+                    )
+                    observation_payload = _observation_payload_with_action_gate_intent(
+                        dict(auto_verify_observation.payload or {}),
+                        gate=budget_gate,
+                    )
+                    tool_observation_count += 1
+                    observation_ref = auto_verify_observation.observation_id
+                    action_observation_refs.append(observation_ref)
+                    structured_observations.append(
+                        _structured_observation_entry(
+                            observation_ref=observation_ref,
+                            observation_payload=observation_payload,
+                        )
+                    )
+                    tool_observation_ledger = tool_observation_ledger.append(
+                        build_tool_observation_record(
+                            observation_ref=observation_ref,
+                            tool_name="terminal",
+                            tool_args=dict(observation_payload.get("tool_args") or {}),
+                            result=observation_payload,
+                        )
+                    )
+                    tool_observation_count = max(tool_observation_count, len(structured_observations))
+                    yield {"type": "runtime_loop_event", "event": result_event.to_dict()}
+                    yield {"type": "runtime_loop_event", "event": observation_event.to_dict()}
+                    if tool_observation_ledger.verification_passed():
+                        break
                 tool_call_budget_exceeded = True
                 budget_event = self.event_log.append(
                     task_run_id,
@@ -667,6 +1192,7 @@ class ProfessionalTaskRunDriver:
                         "error": "professional_task_tool_round_budget_exceeded",
                         "message": "专业任务工具观察轮次已达上限，停止继续请求工具。",
                         "max_tool_rounds_per_task_run": max_tool_rounds,
+                        "action_gate": budget_gate.to_dict(),
                     },
                     refs={"task_contract_ref": task_contract_ref, "directive_ref": directive.directive_id},
                 )
@@ -675,12 +1201,19 @@ class ProfessionalTaskRunDriver:
             outcome.turn_count = round_index
             outcome.model_call_count += 1
             round_tool_calls: list[dict[str, Any]] = []
+            round_message_tool_calls: list[dict[str, Any]] = []
             round_tool_messages: list[ToolMessage] = []
             protocol_violation_repair_requested = False
             model_timeout_recovery_requested = False
             round_protocol_leak_detected = False
+            action_gate_recovery_context_rebuilt = False
             assistant_tool_call_content = ""
             assistant_tool_call_kwargs: dict[str, Any] = {}
+            action_gate = decide_next_action_gate(
+                goal_contract=goal_contract,
+                tool_observation_ledger=tool_observation_ledger,
+                allowed_tool_names=allowed_tool_names,
+            )
             if round_index > 1:
                 followup_event = self.event_log.append(
                     task_run_id,
@@ -689,19 +1222,115 @@ class ProfessionalTaskRunDriver:
                         "transition": "professional_task_continue_after_tool_result",
                         "turn_count": round_index,
                         "tool_call_count": len(pending_tool_calls),
+                        "delivery_tool_call_count": _delivery_tool_call_count(pending_tool_calls, gate=action_gate),
                         "tool_observation_count": tool_observation_count,
                         "delegation_observation_count": delegation_observation_count,
+                        "action_gate": action_gate.to_dict(),
                     },
                     refs={"task_contract_ref": task_contract_ref},
                 )
                 yield {"type": "runtime_loop_event", "event": followup_event.to_dict()}
             deliverable_progress = _deliverable_progress(goal_contract, tool_observation_ledger)
-            round_model_tool_instances = list(model_tool_instances or [])
+            round_model_tool_instances = _round_tool_instances_for_gate(
+                model_tool_instances=model_tool_instances,
+                gate=action_gate,
+            )
             round_tool_call_options = (
-                build_round_tool_call_options(max_tool_calls=max_tool_calls)
+                _round_tool_call_options_for_gate(
+                    max_tool_calls=1 if action_gate.forced else max_tool_calls,
+                    gate=action_gate,
+                )
                 if round_model_tool_instances
                 else None
             )
+            round_model_stream_policy = _round_model_stream_policy_for_gate(
+                model_stream_policy=model_stream_policy,
+                gate=action_gate,
+            )
+            if action_gate.forced:
+                if action_gate.stage == "verify_output":
+                    forced_verify_round_count += 1
+                gate_event = self.event_log.append(
+                    task_run_id,
+                    "professional_task_action_gate_applied",
+                    payload={
+                        "action_gate": action_gate.to_dict(),
+                        "visible_tool_names": [
+                            str(getattr(tool, "name", "") or "").strip()
+                            for tool in round_model_tool_instances
+                            if str(getattr(tool, "name", "") or "").strip()
+                        ],
+                        "tool_call_options": (
+                            round_tool_call_options.bind_kwargs()
+                            if hasattr(round_tool_call_options, "bind_kwargs")
+                            else {}
+                        ),
+                        "model_stream_policy": dict(round_model_stream_policy or {}),
+                    },
+                    refs={"task_contract_ref": task_contract_ref, "directive_ref": directive.directive_id},
+                )
+                yield {"type": "runtime_loop_event", "event": gate_event.to_dict()}
+                auto_verify_observation = _auto_verify_output_observation(
+                    task_run_id=task_run_id,
+                    directive_ref=directive.directive_id,
+                    goal_contract=goal_contract,
+                    tool_observation_ledger=tool_observation_ledger,
+                    gate=action_gate,
+                    sandbox_policy=sandbox_policy,
+                )
+                if forced_verify_round_count <= 1:
+                    auto_verify_observation = None
+                if auto_verify_observation is not None:
+                    context_record = runtime_context_manager.record_observation(auto_verify_observation)
+                    auto_refs = {
+                        "task_contract_ref": task_contract_ref,
+                        "directive_ref": directive.directive_id,
+                        "tool_policy": "action_gate_auto_verify",
+                    }
+                    result_event = append_tool_result_received_event(
+                        event_log=self.event_log,
+                        task_run_id=task_run_id,
+                        observation=auto_verify_observation,
+                        context_record=context_record,
+                        refs=auto_refs,
+                    )
+                    observation_event = append_executor_observation_event(
+                        event_log=self.event_log,
+                        task_run_id=task_run_id,
+                        observation=auto_verify_observation,
+                        context_record=context_record,
+                        refs=auto_refs,
+                    )
+                    observation_payload = _observation_payload_with_action_gate_intent(
+                        dict(auto_verify_observation.payload or {}),
+                        gate=action_gate,
+                    )
+                    tool_observation_count += 1
+                    observation_ref = auto_verify_observation.observation_id
+                    action_observation_refs.append(observation_ref)
+                    structured_observations.append(
+                        _structured_observation_entry(
+                            observation_ref=observation_ref,
+                            observation_payload=observation_payload,
+                        )
+                    )
+                    tool_observation_ledger = tool_observation_ledger.append(
+                        build_tool_observation_record(
+                            observation_ref=observation_ref,
+                            tool_name="terminal",
+                            tool_args=dict(observation_payload.get("tool_args") or {}),
+                            result=observation_payload,
+                        )
+                    )
+                    round_tool_messages.append(
+                        ToolMessage(
+                            content=str(observation_payload.get("result") or ""),
+                            tool_call_id=str(observation_payload.get("tool_call_id") or f"auto-verify:{task_run_id}"),
+                        )
+                    )
+                    yield {"type": "runtime_loop_event", "event": result_event.to_dict()}
+                    yield {"type": "runtime_loop_event", "event": observation_event.to_dict()}
+                    continue
             async for event in self.execution_engine.stream_raw_model_events(
                 user_message=user_message,
                 model_response_executor=model_response_executor,
@@ -709,7 +1338,7 @@ class ProfessionalTaskRunDriver:
                 directive=safe_directive,
                 tool_instances=round_model_tool_instances,
                 tool_call_options=round_tool_call_options,
-                model_stream_policy=model_stream_policy,
+                model_stream_policy=round_model_stream_policy,
                 model_spec=resolved_model_spec,
             ):
                 event_type = str(event.get("type") or "")
@@ -717,6 +1346,130 @@ class ProfessionalTaskRunDriver:
                     round_protocol_leak_detected = True
                 if event_type == "tool_call_requested":
                     requested_tool_name = str(event.get("tool_name") or dict(event.get("tool_call") or {}).get("name") or "")
+                    if action_gate.forced and requested_tool_name not in set(action_gate.allowed_tool_names):
+                        blocked_tool_call = dict(event.get("tool_call") or {})
+                        repair_text = _gate_rejection_instruction(
+                            gate=action_gate,
+                            requested_tool_name=requested_tool_name,
+                        )
+                        rejection_observation = build_policy_rejection_observation(
+                            task_run_id=task_run_id,
+                            request_ref=str(blocked_tool_call.get("id") or f"action-gate:{task_run_id}:{round_index}"),
+                            directive_ref=directive.directive_id,
+                            tool_name=requested_tool_name,
+                            tool_call_id=str(blocked_tool_call.get("id") or requested_tool_name),
+                            tool_args=dict(blocked_tool_call.get("args") or {}),
+                            policy="action_gate",
+                            reason=action_gate.reason,
+                            repair_instruction=repair_text,
+                            diagnostics={
+                                "action_gate": action_gate.to_dict(),
+                                "deliverable_progress": deliverable_progress.to_dict(),
+                            },
+                        )
+                        context_record = runtime_context_manager.record_observation(rejection_observation)
+                        rejection_refs = {
+                            "task_contract_ref": task_contract_ref,
+                            "directive_ref": directive.directive_id,
+                            "tool_policy": "action_gate",
+                        }
+                        result_event = append_tool_result_received_event(
+                            event_log=self.event_log,
+                            task_run_id=task_run_id,
+                            observation=rejection_observation,
+                            context_record=context_record,
+                            refs=rejection_refs,
+                        )
+                        observation_event = append_executor_observation_event(
+                            event_log=self.event_log,
+                            task_run_id=task_run_id,
+                            observation=rejection_observation,
+                            context_record=context_record,
+                            refs=rejection_refs,
+                        )
+                        assistant_tool_call_content = str(event.get("assistant_content") or assistant_tool_call_content)
+                        event_kwargs = dict(event.get("assistant_additional_kwargs") or {})
+                        if event_kwargs:
+                            assistant_tool_call_kwargs.update(event_kwargs)
+                        rejection_payload = dict(rejection_observation.payload or {})
+                        rejection_ref = rejection_observation.observation_id
+                        tool_observation_count += 1
+                        action_observation_refs.append(rejection_ref)
+                        structured_observations.append(
+                            {
+                                "observation_ref": rejection_ref,
+                                "tool_name": str(rejection_payload.get("tool_name") or ""),
+                                "tool_args": dict(rejection_payload.get("tool_args") or {}),
+                                "result": rejection_payload.get("result"),
+                                "result_envelope": dict(rejection_payload.get("result_envelope") or {}),
+                                "structured_payload": dict(rejection_payload.get("structured_payload") or {}),
+                                "observed_paths": list(rejection_payload.get("observed_paths") or []),
+                                "matched_paths": list(rejection_payload.get("matched_paths") or []),
+                                "artifact_refs": [
+                                    dict(item)
+                                    for item in list(rejection_payload.get("artifact_refs") or [])
+                                    if isinstance(item, dict)
+                                ],
+                                "command_receipt": dict(rejection_payload.get("command_receipt") or {}),
+                            }
+                        )
+                        tool_observation_ledger = tool_observation_ledger.append(
+                            build_tool_observation_record(
+                                observation_ref=rejection_ref,
+                                tool_name=str(rejection_payload.get("tool_name") or requested_tool_name),
+                                tool_args=dict(rejection_payload.get("tool_args") or {}),
+                                result=rejection_payload,
+                            )
+                        )
+                        if blocked_tool_call:
+                            round_message_tool_calls.append(blocked_tool_call)
+                        rejection_tool_message = ToolMessage(
+                            content=str(rejection_payload.get("result") or repair_text),
+                            tool_call_id=str(
+                                rejection_payload.get("tool_call_id")
+                                or blocked_tool_call.get("id")
+                                or getattr(event, "event_id", "")
+                                or requested_tool_name
+                            ),
+                        )
+                        round_tool_messages.append(rejection_tool_message)
+                        tool_messages.append(rejection_tool_message)
+                        blocked_event = self.event_log.append(
+                            task_run_id,
+                            "tool_call_blocked_by_action_gate",
+                            payload={
+                                "tool_name": requested_tool_name,
+                                "action_gate": action_gate.to_dict(),
+                                "deliverable_progress": deliverable_progress.to_dict(),
+                            },
+                            refs={"task_contract_ref": task_contract_ref, "directive_ref": directive.directive_id},
+                        )
+                        yield {"type": "runtime_loop_event", "event": blocked_event.to_dict()}
+                        yield {"type": "runtime_loop_event", "event": result_event.to_dict()}
+                        yield {"type": "runtime_loop_event", "event": observation_event.to_dict()}
+                        stage_summary = build_stage_summary(
+                            task_run_id=task_run_id,
+                            turn_count=outcome.turn_count,
+                            tool_call_count=len(pending_tool_calls),
+                            tool_observation_count=tool_observation_count,
+                            tool_observation_ledger=tool_observation_ledger,
+                            deliverable_progress=_deliverable_progress(goal_contract, tool_observation_ledger),
+                            structured_observations=structured_observations,
+                            environment_snapshot=runtime_environment_snapshot,
+                        )
+                        conversation_messages = _action_gate_recovery_messages(
+                            user_message=user_message,
+                            gate=action_gate,
+                            repair_instruction=repair_text,
+                            stage_summary=stage_summary.to_dict(),
+                            structured_observations=structured_observations,
+                            assistant_tool_call_content=assistant_tool_call_content,
+                            assistant_tool_call_kwargs=assistant_tool_call_kwargs,
+                            round_message_tool_calls=round_message_tool_calls,
+                            round_tool_messages=round_tool_messages,
+                        )
+                        action_gate_recovery_context_rebuilt = True
+                        continue
                     progress_decision = check_progress_policy(
                         goal_contract=goal_contract,
                         ledger=tool_observation_ledger,
@@ -763,9 +1516,6 @@ class ProfessionalTaskRunDriver:
                             context_record=context_record,
                             refs=rejection_refs,
                         )
-                        if blocked_tool_call:
-                            round_tool_calls.append(blocked_tool_call)
-                            pending_tool_calls.append(blocked_tool_call)
                         assistant_tool_call_content = str(event.get("assistant_content") or assistant_tool_call_content)
                         event_kwargs = dict(event.get("assistant_additional_kwargs") or {})
                         if event_kwargs:
@@ -800,6 +1550,8 @@ class ProfessionalTaskRunDriver:
                                 result=rejection_payload,
                             )
                         )
+                        if blocked_tool_call:
+                            round_message_tool_calls.append(blocked_tool_call)
                         rejection_tool_message = ToolMessage(
                             content=str(rejection_payload.get("result") or repair_text),
                             tool_call_id=str(
@@ -824,6 +1576,29 @@ class ProfessionalTaskRunDriver:
                         yield {"type": "runtime_loop_event", "event": blocked_event.to_dict()}
                         yield {"type": "runtime_loop_event", "event": result_event.to_dict()}
                         yield {"type": "runtime_loop_event", "event": observation_event.to_dict()}
+                        if action_gate.forced:
+                            stage_summary = build_stage_summary(
+                                task_run_id=task_run_id,
+                                turn_count=outcome.turn_count,
+                                tool_call_count=len(pending_tool_calls),
+                                tool_observation_count=tool_observation_count,
+                                tool_observation_ledger=tool_observation_ledger,
+                                deliverable_progress=_deliverable_progress(goal_contract, tool_observation_ledger),
+                                structured_observations=structured_observations,
+                                environment_snapshot=runtime_environment_snapshot,
+                            )
+                            conversation_messages = _action_gate_recovery_messages(
+                                user_message=user_message,
+                                gate=action_gate,
+                                repair_instruction=repair_text,
+                                stage_summary=stage_summary.to_dict(),
+                                structured_observations=structured_observations,
+                                assistant_tool_call_content=assistant_tool_call_content,
+                                assistant_tool_call_kwargs=assistant_tool_call_kwargs,
+                                round_message_tool_calls=round_message_tool_calls,
+                                round_tool_messages=round_tool_messages,
+                            )
+                            action_gate_recovery_context_rebuilt = True
                         continue
                     if requested_tool_name == "delegate_to_agent" and (
                         not delegation_enabled or delegation_observation_count >= max_delegate_calls
@@ -842,16 +1617,41 @@ class ProfessionalTaskRunDriver:
                         )
                         yield {"type": "runtime_loop_event", "event": blocked_event.to_dict()}
                         continue
-                    if len(round_tool_calls) >= max_tool_calls or len(pending_tool_calls) >= max_tool_calls_per_task_run:
-                        tool_call_budget_exceeded = True
+                    if _tool_call_budget_exhausted(
+                        round_tool_calls=round_tool_calls,
+                        pending_tool_calls=pending_tool_calls,
+                        requested_tool_name=requested_tool_name,
+                        gate=action_gate,
+                        max_tool_calls=max_tool_calls,
+                        max_tool_calls_per_task_run=max_tool_calls_per_task_run,
+                    ):
+                        exhaustion_scope = _tool_call_budget_exhaustion_scope(
+                            round_tool_calls=round_tool_calls,
+                            requested_tool_name=requested_tool_name,
+                            gate=action_gate,
+                            max_tool_calls=max_tool_calls,
+                        )
+                        if exhaustion_scope != "round":
+                            tool_call_budget_exceeded = True
                         blocked_event = self.event_log.append(
                             task_run_id,
                             "loop_error",
                             payload={
                                 "error": "professional_task_tool_call_budget_exceeded",
                                 "message": "专业任务工具调用次数已达上限，超出预算的工具请求未执行。",
+                                "budget_scope": exhaustion_scope,
                                 "max_tool_calls_per_round": max_tool_calls,
                                 "max_tool_calls_per_task_run": max_tool_calls_per_task_run,
+                                "delivery_tool_call_count": _delivery_tool_call_count(
+                                    pending_tool_calls,
+                                    gate=action_gate,
+                                ),
+                                "delivery_budget_remaining": _delivery_budget_remaining(
+                                    pending_tool_calls,
+                                    gate=action_gate,
+                                    max_tool_calls_per_task_run=max_tool_calls_per_task_run,
+                                ),
+                                "action_gate": action_gate.to_dict(),
                                 "tool_name": requested_tool_name,
                             },
                             refs={"task_contract_ref": task_contract_ref, "directive_ref": directive.directive_id},
@@ -861,6 +1661,7 @@ class ProfessionalTaskRunDriver:
                     tool_call = dict(event.get("tool_call") or {})
                     if tool_call:
                         round_tool_calls.append(tool_call)
+                        round_message_tool_calls.append(tool_call)
                         pending_tool_calls.append(tool_call)
                     assistant_tool_call_content = str(event.get("assistant_content") or assistant_tool_call_content)
                     event_kwargs = dict(event.get("assistant_additional_kwargs") or {})
@@ -884,6 +1685,10 @@ class ProfessionalTaskRunDriver:
                     _adopt_runtime_event_ref(outcome, runtime_event)
                     observation_payload = _tool_observation_payload(runtime_event)
                     if observation_payload:
+                        observation_payload = _observation_payload_with_action_gate_intent(
+                            observation_payload,
+                            gate=action_gate,
+                        )
                         tool_observation_count += 1
                         observation_ref = _runtime_event_observation_ref(runtime_event)
                         if observation_ref:
@@ -947,7 +1752,13 @@ class ProfessionalTaskRunDriver:
                     ]
                 elif event_type == "error":
                     if (
-                        _is_model_response_timeout_event(event)
+                        (
+                            _is_model_response_timeout_event(event)
+                            or (
+                                action_gate.forced
+                                and _is_recoverable_model_error_event(event)
+                            )
+                        )
                         and tool_execution_enabled
                         and suggest_evidence_repair_tools(goal_contract, tool_observation_ledger)
                         and outcome.turn_count < max_tool_rounds
@@ -987,8 +1798,15 @@ class ProfessionalTaskRunDriver:
                             task_run_id,
                             "loop_error",
                             payload={
-                                "error": "professional_task_model_timeout_recoverable",
-                                "message": "模型本轮响应超时，但目标契约仍有缺失动作，运行时将压缩上下文并继续下一轮。",
+                                "error": "professional_task_model_timeout_recoverable"
+                                if _is_model_response_timeout_event(event)
+                                else "professional_task_model_error_recoverable",
+                                "message": (
+                                    "模型本轮响应超时，但目标契约仍有缺失动作，运行时将压缩上下文并继续下一轮。"
+                                    if _is_model_response_timeout_event(event)
+                                    else "模型本轮响应失败，但目标契约仍有明确缺失动作，运行时将保留证据并继续下一轮。"
+                                ),
+                                "source_error": dict(event),
                                 "suggested_tool_names": list(suggest_evidence_repair_tools(goal_contract, tool_observation_ledger)),
                                 "deliverable_progress": _deliverable_progress(goal_contract, tool_observation_ledger).to_dict(),
                                 "tool_observation_ledger": tool_observation_ledger.summary(),
@@ -1012,7 +1830,11 @@ class ProfessionalTaskRunDriver:
                 elif event_type == "model_protocol_violation":
                     if (
                         tool_execution_enabled
-                        and len(pending_tool_calls) < max_tool_calls_per_task_run
+                        and _delivery_budget_remaining(
+                            pending_tool_calls,
+                            gate=action_gate,
+                            max_tool_calls_per_task_run=max_tool_calls_per_task_run,
+                        ) > 0
                         and outcome.turn_count < max_tool_rounds
                     ):
                         repair_event = self.event_log.append(
@@ -1056,7 +1878,15 @@ class ProfessionalTaskRunDriver:
                 continue
 
             if round_protocol_leak_detected or _contains_tool_call_markup(outcome.final_content):
-                if tool_execution_enabled and len(pending_tool_calls) < max_tool_calls_per_task_run and outcome.turn_count < max_tool_rounds:
+                if (
+                    tool_execution_enabled
+                    and _delivery_budget_remaining(
+                        pending_tool_calls,
+                        gate=action_gate,
+                        max_tool_calls_per_task_run=max_tool_calls_per_task_run,
+                    ) > 0
+                    and outcome.turn_count < max_tool_rounds
+                ):
                     repair_event = self.event_log.append(
                         task_run_id,
                         "loop_error",
@@ -1240,33 +2070,47 @@ class ProfessionalTaskRunDriver:
                     )
                 contract_guidance = build_evidence_gap_guidance(goal_contract=goal_contract, tool_observation_ledger=tool_observation_ledger)
                 queue_guidance = deliverable_progress.progress_hint()
+                next_action_gate = decide_next_action_gate(
+                    goal_contract=goal_contract,
+                    tool_observation_ledger=tool_observation_ledger,
+                    allowed_tool_names=allowed_tool_names,
+                )
+                action_gate_guidance = next_action_gate.instruction()
                 evidence_guidance = _evidence_packet_prompt(evidence_packet.to_dict())
                 access_recovery_guidance = _access_recovery_guidance(structured_observations)
                 material_mount_guidance = _material_mount_guidance(sandbox_policy)
-                conversation_messages = [
-                    *conversation_messages,
-                    AIMessage(
-                        content=assistant_tool_call_content,
-                        tool_calls=tool_calls_for_langchain_messages(round_tool_calls),
-                        additional_kwargs=assistant_tool_call_kwargs,
+                followup_system_message = {
+                    "role": "system",
+                    "content": (
+                        "你已经收到上一轮真实工具观察结果，并且运行时已经形成证据包。"
+                        f"{evidence_guidance}"
+                        f"{material_mount_guidance}"
+                        f"{access_recovery_guidance}"
+                        "如果还需要读文件、修改、验证或委派，请继续使用真实工具调用接口；"
+                        "如果已经满足语义契约，请直接收口。"
+                        f"{write_guidance}"
+                        f"{contract_guidance}"
+                        f"{queue_guidance}"
+                        f"{action_gate_guidance}"
+                        "不要把工具调用、DSML、JSON schema 或内部协议当作回答文本输出。"
                     ),
-                    *round_tool_messages,
-                    {
-                        "role": "system",
-                        "content": (
-                            "你已经收到上一轮真实工具观察结果，并且运行时已经形成证据包。"
-                            f"{evidence_guidance}"
-                            f"{material_mount_guidance}"
-                            f"{access_recovery_guidance}"
-                            "如果还需要读文件、修改、验证或委派，请继续使用真实工具调用接口；"
-                            "如果已经满足语义契约，请直接收口。"
-                            f"{write_guidance}"
-                            f"{contract_guidance}"
-                            f"{queue_guidance}"
-                            "不要把工具调用、DSML、JSON schema 或内部协议当作回答文本输出。"
+                }
+                if action_gate_recovery_context_rebuilt:
+                    conversation_messages = [
+                        *conversation_messages,
+                        followup_system_message,
+                    ]
+                else:
+                    conversation_messages = [
+                        *conversation_messages,
+                        AIMessage(
+                            content=assistant_tool_call_content,
+                            tool_calls=tool_calls_for_langchain_messages(round_message_tool_calls),
+                            additional_kwargs=assistant_tool_call_kwargs,
                         ),
-                    },
-                ]
+                        *round_tool_messages,
+                        followup_system_message,
+                    ]
                 outcome.final_content = ""
                 continue
 
@@ -1275,7 +2119,11 @@ class ProfessionalTaskRunDriver:
                 and str(outcome.final_content or "").strip()
                 and outcome.terminal_reason == "completed"
                 and outcome.turn_count < max_tool_rounds
-                and len(pending_tool_calls) < max_tool_calls_per_task_run
+                and _delivery_budget_remaining(
+                    pending_tool_calls,
+                    gate=action_gate,
+                    max_tool_calls_per_task_run=max_tool_calls_per_task_run,
+                ) > 0
             ):
                 provisional_evidence_packet = build_evidence_packet(
                     task_run_id=task_run_id,
@@ -2647,6 +3495,34 @@ def _is_model_response_timeout_event(event: dict[str, Any]) -> bool:
         return True
     combined = " ".join(value for value in fields.values() if value).lower()
     return any(marker in combined for marker in ("timeouterror", "timed out", "timeout", "超时"))
+
+
+def _is_recoverable_model_error_event(event: dict[str, Any]) -> bool:
+    if str(event.get("type") or "").strip() != "error":
+        return False
+    fields = {
+        "error": str(event.get("error") or "").strip().lower(),
+        "code": str(event.get("code") or "").strip().lower(),
+        "detail": str(event.get("detail") or "").strip().lower(),
+        "content": str(event.get("content") or "").strip().lower(),
+    }
+    combined = " ".join(value for value in fields.values() if value)
+    if fields["code"] in {"provider_unavailable", "rate_limit", "connection_error", "timeout"}:
+        return True
+    return any(
+        marker in combined
+        for marker in (
+            "temporarily unavailable",
+            "connection error",
+            "readerror",
+            "remoteprotocolerror",
+            "rate limit",
+            "too many requests",
+            "暂时不可用",
+            "连接",
+            "限流",
+        )
+    )
 
 
 def _access_recovery_guidance(structured_observations: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None) -> str:

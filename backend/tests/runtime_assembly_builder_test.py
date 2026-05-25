@@ -391,13 +391,16 @@ def test_task_run_loop_starts_task_graph_with_real_dispatch_plan(tmp_path: Path)
     )
     runtime_spec = compile_task_graph_definition_runtime_spec(graph=graph)
 
-    result = TaskRunLoop(tmp_path, backend_dir=Path("backend")).start_task_graph_run(
+    loop = TaskRunLoop(tmp_path, backend_dir=Path("backend"))
+    result = loop.start_task_graph_run(
         session_id="session:test",
         graph=graph,
         runtime_spec=runtime_spec,
     )
 
-    trace = TaskRunLoop(tmp_path, backend_dir=Path("backend")).get_trace(result.task_run.task_run_id)
+    trace = loop.get_trace(result.task_run.task_run_id)
+    checkpoint = loop.checkpoints.load_latest(result.task_run.task_run_id)
+    indexed_task_run = loop.state_index.get_task_run(result.task_run.task_run_id)
     assert result.coordination_run is not None
     assert result.task_run.diagnostics["task_graph_run"] is True
     dispatch_plan_summary = result.task_run.diagnostics["agent_dispatch_plan_summary"]
@@ -411,6 +414,11 @@ def test_task_run_loop_starts_task_graph_with_real_dispatch_plan(tmp_path: Path)
     assert stage_request["runtime_assembly"]["node_id"] == "collect"
     assert trace is not None
     assert trace["coordination_runs"][0]["graph_ref"] == graph.graph_id
+    assert checkpoint is not None
+    assert checkpoint.loop_state.runtime_lane == "task_graph_coordination"
+    assert checkpoint.loop_state.diagnostics["langgraph_coordination_initialized"] is True
+    assert indexed_task_run is not None
+    assert indexed_task_run.latest_checkpoint_ref == checkpoint.checkpoint_id
 
 
 def test_task_run_loop_restores_task_graph_initial_inputs_for_same_session_graph(tmp_path: Path) -> None:

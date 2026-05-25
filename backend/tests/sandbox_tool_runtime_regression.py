@@ -164,6 +164,9 @@ def test_native_write_file_permission_rejection_is_model_visible_tool_result(tmp
     assert observation.payload["structured_payload"]["type"] == "tool_policy_rejection"
     assert observation.payload["structured_payload"]["policy"] == "tool_permission"
     assert observation.payload["structured_payload"]["reason"] == "path_outside_write_scopes"
+    assert observation.payload["structured_payload"]["tool_executed"] is False
+    assert observation.payload["structured_payload"]["is_tool_execution_failure"] is False
+    assert "No tool side effect occurred" in observation.payload["result"]
     assert observation.needs_model_followup is True
 
 

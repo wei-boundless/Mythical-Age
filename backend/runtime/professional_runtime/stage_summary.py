@@ -77,8 +77,116 @@ def build_stage_summary(
         tool_observation_count=int(tool_observation_count or 0),
         written_paths=tuple(dict.fromkeys(written_paths)),
         artifact_refs=tuple(artifact_refs),
-        latest_observations=tuple(dict(item) for item in list(structured_observations or [])[-5:] if isinstance(item, dict)),
+        latest_observations=tuple(
+            _compact_stage_observation(item)
+            for item in list(structured_observations or [])[-5:]
+            if isinstance(item, dict)
+        ),
         pending_deliverables=tuple(dict.fromkeys(pending)),
         verification_passed=tool_observation_ledger.verification_passed(),
         environment=dict(environment_snapshot or {}),
     )
+
+
+def _compact_stage_observation(observation: dict[str, Any]) -> dict[str, Any]:
+    item = dict(observation or {})
+    envelope = dict(item.get("result_envelope") or {})
+    structured = dict(item.get("structured_payload") or envelope.get("structured_payload") or {})
+    command_receipt = dict(item.get("command_receipt") or envelope.get("command_receipt") or structured.get("command_receipt") or {})
+    result_text = str(item.get("result") or envelope.get("text") or "")
+    tool_name = str(item.get("tool_name") or envelope.get("tool_name") or "")
+    observed_paths = _dedupe_strings(
+        [
+            *[str(path).strip() for path in list(item.get("observed_paths") or []) if str(path).strip()],
+            *[str(path).strip() for path in list(envelope.get("observed_paths") or []) if str(path).strip()],
+            *[str(path).strip() for path in list(structured.get("observed_paths") or []) if str(path).strip()],
+        ]
+    )
+    matched_paths = _dedupe_strings(
+        [
+            *[str(path).strip() for path in list(item.get("matched_paths") or []) if str(path).strip()],
+            *[str(path).strip() for path in list(envelope.get("matched_paths") or []) if str(path).strip()],
+            *[str(path).strip() for path in list(structured.get("matched_paths") or []) if str(path).strip()],
+        ]
+    )
+    artifact_refs = [
+        dict(ref)
+        for ref in [
+            *list(item.get("artifact_refs") or []),
+            *list(envelope.get("artifact_refs") or []),
+            *list(structured.get("artifact_refs") or []),
+        ]
+        if isinstance(ref, dict)
+    ][:8]
+    return {
+        "observation_ref": str(item.get("observation_ref") or ""),
+        "tool_name": tool_name,
+        "tool_args": _compact_tool_args(dict(item.get("tool_args") or envelope.get("tool_args") or {})),
+        "status": str(envelope.get("status") or structured.get("status") or ""),
+        "observed_paths": observed_paths,
+        "matched_paths": matched_paths,
+        "artifact_refs": artifact_refs,
+        "command_receipt": {
+            key: value
+            for key, value in command_receipt.items()
+            if key in {"command", "exit_code", "passed", "duration_ms", "output_preview"}
+        },
+        "result_preview": _safe_result_preview(
+            tool_name=tool_name,
+            result_text=result_text,
+            structured_payload=structured,
+            observed_paths=observed_paths,
+            artifact_refs=artifact_refs,
+            command_receipt=command_receipt,
+        ),
+        "result_chars": len(result_text),
+    }
+
+
+def _safe_result_preview(
+    *,
+    tool_name: str,
+    result_text: str,
+    structured_payload: dict[str, Any],
+    observed_paths: list[str],
+    artifact_refs: list[dict[str, Any]],
+    command_receipt: dict[str, Any],
+) -> str:
+    if tool_name in {"read_file", "read_structured_file"}:
+        file_meta = dict(structured_payload.get("tool_result") or {})
+        size = str(file_meta.get("size_chars") or file_meta.get("size_bytes") or "").strip()
+        path_text = ", ".join(observed_paths[:4])
+        return f"{tool_name} observed {path_text}" + (f" ({size} chars)" if size else "")
+    if tool_name in {"write_file", "edit_file"}:
+        paths = [
+            str(ref.get("path") or "").strip()
+            for ref in artifact_refs
+            if isinstance(ref, dict) and str(ref.get("path") or "").strip()
+        ]
+        return f"{tool_name} wrote {', '.join(paths[:4])}" if paths else f"{tool_name} completed"
+    if tool_name == "terminal":
+        return str(command_receipt.get("output_preview") or result_text)[:240]
+    return str(result_text or "")[:240]
+
+
+def _compact_tool_args(args: dict[str, Any]) -> dict[str, Any]:
+    compact: dict[str, Any] = {}
+    for key, value in dict(args or {}).items():
+        if key == "content":
+            text = str(value or "")
+            compact[key] = f"<content_chars:{len(text)}>"
+            continue
+        compact[key] = value
+    return compact
+
+
+def _dedupe_strings(values: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        item = str(value or "").strip()
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        result.append(item)
+    return result

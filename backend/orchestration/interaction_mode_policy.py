@@ -58,30 +58,40 @@ def build_runtime_interaction_mode_policy(
         or dict(current_turn.get("mode_policy") or {}).get("interaction_mode")
         or dict(current_turn.get("runtime_mode_policy") or {}).get("interaction_mode")
     )
+    explicit_policy = _explicit_turn_mode_policy(current_turn)
     if _is_task_graph_node_runtime(current_turn, contract):
-        return _policy_for_mode(
-            explicit_mode or ROLE_MODE,
-            mode_reason="task_graph_node_runtime",
-            contract=contract,
-            understanding=understanding,
-            execution_obligation=obligation,
+        return _with_explicit_turn_policy(
+            _policy_for_mode(
+                explicit_mode or ROLE_MODE,
+                mode_reason="task_graph_node_runtime",
+                contract=contract,
+                understanding=understanding,
+                execution_obligation=obligation,
+            ),
+            explicit_policy,
         )
     if _obligation_requires_professional_mode(obligation):
         obligation_mode = _interaction_mode_for_profile(get_task_goal_profile(str(contract.get("task_goal_type") or ""))) or PROFESSIONAL_MODE
-        return _policy_for_mode(
-            obligation_mode,
-            mode_reason="execution_obligation:write_or_verify",
-            contract=contract,
-            understanding=understanding,
-            execution_obligation=obligation,
+        return _with_explicit_turn_policy(
+            _policy_for_mode(
+                obligation_mode,
+                mode_reason="execution_obligation:write_or_verify",
+                contract=contract,
+                understanding=understanding,
+                execution_obligation=obligation,
+            ),
+            explicit_policy,
         )
     if explicit_mode:
-        return _policy_for_mode(
-            explicit_mode,
-            mode_reason="explicit_interaction_mode",
-            contract=contract,
-            understanding=understanding,
-            execution_obligation=obligation,
+        return _with_explicit_turn_policy(
+            _policy_for_mode(
+                explicit_mode,
+                mode_reason="explicit_interaction_mode",
+                contract=contract,
+                understanding=understanding,
+                execution_obligation=obligation,
+            ),
+            explicit_policy,
         )
     decision = _model_turn_decision(understanding, current_turn)
     if not decision:
@@ -92,45 +102,60 @@ def build_runtime_interaction_mode_policy(
     interaction_intent = str(decision.get("interaction_intent") or "").strip()
     profile_mode = _interaction_mode_for_profile(get_task_goal_profile(task_goal_type))
     if profile_mode:
-        return _policy_for_mode(
-            profile_mode,
-            mode_reason=f"semantic_task:{task_goal_type}",
-            contract=contract,
-            understanding=understanding,
-            execution_obligation=obligation,
+        return _with_explicit_turn_policy(
+            _policy_for_mode(
+                profile_mode,
+                mode_reason=f"semantic_task:{task_goal_type}",
+                contract=contract,
+                understanding=understanding,
+                execution_obligation=obligation,
+            ),
+            explicit_policy,
         )
     if action_intent in {"read_context", "search_external", "use_browser", "ask_clarification"}:
-        return _policy_for_mode(
-            STANDARD_MODE,
-            mode_reason=f"model_action:{action_intent}",
-            contract=contract,
-            understanding=understanding,
-            execution_obligation=obligation,
+        return _with_explicit_turn_policy(
+            _policy_for_mode(
+                STANDARD_MODE,
+                mode_reason=f"model_action:{action_intent}",
+                contract=contract,
+                understanding=understanding,
+                execution_obligation=obligation,
+            ),
+            explicit_policy,
         )
     if action_intent in {"edit_workspace", "run_command", "start_service", "delegate"} or work_mode in {"implementation", "verification", "delegated"}:
-        return _policy_for_mode(
-            PROFESSIONAL_MODE,
-            mode_reason=f"model_work_mode:{work_mode or action_intent}",
-            contract=contract,
-            understanding=understanding,
-            execution_obligation=obligation,
+        return _with_explicit_turn_policy(
+            _policy_for_mode(
+                PROFESSIONAL_MODE,
+                mode_reason=f"model_work_mode:{work_mode or action_intent}",
+                contract=contract,
+                understanding=understanding,
+                execution_obligation=obligation,
+            ),
+            explicit_policy,
         )
     if interaction_intent in {"plan", "review", "inspect"} or work_mode == "planning":
-        return _policy_for_mode(
-            STANDARD_MODE,
-            mode_reason=f"model_interaction:{interaction_intent}",
-            contract=contract,
-            understanding=understanding,
-            execution_obligation=obligation,
+        return _with_explicit_turn_policy(
+            _policy_for_mode(
+                STANDARD_MODE,
+                mode_reason=f"model_interaction:{interaction_intent}",
+                contract=contract,
+                understanding=understanding,
+                execution_obligation=obligation,
+            ),
+            explicit_policy,
         )
     if action_intent != "answer_only":
         raise RuntimeError(f"Unsupported ModelTurnDecision action_intent for interaction mode: {action_intent}")
-    return _policy_for_mode(
-        ROLE_MODE,
-        mode_reason=f"semantic_task:{task_goal_type or 'role_conversation'}",
-        contract=contract,
-        understanding=understanding,
-        execution_obligation=obligation,
+    return _with_explicit_turn_policy(
+        _policy_for_mode(
+            ROLE_MODE,
+            mode_reason=f"semantic_task:{task_goal_type or 'role_conversation'}",
+            contract=contract,
+            understanding=understanding,
+            execution_obligation=obligation,
+        ),
+        explicit_policy,
     )
 
 
@@ -498,6 +523,73 @@ def _with_contract_bound_tool_policy(
             "contract_bound_tool_policy_adopted": True,
         },
     )
+
+
+def _explicit_turn_mode_policy(current_turn: dict[str, Any]) -> dict[str, Any]:
+    mode_policy = dict(current_turn.get("mode_policy") or {})
+    runtime_mode_policy = dict(current_turn.get("runtime_mode_policy") or {})
+    merged = {**runtime_mode_policy, **mode_policy}
+    explicit_tool_policy = dict(runtime_mode_policy.get("tool_policy") or {})
+    explicit_tool_policy.update(dict(mode_policy.get("tool_policy") or {}))
+    if explicit_tool_policy:
+        merged["tool_policy"] = explicit_tool_policy
+    explicit_delegation_policy = dict(runtime_mode_policy.get("delegation_policy") or {})
+    explicit_delegation_policy.update(dict(mode_policy.get("delegation_policy") or {}))
+    if explicit_delegation_policy:
+        merged["delegation_policy"] = explicit_delegation_policy
+    explicit_verification_policy = dict(runtime_mode_policy.get("verification_policy") or {})
+    explicit_verification_policy.update(dict(mode_policy.get("verification_policy") or {}))
+    if explicit_verification_policy:
+        merged["verification_policy"] = explicit_verification_policy
+    explicit_sandbox_policy = dict(runtime_mode_policy.get("sandbox_policy") or {})
+    explicit_sandbox_policy.update(dict(mode_policy.get("sandbox_policy") or {}))
+    if explicit_sandbox_policy:
+        merged["sandbox_policy"] = explicit_sandbox_policy
+    return merged
+
+
+def _with_explicit_turn_policy(
+    policy: RuntimeInteractionModePolicy,
+    explicit_policy: dict[str, Any],
+) -> RuntimeInteractionModePolicy:
+    explicit = dict(explicit_policy or {})
+    explicit_tool_policy = dict(explicit.get("tool_policy") or {})
+    explicit_delegation_policy = dict(explicit.get("delegation_policy") or {})
+    explicit_verification_policy = dict(explicit.get("verification_policy") or {})
+    explicit_sandbox_policy = dict(explicit.get("sandbox_policy") or {})
+    if not any((explicit_tool_policy, explicit_delegation_policy, explicit_verification_policy, explicit_sandbox_policy)):
+        return policy
+    return RuntimeInteractionModePolicy(
+        interaction_mode=policy.interaction_mode,
+        mode_reason=policy.mode_reason,
+        runtime_lane=policy.runtime_lane,
+        recipe_id=policy.recipe_id,
+        projection_strength=policy.projection_strength,
+        semantic_contract_required=policy.semantic_contract_required,
+        professional_profile_required=policy.professional_profile_required,
+        tool_policy=_merge_explicit_tool_policy(policy.tool_policy, explicit_tool_policy),
+        delegation_policy={**dict(policy.delegation_policy), **explicit_delegation_policy},
+        checkpoint_policy=dict(policy.checkpoint_policy),
+        verification_policy={**dict(policy.verification_policy), **explicit_verification_policy},
+        sandbox_policy={**dict(policy.sandbox_policy), **explicit_sandbox_policy},
+        context_policy=dict(policy.context_policy),
+        output_policy=dict(policy.output_policy),
+        diagnostics={
+            **dict(policy.diagnostics),
+            "explicit_turn_policy_adopted": True,
+        },
+    )
+
+
+def _merge_explicit_tool_policy(base_policy: dict[str, Any], explicit_policy: dict[str, Any]) -> dict[str, Any]:
+    if not explicit_policy:
+        return dict(base_policy)
+    merged = {**dict(base_policy), **dict(explicit_policy)}
+    for key in ("allowed_tool_names", "allowed_operation_refs", "denied_tool_names"):
+        explicit_values = list(explicit_policy.get(key) or [])
+        if explicit_values:
+            merged[key] = _dedupe_policy_values([*list(base_policy.get(key) or []), *explicit_values])
+    return merged
 
 
 def _contract_bound_tool_policy(contract: dict[str, Any]) -> dict[str, Any]:

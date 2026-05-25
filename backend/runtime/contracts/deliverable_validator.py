@@ -468,6 +468,8 @@ def _has_source_or_artifact_evidence(facts: list[dict[str, Any]], final_answer: 
 
 
 def _has_runtime_or_browser_evidence(facts: list[dict[str, Any]]) -> bool:
+    if _has_structured_verification_evidence(facts):
+        return True
     text = _facts_text(facts)
     return _contains_any(
         text,
@@ -479,6 +481,10 @@ def _has_runtime_or_browser_evidence(facts: list[dict[str, Any]]) -> bool:
             "dev server",
             "server started",
             "npm run",
+            "pytest",
+            "passed",
+            "verify_command",
+            "verification_intent",
             "vite",
             "canvas",
             "screenshot",
@@ -490,6 +496,25 @@ def _has_runtime_or_browser_evidence(facts: list[dict[str, Any]]) -> bool:
             "页面",
         ),
     )
+
+
+def _has_structured_verification_evidence(facts: list[dict[str, Any]]) -> bool:
+    for fact in facts:
+        item = dict(fact or {})
+        receipt = dict(item.get("command_receipt") or {})
+        intent = dict(item.get("verification_intent") or {})
+        if str(item.get("tool_name") or "").strip() == "browser_control" and bool(receipt.get("passed", True)) is True:
+            return True
+        if str(item.get("tool_name") or "").strip() != "terminal":
+            continue
+        if receipt.get("passed") is not True:
+            continue
+        if str(intent.get("obligation") or "").strip() == "verify_command" or str(intent.get("stage") or "").strip() == "verify_output":
+            return True
+        command = str(receipt.get("command") or dict(item.get("tool_args") or {}).get("command") or "").lower()
+        if any(marker in command for marker in ("pytest", "npm test", "pnpm test", "yarn test", "npm run build", "pnpm build", "tsc", "playwright")):
+            return True
+    return False
 
 
 def _has_asset_evidence(facts: list[dict[str, Any]]) -> bool:

@@ -159,12 +159,13 @@ def build_execution_obligation(
         current_turn=current_turn,
         resource_contract=resource_contract,
     )
-    forbid_write = _global_write_forbidden(
+    natural_language_write_forbid_signal = _natural_language_write_forbid_signal(
         lowered=lowered,
         required_contract_writes=contract_writes,
         required_profile_writes=list(profile_obligation["required_writes"]),
         explicit_inputs=inputs,
     )
+    forbid_write = _structured_write_forbidden(current_turn)
     write_required = (
         _requires_real_write(lowered)
         or bool(contract_writes)
@@ -223,6 +224,10 @@ def build_execution_obligation(
         "write_required": write_required,
         "verify_required": verify_required,
         "forbid_write": forbid_write,
+        "natural_language_write_forbid_signal": natural_language_write_forbid_signal,
+        "forbid_write_authority": "intent_signal_only",
+        "hard_write_authority": "operation_gate_and_sandbox_policy",
+        "structured_write_forbidden": forbid_write,
         "scoped_write_constraints": scoped_write_constraints,
         "deliverable_markers": [marker for marker in _DELIVER_MARKERS if marker in lowered],
         "profile_obligation": profile_obligation["evidence"],
@@ -405,7 +410,7 @@ def _is_asset_dir(path: str) -> bool:
     return str(path or "").replace("\\", "/").strip("/").lower().endswith("assets")
 
 
-def _global_write_forbidden(
+def _natural_language_write_forbid_signal(
     *,
     lowered: str,
     required_contract_writes: list[dict[str, Any]],
@@ -424,6 +429,19 @@ def _global_write_forbidden(
     if _analysis_only_without_output(text):
         return True
     return False
+
+
+def _structured_write_forbidden(current_turn: dict[str, Any]) -> bool:
+    forbidden = {
+        str(item).strip()
+        for item in [
+            *list(dict(current_turn.get("model_turn_decision") or {}).get("forbidden_actions") or []),
+            *list(dict(current_turn.get("task_goal_spec") or current_turn.get("goal_frame") or {}).get("forbidden_actions") or []),
+            *list(current_turn.get("forbidden_actions") or []),
+        ]
+        if str(item).strip()
+    }
+    return bool(forbidden.intersection({"modify_code", "write_file", "edit_file", "edit_workspace"}))
 
 
 def _scoped_write_constraints(
@@ -574,14 +592,19 @@ def _collect_required_reads(
             elif isinstance(value, dict):
                 add(str(value.get("path") or ""), role=str(value.get("role") or "material"), required=value.get("required") is not False)
     for match in _PATH_RE.finditer(text):
+        raw_path = str(match.group("path") or "")
         path = _complete_partial_known_root_path(
-            _normalize_path(match.group("path")),
+            _normalize_path(raw_path),
             text=text,
             start=match.start(),
         )
+        normalized_fragment = _normalize_path(raw_path)
+        normalized_index = raw_path.replace("\\", "/").lower().find(normalized_fragment.lower()) if normalized_fragment else -1
+        path_start = match.start() + max(0, normalized_index)
+        path_end = path_start + len(normalized_fragment or raw_path)
         if _path_looks_like_command_argument(text=text, start=match.start(), path=path):
             continue
-        if not _path_looks_like_required_input(text=text, start=match.start(), path=path):
+        if not _path_looks_like_required_input(text=text, start=path_start, end=path_end, path=path):
             continue
         role = "failure_report" if path.lower().endswith(".json") and _has_any(text.lower(), ("失败", "fail", "测试报告")) else "material"
         add(path, role=role)
@@ -639,7 +662,13 @@ def _extract_output_paths(text: str) -> list[str]:
     for match in _PATH_RE.finditer(text):
         prefix = str(text or "")[max(0, match.start() - 24) : match.start()]
         if any(marker in prefix for marker in ("写入", "保存", "生成", "产出", "输出到", "落到", "创建", "新建")):
-            output_paths.append(_normalize_path(match.group("path")))
+            output_paths.append(
+                _complete_partial_known_root_path(
+                    _normalize_path(match.group("path")),
+                    text=text,
+                    start=match.start(),
+                )
+            )
     return _dedupe(output_paths)
 
 
@@ -720,11 +749,15 @@ def _path_looks_like_command_argument(*, text: str, start: int, path: str) -> bo
     return any(marker in prefix for marker in ("pytest ", "python ", "node ", "npm ", "pnpm ", "yarn "))
 
 
-def _path_looks_like_required_input(*, text: str, start: int, path: str) -> bool:
+def _path_looks_like_required_input(*, text: str, start: int, path: str, end: int | None = None) -> bool:
     normalized_path = str(path or "").replace("\\", "/").strip()
     if not normalized_path:
         return False
-    context = _local_path_context(str(text or "").replace("\\", "/"), start=start, end=start + len(str(path or "")), radius=36)
+    resolved_end = int(end if end is not None else start + len(str(path or "")))
+    prefix = str(text or "").replace("\\", "/")[max(0, start - 24) : start]
+    if _context_indicates_read_material_path(prefix) and not _context_indicates_output_path(prefix):
+        return True
+    context = _local_path_context(str(text or "").replace("\\", "/"), start=start, end=resolved_end, radius=36)
     if _context_indicates_output_path(context):
         return False
     if _context_indicates_read_material_path(context):
@@ -826,7 +859,7 @@ def _has_any(text: str, markers: tuple[str, ...]) -> bool:
 
 
 def _requires_real_write(lowered: str) -> bool:
-    text = str(lowered or "").lower()
+    text = _without_negative_write_phrases(str(lowered or "").lower())
     explicit_markers = (
         "写入",
         "生成文件",
@@ -854,6 +887,18 @@ def _requires_real_write(lowered: str) -> bool:
     if re.search(r"\bfix(?:e[ds]|ing)?\b", text) and not any(marker in text for marker in ("fix advice", "fix suggestion", "how to fix")):
         return True
     return any(marker in text for marker in ("修复", "修正"))
+
+
+def _without_negative_write_phrases(text: str) -> str:
+    cleaned = str(text or "")
+    for marker in sorted(
+        [*_GLOBAL_FORBID_WRITE_MARKERS, *_BROAD_NO_MODIFY_MARKERS],
+        key=len,
+        reverse=True,
+    ):
+        if marker:
+            cleaned = cleaned.replace(marker.lower(), " ")
+    return cleaned
 
 
 def _dedupe(values: list[str]) -> list[str]:

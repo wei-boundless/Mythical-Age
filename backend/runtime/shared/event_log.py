@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+import hashlib
 import json
 from json import JSONDecodeError
 import threading
@@ -154,5 +155,13 @@ def _put_event_drop_oldest(queue: asyncio.Queue[RuntimeEvent], event: RuntimeEve
         pass
 
 
-def _safe_id(value: str) -> str:
-    return "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in str(value or ""))
+def _safe_id(value: str, *, limit: int = 180) -> str:
+    raw = str(value or "")
+    safe = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in raw).strip("_")
+    if not safe:
+        return "runtime"
+    if len(safe) <= limit:
+        return safe
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+    head_limit = max(1, limit - len(digest) - 1)
+    return f"{safe[:head_limit].rstrip('_')}_{digest}"

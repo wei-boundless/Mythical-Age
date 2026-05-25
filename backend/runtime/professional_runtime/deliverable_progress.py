@@ -60,6 +60,34 @@ class DeliverableProgress:
         return f"当前缺失交付物：{_obligation_label(obligation)}。建议优先补齐，但不限制模型选择工具。"
 
 
+def next_missing_material_read(
+    goal_contract: ProfessionalTaskGoalContract,
+    tool_observation_ledger: ToolObservationLedger,
+) -> DeliverableObligation | None:
+    if not goal_contract.requires_material_review:
+        return None
+    if not goal_contract.required_material_paths:
+        return (
+            None
+            if tool_observation_ledger.has_read()
+            else DeliverableObligation(
+                obligation_id="read:any",
+                kind="read_material",
+                suggested_tool_names=("read_file", "read_structured_file", "search_files", "search_text"),
+            )
+        )
+    for path in list(goal_contract.required_material_paths or []):
+        normalized_path = str(path or "").strip().replace("\\", "/")
+        if normalized_path and not tool_observation_ledger.has_read(normalized_path):
+            return DeliverableObligation(
+                obligation_id=f"read:{normalized_path}",
+                kind="read_material",
+                suggested_tool_names=("read_file", "read_structured_file"),
+                path=normalized_path,
+            )
+    return None
+
+
 def build_deliverable_progress(
     *,
     goal_contract: ProfessionalTaskGoalContract,

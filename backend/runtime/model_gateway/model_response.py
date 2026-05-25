@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import inspect
+import threading
+from dataclasses import is_dataclass, replace
+from types import SimpleNamespace
 from typing import Any
 
 from runtime.tool_runtime.provider_tool_call_adapter import normalize_tool_call_dicts
@@ -66,6 +70,12 @@ class ModelResponseRuntimeExecutor:
             model_spec=model_spec,
             policy=stream_policy,
         )
+        effective_model_spec = _model_spec_for_stream_policy(
+            model_spec,
+            policy=stream_policy,
+            timeout_seconds=response_timeout_seconds,
+            tool_call_options=tool_call_options,
+        )
         delta_index = 0
         raw_content = ""
         partial_timeout_metadata: dict[str, Any] = {}
@@ -78,7 +88,7 @@ class ModelResponseRuntimeExecutor:
                         tool_streamer,
                         model_messages,
                         tools,
-                        model_spec=model_spec,
+                        model_spec=effective_model_spec,
                         tool_call_options=tool_call_options,
                     ),
                     timeout_seconds=response_timeout_seconds,
@@ -104,7 +114,7 @@ class ModelResponseRuntimeExecutor:
                     _call_streamer_with_optional_model_spec(
                         self.model_runtime.astream_messages,
                         model_messages,
-                        model_spec=model_spec,
+                        model_spec=effective_model_spec,
                     ),
                     timeout_seconds=response_timeout_seconds,
                 ):
@@ -124,20 +134,26 @@ class ModelResponseRuntimeExecutor:
                         }
                 response = raw_content
             elif tools and callable(tool_invoker):
-                response = await _await_with_hard_timeout(
-                    _call_invoker_with_optional_model_spec(
+                response = await _await_model_invocation(
+                    lambda: _call_invoker_with_optional_model_spec(
                         tool_invoker,
                         model_messages,
                         tools,
-                        model_spec=model_spec,
+                        model_spec=effective_model_spec,
                         tool_call_options=tool_call_options,
                     ),
                     timeout_seconds=response_timeout_seconds,
+                    policy=stream_policy,
                 )
             else:
-                response = await _await_with_hard_timeout(
-                    _call_invoker_with_optional_model_spec(invoker, model_messages, model_spec=model_spec),
+                response = await _await_model_invocation(
+                    lambda: _call_invoker_with_optional_model_spec(
+                        invoker,
+                        model_messages,
+                        model_spec=effective_model_spec,
+                    ),
                     timeout_seconds=response_timeout_seconds,
+                    policy=stream_policy,
                 )
         except ModelRuntimeError as exc:
             if stream_enabled and exc.retryable and _stream_recovery_enabled(stream_policy):
@@ -180,15 +196,18 @@ class ModelResponseRuntimeExecutor:
                     "directive_ref": directive.directive_id,
                 }
                 try:
-                    fallback_call = _invoke_non_stream_after_stream_error(
-                        invoker=invoker,
-                        tool_invoker=tool_invoker,
-                        model_messages=model_messages,
-                        tools=tools,
-                        model_spec=model_spec,
-                        tool_call_options=tool_call_options,
+                    response = await _await_model_invocation(
+                        lambda: _invoke_non_stream_after_stream_error(
+                            invoker=invoker,
+                            tool_invoker=tool_invoker,
+                            model_messages=model_messages,
+                            tools=tools,
+                            model_spec=effective_model_spec,
+                            tool_call_options=tool_call_options,
+                        ),
+                        timeout_seconds=fallback_timeout_seconds,
+                        policy=stream_policy,
                     )
-                    response = await asyncio.wait_for(fallback_call, timeout=fallback_timeout_seconds)
                 except asyncio.TimeoutError:
                     yield {
                         "type": "stream_recovery",
@@ -306,8 +325,8 @@ class ModelResponseRuntimeExecutor:
                     "error": "model_response_timeout",
                     "content": "模型响应超过节点执行时限，本节点未产出有效结果，请从当前节点断点重跑。",
                     "code": "timeout",
-                    "provider": str(getattr(model_spec, "provider", "") or ""),
-                    "model": str(getattr(model_spec, "model", "") or ""),
+                    "provider": str(getattr(effective_model_spec, "provider", "") or ""),
+                    "model": str(getattr(effective_model_spec, "model", "") or ""),
                     "detail": f"model response exceeded {response_timeout_seconds:g}s",
                     "timeout_seconds": response_timeout_seconds,
                     "answer_channel": "orchestration_fail_closed",
@@ -580,6 +599,68 @@ async def _invoke_non_stream_after_stream_error(
     return await _call_invoker_with_optional_model_spec(invoker, model_messages, model_spec=model_spec)
 
 
+async def _await_model_invocation(
+    invocation_factory: Any,
+    *,
+    timeout_seconds: float,
+    policy: dict[str, Any],
+) -> Any:
+    if _thread_isolated_invocation_enabled(policy):
+        return await _await_invocation_in_thread(invocation_factory, timeout_seconds=timeout_seconds)
+    return await _await_with_hard_timeout(invocation_factory(), timeout_seconds=timeout_seconds)
+
+
+def _thread_isolated_invocation_enabled(policy: dict[str, Any]) -> bool:
+    if "isolate_blocking_model_invocation" in policy:
+        return bool(policy.get("isolate_blocking_model_invocation") is not False)
+    return bool(policy.get("action_gate_timeout_applied") is True)
+
+
+async def _await_invocation_in_thread(invocation_factory: Any, *, timeout_seconds: float) -> Any:
+    timeout = max(0.01, float(timeout_seconds or 0.01))
+    loop = asyncio.get_running_loop()
+    outer_future: asyncio.Future[Any] = loop.create_future()
+
+    def _runner() -> None:
+        try:
+            result = asyncio.run(_resolve_invocation_result(invocation_factory()))
+        except BaseException as exc:
+            _call_soon_threadsafe_if_open(loop, _set_future_exception_if_pending, outer_future, exc)
+            return
+        _call_soon_threadsafe_if_open(loop, _set_future_result_if_pending, outer_future, result)
+
+    thread = threading.Thread(target=_runner, name="model-invocation-deadline", daemon=True)
+    thread.start()
+    try:
+        return await asyncio.wait_for(asyncio.shield(outer_future), timeout=timeout)
+    except asyncio.TimeoutError:
+        outer_future.cancel()
+        raise
+
+
+async def _resolve_invocation_result(value: Any) -> Any:
+    if inspect.isawaitable(value):
+        return await value
+    return value
+
+
+def _set_future_result_if_pending(future: asyncio.Future[Any], result: Any) -> None:
+    if not future.done():
+        future.set_result(result)
+
+
+def _set_future_exception_if_pending(future: asyncio.Future[Any], exc: BaseException) -> None:
+    if not future.done():
+        future.set_exception(exc)
+
+
+def _call_soon_threadsafe_if_open(loop: asyncio.AbstractEventLoop, callback: Any, *args: Any) -> None:
+    if loop.is_closed():
+        return
+    with contextlib.suppress(RuntimeError):
+        loop.call_soon_threadsafe(callback, *args)
+
+
 async def _call_invoker_with_optional_model_spec(
     invoker: Any,
     *args: Any,
@@ -664,6 +745,117 @@ def _model_response_timeout_seconds(model_runtime: Any, *, model_spec: Any | Non
         if value > 0:
             return value
     return 180.0
+
+
+def _model_spec_for_stream_policy(
+    model_spec: Any | None,
+    *,
+    policy: dict[str, Any],
+    timeout_seconds: float,
+    tool_call_options: Any | None = None,
+) -> Any | None:
+    if model_spec is None:
+        return None
+    timeout = max(0.01, float(timeout_seconds or 0.01))
+    current_timeout = _positive_model_spec_float(getattr(model_spec, "timeout_seconds", None), timeout)
+    current_long_timeout = _positive_model_spec_float(
+        getattr(model_spec, "long_output_timeout_seconds", None),
+        max(timeout, current_timeout),
+    )
+    bounded_timeout = min(current_timeout, timeout)
+    bounded_long_timeout = min(current_long_timeout, timeout)
+    updates: dict[str, Any] = {
+        "timeout_seconds": bounded_timeout,
+        "long_output_timeout_seconds": max(bounded_timeout, bounded_long_timeout),
+    }
+    if bool(policy.get("action_gate_timeout_applied") is True):
+        updates["max_retries"] = 0
+    forced_tool_name = _forced_tool_choice_name(tool_call_options)
+    provider = str(getattr(model_spec, "provider", "") or "").strip().lower()
+    if (
+        forced_tool_name
+        and provider == "deepseek"
+        and bool(policy.get("action_gate_timeout_applied") is True)
+    ):
+        updates["thinking_mode"] = "disabled"
+    diagnostics = getattr(model_spec, "diagnostics", None)
+    if isinstance(diagnostics, dict):
+        updates["diagnostics"] = {
+            **diagnostics,
+            "runtime_policy_timeout_seconds": timeout,
+            "runtime_policy_timeout_applied": True,
+            **(
+                {
+                    "forced_tool_choice_name": forced_tool_name,
+                    "forced_tool_choice_requires_tool_compatible_model": True,
+                    "deepseek_thinking_disabled_for_forced_tool_choice": True,
+                }
+                if forced_tool_name
+                and provider == "deepseek"
+                and bool(policy.get("action_gate_timeout_applied") is True)
+                else {}
+            ),
+            **(
+                {"action_gate_timeout_applied": True}
+                if bool(policy.get("action_gate_timeout_applied") is True)
+                else {}
+            ),
+        }
+    return _copy_model_spec(model_spec, updates)
+
+
+def _positive_model_spec_float(value: Any, default: float) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
+
+
+def _copy_model_spec(model_spec: Any, updates: dict[str, Any]) -> Any:
+    if is_dataclass(model_spec):
+        try:
+            return replace(model_spec, **updates)
+        except TypeError:
+            pass
+    payload = {
+        key: getattr(model_spec, key)
+        for key in (
+            "provider",
+            "model",
+            "api_key",
+            "base_url",
+            "max_output_tokens",
+            "timeout_seconds",
+            "long_output_timeout_seconds",
+            "max_retries",
+            "temperature",
+            "thinking_mode",
+            "reasoning_effort",
+            "stream_policy",
+            "source_chain",
+            "diagnostics",
+        )
+        if hasattr(model_spec, key)
+    }
+    payload.update(updates)
+    return SimpleNamespace(**payload)
+
+
+def _forced_tool_choice_name(tool_call_options: Any | None) -> str:
+    if tool_call_options is None:
+        return ""
+    raw_choice = None
+    if isinstance(tool_call_options, dict):
+        raw_choice = tool_call_options.get("tool_choice")
+    else:
+        raw_choice = getattr(tool_call_options, "tool_choice", None)
+    if isinstance(raw_choice, dict):
+        function = raw_choice.get("function") if isinstance(raw_choice.get("function"), dict) else {}
+        return str(function.get("name") or raw_choice.get("name") or "").strip()
+    if isinstance(raw_choice, str):
+        return raw_choice.strip()
+    return ""
 
 
 def _call_streamer_with_optional_model_spec(

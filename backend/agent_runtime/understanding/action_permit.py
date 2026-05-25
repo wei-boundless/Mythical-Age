@@ -32,10 +32,24 @@ def build_action_permit(
     decision = dict(model_turn_decision or {})
     boundary = dict(boundary_policy or {})
     action = str(decision.get("action_intent") or "").strip()
-    forbidden = {str(item).strip() for item in list(boundary.get("forbidden_actions") or []) if str(item).strip()}
+    boundary_forbidden = {
+        str(item).strip()
+        for item in list(boundary.get("forbidden_actions") or [])
+        if str(item).strip()
+    }
+    decision_forbidden = {
+        str(item).strip()
+        for item in list(decision.get("forbidden_actions") or [])
+        if str(item).strip()
+    }
+    forbidden = {*boundary_forbidden, *decision_forbidden}
     denied: list[str] = []
     if action == "edit_workspace" and forbidden & {"edit_workspace", "write_file", "modify_code"}:
-        denied.append("write_forbidden_by_boundary")
+        denied.append(
+            "write_forbidden_by_model_turn_decision"
+            if decision_forbidden & {"edit_workspace", "write_file", "modify_code"}
+            else "write_forbidden_by_boundary"
+        )
     if action == "search_external" and forbidden & {"search_external", "fetch_url"}:
         denied.append("network_forbidden_by_boundary")
     required = ["op.model_response"]
@@ -61,7 +75,11 @@ def build_action_permit(
         denied_reasons=tuple(denied),
         required_operations=tuple(_dedupe(required)),
         optional_operations=tuple(_dedupe(optional)),
-        diagnostics={"permit_does_not_change_goal": True},
+        diagnostics={
+            "permit_does_not_change_goal": True,
+            "boundary_forbidden_actions": sorted(boundary_forbidden),
+            "model_turn_forbidden_actions": sorted(decision_forbidden),
+        },
     )
 
 

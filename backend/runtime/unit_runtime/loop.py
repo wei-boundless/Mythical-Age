@@ -1073,6 +1073,41 @@ class TaskRunLoop:
                 },
             }
         )
+        latest_initialization_event_offset = start.checkpoint.event_offset
+        for item in events:
+            try:
+                latest_initialization_event_offset = max(
+                    latest_initialization_event_offset,
+                    int(dict(item).get("offset") or latest_initialization_event_offset),
+                )
+            except (TypeError, ValueError):
+                continue
+        initialization_checkpoint_event = self._write_checkpoint_event(
+            state,
+            event_offset=latest_initialization_event_offset,
+        )
+        events.append(initialization_checkpoint_event.to_dict())
+        refreshed_checkpoint = self.checkpoints.load_latest(start.task_run.task_run_id) or start.checkpoint
+        checkpoint_ref = str(initialization_checkpoint_event.refs.get("checkpoint_ref") or refreshed_checkpoint.checkpoint_id)
+        refreshed_task_run = self.state_index.get_task_run(start.task_run.task_run_id) or refreshed_task_run
+        refreshed_task_run = TaskRun(
+            task_run_id=refreshed_task_run.task_run_id,
+            session_id=refreshed_task_run.session_id,
+            task_id=refreshed_task_run.task_id,
+            task_contract_ref=refreshed_task_run.task_contract_ref,
+            owner_agent_seat_id=refreshed_task_run.owner_agent_seat_id,
+            agent_id=refreshed_task_run.agent_id,
+            agent_profile_id=refreshed_task_run.agent_profile_id,
+            runtime_lane=refreshed_task_run.runtime_lane,
+            status=refreshed_task_run.status,
+            created_at=refreshed_task_run.created_at,
+            updated_at=time.time(),
+            latest_event_offset=initialization_checkpoint_event.offset,
+            latest_checkpoint_ref=checkpoint_ref,
+            terminal_reason=refreshed_task_run.terminal_reason,
+            diagnostics=dict(refreshed_task_run.diagnostics),
+        )
+        self.state_index.upsert_task_run(refreshed_task_run)
         project_id = str(effective_initial_inputs.get("project_id") or "").strip()
         if project_id:
             ledger = self.state_index.get_project_progress_ledger(project_id)
@@ -1137,7 +1172,7 @@ class TaskRunLoop:
             agent_run=start.agent_run,
             coordination_run=refreshed_coordination_run,
             loop_state=state,
-            checkpoint=start.checkpoint,
+            checkpoint=refreshed_checkpoint,
             events=tuple(events),
         )
 

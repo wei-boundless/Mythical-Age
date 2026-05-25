@@ -65,12 +65,6 @@ def _goal_contract_from_semantic_contract(
             *[str(item.get("path") or "").strip() for item in obligation_reads if str(item.get("path") or "").strip()],
         ]
     )
-    material_types = _dedupe_strings(
-        [
-            *[str(item.get("kind") or "").strip() for item in materials if str(item.get("kind") or "").strip()],
-            *[str(item.get("kind") or "").strip() for item in obligation_reads if str(item.get("kind") or "").strip()],
-        ]
-    )
     goal_text = str(semantic_contract.get("user_goal") or user_message or "").strip()
     output_paths = _dedupe_strings(
         [
@@ -80,6 +74,13 @@ def _goal_contract_from_semantic_contract(
                 if str(item.get("path") or "").strip()
             ],
             *_extract_goal_output_paths(goal_text),
+        ]
+    )
+    raw_material_paths = _dedupe_strings([*raw_material_paths, *_extract_goal_material_paths(goal_text)])
+    material_types = _dedupe_strings(
+        [
+            *[str(item.get("kind") or "").strip() for item in materials if str(item.get("kind") or "").strip()],
+            *[str(item.get("kind") or "").strip() for item in obligation_reads if str(item.get("kind") or "").strip()],
         ]
     )
     material_paths = [
@@ -332,8 +333,12 @@ def _extract_goal_material_paths(text: str) -> list[str]:
             *_expand_material_directory_file_lists(text),
             *[
                 path
-                for path, prefix in _path_mentions_with_prefix(text)
-                if not _prefix_indicates_output_path(prefix) and _material_path_candidate_is_readable(path)
+                for path, prefix, suffix in _path_mentions_with_context(text)
+                if (
+                    _material_path_candidate_is_readable(path)
+                    and _path_context_indicates_material(path=path, prefix=prefix, suffix=suffix)
+                    and not _path_context_indicates_output(path=path, prefix=prefix, suffix=suffix)
+                )
             ],
         ]
     )
@@ -342,8 +347,8 @@ def _extract_goal_material_paths(text: str) -> list[str]:
 def _extract_goal_output_paths(text: str) -> list[str]:
     direct_paths = [
             path
-            for path, prefix in _path_mentions_with_prefix(text)
-            if _prefix_indicates_output_path(prefix)
+            for path, prefix, suffix in _path_mentions_with_context(text)
+            if _path_context_indicates_output(path=path, prefix=prefix, suffix=suffix)
     ]
     expanded_paths = _expand_output_directory_file_lists(text)
     output_dirs = _extract_required_output_dirs(text, expanded_paths)
@@ -411,7 +416,7 @@ def _expand_material_directory_file_lists(text: str) -> list[str]:
             if not filename or "/" in filename:
                 continue
             result.append(f"{directory}/{filename}")
-    explicit_paths = [path for path, _prefix in _path_mentions_with_prefix(normalized)]
+    explicit_paths = [path for path, _prefix, _suffix in _path_mentions_with_context(normalized)]
     return _dedupe_strings([*explicit_paths, *result])
 
 
@@ -444,6 +449,10 @@ def _extract_required_output_dirs(text: str, expanded_paths: list[str]) -> list[
 
 
 def _path_mentions_with_prefix(text: str) -> list[tuple[str, str]]:
+    return [(path, prefix) for path, prefix, _suffix in _path_mentions_with_context(text)]
+
+
+def _path_mentions_with_context(text: str) -> list[tuple[str, str, str]]:
     normalized = str(text or "")
     suffixes = "py|json|md|txt|csv|xlsx|xls|pdf|yaml|yml|toml|docx|pptx|html|css|js|jsx|ts|tsx"
     patterns = [
@@ -456,7 +465,7 @@ def _path_mentions_with_prefix(text: str) -> list[tuple[str, str]]:
             re.IGNORECASE,
         ),
     ]
-    mentions: list[tuple[str, str]] = []
+    mentions: list[tuple[str, str, str]] = []
     seen: set[str] = set()
     for pattern in patterns:
         for match in pattern.finditer(normalized):
@@ -465,7 +474,8 @@ def _path_mentions_with_prefix(text: str) -> list[tuple[str, str]]:
                 continue
             seen.add(path)
             prefix = _local_path_context(normalized, start=match.start(), end=match.start(), radius=18)
-            mentions.append((path, prefix))
+            suffix = _local_path_context(normalized, start=match.end(), end=match.end(), radius=18)
+            mentions.append((path, prefix, suffix))
     return mentions
 
 
@@ -525,6 +535,52 @@ def _prefix_indicates_output_path(prefix: str) -> bool:
     return _context_indicates_output_path(prefix)
 
 
+def _path_context_indicates_output(*, path: str, prefix: str, suffix: str) -> bool:
+    normalized_path = _normalize_path_for_match(path)
+    if normalized_path.startswith("output/"):
+        return True
+    context = f"{prefix}{suffix}"
+    if not _context_indicates_output_path(context):
+        return False
+    if _context_indicates_read_material_path(prefix) and not any(
+        marker in prefix
+        for marker in ("目标输出", "输出目录", "输出到", "写入", "保存", "生成", "产出", "落到", "创建", "新建")
+    ):
+        return False
+    if _context_indicates_output_path(suffix) and not _context_indicates_output_path(prefix):
+        return False
+    return True
+
+
+def _path_context_indicates_material(*, path: str, prefix: str, suffix: str) -> bool:
+    normalized_path = _normalize_path_for_match(path)
+    if normalized_path.startswith("output/"):
+        return False
+    context = f"{prefix}{suffix}"
+    if _context_indicates_read_material_path(context):
+        return True
+    if any(marker in prefix for marker in ("根据", "基于", "参考", "结合", "读取", "审查", "分析", "检查", "查看")):
+        return True
+    if _looks_like_source_or_test_path(normalized_path) and not _context_indicates_output_path(prefix):
+        return True
+    return False
+
+
+def _looks_like_source_or_test_path(path: str) -> bool:
+    normalized = _normalize_path_for_match(path)
+    return normalized.startswith(
+        (
+            "tests/",
+            "backend/",
+            "frontend/",
+            "src/",
+            "app/",
+            "packages/",
+            ".materials/",
+        )
+    )
+
+
 def _context_indicates_output_path(context: str) -> bool:
     text = str(context or "")
     if _context_indicates_read_material_path(text) and not any(marker in text for marker in ("目标输出", "输出目录", "输出到", "写入", "保存", "生成", "产出")):
@@ -562,7 +618,12 @@ def _context_indicates_read_material_path(context: str) -> bool:
             "读取",
             "检查",
             "查看",
+            "审查",
+            "分析",
+            "追踪",
+            "结合",
             "基于",
+            "根据",
             "参考",
         )
     )

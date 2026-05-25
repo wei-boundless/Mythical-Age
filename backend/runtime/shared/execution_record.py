@@ -291,8 +291,7 @@ class RuntimeExecutionStore:
         }
 
     def _payload_path(self, task_run_id: str) -> Path:
-        safe = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in str(task_run_id or ""))
-        return self.execution_dir / f"{safe}.json"
+        return self.execution_dir / f"{_safe_id(task_run_id)}.json"
 
     def _load_payload(self, task_run_id: str) -> dict[str, Any]:
         path = self._payload_path(task_run_id)
@@ -392,3 +391,15 @@ def _merged_dict(base: dict[str, Any], updates: dict[str, Any] | None) -> dict[s
     if updates:
         merged.update(dict(updates))
     return merged
+
+
+def _safe_id(value: str, *, limit: int = 160) -> str:
+    raw = str(value or "")
+    safe = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in raw).strip("_")
+    if not safe:
+        return "runtime"
+    if len(safe) <= limit:
+        return safe
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+    head_limit = max(1, limit - len(digest) - 1)
+    return f"{safe[:head_limit].rstrip('_')}_{digest}"

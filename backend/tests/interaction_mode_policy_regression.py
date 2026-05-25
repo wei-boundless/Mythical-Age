@@ -251,7 +251,7 @@ def test_failure_repair_with_pytest_is_obligation_driven_professional_mode() -> 
     assert "terminal" in policy["tool_policy"]["allowed_tool_names"]
 
 
-def test_analysis_only_goal_does_not_escalate_from_forbidden_write() -> None:
+def test_analysis_only_goal_does_not_escalate_without_structural_write_request() -> None:
     goal = (
         "先分析 backend/tests/fixtures/professional_task_suite/failing_sixty_turn_summary.json 的失败原因，"
         "不要改代码。"
@@ -269,9 +269,9 @@ def test_analysis_only_goal_does_not_escalate_from_forbidden_write() -> None:
     semantic = contract.task_requirement_contract
     policy = contract.mode_policy
 
-    assert contract.execution_obligation["forbidden_actions"]
     assert not contract.execution_obligation["required_writes"]
     assert "apply_real_change" not in semantic["required_actions"]
+    assert "modify_code_without_request" in semantic["forbidden_actions"]
     assert policy["interaction_mode"] == "standard_mode"
 
 
@@ -315,3 +315,40 @@ def test_source_project_readonly_report_still_escalates_to_professional_write() 
     assert "apply_real_change" in semantic["required_actions"]
     assert policy["interaction_mode"] == "professional_mode"
     assert policy["mode_reason"] == "execution_obligation:write_or_verify"
+
+
+def test_explicit_professional_tool_budget_overrides_default_limits() -> None:
+    turn_context = model_turn_context(
+        action_intent="edit_workspace",
+        work_mode="implementation",
+        interaction_intent="modify",
+        desired_outcome="读取材料、写入报告并验证。",
+        task_goal_type="code_fix_execution",
+        task_domain="development",
+    )
+    explicit_policy = {
+        "interaction_mode": "professional_mode",
+        "runtime_lane": "professional_task",
+        "tool_policy": {
+            "max_tool_rounds_per_task_run": 8,
+            "max_tool_calls_per_task_run": 8,
+            "max_tool_calls_per_round": 1,
+        },
+    }
+    policy = build_runtime_interaction_mode_policy(
+        task_requirement_contract={
+            "task_goal_type": "code_fix_execution",
+            "execution_obligation": {
+                "required_writes": [{"path": "output/report.md"}],
+                "required_verifications": [{"kind": "terminal"}],
+            },
+        },
+        query_understanding={"model_turn_decision": dict(turn_context["model_turn_decision"])},
+        current_turn_context={**turn_context, "mode_policy": explicit_policy},
+    ).to_dict()
+
+    assert policy["interaction_mode"] == "professional_mode"
+    assert policy["tool_policy"]["max_tool_rounds_per_task_run"] == 8
+    assert policy["tool_policy"]["max_tool_calls_per_task_run"] == 8
+    assert policy["tool_policy"]["max_tool_calls_per_round"] == 1
+    assert policy["diagnostics"]["explicit_turn_policy_adopted"] is True

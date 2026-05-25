@@ -143,9 +143,15 @@ class RuntimeCheckpointStore:
             turn_count=int(state_payload.get("turn_count") or 0),
             step_count=int(state_payload.get("step_count") or 0),
             current_step_id=str(state_payload.get("current_step_id") or ""),
+            agent_id=str(state_payload.get("agent_id") or "agent:0"),
+            agent_profile_id=str(state_payload.get("agent_profile_id") or "main_interactive_agent"),
+            runtime_lane=str(state_payload.get("runtime_lane") or "full_interactive"),
+            task_agent_binding_ref=str(state_payload.get("task_agent_binding_ref") or ""),
             task_template_id=str(state_payload.get("task_template_id") or ""),
             task_spec_ref=str(state_payload.get("task_spec_ref") or ""),
             task_result_ref=str(state_payload.get("task_result_ref") or ""),
+            skill_workflow_ref=str(state_payload.get("skill_workflow_ref") or ""),
+            health_issue_ref=str(state_payload.get("health_issue_ref") or ""),
             transition=state_payload.get("transition", "start"),
             terminal_reason=state_payload.get("terminal_reason", ""),
             messages_ref=str(state_payload.get("messages_ref") or ""),
@@ -244,8 +250,16 @@ def _checksum(
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-def _safe_id(value: str) -> str:
-    return "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in str(value or ""))
+def _safe_id(value: str, *, limit: int = 160) -> str:
+    raw = str(value or "")
+    safe = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in raw).strip("_")
+    if not safe:
+        return "runtime"
+    if len(safe) <= limit:
+        return safe
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+    head_limit = max(1, limit - len(digest) - 1)
+    return f"{safe[:head_limit].rstrip('_')}_{digest}"
 
 
 def _runtime_objects_summary(

@@ -832,7 +832,7 @@ def _deepseek_thinking_disallows_tool_choice(spec: ModelSpec | None) -> bool:
     if spec is None:
         return False
     provider = str(spec.provider or "").strip().lower()
-    thinking_mode = str(spec.thinking_mode or "").strip().lower()
+    thinking_mode = str(spec.thinking_mode or "disabled").strip().lower()
     return provider == "deepseek" and thinking_mode == "enabled"
 
 

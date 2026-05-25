@@ -283,12 +283,57 @@ def _classify_failure_fact(fact: dict[str, Any]) -> dict[str, Any]:
 def _fact_from_observation(observation: dict[str, Any]) -> dict[str, Any]:
     ref = _observation_ref(observation)
     structured_data = _structured_payload_data(observation)
+    base = _tool_evidence_fields(observation, observation_ref=ref)
     if structured_data is not None:
-        return {"fact_type": "structured_observation", "data": structured_data, "observation_ref": ref}
+        return {"fact_type": "structured_observation", "data": structured_data, "observation_ref": ref, **base}
     text = str(observation.get("result") or observation.get("content") or "").strip()
     if not text:
-        return {}
-    return {"fact_type": "observation", "preview": text[:500], "observation_ref": ref}
+        return {"fact_type": "tool_evidence", "observation_ref": ref, **base} if base else {}
+    return {"fact_type": "observation", "preview": text[:500], "observation_ref": ref, **base}
+
+
+def _tool_evidence_fields(observation: dict[str, Any], *, observation_ref: str) -> dict[str, Any]:
+    item = dict(observation or {})
+    envelope = dict(item.get("result_envelope") or {})
+    structured_payload = dict(item.get("structured_payload") or envelope.get("structured_payload") or {})
+    command_receipt = dict(item.get("command_receipt") or envelope.get("command_receipt") or structured_payload.get("command_receipt") or {})
+    fields: dict[str, Any] = {}
+    tool_name = str(item.get("tool_name") or envelope.get("tool_name") or "").strip()
+    if tool_name:
+        fields["tool_name"] = tool_name
+    tool_args = dict(item.get("tool_args") or envelope.get("tool_args") or {})
+    if tool_args:
+        fields["tool_args"] = tool_args
+    observed_paths = _string_list(item.get("observed_paths") or envelope.get("observed_paths") or structured_payload.get("observed_paths"))
+    if observed_paths:
+        fields["observed_paths"] = observed_paths
+    artifact_refs = [
+        dict(ref)
+        for ref in list(item.get("artifact_refs") or envelope.get("artifact_refs") or structured_payload.get("artifact_refs") or [])
+        if isinstance(ref, dict)
+    ]
+    if artifact_refs:
+        fields["artifact_refs"] = artifact_refs
+    if command_receipt:
+        fields["command_receipt"] = command_receipt
+    verification_intent = dict(structured_payload.get("verification_intent") or {})
+    if verification_intent:
+        fields["verification_intent"] = verification_intent
+    if fields:
+        fields["evidence_source"] = "structured_tool_observation"
+    return fields
+
+
+def _string_list(value: Any) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for raw in list(value or []):
+        item = str(raw or "").replace("\\", "/").strip()
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        result.append(item)
+    return result
 
 
 def _observation_ref(observation: dict[str, Any]) -> str:
