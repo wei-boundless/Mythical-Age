@@ -43,7 +43,7 @@ async def create_task_order(payload: TaskOrderCreateRequest):
 
     projection_binding = flow_registry.get_projection_binding(task_id)
     flow_contract_binding = flow_registry.get_flow_contract_binding(task_id)
-    execution_policy = flow_registry.get_task_agent_adoption_plan(task_id)
+    execution_policy = flow_registry.get_task_execution_policy(task_id)
     creation = TaskOrderFactory().create_specific_task_order(
         session_id=session_id,
         task_record=task_record.to_dict(),

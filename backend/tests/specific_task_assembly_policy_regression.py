@@ -7,7 +7,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from task_system.registry.flow_models import SpecificTaskRecord, TaskAgentAdoptionPlan
+from task_system.registry.flow_models import SpecificTaskRecord, TaskExecutionPolicy
 from task_system.tasks import resolve_specific_task_assembly_policy
 
 
@@ -27,16 +27,16 @@ def test_specific_task_assembly_policy_extracts_environment_and_agent_selection(
             "prompt_requirements": {"optional_prompt_refs": ["bug_fix"]},
         },
     )
-    adoption = TaskAgentAdoptionPlan(
-        plan_id="taskadopt:frontend.fix",
+    execution_policy = TaskExecutionPolicy(
+        policy_id="taskexecpol:frontend.fix",
         task_id="task.frontend.fix",
-        adoption_mode="adopt_existing",
+        execution_mode="single_agent",
         default_agent_id="agent:codebase_searcher",
         allow_worker_agent_spawn=True,
         worker_agent_blueprint_id="worker.code_reviewer",
     )
 
-    policy = resolve_specific_task_assembly_policy(task_record=record, adoption_plan=adoption)
+    policy = resolve_specific_task_assembly_policy(task_record=record, execution_policy=execution_policy)
 
     assert policy.environment_id == "env.vibe_coding"
     assert policy.output_contract_ref == "contract.frontend.patch"

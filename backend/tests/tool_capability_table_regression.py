@@ -9,7 +9,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from runtime.tooling import ToolCapabilityBuildRequest, build_tool_capability_table
 from task_system.environments import resolve_task_environment
-from task_system.registry.flow_models import SpecificTaskRecord, TaskAgentAdoptionPlan
+from task_system.registry.flow_models import SpecificTaskRecord, TaskExecutionPolicy
 from task_system.tasks import resolve_specific_task_assembly_policy
 
 
@@ -86,10 +86,10 @@ def test_tool_table_consumes_specific_task_assembly_policy() -> None:
                 }
             },
         ),
-        adoption_plan=TaskAgentAdoptionPlan(
-            plan_id="taskadopt:frontend.fix",
+        execution_policy=TaskExecutionPolicy(
+            policy_id="taskexecpol:frontend.fix",
             task_id="task.frontend.fix",
-            adoption_mode="adopt_existing",
+            execution_mode="single_agent",
             default_agent_id="agent:0",
         ),
     )

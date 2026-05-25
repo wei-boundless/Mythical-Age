@@ -159,30 +159,29 @@ class TaskFlowContractBinding:
 
 
 @dataclass(frozen=True, slots=True)
-class TaskAgentAdoptionPlan:
-    plan_id: str
+class TaskExecutionPolicy:
+    policy_id: str
     task_id: str
-    adoption_mode: str
+    execution_mode: str
     default_agent_id: str = "agent:0"
     allow_worker_agent_spawn: bool = False
     worker_agent_blueprint_id: str = ""
     worker_agent_naming_rule: str = ""
     notes: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
-    authority: str = "task_system.task_agent_adoption_plan"
+    authority: str = "task_system.task_execution_policy"
 
     def __post_init__(self) -> None:
-        if self.authority != "task_system.task_agent_adoption_plan":
-            raise ValueError("TaskAgentAdoptionPlan authority must be task_system.task_agent_adoption_plan")
-        if not self.plan_id:
-            raise ValueError("TaskAgentAdoptionPlan requires plan_id")
+        if self.authority != "task_system.task_execution_policy":
+            raise ValueError("TaskExecutionPolicy authority must be task_system.task_execution_policy")
+        if not self.policy_id:
+            raise ValueError("TaskExecutionPolicy requires policy_id")
         if not self.task_id:
-            raise ValueError("TaskAgentAdoptionPlan requires task_id")
+            raise ValueError("TaskExecutionPolicy requires task_id")
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         metadata = dict(payload.get("metadata") or {})
-        payload["execution_policy_id"] = payload["plan_id"].replace("taskadopt:", "taskexecpol:", 1)
         execution_chain_type = str(metadata.get("execution_chain_type") or "").strip()
         if not execution_chain_type:
             execution_chain_type = (

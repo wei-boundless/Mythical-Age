@@ -1572,7 +1572,7 @@ def _agent_run_from_payload(payload: dict[str, Any]) -> AgentRun:
         agent_id=str(payload.get("agent_id") or ""),
         agent_profile_id=str(payload.get("agent_profile_id") or ""),
         role=str(payload.get("role") or "main_executor"),
-        spawn_mode=str(payload.get("spawn_mode") or "adopt_existing"),
+        spawn_mode=str(payload.get("spawn_mode") or "single_agent"),
         context_scope=str(payload.get("context_scope") or "task_default"),
         runtime_lane=str(payload.get("runtime_lane") or "full_interactive"),
         parent_agent_run_ref=str(payload.get("parent_agent_run_ref") or ""),

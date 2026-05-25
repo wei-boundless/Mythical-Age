@@ -700,7 +700,7 @@ class TaskRunLoop:
         task_agent_binding_ref: str = "",
         skill_workflow_ref: str = "",
         health_issue_ref: str = "",
-        adoption_mode: str = "adopt_existing",
+        execution_mode: str = "single_agent",
         graph_ref: str = "",
         graph_payload: dict[str, Any] | None = None,
         topology_template_payload: dict[str, Any] | None = None,
@@ -769,7 +769,7 @@ class TaskRunLoop:
                 "single_agent": coordination_run is None,
                 "multi_agent_enabled": coordination_run is not None,
                 "graph_ref": resolved_graph_ref,
-                "adoption_mode": adoption_mode,
+                "execution_mode": execution_mode,
                 "runtime_assembly_ref": assembly_ref,
                 "contract_manifest_ref": manifest_ref,
                 "working_memory_refs": working_memory_refs,
@@ -787,7 +787,7 @@ class TaskRunLoop:
             agent_id=agent_id,
             agent_profile_id=agent_profile_id,
             role="main_executor" if coordination_run is None else "coordinator",
-            spawn_mode=adoption_mode,
+            spawn_mode=execution_mode,
             context_scope="task_default",
             runtime_lane=runtime_lane,
             coordination_run_ref=coordination_run.coordination_run_id if coordination_run is not None else "",
@@ -915,7 +915,7 @@ class TaskRunLoop:
                 "skill_workflow_ref": skill_workflow_ref,
                 "health_issue_ref": health_issue_ref,
                 "main_agent_run_ref": agent_run.agent_run_id,
-                "adoption_mode": adoption_mode,
+                "execution_mode": execution_mode,
                 "graph_ref": resolved_graph_ref,
                 "multi_agent_enabled": coordination_run is not None,
                 "loop_limits": self.limits.to_dict(),
@@ -1013,7 +1013,7 @@ class TaskRunLoop:
             agent_id=coordinator_agent_id,
             agent_profile_id=str(runtime_policy.get("coordinator_agent_profile_id") or "task_graph_coordinator"),
             runtime_lane=str(runtime_policy.get("runtime_lane") or "task_graph_coordination"),
-            adoption_mode="task_graph_runtime",
+            execution_mode="task_graph_runtime",
             graph_ref=graph.graph_id,
             graph_payload=graph_payload,
             coordinator_agent_id=coordinator_agent_id,
@@ -1515,7 +1515,7 @@ class TaskRunLoop:
             task_operation["execution_permit"] = execution_permit
         memory_view = dict(chain_runtime.get("memory_runtime_view") or {})
         context_policy = dict(chain_runtime.get("context_policy_result") or {})
-        adoption_mode = str(task_execution_policy_payload.get("adoption_mode") or "adopt_existing")
+        execution_mode = str(task_execution_policy_payload.get("execution_mode") or "single_agent")
         effective_limits = _runtime_limits_from_task_operation(task_operation, fallback=self.limits)
         result_refs: list[str] = []
         final_main_context: dict[str, Any] = {}
@@ -1528,7 +1528,7 @@ class TaskRunLoop:
             agent_profile_id=effective_agent_profile_id,
             runtime_lane=str(agent_runtime_spec_payload.get("runtime_lane") or "full_interactive"),
             task_agent_binding_ref=str(task_execution_assembly_payload.get("task_agent_binding_ref") or ""),
-            adoption_mode=adoption_mode,
+            execution_mode=execution_mode,
             graph_ref=str(
                 task_graph_payload.get("graph_id")
                 or graph_payload.get("graph_id")
@@ -1693,7 +1693,9 @@ class TaskRunLoop:
                 "task_execution_assembly_ref": str(task_execution_assembly_payload.get("assembly_id") or ""),
                 "task_projection_binding_ref": str(task_projection_binding_payload.get("binding_id") or ""),
                 "task_flow_contract_binding_ref": str(task_flow_contract_binding_payload.get("binding_id") or ""),
-                "task_execution_policy_ref": str(task_execution_policy_payload.get("execution_policy_id") or task_execution_policy_payload.get("plan_id") or ""),
+                "task_execution_policy_ref": str(
+                    task_execution_policy_payload.get("policy_id") or ""
+                ),
                 "task_memory_request_profile_ref": str(task_memory_request_profile_payload.get("profile_id") or ""),
                 "task_communication_protocol_ref": str(task_communication_protocol_payload.get("protocol_id") or ""),
                 "graph_ref": str(
@@ -1719,7 +1721,7 @@ class TaskRunLoop:
         runtime_object_events = self._sync_runtime_objects_after_task_contract(
             start_result=start,
             event_offset=task_event.offset,
-            adoption_mode=adoption_mode,
+            execution_mode=execution_mode,
             task_agent_binding_ref=str(task_execution_assembly_payload.get("task_agent_binding_ref") or ""),
             graph_payload=graph_payload,
             task_graph_payload=task_graph_payload,
@@ -3766,7 +3768,7 @@ class TaskRunLoop:
         *,
         start_result: TaskRunLoopStartResult,
         event_offset: int,
-        adoption_mode: str,
+        execution_mode: str,
         task_agent_binding_ref: str,
         graph_payload: dict[str, Any],
         communication_protocol_payload: dict[str, Any],
@@ -3815,7 +3817,7 @@ class TaskRunLoop:
             agent_id=start_result.agent_run.agent_id,
             agent_profile_id=start_result.agent_run.agent_profile_id,
             role="coordinator" if graph_payload else start_result.agent_run.role,
-            spawn_mode=adoption_mode,
+            spawn_mode=execution_mode,
             context_scope=start_result.agent_run.context_scope,
             runtime_lane=start_result.agent_run.runtime_lane,
             parent_agent_run_ref=start_result.agent_run.parent_agent_run_ref,
@@ -3830,7 +3832,7 @@ class TaskRunLoop:
             updated_at=time.time(),
             diagnostics={
                 **dict(start_result.agent_run.diagnostics),
-                "adoption_mode": adoption_mode,
+                "execution_mode": execution_mode,
                 "task_agent_binding_ref": task_agent_binding_ref,
             },
         )
@@ -3995,7 +3997,7 @@ class TaskRunLoop:
             task_run_id=start_result.task_run.task_run_id,
             parent_agent_run=updated_agent_run,
             coordination_run=current_coordination_run,
-            adoption_mode=adoption_mode,
+            execution_mode=execution_mode,
             task_agent_binding_ref=task_agent_binding_ref,
             execution_policy_payload=execution_policy_payload,
             event_offset=event_offset,
@@ -4018,7 +4020,7 @@ class TaskRunLoop:
         task_run_id: str,
         parent_agent_run: AgentRun,
         coordination_run: CoordinationRun | None,
-        adoption_mode: str,
+        execution_mode: str,
         task_agent_binding_ref: str,
         execution_policy_payload: dict[str, Any],
         event_offset: int,
@@ -4136,7 +4138,7 @@ class TaskRunLoop:
             spawn_reason="task_execution_policy_authorized",
             requested_at=time.time(),
             diagnostics={
-                "adoption_mode": adoption_mode,
+                "execution_mode": execution_mode,
                 "task_agent_binding_ref": task_agent_binding_ref,
                 "event_offset": event_offset,
             },
@@ -4207,7 +4209,7 @@ class TaskRunLoop:
                 refs={"spawn_result_ref": finalized_spawn_result.spawn_result_id},
             )
         )
-        if coordination_run is None and self._adoption_mode_allows_projection(adoption_mode):
+        if coordination_run is None and self._execution_mode_allows_projection(execution_mode):
             coordination_run = CoordinationRun(
                 coordination_run_id=f"coordrun:{task_run_id}:spawn",
                 task_run_id=task_run_id,
@@ -4483,8 +4485,8 @@ class TaskRunLoop:
         return str(rendered or f"工作Agent {index}").strip()
 
     @staticmethod
-    def _adoption_mode_allows_projection(adoption_mode: str) -> bool:
-        return str(adoption_mode or "").strip() in {"adopt_with_projection", "spawn_worker_allowed"}
+    def _execution_mode_allows_projection(execution_mode: str) -> bool:
+        return str(execution_mode or "").strip() == "coordinated_agents"
 
     def _upsert_task_run_runtime_state(
         self,

@@ -27354,6 +27354,88 @@ html[data-workspace-tone] .agent-workbench {
   border-top: 0;
 }
 
+.agent-workbench .runtime-run-summary[open] {
+  width: min(100%, 720px);
+}
+
+.agent-workbench .runtime-run-summary[open] .runtime-run-summary__details {
+  gap: 3px;
+  margin-top: 5px;
+  border-left: 0;
+  padding-left: 0;
+}
+
+.agent-workbench .runtime-run-summary[open] .runtime-run-summary__anchor,
+.agent-workbench .runtime-run-summary[open] .runtime-run-summary__item {
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 5px;
+  align-items: center;
+  padding: 1px 0;
+}
+
+.agent-workbench .runtime-run-summary[open] .runtime-run-summary__anchor-main,
+.agent-workbench .runtime-run-summary[open] .runtime-run-summary__item-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 6px;
+  row-gap: 2px;
+  min-width: 0;
+}
+
+.agent-workbench .runtime-run-summary[open] .runtime-run-summary__anchor-row,
+.agent-workbench .runtime-run-summary[open] .runtime-run-summary__item-head {
+  display: inline-flex;
+  flex: 0 1 auto;
+  gap: 5px;
+  min-width: 0;
+}
+
+.agent-workbench .runtime-run-summary[open] .runtime-run-summary__anchor-row strong,
+.agent-workbench .runtime-run-summary[open] .runtime-run-summary__item-head strong {
+  max-width: 220px;
+}
+
+.agent-workbench .runtime-run-summary[open] .runtime-run-summary p {
+  flex: 1 1 240px;
+  min-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-workbench .runtime-run-summary[open] .runtime-run-summary__meta,
+.agent-workbench .runtime-run-summary[open] .runtime-run-summary__artifacts {
+  flex: 0 1 auto;
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+.agent-workbench .runtime-run-summary[open] .runtime-run-summary__chip,
+.agent-workbench .runtime-run-summary[open] .runtime-run-summary__artifact,
+.agent-workbench .runtime-run-summary[open] .runtime-run-summary__status {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.agent-workbench .runtime-run-summary[open] .runtime-run-summary__chip {
+  padding: 1px 5px;
+}
+
+.agent-workbench .runtime-run-summary[open] .runtime-run-summary__node {
+  height: 16px;
+}
+
+.agent-workbench .runtime-run-summary[open] .runtime-run-summary__item--terminal .runtime-run-summary__item-main,
+.agent-workbench .runtime-run-summary[open] .runtime-run-summary__item--error .runtime-run-summary__item-main {
+  background: transparent;
+}
+
+.agent-workbench .runtime-run-summary[open] .runtime-run-summary__item--error p,
+.agent-workbench .runtime-run-summary[open] .runtime-run-summary__item--terminal p {
+  color: var(--console-danger);
+}
+
 .agent-workbench .runtime-evidence-panel {
   grid-column: 2;
   margin: 0 0 12px;

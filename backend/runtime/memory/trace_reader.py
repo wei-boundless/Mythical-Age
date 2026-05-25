@@ -1931,8 +1931,7 @@ def _payload_summary(event_type: str, payload: dict[str, Any]) -> dict[str, Any]
                 "step_count": len(list(task_run_ledger.get("step_runs") or [])),
                 "user_goal_chars": len(str(contract.get("user_goal") or "")),
                 "task_execution_policy_ref": str(
-                    dict(payload.get("task_execution_policy") or {}).get("execution_policy_id")
-                    or dict(payload.get("task_execution_policy") or {}).get("plan_id")
+                    dict(payload.get("task_execution_policy") or {}).get("policy_id")
                     or ""
                 ),
                 "graph_ref": str(

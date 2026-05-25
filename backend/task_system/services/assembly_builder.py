@@ -91,11 +91,11 @@ def build_task_execution_assembly_bundle(
         binding_task_id = registered_task_id
     else:
         binding_task_id = str(explicit_task_id or registered_task_id or task_id).strip()
-    execution_policy = flow_registry.get_task_agent_adoption_plan(binding_task_id)
+    execution_policy = flow_registry.get_task_execution_policy(binding_task_id)
     specific_task_policy = (
         resolve_specific_task_assembly_policy(
             task_record=specific_task_record,
-            adoption_plan=execution_policy,
+            execution_policy=execution_policy,
             task_selection=current_turn_payload,
         )
         if specific_task_record is not None
@@ -393,7 +393,7 @@ def build_task_execution_assembly_bundle(
         flow_contract_binding_ref=str(getattr(flow_contract_binding, "binding_id", "") or ""),
         flow_contract_id=str(getattr(flow_contract_binding, "flow_contract_id", "") or str((registered_task or {}).get("flow_id") or "")),
         execution_chain_type=execution_chain_type,
-        task_execution_policy_ref=str(getattr(execution_policy, "plan_id", "") or ""),
+        task_execution_policy_ref=str(getattr(execution_policy, "policy_id", "") or ""),
         memory_request_profile_ref=str(getattr(memory_request_profile, "profile_id", "") or ""),
         communication_protocol_ref=str(getattr(communication_protocol, "protocol_id", "") or ""),
         graph_ref=graph_ref,
@@ -427,7 +427,7 @@ def build_task_execution_assembly_bundle(
             "projection_source": projection_selection.selection_source,
             "memory_layers": list(memory_request_profile_payload.get("requested_memory_layers") or ()),
             "memory_topics": list(memory_request_profile_payload.get("requested_topics") or ()),
-            "execution_policy_mode": str(getattr(execution_policy, "adoption_mode", "") or ""),
+            "execution_policy_mode": str(getattr(execution_policy, "execution_mode", "") or ""),
             "runtime_limits": dict(runtime_limits),
             "operation_policy": dict(operation_policy),
             **({"coordination_request_ref": coordination_request_brief.get("brief_id")} if coordination_request_brief else {}),

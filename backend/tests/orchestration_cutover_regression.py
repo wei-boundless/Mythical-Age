@@ -137,9 +137,9 @@ def test_query_runtime_uses_turn_id_and_task_instance_id_instead_of_turn_task_id
 def test_runtime_formalizes_worker_spawn_and_coordination_runtime_objects() -> None:
     base_dir = _isolated_backend_root()
     registry = TaskFlowRegistry(base_dir)
-    registry.upsert_task_agent_adoption_plan(
+    registry.upsert_task_execution_policy(
         task_id="task.dev.light_web_game",
-        adoption_mode="adopt_with_projection",
+        execution_mode="coordinated_agents",
         default_agent_id="agent:0",
         allow_worker_agent_spawn=True,
         worker_agent_blueprint_id="worker.dev.prototype",

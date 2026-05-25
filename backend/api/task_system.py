@@ -412,8 +412,8 @@ def _task_system_payload(base_dir) -> dict[str, object]:
     explicit_projection_binding_models = registry.list_explicit_projection_bindings()
     flow_contract_binding_models = registry.list_flow_contract_bindings()
     explicit_flow_contract_binding_models = registry.list_explicit_flow_contract_bindings()
-    execution_policy_models = registry.list_task_agent_adoption_plans()
-    explicit_execution_policy_models = registry.list_explicit_task_agent_adoption_plans()
+    execution_policy_models = registry.list_task_execution_policies()
+    explicit_execution_policy_models = registry.list_explicit_task_execution_policies()
     projection_bindings = [model.to_dict() for model in projection_binding_models]
     flow_contract_bindings = [model.to_dict() for model in flow_contract_binding_models]
     explicit_execution_task_ids = {item.task_id for item in explicit_execution_policy_models}
@@ -473,7 +473,7 @@ def _task_system_payload(base_dir) -> dict[str, object]:
             "derived_execution_policy_count": _derived_count(
                 execution_policy_models,
                 explicit_execution_policy_models,
-                key_attr="plan_id",
+                key_attr="policy_id",
             ),
             "effective_execution_policy_count": len(execution_policy_models),
             "task_domain_count": len(task_domains),
@@ -1691,12 +1691,12 @@ async def upsert_task_system_execution_policy(
     if payload.task_id != task_id:
         payload = payload.model_copy(update={"task_id": task_id})
     try:
-        TaskFlowRegistry(runtime.base_dir).upsert_task_agent_adoption_plan(
+        TaskFlowRegistry(runtime.base_dir).upsert_task_execution_policy(
             task_id=payload.task_id,
-            adoption_mode=(
-                "adopt_with_projection"
+            execution_mode=(
+                "coordinated_agents"
                 if payload.allow_worker_agent_spawn
-                else "adopt_existing"
+                else "single_agent"
             ),
             default_agent_id=payload.default_agent_id,
             allow_worker_agent_spawn=payload.allow_worker_agent_spawn,

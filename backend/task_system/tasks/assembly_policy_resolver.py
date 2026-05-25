@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from task_system.registry.flow_models import SpecificTaskRecord, TaskAgentAdoptionPlan
+from task_system.registry.flow_models import SpecificTaskRecord, TaskExecutionPolicy
 
 from .assembly_policy import (
     AgentSelectionPolicy,
@@ -16,13 +16,13 @@ from .assembly_policy import (
 def resolve_specific_task_assembly_policy(
     *,
     task_record: SpecificTaskRecord,
-    adoption_plan: TaskAgentAdoptionPlan | None = None,
+    execution_policy: TaskExecutionPolicy | None = None,
     task_selection: dict[str, Any] | None = None,
 ) -> SpecificTaskAssemblyPolicy:
     selection = dict(task_selection or {})
     task_policy = dict(getattr(task_record, "task_policy", {}) or {})
     metadata = dict(getattr(task_record, "metadata", {}) or {})
-    adoption_metadata = dict(getattr(adoption_plan, "metadata", {}) or {}) if adoption_plan is not None else {}
+    execution_policy_metadata = dict(getattr(execution_policy, "metadata", {}) or {}) if execution_policy is not None else {}
     environment_id = _first_value(
         selection.get("task_environment_id"),
         selection.get("environment_id"),
@@ -65,15 +65,15 @@ def resolve_specific_task_assembly_policy(
             selection.get("runtime_shape"),
             task_policy.get("runtime_shape"),
             metadata.get("runtime_shape"),
-            adoption_metadata.get("execution_chain_type"),
-            "task_graph" if bool(getattr(adoption_plan, "allow_worker_agent_spawn", False)) else "",
+            execution_policy_metadata.get("execution_chain_type"),
+            "task_graph" if bool(getattr(execution_policy, "allow_worker_agent_spawn", False)) else "",
             "single_agent",
         )
     )
     agent_selection = AgentSelectionPolicy(
         default_agent_id=_first_value(
             selection.get("default_agent_id"),
-            getattr(adoption_plan, "default_agent_id", ""),
+            getattr(execution_policy, "default_agent_id", ""),
             metadata.get("default_agent_id"),
             "agent:0",
         ),
@@ -85,11 +85,11 @@ def resolve_specific_task_assembly_policy(
         ),
         worker_blueprint_id=_first_value(
             selection.get("worker_agent_blueprint_id"),
-            getattr(adoption_plan, "worker_agent_blueprint_id", ""),
+            getattr(execution_policy, "worker_agent_blueprint_id", ""),
             metadata.get("worker_agent_blueprint_id"),
         ),
         allow_worker_spawn=bool(
-            selection.get("allow_worker_agent_spawn", getattr(adoption_plan, "allow_worker_agent_spawn", False))
+            selection.get("allow_worker_agent_spawn", getattr(execution_policy, "allow_worker_agent_spawn", False))
         ),
         participant_agent_refs=_tuple_from_any(
             selection.get("participant_agent_refs")
@@ -146,7 +146,7 @@ def resolve_specific_task_assembly_policy(
         metadata={
             "source": "task_system.tasks.assembly_policy_resolver",
             "task_record_ref": str(task_record.task_id or ""),
-            "adoption_plan_ref": str(getattr(adoption_plan, "plan_id", "") or ""),
+            "execution_policy_ref": str(getattr(execution_policy, "policy_id", "") or ""),
         },
     )
 

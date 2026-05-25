@@ -474,9 +474,9 @@ def test_main_agent_assembly_modes_select_expected_runtime_lanes() -> None:
 def test_runtime_trace_exposes_worker_spawn_trace_for_light_web_game(tmp_path: Path) -> None:
     base_dir = isolated_backend_root("query-runtime-loop-")
     registry = TaskFlowRegistry(base_dir)
-    registry.upsert_task_agent_adoption_plan(
+    registry.upsert_task_execution_policy(
         task_id="task.dev.light_web_game",
-        adoption_mode="adopt_with_projection",
+        execution_mode="coordinated_agents",
         default_agent_id="agent:0",
         allow_worker_agent_spawn=True,
         worker_agent_blueprint_id="worker.dev.prototype",

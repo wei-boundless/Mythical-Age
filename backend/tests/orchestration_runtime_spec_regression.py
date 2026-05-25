@@ -437,9 +437,9 @@ def test_specific_task_assembly_policy_enters_main_assembly_chain(tmp_path: Path
             "prompt_requirements": {"required_prompt_refs": ["writer.brief"]},
         },
     )
-    registry.upsert_task_agent_adoption_plan(
+    registry.upsert_task_execution_policy(
         task_id="task.test.specific.policy",
-        adoption_mode="adopt_existing",
+        execution_mode="single_agent",
         default_agent_id="agent:writer",
         allow_worker_agent_spawn=False,
     )

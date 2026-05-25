@@ -1742,7 +1742,7 @@ def test_task_system_formal_object_upserts_persist_and_return_management_payload
                     allow_worker_agent_spawn=True,
                     worker_agent_blueprint_id="worker.dev.prototype",
                     worker_agent_naming_rule="game-worker-{n}",
-                    notes="test adoption plan",
+                    notes="test execution policy",
                 ),
             )
         )
@@ -1769,7 +1769,7 @@ def test_task_system_formal_object_upserts_persist_and_return_management_payload
     registry = TaskFlowRegistry(tmp_path)
     projection_binding = registry.get_projection_binding("task.dev.light_web_game")
     flow_binding = registry.get_flow_contract_binding("task.dev.light_web_game")
-    execution_policy = registry.get_task_agent_adoption_plan("task.dev.light_web_game")
+    execution_policy = registry.get_task_execution_policy("task.dev.light_web_game")
     protocol = registry.get_task_communication_protocol("protocol.dev.parallel_review")
 
     assert projection_payload["task_management"]["projection_bindings"]
@@ -1791,7 +1791,7 @@ def test_task_system_formal_object_upserts_persist_and_return_management_payload
     assert execution_policy.to_dict()["execution_chain_type"] == "single_agent_chain"
     assert execution_policy.to_dict()["default_agent_id"] == "agent:3"
     assert execution_payload["task_management"]["execution_policies"][0]["default_agent_id"] == "agent:3"
-    assert execution_policy.adoption_mode == "adopt_with_projection"
+    assert execution_policy.execution_mode == "coordinated_agents"
     assert execution_policy.allow_worker_agent_spawn is True
     assert execution_policy.worker_agent_blueprint_id == "worker.dev.prototype"
 
@@ -1800,21 +1800,21 @@ def test_task_system_formal_object_upserts_persist_and_return_management_payload
     assert "review_feedback" in protocol.message_types
 
 
-def test_task_execution_policy_normalizes_legacy_worker_spawn_mode(tmp_path: Path) -> None:
+def test_task_execution_policy_persists_coordinated_agent_mode(tmp_path: Path) -> None:
     registry = TaskFlowRegistry(tmp_path)
 
-    registry.upsert_task_agent_adoption_plan(
+    registry.upsert_task_execution_policy(
         task_id="task.dev.light_web_game",
-        adoption_mode="spawn_worker_allowed",
+        execution_mode="coordinated_agents",
         default_agent_id="agent:0",
         allow_worker_agent_spawn=True,
         worker_agent_blueprint_id="worker.dev.prototype",
     )
 
-    policy = registry.get_task_agent_adoption_plan("task.dev.light_web_game")
+    policy = registry.get_task_execution_policy("task.dev.light_web_game")
 
     assert policy is not None
-    assert policy.adoption_mode == "adopt_with_projection"
+    assert policy.execution_mode == "coordinated_agents"
 
 
 def test_coordination_task_is_domain_parent_with_specific_subtask_refs(tmp_path: Path) -> None:
@@ -1960,7 +1960,7 @@ def test_task_system_no_longer_seeds_concrete_writing_task_objects(tmp_path: Pat
             "graph.writing.short_story_pipeline",
             "graph.writing.longform_project_bootstrap",
         ],
-        "adoption_plans": [
+        "execution_policies": [
             "task.writing.longform_novel_project",
         ],
     }
@@ -1974,8 +1974,8 @@ def test_task_system_no_longer_seeds_concrete_writing_task_objects(tmp_path: Pat
         assert registry.get_task_communication_protocol(protocol_id) is None
     for graph_id in removed_refs["coordination_tasks"]:
         assert registry.get_task_graph(graph_id) is None
-    for task_id in removed_refs["adoption_plans"]:
-        assert registry.get_task_agent_adoption_plan(task_id) is None
+    for task_id in removed_refs["execution_policies"]:
+        assert registry.get_task_execution_policy(task_id) is None
 
 
 def test_task_graph_api_persists_working_memory_strategy_fields(tmp_path: Path) -> None:

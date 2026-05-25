@@ -149,7 +149,7 @@ class TaskOrderFactory:
         executor_policy = {
             **execution,
             "executor_type": "agent",
-            "task_execution_policy_ref": str(execution.get("plan_id") or execution.get("execution_policy_id") or "").strip(),
+            "task_execution_policy_ref": str(execution.get("policy_id") or "").strip(),
             "default_agent_id": str(execution.get("default_agent_id") or "agent:0").strip() or "agent:0",
             "execution_chain_type": str(execution.get("execution_chain_type") or "single_agent_chain").strip(),
             "runtime_agent_selection_policy": str(execution.get("runtime_agent_selection_policy") or "orchestration_default").strip(),
@@ -249,7 +249,7 @@ class TaskOrderFactory:
                 "task_definition_ref": task_id,
                 "projection_binding_ref": str(projection.get("binding_id") or "").strip(),
                 "flow_contract_binding_ref": str(flow_binding.get("binding_id") or "").strip(),
-                "task_execution_policy_ref": str(execution.get("plan_id") or execution.get("execution_policy_id") or "").strip(),
+                "task_execution_policy_ref": str(execution.get("policy_id") or "").strip(),
             },
             created_at=now,
         )

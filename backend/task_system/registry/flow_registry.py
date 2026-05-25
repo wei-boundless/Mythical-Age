@@ -15,7 +15,7 @@ from task_system.registry.flow_models import (
     GeneralTaskProfile,
     SpecificTaskRecord,
     TaskDomainRecord,
-    TaskAgentAdoptionPlan,
+    TaskExecutionPolicy,
     TaskAgentBinding,
     TaskAssignment,
     TaskCommunicationProtocol,
@@ -54,11 +54,9 @@ CONTRACT_KIND_LABELS: dict[str, str] = {
     "payload": "通信载荷契约",
 }
 
-def normalize_task_agent_adoption_mode(value: str) -> str:
+def normalize_task_execution_mode(value: str) -> str:
     normalized = str(value or "").strip()
-    if normalized == "spawn_worker_allowed":
-        return "adopt_with_projection"
-    return normalized or "adopt_existing"
+    return normalized or "single_agent"
 
 
 def default_health_task_flows() -> tuple[TaskFlowDefinition, ...]:
@@ -83,7 +81,7 @@ def _is_removed_health_task_config(payload: dict[str, Any]) -> bool:
         payload.get("default_flow_contract_id"),
         payload.get("flow_contract_id"),
         payload.get("binding_id"),
-        payload.get("plan_id"),
+        payload.get("policy_id"),
         payload.get("profile_id"),
         metadata.get("task_resource"),
         metadata.get("source_flow_id"),
@@ -167,8 +165,8 @@ def _flow_contract_bindings_path(base_dir: Path) -> Path:
     return _storage_root(base_dir) / "task_flow_contract_bindings.json"
 
 
-def _adoption_plans_path(base_dir: Path) -> Path:
-    return _storage_root(base_dir) / "task_agent_adoption_plans.json"
+def _execution_policies_path(base_dir: Path) -> Path:
+    return _storage_root(base_dir) / "task_execution_policies.json"
 
 
 def _memory_request_profiles_path(base_dir: Path) -> Path:
@@ -448,7 +446,7 @@ def _default_flow_contract_binding(task: TaskAssignment) -> TaskFlowContractBind
     )
 
 
-def _default_adoption_plan(task: TaskAssignment) -> TaskAgentAdoptionPlan:
+def _default_execution_policy(task: TaskAssignment) -> TaskExecutionPolicy:
     participant_ids = tuple(str(item).strip() for item in task.participant_agent_ids if str(item).strip())
     task_structure = dict(task.task_structure or {})
     task_metadata = dict(task.metadata or {})
@@ -466,10 +464,10 @@ def _default_adoption_plan(task: TaskAssignment) -> TaskAgentAdoptionPlan:
     execution_chain_type = str(task.to_dict().get("execution_chain_type") or "").strip() or (
         "coordination_chain" if task_graph_id else "single_agent_chain"
     )
-    return TaskAgentAdoptionPlan(
-        plan_id=f"taskadopt:{task.task_id}",
+    return TaskExecutionPolicy(
+        policy_id=f"taskexecpol:{task.task_id}",
         task_id=task.task_id,
-        adoption_mode="adopt_existing" if not participant_ids else "adopt_with_projection",
+        execution_mode="single_agent" if not participant_ids else "coordinated_agents",
         default_agent_id=normalize_agent_id(str(task.default_agent_id or "agent:0").strip() or "agent:0"),
         allow_worker_agent_spawn=False,
         worker_agent_blueprint_id="",
@@ -990,8 +988,8 @@ class TaskFlowRegistry:
             {"flow_contract_bindings": [item.to_dict() for item in self.list_flow_contract_bindings() if item.task_id not in task_ids]},
         )
         _write_json(
-            _adoption_plans_path(self.base_dir),
-            {"adoption_plans": [item.to_dict() for item in self.list_task_agent_adoption_plans() if item.task_id not in task_ids]},
+            _execution_policies_path(self.base_dir),
+            {"execution_policies": [item.to_dict() for item in self.list_task_execution_policies() if item.task_id not in task_ids]},
         )
         _write_json(
             _memory_request_profiles_path(self.base_dir),
@@ -1267,8 +1265,8 @@ class TaskFlowRegistry:
             {"flow_contract_bindings": [item.to_dict() for item in self.list_flow_contract_bindings() if item.task_id != target]},
         )
         _write_json(
-            _adoption_plans_path(self.base_dir),
-            {"adoption_plans": [item.to_dict() for item in self.list_task_agent_adoption_plans() if item.task_id != target]},
+            _execution_policies_path(self.base_dir),
+            {"execution_policies": [item.to_dict() for item in self.list_task_execution_policies() if item.task_id != target]},
         )
         _write_json(
             _memory_request_profiles_path(self.base_dir),
@@ -1594,33 +1592,33 @@ class TaskFlowRegistry:
         self._invalidate_cache()
         return binding
 
-    def list_task_agent_adoption_plans(self) -> list[TaskAgentAdoptionPlan]:
-        def load() -> list[TaskAgentAdoptionPlan]:
+    def list_task_execution_policies(self) -> list[TaskExecutionPolicy]:
+        def load() -> list[TaskExecutionPolicy]:
             default_tasks = [
                 *[_synthetic_task_from_general_profile(item) for item in self.list_general_task_profiles()],
                 *self.list_task_assignments(),
             ]
             payload = _read_json(
-                _adoption_plans_path(self.base_dir),
-                {"adoption_plans": [_default_adoption_plan(item).to_dict() for item in default_tasks]},
+                _execution_policies_path(self.base_dir),
+                {"execution_policies": [_default_execution_policy(item).to_dict() for item in default_tasks]},
             )
-            default_plans = [_default_adoption_plan(item).to_dict() for item in default_tasks]
+            default_plans = [_default_execution_policy(item).to_dict() for item in default_tasks]
             merged_payload = _merge_default_overlay_by_key(
                 default_plans,
                 [
                     item
-                    for item in list(payload.get("adoption_plans") or [])
+                    for item in list(payload.get("execution_policies") or [])
                     if isinstance(item, dict) and not _is_removed_health_task_config(item)
                 ],
-                key="plan_id",
+                    key="policy_id",
             )
-            plans: list[TaskAgentAdoptionPlan] = []
+            plans: list[TaskExecutionPolicy] = []
             for item in merged_payload:
                 plans.append(
-                    TaskAgentAdoptionPlan(
-                        plan_id=str(item.get("plan_id") or ""),
+                    TaskExecutionPolicy(
+                        policy_id=str(item.get("policy_id") or "").strip(),
                         task_id=str(item.get("task_id") or ""),
-                        adoption_mode=normalize_task_agent_adoption_mode(str(item.get("adoption_mode") or "adopt_existing")),
+                        execution_mode=normalize_task_execution_mode(str(item.get("execution_mode") or "single_agent")),
                         default_agent_id=normalize_agent_id(str(item.get("default_agent_id") or "agent:0")),
                         allow_worker_agent_spawn=bool(item.get("allow_worker_agent_spawn", False)),
                         worker_agent_blueprint_id=str(item.get("worker_agent_blueprint_id") or ""),
@@ -1630,23 +1628,23 @@ class TaskFlowRegistry:
                     )
                 )
             normalized = [item.to_dict() for item in plans]
-            if payload.get("adoption_plans") != normalized:
-                _write_json(_adoption_plans_path(self.base_dir), {"adoption_plans": normalized})
+            if payload.get("execution_policies") != normalized:
+                _write_json(_execution_policies_path(self.base_dir), {"execution_policies": normalized})
             return plans
 
-        return self._get_cached("task_agent_adoption_plans", load)
+        return self._get_cached("task_execution_policies", load)
 
-    def list_explicit_task_agent_adoption_plans(self) -> list[TaskAgentAdoptionPlan]:
-        payload = _read_json(_adoption_plans_path(self.base_dir), {"adoption_plans": []})
-        plans: list[TaskAgentAdoptionPlan] = []
-        for item in list(payload.get("adoption_plans") or []):
+    def list_explicit_task_execution_policies(self) -> list[TaskExecutionPolicy]:
+        payload = _read_json(_execution_policies_path(self.base_dir), {"execution_policies": []})
+        plans: list[TaskExecutionPolicy] = []
+        for item in list(payload.get("execution_policies") or []):
             if not isinstance(item, dict):
                 continue
             plans.append(
-                TaskAgentAdoptionPlan(
-                    plan_id=str(item.get("plan_id") or ""),
+                TaskExecutionPolicy(
+                    policy_id=str(item.get("policy_id") or "").strip(),
                     task_id=str(item.get("task_id") or ""),
-                    adoption_mode=normalize_task_agent_adoption_mode(str(item.get("adoption_mode") or "adopt_existing")),
+                    execution_mode=normalize_task_execution_mode(str(item.get("execution_mode") or "single_agent")),
                     default_agent_id=normalize_agent_id(str(item.get("default_agent_id") or "agent:0")),
                     allow_worker_agent_spawn=bool(item.get("allow_worker_agent_spawn", False)),
                     worker_agent_blueprint_id=str(item.get("worker_agent_blueprint_id") or ""),
@@ -1657,29 +1655,29 @@ class TaskFlowRegistry:
             )
         return plans
 
-    def get_task_agent_adoption_plan(self, task_id: str) -> TaskAgentAdoptionPlan | None:
+    def get_task_execution_policy(self, task_id: str) -> TaskExecutionPolicy | None:
         target = str(task_id or "").strip()
-        return next((item for item in self.list_task_agent_adoption_plans() if item.task_id == target), None)
+        return next((item for item in self.list_task_execution_policies() if item.task_id == target), None)
 
-    def upsert_task_agent_adoption_plan(
+    def upsert_task_execution_policy(
         self,
         *,
         task_id: str,
-        adoption_mode: str,
+        execution_mode: str,
         default_agent_id: str = "agent:0",
         allow_worker_agent_spawn: bool = False,
         worker_agent_blueprint_id: str = "",
         worker_agent_naming_rule: str = "",
         notes: str = "",
         metadata: dict[str, Any] | None = None,
-    ) -> TaskAgentAdoptionPlan:
+    ) -> TaskExecutionPolicy:
         target = str(task_id or "").strip()
         if not target.startswith(("task.", "general.")):
             raise ValueError("task_id must start with task. or general.")
-        plan = TaskAgentAdoptionPlan(
-            plan_id=f"taskadopt:{target}",
+        plan = TaskExecutionPolicy(
+            policy_id=f"taskexecpol:{target}",
             task_id=target,
-            adoption_mode=normalize_task_agent_adoption_mode(adoption_mode),
+            execution_mode=normalize_task_execution_mode(execution_mode),
             default_agent_id=normalize_agent_id(str(default_agent_id or "agent:0").strip() or "agent:0"),
             allow_worker_agent_spawn=bool(allow_worker_agent_spawn),
             worker_agent_blueprint_id=str(worker_agent_blueprint_id or "").strip(),
@@ -1687,11 +1685,11 @@ class TaskFlowRegistry:
             notes=str(notes or "").strip(),
             metadata=dict(metadata or {}),
         )
-        plans = [item for item in self.list_task_agent_adoption_plans() if item.task_id != target]
+        plans = [item for item in self.list_task_execution_policies() if item.task_id != target]
         plans.append(plan)
         _write_json(
-            _adoption_plans_path(self.base_dir),
-            {"adoption_plans": [item.to_dict() for item in plans]},
+            _execution_policies_path(self.base_dir),
+            {"execution_policies": [item.to_dict() for item in plans]},
         )
         self._invalidate_cache()
         return plan
@@ -2697,8 +2695,8 @@ class TaskFlowRegistry:
         explicit_projection_bindings = self.list_explicit_projection_bindings()
         flow_contract_bindings = self.list_flow_contract_bindings()
         explicit_flow_contract_bindings = self.list_explicit_flow_contract_bindings()
-        adoption_plans = self.list_task_agent_adoption_plans()
-        explicit_adoption_plans = self.list_explicit_task_agent_adoption_plans()
+        execution_policies = self.list_task_execution_policies()
+        explicit_execution_policies = self.list_explicit_task_execution_policies()
         communication_protocols = self.list_task_communication_protocols()
         return {
             "authority": "task_system.overview",
@@ -2731,13 +2729,13 @@ class TaskFlowRegistry:
                     key_attr="binding_id",
                 ),
                 "effective_flow_contract_binding_count": len(flow_contract_bindings),
-                "adoption_plan_count": len(explicit_adoption_plans),
-                "derived_adoption_plan_count": _derived_count(
-                    adoption_plans,
-                    explicit_adoption_plans,
-                    key_attr="plan_id",
+                "execution_policy_count": len(explicit_execution_policies),
+                "derived_execution_policy_count": _derived_count(
+                    execution_policies,
+                    explicit_execution_policies,
+                    key_attr="policy_id",
                 ),
-                "effective_adoption_plan_count": len(adoption_plans),
+                "effective_execution_policy_count": len(execution_policies),
                 "communication_protocol_count": len(communication_protocols),
                 "invalid_binding_count": len(invalid_bindings),
                 "invalid_template_count": 0,
@@ -2751,7 +2749,7 @@ class TaskFlowRegistry:
             "bindings": [item.to_dict() for item in bindings],
             "projection_bindings": [item.to_dict() for item in projection_bindings],
             "flow_contract_bindings": [item.to_dict() for item in flow_contract_bindings],
-            "agent_adoption_plans": [item.to_dict() for item in adoption_plans],
+            "agent_execution_policies": [item.to_dict() for item in execution_policies],
             "templates": [],
             "template_validation_matrix": _removed_template_protocol_matrix(),
             "topology_templates": [item.to_dict() for item in self.list_topology_templates()],

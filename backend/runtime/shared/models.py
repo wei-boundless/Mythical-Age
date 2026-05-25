@@ -267,7 +267,7 @@ class AgentRun:
     agent_id: str
     agent_profile_id: str
     role: str = "main_executor"
-    spawn_mode: str = "adopt_existing"
+    spawn_mode: str = "single_agent"
     context_scope: str = "task_default"
     runtime_lane: str = "full_interactive"
     parent_agent_run_ref: str = ""

@@ -1813,9 +1813,9 @@ def _upsert_task_asset(
         memory_scope_hint="writing_modular_novel",
         metadata={"managed_by": MANAGED_BY, "node_id": node_id},
     )
-    registry.upsert_task_agent_adoption_plan(
+    registry.upsert_task_execution_policy(
         task_id=task_id,
-        adoption_mode="adopt_existing",
+        execution_mode="single_agent",
         default_agent_id=agent_id,
         allow_worker_agent_spawn=False,
         notes="模块化写作任务图使用通用任务图执行能力，不新增写作专用后端入口。",

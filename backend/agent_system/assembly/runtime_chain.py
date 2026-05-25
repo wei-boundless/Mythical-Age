@@ -570,9 +570,9 @@ def _resolve_task_selection_default_agent_id(
     if not selected_task_id:
         return ""
     registry = TaskFlowRegistry(base_dir)
-    adoption_plan = registry.get_task_agent_adoption_plan(selected_task_id)
-    if adoption_plan is not None:
-        agent_id = normalize_agent_id(str(adoption_plan.default_agent_id or "").strip())
+    execution_policy = registry.get_task_execution_policy(selected_task_id)
+    if execution_policy is not None:
+        agent_id = normalize_agent_id(str(execution_policy.default_agent_id or "").strip())
         if agent_id:
             return agent_id
     record = registry.get_specific_task_record(selected_task_id)
