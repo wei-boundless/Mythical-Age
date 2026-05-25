@@ -172,14 +172,34 @@ def _model_turn_decision_response_for_messages(messages) -> SimpleNamespace | No
     user_message = str(payload.get("user_message") or "").strip()
     decision = dict(selection.get("model_turn_decision") or {})
     if not decision:
+        inferred_goal_type = _infer_professional_test_goal_type(
+            user_message=user_message,
+            selection=selection,
+        )
+        action_intent = "edit_workspace" if _professional_test_goal_requires_workspace_edit(
+            user_message=user_message,
+            task_goal_type=inferred_goal_type,
+        ) else "read_context"
         decision = dict(
             model_turn_context(
-                action_intent="read_context",
-                work_mode="read_only_analysis",
-                interaction_intent="inspect",
+                action_intent=action_intent,
+                work_mode="implementation" if action_intent == "edit_workspace" else "read_only_analysis",
+                interaction_intent=(
+                    "create"
+                    if inferred_goal_type in {"artifact_delivery", "frontend_app_delivery", "game_vertical_slice_delivery"}
+                    else "modify"
+                    if action_intent == "edit_workspace"
+                    else "inspect"
+                ),
                 desired_outcome=user_message,
-                task_goal_type=str(selection.get("semantic_task_type") or "bounded_tool_task"),
-                task_domain="analysis",
+                deliverables=_professional_test_deliverables_for_goal(
+                    task_goal_type=inferred_goal_type,
+                    action_intent=action_intent,
+                ),
+                planning_required=action_intent == "edit_workspace",
+                todo_required=action_intent == "edit_workspace",
+                task_goal_type=inferred_goal_type,
+                task_domain="development" if action_intent == "edit_workspace" else "analysis",
             )["model_turn_decision"]
         )
     decision["user_message"] = user_message or str(decision.get("user_message") or "")
@@ -189,6 +209,46 @@ def _model_turn_decision_response_for_messages(messages) -> SimpleNamespace | No
     decision.setdefault("resource_contract", {})
     decision.setdefault("confidence", 0.9)
     return SimpleNamespace(content=json.dumps(decision, ensure_ascii=False))
+
+
+def _infer_professional_test_goal_type(*, user_message: str, selection: dict[str, object]) -> str:
+    explicit = str(selection.get("semantic_task_type") or "").strip()
+    if explicit:
+        return explicit
+    text = str(user_message or "")
+    lowered = text.lower()
+    if any(marker in text for marker in ("失败", "根因", "回归测试", "测试报告", "失败归类")) or any(
+        marker in lowered for marker in ("failing", "failure", "triage")
+    ):
+        return "test_report_triage"
+    if any(marker in text for marker in ("写入", "产物", "生成文件", "保存到")):
+        return "artifact_delivery"
+    if any(marker in text for marker in ("材料", "综合", "根据", "基于")):
+        return "material_synthesis"
+    return "bounded_tool_task"
+
+
+def _professional_test_goal_requires_workspace_edit(*, user_message: str, task_goal_type: str) -> bool:
+    text = str(user_message or "")
+    lowered = text.lower()
+    if task_goal_type in {"artifact_delivery", "frontend_app_delivery", "game_vertical_slice_delivery", "code_fix_execution"}:
+        return True
+    return bool(
+        any(marker in text for marker in ("写入", "修复代码", "修改代码", "改代码", "生成文件", "创建文件"))
+        or any(marker in lowered for marker in ("write ", "fix ", "patch ", "implement "))
+    )
+
+
+def _professional_test_deliverables_for_goal(*, task_goal_type: str, action_intent: str) -> list[str]:
+    if task_goal_type in {"artifact_delivery", "frontend_app_delivery", "game_vertical_slice_delivery"}:
+        return ["artifact_refs", "completion_status", "limitations"]
+    if task_goal_type == "code_fix_execution" or action_intent == "edit_workspace":
+        return ["change_summary", "changed_files", "verification_result_or_limitation"]
+    if task_goal_type == "test_report_triage":
+        return ["failure_classification", "structural_root_causes", "regression_test_plan", "evidence_limits"]
+    if task_goal_type == "material_synthesis":
+        return ["material_findings", "cross_material_conclusions", "limitations"]
+    return ["tool_grounded_answer", "limitations"]
 
 
 def _model_turn_decision_request_payload(messages) -> dict[str, object]:
@@ -1242,7 +1302,8 @@ class _MaterialReadGateModelRuntimeStub:
                 ],
             )
         if self.seen_first:
-            assert tool_names == ["read_file", "read_structured_file"]
+            assert "read_file" in tool_names
+            assert "write_file" not in tool_names
             return AIMessage(
                 content="继续读取第二个必读材料。",
                 tool_calls=[
@@ -1254,7 +1315,8 @@ class _MaterialReadGateModelRuntimeStub:
                     }
                 ],
             )
-        assert tool_names == ["read_file", "read_structured_file"]
+        assert "read_file" in tool_names
+        assert "write_file" not in tool_names
         return AIMessage(
             content="先读取第一个必读材料。",
             tool_calls=[
@@ -1660,6 +1722,7 @@ def _professional_task_selection(
     *,
     max_tool_rounds: int | None = None,
     semantic_task_type: str | None = "bounded_tool_task",
+    model_agent_plan_draft: dict[str, object] | None = None,
 ) -> dict[str, object]:
     decision_goal_type = str(semantic_task_type or "bounded_tool_task")
     action_intent = "edit_workspace" if decision_goal_type in {
@@ -1712,7 +1775,181 @@ def _professional_task_selection(
         }
     if semantic_task_type:
         selection["semantic_task_type"] = semantic_task_type
+    selection["model_agent_plan_draft"] = model_agent_plan_draft or _professional_model_agent_plan(decision_goal_type)
     return selection
+
+
+def _professional_model_agent_plan(
+    task_goal_type: str,
+    *,
+    include_write: bool = False,
+    include_verification: bool = False,
+    material_step_count: int = 1,
+) -> dict[str, object]:
+    all_deliverables = [
+        "direct_answer",
+        "source_or_memory_boundary",
+        "inspection_findings",
+        "evidence_refs",
+        "tool_grounded_answer",
+        "failure_classification",
+        "structural_root_causes",
+        "regression_test_plan",
+        "evidence_limits",
+        "event_chain",
+        "turning_points",
+        "recovery_candidates",
+        "change_summary",
+        "changed_files",
+        "verification_result_or_limitation",
+        "artifact_refs",
+        "completion_status",
+        "material_findings",
+        "cross_material_conclusions",
+        "runnable_artifact_refs",
+        "gameplay_acceptance",
+        "visual_asset_refs",
+        "verification_evidence",
+        "workflow_acceptance",
+        "limitations",
+        "final_report",
+    ]
+    steps: list[dict[str, object]] = [
+        {
+            "step_id": "professional.mode_policy",
+            "title": "绑定交互模式和任务边界",
+            "purpose": "确认本轮目标、模式边界和输出要求。",
+            "required_operations": ["op.model_response"],
+            "contract_refs": [],
+            "evidence_expectations": ["goal_boundary"],
+        }
+    ]
+    needs_workspace_output = bool(
+        include_write
+        or task_goal_type in {
+            "artifact_delivery",
+            "code_fix_execution",
+            "frontend_app_delivery",
+            "game_vertical_slice_delivery",
+        }
+    )
+    needs_verification = bool(
+        include_verification
+        or task_goal_type in {
+            "artifact_delivery",
+            "code_fix_execution",
+            "frontend_app_delivery",
+            "game_vertical_slice_delivery",
+        }
+    )
+    if task_goal_type in {"code_fix_execution", "frontend_app_delivery", "game_vertical_slice_delivery"}:
+        steps.extend(
+            [
+                {
+                    "step_id": "professional.inspect",
+                    "title": "检查相关上下文",
+                    "purpose": "读取真实项目或材料上下文。",
+                    "required_operations": ["op.read_file", "op.search_text"],
+                    "contract_refs": ["read_material", "inspect_code"],
+                    "evidence_expectations": ["source_tree_observation"],
+                },
+                {
+                    "step_id": "professional.produce_output",
+                    "title": "执行真实修改",
+                    "purpose": "按用户目标产出真实文件或代码变更。",
+                    "required_operations": ["op.write_file", "op.edit_file"],
+                    "contract_refs": ["apply_real_change", "runnable_artifact_refs", "changed_files", "change_summary"],
+                    "evidence_expectations": ["file_write"],
+                },
+            ]
+        )
+    else:
+        for index in range(max(1, int(material_step_count or 1))):
+            suffix = "" if index == 0 else f".{index + 1}"
+            steps.append(
+                {
+                    "step_id": f"professional.material_review{suffix}",
+                    "title": "读取并抽取材料证据",
+                    "purpose": "读取用户指定材料或上下文，形成真实证据边界。",
+                    "required_operations": ["op.read_file", "op.search_text"],
+                    "contract_refs": ["read_material", "build_evidence_packet"],
+                    "evidence_expectations": ["material_observation", "evidence_packet"],
+                }
+            )
+    if task_goal_type == "game_vertical_slice_delivery":
+        steps.append(
+            {
+                "step_id": "professional.integrate_asset",
+                "title": "接入视觉资源",
+                "purpose": "生成或接入真实视觉资源并在项目中引用。",
+                "required_operations": ["op.write_file", "op.edit_file"],
+                "contract_refs": ["integrate_asset", "visual_asset_refs", "gameplay_acceptance"],
+                "evidence_expectations": ["asset_file", "asset_visible"],
+            }
+        )
+    if task_goal_type in {"frontend_app_delivery", "game_vertical_slice_delivery"}:
+        steps.append(
+            {
+                "step_id": "professional.verify_output",
+                "title": "浏览器验证",
+                "purpose": "用真实浏览器或命令验证关键工作流。",
+                "required_operations": ["op.shell", "op.browser_control"],
+                "contract_refs": ["run_browser_verification", "verification_evidence"],
+                "evidence_expectations": ["browser_open", "workflow_check"],
+            }
+        )
+    if task_goal_type in {"code_fix_execution"}:
+        steps.append(
+            {
+                "step_id": "professional.verify_output",
+                "title": "运行验证",
+                "purpose": "运行测试或给出真实验证限制。",
+                "required_operations": ["op.shell"],
+                "contract_refs": ["run_verification", "verification_result_or_limitation"],
+                "evidence_expectations": ["command_run", "test_result"],
+            }
+        )
+    elif needs_workspace_output and not any(str(step.get("step_id") or "") == "professional.produce_output" for step in steps):
+        steps.append(
+            {
+                "step_id": "professional.produce_output",
+                "title": "写入请求产物",
+                "purpose": "按用户指定路径写入真实产物或修复变更。",
+                "required_operations": ["op.write_file", "op.edit_file"],
+                "contract_refs": ["apply_real_change", "artifact_refs", "completion_status", "changed_files", "change_summary"],
+                "evidence_expectations": ["file_write"],
+            }
+        )
+    if needs_verification and not any(str(step.get("step_id") or "") == "professional.verify_output" for step in steps):
+        steps.append(
+            {
+                "step_id": "professional.verify_output",
+                "title": "运行验证",
+                "purpose": "运行验证命令或记录真实限制。",
+                "required_operations": ["op.shell"],
+                "contract_refs": ["run_verification", "verification_result_or_limitation"],
+                "evidence_expectations": ["command_run", "test_result"],
+            }
+        )
+    steps.append(
+        {
+            "step_id": "professional.validate_deliverable",
+            "title": "验证交付物",
+            "purpose": "检查交付物、证据边界和最终回答。",
+            "required_operations": ["op.model_response"],
+            "contract_refs": [
+                "validate_deliverables",
+                *all_deliverables,
+            ],
+            "evidence_expectations": ["completion_judgment"],
+        }
+    )
+    return {
+        "authority": "runtime.agent_plan_draft",
+        "plan_id": f"agent-plan:{task_goal_type}",
+        "task_goal_type": task_goal_type,
+        "steps": steps,
+    }
 
 
 async def _collect_runtime_events(runtime: QueryRuntime, *, session_id: str, message: str, task_selection: dict[str, object] | None = None):
@@ -1780,6 +2017,7 @@ def test_professional_recipe_is_selected_from_code_fix_intent_strategy() -> None
             todo_required=True,
             task_goal_type="code_fix_execution",
             task_domain="development",
+            model_agent_plan_draft=_professional_model_agent_plan("code_fix_execution"),
         ),
     }
     contract = build_runtime_task_intent_contract(
@@ -1854,7 +2092,7 @@ def test_professional_mode_adds_semantic_plan_steps_and_monitor_summary() -> Non
     monitor = runtime.task_run_loop.get_task_run_live_monitor(task_run_id)
 
     assert plan_payload["interaction_mode"] == "professional_mode"
-    assert plan_payload["plan_source"] == "task_requirement_contract"
+    assert plan_payload["plan_source"] == "model_agent_plan_draft"
     assert any(dict(item).get("plan_item_id") == "professional.mode_policy" for item in plan_payload["plan_items"])
     assert any(dict(item).get("plan_item_id") == "professional.validate_deliverable" for item in plan_payload["plan_items"])
     assert "professional.mode_policy" in step_ids
@@ -1934,7 +2172,7 @@ def test_professional_test_report_triage_builds_evidence_packet_and_strict_valid
                 "分析 tests/fixtures/professional_task_suite/failing_sixty_turn_summary.json "
                 "里的失败，输出失败归类、结构性根因、回归测试和证据边界。"
             ),
-            task_selection=_professional_task_selection(semantic_task_type=None, max_tool_rounds=3),
+            task_selection=_professional_task_selection(semantic_task_type="test_report_triage", max_tool_rounds=3),
         )
     )
     evidence_event = _latest_event(runtime_events, "professional_task_evidence_packet_built")
@@ -1980,7 +2218,15 @@ def test_professional_triage_prompt_cannot_suppress_repair_and_pytest_obligation
                 "追踪 tests/fixtures/professional_task_suite/failing_sixty_turn_summary.json 的失败原因，"
                 "修复代码，然后运行 pytest 或等价 Python 断言验证。"
             ),
-            task_selection=_professional_task_selection(semantic_task_type="test_report_triage", max_tool_rounds=4),
+            task_selection=_professional_task_selection(
+                semantic_task_type="test_report_triage",
+                max_tool_rounds=4,
+                model_agent_plan_draft=_professional_model_agent_plan(
+                    "test_report_triage",
+                    include_write=True,
+                    include_verification=True,
+                ),
+            ),
         )
     )
     plan_event = _latest_event(runtime_events, "professional_task_semantic_plan_drafted")
@@ -2126,7 +2372,10 @@ def test_professional_task_reuses_sandbox_for_same_session_output_scope() -> Non
             runtime,
             session_id=session_id,
             message="继续验收这个小游戏工程，请读回 game.js 确认上一轮写入内容。",
-            task_selection=_professional_task_selection(semantic_task_type="artifact_delivery"),
+            task_selection=_professional_task_selection(
+                semantic_task_type="bounded_tool_task",
+                model_agent_plan_draft=_professional_model_agent_plan("bounded_tool_task"),
+            ),
         )
     )
     first_sandbox = Path(
@@ -2483,7 +2732,7 @@ def test_professional_task_uses_evidence_closeout_after_final_markup_leak() -> N
                 "分析 tests/fixtures/professional_task_suite/failing_sixty_turn_summary.json，"
                 "把失败归类，找出结构性根因，并给出应该补的回归测试。"
             ),
-            task_selection=_professional_task_selection(semantic_task_type=None),
+            task_selection=_professional_task_selection(semantic_task_type="test_report_triage"),
         )
     )
     event_types = _event_types(runtime_events)
@@ -2742,7 +2991,14 @@ def test_professional_state_cycle_allows_terminal_then_read_before_closeout() ->
                 "请用专业模式排查 tests/fixtures/professional_task_suite/ops_incident_snapshot.json "
                 "里的本地服务超时问题。你需要运行一个只读命令确认当前工作目录，再给出原因、修复建议和验证步骤。"
             ),
-            task_selection=_professional_task_selection(semantic_task_type="bounded_tool_task", max_tool_rounds=3),
+            task_selection=_professional_task_selection(
+                semantic_task_type="bounded_tool_task",
+                max_tool_rounds=3,
+                model_agent_plan_draft=_professional_model_agent_plan(
+                    "bounded_tool_task",
+                    include_verification=True,
+                ),
+            ),
         )
     )
     verify_event = _latest_event(runtime_events, "professional_task_deliverable_validation_checked")
@@ -2941,6 +3197,10 @@ def test_professional_action_gate_forces_each_required_material_read_before_writ
             task_selection=_professional_task_selection(
                 semantic_task_type="artifact_delivery",
                 max_tool_rounds=5,
+                model_agent_plan_draft=_professional_model_agent_plan(
+                    "artifact_delivery",
+                    material_step_count=2,
+                ),
             ),
         )
     )
@@ -2962,9 +3222,12 @@ def test_professional_action_gate_forces_each_required_material_read_before_writ
 
     assert stages[:2] == ["read_material", "read_material"]
     assert "write_output" in stages
-    assert all(payload["visible_tool_names"] == ["read_file", "read_structured_file"] for payload in read_gate_payloads)
-    assert model_runtime.tool_names_by_call[0] == ["read_file", "read_structured_file"]
-    assert model_runtime.tool_names_by_call[1] == ["read_file", "read_structured_file"]
+    assert all("read_file" in payload["visible_tool_names"] for payload in read_gate_payloads)
+    assert all("write_file" not in payload["visible_tool_names"] for payload in read_gate_payloads)
+    assert "read_file" in model_runtime.tool_names_by_call[0]
+    assert "write_file" not in model_runtime.tool_names_by_call[0]
+    assert "read_file" in model_runtime.tool_names_by_call[1]
+    assert "write_file" not in model_runtime.tool_names_by_call[1]
     assert model_runtime.seen_write is True
     assert verification["passed"] is True
     assert done["terminal_reason"] == "completed"

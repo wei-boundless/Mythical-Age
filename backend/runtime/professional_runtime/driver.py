@@ -62,7 +62,6 @@ from .goal_contract import (
     ProfessionalTaskGoalContract,
     _dedupe_strings,
     _goal_contract_from_semantic_contract,
-    _semantic_control_plan,
 )
 from .completion_judgment import build_verification_review, judge_completion
 from .run_session import build_professional_run_session
@@ -139,6 +138,66 @@ def _runtime_feedback_payload(
         "repair_instruction": str(repair_instruction or ""),
         "principle": "runtime_provides_environment_guardrails_and_actionable_feedback; agent_chooses_next_valid_action",
     }
+
+
+def _tools_with_goal_contract_requirements(
+    *,
+    allowed_tool_names: list[str],
+    tool_policy: dict[str, Any],
+    goal_contract: ProfessionalTaskGoalContract,
+    runtime_tool_instances: list[Any] | None,
+    tool_runtime_executor: Any | None = None,
+) -> list[str]:
+    allowed = list(allowed_tool_names or [])
+    available = {
+        str(getattr(tool, "name", "") or "").strip()
+        for tool in list(runtime_tool_instances or [])
+        if str(getattr(tool, "name", "") or "").strip()
+    }
+    runtime = getattr(tool_runtime_executor, "tool_runtime", None) if tool_runtime_executor is not None else None
+    for tool_name in ("terminal", "browser_control"):
+        getter = getattr(runtime, "get_instance", None)
+        if callable(getter) and getter(tool_name) is not None:
+            available.add(tool_name)
+    denied = {
+        str(item or "").strip()
+        for item in list(dict(tool_policy or {}).get("denied_tool_names") or [])
+        if str(item or "").strip()
+    }
+    if goal_contract.requires_verification_command:
+        for tool_name in ("terminal", "browser_control"):
+            if tool_name in available and tool_name not in denied and tool_name not in allowed:
+                allowed.append(tool_name)
+    return allowed
+
+
+def _runtime_tool_instances_for_allowed_tools(
+    *,
+    runtime_tool_instances: list[Any] | None,
+    tool_runtime_executor: Any | None,
+    allowed_tool_names: list[str],
+    tool_execution_enabled: bool,
+) -> list[Any]:
+    if not tool_execution_enabled:
+        return []
+    allowed = {str(item or "").strip() for item in list(allowed_tool_names or []) if str(item or "").strip()}
+    instances = [
+        tool
+        for tool in list(runtime_tool_instances or [])
+        if str(getattr(tool, "name", "") or "").strip() in allowed
+    ]
+    seen = {str(getattr(tool, "name", "") or "").strip() for tool in instances}
+    runtime = getattr(tool_runtime_executor, "tool_runtime", None) if tool_runtime_executor is not None else None
+    getter = getattr(runtime, "get_instance", None)
+    if callable(getter):
+        for name in sorted(allowed):
+            if name in seen:
+                continue
+            tool = getter(name)
+            if tool is not None:
+                instances.append(tool)
+                seen.add(name)
+    return instances
 
 
 def _professional_progress_page(
@@ -451,6 +510,8 @@ def _tool_call_counts_for_gate(
         candidate_path = str(args.get("path") or "").strip()
         return _paths_match_for_gate(target_path, candidate_path)
     if gate.stage == "read_material":
+        if name in {"terminal", "browser_control"}:
+            return True
         if name not in {"read_file", "read_structured_file", "search_files", "search_text", "glob_paths", "list_dir", "path_exists", "stat_path"}:
             return False
         target_path = str(gate.target_path or "").strip()
@@ -774,6 +835,97 @@ def _structured_observation_entry(
     }
 
 
+def _agent_plan_items_from_draft(
+    *,
+    agent_plan_draft: dict[str, Any],
+    semantic_contract: dict[str, Any],
+    goal_contract: ProfessionalTaskGoalContract,
+) -> list[dict[str, Any]]:
+    task_goal_type = str(semantic_contract.get("task_goal_type") or "general").strip()
+    plan: list[dict[str, Any]] = []
+    for index, raw in enumerate(list(agent_plan_draft.get("steps") or []), start=1):
+        if not isinstance(raw, dict):
+            continue
+        step_id = str(raw.get("step_id") or f"agent_step_{index}").strip()
+        title = str(raw.get("title") or step_id).strip()
+        purpose = str(raw.get("purpose") or "").strip()
+        required_operations = [
+            str(item).strip()
+            for item in list(raw.get("required_operations") or [])
+            if str(item).strip()
+        ]
+        plan.append(
+            {
+                "plan_item_id": step_id,
+                "step_id": step_id,
+                "title": title,
+                "step_kind": "plan_item",
+                "executor_type": "model",
+                "action_kind": "main_agent",
+                "summary": purpose or title,
+                "required_operations": required_operations or ["op.model_response"],
+                "contract_refs": [
+                    str(item).strip()
+                    for item in list(raw.get("contract_refs") or [])
+                    if str(item).strip()
+                ],
+                "evidence_expectations": [
+                    str(item).strip()
+                    for item in list(raw.get("evidence_expectations") or [])
+                    if str(item).strip()
+                ],
+                "source": "model_agent_plan_draft",
+                "contract_required": True,
+            }
+        )
+    if not plan:
+        return []
+    plan.append(
+        {
+            "plan_item_id": "professional.validate_deliverable",
+            "title": "按交付物验证最终回答",
+            "step_kind": "plan_item",
+            "executor_type": "model",
+            "action_kind": "main_agent",
+            "summary": f"检查 {task_goal_type} 的交付物、证据对齐、协议泄漏和未支持声明。",
+            "required_operations": ["op.model_response"],
+            "response_must_include": list(goal_contract.response_must_include),
+            "source": "system_validation_gate",
+            "contract_required": True,
+        }
+    )
+    return plan
+
+
+def _blocked_plan_final_content(
+    *,
+    semantic_contract: dict[str, Any],
+    plan_coverage_review: dict[str, Any],
+) -> str:
+    task_goal_type = str(semantic_contract.get("task_goal_type") or "general").strip()
+    missing_actions = [
+        str(item).strip()
+        for item in list(plan_coverage_review.get("missing_actions") or [])
+        if str(item).strip()
+    ]
+    missing_deliverables = [
+        str(item).strip()
+        for item in list(plan_coverage_review.get("missing_deliverables") or [])
+        if str(item).strip()
+    ]
+    reason = str(plan_coverage_review.get("required_replan_reason") or "agent_plan_required").strip()
+    details = []
+    if missing_actions:
+        details.append("缺少动作覆盖：" + "、".join(missing_actions))
+    if missing_deliverables:
+        details.append("缺少交付物覆盖：" + "、".join(missing_deliverables))
+    detail_text = "；".join(details) if details else reason
+    return (
+        f"当前 {task_goal_type} 任务还不能进入执行：需要先由 agent 提交可校验的执行计划。"
+        f"计划覆盖审查未通过，{detail_text}。"
+    )
+
+
 @dataclass(slots=True)
 class ProfessionalTaskRunOutcome:
     ledger: TaskRunLedger | None
@@ -892,18 +1044,35 @@ class ProfessionalTaskRunDriver:
             user_message=user_message,
             semantic_contract=semantic_contract,
         )
+        allowed_tool_names = _tools_with_goal_contract_requirements(
+            allowed_tool_names=allowed_tool_names,
+            tool_policy=tool_policy,
+            goal_contract=goal_contract,
+            runtime_tool_instances=runtime_tool_instances,
+            tool_runtime_executor=tool_runtime_executor,
+        )
+        tool_execution_enabled = bool(tool_policy.get("enabled") is True) and bool(
+            tool_runtime_executor is not None and allowed_tool_names
+        )
+        model_tool_instances = _runtime_tool_instances_for_allowed_tools(
+            runtime_tool_instances=runtime_tool_instances,
+            tool_runtime_executor=tool_runtime_executor,
+            allowed_tool_names=allowed_tool_names,
+            tool_execution_enabled=tool_execution_enabled,
+        )
         runtime_environment = RuntimeEnvironment(workspace_root=self.workspace_root)
         runtime_environment_snapshot = runtime_environment.snapshot()
         runtime_environment_health = check_runtime_connection_health(runtime_environment)
-        plan = _semantic_control_plan(
-            user_message=user_message,
-            semantic_contract=semantic_contract,
-            mode_policy=mode_policy,
-            goal_contract=goal_contract,
-        )
         recipe_metadata = dict(dict(selected_recipe_payload or {}).get("metadata") or {})
         agent_plan_draft = dict(recipe_metadata.get("agent_plan_draft") or {})
         plan_coverage_review = dict(recipe_metadata.get("plan_coverage_review") or {})
+        plan = _agent_plan_items_from_draft(
+            agent_plan_draft=agent_plan_draft,
+            semantic_contract=semantic_contract,
+            goal_contract=goal_contract,
+        )
+        plan_gate_required = interaction_mode == "professional_mode"
+        plan_coverage_passed = bool(plan_coverage_review.get("passed") is True) if plan_gate_required else True
         planner_event = self.event_log.append(
             task_run_id,
             "professional_task_model_plan_bound",
@@ -1064,7 +1233,7 @@ class ProfessionalTaskRunDriver:
                 "plan_source": (
                     "model_agent_plan_draft"
                     if str(agent_plan_draft.get("source") or "") == "model_agent_plan_draft"
-                    else "task_requirement_contract"
+                    else "agent_plan_required"
                 ),
                 "agent_plan_draft": agent_plan_draft,
                 "plan_coverage_review": plan_coverage_review,
@@ -1076,8 +1245,12 @@ class ProfessionalTaskRunDriver:
         yield {"type": "runtime_loop_event", "event": plan_event.to_dict()}
         run_state = run_state.advance(
             "plan_drafted",
-            reason="semantic_plan_drafted",
-            diagnostics={"plan_item_count": len(plan)},
+            reason="agent_plan_validated" if plan_coverage_passed else "agent_plan_required",
+            diagnostics={
+                "plan_item_count": len(plan),
+                "plan_coverage_passed": plan_coverage_passed,
+                "plan_coverage_gate_status": str(plan_coverage_review.get("gate_status") or ""),
+            },
         )
         state_event = self.event_log.append(
             task_run_id,
@@ -1091,6 +1264,33 @@ class ProfessionalTaskRunDriver:
             refs={"task_contract_ref": task_contract_ref},
         )
         yield {"type": "runtime_loop_event", "event": state_event.to_dict()}
+
+        if not plan_coverage_passed:
+            blocked_event = self.event_log.append(
+                task_run_id,
+                "professional_task_plan_blocked",
+                payload={
+                    "interaction_mode": interaction_mode,
+                    "agent_plan_draft": agent_plan_draft,
+                    "plan_coverage_review": plan_coverage_review,
+                    "terminal_reason": "agent_plan_required",
+                    "authority": "professional_runtime.plan_coverage_gate",
+                },
+                refs={"task_contract_ref": task_contract_ref},
+            )
+            yield {"type": "runtime_loop_event", "event": blocked_event.to_dict()}
+            outcome.final_content = _blocked_plan_final_content(
+                semantic_contract=semantic_contract,
+                plan_coverage_review=plan_coverage_review,
+            )
+            outcome.terminal_reason = "agent_plan_required"
+            outcome.final_answer_metadata = {
+                **dict(outcome.final_answer_metadata or {}),
+                "answer_channel": "plan_required",
+                "answer_source": "professional_runtime.plan_coverage_gate",
+                "plan_coverage_review": plan_coverage_review,
+            }
+            return
 
         outcome.state, outcome.ledger = self._prepare_standard_action_step(
             state=outcome.state,
@@ -1150,6 +1350,7 @@ class ProfessionalTaskRunDriver:
             list(getattr(context_snapshot, "model_messages", ()) or ()),
             mode=interaction_mode,
             plan_items=plan,
+            plan_coverage_review=plan_coverage_review,
             tool_execution_enabled=tool_execution_enabled,
             delegation_enabled=delegation_enabled,
             allowed_tool_names=allowed_tool_names,
@@ -1404,8 +1605,12 @@ class ProfessionalTaskRunDriver:
                     round_protocol_leak_detected = True
                 if event_type == "tool_call_requested":
                     requested_tool_name = str(event.get("tool_name") or dict(event.get("tool_call") or {}).get("name") or "")
-                    if action_gate.forced and requested_tool_name not in set(action_gate.allowed_tool_names):
-                        blocked_tool_call = dict(event.get("tool_call") or {})
+                    blocked_tool_call = dict(event.get("tool_call") or {})
+                    if action_gate.forced and not _tool_call_counts_for_gate(
+                        blocked_tool_call,
+                        gate=action_gate,
+                        forced_tools=set(action_gate.allowed_tool_names),
+                    ):
                         repair_text = _gate_rejection_instruction(
                             gate=action_gate,
                             requested_tool_name=requested_tool_name,

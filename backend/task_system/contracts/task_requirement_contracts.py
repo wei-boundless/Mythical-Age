@@ -2,12 +2,9 @@ from __future__ import annotations
 
 import re
 from dataclasses import asdict, dataclass, field
-from pathlib import Path
 from typing import Any
 
 from prompting.strategy_prototypes import strategy_prototype_for_task_goal
-from project_layout import ProjectLayout
-from task_system.domains import bind_task_domain
 from task_system.goal_profiles import bind_task_goal_profile, get_task_goal_profile
 
 
@@ -113,14 +110,7 @@ def build_task_requirement_contract(
         obligation=obligation,
     )
     domain_value = str(getattr(goal_profile, "task_domain", "") or _domain_for_goal_type(task_goal_type, understanding))
-    task_domain_binding = bind_task_domain(
-        base_dir=_backend_base_dir(),
-        task_id=task_id,
-        requested_domain=str(task_goal_spec.get("task_domain") or domain_value),
-        task_goal_domain=domain_value,
-        goal_evidence=dict(task_goal_spec.get("evidence") or {}),
-        forbidden_actions=tuple(task_goal_spec.get("forbidden_actions") or ()),
-    )
+    task_domain_binding = _system_task_domain_binding(current_turn=current_turn, inputs=inputs)
     return TaskRequirementContract(
         contract_id=f"semantic-task:{session_id}:{task_id}",
         task_goal_type=task_goal_type,
@@ -164,7 +154,7 @@ def build_task_requirement_contract(
         professional_profile_id=profile,
         diagnostics={
             "task_goal_spec": task_goal_spec,
-            "task_domain_binding": task_domain_binding.to_dict(),
+            **({"task_domain_binding": task_domain_binding} if task_domain_binding else {}),
             "goal_hypothesis_set": dict(dict(task_goal_spec.get("evidence") or {}).get("goal_hypothesis_set") or {}),
             "rejected_goal_candidates": [
                 dict(item)
@@ -220,8 +210,27 @@ def task_requirement_contract_from_payload(payload: dict[str, Any] | None) -> Ta
         return None
 
 
-def _backend_base_dir() -> Path:
-    return ProjectLayout.from_backend_dir(Path(__file__).resolve().parents[2]).backend_dir
+def _system_task_domain_binding(
+    *,
+    current_turn: dict[str, Any],
+    inputs: dict[str, Any],
+) -> dict[str, Any]:
+    for source_key in (
+        "task_domain_binding",
+        "active_domain_binding",
+        "domain_binding",
+    ):
+        for payload in (
+            current_turn.get(source_key),
+            inputs.get(source_key),
+            dict(current_turn.get("task_order_projection") or {}).get(source_key),
+        ):
+            if isinstance(payload, dict) and payload:
+                binding = dict(payload)
+                binding["agent_can_select_domain"] = False
+                binding["binding_consumed_as_system_order_context"] = True
+                return binding
+    return {}
 
 
 def _resolve_task_goal_type(

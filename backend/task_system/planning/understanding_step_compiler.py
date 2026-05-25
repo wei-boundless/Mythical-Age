@@ -27,6 +27,7 @@ def compile_understanding_runtime_steps(
     mode_policy: dict[str, Any] | None = None,
     execution_obligation: dict[str, Any] | None = None,
     plan_coverage_review: dict[str, Any] | None = None,
+    agent_plan_draft: dict[str, Any] | None = None,
 ) -> tuple[TaskStepBlueprint, ...]:
     mode = str(interaction_mode or "").strip() or "standard_mode"
     contract = dict(semantic_contract or {})
@@ -34,6 +35,7 @@ def compile_understanding_runtime_steps(
     obligation = dict(execution_obligation or contract.get("execution_obligation") or {})
     task_goal_type = str(contract.get("task_goal_type") or "").strip()
     plan_coverage = dict(plan_coverage_review or {})
+    agent_plan = dict(agent_plan_draft or {})
 
     if mode == "role_mode":
         return (
@@ -97,7 +99,12 @@ def compile_understanding_runtime_steps(
             )
         return (
             *core,
-            *_domain_execution_steps(task_goal_type=task_goal_type, contract=contract, obligation=obligation),
+            *_domain_execution_steps(
+                task_goal_type=task_goal_type,
+                contract=contract,
+                obligation=obligation,
+                agent_plan_draft=agent_plan,
+            ),
             _step(
                 "verification",
                 "Verify deliverables against evidence",
@@ -201,27 +208,14 @@ def _domain_execution_steps(
     task_goal_type: str,
     contract: dict[str, Any],
     obligation: dict[str, Any],
+    agent_plan_draft: dict[str, Any] | None = None,
 ) -> tuple[TaskStepBlueprint, ...]:
-    reasoning_steps = [
-        str(item).strip()
-        for item in list(contract.get("required_reasoning_steps") or [])
-        if str(item).strip()
-    ]
+    plan = dict(agent_plan_draft or {})
     filtered = [
-        item
-        for item in reasoning_steps
-        if item
-        not in {
-            "understand_request",
-            "understand_product_goal",
-            "answer_with_boundaries",
-            "synthesize_final_answer",
-            "synthesize_delivery",
-            "write_final_report",
-        }
+        str(item.get("step_id") or "").strip()
+        for item in list(plan.get("steps") or [])
+        if isinstance(item, dict) and str(item.get("step_id") or "").strip()
     ]
-    if not filtered:
-        filtered = ["execute_task_contract"]
     operations = _execution_operations(policy={}, contract=contract, obligation=obligation)
     return tuple(
         _step(

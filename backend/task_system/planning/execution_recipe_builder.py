@@ -7,7 +7,11 @@ from task_system.planning.execution_recipe_models import ExecutionRecipe
 from task_system.planning.execution_shape_resolver import ExecutionShape
 from task_system.planning.understanding_step_compiler import compile_understanding_runtime_steps
 from task_system.tasks.step_models import TaskStepBlueprint
-from runtime.professional_runtime.agent_plan import build_agent_plan_draft
+from runtime.professional_runtime.agent_plan import (
+    AgentPlanRequired,
+    build_agent_plan_draft,
+    empty_agent_plan_draft,
+)
 from runtime.professional_runtime.plan_coverage import review_plan_coverage
 
 
@@ -99,23 +103,38 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
         professional = interaction_mode == "professional_mode"
         standard_or_professional = interaction_mode in {"standard_mode", "professional_mode"}
         runtime_task_id = _runtime_task_id_from_contract(semantic_contract)
-        agent_plan_draft = build_agent_plan_draft(
-            task_id=runtime_task_id,
-            semantic_contract=semantic_contract,
-            execution_obligation=execution_obligation,
-            model_agent_plan_draft=dict(execution_shape.diagnostics.get("model_agent_plan_draft") or {}),
-        ).to_dict()
-        plan_coverage_review = review_plan_coverage(
-            task_id=runtime_task_id,
-            semantic_contract=semantic_contract,
-            agent_plan_draft=agent_plan_draft,
-        ).to_dict()
+        if professional:
+            try:
+                agent_plan_draft = build_agent_plan_draft(
+                    task_id=runtime_task_id,
+                    semantic_contract=semantic_contract,
+                    execution_obligation=execution_obligation,
+                    model_agent_plan_draft=dict(execution_shape.diagnostics.get("model_agent_plan_draft") or {}),
+                ).to_dict()
+                agent_plan_requirement = {}
+            except AgentPlanRequired as exc:
+                agent_plan_requirement = exc.requirement.to_dict()
+                agent_plan_draft = empty_agent_plan_draft(
+                    task_id=runtime_task_id,
+                    semantic_contract=semantic_contract,
+                    requirement=agent_plan_requirement,
+                ).to_dict()
+            plan_coverage_review = review_plan_coverage(
+                task_id=runtime_task_id,
+                semantic_contract=semantic_contract,
+                agent_plan_draft=agent_plan_draft,
+            ).to_dict()
+        else:
+            agent_plan_requirement = {}
+            agent_plan_draft = {}
+            plan_coverage_review = {}
         step_blueprints = compile_understanding_runtime_steps(
             interaction_mode=interaction_mode,
             semantic_contract=semantic_contract,
             mode_policy=mode_policy,
             execution_obligation=execution_obligation,
             plan_coverage_review=plan_coverage_review,
+            agent_plan_draft=agent_plan_draft,
         )
         optional_operations = [
             str(item)
@@ -144,7 +163,7 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
             "metadata": {
                 "execution_strategy": "interaction_mode_run",
                 "runtime_lane_hint": runtime_lane,
-                "runtime_driver": "professional_task_run",
+                "runtime_driver": "professional_task_run" if professional else "single_agent_model_turn",
                 "interaction_mode": interaction_mode,
                 "understanding_step_compiler": "task_system.planning.understanding_step_compiler",
                 "compiled_step_count": len(step_blueprints),
@@ -152,6 +171,7 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
                 "mode_policy": mode_policy,
                 "task_requirement_contract": semantic_contract,
                 "execution_obligation": execution_obligation,
+                "agent_plan_requirement": agent_plan_requirement,
                 "agent_plan_draft": agent_plan_draft,
                 "plan_coverage_review": plan_coverage_review,
                 "semantic_task_type": str(semantic_contract.get("task_goal_type") or ""),

@@ -3,12 +3,18 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from prompt_library.assembler import assemble_runtime_prompt_contract
-from runtime.professional_runtime.agent_plan import build_agent_plan_draft
+from runtime.professional_runtime.agent_plan import (
+    AgentPlanRequired,
+    build_agent_plan_draft,
+    empty_agent_plan_draft,
+)
 from runtime.professional_runtime.plan_coverage import review_plan_coverage
 from request_intent.request_signals import build_request_signals
 from task_system.services.assembly_builder import build_task_execution_assembly_bundle
@@ -34,24 +40,69 @@ def _frontend_contract() -> dict[str, object]:
         ]}
 
 
-def test_missing_model_plan_is_explicit_scaffold_fallback() -> None:
-    plan = build_agent_plan_draft(
-        task_id="plan-scaffold",
+def test_missing_model_plan_requires_agent_owned_plan_without_scaffold() -> None:
+    with pytest.raises(AgentPlanRequired) as raised:
+        build_agent_plan_draft(
+            task_id="plan-required",
+            semantic_contract=_frontend_contract(),
+        )
+
+    requirement = raised.value.requirement.to_dict()
+    plan = empty_agent_plan_draft(
+        task_id="plan-required",
         semantic_contract=_frontend_contract(),
+        requirement=requirement,
     ).to_dict()
 
-    assert plan["source"] == "deterministic_scaffold"
-    assert plan["plan_status"] == "scaffold_fallback"
+    assert requirement["authority"] == "runtime.agent_plan_requirement"
+    assert requirement["reason"] == "agent_plan_required"
+    assert plan["source"] == "agent_plan_required"
+    assert plan["plan_status"] == "agent_plan_required"
+    assert plan["steps"] == []
     assert plan["diagnostics"]["model_plan_absent"] is True
     assert plan["diagnostics"]["model_plan_authority_used"] is False
-    planner_request = plan["diagnostics"]["readonly_planner_request"]
+    planner_request = requirement["planner_request"]
     assert planner_request["authority"] == "runtime.readonly_planner_request"
     assert planner_request["diagnostics"]["request_contract_only"] is True
     assert planner_request["diagnostics"]["model_call_performed"] is False
     assert planner_request["diagnostics"]["readonly"] is True
+    assert "domain_playbook" not in planner_request
     assert "你是一名只读任务计划员" in planner_request["role_prompt"]
+    assert "任务域制式" not in planner_request["role_prompt"]
     assert "不修改文件" in planner_request["role_prompt"]
-    assert "deterministic_scaffold_until_model_plan_generation_is_enabled" in plan["assumptions"]
+    coverage = review_plan_coverage(
+        task_id="plan-required",
+        semantic_contract=_frontend_contract(),
+        agent_plan_draft=plan,
+    ).to_dict()
+    assert coverage["passed"] is False
+    assert coverage["gate_status"] == "blocked_replan_required"
+    assert "agent_plan_draft_missing_or_empty" in coverage["required_replan_reason"]
+
+
+def test_readonly_planner_request_does_not_receive_task_domain_binding() -> None:
+    contract = {
+        **_frontend_contract(),
+        "diagnostics": {
+            "task_domain_binding": {
+                "binding_id": "taskdomainbind:plan:domain.development",
+                "bound_domain_id": "domain.development",
+                "default_practices": ["先观察真实代码和项目结构"],
+            }
+        },
+    }
+    with pytest.raises(AgentPlanRequired) as raised:
+        build_agent_plan_draft(
+            task_id="plan-domain-binding-hidden",
+            semantic_contract=contract,
+        )
+    planner_request = raised.value.requirement.to_dict()["planner_request"]
+    serialized = str(planner_request)
+
+    assert "domain_playbook" not in planner_request
+    assert "task_domain_binding" not in serialized
+    assert "taskdomainbind:plan:domain.development" not in serialized
+    assert "先观察真实代码和项目结构" not in serialized
 
 
 def test_model_agent_plan_draft_is_accepted_when_schema_valid() -> None:
@@ -106,6 +157,7 @@ def test_model_agent_plan_draft_is_accepted_when_schema_valid() -> None:
     assert plan["source"] == "model_agent_plan_draft"
     assert plan["diagnostics"]["model_plan_authority_used"] is True
     assert plan["diagnostics"]["readonly_planner_request"]["diagnostics"]["model_call_performed"] is False
+    assert "domain_playbook" not in plan["diagnostics"]["readonly_planner_request"]
     assert review["passed"] is True
     assert review["gate_status"] == "passed"
 
@@ -172,10 +224,17 @@ def test_plan_coverage_hard_gate_blocks_execution_steps_when_model_plan_misses_c
     assert step_ids[-1] == "finalization"
 
 
-def test_prompt_sections_explain_scaffold_and_hard_gate() -> None:
-    plan = build_agent_plan_draft(
+def test_prompt_sections_require_agent_plan_and_explain_hard_gate() -> None:
+    with pytest.raises(AgentPlanRequired) as raised:
+        build_agent_plan_draft(
+            task_id="plan-prompt",
+            semantic_contract=_frontend_contract(),
+        )
+    requirement = raised.value.requirement.to_dict()
+    plan = empty_agent_plan_draft(
         task_id="plan-prompt",
         semantic_contract=_frontend_contract(),
+        requirement=requirement,
     ).to_dict()
     coverage = review_plan_coverage(
         task_id="plan-prompt",
@@ -196,6 +255,7 @@ def test_prompt_sections_explain_scaffold_and_hard_gate() -> None:
         selected_recipe={
             "recipe_id": "runtime.recipe.professional_task",
             "metadata": {
+                "agent_plan_requirement": requirement,
                 "agent_plan_draft": plan,
                 "plan_coverage_review": coverage}},
         task_workflow={},
@@ -208,6 +268,7 @@ def test_prompt_sections_explain_scaffold_and_hard_gate() -> None:
         current_turn_context={},
     )
 
-    assert "没有真实模型生成的执行计划草稿" in prompt["agent_plan_section"]
+    assert "当前尚未收到 agent 提交的可执行计划" in prompt["agent_plan_section"]
+    assert "系统脚手架" not in prompt["agent_plan_section"]
     assert "硬门状态=blocked_replan_required" in prompt["plan_coverage_section"]
     assert "不能进入执行步骤" in prompt["plan_coverage_section"]

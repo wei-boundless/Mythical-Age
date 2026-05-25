@@ -85,13 +85,26 @@ def decide_next_action_gate(
         read_tools = preferred_read_tools or tuple(tool for tool in ("read_file", "read_structured_file") if tool in allowed_set)
         planning_tools = (
             ("agent_todo",)
-            if "agent_todo" in allowed_set and not any(record.tool_name == "agent_todo" for record in tool_observation_ledger.records)
+            if (
+                "agent_todo" in allowed_set
+                and goal_contract.requires_write_output
+                and not any(record.tool_name == "agent_todo" for record in tool_observation_ledger.records)
+            )
+            else ()
+        )
+        command_tools = (
+            ("terminal",)
+            if (
+                "terminal" in allowed_set
+                and not goal_contract.requires_write_output
+                and goal_contract.requires_verification_command
+            )
             else ()
         )
         recovery_tools = tuple(
             tool
             for tool in ("path_exists", "stat_path", "list_dir", "glob_paths", "search_files", "search_text")
-            if tool in allowed_set and tool not in set(read_tools)
+            if tool in allowed_set and tool not in set(read_tools) and tool not in set(command_tools)
         )
         if read_tools:
             material_missing = tuple(
@@ -99,7 +112,7 @@ def decide_next_action_gate(
                 for _ in (0,)
             )
             return ActionGateDecision(
-                allowed_tool_names=(*planning_tools, *read_tools, *recovery_tools),
+                allowed_tool_names=(*planning_tools, *command_tools, *read_tools, *recovery_tools),
                 forced=True,
                 stage="read_material",
                 reason="required_material_missing",

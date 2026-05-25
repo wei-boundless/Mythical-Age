@@ -39,7 +39,7 @@ class AgentPlanDraft:
     task_goal_type: str
     semantic_contract_ref: str
     steps: tuple[AgentPlanStep, ...] = ()
-    source: str = "scaffold"
+    source: str = "model_agent_plan_draft"
     model_plan_draft_ref: str = ""
     plan_status: str = "accepted"
     assumptions: tuple[str, ...] = ()
@@ -62,6 +62,33 @@ class AgentPlanDraft:
         return payload
 
 
+@dataclass(frozen=True, slots=True)
+class AgentPlanRequirement:
+    requirement_id: str
+    task_goal_type: str
+    semantic_contract_ref: str
+    required_actions: tuple[str, ...] = ()
+    required_deliverables: tuple[str, ...] = ()
+    planner_request: dict[str, Any] = field(default_factory=dict)
+    reason: str = "agent_plan_required"
+    diagnostics: dict[str, Any] = field(default_factory=dict)
+    authority: str = "runtime.agent_plan_requirement"
+
+    def __post_init__(self) -> None:
+        if self.authority != "runtime.agent_plan_requirement":
+            raise ValueError("AgentPlanRequirement authority must be runtime.agent_plan_requirement")
+        if not self.requirement_id:
+            raise ValueError("AgentPlanRequirement requires requirement_id")
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["required_actions"] = list(self.required_actions)
+        payload["required_deliverables"] = list(self.required_deliverables)
+        payload["planner_request"] = dict(self.planner_request or {})
+        payload["diagnostics"] = dict(self.diagnostics or {})
+        return payload
+
+
 def build_agent_plan_draft(
     *,
     task_id: str,
@@ -70,9 +97,6 @@ def build_agent_plan_draft(
     model_agent_plan_draft: dict[str, Any] | None = None,
 ) -> AgentPlanDraft:
     contract = dict(semantic_contract or {})
-    obligation = dict(execution_obligation or contract.get("execution_obligation") or {})
-    task_goal_type = str(contract.get("task_goal_type") or "general").strip()
-    contract_ref = str(contract.get("contract_id") or "")
     model_plan, model_diagnostics = _model_plan_from_payload(
         model_agent_plan_draft,
         task_id=task_id,
@@ -81,25 +105,92 @@ def build_agent_plan_draft(
     planner_request = build_readonly_planner_request(
         task_id=task_id,
         semantic_contract=contract,
-        domain_playbook=dict(dict(contract.get("diagnostics") or {}).get("task_domain_binding") or {}),
     ).to_dict()
     if model_plan is not None:
         return _with_plan_diagnostics(model_plan, {"readonly_planner_request": planner_request})
+    raise AgentPlanRequired(
+        requirement=build_agent_plan_requirement(
+            task_id=task_id,
+            semantic_contract=contract,
+            execution_obligation=execution_obligation,
+            model_plan_diagnostics=model_diagnostics,
+            planner_request=planner_request,
+        )
+    )
+
+
+def build_agent_plan_requirement(
+    *,
+    task_id: str,
+    semantic_contract: dict[str, Any] | None,
+    execution_obligation: dict[str, Any] | None = None,
+    model_plan_diagnostics: dict[str, Any] | None = None,
+    planner_request: dict[str, Any] | None = None,
+) -> AgentPlanRequirement:
+    contract = dict(semantic_contract or {})
+    obligation = dict(execution_obligation or contract.get("execution_obligation") or {})
+    request = dict(
+        planner_request
+        or build_readonly_planner_request(
+            task_id=task_id,
+            semantic_contract=contract,
+        ).to_dict()
+    )
+    diagnostics = dict(model_plan_diagnostics or {})
+    return AgentPlanRequirement(
+        requirement_id=f"agent-plan-requirement:{task_id or 'runtime'}",
+        task_goal_type=str(contract.get("task_goal_type") or "general").strip(),
+        semantic_contract_ref=str(contract.get("contract_id") or ""),
+        required_actions=tuple(_string_list(contract.get("required_actions"))),
+        required_deliverables=tuple(_string_list(contract.get("deliverables"))),
+        planner_request=request,
+        reason=(
+            "agent_plan_invalid"
+            if str(diagnostics.get("model_plan_status") or "") == "rejected_invalid"
+            else "agent_plan_required"
+        ),
+        diagnostics={
+            "source": "runtime.agent_plan_requirement",
+            **diagnostics,
+            "model_plan_absent": bool(diagnostics.get("model_plan_absent", True)),
+            "model_plan_authority_used": False,
+            "required_actions": list(contract.get("required_actions") or []),
+            "deliverables": list(contract.get("deliverables") or []),
+            "required_reads": list(obligation.get("required_reads") or []),
+            "required_verifications": list(obligation.get("required_verifications") or []),
+        },
+    )
+
+
+class AgentPlanRequired(RuntimeError):
+    def __init__(self, *, requirement: AgentPlanRequirement) -> None:
+        self.requirement = requirement
+        super().__init__(str(requirement.reason or "agent_plan_required"))
+
+
+def empty_agent_plan_draft(
+    *,
+    task_id: str,
+    semantic_contract: dict[str, Any] | None,
+    requirement: AgentPlanRequirement | dict[str, Any] | None = None,
+) -> AgentPlanDraft:
+    contract = dict(semantic_contract or {})
+    requirement_payload = requirement.to_dict() if isinstance(requirement, AgentPlanRequirement) else dict(requirement or {})
+    requirement_diagnostics = dict(requirement_payload.get("diagnostics") or {})
     return AgentPlanDraft(
         plan_id=f"agent-plan:{task_id or 'runtime'}",
-        task_goal_type=task_goal_type,
-        semantic_contract_ref=contract_ref,
-        steps=tuple(_steps_for_contract(contract=contract, obligation=obligation)),
-        source="deterministic_scaffold",
-        model_plan_draft_ref=str(model_diagnostics.get("draft_id") or ""),
-        plan_status="scaffold_fallback",
-        assumptions=("deterministic_scaffold_until_model_plan_generation_is_enabled",),
+        task_goal_type=str(contract.get("task_goal_type") or "general").strip(),
+        semantic_contract_ref=str(contract.get("contract_id") or ""),
+        steps=(),
+        source="agent_plan_required",
+        model_plan_draft_ref=str(requirement_diagnostics.get("draft_id") or ""),
+        plan_status=str(requirement_payload.get("reason") or "agent_plan_required"),
         diagnostics={
-            "source": "runtime.agent_plan_draft.scaffold",
-            **model_diagnostics,
-            "model_plan_absent": bool(model_diagnostics.get("model_plan_absent", True)),
+            "source": "runtime.agent_plan_draft.empty",
+            **requirement_diagnostics,
+            "model_plan_absent": bool(requirement_diagnostics.get("model_plan_absent", True)),
             "model_plan_authority_used": False,
-            "readonly_planner_request": planner_request,
+            "agent_plan_requirement_ref": str(requirement_payload.get("requirement_id") or ""),
             "required_actions": list(contract.get("required_actions") or []),
             "deliverables": list(contract.get("deliverables") or []),
         },
@@ -217,64 +308,6 @@ def _model_plan_from_payload(
             "draft_id": draft_id,
             "validation_errors": [],
         },
-    )
-
-
-def _steps_for_contract(*, contract: dict[str, Any], obligation: dict[str, Any]) -> list[AgentPlanStep]:
-    task_goal_type = str(contract.get("task_goal_type") or "").strip()
-    if task_goal_type == "game_vertical_slice_delivery":
-        steps = []
-        if "read_material" in {str(item).strip() for item in list(contract.get("required_actions") or []) if str(item).strip()}:
-            steps.append(_step("read_required_materials", "读取必要材料", "读取并抽取任务所需材料证据。", ("op.read_file",), ("material_facts",), ("material_observation",), ("read_material",)))
-        steps.extend([
-            _step("inspect_project", "勘察项目入口", "确认项目结构、启动方式和游戏落点。", ("op.read_file", "op.search_text"), ("entrypoint_map",), ("source_tree_observation",), ("inspect_code",)),
-            _step("plan_vertical_slice", "规划垂直切片", "明确玩法闭环、核心对象、资产清单、文件结构和验证方式，避免只写展示页。", ("op.model_response",), ("implementation_plan",), ("plan_coverage_notes"), ("gameplay_acceptance", "visual_asset_refs")),
-            _step("implement_core_gameplay", "实现核心玩法", "实现玩家输入、碰撞、敌人行为、收集物、生命/分数、胜负、暂停和重启的可玩闭环。", ("op.write_file", "op.edit_file"), ("source_changes",), ("file_write", "gameplay_check"), ("apply_real_change", "gameplay_acceptance")),
-            _step("integrate_visual_asset", "接入视觉资源", "为玩家、敌人、场景地块、障碍和物件写入真实资源文件，并在源码中真实引用。", ("op.write_file", "op.edit_file"), ("asset_refs",), ("asset_file", "asset_visible"), ("integrate_asset", "visual_asset_refs")),
-            _step("run_browser_verification", "运行并浏览器验证", "启动或打开入口，检查画面渲染、资源加载和关键交互；不能用文件存在冒充玩法验收。", ("op.shell", "op.browser_control"), ("verification_evidence",), ("browser_open", "canvas_pixel_check", "gameplay_check"), ("run_browser_verification", "verification_evidence")),
-            _step("write_final_report", "撰写最终报告", "汇报产物、真实验证证据和未完成验收；缺浏览器证据时必须声明 partial。", ("op.write_file", "op.model_response"), ("final_report"), ("file_write", "completion_judgment"), ("final_report",)),
-        ])
-        return steps
-    if task_goal_type == "frontend_app_delivery":
-        return [
-            _step("inspect_frontend_structure", "勘察前端结构", "确认入口、组件、路由和运行方式。", ("op.read_file", "op.search_text"), ("frontend_structure",), ("source_tree_observation",), ("inspect_code",)),
-            _step("plan_user_workflow", "规划用户工作流", "明确要交付的核心页面和交互流程。", ("op.model_response",), ("workflow_plan",), ("plan_coverage_notes",), ("workflow_acceptance",)),
-            _step("implement_frontend_changes", "实现前端变更", "完成真实源码修改和交互状态。", ("op.write_file", "op.edit_file"), ("source_changes",), ("file_write", "workflow_check"), ("apply_real_change", "workflow_acceptance")),
-            _step("run_browser_verification", "运行并浏览器验证", "打开页面并检查关键工作流。", ("op.shell", "op.browser_control"), ("verification_evidence",), ("browser_open", "browser_dom_snapshot", "workflow_check"), ("run_browser_verification", "verification_evidence")),
-            _step("synthesize_delivery", "交付说明", "汇总变更、验证证据和限制。", ("op.model_response",), ("final_answer",), ("completion_judgment",), ("limitations",)),
-        ]
-    steps: list[AgentPlanStep] = []
-    actions = {str(item).strip() for item in list(contract.get("required_actions") or []) if str(item).strip()}
-    if "read_material" in actions or list(obligation.get("required_reads") or []):
-        steps.append(_step("read_required_materials", "读取必要材料", "读取并抽取任务所需材料证据。", ("op.read_file",), ("material_facts",), ("material_observation",), ("read_material",)))
-    if "inspect_code" in actions:
-        steps.append(_step("inspect_relevant_code", "检查相关代码", "理解相关模块职责和改动边界。", ("op.read_file", "op.search_text"), ("code_context",), ("source_tree_observation",), ("inspect_code",)))
-    if "apply_real_change" in actions:
-        steps.append(_step("apply_real_change", "执行真实修改", "按合同完成真实文件或代码变更。", ("op.write_file", "op.edit_file"), ("source_changes",), ("file_write",), ("apply_real_change",)))
-    if "run_verification" in actions or "run_browser_verification" in actions or list(obligation.get("required_verifications") or []):
-        operations = ("op.shell", "op.browser_control") if "run_browser_verification" in actions else ("op.shell",)
-        steps.append(_step("run_verification", "执行验证", "运行真实验证或记录无法验证的限制。", operations, ("verification_evidence",), ("command_run", "test_result"), ("verification_evidence",)))
-    steps.append(_step("synthesize_final_answer", "形成最终交付", "根据证据汇报结果、限制和下一步。", ("op.model_response",), ("final_answer",), ("completion_judgment",), tuple(contract.get("deliverables") or ())))
-    return steps
-
-
-def _step(
-    step_id: str,
-    title: str,
-    purpose: str,
-    required_operations: tuple[str, ...],
-    expected_outputs: tuple[str, ...],
-    evidence_expectations: tuple[str, ...],
-    contract_refs: tuple[str, ...],
-) -> AgentPlanStep:
-    return AgentPlanStep(
-        step_id=step_id,
-        title=title,
-        purpose=purpose,
-        required_operations=required_operations,
-        expected_outputs=expected_outputs,
-        evidence_expectations=evidence_expectations,
-        contract_refs=contract_refs,
     )
 
 

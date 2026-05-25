@@ -9,7 +9,7 @@ from task_system.tasks.spec_models import TaskSpec
 
 
 TaskStepRunStatus = Literal["pending", "running", "completed", "failed", "skipped"]
-TaskRunLedgerStatus = Literal["created", "running", "completed", "partially_completed", "failed", "aborted"]
+TaskRunLedgerStatus = Literal["created", "running", "completed", "partially_completed", "blocked", "failed", "aborted"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -499,6 +499,8 @@ def task_run_terminal_status(terminal_reason: str) -> TaskRunLedgerStatus:
     reason = str(terminal_reason or "").strip()
     if reason == "completed":
         return "completed"
+    if reason == "agent_plan_required":
+        return "blocked"
     if reason in {
         "partially_completed",
         "partial_contract_failed",

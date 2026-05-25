@@ -37,8 +37,8 @@ def test_prompt_selector_selects_static_default_resource_types_for_matching_cont
                 step_kind="domain_flow_matching",
             ),
             PromptResource(
-                resource_id="prompt.default.domain_role.game_vertical_slice_delivery",
-                resource_type="domain_role",
+                resource_id="prompt.default.task_goal_role.game_vertical_slice_delivery",
+                resource_type="task_goal_role",
                 title="浏览器游戏垂直切片开发负责人",
                 content="你是一名浏览器游戏垂直切片开发负责人。",
                 applies_to_task_goal_types=("game_vertical_slice_delivery",),
@@ -52,11 +52,11 @@ def test_prompt_selector_selects_static_default_resource_types_for_matching_cont
 
     assert selected_by_type["mode_policy"].section_id == "mode_policy_section"
     assert selected_by_type["flow_matching_policy"].section_id == "flow_matching_policy_section"
-    assert selected_by_type["domain_role"].resource_id == "prompt.default.domain_role.game_vertical_slice_delivery"
+    assert selected_by_type["task_goal_role"].resource_id == "prompt.default.task_goal_role.game_vertical_slice_delivery"
     assert "domain_flow_matching_stage" in selected_by_type["flow_matching_policy"].selection_reason
 
 
-def test_prompt_selector_prefers_workflow_stage_role_over_generic_domain_role() -> None:
+def test_prompt_selector_prefers_workflow_stage_role_over_generic_task_goal_role() -> None:
     context = PromptSelectionContext(
         task_id="runtime-task",
         user_goal="执行世界观设计节点",
@@ -361,6 +361,46 @@ def test_prompt_selection_context_exposes_goal_and_plan_contracts() -> None:
     assert context.agent_plan_draft["plan_id"] == "agent-plan:runtime-task"
     assert context.plan_coverage_review["passed"] is True
     assert context.metadata["agent_plan_ref"] == "agent-plan:runtime-task"
+
+
+def test_prompt_selection_context_does_not_expose_task_domain_binding_to_agent_prompt() -> None:
+    context = build_prompt_selection_context(
+        task_id="runtime-task",
+        user_goal="重构 runtime",
+        task_contract={
+            "task_requirement_contract": {
+                "contract_id": "semantic-task:test:runtime-task",
+                "task_goal_type": "implementation",
+                "domain": "development",
+                "diagnostics": {
+                    "task_domain_binding": {
+                        "binding_id": "taskdomainbind:runtime-task:domain.development",
+                        "bound_domain_id": "domain.development",
+                    }
+                },
+            },
+            "mode_policy": {"interaction_mode": "professional_mode"},
+        },
+        task_execution_assembly={"task_mode": "professional_mode", "metadata": {}},
+        selected_recipe={},
+        task_workflow={},
+        registered_task={},
+        skill_runtime_views=[],
+        agent_id="agent:0",
+        current_turn_context={
+            "task_domain_binding": {
+                "binding_id": "taskdomainbind:current:domain.development",
+                "bound_domain_id": "domain.development",
+            }
+        },
+    )
+    plan = PromptSelector(()).select(context).to_dict()
+    context_payload = context.to_dict()
+
+    assert "task_domain_binding" not in context_payload
+    assert "task_domain_binding_ref" not in context.metadata
+    assert "task_domain_binding_ref" not in plan["diagnostics"]
+    assert all(item["section_id"] != "domain_playbook_section" for item in plan["selected"])
 
 
 def test_prompt_selection_context_exposes_model_owned_understanding_inputs() -> None:

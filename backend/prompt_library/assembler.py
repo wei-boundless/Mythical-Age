@@ -79,12 +79,13 @@ def assemble_runtime_prompt_contract(
         resources=prompt_resources,
         resource_type="stage_role",
     )
-    selected_domain_role = selected_prompt_resource(
+    selected_task_goal_role = selected_prompt_resource(
         plan=prompt_assembly_plan,
         resources=prompt_resources,
-        resource_type="domain_role",
+        resource_type="task_goal_role",
     )
     node_prompt_resource = selected_stage_role.to_dict() if selected_stage_role is not None else {}
+    task_goal_prompt_resource = selected_task_goal_role.to_dict() if selected_task_goal_role is not None else {}
     model_turn_decision = dict(prompt_selection_context.model_turn_decision or {})
     selected_skill_ids = [
         str(item).strip()
@@ -121,19 +122,17 @@ def assemble_runtime_prompt_contract(
             registered_task=registered_task,
             prompt_resource=node_prompt_resource,
         ),
+        "task_goal_role_prompt_section": str(task_goal_prompt_resource.get("content") or ""),
         "semantic_task_section": _semantic_task_section(semantic_contract),
         "goal_understanding_section": _goal_understanding_section(
             semantic_contract=semantic_contract,
             current_turn_context=dict(current_turn_context or {}),
             current_step_kind=str(prompt_selection_context.current_step_kind or ""),
         ),
-        "domain_playbook_section": _domain_playbook_section(
-            semantic_contract,
-            selected_domain_role=selected_domain_role.to_dict() if selected_domain_role is not None else {},
-        ),
         "professional_profile_section": professional_profile.prompt if professional_profile is not None else "",
         "agent_plan_section": _agent_plan_section(
             dict(selected_metadata.get("agent_plan_draft") or {}),
+            agent_plan_requirement=dict(selected_metadata.get("agent_plan_requirement") or {}),
             operation_requirement=operation_requirement,
         ),
         "plan_coverage_section": _plan_coverage_section(dict(selected_metadata.get("plan_coverage_review") or {})),
@@ -168,12 +167,13 @@ def assemble_runtime_prompt_contract(
             "skill_detail_source_refs": list(skill_activation.get("source_refs") or []),
             "skill_runtime_views": skill_runtime_views,
             "node_professional_prompt_resource": node_prompt_resource,
+            "task_goal_prompt_resource": task_goal_prompt_resource,
             "prompt_selection_context": prompt_selection_context.to_dict(),
             "prompt_assembly_plan": prompt_assembly_plan.to_dict(),
             "task_requirement_contract": semantic_contract,
-            "task_domain_binding": dict(prompt_selection_context.task_domain_binding or {}),
             "goal_hypothesis_set": dict(prompt_selection_context.goal_hypothesis_set or {}),
             "task_goal_spec": dict(prompt_selection_context.task_goal_spec or {}),
+            "agent_plan_requirement": dict(prompt_selection_context.agent_plan_requirement or {}),
             "agent_plan_draft": dict(prompt_selection_context.agent_plan_draft or {}),
             "plan_coverage_review": dict(prompt_selection_context.plan_coverage_review or {}),
             "verification_review": dict(prompt_selection_context.verification_review or {}),
@@ -229,7 +229,6 @@ def _semantic_task_section(semantic_contract: dict[str, Any]) -> str:
     ]
     lines = [
         f"你本轮要完成的任务类型是：{str(semantic_contract.get('task_goal_type') or 'general').strip()}。",
-        f"任务领域：{str(semantic_contract.get('domain') or 'general').strip()}。",
     ]
     if materials:
         lines.append("需要优先处理的材料：" + "、".join(materials[:8]) + "。")
@@ -287,8 +286,6 @@ def _goal_understanding_section(
         lines.append(
             "当前选定目标："
             + str(chosen.get("task_goal_type") or frame.get("task_goal_type") or "").strip()
-            + "；领域："
-            + str(chosen.get("task_domain") or frame.get("task_domain") or "").strip()
             + "。"
         )
     if rejected:
@@ -312,50 +309,40 @@ def _goal_understanding_section(
     return "\n".join(line for line in lines if line.strip())
 
 
-def _domain_playbook_section(semantic_contract: dict[str, Any], *, selected_domain_role: dict[str, Any] | None = None) -> str:
-    role_prompt = str(dict(selected_domain_role or {}).get("content") or "").strip()
-    if role_prompt:
-        return role_prompt
-    playbook = dict(semantic_contract.get("domain_playbook") or {})
-    if not playbook:
-        return ""
-    role = str(playbook.get("role") or "").strip()
-    responsibilities = [
-        str(item).strip()
-        for item in list(playbook.get("responsibilities") or [])
-        if str(item).strip()
-    ]
-    forbidden = [
-        str(item).strip()
-        for item in list(playbook.get("forbidden_actions") or [])
-        if str(item).strip()
-    ]
-    lines = []
-    if role:
-        lines.append(f"你在该任务领域中的职责是：{role}。")
-    if responsibilities:
-        lines.append("你需要负责：" + "、".join(responsibilities[:8]) + "。")
-    if forbidden:
-        lines.append("你不负责：" + "、".join(forbidden[:8]) + "。")
-    return "\n".join(lines)
-
-
-def _agent_plan_section(agent_plan: dict[str, Any], *, operation_requirement: dict[str, Any] | None = None) -> str:
-    if not agent_plan:
+def _agent_plan_section(
+    agent_plan: dict[str, Any],
+    *,
+    agent_plan_requirement: dict[str, Any] | None = None,
+    operation_requirement: dict[str, Any] | None = None,
+) -> str:
+    requirement = dict(agent_plan_requirement or {})
+    if not agent_plan and not requirement:
         return ""
     steps = [dict(item) for item in list(agent_plan.get("steps") or []) if isinstance(item, dict)]
-    if not steps:
-        return ""
     diagnostics = dict(agent_plan.get("diagnostics") or {})
     source = str(agent_plan.get("source") or diagnostics.get("source") or "").strip()
-    model_absent = diagnostics.get("model_plan_absent") is True
     operations = set(_operation_refs(dict(operation_requirement or {})))
     lines = [
-        "你是一名任务执行规划员。你需要按计划推进，但如果真实代码或环境发现计划不完整，必须先修正计划再继续。",
+        "你是一名任务执行规划员。执行计划必须由你根据用户目标、语义合同和真实观察生成或修正。",
+        "系统只校验计划覆盖、工具权限和证据要求，不会替你编写可执行行为步骤。",
         "每个步骤都必须产生对应的真实观察或明确阻断原因。",
     ]
-    if model_absent or source == "deterministic_scaffold":
-        lines.append("当前没有真实模型生成的执行计划草稿；这里的计划是系统脚手架兜底，执行前仍需按真实上下文修正。")
+    if not steps:
+        required_actions = [
+            str(item).strip()
+            for item in list(requirement.get("required_actions") or diagnostics.get("required_actions") or [])
+            if str(item).strip()
+        ]
+        required_deliverables = [
+            str(item).strip()
+            for item in list(requirement.get("required_deliverables") or diagnostics.get("deliverables") or [])
+            if str(item).strip()
+        ]
+        lines.append("当前尚未收到 agent 提交的可执行计划；你需要先提交计划，不能把系统合同当作已经完成的计划。")
+        if required_actions:
+            lines.append("计划必须覆盖动作：" + "、".join(required_actions) + "。")
+        if required_deliverables:
+            lines.append("计划必须覆盖交付物：" + "、".join(required_deliverables) + "。")
     elif source:
         lines.append(f"当前计划来源：{source}。")
     if "op.agent_todo" in operations:

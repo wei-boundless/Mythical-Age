@@ -53,6 +53,34 @@ def test_completion_judgment_verified_requires_passed_validation() -> None:
     assert judgment["completion_allowed"] is True
 
 
+def test_readonly_verifier_request_does_not_receive_task_domain_binding() -> None:
+    contract = {
+        **SEMANTIC_CONTRACT,
+        "domain": "development",
+        "diagnostics": {
+            "task_domain_binding": {
+                "binding_id": "taskdomainbind:verify:domain.development",
+                "bound_domain_id": "domain.development",
+                "default_practices": ["不得声称未发生的浏览器验证"],
+            }
+        },
+    }
+    review = build_verification_review(
+        task_run_id="completion-domain-binding-hidden",
+        semantic_contract=contract,
+        evidence_packet={"packet_id": "evidence:domain-hidden", "facts": []},
+        deliverable_validation={"passed": False, "missing_deliverables": ["verification_evidence"]},
+        obligation_validation={"passed": False, "unsatisfied_obligations": ["run_browser_verification"]},
+    )
+    verifier_request = review.diagnostics["readonly_verifier_request"]
+    serialized = str(verifier_request)
+
+    assert "task_domain_binding" not in serialized
+    assert "taskdomainbind:verify:domain.development" not in serialized
+    assert "不得声称未发生的浏览器验证" not in serialized
+    assert "domain" not in verifier_request["semantic_contract"]
+
+
 def test_completion_judgment_blocks_missing_deliverables_without_evidence() -> None:
     evidence = {"packet_id": "evidence:completion:blocked", "facts": [], "limitations": ["未收到工具观察。"]}
     deliverable = {"passed": False, "missing_deliverables": ["verification_evidence"], "unsupported_claims": []}

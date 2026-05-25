@@ -105,6 +105,7 @@ from ..agent_assembly import (
     stage_execution_request_from_runtime_control,
     strip_control_context,
 )
+from ..model_visibility import strip_task_domain_authority
 from ..execution_permit import (
     append_approval_rejection_observation,
     build_execution_permit_from_payload,
@@ -2680,11 +2681,16 @@ class TaskRunLoop:
             "partially_completed",
             "model_response_timeout_after_partial_output",
         }
+        blocked_terminal_reasons = {
+            "agent_plan_required",
+        }
         terminal_status = (
             "completed"
             if terminal_reason == "completed"
             else "completed"
             if terminal_reason in partial_terminal_reasons and final_content
+            else "blocked"
+            if terminal_reason in blocked_terminal_reasons
             else "failed"
         )
         terminal_state = state.with_status(
@@ -6517,255 +6523,20 @@ def _fallback_model_turn_decision(
     selection = dict(task_selection or {})
     facts = dict(request_facts or {})
     selected_task_id = str(selection.get("selected_task_id") or "").strip()
-    task_order_projection = dict(selection.get("task_order_projection") or {})
-    has_task_projection = bool(selected_task_id or task_order_projection.get("task_order_id"))
-    target_objects = _fallback_target_objects(user_message=user_message, request_facts=facts, selected_task_id=selected_task_id)
-    development = _fallback_development_intent(
-        user_message=user_message,
-        request_facts=facts,
-        task_selection=selection,
-        target_objects=target_objects,
-    )
-    read_only_material = _fallback_has_read_only_material(target_objects)
-    if development:
-        action_intent = "edit_workspace"
-        work_mode = "implementation"
-        interaction_intent = "modify" if development["required_write_files"] else "create"
-        task_goal_type = str(development["task_goal_type"])
-        task_domain = "development"
-        desired_outcome = str(development["desired_outcome"])
-        deliverables = list(development["deliverables"])
-        constraints = [
-            "fallback_model_output_was_invalid",
-            "source_project_read_only_when_marked_as_source",
-        ]
-        forbidden_actions = ["delegate", "background_execution"]
-        resource_contract = dict(development["resource_contract"])
-        planning_required = True
-        todo_required = True
-        completion_criteria = list(development["completion_criteria"])
-        fallback_policy = "structural_development_contract_from_request"
-    else:
-        action_intent = "read_context" if read_only_material else "answer_only"
-        work_mode = "read_only_analysis" if read_only_material else "conversation"
-        interaction_intent = "inspect" if read_only_material else "run" if has_task_projection else "answer"
-        task_goal_type = selected_task_id or "conservative_frontstage_response"
-        task_domain = str(selection.get("domain_id") or selection.get("task_domain") or "general")
-        desired_outcome = (
-            "Read explicitly referenced material and produce a front-stage analysis without side effects."
-            if read_only_material
-            else "Produce a front-stage response without authorizing side effects from fallback understanding."
-        )
-        deliverables = []
-        constraints = ["fallback_understanding_cannot_authorize_side_effects"]
-        forbidden_actions = [
-            "edit_workspace",
-            "run_command",
-            "start_service",
-            "use_browser",
-            "delegate",
-            "background_execution",
-        ]
-        resource_contract = {}
-        planning_required = False
-        todo_required = False
-        completion_criteria = []
-        fallback_policy = "answer_only_no_side_effect_authority"
     details = dict(diagnostics or {})
-    decision = {
-        "authority": "agent_runtime.model_turn_decision",
-        "decision_id": f"model-turn-decision:fallback:{uuid.uuid4().hex[:8]}",
-        "user_message": str(user_message or "").strip(),
-        "interaction_intent": interaction_intent,
-        "action_intent": action_intent,
-        "work_mode": work_mode,
-        "task_goal_type": task_goal_type,
-        "task_domain": task_domain,
-        "target_objects": target_objects,
-        "desired_outcome": desired_outcome,
-        "deliverables": deliverables,
-        "constraints": constraints,
-        "forbidden_actions": forbidden_actions,
-        "selected_skill_ids": [],
-        "resource_contract": resource_contract,
-        "context_binding_decision": {
-            "mode": "fallback_model_turn_decision",
-            "reason": reason,
-            "selected_task_id": selected_task_id,
-            "runtime_lane": str(selection.get("runtime_lane") or ""),
-            "interaction_mode": str(selection.get("interaction_mode") or selection.get("runtime_interaction_mode") or ""),
-            "explicit_paths": list(target_objects),
-            "structural_development_contract": bool(development),
-        },
-        "planning_required": planning_required,
-        "todo_required": todo_required,
-        "completion_criteria": completion_criteria,
-        "needs_clarification": False,
-        "clarification_question": "",
-        "confidence": 0.55 if development else 0.2,
-        "ambiguity": [reason],
-        "diagnostics": {
-            **details,
-            "fallback_understanding": True,
-            "fallback_policy": fallback_policy,
-            "model_authority_used": False,
-        },
-    }
-    parsed, validation = model_turn_decision_from_payload(decision, user_message=user_message)
-    if parsed is None:
-        return _blocked_model_turn_decision(
-            user_message=user_message,
-            reason=f"{reason}:fallback_invalid",
-            diagnostics={**details, **dict(validation or {})},
-        )
-    payload = parsed.to_dict()
-    payload = _canonical_model_turn_decision_payload(
-        payload,
+    return _blocked_model_turn_decision(
         user_message=user_message,
-        task_selection=task_selection,
-    )
-    payload["diagnostics"] = {
-        **dict(payload.get("diagnostics") or {}),
-        "main_model_owns_task_understanding": False,
-        "fallback_understanding": True,
-    }
-    return payload, {
-        "model_call_performed": True,
-        "model_authority_used": False,
-        **details,
-        **dict(validation or {}),
-        "decision_status": "fallback_conservative",
-        "fallback_reason": reason,
-    }
-
-
-def _fallback_target_objects(
-    *,
-    user_message: str,
-    request_facts: dict[str, Any],
-    selected_task_id: str,
-) -> list[str]:
-    targets: list[str] = []
-    for key in ("explicit_paths", "target_objects", "material_paths"):
-        targets.extend(str(item).strip() for item in list(request_facts.get(key) or []) if str(item).strip())
-    for match in re.finditer(r"[\w./\\\-\u4e00-\u9fff\s:]+?\.(?:pdf|csv|tsv|xlsx|xls|parquet|md|txt)", str(user_message or ""), flags=re.IGNORECASE):
-        targets.append(match.group(0).strip(" `\"'“”‘’，,。；;"))
-    if selected_task_id:
-        targets.append(selected_task_id)
-    return list(dict.fromkeys(item for item in targets if item))
-
-
-def _fallback_has_read_only_material(targets: list[str]) -> bool:
-    for target in targets:
-        item = str(target or "").strip().lower().replace("\\", "/")
-        if item.endswith((".pdf", ".csv", ".tsv", ".xlsx", ".xls", ".parquet", ".md", ".txt")):
-            return True
-        if item.startswith(("knowledge/", "kb:", "knowledge:")):
-            return True
-    return False
-
-
-def _fallback_development_intent(
-    *,
-    user_message: str,
-    request_facts: dict[str, Any],
-    task_selection: dict[str, Any],
-    target_objects: list[str],
-) -> dict[str, Any] | None:
-    explicit_contract = dict(
-        task_selection.get("resource_contract")
-        or dict(task_selection.get("model_turn_decision") or {}).get("resource_contract")
-        or {}
-    )
-    explicit_writes = _fallback_required_write_files(user_message, request_facts, explicit_contract)
-    target_projects = _fallback_target_projects(user_message, explicit_contract, target_objects)
-    source_projects = _fallback_source_projects(user_message, explicit_contract, target_objects)
-    text = str(user_message or "").lower()
-    development_markers = (
-        "接手",
-        "扩展",
-        "新增",
-        "加入",
-        "实现",
-        "修改",
-        "更新",
-        "写入",
-        "输出目录",
-        "目标输出目录",
-        "开发",
-        "工程",
-        "游戏",
-        "肉鸽",
-        "boss",
-        "campaign",
-        "roguelike",
-        "frontend",
-        "browser game",
-    )
-    has_development_language = any(marker.lower() in text for marker in development_markers)
-    if not (explicit_writes or target_projects or has_development_language):
-        return None
-
-    task_goal_type = _fallback_development_goal_type(user_message, explicit_contract, task_selection)
-    profile = get_task_goal_profile(task_goal_type)
-    default_deliverables = list(getattr(profile, "default_core_deliverables", ()) or ())
-    deliverables = explicit_writes or default_deliverables or ["changed_files", "verification_result_or_limitation"]
-    required_write_dirs = _fallback_required_write_dirs(user_message, request_facts, explicit_contract)
-    required_read_files = _fallback_required_read_files(user_message, request_facts, explicit_contract)
-    required_read_dirs = _fallback_required_read_dirs(user_message, request_facts, explicit_contract)
-    if source_projects and "assets" in text and "assets" not in {item.strip("/").lower() for item in required_read_dirs}:
-        required_read_dirs.append("assets")
-    if (required_write_dirs or "assets" in text) and "assets" not in {item.strip("/").lower() for item in required_write_dirs}:
-        required_write_dirs.append("assets")
-    if not explicit_writes and target_projects:
-        explicit_writes = _fallback_common_project_files(user_message)
-    completion_criteria = [
-        "required output files exist in sandbox overlay",
-        "source project remains read-only",
-        "final answer reports changed files and verification result",
-    ]
-    return {
-        "task_goal_type": task_goal_type,
-        "desired_outcome": "Implement the requested development change in the sandbox target project while treating source projects as read-only inputs.",
-        "deliverables": deliverables,
-        "required_write_files": explicit_writes,
-        "completion_criteria": completion_criteria,
-        "resource_contract": {
-            "source_projects": [{"path": item, "role": "source", "required": True} for item in source_projects],
-            "target_projects": [{"path": item, "role": "target", "required": True} for item in target_projects],
-            "required_read_files": required_read_files,
-            "required_read_dirs": required_read_dirs,
-            "required_write_files": explicit_writes,
-            "required_write_dirs": required_write_dirs,
-            "asset_policy": {
-                "must_preserve_existing_assets": bool(source_projects and "assets" in text),
-                "source_assets_read_only": True,
-            },
+        reason=reason,
+        diagnostics={
+            **details,
+            "model_call_performed": True,
+            "model_authority_used": False,
+            "fallback_understanding_removed": True,
+            "fallback_policy": "fail_closed_without_system_authored_agent_decision",
+            "selected_task_id": selected_task_id,
+            "explicit_path_count": len(list(facts.get("explicit_paths") or [])),
         },
-    }
-
-
-def _fallback_development_goal_type(
-    user_message: str,
-    resource_contract: dict[str, Any],
-    task_selection: dict[str, Any],
-) -> str:
-    explicit = str(
-        task_selection.get("semantic_task_type")
-        or task_selection.get("task_goal_type")
-        or dict(task_selection.get("task_requirement_contract") or {}).get("task_goal_type")
-        or ""
-    ).strip()
-    if explicit:
-        return _canonical_task_goal_type(explicit, user_message=user_message, task_selection=task_selection)
-    text = str(user_message or "").lower()
-    if any(marker in text for marker in ("游戏", "肉鸽", "roguelike", "boss", "关卡", "战役", "browser game")):
-        return "game_vertical_slice_delivery"
-    if any(marker in text for marker in ("前端", "frontend", "ui", "页面", "浏览器")):
-        return "frontend_app_delivery"
-    if _fallback_required_write_files(user_message, {}, resource_contract):
-        return "implementation"
-    return "implementation"
+    )
 
 
 def _canonical_model_turn_decision_payload(
@@ -6797,7 +6568,8 @@ def _canonical_task_goal_type(
     normalized = str(task_goal_type or "").strip()
     if normalized and get_task_goal_profile(normalized) is not None:
         return normalized
-    text = f"{user_message}\n{json.dumps(dict(task_selection or {}), ensure_ascii=False, default=str)}".lower()
+    model_visible_selection = _model_turn_decision_visible_task_selection(task_selection)
+    text = f"{user_message}\n{json.dumps(model_visible_selection, ensure_ascii=False, default=str)}".lower()
     game_markers = ("游戏", "肉鸽", "roguelike", "boss", "关卡", "战役", "game", "dungeon", "campaign")
     if any(marker in text for marker in game_markers) or any(marker in normalized.lower() for marker in ("game", "roguelike", "dungeon", "campaign")):
         return "game_vertical_slice_delivery"
@@ -6810,132 +6582,14 @@ def _canonical_task_goal_type(
     return normalized or "light_qa"
 
 
-def _fallback_required_write_files(
-    user_message: str,
-    request_facts: dict[str, Any],
-    resource_contract: dict[str, Any],
-) -> list[str]:
-    values = list(resource_contract.get("required_write_files") or [])
-    values.extend(dict(request_facts.get("resource_contract") or {}).get("required_write_files") or [])
-    text = str(user_message or "")
-    target_dir = _fallback_target_dir_from_message(text)
-    for name in _fallback_common_project_files(text):
-        values.append(f"{target_dir.rstrip('/')}/{name}" if target_dir else name)
-    return _dedupe_paths(values)
-
-
-def _fallback_required_write_dirs(
-    user_message: str,
-    request_facts: dict[str, Any],
-    resource_contract: dict[str, Any],
-) -> list[str]:
-    values = list(resource_contract.get("required_write_dirs") or [])
-    values.extend(dict(request_facts.get("resource_contract") or {}).get("required_write_dirs") or [])
-    target_dir = _fallback_target_dir_from_message(str(user_message or ""))
-    if target_dir:
-        values.append(target_dir)
-    if "assets" in str(user_message or "").lower() and target_dir:
-        values.append(f"{target_dir.rstrip('/')}/assets")
-    return _dedupe_paths(values)
-
-
-def _fallback_required_read_files(
-    user_message: str,
-    request_facts: dict[str, Any],
-    resource_contract: dict[str, Any],
-) -> list[str]:
-    values = list(resource_contract.get("required_read_files") or [])
-    values.extend(dict(request_facts.get("resource_contract") or {}).get("required_read_files") or [])
-    for name in _fallback_common_project_files(str(user_message or "")):
-        values.append(name)
-    return _dedupe_paths(values)
-
-
-def _fallback_required_read_dirs(
-    user_message: str,
-    request_facts: dict[str, Any],
-    resource_contract: dict[str, Any],
-) -> list[str]:
-    values = list(resource_contract.get("required_read_dirs") or [])
-    values.extend(dict(request_facts.get("resource_contract") or {}).get("required_read_dirs") or [])
-    if "assets" in str(user_message or "").lower():
-        values.append("assets")
-    return _dedupe_paths(values)
-
-
-def _fallback_source_projects(
-    user_message: str,
-    resource_contract: dict[str, Any],
-    target_objects: list[str],
-) -> list[str]:
-    values = [str(item.get("path") or item) for item in list(resource_contract.get("source_projects") or [])]
-    text = str(user_message or "")
-    source_match = re.search(r"只读源项目在[:：]\s*(.+?)(?:\n\s*\n|目标输出目录|要求[:：])", text, flags=re.DOTALL | re.IGNORECASE)
-    if source_match:
-        values.append(source_match.group(1).strip())
-    for target in target_objects:
-        normalized = str(target or "").strip()
-        if "sandbox_runs" in normalized.replace("\\", "/") and normalized not in values:
-            values.append(normalized)
-    return _dedupe_paths(values)
-
-
-def _fallback_target_projects(
-    user_message: str,
-    resource_contract: dict[str, Any],
-    target_objects: list[str],
-) -> list[str]:
-    values = [str(item.get("path") or item) for item in list(resource_contract.get("target_projects") or [])]
-    target_dir = _fallback_target_dir_from_message(str(user_message or ""))
-    if target_dir:
-        values.append(target_dir)
-    for target in target_objects:
-        normalized = str(target or "").strip()
-        if normalized.startswith(("frontend/", "docs/", "output/")) and "." not in Path(normalized).name:
-            values.append(normalized)
-    return _dedupe_paths(values)
-
-
-def _fallback_target_dir_from_message(text: str) -> str:
-    match = re.search(r"目标输出目录(?:仍然)?是[:：]\s*([^\n\r]+)", text, flags=re.IGNORECASE)
-    if match:
-        return _clean_fallback_path(match.group(1))
-    match = re.search(r"(frontend/public/games/[A-Za-z0-9_\-./]+)", text)
-    if match:
-        return _clean_fallback_path(match.group(1))
-    return ""
-
-
-def _fallback_common_project_files(text: str) -> list[str]:
-    names = []
-    for name in ("index.html", "styles.css", "game.js", "README.md"):
-        if name.lower() in str(text or "").lower():
-            names.append(name)
-    return names
-
-
-def _clean_fallback_path(value: Any) -> str:
-    return str(value or "").strip().strip("`'\"“”‘’ ，,。；;").replace("\\", "/").strip().rstrip("/")
-
-
-def _dedupe_paths(values: list[Any]) -> list[str]:
-    result: list[str] = []
-    seen: set[str] = set()
-    for value in values:
-        item = _clean_fallback_path(value)
-        if not item or item in seen:
-            continue
-        seen.add(item)
-        result.append(item)
-    return result
-
-
 def _model_turn_decision_messages(
     *,
     user_message: str,
     request_facts: dict[str, Any],
     task_selection: dict[str, Any],
 ) -> list[dict[str, str]]:
+    model_visible_request_facts = _model_turn_decision_visible_request_facts(request_facts)
+    model_visible_task_selection = _model_turn_decision_visible_task_selection(task_selection)
     schema = {
         "authority": "agent_runtime.model_turn_decision",
         "decision_id": "model-turn-decision:<stable id or omit>",
@@ -6944,7 +6598,7 @@ def _model_turn_decision_messages(
         "action_intent": "answer_only|read_context|search_external|edit_workspace|run_command|start_service|use_browser|delegate|ask_clarification|block",
         "work_mode": "conversation|read_only_analysis|implementation|verification|planning|delegated|background",
         "task_goal_type": "<specific conventional task type>",
-        "task_domain": "<domain>",
+        "domain_mismatch_signal": {},
         "target_objects": [],
         "desired_outcome": "",
         "deliverables": [],
@@ -6982,14 +6636,31 @@ def _model_turn_decision_messages(
     )
     user = {
         "schema": schema,
-        "request_facts": dict(request_facts or {}),
-        "task_selection": dict(task_selection or {}),
+        "request_facts": model_visible_request_facts,
+        "task_selection": model_visible_task_selection,
         "user_message": str(user_message or ""),
     }
     return [
         {"role": "system", "content": system},
         {"role": "user", "content": json.dumps(user, ensure_ascii=False)},
     ]
+
+
+def _model_turn_decision_visible_request_facts(request_facts: dict[str, Any] | None) -> dict[str, Any]:
+    facts = dict(request_facts or {})
+    if isinstance(facts.get("explicit_selection"), dict):
+        facts["explicit_selection"] = _model_turn_decision_visible_task_selection(
+            dict(facts.get("explicit_selection") or {})
+        )
+    return _model_turn_decision_visible_task_selection(facts)
+
+
+def _model_turn_decision_visible_task_selection(task_selection: dict[str, Any] | None) -> dict[str, Any]:
+    sanitized = strip_task_domain_authority(dict(task_selection or {}))
+    if isinstance(sanitized, dict):
+        sanitized.pop("agent_invocation", None)
+        sanitized.pop("runtime_control", None)
+    return dict(sanitized or {})
 
 
 def _parse_model_turn_decision_payload(text: str) -> tuple[dict[str, Any] | None, dict[str, Any]]:
@@ -7046,7 +6717,7 @@ def _blocked_model_turn_decision(
         "action_intent": "block",
         "work_mode": "conversation",
         "task_goal_type": "blocked_understanding",
-        "task_domain": "runtime",
+        "domain_mismatch_signal": {},
         "target_objects": [],
         "desired_outcome": "理解决策未通过，运行时停止。",
         "deliverables": [],

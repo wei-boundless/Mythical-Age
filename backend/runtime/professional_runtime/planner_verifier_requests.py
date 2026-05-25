@@ -3,13 +3,14 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from runtime.model_visibility import model_visible_semantic_contract
+
 
 @dataclass(frozen=True, slots=True)
 class ReadonlyPlannerRequest:
     request_id: str
     semantic_contract_ref: str
     semantic_contract: dict[str, Any] = field(default_factory=dict)
-    domain_playbook: dict[str, Any] = field(default_factory=dict)
     workspace_observations: tuple[dict[str, Any], ...] = ()
     output_schema: dict[str, Any] = field(default_factory=dict)
     role_prompt: str = ""
@@ -25,7 +26,6 @@ class ReadonlyPlannerRequest:
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["semantic_contract"] = dict(self.semantic_contract or {})
-        payload["domain_playbook"] = dict(self.domain_playbook or {})
         payload["workspace_observations"] = [dict(item) for item in self.workspace_observations]
         payload["output_schema"] = dict(self.output_schema or {})
         payload["diagnostics"] = dict(self.diagnostics or {})
@@ -69,15 +69,13 @@ def build_readonly_planner_request(
     *,
     task_id: str,
     semantic_contract: dict[str, Any] | None,
-    domain_playbook: dict[str, Any] | None = None,
     workspace_observations: list[dict[str, Any]] | tuple[dict[str, Any], ...] = (),
 ) -> ReadonlyPlannerRequest:
-    contract = dict(semantic_contract or {})
+    contract = model_visible_semantic_contract(semantic_contract)
     return ReadonlyPlannerRequest(
         request_id=f"readonly-planner-request:{task_id or 'runtime'}",
         semantic_contract_ref=str(contract.get("contract_id") or ""),
         semantic_contract=contract,
-        domain_playbook=dict(domain_playbook or {}),
         workspace_observations=tuple(dict(item) for item in list(workspace_observations or []) if isinstance(item, dict)),
         output_schema=_agent_plan_schema(),
         role_prompt=_planner_prompt(),
@@ -99,7 +97,7 @@ def build_readonly_verifier_request(
     deliverable_validation: dict[str, Any] | None = None,
     obligation_validation: dict[str, Any] | None = None,
 ) -> ReadonlyVerifierRequest:
-    contract = dict(semantic_contract or {})
+    contract = model_visible_semantic_contract(semantic_contract)
     evidence = dict(evidence_packet or {})
     return ReadonlyVerifierRequest(
         request_id=f"readonly-verifier-request:{task_run_id or 'runtime'}",
@@ -152,10 +150,10 @@ def _planner_prompt() -> str:
     return "\n".join(
         [
             "你是一名只读任务计划员。",
-            "你只根据语义任务合同、任务域制式和已经存在的真实观察生成可执行计划草稿。",
+            "你只根据语义任务合同、用户显式流程和已经存在的真实观察生成可执行计划草稿。",
             "你不修改文件，不运行命令，不宣称已经完成任何执行动作。",
             "每个计划步骤必须说明目的、预期产物、需要的操作类型和证据期望。",
-            "用户显式流程和禁令优先于任务域默认制式；如果计划无法覆盖合同，你必须明确写出限制或阻断。",
+            "用户显式流程和禁令优先于任何默认习惯；如果计划无法覆盖合同，你必须明确写出限制或阻断。",
             "请只输出符合 runtime.agent_plan_draft schema 的结构化结果。",
         ]
     )

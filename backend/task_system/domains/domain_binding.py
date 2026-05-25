@@ -16,8 +16,6 @@ class TaskDomainBinding:
     semantic_domain: str
     title: str
     binding_source: str
-    playbook_role: str = "mature_working_conventions"
-    user_flow_priority: str = "higher_than_domain_playbook"
     forbidden_actions_priority: str = "absolute"
     default_practices: tuple[str, ...] = ()
     validation_practices: tuple[str, ...] = ()
@@ -49,7 +47,9 @@ def bind_task_domain(
     goal_evidence: dict[str, Any] | None = None,
     forbidden_actions: list[str] | tuple[str, ...] = (),
 ) -> TaskDomainBinding:
-    normalized = _normalize_domain(requested_domain or task_goal_domain)
+    if not str(requested_domain or "").strip():
+        raise ValueError("Task domain binding requires an explicit user/session/order/task-graph domain.")
+    normalized = _normalize_domain(requested_domain)
     registry = TaskFlowRegistry(base_dir)
     domains = registry.list_task_domains()
     record, source = _resolve_domain_record(normalized, domains)
@@ -60,8 +60,6 @@ def bind_task_domain(
     practices = _default_practices(semantic_domain=semantic_domain, domain_id=bound_domain_id, metadata=metadata)
     validation = _validation_practices(semantic_domain=semantic_domain, domain_id=bound_domain_id, metadata=metadata)
     risks = _risk_controls(semantic_domain=semantic_domain, domain_id=bound_domain_id, metadata=metadata)
-    evidence = dict(goal_evidence or {})
-    has_user_flow = bool(list(evidence.get("user_provided_flow") or []))
     return TaskDomainBinding(
         binding_id=f"taskdomainbind:{task_id or 'runtime'}:{bound_domain_id}",
         requested_domain=str(requested_domain or task_goal_domain or "").strip(),
@@ -69,13 +67,15 @@ def bind_task_domain(
         semantic_domain=semantic_domain,
         title=title,
         binding_source=source,
-        user_flow_priority="higher_than_domain_playbook" if has_user_flow else "domain_playbook_can_fill_gaps",
         default_practices=tuple(practices),
         validation_practices=tuple(validation),
         risk_controls=tuple(risks),
         diagnostics={
             "matched_record": record.to_dict() if record is not None else {},
             "normalized_domain": normalized,
+            "task_goal_domain_ignored": str(task_goal_domain or "").strip(),
+            "agent_can_select_domain": False,
+            "domain_binding_source_must_be_system": True,
             "forbidden_actions": [str(item).strip() for item in list(forbidden_actions or []) if str(item).strip()],
             "domain_binding_does_not_decide_goal": True,
             "domain_binding_must_not_override_user_flow": True,

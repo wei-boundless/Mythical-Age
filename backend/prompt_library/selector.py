@@ -17,7 +17,7 @@ _RESOURCE_SECTION_IDS = {
     "understanding_policy": "understanding_policy_section",
     "flow_matching_policy": "flow_matching_policy_section",
     "role_prompt": "role_prompt_section",
-    "domain_role": "domain_role_prompt_section",
+    "task_goal_role": "task_goal_role_prompt_section",
     "stage_role": "node_professional_prompt_section",
     "skill_prompt": "skill_prompt_section",
     "tool_guidance": "tool_guidance_section",
@@ -31,7 +31,7 @@ _RESOURCE_ORDERS = {
     "understanding_policy": 18,
     "flow_matching_policy": 19,
     "role_prompt": 15,
-    "domain_role": 25,
+    "task_goal_role": 25,
     "stage_role": 35,
     "skill_prompt": 45,
     "tool_guidance": 55,
@@ -43,7 +43,6 @@ _BUILTIN_SECTION_PLAN = (
     ("task_section", "builtin:task_section", "runtime_task_section", "任务契约", "task", 10),
     ("semantic_task_section", "builtin:semantic_task_section", "task_requirement_contract", "语义任务契约", "task", 20),
     ("goal_understanding_section", "builtin:goal_understanding_section", "goal_understanding_contract", "目标理解", "task", 22),
-    ("domain_playbook_section", "builtin:domain_playbook_section", "task_domain_binding", "任务域制式", "task", 24),
     ("workflow_section", "builtin:workflow_section", "task_workflow", "工作流", "task", 30),
     ("professional_profile_section", "builtin:professional_profile_section", "professional_prompt_profile", "专业职责", "task", 40),
     ("agent_plan_section", "builtin:agent_plan_section", "agent_plan_draft", "执行计划草案", "task", 50),
@@ -124,11 +123,6 @@ def build_prompt_selection_context(
         or semantic_diagnostics.get("task_goal_spec")
         or {}
     )
-    task_domain_binding = dict(
-        current_turn.get("task_domain_binding")
-        or semantic_diagnostics.get("task_domain_binding")
-        or {}
-    )
     goal_hypothesis_set = dict(
         semantic_diagnostics.get("goal_hypothesis_set")
         or dict(task_goal_spec.get("evidence") or {}).get("goal_hypothesis_set")
@@ -137,6 +131,11 @@ def build_prompt_selection_context(
     agent_plan_draft = dict(
         recipe_metadata.get("agent_plan_draft")
         or assembly_metadata.get("agent_plan_draft")
+        or {}
+    )
+    agent_plan_requirement = dict(
+        recipe_metadata.get("agent_plan_requirement")
+        or assembly_metadata.get("agent_plan_requirement")
         or {}
     )
     plan_coverage_review = dict(
@@ -307,9 +306,9 @@ def build_prompt_selection_context(
         request_facts=request_facts,
         context_binding=context_binding,
         task_requirement_contract=semantic_contract,
-        task_domain_binding=task_domain_binding,
         goal_hypothesis_set=goal_hypothesis_set,
         task_goal_spec=task_goal_spec,
+        agent_plan_requirement=agent_plan_requirement,
         agent_plan_draft=agent_plan_draft,
         plan_coverage_review=plan_coverage_review,
         verification_review=verification_review,
@@ -320,9 +319,9 @@ def build_prompt_selection_context(
             "selected_recipe_id": str(recipe.get("recipe_id") or ""),
             "selected_recipe_title": str(recipe.get("title") or ""),
             "task_requirement_contract_ref": str(semantic_contract.get("contract_id") or ""),
-            "task_domain_binding_ref": str(task_domain_binding.get("binding_id") or ""),
             "goal_hypothesis_set_ref": str(goal_hypothesis_set.get("hypothesis_set_id") or ""),
             "agent_plan_ref": str(agent_plan_draft.get("plan_id") or ""),
+            "agent_plan_requirement_ref": str(agent_plan_requirement.get("requirement_id") or ""),
             "plan_coverage_ref": str(plan_coverage_review.get("review_id") or ""),
             "verification_review_ref": str(verification_review.get("review_id") or ""),
             "completion_judgment_ref": str(completion_judgment.get("judgment_id") or ""),
@@ -401,7 +400,6 @@ class PromptSelector:
             "action_intent": context.action_intent,
             "model_turn_decision_ref": str(context.model_turn_decision.get("decision_id") or ""),
             "action_permit_ref": str(context.action_permit.get("permit_id") or ""),
-            "task_domain_binding_ref": str(context.task_domain_binding.get("binding_id") or ""),
             "goal_hypothesis_set_ref": str(context.goal_hypothesis_set.get("hypothesis_set_id") or ""),
             "task_requirement_contract_ref": str(context.task_requirement_contract.get("contract_id") or ""),
             "agent_plan_ref": str(context.agent_plan_draft.get("plan_id") or ""),
@@ -544,7 +542,7 @@ def _score_resource(resource: PromptResource, context: PromptSelectionContext) -
     if resource.resource_type == "skill_prompt" and _matches_any(resource.tags, context.skill_ids):
         score += 160
         reasons.append("skill_match")
-    if resource.resource_type in {"stage_role", "domain_role", "role_prompt"} and score <= 0:
+    if resource.resource_type in {"stage_role", "task_goal_role", "role_prompt"} and score <= 0:
         return _ScoredResource(resource=resource, score=0, reason="")
     if score <= 0 and not _resource_is_generic(resource):
         return _ScoredResource(resource=resource, score=0, reason="")
@@ -668,8 +666,8 @@ def _has_identity_match(resource: PromptResource, context: PromptSelectionContex
 def _winner_key(resource: PromptResource) -> str:
     if resource.resource_type == "stage_role":
         return "stage_role"
-    if resource.resource_type == "domain_role":
-        return "domain_role"
+    if resource.resource_type == "task_goal_role":
+        return "task_goal_role"
     if resource.resource_type == "role_prompt":
         return "role_prompt"
     if resource.resource_type == "verification":

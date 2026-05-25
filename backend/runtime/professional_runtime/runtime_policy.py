@@ -66,6 +66,7 @@ def _with_professional_task_instruction(
     *,
     mode: str,
     plan_items: list[dict[str, Any]],
+    plan_coverage_review: dict[str, Any] | None = None,
     tool_execution_enabled: bool,
     delegation_enabled: bool,
     allowed_tool_names: list[str] | tuple[str, ...] | None = None,
@@ -88,6 +89,8 @@ def _with_professional_task_instruction(
     semantic_line = _semantic_contract_instruction(dict(semantic_contract or {}))
     policy_line = _interaction_policy_instruction(dict(mode_policy or {}))
     material_mount_line = _material_mount_instruction(dict(sandbox_policy or {}))
+    review = dict(plan_coverage_review or {})
+    plan_passed = bool(review.get("passed") is True) if review else True
     if tool_execution_enabled:
         write_guidance = ""
         if "agent_todo" in set(allowed_tools):
@@ -117,6 +120,27 @@ def _with_professional_task_instruction(
         )
     else:
         tool_line = "当前模式不会向你开放工具执行；不要声称执行了未发生的检索、测试、文件读取、写入或验证。"
+    if not plan_passed:
+        missing_actions = [
+            str(item).strip()
+            for item in list(review.get("missing_actions") or [])
+            if str(item).strip()
+        ]
+        missing_deliverables = [
+            str(item).strip()
+            for item in list(review.get("missing_deliverables") or [])
+            if str(item).strip()
+        ]
+        blocked_parts = []
+        if missing_actions:
+            blocked_parts.append("缺少动作覆盖：" + "、".join(missing_actions))
+        if missing_deliverables:
+            blocked_parts.append("缺少交付物覆盖：" + "、".join(missing_deliverables))
+        tool_line = (
+            "当前执行计划尚未通过系统覆盖审查，你不能请求写入、命令、浏览器或委派等执行类工具。"
+            "请先提交或修正自己的执行计划，覆盖语义任务契约中的动作、交付物和证据要求。"
+            + (("原因：" + "；".join(blocked_parts) + "。") if blocked_parts else "")
+        )
     delegation_line = (
         (
             "当前模式允许受控委派子 Agent；只能基于真实委派回传写结论。"
@@ -129,14 +153,14 @@ def _with_professional_task_instruction(
     )
     instruction = (
         f"你是当前任务的主执行 Agent，正在使用 {mode}。\n"
-        "请先锁定用户目标和边界，再按运行时计划完成收口。\n"
+        "请先锁定用户目标和边界，再由你生成或修正执行计划；系统只负责校验计划覆盖和工具权限。\n"
         f"{semantic_line}"
         f"{policy_line}"
         f"{material_mount_line}"
         f"{tool_line}\n"
         f"{delegation_line}\n"
         "如果当前可见上下文不足，请明确说明限制，并给出下一步建议。\n"
-        "请在最终回答中覆盖：目标理解、运行计划、当前结论、限制或下一步。\n"
+        "请在最终回答中覆盖：目标理解、你的计划、当前结论、限制或下一步。\n"
         f"{contract_line}"
         f"运行时计划：\n{plan_lines}"
     )

@@ -29,9 +29,9 @@ def test_prompt_library_lists_default_static_resources_without_storage_file(tmp_
     assert resource_by_id["prompt.default.stage_role.contract_compilation"].step_kind == "contract_compilation"
     assert resource_by_id["prompt.default.stage_role.plan_coverage_review"].step_kind == "plan_coverage_review"
     assert resource_by_id["prompt.default.stage_role.step_execution"].step_kind == "step_execution"
-    assert resource_by_id["prompt.default.domain_role.game_vertical_slice_delivery"].resource_type == "domain_role"
-    assert resource_by_id["prompt.default.domain_role.code_fix_execution"].title == "专业代码任务执行员"
-    assert "必须先理解真实项目结构" in resource_by_id["prompt.default.domain_role.code_fix_execution"].content
+    assert resource_by_id["prompt.default.task_goal_role.game_vertical_slice_delivery"].resource_type == "task_goal_role"
+    assert resource_by_id["prompt.default.task_goal_role.code_fix_execution"].title == "专业代码任务执行员"
+    assert "必须先理解真实项目结构" in resource_by_id["prompt.default.task_goal_role.code_fix_execution"].content
     assert resource_by_id["prompt.default.skill_prompt.image_prompt_design"].resource_type == "skill_prompt"
     assert not (tmp_path / "storage" / "prompt_library" / "prompt_resources.json").exists()
 

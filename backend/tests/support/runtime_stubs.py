@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -104,6 +105,8 @@ class SingleMessageModelRuntimeStub:
         self.content = content
 
     async def invoke_messages(self, messages, **_kwargs):
+        if _is_model_turn_decision_request(messages):
+            return SimpleNamespace(content=json.dumps(_default_model_turn_decision_payload(messages), ensure_ascii=False))
         return SimpleNamespace(content=self.content)
 
 
@@ -132,14 +135,12 @@ def model_turn_context(
     todo_required: bool = False,
     completion_criteria: list[str] | None = None,
     task_goal_type: str = "light_qa",
-    task_domain: str = "general",
+    task_domain: str = "",
+    model_agent_plan_draft: dict[str, object] | None = None,
 ) -> dict[str, object]:
     resolved_task_goal_type = str(task_goal_type or "").strip()
-    resolved_task_domain = str(task_domain or "").strip()
     if not resolved_task_goal_type:
         raise ValueError("model_turn_context requires task_goal_type")
-    if not resolved_task_domain:
-        raise ValueError("model_turn_context requires task_domain")
     decision = {
         "authority": "agent_runtime.model_turn_decision",
         "decision_id": "model-turn-decision:test",
@@ -148,7 +149,7 @@ def model_turn_context(
         "action_intent": action_intent,
         "work_mode": work_mode,
         "task_goal_type": resolved_task_goal_type,
-        "task_domain": resolved_task_domain,
+        "domain_mismatch_signal": {},
         "target_objects": list(target_objects or []),
         "desired_outcome": desired_outcome,
         "deliverables": list(deliverables or []),
@@ -164,7 +165,7 @@ def model_turn_context(
         "confidence": 0.9,
         "ambiguity": [],
     }
-    return {
+    result: dict[str, object] = {
         "model_turn_decision": decision,
         "request_facts": {
             "authority": "agent_runtime.request_facts",
@@ -191,13 +192,92 @@ def model_turn_context(
                 "task_goal_spec": {
                     "authority": "agent_runtime.model_turn_goal_projection",
                     "task_goal_type": resolved_task_goal_type,
-                    "task_domain": resolved_task_domain,
+                    **({"task_domain": str(task_domain).strip()} if str(task_domain or "").strip() else {}),
                     "forbidden_actions": list(forbidden_actions or []),
                     "required_verifications": [],
                     "required_capabilities": [],
                 }
             }
         ),
+    }
+    if model_agent_plan_draft:
+        result["model_agent_plan_draft"] = dict(model_agent_plan_draft)
+    return result
+
+
+def _is_model_turn_decision_request(messages: Any) -> bool:
+    try:
+        first = list(messages or [])[0]
+    except Exception:
+        return False
+    content = str(dict(first).get("content") if isinstance(first, dict) else getattr(first, "content", "") or "")
+    return "理解决策器" in content and "只输出合法 JSON" in content
+
+
+def _default_model_turn_decision_payload(messages: Any) -> dict[str, object]:
+    user_message = ""
+    task_selection: dict[str, object] = {}
+    try:
+        request_payload = json.loads(str(list(messages or [])[-1].get("content") or "{}"))
+        user_message = str(request_payload.get("user_message") or "")
+        task_selection = dict(request_payload.get("task_selection") or {})
+    except Exception:
+        user_message = "test"
+        task_selection = {}
+    text = user_message.lower()
+    selected_task_id = str(task_selection.get("selected_task_id") or "").strip()
+    explicit_mode = str(
+        task_selection.get("interaction_mode")
+        or task_selection.get("runtime_interaction_mode")
+        or dict(task_selection.get("mode_policy") or {}).get("interaction_mode")
+        or ""
+    ).strip()
+    action_intent = "answer_only"
+    work_mode = "conversation"
+    interaction_intent = "answer"
+    task_goal_type = "light_qa"
+    planning_required = False
+    todo_required = False
+    deliverables: list[str] = ["conversational_response"]
+    if selected_task_id or any(marker in text for marker in ("生成", "开发", "实现", "修改", "重构", "修复", "运行", "验证", "game", "游戏", "前端", "代码")):
+        action_intent = "edit_workspace"
+        work_mode = "implementation"
+        interaction_intent = "create" if any(marker in text for marker in ("生成", "create", "新增")) else "modify"
+        task_goal_type = "game_vertical_slice_delivery" if "游戏" in text or "game" in text or selected_task_id == "task.dev.light_web_game" else "implementation"
+        planning_required = explicit_mode == "professional_mode"
+        todo_required = explicit_mode == "professional_mode"
+        deliverables = ["changed_files", "verification_result_or_limitation"]
+    elif any(marker in text for marker in ("分析", "pdf", ".pdf", "报告")):
+        action_intent = "read_context"
+        work_mode = "read_only_analysis"
+        interaction_intent = "inspect"
+        task_goal_type = "document_analysis"
+        deliverables = ["analysis_summary"]
+    return {
+        "authority": "agent_runtime.model_turn_decision",
+        "decision_id": "model-turn-decision:stub",
+        "user_message": user_message,
+        "interaction_intent": interaction_intent,
+        "action_intent": action_intent,
+        "work_mode": work_mode,
+        "task_goal_type": task_goal_type,
+        "domain_mismatch_signal": {},
+        "target_objects": [selected_task_id] if selected_task_id else [],
+        "desired_outcome": user_message or "test outcome",
+        "deliverables": deliverables,
+        "constraints": [],
+        "forbidden_actions": [],
+        "selected_skill_ids": [],
+        "resource_contract": {},
+        "context_binding_decision": {"mode": "test_stub"},
+        "planning_required": planning_required,
+        "todo_required": todo_required,
+        "completion_criteria": [],
+        "needs_clarification": False,
+        "clarification_question": "",
+        "confidence": 0.9,
+        "ambiguity": [],
+        "diagnostics": {"test_stub_decision": True},
     }
 
 

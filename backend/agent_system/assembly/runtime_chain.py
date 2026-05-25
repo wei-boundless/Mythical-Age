@@ -600,7 +600,6 @@ def _task_goal_spec_from_model_turn_decision(
     )
     action_intent = str(model_turn_decision.get("action_intent") or "").strip()
     model_task_goal_type = str(model_turn_decision.get("task_goal_type") or "").strip()
-    model_task_domain = str(model_turn_decision.get("task_domain") or "").strip()
     selected_task_goal_type = str(explicit_semantic_task_type or "").strip()
     if explicit_goal:
         task_goal_type = str(explicit_goal.get("task_goal_type") or "").strip()
@@ -610,7 +609,7 @@ def _task_goal_spec_from_model_turn_decision(
         task_domain = _domain_for_concrete_task_goal(selected_task_goal_type)
     elif model_task_goal_type:
         task_goal_type = model_task_goal_type
-        task_domain = model_task_domain or _domain_for_concrete_task_goal(model_task_goal_type)
+        task_domain = _domain_for_concrete_task_goal(model_task_goal_type)
     else:
         raise RuntimeError("ModelTurnDecision.task_goal_type is required before task goal projection")
     deliverables = [

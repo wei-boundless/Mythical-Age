@@ -70,6 +70,7 @@ TASK_SEMANTIC_CONTEXT_KEYS = frozenset(
         "action_permit",
         "runtime_start_packet",
         "task_goal_spec",
+        "model_agent_plan_draft",
         "execution_obligation",
         "structural_signals",
     }

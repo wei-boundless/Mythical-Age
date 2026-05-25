@@ -112,6 +112,7 @@ _VERIFY_MARKERS = (
     "运行 pytest",
     "pytest",
     "运行命令",
+    "只读命令",
     "命令验证",
     "run tests",
     "run pytest",
@@ -610,6 +611,9 @@ def _collect_required_reads(
             continue
         role = "failure_report" if path.lower().endswith(".json") and _has_any(text.lower(), ("失败", "fail", "测试报告")) else "material"
         add(path, role=role)
+    for path in _additional_readable_paths_in_material_sentences(text):
+        role = "failure_report" if path.lower().endswith(".json") and _has_any(text.lower(), ("失败", "fail", "测试报告")) else "material"
+        add(path, role=role)
     return reads
 
 
@@ -841,6 +845,44 @@ def _context_indicates_read_material_path(context: str) -> bool:
     )
 
 
+def _additional_readable_paths_in_material_sentences(text: str) -> list[str]:
+    normalized = str(text or "").replace("\\", "/")
+    suffixes = "json|py|md|txt|log|csv|tsv|xlsx|pdf|yaml|yml|toml|ts|tsx|js|jsx"
+    path_pattern = re.compile(
+        rf"(?P<path>(?:[\w.\-\u4e00-\u9fff]+/)+[\w.\-\u4e00-\u9fff]+\.({suffixes}))",
+        re.IGNORECASE,
+    )
+    result: list[str] = []
+    for sentence in re.split(r"[\n。；;]", normalized):
+        if not _context_indicates_read_material_path(sentence):
+            continue
+        first_output_marker = _first_output_marker_index(sentence)
+        first_output_path = _first_output_path_index(sentence)
+        for match in path_pattern.finditer(sentence):
+            if first_output_marker >= 0 and match.start() > first_output_marker:
+                continue
+            if first_output_path >= 0 and match.start() >= first_output_path:
+                continue
+            path = _normalize_path(str(match.group("path") or ""))
+            if path:
+                result.append(path)
+    return _dedupe(result)
+
+
+def _first_output_marker_index(text: str) -> int:
+    indexes = [
+        str(text or "").find(marker)
+        for marker in ("目标输出", "输出目录", "输出到", "写入", "保存", "生成", "产出", "落到", "创建", "新建")
+        if str(text or "").find(marker) >= 0
+    ]
+    return min(indexes) if indexes else -1
+
+
+def _first_output_path_index(text: str) -> int:
+    match = re.search(r"(?:^|[^\w/\\.-])(?:output|dist|build|coverage)/", str(text or ""), flags=re.IGNORECASE)
+    return match.start() + (1 if match.group(0) and not match.group(0)[0].isalnum() else 0) if match else -1
+
+
 def _kind_from_path(path: str) -> str:
     suffix = str(path or "").rsplit(".", 1)[-1].lower() if "." in str(path or "") else ""
     if suffix in {"json", "yaml", "yml", "toml"}:
@@ -862,6 +904,11 @@ def _has_any(text: str, markers: tuple[str, ...]) -> bool:
 
 def _requires_real_write(lowered: str) -> bool:
     text = _without_negative_write_phrases(str(lowered or "").lower())
+    if any(marker in text for marker in ("读回", "验收", "确认上一轮", "确认上轮")) and not any(
+        marker in text
+        for marker in ("必须写入", "重新写入", "继续写入", "修改", "修复", "生成文件", "创建文件", "新建文件")
+    ):
+        return False
     explicit_markers = (
         "写入",
         "生成文件",

@@ -26,7 +26,7 @@ def _base_decision_payload(**overrides):
         "action_intent": "edit_workspace",
         "work_mode": "implementation",
         "task_goal_type": "game_vertical_slice_delivery",
-        "task_domain": "software_engineering",
+        "domain_mismatch_signal": {},
         "confidence": 0.91,
         "target_objects": ["frontend/public/games/arcane_dungeon_studio/"],
         "desired_outcome": "交付可验收的浏览器小游戏第一版。",
@@ -56,6 +56,7 @@ def test_model_turn_decision_non_numeric_confidence_does_not_block_valid_decisio
     assert decision is not None
     assert decision.action_intent == "edit_workspace"
     assert decision.task_goal_type == "game_vertical_slice_delivery"
+    assert "task_domain" not in decision.to_dict()
     assert decision.confidence == 0.0
     assert validation["decision_status"] == "accepted"
     assert validation["validation_errors"] == []
@@ -110,7 +111,7 @@ def test_model_turn_decision_accepts_resource_contract() -> None:
     assert validation["decision_status"] == "accepted"
 
 
-def test_fallback_model_turn_decision_keeps_development_task_executable() -> None:
+def test_fallback_model_turn_decision_blocks_without_system_authored_plan() -> None:
     message = (
         "请接手这个已有浏览器肉鸽游戏项目，扩展成一个完整的五关剧情战役版本，并加入成长机制和 Boss 战。\n\n"
         "只读源项目在：\n"
@@ -135,18 +136,12 @@ def test_fallback_model_turn_decision_keeps_development_task_executable() -> Non
         diagnostics={"validation_errors": ["interaction_intent_required"]},
     )
 
-    assert diagnostics["decision_status"] == "fallback_conservative"
-    assert decision["action_intent"] == "edit_workspace"
-    assert decision["work_mode"] == "implementation"
-    assert decision["task_goal_type"] == "game_vertical_slice_delivery"
-    assert "write_file" not in decision["forbidden_actions"]
-    assert "edit_workspace" not in decision["forbidden_actions"]
-    contract = decision["resource_contract"]
-    assert contract["source_projects"][0]["path"].endswith("arcane_dungeon_studio")
-    assert contract["target_projects"][0]["path"] == "frontend/public/games/arcane_dungeon_studio"
-    assert "frontend/public/games/arcane_dungeon_studio/game.js" in contract["required_write_files"]
-    assert "frontend/public/games/arcane_dungeon_studio/assets" in contract["required_write_dirs"]
-    assert contract["asset_policy"]["must_preserve_existing_assets"] is True
+    assert diagnostics["decision_status"] == "blocked"
+    assert diagnostics["fallback_understanding_removed"] is True
+    assert decision["action_intent"] == "block"
+    assert decision["task_goal_type"] == "blocked_understanding"
+    assert decision["resource_contract"] == {}
+    assert "task_domain" not in decision
 
 
 def test_unregistered_game_goal_type_normalizes_to_registered_profile() -> None:
@@ -160,7 +155,7 @@ def test_unregistered_game_goal_type_normalizes_to_registered_profile() -> None:
     assert payload["diagnostics"]["original_task_goal_type"] == "game_expansion_with_narrative_and_mechanics"
 
 
-def test_model_turn_decision_provider_failure_uses_executable_development_fallback() -> None:
+def test_model_turn_decision_provider_failure_blocks_without_executable_fallback() -> None:
     message = (
         "请接手已有浏览器游戏项目，目标输出目录 frontend/public/games/arcane_dungeon_studio，"
         "必须写入 index.html、styles.css、game.js、README.md，并加入五关、成长和 Boss。"
@@ -175,7 +170,7 @@ def test_model_turn_decision_provider_failure_uses_executable_development_fallba
         )
     )
 
-    assert diagnostics["decision_status"] == "fallback_conservative"
-    assert decision["action_intent"] == "edit_workspace"
-    assert decision["task_goal_type"] == "game_vertical_slice_delivery"
-    assert decision["resource_contract"]["target_projects"][0]["path"] == "frontend/public/games/arcane_dungeon_studio"
+    assert diagnostics["decision_status"] == "blocked"
+    assert diagnostics["fallback_understanding_removed"] is True
+    assert decision["action_intent"] == "block"
+    assert decision["resource_contract"] == {}

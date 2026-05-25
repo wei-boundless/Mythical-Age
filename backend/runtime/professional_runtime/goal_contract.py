@@ -156,6 +156,10 @@ def _semantic_control_plan(
     mode_policy: dict[str, Any],
     goal_contract: ProfessionalTaskGoalContract,
 ) -> list[dict[str, Any]]:
+    """Deprecated: kept only until the professional driver is fully decomposed.
+
+    System code must not use this as an agent behavior plan source.
+    """
     interaction_mode = str(mode_policy.get("interaction_mode") or "professional_mode").strip()
     task_goal_type = str(semantic_contract.get("task_goal_type") or "general").strip()
     reasoning_steps = [
@@ -331,6 +335,7 @@ def _extract_goal_material_paths(text: str) -> list[str]:
     return _dedupe_strings(
         [
             *_expand_material_directory_file_lists(text),
+            *_additional_readable_paths_in_material_sentences(text),
             *[
                 path
                 for path, prefix, suffix in _path_mentions_with_context(text)
@@ -477,6 +482,44 @@ def _path_mentions_with_context(text: str) -> list[tuple[str, str, str]]:
             suffix = _local_path_context(normalized, start=match.end(), end=match.end(), radius=18)
             mentions.append((path, prefix, suffix))
     return mentions
+
+
+def _additional_readable_paths_in_material_sentences(text: str) -> list[str]:
+    normalized = str(text or "").replace("\\", "/")
+    suffixes = "py|json|md|txt|csv|xlsx|xls|pdf|yaml|yml|toml|docx|pptx|html|css|js|jsx|ts|tsx"
+    path_pattern = re.compile(
+        rf"(?P<path>(?:[\w.\-\u4e00-\u9fff]+/)+[\w.\-\u4e00-\u9fff]+\.({suffixes}))",
+        re.IGNORECASE,
+    )
+    results: list[str] = []
+    for sentence in re.split(r"[\n。；;]", normalized):
+        if not _context_indicates_read_material_path(sentence):
+            continue
+        first_output_marker = _first_output_marker_index(sentence)
+        first_output_path = _first_output_path_index(sentence)
+        for match in path_pattern.finditer(sentence):
+            if first_output_marker >= 0 and match.start() > first_output_marker:
+                continue
+            if first_output_path >= 0 and match.start() >= first_output_path:
+                continue
+            path = _clean_path_mention(str(match.group("path") or ""))
+            if path and _material_path_candidate_is_readable(path):
+                results.append(path)
+    return _dedupe_strings(results)
+
+
+def _first_output_marker_index(text: str) -> int:
+    indexes = [
+        str(text or "").find(marker)
+        for marker in ("目标输出", "输出目录", "输出到", "写入", "保存", "生成", "产出", "落到", "创建", "新建")
+        if str(text or "").find(marker) >= 0
+    ]
+    return min(indexes) if indexes else -1
+
+
+def _first_output_path_index(text: str) -> int:
+    match = re.search(r"(?:^|[^\w/\\.-])(?:output|dist|build|coverage)/", str(text or ""), flags=re.IGNORECASE)
+    return match.start() + (1 if match.group(0) and not match.group(0)[0].isalnum() else 0) if match else -1
 
 
 def _explicit_output_directories(text: str) -> list[str]:
@@ -696,6 +739,11 @@ def _goal_text_requires_write_output(
     output_paths: list[str],
 ) -> bool:
     normalized = str(text or "").lower()
+    if any(marker in normalized for marker in ("读回", "验收", "确认上一轮", "确认上轮")) and not any(
+        marker in normalized
+        for marker in ("必须写入", "重新写入", "继续写入", "修改", "修复", "生成文件", "创建文件", "新建文件")
+    ):
+        return False
     if any(
         marker in normalized
         for marker in (

@@ -99,14 +99,14 @@ def assemble_runtime_prompt_sections(
             source_refs=(str(contract.get("contract_id") or getattr(request, "task_id", "")),),
         ),
         PromptSection(
-            section_id="domain_playbook_section",
-            title="任务域制式",
-            source_type="task_domain_binding",
-            source_id=_task_domain_binding_source_id(contract),
+            section_id="task_goal_role_prompt_section",
+            title="任务目标职责",
+            source_type="task_goal_role_prompt",
+            source_id=_task_goal_prompt_source_id(contract),
             owner_layer="task",
             cache_scope="dynamic",
             visible_to_model=True,
-            content=str(contract.get("domain_playbook_section") or ""),
+            content=str(contract.get("task_goal_role_prompt_section") or ""),
             source_refs=(str(contract.get("contract_id") or getattr(request, "task_id", "")),),
         ),
         PromptSection(
@@ -378,11 +378,11 @@ def _goal_hypothesis_source_id(contract: dict[str, Any]) -> str:
     return ""
 
 
-def _task_domain_binding_source_id(contract: dict[str, Any]) -> str:
+def _task_goal_prompt_source_id(contract: dict[str, Any]) -> str:
     metadata = dict(contract.get("metadata") or {})
-    binding = metadata.get("task_domain_binding")
-    if isinstance(binding, dict):
-        return str(binding.get("binding_id") or "")
+    resource = metadata.get("task_goal_prompt_resource")
+    if isinstance(resource, dict):
+        return str(resource.get("resource_id") or "")
     return ""
 
 
@@ -390,7 +390,12 @@ def _agent_plan_source_id(contract: dict[str, Any]) -> str:
     metadata = dict(contract.get("metadata") or {})
     plan = metadata.get("agent_plan_draft")
     if isinstance(plan, dict):
-        return str(plan.get("plan_id") or "")
+        plan_id = str(plan.get("plan_id") or "")
+        if plan_id:
+            return plan_id
+    requirement = metadata.get("agent_plan_requirement")
+    if isinstance(requirement, dict):
+        return str(requirement.get("requirement_id") or "")
     return ""
 
 
