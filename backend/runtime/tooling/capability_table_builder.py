@@ -7,6 +7,7 @@ from capability_system.operation_registry import OperationRegistry, build_defaul
 from capability_system.tool_definitions import ToolDefinition, get_tool_definitions
 from file_management import FileAccessTable
 from task_system.environments import TaskEnvironmentSpec
+from task_system.tasks import SpecificTaskAssemblyPolicy
 
 from .capability_table import (
     ToolCapability,
@@ -42,6 +43,36 @@ class ToolCapabilityBuildRequest:
     table_id: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
 
+    @classmethod
+    def from_assembly_policy(
+        cls,
+        *,
+        environment: TaskEnvironmentSpec,
+        assembly_policy: SpecificTaskAssemblyPolicy,
+        file_access_tables: tuple[FileAccessTable, ...] = (),
+        agent_profile_allowed_operations: tuple[str, ...] = (),
+        runtime_available_operations: tuple[str, ...] = (),
+        table_id: str = "",
+        metadata: dict[str, Any] | None = None,
+    ) -> "ToolCapabilityBuildRequest":
+        requirements = assembly_policy.tool_capability_requirements
+        return cls(
+            environment=environment,
+            file_access_tables=file_access_tables,
+            task_required_operations=tuple(requirements.required_operations),
+            task_optional_operations=tuple(requirements.optional_operations),
+            task_denied_operations=tuple(requirements.denied_operations),
+            agent_profile_allowed_operations=agent_profile_allowed_operations,
+            runtime_available_operations=runtime_available_operations,
+            table_id=table_id or f"tool-capability:{assembly_policy.policy_id}",
+            metadata={
+                "specific_task_assembly_policy_ref": assembly_policy.policy_id,
+                "specific_task_ref": assembly_policy.task_id,
+                "authority": assembly_policy.authority,
+                **dict(metadata or {}),
+            },
+        )
+
 
 def build_tool_capability_table(
     request: ToolCapabilityBuildRequest,
@@ -64,6 +95,7 @@ def build_tool_capability_table(
     requested = task_required | task_optional
     if not requested:
         requested = env_allowed
+    requested = requested | task_denied
 
     capabilities: list[ToolCapability] = []
     filtered: list[ToolCapabilityFilterIssue] = []
@@ -107,7 +139,7 @@ def build_tool_capability_table(
             ToolCapability(
                 operation_id=operation_id,
                 tool_name=tool.name,
-                visible=tool.prompt_exposure_policy != "hidden",
+                visible=tool.prompt_exposure_policy != "hidden" or operation_id in task_required or operation_id in task_optional,
                 dispatchable=True,
                 requires_approval=bool(file_gate["requires_approval"]),
                 file_repository_grants=tuple(file_gate["repository_grants"]),
@@ -135,6 +167,11 @@ def build_tool_capability_table(
             ToolCapabilitySourceTrace(source="specific_task", detail="tool requirements"),
             ToolCapabilitySourceTrace(source="agent_profile", detail="operation ceiling"),
             ToolCapabilitySourceTrace(source="file_access_table", detail="file grants"),
+            ToolCapabilitySourceTrace(
+                source="specific_task_assembly_policy",
+                detail=str(request.metadata.get("specific_task_assembly_policy_ref") or ""),
+                metadata=dict(request.metadata),
+            ),
         ),
     )
 

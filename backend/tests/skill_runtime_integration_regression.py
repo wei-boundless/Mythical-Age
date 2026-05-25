@@ -166,7 +166,8 @@ def test_agent_runtime_chain_uses_intent_gated_state_recall_for_followup() -> No
     assert current_turn["context_recall_candidates"][0]["recall_payload"]["active_dataset"] == "Data/inventory.xlsx"
     assert recall_context["candidate_policy"] == "candidate_only_child_must_verify_before_use"
     assert recall_context["candidates"][0]["recall_payload"]["active_dataset"] == "Data/inventory.xlsx"
-    assert "op.mcp_structured_data" in list(operation_requirement.get("required_operations") or [])
+    assert "op.mcp_structured_data" not in list(operation_requirement.get("required_operations") or [])
+    assert "op.mcp_structured_data" in list(operation_requirement.get("optional_operations") or [])
     assert "conversation" in list(memory_request_profile.get("requested_memory_layers") or [])
 
 

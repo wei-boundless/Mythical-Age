@@ -99,12 +99,11 @@ def test_professional_profile_is_injected_into_soul_runtime_view() -> None:
     assert "test_report_triage" in sections["semantic_task_section"]["content"]
     assert "agent_plan_section" in sections
     assert "计划" in sections["agent_plan_section"]["content"]
-    assert "agent_todo" in sections["agent_plan_section"]["content"]
     assert "plan_coverage_section" in sections
     assert "计划覆盖审查" in sections["plan_coverage_section"]["content"]
 
     requirement = task_bundle["operation_requirement"]
-    assert "op.agent_todo" in set(requirement["required_operations"])
+    assert "op.agent_todo" not in set(requirement["required_operations"])
 
 
 def test_evidence_packet_and_validator_require_triage_deliverables() -> None:

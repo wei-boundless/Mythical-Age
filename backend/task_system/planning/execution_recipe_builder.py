@@ -421,7 +421,17 @@ def _needs_agent_todo(
     agent_plan_draft: dict[str, Any],
     step_blueprints: tuple[TaskStepBlueprint, ...],
 ) -> bool:
-    if interaction_mode == "professional_mode":
+    todo_policy = dict(semantic_contract.get("todo_policy") or {}) if isinstance(semantic_contract.get("todo_policy"), dict) else {}
+    if bool(todo_policy.get("enabled") is False):
+        return False
+    if bool(todo_policy.get("required") is True or todo_policy.get("suggested") is True):
+        return True
+    explicit_optional = {
+        str(item).strip()
+        for item in list(semantic_contract.get("optional_operations") or [])
+        if str(item).strip()
+    }
+    if "op.agent_todo" in explicit_optional:
         return True
     steps = [item for item in list(agent_plan_draft.get("steps") or []) if isinstance(item, dict)]
     if len(steps) > 1 or len(step_blueprints) > 2:

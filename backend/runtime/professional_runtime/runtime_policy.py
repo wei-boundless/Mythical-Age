@@ -96,7 +96,7 @@ def _with_professional_task_instruction(
         if "agent_todo" in set(allowed_tools):
             write_guidance += (
                 "如果任务是多文件开发、长任务、复杂调试或用户要求连续验收，"
-                "第一步应使用 agent_todo 建立可执行待办，并在每个真实动作后更新状态。"
+                "可以使用 agent_todo 建立和维护自己的可执行待办，并在真实动作后按需更新状态。"
                 "todo 要拆到可执行小步，尤其是大型源码文件应拆成骨架写入、分段 edit_file、验证和收口；"
                 "todo 不能替代真实文件写入、命令验证或最终证据。"
             )

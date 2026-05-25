@@ -459,11 +459,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     runtimeHarness.scheduleSessionRefreshes([1500]);
     await vi.advanceTimersByTimeAsync(1500);
 
-    expect(store.getState().sessionActivity).toMatchObject({
-      level: "error",
-      title: "会话列表暂时不可用",
-      event: "session_list_refresh_failed",
-    });
+    expect(store.getState().sessionActivity.event).toBe("");
+    expect(store.getState().sessionActivity.level).toBe("idle");
   });
 
   it("unblocks chat before existing session history and monitor metadata finish loading", async () => {

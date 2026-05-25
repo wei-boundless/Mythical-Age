@@ -91,9 +91,10 @@ class DockerSandboxBackend:
         sandbox_root: str | Path,
         sandbox_policy: dict[str, Any] | None,
     ) -> DockerSandboxExecution:
+        container_command_text = _normalize_shell_command_for_sbx(str(command or ""))
         return self._run(
             command=str(command or ""),
-            container_command=("bash", "-lc", str(command or "")),
+            container_command=("bash", "-lc", container_command_text),
             workspace_root=workspace_root,
             sandbox_root=sandbox_root,
             sandbox_policy=sandbox_policy,
@@ -250,6 +251,12 @@ class DockerSandboxBackend:
             exit_code = 124
             timed_out = True
         output = ((stdout or "") + (stderr or "")).strip() or "[no output]"
+        output = _normalize_sbx_output(
+            command=command,
+            output=output,
+            exit_code=exit_code,
+            sandbox_root=sandbox_root,
+        )
         output = output[: config.output_limit_chars]
         return self._execution_result(
             command=command,
@@ -317,6 +324,52 @@ def _sandbox_name(value: str, *, run_id: str) -> str:
     raw = str(value or "").strip() or f"agent-sandbox-{run_id}"
     safe = "".join(ch.lower() if ch.isalnum() or ch in {"-", ".", "+"} else "-" for ch in raw).strip("-.+")
     return safe[:63] or f"agent-sandbox-{run_id}"
+
+
+def _normalize_shell_command_for_sbx(command: str) -> str:
+    text = str(command or "").strip()
+    if text == "Get-Location | Select-Object -ExpandProperty Path":
+        return "pwd"
+    if text.startswith("Get-Item -Path ") and "| Select-Object Name, Length, LastWriteTime" in text:
+        path = text.split("Get-Item -Path ", 1)[1].split("|", 1)[0].strip().strip("\"'")
+        escaped = path.replace("'", "'\"'\"'")
+        return (
+            f"if [ -f '{escaped}' ]; then "
+            f"python - <<'PY'\n"
+            f"from pathlib import Path\n"
+            f"p=Path({path!r})\n"
+            f"st=p.stat()\n"
+            f"print('Name Length LastWriteTime')\n"
+            f"print(f'{{p.name}} {{st.st_size}} {{st.st_mtime}}')\n"
+            f"PY\n"
+            f"else echo 'missing: {escaped}' >&2; exit 1; fi"
+        )
+    return text
+
+
+def _normalize_sbx_output(
+    *,
+    command: str,
+    output: str,
+    exit_code: int,
+    sandbox_root: str | Path,
+) -> str:
+    text = _strip_sbx_telemetry_lines(str(output or ""))
+    if int(exit_code or 0) == 0 and str(command or "").strip() == "Get-Location | Select-Object -ExpandProperty Path":
+        return str(Path(sandbox_root).resolve())
+    return text or "[no output]"
+
+
+def _strip_sbx_telemetry_lines(output: str) -> str:
+    lines = []
+    for line in str(output or "").splitlines():
+        stripped = line.strip()
+        if stripped.startswith('{"time":"') and '"upload failed' in stripped and '"level":"WARN"' in stripped:
+            continue
+        if stripped.startswith("INFO: Started Docker daemon"):
+            continue
+        lines.append(line)
+    return "\n".join(lines).strip()
 
 
 def _cpus_as_sbx_value(value: str) -> str:

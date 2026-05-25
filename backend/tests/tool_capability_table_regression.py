@@ -9,6 +9,8 @@ if str(BACKEND_DIR) not in sys.path:
 
 from runtime.tooling import ToolCapabilityBuildRequest, build_tool_capability_table
 from task_system.environments import resolve_task_environment
+from task_system.registry.flow_models import SpecificTaskRecord, TaskAgentAdoptionPlan
+from task_system.tasks import resolve_specific_task_assembly_policy
 
 
 def test_vibe_coding_tool_table_intersects_environment_task_agent_and_file_access() -> None:
@@ -67,3 +69,44 @@ def test_file_operation_without_file_access_table_is_filtered() -> None:
 
     assert "read_file" not in table.dispatchable_tools
     assert any(issue.operation_id == "op.read_file" and issue.source == "file_access_table" for issue in table.filtered)
+
+
+def test_tool_table_consumes_specific_task_assembly_policy() -> None:
+    resolved = resolve_task_environment("env.vibe_coding")
+    assembly_policy = resolve_specific_task_assembly_policy(
+        task_record=SpecificTaskRecord(
+            task_id="task.frontend.fix",
+            task_title="Frontend Fix",
+            domain_id="env.vibe_coding",
+            task_policy={
+                "tool_capability_requirements": {
+                    "required_operations": ["op.read_file", "op.edit_file"],
+                    "optional_operations": ["op.shell"],
+                    "denied_operations": ["op.browser_control"],
+                }
+            },
+        ),
+        adoption_plan=TaskAgentAdoptionPlan(
+            plan_id="taskadopt:frontend.fix",
+            task_id="task.frontend.fix",
+            adoption_mode="adopt_existing",
+            default_agent_id="agent:0",
+        ),
+    )
+
+    table = build_tool_capability_table(
+        ToolCapabilityBuildRequest.from_assembly_policy(
+            environment=resolved.spec,
+            assembly_policy=assembly_policy,
+            file_access_tables=resolved.file_access_tables,
+            agent_profile_allowed_operations=("op.read_file", "op.edit_file", "op.shell", "op.browser_control"),
+        )
+    )
+
+    assert table.table_id == f"tool-capability:{assembly_policy.policy_id}"
+    assert "read_file" in table.dispatchable_tools
+    assert "edit_file" in table.dispatchable_tools
+    assert "terminal" in table.dispatchable_tools
+    assert "browser_control" not in table.dispatchable_tools
+    assert any(issue.operation_id == "op.browser_control" and issue.source == "specific_task" for issue in table.filtered)
+    assert any(trace.source == "specific_task_assembly_policy" and trace.detail == assembly_policy.policy_id for trace in table.source_trace)

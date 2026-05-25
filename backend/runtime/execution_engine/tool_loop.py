@@ -5,7 +5,8 @@ from typing import Any, Callable
 
 from capability_system.search_policy import normalize_search_policy, operation_allowed_by_search_policy
 from capability_system.tool_authorization import resolve_tool_operation_id
-from permissions import OperationGatePipelineContext, build_tool_request_runtime_adoption
+from permissions import build_tool_request_runtime_adoption
+from permissions.context_models import PermissionContext
 from runtime.shared.action_request import build_tool_action_request
 from runtime.shared.execution_record import (
     OperationExecutionRecord,
@@ -16,8 +17,8 @@ from runtime.shared.execution_record import (
     derive_replay_policy,
 )
 from runtime.shared.action_request import build_tool_result_observation
-from runtime.shared.approval_fingerprint import build_approval_risk_fingerprint
 from runtime.shared.safety import build_task_safety_validators
+from runtime.tooling import ToolCapabilityTable, ToolSupervisor
 
 from .event_translation import (
     append_executor_observation_event,
@@ -172,13 +173,6 @@ async def handle_tool_call_requested_event(
     operation_id = str(begin_result.get("operation_id") or "")
     tool_name = str(action_request.payload.get("tool_name") or "")
     tool_args = dict(dict(action_request.payload.get("tool_call") or {}).get("args") or {})
-    approval_risk_fingerprint = build_approval_risk_fingerprint(
-        operation_id=operation_id,
-        tool_name=tool_name,
-        tool_args=tool_args,
-        sandbox_policy=dict(sandbox_policy or {}),
-        file_management_policy=dict(file_management_policy or {}),
-    )
     descriptor = operation_gate.registry.get_operation(operation_id)
     tool_directive, tool_policy = build_tool_request_runtime_adoption(
         action_request=action_request,
@@ -203,85 +197,98 @@ async def handle_tool_call_requested_event(
             "task_step_ref": action_step_ref,
         },
     )
-    if tool_runtime_executor is not None and hasattr(tool_runtime_executor, "preflight_validate"):
-        preflight = tool_runtime_executor.preflight_validate(
-            task_run_id=task_run_id,
-            action_request=action_request,
-            directive=tool_directive,
-            sandbox_policy=dict(sandbox_policy or {}),
-            file_management_policy=dict(file_management_policy or {}),
-        )
-        if dict(preflight or {}).get("allowed") is False:
-            observation = dict(preflight or {}).get("observation")
-            events = [requested_event, directive_event]
-            if observation is not None:
-                context_record = runtime_context_manager.record_observation(observation)
-                refs = {
-                    "action_request_ref": action_request.request_id,
-                    "directive_ref": tool_directive.directive_id,
-                    "resource_policy_ref": tool_policy.policy_id,
-                    "task_step_ref": action_step_ref,
-                    "operation_id": operation_id,
-                    "tool_preflight": "runtime_tool_validation",
-                }
-                events.append(
-                    append_tool_result_received_event(
-                        event_log=event_log,
-                        task_run_id=task_run_id,
-                        observation=observation,
-                        context_record=context_record,
-                        refs=refs,
-                    )
-                )
-                events.append(
-                    append_executor_observation_event(
-                        event_log=event_log,
-                        task_run_id=task_run_id,
-                        observation=observation,
-                        context_record=context_record,
-                        refs=refs,
-                    )
-                )
-            return events
-    gate_result = operation_gate.check(
-        operation_id,
+    permission_context = _build_permission_context(
+        task_run_id=task_run_id,
+        action_step_ref=action_step_ref,
+        tool_name=tool_name,
+        task_operation=task_operation,
+        sandbox_policy=sandbox_policy,
+        file_management_policy=file_management_policy,
+        permission_mode=permission_mode,
+    )
+    supervision = ToolSupervisor().supervise(
+        task_run_id=task_run_id,
+        agent_run_id=permission_context.agent_run_id,
+        tool_call_id=str(dict(action_request.payload.get("tool_call") or {}).get("id") or action_request.request_id),
+        operation_id=operation_id,
+        tool_name=tool_name,
+        tool_args=tool_args,
+        directive=tool_directive,
         resource_policy=tool_policy,
-        directive_ref=tool_directive.directive_id,
-        context=OperationGatePipelineContext(
-            permission_mode=permission_mode,
-            approval_risk_fingerprint=approval_risk_fingerprint,
-            operation_input={
-                "operation_id": operation_id,
-                **dict(action_request.payload.get("tool_call") or {}),
-            },
-            validators=build_task_safety_validators(
-                root_dir=root_dir,
-                safety_envelope=dict(
-                    dict(task_operation.get("operation_requirement") or {}).get("metadata") or {}
-                ).get("safety_envelope", {}),
-                sandbox_policy=dict(sandbox_policy or {}),
-            ),
+        capability_table=_tool_capability_table_from_task_operation(task_operation),
+        permission_context=permission_context,
+        operation_gate=operation_gate,
+        tool_runtime_executor=tool_runtime_executor,
+        action_request=action_request,
+        sandbox_policy=dict(sandbox_policy or {}),
+        file_management_policy=dict(file_management_policy or {}),
+        safety_validators=build_task_safety_validators(
+            root_dir=root_dir,
+            safety_envelope=dict(
+                dict(task_operation.get("operation_requirement") or {}).get("metadata") or {}
+            ).get("safety_envelope", {}),
+            sandbox_policy=dict(sandbox_policy or {}),
         ),
     )
+    gate_result = supervision.gate_result
+    approval_risk_fingerprint = supervision.decision.approval_fingerprint
     gate_event = event_log.append(
         task_run_id,
         "operation_gate_checked",
         payload={
-            "gate": gate_result.to_dict(),
-            "dispatch_enabled": bool(gate_result.allowed and tool_runtime_executor is not None),
+            "gate": gate_result.to_dict() if hasattr(gate_result, "to_dict") else {},
+            "dispatch_enabled": bool(supervision.allowed and tool_runtime_executor is not None),
             "tool_preflight_only": False,
             "sandbox_policy": dict(sandbox_policy or {}),
             "approval_risk_fingerprint": approval_risk_fingerprint,
+            "permission_context": permission_context.to_dict(),
+            "permission_decision": supervision.decision.to_dict(),
+            "permission_receipt": supervision.receipt.to_dict(),
+            "tool_supervision": supervision.to_dict(),
         },
         refs={
             "action_request_ref": action_request.request_id,
-            "operation_id": gate_result.operation_id,
+            "operation_id": operation_id,
             "directive_ref": tool_directive.directive_id,
             "task_step_ref": action_step_ref,
+            "permission_receipt_ref": supervision.receipt.receipt_id,
         },
     )
     events = [requested_event, directive_event, gate_event]
-    if gate_result.requires_approval:
+    if supervision.decision.behavior == "repair":
+        observation = dict(supervision.preflight or {}).get("observation")
+        if observation is not None:
+            context_record = runtime_context_manager.record_observation(observation)
+            refs = {
+                "action_request_ref": action_request.request_id,
+                "directive_ref": tool_directive.directive_id,
+                "resource_policy_ref": tool_policy.policy_id,
+                "task_step_ref": action_step_ref,
+                "operation_id": operation_id,
+                "permission_receipt_ref": supervision.receipt.receipt_id,
+                "tool_preflight": "runtime_tool_validation",
+            }
+            events.append(
+                append_tool_result_received_event(
+                    event_log=event_log,
+                    task_run_id=task_run_id,
+                    observation=observation,
+                    context_record=context_record,
+                    refs=refs,
+                )
+            )
+            events.append(
+                append_executor_observation_event(
+                    event_log=event_log,
+                    task_run_id=task_run_id,
+                    observation=observation,
+                    context_record=context_record,
+                    refs=refs,
+                )
+            )
+        return events
+
+    if supervision.requires_approval and gate_result is not None:
         approval_state = build_pending_approval_state(
             task_run_id=task_run_id,
             action_request=action_request,
@@ -301,15 +308,16 @@ async def handle_tool_call_requested_event(
                 payload={"approval": approval_state},
                 refs={
                     "action_request_ref": action_request.request_id,
-                    "operation_id": gate_result.operation_id,
+                    "operation_id": operation_id,
                     "directive_ref": tool_directive.directive_id,
                     "task_step_ref": action_step_ref,
+                    "permission_receipt_ref": supervision.receipt.receipt_id,
                 },
             )
         )
         return events
 
-    if not gate_result.allowed:
+    if not supervision.allowed:
         events.extend(
             append_synthetic_tool_result_for_action_request(
                 event_log=event_log,
@@ -317,13 +325,18 @@ async def handle_tool_call_requested_event(
                 task_run_id=task_run_id,
                 action_request=action_request,
                 directive_ref=tool_directive.directive_id,
-                reason=gate_result.reason or "tool_call_denied_by_operation_gate",
+                reason=supervision.decision.reason or "tool_call_denied_by_tool_supervisor",
                 step_ref=action_step_ref,
                 refs={
-                    "operation_id": gate_result.operation_id,
+                    "operation_id": operation_id,
                     "resource_policy_ref": tool_policy.policy_id,
+                    "permission_receipt_ref": supervision.receipt.receipt_id,
                 },
-                diagnostics={"decision": gate_result.decision, "source": "operation_gate"},
+                diagnostics={
+                    "decision": supervision.decision.behavior,
+                    "source": "tool_supervisor",
+                    "permission_receipt": supervision.receipt.to_dict(),
+                },
             )
         )
         return events
@@ -339,8 +352,9 @@ async def handle_tool_call_requested_event(
                 reason="Tool runtime executor unavailable.",
                 step_ref=action_step_ref,
                 refs={
-                    "operation_id": gate_result.operation_id,
+                    "operation_id": operation_id,
                     "resource_policy_ref": tool_policy.policy_id,
+                    "permission_receipt_ref": supervision.receipt.receipt_id,
                 },
                 diagnostics={"decision": "executor_unavailable"},
             )
@@ -418,6 +432,54 @@ async def handle_tool_call_requested_event(
     if execution_decision in {"reuse_completed_result", "deny_auto_replay"}:
         return events
     return events
+
+
+def _build_permission_context(
+    *,
+    task_run_id: str,
+    action_step_ref: str,
+    tool_name: str,
+    task_operation: dict[str, Any],
+    sandbox_policy: dict[str, Any] | None,
+    file_management_policy: dict[str, Any] | None,
+    permission_mode: str,
+) -> PermissionContext:
+    sandbox_payload = dict(sandbox_policy or {})
+    file_payload = dict(file_management_policy or {})
+    capability_table = _tool_capability_table_from_task_operation(task_operation)
+    file_access_table_ids = tuple(
+        str(item)
+        for item in list(
+            file_payload.get("file_access_table_ids")
+            or file_payload.get("file_access_tables")
+            or []
+        )
+        if str(item)
+    )
+    return PermissionContext(
+        context_id=f"permctx:{task_run_id}:{action_step_ref}:{tool_name}",
+        task_run_id=task_run_id,
+        agent_run_id=str(
+            file_payload.get("agent_run_id")
+            or sandbox_payload.get("agent_run_id")
+            or f"agrun:{task_run_id}:main"
+        ),
+        environment_id=str(file_payload.get("environment_id") or sandbox_payload.get("environment_id") or ""),
+        tool_capability_table_id=str(getattr(capability_table, "table_id", "") or ""),
+        file_access_table_ids=file_access_table_ids,
+        permission_mode=str(permission_mode or "default"),
+        sandbox_policy=sandbox_payload,
+        file_management_policy=file_payload,
+        metadata={
+            "authority": "runtime.execution_engine.tool_loop",
+            "task_operation_keys": sorted(str(key) for key in dict(task_operation or {}).keys()),
+        },
+    )
+
+
+def _tool_capability_table_from_task_operation(task_operation: dict[str, Any]) -> ToolCapabilityTable | None:
+    value = dict(task_operation or {}).get("tool_capability_table")
+    return value if isinstance(value, ToolCapabilityTable) else None
 
 
 def prepare_tool_execution(

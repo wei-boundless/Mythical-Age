@@ -34,8 +34,8 @@ def build_operation_requirement(
     extra_metadata: dict[str, Any] | None = None,
     reason: str = "",
 ) -> OperationRequirement:
-    required = _dedupe([*default_operation_requirements, *skill_required_operations, *operation_scope])
-    optional: list[str] = []
+    required = _dedupe([*default_operation_requirements, *operation_scope])
+    optional = _dedupe(skill_required_operations)
     denied = _dedupe(denied_operations)
     return OperationRequirement(
         requirement_id=f"opreq:{task_id}:{source}",

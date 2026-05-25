@@ -35,6 +35,7 @@ class _ApprovalToolExecutorStub:
         execution_store=None,
         max_result_size_chars=0,
         sandbox_policy=None,
+        file_management_policy=None,
     ):
         self.calls.append(
             {
@@ -44,6 +45,7 @@ class _ApprovalToolExecutorStub:
                 "request_ref": action_request.request_id,
                 "tool_name": action_request.payload.get("tool_name"),
                 "sandbox_policy": dict(sandbox_policy or {}),
+                "file_management_policy": dict(file_management_policy or {}),
             }
         )
         final_record = execution_record
@@ -366,6 +368,7 @@ def test_denied_tool_call_gets_synthetic_tool_result(tmp_path: Path) -> None:
             root_dir=tmp_path,
             allowed_search_sources=None,
             sandbox_policy={},
+            file_management_policy={},
             execution_store=RuntimeExecutionStore(tmp_path / "runtime-tool-protocol-deny"),
             record_execution_event=_record_execution_event(event_log),
             build_pending_approval_state=lambda **_: {},
@@ -384,6 +387,11 @@ def test_denied_tool_call_gets_synthetic_tool_result(tmp_path: Path) -> None:
     assert observation_payload["tool_call_id"] == "call-read"
     assert observation_payload["result_envelope"]["synthetic_tool_result"] is True
     assert observation_payload["result_envelope"]["status"] == "error"
+    gate_event = next(event for event in events if event.event_type == "operation_gate_checked")
+    assert gate_event.payload["permission_decision"]["behavior"] == "deny"
+    assert gate_event.payload["permission_decision"]["tool_name"] == "read_file"
+    assert gate_event.payload["permission_receipt"]["operation_id"] == "op.read_file"
+    assert gate_event.payload["tool_supervision"]["authority"] == "runtime.tooling.tool_supervisor"
 
 
 def test_allowed_tool_without_executor_gets_synthetic_tool_result(tmp_path: Path) -> None:
@@ -421,6 +429,7 @@ def test_allowed_tool_without_executor_gets_synthetic_tool_result(tmp_path: Path
             root_dir=tmp_path,
             allowed_search_sources=None,
             sandbox_policy={},
+            file_management_policy={},
             execution_store=RuntimeExecutionStore(tmp_path / "runtime-tool-protocol-no-executor"),
             record_execution_event=_record_execution_event(event_log),
             build_pending_approval_state=lambda **_: {},
@@ -473,6 +482,7 @@ def test_search_policy_blocked_tool_call_gets_tool_result(tmp_path: Path) -> Non
             root_dir=tmp_path,
             allowed_search_sources={"rag"},
             sandbox_policy={},
+            file_management_policy={},
             execution_store=RuntimeExecutionStore(tmp_path / "runtime-tool-protocol-search-policy"),
             record_execution_event=_record_execution_event(event_log),
             build_pending_approval_state=lambda **_: {},
@@ -656,17 +666,28 @@ def test_task_run_loop_approves_pending_approval_with_bound_token_and_gate(tmp_p
 
     assert result["decision"] == "approved"
     assert result["resume_result"]["executed"] is True
-    assert executor.calls == [
-        {
-            "task_run_id": task_run.task_run_id,
-            "operation_id": "op.write_file",
-            "directive_ref": "runtime-directive:approval:write",
-            "request_ref": "rtact:approval:write",
-            "tool_name": "write_file",
-            "sandbox_policy": {},
-        }
-    ]
+    assert len(executor.calls) == 1
+    call = executor.calls[0]
+    assert call["task_run_id"] == task_run.task_run_id
+    assert call["operation_id"] == "op.write_file"
+    assert call["directive_ref"] == "runtime-directive:approval:write"
+    assert call["request_ref"] == "rtact:approval:write"
+    assert call["tool_name"] == "write_file"
+    assert call["sandbox_policy"] == {}
+    assert call["file_management_policy"]["approval_token"]["operation_id"] == "op.write_file"
+    assert call["file_management_policy"]["approval_token"]["granted"] is True
     assert gate["decision"] == "allow"
+    resume_gate_event = next(
+        event for event in result["resume_result"]["events"] if event["event_type"] == "operation_gate_checked"
+    )
+    assert resume_gate_event["payload"]["approval_resume"] is True
+    assert resume_gate_event["payload"]["permission_decision"]["behavior"] == "allow"
+    assert resume_gate_event["payload"]["permission_receipt"]["operation_id"] == "op.write_file"
+    assert (
+        resume_gate_event["refs"]["permission_receipt_ref"]
+        == resume_gate_event["payload"]["permission_receipt"]["receipt_id"]
+    )
+    assert resume_gate_event["payload"]["tool_supervision"]["authority"] == "runtime.tooling.tool_supervisor"
     assert stored is not None
     assert stored.status == "completed"
     assert checkpoint is not None

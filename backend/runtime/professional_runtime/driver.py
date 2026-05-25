@@ -171,6 +171,28 @@ def _tools_with_goal_contract_requirements(
     return allowed
 
 
+def _filter_tool_names_by_capability_table(
+    *,
+    allowed_tool_names: list[str],
+    task_operation: dict[str, Any],
+) -> list[str]:
+    table = dict(task_operation or {}).get("tool_capability_table")
+    if table is None or not hasattr(table, "dispatchable_tools"):
+        return list(allowed_tool_names or [])
+    dispatchable = {
+        str(item or "").strip()
+        for item in tuple(getattr(table, "dispatchable_tools", ()) or ())
+        if str(item or "").strip()
+    }
+    if not dispatchable:
+        return []
+    return [
+        str(item or "").strip()
+        for item in list(allowed_tool_names or [])
+        if str(item or "").strip() in dispatchable
+    ]
+
+
 def _runtime_tool_instances_for_allowed_tools(
     *,
     runtime_tool_instances: list[Any] | None,
@@ -361,8 +383,6 @@ def _round_tool_call_options_for_gate(
             tool_choice={"type": "function", "function": {"name": gate.allowed_tool_names[0]}},
             parallel_tool_calls=False,
         )
-    if gate.forced and "agent_todo" in set(gate.allowed_tool_names):
-        return ToolCallBindingOptions(parallel_tool_calls=False)
     return build_round_tool_call_options(max_tool_calls=max_tool_calls)
 
 
@@ -376,7 +396,7 @@ def _round_tool_call_limit_for_gate(
         return base_limit
     stage_minimums = {
         "read_material": 4,
-        "write_output": 2 if "agent_todo" in set(gate.allowed_tool_names) else 1,
+        "write_output": 1,
         "verify_output": 2,
     }
     return max(base_limit, int(gate.reserved_tool_calls or 0), stage_minimums.get(gate.stage, 1))
@@ -1014,6 +1034,10 @@ class ProfessionalTaskRunDriver:
             runtime_tool_instances=runtime_tool_instances,
             delegation_enabled=delegation_enabled,
         )
+        allowed_tool_names = _filter_tool_names_by_capability_table(
+            allowed_tool_names=allowed_tool_names,
+            task_operation=task_operation,
+        )
         tool_execution_enabled = bool(tool_policy.get("enabled") is True) and bool(
             tool_runtime_executor is not None and allowed_tool_names
         )
@@ -1051,6 +1075,10 @@ class ProfessionalTaskRunDriver:
             goal_contract=goal_contract,
             runtime_tool_instances=runtime_tool_instances,
             tool_runtime_executor=tool_runtime_executor,
+        )
+        allowed_tool_names = _filter_tool_names_by_capability_table(
+            allowed_tool_names=allowed_tool_names,
+            task_operation=task_operation,
         )
         tool_execution_enabled = bool(tool_policy.get("enabled") is True) and bool(
             tool_runtime_executor is not None and allowed_tool_names

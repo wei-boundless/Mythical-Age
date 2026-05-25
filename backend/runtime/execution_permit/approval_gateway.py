@@ -3,13 +3,14 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from permissions import OperationGatePipelineContext
+from permissions.context_models import PermissionContext
 from orchestration.runtime_directive import RuntimeDirective
 from permissions import ResourceDecision, ResourcePolicy
 from runtime.execution_engine.tool_loop import execute_prepared_tool_call
 from runtime.execution_engine.event_translation import append_executor_observation_event
 from runtime.shared.action_request import RuntimeActionRequest, build_tool_result_observation
 from runtime.shared.safety import build_task_safety_validators
+from runtime.tooling import ToolSupervisor
 
 
 def approval_state_from_permit(permit: Any) -> str:
@@ -252,52 +253,7 @@ async def execute_approved_tool_from_state(
     action_request = action_request_from_approval_state(task_run_id, approval_state)
     directive = runtime_directive_from_approval_state(approval_state)
     resource_policy = resource_policy_from_approval_state(approval_state)
-    gate_result = operation_gate.check(
-        operation_id,
-        resource_policy=resource_policy,
-        directive_ref=directive.directive_id,
-        context=OperationGatePipelineContext(
-            permission_mode=permission_mode,
-            approval_token=approval_token,
-            approval_risk_fingerprint=str(
-                approval_state.get("approval_risk_fingerprint")
-                or dict(approval_state.get("resume_contract") or {}).get("risk_fingerprint")
-                or ""
-            ),
-            operation_input={
-                "operation_id": operation_id,
-                **dict(action_request.payload.get("tool_call") or {}),
-            },
-            validators=build_task_safety_validators(
-                root_dir=root_dir,
-                safety_envelope={},
-                sandbox_policy=dict(approval_state.get("sandbox_policy") or {}),
-            ),
-        ),
-    )
-    gate_event = event_log.append(
-        task_run_id,
-        "operation_gate_checked",
-        payload={
-            "gate": gate_result.to_dict(),
-            "approval_resume": True,
-            "dispatch_enabled": bool(gate_result.allowed),
-        },
-        refs={
-            "operation_id": gate_result.operation_id,
-            "directive_ref": directive.directive_id,
-            "action_request_ref": action_request.request_id,
-            "approval_token_ref": approval_token.token_id,
-        },
-    )
-    if not gate_result.allowed:
-        return {
-            "executed": False,
-            "reason": gate_result.reason,
-            "gate": gate_result.to_dict(),
-            "events": [gate_event.to_dict()],
-            "result_refs": [],
-        }
+    sandbox_policy = dict(approval_state.get("sandbox_policy") or {})
     approved_file_management_policy = {
         **dict(approval_state.get("file_management_policy") or {}),
         "approval_fingerprint": str(approval_token.risk_fingerprint or approval_token.token_id or ""),
@@ -310,6 +266,73 @@ async def execute_approved_tool_from_state(
             "source": str(approval_token.source or ""),
         },
     }
+    permission_context = _permission_context_from_approval_state(
+        task_run_id=task_run_id,
+        approval_state=approval_state,
+        approval_token=approval_token,
+        permission_mode=permission_mode,
+        sandbox_policy=sandbox_policy,
+        file_management_policy=approved_file_management_policy,
+    )
+    tool_args = dict(dict(action_request.payload.get("tool_call") or {}).get("args") or {})
+    supervision = ToolSupervisor().supervise(
+        task_run_id=task_run_id,
+        agent_run_id=permission_context.agent_run_id,
+        tool_call_id=str(approval_state.get("tool_call_id") or action_request.request_id),
+        operation_id=operation_id,
+        tool_name=str(approval_state.get("tool_name") or ""),
+        tool_args=tool_args,
+        directive=directive,
+        resource_policy=resource_policy,
+        capability_table=None,
+        permission_context=permission_context,
+        operation_gate=operation_gate,
+        tool_runtime_executor=None,
+        action_request=action_request,
+        approval_token=approval_token,
+        approval_risk_fingerprint=str(
+            approval_state.get("approval_risk_fingerprint")
+            or dict(approval_state.get("resume_contract") or {}).get("risk_fingerprint")
+            or ""
+        ),
+        sandbox_policy=sandbox_policy,
+        file_management_policy=approved_file_management_policy,
+        safety_validators=build_task_safety_validators(
+            root_dir=root_dir,
+            safety_envelope={},
+            sandbox_policy=sandbox_policy,
+        ),
+    )
+    gate_result = supervision.gate_result
+    gate_event = event_log.append(
+        task_run_id,
+        "operation_gate_checked",
+        payload={
+            "gate": gate_result.to_dict() if hasattr(gate_result, "to_dict") else {},
+            "approval_resume": True,
+            "dispatch_enabled": bool(supervision.allowed),
+            "permission_context": permission_context.to_dict(),
+            "permission_decision": supervision.decision.to_dict(),
+            "permission_receipt": supervision.receipt.to_dict(),
+            "tool_supervision": supervision.to_dict(),
+        },
+        refs={
+            "operation_id": operation_id,
+            "directive_ref": directive.directive_id,
+            "action_request_ref": action_request.request_id,
+            "approval_token_ref": approval_token.token_id,
+            "permission_receipt_ref": supervision.receipt.receipt_id,
+        },
+    )
+    if not supervision.allowed:
+        return {
+            "executed": False,
+            "reason": supervision.decision.reason,
+            "gate": gate_result.to_dict() if hasattr(gate_result, "to_dict") else {},
+            "permission_receipt": supervision.receipt.to_dict(),
+            "events": [gate_event.to_dict()],
+            "result_refs": [],
+        }
     execution_events, execution_decision = await execute_prepared_tool_call(
         event_log=event_log,
         runtime_context_manager=runtime_context_manager,
@@ -323,7 +346,7 @@ async def execute_approved_tool_from_state(
         execution_store=execution_store,
         tool_runtime_executor=tool_runtime_executor,
         gate_result=gate_result,
-        sandbox_policy=dict(approval_state.get("sandbox_policy") or {}),
+        sandbox_policy=sandbox_policy,
         file_management_policy=approved_file_management_policy,
         record_execution_event=record_execution_event,
         dispatch_reason="tool_dispatch_started_after_approval",
@@ -347,6 +370,47 @@ async def execute_approved_tool_from_state(
         "executed": bool(result_refs and execution_decision != "deny_auto_replay"),
         "reason": execution_decision if execution_decision != "dispatch" else "approved tool executed",
         "gate": gate_result.to_dict(),
+        "permission_receipt": supervision.receipt.to_dict(),
         "events": [event.to_dict() for event in events],
         "result_refs": result_refs,
     }
+
+
+def _permission_context_from_approval_state(
+    *,
+    task_run_id: str,
+    approval_state: dict[str, Any],
+    approval_token: Any,
+    permission_mode: str,
+    sandbox_policy: dict[str, Any],
+    file_management_policy: dict[str, Any],
+) -> PermissionContext:
+    file_access_table_ids = tuple(
+        str(item)
+        for item in list(
+            file_management_policy.get("file_access_table_ids")
+            or file_management_policy.get("file_access_tables")
+            or []
+        )
+        if str(item)
+    )
+    return PermissionContext(
+        context_id=f"permctx:{task_run_id}:{approval_state.get('step_ref') or 'approval'}:{approval_state.get('tool_name') or ''}",
+        task_run_id=task_run_id,
+        agent_run_id=str(
+            file_management_policy.get("agent_run_id")
+            or sandbox_policy.get("agent_run_id")
+            or f"agrun:{task_run_id}:main"
+        ),
+        environment_id=str(file_management_policy.get("environment_id") or sandbox_policy.get("environment_id") or ""),
+        file_access_table_ids=file_access_table_ids,
+        session_approval_refs=(str(getattr(approval_token, "token_id", "") or ""),),
+        permission_mode=str(permission_mode or "default"),
+        approval_state=dict(approval_state or {}),
+        sandbox_policy=dict(sandbox_policy or {}),
+        file_management_policy=dict(file_management_policy or {}),
+        metadata={
+            "authority": "runtime.execution_permit.approval_gateway",
+            "approval_resume": True,
+        },
+    )

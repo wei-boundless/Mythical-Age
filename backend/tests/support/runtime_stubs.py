@@ -245,7 +245,7 @@ def _default_model_turn_decision_payload(messages: Any) -> dict[str, object]:
         interaction_intent = "create" if any(marker in text for marker in ("生成", "create", "新增")) else "modify"
         task_goal_type = "game_vertical_slice_delivery" if "游戏" in text or "game" in text or selected_task_id == "task.dev.light_web_game" else "implementation"
         planning_required = explicit_mode == "professional_mode"
-        todo_required = explicit_mode == "professional_mode"
+        todo_required = False
         deliverables = ["changed_files", "verification_result_or_limitation"]
     elif any(marker in text for marker in ("分析", "pdf", ".pdf", "报告")):
         action_intent = "read_context"

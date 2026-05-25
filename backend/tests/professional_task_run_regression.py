@@ -598,7 +598,7 @@ class _RecoverableTimeoutModelRuntimeStub:
         )
 
 
-class _TodoThenWriteModelRuntimeStub:
+class _OptionalTodoThenWriteModelRuntimeStub:
     def __init__(self) -> None:
         self.tool_enabled_calls = 0
         self.seen_todo = False
@@ -613,8 +613,7 @@ class _TodoThenWriteModelRuntimeStub:
         self.tool_names_by_call.append(tool_names)
         tool_text = _tool_message_text(messages)
         self.seen_todo = self.seen_todo or '"plan_id"' in tool_text or "agent-todo:" in tool_text
-        if not self.seen_todo:
-            assert "agent_todo" in tool_names
+        if not self.seen_todo and "agent_todo" in tool_names and "write_file" not in tool_names:
             return AIMessage(
                 content="我先建立任务待办。",
                 tool_calls=[
@@ -2450,9 +2449,9 @@ def test_professional_task_recovers_provider_timeout_with_missing_output_paths()
     assert (sandbox_root / "frontend/public/games/arcane_dungeon_studio/game.js").exists()
 
 
-def test_professional_task_exposes_agent_todo_before_write_contract_gate() -> None:
+def test_professional_task_does_not_require_agent_todo_before_write_contract_gate() -> None:
     backend_root = _isolated_backend_root()
-    model_runtime = _TodoThenWriteModelRuntimeStub()
+    model_runtime = _OptionalTodoThenWriteModelRuntimeStub()
     runtime = _runtime(
         base_dir=backend_root,
         model_runtime=model_runtime,
@@ -2484,13 +2483,8 @@ def test_professional_task_exposes_agent_todo_before_write_contract_gate() -> No
     )
 
     assert "tool_result_received" in event_types
-    assert "agent_todo" in model_runtime.tool_names_by_call[0]
-    assert model_runtime.seen_todo is True
-    assert any(
-        str(dict(dict(event.get("payload") or {}).get("observation") or {}).get("payload") or {}).find("agent_todo") >= 0
-        or "agent_todo" in str(event.get("payload") or "")
-        for event in runtime_events
-    )
+    assert any("write_file" in set(tool_names) for tool_names in model_runtime.tool_names_by_call)
+    assert model_runtime.seen_todo is False
     assert done["terminal_reason"] == "completed"
     assert (sandbox_root / "frontend/public/games/arcane_dungeon_studio/index.html").exists()
 

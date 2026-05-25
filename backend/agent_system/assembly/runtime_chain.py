@@ -480,7 +480,7 @@ def _task_operation_allows_retrieval(task_operation: dict[str, Any]) -> bool:
         str(item or "").strip()
         for item in [
             *list(operation_requirement.get("required_operations") or []),
-            *list(operation_requirement.get("skill_required_operations") or []),
+            *list(operation_requirement.get("optional_operations") or []),
         ]
         if str(item or "").strip()
     }

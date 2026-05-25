@@ -12,9 +12,11 @@ PermissionRiskLevel = Literal["none", "low", "medium", "high", "critical"]
 class PermissionDecision:
     behavior: PermissionBehavior
     operation_id: str
+    tool_name: str = ""
     reason: str = ""
     risk_level: PermissionRiskLevel = "none"
     approval_fingerprint: str = ""
+    normalized_args: dict[str, Any] = field(default_factory=dict)
     diagnostics: dict[str, Any] = field(default_factory=dict)
     authority: str = "permissions.permission_decision"
 
@@ -31,39 +33,107 @@ class PermissionDecision:
         return self.behavior == "deny"
 
     @classmethod
-    def allow(cls, operation_id: str, *, reason: str = "", risk_level: PermissionRiskLevel = "none", diagnostics: dict[str, Any] | None = None) -> "PermissionDecision":
-        return cls(behavior="allow", operation_id=operation_id, reason=reason, risk_level=risk_level, diagnostics=dict(diagnostics or {}))
+    def allow(
+        cls,
+        operation_id: str,
+        *,
+        tool_name: str = "",
+        reason: str = "",
+        risk_level: PermissionRiskLevel = "none",
+        normalized_args: dict[str, Any] | None = None,
+        diagnostics: dict[str, Any] | None = None,
+    ) -> "PermissionDecision":
+        return cls(
+            behavior="allow",
+            operation_id=operation_id,
+            tool_name=tool_name,
+            reason=reason,
+            risk_level=risk_level,
+            normalized_args=dict(normalized_args or {}),
+            diagnostics=dict(diagnostics or {}),
+        )
 
     @classmethod
-    def deny(cls, operation_id: str, *, reason: str, risk_level: PermissionRiskLevel = "medium", diagnostics: dict[str, Any] | None = None) -> "PermissionDecision":
-        return cls(behavior="deny", operation_id=operation_id, reason=reason, risk_level=risk_level, diagnostics=dict(diagnostics or {}))
+    def deny(
+        cls,
+        operation_id: str,
+        *,
+        tool_name: str = "",
+        reason: str,
+        risk_level: PermissionRiskLevel = "medium",
+        diagnostics: dict[str, Any] | None = None,
+    ) -> "PermissionDecision":
+        return cls(
+            behavior="deny",
+            operation_id=operation_id,
+            tool_name=tool_name,
+            reason=reason,
+            risk_level=risk_level,
+            diagnostics=dict(diagnostics or {}),
+        )
 
     @classmethod
     def ask(
         cls,
         operation_id: str,
         *,
+        tool_name: str = "",
         reason: str,
         approval_fingerprint: str,
         risk_level: PermissionRiskLevel = "medium",
+        normalized_args: dict[str, Any] | None = None,
         diagnostics: dict[str, Any] | None = None,
     ) -> "PermissionDecision":
         return cls(
             behavior="ask",
             operation_id=operation_id,
+            tool_name=tool_name,
             reason=reason,
             risk_level=risk_level,
             approval_fingerprint=approval_fingerprint,
+            normalized_args=dict(normalized_args or {}),
             diagnostics=dict(diagnostics or {}),
         )
 
     @classmethod
-    def sandbox(cls, operation_id: str, *, reason: str = "", diagnostics: dict[str, Any] | None = None) -> "PermissionDecision":
-        return cls(behavior="sandbox", operation_id=operation_id, reason=reason, risk_level="low", diagnostics=dict(diagnostics or {}))
+    def sandbox(
+        cls,
+        operation_id: str,
+        *,
+        tool_name: str = "",
+        reason: str = "",
+        normalized_args: dict[str, Any] | None = None,
+        diagnostics: dict[str, Any] | None = None,
+    ) -> "PermissionDecision":
+        return cls(
+            behavior="sandbox",
+            operation_id=operation_id,
+            tool_name=tool_name,
+            reason=reason,
+            risk_level="low",
+            normalized_args=dict(normalized_args or {}),
+            diagnostics=dict(diagnostics or {}),
+        )
 
     @classmethod
-    def repair(cls, operation_id: str, *, reason: str, diagnostics: dict[str, Any] | None = None) -> "PermissionDecision":
-        return cls(behavior="repair", operation_id=operation_id, reason=reason, risk_level="low", diagnostics=dict(diagnostics or {}))
+    def repair(
+        cls,
+        operation_id: str,
+        *,
+        tool_name: str = "",
+        reason: str,
+        normalized_args: dict[str, Any] | None = None,
+        diagnostics: dict[str, Any] | None = None,
+    ) -> "PermissionDecision":
+        return cls(
+            behavior="repair",
+            operation_id=operation_id,
+            tool_name=tool_name,
+            reason=reason,
+            risk_level="low",
+            normalized_args=dict(normalized_args or {}),
+            diagnostics=dict(diagnostics or {}),
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

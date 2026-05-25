@@ -170,6 +170,11 @@ from ..memory.observation_aggregator import ObservationAggregator
 from ..shared.safety import build_task_safety_validators
 from .file_management_policy import prepare_runtime_file_management_policy_for_turn
 from .sandbox_policy import prepare_runtime_sandbox_policy_for_turn
+from .tool_capability_policy import (
+    apply_tool_capability_table_to_turn_plan,
+    capability_table_to_runtime_plan_overlay,
+    prepare_runtime_tool_capability_table_for_turn,
+)
 from ..shared.stage_projection import StageProjectionCycle
 from ..memory.state_index import RuntimeStateIndex
 from .finalizer import (
@@ -1924,7 +1929,22 @@ class TaskRunLoop:
             allowed_search_sources=allowed_search_sources,
             execution_permit=execution_permit,
         )
+        tool_capability_table = prepare_runtime_tool_capability_table_for_turn(
+            task_operation={**dict(task_operation), "resource_policy": resource_policy, "task_id": task_id},
+            file_management_policy=file_management_policy,
+            execution_permit=execution_permit,
+            runtime_available_operations=current_turn_capability_plan.allowed_operations,
+        )
+        if tool_capability_table is not None:
+            task_operation["tool_capability_table"] = tool_capability_table
+            current_turn_capability_plan = apply_tool_capability_table_to_turn_plan(
+                current_turn_capability_plan,
+                tool_capability_table,
+            )
         current_turn_capability_plan_payload = current_turn_capability_plan.to_dict()
+        tool_capability_overlay = capability_table_to_runtime_plan_overlay(tool_capability_table)
+        if tool_capability_overlay:
+            current_turn_capability_plan_payload["tool_capability_table"] = tool_capability_overlay
         task_operation["current_turn_capability_plan"] = current_turn_capability_plan_payload
         resolved_model_spec = None
         model_resolution: dict[str, Any] = {}
@@ -2177,6 +2197,7 @@ class TaskRunLoop:
                 "search_policy": list(search_policy) if search_policy is not None else None,
                 "allowed_search_sources": sorted(allowed_search_sources),
                 "current_turn_capability_plan": current_turn_capability_plan_payload,
+                "tool_capability_table": tool_capability_overlay,
                 "runtime_capability_state": runtime_capability_state,
                 "sandbox_policy": sandbox_policy,
                 "file_management_policy": file_management_policy,
@@ -2199,6 +2220,7 @@ class TaskRunLoop:
             "search_policy": list(search_policy) if search_policy is not None else None,
             "allowed_search_sources": sorted(allowed_search_sources),
             "current_turn_capability_plan": current_turn_capability_plan_payload,
+            "tool_capability_table": tool_capability_overlay,
             "runtime_capability_state": runtime_capability_state,
             "sandbox_policy": sandbox_policy,
             "file_management_policy": file_management_policy,
@@ -5832,7 +5854,7 @@ def _task_operation_allows_context_retrieval(
         str(item or "").strip()
         for item in [
             *list(operation_requirement.get("required_operations") or []),
-            *list(operation_requirement.get("skill_required_operations") or []),
+            *list(operation_requirement.get("optional_operations") or []),
         ]
         if str(item or "").strip()
     }

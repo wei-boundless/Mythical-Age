@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   Circle,
   Clock3,
+  ChevronRight,
   FileText,
   GitBranch,
   Loader2,
@@ -18,8 +19,8 @@ import {
 
 import type { RuntimeProgressEntry } from "@/lib/store/types";
 
-const MAX_FLOW_ENTRIES = 10;
-const MAX_TOOL_ENTRIES = 4;
+const MAX_FLOW_ENTRIES = 7;
+const MAX_TOOL_ENTRIES = 3;
 const USER_VISIBLE_KINDS = new Set<RuntimeProgressEntry["kind"]>([
   "task_order",
   "task_draft",
@@ -86,6 +87,13 @@ function currentStage(entries: RuntimeProgressEntry[]) {
   return cleanTitle(latest.title);
 }
 
+function commandCountLabel(entries: RuntimeProgressEntry[]) {
+  const toolCount = entries.filter((entry) => entry.kind === "tool").length;
+  if (toolCount) return `已运行 ${toolCount} 条命令`;
+  const actionableCount = entries.filter((entry) => entry.kind !== "task_order" && entry.kind !== "task_draft").length;
+  return actionableCount ? `已更新 ${actionableCount} 个步骤` : "正在准备";
+}
+
 function progressCountLabel(entries: RuntimeProgressEntry[]) {
   const toolCount = entries.filter((entry) => entry.kind === "tool").length;
   const stageCount = entries.filter((entry) => entry.kind !== "tool").length;
@@ -95,18 +103,18 @@ function progressCountLabel(entries: RuntimeProgressEntry[]) {
   ].filter(Boolean).join(" / ") || "等待阶段";
 }
 
-function bodyText(entry: RuntimeProgressEntry) {
+function bodyText(entry: RuntimeProgressEntry, limit = 160) {
   if (!entry.body) return "";
-  return entry.body.length > 280 ? `${entry.body.slice(0, 279)}...` : entry.body;
+  return entry.body.length > limit ? `${entry.body.slice(0, limit - 1)}...` : entry.body;
 }
 
 function metaChips(entry: RuntimeProgressEntry) {
   const chips = entry.meta ?? [];
   if (!chips.length) return null;
   return (
-    <div className="runtime-task-flow__meta">
+    <div className="runtime-run-summary__meta">
       {chips.map((item) => (
-        <span className="runtime-task-flow__chip" key={`${entry.id}-${item.label}-${item.value}`}>
+        <span className="runtime-run-summary__chip" key={`${entry.id}-${item.label}-${item.value}`}>
           <span>{item.label}</span>
           <strong>{item.value}</strong>
         </span>
@@ -118,9 +126,9 @@ function metaChips(entry: RuntimeProgressEntry) {
 function artifacts(entry: RuntimeProgressEntry) {
   if (!entry.artifacts?.length) return null;
   return (
-    <div className="runtime-task-flow__artifacts">
+    <div className="runtime-run-summary__artifacts">
       {entry.artifacts.map((artifact, index) => (
-        <span className="runtime-task-flow__artifact" key={`${entry.id}-${artifact.path || artifact.value || artifact.label}-${index}`}>
+        <span className="runtime-run-summary__artifact" key={`${entry.id}-${artifact.path || artifact.value || artifact.label}-${index}`}>
           <FileText size={12} />
           <span>{artifact.path || artifact.value || artifact.label}</span>
         </span>
@@ -133,7 +141,7 @@ function toolName(entry: RuntimeProgressEntry) {
   return entry.toolName || entry.meta?.find((item) => item.label === "工具")?.value || cleanTitle(entry.title);
 }
 
-export function RuntimeProgressList({ entries }: { entries: RuntimeProgressEntry[] }) {
+export function RuntimeRunSummary({ entries }: { entries: RuntimeProgressEntry[] }) {
   const userVisibleEntries = entries.filter(isUserVisibleEntry);
   const anchor = [...userVisibleEntries].find((entry) => entry.kind === "task_order" || entry.kind === "task_draft");
   const recentEntries = userVisibleEntries
@@ -148,79 +156,82 @@ export function RuntimeProgressList({ entries }: { entries: RuntimeProgressEntry
   const status = terminalSummary(visibleEntries);
 
   return (
-    <section className="runtime-task-flow" aria-label="会话任务流程">
-      <header className="runtime-task-flow__header">
-        <div className="runtime-task-flow__title">
+    <details className="runtime-run-summary" aria-label="执行流程摘要">
+      <summary className="runtime-run-summary__header">
+        <div className="runtime-run-summary__title">
+          <ChevronRight size={13} className="runtime-run-summary__chevron" />
           <GitBranch size={14} />
-          <span>会话任务流程</span>
+          <span>{commandCountLabel(visibleEntries)}</span>
         </div>
-        <div className="runtime-task-flow__summary">
+        <div className="runtime-run-summary__summary">
           <span>{status}</span>
           <span>{currentStage(visibleEntries)}</span>
           <span>{progressCountLabel(visibleEntries)}</span>
         </div>
-      </header>
+      </summary>
 
-      {anchor ? (
-        <div className={`runtime-task-flow__anchor runtime-task-flow__anchor--${anchor.level}`}>
-          <span className="runtime-task-flow__anchor-icon">{iconForEntry(anchor)}</span>
-          <div className="runtime-task-flow__anchor-main">
-            <div className="runtime-task-flow__anchor-row">
-              <strong>{cleanTitle(anchor.title)}</strong>
-              {anchor.statusText ? <span>{anchor.statusText}</span> : null}
-            </div>
-            {bodyText(anchor) ? <p>{bodyText(anchor)}</p> : null}
-            {metaChips(anchor)}
-          </div>
-        </div>
-      ) : null}
-
-      <div className="runtime-task-flow__timeline">
-        {flowEntries.map((entry) => (
-          <article
-            className={`runtime-task-flow__item runtime-task-flow__item--${entry.level} runtime-task-flow__item--${entry.kind || "stage"}`}
-            key={entry.id}
-          >
-            <span className="runtime-task-flow__node">{iconForEntry(entry)}</span>
-            <div className="runtime-task-flow__item-main">
-              <div className="runtime-task-flow__item-head">
-                <span className="runtime-task-flow__kind">{flowLabel(entry)}</span>
-                <strong>{entry.kind === "tool" ? toolName(entry) : cleanTitle(entry.title)}</strong>
-                {entry.statusText ? <span className="runtime-task-flow__status">{entry.statusText}</span> : null}
+      <div className="runtime-run-summary__details">
+        {anchor ? (
+          <div className={`runtime-run-summary__anchor runtime-run-summary__anchor--${anchor.level}`}>
+            <span className="runtime-run-summary__anchor-icon">{iconForEntry(anchor)}</span>
+            <div className="runtime-run-summary__anchor-main">
+              <div className="runtime-run-summary__anchor-row">
+                <strong>{cleanTitle(anchor.title)}</strong>
+                {anchor.statusText ? <span>{anchor.statusText}</span> : null}
               </div>
-              {bodyText(entry) ? <p>{bodyText(entry)}</p> : null}
-              {metaChips(entry)}
-              {artifacts(entry)}
+              {bodyText(anchor, 120) ? <p>{bodyText(anchor, 120)}</p> : null}
+              {metaChips(anchor)}
             </div>
-          </article>
-        ))}
-      </div>
+          </div>
+        ) : null}
 
-      {toolEntries.length ? (
-        <div className="runtime-task-flow__tool-strip" aria-label="工具使用">
-          <span className="runtime-task-flow__tool-strip-label">工具使用</span>
-          <div className="runtime-task-flow__tool-strip-items">
-            {toolEntries.map((entry) => (
-              <span className={`runtime-task-flow__tool-pill runtime-task-flow__tool-pill--${entry.level}`} key={`tool-${entry.id}`}>
-                <TerminalSquare size={12} />
-                <strong>{toolName(entry)}</strong>
-                <span>{entry.statusText || cleanTitle(entry.title)}</span>
+        <div className="runtime-run-summary__timeline">
+          {flowEntries.map((entry) => (
+            <article
+              className={`runtime-run-summary__item runtime-run-summary__item--${entry.level} runtime-run-summary__item--${entry.kind || "stage"}`}
+              key={entry.id}
+            >
+              <span className="runtime-run-summary__node">{iconForEntry(entry)}</span>
+              <div className="runtime-run-summary__item-main">
+                <div className="runtime-run-summary__item-head">
+                  <span className="runtime-run-summary__kind">{flowLabel(entry)}</span>
+                  <strong>{entry.kind === "tool" ? toolName(entry) : cleanTitle(entry.title)}</strong>
+                  {entry.statusText ? <span className="runtime-run-summary__status">{entry.statusText}</span> : null}
+                </div>
+                {entry.kind === "terminal" && bodyText(entry, 120) ? <p>{bodyText(entry, 120)}</p> : null}
+                {entry.kind === "terminal" ? metaChips(entry) : null}
+                {artifacts(entry)}
+              </div>
+            </article>
+          ))}
+        </div>
+
+        {toolEntries.length ? (
+          <div className="runtime-run-summary__tool-strip" aria-label="工具使用">
+            <span className="runtime-run-summary__tool-strip-label">工具使用</span>
+            <div className="runtime-run-summary__tool-strip-items">
+              {toolEntries.map((entry) => (
+                <span className={`runtime-run-summary__tool-pill runtime-run-summary__tool-pill--${entry.level}`} key={`tool-${entry.id}`}>
+                  <TerminalSquare size={12} />
+                  <strong>{toolName(entry)}</strong>
+                  <span>{entry.statusText || cleanTitle(entry.title)}</span>
+                </span>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {artifactEntries.length ? (
+          <div className="runtime-run-summary__artifact-strip" aria-label="产物">
+            {artifactEntries.flatMap((entry) => entry.artifacts ?? []).slice(0, 4).map((artifact, index) => (
+              <span className="runtime-run-summary__artifact" key={`artifact-strip-${artifact.path || artifact.value || artifact.label}-${index}`}>
+                <FileText size={12} />
+                <span>{artifact.path || artifact.value || artifact.label}</span>
               </span>
             ))}
           </div>
-        </div>
-      ) : null}
-
-      {artifactEntries.length ? (
-        <div className="runtime-task-flow__artifact-strip" aria-label="产物">
-          {artifactEntries.flatMap((entry) => entry.artifacts ?? []).slice(0, 4).map((artifact, index) => (
-            <span className="runtime-task-flow__artifact" key={`artifact-strip-${artifact.path || artifact.value || artifact.label}-${index}`}>
-              <FileText size={12} />
-              <span>{artifact.path || artifact.value || artifact.label}</span>
-            </span>
-          ))}
-        </div>
-      ) : null}
-    </section>
+        ) : null}
+      </div>
+    </details>
   );
 }

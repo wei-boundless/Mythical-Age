@@ -17,7 +17,7 @@ from orchestration import (
 from capability_system.validators import validate_filesystem_path, validate_shell_read_only
 
 
-def test_operation_requirement_is_candidate_only_and_preserves_denied_operations() -> None:
+def test_operation_requirement_keeps_task_scope_required_and_skill_capabilities_optional() -> None:
     requirement = build_operation_requirement(
         task_id="task-1",
         source="task_binding_preview",
@@ -29,8 +29,8 @@ def test_operation_requirement_is_candidate_only_and_preserves_denied_operations
     )
 
     assert requirement.authority == "candidate_only"
-    assert requirement.required_operations == ("op.search_text", "op.read_file", "op.edit_file")
-    assert requirement.optional_operations == ()
+    assert requirement.required_operations == ("op.read_file", "op.edit_file")
+    assert requirement.optional_operations == ("op.search_text",)
     assert requirement.denied_operations == ("terminal",)
     assert requirement.metadata["review_policy"] == "required"
 

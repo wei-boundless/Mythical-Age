@@ -385,26 +385,10 @@ export class WorkspaceRuntime {
       return;
     }
     this.sessionListFailureNotifiedAt = now;
-    this.store.setState((prev) => ({
-      ...prev,
-      sessionActivity: prev.isStreaming
-        ? prev.sessionActivity
-        : {
-            level: "error",
-            title: "会话列表暂时不可用",
-            detail: this.errorMessage(error, "会话列表读取超时，前端已保持当前页面不掉线。"),
-            event: "session_list_refresh_failed",
-            receipt: {
-              level: "error",
-              title: "会话列表暂时不可用",
-              body: this.errorMessage(error, "会话列表读取超时，前端已保持当前页面不掉线。"),
-              debug: {
-                event: "session_list_refresh_failed",
-              },
-            },
-            updatedAt: Date.now(),
-          },
-    }));
+    console.debug("[workspace-runtime] background session refresh skipped", {
+      event: "session_list_refresh_failed",
+      error: this.errorMessage(error, "会话列表读取超时，前端已保持当前页面不掉线。"),
+    });
   }
 
   private async refreshSkills() {

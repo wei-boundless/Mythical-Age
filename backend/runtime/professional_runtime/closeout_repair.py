@@ -38,10 +38,10 @@ def suggest_evidence_repair_tools(
         and material_review_satisfied(goal_contract, tool_observation_ledger)
     ):
         if goal_contract.required_output_paths:
-            return _with_agent_todo_if_available(("write_file",), tool_observation_ledger)
+            return ("write_file",)
         if goal_contract_targets_code_edit(goal_contract):
-            return _with_agent_todo_if_available(("edit_file",), tool_observation_ledger)
-        return _with_agent_todo_if_available(("write_file", "edit_file"), tool_observation_ledger)
+            return ("edit_file",)
+        return ("write_file", "edit_file")
     if (
         goal_contract.requires_verification_command
         and required_writes_satisfied(goal_contract, tool_observation_ledger)
@@ -71,14 +71,3 @@ def build_evidence_gap_guidance(
         + "。"
         + deliverable_progress.progress_hint()
     )
-
-
-def _with_agent_todo_if_available(
-    suggested_tools: tuple[str, ...],
-    tool_observation_ledger: ToolObservationLedger,
-) -> tuple[str, ...]:
-    if tuple(suggested_tools or ()) == ("edit_file",):
-        return suggested_tools
-    if any(record.tool_name == "agent_todo" for record in tool_observation_ledger.records):
-        return suggested_tools
-    return ("agent_todo", *suggested_tools)

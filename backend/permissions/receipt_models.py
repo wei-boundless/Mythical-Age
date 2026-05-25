@@ -15,6 +15,7 @@ class PermissionReceipt:
     tool_call_id: str
     operation_id: str
     behavior: str
+    tool_name: str = ""
     approval_fingerprint: str = ""
     risk_level: str = "none"
     reason: str = ""
@@ -45,6 +46,7 @@ class PermissionReceipt:
             agent_run_id=str(agent_run_id or ""),
             tool_call_id=str(tool_call_id or ""),
             operation_id=decision.operation_id,
+            tool_name=decision.tool_name,
             behavior=decision.behavior,
             approval_fingerprint=decision.approval_fingerprint,
             risk_level=decision.risk_level,
@@ -59,6 +61,7 @@ class PermissionReceipt:
             "agent_run_id": self.agent_run_id,
             "tool_call_id": self.tool_call_id,
             "operation_id": self.operation_id,
+            "tool_name": self.tool_name,
             "behavior": self.behavior,
             "approval_fingerprint": self.approval_fingerprint,
             "risk_level": self.risk_level,

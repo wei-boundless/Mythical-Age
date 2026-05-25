@@ -11,6 +11,7 @@ from agent_system.assembly.runtime_bundle_builder import build_orchestration_run
 from agent_system.profiles.runtime_profile_models import AgentRuntimeProfile
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from request_intent.request_signals import build_request_signals
+from task_system.registry.flow_registry import TaskFlowRegistry
 from task_system.services.assembly_builder import build_task_execution_assembly_bundle
 from tests.support.runtime_stubs import model_turn_context
 
@@ -381,6 +382,101 @@ def test_information_search_template_mounts_direct_web_search_for_main_agent() -
     assert "op.web_search" in set(requirement["required_operations"])
     assert "op.delegate_to_agent" not in set(requirement["required_operations"])
     assert resolution.get("strategy") == "direct"
+
+
+def test_agent_runtime_profile_tools_are_capabilities_not_required_actions() -> None:
+    profile = AgentRuntimeProfile(
+        agent_id="agent:test-code-capabilities",
+        agent_profile_id="profile:test-code-capabilities",
+        allowed_operations=("op.model_response", "op.read_file", "op.agent_todo", "op.shell"),
+        blocked_operations=(),
+    )
+
+    user_goal = "请用专业模式检查项目文件并给出修改建议。"
+    task_bundle = build_task_execution_assembly_bundle(
+        base_dir=BACKEND_DIR,
+        session_id="session-profile-capability-boundary",
+        task_id="taskinst:profile-capability-boundary",
+        user_goal=user_goal,
+        source="test",
+        **_assembly_inputs(
+            user_goal,
+            action_intent="read_context",
+            work_mode="read_only_analysis",
+            interaction_intent="answer",
+            task_goal_type="implementation_review",
+            task_domain="workspace",
+            target_objects=["backend/runtime"],
+        ),
+        agent_runtime_profile=profile,
+    )
+
+    requirement = task_bundle["operation_requirement"]
+
+    assert "op.model_response" in set(requirement["required_operations"])
+    assert "op.agent_todo" not in set(requirement["required_operations"])
+    assert "op.shell" not in set(requirement["required_operations"])
+    assert "op.agent_todo" in set(requirement["optional_operations"])
+    assert "op.shell" in set(requirement["optional_operations"])
+
+
+def test_specific_task_assembly_policy_enters_main_assembly_chain(tmp_path: Path) -> None:
+    registry = TaskFlowRegistry(tmp_path)
+    registry.upsert_specific_task_record(
+        task_id="task.test.specific.policy",
+        task_title="Specific Policy Task",
+        domain_id="env.writing",
+        output_contract_id="contract.test.output",
+        task_policy={
+            "tool_capability_requirements": {
+                "required_operations": ["op.read_file", "op.write_file"],
+                "optional_operations": ["op.agent_todo"],
+                "denied_operations": ["op.shell"],
+            },
+            "skill_requirements": {"required_skill_refs": ["structured-data-analysis"]},
+            "prompt_requirements": {"required_prompt_refs": ["writer.brief"]},
+        },
+    )
+    registry.upsert_task_agent_adoption_plan(
+        task_id="task.test.specific.policy",
+        adoption_mode="adopt_existing",
+        default_agent_id="agent:writer",
+        allow_worker_agent_spawn=False,
+    )
+    user_goal = "请整理素材并写入正式草案。"
+
+    bundle = build_task_execution_assembly_bundle(
+        base_dir=tmp_path,
+        session_id="session-specific-policy",
+        task_id="taskinst:specific-policy",
+        user_goal=user_goal,
+        source="test",
+        **_assembly_inputs(
+            user_goal,
+            action_intent="edit_workspace",
+            work_mode="implementation",
+            interaction_intent="create",
+            task_goal_type="writing_draft",
+            task_domain="writing",
+            current_turn_context={"selected_task_id": "task.test.specific.policy"},
+        ),
+    )
+
+    policy = bundle["specific_task_assembly_policy"]
+    requirement = bundle["operation_requirement"]
+    assembly_metadata = bundle["task_execution_assembly"]["metadata"]
+
+    assert policy["environment_id"] == "env.writing"
+    assert bundle["task_environment"]["environment_id"] == "env.writing"
+    assert policy["agent_selection"]["default_agent_id"] == "agent:writer"
+    assert policy["skill_requirements"]["required_refs"] == ["structured-data-analysis"]
+    assert policy["prompt_requirements"]["required_refs"] == ["writer.brief"]
+    assert "op.read_file" in set(requirement["required_operations"])
+    assert "op.write_file" in set(requirement["required_operations"])
+    assert "op.agent_todo" in set(requirement["optional_operations"])
+    assert "op.shell" in set(requirement["denied_operations"])
+    assert assembly_metadata["specific_task_assembly_policy"]["policy_id"] == policy["policy_id"]
+    assert assembly_metadata["task_environment_id"] == "env.writing"
 
 
 def test_delegate_preferred_templates_fall_back_to_direct_operation_for_specialist_agent() -> None:

@@ -53,7 +53,7 @@ def test_read_material_gate_exposes_path_recovery_tools() -> None:
     assert gate.stage == "read_material"
     assert gate.forced is True
     assert "read_file" in gate.allowed_tool_names
-    assert "agent_todo" in gate.allowed_tool_names
+    assert "agent_todo" not in gate.allowed_tool_names
     assert "path_exists" in gate.allowed_tool_names
     assert "stat_path" in gate.allowed_tool_names
     assert "list_dir" in gate.allowed_tool_names
@@ -89,9 +89,9 @@ def test_runtime_feedback_payload_is_actionable_for_agent_repair() -> None:
     assert "agent_chooses_next_valid_action" in feedback["principle"]
 
 
-def test_read_material_gate_allows_planning_without_spending_delivery_budget() -> None:
+def test_read_material_gate_keeps_agent_todo_as_agent_optional_tool_not_system_gate() -> None:
     gate = ActionGateDecision(
-        allowed_tool_names=("agent_todo", "read_file", "path_exists", "list_dir", "search_files"),
+        allowed_tool_names=("read_file", "path_exists", "list_dir", "search_files"),
         forced=True,
         stage="read_material",
         reason="required_material_missing",
@@ -108,6 +108,7 @@ def test_read_material_gate_allows_planning_without_spending_delivery_budget() -
     ]
 
     assert _round_tool_call_limit_for_gate(max_tool_calls=1, gate=gate) == 4
+    assert "agent_todo" not in gate.allowed_tool_names
     assert _delivery_budget_remaining(
         pending_tool_calls,
         gate=gate,

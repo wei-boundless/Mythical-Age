@@ -7,8 +7,8 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { RetrievalCard } from "@/components/chat/RetrievalCard";
-import { RuntimeProgressList } from "@/components/chat/RuntimeProgressList";
-import { ThoughtChain } from "@/components/chat/ThoughtChain";
+import { RuntimeEvidencePanel } from "@/components/chat/RuntimeEvidencePanel";
+import { RuntimeRunSummary } from "@/components/chat/RuntimeRunSummary";
 import type { RetrievalResult, ToolCall } from "@/lib/api";
 import type { RuntimeProgressEntry } from "@/lib/store/types";
 
@@ -86,8 +86,8 @@ export function ChatMessage({
         </div>
       ) : null}
       {!isUser && <RetrievalCard results={retrievals} />}
-      {!isUser && runtimeProgress.length ? <RuntimeProgressList entries={runtimeProgress} /> : null}
-      {!isUser && <ThoughtChain toolCalls={toolCalls} />}
+      {!isUser && runtimeProgress.length ? <RuntimeRunSummary entries={runtimeProgress} /> : null}
+      {!isUser && <RuntimeEvidencePanel toolCalls={toolCalls} />}
       <div className={isUser ? "chat-message-shell__content whitespace-pre-wrap leading-7" : "chat-message-shell__content markdown"}>
         {isUser && editing ? (
           <div className="message-edit-form">

@@ -83,15 +83,6 @@ def decide_next_action_gate(
             if tool in allowed_set
         )
         read_tools = preferred_read_tools or tuple(tool for tool in ("read_file", "read_structured_file") if tool in allowed_set)
-        planning_tools = (
-            ("agent_todo",)
-            if (
-                "agent_todo" in allowed_set
-                and goal_contract.requires_write_output
-                and not any(record.tool_name == "agent_todo" for record in tool_observation_ledger.records)
-            )
-            else ()
-        )
         command_tools = (
             ("terminal",)
             if (
@@ -112,7 +103,7 @@ def decide_next_action_gate(
                 for _ in (0,)
             )
             return ActionGateDecision(
-                allowed_tool_names=(*planning_tools, *command_tools, *read_tools, *recovery_tools),
+                allowed_tool_names=(*command_tools, *read_tools, *recovery_tools),
                 forced=True,
                 stage="read_material",
                 reason="required_material_missing",
@@ -133,13 +124,8 @@ def decide_next_action_gate(
         )
         write_tools = preferred_write_tools or tuple(tool for tool in ("write_file", "edit_file") if tool in allowed_set)
         if write_tools:
-            initial_todo_tools = (
-                ("agent_todo",)
-                if "agent_todo" in allowed_set and not list(tool_observation_ledger.records or ())
-                else ()
-            )
             return ActionGateDecision(
-                allowed_tool_names=(*initial_todo_tools, *write_tools),
+                allowed_tool_names=write_tools,
                 forced=True,
                 stage="write_output",
                 reason="required_write_missing_after_material_review",

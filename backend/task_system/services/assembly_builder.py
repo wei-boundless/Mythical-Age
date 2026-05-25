@@ -29,6 +29,7 @@ from task_system.services.assembly_support import (
 from task_system.services.bindings import default_task_binding, merge_task_bindings
 from task_system.contracts.contracts import build_task_contract
 from task_system.tasks.definitions import select_runtime_task_definitions
+from task_system.tasks import SpecificTaskAssemblyPolicy, resolve_specific_task_assembly_policy
 from task_system.planning.execution_recipe_builder import build_execution_recipe
 from task_system.planning.execution_shape_resolver import resolve_execution_shape
 from task_system.registry.flow_registry import TaskFlowRegistry
@@ -76,6 +77,30 @@ def build_task_execution_assembly_bundle(
         if registered_task and str(registered_task.get("task_type") or "") == "specific_task"
         else None
     )
+    explicit_task_id = str(
+        current_turn_payload.get("selected_task_id")
+        or current_turn_payload.get("task_id")
+        or current_turn_payload.get("specific_task_id")
+        or ""
+    ).strip()
+    registered_task_id = str((registered_task or {}).get("task_id") or "").strip()
+    binding_task_id = ""
+    if explicit_task_id.startswith("task."):
+        binding_task_id = explicit_task_id
+    elif registered_task_id.startswith("task."):
+        binding_task_id = registered_task_id
+    else:
+        binding_task_id = str(explicit_task_id or registered_task_id or task_id).strip()
+    execution_policy = flow_registry.get_task_agent_adoption_plan(binding_task_id)
+    specific_task_policy = (
+        resolve_specific_task_assembly_policy(
+            task_record=specific_task_record,
+            adoption_plan=execution_policy,
+            task_selection=current_turn_payload,
+        )
+        if specific_task_record is not None
+        else None
+    )
     task_intent_contract = build_runtime_task_intent_contract(
         session_id=session_id,
         task_id=task_id,
@@ -115,6 +140,10 @@ def build_task_execution_assembly_bundle(
         query_understanding=dict(query_understanding or {}),
         current_turn_context=current_turn_payload,
     )
+    merged_binding = _apply_specific_task_policy_to_binding(
+        merged_binding=merged_binding,
+        specific_task_policy=specific_task_policy,
+    )
     task_mode = _resolve_task_mode(
         registered_task=registered_task,
         selected_recipe=selected_recipe,
@@ -142,6 +171,7 @@ def build_task_execution_assembly_bundle(
         selected_recipe=selected_recipe,
         registered_task=registered_task,
         current_turn_context=current_turn_payload,
+        specific_task_policy=specific_task_policy,
     )
     allowed_operations = {
         str(item or "").strip()
@@ -249,7 +279,17 @@ def build_task_execution_assembly_bundle(
             registered_task=registered_task,
             current_turn_context=current_turn_payload,
         ),
-        extra_metadata={"runtime_operation_resolution": dict(resolved_runtime_operations)},
+        extra_metadata={
+            "runtime_operation_resolution": dict(resolved_runtime_operations),
+            **(
+                {
+                    "specific_task_assembly_policy_ref": specific_task_policy.policy_id,
+                    "specific_task_environment_id": specific_task_policy.environment_id,
+                }
+                if specific_task_policy is not None
+                else {}
+            ),
+        },
         reason="derived from runtime recipe, TaskDefinition, TaskBinding, task-side skill scope, and task operation policy",
     )
     task_spec = _build_task_spec(
@@ -284,23 +324,8 @@ def build_task_execution_assembly_bundle(
         task_workflow=task_workflow,
         merged_binding=merged_binding,
     )
-    explicit_task_id = str(
-        current_turn_payload.get("selected_task_id")
-        or current_turn_payload.get("task_id")
-        or current_turn_payload.get("specific_task_id")
-        or ""
-    ).strip()
-    registered_task_id = str((registered_task or {}).get("task_id") or "").strip()
-    binding_task_id = ""
-    if explicit_task_id.startswith("task."):
-        binding_task_id = explicit_task_id
-    elif registered_task_id.startswith("task."):
-        binding_task_id = registered_task_id
-    else:
-        binding_task_id = str(explicit_task_id or registered_task_id or task_contract.task_id).strip()
     projection_binding = flow_registry.get_projection_binding(binding_task_id)
     flow_contract_binding = flow_registry.get_flow_contract_binding(binding_task_id)
-    execution_policy = flow_registry.get_task_agent_adoption_plan(binding_task_id)
     memory_request_profile = flow_registry.get_task_memory_request_profile(binding_task_id)
     memory_request_profile_payload = _memory_request_profile_payload(
         memory_request_profile,
@@ -396,6 +421,8 @@ def build_task_execution_assembly_bundle(
             "binding_task_id": binding_task_id,
             "registered_task_type": str((registered_task or {}).get("task_type") or ""),
             "specific_task_title": str(getattr(specific_task_record, "task_title", "") or ""),
+            "specific_task_assembly_policy": specific_task_policy.to_dict() if specific_task_policy is not None else {},
+            "task_environment_id": str(specific_task_policy.environment_id if specific_task_policy is not None else ""),
             "workflow_title": str((task_workflow or {}).get("title") or ""),
             "projection_source": projection_selection.selection_source,
             "memory_layers": list(memory_request_profile_payload.get("requested_memory_layers") or ()),
@@ -427,6 +454,8 @@ def build_task_execution_assembly_bundle(
         "projection_selection": projection_selection.to_dict(),
         "task_execution_assembly": assembly.to_dict(),
         "specific_task_record": specific_task_record.to_dict() if specific_task_record is not None else {},
+        "specific_task_assembly_policy": specific_task_policy.to_dict() if specific_task_policy is not None else {},
+        "task_environment": _task_environment_payload(specific_task_policy),
         "task_projection_binding": projection_binding.to_dict() if projection_binding is not None else {},
         "task_flow_contract_binding": flow_contract_binding.to_dict() if flow_contract_binding is not None else {},
         "task_execution_policy": execution_policy.to_dict() if execution_policy is not None else {},
@@ -551,6 +580,51 @@ def _augment_skill_scope_from_runtime_intent(
         **{
             **merged_binding.to_dict(),
             "skill_scope": merged_scope,
+        }
+    )
+
+
+def _apply_specific_task_policy_to_binding(
+    *,
+    merged_binding: Any,
+    specific_task_policy: SpecificTaskAssemblyPolicy | None,
+):
+    if specific_task_policy is None:
+        return merged_binding
+    current = merged_binding.to_dict()
+    skill_requirements = specific_task_policy.skill_requirements
+    agent_selection = specific_task_policy.agent_selection
+    output_contract_ref = str(specific_task_policy.output_contract_ref or "").strip()
+    skill_scope = tuple(
+        _dedupe(
+            [
+                *list(current.get("skill_scope") or ()),
+                *list(skill_requirements.required_refs),
+                *list(skill_requirements.optional_refs),
+            ]
+        )
+    )
+    denied_skills = tuple(
+        _dedupe(
+            [
+                *list(current.get("denied_skills") or ()),
+                *list(skill_requirements.denied_refs),
+            ]
+        )
+    )
+    return merged_binding.__class__(
+        **{
+            **current,
+            "agent_profile_id": str(agent_selection.agent_profile_ref or current.get("agent_profile_id") or ""),
+            "skill_scope": skill_scope,
+            "denied_skills": denied_skills,
+            "output_contract_id": output_contract_ref or str(current.get("output_contract_id") or ""),
+            "metadata": {
+                **dict(current.get("metadata") or {}),
+                "specific_task_assembly_policy_ref": specific_task_policy.policy_id,
+                "specific_task_agent_selection": agent_selection.to_dict(),
+                "specific_task_prompt_requirements": specific_task_policy.prompt_requirements.to_dict(),
+            },
         }
     )
 
@@ -820,24 +894,79 @@ def _resolve_task_operation_policy(
     selected_recipe: Any,
     registered_task: dict[str, Any] | None,
     current_turn_context: dict[str, Any],
+    specific_task_policy: SpecificTaskAssemblyPolicy | None = None,
 ) -> dict[str, Any]:
     recipe_policy = dict(dict(getattr(selected_recipe, "metadata", {}) or {}).get("operation_policy") or {})
     registered_policy = dict((registered_task or {}).get("task_policy") or {})
     task_operation_policy = dict(registered_policy.get("operation_policy") or {})
+    specific_tool_policy = (
+        specific_task_policy.tool_capability_requirements.to_dict()
+        if specific_task_policy is not None
+        else {}
+    )
     context_policy = dict(current_turn_context.get("operation_policy") or {})
-    merged = {**recipe_policy, **task_operation_policy, **context_policy}
-    allowed = _dedupe(list(merged.get("allowed_operations") or []))
-    denied = _dedupe(list(merged.get("denied_operations") or []))
-    required = _dedupe(list(merged.get("required_operations") or []))
-    optional = _dedupe(list(merged.get("optional_operations") or []))
+    merged = {**recipe_policy, **task_operation_policy, **specific_tool_policy, **context_policy}
+    allowed = _dedupe(
+        [
+            *list(recipe_policy.get("allowed_operations") or []),
+            *list(task_operation_policy.get("allowed_operations") or []),
+            *list(specific_tool_policy.get("allowed_operations") or []),
+            *list(context_policy.get("allowed_operations") or []),
+        ]
+    )
+    denied = _dedupe(
+        [
+            *list(recipe_policy.get("denied_operations") or []),
+            *list(task_operation_policy.get("denied_operations") or []),
+            *list(specific_tool_policy.get("denied_operations") or []),
+            *list(context_policy.get("denied_operations") or []),
+        ]
+    )
+    required = _dedupe(
+        [
+            *list(recipe_policy.get("required_operations") or []),
+            *list(task_operation_policy.get("required_operations") or []),
+            *list(specific_tool_policy.get("required_operations") or []),
+            *list(context_policy.get("required_operations") or []),
+        ]
+    )
+    optional = _dedupe(
+        [
+            *list(recipe_policy.get("optional_operations") or []),
+            *list(task_operation_policy.get("optional_operations") or []),
+            *list(specific_tool_policy.get("optional_operations") or []),
+            *list(context_policy.get("optional_operations") or []),
+        ]
+    )
     if not allowed and not denied and not required and not optional:
         return {}
     return {
-        "authority": str(merged.get("authority") or "task_system.operation_policy"),
+        "authority": str(
+            context_policy.get("authority")
+            or specific_tool_policy.get("authority")
+            or task_operation_policy.get("authority")
+            or recipe_policy.get("authority")
+            or "task_system.operation_policy"
+        ),
         "allowed_operations": allowed,
         "denied_operations": denied,
         "required_operations": required,
         "optional_operations": optional,
+        **(
+            {"specific_task_assembly_policy_ref": specific_task_policy.policy_id}
+            if specific_task_policy is not None
+            else {}
+        ),
+    }
+
+
+def _task_environment_payload(specific_task_policy: SpecificTaskAssemblyPolicy | None) -> dict[str, Any]:
+    if specific_task_policy is None:
+        return {}
+    return {
+        "environment_id": specific_task_policy.environment_id,
+        "specific_task_assembly_policy_ref": specific_task_policy.policy_id,
+        "authority": "task_system.specific_task_assembly_policy",
     }
 
 
