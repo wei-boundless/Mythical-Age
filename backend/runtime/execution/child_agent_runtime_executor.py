@@ -16,6 +16,11 @@ from evidence import (
     build_agent_evidence_packet_from_mcp_payload,
     build_agent_evidence_packet_from_web_payload,
 )
+from runtime.codebase_search_runtime import (
+    CODEBASE_SEARCH_TEMPLATE_ID,
+    CodebaseSearchRuntime,
+    normalize_codebase_search_config,
+)
 from runtime.search_agent_runtime import DEEPSEARCH_TEMPLATE_ID, SearchAgentRuntime, normalize_runtime_config
 from runtime_encoding import utf8_subprocess_text_kwargs
 
@@ -38,6 +43,14 @@ class ChildAgentRuntimeExecutor:
 
     async def run(self, *, request: AgentDelegationRequest, agent: Any, profile: Any, model_runtime: Any | None = None) -> dict[str, Any]:
         runtime_config = normalize_runtime_config(dict(getattr(profile, "metadata", {}) or {}).get("runtime_config"))
+        if runtime_config.template_id == CODEBASE_SEARCH_TEMPLATE_ID:
+            codebase_runtime = CodebaseSearchRuntime(self.root_dir)
+            return await codebase_runtime.run(
+                request=request,
+                agent=agent,
+                profile=profile,
+                config=normalize_codebase_search_config(runtime_config.raw),
+            )
         if runtime_config.template_id == DEEPSEARCH_TEMPLATE_ID:
             search_runtime = (
                 self.search_runtime_factory(self.root_dir)
@@ -227,10 +240,14 @@ def _operation_for_delegation(*, request: AgentDelegationRequest, profile: Any) 
         return "op.mcp_pdf"
     if kind in {"structured_data", "table_analysis", "structured_data_lookup"} and "op.mcp_structured_data" in available:
         return "op.mcp_structured_data"
-    if kind in {"retrieval", "evidence_lookup", "knowledge_retrieval"} and "op.mcp_retrieval" in available:
+    if kind in {"retrieval", "evidence_lookup", "knowledge_retrieval", "knowledge_search"} and "op.mcp_retrieval" in available:
         return "op.mcp_retrieval"
     if kind in {"web", "web_research", "external_web_lookup", "current_information_lookup", "official_source_lookup"} and "op.web_search" in available:
         return "op.web_search"
+    if kind in {"codebase_search", "local_search", "workspace_search", "file_search"} and "op.search_text" in available:
+        return "op.search_text"
+    if kind in {"memory_search", "memory_lookup", "memory_recall"} and "op.memory_read" in available:
+        return "op.memory_read"
     for operation_id in ("op.mcp_pdf", "op.mcp_structured_data", "op.mcp_retrieval", "op.web_search"):
         if operation_id in available:
             return operation_id

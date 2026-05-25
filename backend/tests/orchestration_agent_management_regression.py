@@ -23,10 +23,12 @@ def test_builtin_agents_are_seeded_as_system_builtin_and_have_runtime_profiles(t
         "agent:3",
         "agent:4",
         "agent:5",
-        "agent:rag_analyst",
+        "agent:knowledge_searcher",
         "agent:pdf_reader",
         "agent:table_analyst",
         "agent:web_researcher",
+        "agent:codebase_searcher",
+        "agent:memory_searcher",
         "agent:verifier"}
     builtin_agents = [item for item in agents if item.agent_id in builtin_ids]
     builtin_by_id = {item.agent_id: item for item in builtin_agents}
@@ -45,8 +47,16 @@ def test_builtin_agents_are_seeded_as_system_builtin_and_have_runtime_profiles(t
     assert builtin_by_id["agent:1"].interface_target == "memory_system_window"
     assert builtin_by_id["agent:1"].metadata["system_key"] == "memory_system"
     assert profile_by_agent["agent:0"].can_delegate_to_agents is True
-    assert profile_by_agent["agent:0"].allowed_delegate_agent_ids == ("agent:rag_analyst", "agent:pdf_reader", "agent:table_analyst", "agent:web_researcher", "agent:verifier")
-    assert profile_by_agent["agent:0"].max_delegate_calls_per_turn == 2
+    assert profile_by_agent["agent:0"].allowed_delegate_agent_ids == (
+        "agent:knowledge_searcher",
+        "agent:codebase_searcher",
+        "agent:memory_searcher",
+        "agent:pdf_reader",
+        "agent:table_analyst",
+        "agent:web_researcher",
+        "agent:verifier",
+    )
+    assert profile_by_agent["agent:0"].max_delegate_calls_per_turn == 4
     assert "op.delegate_to_agent" in profile_by_agent["agent:0"].allowed_operations
     assert "conversation_readonly" in profile_by_agent["agent:0"].allowed_memory_scopes
     assert "state_readonly" in profile_by_agent["agent:0"].allowed_memory_scopes
@@ -60,9 +70,10 @@ def test_builtin_agents_are_seeded_as_system_builtin_and_have_runtime_profiles(t
     assert "op.write_file" in memory_profile.blocked_operations
     assert "op.delegate_to_agent" in memory_profile.blocked_operations
     assert "session_memory_write_candidate" in memory_profile.allowed_memory_scopes
-    assert profile_by_agent["agent:rag_analyst"].allowed_operations == ("op.model_response", "op.mcp_retrieval", "op.memory_read")
-    assert profile_by_agent["agent:rag_analyst"].can_delegate_to_agents is False
-    assert "op.delegate_to_agent" in profile_by_agent["agent:rag_analyst"].blocked_operations
+    assert profile_by_agent["agent:knowledge_searcher"].allowed_operations == ("op.model_response", "op.mcp_retrieval")
+    assert profile_by_agent["agent:knowledge_searcher"].can_delegate_to_agents is False
+    assert "op.memory_read" in profile_by_agent["agent:knowledge_searcher"].blocked_operations
+    assert "op.delegate_to_agent" in profile_by_agent["agent:knowledge_searcher"].blocked_operations
     assert profile_by_agent["agent:pdf_reader"].allowed_operations == (
         "op.model_response",
         "op.mcp_pdf",
@@ -80,15 +91,23 @@ def test_builtin_agents_are_seeded_as_system_builtin_and_have_runtime_profiles(t
         "op.model_response",
         "op.web_search",
         "op.fetch_url",
+    )
+    assert profile_by_agent["agent:web_researcher"].metadata["runtime_config"]["template_id"] == "runtime.template.deepsearch"
+    assert set(profile_by_agent["agent:web_researcher"].metadata["runtime_config"]["search"]["search_sources"]) == {"web"}
+    assert profile_by_agent["agent:web_researcher"].can_delegate_to_agents is False
+    assert profile_by_agent["agent:codebase_searcher"].allowed_operations == (
+        "op.model_response",
         "op.search_files",
         "op.search_text",
         "op.read_file",
-        "op.mcp_retrieval",
-        "op.memory_read",
+        "op.glob_paths",
+        "op.git_status",
+        "op.git_log",
+        "op.git_show",
     )
-    assert profile_by_agent["agent:web_researcher"].metadata["runtime_config"]["template_id"] == "runtime.template.deepsearch"
-    assert set(profile_by_agent["agent:web_researcher"].metadata["runtime_config"]["search"]["search_sources"]) == {"web", "local_files", "rag", "memory"}
-    assert profile_by_agent["agent:web_researcher"].can_delegate_to_agents is False
+    assert "op.web_search" in profile_by_agent["agent:codebase_searcher"].blocked_operations
+    assert profile_by_agent["agent:memory_searcher"].allowed_operations == ("op.model_response", "op.memory_read")
+    assert "op.mcp_retrieval" in profile_by_agent["agent:memory_searcher"].blocked_operations
     assert profile_by_agent["agent:verifier"].allowed_operations == (
         "op.model_response",
         "op.read_file",
@@ -102,13 +121,13 @@ def test_builtin_agents_are_seeded_as_system_builtin_and_have_runtime_profiles(t
 
 
 def test_builtin_specialist_agent_aliases_resolve_to_registered_ids():
-    assert normalize_agent_id("agent.rag_retriever") == "agent:rag_analyst"
+    assert normalize_agent_id("agent.rag_retriever") == "agent:knowledge_searcher"
     assert normalize_agent_id("agent.pdf_analyst") == "agent:pdf_reader"
     assert normalize_agent_id("agent.table_analyst") == "agent:table_analyst"
     assert normalize_agent_id("agent.web_researcher") == "agent:web_researcher"
     assert normalize_agent_id("agent.verifier") == "agent:verifier"
     assert normalize_agent_id("agent:9") == "agent:9"
-    assert "agent.rag_retriever" in agent_id_aliases("agent:rag_analyst")
+    assert "agent.rag_retriever" in agent_id_aliases("agent:knowledge_searcher")
     assert "agent.pdf_analyst" in agent_id_aliases("agent:pdf_reader")
     assert "agent.table_analyst" in agent_id_aliases("agent:table_analyst")
     assert "builtin-web-researcher" in agent_id_aliases("agent:web_researcher")
@@ -154,7 +173,7 @@ def test_custom_agent_runtime_profile_does_not_persist_task_contracts(tmp_path):
         agent_profile_id="agent_9_runtime",
         allowed_operations=("op.model_response",),
         can_delegate_to_agents=True,
-        allowed_delegate_agent_ids=("agent:rag_analyst",),
+        allowed_delegate_agent_ids=("agent:knowledge_searcher",),
         max_delegate_calls_per_turn=2,
     )
 
@@ -163,7 +182,7 @@ def test_custom_agent_runtime_profile_does_not_persist_task_contracts(tmp_path):
     assert loaded is not None
     assert not hasattr(loaded, "output_contracts")
     assert loaded.can_delegate_to_agents is True
-    assert loaded.allowed_delegate_agent_ids == ("agent:rag_analyst",)
+    assert loaded.allowed_delegate_agent_ids == ("agent:knowledge_searcher",)
     assert loaded.max_delegate_calls_per_turn == 2
 
 

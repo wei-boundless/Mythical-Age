@@ -208,6 +208,36 @@ def test_execution_obligation_keeps_contract_writes_without_target_projects() ->
     ]
 
 
+def test_execution_obligation_does_not_duplicate_target_project_prefix_for_qualified_writes() -> None:
+    obligation = build_execution_obligation(
+        session_id="session-vibe-code",
+        task_id="task-qualified-target-writes",
+        user_goal="写入浏览器游戏工程。",
+        current_turn_context={
+            "model_turn_decision": {
+                "resource_contract": {
+                    "target_projects": [{"path": "frontend/public/games/arcane_dungeon_studio"}],
+                    "required_write_files": [
+                        "frontend/public/games/arcane_dungeon_studio/index.html",
+                        "frontend/public/games/arcane_dungeon_studio/game.js",
+                    ],
+                    "required_write_dirs": [
+                        "frontend/public/games/arcane_dungeon_studio/assets",
+                        "assets",
+                    ],
+                }
+            }
+        },
+    ).to_dict()
+
+    paths = [item["path"] for item in obligation["required_writes"]]
+    assert "frontend/public/games/arcane_dungeon_studio/index.html" in paths
+    assert "frontend/public/games/arcane_dungeon_studio/game.js" in paths
+    assert "frontend/public/games/arcane_dungeon_studio/assets" in paths
+    assert "frontend/public/games/arcane_dungeon_studio/frontend/public/games/arcane_dungeon_studio/index.html" not in paths
+    assert "frontend/public/games/arcane_dungeon_studio/frontend/public/games/arcane_dungeon_studio/assets" not in paths
+
+
 def test_execution_obligation_preserves_material_mount_paths_from_resource_contract() -> None:
     obligation = build_execution_obligation(
         session_id="session-vibe-code",

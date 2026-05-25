@@ -110,6 +110,37 @@ def _queue_diagnostics(deliverable_progress: DeliverableProgress) -> dict[str, A
     return {"deliverable_progress": deliverable_progress.to_dict()}
 
 
+def _runtime_feedback_payload(
+    *,
+    source: str,
+    requested_tool_name: str = "",
+    action_gate: ActionGateDecision | None = None,
+    deliverable_progress: DeliverableProgress | None = None,
+    repair_instruction: str = "",
+) -> dict[str, Any]:
+    progress_payload = deliverable_progress.to_dict() if deliverable_progress is not None else {}
+    next_missing = dict(progress_payload.get("next_missing_deliverable") or {})
+    gate_payload = action_gate.to_dict() if action_gate is not None else {}
+    allowed_tools = list(gate_payload.get("allowed_tool_names") or [])
+    suggested_tools = list(next_missing.get("suggested_tool_names") or [])
+    missing_obligations = list(gate_payload.get("missing_obligations") or progress_payload.get("missing_obligations") or [])
+    target_path = str(gate_payload.get("target_path") or next_missing.get("path") or "")
+    if str(gate_payload.get("stage") or "") not in {"read_material", "verify_output"}:
+        target_path = str(next_missing.get("path") or gate_payload.get("target_path") or "")
+    return {
+        "authority": "professional_runtime.runtime_feedback",
+        "source": str(source or ""),
+        "requested_tool": str(requested_tool_name or ""),
+        "allowed_tool_names": allowed_tools,
+        "suggested_tool_names": suggested_tools or allowed_tools,
+        "next_missing_obligation": next_missing,
+        "missing_obligations": missing_obligations,
+        "target_path": target_path,
+        "repair_instruction": str(repair_instruction or ""),
+        "principle": "runtime_provides_environment_guardrails_and_actionable_feedback; agent_chooses_next_valid_action",
+    }
+
+
 def _professional_progress_page(
     *,
     goal_contract: ProfessionalTaskGoalContract,
@@ -274,6 +305,22 @@ def _round_tool_call_options_for_gate(
     if gate.forced and "agent_todo" in set(gate.allowed_tool_names):
         return ToolCallBindingOptions(parallel_tool_calls=False)
     return build_round_tool_call_options(max_tool_calls=max_tool_calls)
+
+
+def _round_tool_call_limit_for_gate(
+    *,
+    max_tool_calls: int,
+    gate: ActionGateDecision,
+) -> int:
+    base_limit = max(1, int(max_tool_calls or 1))
+    if not gate.forced:
+        return base_limit
+    stage_minimums = {
+        "read_material": 4,
+        "write_output": 2 if "agent_todo" in set(gate.allowed_tool_names) else 1,
+        "verify_output": 2,
+    }
+    return max(base_limit, int(gate.reserved_tool_calls or 0), stage_minimums.get(gate.stage, 1))
 
 
 def _round_model_stream_policy_for_gate(
@@ -453,6 +500,12 @@ def _action_gate_recovery_messages(
         "stage_summary": dict(stage_summary or {}),
         "material_evidence": _action_gate_recovery_material_evidence(structured_observations),
         "repair_instruction": str(repair_instruction or gate.instruction()).strip(),
+        "runtime_feedback": _runtime_feedback_payload(
+            source="action_gate_recovery",
+            action_gate=gate,
+            deliverable_progress=None,
+            repair_instruction=str(repair_instruction or gate.instruction()).strip(),
+        ),
     }
     messages: list[Any] = [
         {
@@ -1231,13 +1284,17 @@ class ProfessionalTaskRunDriver:
                 )
                 yield {"type": "runtime_loop_event", "event": followup_event.to_dict()}
             deliverable_progress = _deliverable_progress(goal_contract, tool_observation_ledger)
+            round_tool_call_limit = _round_tool_call_limit_for_gate(
+                max_tool_calls=max_tool_calls,
+                gate=action_gate,
+            )
             round_model_tool_instances = _round_tool_instances_for_gate(
                 model_tool_instances=model_tool_instances,
                 gate=action_gate,
             )
             round_tool_call_options = (
                 _round_tool_call_options_for_gate(
-                    max_tool_calls=1 if action_gate.forced else max_tool_calls,
+                    max_tool_calls=round_tool_call_limit,
                     gate=action_gate,
                 )
                 if round_model_tool_instances
@@ -1265,6 +1322,7 @@ class ProfessionalTaskRunDriver:
                             if hasattr(round_tool_call_options, "bind_kwargs")
                             else {}
                         ),
+                        "effective_max_tool_calls_per_round": round_tool_call_limit,
                         "model_stream_policy": dict(round_model_stream_policy or {}),
                     },
                     refs={"task_contract_ref": task_contract_ref, "directive_ref": directive.directive_id},
@@ -1365,6 +1423,13 @@ class ProfessionalTaskRunDriver:
                             diagnostics={
                                 "action_gate": action_gate.to_dict(),
                                 "deliverable_progress": deliverable_progress.to_dict(),
+                                "runtime_feedback": _runtime_feedback_payload(
+                                    source="action_gate",
+                                    requested_tool_name=requested_tool_name,
+                                    action_gate=action_gate,
+                                    deliverable_progress=deliverable_progress,
+                                    repair_instruction=repair_text,
+                                ),
                             },
                         )
                         context_record = runtime_context_manager.record_observation(rejection_observation)
@@ -1441,6 +1506,13 @@ class ProfessionalTaskRunDriver:
                                 "tool_name": requested_tool_name,
                                 "action_gate": action_gate.to_dict(),
                                 "deliverable_progress": deliverable_progress.to_dict(),
+                                "runtime_feedback": _runtime_feedback_payload(
+                                    source="action_gate",
+                                    requested_tool_name=requested_tool_name,
+                                    action_gate=action_gate,
+                                    deliverable_progress=deliverable_progress,
+                                    repair_instruction=repair_text,
+                                ),
                             },
                             refs={"task_contract_ref": task_contract_ref, "directive_ref": directive.directive_id},
                         )
@@ -1494,6 +1566,13 @@ class ProfessionalTaskRunDriver:
                             diagnostics={
                                 "progress_policy": progress_decision.to_dict(),
                                 "deliverable_progress": deliverable_progress.to_dict(),
+                                "runtime_feedback": _runtime_feedback_payload(
+                                    source="progress_policy",
+                                    requested_tool_name=requested_tool_name,
+                                    action_gate=action_gate,
+                                    deliverable_progress=deliverable_progress,
+                                    repair_instruction=repair_text,
+                                ),
                             },
                         )
                         context_record = runtime_context_manager.record_observation(rejection_observation)
@@ -1570,6 +1649,13 @@ class ProfessionalTaskRunDriver:
                                 "tool_name": requested_tool_name,
                                 "progress_policy": progress_decision.to_dict(),
                                 "deliverable_progress": deliverable_progress.to_dict(),
+                                "runtime_feedback": _runtime_feedback_payload(
+                                    source="progress_policy",
+                                    requested_tool_name=requested_tool_name,
+                                    action_gate=action_gate,
+                                    deliverable_progress=deliverable_progress,
+                                    repair_instruction=repair_text,
+                                ),
                             },
                             refs={"task_contract_ref": task_contract_ref, "directive_ref": directive.directive_id},
                         )
@@ -1622,14 +1708,14 @@ class ProfessionalTaskRunDriver:
                         pending_tool_calls=pending_tool_calls,
                         requested_tool_name=requested_tool_name,
                         gate=action_gate,
-                        max_tool_calls=max_tool_calls,
+                        max_tool_calls=round_tool_call_limit,
                         max_tool_calls_per_task_run=max_tool_calls_per_task_run,
                     ):
                         exhaustion_scope = _tool_call_budget_exhaustion_scope(
                             round_tool_calls=round_tool_calls,
                             requested_tool_name=requested_tool_name,
                             gate=action_gate,
-                            max_tool_calls=max_tool_calls,
+                            max_tool_calls=round_tool_call_limit,
                         )
                         if exhaustion_scope != "round":
                             tool_call_budget_exceeded = True
@@ -1641,6 +1727,7 @@ class ProfessionalTaskRunDriver:
                                 "message": "专业任务工具调用次数已达上限，超出预算的工具请求未执行。",
                                 "budget_scope": exhaustion_scope,
                                 "max_tool_calls_per_round": max_tool_calls,
+                                "effective_max_tool_calls_per_round": round_tool_call_limit,
                                 "max_tool_calls_per_task_run": max_tool_calls_per_task_run,
                                 "delivery_tool_call_count": _delivery_tool_call_count(
                                     pending_tool_calls,
@@ -2694,6 +2781,7 @@ class ProfessionalTaskRunDriver:
                 outcome.main_context = repair_candidate_main_context
                 outcome.task_summary_refs = repair_candidate_task_summary_refs
                 outcome.bundle_summary_refs = repair_candidate_bundle_summary_refs
+                outcome.terminal_reason = "completed"
                 final_protocol_leak_detected = False
             else:
                 outcome.final_content = repair_base_content

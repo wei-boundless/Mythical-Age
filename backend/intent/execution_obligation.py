@@ -389,6 +389,8 @@ def _relative_paths(value: Any) -> list[str]:
 def _join_path(root: str, relative: str) -> str:
     left = str(root or "").replace("\\", "/").strip().rstrip("/")
     right = str(relative or "").replace("\\", "/").strip().strip("/")
+    if left and right and (right == left or right.startswith(left + "/")):
+        return right
     return f"{left}/{right}" if left and right else left or right
 
 

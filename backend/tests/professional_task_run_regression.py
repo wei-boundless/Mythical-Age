@@ -1521,6 +1521,7 @@ class _MultiToolSameRoundModelRuntimeStub:
     def __init__(self) -> None:
         self.tool_enabled_calls = 0
         self.seen_report = False
+        self.seen_extra_context = False
 
     async def invoke_messages(self, messages, **_kwargs):
         return await self.invoke_messages_with_tools(messages, [], **_kwargs)
@@ -1530,15 +1531,16 @@ class _MultiToolSameRoundModelRuntimeStub:
         tool_names = [str(getattr(tool, "name", "") or "") for tool in list(tools or [])]
         tool_text = _tool_message_text(messages)
         self.seen_report = self.seen_report or "fixture-professional-multitool" in tool_text
+        self.seen_extra_context = self.seen_extra_context or "extra context should not be required" in tool_text
         if self.seen_report:
             return SimpleNamespace(
                 content=(
-                    "failure_classification：同轮多工具调用只应执行预算允许的第一个工具。\n"
-                    "structural_root_causes：每轮上限不是整任务预算耗尽。\n"
-                    "regression_test_plan：确认第二个工具请求被标记为 round scope，任务仍可基于已读证据收口。\n"
-                    "evidence_limits：只读取了指定 fixture。\n"
+                    "failure_classification：read-material gate 允许同轮进行必要读取和路径恢复。\n"
+                    "structural_root_causes：探索性读取不应被旧的一轮一工具上限误判为整任务预算耗尽。\n"
+                    "regression_test_plan：确认同轮多个读取请求可以形成真实观察，任务仍可基于已读证据收口。\n"
+                    "evidence_limits：读取了指定 fixture，并允许读取相邻补充上下文。\n"
                     "限制：本测试没有执行额外验证命令。\n"
-                    "验证：已基于真实 read_structured_file 工具观察收口。"
+                    "验证：已基于真实读取工具观察收口。"
                 )
             )
         assert "read_structured_file" in tool_names
@@ -2286,7 +2288,7 @@ def test_professional_task_budget_exhaustion_forces_model_closeout() -> None:
     assert runtime.task_run_loop.get_trace(task_run_id, include_payloads=True)["coordination_runs"] == []
 
 
-def test_professional_round_tool_cap_does_not_exhaust_task_budget() -> None:
+def test_professional_read_material_gate_allows_same_round_context_recovery_without_task_budget_failure() -> None:
     backend_root = _isolated_backend_root()
     fixture = backend_root / "tests" / "fixtures" / "professional_task_suite" / "multitool_budget.json"
     fixture.parent.mkdir(parents=True, exist_ok=True)
@@ -2313,12 +2315,18 @@ def test_professional_round_tool_cap_does_not_exhaust_task_budget() -> None:
             task_selection=_professional_task_selection(semantic_task_type=None, max_tool_rounds=3),
         )
     )
-    budget_event = _latest_event(runtime_events, "loop_error")
     verify_event = _latest_event(runtime_events, "professional_task_deliverable_validation_checked")
     checks = dict(dict(dict(verify_event.get("payload") or {}).get("verification") or {}).get("checks") or {})
+    budget_events = [
+        event
+        for event in runtime_events
+        if event.get("event_type") == "loop_error"
+        and dict(event.get("payload") or {}).get("error") == "professional_task_tool_call_budget_exceeded"
+    ]
 
-    assert dict(budget_event.get("payload") or {})["budget_scope"] == "round"
+    assert budget_events == []
     assert checks["tool_budget_exhausted"] is False
+    assert model_runtime.seen_extra_context is True
     assert done["terminal_reason"] in {"completed", "partial_contract_failed"}
     assert "structural_root_causes" in str(done.get("content") or "")
 

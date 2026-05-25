@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import sys
 from pathlib import Path
 
@@ -8,6 +9,12 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from agent_runtime.understanding.model_turn_decision import model_turn_decision_from_payload
+from runtime.unit_runtime.loop import _canonical_model_turn_decision_payload, _fallback_model_turn_decision, _main_model_owned_turn_decision
+
+
+class _FailingDecisionModelRuntime:
+    async def invoke_messages(self, _messages):
+        raise RuntimeError("provider_unavailable")
 
 
 def _base_decision_payload(**overrides):
@@ -101,3 +108,74 @@ def test_model_turn_decision_accepts_resource_contract() -> None:
     assert contract["required_write_dirs"] == ["assets"]
     assert contract["asset_policy"]["must_preserve_existing_assets"] is True
     assert validation["decision_status"] == "accepted"
+
+
+def test_fallback_model_turn_decision_keeps_development_task_executable() -> None:
+    message = (
+        "请接手这个已有浏览器肉鸽游戏项目，扩展成一个完整的五关剧情战役版本，并加入成长机制和 Boss 战。\n\n"
+        "只读源项目在：\n"
+        "D:/AI应用/langchain-agent/output/sandbox_runs/source/workspace/frontend/public/games/arcane_dungeon_studio\n\n"
+        "目标输出目录仍然是：\n"
+        "frontend/public/games/arcane_dungeon_studio\n\n"
+        "要求：必须先读取源项目的 index.html、styles.css、game.js、README.md。"
+        "必须继承源项目 assets/ 目录里的全部美术资源。"
+        "必须更新 README，说明五关剧情流程、成长机制、Boss 战机制和验证方式。"
+    )
+
+    decision, diagnostics = _fallback_model_turn_decision(
+        user_message=message,
+        reason="model_turn_decision_invalid_after_repair",
+        task_selection={"interaction_mode": "professional_mode"},
+        request_facts={
+            "explicit_paths": [
+                "D:/AI应用/langchain-agent/output/sandbox_runs/source/workspace/frontend/public/games/arcane_dungeon_studio",
+                "frontend/public/games/arcane_dungeon_studio",
+            ]
+        },
+        diagnostics={"validation_errors": ["interaction_intent_required"]},
+    )
+
+    assert diagnostics["decision_status"] == "fallback_conservative"
+    assert decision["action_intent"] == "edit_workspace"
+    assert decision["work_mode"] == "implementation"
+    assert decision["task_goal_type"] == "game_vertical_slice_delivery"
+    assert "write_file" not in decision["forbidden_actions"]
+    assert "edit_workspace" not in decision["forbidden_actions"]
+    contract = decision["resource_contract"]
+    assert contract["source_projects"][0]["path"].endswith("arcane_dungeon_studio")
+    assert contract["target_projects"][0]["path"] == "frontend/public/games/arcane_dungeon_studio"
+    assert "frontend/public/games/arcane_dungeon_studio/game.js" in contract["required_write_files"]
+    assert "frontend/public/games/arcane_dungeon_studio/assets" in contract["required_write_dirs"]
+    assert contract["asset_policy"]["must_preserve_existing_assets"] is True
+
+
+def test_unregistered_game_goal_type_normalizes_to_registered_profile() -> None:
+    payload = _canonical_model_turn_decision_payload(
+        _base_decision_payload(task_goal_type="game_expansion_with_narrative_and_mechanics"),
+        user_message="请扩展浏览器肉鸽游戏，加入五关战役、成长机制和 Boss 战。",
+        task_selection={"interaction_mode": "professional_mode"},
+    )
+
+    assert payload["task_goal_type"] == "game_vertical_slice_delivery"
+    assert payload["diagnostics"]["original_task_goal_type"] == "game_expansion_with_narrative_and_mechanics"
+
+
+def test_model_turn_decision_provider_failure_uses_executable_development_fallback() -> None:
+    message = (
+        "请接手已有浏览器游戏项目，目标输出目录 frontend/public/games/arcane_dungeon_studio，"
+        "必须写入 index.html、styles.css、game.js、README.md，并加入五关、成长和 Boss。"
+    )
+
+    decision, diagnostics = asyncio.run(
+        _main_model_owned_turn_decision(
+            user_message=message,
+            request_facts={"explicit_paths": ["frontend/public/games/arcane_dungeon_studio"]},
+            task_selection={"interaction_mode": "professional_mode"},
+            model_runtime=_FailingDecisionModelRuntime(),
+        )
+    )
+
+    assert diagnostics["decision_status"] == "fallback_conservative"
+    assert decision["action_intent"] == "edit_workspace"
+    assert decision["task_goal_type"] == "game_vertical_slice_delivery"
+    assert decision["resource_contract"]["target_projects"][0]["path"] == "frontend/public/games/arcane_dungeon_studio"

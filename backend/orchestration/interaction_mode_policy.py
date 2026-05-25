@@ -430,7 +430,9 @@ def _policy_for_mode(
             "allowed_tool_name": "delegate_to_agent",
             "allowed_operation_ref": "op.delegate_to_agent",
             "allowed_agent_ids": [
-                "agent:rag_analyst",
+                "agent:knowledge_searcher",
+                "agent:codebase_searcher",
+                "agent:memory_searcher",
                 "agent:pdf_reader",
                 "agent:table_analyst",
                 "agent:web_researcher",

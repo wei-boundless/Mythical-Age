@@ -386,7 +386,7 @@ def test_runtime_loop_evidence_packet_prefers_delegation_metadata() -> None:
                 "offset": 2,
                 "payload": {
                     "agent_delegation_request": {
-                        "target_agent_id": "agent:rag_analyst",
+                        "target_agent_id": "agent:knowledge_searcher",
                         "delegation_kind": "evidence_lookup",
                     }
                 },
@@ -409,6 +409,7 @@ def test_runtime_loop_evidence_packet_prefers_delegation_metadata() -> None:
     assert packet["summary"]
     assert any(item.get("tool_name") == "delegate_to_agent" for item in selected_metadata)
     assert any(
-        item.get("target_agent_id") == "agent:rag_analyst" or item.get("delegation_kind") == "evidence_lookup"
+        item.get("target_agent_id") == "agent:knowledge_searcher" or item.get("delegation_kind") == "evidence_lookup"
         for item in selected_metadata
     )
+

@@ -49,7 +49,7 @@ def test_delegation_executor_blocks_when_parent_cannot_delegate(tmp_path) -> Non
         session_id="session:test",
         parent_agent_run_ref="agrun:taskrun:test:main",
         source_agent_id="agent:0",
-        target_agent_id="agent:rag_analyst",
+        target_agent_id="agent:knowledge_searcher",
         delegation_kind="evidence_lookup",
         instruction="请检索证据并返回摘要。",
         input_payload={"question": "test"},
@@ -67,7 +67,7 @@ def test_delegation_executor_blocks_when_parent_cannot_delegate(tmp_path) -> Non
     assert "parent_delegation_not_authorized" in result["blocked_reasons"]
 
 
-def test_delegation_executor_allows_multi_source_search_agent_when_policy_excludes_web(tmp_path) -> None:
+def test_delegation_executor_blocks_web_agent_when_policy_excludes_web(tmp_path) -> None:
     executor = AgentDelegationExecutor(tmp_path)
     request = AgentDelegationRequest(
         request_id="delegation:req:search-policy",
@@ -91,10 +91,10 @@ def test_delegation_executor_allows_multi_source_search_agent_when_policy_exclud
 
     result = executor.validate_request(request, parent_agent_run=parent_run)
 
-    assert "target_agent_blocked_by_search_policy" not in result["blocked_reasons"]
+    assert "target_agent_blocked_by_search_policy" in result["blocked_reasons"]
 
 
-def test_delegation_executor_does_not_block_multi_source_search_agent_at_agent_level_for_empty_policy(tmp_path) -> None:
+def test_delegation_executor_blocks_web_agent_for_empty_search_policy(tmp_path) -> None:
     executor = AgentDelegationExecutor(tmp_path)
     request = AgentDelegationRequest(
         request_id="delegation:req:empty-search-policy",
@@ -118,7 +118,7 @@ def test_delegation_executor_does_not_block_multi_source_search_agent_at_agent_l
 
     result = executor.validate_request(request, parent_agent_run=parent_run)
 
-    assert "target_agent_blocked_by_search_policy" not in result["blocked_reasons"]
+    assert "target_agent_blocked_by_search_policy" in result["blocked_reasons"]
 
 
 def test_delegation_executor_blocks_nested_delegation(tmp_path) -> None:
@@ -128,7 +128,7 @@ def test_delegation_executor_blocks_nested_delegation(tmp_path) -> None:
         task_run_id="taskrun:test",
         session_id="session:test",
         parent_agent_run_ref="agrun:taskrun:test:delegated",
-        source_agent_id="agent:rag_analyst",
+        source_agent_id="agent:knowledge_searcher",
         target_agent_id="agent:pdf_reader",
         delegation_kind="pdf_reading",
         instruction="请阅读 PDF。",
@@ -137,8 +137,8 @@ def test_delegation_executor_blocks_nested_delegation(tmp_path) -> None:
     parent_run = AgentRun(
         agent_run_id="agrun:taskrun:test:delegated",
         task_run_id="taskrun:test",
-        agent_id="agent:rag_analyst",
-        agent_profile_id="rag_analysis_agent",
+        agent_id="agent:knowledge_searcher",
+        agent_profile_id="knowledge_search_agent",
         spawn_mode="delegation",
         status="running",
     )
@@ -370,7 +370,7 @@ def test_direct_delegation_does_not_create_coordination_run(tmp_path) -> None:
         session_id="session:test",
         parent_agent_run_ref=parent_run.agent_run_id,
         source_agent_id="agent:0",
-        target_agent_id="agent:rag_analyst",
+        target_agent_id="agent:knowledge_searcher",
         delegation_kind="evidence_lookup",
         instruction="请检索证据。",
         input_payload={"query": "test"},
@@ -412,7 +412,7 @@ def test_delegation_executor_fails_closed_on_child_timeout(tmp_path) -> None:
         session_id="session:test",
         parent_agent_run_ref=parent_run.agent_run_id,
         source_agent_id="agent:0",
-        target_agent_id="agent:rag_analyst",
+        target_agent_id="agent:knowledge_searcher",
         delegation_kind="evidence_lookup",
         instruction="请检索证据。",
         input_payload={"query": "test"},
@@ -450,7 +450,7 @@ def test_delegation_executor_enforces_max_delegate_calls_per_turn(tmp_path) -> N
         session_id="session:test",
         parent_agent_run_ref=parent_run.agent_run_id,
         source_agent_id="agent:0",
-        target_agent_id="agent:rag_analyst",
+        target_agent_id="agent:knowledge_searcher",
         delegation_kind="evidence_lookup",
         instruction="请检索证据。",
         input_payload={"query": "test"},
@@ -461,7 +461,7 @@ def test_delegation_executor_enforces_max_delegate_calls_per_turn(tmp_path) -> N
         session_id="session:test",
         parent_agent_run_ref=parent_run.agent_run_id,
         source_agent_id="agent:0",
-        target_agent_id="agent:rag_analyst",
+        target_agent_id="agent:knowledge_searcher",
         delegation_kind="evidence_lookup",
         instruction="请再次检索证据。",
         input_payload={"query": "test"},
@@ -472,16 +472,43 @@ def test_delegation_executor_enforces_max_delegate_calls_per_turn(tmp_path) -> N
         session_id="session:test",
         parent_agent_run_ref=parent_run.agent_run_id,
         source_agent_id="agent:0",
-        target_agent_id="agent:rag_analyst",
+        target_agent_id="agent:knowledge_searcher",
         delegation_kind="evidence_lookup",
         instruction="请第三次检索证据。",
+        input_payload={"query": "test"},
+    )
+    fourth = AgentDelegationRequest(
+        request_id="delegation:req:fourth",
+        task_run_id="taskrun:test",
+        session_id="session:test",
+        parent_agent_run_ref=parent_run.agent_run_id,
+        source_agent_id="agent:0",
+        target_agent_id="agent:knowledge_searcher",
+        delegation_kind="evidence_lookup",
+        instruction="请第四次检索证据。",
+        input_payload={"query": "test"},
+    )
+    fifth = AgentDelegationRequest(
+        request_id="delegation:req:fifth",
+        task_run_id="taskrun:test",
+        session_id="session:test",
+        parent_agent_run_ref=parent_run.agent_run_id,
+        source_agent_id="agent:0",
+        target_agent_id="agent:knowledge_searcher",
+        delegation_kind="evidence_lookup",
+        instruction="请第五次检索证据。",
         input_payload={"query": "test"},
     )
 
     asyncio.run(executor.execute(request=first, parent_agent_run=parent_run))
     second_outcome = asyncio.run(executor.execute(request=second, parent_agent_run=parent_run))
     third_outcome = asyncio.run(executor.execute(request=third, parent_agent_run=parent_run))
+    fourth_outcome = asyncio.run(executor.execute(request=fourth, parent_agent_run=parent_run))
+    fifth_outcome = asyncio.run(executor.execute(request=fifth, parent_agent_run=parent_run))
 
     assert second_outcome["result"].status == "completed"
-    assert third_outcome["result"].status == "blocked"
-    assert "max_delegate_calls_per_turn_exceeded" in third_outcome["result"].limitations
+    assert third_outcome["result"].status == "completed"
+    assert fourth_outcome["result"].status == "completed"
+    assert fifth_outcome["result"].status == "blocked"
+    assert "max_delegate_calls_per_turn_exceeded" in fifth_outcome["result"].limitations
+

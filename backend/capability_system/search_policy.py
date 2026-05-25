@@ -5,13 +5,15 @@ from typing import Any
 from .models import SearchSourceClass
 
 
-DEFAULT_SEARCH_POLICY_SOURCES = frozenset({"rag", "local_files", "web"})
+DEFAULT_SEARCH_POLICY_SOURCES = frozenset({"rag", "local_files", "web", "memory"})
 
 AGENT_SOURCE_CLASS = {
-    "agent:rag_analyst": "rag",
+    "agent:knowledge_searcher": "rag",
+    "agent:codebase_searcher": "local_files",
+    "agent:memory_searcher": "memory",
     "agent:pdf_reader": "document",
     "agent:table_analyst": "data",
-    "agent:web_researcher": "general",
+    "agent:web_researcher": "web",
     "agent:verifier": "general",
 }
 
@@ -24,6 +26,7 @@ OPERATION_SOURCE_CLASS = {
     "op.read_file": "local_files",
     "op.search_files": "local_files",
     "op.search_text": "local_files",
+    "op.memory_read": "memory",
     "op.read_structured_file": "data",
 }
 
@@ -86,6 +89,8 @@ def search_policy_labels(source_class: str) -> list[str]:
         return ["local_files"]
     if source_class == "web":
         return ["web"]
+    if source_class == "memory":
+        return ["memory"]
     if source_class == "document":
         return ["local_files", "document"]
     if source_class == "data":
@@ -102,6 +107,8 @@ def source_allowed_by_search_policy(source_class: str, allowed: set[str]) -> boo
         return "local_files" in allowed
     if source_class == "web":
         return "web" in allowed
+    if source_class == "memory":
+        return "memory" in allowed
     return True
 
 

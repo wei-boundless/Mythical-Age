@@ -319,13 +319,14 @@ def test_agent_registry_upsert_preserves_agent_metadata_without_task_scope() -> 
     registry = AgentRegistry(base_dir)
 
     created = registry.upsert_agent(
-        agent_id="agent:rag_analyst",
+        agent_id="agent:knowledge_searcher",
         agent_name="测试工作Agent",
         agent_category="builtin_agent",
         metadata={"created_by": "regression"},
     )
 
     assert created.metadata["created_by"] == "regression"
-    loaded = registry.get_agent("agent:rag_analyst")
+    loaded = registry.get_agent("agent:knowledge_searcher")
     assert loaded is not None
     assert loaded.metadata["created_by"] == "regression"
+

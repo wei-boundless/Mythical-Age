@@ -431,6 +431,14 @@ def test_runtime_lane_registry_exposes_active_modes_and_removes_old_lanes() -> N
     assert DEFAULT_RUNTIME_LANE_REGISTRY.get("autonomous_task") is None
 
 
+def test_runtime_lane_registry_normalizes_development_lane_aliases_to_professional_task() -> None:
+    lane = DEFAULT_RUNTIME_LANE_REGISTRY.get("coding_task")
+
+    assert lane is not None
+    assert lane.lane_id == "professional_task"
+    assert DEFAULT_RUNTIME_LANE_REGISTRY.normalize_sequence(["coding_task"]) == ("professional_task",)
+
+
 def test_professional_profile_registry_has_test_report_triage_role_prompt() -> None:
     profile = get_professional_prompt_profile("professional.test_report_triage")
 

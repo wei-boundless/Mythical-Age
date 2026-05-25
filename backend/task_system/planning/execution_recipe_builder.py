@@ -198,7 +198,7 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
             description="Retrieve knowledge-base evidence and answer from grounded context.",
             task_mode="knowledge_retrieval",
             source_kind="knowledge",
-            delegate_target_agent_id="agent:rag_analyst",
+            delegate_target_agent_id="agent:knowledge_searcher",
             delegation_kind="evidence_lookup",
             fallback_operation="op.mcp_retrieval",
             steps=(

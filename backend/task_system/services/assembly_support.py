@@ -523,7 +523,7 @@ def _build_agent_communication_protocol(
         target_agent_id = "agent:pdf_reader"
         delegation_kind = delegation_kind or "pdf_reading"
     elif not target_agent_id and source_kind in {"knowledge", "knowledge_base", "retrieval"}:
-        target_agent_id = "agent:rag_analyst"
+        target_agent_id = "agent:knowledge_searcher"
         delegation_kind = delegation_kind or "evidence_lookup"
     should_emit = bool(target_agent_id) and (
         recipe_strategy == "delegate_preferred"

@@ -948,6 +948,15 @@ def validate_delegation_result_quality(
         "structured_data_lookup",
         "retrieval",
         "evidence_lookup",
+        "knowledge_search",
+        "knowledge_retrieval",
+        "codebase_search",
+        "local_search",
+        "workspace_search",
+        "file_search",
+        "memory_search",
+        "memory_lookup",
+        "memory_recall",
         "web",
         "web_research",
         "external_web_lookup",
@@ -984,6 +993,7 @@ def _delegation_kinds_from_profile(profile: Any) -> tuple[str, ...]:
     operations = set(tuple(getattr(profile, "allowed_operations", ()) or ()))
     inferred: list[str] = []
     if "op.mcp_retrieval" in operations:
+        inferred.append("knowledge_search")
         inferred.append("evidence_lookup")
     if "op.mcp_pdf" in operations:
         inferred.append("pdf_reading")
@@ -991,4 +1001,8 @@ def _delegation_kinds_from_profile(profile: Any) -> tuple[str, ...]:
         inferred.append("structured_data_lookup")
     if "op.web_search" in operations:
         inferred.append("web_research")
+    if "op.search_text" in operations:
+        inferred.append("codebase_search")
+    if "op.memory_read" in operations:
+        inferred.append("memory_search")
     return tuple(inferred or ["bounded_analysis"])

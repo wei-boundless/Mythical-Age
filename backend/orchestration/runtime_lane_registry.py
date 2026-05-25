@@ -4,6 +4,14 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 
+_RUNTIME_LANE_ALIASES = {
+    "coding_task": "professional_task",
+    "code_task": "professional_task",
+    "vibe_coding": "professional_task",
+    "vibecoding": "professional_task",
+}
+
+
 @dataclass(frozen=True, slots=True)
 class RuntimeLaneDescriptor:
     lane_id: str
@@ -453,7 +461,8 @@ class RuntimeLaneRegistry:
         return tuple(item for item in lanes if item.requestable and not item.deprecated)
 
     def get(self, lane_id: str) -> RuntimeLaneDescriptor | None:
-        return self._by_id.get(str(lane_id or "").strip())
+        normalized = str(lane_id or "").strip()
+        return self._by_id.get(normalized) or self._by_id.get(_RUNTIME_LANE_ALIASES.get(normalized, ""))
 
     def require(self, lane_id: str) -> RuntimeLaneDescriptor:
         lane = self.get(lane_id)
@@ -471,7 +480,7 @@ class RuntimeLaneRegistry:
         result: list[str] = []
         seen: set[str] = set()
         for raw in list(lanes or []):
-            lane_id = str(raw or "").strip()
+            lane_id = _RUNTIME_LANE_ALIASES.get(str(raw or "").strip(), str(raw or "").strip())
             if not lane_id or lane_id in seen:
                 continue
             descriptor = self.get(lane_id)

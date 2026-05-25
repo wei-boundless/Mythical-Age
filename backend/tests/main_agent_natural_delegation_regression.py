@@ -84,7 +84,7 @@ def test_main_agent_natural_scenarios_select_expected_child_agents() -> None:
     scenarios = [
         (
             "查一下知识库里关于向量召回准确率的结论，给我证据来源。",
-            "agent:rag_analyst",
+            "agent:knowledge_searcher",
             "op.mcp_retrieval",
         ),
         (
@@ -174,7 +174,9 @@ def test_main_agent_prompt_guidance_names_web_researcher() -> None:
 
     assert "agent:web_researcher" in block
     assert "web_research" in block
+    assert "agent:codebase_searcher" in block
     assert "local_search" in block
+    assert "agent:memory_searcher" in block
     assert "memory_lookup" in block
     assert "公开网页" in block
     assert "本地文件" in block
@@ -221,3 +223,4 @@ def test_completion_verification_kind_resolves_to_verifier_at_runtime() -> None:
     )
 
     assert resolved == "agent:verifier"
+

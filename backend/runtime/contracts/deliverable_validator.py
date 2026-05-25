@@ -715,7 +715,11 @@ def _generic_deliverable_present(text: str, deliverable: str) -> bool:
         "material_findings": ("治理", "库存", "材料", "发现", "风险"),
         "cross_material_conclusions": ("行动", "优先", "建议", "综合", "负责人"),
         "limitations": ("limitations", "limitation", "限制", "边界", "不足"),
-        "tool_grounded_answer": ("原因", "依据", "工具", "验证步骤", "修复建议", "结论", "tool grounded answer", "terminal"),
+        "tool_grounded_answer": ("原因", "根因", "依据", "工具", "验证步骤", "修复建议", "结论", "tool grounded answer", "terminal"),
+        "failure_classification": ("失败归类", "失败分类", "故障归类", "failure classification"),
+        "structural_root_causes": ("结构性根因", "结构根因", "根因", "root cause", "root causes"),
+        "regression_test_plan": ("回归测试", "回归用例", "测试计划", "regression test"),
+        "evidence_limits": ("证据边界", "证据限制", "限制", "仅基于", "evidence limit"),
     }
     return _contains_any(text, markers.get(normalized, (normalized.replace("_", " "), normalized.replace("_", ""))))
 

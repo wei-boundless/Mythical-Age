@@ -323,7 +323,7 @@ def test_delegate_preferred_templates_mount_delegate_operation_for_main_agent() 
     assert profile is not None
 
     scenarios = [
-        ("请帮我检索知识库里和向量召回有关的结论。", "knowledge_retrieval", ["knowledge/vector_recall"], "op.mcp_retrieval", "agent:rag_analyst"),
+        ("请帮我检索知识库里和向量召回有关的结论。", "knowledge_retrieval", ["knowledge/vector_recall"], "op.mcp_retrieval", "agent:knowledge_searcher"),
         ("请读取这个 PDF 文档 report.pdf 并总结前三页要点。", "pdf_analysis", ["report.pdf"], "op.mcp_pdf", "agent:pdf_reader"),
         ("请分析这份表格数据 inventory.xlsx 并给我趋势结论。", "structured_data_analysis", ["inventory.xlsx"], "op.mcp_structured_data", "agent:table_analyst"),
     ]
@@ -411,3 +411,4 @@ def test_delegate_preferred_templates_fall_back_to_direct_operation_for_speciali
     assert "op.mcp_pdf" in set(requirement["required_operations"])
     assert "op.delegate_to_agent" not in set(requirement["required_operations"])
     assert resolution.get("execution_mode") == "direct_fallback"
+

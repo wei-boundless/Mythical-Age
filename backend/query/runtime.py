@@ -336,6 +336,7 @@ class QueryRuntime:
                     )
                     yield event
         except Exception as exc:
+            logger.exception("QueryRuntime failed while streaming request.")
             failure_text = self._user_visible_error(exc)
             error_payload = {"type": "error", "error": failure_text}
             if isinstance(exc, ModelRuntimeError):

@@ -404,12 +404,12 @@ def test_child_agent_runtime_keeps_orchestrator_evidence_envelope() -> None:
         session_id="session-1",
         parent_agent_run_ref="agrun:main",
         source_agent_id="agent:main",
-        target_agent_id="agent:rag_analyst",
+        target_agent_id="agent:knowledge_searcher",
         delegation_kind="retrieval",
         instruction="Collect evidence from the knowledge base.",
         input_payload={"query": "policy"},
     )
-    agent = type("Agent", (), {"agent_id": "agent:rag_analyst"})()
+    agent = type("Agent", (), {"agent_id": "agent:knowledge_searcher"})()
     profile = type("Profile", (), {"allowed_operations": ("op.mcp_retrieval",), "blocked_operations": ()})()
 
     payload = asyncio.run(executor.run(request=request, agent=agent, profile=profile))
@@ -1055,7 +1055,7 @@ def test_delegation_result_records_shadow_readiness_without_changing_summary() -
         session_id="session-1",
         parent_agent_run_ref="agrun:main",
         source_agent_id="agent:main",
-        target_agent_id="agent:rag_analyst",
+        target_agent_id="agent:knowledge_searcher",
         delegation_kind="retrieval",
         instruction="Collect evidence from the knowledge base.",
         input_payload={},
@@ -1063,7 +1063,7 @@ def test_delegation_result_records_shadow_readiness_without_changing_summary() -
     child_run = AgentRun(
         agent_run_id="agrun:child",
         task_run_id="taskrun-1",
-        agent_id="agent:rag_analyst",
+        agent_id="agent:knowledge_searcher",
         agent_profile_id="profile:rag",
     )
     packet = build_agent_evidence_packet_from_mcp_payload(
@@ -1086,7 +1086,7 @@ def test_delegation_result_records_shadow_readiness_without_changing_summary() -
             "canonical_result": {"result_kind": "retrieval_answer", "ok": True, "answer": "Evidence collected."},
         },
         mcp_request=_request(route="retrieval", query="policy"),
-        source_agent_id="agent:rag_analyst",
+        source_agent_id="agent:knowledge_searcher",
         target_task_id="taskrun-1",
         task_goal="Collect evidence from the knowledge base.",
         domain="retrieval",
@@ -1179,11 +1179,11 @@ def test_parent_observation_microcompacts_large_child_answer_with_evidence_summa
 def test_builtin_specialist_agents_have_default_professional_projections() -> None:
     agents = {item.agent_id: item for item in default_agent_descriptors(now=1.0)}
 
-    assert agents["agent:rag_analyst"].default_projection_id == "projection.worker.rag_evidence_analyst"
+    assert agents["agent:knowledge_searcher"].default_projection_id == "projection.worker.rag_evidence_analyst"
     assert agents["agent:pdf_reader"].default_projection_id == "projection.worker.pdf_evidence_reader"
     assert agents["agent:table_analyst"].default_projection_id == "projection.worker.table_evidence_analyst"
     assert agents["agent:web_researcher"].default_projection_id == "projection.worker.web_evidence_researcher"
-    assert agents["agent:rag_analyst"].default_soul_id == "hebo"
+    assert agents["agent:knowledge_searcher"].default_soul_id == "hebo"
     assert agents["agent:pdf_reader"].default_soul_id == "hebo"
     assert agents["agent:table_analyst"].default_soul_id == "hebo"
     assert agents["agent:web_researcher"].default_soul_id == "hebo"
@@ -1210,3 +1210,4 @@ def test_child_fallback_prompt_uses_projection_identity_and_work_style() -> None
     assert "目录页、过渡页" in prompt
     assert "主 Agent" in prompt
     assert "old description" not in prompt
+

@@ -1,0 +1,86 @@
+{
+  "message": "你是一名独立游戏原型开发负责人。\n\n你的目标是在当前项目中完成一个可运行、可测试、可迭代的浏览器端 2D 肉鸽游戏垂直切片。\n\n你必须按阶段推进：项目简报、玩法设计、技术设计、资产清单、生图提示词与资源生成、MVP 实现、资源接入、运行验证、最终报告。\n\n最低产品范围：\n- 俯视角移动。\n- 玩家攻击。\n- 至少三类敌人或三种敌人行为。\n- 房间、竞技场或波次推进。\n- 经验、金币或奖励拾取。\n- 升级三选一，至少三个升级选项。\n- Boss 或精英敌人。\n- 死亡或胜利状态。\n- 可见 HUD。\n- 至少一个生图资源真实显示在游戏里。\n\n你需要真实修改代码、真实生成或接入至少一个图像资产、真实启动项目并验证。\n你不能把未运行、未验证的功能说成已经完成。\n遇到失败时，追踪原因、修复并重新验证。\n\n请把阶段产物写入 docs/experiments/roguelike_long_task/，最终报告写入 docs/experiments/roguelike_long_task/final_report.md。",
+  "session_id": "roguelike-long-task-rerun-20260525-211446",
+  "stream": true,
+  "ephemeral_system_messages": [],
+  "explicit_subtasks": [],
+  "task_selection": {
+    "agent_id": "agent:0",
+    "agent_profile_id": "main_interactive_agent",
+    "interaction_mode": "professional_mode",
+    "runtime_interaction_mode": "professional_mode",
+    "runtime_lane": "professional_task",
+    "runtime_assembly_hint": {
+      "interaction_mode": "professional_mode",
+      "runtime_mode": "professional_task",
+      "execution_strategy": "professional_task_run",
+      "projection_strength": "style_only"
+    },
+    "mode_policy": {
+      "interaction_mode": "professional_mode",
+      "runtime_lane": "professional_task",
+      "recipe_id": "runtime.recipe.professional_task",
+      "projection_strength": "style_only",
+      "mode_reason": "roguelike_long_task_experiment",
+      "operation_policy": {
+        "allowed_operations": [
+          "op.model_response",
+          "op.read_file",
+          "op.read_structured_file",
+          "op.search_files",
+          "op.search_text",
+          "op.write_file",
+          "op.edit_file",
+          "op.shell",
+          "op.image_generate",
+          "op.browser_control"
+        ],
+        "required_operations": [
+          "op.write_file",
+          "op.edit_file",
+          "op.shell"
+        ],
+        "optional_operations": [
+          "op.image_generate",
+          "op.browser_control"
+        ]
+      },
+      "tool_policy": {
+        "allowed_operation_refs": [
+          "op.model_response",
+          "op.read_file",
+          "op.read_structured_file",
+          "op.search_files",
+          "op.search_text",
+          "op.write_file",
+          "op.edit_file",
+          "op.shell",
+          "op.image_generate",
+          "op.browser_control"
+        ]
+      }
+    },
+    "intent_decision": {
+      "interaction_mode": "professional_mode",
+      "execution_strategy": "professional_task_run"
+    },
+    "task_goal_type": "game_vertical_slice_delivery",
+    "semantic_task_type": "game_vertical_slice_delivery",
+    "action_intent": "edit_workspace",
+    "task_requirement_contract": {
+      "task_goal_type": "game_vertical_slice_delivery",
+      "desired_outcome": "完成一个可运行、可验证的浏览器端 2D 肉鸽游戏垂直切片",
+      "deliverables": [
+        "project_brief",
+        "game_design",
+        "technical_design",
+        "asset_plan",
+        "image_prompts",
+        "game_source_files",
+        "browser_verification",
+        "final_report"
+      ]
+    }
+  },
+  "model_selection": {}
+}

@@ -42,7 +42,8 @@ class ActionGateDecision:
         target_text = f"目标路径：{self.target_path}。" if self.target_path else ""
         if self.stage == "read_material":
             return (
-                "运行时已确认任务存在必读材料，当前唯一优先动作是取得缺失材料的真实观察。"
+                "运行时已确认任务存在必读材料，当前优先目标是取得缺失材料的真实观察；"
+                "可以先用无副作用计划或路径恢复工具定位材料。"
                 f"下一步只能从这些工具中选择：{tool_text}。{target_text}"
                 "不要跳到写入、验证或只写总结；先读取这份材料。"
             )
@@ -82,19 +83,29 @@ def decide_next_action_gate(
             if tool in allowed_set
         )
         read_tools = preferred_read_tools or tuple(tool for tool in ("read_file", "read_structured_file") if tool in allowed_set)
+        planning_tools = (
+            ("agent_todo",)
+            if "agent_todo" in allowed_set and not any(record.tool_name == "agent_todo" for record in tool_observation_ledger.records)
+            else ()
+        )
+        recovery_tools = tuple(
+            tool
+            for tool in ("path_exists", "stat_path", "list_dir", "glob_paths", "search_files", "search_text")
+            if tool in allowed_set and tool not in set(read_tools)
+        )
         if read_tools:
             material_missing = tuple(
                 f"read_material:{next_material.path}" if next_material.path else "read_material"
                 for _ in (0,)
             )
             return ActionGateDecision(
-                allowed_tool_names=read_tools,
+                allowed_tool_names=(*planning_tools, *read_tools, *recovery_tools),
                 forced=True,
                 stage="read_material",
                 reason="required_material_missing",
                 missing_obligations=(*material_missing, *missing),
                 target_path=next_material.path,
-                reserved_tool_calls=1,
+                reserved_tool_calls=4,
             )
     if (
         goal_contract.requires_write_output
