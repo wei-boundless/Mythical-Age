@@ -143,7 +143,7 @@ def test_professional_game_goal_requires_agent_plan_before_execution_steps() -> 
             "interaction_mode": "professional_mode",
             "runtime_interaction_mode": "professional_mode",
             "mode_policy": {
-                "execution_strategy": "professional_task_run",
+                "execution_strategy": "interaction_mode_run",
                 "interaction_mode": "professional_mode",
                 "runtime_lane": "professional_task",
             },

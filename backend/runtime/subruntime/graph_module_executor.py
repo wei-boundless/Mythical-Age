@@ -24,7 +24,7 @@ def start_graph_module_stage_request(
     node_work_order: dict[str, Any] | None = None,
     current_turn_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    task_run_loop = runtime.query_runtime.task_run_loop
+    graph_task_runtime = runtime.query_runtime.graph_task_runtime
     request_payload = (
         stage_execution_request.to_dict()
         if hasattr(stage_execution_request, "to_dict")
@@ -110,7 +110,7 @@ def start_graph_module_stage_request(
         "stage_idempotency_key": str(identity.get("idempotency_key") or ""),
         "current_turn_context": dict(current_turn_context or {}),
     }
-    start = task_run_loop.start_task_graph_run(
+    start = graph_task_runtime.start_run(
         session_id=session_id,
         task_id=f"task_graph.graph_module.{linked_graph_id}",
         graph=graph,
@@ -121,13 +121,13 @@ def start_graph_module_stage_request(
     imported_coordination_run_id = start.coordination_run.coordination_run_id if start.coordination_run is not None else ""
     imported_request = dict(start.loop_state.diagnostics.get("stage_execution_request") or {})
     attach_graph_module_imported_run_identity(
-        task_run_loop=task_run_loop,
+        graph_task_runtime=graph_task_runtime,
         imported_task_run=start.task_run,
         imported_coordination_run_id=imported_coordination_run_id,
         handle=handle,
         identity=identity,
     )
-    task_run_loop.event_log.append(
+    graph_task_runtime.append_event(
         str(work_order_payload.get("root_task_run_id") or request_payload.get("root_task_run_id") or ""),
         "coordination_graph_module_imported_run_started",
         payload={
@@ -178,13 +178,13 @@ def start_graph_module_stage_request(
 
 def attach_graph_module_imported_run_identity(
     *,
-    task_run_loop: Any,
+    graph_task_runtime: Any,
     imported_task_run: TaskRun,
     imported_coordination_run_id: str,
     handle: dict[str, Any],
     identity: dict[str, Any],
 ) -> None:
-    current = task_run_loop.state_index.get_task_run(imported_task_run.task_run_id) or imported_task_run
+    current = graph_task_runtime.get_task_run(imported_task_run.task_run_id) or imported_task_run
     diagnostics = {
         **dict(current.diagnostics or {}),
         "imported_coordination_run_id": imported_coordination_run_id,
@@ -197,7 +197,7 @@ def attach_graph_module_imported_run_identity(
         "importing_work_order_id": str(identity.get("request_id") or ""),
         "importing_stage_request_ref": str(identity.get("request_id") or identity.get("idempotency_key") or ""),
     }
-    task_run_loop.state_index.upsert_task_run(
+    graph_task_runtime.upsert_task_run(
         TaskRun(
             task_run_id=current.task_run_id,
             session_id=current.session_id,

@@ -20,6 +20,7 @@ from .graph_runtime import (
     build_task_graph_run_monitor_view,
     evaluate_task_graph_monitor_snapshot,
 )
+from .graph_task_runtime import CoordinationStageAgentRunRequest, GraphTaskRuntime
 from .model_gateway import (
     ModelResponseRuntimeExecutor,
     ModelRuntime,
@@ -28,7 +29,22 @@ from .model_gateway import (
     RuntimeConversationAgent,
     stringify_content,
 )
-from .professional_runtime.driver import ProfessionalTaskRunDriver, ProfessionalTaskRunOutcome
+from .agent_runtime import (
+    AgentRuntime,
+    AgentRunContext,
+    AgentRunRequest,
+    AgentRuntimeStartResult,
+    AgentRuntimeConfig,
+    AgentRuntimeProfileConfig,
+    CloseoutPolicy,
+    ControlPolicy,
+    EvidencePolicy,
+    ModePolicy,
+    PlanningPolicy,
+    ToolPolicy,
+    VerificationPolicy,
+    build_agent_runtime_config,
+)
 from .shared.checkpoint import RuntimeCheckpoint, RuntimeCheckpointStore
 from .shared.context_manager import (
     RuntimeContextInvariantReport,
@@ -124,8 +140,6 @@ from .tool_runtime import (
 from agent_system.registry.worker_agent_blueprints import WorkerAgentBlueprint, WorkerAgentSpawnRequest, WorkerAgentSpawnResult
 
 _LAZY_EXPORTS = {
-    "TaskRunLoop": (".unit_runtime.loop", "TaskRunLoop"),
-    "TaskRunLoopStartResult": (".unit_runtime.loop", "TaskRunLoopStartResult"),
     "build_model_response_runtime_admission": ("permissions", "build_model_response_runtime_admission"),
     "build_tool_request_runtime_admission": ("permissions", "build_tool_request_runtime_admission"),
 }
@@ -151,8 +165,21 @@ __all__ = [
     "ModelRuntimeError",
     "ModelSpec",
     "RuntimeConversationAgent",
-    "ProfessionalTaskRunDriver",
-    "ProfessionalTaskRunOutcome",
+    "AgentRuntime",
+    "AgentRunContext",
+    "AgentRunRequest",
+    "AgentRuntimeStartResult",
+    "GraphTaskRuntime",
+    "CoordinationStageAgentRunRequest",
+    "AgentRuntimeConfig",
+    "AgentRuntimeProfileConfig",
+    "CloseoutPolicy",
+    "ControlPolicy",
+    "EvidencePolicy",
+    "ModePolicy",
+    "PlanningPolicy",
+    "ToolPolicy",
+    "VerificationPolicy",
     "RuntimeExecutionStore",
     "TaskGraphEdgeHandoffState",
     "TaskGraphMonitorDecision",
@@ -215,8 +242,6 @@ __all__ = [
     "RuntimeTransition",
     "StageProjectionCycle",
     "StageProjectionSnapshot",
-    "TaskRunLoop",
-    "TaskRunLoopStartResult",
     "TaskRun",
     "TaskRunStatus",
     "ToolCallBindingOptions",
@@ -234,6 +259,7 @@ __all__ = [
     "build_agent_assembly_contract",
     "build_agent_invocation",
     "build_execution_permit",
+    "build_agent_runtime_config",
     "build_coordination_flow_state",
     "attach_batch_execution_request",
     "bootstrap_scheduler_state",

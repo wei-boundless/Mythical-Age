@@ -20,7 +20,7 @@ class IntentDomainProfile:
     continuation_markers: tuple[str, ...] = ()
     scope_refinement_markers: tuple[str, ...] = ()
     delegation_markers: tuple[str, ...] = ()
-    execution_strategy_candidates: tuple[str, ...] = ("single_react_loop",)
+    execution_strategy_candidates: tuple[str, ...] = ("interaction_mode_run",)
     metadata: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -100,7 +100,7 @@ def _profile_from_payload(payload: dict[str, Any]) -> IntentDomainProfile | None
         continuation_markers=_string_tuple(payload.get("continuation_markers")),
         scope_refinement_markers=_string_tuple(payload.get("scope_refinement_markers")),
         delegation_markers=_string_tuple(payload.get("delegation_markers")),
-        execution_strategy_candidates=_string_tuple(payload.get("execution_strategy_candidates")) or ("single_react_loop",),
+        execution_strategy_candidates=_string_tuple(payload.get("execution_strategy_candidates")) or ("interaction_mode_run",),
         metadata=dict(payload.get("metadata") or {}),
     )
 
@@ -125,7 +125,7 @@ def _builtin_profiles() -> tuple[IntentDomainProfile, ...]:
             continuation_markers=("这些人", "这些员工", "这个表", "这张表", "全表", "刚才", "按部门", "按仓库", "再看"),
             scope_refinement_markers=("只", "仅", "不要扩展", "不要回到", "不要全表", "不要重算", "前五名", "前五", "这些人"),
             delegation_markers=("分析", "汇总", "统计", "查询", "找出", "处理", "总结"),
-            execution_strategy_candidates=("specialist_handoff", "single_react_loop"),
+            execution_strategy_candidates=("delegate_preferred", "interaction_mode_run"),
         ),
         IntentDomainProfile(
             domain_id="pdf",
@@ -135,7 +135,7 @@ def _builtin_profiles() -> tuple[IntentDomainProfile, ...]:
             continuation_markers=("这份 pdf", "这个 pdf", "这份报告", "这个报告", "这一页", "那一页", "第二部分", "第三页", "第四页"),
             scope_refinement_markers=("只看", "只读", "这一页", "那一页", "这几页", "第三页", "第四页"),
             delegation_markers=("阅读", "总结", "摘读", "压成", "分析", "解读"),
-            execution_strategy_candidates=("specialist_handoff", "single_react_loop"),
+            execution_strategy_candidates=("delegate_preferred", "interaction_mode_run"),
         ),
         IntentDomainProfile(
             domain_id="knowledge",
@@ -143,13 +143,13 @@ def _builtin_profiles() -> tuple[IntentDomainProfile, ...]:
             markers=("知识库", "资料库", "本地知识", "本地资料", "rag", "检索", "基于本地", "从库里"),
             explicit_markers=("知识库", "资料库", "本地知识", "本地资料"),
             delegation_markers=("检索", "查询", "查一下", "确认", "解释"),
-            execution_strategy_candidates=("retrieval_augmented_answer", "single_react_loop"),
+            execution_strategy_candidates=("delegate_preferred", "interaction_mode_run"),
         ),
         IntentDomainProfile(
             domain_id="memory",
             target_domain_hint="memory",
             markers=("你记得", "还记得", "我让你", "我说过", "怎么称呼", "称呼我", "偏好", "约定"),
-            execution_strategy_candidates=("single_react_loop",),
+            execution_strategy_candidates=("interaction_mode_run",),
         ),
         IntentDomainProfile(
             domain_id="workflow_graph",
@@ -157,13 +157,13 @@ def _builtin_profiles() -> tuple[IntentDomainProfile, ...]:
             markers=("任务图", "图任务", "graph run", "多agent", "多个 agent", "规划、执行、审核", "按阶段协作", "节点", "handoff"),
             explicit_markers=("任务图", "图任务", "graph run"),
             delegation_markers=("协作", "按阶段", "编排", "调度"),
-            execution_strategy_candidates=("graph_coordination_run", "professional_task_run"),
+            execution_strategy_candidates=("graph_task_runtime", "interaction_mode_run"),
         ),
         IntentDomainProfile(
             domain_id="long_task",
             target_domain_hint="task",
             markers=("追踪", "排查", "修复", "执行计划", "落地", "一次性", "端到端", "重跑", "长跑", "六十轮", "测试报告"),
             delegation_markers=("追踪", "排查", "修复", "执行", "重跑", "检查"),
-            execution_strategy_candidates=("professional_task_run", "single_react_loop"),
+            execution_strategy_candidates=("interaction_mode_run",),
         ),
     )

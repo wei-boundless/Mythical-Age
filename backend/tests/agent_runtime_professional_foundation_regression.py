@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 from api import orchestration_catalog as orchestration_api
 from orchestration.resource_inventory import build_runtime_resource_inventory
-from runtime.professional_runtime.state_machine import (
+from runtime.agent_runtime.professional.state_machine import (
     initial_professional_run_state,
     unsatisfied_obligations_from_verification,
 )
@@ -103,7 +103,7 @@ def test_tool_observation_ledger_classifies_write_and_verification() -> None:
                 "verification_intent": {
                     "stage": "verify_output",
                     "obligation": "verify_command",
-                    "authority": "professional_runtime.action_gate",
+                    "authority": "agent_runtime.professional.action_gate",
                 },
             },
         },

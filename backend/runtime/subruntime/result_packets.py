@@ -17,6 +17,7 @@ def latest_unconsumed_graph_module_imported_result(
     active_stage_id: str,
     coordination_run_id: str,
 ) -> dict[str, Any]:
+    graph_task_runtime = runtime.query_runtime.graph_task_runtime
     if not active_stage_id or not active_stage_is_graph_module(state=state, active_stage_id=active_stage_id):
         return {}
     stage_results = dict(state.get("stage_results") or {})
@@ -32,7 +33,7 @@ def latest_unconsumed_graph_module_imported_result(
     active_idempotency_key = str(current_stage_payload.get("idempotency_key") or "").strip()
     pending_inputs = dict(state.get("pending_inputs") or {})
     candidates: list[tuple[float, TaskRun, dict[str, Any], dict[str, Any]]] = []
-    for imported_run in runtime.query_runtime.task_run_loop.state_index.list_session_task_runs(session_id):
+    for imported_run in graph_task_runtime.list_session_task_runs(session_id):
         if str(imported_run.task_run_id or "") == already_consumed_task_run_id:
             continue
         diagnostics = dict(imported_run.diagnostics or {})
@@ -53,7 +54,7 @@ def latest_unconsumed_graph_module_imported_result(
         ):
             continue
         committed = graph_module_imported_packet_consumption(
-            task_run_loop=runtime.query_runtime.task_run_loop,
+            graph_task_runtime=graph_task_runtime,
             importing_coordination_run_id=coordination_run_id,
             importing_stage_id=active_stage_id,
             imported_task_run_id=imported_run.task_run_id,
@@ -73,7 +74,7 @@ def latest_unconsumed_graph_module_imported_result(
     _updated_at, imported_run, packet, diagnostics = sorted(candidates, key=lambda item: item[0], reverse=True)[0]
     packet_status = str(packet.get("status") or "").strip()
     packet_collection = "graph_module_failure_packets" if packet_status in {"failed", "blocked", "waiting_for_human"} else "graph_module_output_packets"
-    packet_ref = runtime.query_runtime.task_run_loop.runtime_objects.put_object(
+    packet_ref = graph_task_runtime.put_runtime_object(
         packet_collection,
         graph_module_output_packet_object_id(
             importing_coordination_run_id=coordination_run_id,
@@ -162,24 +163,24 @@ def graph_module_imported_completion_packet(
     imported_task_run: TaskRun,
     diagnostics: dict[str, Any],
 ) -> dict[str, Any]:
-    task_run_loop = runtime.query_runtime.task_run_loop
+    graph_task_runtime = runtime.query_runtime.graph_task_runtime
     imported_coordination_run_id = str(diagnostics.get("imported_coordination_run_id") or "").strip()
     if not imported_coordination_run_id:
-        for coordination_run in task_run_loop.state_index.list_task_coordination_runs(imported_task_run.task_run_id):
+        for coordination_run in graph_task_runtime.list_task_coordination_runs(imported_task_run.task_run_id):
             imported_coordination_run_id = coordination_run.coordination_run_id
             break
     imported_coordination_run = (
-        task_run_loop.state_index.get_coordination_run(imported_coordination_run_id)
+        graph_task_runtime.get_coordination_run(imported_coordination_run_id)
         if imported_coordination_run_id
         else None
     )
     imported_state = (
-        task_run_loop.langgraph_coordination_runtime.checkpoints.get_state(thread_id=imported_coordination_run_id)
+        graph_task_runtime.get_checkpoint_state(imported_coordination_run_id)
         if imported_coordination_run_id
         else {}
     )
     merge_result = (
-        task_run_loop.state_index.get_latest_coordination_merge_result(imported_coordination_run_id)
+        graph_task_runtime.get_latest_coordination_merge_result(imported_coordination_run_id)
         if imported_coordination_run_id
         else None
     )
@@ -200,7 +201,7 @@ def graph_module_imported_completion_packet(
         )
     if imported_terminal_status != "completed":
         return {}
-    checkpoint = task_run_loop.checkpoints.load_latest(imported_task_run.task_run_id)
+    checkpoint = graph_task_runtime.load_latest_task_checkpoint(imported_task_run.task_run_id)
     checkpoint_task_result = dict(getattr(checkpoint, "commit_state", {}) or {}).get("task_result") if checkpoint is not None else {}
     checkpoint_task_result = dict(checkpoint_task_result or {})
     stage_results = {
@@ -415,7 +416,7 @@ def graph_module_imported_terminal_status(
 
 def mark_graph_module_imported_output_packet_committed(
     *,
-    task_run_loop: Any,
+    graph_task_runtime: Any,
     imported_task_run_id: str,
     packet_ref: str,
     packet: dict[str, Any],
@@ -439,7 +440,7 @@ def mark_graph_module_imported_output_packet_committed(
         importing_stage_id=record["importing_stage_id"],
         imported_task_run_id=imported_task_run_id,
     )
-    record["consumption_ref"] = task_run_loop.runtime_objects.put_object(
+    record["consumption_ref"] = graph_task_runtime.put_runtime_object(
         "graph_module_packet_consumptions",
         object_id,
         record,
@@ -449,7 +450,7 @@ def mark_graph_module_imported_output_packet_committed(
 
 def graph_module_imported_packet_consumption(
     *,
-    task_run_loop: Any,
+    graph_task_runtime: Any,
     importing_coordination_run_id: str,
     importing_stage_id: str,
     imported_task_run_id: str,
@@ -461,12 +462,8 @@ def graph_module_imported_packet_consumption(
         importing_stage_id=importing_stage_id,
         imported_task_run_id=imported_task_run_id,
     )
-    runtime_objects = getattr(task_run_loop, "runtime_objects", None)
-    get_object = getattr(runtime_objects, "get_object", None)
-    if not callable(get_object):
-        return {}
     try:
-        return dict(get_object(f"rtobj:graph_module_packet_consumptions:{object_id}") or {})
+        return graph_task_runtime.get_runtime_object(f"rtobj:graph_module_packet_consumptions:{object_id}")
     except (OSError, ValueError):
         return {}
 

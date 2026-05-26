@@ -9,7 +9,7 @@ from .deliverable_progress import (
     required_writes_satisfied,
 )
 from .goal_contract import ProfessionalTaskGoalContract
-from ..memory.tool_observation_ledger import ToolObservationLedger
+from ...memory.tool_observation_ledger import ToolObservationLedger
 
 
 def build_closeout_repair_payload(

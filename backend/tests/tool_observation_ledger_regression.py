@@ -51,7 +51,7 @@ def test_tool_observation_ledger_classifies_core_tool_side_effects() -> None:
                 "verification_intent": {
                     "stage": "verify_output",
                     "obligation": "verify_command",
-                    "authority": "professional_runtime.action_gate",
+                    "authority": "agent_runtime.professional.action_gate",
                 },
             },
         },
@@ -128,14 +128,14 @@ def test_tool_observation_ledger_hashes_real_side_effect_observations_stably() -
 def test_tool_observation_ledger_records_structured_paths_and_command_receipts() -> None:
     search_envelope = build_tool_result_envelope(
         tool_name="search_text",
-        tool_args={"query": "ProfessionalTaskRunDriver"},
+        tool_args={"query": "ProfessionalControlRunner"},
         result={
-            "text": "backend/runtime/professional_runtime/driver.py:102:1:class ProfessionalTaskRunDriver:",
+            "text": "backend/runtime/agent_runtime/professional_control.py:102:1:class ProfessionalControlRunner:",
             "structured_payload": {
-                "matched_paths": ["backend/runtime/professional_runtime/driver.py"],
+                "matched_paths": ["backend/runtime/agent_runtime/professional_control.py"],
                 "tool_result": {
                     "kind": "text_search",
-                    "matches": [{"path": "backend/runtime/professional_runtime/driver.py", "line": 102, "column": 1}],
+                    "matches": [{"path": "backend/runtime/agent_runtime/professional_control.py", "line": 102, "column": 1}],
                 },
             },
         },
@@ -155,7 +155,7 @@ def test_tool_observation_ledger_records_structured_paths_and_command_receipts()
                 "verification_intent": {
                     "stage": "verify_output",
                     "obligation": "verify_command",
-                    "authority": "professional_runtime.action_gate",
+                    "authority": "agent_runtime.professional.action_gate",
                 },
             },
         },
@@ -176,23 +176,23 @@ def test_tool_observation_ledger_records_structured_paths_and_command_receipts()
         )
     )
 
-    assert ledger.has_read("backend/runtime/professional_runtime/driver.py") is True
+    assert ledger.has_read("backend/runtime/agent_runtime/professional_control.py") is True
     assert ledger.has_verification("pytest") is True
     assert ledger.verification_passed() is True
-    assert ledger.summary()["matched_paths"] == ["backend/runtime/professional_runtime/driver.py"]
+    assert ledger.summary()["matched_paths"] == ["backend/runtime/agent_runtime/professional_control.py"]
 
 
 def test_tool_observation_ledger_extracts_paths_from_wrapped_search_text() -> None:
     envelope = build_tool_result_envelope(
         tool_name="search_text",
-        tool_args={"query": "ProfessionalTaskRunDriver"},
+        tool_args={"query": "ProfessionalControlRunner"},
         result={
-            "text": "真实工具结果：query=ProfessionalTaskRunDriver; 命中 backend/runtime/professional_runtime/driver.py",
+            "text": "真实工具结果：query=ProfessionalControlRunner; 命中 backend/runtime/agent_runtime/professional_control.py",
             "structured_payload": {
-                "matched_paths": ["backend/runtime/professional_runtime/driver.py"],
+                "matched_paths": ["backend/runtime/agent_runtime/professional_control.py"],
                 "tool_result": {
                     "kind": "text_search",
-                    "matches": [{"path": "backend/runtime/professional_runtime/driver.py", "line": 1, "column": 1}],
+                    "matches": [{"path": "backend/runtime/agent_runtime/professional_control.py", "line": 1, "column": 1}],
                 },
             },
         },
@@ -206,8 +206,8 @@ def test_tool_observation_ledger_extracts_paths_from_wrapped_search_text() -> No
         )
     )
 
-    assert ledger.summary()["matched_paths"] == ["backend/runtime/professional_runtime/driver.py"]
-    assert ledger.has_read("backend/runtime/professional_runtime/driver.py") is True
+    assert ledger.summary()["matched_paths"] == ["backend/runtime/agent_runtime/professional_control.py"]
+    assert ledger.has_read("backend/runtime/agent_runtime/professional_control.py") is True
 
 
 def test_terminal_parser_error_is_not_a_passing_verification() -> None:
@@ -338,7 +338,7 @@ def test_terminal_action_gate_verification_intent_satisfies_verify_command_witho
                 "verification_intent": {
                     "stage": "verify_output",
                     "obligation": "verify_command",
-                    "authority": "professional_runtime.action_gate",
+                    "authority": "agent_runtime.professional.action_gate",
                 },
             },
         },

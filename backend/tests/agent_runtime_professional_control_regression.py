@@ -100,7 +100,7 @@ class _SearchTextToolStub:
 
     def invoke(self, args):
         query = str(dict(args or {}).get("query") or "")
-        return f"真实工具结果：query={query}; 命中 backend/runtime/professional_runtime/driver.py"
+        return f"真实工具结果：query={query}; 命中 backend/runtime/agent_runtime/professional_control.py"
 
 
 class _ToolRuntimeWithSideEffectsStub:
@@ -259,7 +259,7 @@ class _ToolCallingModelRuntimeStub:
         )
         return SimpleNamespace(
             content=(
-                "tool grounded answer：已基于真实 search_text 工具结果完成收口，定位到 professional_task_run_driver.py，"
+                "tool grounded answer：已基于真实 search_text 工具结果完成收口，定位到 agent_runtime_professional_control.py，"
                 "专业模式可以在预算受控的真实工具观察后回答。限制：本轮只使用 search_text 观察。"
             )
         )
@@ -273,7 +273,7 @@ class _ToolCallingModelRuntimeStub:
         if self.seen_tool_result:
             return SimpleNamespace(
                 content=(
-                    "tool grounded answer：已基于真实 search_text 工具结果完成收口，定位到 professional_task_run_driver.py，"
+                    "tool grounded answer：已基于真实 search_text 工具结果完成收口，定位到 agent_runtime_professional_control.py，"
                     "专业模式可以在预算受控的真实工具观察后回答。限制：本轮只使用 search_text 观察。"
                 )
             )
@@ -281,10 +281,10 @@ class _ToolCallingModelRuntimeStub:
             content="我需要先搜索运行时驱动实现。",
             tool_calls=[
                 {
-                    "id": "call-search-professional-driver",
+                    "id": "call-search-professional-control",
                     "name": "search_text",
                     "args": {
-                        "query": "ProfessionalTaskRunDriver",
+                        "query": "ProfessionalControlRunner",
                         "roots": ["backend"],
                         "glob": "**/*.py",
                         "max_results": 5,
@@ -1740,7 +1740,7 @@ def _professional_task_selection(
         ),
         "interaction_mode": "professional_mode",
         "mode_policy": {
-            "execution_strategy": "professional_task_run",
+            "execution_strategy": "interaction_mode_run",
             "interaction_mode": "professional_mode",
             "runtime_lane": "professional_task",
         },
@@ -2010,7 +2010,7 @@ def test_professional_recipe_is_selected_from_code_fix_intent_strategy() -> None
     assert shape.recipe_id == "runtime.recipe.professional_task"
     assert shape.execution_kind == "professional_mode"
     assert "interaction_mode:professional_mode" in shape.resolution_reasons
-    assert metadata["runtime_driver"] == "professional_task_run"
+    assert metadata["control_runner"] == "agent_runtime.professional_control"
     assert metadata["interaction_mode"] == "professional_mode"
     assert metadata["runtime_lane_hint"] == "professional_task"
     assert "op.shell" in set(metadata["tool_execution_policy"]["allowed_operation_refs"])
@@ -2019,13 +2019,13 @@ def test_professional_recipe_is_selected_from_code_fix_intent_strategy() -> None
     assert retired_mode_key not in metadata
 
 
-def test_query_runtime_runs_professional_driver_without_coordination_run() -> None:
+def test_query_runtime_runs_professional_control_without_coordination_run() -> None:
     runtime = _runtime()
 
     events, runtime_events, done, task_run_id = asyncio.run(
         _collect_runtime_events(
             runtime,
-            session_id="session-professional-driver",
+            session_id="session-professional-control",
             message="帮我只读追踪这个问题并给出结论，最好一次性执行完计划。",
             task_selection=_professional_task_selection(),
         )
@@ -2072,7 +2072,7 @@ def test_professional_mode_adds_semantic_plan_steps_and_monitor_summary() -> Non
     assert monitor is not None
     assert monitor["has_coordination"] is False
     summary = dict(monitor["professional_task_summary"] or {})
-    assert summary["runtime_driver"] == "professional_task_run"
+    assert summary["control_runner"] == "agent_runtime.professional_control"
     assert summary["interaction_mode"] == "professional_mode"
     assert summary["verification"]["status"] == "passed"
 
@@ -2085,7 +2085,7 @@ def test_professional_mode_runs_budgeted_tool_observation() -> None:
         _collect_runtime_events(
             runtime,
             session_id="session-professional-tool",
-            message="追踪一下 ProfessionalTaskRunDriver 的专业模式工具闭环。",
+            message="追踪一下专业模式工具闭环。",
             task_selection=_professional_task_selection(),
         )
     )
@@ -2094,7 +2094,8 @@ def test_professional_mode_runs_budgeted_tool_observation() -> None:
         event
         for event in runtime_events
         if event.get("event_type") == "executor_started"
-        and dict(event.get("payload") or {}).get("runtime_channel") == "professional_task_run"
+        and dict(event.get("payload") or {}).get("runtime_channel") == "agent_runtime"
+        and dict(event.get("payload") or {}).get("control_runner") == "professional_control"
     )
     verify_event = _latest_event(runtime_events, "professional_task_deliverable_validation_checked")
     verification = dict(dict(verify_event.get("payload") or {}).get("verification") or {})
@@ -2855,7 +2856,7 @@ def test_professional_verification_blocks_complete_when_required_deliverables_ar
 
 
 def test_professional_goal_contract_uses_structured_output_paths_only() -> None:
-    from runtime.professional_runtime.goal_contract import _goal_contract_from_semantic_contract
+    from runtime.agent_runtime.professional.goal_contract import _goal_contract_from_semantic_contract
 
     bare_goal_contract = _goal_contract_from_semantic_contract(
         task_run_id="taskrun:multifile-contract-bare",
@@ -2888,7 +2889,7 @@ def test_professional_goal_contract_uses_structured_output_paths_only() -> None:
 
 def test_professional_obligation_requires_all_explicit_output_paths() -> None:
     from runtime.contracts.obligation_validation import validate_obligations
-    from runtime.professional_runtime.goal_contract import _goal_contract_from_semantic_contract
+    from runtime.agent_runtime.professional.goal_contract import _goal_contract_from_semantic_contract
     from runtime.memory.tool_observation_ledger import (
         ToolObservationLedger,
         build_tool_observation_record,
@@ -2948,9 +2949,9 @@ def test_professional_obligation_requires_all_explicit_output_paths() -> None:
 
 
 def test_professional_deliverable_progress_selects_next_missing_path_and_state_obligations() -> None:
-    from runtime.professional_runtime.goal_contract import _goal_contract_from_semantic_contract
-    from runtime.professional_runtime.deliverable_progress import build_deliverable_progress
-    from runtime.professional_runtime.state_machine import initial_professional_run_state
+    from runtime.agent_runtime.professional.goal_contract import _goal_contract_from_semantic_contract
+    from runtime.agent_runtime.professional.deliverable_progress import build_deliverable_progress
+    from runtime.agent_runtime.professional.state_machine import initial_professional_run_state
     from runtime.memory.tool_observation_ledger import (
         ToolObservationLedger,
         build_tool_observation_record,
@@ -3123,8 +3124,8 @@ def test_professional_progress_policy_rejection_returns_to_model_as_tool_result(
 
 def test_progress_policy_allows_forced_missing_material_read_after_non_progress_observations() -> None:
     from runtime.memory.tool_observation_ledger import ToolObservationLedger, ToolObservationRecord
-    from runtime.professional_runtime.progress_policy import check_progress_policy
-    from runtime.professional_runtime.goal_contract import ProfessionalTaskGoalContract
+    from runtime.agent_runtime.professional.progress_policy import check_progress_policy
+    from runtime.agent_runtime.professional.goal_contract import ProfessionalTaskGoalContract
 
     ledger = ToolObservationLedger(
         ledger_id="ledger:progress-material",
@@ -3569,8 +3570,8 @@ def test_professional_action_gate_applies_short_timeout_and_recovers() -> None:
 
 
 def test_professional_action_gate_reserves_write_budget_per_missing_target_path() -> None:
-    from runtime.professional_runtime.action_gate import ActionGateDecision
-    from runtime.professional_runtime.driver import _delivery_budget_remaining
+    from runtime.agent_runtime.professional.action_gate import ActionGateDecision
+    from runtime.agent_runtime.professional_control import _delivery_budget_remaining
 
     pending_tool_calls = [
         {

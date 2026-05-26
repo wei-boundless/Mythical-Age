@@ -682,7 +682,7 @@ def _professional_task_summary(
     progress_page_event = _latest_runtime_event(events, "professional_task_progress_page")
     stage_summary_event = _latest_runtime_event(events, "professional_task_stage_summary")
     completion_judgment_event = _latest_runtime_event(events, "professional_task_completion_judged")
-    run_outcome_event = _latest_runtime_event(events, "professional_task_run_outcome_built")
+    run_outcome_event = _latest_runtime_event(events, "professional_control_outcome_built")
     diagnostics = dict(loop_state.get("diagnostics") or {})
     interaction_lanes = {"role_interaction", "standard_task", "professional_task"}
     interaction_recipe_ids = {
@@ -729,7 +729,7 @@ def _professional_task_summary(
     return {
         "available": True,
         "task_run_id": str(task_run.get("task_run_id") or loop_state.get("task_run_id") or ""),
-        "runtime_driver": "professional_task_run",
+        "runtime_control": str(started_payload.get("runtime_control") or "agent_runtime.phase_pipeline"),
         "interaction_mode": str(
             started_payload.get("interaction_mode")
             or plan_payload.get("interaction_mode")

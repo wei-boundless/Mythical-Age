@@ -218,8 +218,15 @@ class ExternalMCPManager:
                 async with ClientSession(read_stream, write_stream) as session:
                     initialize_result = await session.initialize()
                     tools_result = await session.list_tools()
-                    resources_result = await session.list_resources()
-                    prompts_result = await session.list_prompts()
+                    capabilities = getattr(initialize_result, "capabilities", None)
+                    if getattr(capabilities, "resources", None) is not None:
+                        resources_result = await session.list_resources()
+                    else:
+                        resources_result = None
+                    if getattr(capabilities, "prompts", None) is not None:
+                        prompts_result = await session.list_prompts()
+                    else:
+                        prompts_result = None
         except Exception as exc:
             return ExternalMCPSnapshot(
                 server_id=server.server_id,

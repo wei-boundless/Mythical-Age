@@ -8,7 +8,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from runtime.unit_runtime.sandbox_policy import (  # noqa: E402
+from runtime.agent_runtime.environment.sandbox_policy import (  # noqa: E402
     prepare_runtime_sandbox_policy,
     prepare_runtime_sandbox_policy_for_turn,
     sandbox_workspace_key,

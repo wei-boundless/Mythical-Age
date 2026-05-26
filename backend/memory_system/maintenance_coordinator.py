@@ -21,6 +21,7 @@ from .maintenance_models import (
     utc_now_iso,
 )
 from .manifest_scan import scan_memory_headers
+from .paths import normalize_session_id, safe_runtime_session_key
 
 
 class MemoryMaintenanceCoordinator:
@@ -248,6 +249,7 @@ class MemoryMaintenanceCoordinator:
         durable_skipped = True
         durable_skip_reason = ""
         durable_error = ""
+        durable_actions = {"created": [], "updated": [], "merged": [], "deprecated": [], "rejected": []}
         if not request.durable_lane_enabled:
             durable_skip_reason = "durable_lane_disabled"
         else:
@@ -255,13 +257,10 @@ class MemoryMaintenanceCoordinator:
                 actions = result.durable_memory.normalized_actions()
                 if actions:
                     durable_skipped = False
-                    staged_notes = []
                     for action in actions:
-                        note = self._note_from_action(action, request=request)
-                        self._assert_note_path_in_memory_dir(note.slug)
-                        staged_notes.append(note)
-                    for note in staged_notes:
-                        self.memory_manager.save_note(note)
+                        applied = self._apply_durable_action(action, request=request)
+                        for key, values in applied.items():
+                            durable_actions.setdefault(key, []).extend(values)
                         durable_count += 1
                     if self.on_durable_saved is not None and durable_count > 0:
                         self.on_durable_saved(durable_count)
@@ -270,6 +269,7 @@ class MemoryMaintenanceCoordinator:
             except Exception as exc:
                 durable_skipped = True
                 durable_error = str(exc)
+                durable_actions["rejected"].append(durable_error)
                 durable_skip_reason = "durable_write_rejected_by_sandbox"
         return MemoryMaintenanceReceipt(
             run_id=request.run_id,
@@ -286,8 +286,43 @@ class MemoryMaintenanceCoordinator:
                 **dict(result.diagnostics or {}),
                 "durable_reasoning_summary": result.durable_memory.reasoning_summary,
                 "durable_error": durable_error,
+                "durable_actions": durable_actions,
             },
         )
+
+    def _apply_durable_action(self, action: Any, *, request: MemoryMaintenanceRequest) -> dict[str, list[str]]:
+        note = self._note_from_action(action, request=request)
+        self._assert_note_path_in_memory_dir(note.slug)
+        if action.action == "create":
+            if action.target_note_id:
+                raise ValueError("durable create action must not include target_note_id")
+            self.memory_manager.save_note(note)
+            return {"created": [note.slug]}
+        if action.action == "update":
+            target = str(action.target_note_id or action.note_id or "").strip()
+            if not target:
+                raise ValueError("durable update action requires target_note_id")
+            target_slug = self.memory_manager.slugify(target)
+            if not self.memory_manager.note_exists(target_slug):
+                raise KeyError(f"Unknown durable memory update target: {target_slug}")
+            self.memory_manager.update_note(target_slug, patch=note)
+            return {"updated": [target_slug]}
+        if action.action == "merge":
+            merge_ids = [self.memory_manager.slugify(item) for item in list(action.merge_note_ids or []) if str(item or "").strip()]
+            if len(merge_ids) < 2:
+                raise ValueError("durable merge action requires at least two merge_note_ids")
+            for slug in merge_ids:
+                if not self.memory_manager.note_exists(slug):
+                    raise KeyError(f"Unknown durable memory merge source: {slug}")
+            target = self.memory_manager.slugify(action.target_note_id or action.note_id or note.slug)
+            note.slug = target
+            self.memory_manager.save_note(note)
+            deprecated = self.memory_manager.deprecate_notes(
+                [slug for slug in merge_ids if slug != target],
+                replacement_slug=target,
+            )
+            return {"merged": [target], "deprecated": deprecated}
+        raise ValueError(f"unsupported durable memory action: {action.action}")
 
     def _update_runtime_state_projection(self, request: MemoryMaintenanceRequest) -> None:
         if not (request.main_context or request.task_summary_refs or request.bundle_summary_refs):
@@ -415,7 +450,7 @@ class MemoryMaintenanceCoordinator:
         loop.create_task(self.run_after_commit(**payload))
 
     def _session_dir(self, session_id: str) -> Path:
-        safe = self._safe_session_id(session_id).replace("/", "_").replace("\\", "_").replace(":", "_")
+        safe = safe_runtime_session_key(session_id)
         path = self.runtime_dir / safe
         path.mkdir(parents=True, exist_ok=True)
         return path
@@ -441,8 +476,7 @@ class MemoryMaintenanceCoordinator:
         return receipt
 
     def _safe_session_id(self, session_id: Any) -> str:
-        value = str(session_id or "").strip()
-        return value or "default"
+        return normalize_session_id(session_id)
 
     def _dedupe(self, items: list[str]) -> list[str]:
         result: list[str] = []

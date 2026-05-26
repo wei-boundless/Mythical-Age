@@ -13,7 +13,7 @@ from capability_system import build_default_operation_registry
 from capability_system.tool_authorization import build_tool_authorization_index
 from capability_system.tool_definitions import build_tool_instances, get_tool_definitions
 from runtime.execution_permit import tool_instances_for_policy_and_permit
-from runtime.unit_runtime.loop import _resolve_runtime_search_sources
+from runtime.agent_runtime.invocation_loop import _resolve_runtime_search_sources
 
 
 def test_normalized_empty_search_policy_blocks_source_bound_operations() -> None:

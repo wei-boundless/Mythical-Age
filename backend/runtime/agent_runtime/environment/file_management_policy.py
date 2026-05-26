@@ -39,7 +39,7 @@ def prepare_runtime_file_management_policy_for_turn(
     policy.setdefault("managed_storage_root", str((workspace_root / ".managed-files").resolve()))
     policy.setdefault("runtime_output_root", str((workspace_root / ".managed-files" / "runtime").resolve()))
     policy.setdefault("task_run_id", str(task_run_id or ""))
-    policy.setdefault("authority", "runtime.unit_runtime.file_management_policy")
+    policy.setdefault("authority", "runtime.agent_runtime.environment.file_management_policy")
     policy.setdefault("source", "task_environment_or_specific_task")
     if str(sandbox.get("sandbox_root") or "").strip():
         policy.setdefault("sandbox_root", str(sandbox.get("sandbox_root") or ""))

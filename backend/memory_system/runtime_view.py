@@ -150,9 +150,7 @@ def build_memory_runtime_view(
         or ()
     ) if ("task_durable" in requested_layers or "task_durable_memory" in requested_layers) else ()
     restore_candidates = tuple(_call(memory_facade, "build_state_memory_restore_candidates", session_id) or ()) if state_read_requested else ()
-    long_term_records = tuple(
-        _call_kwargs(memory_facade, "build_long_term_memory_records", limit=effective_note_limit) or ()
-    ) if allow_long_term and "long_term" in requested_layers else ()
+    long_term_records = ()
     long_term_candidates = tuple(
         _call_kwargs(
             memory_facade,
@@ -185,6 +183,8 @@ def build_memory_runtime_view(
             "long_term_candidate_count": len(long_term_candidates),
             "restore_candidate_count": len(restore_candidates),
             "long_term_record_count": len(long_term_records),
+            "long_term_records_prompt_visible": False,
+            "long_term_records_policy": "diagnostics_or_management_only",
             "memory_write_allowed": False,
             "requested_memory_layers": list(requested_layers),
             "state_read_requested": state_read_requested,

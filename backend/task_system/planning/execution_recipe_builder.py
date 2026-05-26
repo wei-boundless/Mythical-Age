@@ -7,12 +7,12 @@ from task_system.planning.execution_recipe_models import ExecutionRecipe
 from task_system.planning.execution_shape_resolver import ExecutionShape
 from task_system.planning.understanding_step_compiler import compile_understanding_runtime_steps
 from task_system.tasks.step_models import TaskStepBlueprint
-from runtime.professional_runtime.agent_plan import (
+from runtime.agent_runtime.professional.agent_plan import (
     AgentPlanRequired,
     build_agent_plan_draft,
     empty_agent_plan_draft,
 )
-from runtime.professional_runtime.plan_coverage import review_plan_coverage
+from runtime.agent_runtime.professional.plan_coverage import review_plan_coverage
 
 
 def build_execution_recipe(
@@ -158,7 +158,6 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
             "metadata": {
                 "execution_strategy": "interaction_mode_run",
                 "runtime_lane_hint": runtime_lane,
-                "runtime_driver": "professional_task_run" if professional else "single_agent_model_turn",
                 "interaction_mode": interaction_mode,
                 "understanding_step_compiler": "task_system.planning.understanding_step_compiler",
                 "compiled_step_count": len(step_blueprints),

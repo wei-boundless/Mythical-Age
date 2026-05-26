@@ -16,7 +16,7 @@ from orchestration.runtime_directive import RuntimeDirective
 from response_system.boundary.boundary import AssistantOutputBoundary, sanitize_visible_assistant_content
 
 class ModelResponseRuntimeExecutor:
-    """Directive-only executor for the current single-agent runtime lane."""
+    """Directive-only executor for the current agent runtime lane."""
 
     def __init__(
         self,

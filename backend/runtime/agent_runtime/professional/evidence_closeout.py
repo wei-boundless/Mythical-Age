@@ -8,7 +8,7 @@ from response_system.boundary.boundary import sanitize_visible_assistant_content
 from .goal_contract import ProfessionalTaskGoalContract, _dedupe_strings
 from .deliverable_progress import observation_paths_for_satisfaction
 from task_system.runtime_semantics.protocol_boundary import has_protocol_leak, strip_protocol_leak
-from ..memory.tool_observation_ledger import ToolObservationLedger
+from ...memory.tool_observation_ledger import ToolObservationLedger
 
 
 def _contains_tool_call_markup(content: str) -> bool:
@@ -218,7 +218,7 @@ def _sanitize_final_content(content: str) -> str:
     return sanitize_visible_assistant_content(_strip_tool_call_markup(content)).strip()
 
 
-def _adopt_runtime_event_ref(outcome: ProfessionalTaskRunOutcome, runtime_event: Any) -> None:
+def _adopt_runtime_event_ref(outcome: Any, runtime_event: Any) -> None:
     event_type = str(getattr(runtime_event, "event_type", "") or "")
     refs = dict(getattr(runtime_event, "refs", {}) or {})
     payload = dict(getattr(runtime_event, "payload", {}) or {})

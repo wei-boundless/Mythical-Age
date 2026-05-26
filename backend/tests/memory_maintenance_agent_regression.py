@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 from memory_system import MemoryFacade
 from memory_system.maintenance_agent import MemoryMaintenanceAgent
+from memory_system.storage import MemoryNote
 
 
 def _agent_payload(*, durable_actions=None):
@@ -143,3 +144,95 @@ def test_memory_maintenance_rejects_durable_action_without_evidence(tmp_path) ->
     assert receipt.durable_write_count == 0
     assert receipt.diagnostics["durable_error"]
     assert facade.memory_manager.list_notes() == []
+
+
+def test_durable_update_requires_existing_target(tmp_path) -> None:
+    facade = MemoryFacade(tmp_path)
+    facade.set_model_invoker(
+        _fake_invoker(
+            _agent_payload(
+                durable_actions=[
+                    {
+                        "action": "update",
+                        "target_note_id": "missing-target",
+                        "memory_type": "project",
+                        "memory_class": "work",
+                        "title": "不存在的目标",
+                        "canonical_statement": "不能静默创建不存在的 update 目标。",
+                        "summary": "update 必须命中已有 note。",
+                        "evidence_excerpt": "用户要求长期记忆更新必须真实可追踪",
+                        "source_message_refs": ["message:1"],
+                    }
+                ]
+            )
+        )
+    )
+
+    receipt = facade.run_memory_maintenance_after_commit(
+        session_id="session-update-missing",
+        messages=[{"role": "user", "content": "更新长期记忆"}, {"role": "assistant", "content": "收到"}],
+    )
+
+    assert receipt.status == "succeeded"
+    assert receipt.durable_memory_succeeded is False
+    assert receipt.durable_write_count == 0
+    assert "Unknown durable memory update target" in receipt.diagnostics["durable_error"]
+
+
+def test_durable_merge_deprecates_sources(tmp_path) -> None:
+    facade = MemoryFacade(tmp_path)
+    facade.memory_manager.save_note(
+        MemoryNote(
+            slug="old-a",
+            title="旧规则 A",
+            summary="旧规则 A",
+            canonical_statement="旧规则 A。",
+            body="旧规则 A。",
+            memory_type="project",
+            memory_class="work",
+        )
+    )
+    facade.memory_manager.save_note(
+        MemoryNote(
+            slug="old-b",
+            title="旧规则 B",
+            summary="旧规则 B",
+            canonical_statement="旧规则 B。",
+            body="旧规则 B。",
+            memory_type="project",
+            memory_class="work",
+        )
+    )
+    facade.set_model_invoker(
+        _fake_invoker(
+            _agent_payload(
+                durable_actions=[
+                    {
+                        "action": "merge",
+                        "target_note_id": "merged-rule",
+                        "merge_note_ids": ["old-a", "old-b"],
+                        "memory_type": "project",
+                        "memory_class": "work",
+                        "title": "合并规则",
+                        "canonical_statement": "旧规则 A 与旧规则 B 已合并为一条规则。",
+                        "summary": "合并后的规则。",
+                        "evidence_excerpt": "用户要求合并长期记忆并废弃来源",
+                        "source_message_refs": ["message:1"],
+                    }
+                ]
+            )
+        )
+    )
+
+    receipt = facade.run_memory_maintenance_after_commit(
+        session_id="session-merge",
+        messages=[{"role": "user", "content": "合并长期记忆"}, {"role": "assistant", "content": "完成"}],
+    )
+
+    old_a = facade.memory_manager.load_note_record("old-a")
+    old_b = facade.memory_manager.load_note_record("old-b")
+    assert receipt.durable_memory_succeeded is True
+    assert receipt.diagnostics["durable_actions"]["merged"] == ["merged-rule"]
+    assert set(receipt.diagnostics["durable_actions"]["deprecated"]) == {"old-a", "old-b"}
+    assert old_a is not None and old_a.status == "deprecated"
+    assert old_b is not None and old_b.status == "deprecated"

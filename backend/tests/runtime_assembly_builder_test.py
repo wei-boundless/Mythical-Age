@@ -559,6 +559,8 @@ def test_runtime_checkpoint_carries_working_memory_refs(tmp_path: Path) -> None:
 
     assert loaded is not None
     assert loaded.working_memory_refs == ("wm:accepted", "wm:proposed")
+    assert started.task_run.diagnostics["loop_owner"] == "runtime.agent_runtime.lifecycle"
+    assert started.loop_state.diagnostics["loop_owner"] == "runtime.agent_runtime.lifecycle"
 
 
 def test_task_run_loop_can_submit_working_memory_candidates(tmp_path: Path) -> None:

@@ -11,7 +11,7 @@ from task_system.tasks.run_models import (
 from task_system.planning.execution_recipe_models import ExecutionRecipe
 from task_system.tasks.spec_models import TaskSpec
 from task_system.tasks.step_models import TaskStepBlueprint
-from runtime.unit_runtime.loop import _finalize_runtime_task_run_ledger
+from runtime.agent_runtime.finalization import finalize_runtime_task_run_ledger
 
 
 def _recipe(*steps: TaskStepBlueprint) -> ExecutionRecipe:
@@ -66,7 +66,7 @@ def test_task_result_is_projected_from_runtime_ledger() -> None:
     )
     ledger = start_task_run_step(ledger, step_id="step.read", started_at=1.0)
     ledger = advance_task_run_ledger(
-        _finalize_runtime_task_run_ledger(
+        finalize_runtime_task_run_ledger(
             ledger=ledger,
             terminal_reason="completed",
             final_content="done",
@@ -124,7 +124,7 @@ def test_terminal_finalize_skips_optional_verify_step() -> None:
     ledger = complete_task_run_step(ledger, step_id="step.write", completed_at=2.0, output_refs=("obs:write",))
     ledger = advance_task_run_ledger(ledger, started_at=3.0)
 
-    finalized, transitions = _finalize_runtime_task_run_ledger(
+    finalized, transitions = finalize_runtime_task_run_ledger(
         ledger=ledger,
         terminal_reason="completed",
         final_content="done",
@@ -163,7 +163,7 @@ def test_failure_marks_running_step_failed() -> None:
     )
     ledger = start_task_run_step(ledger, started_at=1.0)
 
-    finalized, transitions = _finalize_runtime_task_run_ledger(
+    finalized, transitions = finalize_runtime_task_run_ledger(
         ledger=ledger,
         terminal_reason="executor_failed",
         final_content="",

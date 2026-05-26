@@ -137,7 +137,7 @@
           "runtime_lanes": [
             "professional_task"
           ],
-          "execution_strategy": "professional_task_run",
+          "execution_strategy": "interaction_mode_run",
           "builtin": true,
           "editable": false,
           "description": ""
@@ -271,7 +271,7 @@
           "runtime_lanes": [
             "professional_task"
           ],
-          "execution_strategy": "professional_task_run",
+          "execution_strategy": "interaction_mode_run",
           "builtin": true,
           "editable": false,
           "description": ""
@@ -395,7 +395,7 @@
           "runtime_lanes": [
             "professional_task"
           ],
-          "execution_strategy": "professional_task_run",
+          "execution_strategy": "interaction_mode_run",
           "builtin": true,
           "editable": false,
           "description": ""
@@ -519,7 +519,7 @@
           "runtime_lanes": [
             "professional_task"
           ],
-          "execution_strategy": "professional_task_run",
+          "execution_strategy": "interaction_mode_run",
           "builtin": true,
           "editable": false,
           "description": ""
@@ -643,7 +643,7 @@
           "runtime_lanes": [
             "professional_task"
           ],
-          "execution_strategy": "professional_task_run",
+          "execution_strategy": "interaction_mode_run",
           "builtin": true,
           "editable": false,
           "description": ""
@@ -794,7 +794,7 @@
           "runtime_lanes": [
             "professional_task"
           ],
-          "execution_strategy": "professional_task_run",
+          "execution_strategy": "interaction_mode_run",
           "builtin": true,
           "editable": false,
           "description": ""
@@ -930,7 +930,7 @@
           "runtime_lanes": [
             "professional_task"
           ],
-          "execution_strategy": "professional_task_run",
+          "execution_strategy": "interaction_mode_run",
           "builtin": true,
           "editable": false,
           "description": ""
@@ -1058,7 +1058,7 @@
           "runtime_lanes": [
             "professional_task"
           ],
-          "execution_strategy": "professional_task_run",
+          "execution_strategy": "interaction_mode_run",
           "builtin": true,
           "editable": false,
           "description": ""
@@ -1187,7 +1187,7 @@
           "runtime_lanes": [
             "professional_task"
           ],
-          "execution_strategy": "professional_task_run",
+          "execution_strategy": "interaction_mode_run",
           "builtin": true,
           "editable": false,
           "description": ""
@@ -1353,7 +1353,7 @@
           "runtime_lanes": [
             "professional_task"
           ],
-          "execution_strategy": "professional_task_run",
+          "execution_strategy": "interaction_mode_run",
           "builtin": true,
           "editable": false,
           "description": ""
@@ -1509,7 +1509,7 @@
           "runtime_lanes": [
             "professional_task"
           ],
-          "execution_strategy": "professional_task_run",
+          "execution_strategy": "interaction_mode_run",
           "builtin": true,
           "editable": false,
           "description": ""
@@ -1658,7 +1658,7 @@
           "runtime_lanes": [
             "professional_task"
           ],
-          "execution_strategy": "professional_task_run",
+          "execution_strategy": "interaction_mode_run",
           "builtin": true,
           "editable": false,
           "description": ""
@@ -1801,7 +1801,7 @@
           "runtime_lanes": [
             "professional_task"
           ],
-          "execution_strategy": "professional_task_run",
+          "execution_strategy": "interaction_mode_run",
           "builtin": true,
           "editable": false,
           "description": ""

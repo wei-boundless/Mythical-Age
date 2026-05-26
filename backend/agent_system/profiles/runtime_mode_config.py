@@ -59,7 +59,7 @@ MODE_CONFIGS: dict[str, AgentRuntimeModeConfig] = {
         runtime_lane="professional_task",
         recipe_id="runtime.recipe.professional_task",
         projection_strength="style_only",
-        execution_strategy="professional_task_run",
+        execution_strategy="interaction_mode_run",
     ),
     CUSTOM_MODE: AgentRuntimeModeConfig(
         mode=CUSTOM_MODE,

@@ -137,7 +137,7 @@ def test_professional_mode_overrides_registered_light_web_game_recipe() -> None:
                 "selected_task_id": "task.dev.light_web_game",
                 "interaction_mode": "professional_mode",
                 "mode_policy": {
-                    "execution_strategy": "professional_task_run",
+                    "execution_strategy": "interaction_mode_run",
                     "interaction_mode": "professional_mode",
                     "runtime_lane": "professional_task",
                 },
@@ -148,7 +148,7 @@ def test_professional_mode_overrides_registered_light_web_game_recipe() -> None:
     shape = task_bundle["execution_shape"]
     recipe = task_bundle["selected_recipe"]
     assert shape["recipe_id"] == "runtime.recipe.professional_task"
-    assert recipe["metadata"]["runtime_driver"] == "professional_task_run"
+    assert "control_runner" not in recipe["metadata"]
 
 
 def test_removed_health_task_selection_does_not_mount_old_profiles() -> None:

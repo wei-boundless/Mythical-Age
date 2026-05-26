@@ -64,7 +64,7 @@ def prepare_runtime_tool_capability_table_for_turn(
             runtime_available_operations=_tuple_refs(runtime_available_operations),
             table_id=f"tool-capability:{environment_id}:{task_operation.get('task_id') or 'turn'}",
             metadata={
-                "authority": "runtime.unit_runtime.tool_capability_policy",
+                "authority": "runtime.agent_runtime.environment.tool_capability_policy",
                 "source": "task_environment+execution_permit+file_access_table",
                 "specific_task_assembly_policy_ref": str(getattr(assembly_policy, "policy_id", "") or ""),
                 "execution_permit_ref": str(permit.get("permit_id") or ""),

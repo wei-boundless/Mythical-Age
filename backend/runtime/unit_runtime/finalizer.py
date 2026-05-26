@@ -7,7 +7,7 @@ from typing import Any
 
 from artifact_system import ArtifactRepositoryService
 
-from .artifact_paths import _successful_write_file_paths, _workspace_root_from_runtime_root
+from ..shared.artifact_paths import successful_write_file_paths, workspace_root_from_runtime_root
 from ..shared.artifact_refs import collect_task_result_output_refs, dedupe_refs as dedupe_artifact_refs
 from ..shared.checkpoint import RuntimeCheckpoint, RuntimeCheckpointStore
 from ..shared.event_log import RuntimeEventLog
@@ -249,7 +249,7 @@ class TaskRunFinalizer:
         ).strip()
         try:
             artifact_materialization = materialize_task_artifacts(
-                workspace_root=_workspace_root_from_runtime_root(self.root_dir),
+                workspace_root=workspace_root_from_runtime_root(self.root_dir),
                 task_run_id=start_task_run.task_run_id,
                 session_id=start_task_run.session_id,
                 task_ref=task_ref_for_artifacts,
@@ -899,14 +899,14 @@ class TaskRunFinalizer:
             or ""
         ).strip()
         if not artifact_root:
-            write_paths = _successful_write_file_paths(
+            write_paths = successful_write_file_paths(
                 root_dir=self.root_dir,
                 event_log_events=[item.to_dict() for item in self.event_log.list_events(current_task_run_id)],
             )
             if write_paths:
                 artifact_root = str(Path(write_paths[0]["absolute_path"]).parent.as_posix())
         if artifact_root:
-            workspace_root = _workspace_root_from_runtime_root(self.root_dir)
+            workspace_root = workspace_root_from_runtime_root(self.root_dir)
             artifact_root = artifact_root.replace("\\", "/").rstrip("/")
             workspace_posix = workspace_root.as_posix().rstrip("/")
             if artifact_root.startswith(workspace_posix + "/"):

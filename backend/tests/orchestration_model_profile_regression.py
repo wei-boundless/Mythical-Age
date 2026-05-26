@@ -12,7 +12,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from agent_system.models.model_profile_resolver import ModelProfileResolver
-from runtime.unit_runtime.loop import _chat_model_selection_runtime_defaults
+from runtime.agent_runtime.invocation_loop import _chat_model_selection_runtime_defaults
 
 
 class _SettingsService:

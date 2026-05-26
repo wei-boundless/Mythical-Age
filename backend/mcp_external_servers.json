@@ -1,5 +1,47 @@
 {
   "schema_version": 1,
   "authority": "capability_system.mcp.client.external_config_store",
-  "servers": []
+  "servers": [
+    {
+      "server_id": "playwright_edge",
+      "title": "Playwright Edge",
+      "description": "Local Playwright MCP server controlling the local Microsoft Edge browser. No external browser API is used.",
+      "transport": "stdio",
+      "enabled": true,
+      "command": "D:\\AI应用\\langchain-agent\\frontend\\node_modules\\.bin\\playwright-mcp.cmd",
+      "args": [
+        "--browser=msedge",
+        "--isolated",
+        "--output-mode=stdout"
+      ],
+      "env": {},
+      "cwd": "D:\\AI应用\\langchain-agent\\frontend",
+      "url": "",
+      "scope": "project",
+      "tags": [
+        "browser",
+        "playwright",
+        "edge",
+        "local"
+      ],
+      "allowed_operations": [
+        "op.browser_automation",
+        "op.web_inspection",
+        "op.visual_verification"
+      ],
+      "requires_approval_operations": [
+        "op.browser_form_submit",
+        "op.browser_download"
+      ],
+      "denied_operations": [
+        "op.browser_remote_endpoint"
+      ],
+      "metadata": {
+        "local_only": true,
+        "browser": "msedge",
+        "runtime": "node",
+        "package": "@playwright/mcp"
+      }
+    }
+  ]
 }

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from ..memory.tool_observation_ledger import ToolObservationLedger
+from ...memory.tool_observation_ledger import ToolObservationLedger
 from .deliverable_progress import DeliverableProgress
 
 
@@ -19,7 +19,7 @@ class ProfessionalStageSummary:
     pending_deliverables: tuple[str, ...] = ()
     verification_passed: bool = False
     environment: dict[str, Any] = field(default_factory=dict)
-    authority: str = "professional_runtime.stage_summary"
+    authority: str = "agent_runtime.professional.stage_summary"
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)

@@ -90,7 +90,7 @@ RuntimeEventType = Literal[
     "professional_task_deliverable_repair_rejected",
     "professional_task_deliverable_validation_checked",
     "professional_task_completion_judged",
-    "professional_task_run_outcome_built",
+    "professional_control_outcome_built",
     "professional_tool_observation_ledger_updated",
     "professional_run_session_updated",
 ]

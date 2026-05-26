@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from dataclasses import dataclass, field
 from typing import Any
 
 from .process_state import ContextSlots, DialogueState, FlowState, TaskState, TurnUnderstanding
@@ -11,6 +12,16 @@ from .session_memory_view import DEFAULT_TEMPLATE, SessionMemoryViewBuilder
 from .session_processor import SessionUnderstandingProcessor
 from .text_utils import normalize_storage_text
 from .turn_projection import FILE_PATTERN
+
+
+@dataclass(frozen=True, slots=True)
+class TaskSwitchDecision:
+    switched: bool
+    reason: str
+    confidence: float
+    carry_forward_allowed: tuple[str, ...] = ()
+    reset_slots: tuple[str, ...] = ()
+    diagnostics: dict[str, Any] = field(default_factory=dict)
 
 
 class SessionMemoryManager:
@@ -165,7 +176,8 @@ class SessionMemoryManager:
                 *constraint_items,
             ]
         )
-        task_switch = self._detect_projection_task_switch(previous_state, active_goal)
+        task_switch_decision = self._detect_projection_task_switch(previous_state, active_goal, active_constraints=active_constraints)
+        task_switch = task_switch_decision.switched
         turn_trace = self._build_projection_turn_trace(
             active_goal=active_goal,
             active_work_item=active_work_item,
@@ -756,8 +768,45 @@ class SessionMemoryManager:
         self,
         previous_state: DialogueState,
         active_goal: str,
-    ) -> bool:
-        return False
+        *,
+        active_constraints: dict[str, Any] | None = None,
+    ) -> "TaskSwitchDecision":
+        goal = self._coerce_text(active_goal).lower()
+        previous_goal = self._coerce_text(previous_state.active_goal).lower()
+        constraints = self._coerce_mapping(active_constraints)
+        if not previous_goal:
+            return TaskSwitchDecision(False, reason="no_previous_goal", confidence=1.0)
+        continuation_markers = ("继续", "刚才", "上一个", "这个", "第", "前面", "上一轮")
+        if any(marker in goal for marker in continuation_markers):
+            return TaskSwitchDecision(False, reason="explicit_continuation_signal", confidence=0.82)
+        switch_markers = ("换个问题", "另一个任务", "新的任务", "现在做", "不要继续刚才", "重新开始")
+        if any(marker in goal for marker in switch_markers):
+            return TaskSwitchDecision(
+                True,
+                reason="explicit_task_switch_signal",
+                confidence=0.9,
+                reset_slots=("active_pdf", "active_dataset", "warm_context"),
+            )
+        previous_slots = previous_state.context_slots
+        new_pdf = self._coerce_text(constraints.get("active_pdf") or constraints.get("explicit_pdf_path"))
+        new_dataset = self._coerce_text(constraints.get("active_dataset") or constraints.get("explicit_dataset_path"))
+        previous_pdf = self._coerce_text(getattr(previous_slots, "active_pdf", ""))
+        previous_dataset = self._coerce_text(getattr(previous_slots, "active_dataset", ""))
+        if new_pdf and previous_pdf and new_pdf != previous_pdf:
+            return TaskSwitchDecision(True, reason="new_pdf_binding", confidence=0.86, reset_slots=("active_dataset", "warm_context"))
+        if new_dataset and previous_dataset and new_dataset != previous_dataset:
+            return TaskSwitchDecision(True, reason="new_dataset_binding", confidence=0.86, reset_slots=("active_pdf", "warm_context"))
+        previous_domain = _goal_domain(previous_goal)
+        current_domain = _goal_domain(goal)
+        if previous_domain and current_domain and previous_domain != current_domain:
+            return TaskSwitchDecision(
+                True,
+                reason=f"domain_changed:{previous_domain}->{current_domain}",
+                confidence=0.72,
+                carry_forward_allowed=("stable_constraints",),
+                reset_slots=("warm_context",),
+            )
+        return TaskSwitchDecision(False, reason="no_switch_signal", confidence=0.64)
 
     def _title_from_goal(self, active_goal: str) -> str:
         words = " ".join(self._coerce_text(active_goal).split()).split()[:8]
@@ -880,3 +929,16 @@ class SessionMemoryManager:
             self.view_builder.render_compaction_view(default_view),
             encoding="utf-8",
         )
+
+
+def _goal_domain(goal: str) -> str:
+    text = str(goal or "").lower()
+    if any(marker in text for marker in ("pdf", ".pdf", "报告", "文档", "页码")):
+        return "document"
+    if any(marker in text for marker in (".xlsx", ".csv", "表格", "数据", "dataset", "库存")):
+        return "structured_data"
+    if any(marker in text for marker in ("代码", "重构", "bug", "pytest", "runtime", "agent")):
+        return "coding"
+    if any(marker in text for marker in ("小说", "章节", "大纲", "世界观", "人物")):
+        return "writing"
+    return ""

@@ -253,23 +253,6 @@ def _interaction_policy_instruction(mode_policy: dict[str, Any]) -> str:
     return ""
 
 
-def _professional_runtime_policy(selected_recipe_payload: dict[str, Any]) -> dict[str, Any]:
-    metadata = dict(dict(selected_recipe_payload or {}).get("metadata") or {})
-    mode_policy = dict(metadata.get("mode_policy") or {})
-    return {
-        "runtime_limits": dict(metadata.get("runtime_limits") or {}),
-        "checkpoint_policy": dict(metadata.get("checkpoint_policy") or mode_policy.get("checkpoint_policy") or {}),
-        "delegation_policy": dict(metadata.get("delegation_policy") or mode_policy.get("delegation_policy") or {}),
-        "tool_execution_policy": dict(metadata.get("tool_execution_policy") or mode_policy.get("tool_policy") or {}),
-        "verification_policy": dict(metadata.get("verification_policy") or mode_policy.get("verification_policy") or {}),
-        "sandbox_policy": dict(metadata.get("sandbox_policy") or mode_policy.get("sandbox_policy") or {}),
-        "mode_policy": mode_policy,
-        "task_requirement_contract": dict(metadata.get("task_requirement_contract") or {}),
-        "execution_obligation": dict(metadata.get("execution_obligation") or dict(metadata.get("task_requirement_contract") or {}).get("execution_obligation") or {}),
-        "interaction_mode": str(metadata.get("interaction_mode") or mode_policy.get("interaction_mode") or ""),
-    }
-
-
 def _first_finalize_step_id(ledger: TaskRunLedger | None) -> str:
     if ledger is None:
         return ""

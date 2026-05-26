@@ -333,7 +333,7 @@ def test_task_semantics_survive_boundary_projection_without_control_leak() -> No
         "interaction_mode": "professional_mode",
         "mode_policy": {
             "interaction_mode": "professional_mode",
-            "execution_strategy": "professional_task_run",
+            "execution_strategy": "interaction_mode_run",
             "runtime_lane": "professional_task",
             "tool_policy": {"max_tool_rounds_per_task_run": 3},
         },
@@ -349,7 +349,7 @@ def test_task_semantics_survive_boundary_projection_without_control_leak() -> No
     assert turn_context["interaction_mode"] == "professional_mode"
     assert turn_context["mode_policy"]["tool_policy"]["max_tool_rounds_per_task_run"] == 3
     assert task_selection["semantic_task_type"] == "test_report_triage"
-    assert task_selection["mode_policy"]["execution_strategy"] == "professional_task_run"
+    assert task_selection["mode_policy"]["execution_strategy"] == "interaction_mode_run"
     for key in ("runtime_control", "stage_execution_request", "node_work_order"):
         assert key not in turn_context
         assert key not in task_selection

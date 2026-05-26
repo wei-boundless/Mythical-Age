@@ -13,7 +13,7 @@ if str(BACKEND_DIR) not in sys.path:
 from runtime.model_gateway.model_response import ModelResponseRuntimeExecutor
 from runtime.model_gateway.model_runtime import ModelRuntimeError
 from orchestration import RuntimeDirective
-from runtime.unit_runtime.runtime_policy import model_stream_policy_from_task_execution_assembly
+from runtime.agent_runtime.runtime_policy import model_stream_policy_from_task_execution_assembly
 
 
 def _directive() -> RuntimeDirective:

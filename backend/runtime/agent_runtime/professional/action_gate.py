@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-from ..memory.tool_observation_ledger import ToolObservationLedger
+from ...memory.tool_observation_ledger import ToolObservationLedger
 from .deliverable_progress import (
     build_deliverable_progress,
     material_review_satisfied,
@@ -27,7 +27,7 @@ class ActionGateDecision:
     missing_obligations: tuple[str, ...] = ()
     target_path: str = ""
     reserved_tool_calls: int = 0
-    authority: str = "professional_runtime.action_gate"
+    authority: str = "agent_runtime.professional.action_gate"
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)

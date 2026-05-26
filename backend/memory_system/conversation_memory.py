@@ -8,6 +8,7 @@ from token_accounting import count_text_tokens
 
 from .contracts import ConversationMemorySnapshot, MemoryContextCandidate, MemoryWriteCandidate
 from .compat_types import SessionMemoryManager
+from .paths import normalize_session_id, safe_session_dir
 
 
 CONVERSATION_SECTION_HEADERS: tuple[str, ...] = (
@@ -25,14 +26,10 @@ class ConversationMemoryStoreAdapter:
         self.session_root.mkdir(parents=True, exist_ok=True)
 
     def manager(self, session_id: str) -> SessionMemoryManager:
-        root = self.session_root.resolve()
-        target = (root / _safe_session_id(session_id)).resolve()
-        if target == root or root not in target.parents:
-            raise ValueError("Invalid session_id")
-        return SessionMemoryManager(target)
+        return SessionMemoryManager(safe_session_dir(self.session_root, session_id))
 
     def load_snapshot(self, session_id: str) -> ConversationMemorySnapshot:
-        safe_session_id = _safe_session_id(session_id)
+        safe_session_id = normalize_session_id(session_id)
         manager = self.manager(safe_session_id)
         summary = _read_existing(manager.summary_path) or manager.load()
         compaction_view = manager.compact_view()
@@ -58,7 +55,7 @@ class ConversationMemoryStoreAdapter:
         )
 
     def context_candidates(self, session_id: str) -> tuple[MemoryContextCandidate, ...]:
-        safe_session_id = _safe_session_id(session_id)
+        safe_session_id = normalize_session_id(session_id)
         manager = self.manager(safe_session_id)
         summary = _read_existing(manager.summary_path) or manager.load()
         sections = manager.parse_sections(summary)
@@ -97,7 +94,7 @@ class ConversationMemoryStoreAdapter:
         rendered = normalize_storage_text(content).strip()
         if not rendered:
             return None
-        safe_session_id = _safe_session_id(session_id)
+        safe_session_id = normalize_session_id(session_id)
         return MemoryWriteCandidate(
             candidate_id=f"memory-write:{safe_session_id}:conversation:summary",
             target_layer="conversation",
@@ -124,11 +121,6 @@ class ConversationMemoryStoreAdapter:
             chunks.extend(f"- {item}" for item in items[:6])
             chunks.append("")
         return "\n".join(chunks).strip()
-
-
-def _safe_session_id(session_id: str) -> str:
-    value = str(session_id or "").strip()
-    return value or "default"
 
 
 def _read_existing(path: Path) -> str:

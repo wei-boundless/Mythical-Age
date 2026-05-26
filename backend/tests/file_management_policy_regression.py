@@ -7,7 +7,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from runtime.unit_runtime.file_management_policy import prepare_runtime_file_management_policy_for_turn
+from runtime.agent_runtime.environment.file_management_policy import prepare_runtime_file_management_policy_for_turn
 
 
 def test_file_management_policy_uses_sandbox_repository_when_sandbox_is_enabled(tmp_path: Path) -> None:
@@ -63,7 +63,7 @@ def test_specific_task_file_management_policy_overrides_environment_default(tmp_
     assert policy["repositories"]["read"] == "repo.coding.sandbox_workspace"
     assert policy["repositories"]["write"] == "repo.coding.project_workspace"
     assert policy["repositories"]["edit"] == "repo.coding.sandbox_workspace"
-    assert policy["authority"] == "runtime.unit_runtime.file_management_policy"
+    assert policy["authority"] == "runtime.agent_runtime.environment.file_management_policy"
 
 
 def test_file_management_policy_does_not_invent_default_environment(tmp_path: Path) -> None:

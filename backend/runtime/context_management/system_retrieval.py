@@ -56,13 +56,13 @@ class SystemRetrievalStage:
         selected_recipe_payload: dict[str, Any],
         task_operation: dict[str, Any],
         allowed_search_sources: set[str],
-        professional_task: bool,
+        evidence_phase_required: bool,
     ) -> bool:
         operation_requirement = dict(task_operation.get("operation_requirement") or {})
         resolution = dict(dict(operation_requirement.get("metadata") or {}).get("runtime_operation_resolution") or {})
         if str(resolution.get("execution_mode") or "").strip() == "delegate":
             return False
-        if professional_task:
+        if evidence_phase_required:
             return False
         source_kind = system_retrieval_source_kind(
             selected_recipe_payload=selected_recipe_payload,

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-from ..memory.tool_observation_ledger import ToolObservationLedger
+from ...memory.tool_observation_ledger import ToolObservationLedger
 from .goal_contract import ProfessionalTaskGoalContract, _dedupe_strings, _normalize_path_for_match
 
 

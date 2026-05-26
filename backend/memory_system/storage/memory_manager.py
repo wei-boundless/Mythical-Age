@@ -115,6 +115,52 @@ class MemoryManager:
         self._remove_index_line(path.name)
         return True
 
+    def note_exists(self, slug: str) -> bool:
+        return self.note_path(slug).exists()
+
+    def load_note_record(self, slug: str) -> LoadedMemoryNote | None:
+        path = self.note_path(slug)
+        if not path.exists():
+            return None
+        return self._load_loaded_note(path)
+
+    def update_note(self, slug: str, *, patch: MemoryNote) -> Path:
+        existing = self.load_note_record(slug)
+        if existing is None:
+            raise KeyError(f"Unknown durable memory note: {slug}")
+        current = self._loaded_to_memory_note(existing)
+        now = MemoryNote(slug="", title="", summary="", body="").updated_at
+        current.title = patch.title or current.title
+        current.summary = patch.summary or current.summary
+        current.canonical_statement = patch.canonical_statement or current.canonical_statement
+        current.body = patch.body or current.body
+        current.retrieval_hints = self._merge_unique(current.retrieval_hints, patch.retrieval_hints)
+        current.tags = self._merge_unique(current.tags, patch.tags)
+        current.source_message_excerpt = patch.source_message_excerpt or current.source_message_excerpt
+        current.confidence = patch.confidence or current.confidence
+        current.updated_at = now
+        current.last_confirmed_at = now
+        current.status = "active"
+        current.eligible_for_injection = "true"
+        return self.save_note(current)
+
+    def deprecate_notes(self, slugs: list[str], *, replacement_slug: str, reason: str = "") -> list[str]:
+        deprecated: list[str] = []
+        now = MemoryNote(slug="", title="", summary="", body="").updated_at
+        for slug in slugs:
+            existing = self.load_note_record(slug)
+            if existing is None:
+                raise KeyError(f"Unknown durable memory note: {slug}")
+            note = self._loaded_to_memory_note(existing)
+            note.status = "deprecated"
+            note.eligible_for_injection = "false"
+            note.invalidation_reason = reason or f"merged_into:{replacement_slug}"
+            note.updated_at = now
+            self._write_note(note)
+            deprecated.append(note.slug)
+        self.sync_index()
+        return deprecated
+
     def list_index_entries(self) -> list[str]:
         content = repair_mojibake(self.index_path.read_text(encoding="utf-8"))
         return [line.strip() for line in content.splitlines() if line.strip().startswith("- [")]

@@ -9,6 +9,8 @@ from api import orchestration_catalog as orchestration_catalog_api
 from api import task_system as tasks_api
 from orchestration import coordination_rewind, coordination_scheduler
 from runtime.execution.node_execution_request import NodeExecutionRequest
+from runtime.agent_runtime import AgentRuntime
+from runtime.graph_task_runtime import GraphTaskRuntime
 from runtime.subruntime import graph_module_core_artifact_refs, latest_unconsumed_graph_module_imported_result
 from artifact_system import ArtifactRepositoryService
 from runtime.shared.checkpoint import RuntimeCheckpointStore
@@ -26,6 +28,41 @@ from tests.support.runtime_stubs import RuntimeBaseDirStub
 
 
 _RuntimeStub = RuntimeBaseDirStub
+
+
+def _graph_task_runtime_stub(state_index: RuntimeStateIndex, *, event_log: Any | None = None, **extras: Any) -> SimpleNamespace:
+    event_log = event_log or SimpleNamespace(append=lambda *args, **kwargs: None, list_events=lambda _task_run_id: [])
+    return SimpleNamespace(
+        get_task_run=state_index.get_task_run,
+        list_task_runs=state_index.list_task_runs,
+        list_session_task_runs=state_index.list_session_task_runs,
+        list_task_agent_runs=state_index.list_task_agent_runs,
+        list_coordination_node_runs=state_index.list_coordination_node_runs,
+        upsert_task_run=state_index.upsert_task_run,
+        upsert_agent_run=state_index.upsert_agent_run,
+        upsert_coordination_node_run=state_index.upsert_coordination_node_run,
+        append_event=lambda task_run_id, event_type, payload=None, refs=None: event_log.append(
+            task_run_id,
+            event_type,
+            payload=payload,
+            refs=refs,
+        ),
+        list_task_events=lambda task_run_id: event_log.list_events(task_run_id),
+        **extras,
+    )
+
+
+def _runtime_with_graph_task_facade(*, base_dir: Path, loop: TaskRunLoop) -> SimpleNamespace:
+    agent_runtime = AgentRuntime(task_run_loop=loop)
+    loop.agent_runtime = agent_runtime
+    return SimpleNamespace(
+        base_dir=base_dir,
+        query_runtime=SimpleNamespace(
+            task_run_loop=loop,
+            agent_runtime=agent_runtime,
+            graph_task_runtime=GraphTaskRuntime(task_run_loop=loop, agent_runtime=agent_runtime),
+        ),
+    )
 
 
 def _parallel_batch_api_graph() -> TaskGraphDefinition:
@@ -125,7 +162,7 @@ def test_coordination_rewind_api_downstream_scan_ignores_feedback_edges() -> Non
 def test_dispatch_ready_batches_api_returns_multiple_standard_requests(tmp_path: Path) -> None:
     graph = _parallel_batch_api_graph()
     loop = TaskRunLoop(tmp_path, backend_dir=Path("backend"))
-    runtime = SimpleNamespace(base_dir=Path("backend"), query_runtime=SimpleNamespace(task_run_loop=loop))
+    runtime = _runtime_with_graph_task_facade(base_dir=Path("backend"), loop=loop)
     start = loop.start_task_graph_run(
         session_id="session:test",
         graph=graph,
@@ -201,7 +238,17 @@ def test_coordination_rewind_invalidates_running_stage_task_runs(tmp_path: Path)
     )
 
     changed = coordination_rewind._mark_invalidated_stage_task_runs(
-        task_run_loop=type("Loop", (), {"state_index": state_index})(),
+        graph_task_runtime=type(
+            "GraphTaskRuntimeStub",
+            (),
+            {
+                "get_task_run": state_index.get_task_run,
+                "list_task_runs": state_index.list_task_runs,
+                "upsert_task_run": state_index.upsert_task_run,
+                "list_task_agent_runs": state_index.list_task_agent_runs,
+                "upsert_agent_run": state_index.upsert_agent_run,
+            },
+        )(),
         coordination_run=coordination_run,
         stage_ids=["volume_plan", "chapter_outline"],
         reason="bad_stage_output",
@@ -250,10 +297,8 @@ def test_stage_execution_scheduler_skips_existing_same_source_task_run(tmp_path:
         },
     )
     state_index.upsert_task_run(existing)
-    loop = SimpleNamespace(state_index=state_index, event_log=SimpleNamespace(append=lambda *args, **kwargs: None))
-
     result = coordination_scheduler._schedule_stage_execution_background(
-        runtime=SimpleNamespace(query_runtime=SimpleNamespace(task_run_loop=loop)),
+        runtime=SimpleNamespace(query_runtime=SimpleNamespace(graph_task_runtime=_graph_task_runtime_stub(state_index))),
         session_id="session:test",
         source="test",
         stage_execution_request=request,
@@ -303,10 +348,8 @@ def test_stage_execution_scheduler_allows_new_idempotency_key(tmp_path: Path) ->
             },
         )
     )
-    loop = SimpleNamespace(state_index=state_index)
-
     assert coordination_scheduler._matching_stage_execution_task_run(
-        task_run_loop=loop,
+        graph_task_runtime=_graph_task_runtime_stub(state_index),
         session_id="session:test",
         identity=coordination_scheduler._stage_execution_schedule_identity(retry),
     ) is None
@@ -343,10 +386,8 @@ def test_stage_execution_scheduler_ignores_rewind_invalidated_completed_run(tmp_
             },
         )
     )
-    loop = SimpleNamespace(state_index=state_index)
-
     assert coordination_scheduler._matching_stage_execution_task_run(
-        task_run_loop=loop,
+        graph_task_runtime=_graph_task_runtime_stub(state_index),
         session_id="session:test",
         identity=coordination_scheduler._stage_execution_schedule_identity(request),
     ) is None
@@ -398,17 +439,17 @@ def test_stage_execution_scheduler_invalidates_stale_running_task_run(tmp_path: 
         list_events=lambda _task_run_id: [],
         append=lambda _task_run_id, event_type, payload=None, refs=None: events.append((event_type, payload or {})),
     )
-    loop = SimpleNamespace(state_index=state_index, event_log=event_log)
+    graph_task_runtime = _graph_task_runtime_stub(state_index, event_log=event_log)
     identity = coordination_scheduler._stage_execution_schedule_identity(request)
 
     reason = coordination_scheduler._stale_running_task_run_reason(
-        task_run_loop=loop,
+        graph_task_runtime=graph_task_runtime,
         task_run=stale,
     )
     assert reason == "running_task_exceeded_runtime_limit_without_trace_progress"
 
     coordination_scheduler._invalidate_stale_stage_execution_task_run(
-        task_run_loop=loop,
+        graph_task_runtime=graph_task_runtime,
         task_run=stale,
         identity=identity,
         source="test",
@@ -422,7 +463,7 @@ def test_stage_execution_scheduler_invalidates_stale_running_task_run(tmp_path: 
     agent_run = state_index.list_task_agent_runs(stale.task_run_id)[0]
     assert agent_run.status == "failed"
     assert coordination_scheduler._matching_stage_execution_task_run(
-        task_run_loop=loop,
+        graph_task_runtime=graph_task_runtime,
         session_id="session:test",
         identity=identity,
     ) is None
@@ -441,15 +482,16 @@ def test_stage_execution_scheduler_marks_node_failed_when_background_execution_c
         task_ref="task.test.chapter_draft",
     )
     events: list[tuple[str, dict]] = []
-    loop = SimpleNamespace(
-        state_index=state_index,
+    graph_task_runtime = _graph_task_runtime_stub(
+        state_index,
         event_log=SimpleNamespace(
             append=lambda _task_run_id, event_type, payload=None, refs=None: events.append((event_type, payload or {})),
+            list_events=lambda _task_run_id: [],
         ),
     )
 
     coordination_scheduler._mark_stage_execution_node_failed(
-        task_run_loop=loop,
+        graph_task_runtime=graph_task_runtime,
         stage_execution_request=request,
         source="test",
         error=ValueError("runtime lane mismatch"),
@@ -692,7 +734,7 @@ def test_graph_module_stage_scheduler_starts_and_reuses_imported_task_graph_run(
         enabled=True,
     )
     loop = TaskRunLoop(runtime_dir, backend_dir=backend_dir)
-    runtime = SimpleNamespace(base_dir=backend_dir, query_runtime=SimpleNamespace(task_run_loop=loop))
+    runtime = _runtime_with_graph_task_facade(base_dir=backend_dir, loop=loop)
     request = NodeExecutionRequest(
         request_id="nodeexec:graph-module",
         coordination_run_id="coordrun:importing",
@@ -933,7 +975,7 @@ def test_graph_module_imported_completion_commits_output_packet_and_releases_imp
         enabled=True,
     )
     loop = TaskRunLoop(runtime_dir, backend_dir=backend_dir)
-    runtime = SimpleNamespace(base_dir=backend_dir, query_runtime=SimpleNamespace(task_run_loop=loop))
+    runtime = _runtime_with_graph_task_facade(base_dir=backend_dir, loop=loop)
     parent_start = loop.start_task_graph_run(
         session_id="session:test",
         graph=importing_graph,
@@ -1093,15 +1135,16 @@ def test_graph_module_imported_result_waits_until_imported_graph_completed(tmp_p
         },
     )
     state_index.upsert_task_run(child)
-    loop = SimpleNamespace(
-        state_index=state_index,
-        runtime_objects=SimpleNamespace(put_object=lambda *args, **kwargs: "rtobj:should:not-write"),
-        checkpoints=SimpleNamespace(load_latest=lambda _task_run_id: None),
-        langgraph_coordination_runtime=SimpleNamespace(
-            checkpoints=SimpleNamespace(get_state=lambda *, thread_id: {"terminal_status": ""})
-        ),
+    graph_task_runtime = _graph_task_runtime_stub(
+        state_index,
+        put_runtime_object=lambda *args, **kwargs: "rtobj:should:not-write",
+        load_latest_task_checkpoint=lambda _task_run_id: None,
+        get_checkpoint_state=lambda _coordination_run_id: {"terminal_status": ""},
+        get_latest_coordination_merge_result=lambda _coordination_run_id: None,
+        get_coordination_run=lambda _coordination_run_id: None,
+        get_runtime_object=lambda _object_ref: {},
     )
-    runtime = SimpleNamespace(query_runtime=SimpleNamespace(task_run_loop=loop))
+    runtime = SimpleNamespace(query_runtime=SimpleNamespace(graph_task_runtime=graph_task_runtime))
     result = latest_unconsumed_graph_module_imported_result(
         runtime=runtime,
         session_id="session:test",
@@ -1219,7 +1262,7 @@ def test_graph_module_imported_failure_commits_failure_packet_and_uses_importing
         enabled=True,
     )
     loop = TaskRunLoop(runtime_dir, backend_dir=backend_dir)
-    runtime = SimpleNamespace(base_dir=backend_dir, query_runtime=SimpleNamespace(task_run_loop=loop))
+    runtime = _runtime_with_graph_task_facade(base_dir=backend_dir, loop=loop)
     parent_start = loop.start_task_graph_run(
         session_id="session:test",
         graph=importing_graph,

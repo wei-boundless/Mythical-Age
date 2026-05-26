@@ -98,7 +98,7 @@ def resolve_execution_shape(
             if specialized_shape is not None:
                 return specialized_shape
         reasons.append(f"interaction_mode:{interaction_mode}")
-        return _professional_runtime_shape(
+        return _agent_mode_shape(
             mode_policy=mode_policy,
             semantic_contract=semantic_contract,
             execution_obligation=execution_obligation,
@@ -256,7 +256,7 @@ def _shape_from_source_kind(
     )
 
 
-def _professional_runtime_shape(
+def _agent_mode_shape(
     *,
     mode_policy: dict[str, Any],
     semantic_contract: dict[str, Any],

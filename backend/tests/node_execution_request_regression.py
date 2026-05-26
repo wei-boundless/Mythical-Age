@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from runtime.coordination_runtime.runtime import LangGraphCoordinationRuntimeResult
 from runtime.execution.node_execution_request import NodeExecutionRequest
-from runtime.unit_runtime.loop import _stable_stage_turn_id
+from runtime.graph_task_runtime.coordination_delivery import _stable_stage_turn_id
 
 
 def test_node_execution_request_builds_stable_boundary_payload() -> None:

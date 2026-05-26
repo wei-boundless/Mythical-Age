@@ -17,7 +17,7 @@ class HealthCommandService:
         self,
         payload: dict[str, Any],
         *,
-        task_run_loop: Any | None = None,
+        agent_runtime: Any | None = None,
         model_response_executor: Any | None = None,
         agent_runtime_chain: Any | None = None,
         runtime_context_manager: Any | None = None,
@@ -29,7 +29,7 @@ class HealthCommandService:
         try:
             return await self.handle_command(
                 command,
-                task_run_loop=task_run_loop,
+                agent_runtime=agent_runtime,
                 model_response_executor=model_response_executor,
                 agent_runtime_chain=agent_runtime_chain,
                 runtime_context_manager=runtime_context_manager,
@@ -59,7 +59,7 @@ class HealthCommandService:
         self,
         command: HealthManagementCommand,
         *,
-        task_run_loop: Any | None,
+        agent_runtime: Any | None,
         model_response_executor: Any | None,
         agent_runtime_chain: Any | None,
         runtime_context_manager: Any | None,
@@ -124,7 +124,7 @@ class HealthCommandService:
                 )
                 return self.registry._complete_command(command, receipt=receipt)
             if (
-                task_run_loop is None
+                agent_runtime is None
                 or model_response_executor is None
                 or agent_runtime_chain is None
                 or runtime_context_manager is None
@@ -156,7 +156,7 @@ class HealthCommandService:
                 health_action=admission.health_action,
                 session_id=command.conversation_session_ref or HEALTH_SESSION_ID,
                 source=command.source or "health_management_command",
-                task_run_loop=task_run_loop,
+                agent_runtime=agent_runtime,
                 model_response_executor=model_response_executor,
                 agent_runtime_chain=agent_runtime_chain,
                 runtime_context_manager=runtime_context_manager,

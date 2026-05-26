@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from runtime.professional_runtime.run_session import build_professional_run_session
+from runtime.agent_runtime.professional.run_session import build_professional_run_session
 from runtime.shared.resume_decision import decide_professional_run_resume, decide_runtime_resume
 
 

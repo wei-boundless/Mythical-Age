@@ -79,7 +79,7 @@ def build_professional_run_outcome(
         task_run_id=str(task_run_id or ""),
         task_id=str(task_id or ""),
         runtime_lane=str(runtime_lane or "professional_task"),
-        source="professional_runtime.completion_judgment",
+        source="agent_runtime.professional.completion_judgment",
         status=status,
         completed=completed,
         terminal_reason=str(terminal_reason or ""),

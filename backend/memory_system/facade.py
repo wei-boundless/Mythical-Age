@@ -8,6 +8,7 @@ from orchestration import BackgroundTaskManager
 from .bundle_service import MemoryBundleService
 from .conversation_memory import ConversationMemoryStoreAdapter
 from .durable import DurableMemoryLayer
+from .foreground_state import ForegroundContinuityStateStore
 from .governance_service import DurableMemoryGovernanceService
 from .long_term_memory import LongTermMemoryStoreAdapter
 from .maintenance_agent import MemoryMaintenanceAgent
@@ -25,6 +26,7 @@ class MemoryFacade:
         self._context_budget_provider = context_budget_provider
         self.adapter = MemoryMessageAdapter()
         self.session_memory = SessionMemoryLayer(base_dir, context_budget_provider=context_budget_provider)
+        self.foreground_state = ForegroundContinuityStateStore(self.session_memory.session_root)
         self.durable_memory = DurableMemoryLayer(base_dir)
         self.memory_manager = self.durable_memory.memory_manager
         self.maintenance_agent = MemoryMaintenanceAgent()
@@ -195,6 +197,12 @@ class MemoryFacade:
 
     def build_state_memory_restore_candidates(self, session_id: str):
         return self.bundle_service.build_state_memory_restore_candidates(session_id)
+
+    def load_foreground_continuity_state(self, session_id: str):
+        return self.foreground_state.load(session_id)
+
+    def save_foreground_continuity_state(self, **payload: Any):
+        return self.foreground_state.project_from_commit(**payload)
 
     def build_state_memory_context_candidates(self, session_id: str):
         return self.bundle_service.build_state_memory_context_candidates(session_id)

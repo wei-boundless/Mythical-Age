@@ -6,7 +6,7 @@ from typing import Any
 from task_system.compiler.coordination_graph_models import TaskGraphRuntimeEdge, TaskGraphRuntimeNode, TaskGraphRuntimeSpec
 from task_system.graphs.task_graph_models import TaskGraphDefinition, task_graph_from_dict
 
-from ..shared.models import (
+from .models import (
     AgentDispatchPlan,
     AgentDispatchRecord,
     CoordinationBarrierState,
@@ -14,15 +14,15 @@ from ..shared.models import (
 )
 
 
-def _compile_agent_dispatch_plan_from_graph_payload(
+def compile_agent_dispatch_plan_from_graph_payload(
     *,
     task_run_id: str,
     coordination_run_id: str,
     graph_payload: dict[str, Any],
     topology_template_payload: dict[str, Any],
 ) -> AgentDispatchPlan:
-    nodes = _dispatch_nodes_from_payload(graph_payload, topology_template_payload)
-    edges = _dispatch_edges_from_payload(graph_payload, topology_template_payload)
+    nodes = dispatch_nodes_from_payload(graph_payload, topology_template_payload)
+    edges = dispatch_edges_from_payload(graph_payload, topology_template_payload)
     upstream: dict[str, list[str]] = {}
     downstream: dict[str, list[str]] = {}
     for edge in edges:
@@ -144,7 +144,7 @@ def _compile_agent_dispatch_plan_from_graph_payload(
     )
 
 
-def _dispatch_graph_payload_from_task_graph_runtime_spec(
+def dispatch_graph_payload_from_task_graph_runtime_spec(
     *,
     graph: TaskGraphDefinition,
     runtime_spec: TaskGraphRuntimeSpec,
@@ -184,7 +184,7 @@ def _dispatch_graph_payload_from_task_graph_runtime_spec(
     }
 
 
-def _normalize_runtime_graph_payload(
+def normalize_runtime_graph_payload(
     *,
     raw_graph_payload: dict[str, Any],
     task_graph_payload: dict[str, Any],
@@ -200,10 +200,10 @@ def _normalize_runtime_graph_payload(
     runtime_policy = dict(task_graph.get("runtime_policy") or graph_payload.get("runtime_policy") or {})
     context_policy = dict(task_graph.get("context_policy") or graph_payload.get("context_policy") or {})
     working_memory_policy = dict(task_graph.get("working_memory_policy") or graph_payload.get("working_memory_policy") or {})
-    runtime_spec = _runtime_spec_from_payload(runtime_spec_payload) if runtime_spec_payload else None
+    runtime_spec = runtime_spec_from_payload(runtime_spec_payload) if runtime_spec_payload else None
     if runtime_spec is not None:
         graph_definition = task_graph_from_dict(task_graph) if task_graph else task_graph_from_dict(graph_payload)
-        return _dispatch_graph_payload_from_task_graph_runtime_spec(
+        return dispatch_graph_payload_from_task_graph_runtime_spec(
             graph=graph_definition,
             runtime_spec=runtime_spec,
         )
@@ -232,7 +232,7 @@ def _normalize_runtime_graph_payload(
     }
 
 
-def _runtime_spec_from_payload(payload: dict[str, Any]) -> TaskGraphRuntimeSpec | None:
+def runtime_spec_from_payload(payload: dict[str, Any]) -> TaskGraphRuntimeSpec | None:
     if not payload:
         return None
     try:
@@ -256,12 +256,12 @@ def _runtime_spec_from_payload(payload: dict[str, Any]) -> TaskGraphRuntimeSpec 
             communication_modes=tuple(str(item) for item in list(payload.get("communication_modes") or []) if str(item)),
             start_node_ids=tuple(str(item) for item in list(payload.get("start_node_ids") or []) if str(item)),
             terminal_node_ids=tuple(str(item) for item in list(payload.get("terminal_node_ids") or []) if str(item)),
-            resource_nodes=_dict_tuple(payload.get("resource_nodes")),
-            temporal_edges=_dict_tuple(payload.get("temporal_edges")),
-            memory_edges=_dict_tuple(payload.get("memory_edges")),
-            artifact_context_edges=_dict_tuple(payload.get("artifact_context_edges")),
-            revision_edges=_dict_tuple(payload.get("revision_edges")),
-            loop_frames=_dict_tuple(payload.get("loop_frames")),
+            resource_nodes=dict_tuple(payload.get("resource_nodes")),
+            temporal_edges=dict_tuple(payload.get("temporal_edges")),
+            memory_edges=dict_tuple(payload.get("memory_edges")),
+            artifact_context_edges=dict_tuple(payload.get("artifact_context_edges")),
+            revision_edges=dict_tuple(payload.get("revision_edges")),
+            loop_frames=dict_tuple(payload.get("loop_frames")),
             memory_matrix=dict(payload.get("memory_matrix") or {}),
             diagnostics=dict(payload.get("diagnostics") or {}),
         )
@@ -269,7 +269,7 @@ def _runtime_spec_from_payload(payload: dict[str, Any]) -> TaskGraphRuntimeSpec 
         return None
 
 
-def _dispatch_nodes_from_payload(graph_payload: dict[str, Any], topology_template_payload: dict[str, Any]) -> list[dict[str, Any]]:
+def dispatch_nodes_from_payload(graph_payload: dict[str, Any], topology_template_payload: dict[str, Any]) -> list[dict[str, Any]]:
     candidates = (
         graph_payload.get("graph_nodes"),
         topology_template_payload.get("nodes"),
@@ -282,11 +282,11 @@ def _dispatch_nodes_from_payload(graph_payload: dict[str, Any], topology_templat
     return []
 
 
-def _dict_tuple(value: Any) -> tuple[dict[str, Any], ...]:
+def dict_tuple(value: Any) -> tuple[dict[str, Any], ...]:
     return tuple(dict(item) for item in list(value or []) if isinstance(item, dict))
 
 
-def _dispatch_edges_from_payload(graph_payload: dict[str, Any], topology_template_payload: dict[str, Any]) -> list[dict[str, Any]]:
+def dispatch_edges_from_payload(graph_payload: dict[str, Any], topology_template_payload: dict[str, Any]) -> list[dict[str, Any]]:
     candidates = (
         graph_payload.get("graph_edges"),
         topology_template_payload.get("edges"),
@@ -297,3 +297,12 @@ def _dispatch_edges_from_payload(graph_payload: dict[str, Any], topology_templat
         if edges:
             return edges
     return []
+
+
+_compile_agent_dispatch_plan_from_graph_payload = compile_agent_dispatch_plan_from_graph_payload
+_dispatch_graph_payload_from_task_graph_runtime_spec = dispatch_graph_payload_from_task_graph_runtime_spec
+_normalize_runtime_graph_payload = normalize_runtime_graph_payload
+_runtime_spec_from_payload = runtime_spec_from_payload
+_dispatch_nodes_from_payload = dispatch_nodes_from_payload
+_dict_tuple = dict_tuple
+_dispatch_edges_from_payload = dispatch_edges_from_payload

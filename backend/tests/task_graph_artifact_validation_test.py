@@ -7,11 +7,11 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from runtime.unit_runtime.loop import _validate_required_artifact_file
+from runtime.shared.artifact_paths import validate_required_artifact_file
 
 
 def test_task_graph_artifact_policy_requires_final_content(tmp_path: Path) -> None:
-    validation = _validate_required_artifact_file(
+    validation = validate_required_artifact_file(
         root_dir=tmp_path,
         selected_recipe_payload={"validation_rules": []},
         artifact_policy={
@@ -37,7 +37,7 @@ def test_task_graph_artifact_policy_requires_final_content(tmp_path: Path) -> No
 
 
 def test_task_graph_artifact_policy_accepts_non_empty_materializable_content(tmp_path: Path) -> None:
-    validation = _validate_required_artifact_file(
+    validation = validate_required_artifact_file(
         root_dir=tmp_path,
         selected_recipe_payload={"validation_rules": []},
         artifact_policy={

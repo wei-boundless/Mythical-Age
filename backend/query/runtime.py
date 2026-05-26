@@ -9,7 +9,15 @@ from evidence import EvidenceOrchestrator, PDFWorker, RetrievalWorker, Structure
 from evidence.output_policy import RAGEvidenceOutputPolicy
 from observability import build_debug_trace_event, start_turn_trace
 from context_system import RuntimeContextManager
-from runtime import ModelResponseRuntimeExecutor, ModelRuntimeError, TaskRunLoop, ToolRuntimeExecutor
+from runtime import (
+    AgentRunRequest,
+    AgentRuntime,
+    GraphTaskRuntime,
+    ModelResponseRuntimeExecutor,
+    ModelRuntimeError,
+    ToolRuntimeExecutor,
+)
+from runtime.unit_runtime.loop import TaskRunLoop
 from runtime.shared.history_assembler import assemble_runtime_history
 from agent_system.assembly.runtime_chain import AgentRuntimeChainAssembler
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
@@ -35,12 +43,12 @@ logger = logging.getLogger(__name__)
 
 
 class QueryRuntime:
-    """Thin API adapter for the new single-agent runtime chain.
+    """Thin API adapter for the agent runtime chain.
 
     The old query layer used to own planning, tool routing, worker orchestration,
     follow-up execution, context restore, and writeback. Those responsibilities
     are intentionally gone from this class. QueryRuntime now only accepts API
-    input, emits stream events, and calls the admitted single-agent runtime lane.
+    input, emits stream events, and calls the admitted agent runtime lane.
     """
 
     def __init__(
@@ -98,13 +106,20 @@ class QueryRuntime:
                 settings_service=settings_service,
             ),
         )
+        self.agent_runtime = AgentRuntime(task_run_loop=self.task_run_loop)
+        self.task_run_loop.agent_runtime = self.agent_runtime
+        self.graph_task_runtime = GraphTaskRuntime(
+            task_run_loop=self.task_run_loop,
+            agent_runtime=self.agent_runtime,
+        )
         self.task_order_registry = TaskOrderRegistry(self.task_run_loop.state_index)
         self.task_intent_decision_service = TaskIntentDecisionService()
         self.task_order_factory = TaskOrderFactory()
 
         self.runtime_components = {
             "query_runtime": "adapter_only",
-            "single_agent_runtime": "active",
+            "agent_runtime": "active",
+            "graph_task_runtime": "active",
             "evidence_orchestrator": "active" if retrieval_enabled else "disabled_missing_retrieval_service",
         }
 
@@ -232,46 +247,48 @@ class QueryRuntime:
                     task_order_creation=task_order_creation,
                     turn_id=turn_id,
                 )
-                async for event in self.task_run_loop.run_single_agent_stream(
-                    session_id=request.session_id,
-                    task_id=task_id,
-                    user_message=request.message,
-                    history=history,
-                    source="query_runtime.adapter",
-                    agent_runtime_chain=self.agent_runtime_chain,
-                    model_response_executor=self.model_response_executor,
-                    runtime_context_manager=self.runtime_context_manager,
-                    memory_intent=memory_intent,
-                    task_selection=runtime_task_selection,
-                    task_order_ref=(
-                        task_order_creation.order.to_dict()
-                        if task_order_creation.order is not None
-                        else None
-                    ),
-                    task_order_run_ref=(
-                        task_order_creation.order_run.to_dict()
-                        if task_order_creation.order_run is not None
-                        else None
-                    ),
-                    execution_channel_ref=(
-                        task_order_creation.execution_channel.to_dict()
-                        if task_order_creation.execution_channel is not None
-                        else None
-                    ),
-                    task_execution_envelope_ref=(
-                        task_order_creation.envelope.to_dict()
-                        if task_order_creation.envelope is not None
-                        else None
-                    ),
-                    assistant_message_committer=lambda payload: self._apply_assistant_message_commit_async(
-                        request.session_id,
-                        {**dict(payload or {}), "turn_id": turn_id},
-                    ),
-                    tool_runtime_executor=self.tool_runtime_executor,
-                    tool_instances=self._all_tool_instances(),
-                    agent_runtime_profile=agent_runtime_profile,
-                    search_policy=list(request.search_policy) if request.search_policy is not None else None,
-                    model_selection=dict(request.model_selection or {}),
+                async for event in self.agent_runtime.run_stream(
+                    AgentRunRequest(
+                        session_id=request.session_id,
+                        task_id=task_id,
+                        user_message=request.message,
+                        history=history,
+                        source="query_runtime.adapter",
+                        agent_runtime_chain=self.agent_runtime_chain,
+                        model_response_executor=self.model_response_executor,
+                        runtime_context_manager=self.runtime_context_manager,
+                        memory_intent=memory_intent,
+                        task_selection=runtime_task_selection,
+                        task_order_ref=(
+                            task_order_creation.order.to_dict()
+                            if task_order_creation.order is not None
+                            else None
+                        ),
+                        task_order_run_ref=(
+                            task_order_creation.order_run.to_dict()
+                            if task_order_creation.order_run is not None
+                            else None
+                        ),
+                        execution_channel_ref=(
+                            task_order_creation.execution_channel.to_dict()
+                            if task_order_creation.execution_channel is not None
+                            else None
+                        ),
+                        task_execution_envelope_ref=(
+                            task_order_creation.envelope.to_dict()
+                            if task_order_creation.envelope is not None
+                            else None
+                        ),
+                        assistant_message_committer=lambda payload: self._apply_assistant_message_commit_async(
+                            request.session_id,
+                            {**dict(payload or {}), "turn_id": turn_id},
+                        ),
+                        tool_runtime_executor=self.tool_runtime_executor,
+                        tool_instances=self._all_tool_instances(),
+                        agent_runtime_profile=agent_runtime_profile,
+                        search_policy=list(request.search_policy) if request.search_policy is not None else None,
+                        model_selection=dict(request.model_selection or {}),
+                    )
                 ):
                     if (
                         event.get("type") == "runtime_loop_started"

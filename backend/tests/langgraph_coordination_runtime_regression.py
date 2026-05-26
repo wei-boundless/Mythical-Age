@@ -25,7 +25,7 @@ from runtime.coordination_runtime.context_packet_resolver import resolve_artifac
 from runtime.shared.models import CoordinationRun, TaskRun
 from runtime.execution.node_execution_request import NodeResultReadyEvent
 from runtime.memory.state_index import RuntimeStateIndex
-from runtime.unit_runtime.loop import _render_standard_input_package_for_model
+from runtime.graph_task_runtime.coordination_delivery import _render_standard_input_package_for_model
 from task_system import TaskContractRegistry
 from task_system.registry.flow_models import CoordinationTaskDefinition, SpecificTaskRecord, TaskCommunicationProtocol, TopologyTemplate
 from task_system.graphs.task_graph_models import TaskGraphDefinition, TaskGraphEdgeDefinition, TaskGraphNodeDefinition

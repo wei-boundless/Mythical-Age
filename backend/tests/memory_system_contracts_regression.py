@@ -106,6 +106,57 @@ def test_state_memory_rejects_path_traversal_session_id(tmp_path) -> None:
         raise AssertionError("StateMemoryStoreAdapter accepted an unsafe session id")
 
 
+def test_session_memory_layer_rejects_path_traversal_session_id(tmp_path) -> None:
+    facade = MemoryFacade(tmp_path)
+
+    for call in (facade.session_memory.manager, facade.session_memory.session_dir):
+        try:
+            call("../outside")
+        except ValueError as exc:
+            assert "Invalid session_id" in str(exc)
+        else:
+            raise AssertionError("SessionMemoryLayer accepted an unsafe session id")
+
+
+def test_foreground_continuity_state_is_immediately_available_without_runtime_wiring(tmp_path) -> None:
+    facade = MemoryFacade(tmp_path)
+
+    state = facade.save_foreground_continuity_state(
+        session_id="session-foreground",
+        turn_id="turn:1",
+        main_context={"active_goal": "继续分析库存表", "active_dataset": "data/inventory.csv"},
+        task_summary_refs=[{"query": "分析库存表", "summary": "缺货集中在 A 仓。"}],
+        bundle_summary_refs=[{"ordinal": 2, "task_id": "task:2", "summary": "第二项已完成"}],
+    )
+    loaded = facade.load_foreground_continuity_state("session-foreground")
+
+    assert state.active_goal == "继续分析库存表"
+    assert loaded is not None
+    assert loaded.active_bindings["active_dataset"] == "data/inventory.csv"
+    assert "缺货集中在 A 仓。" in loaded.latest_result_refs
+    assert loaded.bundle_result_refs[0]["ordinal"] == 2
+
+
+def test_session_memory_task_switch_resets_warm_context_for_new_domain(tmp_path) -> None:
+    manager = SessionMemoryManager(tmp_path / "session-switch")
+    manager.state_manager.overwrite(
+        ProcessState(
+            active_goal="阅读 PDF 报告",
+            context_slots=ContextSlots(active_pdf="docs/report.pdf"),
+            warm_context=["上一轮 PDF 结论"],
+            key_results=["PDF 结论"],
+        )
+    )
+
+    state = manager.update_runtime_state_from_context_state(
+        {"active_goal": "现在做代码重构"},
+        task_summaries=[],
+    )
+
+    assert state.active_goal == "现在做代码重构"
+    assert any("上一阶段目标" in item for item in state.warm_context)
+
+
 def test_conversation_memory_adapter_excludes_state_sections(tmp_path) -> None:
     session_id = "session-e"
     manager = SessionMemoryManager(tmp_path / session_id)
@@ -315,6 +366,32 @@ _Current-turn outputs, conclusions, or artifacts that remain active._
     assert requested_view.state_snapshot.context_slots["active_constraints"]["subset_labels"] == ["Alice", "Bob"]
     assert all(candidate.authority == "candidate_only" for candidate in requested_view.restore_candidates)
     assert requested_view.diagnostics["state_read_requested"] is True
+    assert requested_view.long_term_records == ()
+    assert requested_view.diagnostics["long_term_records_prompt_visible"] is False
+
+
+def test_long_term_records_are_not_prompt_visible_even_when_long_term_requested(tmp_path) -> None:
+    facade = MemoryFacade(tmp_path)
+    facade.memory_manager.save_note(
+        MemoryNote(
+            slug="project-memory-policy",
+            title="项目记忆政策",
+            summary="长期记忆只作为召回候选。",
+            canonical_statement="长期记忆记录不能直接注入 prompt。",
+            body="只有召回候选可以进入上下文。",
+            memory_type="project",
+            memory_class="work",
+        )
+    )
+
+    view = facade.build_memory_runtime_view(
+        session_id="session-long-term-records",
+        query="无关问题",
+        memory_request_profile={"requested_memory_layers": ["long_term"], "allow_long_term_memory": True},
+    )
+
+    assert view.long_term_records == ()
+    assert view.diagnostics["long_term_records_policy"] == "diagnostics_or_management_only"
 
 
 def test_memory_runtime_view_collects_conversation_only_when_requested(tmp_path) -> None:

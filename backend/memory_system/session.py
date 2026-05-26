@@ -8,6 +8,7 @@ from context_system import ContextController
 from context_system.budget.presets import get_context_budget_preset
 from project_layout import ProjectLayout
 from .compat_types import Message, SessionMemoryManager
+from .paths import safe_session_dir
 
 
 class SessionMemoryLayer:
@@ -18,17 +19,14 @@ class SessionMemoryLayer:
         self.session_root.mkdir(parents=True, exist_ok=True)
 
     def session_dir(self, session_id: str) -> Path:
-        return self.session_root / session_id
+        return safe_session_dir(self.session_root, session_id)
 
     def delete_session(self, session_id: str) -> bool:
         normalized = str(session_id or "").strip()
         if not normalized:
             return False
 
-        root = self.session_root.resolve()
-        target = (self.session_root / normalized).resolve()
-        if target == root or root not in target.parents:
-            raise ValueError("Invalid session_id")
+        target = safe_session_dir(self.session_root, normalized)
         if not target.exists():
             return True
         if not target.is_dir():

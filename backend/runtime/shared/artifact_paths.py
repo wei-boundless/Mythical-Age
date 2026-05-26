@@ -3,7 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-def _validate_required_artifact_file(
+
+def validate_required_artifact_file(
     *,
     root_dir: Path,
     selected_recipe_payload: dict[str, Any],
@@ -41,7 +42,7 @@ def _validate_required_artifact_file(
             "required": False,
             "reason": "no artifact_file_required validation rule",
         }
-    successful_writes = _successful_write_file_paths(root_dir=root_dir, event_log_events=event_log_events)
+    successful_writes = successful_write_file_paths(root_dir=root_dir, event_log_events=event_log_events)
     existing_writes = [item for item in successful_writes if Path(item["absolute_path"]).exists()]
     passed = bool(existing_writes)
     return {
@@ -57,42 +58,12 @@ def _validate_required_artifact_file(
     }
 
 
-def _artifact_policy_requires_materialized_content(policy: dict[str, Any]) -> bool:
-    artifact_policy = dict(policy or {})
-    if not artifact_policy:
-        return False
-    if artifact_policy.get("enabled") is False:
-        return False
-    specs = [dict(item) for item in list(artifact_policy.get("artifacts") or []) if isinstance(item, dict)]
-    if specs:
-        return any(dict(item).get("required", True) is not False for item in specs)
-    if artifact_policy.get("required") is False:
-        return False
-    return bool(str(artifact_policy.get("artifact_target") or artifact_policy.get("output_path") or "").strip())
-
-
-def _artifact_policy_target_paths(policy: dict[str, Any]) -> list[str]:
-    artifact_policy = dict(policy or {})
-    targets: list[str] = []
-    for item in list(artifact_policy.get("artifacts") or []):
-        if not isinstance(item, dict):
-            continue
-        path = str(item.get("path") or "").strip()
-        if path and path not in targets:
-            targets.append(path)
-    for key in ("artifact_target", "output_path"):
-        path = str(artifact_policy.get(key) or "").strip()
-        if path and path not in targets:
-            targets.append(path)
-    return targets
-
-
-def _successful_write_file_paths(
+def successful_write_file_paths(
     *,
     root_dir: Path,
     event_log_events: list[dict[str, Any]],
 ) -> list[dict[str, str]]:
-    workspace_root = _workspace_root_from_runtime_root(root_dir)
+    workspace_root = workspace_root_from_runtime_root(root_dir)
     artifacts: list[dict[str, str]] = []
     for raw_event in event_log_events:
         event = _unwrap_runtime_event(raw_event)
@@ -134,7 +105,7 @@ def _successful_write_file_paths(
     return list(unique.values())
 
 
-def _workspace_root_from_runtime_root(root_dir: Path) -> Path:
+def workspace_root_from_runtime_root(root_dir: Path) -> Path:
     root = Path(root_dir).resolve()
     if root.name == "backend" and root.parent.exists():
         return root.parent.resolve()
@@ -145,15 +116,44 @@ def _workspace_root_from_runtime_root(root_dir: Path) -> Path:
     return root
 
 
-def _artifact_repository_root_for_loop(root_dir: Path) -> Path:
+def artifact_repository_root_for_loop(root_dir: Path) -> Path:
     runtime_root = Path(root_dir).resolve()
     if runtime_root.name == "runtime_state":
         return runtime_root.parent / "artifact_repository"
     return runtime_root / "artifact_repository"
 
 
+def _artifact_policy_requires_materialized_content(policy: dict[str, Any]) -> bool:
+    artifact_policy = dict(policy or {})
+    if not artifact_policy:
+        return False
+    if artifact_policy.get("enabled") is False:
+        return False
+    specs = [dict(item) for item in list(artifact_policy.get("artifacts") or []) if isinstance(item, dict)]
+    if specs:
+        return any(dict(item).get("required", True) is not False for item in specs)
+    if artifact_policy.get("required") is False:
+        return False
+    return bool(str(artifact_policy.get("artifact_target") or artifact_policy.get("output_path") or "").strip())
+
+
+def _artifact_policy_target_paths(policy: dict[str, Any]) -> list[str]:
+    artifact_policy = dict(policy or {})
+    targets: list[str] = []
+    for item in list(artifact_policy.get("artifacts") or []):
+        if not isinstance(item, dict):
+            continue
+        path = str(item.get("path") or "").strip()
+        if path and path not in targets:
+            targets.append(path)
+    for key in ("artifact_target", "output_path"):
+        path = str(artifact_policy.get(key) or "").strip()
+        if path and path not in targets:
+            targets.append(path)
+    return targets
+
+
 def _unwrap_runtime_event(event: dict[str, Any]) -> dict[str, Any]:
-    """Accept both ledger JSONL events and exported runtime_loop_event wrappers."""
     payload = dict(event or {})
     wrapped_event = payload.get("event")
     if isinstance(wrapped_event, dict) and wrapped_event.get("event_type"):

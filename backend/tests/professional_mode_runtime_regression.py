@@ -55,7 +55,7 @@ def test_professional_mode_recipe_uses_new_runtime_names() -> None:
 
     assert shape["recipe_id"] == "runtime.recipe.professional_task"
     assert shape["execution_kind"] == "professional_mode"
-    assert metadata["runtime_driver"] == "professional_task_run"
+    assert "control_runner" not in metadata
     assert metadata["interaction_mode"] == "professional_mode"
     assert metadata["runtime_lane_hint"] == "professional_task"
     assert metadata["task_requirement_contract"]["task_goal_type"] == "test_report_triage"

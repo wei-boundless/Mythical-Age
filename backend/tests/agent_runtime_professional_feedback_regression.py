@@ -8,15 +8,15 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from runtime.memory.tool_observation_ledger import ToolObservationLedger
-from runtime.professional_runtime.action_gate import ActionGateDecision
-from runtime.professional_runtime.action_gate import decide_next_action_gate
-from runtime.professional_runtime.driver import (
+from runtime.agent_runtime.professional.action_gate import ActionGateDecision
+from runtime.agent_runtime.professional.action_gate import decide_next_action_gate
+from runtime.agent_runtime.professional_control import (
     _delivery_budget_remaining,
     _round_tool_call_limit_for_gate,
     _runtime_feedback_payload,
 )
-from runtime.professional_runtime.goal_contract import ProfessionalTaskGoalContract
-from runtime.professional_runtime.deliverable_progress import build_deliverable_progress
+from runtime.agent_runtime.professional.goal_contract import ProfessionalTaskGoalContract
+from runtime.agent_runtime.professional.deliverable_progress import build_deliverable_progress
 
 
 def _goal_contract() -> ProfessionalTaskGoalContract:
@@ -80,7 +80,7 @@ def test_runtime_feedback_payload_is_actionable_for_agent_repair() -> None:
         repair_instruction="先定位并读取缺失材料；如果路径不存在，使用 path_exists/list_dir/search_files 恢复路径。",
     )
 
-    assert feedback["authority"] == "professional_runtime.runtime_feedback"
+    assert feedback["authority"] == "agent_runtime.professional.runtime_feedback"
     assert feedback["requested_tool"] == "write_file"
     assert "read_file" in feedback["allowed_tool_names"]
     assert "path_exists" in feedback["allowed_tool_names"]

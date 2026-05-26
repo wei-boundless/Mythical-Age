@@ -8,7 +8,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from runtime.capabilities import CurrentTurnCapabilityPlan
-from runtime.unit_runtime.tool_capability_policy import (
+from runtime.agent_runtime.environment.tool_capability_policy import (
     apply_tool_capability_table_to_turn_plan,
     prepare_runtime_tool_capability_table_for_turn,
 )

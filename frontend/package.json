@@ -26,12 +26,13 @@
     "tailwind-merge": "^3.3.0"
   },
   "devDependencies": {
+    "@playwright/mcp": "^0.0.75",
     "@types/node": "^22.13.10",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "autoprefixer": "^10.4.20",
-    "eslint": "^8.57.1",
     "electron": "^31.7.7",
+    "eslint": "^8.57.1",
     "eslint-config-next": "14.2.32",
     "playwright": "^1.59.1",
     "postcss": "^8.5.3",

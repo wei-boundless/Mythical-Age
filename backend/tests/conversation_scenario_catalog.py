@@ -286,7 +286,7 @@ SCENARIOS: tuple[ConversationScenario, ...] = (
             "runtime event runtime_sandbox_prepared",
         ),
         related_regressions=(
-            "backend/tests/professional_task_run_regression.py",
+            "backend/tests/agent_runtime_professional_control_regression.py",
             "backend/tests/system_eval/long_scenarios_regression.py",
         ),
         turns=(

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from runtime import TaskRunLoop
+from runtime.unit_runtime.loop import TaskRunLoop
 from runtime.execution.node_execution_request import NodeResultReadyEvent
 from runtime.graph_runtime.batch_runtime import (
     bootstrap_batch_lifecycle_runtime_state,

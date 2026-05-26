@@ -12,6 +12,7 @@ if str(BACKEND_DIR) not in sys.path:
 from query import QueryRuntime
 from query.models import QueryRequest
 from query.runtime import _task_selection_for_runtime
+from runtime import AgentRunRequest
 from runtime.agent_assembly import NodeWorkOrder, build_agent_invocation
 from runtime.unit_runtime.finalizer import FinishedTaskRunResult
 from task_system import TaskFlowRegistry
@@ -70,7 +71,7 @@ def _main_agent_mode_task_selection(
         "recipe_id": recipe_id,
     }
     if professional:
-        mode_policy["execution_strategy"] = "professional_task_run"
+        mode_policy["execution_strategy"] = "interaction_mode_run"
     return {
         "agent_id": "agent:0",
         "agent_profile_id": "main_interactive_agent",
@@ -107,7 +108,7 @@ def test_astream_specific_light_web_game_task_can_write_new_file(tmp_path: Path)
     )
 
 
-def test_run_single_agent_stream_emits_stream_delta_once() -> None:
+def test_agent_runtime_emits_stream_delta_once() -> None:
     runtime = QueryRuntime(
         base_dir=isolated_backend_root("query-runtime-stream-dedup-"),
         settings_service=PrimarySettingsStub(),
@@ -122,21 +123,23 @@ def test_run_single_agent_stream_emits_stream_delta_once() -> None:
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
-        async for event in runtime.task_run_loop.run_single_agent_stream(
-            session_id="session-stream-dedup",
-            task_id="taskinst:session-stream-dedup:general",
-            user_message="请流式回答。",
-            history=[],
-            source="regression",
-            agent_runtime_chain=runtime.agent_runtime_chain,
-            model_response_executor=runtime.model_response_executor,
-            runtime_context_manager=runtime.runtime_context_manager,
-            task_selection={
-                "turn_id": "turn:session-stream-dedup:1",
-                "stream_policy": {"enabled": True, "mode": "model_text_stream"},
-            },
-            tool_runtime_executor=runtime.tool_runtime_executor,
-            tool_instances=runtime._all_tool_instances(),
+        async for event in runtime.agent_runtime.run_stream(
+            AgentRunRequest(
+                session_id="session-stream-dedup",
+                task_id="taskinst:session-stream-dedup:general",
+                user_message="请流式回答。",
+                history=[],
+                source="regression",
+                agent_runtime_chain=runtime.agent_runtime_chain,
+                model_response_executor=runtime.model_response_executor,
+                runtime_context_manager=runtime.runtime_context_manager,
+                task_selection={
+                    "turn_id": "turn:session-stream-dedup:1",
+                    "stream_policy": {"enabled": True, "mode": "model_text_stream"},
+                },
+                tool_runtime_executor=runtime.tool_runtime_executor,
+                tool_instances=runtime._all_tool_instances(),
+            )
         ):
             events.append(event)
         return events
@@ -173,15 +176,15 @@ def test_query_runtime_assembles_compressed_context_before_model_history() -> No
     )
 
     captured_history: list[dict[str, object]] = []
-    original_run = runtime.task_run_loop.run_single_agent_stream
+    original_run = runtime.agent_runtime.run_stream
 
-    async def _capture(**kwargs):
-        captured_history.extend(list(kwargs.get("history") or []))
+    async def _capture(request: AgentRunRequest):
+        captured_history.extend(list(request.history or []))
         if False:
             yield {}
         return
 
-    runtime.task_run_loop.run_single_agent_stream = _capture  # type: ignore[method-assign]
+    runtime.agent_runtime.run_stream = _capture  # type: ignore[method-assign]
 
     async def _collect() -> None:
         async for _event in runtime.astream(
@@ -196,7 +199,7 @@ def test_query_runtime_assembles_compressed_context_before_model_history() -> No
     try:
         asyncio.run(_collect())
     finally:
-        runtime.task_run_loop.run_single_agent_stream = original_run  # type: ignore[method-assign]
+        runtime.agent_runtime.run_stream = original_run  # type: ignore[method-assign]
 
     assert captured_history[0]["role"] == "assistant"
     assert "旧历史已经压缩为项目审查摘要" in str(captured_history[0]["content"])
@@ -335,18 +338,20 @@ def test_removed_health_task_selection_falls_back_to_general_runtime() -> None:
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
-        async for event in runtime.task_run_loop.run_single_agent_stream(
-            session_id="session-health-task-config",
-            task_id="taskinst:session-health-task-config:health",
-            user_message="请分诊这个健康问题。",
-            history=[],
-            source="regression",
-            agent_runtime_chain=runtime.agent_runtime_chain,
-            model_response_executor=runtime.model_response_executor,
-            runtime_context_manager=runtime.runtime_context_manager,
-            task_selection={"selected_task_id": "task.health.issue_triage"},
-            tool_runtime_executor=runtime.tool_runtime_executor,
-            tool_instances=runtime._all_tool_instances(),
+        async for event in runtime.agent_runtime.run_stream(
+            AgentRunRequest(
+                session_id="session-health-task-config",
+                task_id="taskinst:session-health-task-config:health",
+                user_message="请分诊这个健康问题。",
+                history=[],
+                source="regression",
+                agent_runtime_chain=runtime.agent_runtime_chain,
+                model_response_executor=runtime.model_response_executor,
+                runtime_context_manager=runtime.runtime_context_manager,
+                task_selection={"selected_task_id": "task.health.issue_triage"},
+                tool_runtime_executor=runtime.tool_runtime_executor,
+                tool_instances=runtime._all_tool_instances(),
+            )
         ):
             events.append(event)
         return events
@@ -392,24 +397,26 @@ def test_graph_node_assembly_contract_overrides_stale_task_selection_agent() -> 
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
-        async for event in runtime.task_run_loop.run_single_agent_stream(
-            session_id="session-assembly-authority",
-            task_id="taskinst:session-assembly-authority:triage",
-            user_message="请分诊这个健康问题。",
-            history=[],
-            source="regression",
-            agent_runtime_chain=runtime.agent_runtime_chain,
-            model_response_executor=runtime.model_response_executor,
-            runtime_context_manager=runtime.runtime_context_manager,
-            task_selection={
-                "selected_task_id": "task.dev.light_web_game",
-                "agent_id": "agent:pdf_reader",
-                "agent_profile_id": "pdf_analysis_agent",
-                "runtime_lane": "pdf_delegate",
-                "agent_invocation": invocation,
-            },
-            tool_runtime_executor=runtime.tool_runtime_executor,
-            tool_instances=runtime._all_tool_instances(),
+        async for event in runtime.agent_runtime.run_stream(
+            AgentRunRequest(
+                session_id="session-assembly-authority",
+                task_id="taskinst:session-assembly-authority:triage",
+                user_message="请分诊这个健康问题。",
+                history=[],
+                source="regression",
+                agent_runtime_chain=runtime.agent_runtime_chain,
+                model_response_executor=runtime.model_response_executor,
+                runtime_context_manager=runtime.runtime_context_manager,
+                task_selection={
+                    "selected_task_id": "task.dev.light_web_game",
+                    "agent_id": "agent:pdf_reader",
+                    "agent_profile_id": "pdf_analysis_agent",
+                    "runtime_lane": "pdf_delegate",
+                    "agent_invocation": invocation,
+                },
+                tool_runtime_executor=runtime.tool_runtime_executor,
+                tool_instances=runtime._all_tool_instances(),
+            )
         ):
             events.append(event)
         return events
@@ -487,6 +494,8 @@ def test_main_agent_assembly_modes_select_expected_runtime_lanes() -> None:
         selected_recipe = dict(payload.get("selected_recipe") or {})
         selected_metadata = dict(selected_recipe.get("metadata") or {})
         mode_policy = dict(selected_metadata.get("mode_policy") or {})
+        agent_runtime_config = dict(payload.get("agent_runtime_config") or {})
+        control_policy = dict(agent_runtime_config.get("control_policy") or {})
 
         assert task_run["agent_id"] == "agent:0"
         assert task_run["agent_profile_id"] == "main_interactive_agent"
@@ -500,8 +509,55 @@ def test_main_agent_assembly_modes_select_expected_runtime_lanes() -> None:
         assert selected_recipe["recipe_id"] == recipe_id
         assert mode_policy["interaction_mode"] == interaction_mode
         assert mode_policy["runtime_lane"] == runtime_lane
+        assert dict(agent_runtime_config.get("mode_policy") or {}).get("interaction_mode") == interaction_mode
         if mode == "professional":
             assert selected_recipe["execution_kind"] == interaction_mode
+            assert control_policy["planning_required"] is True
+            assert agent_runtime_config["enabled_phases"] == [
+                "planning",
+                "model_turn",
+                "tool_followup",
+                "evidence",
+                "verification",
+                "closeout",
+            ]
+        else:
+            assert control_policy["planning_required"] is False
+            assert agent_runtime_config["enabled_phases"] == ["model_turn", "tool_followup"]
+
+
+def test_query_runtime_enters_agent_runtime_boundary_before_legacy_loop() -> None:
+    runtime = _build_stream_runtime()
+    captured: list[AgentRunRequest] = []
+    original_run = runtime.agent_runtime.run_stream
+
+    async def _capture(request: AgentRunRequest):
+        captured.append(request)
+        if False:
+            yield {}
+        return
+
+    runtime.agent_runtime.run_stream = _capture  # type: ignore[method-assign]
+
+    async def _collect() -> None:
+        async for _event in runtime.astream(
+            QueryRequest(
+                session_id="session-agent-runtime-boundary",
+                message="请确认 runtime 边界。",
+                history=[],
+            )
+        ):
+            pass
+
+    try:
+        asyncio.run(_collect())
+    finally:
+        runtime.agent_runtime.run_stream = original_run  # type: ignore[method-assign]
+
+    assert len(captured) == 1
+    assert isinstance(captured[0], AgentRunRequest)
+    assert captured[0].source == "query_runtime.adapter"
+    assert captured[0].task_selection is not None
 
 
 def test_runtime_trace_exposes_worker_spawn_trace_for_light_web_game(tmp_path: Path) -> None:
@@ -637,10 +693,9 @@ def test_terminal_state_index_failure_still_yields_done() -> None:
     assert dict(done_event.get("runtime_state_index") or {})["phase"] == "finished_task_run_state_write"
 
 
-def test_coordination_continuation_is_consumed_before_terminal_done() -> None:
+def test_agent_runtime_reports_coordination_continuation_without_running_graph_stage() -> None:
     runtime = _build_stream_runtime()
     original_upsert = runtime.task_run_loop.task_run_finalizer.upsert_finished_task_run
-    continuation_called = False
 
     def _upsert_with_continuation(*args, **kwargs):
         finished = original_upsert(*args, **kwargs)
@@ -652,13 +707,7 @@ def test_coordination_continuation_is_consumed_before_terminal_done() -> None:
             },
         )
 
-    async def _continuation_stream(**_kwargs):
-        nonlocal continuation_called
-        continuation_called = True
-        yield {"type": "content_delta", "content": "后续节点已调度"}
-
     runtime.task_run_loop.task_run_finalizer.upsert_finished_task_run = _upsert_with_continuation  # type: ignore[method-assign]
-    runtime.task_run_loop._continue_coordination_delivery_stream = _continuation_stream  # type: ignore[method-assign]
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
@@ -674,10 +723,12 @@ def test_coordination_continuation_is_consumed_before_terminal_done() -> None:
 
     events = asyncio.run(_collect())
 
-    assert continuation_called is True
-    assert events[-1].get("type") == "content_delta"
-    assert events[-1].get("content") == "后续节点已调度"
-    assert not any(event.get("type") == "done" and event.get("content") == "单轮收口回答" for event in events)
+    assert events[-1].get("type") == "done"
+    assert events[-1].get("content") == "单轮收口回答"
+    continuation = dict(events[-1].get("coordination_continuation") or {})
+    assert continuation["next_task_ref"] == "task.dev.followup"
+    assert continuation["message"] == "继续执行后续节点。"
+    assert dict(events[-1].get("output_commit") or {})["coordination_continuation_ready"] is True
 
 
 def test_assistant_commit_enqueues_memory_maintenance_without_waiting(tmp_path: Path) -> None:

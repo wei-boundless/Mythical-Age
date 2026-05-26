@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from project_layout import ProjectLayout
+from runtime.agent_runtime import AgentRunRequest
 
 from .command_builder import HealthCommandBuilder
 from .command_service import HealthCommandService
@@ -194,7 +195,7 @@ class HealthRegistry:
         session_id: str,
         payload: dict[str, Any],
         *,
-        task_run_loop: Any,
+        agent_runtime: Any,
         model_response_executor: Any,
         agent_runtime_chain: Any,
         runtime_context_manager: Any,
@@ -211,7 +212,7 @@ class HealthRegistry:
         assistant_message = await self._build_conversation_reply(
             session=session,
             user_message=user_message,
-            task_run_loop=task_run_loop,
+            agent_runtime=agent_runtime,
             model_response_executor=model_response_executor,
             agent_runtime_chain=agent_runtime_chain,
             runtime_context_manager=runtime_context_manager,
@@ -225,7 +226,7 @@ class HealthRegistry:
         self,
         payload: dict[str, Any],
         *,
-        task_run_loop: Any | None = None,
+        agent_runtime: Any | None = None,
         model_response_executor: Any | None = None,
         agent_runtime_chain: Any | None = None,
         runtime_context_manager: Any | None = None,
@@ -234,7 +235,7 @@ class HealthRegistry:
     ) -> dict[str, Any]:
         return await self.command_service.submit_command(
             payload,
-            task_run_loop=task_run_loop,
+            agent_runtime=agent_runtime,
             model_response_executor=model_response_executor,
             agent_runtime_chain=agent_runtime_chain,
             runtime_context_manager=runtime_context_manager,
@@ -281,11 +282,11 @@ class HealthRegistry:
             "reports": [item.to_dict() for item in reports],
         }
 
-    def build_agent_run_trace_report(self, *, run_id: str, task_run_loop: Any) -> dict[str, Any]:
+    def build_agent_run_trace_report(self, *, run_id: str, agent_runtime: Any) -> dict[str, Any]:
         run = self.get_agent_run(run_id)
         if run is None:
             raise KeyError(run_id)
-        trace = task_run_loop.get_trace(run.task_run_id, include_payloads=True, include_model_messages=False)
+        trace = agent_runtime.get_trace(run.task_run_id, include_payloads=True, include_model_messages=False)
         if trace is None:
             raise KeyError(run.task_run_id)
         result = self.get_agent_result(run.result_ref) if run.result_ref else None
@@ -319,7 +320,7 @@ class HealthRegistry:
         health_action: str = "issue_triage",
         session_id: str = "health-system",
         source: str = "health_system.manual",
-        task_run_loop: Any,
+        agent_runtime: Any,
         model_response_executor: Any,
         agent_runtime_chain: Any,
         runtime_context_manager: Any,
@@ -370,7 +371,7 @@ class HealthRegistry:
             metadata={
                 "session_id": session_id or HEALTH_SESSION_ID,
                 "selected_task_id": task_selection["selected_task_id"],
-                "execution_owner": "TaskRunLoop.run_single_agent_stream",
+                "execution_owner": "AgentRuntime.run_stream",
             },
         )
         self.store.upsert_task_request(task_request)
@@ -378,22 +379,24 @@ class HealthRegistry:
         final_event: dict[str, Any] = {}
         runtime_events: list[dict[str, Any]] = []
         started_task_run: dict[str, Any] = {}
-        async for event in task_run_loop.run_single_agent_stream(
-            session_id=session_id or HEALTH_SESSION_ID,
-            task_id=task_id,
-            user_message=_build_health_runtime_user_message(
-                issue=issue.to_dict(),
-                health_action=health_action,
-                user_message=user_message,
-            ),
-            history=[],
-            source=source,
-            agent_runtime_chain=agent_runtime_chain,
-            model_response_executor=model_response_executor,
-            runtime_context_manager=runtime_context_manager,
-            task_selection=task_selection,
-            tool_runtime_executor=tool_runtime_executor,
-            tool_instances=list(tool_instances or []),
+        async for event in agent_runtime.run_stream(
+            AgentRunRequest(
+                session_id=session_id or HEALTH_SESSION_ID,
+                task_id=task_id,
+                user_message=_build_health_runtime_user_message(
+                    issue=issue.to_dict(),
+                    health_action=health_action,
+                    user_message=user_message,
+                ),
+                history=[],
+                source=source,
+                agent_runtime_chain=agent_runtime_chain,
+                model_response_executor=model_response_executor,
+                runtime_context_manager=runtime_context_manager,
+                task_selection=task_selection,
+                tool_runtime_executor=tool_runtime_executor,
+                tool_instances=list(tool_instances or []),
+            )
         ):
             item = dict(event or {})
             if item.get("type") == "runtime_loop_started":
@@ -406,7 +409,7 @@ class HealthRegistry:
         task_run_id = str(started_task_run.get("task_run_id") or "")
         if not task_run_id:
             raise RuntimeError("Health agent runtime did not emit runtime_loop_started")
-        finished_task_run = task_run_loop.state_index.get_task_run(task_run_id)
+        finished_task_run = agent_runtime.get_task_run(task_run_id)
         if finished_task_run is None:
             raise RuntimeError(f"TaskRun missing from RuntimeStateIndex: {task_run_id}")
 
@@ -427,7 +430,7 @@ class HealthRegistry:
             "authority": "health_system.agent_result",
         }
         self._append_agent_result(result_payload)
-        trace = task_run_loop.get_trace(task_run_id, include_payloads=True, include_model_messages=False)
+        trace = agent_runtime.get_trace(task_run_id, include_payloads=True, include_model_messages=False)
         checkpoint_ref = str(finished_task_run.latest_checkpoint_ref or "")
         health_run = HealthAgentRun(
             run_id=f"health-run:{task_run_id}",
@@ -455,11 +458,11 @@ class HealthRegistry:
                 "flow_id": str(flow.get("flow_id") or ""),
                 "selected_task_id": task_selection["selected_task_id"],
                 "task_agent_binding_ref": str(binding.get("binding_id") or ""),
-                "runtime_execution_owner": "TaskRunLoop.run_single_agent_stream",
+                "runtime_execution_owner": "AgentRuntime.run_stream",
                 "configuration_source": "task_system_orchestration_config",
                 "checkpoint_ref": checkpoint_ref,
                 "latest_event_offset": finished_task_run.latest_event_offset,
-                "event_count": len(task_run_loop.event_log.list_events(task_run_id)),
+                "event_count": agent_runtime.event_count(task_run_id),
                 "final_content_chars": len(final_content),
             },
         )
@@ -513,7 +516,7 @@ class HealthRegistry:
         *,
         session: HealthAgentConversationSession,
         user_message: HealthAgentConversationMessage,
-        task_run_loop: Any,
+        agent_runtime: Any,
         model_response_executor: Any,
         agent_runtime_chain: Any,
         runtime_context_manager: Any,
@@ -549,7 +552,7 @@ class HealthRegistry:
             health_action=health_action,
             session_id=session.session_id,
             source="health_system.conversation",
-            task_run_loop=task_run_loop,
+            agent_runtime=agent_runtime,
             model_response_executor=model_response_executor,
             agent_runtime_chain=agent_runtime_chain,
             runtime_context_manager=runtime_context_manager,

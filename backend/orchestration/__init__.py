@@ -62,8 +62,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "StageProjectionCycle": ("runtime", "StageProjectionCycle"),
     "StageProjectionSnapshot": ("runtime", "StageProjectionSnapshot"),
     "TaskContract": (".contracts", "TaskContract"),
-    "TaskRunLoop": ("runtime", "TaskRunLoop"),
-    "TaskRunLoopStartResult": ("runtime", "TaskRunLoopStartResult"),
     "UnitCatalog": (".unit_registry", "UnitCatalog"),
     "UnitDescriptor": (".contracts", "UnitDescriptor"),
     "build_assistant_session_message_commit_decision": (

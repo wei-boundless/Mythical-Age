@@ -12,6 +12,7 @@ from .contracts import (
     StateMemorySnapshot,
 )
 from .compat_types import SessionMemoryManager
+from .paths import normalize_session_id, safe_session_dir
 
 
 class StateMemoryStoreAdapter:
@@ -27,11 +28,7 @@ class StateMemoryStoreAdapter:
         self.session_root.mkdir(parents=True, exist_ok=True)
 
     def manager(self, session_id: str) -> SessionMemoryManager:
-        root = self.session_root.resolve()
-        target = (root / _safe_session_id(session_id)).resolve()
-        if target == root or root not in target.parents:
-            raise ValueError("Invalid session_id")
-        return SessionMemoryManager(target)
+        return SessionMemoryManager(safe_session_dir(self.session_root, session_id))
 
     def load_snapshot(self, session_id: str) -> StateMemorySnapshot:
         manager = self.manager(session_id)
@@ -51,7 +48,7 @@ class StateMemoryStoreAdapter:
         }
         active_constraints = _active_constraints_from_context_slots(context_slots)
         return StateMemorySnapshot(
-            session_id=_safe_session_id(session_id),
+            session_id=normalize_session_id(session_id),
             active_goal=_clean(getattr(state, "active_goal", "")),
             flow_state=_object_to_dict(flow_state),
             task_state=_object_to_dict(task_state),
@@ -242,11 +239,6 @@ class StateMemoryStoreAdapter:
                 },
             ),
         )
-
-
-def _safe_session_id(session_id: str) -> str:
-    value = str(session_id or "").strip()
-    return value or "default"
 
 
 def _clean(value: Any) -> str:

@@ -7,12 +7,12 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from runtime.professional_runtime.driver import (
+from runtime.agent_runtime.professional_control import (
     _filter_tool_names_by_capability_table,
     _tools_with_goal_contract_requirements,
 )
-from runtime.professional_runtime.goal_contract import ProfessionalTaskGoalContract
-from runtime.unit_runtime.tool_capability_policy import prepare_runtime_tool_capability_table_for_turn
+from runtime.agent_runtime.professional.goal_contract import ProfessionalTaskGoalContract
+from runtime.agent_runtime.environment.tool_capability_policy import prepare_runtime_tool_capability_table_for_turn
 
 
 class _Tool:
@@ -29,7 +29,7 @@ class _Executor:
     tool_runtime = _Runtime()
 
 
-def test_professional_runtime_goal_requirements_cannot_expand_past_capability_table() -> None:
+def test_agent_runtime_professional_goal_requirements_cannot_expand_past_capability_table() -> None:
     table = prepare_runtime_tool_capability_table_for_turn(
         task_operation={
             "task_id": "task:writing",

@@ -10,12 +10,12 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from prompt_library.assembler import assemble_runtime_prompt_contract
-from runtime.professional_runtime.agent_plan import (
+from runtime.agent_runtime.professional.agent_plan import (
     AgentPlanRequired,
     build_agent_plan_draft,
     empty_agent_plan_draft,
 )
-from runtime.professional_runtime.plan_coverage import review_plan_coverage
+from runtime.agent_runtime.professional.plan_coverage import review_plan_coverage
 from request_intent.request_signals import build_request_signals
 from task_system.services.assembly_builder import build_task_execution_assembly_bundle
 from tests.support.runtime_stubs import model_turn_context
@@ -193,7 +193,7 @@ def test_plan_coverage_hard_gate_blocks_execution_steps_when_model_plan_misses_c
             "interaction_mode": "professional_mode",
             "runtime_interaction_mode": "professional_mode",
             "mode_policy": {
-                "execution_strategy": "professional_task_run",
+                "execution_strategy": "interaction_mode_run",
                 "interaction_mode": "professional_mode",
                 "runtime_lane": "professional_task"},
             "model_agent_plan_draft": {

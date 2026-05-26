@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from ..memory.tool_observation_ledger import ToolObservationLedger
+from ...memory.tool_observation_ledger import ToolObservationLedger
 from .deliverable_progress import build_deliverable_progress, next_missing_material_read
 from .goal_contract import ProfessionalTaskGoalContract
 

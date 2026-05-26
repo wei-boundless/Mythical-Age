@@ -6,6 +6,7 @@ import time
 from typing import Any
 
 from runtime import CoordinationNodeRun, TaskRun
+from runtime.graph_task_runtime import CoordinationStageAgentRunRequest
 from runtime.coordination_runtime.runtime import LangGraphCoordinationRuntimeResult
 from runtime.subruntime import start_graph_module_stage_request
 from request_intent import analyze_memory_intent
@@ -44,23 +45,25 @@ async def _execute_stage_request_in_background(
     )
     if not continuation_payload:
         return
-    async for _event in runtime.query_runtime.task_run_loop._continue_coordination_delivery_stream(
-        session_id=session_id,
-        history=runtime.query_runtime.session_manager.load_session_for_agent(
-            session_id,
-            include_compressed_context=False,
-        ),
-        source=source,
-        agent_runtime_chain=runtime.query_runtime.agent_runtime_chain,
-        model_response_executor=runtime.query_runtime.model_response_executor,
-        runtime_context_manager=runtime.query_runtime.runtime_context_manager,
-        stage_projection_cycle=None,
-        memory_intent=analyze_memory_intent(stage_execution_request.message),
-        assistant_message_committer=lambda _payload: None,
-        tool_runtime_executor=runtime.query_runtime.tool_runtime_executor,
-        tool_instances=runtime.query_runtime._all_tool_instances(),
-        agent_runtime_profile=runtime.query_runtime.agent_runtime_registry.get_profile(stage_execution_request.agent_id),
-        continuation_payload=continuation_payload,
+    async for _event in runtime.query_runtime.graph_task_runtime.run_coordination_stage_stream(
+        CoordinationStageAgentRunRequest(
+            session_id=session_id,
+            history=runtime.query_runtime.session_manager.load_session_for_agent(
+                session_id,
+                include_compressed_context=False,
+            ),
+            source=source,
+            agent_runtime_chain=runtime.query_runtime.agent_runtime_chain,
+            model_response_executor=runtime.query_runtime.model_response_executor,
+            runtime_context_manager=runtime.query_runtime.runtime_context_manager,
+            stage_projection_cycle=None,
+            memory_intent=analyze_memory_intent(stage_execution_request.message),
+            assistant_message_committer=lambda _payload: None,
+            tool_runtime_executor=runtime.query_runtime.tool_runtime_executor,
+            tool_instances=runtime.query_runtime._all_tool_instances(),
+            agent_runtime_profile=runtime.query_runtime.agent_runtime_registry.get_profile(stage_execution_request.agent_id),
+            continuation_payload=continuation_payload,
+        )
     ):
         pass
 
@@ -74,19 +77,19 @@ def _schedule_stage_execution_background(
     node_work_order: dict[str, Any] | None = None,
     current_turn_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    task_run_loop = runtime.query_runtime.task_run_loop
+    graph_task_runtime = runtime.query_runtime.graph_task_runtime
     identity = _stage_execution_schedule_identity(stage_execution_request)
     schedule_key = str(identity.get("schedule_key") or "")
     with _STAGE_EXECUTION_SCHEDULE_LOCK:
         existing = _matching_stage_execution_task_run(
-            task_run_loop=task_run_loop,
+            graph_task_runtime=graph_task_runtime,
             session_id=session_id,
             identity=identity,
         )
         if existing is not None:
-            if _stale_running_task_run_reason(task_run_loop=task_run_loop, task_run=existing):
+            if _stale_running_task_run_reason(graph_task_runtime=graph_task_runtime, task_run=existing):
                 _invalidate_stale_stage_execution_task_run(
-                    task_run_loop=task_run_loop,
+                    graph_task_runtime=graph_task_runtime,
                     task_run=existing,
                     identity=identity,
                     source=source,
@@ -108,7 +111,7 @@ def _schedule_stage_execution_background(
                     "stage_execution_identity": identity,
                 }
                 _append_stage_execution_schedule_event(
-                    task_run_loop=task_run_loop,
+                    graph_task_runtime=graph_task_runtime,
                     root_task_run_id=str(stage_execution_request.root_task_run_id or ""),
                     event_type="coordination_stage_background_execution_skipped",
                     payload={**result, "source": source},
@@ -120,7 +123,7 @@ def _schedule_stage_execution_background(
             if _inflight_stage_execution_is_stale(inflight):
                 _STAGE_EXECUTION_INFLIGHT.pop(schedule_key, None)
                 _append_stage_execution_schedule_event(
-                    task_run_loop=task_run_loop,
+                    graph_task_runtime=graph_task_runtime,
                     root_task_run_id=str(stage_execution_request.root_task_run_id or ""),
                     event_type="coordination_stage_background_execution_invalidated",
                     payload={
@@ -139,7 +142,7 @@ def _schedule_stage_execution_background(
                     "stage_execution_identity": identity,
                 }
                 _append_stage_execution_schedule_event(
-                    task_run_loop=task_run_loop,
+                    graph_task_runtime=graph_task_runtime,
                     root_task_run_id=str(stage_execution_request.root_task_run_id or ""),
                     event_type="coordination_stage_background_execution_skipped",
                     payload={**result, "source": source},
@@ -171,14 +174,14 @@ def _schedule_stage_execution_background(
         except Exception as exc:
             try:
                 _mark_stage_execution_node_failed(
-                    task_run_loop=task_run_loop,
+                    graph_task_runtime=graph_task_runtime,
                     stage_execution_request=stage_execution_request,
                     source=source,
                     error=exc,
                 )
             except Exception:
                 pass
-            task_run_loop.event_log.append(
+            graph_task_runtime.append_event(
                 stage_execution_request.root_task_run_id,
                 "coordination_stage_background_execution_failed",
                 payload={
@@ -213,7 +216,7 @@ def _schedule_stage_execution_background(
         "stage_execution_identity": identity,
     }
     _append_stage_execution_schedule_event(
-        task_run_loop=task_run_loop,
+        graph_task_runtime=graph_task_runtime,
         root_task_run_id=str(stage_execution_request.root_task_run_id or ""),
         event_type="coordination_stage_background_execution_scheduled",
         payload={**result, "source": source},
@@ -224,7 +227,7 @@ def _schedule_stage_execution_background(
 
 def _mark_stage_execution_node_failed(
     *,
-    task_run_loop: Any,
+    graph_task_runtime: Any,
     stage_execution_request: Any,
     source: str,
     error: Exception,
@@ -239,7 +242,7 @@ def _mark_stage_execution_node_failed(
     existing = next(
         (
             item
-            for item in task_run_loop.state_index.list_coordination_node_runs(coordination_run_id)
+            for item in graph_task_runtime.list_coordination_node_runs(coordination_run_id)
             if str(item.node_id or "") == node_id
         ),
         None,
@@ -277,16 +280,16 @@ def _mark_stage_execution_node_failed(
         updated_at=now,
         diagnostics=diagnostics,
     )
-    task_run_loop.state_index.upsert_coordination_node_run(node_run)
+    graph_task_runtime.upsert_coordination_node_run(node_run)
     _append_stage_execution_schedule_event(
-        task_run_loop=task_run_loop,
+        graph_task_runtime=graph_task_runtime,
         root_task_run_id=root_task_run_id,
         event_type="coordination_node_run_updated" if existing is not None else "coordination_node_run_created",
         payload={"coordination_node_run": node_run.to_dict()},
         identity=_stage_execution_schedule_identity(stage_execution_request),
     )
     _append_stage_execution_schedule_event(
-        task_run_loop=task_run_loop,
+        graph_task_runtime=graph_task_runtime,
         root_task_run_id=root_task_run_id,
         event_type="coordination_stage_updated",
         payload={"stage": {"stage_id": stage_id, "node_id": node_id, "message_type": "", "status": "failed"}},
@@ -358,7 +361,7 @@ def _start_graph_module_stage_request(
 
 def _matching_stage_execution_task_run(
     *,
-    task_run_loop: Any,
+    graph_task_runtime: Any,
     session_id: str,
     identity: dict[str, Any],
 ) -> TaskRun | None:
@@ -367,7 +370,7 @@ def _matching_stage_execution_task_run(
     request_id = str(identity.get("request_id") or "").strip()
     idempotency_key = str(identity.get("idempotency_key") or "").strip()
     effective_statuses = {"created", "running", "waiting_approval", "blocked", "completed"}
-    candidates = task_run_loop.state_index.list_session_task_runs(session_id) if session_id else task_run_loop.state_index.list_task_runs()
+    candidates = graph_task_runtime.list_session_task_runs(session_id) if session_id else graph_task_runtime.list_task_runs()
     matches: list[TaskRun] = []
     for task_run in candidates:
         status = str(task_run.status or "")
@@ -399,7 +402,7 @@ def _matching_stage_execution_task_run(
     return sorted(matches, key=lambda item: float(item.updated_at or item.created_at or 0.0), reverse=True)[0]
 
 
-def _stale_running_task_run_reason(*, task_run_loop: Any, task_run: TaskRun) -> str:
+def _stale_running_task_run_reason(*, graph_task_runtime: Any, task_run: TaskRun) -> str:
     if str(task_run.status or "") != "running":
         return ""
     diagnostics = dict(task_run.diagnostics or {})
@@ -409,7 +412,7 @@ def _stale_running_task_run_reason(*, task_run_loop: Any, task_run: TaskRun) -> 
         return ""
     latest_activity_at = max(float(task_run.updated_at or 0.0), float(task_run.created_at or 0.0))
     try:
-        events = list(task_run_loop.event_log.list_events(task_run.task_run_id))
+        events = list(graph_task_runtime.list_task_events(task_run.task_run_id))
     except Exception:
         events = []
     if events:
@@ -428,12 +431,12 @@ def _stale_running_task_run_reason(*, task_run_loop: Any, task_run: TaskRun) -> 
 
 def _invalidate_stale_stage_execution_task_run(
     *,
-    task_run_loop: Any,
+    graph_task_runtime: Any,
     task_run: TaskRun,
     identity: dict[str, Any],
     source: str,
 ) -> None:
-    reason = _stale_running_task_run_reason(task_run_loop=task_run_loop, task_run=task_run)
+    reason = _stale_running_task_run_reason(graph_task_runtime=graph_task_runtime, task_run=task_run)
     if not reason:
         return
     now = time.time()
@@ -447,7 +450,7 @@ def _invalidate_stale_stage_execution_task_run(
             "invalidated_at": now,
         },
     }
-    task_run_loop.state_index.upsert_task_run(
+    graph_task_runtime.upsert_task_run(
         TaskRun(
             task_run_id=task_run.task_run_id,
             session_id=task_run.session_id,
@@ -466,10 +469,10 @@ def _invalidate_stale_stage_execution_task_run(
             diagnostics=diagnostics,
         )
     )
-    for agent_run in task_run_loop.state_index.list_task_agent_runs(task_run.task_run_id):
+    for agent_run in graph_task_runtime.list_task_agent_runs(task_run.task_run_id):
         if str(agent_run.status or "") not in {"pending", "running"}:
             continue
-        task_run_loop.state_index.upsert_agent_run(
+        graph_task_runtime.upsert_agent_run(
             type(agent_run)(
                 agent_run_id=agent_run.agent_run_id,
                 task_run_id=agent_run.task_run_id,
@@ -497,7 +500,7 @@ def _invalidate_stale_stage_execution_task_run(
             )
         )
     _append_stage_execution_schedule_event(
-        task_run_loop=task_run_loop,
+        graph_task_runtime=graph_task_runtime,
         root_task_run_id=str(identity.get("root_task_run_id") or task_run.task_run_id),
         event_type="coordination_stage_background_execution_invalidated",
         payload={
@@ -526,7 +529,7 @@ def _safe_float(value: Any, default: float) -> float:
 
 def _append_stage_execution_schedule_event(
     *,
-    task_run_loop: Any,
+    graph_task_runtime: Any,
     root_task_run_id: str,
     event_type: str,
     payload: dict[str, Any],
@@ -535,7 +538,7 @@ def _append_stage_execution_schedule_event(
     if not root_task_run_id:
         return
     try:
-        task_run_loop.event_log.append(
+        graph_task_runtime.append_event(
             root_task_run_id,
             event_type,
             payload=payload,
