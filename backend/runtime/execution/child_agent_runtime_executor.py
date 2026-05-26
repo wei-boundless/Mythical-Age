@@ -227,8 +227,34 @@ class ChildAgentRuntimeExecutor:
                 "degraded_reason": "retrieval_worker_unavailable",
                 "degraded_reason_typed": "retrieval_worker_unavailable",
             },
-            "diagnostics": {"source": "child_runtime_fallback"},
+            "diagnostics": {"source": "child_runtime_unsupported_route"},
         }
+
+
+_DELEGATION_OPERATION_BY_KIND = {
+    "pdf": "op.mcp_pdf",
+    "pdf_reading": "op.mcp_pdf",
+    "document_reading": "op.mcp_pdf",
+    "structured_data": "op.mcp_structured_data",
+    "table_analysis": "op.mcp_structured_data",
+    "structured_data_lookup": "op.mcp_structured_data",
+    "retrieval": "op.mcp_retrieval",
+    "evidence_lookup": "op.mcp_retrieval",
+    "knowledge_retrieval": "op.mcp_retrieval",
+    "knowledge_search": "op.mcp_retrieval",
+    "web": "op.web_search",
+    "web_research": "op.web_search",
+    "external_web_lookup": "op.web_search",
+    "current_information_lookup": "op.web_search",
+    "official_source_lookup": "op.web_search",
+    "codebase_search": "op.search_text",
+    "local_search": "op.search_text",
+    "workspace_search": "op.search_text",
+    "file_search": "op.search_text",
+    "memory_search": "op.memory_read",
+    "memory_lookup": "op.memory_read",
+    "memory_recall": "op.memory_read",
+}
 
 
 def _operation_for_delegation(*, request: AgentDelegationRequest, profile: Any) -> str:
@@ -236,22 +262,8 @@ def _operation_for_delegation(*, request: AgentDelegationRequest, profile: Any) 
     blocked = {str(item).strip() for item in tuple(getattr(profile, "blocked_operations", ()) or ()) if str(item).strip()}
     available = allowed - blocked
     kind = str(request.delegation_kind or "").strip()
-    if kind in {"pdf", "pdf_reading", "document_reading"} and "op.mcp_pdf" in available:
-        return "op.mcp_pdf"
-    if kind in {"structured_data", "table_analysis", "structured_data_lookup"} and "op.mcp_structured_data" in available:
-        return "op.mcp_structured_data"
-    if kind in {"retrieval", "evidence_lookup", "knowledge_retrieval", "knowledge_search"} and "op.mcp_retrieval" in available:
-        return "op.mcp_retrieval"
-    if kind in {"web", "web_research", "external_web_lookup", "current_information_lookup", "official_source_lookup"} and "op.web_search" in available:
-        return "op.web_search"
-    if kind in {"codebase_search", "local_search", "workspace_search", "file_search"} and "op.search_text" in available:
-        return "op.search_text"
-    if kind in {"memory_search", "memory_lookup", "memory_recall"} and "op.memory_read" in available:
-        return "op.memory_read"
-    for operation_id in ("op.mcp_pdf", "op.mcp_structured_data", "op.mcp_retrieval", "op.web_search"):
-        if operation_id in available:
-            return operation_id
-    return ""
+    operation_id = _DELEGATION_OPERATION_BY_KIND.get(kind, "")
+    return operation_id if operation_id in available else ""
 
 
 def _mcp_route_for_operation(operation_id: str) -> str:

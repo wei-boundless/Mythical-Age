@@ -145,7 +145,7 @@ class RuntimeCheckpointStore:
             current_step_id=str(state_payload.get("current_step_id") or ""),
             agent_id=str(state_payload.get("agent_id") or "agent:0"),
             agent_profile_id=str(state_payload.get("agent_profile_id") or "main_interactive_agent"),
-            runtime_lane=str(state_payload.get("runtime_lane") or "full_interactive"),
+            runtime_lane=str(state_payload.get("runtime_lane") or "standard_task"),
             task_agent_binding_ref=str(state_payload.get("task_agent_binding_ref") or ""),
             task_template_id=str(state_payload.get("task_template_id") or ""),
             task_spec_ref=str(state_payload.get("task_spec_ref") or ""),

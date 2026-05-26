@@ -10,7 +10,7 @@ from .registry_records import get_health_issue_by_id
 from orchestration.runtime_lane_registry import DEFAULT_RUNTIME_LANE_REGISTRY
 
 
-AGENT_EXECUTION_COMMANDS = {"analyze_trace", "draft_case", "verify_fix"}
+AGENT_EXECUTION_COMMANDS = {"analyze_trace"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,8 +151,5 @@ def admit_health_command(base_dir: Path, command: HealthManagementCommand) -> He
 
 
 def _default_health_action(command_type: str) -> str:
-    if command_type == "draft_case":
-        return "case_draft"
-    if command_type == "verify_fix":
-        return "fix_verification"
+    _ = command_type
     return "issue_triage"

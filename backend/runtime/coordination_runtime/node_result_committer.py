@@ -167,27 +167,7 @@ def stale_result_reason(
 
 
 def active_execution_request_payload(state: dict[str, Any]) -> dict[str, Any]:
-    work_order = dict(state.get("node_work_order") or {})
-    if work_order:
-        return request_compat_payload_from_work_order(work_order)
     return dict(state.get("node_execution_request") or state.get("stage_execution_request") or {})
-
-
-def request_compat_payload_from_work_order(work_order: dict[str, Any]) -> dict[str, Any]:
-    payload = dict(work_order or {})
-    if not payload:
-        return {}
-    input_package = dict(payload.get("input_package") or payload.get("standard_input_package") or {})
-    executor_type = str(payload.get("executor_type") or dict(payload.get("executor_binding") or {}).get("selected_executor") or "agent")
-    if executor_type == "subruntime":
-        executor_type = str(payload.get("subruntime_kind") or dict(payload.get("executor_binding") or {}).get("selected_executor") or "subruntime")
-    return {
-        **payload,
-        "request_id": str(payload.get("request_id") or payload.get("work_order_id") or ""),
-        "standard_input_package": input_package,
-        "executor_type": executor_type,
-        "authority": "task_graph.node_execution_request",
-    }
 
 
 def committed_stage_identities(state: dict[str, Any]) -> list[str]:

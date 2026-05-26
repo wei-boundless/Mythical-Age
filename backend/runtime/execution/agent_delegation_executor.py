@@ -210,6 +210,8 @@ class AgentDelegationExecutor:
 
     def validate_request(self, request: AgentDelegationRequest, *, parent_agent_run: AgentRun) -> dict[str, Any]:
         reasons: list[str] = []
+        if not str(request.target_agent_id or "").strip():
+            reasons.append("target_agent_required")
         allowed_search_sources = normalize_search_policy(
             list(dict(request.diagnostics or {}).get("allowed_search_sources") or [])
             if "allowed_search_sources" in dict(request.diagnostics or {})
@@ -284,11 +286,8 @@ class AgentDelegationExecutor:
         *,
         parent_agent_run: AgentRun,
     ) -> AgentDelegationRequest:
-        resolved_target = self._resolve_target_agent_id(
-            request.target_agent_id,
-            delegation_kind=request.delegation_kind,
-            parent_agent_run=parent_agent_run,
-        )
+        _ = parent_agent_run
+        resolved_target = normalize_agent_id(request.target_agent_id)
         if not resolved_target or resolved_target == request.target_agent_id:
             return request
         diagnostics = dict(request.diagnostics or {})
@@ -299,42 +298,6 @@ class AgentDelegationExecutor:
             target_agent_id=resolved_target,
             diagnostics=diagnostics,
         )
-
-    def _resolve_target_agent_id(
-        self,
-        target_agent_id: str,
-        *,
-        delegation_kind: str,
-        parent_agent_run: AgentRun,
-    ) -> str:
-        target = normalize_agent_id(target_agent_id)
-        normalized_kind = str(delegation_kind or "").strip()
-        if target and self.agent_registry.get_agent(target) is not None:
-            return target
-        allowed_ids: set[str] = set()
-        parent_profile = self.runtime_registry.get_profile(parent_agent_run.agent_id)
-        if parent_profile is not None:
-            allowed_ids = {
-                str(item).strip()
-                for item in tuple(getattr(parent_profile, "allowed_delegate_agent_ids", ()) or ())
-                if str(item).strip()
-            }
-        normalized_kind = str(delegation_kind or "").strip()
-        candidates = [
-            agent
-            for agent in self.agent_registry.list_agents()
-            if agent.delegation_enabled
-            and agent.enabled
-            and (not allowed_ids or agent.agent_id in allowed_ids)
-        ]
-        if normalized_kind:
-            for agent in candidates:
-                profile = self.runtime_registry.get_profile(agent.agent_id)
-                if profile is None:
-                    continue
-                if normalized_kind in set(_delegation_kinds_from_profile(profile)):
-                    return agent.agent_id
-        return target
 
     def prepare_child_agent_run(self, request: AgentDelegationRequest, *, parent_agent_run: AgentRun) -> AgentRun:
         profile = self.runtime_registry.get_profile(request.target_agent_id)
@@ -378,15 +341,15 @@ class AgentDelegationExecutor:
         request = AgentDelegationRequest(**dict(context.get("request") or {}))
         agent = type("AgentPayload", (), dict(context.get("agent") or {}))()
         profile = type("ProfilePayload", (), dict(context.get("runtime_profile") or {}))()
-        if not _delegation_requires_model_only_review(request, profile):
+        requires_model_only_review = _delegation_requires_model_only_review(request, profile)
+        if not requires_model_only_review:
             specialist_payload = await self.child_runtime_executor.run(
                 request=request,
                 agent=agent,
                 profile=profile,
                 model_runtime=getattr(model_response_executor, "model_runtime", None),
             )
-            if str(specialist_payload.get("status") or "") != "failed" or specialist_payload.get("summary"):
-                return specialist_payload
+            return specialist_payload
         invoker_owner = getattr(model_response_executor, "model_runtime", None)
         invoker = getattr(invoker_owner, "invoke_messages", None)
         if not callable(invoker):
@@ -988,21 +951,4 @@ def _delegation_kinds_from_profile(profile: Any) -> tuple[str, ...]:
     single = str(metadata.get("delegation_kind") or "").strip()
     if single:
         values.append(single)
-    if values:
-        return tuple(dict.fromkeys(values))
-    operations = set(tuple(getattr(profile, "allowed_operations", ()) or ()))
-    inferred: list[str] = []
-    if "op.mcp_retrieval" in operations:
-        inferred.append("knowledge_search")
-        inferred.append("evidence_lookup")
-    if "op.mcp_pdf" in operations:
-        inferred.append("pdf_reading")
-    if "op.mcp_structured_data" in operations:
-        inferred.append("structured_data_lookup")
-    if "op.web_search" in operations:
-        inferred.append("web_research")
-    if "op.search_text" in operations:
-        inferred.append("codebase_search")
-    if "op.memory_read" in operations:
-        inferred.append("memory_search")
-    return tuple(inferred or ["bounded_analysis"])
+    return tuple(dict.fromkeys(values))

@@ -98,11 +98,13 @@ def _resolve_environment_id(
         value = str(candidate or "").strip()
         if value:
             return value
-    return "env.vibe_coding"
+    return ""
 
 
 def _default_policy_for_environment(*, environment_id: str, sandbox_enabled: bool) -> dict[str, Any]:
     normalized = str(environment_id or "").strip()
+    if not normalized:
+        return {}
     if normalized in {"env.writing", "writing"}:
         return {
             "enabled": True,

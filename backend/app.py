@@ -8,7 +8,6 @@ from api.chat import router as chat_router
 from api.config_api import router as config_router
 from api.files import router as files_router
 from api.health_system import router as health_system_router
-from api.health_workbench import router as health_workbench_router
 from api.memory import router as memory_router
 from api.mcp_system import router as mcp_system_router
 from api.orchestration import router as orchestration_router
@@ -52,7 +51,6 @@ app.include_router(config_router, prefix="/api", tags=["config"])
 app.include_router(task_system_router, prefix="/api", tags=["tasks"])
 app.include_router(task_orders_router, prefix="/api", tags=["task-orders"])
 app.include_router(health_system_router, prefix="/api", tags=["health-system"])
-app.include_router(health_workbench_router, prefix="/api", tags=["health-workbench"])
 app.include_router(orchestration_catalog_router, prefix="/api", tags=["orchestration-catalog"])
 app.include_router(orchestration_router, prefix="/api", tags=["orchestration"])
 app.include_router(orchestration_runtime_loop_router, prefix="/api", tags=["orchestration-runtime-loop"])

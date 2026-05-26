@@ -54,7 +54,7 @@ class AgentRuntimeSpec:
     resource_policy_candidate_ref: str = ""
     input_contract_ref: str = ""
     output_contract_ref: str = ""
-    runtime_lane: str = "full_interactive"
+    runtime_lane: str = "standard_task"
     runtime_executable: bool = True
     diagnostics: dict[str, Any] = field(default_factory=dict)
     authority: str = "orchestration.agent_runtime_spec"

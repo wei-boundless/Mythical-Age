@@ -22,14 +22,11 @@ from .models import (
     HealthManagementReceipt,
     HealthReport,
     HealthTaskRequest,
-    HealthTestRun,
     ProblemNode,
 )
 from .runtime_admission import admit_health_command
 from .store import HealthStore
-from .test_catalog import default_health_test_scenarios
 from .trace_builder import build_agent_run_trace_report_payload
-from .verification_service import HealthVerificationService
 
 
 def default_health_issues(now: float | None = None) -> tuple[HealthIssue, ...]:
@@ -69,7 +66,6 @@ class HealthRegistry:
         self.store_dir = ProjectLayout.from_backend_dir(self.base_dir).health_system_dir
         self.store = HealthStore(self.base_dir)
         self.command_builder = HealthCommandBuilder()
-        self.verification_service = HealthVerificationService(self.base_dir)
         self.command_service = HealthCommandService(self)
 
     def list_issues(self) -> list[HealthIssue]:
@@ -141,14 +137,8 @@ class HealthRegistry:
         target = str(session_id or "").strip()
         return [item for item in messages if not target or item.session_id == target]
 
-    def list_health_test_runs(self) -> list[HealthTestRun]:
-        return self.store.load_health_test_runs()
-
     def list_task_requests(self) -> list[HealthTaskRequest]:
         return self.store.load_task_requests()
-
-    def list_health_test_scenarios(self) -> list[dict[str, Any]]:
-        return [item.to_dict() for item in default_health_test_scenarios()]
 
     def create_conversation_session(self, payload: dict[str, Any]) -> HealthAgentConversationSession:
         now = time.time()
@@ -241,7 +231,6 @@ class HealthRegistry:
         runtime_context_manager: Any | None = None,
         tool_runtime_executor: Any | None = None,
         tool_instances: list[Any] | None = None,
-        test_system_service: Any | None = None,
     ) -> dict[str, Any]:
         return await self.command_service.submit_command(
             payload,
@@ -251,7 +240,6 @@ class HealthRegistry:
             runtime_context_manager=runtime_context_manager,
             tool_runtime_executor=tool_runtime_executor,
             tool_instances=tool_instances,
-            test_system_service=test_system_service,
         )
 
     def list_agent_runs(self) -> list[HealthAgentRun]:
@@ -276,9 +264,6 @@ class HealthRegistry:
         problem_nodes = self.list_problem_nodes()
         commands = self.list_commands()
         reports = self.list_reports()
-        health_test_runs = self.list_health_test_runs()
-        verification_runs = self.verification_service.list_verification_runs(limit=10)
-        gate_projection = self.verification_service.build_gate_projection()
         return {
             "authority": "health_system.registry",
             "summary": {
@@ -288,18 +273,12 @@ class HealthRegistry:
                 "problem_node_count": len(problem_nodes),
                 "command_count": len(commands),
                 "report_count": len(reports),
-                "health_test_run_count": len(health_test_runs),
-                "verification_run_count": len(verification_runs),
-                "gate_profile_count": int(dict(gate_projection.get("summary") or {}).get("profile_count") or 0),
             },
             "issues": [item.to_dict() for item in issues],
             "agent_runs": [item.to_dict() for item in runs],
             "problem_nodes": [item.to_dict() for item in problem_nodes],
             "commands": [item.to_dict() for item in commands],
             "reports": [item.to_dict() for item in reports],
-            "health_test_runs": [item.to_dict() for item in health_test_runs],
-            "verification_runs": [item.to_dict() for item in verification_runs],
-            "gate_projection": gate_projection,
         }
 
     def build_agent_run_trace_report(self, *, run_id: str, task_run_loop: Any) -> dict[str, Any]:
@@ -330,7 +309,7 @@ class HealthRegistry:
         return build_health_agent_run_preview(plan, issue=issue)
 
     def _route_conversation_task_mode(self, *, user_message: str, session: HealthAgentConversationSession) -> str:
-        """Backward-compatible shim for older tests and callers."""
+        """Return the governance health action for older callers."""
         return self._route_conversation_health_action(user_message=user_message, session=session)
 
     async def execute_agent_run(
@@ -507,7 +486,6 @@ class HealthRegistry:
         report: HealthReport | None = None,
         issue: HealthIssue | None = None,
         run_result: dict[str, Any] | None = None,
-        health_test_run: HealthTestRun | None = None,
     ) -> dict[str, Any]:
         self.store.append_receipt(receipt)
         updated, response = self.command_builder.complete_command(
@@ -516,7 +494,6 @@ class HealthRegistry:
             report=report,
             issue=issue,
             run_result=run_result,
-            health_test_run=health_test_run,
         )
         self.store.upsert_command(updated)
         if command.conversation_session_ref:
@@ -608,18 +585,10 @@ class HealthRegistry:
         session: HealthAgentConversationSession,
     ) -> str:
         normalized = str(user_message or "").strip().lower()
-        if any(token in normalized for token in ("修复验证", "验证修复", "verify fix", "fix verification", "验证是否修好")):
-            return "fix_verification"
-        if any(token in normalized for token in ("用例", "case", "断言", "复现草案", "测试草案")):
-            return "case_draft"
         if any(token in normalized for token in ("链路", "trace", "节点", "根因", "分析运行")):
             return "trace_analysis"
         session_workflow = str(session.workflow_id or "").strip()
         session_lane = str(session.runtime_lane or "").strip()
-        if "fix_verification" in session_workflow or "fix_verification" in session_lane:
-            return "fix_verification"
-        if "case_draft" in session_workflow or "case_draft" in session_lane:
-            return "case_draft"
         if "trace_analysis" in session_workflow or "trace" in session_lane:
             return "trace_analysis"
         return "issue_triage"

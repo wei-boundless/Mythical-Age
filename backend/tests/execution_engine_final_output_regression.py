@@ -10,10 +10,8 @@ if str(BACKEND_DIR) not in sys.path:
 
 from runtime.execution_engine import (
     ModelToolCallAccumulator,
+    build_answer_readiness_judge_message,
     translate_executor_event,
-    build_runtime_budget_exhausted_message,
-    finalize_budget_exhausted_followup,
-    select_final_answer_from_context,
 )
 
 
@@ -36,33 +34,35 @@ class _EventLog:
         return event
 
 
-def test_execution_engine_final_output_selects_context_answer() -> None:
-    assert select_final_answer_from_context({"canonical_answer": "稳定答案"}) == "稳定答案"
+def test_execution_engine_does_not_export_system_answer_finalizers() -> None:
+    import runtime.execution_engine as execution_engine
+
+    assert not hasattr(execution_engine, "select_final_answer_from_context")
+    assert not hasattr(execution_engine, "finalize_budget_exhausted_followup")
+    assert not hasattr(execution_engine, "builtin_tool_lane_answer_from_observation")
 
 
-def test_execution_engine_budget_followup_is_progress_only_not_canonical_synthesis() -> None:
-    finalization = finalize_budget_exhausted_followup(
-        user_message="请总结",
-        aggregation=None,
-        final_task_summary_refs=[{"summary": "已经读取并完成摘要。"}],
-        final_main_context={"active_constraints": {"active_pdf": "report.pdf"}},
-        control_message="max_model_calls",
-        tool_observation_count=2,
+def test_execution_engine_readiness_prompt_keeps_answer_decision_with_model() -> None:
+    class _Aggregation:
+        evidence_items = (
+            {
+                "tool_name": "read_file",
+                "tool_args": {"path": "README.md"},
+                "result_preview": "project overview",
+                "result_chars": 16,
+            },
+        )
+
+    content = build_answer_readiness_judge_message(
+        user_message="总结 README",
+        aggregation=_Aggregation(),
+        current_bundle_items=[],
+        remaining_model_calls=2,
     )
 
-    assert finalization.finalized is True
-    assert finalization.answer_metadata is not None
-    assert finalization.answer_metadata["answer_source"] == "runtime_loop_control"
-    assert finalization.answer_metadata["answer_canonical_state"] == "progress_only"
-    assert finalization.answer_metadata["answer_persist_policy"] == "persist_debug_only"
-    assert "已经读取并完成摘要" not in finalization.content
-
-
-def test_execution_engine_final_output_budget_message_mentions_tool_evidence() -> None:
-    content = build_runtime_budget_exhausted_message("max_model_calls", tool_observation_count=2)
-
-    assert "模型续写次数达到上限" in content
-    assert "已经收到 2 条工具结果" in content
+    assert "如果证据已经足够覆盖用户当前问题，请直接收口回答" in content
+    assert "不要输出 JSON" in content
+    assert "runtime_loop_control" not in content
 
 
 def test_execution_engine_model_tool_call_accumulator_collects_stream_context() -> None:

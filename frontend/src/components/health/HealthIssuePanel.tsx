@@ -56,7 +56,6 @@ function severityLabel(severity: string) {
 
 function systemLabel(system: string) {
   const labels: Record<string, string> = {
-    test_system: "测试系统",
     query_runtime: "入口适配",
     task_system: "任务系统",
     capability_system: "能力系统",
@@ -73,8 +72,6 @@ function systemLabel(system: string) {
 
 function sourceLabel(source: string) {
   const labels: Record<string, string> = {
-    test_run: "验证发现",
-    harness: "验证发现",
     manual: "手动记录",
     agent: "子 Agent 提交",
     runtime: "运行时记录",
@@ -84,15 +81,12 @@ function sourceLabel(source: string) {
 }
 
 function issueLayerLabel(issue: HealthIssue) {
-  if (issue.owner_system === "test_system") return "测试问题";
-  if (issue.source === "test_run" || issue.source === "harness") return "验证问题";
   if (["runtime_loop", "runtime", "orchestration_system", "task_system"].includes(issue.owner_system)) return "系统问题";
   return "用户/体验问题";
 }
 
 function laneLabel(lane: string) {
   if (lane === "health_issue_read") return "健康问题只读";
-  if (lane === "codex_smoke_test") return "冒烟验证";
   return lane ? "健康分析链路" : "未绑定";
 }
 

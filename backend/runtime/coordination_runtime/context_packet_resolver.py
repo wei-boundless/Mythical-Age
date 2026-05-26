@@ -412,10 +412,7 @@ def build_revision_packet_from_review(
 
 
 def _active_work_order_or_request(state: dict[str, Any]) -> dict[str, Any]:
-    work_order = dict(state.get("node_work_order") or {})
-    if work_order:
-        return work_order
-    return dict(state.get("stage_execution_request") or {})
+    return dict(state.get("node_execution_request") or state.get("stage_execution_request") or {})
 
 
 def _graph_edges(state: dict[str, Any]) -> list[dict[str, Any]]:

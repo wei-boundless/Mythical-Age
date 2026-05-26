@@ -426,6 +426,9 @@ def test_runtime_lane_registry_exposes_active_modes_and_removes_old_lanes() -> N
     assert "op.git_show" in professional_lane.default_operations
     assert "op.browser_control" in professional_lane.default_operations
     assert professional_lane.metadata["interaction_mode"] == "professional_mode"
+    assert DEFAULT_RUNTIME_LANE_REGISTRY.get("full_interactive") is None
+    assert DEFAULT_RUNTIME_LANE_REGISTRY.get("task_dispatch") is None
+    assert DEFAULT_RUNTIME_LANE_REGISTRY.get("final_integration") is None
     assert DEFAULT_RUNTIME_LANE_REGISTRY.get("retired_code_task") is None
     assert DEFAULT_RUNTIME_LANE_REGISTRY.get("autonomous_task") is None
 

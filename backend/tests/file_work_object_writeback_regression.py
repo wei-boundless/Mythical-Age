@@ -108,6 +108,32 @@ def test_auto_delegated_structured_observation_infers_kind_from_writeback_protoc
     assert "dataset=inventory.xlsx" in task_refs[0]["key_points"]
 
 
+def test_delegated_observation_does_not_infer_file_work_kind_from_agent_name() -> None:
+    main_context, task_refs = project_file_work_context_from_tool_observation(
+        {
+            "tool_name": "delegate_to_agent",
+            "tool_args": {
+                "instruction": "检查这个结果。",
+                "current_user_message": "检查这个结果。",
+                "input_payload": {"query": "检查这个结果。"},
+            },
+            "result": json.dumps(
+                {
+                    "type": "agent_delegation_result",
+                    "status": "completed",
+                    "target_agent_id": "agent:table_analyst",
+                    "summary": "这个结果看起来像表格分析，但没有写回协议。",
+                    "answer_candidate": "这个结果看起来像表格分析，但没有写回协议。",
+                },
+                ensure_ascii=False,
+            ),
+        }
+    )
+
+    assert main_context == {}
+    assert task_refs == []
+
+
 def test_pdf_mcp_observation_projects_file_work_context() -> None:
     main_context, task_refs = project_file_work_context_from_tool_observation(
         {

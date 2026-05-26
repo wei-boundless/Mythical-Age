@@ -41,8 +41,7 @@ function systemLabel(system?: string) {
     soul_system: "灵魂系统",
     skill_system: "技能系统",
     orchestration_system: "编排系统",
-    runtime_loop: "运行链路",
-    test_system: "测试系统"
+    runtime_loop: "运行链路"
   };
   return system ? labels[system] || system : "未归属";
 }
@@ -60,7 +59,6 @@ function severityLabel(severity?: string) {
 function laneLabel(lane?: string) {
   if (!lane) return "未绑定";
   if (lane === "health_issue_read") return "健康问题只读";
-  if (lane === "codex_smoke_test") return "冒烟验证";
   return "健康分析链路";
 }
 
@@ -115,7 +113,7 @@ export function HealthReportView({
     || content
     || "当前证据不足，还不能稳定解释问题原因。";
   const actionText = primaryNode?.suggested_action
-    || (content ? "按候选结论复核证据，并把复现路径沉淀为用例。" : "先绑定运行证据或执行健康分析。");
+    || (content ? "按候选结论复核任务记录、运行监控和风险信号。" : "先绑定运行证据或执行健康分析。");
 
   return (
     <div className="health-report-view">
@@ -145,7 +143,7 @@ export function HealthReportView({
           <article className="health-diagnosis-card health-diagnosis-card--action">
             <Wrench size={18} />
             <span>下一步怎么处理</span>
-            <strong>{primaryNode?.suggested_action ? "按节点建议处理" : content ? "复核并沉淀用例" : "补齐证据"}</strong>
+            <strong>{primaryNode?.suggested_action ? "按节点建议处理" : content ? "复核治理证据" : "补齐证据"}</strong>
             <p>{actionText}</p>
           </article>
         </div>
@@ -186,11 +184,11 @@ export function HealthReportView({
             </div>
             <div>
               <CheckCircle2 size={15} />
-              <span>解释是否能被运行事件或测试失败支撑</span>
+              <span>解释是否能被运行事件或监控信号支撑</span>
             </div>
             <div>
               <CheckCircle2 size={15} />
-              <span>修复动作是否能转成验证用例</span>
+              <span>处理动作是否能降低任务或系统风险</span>
             </div>
           </div>
         </article>

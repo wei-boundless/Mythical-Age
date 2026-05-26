@@ -187,7 +187,7 @@ def test_main_agent_prompt_guidance_names_web_researcher() -> None:
     assert "交付复核" in block
 
 
-def test_web_research_kind_resolves_to_web_researcher_at_runtime() -> None:
+def test_delegation_runtime_does_not_pick_web_researcher_from_kind_only() -> None:
     executor = AgentDelegationExecutor(BACKEND_DIR)
     parent_run = AgentRun(
         agent_run_id="agrun:taskrun:test:main",
@@ -197,16 +197,27 @@ def test_web_research_kind_resolves_to_web_researcher_at_runtime() -> None:
         status="running",
     )
 
-    resolved = executor._resolve_target_agent_id(
-        "",
+    from runtime.execution.delegation_models import AgentDelegationRequest
+
+    request = AgentDelegationRequest(
+        request_id="delegation:req:web-kind-only",
+        task_run_id="taskrun:test",
+        session_id="session:test",
+        parent_agent_run_ref=parent_run.agent_run_id,
+        source_agent_id="agent:0",
+        target_agent_id="",
         delegation_kind="official_source_lookup",
-        parent_agent_run=parent_run,
+        instruction="请核验官方来源。",
+        input_payload={"query": "release notes"},
     )
+    normalized = executor._normalize_request_target(request, parent_agent_run=parent_run)
+    validation = executor.validate_request(normalized, parent_agent_run=parent_run)
 
-    assert resolved == "agent:web_researcher"
+    assert normalized.target_agent_id == ""
+    assert "target_agent_required" in validation["blocked_reasons"]
 
 
-def test_completion_verification_kind_resolves_to_verifier_at_runtime() -> None:
+def test_delegation_runtime_does_not_pick_verifier_from_kind_only() -> None:
     executor = AgentDelegationExecutor(BACKEND_DIR)
     parent_run = AgentRun(
         agent_run_id="agrun:taskrun:test:main",
@@ -216,11 +227,22 @@ def test_completion_verification_kind_resolves_to_verifier_at_runtime() -> None:
         status="running",
     )
 
-    resolved = executor._resolve_target_agent_id(
-        "",
-        delegation_kind="completion_verification",
-        parent_agent_run=parent_run,
-    )
+    from runtime.execution.delegation_models import AgentDelegationRequest
 
-    assert resolved == "agent:verifier"
+    request = AgentDelegationRequest(
+        request_id="delegation:req:verifier-kind-only",
+        task_run_id="taskrun:test",
+        session_id="session:test",
+        parent_agent_run_ref=parent_run.agent_run_id,
+        source_agent_id="agent:0",
+        target_agent_id="",
+        delegation_kind="completion_verification",
+        instruction="请复核候选交付。",
+        input_payload={"final_answer_candidate": "已完成"},
+    )
+    normalized = executor._normalize_request_target(request, parent_agent_run=parent_run)
+    validation = executor.validate_request(normalized, parent_agent_run=parent_run)
+
+    assert normalized.target_agent_id == ""
+    assert "target_agent_required" in validation["blocked_reasons"]
 

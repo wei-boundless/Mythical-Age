@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 class DelegateToAgentInput(BaseModel):
     target_agent_id: str = Field(
         default="",
-        description="目标子Agent正式ID：agent:knowledge_searcher、agent:codebase_searcher、agent:memory_searcher、agent:pdf_reader、agent:table_analyst、agent:web_researcher；如果已能从 delegation_kind 判断，可留空交给运行时解析。",
+        description="目标子Agent正式ID：agent:knowledge_searcher、agent:codebase_searcher、agent:memory_searcher、agent:pdf_reader、agent:table_analyst、agent:web_researcher、agent:verifier。必须显式填写；运行时只做权限校验，不会根据 delegation_kind 替你选择目标。",
     )
     instruction: str = Field(..., description="委派任务说明；像给专业同事派活一样写清目标、对象、路径、页码、筛选口径和期望结果。")
     delegation_kind: str = Field(

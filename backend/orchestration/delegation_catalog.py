@@ -152,7 +152,7 @@ class DelegationCatalogBuilder:
         effective_operations = _effective_operations(allowed_operations, blocked_operations)
         if not effective_operations:
             unavailable.append("target_operations_empty")
-        delegation_kinds = _delegation_kinds(metadata, allowed_operations)
+        delegation_kinds = _delegation_kinds(metadata)
         return DelegationCard(
             agent_id=str(getattr(agent, "agent_id", "") or ""),
             agent_name=str(getattr(agent, "agent_name", "") or ""),
@@ -239,7 +239,7 @@ def _effective_operations(allowed: tuple[str, ...], blocked: tuple[str, ...]) ->
     ]
 
 
-def _delegation_kinds(metadata: dict[str, Any], allowed_operations: tuple[str, ...]) -> tuple[str, ...]:
+def _delegation_kinds(metadata: dict[str, Any]) -> tuple[str, ...]:
     explicit = [
         str(item).strip()
         for item in list(metadata.get("delegation_kinds") or [])
@@ -250,15 +250,7 @@ def _delegation_kinds(metadata: dict[str, Any], allowed_operations: tuple[str, .
         explicit.append(single)
     if explicit:
         return tuple(dict.fromkeys(explicit))
-    operations = set(allowed_operations)
-    kinds: list[str] = []
-    if "op.mcp_retrieval" in operations:
-        kinds.append("evidence_lookup")
-    if "op.mcp_pdf" in operations:
-        kinds.append("pdf_reading")
-    if "op.mcp_structured_data" in operations:
-        kinds.append("structured_data_lookup")
-    return tuple(kinds or ["bounded_analysis"])
+    return ()
 
 
 def _when_to_use(*, agent: Any, metadata: dict[str, Any]) -> str:

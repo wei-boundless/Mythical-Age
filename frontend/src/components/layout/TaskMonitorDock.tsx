@@ -48,7 +48,7 @@ export function TaskMonitorDock({ embedded = false }: { embedded?: boolean }) {
     : globalRuntimeMonitorStreamStatus === "connecting"
       ? "连接中"
       : globalRuntimeMonitorStreamStatus === "fallback"
-        ? "快照兜底"
+        ? "后台同步"
         : "未连接";
 
   useEffect(() => {
@@ -140,8 +140,8 @@ export function TaskMonitorDock({ embedded = false }: { embedded?: boolean }) {
           </section>
 
           {globalRuntimeMonitorError ? (
-            <section className="task-monitor-alert task-monitor-alert--error">
-              <strong>监控读取异常</strong>
+            <section className="task-monitor-alert task-monitor-alert--attention">
+              <strong>监控同步暂不可用</strong>
               <span>{globalRuntimeMonitorError}</span>
             </section>
           ) : null}

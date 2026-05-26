@@ -1,27 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
 
 from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
 
 from runtime.tool_runtime.provider_tool_call_adapter import tool_calls_for_langchain_messages
 
-from .final_output import (
-    build_answer_readiness_judge_message,
-    build_repeated_tool_halt_message,
-    build_runtime_budget_exhausted_message,
-    repeated_tool_halt_answer_metadata,
-    runtime_budget_exhausted_answer_metadata,
-)
-
-
-@dataclass(frozen=True, slots=True)
-class FollowupFinalization:
-    finalized: bool
-    content: str = ""
-    answer_metadata: dict[str, Any] | None = None
-    source: str = ""
+from .final_output import build_answer_readiness_judge_message
 
 
 def build_initial_followup_messages(
@@ -78,56 +63,6 @@ def build_next_followup_messages(
     if readiness_message:
         next_messages.append(SystemMessage(content=readiness_message))
     return next_messages
-
-
-def finalize_budget_exhausted_followup(
-    *,
-    user_message: str,
-    aggregation: Any,
-    final_task_summary_refs: list[dict[str, Any]],
-    final_main_context: dict[str, Any],
-    control_message: str,
-    tool_observation_count: int,
-) -> FollowupFinalization:
-    _ = user_message, aggregation, final_task_summary_refs, final_main_context
-    return FollowupFinalization(
-        finalized=True,
-        content=build_runtime_budget_exhausted_message(
-            control_message,
-            tool_observation_count=tool_observation_count,
-        ),
-        answer_metadata=runtime_budget_exhausted_answer_metadata(),
-        source="budget_exhausted_fallback",
-    )
-
-
-def finalize_after_followup_tool_results(
-    *,
-    user_message: str,
-    aggregation: Any,
-    final_task_summary_refs: list[dict[str, Any]],
-    final_main_context: dict[str, Any],
-    repeated_tool_halt: bool,
-    final_content: str,
-    tool_observation_count: int,
-    retrieval_followup_observed: bool,
-) -> FollowupFinalization:
-    _ = user_message, aggregation, final_task_summary_refs, final_main_context, retrieval_followup_observed
-    if repeated_tool_halt and final_content:
-        return FollowupFinalization(
-            finalized=True,
-            content=final_content,
-            answer_metadata=None,
-            source="repeated_tool_halt_existing_answer",
-        )
-    if repeated_tool_halt:
-        return FollowupFinalization(
-            finalized=True,
-            content=build_repeated_tool_halt_message(tool_observation_count=tool_observation_count),
-            answer_metadata=repeated_tool_halt_answer_metadata(),
-            source="repeated_tool_halt_fallback",
-        )
-    return FollowupFinalization(finalized=False)
 
 
 def _assistant_message_from_tool_calls(tool_call_accumulator: Any) -> AIMessage:

@@ -127,343 +127,6 @@ export type PiSidecarCommandResponse = {
   error: string;
 };
 
-export type ExperimentProfile = {
-  id: string;
-  title: string;
-  description: string;
-  command_preview: string;
-  risk: string;
-  estimated_duration: string;
-  harness_profile?: string;
-  extra_args?: string[];
-  requires_confirmation: boolean;
-};
-
-export type ExperimentRun = {
-  run_id: string;
-  profile: string;
-  status: string;
-  command_preview: string;
-  output_dir: string;
-  log_path: string;
-  log_tail?: string;
-  started_at: number;
-  ended_at: number;
-  duration_ms: number;
-  returncode: number | null;
-  pid: number | null;
-  summary: {
-    total: number;
-    passed: number;
-    failed: number;
-    first_failure: string;
-  };
-};
-
-export type ExperimentArtifacts = {
-  run_result: Record<string, unknown>;
-  issues: Array<Record<string, unknown>>;
-  report: string;
-  trace_tail: string;
-  log_tail?: string;
-  summary: ExperimentRun["summary"];
-  runtime_loop?: Record<string, unknown>;
-};
-
-export type ExperimentTurn = {
-  turn_id: string;
-  index: number;
-  scenario: string;
-  session_alias: string;
-  status: string;
-  summary: string;
-  problem_node_id?: string;
-  problem_node_label?: string;
-  artifact_path: string;
-  issue_count: number;
-  has_trace: boolean;
-  has_prompt_manifest: boolean;
-  has_memory_trace: boolean;
-  runtime_loop?: Record<string, unknown>;
-  assertions?: Array<Record<string, unknown>>;
-};
-
-export type TestProfile = ExperimentProfile & {
-  monitor_owner?: string;
-};
-
-export type TestRun = ExperimentRun;
-
-export type TestArtifacts = ExperimentArtifacts;
-
-export type TestTurn = ExperimentTurn;
-
-export type TestCaseDefinition = {
-  case_id: string;
-  title: string;
-  layer: "chain" | "functional" | "system" | "scenario" | string;
-  path: string;
-  owner_system: string;
-  runner: "pytest" | "python" | "harness" | string;
-  status: "active" | "quarantined" | "candidate" | string;
-  profiles: string[];
-  description: string;
-  assertions: string[];
-  tags: string[];
-  replaces: string[];
-  reason: string;
-};
-
-export type TestCaseRegistry = {
-  profiles: Record<string, {
-    layers: string[];
-    case_count: number;
-  }>;
-  layers: string[];
-  active_cases: TestCaseDefinition[];
-  candidate_cases: TestCaseDefinition[];
-  case_count: number;
-  authority: string;
-};
-
-export type TestAgentFinding = {
-  severity: string;
-  code: string;
-  message: string;
-  path: string;
-  case_id: string;
-  recommendation: string;
-};
-
-export type TestAgentReport = {
-  authority: string;
-  summary: {
-    active_case_count?: number;
-    candidate_case_count?: number;
-    registered_file_count?: number;
-    discovered_test_file_count?: number;
-    unregistered_file_count?: number;
-    finding_count?: number;
-  };
-  findings: TestAgentFinding[];
-  profile_targets: Record<string, string[]>;
-  registered_paths: string[];
-  unregistered_paths: string[];
-};
-
-export type TestHarnessIssue = {
-  issue_id: string;
-  title: string;
-  origin: string;
-  owner_system: string;
-  severity: string;
-  status: string;
-  observed: string;
-  expected: string;
-  reproduce: string;
-  related_run_id: string;
-  related_turn_id: string;
-  related_task_id: string;
-  related_session_id: string;
-  related_skill: string;
-  problem_node_id: string;
-  problem_node_label: string;
-  tags: string[];
-  created_at: number;
-  updated_at: number;
-};
-
-export type TestCaseDraft = {
-  draft_id: string;
-  title: string;
-  layer: string;
-  owner_system: string;
-  source_issue_id: string;
-  source_run_id: string;
-  source_turn_id: string;
-  trigger: string;
-  expected: string;
-  assertions: string[];
-  profile: string;
-  status: string;
-  created_at: number;
-  updated_at: number;
-};
-
-export type TestCaseTemplate = {
-  template_id: string;
-  title: string;
-  layer: string;
-  owner_system: string;
-  runner: string;
-  profiles: string[];
-  assertions: string[];
-  tags: string[];
-  description: string;
-  pass_criteria: string[];
-};
-
-export type ScenarioTurnDefinition = {
-  turn_id: string;
-  user: string;
-  expected: string;
-  assistant_hint?: string;
-  speaker?: string;
-  session?: string;
-  checks?: string[];
-};
-
-export type LongScenarioTurn = {
-  turn_id: string;
-  index: number;
-  session: string;
-  speaker: string;
-  content: string;
-  action: string;
-  params: Record<string, unknown>;
-  checks: string[];
-};
-
-export type LongScenarioDefinition = {
-  scenario_id: string;
-  title: string;
-  category: string;
-  execution_mode: string;
-  goal: string;
-  coverage: string[];
-  assertions: string[];
-  failure_modes: string[];
-  expected_artifacts: string[];
-  related_regressions: string[];
-  scenario_sets: string[];
-  profile_refs: string[];
-  turns: LongScenarioTurn[];
-  stress_profile?: Record<string, unknown> | null;
-  runner_source: string;
-};
-
-export type LongScenarioCatalog = {
-  authority: string;
-  scenario_sets: Record<string, string[]>;
-  scenarios: LongScenarioDefinition[];
-};
-
-export type TestHarnessRecords = {
-  issues: TestHarnessIssue[];
-  case_drafts: TestCaseDraft[];
-  managed_cases: HarnessMapCase[];
-  regression_samples?: RegressionSample[];
-  summary: {
-    issue_count: number;
-    open_issue_count: number;
-    case_draft_count: number;
-    managed_case_count?: number;
-    regression_sample_count?: number;
-  };
-  authority: string;
-};
-
-export type TestScenarioContract = {
-  contract_id: string;
-  title: string;
-  scenario_id: string;
-  turn_id: string;
-  session_alias: string;
-  user_input: string;
-  objective?: string;
-  source_kind?: string;
-  source_ref?: string;
-  profile?: string;
-  preconditions?: string[];
-  assertions?: string[];
-  expected_tools?: string[];
-  expected_events?: string[];
-  evidence_policy?: Record<string, unknown>;
-  rerun_args?: string[];
-  authority?: string;
-};
-
-export type RegressionSample = {
-  sample_id: string;
-  title: string;
-  source_run_id: string;
-  source_turn_id: string;
-  source_artifact_path: string;
-  scenario_id: string;
-  session_alias: string;
-  status: string;
-  failure_summary: string;
-  observed?: string;
-  expected?: string;
-  task_run_id?: string;
-  problem_node_id?: string;
-  problem_node_label?: string;
-  contract?: TestScenarioContract | null;
-  assertion_summary?: Array<Record<string, unknown>>;
-  evidence_packet?: Record<string, unknown>;
-  rerun_command?: string[];
-  verification?: {
-    status?: string;
-    reason?: string;
-    run_id?: string;
-    artifact_refs?: string[];
-    checked_at?: number;
-  };
-  tags?: string[];
-  created_at?: number;
-  updated_at?: number;
-  authority?: string;
-};
-
-export type HarnessMapFeature = {
-  feature_id: string;
-  title: string;
-  owner_system: string;
-  boundary: string;
-  case_count: number;
-  active_case_count: number;
-  candidate_case_count: number;
-  open_issue_count: number;
-  governance_finding_count: number;
-  case_ids: string[];
-  case_paths: string[];
-  issue_refs: Array<Record<string, unknown>>;
-  risk_status: string;
-};
-
-export type HarnessMapCase = TestCaseDefinition & {
-  feature_id: string;
-  feature_title: string;
-  feature_boundary: string;
-  behavior_under_test: string;
-  problem_statement: string;
-  pass_criteria: string[];
-  scenario_turns?: ScenarioTurnDefinition[];
-  issue_refs: Array<Record<string, unknown>>;
-  case_draft_refs: Array<Record<string, unknown>>;
-  governance_findings: Array<Record<string, unknown>>;
-  traceability: Record<string, unknown>;
-};
-
-export type HarnessMap = {
-  authority: string;
-  summary: Record<string, number>;
-  features: HarnessMapFeature[];
-  cases: HarnessMapCase[];
-  issues: TestHarnessIssue[];
-  case_drafts: TestCaseDraft[];
-  governance_findings: Array<Record<string, unknown>>;
-  managed_cases: HarnessMapCase[];
-  regression_samples?: RegressionSample[];
-  scenario_contracts?: TestScenarioContract[];
-  profile_matrix: Array<{
-    profile: string;
-    case_count: number;
-    case_ids: string[];
-  }>;
-  link_contract: Record<string, string>;
-};
-
 export type AgentTaskConnectionProfile = {
   profile_id: string;
   agent_id: string;
@@ -1490,129 +1153,88 @@ export type TaskGraphTemplateCatalog = {
   summary: Record<string, unknown>;
 };
 
+export type HealthRiskEvent = {
+  event_id: string;
+  source: string;
+  scope: "task" | "system" | "token" | "efficiency" | string;
+  severity: "info" | "warning" | "high" | "critical" | string;
+  target_ref: string;
+  title: string;
+  summary: string;
+  recommended_action: string;
+  created_at: number;
+};
+
+export type HealthTaskRecord = {
+  task_run_id: string;
+  session_id: string;
+  task_order_id: string;
+  task_order_run_id: string;
+  title: string;
+  task_id: string;
+  agent_id: string;
+  agent_profile_id: string;
+  runtime_lane: string;
+  status: string;
+  terminal_reason: string;
+  created_at: number;
+  updated_at: number;
+  duration_seconds: number;
+  agent_count: number;
+  worker_request_count: number;
+  worker_result_count: number;
+  tool_call_count: number;
+  event_count: number;
+  error_count: number;
+  token_total: number;
+  risk_level: "normal" | "warning" | "high" | "critical" | string;
+  latest_risk_event: string;
+  supervision_count: number;
+  latest_event_type: string;
+  monitor_ref: string;
+  record_refs: Record<string, string>;
+};
+
+export type HealthTokenUsage = {
+  authority: string;
+  summary: Record<string, number>;
+  sessions: Array<Record<string, unknown>>;
+  tasks: Array<Record<string, unknown>>;
+  daily: Array<Record<string, unknown>>;
+  six_hour: Array<Record<string, unknown>>;
+  note?: string;
+  updated_at: number;
+};
+
+export type HealthEfficiency = {
+  authority: string;
+  summary: Record<string, number>;
+  tasks: Array<Record<string, unknown>>;
+  updated_at: number;
+};
+
+export type HealthRecommendation = {
+  title: string;
+  summary: string;
+  priority: "info" | "medium" | "high" | string;
+};
+
 export type HealthSystemOverview = {
   authority: string;
   summary: Record<string, number>;
-  issues: HealthIssue[];
-  agent_runs: HealthAgentRun[];
-  problem_nodes: HealthProblemNode[];
+  tasks: HealthTaskRecord[];
+  risks: HealthRiskEvent[];
+  system_risks: HealthRiskEvent[];
+  token_usage: HealthTokenUsage;
+  efficiency: HealthEfficiency;
+  recommendations: HealthRecommendation[];
+  monitor: GlobalRuntimeMonitor | Record<string, unknown>;
+  updated_at: number;
+  issues?: HealthIssue[];
+  agent_runs?: HealthAgentRun[];
+  problem_nodes?: HealthProblemNode[];
   commands?: HealthManagementCommand[];
   reports?: HealthReport[];
-  health_test_runs?: HealthTestRun[];
-  verification_runs?: VerificationRun[];
-  gate_projection?: {
-    authority: string;
-    decisions: Array<Record<string, unknown>>;
-    summary: Record<string, number>;
-  };
-};
-
-export type HealthWorkbenchInboxItem = {
-  item_id: string;
-  item_type: string;
-  title: string;
-  subject_type: "health_issue" | "verification_run" | string;
-  subject_id: string;
-  subject_title: string;
-  severity: string;
-  reason: string;
-  primary_action: string;
-  secondary_actions: string[];
-  evidence_state: "linked" | "missing" | string;
-  created_at?: number;
-  metadata?: Record<string, unknown>;
-};
-
-export type HealthWorkbenchDiagnosisItem = {
-  diagnosis_id: string;
-  subject_type: string;
-  subject_id: string;
-  title: string;
-  priority: string;
-  question: string;
-  evidence_state: string;
-  recommended_agent_role: string;
-  source_item_id: string;
-  metadata?: Record<string, unknown>;
-};
-
-export type HealthWorkbenchRecoveryItem = {
-  recovery_id: string;
-  subject_type: string;
-  subject_id: string;
-  title: string;
-  handle_kind: string;
-  handle_ref: string;
-  safe_to_resume: boolean;
-  side_effect_replay_risk: string;
-  recommended_action: string;
-  requires_runtime_control: boolean;
-  metadata?: Record<string, unknown>;
-};
-
-export type HealthWorkbenchFailureChain = {
-  chain_id: string;
-  subject_type: string;
-  subject_id: string;
-  title: string;
-  status: string;
-  root_cause_candidate: string;
-  last_task_run_id: string;
-  last_checkpoint_ref: string;
-  last_coordination_checkpoint_ref: string;
-  evidence_packet_ref: string;
-  steps: Array<{
-    step_id: string;
-    step_type: string;
-    title: string;
-    summary: string;
-    source_ref: string;
-  }>;
-};
-
-export type HealthWorkbenchEvidencePacket = {
-  packet_id: string;
-  question: string;
-  verdict: string;
-  confidence: number;
-  summary: string;
-  selected_evidence: Array<Record<string, unknown>>;
-  recovery_handles: Array<Record<string, unknown>>;
-  test_handles: Array<Record<string, unknown>>;
-  excluded_evidence_summary: Record<string, unknown>;
-  authority: string;
-};
-
-export type HealthWorkbenchOverview = {
-  authority: string;
-  summary: Record<string, number>;
-  inbox_items: HealthWorkbenchInboxItem[];
-  selected_context: HealthWorkbenchInboxItem | Record<string, never>;
-  features: HarnessMapFeature[];
-  verification_resources: HarnessMapCase[];
-  recent_runs: VerificationRun[];
-  diagnosis_inbox?: HealthWorkbenchDiagnosisItem[];
-  recovery_inbox?: HealthWorkbenchRecoveryItem[];
-  failure_chains?: HealthWorkbenchFailureChain[];
-  regression_sample_inbox?: Array<Record<string, unknown>>;
-  test_governance?: {
-    authority: string;
-    record_store_ref: string;
-    regression_samples: RegressionSample[];
-    scenario_contracts: TestScenarioContract[];
-    summary: Record<string, number>;
-  };
-  evidence_packets?: HealthWorkbenchEvidencePacket[];
-  evidence_gaps: Array<Record<string, unknown>>;
-  efficiency: {
-    authority: string;
-    latency: Record<string, number>;
-    tokens: Record<string, unknown>;
-    signals: Array<Record<string, unknown>>;
-  };
-  context_budget?: ContextBudgetConfig;
-  recommended_actions: Array<Record<string, unknown>>;
-  source_refs: Record<string, string>;
 };
 
 export type ContextBudgetPreset = {
@@ -1835,7 +1457,6 @@ export type HealthManagementReceipt = {
   status: string;
   health_issue_ref: string;
   health_run_ref: string;
-  test_run_ref: string;
   report_ref: string;
   blocked_reasons: string[];
   diagnostics: Record<string, unknown>;
@@ -1848,7 +1469,6 @@ export type HealthReport = {
   issue_ref: string;
   command_ref: string;
   agent_run_ref: string;
-  test_run_ref: string;
   evidence_refs: string[];
   verdict: string;
   severity: string;
@@ -1889,22 +1509,6 @@ export type HealthCommandResponse = {
   report?: HealthReport;
   issue?: HealthIssue;
   run_result?: Record<string, unknown>;
-  health_test_run?: HealthTestRun;
-};
-
-export type HealthTestRun = {
-  health_test_run_id: string;
-  command_ref: string;
-  test_system_run_ref: string;
-  profile: string;
-  scenario_refs: string[];
-  status: string;
-  verdict: string;
-  artifact_refs: string[];
-  issue_refs: string[];
-  report_refs: string[];
-  started_at: number;
-  finished_at: number;
 };
 
 export type HealthAgentRunPreview = {
@@ -3685,56 +3289,6 @@ export async function mergeDurableMemories(payload: {
   });
 }
 
-export async function listExperimentProfiles() {
-  return request<ExperimentProfile[]>("/health-system/maintenance/experiments/profiles");
-}
-
-export async function listExperimentRuns(limit = 20) {
-  return request<ExperimentRun[]>(`/health-system/maintenance/experiments/runs?limit=${limit}`);
-}
-
-export async function startExperimentRun(profile: string) {
-  return request<ExperimentRun>("/health-system/maintenance/experiments/runs", {
-    method: "POST",
-    body: JSON.stringify({ profile })
-  });
-}
-
-export async function getExperimentRun(runId: string) {
-  return request<ExperimentRun>(`/health-system/maintenance/experiments/runs/${encodeURIComponent(runId)}`);
-}
-
-export async function getExperimentArtifacts(runId: string) {
-  return request<ExperimentArtifacts>(`/health-system/maintenance/experiments/runs/${encodeURIComponent(runId)}/artifacts`);
-}
-
-export async function listExperimentTurns(runId: string) {
-  return request<ExperimentTurn[]>(`/health-system/maintenance/experiments/runs/${encodeURIComponent(runId)}/turns`);
-}
-
-export async function getExperimentTurnPromptManifest(runId: string, turnId: string) {
-  return request<PromptManifestResponse>(
-    `/health-system/maintenance/experiments/runs/${encodeURIComponent(runId)}/turns/${encodeURIComponent(turnId)}/prompt-manifest`
-  );
-}
-
-export async function getExperimentTurnMemoryTrace(runId: string, turnId: string) {
-  return request<ExperimentTurnMemoryTraceResponse>(
-    `/health-system/maintenance/experiments/runs/${encodeURIComponent(runId)}/turns/${encodeURIComponent(turnId)}/memory-trace`
-  );
-}
-
-export async function getExperimentTurnOrchestration(runId: string, turnId: string, artifactPath = "") {
-  const params = new URLSearchParams();
-  if (artifactPath.trim()) {
-    params.set("artifact_path", artifactPath.trim());
-  }
-  const suffix = params.toString() ? `?${params.toString()}` : "";
-  return request<OrchestrationSnapshot>(
-    `/health-system/maintenance/experiments/runs/${encodeURIComponent(runId)}/turns/${encodeURIComponent(turnId)}/orchestration${suffix}`
-  );
-}
-
 export async function runOrchestrationDryRun(payload: {
   session_id: string;
   message: string;
@@ -4521,44 +4075,42 @@ export async function getHealthSystemOverview() {
   return request<HealthSystemOverview>("/health-system/overview");
 }
 
-export async function getHealthWorkbenchOverview() {
-  return request<HealthWorkbenchOverview>("/health-workbench/overview");
-}
-
-export async function getHealthWorkbenchEvidencePackets() {
+export async function getHealthSystemTasks(limit = 100) {
   return request<{
     authority: string;
-    evidence_packets: HealthWorkbenchEvidencePacket[];
-    failure_chains: HealthWorkbenchFailureChain[];
+    tasks: HealthTaskRecord[];
     summary: Record<string, number>;
-  }>("/health-workbench/evidence-packets");
+    updated_at: number;
+  }>(`/health-system/tasks?limit=${limit}`);
 }
 
-export async function getHealthWorkbenchDiagnosisInbox() {
+export async function getHealthSystemTaskDetail(taskRunId: string) {
   return request<{
     authority: string;
-    diagnosis_inbox: HealthWorkbenchDiagnosisItem[];
-    evidence_gaps: Array<Record<string, unknown>>;
-    summary: Record<string, number>;
-  }>("/health-workbench/diagnosis-inbox");
+    task: HealthTaskRecord;
+    monitor: Record<string, unknown>;
+    task_graph_monitor: Record<string, unknown>;
+    risks: HealthRiskEvent[];
+    recent_events: Array<Record<string, unknown>>;
+    updated_at: number;
+  }>(`/health-system/tasks/${encodeURIComponent(taskRunId)}`);
 }
 
-export async function getHealthWorkbenchRecoveryInbox() {
+export async function getHealthSystemRisks(limit = 100) {
   return request<{
     authority: string;
-    recovery_inbox: HealthWorkbenchRecoveryItem[];
+    risks: HealthRiskEvent[];
     summary: Record<string, number>;
-  }>("/health-workbench/recovery-inbox");
+    updated_at: number;
+  }>(`/health-system/risks?limit=${limit}`);
 }
 
-export async function getHealthWorkbenchRegressionSamples() {
-  return request<{
-    authority: string;
-    regression_sample_inbox: Array<Record<string, unknown>>;
-    regression_samples: RegressionSample[];
-    scenario_contracts: TestScenarioContract[];
-    summary: Record<string, number>;
-  }>("/health-workbench/regression-samples");
+export async function getHealthSystemTokenUsage(limit = 100) {
+  return request<HealthTokenUsage>(`/health-system/token-usage?limit=${limit}`);
+}
+
+export async function getHealthSystemEfficiency(limit = 100) {
+  return request<HealthEfficiency>(`/health-system/efficiency?limit=${limit}`);
 }
 
 export async function createHealthAgentConversationSession(payload: {
@@ -4665,143 +4217,6 @@ export async function uploadSoulPortrait(key: string, file: File) {
     method: "POST",
     body: formData
   });
-}
-
-export async function cancelExperimentRun(runId: string) {
-  return request<ExperimentRun>(`/health-system/maintenance/experiments/runs/${encodeURIComponent(runId)}/cancel`, {
-    method: "POST"
-  });
-}
-
-export async function listTestProfiles() {
-  return request<TestProfile[]>("/health-system/maintenance/test-system/profiles");
-}
-
-export async function getTestCases() {
-  return request<TestCaseRegistry>("/health-system/maintenance/test-system/cases");
-}
-
-export async function getTestAgentReport() {
-  return request<TestAgentReport>("/health-system/maintenance/test-system/agent/report");
-}
-
-export async function getHarnessMap() {
-  return request<HarnessMap>("/health-system/maintenance/test-system/harness-map");
-}
-
-export async function listRegressionSamples() {
-  return request<{ authority: string; samples: RegressionSample[]; summary: Record<string, number> }>("/health-system/maintenance/test-system/regression-samples");
-}
-
-export async function createRegressionSampleFromTurn(runId: string, turnId: string) {
-  return request<RegressionSample>(
-    `/health-system/maintenance/test-system/runs/${encodeURIComponent(runId)}/turns/${encodeURIComponent(turnId)}/regression-sample`,
-    { method: "POST" }
-  );
-}
-
-export async function promoteFailedTurnsToRegressionSamples(runId: string) {
-  return request<{
-    authority: string;
-    run_id: string;
-    promoted: RegressionSample[];
-    skipped: Array<Record<string, unknown>>;
-    summary: Record<string, number>;
-  }>(
-    `/health-system/maintenance/test-system/runs/${encodeURIComponent(runId)}/regression-samples/promote-failed-turns`,
-    { method: "POST" }
-  );
-}
-
-export async function rerunRegressionSample(sampleId: string) {
-  return request<{ authority: string; sample: RegressionSample; run: TestRun; verdict: Record<string, unknown> }>(
-    `/health-system/maintenance/test-system/regression-samples/${encodeURIComponent(sampleId)}/rerun`,
-    { method: "POST" }
-  );
-}
-
-export async function refreshRegressionSampleVerdict(sampleId: string) {
-  return request<{ authority: string; sample: RegressionSample; run: TestRun | Record<string, never>; summary?: Record<string, unknown>; verdict: Record<string, unknown> }>(
-    `/health-system/maintenance/test-system/regression-samples/${encodeURIComponent(sampleId)}/refresh-verdict`,
-    { method: "POST" }
-  );
-}
-
-export async function getTestCaseTemplates() {
-  return request<{ authority: string; templates: TestCaseTemplate[] }>("/health-system/maintenance/test-system/case-templates");
-}
-
-export async function listLongScenarios() {
-  return request<LongScenarioCatalog>("/health-system/maintenance/test-system/long-scenarios");
-}
-
-export async function createManagedTestCase(payload: {
-  case_id?: string;
-  title: string;
-  layer?: string;
-  path?: string;
-  owner_system?: string;
-  runner?: string;
-  status?: string;
-  profiles?: string[] | string;
-  description?: string;
-  problem_statement?: string;
-  pass_criteria?: string[] | string;
-  scenario_turns?: Array<{
-    turn_id?: string;
-    user?: string;
-    expected?: string;
-    assistant_hint?: string;
-  }>;
-  assertions?: string[] | string;
-  tags?: string[] | string;
-  source_template_id?: string;
-}) {
-  return request<HarnessMapCase>("/health-system/maintenance/test-system/managed-cases", {
-    method: "POST",
-    body: JSON.stringify(payload)
-  });
-}
-
-export async function deleteManagedTestCase(caseId: string) {
-  return request<{ ok: boolean; case_id: string }>(`/health-system/maintenance/test-system/managed-cases/${encodeURIComponent(caseId)}`, {
-    method: "DELETE"
-  });
-}
-
-export async function listTestRuns(limit = 20) {
-  return request<TestRun[]>(`/health-system/maintenance/test-system/runs?limit=${limit}`);
-}
-
-export async function startTestRun(profile: string, scenarioIds: string[] = []) {
-  return request<TestRun>("/health-system/maintenance/test-system/runs", {
-    method: "POST",
-    body: JSON.stringify({ profile, scenario_ids: scenarioIds })
-  });
-}
-
-export async function getTestRun(runId: string) {
-  return request<TestRun>(`/health-system/maintenance/test-system/runs/${encodeURIComponent(runId)}`);
-}
-
-export async function cancelTestRun(runId: string) {
-  return request<TestRun>(`/health-system/maintenance/test-system/runs/${encodeURIComponent(runId)}/cancel`, {
-    method: "POST"
-  });
-}
-
-export async function getTestArtifacts(runId: string) {
-  return request<TestArtifacts>(`/health-system/maintenance/test-system/runs/${encodeURIComponent(runId)}/artifacts`);
-}
-
-export async function listTestTurns(runId: string) {
-  return request<TestTurn[]>(`/health-system/maintenance/test-system/runs/${encodeURIComponent(runId)}/turns`);
-}
-
-export async function getTestTurnRuntimeLoop(runId: string, turnId: string) {
-  return request<Record<string, unknown>>(
-    `/health-system/maintenance/test-system/runs/${encodeURIComponent(runId)}/turns/${encodeURIComponent(turnId)}/runtime-loop`
-  );
 }
 
 export async function streamChat(

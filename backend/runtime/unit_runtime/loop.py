@@ -116,14 +116,9 @@ from ..execution_engine import (
     build_initial_followup_messages,
     build_delegation_request,
     build_next_followup_messages,
-    builtin_tool_lane_answer_from_observation,
     classify_raw_model_event,
     classify_runtime_event,
-    finalize_after_followup_tool_results,
-    finalize_budget_exhausted_followup,
     record_tool_observation_projection,
-    select_final_answer_from_context,
-    select_final_answer_from_task_summary_refs,
 )
 from ..memory.project_supervision import (
     build_runtime_status,
@@ -183,7 +178,6 @@ from agent_system.registry.worker_agent_factory import WorkerAgentFactory
 from ..context_management.system_retrieval import (
     SystemRetrievalStage,
     build_context_policy_with_retrieval,
-    final_main_context_can_finalize,
 )
 
 
@@ -221,7 +215,6 @@ class _ModelTurnApplicationState:
     tool_observation_count: int
     executed_bundle_ordinals: list[int]
     repeated_tool_halt: bool
-    builtin_tool_lane_finalized: bool
     approval_waiting: bool = False
 
 
@@ -692,7 +685,7 @@ class TaskRunLoop:
         task_contract_ref: str = "",
         agent_id: str = "agent:0",
         agent_profile_id: str = "main_interactive_agent",
-        runtime_lane: str = "full_interactive",
+        runtime_lane: str = "standard_task",
         task_agent_binding_ref: str = "",
         skill_workflow_ref: str = "",
         health_issue_ref: str = "",
@@ -1541,7 +1534,7 @@ class TaskRunLoop:
             task_contract_ref=str(task_contract.get("task_id") or task_id),
             agent_id=str(agent_runtime_spec_payload.get("agent_id") or "agent:0"),
             agent_profile_id=effective_agent_profile_id,
-            runtime_lane=str(agent_runtime_spec_payload.get("runtime_lane") or "full_interactive"),
+            runtime_lane=str(agent_runtime_spec_payload.get("runtime_lane") or "standard_task"),
             task_agent_binding_ref=str(task_execution_assembly_payload.get("task_agent_binding_ref") or ""),
             execution_mode=execution_mode,
             graph_ref=str(
@@ -2331,28 +2324,6 @@ class TaskRunLoop:
         final_answer_metadata: dict[str, Any] = {}
         run_outcome: dict[str, Any] = {}
         terminal_reason = "completed"
-        if final_main_context and final_main_context_can_finalize(
-            selected_recipe_payload=selected_recipe_payload,
-            retrieval_results=retrieval_results,
-        ):
-            final_content = select_final_answer_from_context(final_main_context)
-            if not final_content:
-                final_content = str(
-                    final_main_context.get("resolved_answer")
-                    or final_main_context.get("canonical_answer")
-                    or ""
-                )
-            if not final_content and final_task_summary_refs:
-                final_content = select_final_answer_from_task_summary_refs(final_task_summary_refs)
-            if final_content:
-                final_answer_metadata = {
-                    "answer_channel": "answer_candidate",
-                    "answer_source": str(final_main_context.get("answer_source") or "runtime_mcp"),
-                    "answer_canonical_state": "stable_answer",
-                    "answer_persist_policy": "persist_canonical",
-                    "answer_finalization_policy": "none",
-                    "answer_fallback_reason": "",
-                }
         preserve_final_answer_metadata = bool(final_content and final_answer_metadata)
 
         final_bundle_summary_refs: list[dict[str, Any]] = []
@@ -2366,7 +2337,6 @@ class TaskRunLoop:
         executed_bundle_ordinals: list[int] = []
         tool_repetition_guard = ToolRepetitionGuard()
         repeated_tool_halt = False
-        builtin_tool_lane_finalized = False
         professional_task_driver_ran = False
         if _is_professional_task_run_recipe(selected_recipe_payload):
             professional_task_driver_ran = True
@@ -2415,21 +2385,32 @@ class TaskRunLoop:
                 ):
                     yield event
             except Exception as exc:
-                if not str(outcome.final_content or "").strip():
-                    raise
-                outcome.terminal_reason = "partially_completed"
-                degraded_event = self.event_log.append(
+                had_final_content = bool(str(outcome.final_content or "").strip())
+                outcome.final_content = ""
+                outcome.final_answer_metadata = {
+                    **dict(outcome.final_answer_metadata or {}),
+                    "answer_channel": "orchestration_fail_closed",
+                    "answer_source": "professional_task_driver",
+                    "answer_canonical_state": "driver_failed",
+                    "answer_persist_policy": "do_not_persist",
+                    "answer_finalization_policy": "none",
+                    "answer_fallback_reason": "professional_task_driver_failed",
+                }
+                outcome.terminal_reason = "executor_failed"
+                failed_event = self.event_log.append(
                     state.task_run_id,
-                    "professional_task_driver_degraded_after_closeout",
+                    "loop_error",
                     payload={
+                        "error": "professional_task_driver_failed",
                         "error_type": type(exc).__name__,
                         "error": str(exc),
-                        "final_content_chars": len(str(outcome.final_content or "")),
-                        "recovered_as": outcome.terminal_reason,
+                        "had_final_content": had_final_content,
+                        "final_content_discarded": had_final_content,
+                        "terminal_reason": outcome.terminal_reason,
                     },
                     refs={"task_contract_ref": task_contract_ref},
                 )
-                yield {"type": "runtime_loop_event", "event": degraded_event.to_dict()}
+                yield {"type": "runtime_loop_event", "event": failed_event.to_dict()}
             runtime_task_ledger = outcome.ledger
             state = outcome.state
             result_refs = list(_dedupe_refs([*result_refs, *outcome.result_refs]))
@@ -2462,7 +2443,6 @@ class TaskRunLoop:
                 tool_observation_count=tool_observation_count,
                 executed_bundle_ordinals=executed_bundle_ordinals,
                 repeated_tool_halt=repeated_tool_halt,
-                builtin_tool_lane_finalized=builtin_tool_lane_finalized,
             )
             async for model_turn_event in self.execution_engine.stream_model_turn(
                 task_run_id=state.task_run_id,
@@ -2501,7 +2481,6 @@ class TaskRunLoop:
                     preserve_answer_metadata=preserve_final_answer_metadata,
                     apply_tool_call_transition=True,
                     apply_projection_only_when_present=True,
-                    allow_builtin_tool_lane_finalization=True,
                 ):
                     yield emitted_event
                 if turn_application.approval_waiting:
@@ -2519,7 +2498,6 @@ class TaskRunLoop:
             tool_observation_count = turn_application.tool_observation_count
             executed_bundle_ordinals = list(turn_application.executed_bundle_ordinals)
             repeated_tool_halt = turn_application.repeated_tool_halt
-            builtin_tool_lane_finalized = turn_application.builtin_tool_lane_finalized
 
         turn_count = 1
         model_call_count = 1
@@ -2529,11 +2507,10 @@ class TaskRunLoop:
         followup_messages: list[Any] = []
         retrieval_followup_observed = False
         if len(tool_call_accumulator.pending_tool_calls) > 1 and terminal_reason == "completed":
-            builtin_tool_lane_finalized = False
             final_content = ""
             final_answer_metadata = {}
             preserve_final_answer_metadata = False
-        if tool_call_accumulator.pending_tool_calls and tool_messages and terminal_reason == "completed" and not builtin_tool_lane_finalized:
+        if tool_call_accumulator.pending_tool_calls and tool_messages and terminal_reason == "completed":
             followup_messages = build_initial_followup_messages(
                 context_model_messages=list(context_snapshot.model_messages),
                 tool_call_accumulator=tool_call_accumulator,
@@ -2587,16 +2564,14 @@ class TaskRunLoop:
             if not followup_control.allowed:
                 terminal_reason = followup_control.reason
                 if not final_content:
-                    finalization = finalize_budget_exhausted_followup(
-                        user_message=user_message,
-                        aggregation=observation_aggregator.snapshot(),
-                        final_task_summary_refs=final_task_summary_refs,
-                        final_main_context=final_main_context,
-                        control_message=followup_control.message,
-                        tool_observation_count=tool_observation_count,
-                    )
-                    final_content = finalization.content
-                    final_answer_metadata = dict(finalization.answer_metadata or {})
+                    final_answer_metadata = {
+                        "answer_channel": "orchestration_fail_closed",
+                        "answer_source": "runtime_loop_control",
+                        "answer_canonical_state": "no_agent_final_answer",
+                        "answer_persist_policy": "persist_debug_only",
+                        "answer_finalization_policy": "none",
+                        "answer_fallback_reason": str(followup_control.reason or "runtime_loop_control"),
+                    }
                 break
             followup_event = self.event_log.append(
                 state.task_run_id,
@@ -2630,7 +2605,6 @@ class TaskRunLoop:
                 tool_observation_count=tool_observation_count,
                 executed_bundle_ordinals=executed_bundle_ordinals,
                 repeated_tool_halt=repeated_tool_halt,
-                builtin_tool_lane_finalized=builtin_tool_lane_finalized,
             )
             async for model_turn_event in self.execution_engine.stream_model_turn(
                 task_run_id=state.task_run_id,
@@ -2685,7 +2659,6 @@ class TaskRunLoop:
             tool_observation_count = turn_application.tool_observation_count
             executed_bundle_ordinals = list(turn_application.executed_bundle_ordinals)
             repeated_tool_halt = turn_application.repeated_tool_halt
-            builtin_tool_lane_finalized = turn_application.builtin_tool_lane_finalized
             if (
                 next_tool_call_accumulator.pending_tool_calls
                 and next_tool_messages
@@ -2695,20 +2668,17 @@ class TaskRunLoop:
             ):
                 retrieval_followup_observed = True
             if next_tool_call_accumulator.pending_tool_calls and next_tool_messages and terminal_reason == "completed":
-                finalization = finalize_after_followup_tool_results(
-                    user_message=user_message,
-                    aggregation=observation_aggregator.snapshot(),
-                    final_task_summary_refs=final_task_summary_refs,
-                    final_main_context=final_main_context,
-                    repeated_tool_halt=repeated_tool_halt,
-                    final_content=final_content,
-                    tool_observation_count=tool_observation_count,
-                    retrieval_followup_observed=retrieval_followup_observed,
-                )
-                if finalization.finalized:
-                    final_content = finalization.content
-                    if finalization.answer_metadata is not None:
-                        final_answer_metadata = dict(finalization.answer_metadata)
+                if repeated_tool_halt:
+                    terminal_reason = "repeated_tool_halt"
+                    if not final_content:
+                        final_answer_metadata = {
+                            "answer_channel": "orchestration_fail_closed",
+                            "answer_source": "runtime_loop_control",
+                            "answer_canonical_state": "no_agent_final_answer",
+                            "answer_persist_policy": "persist_debug_only",
+                            "answer_finalization_policy": "none",
+                            "answer_fallback_reason": "repeated_tool_halt",
+                        }
                     followup_messages = []
                     break
                 followup_messages = build_next_followup_messages(
@@ -2732,17 +2702,19 @@ class TaskRunLoop:
             event_log_events=[item.to_dict() for item in self.event_log.list_events(state.task_run_id)],
         )
         if not artifact_validation["passed"] and terminal_reason == "completed":
+            rejected_final_content = str(final_content or "")
             terminal_reason = "artifact_validation_failed"
             final_answer_metadata = {
                 **dict(final_answer_metadata),
                 "answer_channel": "orchestration_fail_closed",
                 "answer_source": "task_artifact_validation",
                 "answer_canonical_state": "artifact_validation_failed",
+                "answer_persist_policy": "do_not_persist",
+                "answer_finalization_policy": "none",
+                "answer_fallback_reason": str(artifact_validation.get("reason") or "artifact_validation_failed"),
             }
-            final_content = (
-                "任务未通过验收：要求产出真实文件，但未检测到合格的 write_file 产物。"
-                f" 原因：{artifact_validation['reason']}"
-            )
+            artifact_validation["rejected_final_content_chars"] = len(rejected_final_content)
+            final_content = ""
 
         artifact_validation_event = self.event_log.append(
             state.task_run_id,
@@ -3249,7 +3221,6 @@ class TaskRunLoop:
         apply_tool_call_transition: bool = False,
         project_tool_observation: bool = True,
         apply_projection_only_when_present: bool = False,
-        allow_builtin_tool_lane_finalization: bool = False,
         fail_running_step_on_executor_error: bool = False,
         fail_running_step_on_loop_error: bool = False,
         tool_result_transition_reason: str = "tool_result_received",
@@ -3292,7 +3263,6 @@ class TaskRunLoop:
                     user_message=user_message,
                     project_tool_observation=project_tool_observation,
                     apply_projection_only_when_present=apply_projection_only_when_present,
-                    allow_builtin_tool_lane_finalization=allow_builtin_tool_lane_finalization,
                     fail_running_step_on_executor_error=fail_running_step_on_executor_error,
                     tool_result_transition_reason=tool_result_transition_reason,
                     tool_result_transition_diagnostics=tool_result_transition_diagnostics,
@@ -3403,7 +3373,6 @@ class TaskRunLoop:
         user_message: str,
         project_tool_observation: bool,
         apply_projection_only_when_present: bool,
-        allow_builtin_tool_lane_finalization: bool,
         fail_running_step_on_executor_error: bool,
         tool_result_transition_reason: str,
         tool_result_transition_diagnostics: dict[str, Any] | None,
@@ -3452,24 +3421,6 @@ class TaskRunLoop:
                         tool_call_id=str(observation_payload.get("tool_call_id") or observation_ref),
                     )
                 )
-            if allow_builtin_tool_lane_finalization and _recipe_allows_tool_observation_finalization(selected_recipe_payload):
-                builtin_tool_lane_answer_metadata = builtin_tool_lane_answer_from_observation(
-                    user_message=user_message,
-                    observation_payload=observation_payload,
-                )
-                if builtin_tool_lane_answer_metadata is not None:
-                    application.final_content = builtin_tool_lane_answer_metadata["content"]
-                    application.final_answer_metadata = {
-                        "answer_channel": builtin_tool_lane_answer_metadata["answer_channel"],
-                        "answer_source": builtin_tool_lane_answer_metadata["answer_source"],
-                        "answer_canonical_state": builtin_tool_lane_answer_metadata["answer_canonical_state"],
-                        "answer_persist_policy": builtin_tool_lane_answer_metadata["answer_persist_policy"],
-                        "answer_finalization_policy": builtin_tool_lane_answer_metadata["answer_finalization_policy"],
-                        "answer_fallback_reason": builtin_tool_lane_answer_metadata["answer_fallback_reason"],
-                    }
-                    application.builtin_tool_lane_finalized = (
-                        len(tool_call_accumulator.pending_tool_calls) <= 1 and not current_bundle_items
-                    )
             operation_id = resolve_tool_operation_id(
                 str(observation_payload.get("tool_name") or ""),
                 definitions_by_name=self.tool_authorization_index.definitions_by_name,

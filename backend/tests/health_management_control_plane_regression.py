@@ -18,20 +18,6 @@ from bootstrap.app_runtime import app_runtime
 from fastapi.testclient import TestClient
 
 
-class FakeTestSystemService:
-    def start(self, profile: str, scenario_ids: list[str]) -> dict[str, object]:
-        return {
-            "run_id": "test-run:fake-health",
-            "profile": profile,
-            "status": "running",
-            "output_dir": "storage/test-runs/test-run:fake-health",
-            "log_path": "storage/test-runs/test-run:fake-health/run.log",
-            "started_at": 1.0,
-            "ended_at": 0.0,
-            "scenario_ids": scenario_ids,
-        }
-
-
 async def _fake_health_executor_stream(
     *,
     user_message,
@@ -105,7 +91,10 @@ def test_task_system_no_longer_exposes_old_health_connection_profile(tmp_path) -
     overview = TaskFlowRegistry(tmp_path).build_agent_task_connection_overview()
 
     assert overview["authority"] == "task_system.agent_task_connections"
-    assert overview["profiles"] == []
+    profiles = list(overview["profiles"])
+    assert profiles
+    assert not any(str(item.get("owner_system") or "") == "health" for item in profiles)
+    assert not any(str(item.get("profile_id") or "").startswith("health.") for item in profiles)
 
 
 def test_health_agent_run_preview_does_not_expose_projection_instance(tmp_path) -> None:
@@ -129,7 +118,7 @@ def test_health_agent_run_preview_does_not_expose_projection_instance(tmp_path) 
     assert preview["agent_runtime_spec"] == {}
 
 
-def test_launch_health_test_command_records_health_test_run(tmp_path) -> None:
+def test_health_system_rejects_old_test_launch_command(tmp_path) -> None:
     registry = HealthRegistry(tmp_path)
 
     response = asyncio.run(
@@ -143,13 +132,12 @@ def test_launch_health_test_command_records_health_test_run(tmp_path) -> None:
                     "scenario_refs": ["health-scenario:static-contract"],
                 },
             },
-            test_system_service=FakeTestSystemService(),
         )
     )
 
-    assert response["receipt"]["accepted"] is True
-    assert response["receipt"]["test_run_ref"] == "test-run:fake-health"
-    assert registry.list_health_test_runs()[0].scenario_refs == ("health-scenario:static-contract",)
+    assert response["receipt"]["accepted"] is False
+    assert response["receipt"]["status"] == "rejected"
+    assert response["receipt"]["blocked_reasons"] == ["unsupported_command_type"]
 
 
 def test_agent3_identity_remains_but_old_health_runtime_config_is_absent(tmp_path) -> None:
@@ -184,7 +172,7 @@ def test_health_conversation_session_uses_orchestration_config_not_payload_overr
             "agent_id": "agent:0",
             "agent_profile_id": "main_interactive_agent",
             "workflow_id": "workflow.fake.override",
-            "runtime_lane": "full_interactive",
+            "runtime_lane": "standard_task",
         }
     )
 
@@ -274,46 +262,6 @@ def test_health_conversation_routes_trace_analysis_mode() -> None:
     assert routed == "trace_analysis"
 
 
-def test_health_conversation_routes_case_draft_mode() -> None:
-    registry = HealthRegistry(BACKEND_DIR)
-    issue = registry.create_issue(
-        {
-            "title": "健康会话用例草案路由",
-            "owner_system": "health_system",
-            "severity": "medium",
-            "runtime_trace_refs": ["runtime-loop:test-case-route"],
-        }
-    )
-    session = registry.create_conversation_session({"active_issue_ref": issue.issue_id})
-
-    routed = registry._route_conversation_health_action(  # type: ignore[attr-defined]
-        user_message="帮我整理一个复现用例草案，顺便列断言",
-        session=session,
-    )
-
-    assert routed == "case_draft"
-
-
-def test_health_conversation_routes_fix_verification_mode() -> None:
-    registry = HealthRegistry(BACKEND_DIR)
-    issue = registry.create_issue(
-        {
-            "title": "健康会话修复验证路由",
-            "owner_system": "health_system",
-            "severity": "medium",
-            "runtime_trace_refs": ["runtime-loop:test-fix-route"],
-        }
-    )
-    session = registry.create_conversation_session({"active_issue_ref": issue.issue_id})
-
-    routed = registry._route_conversation_health_action(  # type: ignore[attr-defined]
-        user_message="请帮我做修复验证，确认问题是不是已经消失",
-        session=session,
-    )
-
-    assert routed == "fix_verification"
-
-
 def test_health_store_reports_health_and_tolerates_bad_jsonl(tmp_path) -> None:
     from health_system.store import HealthStore
 
@@ -328,88 +276,3 @@ def test_health_store_reports_health_and_tolerates_bad_jsonl(tmp_path) -> None:
     assert health["authority"] == "health_system.store_health"
     assert health["bad_jsonl_line_count"] >= 1
     assert health["files"]["issues.jsonl"]["exists"] is True
-
-
-def test_health_verification_sync_is_explicit_and_read_only(tmp_path) -> None:
-    from health_system.models import VerificationRun
-    from health_system.verification_service import HealthVerificationService
-
-    class _TestSystemService:
-        def __init__(self) -> None:
-            self.calls = 0
-
-        def list_runs(self, *, limit: int = 20):
-            self.calls += 1
-            return [
-                {
-                    "run_id": "verification-run:sample",
-                    "profile": "functional",
-                    "status": "passed",
-                    "output_dir": str(tmp_path / "output"),
-                    "started_at": 1.0,
-                    "ended_at": 2.0,
-                    "summary": {"total": 1, "passed": 1, "failed": 0, "first_failure": ""},
-                }
-            ]
-
-    service = HealthVerificationService(tmp_path, service=_TestSystemService())
-
-    before = service.list_verification_runs(limit=10)
-    synced = service.sync_verification_runs_from_test_system(limit=10)
-    after = service.list_verification_runs(limit=10)
-
-    assert before == []
-    assert after == synced
-    assert isinstance(synced[0], VerificationRun)
-
-
-def test_runtime_loop_evidence_packet_prefers_delegation_metadata() -> None:
-    from health_system.maintenance.test_system.runtime_loop_probe import runtime_loop_evidence_packet_from_turn_payload
-
-    payload = {
-        "runtime_loop_events": [
-            {
-                "event_type": "tool_call_requested",
-                "task_run_id": "taskrun:evidence",
-                "offset": 1,
-                "payload": {
-                    "action_request": {
-                        "payload": {
-                            "tool_name": "delegate_to_agent",
-                        }
-                    }
-                },
-            },
-            {
-                "event_type": "agent_delegation_requested",
-                "task_run_id": "taskrun:evidence",
-                "offset": 2,
-                "payload": {
-                    "agent_delegation_request": {
-                        "target_agent_id": "agent:knowledge_searcher",
-                        "delegation_kind": "evidence_lookup",
-                    }
-                },
-            },
-            {
-                "event_type": "loop_terminal",
-                "task_run_id": "taskrun:evidence",
-                "offset": 3,
-                "payload": {"status": "completed", "terminal_reason": "completed"},
-            },
-        ],
-        "latest_checkpoint": {"checkpoint_id": "checkpoint-1", "loop_state": {"status": "running"}},
-    }
-
-    packet = runtime_loop_evidence_packet_from_turn_payload(payload, question="是否真的发生了子 Agent 委派？")
-    selected_ids = [item["candidate_id"] for item in packet["selected_evidence"]]
-    selected_metadata = [item.get("metadata") or {} for item in packet["selected_evidence"]]
-
-    assert packet["authority"] == "health_system.evidence_packet"
-    assert packet["summary"]
-    assert any(item.get("tool_name") == "delegate_to_agent" for item in selected_metadata)
-    assert any(
-        item.get("target_agent_id") == "agent:knowledge_searcher" or item.get("delegation_kind") == "evidence_lookup"
-        for item in selected_metadata
-    )
-

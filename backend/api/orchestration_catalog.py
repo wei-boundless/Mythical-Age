@@ -112,8 +112,6 @@ OPTION_LABELS: dict[str, str] = {
     "main_conversation_entry": "主会话入口",
     "issue_triage": "健康问题分诊",
     "trace_analysis": "健康链路分析",
-    "case_draft": "健康用例草案",
-    "fix_verification": "健康修复验证",
     "session_memory_maintenance": "会话记忆维护",
     "durable_memory_extraction": "长期记忆提取",
     "memory_candidate_review": "记忆候选审核",

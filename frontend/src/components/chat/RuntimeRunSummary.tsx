@@ -83,7 +83,7 @@ function currentStage(entries: RuntimeProgressEntry[]) {
   const latest = entries[entries.length - 1];
   if (!latest) return "准备中";
   if (latest.kind === "terminal") return latest.statusText || terminalSummary(entries);
-  if (latest.kind === "tool") return latest.toolName ? `调用 ${latest.toolName}` : "调用工具";
+  if (latest.kind === "tool") return cleanTitle(latest.title);
   return cleanTitle(latest.title);
 }
 
@@ -92,6 +92,13 @@ function completedActionCount(entries: RuntimeProgressEntry[]) {
 }
 
 function commandCountLabel(entries: RuntimeProgressEntry[]) {
+  const latest = entries[entries.length - 1];
+  if (latest?.level === "running" && latest.kind === "tool") {
+    return cleanTitle(latest.title);
+  }
+  if (latest?.kind === "terminal") {
+    return latest.level === "success" ? "已完成" : latest.level === "error" ? "失败" : "已结束";
+  }
   const toolCount = entries.filter((entry) => entry.kind === "tool").length;
   if (toolCount) return `已运行 ${toolCount} 条命令`;
   const actionableCount = completedActionCount(entries);
@@ -118,6 +125,14 @@ function detailCountLabel(entries: RuntimeProgressEntry[]) {
 function bodyText(entry: RuntimeProgressEntry, limit = 160) {
   if (!entry.body) return "";
   return entry.body.length > limit ? `${entry.body.slice(0, limit - 1)}...` : entry.body;
+}
+
+function activityPreview(entry: RuntimeProgressEntry | undefined) {
+  if (!entry) return "";
+  const target = entry.meta?.find((item) => item.label === "目标")?.value;
+  if (target) return target;
+  if (entry.kind === "tool") return bodyText(entry, 140);
+  return "";
 }
 
 function metaChips(entry: RuntimeProgressEntry) {
@@ -166,14 +181,17 @@ export function RuntimeRunSummary({ entries }: { entries: RuntimeProgressEntry[]
   const toolEntries = visibleEntries.filter((entry) => entry.kind === "tool").slice(-MAX_TOOL_ENTRIES);
   const artifactEntries = visibleEntries.filter((entry) => entry.artifacts?.length);
   const detailLabel = detailCountLabel(visibleEntries);
+  const latest = visibleEntries[visibleEntries.length - 1];
+  const latestPreview = activityPreview(latest);
 
   return (
     <details className="runtime-run-summary" aria-label="执行流程摘要">
       <summary className="runtime-run-summary__header">
         <div className="runtime-run-summary__title">
           <ChevronRight size={13} className="runtime-run-summary__chevron" />
-          <GitBranch size={14} />
+          {latest?.kind === "tool" ? iconForEntry(latest) : <GitBranch size={14} />}
           <span>{commandCountLabel(visibleEntries)}</span>
+          {latestPreview ? <code>{latestPreview}</code> : null}
         </div>
         <div className="runtime-run-summary__summary">
           <span>{compactStatus(visibleEntries)}</span>

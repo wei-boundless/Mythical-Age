@@ -881,7 +881,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
     expect(assistant?.runtimeProgress?.[0].meta?.map((item) => item.label)).toEqual(["类型", "任务"]);
     expect(assistant?.runtimeProgress?.[2]).toMatchObject({
-      statusText: "已返回",
+      statusText: "已完成",
       toolName: "write_file",
       artifacts: [{ label: "产物", path: "docs/plan.md" }],
     });
@@ -923,7 +923,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
 
     const assistant = transition.state.messages.at(-1);
-    expect(assistant?.runtimeProgress?.map((entry) => entry.statusText)).toEqual(["请求中", "已返回"]);
+    expect(assistant?.runtimeProgress?.map((entry) => entry.statusText)).toEqual(["读取中", "已完成"]);
     expect(assistant?.toolCalls).toHaveLength(1);
     expect(assistant?.toolCalls[0]).toMatchObject({
       tool: "read_file",

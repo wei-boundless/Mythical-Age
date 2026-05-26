@@ -264,7 +264,7 @@ export function HealthAgentDock({
     }
   }
 
-  async function delegateCommand(commandType: "analyze_trace" | "draft_case" | "verify_fix") {
+  async function delegateCommand() {
     const targetRef = activeIssueRef || activeRunRef;
     if (!targetRef || !session) {
       setMode("blocked");
@@ -283,14 +283,14 @@ export function HealthAgentDock({
     setMode("delegating");
     try {
       const response = await createHealthManagementCommand({
-        command_type: commandType,
+        command_type: "analyze_trace",
         initiator_type: "agent",
         initiator_ref: session.agent_id,
         source: "health_agent_dock",
         conversation_session_ref: session.session_id,
         target_scope: activeIssueRef ? "health_issue" : "health_agent_run",
         target_ref: targetRef,
-        health_action: commandType === "draft_case" ? "case_draft" : commandType === "verify_fix" ? "fix_verification" : "issue_triage",
+        health_action: "issue_triage",
         payload: {
           active_issue_ref: activeIssueRef,
           active_run_ref: activeRunRef
@@ -381,13 +381,9 @@ export function HealthAgentDock({
       </div>
 
       <div className="health-agent-dock__actions">
-        <button disabled={!selectedIssue || running || mode === "delegating"} onClick={() => void delegateCommand("analyze_trace")} type="button">
+        <button disabled={!selectedIssue || running || mode === "delegating"} onClick={() => void delegateCommand()} type="button">
           <Play size={14} />
           分析当前问题
-        </button>
-        <button disabled={!selectedIssue || running || mode === "delegating"} onClick={() => void delegateCommand("draft_case")} type="button">
-          <FileText size={14} />
-          复现草案
         </button>
         <button disabled={!selectedRun} onClick={onExplainRun} type="button">
           <PanelRightOpen size={14} />

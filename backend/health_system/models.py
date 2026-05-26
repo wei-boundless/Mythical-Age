@@ -125,8 +125,6 @@ class HealthManagementReceipt:
     status: str
     health_issue_ref: str = ""
     health_run_ref: str = ""
-    test_run_ref: str = ""
-    verification_run_ref: str = ""
     report_ref: str = ""
     admission_status: str = ""
     run_status: str = ""
@@ -147,7 +145,6 @@ class HealthReport:
     issue_ref: str = ""
     command_ref: str = ""
     agent_run_ref: str = ""
-    test_run_ref: str = ""
     evidence_refs: tuple[str, ...] = ()
     verdict: str = "unknown"
     severity: str = "medium"
@@ -195,125 +192,3 @@ class HealthAgentConversationMessage:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
-
-
-@dataclass(frozen=True, slots=True)
-class HealthTestScenario:
-    scenario_id: str
-    title: str
-    category: str
-    owner_system: str
-    required_flows: tuple[str, ...] = ()
-    expected_invariants: dict[str, Any] = field(default_factory=dict)
-    default_enabled: bool = True
-    source_test_refs: tuple[str, ...] = ()
-    tags: tuple[str, ...] = ()
-
-    def to_dict(self) -> dict[str, Any]:
-        payload = asdict(self)
-        payload["required_flows"] = list(self.required_flows)
-        payload["source_test_refs"] = list(self.source_test_refs)
-        payload["tags"] = list(self.tags)
-        return payload
-
-
-@dataclass(frozen=True, slots=True)
-class HealthTestRun:
-    health_test_run_id: str
-    command_ref: str
-    test_system_run_ref: str
-    profile: str
-    scenario_refs: tuple[str, ...] = ()
-    status: str = "unknown"
-    verdict: str = "unknown"
-    artifact_refs: tuple[str, ...] = ()
-    issue_refs: tuple[str, ...] = ()
-    report_refs: tuple[str, ...] = ()
-    started_at: float = 0.0
-    finished_at: float = 0.0
-
-    def to_dict(self) -> dict[str, Any]:
-        payload = asdict(self)
-        for key in ("scenario_refs", "artifact_refs", "issue_refs", "report_refs"):
-            payload[key] = list(payload[key])
-        return payload
-
-
-@dataclass(frozen=True, slots=True)
-class VerificationProfile:
-    profile_id: str
-    layer: str
-    purpose: str
-    case_refs: tuple[str, ...] = ()
-    harness_profile: str = ""
-    default_timeout_sec: int = 0
-    required_artifacts: tuple[str, ...] = ()
-    cutover_required: bool = False
-    metadata: dict[str, Any] = field(default_factory=dict)
-    authority: str = "health_system.verification_profile"
-
-    def to_dict(self) -> dict[str, Any]:
-        payload = asdict(self)
-        payload["case_refs"] = list(payload["case_refs"])
-        payload["required_artifacts"] = list(payload["required_artifacts"])
-        return payload
-
-
-@dataclass(frozen=True, slots=True)
-class VerificationArtifact:
-    name: str
-    artifact_type: str
-    path: str
-    relative_ref: str = ""
-    producer: str = ""
-    required: bool = False
-    present: bool = False
-    checksum: str = ""
-    size_bytes: int = 0
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass(frozen=True, slots=True)
-class VerificationArtifactManifest:
-    manifest_id: str
-    verification_run_id: str
-    schema_version: str = "2026-05-08"
-    artifacts: tuple[VerificationArtifact, ...] = ()
-    created_at: float = 0.0
-    metadata: dict[str, Any] = field(default_factory=dict)
-    authority: str = "health_system.verification_artifact_manifest"
-
-    def to_dict(self) -> dict[str, Any]:
-        payload = asdict(self)
-        payload["artifacts"] = [item.to_dict() for item in self.artifacts]
-        return payload
-
-
-@dataclass(frozen=True, slots=True)
-class VerificationRun:
-    verification_run_id: str
-    profile_id: str
-    status: str
-    command_ref: str = ""
-    source_run_ref: str = ""
-    process_ref: str = ""
-    output_dir: str = ""
-    log_path: str = ""
-    artifact_manifest_ref: str = ""
-    summary: dict[str, Any] = field(default_factory=dict)
-    artifact_refs: tuple[str, ...] = ()
-    issue_refs: tuple[str, ...] = ()
-    report_refs: tuple[str, ...] = ()
-    trace_refs: tuple[str, ...] = ()
-    started_at: float = 0.0
-    ended_at: float = 0.0
-    metadata: dict[str, Any] = field(default_factory=dict)
-    authority: str = "health_system.verification_run"
-
-    def to_dict(self) -> dict[str, Any]:
-        payload = asdict(self)
-        for key in ("artifact_refs", "issue_refs", "report_refs", "trace_refs"):
-            payload[key] = list(payload[key])
-        return payload

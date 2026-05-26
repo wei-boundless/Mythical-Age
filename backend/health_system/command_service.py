@@ -5,7 +5,7 @@ from dataclasses import replace
 from typing import Any
 
 from .constants import HEALTH_SESSION_ID
-from .models import HealthManagementCommand, HealthTestRun
+from .models import HealthManagementCommand
 from .runtime_admission import admit_health_command
 
 
@@ -23,7 +23,6 @@ class HealthCommandService:
         runtime_context_manager: Any | None = None,
         tool_runtime_executor: Any | None = None,
         tool_instances: list[Any] | None = None,
-        test_system_service: Any | None = None,
     ) -> dict[str, Any]:
         command = self.registry.command_builder.build_command(payload)
         self.registry.store.upsert_command(command)
@@ -36,7 +35,6 @@ class HealthCommandService:
                 runtime_context_manager=runtime_context_manager,
                 tool_runtime_executor=tool_runtime_executor,
                 tool_instances=tool_instances,
-                test_system_service=test_system_service,
             )
         except Exception as exc:
             receipt = self.registry.command_builder.build_receipt(
@@ -67,7 +65,6 @@ class HealthCommandService:
         runtime_context_manager: Any | None,
         tool_runtime_executor: Any | None,
         tool_instances: list[Any] | None,
-        test_system_service: Any | None,
     ) -> dict[str, Any]:
         if command.command_type == "report_issue":
             issue_payload = {**command.payload}
@@ -114,7 +111,7 @@ class HealthCommandService:
             )
             return self.registry._complete_command(command, receipt=receipt, report=report, issue=issue)
 
-        if command.command_type in {"analyze_trace", "draft_case", "verify_fix"}:
+        if command.command_type == "analyze_trace":
             admission = admit_health_command(self.registry.base_dir, command)
             if admission.status != "accepted":
                 receipt = self.registry.command_builder.build_receipt(
@@ -197,76 +194,6 @@ class HealthCommandService:
             )
             return self.registry._complete_command(command, receipt=receipt, report=report, run_result=run_result)
 
-        if command.command_type == "launch_health_test":
-            if test_system_service is None:
-                receipt = self.registry.command_builder.build_receipt(
-                    command=command,
-                    accepted=False,
-                    status="rejected",
-                    admission_status="rejected",
-                    blocked_reasons=("test_system_service_missing",),
-                )
-                return self.registry._complete_command(command, receipt=receipt)
-            profile = str(command.payload.get("profile") or "functional")
-            scenario_refs = tuple(str(item) for item in list(command.payload.get("scenario_refs") or command.payload.get("scenario_ids") or []))
-            test_run = test_system_service.start(profile, scenario_ids=list(scenario_refs))
-            health_test_run = HealthTestRun(
-                health_test_run_id=f"health-test-run:{test_run.get('run_id') or int(time.time() * 1000)}",
-                command_ref=command.command_id,
-                test_system_run_ref=str(test_run.get("run_id") or ""),
-                profile=profile,
-                scenario_refs=scenario_refs,
-                status=str(test_run.get("status") or "unknown"),
-                verdict=_verdict_from_status(str(test_run.get("status") or "")),
-                artifact_refs=(str(test_run.get("output_dir") or ""), str(test_run.get("log_path") or "")),
-                started_at=float(test_run.get("started_at") or time.time()),
-                finished_at=float(test_run.get("ended_at") or 0.0),
-            )
-            self.registry.store.upsert_health_test_run(health_test_run)
-            verification_run = self.registry.verification_service.record_verification_run(
-                test_run,
-                command_ref=command.command_id,
-            )
-            report = self.registry.command_builder.build_report(
-                command=command,
-                report_type="health_test_run_report",
-                test_run_ref=verification_run.source_run_ref,
-                evidence_refs=verification_run.artifact_refs,
-                verdict=health_test_run.verdict,
-                summary=f"健康验证已启动：{profile}",
-                recommended_actions=("inspect_test_artifacts", "review_health_readiness"),
-            )
-            self.registry.store.append_report(report)
-            health_test_run = replace(health_test_run, report_refs=(report.report_id,))
-            self.registry.store.upsert_health_test_run(health_test_run)
-            receipt = self.registry.command_builder.build_receipt(
-                command=command,
-                accepted=True,
-                status=health_test_run.status,
-                test_run_ref=health_test_run.test_system_run_ref,
-                verification_run_ref=verification_run.verification_run_id,
-                report_ref=report.report_id,
-                admission_status="accepted",
-                run_status=health_test_run.status,
-                diagnostics={"health_test_run": health_test_run.to_dict(), "test_run": test_run},
-            )
-            return self.registry._complete_command(command, receipt=receipt, report=report, health_test_run=health_test_run)
-
-        if command.command_type == "build_cutover_readiness":
-            gate_projection = self.registry.verification_service.build_gate_projection()
-            report = self.registry.command_builder.build_report(
-                command=command,
-                report_type="cutover_readiness_report",
-                evidence_refs=tuple(str(item.get("gate_decision_id") or "") for item in list(gate_projection.get("decisions") or []) if str(item.get("gate_decision_id") or "")),
-                verdict="ready_with_review" if int(dict(gate_projection.get("summary") or {}).get("failing_profile_count") or 0) == 0 else "insufficient_evidence",
-                severity="medium",
-                summary="已生成健康系统切流准备度报告草案。",
-                recommended_actions=("review_recent_reports", "run_required_health_scenarios"),
-            )
-            self.registry.store.append_report(report)
-            receipt = self.registry.command_builder.build_receipt(command=command, accepted=True, status="completed", report_ref=report.report_id)
-            return self.registry._complete_command(command, receipt=receipt, report=report)
-
         receipt = self.registry.command_builder.build_receipt(
             command=command,
             accepted=False,
@@ -276,14 +203,3 @@ class HealthCommandService:
             diagnostics={"command_type": command.command_type},
         )
         return self.registry._complete_command(command, receipt=receipt)
-
-
-def _verdict_from_status(status: str) -> str:
-    normalized = status.lower()
-    if normalized in {"passed", "completed", "success"}:
-        return "passed"
-    if normalized in {"failed", "blocked", "cancelled"}:
-        return "failed"
-    if normalized in {"running", "queued"}:
-        return "pending"
-    return "unknown"

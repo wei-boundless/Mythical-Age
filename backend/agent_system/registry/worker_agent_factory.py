@@ -65,7 +65,7 @@ def default_worker_agent_blueprints() -> tuple[WorkerAgentBlueprint, ...]:
             blueprint_id="worker.planner",
             agent_name_template="规划 Agent {n}",
             description="只读规划子 Agent，用于拆解方案、评估风险和形成实施计划。",
-            default_runtime_lanes=("readonly_exploration", "task_dispatch"),
+            default_runtime_lanes=("readonly_exploration", "professional_task"),
             allowed_operations=("op.model_response", "op.read_file", "op.search_files", "op.search_text", "op.git_status", "op.git_diff"),
             blocked_operations=("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.memory_write_candidate"),
             allowed_memory_scopes=("conversation_readonly", "state_readonly"),

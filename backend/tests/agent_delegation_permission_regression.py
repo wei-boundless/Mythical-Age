@@ -20,7 +20,7 @@ def test_delegation_catalog_filters_by_parent_agent_permission(tmp_path) -> None
     runtime_registry.upsert_profile(
         agent_id="agent:0",
         agent_profile_id="main_interactive_agent",
-        allowed_runtime_lanes=("full_interactive",),
+        allowed_runtime_lanes=("standard_task",),
         allowed_operations=("op.model_response",),
         blocked_operations=(),
         can_delegate_to_agents=False,
@@ -32,12 +32,73 @@ def test_delegation_catalog_filters_by_parent_agent_permission(tmp_path) -> None
     assert set(catalog["summary"]["blocked_reasons"]) == {"parent_delegation_not_authorized"}
 
 
+def test_delegation_catalog_does_not_infer_kinds_from_tool_permissions(tmp_path) -> None:
+    runtime_registry = AgentRuntimeRegistry(tmp_path)
+    runtime_registry.upsert_profile(
+        agent_id="agent:pdf_reader",
+        agent_profile_id="pdf_analysis_agent",
+        allowed_runtime_lanes=("pdf_delegate",),
+        allowed_operations=("op.model_response", "op.mcp_pdf", "op.read_file"),
+        blocked_operations=(),
+        metadata={},
+    )
+
+    builder = DelegationCatalogBuilder(tmp_path)
+    catalog = builder.build(parent_agent_id="agent:0")
+    card = next(item for item in catalog["delegate_cards"] if item["agent_id"] == "agent:pdf_reader")
+    preview = builder.preview(
+        target_agent_id="agent:pdf_reader",
+        delegation_kind="pdf_reading",
+        parent_agent_id="agent:0",
+    )
+
+    assert card["delegation_kinds"] == []
+    assert "op.mcp_pdf" in card["allowed_operations"]
+    assert preview["callable"] is False
+    assert "delegation_kind_not_allowed" in preview["blocked_reasons"]
+
+
+def test_delegation_executor_does_not_infer_allowed_kind_from_tool_permissions(tmp_path) -> None:
+    runtime_registry = AgentRuntimeRegistry(tmp_path)
+    runtime_registry.upsert_profile(
+        agent_id="agent:pdf_reader",
+        agent_profile_id="pdf_analysis_agent",
+        allowed_runtime_lanes=("pdf_delegate",),
+        allowed_operations=("op.model_response", "op.mcp_pdf", "op.read_file"),
+        blocked_operations=(),
+        metadata={},
+    )
+    executor = AgentDelegationExecutor(tmp_path)
+    parent_run = AgentRun(
+        agent_run_id="agrun:taskrun:test:main",
+        task_run_id="taskrun:test",
+        agent_id="agent:0",
+        agent_profile_id="main_interactive_agent",
+        status="running",
+    )
+    request = AgentDelegationRequest(
+        request_id="delegation:req:kind-explicit-config-required",
+        task_run_id="taskrun:test",
+        session_id="session:test",
+        parent_agent_run_ref=parent_run.agent_run_id,
+        source_agent_id="agent:0",
+        target_agent_id="agent:pdf_reader",
+        delegation_kind="pdf_reading",
+        instruction="请阅读 PDF。",
+        input_payload={"file_path": "knowledge/demo.pdf"},
+    )
+
+    result = executor.validate_request(request, parent_agent_run=parent_run)
+
+    assert "delegation_kind_not_allowed" in result["blocked_reasons"]
+
+
 def test_delegation_executor_blocks_when_parent_cannot_delegate(tmp_path) -> None:
     runtime_registry = AgentRuntimeRegistry(tmp_path)
     runtime_registry.upsert_profile(
         agent_id="agent:0",
         agent_profile_id="main_interactive_agent",
-        allowed_runtime_lanes=("full_interactive",),
+        allowed_runtime_lanes=("standard_task",),
         allowed_operations=("op.model_response",),
         blocked_operations=(),
         can_delegate_to_agents=False,
@@ -148,7 +209,7 @@ def test_delegation_executor_blocks_nested_delegation(tmp_path) -> None:
     assert "nested_delegation_denied" in result["blocked_reasons"]
 
 
-def test_delegation_executor_resolves_builtin_alias_and_kind_to_registered_worker(tmp_path) -> None:
+def test_delegation_executor_requires_explicit_target_and_normalizes_alias_only(tmp_path) -> None:
     executor = AgentDelegationExecutor(tmp_path)
     parent_run = AgentRun(
         agent_run_id="agrun:taskrun:test:main",
@@ -171,8 +232,10 @@ def test_delegation_executor_resolves_builtin_alias_and_kind_to_registered_worke
     )
     normalized_by_kind = executor._normalize_request_target(by_kind, parent_agent_run=parent_run)
 
-    assert normalized_by_kind.target_agent_id == "agent:pdf_reader"
-    assert normalized_by_kind.diagnostics["resolved_target_agent_id"] == "agent:pdf_reader"
+    assert normalized_by_kind.target_agent_id == ""
+    blocked_by_kind = executor.validate_request(normalized_by_kind, parent_agent_run=parent_run)
+    assert "target_agent_required" in blocked_by_kind["blocked_reasons"]
+    assert "target_agent_unavailable" in blocked_by_kind["blocked_reasons"]
 
     by_alias = AgentDelegationRequest(
         request_id="delegation:req:alias",
@@ -203,8 +266,9 @@ def test_delegation_executor_resolves_builtin_alias_and_kind_to_registered_worke
     )
     normalized_by_web_kind = executor._normalize_request_target(by_web_kind, parent_agent_run=parent_run)
 
-    assert normalized_by_web_kind.target_agent_id == "agent:web_researcher"
-    assert normalized_by_web_kind.diagnostics["resolved_target_agent_id"] == "agent:web_researcher"
+    assert normalized_by_web_kind.target_agent_id == ""
+    blocked_by_web_kind = executor.validate_request(normalized_by_web_kind, parent_agent_run=parent_run)
+    assert "target_agent_required" in blocked_by_web_kind["blocked_reasons"]
 
     by_web_alias = AgentDelegationRequest(
         request_id="delegation:req:web-alias",

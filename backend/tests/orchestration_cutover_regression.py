@@ -162,7 +162,7 @@ def test_runtime_formalizes_worker_spawn_and_coordination_runtime_objects() -> N
         title="小游戏并行交付拓扑",
         nodes=(
             {"node_id": "design_worker", "agent_id": "agent:9", "lane": "game_delivery", "role": "worker_participant"},
-            {"node_id": "final_merge", "agent_id": "agent:0", "lane": "final_integration", "role": "coordinator"},
+            {"node_id": "final_merge", "agent_id": "agent:0", "lane": "coordination_task", "role": "coordinator"},
         ),
         edges=(
             {"from": "design_worker", "to": "final_merge", "policy": "structured_handoff"},

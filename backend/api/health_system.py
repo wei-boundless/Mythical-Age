@@ -7,8 +7,7 @@ from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
 from health_system import HealthRegistry
-from health_system.maintenance.experiments import experiment_runner
-from health_system.maintenance.test_system import test_system_service
+from health_system.governance import HealthGovernanceBuilder
 
 router = APIRouter()
 
@@ -63,342 +62,49 @@ class HealthAgentConversationMessageCreateRequest(BaseModel):
     report_ref: str = Field(default="")
 
 
-class StartTestRunRequest(BaseModel):
-    profile: str
-    scenario_ids: list[str] = Field(default_factory=list)
-
-
-class CreateTestIssueRequest(BaseModel):
-    title: str
-    origin: str = Field(default="manual")
-    owner_system: str = Field(default="test_system")
-    severity: str = Field(default="medium")
-    status: str = Field(default="open")
-    observed: str = Field(default="")
-    expected: str = Field(default="")
-    reproduce: str = Field(default="")
-    related_run_id: str = Field(default="")
-    related_turn_id: str = Field(default="")
-    related_task_id: str = Field(default="")
-    related_session_id: str = Field(default="")
-    related_skill: str = Field(default="")
-    problem_node_id: str = Field(default="")
-    problem_node_label: str = Field(default="")
-    tags: list[str] = Field(default_factory=list)
-
-
-class CreateTestCaseDraftRequest(BaseModel):
-    title: str
-    layer: str = Field(default="functional")
-    owner_system: str = Field(default="test_system")
-    source_issue_id: str = Field(default="")
-    source_run_id: str = Field(default="")
-    source_turn_id: str = Field(default="")
-    trigger: str = Field(default="")
-    expected: str = Field(default="")
-    assertions: list[str] | str = Field(default_factory=list)
-    profile: str = Field(default="functional")
-    status: str = Field(default="draft")
-
-
-class CreateManagedTestCaseRequest(BaseModel):
-    case_id: str = Field(default="")
-    title: str
-    layer: str = Field(default="functional")
-    path: str = Field(default="")
-    owner_system: str = Field(default="test_system")
-    runner: str = Field(default="pytest")
-    status: str = Field(default="candidate")
-    profiles: list[str] | str = Field(default_factory=list)
-    description: str = Field(default="")
-    problem_statement: str = Field(default="")
-    pass_criteria: list[str] | str = Field(default_factory=list)
-    scenario_turns: list[dict[str, Any]] = Field(default_factory=list)
-    assertions: list[str] | str = Field(default_factory=list)
-    tags: list[str] | str = Field(default_factory=list)
-    source_template_id: str = Field(default="")
-
-
-class StartExperimentRequest(BaseModel):
-    profile: str
-
-
 @router.get("/health-system/overview")
 async def health_system_overview() -> dict[str, Any]:
     runtime = require_runtime()
-    return HealthRegistry(runtime.base_dir).build_overview()
+    return HealthGovernanceBuilder(runtime).build_overview()
 
 
-@router.get("/health-system/maintenance/test-system/profiles")
-async def list_health_test_profiles() -> list[dict[str, Any]]:
-    return test_system_service.profiles()
+@router.get("/health-system/tasks")
+async def health_system_tasks(limit: int = 100) -> dict[str, Any]:
+    runtime = require_runtime()
+    return HealthGovernanceBuilder(runtime).build_tasks(limit=limit)
 
 
-@router.get("/health-system/maintenance/test-system/cases")
-async def list_health_test_cases() -> dict[str, Any]:
-    return test_system_service.cases()
-
-
-@router.get("/health-system/maintenance/test-system/agent/report")
-async def get_health_test_agent_report() -> dict[str, Any]:
-    return test_system_service.agent_report()
-
-
-@router.get("/health-system/maintenance/test-system/harness-records")
-async def get_health_test_harness_records() -> dict[str, Any]:
-    return test_system_service.harness_records()
-
-
-@router.get("/health-system/maintenance/test-system/regression-samples")
-async def list_health_test_regression_samples() -> dict[str, Any]:
-    return test_system_service.regression_samples()
-
-
-@router.get("/health-system/maintenance/test-system/harness-map")
-async def get_health_test_harness_map() -> dict[str, Any]:
-    return test_system_service.harness_map()
-
-
-@router.get("/health-system/maintenance/test-system/case-templates")
-async def get_health_test_case_templates() -> dict[str, Any]:
-    return test_system_service.case_templates()
-
-
-@router.get("/health-system/maintenance/test-system/long-scenarios")
-async def list_health_long_scenarios() -> dict[str, Any]:
-    return test_system_service.long_scenarios()
-
-
-@router.post("/health-system/maintenance/test-system/issues")
-async def create_health_test_issue(payload: CreateTestIssueRequest) -> dict[str, Any]:
-    return test_system_service.create_issue(payload.model_dump())
-
-
-@router.post("/health-system/maintenance/test-system/case-drafts")
-async def create_health_test_case_draft(payload: CreateTestCaseDraftRequest) -> dict[str, Any]:
-    return test_system_service.create_case_draft(payload.model_dump())
-
-
-@router.post("/health-system/maintenance/test-system/managed-cases")
-async def create_health_managed_test_case(payload: CreateManagedTestCaseRequest) -> dict[str, Any]:
-    return test_system_service.create_managed_case(payload.model_dump())
-
-
-@router.delete("/health-system/maintenance/test-system/managed-cases/{case_id}")
-async def delete_health_managed_test_case(case_id: str) -> dict[str, Any]:
-    try:
-        return test_system_service.delete_managed_case(case_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-
-@router.get("/health-system/maintenance/test-system/runs")
-async def list_health_test_runs(limit: int = 20) -> list[dict[str, Any]]:
-    return test_system_service.list_runs(limit=max(1, min(int(limit or 20), 100)))
-
-
-@router.post("/health-system/maintenance/test-system/runs")
-async def start_health_test_run(payload: StartTestRunRequest) -> dict[str, Any]:
-    try:
-        return test_system_service.start(payload.profile, scenario_ids=payload.scenario_ids)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except RuntimeError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-
-
-@router.get("/health-system/maintenance/test-system/runs/{run_id}")
-async def get_health_test_run(run_id: str) -> dict[str, Any]:
-    try:
-        return test_system_service.get_run(run_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@router.post("/health-system/maintenance/test-system/runs/{run_id}/cancel")
-async def cancel_health_test_run(run_id: str) -> dict[str, Any]:
-    try:
-        return test_system_service.cancel(run_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@router.get("/health-system/maintenance/test-system/runs/{run_id}/artifacts")
-async def get_health_test_artifacts(run_id: str) -> dict[str, Any]:
-    try:
-        return test_system_service.get_artifacts(run_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@router.get("/health-system/maintenance/test-system/runs/{run_id}/turns")
-async def list_health_test_turns(run_id: str) -> list[dict[str, Any]]:
-    try:
-        return test_system_service.get_turns(run_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@router.get("/health-system/maintenance/test-system/runs/{run_id}/turns/{turn_id}/runtime-loop")
-async def get_health_test_turn_runtime_loop(run_id: str, turn_id: str) -> dict[str, Any]:
-    try:
-        return test_system_service.get_turn_runtime_loop(run_id, turn_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-
-@router.post("/health-system/maintenance/test-system/runs/{run_id}/turns/{turn_id}/regression-sample")
-async def create_health_test_regression_sample_from_turn(run_id: str, turn_id: str) -> dict[str, Any]:
-    try:
-        return test_system_service.create_regression_sample_from_turn(run_id, turn_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-
-@router.post("/health-system/maintenance/test-system/runs/{run_id}/regression-samples/promote-failed-turns")
-async def promote_health_test_failed_turns_to_regression_samples(run_id: str) -> dict[str, Any]:
-    try:
-        return test_system_service.promote_failed_turns_to_regression_samples(run_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-
-@router.post("/health-system/maintenance/test-system/regression-samples/{sample_id}/rerun")
-async def rerun_health_test_regression_sample(sample_id: str) -> dict[str, Any]:
-    try:
-        return test_system_service.rerun_regression_sample(sample_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except RuntimeError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-
-
-@router.post("/health-system/maintenance/test-system/regression-samples/{sample_id}/refresh-verdict")
-async def refresh_health_test_regression_sample_verdict(sample_id: str) -> dict[str, Any]:
-    try:
-        return test_system_service.refresh_regression_sample_verdict(sample_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-
-@router.get("/health-system/maintenance/test-system/runtime-loop/task-runs/{task_run_id}/monitor")
-async def get_health_task_run_monitor(task_run_id: str) -> dict[str, Any]:
+@router.get("/health-system/tasks/{task_run_id}")
+async def health_system_task_detail(task_run_id: str) -> dict[str, Any]:
     runtime = require_runtime()
     try:
-        return test_system_service.get_task_run_monitor(
-            task_run_id,
-            runtime_loop=runtime.query_runtime.task_run_loop,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return HealthGovernanceBuilder(runtime).build_task_detail(task_run_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Unknown task run") from exc
 
 
-@router.get("/health-system/maintenance/test-system/task-graph/task-runs/{task_run_id}/health")
-async def get_health_task_graph_run_health(task_run_id: str) -> dict[str, Any]:
+@router.get("/health-system/risks")
+async def health_system_risks(limit: int = 100) -> dict[str, Any]:
     runtime = require_runtime()
-    try:
-        return test_system_service.get_task_graph_health(
-            task_run_id,
-            runtime_loop=runtime.query_runtime.task_run_loop,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return HealthGovernanceBuilder(runtime).build_risks(limit=limit)
 
 
-@router.get("/health-system/maintenance/experiments/profiles")
-async def list_health_experiment_profiles() -> list[dict[str, object]]:
-    return experiment_runner.profiles()
+@router.get("/health-system/system-risks")
+async def health_system_system_risks() -> dict[str, Any]:
+    runtime = require_runtime()
+    return HealthGovernanceBuilder(runtime).build_system_risks()
 
 
-@router.get("/health-system/maintenance/experiments/runs")
-async def list_health_experiment_runs(limit: int = 20) -> list[dict[str, object]]:
-    return experiment_runner.list_runs(limit=max(1, min(int(limit or 20), 100)))
+@router.get("/health-system/token-usage")
+async def health_system_token_usage(limit: int = 100) -> dict[str, Any]:
+    runtime = require_runtime()
+    return HealthGovernanceBuilder(runtime).build_token_usage(limit=limit)
 
 
-@router.post("/health-system/maintenance/experiments/runs")
-async def start_health_experiment_run(payload: StartExperimentRequest) -> dict[str, object]:
-    try:
-        return experiment_runner.start(payload.profile)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except RuntimeError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-
-
-@router.get("/health-system/maintenance/experiments/runs/{run_id}")
-async def get_health_experiment_run(run_id: str) -> dict[str, object]:
-    try:
-        return experiment_runner.get_run(run_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@router.get("/health-system/maintenance/experiments/runs/{run_id}/artifacts")
-async def get_health_experiment_artifacts(run_id: str) -> dict[str, object]:
-    try:
-        return experiment_runner.get_artifacts(run_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@router.get("/health-system/maintenance/experiments/runs/{run_id}/turns")
-async def list_health_experiment_turns(run_id: str) -> list[dict[str, object]]:
-    try:
-        return experiment_runner.get_turns(run_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@router.get("/health-system/maintenance/experiments/runs/{run_id}/graph-overlay")
-async def get_health_experiment_graph_overlay(run_id: str) -> dict[str, object]:
-    try:
-        return experiment_runner.get_graph_overlay(run_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@router.get("/health-system/maintenance/experiments/runs/{run_id}/turns/{turn_id}/graph-overlay")
-async def get_health_experiment_turn_graph_overlay(run_id: str, turn_id: str) -> dict[str, object]:
-    try:
-        return experiment_runner.get_turn_graph_overlay(run_id, turn_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@router.get("/health-system/maintenance/experiments/runs/{run_id}/turns/{turn_id}/prompt-manifest")
-async def get_health_experiment_turn_prompt_manifest(run_id: str, turn_id: str) -> dict[str, object]:
-    try:
-        return experiment_runner.get_turn_prompt_manifest(run_id, turn_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@router.get("/health-system/maintenance/experiments/runs/{run_id}/turns/{turn_id}/memory-trace")
-async def get_health_experiment_turn_memory_trace(run_id: str, turn_id: str) -> dict[str, object]:
-    try:
-        return experiment_runner.get_turn_memory_trace(run_id, turn_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@router.get("/health-system/maintenance/experiments/runs/{run_id}/turns/{turn_id}/orchestration")
-async def get_health_experiment_turn_orchestration(
-    run_id: str,
-    turn_id: str,
-    artifact_path: str = "",
-) -> dict[str, object]:
-    try:
-        return experiment_runner.get_turn_orchestration_snapshot(run_id, turn_id, artifact_path=artifact_path)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@router.post("/health-system/maintenance/experiments/runs/{run_id}/cancel")
-async def cancel_health_experiment_run(run_id: str) -> dict[str, object]:
-    try:
-        return experiment_runner.cancel(run_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+@router.get("/health-system/efficiency")
+async def health_system_efficiency(limit: int = 100) -> dict[str, Any]:
+    runtime = require_runtime()
+    return HealthGovernanceBuilder(runtime).build_efficiency(limit=limit)
 
 
 @router.get("/health-system/commands")
@@ -420,7 +126,6 @@ async def health_system_submit_command(payload: HealthManagementCommandRequest) 
             runtime_context_manager=runtime.query_runtime.runtime_context_manager,
             tool_runtime_executor=runtime.query_runtime.tool_runtime_executor,
             tool_instances=runtime.query_runtime._all_tool_instances(),
-            test_system_service=test_system_service,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -458,26 +163,6 @@ async def health_system_report(report_id: str) -> dict[str, Any]:
     if report is None:
         raise HTTPException(status_code=404, detail="Unknown health report")
     return report.to_dict()
-
-
-@router.get("/health-system/test-scenarios")
-async def health_system_test_scenarios() -> dict[str, Any]:
-    runtime = require_runtime()
-    registry = HealthRegistry(runtime.base_dir)
-    return {
-        "authority": "health_system.test_scenarios",
-        "scenarios": registry.list_health_test_scenarios(),
-    }
-
-
-@router.get("/health-system/test-runs")
-async def health_system_test_runs() -> dict[str, Any]:
-    runtime = require_runtime()
-    registry = HealthRegistry(runtime.base_dir)
-    return {
-        "authority": "health_system.test_runs",
-        "health_test_runs": [item.to_dict() for item in registry.list_health_test_runs()],
-    }
 
 
 @router.post("/health-system/conversation-sessions")
@@ -554,7 +239,7 @@ async def health_system_create_issue(payload: HealthIssueCreateRequest) -> dict[
             {
                 "command_type": "report_issue",
                 "initiator_type": "user",
-                "source": "health_system.issues_compat_api",
+                "source": "health_system.issues_api",
                 "payload": payload.model_dump(),
             },
             task_run_loop=runtime.query_runtime.task_run_loop,
@@ -563,7 +248,6 @@ async def health_system_create_issue(payload: HealthIssueCreateRequest) -> dict[
             runtime_context_manager=runtime.query_runtime.runtime_context_manager,
             tool_runtime_executor=runtime.query_runtime.tool_runtime_executor,
             tool_instances=runtime.query_runtime._all_tool_instances(),
-            test_system_service=test_system_service,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -632,7 +316,7 @@ async def health_system_agent_run_start(issue_id: str, payload: HealthAgentRunSt
             {
                 "command_type": "analyze_trace",
                 "initiator_type": "user",
-                "source": payload.source or "health_system.agent_runs_compat_api",
+                "source": payload.source or "health_system.agent_runs_api",
                 "conversation_session_ref": payload.session_id,
                 "target_scope": "health_issue",
                 "target_ref": issue_id,
@@ -644,7 +328,6 @@ async def health_system_agent_run_start(issue_id: str, payload: HealthAgentRunSt
             runtime_context_manager=runtime.query_runtime.runtime_context_manager,
             tool_runtime_executor=runtime.query_runtime.tool_runtime_executor,
             tool_instances=runtime.query_runtime._all_tool_instances(),
-            test_system_service=test_system_service,
         )
         return dict(response.get("run_result") or response)
     except KeyError as exc:

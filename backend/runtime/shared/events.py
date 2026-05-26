@@ -85,7 +85,6 @@ RuntimeEventType = Literal[
     "professional_task_progress_page",
     "professional_task_stage_summary",
     "professional_task_evidence_resubmission_requested",
-    "professional_task_evidence_closeout_applied",
     "professional_task_budget_closeout_started",
     "professional_task_deliverable_repair_started",
     "professional_task_deliverable_repair_rejected",

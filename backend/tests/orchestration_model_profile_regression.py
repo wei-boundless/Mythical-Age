@@ -41,7 +41,7 @@ def test_agent_runtime_profile_round_trips_model_profile(tmp_path: Path) -> None
     profile = registry.upsert_profile(
         agent_id="agent:0",
         agent_profile_id="main_interactive_agent",
-        allowed_runtime_lanes=("full_interactive",),
+        allowed_runtime_lanes=("standard_task",),
         allowed_operations=("op.model_response",),
         model_profile={
             "profile_id": "deepseek_long_output",
@@ -71,7 +71,7 @@ def test_agent_runtime_profile_rejects_raw_model_secret(tmp_path: Path) -> None:
         registry.upsert_profile(
             agent_id="agent:0",
             agent_profile_id="main_interactive_agent",
-            allowed_runtime_lanes=("full_interactive",),
+            allowed_runtime_lanes=("standard_task",),
             allowed_operations=("op.model_response",),
             model_profile={"provider": "deepseek", "api_key": "raw-secret"},
         )

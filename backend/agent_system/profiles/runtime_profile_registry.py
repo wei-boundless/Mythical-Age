@@ -23,6 +23,8 @@ from .runtime_mode_config import (
     runtime_lanes_for_modes,
 )
 
+_REMOVED_RUNTIME_LANES = {"full_interactive", "task_dispatch", "final_integration"}
+
 
 def _storage_root(base_dir: Path) -> Path:
     return ProjectLayout.from_backend_dir(base_dir).orchestration_dir
@@ -68,7 +70,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             enabled_runtime_modes=(ROLE_MODE, STANDARD_MODE, PROFESSIONAL_MODE, CUSTOM_MODE),
             default_runtime_mode=STANDARD_MODE,
             allowed_runtime_lanes=(
-                "full_interactive",
                 "game_delivery",
                 "role_interaction",
                 "standard_task",
@@ -814,7 +815,7 @@ def _active_runtime_lanes(lanes: Any) -> list[str]:
     result: list[str] = []
     for item in list(lanes or []):
         lane = str(item or "").strip()
-        if lane:
+        if lane and lane not in _REMOVED_RUNTIME_LANES:
             result.append(lane)
     return result
 

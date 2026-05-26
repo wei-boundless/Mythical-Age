@@ -234,7 +234,7 @@ class TaskRun:
     owner_agent_seat_id: str = "main"
     agent_id: str = "agent:0"
     agent_profile_id: str = "main_interactive_agent"
-    runtime_lane: str = "full_interactive"
+    runtime_lane: str = "standard_task"
     status: TaskRunStatus = "created"
     created_at: float = 0.0
     updated_at: float = 0.0
@@ -269,7 +269,7 @@ class AgentRun:
     role: str = "main_executor"
     spawn_mode: str = "single_agent"
     context_scope: str = "task_default"
-    runtime_lane: str = "full_interactive"
+    runtime_lane: str = "standard_task"
     parent_agent_run_ref: str = ""
     coordination_run_ref: str = ""
     status: AgentRunStatus = "pending"
@@ -591,7 +591,7 @@ class RuntimeLoopState:
     current_step_id: str = ""
     agent_id: str = "agent:0"
     agent_profile_id: str = "main_interactive_agent"
-    runtime_lane: str = "full_interactive"
+    runtime_lane: str = "standard_task"
     task_agent_binding_ref: str = ""
     task_template_id: str = ""
     task_spec_ref: str = ""

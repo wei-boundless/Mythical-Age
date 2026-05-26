@@ -260,14 +260,6 @@ def _infer_delegated_file_work_kind(
         return "pdf_reading"
     if source_kind in {"retrieval", "knowledge", "knowledge_base", "rag"}:
         return "evidence_lookup"
-
-    target_agent_id = clean_text(result_payload.get("target_agent_id")).lower()
-    if any(token in target_agent_id for token in ("table", "structured", "data_analyst", "dataset")):
-        return "table_analysis"
-    if any(token in target_agent_id for token in ("pdf", "document")):
-        return "pdf_reading"
-    if any(token in target_agent_id for token in ("rag", "retrieval", "search", "knowledge")):
-        return "evidence_lookup"
     return ""
 
 

@@ -31,6 +31,11 @@ function short(value: unknown, limit = 360) {
   return normalized.length > limit ? `${normalized.slice(0, limit - 1)}...` : normalized;
 }
 
+function shortCommand(value: unknown, limit = 180) {
+  const normalized = text(value).replace(/\s+/g, " ");
+  return normalized.length > limit ? `${normalized.slice(0, limit - 1)}...` : normalized;
+}
+
 function shortId(value: unknown, limit = 18) {
   const normalized = text(value);
   if (!normalized) return "";
@@ -78,6 +83,81 @@ function metaItem(label: string, value: unknown, options: { shorten?: boolean } 
 
 function compactMeta(items: Array<{ label: string; value: string } | null | undefined>) {
   return items.filter((item): item is { label: string; value: string } => Boolean(item?.label && item.value)).slice(0, 6);
+}
+
+function commandPreviewFromArgs(args: Record<string, unknown>, fallback?: unknown) {
+  const command = shortCommand(args.command ?? args.shell_command ?? args.cmd ?? args.script);
+  if (command) return command;
+  const path = shortCommand(args.path ?? args.file_path ?? args.relative_path ?? args.target_path);
+  if (path) return path;
+  const query = shortCommand(args.query ?? args.pattern ?? args.search ?? args.text);
+  if (query) return query;
+  const url = shortCommand(args.url ?? args.href);
+  if (url) return url;
+  return shortCommand(fallback);
+}
+
+function commandPreviewFromToolCall(toolCall: Record<string, unknown>, fallback?: unknown) {
+  const args = record(toolCall.args ?? toolCall.input);
+  return commandPreviewFromArgs(args, fallback ?? toolCall.command ?? toolCall.path ?? toolCall.query);
+}
+
+function toolActivityText(toolName: string, preview?: string) {
+  const normalized = toolName.toLowerCase();
+  const target = preview || toolName || "工具";
+  if (normalized === "terminal" || normalized === "shell" || normalized.includes("command")) {
+    return {
+      startedTitle: "正在运行",
+      completedTitle: "命令已完成",
+      failedTitle: "命令失败",
+      statusRunning: "运行中",
+      statusDone: "已完成",
+      statusFailed: "失败",
+      display: target,
+    };
+  }
+  if (normalized.includes("read")) {
+    return {
+      startedTitle: "正在读取",
+      completedTitle: "读取完成",
+      failedTitle: "读取失败",
+      statusRunning: "读取中",
+      statusDone: "已完成",
+      statusFailed: "失败",
+      display: target,
+    };
+  }
+  if (normalized.includes("write") || normalized.includes("edit")) {
+    return {
+      startedTitle: "正在写入",
+      completedTitle: "写入完成",
+      failedTitle: "写入失败",
+      statusRunning: "写入中",
+      statusDone: "已完成",
+      statusFailed: "失败",
+      display: target,
+    };
+  }
+  if (normalized.includes("search")) {
+    return {
+      startedTitle: "正在搜索",
+      completedTitle: "搜索完成",
+      failedTitle: "搜索失败",
+      statusRunning: "搜索中",
+      statusDone: "已完成",
+      statusFailed: "失败",
+      display: target,
+    };
+  }
+  return {
+    startedTitle: "正在调用",
+    completedTitle: "工具已完成",
+    failedTitle: "工具失败",
+    statusRunning: "调用中",
+    statusDone: "已完成",
+    statusFailed: "失败",
+    display: target,
+  };
 }
 
 function runtimeEvent(data: Record<string, unknown>) {
@@ -299,27 +379,35 @@ function toolRequestProjection(eventType: string, payload: Record<string, unknow
   const requestPayload = record(actionRequest.payload);
   const toolCall = record(requestPayload.tool_call);
   const toolName = toolNameFromActionRequest(payload) || "工具";
+  const preview = commandPreviewFromToolCall(toolCall, requestPayload.command ?? requestPayload.path ?? requestPayload.query);
+  const activity = toolActivityText(toolName, preview);
   const body = short(
-    requestPayload.assistant_content_preview
-    ?? requestPayload.assistant_reasoning_preview
-    ?? toolCall.args
-    ?? actionRequest.request_type
-    ?? "已发起工具请求",
+    preview
+    || text(requestPayload.command_preview)
+    || text(requestPayload.assistant_content_preview)
+    || text(requestPayload.assistant_reasoning_preview)
+    || short(toolCall.args)
+    || text(actionRequest.request_type)
+    || "已发起工具请求",
   );
   return {
-    stageStatus: `调用 ${toolName}`,
-    activityTitle: `正在调用 ${toolName}`,
-    activityDetail: "工具返回后会继续整理状态",
+    stageStatus: `${activity.startedTitle} ${activity.display}`,
+    activityTitle: activity.startedTitle,
+    activityDetail: activity.display,
     level: "running",
-    progressEntry: entry(eventType, "调用工具", {
+    progressEntry: entry(eventType, `${activity.startedTitle} ${activity.display}`, {
       body,
       kind: "tool",
-      statusText: "请求中",
+      statusText: activity.statusRunning,
       toolName,
       taskRunId: eventMeta.taskRunId,
       eventId: eventMeta.eventId,
       createdAt: eventMeta.createdAt,
       startedAt: eventMeta.createdAt,
+      meta: compactMeta([
+        metaItem("工具", toolName),
+        preview ? metaItem("目标", preview) : null,
+      ]),
     }),
   };
 }
@@ -328,8 +416,12 @@ function toolResultProjection(eventType: string, payload: Record<string, unknown
   const observation = record(payload.observation);
   const observationPayload = record(observation.payload);
   const toolName = toolNameFromObservation(payload) || "工具";
+  const toolArgs = record(observationPayload.tool_args);
+  const preview = commandPreviewFromArgs(toolArgs);
+  const activity = toolActivityText(toolName, preview);
   const resultChars = numberValue(observationPayload.result_chars ?? observation.content_chars);
   const truncated = observationPayload.truncated === true;
+  const failed = text(observationPayload.error) || text(record(observationPayload.execution_receipt).error);
   const resultText = short(
     observationPayload.result
     ?? observationPayload.error
@@ -338,19 +430,22 @@ function toolResultProjection(eventType: string, payload: Record<string, unknown
   );
   return {
     stageStatus: "整理工具结果",
-    activityTitle: `${toolName} 已返回`,
-    activityDetail: resultText,
-    level: "running",
-    progressEntry: entry(eventType, "工具返回", {
+    activityTitle: failed ? activity.failedTitle : activity.completedTitle,
+    activityDetail: preview || resultText,
+    level: failed ? "error" : "running",
+    progressEntry: entry(eventType, failed ? `${activity.failedTitle} ${activity.display}` : `${activity.completedTitle} ${activity.display}`, {
       body: resultText,
       kind: "tool",
-      statusText: truncated ? "已截断" : "已返回",
+      level: failed ? "error" : "running",
+      statusText: failed ? activity.statusFailed : truncated ? "已截断" : activity.statusDone,
       toolName,
       taskRunId: eventMeta.taskRunId,
       eventId: eventMeta.eventId,
       createdAt: eventMeta.createdAt,
       completedAt: eventMeta.createdAt,
       meta: compactMeta([
+        metaItem("工具", toolName),
+        preview ? metaItem("目标", preview) : null,
         metaItem("结果字符", resultChars),
       ]),
       artifacts: toolResultArtifacts(payload),
@@ -624,37 +719,49 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
   }
   if (event === "tool_start") {
     const tool = text(data.tool) || "工具";
+    const preview = shortCommand(data.input) || commandPreviewFromArgs(record(data.args ?? data.payload));
+    const activity = toolActivityText(tool, preview);
     return {
-      stageStatus: `调用 ${tool}`,
-      activityTitle: `正在调用 ${tool}`,
-      activityDetail: "工具完成后会继续更新结果",
+      stageStatus: `${activity.startedTitle} ${activity.display}`,
+      activityTitle: activity.startedTitle,
+      activityDetail: activity.display,
       level: "running",
-      progressEntry: entry("tool_start", "调用工具", {
-        body: short(data.input || "工具完成后会继续更新结果"),
+      progressEntry: entry("tool_start", `${activity.startedTitle} ${activity.display}`, {
+        body: preview || short(data.input || "工具完成后会继续更新结果"),
         kind: "tool",
-        statusText: "请求中",
+        statusText: activity.statusRunning,
         toolName: tool,
         createdAt: Date.now(),
         startedAt: Date.now(),
-        meta: compactMeta([metaItem("工具", tool)]),
+        meta: compactMeta([
+          metaItem("工具", tool),
+          preview ? metaItem("目标", preview) : null,
+        ]),
       }),
     };
   }
   if (event === "tool_end") {
     const tool = text(data.tool) || "工具";
+    const preview = commandPreviewFromArgs(record(data.args ?? data.payload), data.input);
+    const activity = toolActivityText(tool, preview);
+    const failed = Boolean(text(data.error));
     return {
       stageStatus: "整理工具结果",
-      activityTitle: `${tool} 已返回`,
-      activityDetail: "正在整理工具结果",
-      level: "running",
-      progressEntry: entry("tool_end", "工具返回", {
+      activityTitle: failed ? activity.failedTitle : activity.completedTitle,
+      activityDetail: preview || "正在整理工具结果",
+      level: failed ? "error" : "running",
+      progressEntry: entry("tool_end", failed ? `${activity.failedTitle} ${activity.display}` : `${activity.completedTitle} ${activity.display}`, {
         body: short(data.output || "正在整理工具结果"),
         kind: "tool",
-        statusText: "已返回",
+        level: failed ? "error" : "running",
+        statusText: failed ? activity.statusFailed : activity.statusDone,
         toolName: tool,
         createdAt: Date.now(),
         completedAt: Date.now(),
-        meta: compactMeta([metaItem("工具", tool)]),
+        meta: compactMeta([
+          metaItem("工具", tool),
+          preview ? metaItem("目标", preview) : null,
+        ]),
       }),
     };
   }

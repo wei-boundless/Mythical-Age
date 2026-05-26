@@ -9,7 +9,6 @@ from .models import (
     HealthManagementCommand,
     HealthManagementReceipt,
     HealthReport,
-    HealthTestRun,
 )
 
 
@@ -44,8 +43,6 @@ class HealthCommandBuilder:
         status: str,
         health_issue_ref: str = "",
         health_run_ref: str = "",
-        test_run_ref: str = "",
-        verification_run_ref: str = "",
         report_ref: str = "",
         admission_status: str = "",
         run_status: str = "",
@@ -60,8 +57,6 @@ class HealthCommandBuilder:
             status=status,
             health_issue_ref=health_issue_ref,
             health_run_ref=health_run_ref,
-            test_run_ref=test_run_ref,
-            verification_run_ref=verification_run_ref,
             report_ref=report_ref,
             admission_status=admission_status,
             run_status=run_status,
@@ -77,7 +72,6 @@ class HealthCommandBuilder:
         report_type: str,
         issue_ref: str = "",
         agent_run_ref: str = "",
-        test_run_ref: str = "",
         evidence_refs: tuple[str, ...] = (),
         verdict: str = "unknown",
         severity: str = "medium",
@@ -91,7 +85,6 @@ class HealthCommandBuilder:
             issue_ref=issue_ref,
             command_ref=command.command_id,
             agent_run_ref=agent_run_ref,
-            test_run_ref=test_run_ref,
             evidence_refs=tuple(item for item in evidence_refs if item),
             verdict=verdict,
             severity=severity,
@@ -108,7 +101,6 @@ class HealthCommandBuilder:
         report: HealthReport | None = None,
         issue: HealthIssue | None = None,
         run_result: dict[str, Any] | None = None,
-        health_test_run: HealthTestRun | None = None,
     ) -> tuple[HealthManagementCommand, dict[str, Any]]:
         status = "completed" if receipt.accepted else receipt.status
         updated = replace(command, status=status, updated_at=time.time())
@@ -123,6 +115,4 @@ class HealthCommandBuilder:
             response["issue"] = issue.to_dict()
         if run_result is not None:
             response["run_result"] = run_result
-        if health_test_run is not None:
-            response["health_test_run"] = health_test_run.to_dict()
         return updated, response

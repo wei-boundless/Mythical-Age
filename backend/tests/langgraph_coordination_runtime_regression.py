@@ -656,7 +656,7 @@ def test_stage_execution_message_expands_revision_artifact_text(tmp_path) -> Non
     assert "不要输出 read_file" in message
 
 
-def test_revision_packet_prefers_node_work_order_over_stage_request() -> None:
+def test_revision_packet_uses_stage_execution_request_as_execution_boundary() -> None:
     state = {
         "node_work_order": {
             "work_order_id": "nodeexec:new",
@@ -686,12 +686,12 @@ def test_revision_packet_prefers_node_work_order_over_stage_request() -> None:
         accepted=False,
     )
 
-    assert packet["source_dispatch_event_id"] == "tlevent:new"
-    assert packet["source_clock_seq"] == 9
-    assert packet["previous_candidate_artifact_refs"] == ["artifact:new.md"]
+    assert packet["source_dispatch_event_id"] == "tlevent:old"
+    assert packet["source_clock_seq"] == 1
+    assert packet["previous_candidate_artifact_refs"] == ["artifact:old.md"]
 
 
-def test_scheduler_scope_prefers_node_work_order_dispatch_context() -> None:
+def test_scheduler_scope_uses_stage_execution_request_dispatch_context() -> None:
     state = {
         "node_work_order": {
             "dispatch_context": {
@@ -707,7 +707,7 @@ def test_scheduler_scope_prefers_node_work_order_dispatch_context() -> None:
         },
     }
 
-    assert _active_scope_key_for_scheduler(state) == "scope:new"
+    assert _active_scope_key_for_scheduler(state) == "scope:old"
 
 
 def test_standard_input_package_materials_render_to_model_visible_text() -> None:
@@ -2045,7 +2045,6 @@ def test_formal_memory_read_edge_does_not_fallback_to_working_memory(tmp_path) -
     )
 
     assert context["diagnostics"]["formal_memory_primary"] is True
-    assert context["diagnostics"]["working_memory_legacy_read_enabled"] is False
     assert dict(context["working_memory.required"])["item_count"] == 0
     assert legacy_item.work_memory_id not in context.get("required_refs", [])
     assert context["formal_memory.required_records"][0]["canonical_text"] == "正式仓库中的世界观。"
@@ -2559,10 +2558,10 @@ class _DiamondRegistry:
             coordinator_agent_id="agent:0",
             topology_template_id="topology.test.diamond",
             graph_nodes=(
-                {"node_id": "a", "agent_id": "agent:0", "task_id": "task.test.a", "role": "coordinator", "runtime_lane": "task_dispatch"},
-                {"node_id": "b", "agent_id": "agent:0", "task_id": "task.test.b", "role": "participant", "runtime_lane": "task_dispatch"},
-                {"node_id": "c", "agent_id": "agent:0", "task_id": "task.test.c", "role": "participant", "runtime_lane": "task_dispatch"},
-                {"node_id": "d", "agent_id": "agent:0", "task_id": "task.test.d", "role": "acceptance", "runtime_lane": "final_integration"},
+                {"node_id": "a", "agent_id": "agent:0", "task_id": "task.test.a", "role": "coordinator", "runtime_lane": "professional_task"},
+                {"node_id": "b", "agent_id": "agent:0", "task_id": "task.test.b", "role": "participant", "runtime_lane": "professional_task"},
+                {"node_id": "c", "agent_id": "agent:0", "task_id": "task.test.c", "role": "participant", "runtime_lane": "professional_task"},
+                {"node_id": "d", "agent_id": "agent:0", "task_id": "task.test.d", "role": "acceptance", "runtime_lane": "coordination_task"},
             ),
             graph_edges=(
                 {"edge_id": "a_b", "from": "a", "to": "b", "contract_id": "contract.artifact_refs.bundle"},
@@ -2775,7 +2774,7 @@ def test_langgraph_coordination_runtime_ignores_stale_dispatch_result(tmp_path) 
     assert runtime_state["ready_nodes"] == ["c"]
 
 
-def test_langgraph_coordination_runtime_accepts_result_by_node_work_order_not_stale_stage_request(tmp_path) -> None:
+def test_langgraph_coordination_runtime_rejects_result_when_stage_request_boundary_is_stale(tmp_path) -> None:
     runtime, state_index, coordination_run = _diamond_runtime(tmp_path)
     first = runtime.resume_from_task_result(
         coordination_run=coordination_run,
@@ -2795,21 +2794,23 @@ def test_langgraph_coordination_runtime_accepts_result_by_node_work_order_not_st
     assert active_work_order["work_order_id"] == first.stage_execution_request.request_id
 
     corrupted_state = dict(runtime.checkpoints.get_state(thread_id="coordrun:diamond"))
-    corrupted_state["stage_execution_request"] = {
-        **dict(corrupted_state["stage_execution_request"]),
+    corrupted_request = {
+        **dict(corrupted_state["node_execution_request"]),
         "request_id": "nodeexec:old-stage-request",
         "dispatch_context": {
-            **dict(corrupted_state["stage_execution_request"].get("dispatch_context") or {}),
+            **dict(corrupted_state["node_execution_request"].get("dispatch_context") or {}),
             "dispatch_event_id": "tlevent:old-stage-request",
         },
     }
+    corrupted_state["node_execution_request"] = corrupted_request
+    corrupted_state["stage_execution_request"] = dict(corrupted_request)
     runtime.checkpoints.put_state(
         thread_id="coordrun:diamond",
         state=corrupted_state,
         metadata={"event": "test_corrupt_stage_request"},
     )
 
-    accepted = runtime.resume_from_task_result(
+    stale = runtime.resume_from_task_result(
         coordination_run=coordination_run,
         event=NodeResultReadyEvent(
             event_type="task_result_ready",
@@ -2825,13 +2826,14 @@ def test_langgraph_coordination_runtime_accepts_result_by_node_work_order_not_st
         ),
     )
 
-    assert "b" in accepted.state["stage_results"]
-    assert accepted.state["stage_results"]["b"]["accepted"] is True
-    assert accepted.state["stage_results"]["b"]["timeline_result_record"]["request_id"] == active_work_order["work_order_id"]
-    assert accepted.state["diagnostics"].get("last_stale_result_reason") in {None, ""}
+    assert "b" not in stale.state.get("stage_results", {})
+    assert stale.state["stale_stage_results"]
+    assert stale.state["diagnostics"]["last_stale_result_reason"] == "request_id_does_not_match_active_request"
+    assert stale.state["node_execution_request"]["request_id"] == "nodeexec:old-stage-request"
+    assert stale.state["stage_execution_request"]["request_id"] == "nodeexec:old-stage-request"
 
 
-def test_langgraph_coordination_runtime_initialize_does_not_redispatch_when_work_order_exists(tmp_path) -> None:
+def test_langgraph_coordination_runtime_initialize_redispatches_when_formal_request_is_missing(tmp_path) -> None:
     runtime, state_index, coordination_run = _diamond_runtime(tmp_path)
     first = runtime.resume_from_task_result(
         coordination_run=coordination_run,
@@ -2846,10 +2848,17 @@ def test_langgraph_coordination_runtime_initialize_does_not_redispatch_when_work
             accepted=True,
         ),
     )
-    active_work_order_id = first.state["node_work_order"]["work_order_id"]
+    stale_work_order_id = "nodeexec:stale-work-order-only"
     state = dict(runtime.checkpoints.get_state(thread_id="coordrun:diamond"))
     state["stage_execution_request"] = {}
     state["node_execution_request"] = {}
+    state["node_work_order"] = {
+        **dict(state["node_work_order"]),
+        "work_order_id": stale_work_order_id,
+        "stage_id": "stale_stage",
+        "node_id": "stale_stage",
+        "task_ref": "task.test.stale",
+    }
     runtime.checkpoints.put_state(
         thread_id="coordrun:diamond",
         state=state,
@@ -2858,10 +2867,11 @@ def test_langgraph_coordination_runtime_initialize_does_not_redispatch_when_work
 
     initialized = runtime.initialize(coordination_run=coordination_run)
 
-    assert initialized.node_work_order["work_order_id"] == active_work_order_id
     assert initialized.stage_execution_request is not None
-    assert initialized.stage_execution_request.request_id == active_work_order_id
     assert initialized.stage_execution_request.stage_id == "b"
+    assert initialized.stage_execution_request.request_id != stale_work_order_id
+    assert initialized.node_work_order["work_order_id"] == initialized.stage_execution_request.request_id
+    assert initialized.node_work_order["stage_id"] == "b"
 
 
 def test_langgraph_coordination_runtime_rewinds_stage_and_invalidates_downstream(tmp_path) -> None:

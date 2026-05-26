@@ -17,10 +17,6 @@ from .models import (
     HealthManagementReceipt,
     HealthReport,
     HealthTaskRequest,
-    HealthTestRun,
-    VerificationArtifact,
-    VerificationArtifactManifest,
-    VerificationRun,
 )
 
 
@@ -37,9 +33,6 @@ class HealthStore:
         self.reports_path = self.store_dir / "reports.jsonl"
         self.conversation_sessions_path = self.store_dir / "conversation_sessions.jsonl"
         self.conversation_messages_path = self.store_dir / "conversation_messages.jsonl"
-        self.health_test_runs_path = self.store_dir / "health_test_runs.jsonl"
-        self.verification_runs_path = self.store_dir / "verification_runs.jsonl"
-        self.verification_manifests_path = self.store_dir / "verification_artifact_manifests.jsonl"
         self._bad_jsonl_line_count = 0
 
     def load_agent_runs(self) -> list[HealthAgentRun]:
@@ -66,15 +59,6 @@ class HealthStore:
     def load_conversation_messages(self) -> list[HealthAgentConversationMessage]:
         return [_conversation_message_from_payload(item) for item in self._read_jsonl_dicts(self.conversation_messages_path)]
 
-    def load_health_test_runs(self) -> list[HealthTestRun]:
-        return [_health_test_run_from_payload(item) for item in self._read_jsonl_dicts(self.health_test_runs_path)]
-
-    def load_verification_runs(self) -> list[VerificationRun]:
-        return [_verification_run_from_payload(item) for item in self._read_jsonl_dicts(self.verification_runs_path)]
-
-    def load_verification_artifact_manifests(self) -> list[VerificationArtifactManifest]:
-        return [_verification_artifact_manifest_from_payload(item) for item in self._read_jsonl_dicts(self.verification_manifests_path)]
-
     def load_agent_results(self) -> list[dict[str, Any]]:
         return self._read_jsonl_dicts(self.agent_results_path)
 
@@ -89,9 +73,6 @@ class HealthStore:
             self.reports_path,
             self.conversation_sessions_path,
             self.conversation_messages_path,
-            self.health_test_runs_path,
-            self.verification_runs_path,
-            self.verification_manifests_path,
         ]
         return {
             "authority": "health_system.store_health",
@@ -131,15 +112,6 @@ class HealthStore:
 
     def append_conversation_message(self, message: HealthAgentConversationMessage) -> None:
         self._append_jsonl(self.conversation_messages_path, message.to_dict())
-
-    def upsert_health_test_run(self, run: HealthTestRun) -> None:
-        self._upsert_jsonl(self.health_test_runs_path, "health_test_run_id", run.health_test_run_id, run.to_dict())
-
-    def upsert_verification_run(self, run: VerificationRun) -> None:
-        self._upsert_jsonl(self.verification_runs_path, "verification_run_id", run.verification_run_id, run.to_dict())
-
-    def upsert_verification_artifact_manifest(self, manifest: VerificationArtifactManifest) -> None:
-        self._upsert_jsonl(self.verification_manifests_path, "manifest_id", manifest.manifest_id, manifest.to_dict())
 
     def append_command_ref_to_session(self, session: HealthAgentConversationSession, command_id: str) -> HealthAgentConversationSession:
         command_refs = tuple(dict.fromkeys((*session.command_refs, command_id)))
@@ -298,8 +270,6 @@ def _receipt_from_payload(payload: dict[str, Any]) -> HealthManagementReceipt:
         status=str(payload.get("status") or "unknown"),
         health_issue_ref=str(payload.get("health_issue_ref") or ""),
         health_run_ref=str(payload.get("health_run_ref") or ""),
-        test_run_ref=str(payload.get("test_run_ref") or ""),
-        verification_run_ref=str(payload.get("verification_run_ref") or ""),
         report_ref=str(payload.get("report_ref") or ""),
         admission_status=str(payload.get("admission_status") or ""),
         run_status=str(payload.get("run_status") or ""),
@@ -316,7 +286,6 @@ def _report_from_payload(payload: dict[str, Any]) -> HealthReport:
         issue_ref=str(payload.get("issue_ref") or ""),
         command_ref=str(payload.get("command_ref") or ""),
         agent_run_ref=str(payload.get("agent_run_ref") or ""),
-        test_run_ref=str(payload.get("test_run_ref") or ""),
         evidence_refs=tuple(str(item) for item in list(payload.get("evidence_refs") or [])),
         verdict=str(payload.get("verdict") or "unknown"),
         severity=str(payload.get("severity") or "medium"),
@@ -352,72 +321,4 @@ def _conversation_message_from_payload(payload: dict[str, Any]) -> HealthAgentCo
         receipt_ref=str(payload.get("receipt_ref") or ""),
         report_ref=str(payload.get("report_ref") or ""),
         created_at=float(payload.get("created_at") or 0.0),
-    )
-
-
-def _health_test_run_from_payload(payload: dict[str, Any]) -> HealthTestRun:
-    return HealthTestRun(
-        health_test_run_id=str(payload.get("health_test_run_id") or ""),
-        command_ref=str(payload.get("command_ref") or ""),
-        test_system_run_ref=str(payload.get("test_system_run_ref") or ""),
-        profile=str(payload.get("profile") or ""),
-        scenario_refs=tuple(str(item) for item in list(payload.get("scenario_refs") or [])),
-        status=str(payload.get("status") or "unknown"),
-        verdict=str(payload.get("verdict") or "unknown"),
-        artifact_refs=tuple(str(item) for item in list(payload.get("artifact_refs") or [])),
-        issue_refs=tuple(str(item) for item in list(payload.get("issue_refs") or [])),
-        report_refs=tuple(str(item) for item in list(payload.get("report_refs") or [])),
-        started_at=float(payload.get("started_at") or 0.0),
-        finished_at=float(payload.get("finished_at") or 0.0),
-    )
-
-
-def _verification_artifact_from_payload(payload: dict[str, Any]) -> VerificationArtifact:
-    return VerificationArtifact(
-        name=str(payload.get("name") or ""),
-        artifact_type=str(payload.get("artifact_type") or payload.get("type") or ""),
-        path=str(payload.get("path") or ""),
-        relative_ref=str(payload.get("relative_ref") or ""),
-        producer=str(payload.get("producer") or ""),
-        required=bool(payload.get("required", False)),
-        present=bool(payload.get("present", False)),
-        checksum=str(payload.get("checksum") or ""),
-        size_bytes=int(payload.get("size_bytes") or 0),
-    )
-
-
-def _verification_artifact_manifest_from_payload(payload: dict[str, Any]) -> VerificationArtifactManifest:
-    return VerificationArtifactManifest(
-        manifest_id=str(payload.get("manifest_id") or ""),
-        verification_run_id=str(payload.get("verification_run_id") or ""),
-        schema_version=str(payload.get("schema_version") or "2026-05-08"),
-        artifacts=tuple(
-            _verification_artifact_from_payload(item)
-            for item in list(payload.get("artifacts") or [])
-            if isinstance(item, dict)
-        ),
-        created_at=float(payload.get("created_at") or 0.0),
-        metadata=dict(payload.get("metadata") or {}),
-    )
-
-
-def _verification_run_from_payload(payload: dict[str, Any]) -> VerificationRun:
-    return VerificationRun(
-        verification_run_id=str(payload.get("verification_run_id") or ""),
-        profile_id=str(payload.get("profile_id") or payload.get("profile") or ""),
-        status=str(payload.get("status") or "unknown"),
-        command_ref=str(payload.get("command_ref") or ""),
-        source_run_ref=str(payload.get("source_run_ref") or ""),
-        process_ref=str(payload.get("process_ref") or ""),
-        output_dir=str(payload.get("output_dir") or ""),
-        log_path=str(payload.get("log_path") or ""),
-        artifact_manifest_ref=str(payload.get("artifact_manifest_ref") or ""),
-        summary=dict(payload.get("summary") or {}),
-        artifact_refs=tuple(str(item) for item in list(payload.get("artifact_refs") or [])),
-        issue_refs=tuple(str(item) for item in list(payload.get("issue_refs") or [])),
-        report_refs=tuple(str(item) for item in list(payload.get("report_refs") or [])),
-        trace_refs=tuple(str(item) for item in list(payload.get("trace_refs") or [])),
-        started_at=float(payload.get("started_at") or 0.0),
-        ended_at=float(payload.get("ended_at") or 0.0),
-        metadata=dict(payload.get("metadata") or {}),
     )

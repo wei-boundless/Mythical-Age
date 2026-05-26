@@ -6,10 +6,7 @@ from typing import Any, Iterable
 from response_system.boundary.boundary import sanitize_visible_assistant_content
 
 from .goal_contract import ProfessionalTaskGoalContract, _dedupe_strings
-from .deliverable_progress import (
-    observation_paths_for_satisfaction,
-    required_writes_satisfied,
-)
+from .deliverable_progress import observation_paths_for_satisfaction
 from task_system.runtime_semantics.protocol_boundary import has_protocol_leak, strip_protocol_leak
 from ..memory.tool_observation_ledger import ToolObservationLedger
 
@@ -168,117 +165,6 @@ def _professional_closeout_repair_instruction(
     )
 
 
-def _should_apply_artifact_delivery_evidence_closeout(
-    *,
-    outcome: ProfessionalTaskRunOutcome,
-    semantic_contract: dict[str, Any],
-    goal_contract: ProfessionalTaskGoalContract,
-    tool_observation_ledger: ToolObservationLedger,
-    final_protocol_leak_detected: bool,
-) -> bool:
-    if str(semantic_contract.get("task_goal_type") or "").strip() != "artifact_delivery":
-        return False
-    if not required_writes_satisfied(goal_contract, tool_observation_ledger):
-        return False
-    content = str(outcome.final_content or "").strip()
-    if not content:
-        return True
-    if bool(final_protocol_leak_detected) or _contains_tool_call_markup(content):
-        return True
-    if outcome.terminal_reason in {"tool_call_markup_leaked", "tool_loop_budget_exceeded", "partial_contract_failed"}:
-        return True
-    return False
-
-
-def _should_apply_profile_delivery_evidence_closeout(
-    *,
-    outcome: ProfessionalTaskRunOutcome,
-    semantic_contract: dict[str, Any],
-    tool_observation_ledger: ToolObservationLedger,
-    final_protocol_leak_detected: bool,
-) -> bool:
-    task_goal_type = str(semantic_contract.get("task_goal_type") or "").strip()
-    if task_goal_type not in {"game_vertical_slice_delivery", "frontend_app_delivery"}:
-        return False
-    if not tool_observation_ledger.has_write():
-        return False
-    content = str(outcome.final_content or "").strip()
-    if not content:
-        return True
-    if bool(final_protocol_leak_detected) or _contains_tool_call_markup(content):
-        return True
-    return outcome.terminal_reason in {"tool_call_markup_leaked", "tool_loop_budget_exceeded", "partial_contract_failed"}
-
-
-def _build_profile_delivery_evidence_closeout_answer(
-    *,
-    semantic_contract: dict[str, Any],
-    goal_contract: ProfessionalTaskGoalContract,
-    tool_observation_ledger: ToolObservationLedger,
-    evidence_packet: dict[str, Any],
-) -> str:
-    task_goal_type = str(semantic_contract.get("task_goal_type") or "").strip()
-    write_paths = observation_paths_for_satisfaction(tool_observation_ledger, "write_output")
-    required_paths = [
-        str(path or "").replace("\\", "/").strip()
-        for path in list(goal_contract.required_output_paths or [])
-        if str(path or "").strip()
-    ]
-    missing_paths = [
-        path
-        for path in required_paths
-        if path and not any(_path_matches_for_closeout(path, observed) for observed in write_paths)
-    ]
-    verification_records = [
-        record
-        for record in tool_observation_ledger.records
-        if "verify_command" in record.satisfies or record.tool_name == "terminal"
-    ]
-    if tool_observation_ledger.verification_passed():
-        verification_line = "验证：已运行 terminal，最近一次验证观察显示通过。"
-    elif verification_records:
-        latest = verification_records[-1]
-        preview = str(latest.result_preview or "").strip()
-        verification_line = "验证：已运行 terminal，但没有取得可确认通过的最终验证。"
-        if preview:
-            verification_line += " 摘要：" + preview[:180]
-    else:
-        verification_line = "验证：尚未取得 terminal 验证观察。"
-    facts = [dict(item) for item in list(dict(evidence_packet or {}).get("facts") or []) if isinstance(item, dict)]
-    asset_paths = [
-        path
-        for path in write_paths
-        if "/assets/" in path.replace("\\", "/") or path.lower().endswith((".svg", ".png", ".jpg", ".jpeg", ".webp"))
-    ]
-    if task_goal_type == "game_vertical_slice_delivery":
-        headline = "阶段结果：已推进浏览器小游戏工程，但尚未证明全部验收项完成。"
-    else:
-        headline = "阶段结果：已推进前端交付任务，但尚未证明全部验收项完成。"
-    lines = [
-        headline,
-        "已写入：" + ("、".join(write_paths) if write_paths else "暂无可解析写入路径。"),
-    ]
-    if asset_paths:
-        lines.append("资源：" + "、".join(asset_paths[:10]))
-    lines.append(
-        "未完成或未证明："
-        + ("、".join(missing_paths) if missing_paths else "没有从目标路径契约中发现缺失写入。")
-    )
-    lines.append(verification_line)
-    lines.append(
-        "证据边界：本回答只基于本轮真实工具观察；未写入或未验证的文件不会声称完成。"
-    )
-    if facts:
-        lines.append("观察数量：" + str(len(facts)))
-    return "\n".join(lines)
-
-
-def _path_matches_for_closeout(target: str, observed: str) -> bool:
-    left = str(target or "").replace("\\", "/").strip().strip("/").lower()
-    right = str(observed or "").replace("\\", "/").strip().strip("/").lower()
-    return bool(left and right and (left == right or right.endswith("/" + left) or left.endswith("/" + right)))
-
-
 def _artifact_output_refs_from_tool_payload(payload: dict[str, Any]) -> list[str]:
     refs: list[str] = []
     for item in list(dict(payload or {}).get("artifact_refs") or []):
@@ -309,26 +195,6 @@ def _dedupe_text(values: Iterable[str]) -> list[str]:
         seen.add(text)
         result.append(text)
     return result
-
-
-def _build_artifact_delivery_evidence_closeout_answer(
-    *,
-    tool_observation_ledger: ToolObservationLedger,
-    evidence_packet: dict[str, Any],
-) -> str:
-    write_paths = observation_paths_for_satisfaction(tool_observation_ledger, "write_output")
-    facts = [dict(item) for item in list(dict(evidence_packet or {}).get("facts") or []) if isinstance(item, dict)]
-    material_preview = "；".join(_generic_fact_previews(facts)[:2])
-    body_lines = [
-        "已完成：已按目标契约写入并交付文件产物。",
-        "文件：" + ("、".join(write_paths) if write_paths else "已发生写入观察，但未能解析具体路径。"),
-        "修改：已完成目标路径下的产物写入；如有 terminal 观察，则验证结果以真实命令输出为准。",
-        "验证：已基于本轮工具观察收口；完整交互体验仍需要在浏览器中人工试玩确认。",
-        "限制：运行时只能声明真实工具观察已经证明的内容，不额外声称未执行的浏览器测试。",
-    ]
-    if material_preview:
-        body_lines.append("依据：" + material_preview)
-    return "\n".join(body_lines)
 
 
 def _generic_fact_previews(facts: list[dict[str, Any]]) -> list[str]:

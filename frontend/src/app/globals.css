@@ -7812,10 +7812,26 @@ button:hover {
   color: #0f172a;
   font-weight: 700;
   line-height: 1.2;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .runtime-run-summary__title svg {
+  flex: 0 0 auto;
   color: #1d5fd3;
+}
+
+.runtime-run-summary__title code {
+  min-width: 0;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  color: #64748b;
+  font-family: var(--font-mono, "Cascadia Mono", monospace);
+  font-size: 11px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .runtime-run-summary__summary {
@@ -10969,6 +10985,7 @@ html[data-soul="xuannv"] .soul-portrait__label {
 }
 
 .health-overview-hero,
+.health-cost-hero,
 .health-system-card,
 .health-list-panel,
 .health-detail-panel,
@@ -10989,7 +11006,16 @@ html[data-soul="xuannv"] .soul-portrait__label {
   padding: 1rem;
 }
 
+.health-cost-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+  gap: 1rem;
+  align-items: stretch;
+  padding: 1rem;
+}
+
 .health-overview-hero > div:first-child,
+.health-cost-hero > div:first-child,
 .health-system-card,
 .health-list-panel,
 .health-detail-panel,
@@ -10999,6 +11025,7 @@ html[data-soul="xuannv"] .soul-portrait__label {
 }
 
 .health-overview-hero span,
+.health-cost-hero span,
 .health-panel-head span,
 .health-report-block span,
 .health-metric span,
@@ -11018,7 +11045,17 @@ html[data-soul="xuannv"] .soul-portrait__label {
   line-height: 1.12;
 }
 
+.health-cost-hero strong {
+  display: block;
+  max-width: 760px;
+  margin-top: 0.5rem;
+  color: var(--color-text);
+  font-size: clamp(1.28rem, 2vw, 1.8rem);
+  line-height: 1.16;
+}
+
 .health-overview-hero p,
+.health-cost-hero p,
 .health-copy,
 .health-report-block p,
 .health-node-row p,
@@ -11031,6 +11068,10 @@ html[data-soul="xuannv"] .soul-portrait__label {
 }
 
 .health-overview-hero p {
+  margin-top: 0.65rem;
+}
+
+.health-cost-hero p {
   margin-top: 0.65rem;
 }
 
@@ -11077,6 +11118,183 @@ html[data-soul="xuannv"] .soul-portrait__label {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
   gap: 1rem;
+}
+
+.health-cost-view {
+  gap: 1rem;
+}
+
+.health-cost-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.65fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.health-efficiency-panel {
+  display: grid;
+  gap: 0.85rem;
+  align-content: start;
+}
+
+.health-efficiency-panel .health-list-panel {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.health-efficiency-panel .health-data-table {
+  max-height: 340px;
+}
+
+.health-governance-view {
+  min-height: 0;
+}
+
+.health-governance-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.42fr) minmax(0, 0.58fr);
+  gap: 1rem;
+  min-height: 0;
+}
+
+.health-task-list,
+.health-risk-list {
+  display: grid;
+  gap: 0.65rem;
+  max-height: min(62vh, 680px);
+  overflow: auto;
+  padding-right: 0.2rem;
+}
+
+.health-task-row,
+.health-risk-row {
+  display: grid;
+  gap: 0.35rem;
+  align-items: start;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 14%, var(--color-border));
+  border-radius: var(--radius-inner);
+  background: rgba(255, 255, 255, 0.025);
+  color: var(--color-text);
+  padding: 0.75rem 0.85rem;
+  text-align: left;
+}
+
+.health-task-row {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.health-task-row:hover,
+.health-task-row--active {
+  border-color: color-mix(in srgb, var(--color-soul) 54%, var(--color-border));
+  background: color-mix(in srgb, var(--color-soul) 10%, transparent);
+}
+
+.health-task-row strong,
+.health-risk-row strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: 0.86rem;
+  font-weight: 850;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.health-task-row small,
+.health-risk-row small {
+  grid-column: 2;
+  color: var(--color-text-soft);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.health-risk-row {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.health-risk-row p {
+  margin: 0.2rem 0 0;
+  color: var(--color-text-soft);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.health-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 22%, var(--color-border));
+  border-radius: 999px;
+  color: var(--color-text);
+  font-size: 0.68rem;
+  font-weight: 850;
+  line-height: 1;
+  padding: 0.25rem 0.45rem;
+  white-space: nowrap;
+}
+
+.health-pill--notice {
+  border-color: rgba(255, 215, 107, 0.42);
+  color: #f7d46b;
+}
+
+.health-pill--warning {
+  border-color: rgba(255, 185, 92, 0.52);
+  color: #ffbf6b;
+}
+
+.health-pill--danger {
+  border-color: rgba(255, 140, 125, 0.56);
+  color: #ff9a8d;
+}
+
+.health-data-table {
+  max-height: min(62vh, 680px);
+  overflow: auto;
+}
+
+.health-data-table table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.health-data-table th,
+.health-data-table td {
+  border-bottom: 1px solid color-mix(in srgb, var(--color-soul) 12%, var(--color-border));
+  color: var(--color-text-soft);
+  font-size: 0.76rem;
+  line-height: 1.4;
+  padding: 0.58rem 0.45rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.health-data-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--color-panel-strong);
+  color: var(--color-text);
+  font-weight: 850;
+}
+
+.health-data-table td:first-child {
+  max-width: 280px;
+  overflow: hidden;
+  color: var(--color-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 980px) {
+  .health-governance-layout,
+  .health-cost-grid,
+  .health-cost-hero {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .task-system-view {
@@ -34637,18 +34855,35 @@ html[data-workspace-tone] .agent-workbench {
 }
 
 .agent-workbench .runtime-run-summary__title {
-  flex: 0 0 auto;
+  flex: 1 1 auto;
   gap: 5px;
+  min-width: 0;
   color: var(--console-text);
   font-size: 11px;
   font-weight: 700;
-  white-space: nowrap;
 }
 
 .agent-workbench .runtime-run-summary__title svg {
+  flex: 0 0 auto;
   color: var(--console-accent);
   width: 13px;
   height: 13px;
+}
+
+.agent-workbench .runtime-run-summary__title span {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.agent-workbench .runtime-run-summary__title code {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--console-muted);
+  font-family: var(--console-font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .agent-workbench .runtime-run-summary__summary {

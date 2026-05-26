@@ -99,13 +99,13 @@ describe("runtimeVisibilityProjection", () => {
     expect(requested.progressEntry).toMatchObject({
       kind: "tool",
       toolName: "write_file",
-      statusText: "请求中",
+      statusText: "写入中",
       taskRunId: "taskrun:1",
     });
     expect(returned.progressEntry).toMatchObject({
       kind: "tool",
       toolName: "write_file",
-      statusText: "已返回",
+      statusText: "已完成",
       taskRunId: "taskrun:1",
     });
     expect(returned.progressEntry?.artifacts?.[0]?.path).toBe("docs/plan.md");
@@ -124,12 +124,47 @@ describe("runtimeVisibilityProjection", () => {
     expect(started.progressEntry).toMatchObject({
       kind: "tool",
       toolName: "read_file",
-      statusText: "请求中",
+      title: "正在读取 frontend/src/components/chat/ChatMessage.tsx",
+      statusText: "读取中",
     });
     expect(ended.progressEntry).toMatchObject({
       kind: "tool",
       toolName: "read_file",
-      statusText: "已返回",
+      statusText: "已完成",
     });
+  });
+
+  it("projects terminal commands as Codex-style running activity", () => {
+    const projection = projectRuntimeStreamEvent("runtime_loop_event", {
+      event: {
+        event_id: "rtevt:terminal",
+        task_run_id: "taskrun:1",
+        event_type: "tool_call_requested",
+        created_at: 20,
+        payload: {
+          action_request: {
+            request_id: "rtact:terminal",
+            operation_id: "operation.terminal",
+            payload: {
+              tool_name: "terminal",
+              tool_call: { name: "terminal", args: { command: "npm test -- --run src/lib/runtimeVisibilityProjection.test.ts" } },
+            },
+          },
+        },
+      },
+    });
+
+    expect(projection).toMatchObject({
+      stageStatus: "正在运行 npm test -- --run src/lib/runtimeVisibilityProjection.test.ts",
+      activityTitle: "正在运行",
+      activityDetail: "npm test -- --run src/lib/runtimeVisibilityProjection.test.ts",
+    });
+    expect(projection.progressEntry).toMatchObject({
+      kind: "tool",
+      title: "正在运行 npm test -- --run src/lib/runtimeVisibilityProjection.test.ts",
+      statusText: "运行中",
+      toolName: "terminal",
+    });
+    expect(projection.progressEntry?.meta?.find((item) => item.label === "目标")?.value).toBe("npm test -- --run src/lib/runtimeVisibilityProjection.test.ts");
   });
 });

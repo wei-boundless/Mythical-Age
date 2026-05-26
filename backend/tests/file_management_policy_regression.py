@@ -64,3 +64,15 @@ def test_specific_task_file_management_policy_overrides_environment_default(tmp_
     assert policy["repositories"]["write"] == "repo.coding.project_workspace"
     assert policy["repositories"]["edit"] == "repo.coding.sandbox_workspace"
     assert policy["authority"] == "runtime.unit_runtime.file_management_policy"
+
+
+def test_file_management_policy_does_not_invent_default_environment(tmp_path: Path) -> None:
+    policy = prepare_runtime_file_management_policy_for_turn(
+        root_dir=tmp_path / "backend",
+        task_run_id="taskrun-no-environment",
+        selected_recipe_payload={"metadata": {}},
+        task_selection={},
+        sandbox_policy={"enabled": True, "sandbox_root": str(tmp_path / "sandbox" / "workspace")},
+    )
+
+    assert policy == {}

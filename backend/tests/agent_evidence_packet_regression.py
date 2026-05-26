@@ -396,6 +396,29 @@ def test_child_agent_runtime_attaches_shadow_evidence_packet() -> None:
     assert "Revenue evidence" in diagnostics["visible_packet_summary"]
 
 
+def test_child_agent_runtime_does_not_substitute_specialist_for_unknown_delegation_kind() -> None:
+    executor = _FakeChildRuntimeExecutor(root_dir=Path("."))
+    request = AgentDelegationRequest(
+        request_id="delegation:req:unknown-kind",
+        task_run_id="taskrun-1",
+        session_id="session-1",
+        parent_agent_run_ref="agrun:main",
+        source_agent_id="agent:main",
+        target_agent_id="agent:pdf_reader",
+        delegation_kind="bounded_analysis",
+        instruction="Analyze the supplied material.",
+        input_payload={"path": "knowledge/demo.pdf"},
+    )
+    agent = type("Agent", (), {"agent_id": "agent:pdf_reader"})()
+    profile = type("Profile", (), {"allowed_operations": ("op.mcp_pdf",), "blocked_operations": ()})()
+
+    payload = asyncio.run(executor.run(request=request, agent=agent, profile=profile))
+
+    assert payload["status"] == "failed"
+    assert payload["limitations"] == ["child_operation_not_authorized"]
+    assert payload["diagnostics"]["child_execution_mode"] == "profile_authorized_specialist"
+
+
 def test_child_agent_runtime_keeps_orchestrator_evidence_envelope() -> None:
     executor = ChildAgentRuntimeExecutor(root_dir=Path("."), evidence_orchestrator=_FakeEvidenceOrchestrator())
     request = AgentDelegationRequest(

@@ -48,6 +48,16 @@ def _tool_message_text(messages) -> str:
     )
 
 
+def _message_text(messages) -> str:
+    parts: list[str] = []
+    for item in list(messages or []):
+        if isinstance(item, dict):
+            parts.append(str(item.get("content") or ""))
+        else:
+            parts.append(str(getattr(item, "content", "") or ""))
+    return "\n".join(parts)
+
+
 def _tool_message_count(messages) -> int:
     return sum(1 for item in list(messages or []) if item.__class__.__name__ == "ToolMessage")
 
@@ -1376,8 +1386,9 @@ class _WriteThenVerifyDriftModelRuntimeStub:
         tool_names = [str(getattr(tool, "name", "") or "") for tool in list(tools or [])]
         self.tool_names_by_call.append(tool_names)
         tool_text = _tool_message_text(messages)
+        message_text = _message_text(messages)
         self.seen_write = self.seen_write or "Write succeeded" in tool_text
-        if "runtime_auto_verify_terminal" in tool_text or "auto_verification" in tool_text:
+        if "runtime_auto_verify_terminal" in message_text or "auto_verification" in message_text:
             return SimpleNamespace(
                 content=(
                     "完成状态：已完成。\n"

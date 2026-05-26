@@ -591,7 +591,6 @@ def _working_memory_diagnostics(working_memory_context: dict[str, Any] | None) -
         "working_memory_conflict_count": int(dict(payload.get("working_memory.conflict_warnings") or {}).get("item_count") or 0),
         "formal_memory_required_count": len([item for item in list(payload.get("formal_memory.required_records") or []) if isinstance(item, dict)]),
         "formal_memory_primary": bool(dict(payload.get("diagnostics") or {}).get("formal_memory_primary")),
-        "working_memory_legacy_read_enabled": bool(dict(payload.get("diagnostics") or {}).get("working_memory_legacy_read_enabled")),
     }
 
 

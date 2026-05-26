@@ -14,7 +14,6 @@
         "role_interaction",
         "standard_task",
         "professional_task",
-        "full_interactive",
         "game_delivery"
       ],
       "allowed_operations": [

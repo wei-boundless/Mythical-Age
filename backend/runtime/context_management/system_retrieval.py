@@ -319,22 +319,6 @@ def build_system_retrieval_request_parts(
     return "retrieval", "op.mcp_retrieval", bindings, {}, "runtime_rag_mcp"
 
 
-def final_main_context_can_finalize(
-    *,
-    selected_recipe_payload: dict[str, Any],
-    retrieval_results: list[dict[str, Any]] | None,
-) -> bool:
-    source_kind = str(
-        selected_recipe_payload.get("source_kind")
-        or dict(selected_recipe_payload.get("metadata") or {}).get("source_kind")
-        or ""
-    ).strip()
-    unit = get_local_mcp_unit_for_source_kind(source_kind)
-    if unit is not None and unit.route != "retrieval":
-        return True
-    return bool(retrieval_results)
-
-
 def path_from_context_recall(
     current_turn_context: dict[str, Any],
     *,

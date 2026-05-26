@@ -196,7 +196,7 @@ def test_system_builtin_profile_storage_is_migrated_with_required_default_permis
                     {
                         "agent_profile_id": "main_interactive_agent",
                         "agent_id": "agent:0",
-                        "allowed_runtime_lanes": ["full_interactive"],
+                        "allowed_runtime_lanes": ["standard_task"],
                         "allowed_operations": ["op.model_response", "op.mcp_retrieval"],
                         "blocked_operations": ["op.python_repl"],
                         "allowed_memory_scopes": ["conversation_read_write"],
@@ -225,7 +225,7 @@ def test_system_builtin_profile_storage_is_migrated_with_required_default_permis
     assert "allowed_task_modes" not in profile.to_dict()
     assert "op.delegate_to_agent" in profile.allowed_operations
     assert "op.memory_read" in profile.allowed_operations
-    assert "full_interactive" in profile.allowed_runtime_lanes
+    assert "standard_task" in profile.allowed_runtime_lanes
     assert "conversation_readonly" in profile.allowed_memory_scopes
     assert "conversation_read_write" not in profile.allowed_memory_scopes
 
@@ -476,7 +476,7 @@ def test_custom_agent_prompt_profile_metadata_is_not_runtime_adopted(tmp_path):
     runtime_registry.upsert_profile(
         agent_id="agent:9",
         agent_profile_id="agent_9_runtime",
-        allowed_runtime_lanes=("full_interactive",),
+        allowed_runtime_lanes=("standard_task",),
         allowed_operations=("op.model_response",),
         allowed_context_sections=("task", "projection", "prompt_manifest"),
     )

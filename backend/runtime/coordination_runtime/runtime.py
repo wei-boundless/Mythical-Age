@@ -44,7 +44,6 @@ from .memory_helpers import (
     _matching_commit_edge,
     _stage_working_memory_refs_for_commit,
     _timeline_working_memory_operation,
-    _working_memory_context_from_selection,
     _working_memory_read_operation_from_context,
     _working_memory_refs_from_context,
     _workspace_root_from_runtime_root,
@@ -209,11 +208,9 @@ class LangGraphCoordinationRuntimeResult:
 
     def continuation_payload(self, *, session_id: str, current_turn_context: dict[str, Any] | None = None) -> dict[str, Any]:
         work_order = dict(self.node_work_order or {})
-        if self.stage_execution_request is None and not work_order:
+        if self.stage_execution_request is None:
             return {}
-        request = self.stage_execution_request or NodeExecutionRequest.from_dict(
-            _request_compat_payload_from_work_order(work_order)
-        )
+        request = self.stage_execution_request
         work_order_task_ref = str(work_order.get("task_ref") or request.task_ref)
         work_order_executor_type = str(work_order.get("executor_type") or request.executor_type)
         work_order_stage_id = str(work_order.get("stage_id") or request.stage_id)
@@ -2666,7 +2663,6 @@ class LangGraphCoordinationRuntime:
         contract: dict[str, Any],
     ) -> dict[str, Any]:
         read_policy = dict(contract.get("memory_read_policy") or {})
-        dynamic_policy = dict(contract.get("dynamic_memory_read_policy") or {})
         graph_policy = dict(dict(dict(state.get("diagnostics") or {}).get("coordination_graph_spec") or {}).get("diagnostics") or {}).get("working_memory_policy") or {}
         graph_policy = dict(graph_policy or {})
         root_task_run_id = str(state.get("root_task_run_id") or "").strip()
@@ -2678,8 +2674,7 @@ class LangGraphCoordinationRuntime:
             node_id=node_id,
             operation="read",
         )
-        legacy_working_memory_read_enabled = bool(read_policy) or bool(graph_policy.get("auto_read_enabled"))
-        if not legacy_working_memory_read_enabled and not repository_read_edges:
+        if not repository_read_edges:
             return {}
         graph_spec = dict(dict(state.get("diagnostics") or {}).get("coordination_graph_spec") or {})
         graph_id = str(graph_spec.get("graph_ref") or graph_spec.get("graph_id") or dict(state.get("diagnostics") or {}).get("graph_ref") or "")
@@ -2707,48 +2702,17 @@ class LangGraphCoordinationRuntime:
                 )
             except Exception as exc:  # pragma: no cover - defensive runtime diagnostics
                 formal_selection_error = str(exc)
-        request = {
-            **dict(graph_policy.get("default_read_request") or {}),
-            **dict(read_policy.get("read_request") or {}),
-        }
-        if read_policy.get("max_items") and "max_items" not in request:
-            request["max_items"] = read_policy.get("max_items")
         node_run_id = f"{root_task_run_id}:{stage_id}"
-        if legacy_working_memory_read_enabled:
-            selection = self.working_memory.select_for_node(
-                task_run_id=root_task_run_id,
-                graph_id=graph_id,
-                owner_node_id=node_id,
-                node_run_id=node_run_id,
-                run_attempt_id=str(dict(state.get("retry_counts") or {}).get(stage_id) or 0),
-                reader_agent_id=str(contract.get("agent_id") or ""),
-                node_role=str(contract.get("role") or ""),
-                memory_read_policy=read_policy,
-                dynamic_read_policy=dynamic_policy,
-                request=request,
-                token_budget=int(read_policy.get("token_budget") or graph_policy.get("token_budget") or 0),
-            )
-            context = _working_memory_context_from_selection(
-                selection,
-                task_run_id=root_task_run_id,
-                graph_id=graph_id,
-                owner_node_id=node_id,
-                node_run_id=node_run_id,
-                run_attempt_id=str(dict(state.get("retry_counts") or {}).get(stage_id) or 0),
-                read_policy=read_policy,
-            )
-        else:
-            context = _formal_memory_only_context(
-                task_run_id=root_task_run_id,
-                graph_id=graph_id,
-                owner_node_id=node_id,
-                node_run_id=node_run_id,
-                run_attempt_id=str(dict(state.get("retry_counts") or {}).get(stage_id) or 0),
-            )
+        context = _formal_memory_only_context(
+            task_run_id=root_task_run_id,
+            graph_id=graph_id,
+            owner_node_id=node_id,
+            node_run_id=node_run_id,
+            run_attempt_id=str(dict(state.get("retry_counts") or {}).get(stage_id) or 0),
+        )
         if repository_read_edges:
             diagnostics = dict(context.get("diagnostics") or {})
             diagnostics["formal_memory_primary"] = True
-            diagnostics["working_memory_legacy_read_enabled"] = legacy_working_memory_read_enabled
             diagnostics["repository_read_edge_count"] = len(repository_read_edges)
             diagnostics["repository_read_edges"] = repository_read_edges
             if formal_selection_error:
@@ -5539,7 +5503,7 @@ def _node_dispatch_idempotency_key(
 
 
 def _active_scope_key_for_scheduler(state: dict[str, Any]) -> str:
-    request = dict(state.get("node_work_order") or state.get("stage_execution_request") or {})
+    request = dict(state.get("node_execution_request") or state.get("stage_execution_request") or {})
     dispatch_context = dict(request.get("dispatch_context") or {})
     dependency_scope_key = str(dispatch_context.get("dependency_scope_key") or "").strip()
     if dependency_scope_key:

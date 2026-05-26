@@ -21,7 +21,7 @@ def test_agent_mode_projection_is_weak_signal_only() -> None:
         task_selection={
             "agent_id": "agent:0",
             "agent_profile_id": "main_interactive_agent",
-            "runtime_lane": "full_interactive",
+            "runtime_lane": "standard_task",
         },
     )
 
