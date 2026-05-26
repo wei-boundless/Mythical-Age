@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,6 +13,7 @@ if str(BACKEND_DIR) not in sys.path:
 from query import QueryRuntime
 from query.models import QueryRequest
 from query.runtime import _task_selection_for_runtime
+from capability_system.tool_runtime import ToolRuntime
 from runtime import AgentRunRequest
 from runtime.agent_assembly import NodeWorkOrder, build_agent_invocation
 from runtime.unit_runtime.finalizer import FinishedTaskRunResult
@@ -34,6 +36,88 @@ from task_system.orders.order_factory import TaskOrderCreation
 class _FailingDecisionModelRuntime:
     async def invoke_messages(self, _messages, **_kwargs):
         raise RuntimeError("simulated provider unavailable")
+
+
+class _InspectionDecisionModelRuntime:
+    async def invoke_messages(self, _messages, **_kwargs):
+        return SimpleNamespace(
+            content=json.dumps(
+                {
+                    "authority": "agent_runtime.model_turn_decision",
+                    "decision_id": "model-turn-decision:tool-followup",
+                    "user_message": "请检查当前目录是否存在后回答。",
+                    "interaction_intent": "inspect",
+                    "action_intent": "read_context",
+                    "work_mode": "read_only_analysis",
+                    "task_goal_type": "inspection",
+                    "domain_mismatch_signal": {},
+                    "target_objects": ["."],
+                    "desired_outcome": "检查当前目录是否存在，并根据工具观察回答。",
+                    "deliverables": ["inspection_findings"],
+                    "constraints": [],
+                    "forbidden_actions": [],
+                    "selected_skill_ids": [],
+                    "resource_contract": {},
+                    "context_binding_decision": {"mode": "use_runtime_tools"},
+                    "planning_required": False,
+                    "todo_required": False,
+                    "completion_criteria": ["工具观察已回灌到最终回答"],
+                    "needs_clarification": False,
+                    "clarification_question": "",
+                    "confidence": 0.95,
+                    "ambiguity": [],
+                    "diagnostics": {"test_decision": True},
+                },
+                ensure_ascii=False,
+            )
+        )
+
+
+class _ToolThenCompletionExecutor:
+    def __init__(self) -> None:
+        self.model_runtime = _InspectionDecisionModelRuntime()
+        self.turn_count = 0
+        self.followup_observed = False
+
+    async def stream(self, *, model_messages, directive, **_kwargs):
+        self.turn_count += 1
+        if self.turn_count == 1:
+            yield {
+                "type": "tool_call_requested",
+                "tool_call": {
+                    "id": "tool-call:path-exists",
+                    "name": "path_exists",
+                    "args": {"path": "."},
+                    "type": "tool_call",
+                },
+                "tool_name": "path_exists",
+                "operation_id": "op.path_exists",
+                "directive_ref": directive.directive_id,
+                "assistant_content": "",
+            }
+            return
+
+        self.followup_observed = any(
+            message.__class__.__name__ == "ToolMessage"
+            for message in list(model_messages or [])
+        )
+        completion = {
+            "completed": True,
+            "source_turn": "tool_followup",
+            "observed_tool_result": self.followup_observed,
+            "authority": "test.followup_completion",
+        }
+        yield {
+            "type": "done",
+            "content": "工具观察后的最终回答",
+            "answer_channel": "final_answer",
+            "answer_source": "runtime_directive:model_response",
+            "answer_canonical_state": "final",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "assistant_final",
+            "answer_fallback_reason": "",
+            "completion": completion,
+        }
 
 
 def _build_stream_runtime() -> QueryRuntime:
@@ -153,6 +237,61 @@ def test_agent_runtime_emits_stream_delta_once() -> None:
 
     assert len(deltas) == 1
     assert any(event.get("type") == "done" for event in events)
+
+
+def test_agent_runtime_tool_followup_completion_becomes_task_result_completion() -> None:
+    base_dir = isolated_backend_root("query-runtime-tool-followup-")
+    tool_runtime = ToolRuntime(base_dir)
+    runtime = QueryRuntime(
+        base_dir=base_dir,
+        settings_service=PrimarySettingsStub(),
+        session_manager=InMemorySessionManagerStub(),
+        memory_facade=QueryRuntimeMemoryFacadeStub(),
+        retrieval_service=SimpleNamespace(),
+        tool_runtime=tool_runtime,
+        skill_registry=EmptySkillRegistryStub(),
+        permission_service=DefaultPermissionStub(),
+        model_runtime=SingleMessageModelRuntimeStub(),
+    )
+    model_response_executor = _ToolThenCompletionExecutor()
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.agent_runtime.run_stream(
+            AgentRunRequest(
+                session_id="session-tool-followup-completion",
+                task_id="taskinst:session-tool-followup-completion:general",
+                user_message="请检查当前目录是否存在后回答。",
+                history=[],
+                source="regression",
+                agent_runtime_chain=runtime.agent_runtime_chain,
+                model_response_executor=model_response_executor,
+                runtime_context_manager=runtime.runtime_context_manager,
+                task_selection={
+                    "operation_policy": {
+                        "allowed_operations": ["op.path_exists"],
+                        "required_operations": ["op.path_exists"],
+                    },
+                },
+                tool_runtime_executor=runtime.tool_runtime_executor,
+                tool_instances=runtime._all_tool_instances(),
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    done_event = next(event for event in events if event.get("type") == "done")
+    completion = dict(done_event.get("completion") or {})
+    task_result_completion = dict(dict(done_event.get("task_result") or {}).get("completion") or {})
+
+    assert model_response_executor.turn_count == 2
+    assert model_response_executor.followup_observed is True
+    assert any(event.get("type") == "tool_call_requested" for event in events)
+    assert done_event["content"] == "工具观察后的最终回答"
+    assert completion["source_turn"] == "tool_followup"
+    assert completion["observed_tool_result"] is True
+    assert task_result_completion == completion
 
 
 def test_query_runtime_assembles_compressed_context_before_model_history() -> None:

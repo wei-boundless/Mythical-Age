@@ -35,7 +35,6 @@ import {
 
 function repairActionLabel(issue: TaskGraphPreflightIssue) {
   if (issue.source === "frontend.preflight.prompt_semantics") return "补全职责字段";
-  if (issue.source === "frontend.preflight.projection_binding") return "迁移到投影";
   if (issue.source === "frontend.preflight.cognition_packet") return "补输入说明";
   if (issue.source === "frontend.preflight.contract" && issue.scope === "edge") return "补默认载荷契约";
   if (issue.source === "frontend.preflight.memory_handoff") return "补摘要交接";
@@ -49,7 +48,7 @@ function repairActionLabel(issue: TaskGraphPreflightIssue) {
 }
 
 function preflightIssueGroup(issue: TaskGraphPreflightIssue) {
-  if (issue.source.includes("projection") || issue.source.includes("prompt") || issue.source.includes("cognition")) return "职责与输入包";
+  if (issue.source.includes("prompt") || issue.source.includes("cognition")) return "职责与输入包";
   if (issue.source.includes("memory") || issue.source.includes("artifact") || issue.source.includes("commit_visibility")) return "资源流";
   if (issue.source.includes("timeline") || issue.source.includes("revision")) return "生命周期诊断";
   if (issue.source.includes("human_gate") || issue.source.includes("manual")) return "人工执行";

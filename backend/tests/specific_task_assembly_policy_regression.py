@@ -74,3 +74,23 @@ def test_specific_task_assembly_policy_selection_can_choose_environment_but_not_
     payload = policy.to_dict()
     assert payload["authority"] == "task_system.specific_task_assembly_policy"
     assert "TaskEnvironmentSpec" not in str(payload)
+
+
+def test_specific_task_assembly_policy_maps_legacy_domain_to_environment() -> None:
+    writing = resolve_specific_task_assembly_policy(
+        task_record=SpecificTaskRecord(
+            task_id="task.legacy.writing",
+            task_title="Legacy Writing",
+            domain_id="domain.writing.modular_novel",
+        )
+    )
+    research = resolve_specific_task_assembly_policy(
+        task_record=SpecificTaskRecord(
+            task_id="task.legacy.research",
+            task_title="Legacy Research",
+            domain_id="domain.research",
+        )
+    )
+
+    assert writing.environment_id == "env.writing"
+    assert research.environment_id == "env.web_research"

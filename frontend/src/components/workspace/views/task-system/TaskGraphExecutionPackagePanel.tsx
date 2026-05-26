@@ -233,7 +233,7 @@ export function TaskGraphExecutionPackagePanel({
                     <span>context {assembly.context_sections.length} / output {assembly.output_contracts.length} / handoff {(assembly.handoff_packets ?? []).length}</span>
                   </div>
                   <em>{assembly.agent_id || "-"}</em>
-                  <small>{assembly.projection_id || assembly.runtime_lane || "runtime_assembly"}</small>
+                  <small>{assembly.runtime_lane || "runtime_assembly"}</small>
                 </article>
               ))}
             </div>

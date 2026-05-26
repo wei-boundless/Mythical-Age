@@ -10,10 +10,17 @@ from token_accounting import count_text_tokens
 from .contracts import MemoryContextCandidate
 from .continuity import SessionMemoryLayer
 from .conversation_memory import ConversationMemoryStoreAdapter
-from .runtime_view import build_memory_runtime_view as build_runtime_view
+from .runtime_supply import (
+    MemoryOrchestrator,
+    MemorySupplier,
+    apply_memory_scope_policy,
+    build_memory_bundle,
+    build_memory_request,
+    build_memory_runtime_view as build_runtime_view,
+    build_memory_scope_policy,
+)
 from .state_memory import StateMemoryStoreAdapter
-from .task_durable_memory_service import TaskDurableMemoryService
-from .supply import apply_memory_scope_policy, build_memory_bundle, build_memory_request, build_memory_scope_policy
+from .task_durable_memory import TaskDurableMemoryService
 from .working_memory_service import WorkingMemoryService
 
 
@@ -60,6 +67,8 @@ class MemoryBundleService:
         self.task_durable_memory = task_durable_memory
         self.durable_memory = durable_memory
         self._context_budget_provider = context_budget_provider
+        self.orchestrator = MemoryOrchestrator()
+        self.supplier = MemorySupplier()
 
     def build_state_memory_snapshot(self, session_id: str):
         return self.state_memory.load_snapshot(session_id)
@@ -177,6 +186,8 @@ class MemoryBundleService:
             memory_request_profile=memory_request_profile,
             relevant_notes=relevant_notes,
             note_limit=note_limit,
+            orchestrator=self.orchestrator,
+            supplier=self.supplier,
         )
 
     def build_memory_context_package_result(
@@ -195,16 +206,12 @@ class MemoryBundleService:
         long_term_token_cap: int | None = None,
     ):
         budget = self._context_budget()
-        effective_memory_request_profile = self._context_package_memory_profile(
-            memory_request_profile,
-            has_relevant_notes=bool(relevant_notes),
-        )
         if memory_view is None:
             memory_view = self.build_memory_runtime_view(
                 session_id=session_id,
                 query=query,
                 memory_intent=memory_intent,
-                memory_request_profile=effective_memory_request_profile,
+                memory_request_profile=memory_request_profile,
                 relevant_notes=relevant_notes,
                 note_limit=note_limit,
             )
@@ -299,7 +306,10 @@ class MemoryBundleService:
         session_id: str,
         history: list[dict[str, Any]] | None = None,
     ):
-        memory_view = self.build_memory_runtime_view(session_id=session_id)
+        memory_view = self.build_memory_runtime_view(
+            session_id=session_id,
+            memory_request_profile={"requested_memory_layers": ["state", "conversation"]},
+        )
         return MemoryCompactionResult(
             session_id=session_id,
             diagnostics={
@@ -355,27 +365,6 @@ class MemoryBundleService:
                 raise ValueError("context budget provider returned an empty payload")
             return payload
         return get_context_budget_preset("deepseek_1m").to_dict()
-
-    @staticmethod
-    def _context_package_memory_profile(
-        memory_request_profile: dict[str, Any] | None,
-        *,
-        has_relevant_notes: bool,
-    ) -> dict[str, Any]:
-        profile = dict(memory_request_profile or {})
-        requested_layers = [
-            str(item).strip()
-            for item in list(profile.get("requested_memory_layers") or [])
-            if str(item).strip()
-        ]
-        if not requested_layers:
-            requested_layers = ["state"]
-            if has_relevant_notes:
-                requested_layers.append("long_term")
-                profile["allow_long_term_memory"] = True
-        profile["requested_memory_layers"] = requested_layers
-        return profile
-
 
 def _long_term_context_candidates_from_recall_result(
     recall_result: Any,

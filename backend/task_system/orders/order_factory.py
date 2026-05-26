@@ -58,7 +58,6 @@ class TaskOrderFactory:
         source: str = "task_library",
         source_ref: str = "",
         domain_id: str = "",
-        projection_binding: dict[str, Any] | None = None,
         flow_contract_binding: dict[str, Any] | None = None,
         execution_policy: dict[str, Any] | None = None,
         order_intent: dict[str, Any] | None = None,
@@ -71,7 +70,6 @@ class TaskOrderFactory:
         task_title = str(task.get("task_title") or task_id).strip() or task_id
         resolved_domain_id = str(domain_id or task.get("domain_id") or "").strip()
         explicit_intent = dict(order_intent or {})
-        projection = dict(projection_binding or {})
         flow_binding = dict(flow_contract_binding or {})
         execution = dict(execution_policy or {})
         now = time.time()
@@ -155,11 +153,7 @@ class TaskOrderFactory:
             "runtime_agent_selection_policy": str(execution.get("runtime_agent_selection_policy") or "orchestration_default").strip(),
             "allow_worker_agent_spawn": bool(execution.get("allow_worker_agent_spawn") or False),
         }
-        context_policy = {
-            "projection_binding": _safe_projection(projection),
-            "projection_id": str(projection.get("default_projection_id") or "").strip(),
-            "projection_required": bool(projection.get("projection_required") or False),
-        }
+        context_policy = {}
         order = TaskOrder(
             order_id=order_id,
             session_id=session_id,
@@ -241,13 +235,11 @@ class TaskOrderFactory:
             permission_ceiling=dict(task_policy.get("safety_policy") or {}),
             context_package={
                 "task_record": _safe_projection(task),
-                "projection_binding": _safe_projection(projection),
                 "flow_contract_binding": _safe_projection(flow_binding),
             },
             source_refs={
                 "specific_task_ref": task_id,
                 "task_definition_ref": task_id,
-                "projection_binding_ref": str(projection.get("binding_id") or "").strip(),
                 "flow_contract_binding_ref": str(flow_binding.get("binding_id") or "").strip(),
                 "task_execution_policy_ref": str(execution.get("policy_id") or "").strip(),
             },

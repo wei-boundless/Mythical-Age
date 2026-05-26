@@ -256,7 +256,20 @@ def test_modular_writing_graph_config_compiles_graph_modules_and_chapter_batches
     )
     assert chapter_prompt_resource is not None
     assert chapter_prompt_resource.content == chapter_draft.metadata["role_prompt"]
-    assert registry.get_projection_binding("task.writing.modular_novel.node.world_design") is None
+    writing_runtime_profiles = [
+        item
+        for item in AgentRuntimeRegistry(base_dir).list_profiles()
+        if dict(item.metadata or {}).get("domain_id") == "domain.writing.modular_novel"
+    ]
+    assert writing_runtime_profiles
+    assert all("projection" not in item.allowed_context_sections for item in writing_runtime_profiles)
+    writing_records = [
+        item
+        for item in registry.list_specific_task_records()
+        if str(item.task_id).startswith("task.writing.modular_novel.node.")
+    ]
+    assert writing_records
+    assert all(item.default_projection_policy == "" for item in writing_records)
     wrapper_task_ids = {
         "task.writing.modular_novel.master",
         "task.writing.modular_novel.design_init",
@@ -265,7 +278,6 @@ def test_modular_writing_graph_config_compiles_graph_modules_and_chapter_batches
     }
     assert wrapper_task_ids.isdisjoint({item.task_id for item in registry.list_specific_task_records()})
     assert wrapper_task_ids.isdisjoint({item.task_id for item in registry.list_task_assignments()})
-    assert wrapper_task_ids.isdisjoint({item.task_id for item in registry.list_projection_bindings()})
     assert not any(
         item.workflow_id in {
             "workflow.writing.modular_novel.master",
@@ -330,7 +342,6 @@ def test_modular_writing_graph_config_compiles_graph_modules_and_chapter_batches
         assert node.role == "graph_module"
         assert node.agent_id == ""
         assert node.runtime_lane == ""
-        assert node.projection_id == ""
         assert node.task_id.startswith("task_graph.node.graph.writing.modular_novel.master.graph_module.")
         assert node.metadata["runtime_role"] == "graph_module_container"
         assert node.metadata["model_visible"] is False

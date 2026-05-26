@@ -315,11 +315,13 @@ def test_delegation_executor_runs_child_agent_through_profile_authorized_special
         )
     )
     result = outcome["result"]
+    event_types = [event.event_type for event in outcome["events"]]
 
     assert result.status == "failed"
     assert result.target_agent_id == "agent:pdf_reader"
     assert "model_runtime_unavailable" not in result.limitations
     assert result.diagnostics["child_execution_mode"] == "profile_authorized_specialist"
+    assert "child_agent_operation_gate_checked" in event_types
 
 
 def test_delegation_executor_rejects_plan_text_as_invalid_output(tmp_path) -> None:

@@ -1,86 +1,35 @@
 from __future__ import annotations
 
-import time
 from collections.abc import AsyncIterator
 from typing import Any
 
-from langchain_core.messages import ToolMessage
-
-from agent_system.models.model_profile_resolver import ModelProfileResolver
-from permissions import (
-    OperationGatePipelineContext,
-    build_model_response_runtime_admission,
-    build_runtime_capability_state,
-)
-from task_system.tasks.run_models import (
-    current_task_step_run,
-    start_task_run_step,
-    task_run_step_count,
-)
-
-from ..capabilities import build_current_turn_capability_plan
-from ..context_management.system_retrieval import SystemRetrievalStage, build_context_policy_with_retrieval
-from ..execution_engine import (
-    ModelToolCallAccumulator,
-    build_initial_followup_messages,
-    build_next_followup_messages,
-)
-from ..execution_permit import tool_instances_for_policy_and_permit
-from ..memory.observation_aggregator import ObservationAggregator
-from ..shared.loop_control import check_runtime_loop_control
-from ..shared.dispatch_plan_compiler import _normalize_runtime_graph_payload
-from ..shared.models import RuntimeLoopState
-from ..shared.safety import build_task_safety_validators
-from ..shared.stage_projection import StageProjectionCycle
-from ..shared.tool_repetition_guard import ToolRepetitionGuard
 from ..shared.artifact_paths import validate_required_artifact_file
-from .runtime_policy import (
-    artifact_policy_from_task_execution_assembly,
-    model_stream_policy_from_task_execution_assembly,
-)
-from .config import build_agent_runtime_config
 from .context import (
-    agent_invocation_diagnostics,
     agent_invocation_payload,
-    agent_profile_id_for_runtime_spec,
     assembly_contract_diagnostics,
-    assert_agent_runtime_spec_matches_invocation,
-    build_direct_agent_invocation_payload,
-    build_initial_task_run_ledger,
-    bundle_items_from_runtime_contract,
-    chat_model_selection_runtime_defaults,
-    diagnostic_int,
-    intent_continuation_trace_events,
-    is_retrieval_task_mode,
     merge_invocation_identity_into_task_selection,
-    model_requirement_for_model_resolution,
-    persist_agent_invocation_boundary_objects,
     resolve_runtime_search_sources,
-    runtime_limits_from_task_operation,
     stage_execution_request_diagnostics,
     task_order_runtime_binding_diagnostics,
 )
-from .environment.file_management_policy import prepare_runtime_file_management_policy_for_turn
-from .environment.sandbox_policy import prepare_runtime_sandbox_policy_for_turn
-from .environment.tool_capability_policy import (
-    apply_tool_capability_table_to_turn_plan,
-    capability_table_to_runtime_plan_overlay,
-    prepare_runtime_tool_capability_table_for_turn,
-)
-from .event_application import ModelTurnApplicationState
 from .execution_permit import (
     execution_permit_diagnostics,
-    resolve_agent_execution_permit,
 )
 from .finalization import (
     AgentRunFinalizationInput,
     AgentRunFinalizationResult,
     finalize_agent_run,
 )
-from .model_turn import AgentModelTurnInput, run_agent_model_turn
-from .phase_pipeline import append_pre_model_phase_events, apply_post_model_phases
+from .phase_pipeline import apply_post_model_phases
 from .request import AgentRunRequest
+from .runtime_assembly import build_agent_runtime_assembly
+from .runtime_preflight import (
+    AgentRuntimePreflightInput,
+    AgentRuntimePreflightResult,
+    run_agent_runtime_preflight,
+)
 from .turn_context import build_agent_turn_context
+from .turn_loop import AgentTurnLoopInput, AgentTurnLoopResult, run_agent_turn_loop
 
 
 async def run_agent_invocation_stream(
@@ -97,7 +46,6 @@ async def run_agent_invocation_stream(
     agent_runtime_chain = request.agent_runtime_chain
     model_response_executor = request.model_response_executor
     runtime_context_manager = request.runtime_context_manager
-    stage_projection_cycle = request.stage_projection_cycle
     memory_intent = request.memory_intent
     task_selection = dict(request.task_selection or {})
     assistant_message_committer = request.assistant_message_committer
@@ -224,117 +172,50 @@ async def run_agent_invocation_stream(
             "diagnostics": model_turn_diagnostics,
         }
         return
-    chain_runtime = agent_runtime_chain.build_runtime(
+    assembly = build_agent_runtime_assembly(
+        runtime_host=runtime_host,
+        agent_runtime_chain=agent_runtime_chain,
         session_id=session_id,
         task_id=task_id,
-        turn_id=str(dict(runtime_chain_task_selection or {}).get("turn_id") or ""),
-        message=user_message,
+        user_message=user_message,
         source=source,
-        current_turn_context_override=runtime_context_override,
-        task_selection={
-            **dict(runtime_chain_task_selection or {}),
-            "search_policy": sorted(allowed_search_sources),
-        },
+        runtime_chain_task_selection=runtime_chain_task_selection,
+        runtime_context_override=runtime_context_override,
+        allowed_search_sources=allowed_search_sources,
         agent_runtime_profile=agent_runtime_profile,
+        invocation_payload=invocation_payload,
+        invocation_is_explicit=invocation_is_explicit,
+        assembly_contract=assembly_contract,
+        stream_policy=stream_policy,
+        artifact_policy=artifact_policy,
     )
-    task_operation = dict(chain_runtime.get("task_operation") or {})
-    if stream_policy:
-        task_operation["runtime_stream_policy"] = stream_policy
-    if artifact_policy:
-        task_operation["runtime_artifact_policy"] = artifact_policy
-    task_contract = dict(task_operation.get("task_contract") or {})
-    task_intent_contract = dict(task_operation.get("task_intent_contract") or {})
-    selected_recipe_payload = dict(task_operation.get("selected_recipe") or {})
-    bundle_spec_payload = dict(task_operation.get("bundle_spec") or {})
-    task_spec_payload = dict(task_operation.get("task_spec") or {})
-    task_execution_assembly_payload = dict(task_operation.get("task_execution_assembly") or {})
-    task_projection_binding_payload = dict(task_operation.get("task_projection_binding") or {})
-    task_flow_contract_binding_payload = dict(task_operation.get("task_flow_contract_binding") or {})
-    task_execution_policy_payload = dict(task_operation.get("task_execution_policy") or {})
-    task_memory_request_profile_payload = dict(task_operation.get("task_memory_request_profile") or {})
-    task_communication_protocol_payload = dict(task_operation.get("task_communication_protocol") or {})
-    raw_graph_payload = dict(task_operation.get("graph_record") or {})
-    task_graph_payload = dict(task_operation.get("task_graph_record") or task_operation.get("graph_record") or {})
-    runtime_spec_payload = dict(task_operation.get("task_graph_runtime_spec") or {})
-    graph_payload = _normalize_runtime_graph_payload(
-        raw_graph_payload=raw_graph_payload,
-        task_graph_payload=task_graph_payload,
-        runtime_spec_payload=runtime_spec_payload,
-    )
-    task_body_orchestration_payload = dict(chain_runtime.get("task_body_orchestration") or task_operation.get("task_body_orchestration") or {})
-    agent_runtime_spec_payload = dict(chain_runtime.get("agent_runtime_spec") or task_operation.get("agent_runtime_spec") or {})
-    if not invocation_is_explicit:
-        direct_selection = {
-            **dict(runtime_chain_task_selection or {}),
-            "agent_id": str(agent_runtime_spec_payload.get("agent_id") or ""),
-            "agent_profile_id": str(
-                agent_runtime_spec_payload.get("agent_profile_id")
-                or agent_profile_id_for_runtime_spec(
-                    runtime_host.agent_runtime_registry,
-                    agent_runtime_spec_payload,
-                )
-                or ""
-            ),
-            "runtime_lane": str(agent_runtime_spec_payload.get("runtime_lane") or ""),
-        }
-        invocation_payload = build_direct_agent_invocation_payload(
-            base_dir=runtime_host.backend_dir,
-            task_id=task_id,
-            user_message=user_message,
-            task_selection=direct_selection,
-            agent_runtime_profile=agent_runtime_profile,
-        )
-        assembly_contract = dict(invocation_payload.get("assembly_contract") or {})
-        if not assembly_contract:
-            raise RuntimeError("AgentRuntime invocation could not build direct AgentInvocation assembly contract")
-        stream_policy = dict(assembly_contract.get("stream_policy") or stream_policy)
-        artifact_policy = dict(assembly_contract.get("artifact_policy") or artifact_policy)
-    if assembly_contract:
-        assert_agent_runtime_spec_matches_invocation(
-            agent_runtime_spec_payload,
-            assembly_contract,
-            strict_runtime_lane=invocation_is_explicit,
-        )
-    effective_agent_runtime_profile = agent_runtime_profile or runtime_host.agent_runtime_registry.get_profile(
-        str(agent_runtime_spec_payload.get("agent_id") or "").strip()
-    )
-    effective_agent_profile_id = str(agent_runtime_spec_payload.get("agent_profile_id") or "").strip()
-    if not effective_agent_profile_id:
-        effective_agent_profile_id = str(
-            getattr(effective_agent_runtime_profile, "agent_profile_id", "")
-            or agent_profile_id_for_runtime_spec(
-                runtime_host.agent_runtime_registry,
-                agent_runtime_spec_payload,
-            )
-            or "main_interactive_agent"
-        )
-    agent_runtime_config = build_agent_runtime_config(
-        selected_recipe_payload=selected_recipe_payload,
-        task_operation=task_operation,
-        agent_runtime_spec=agent_runtime_spec_payload,
-    )
-    execution_permit = resolve_agent_execution_permit(
-        assembly_contract,
-        task_operation=task_operation,
-        task_id=task_id,
-        agent_id=str(agent_runtime_spec_payload.get("agent_id") or "agent:0"),
-        agent_profile_id=effective_agent_profile_id,
-        agent_runtime_config=agent_runtime_config,
-    )
-    if execution_permit:
-        task_operation["execution_permit"] = execution_permit
-        agent_runtime_config = build_agent_runtime_config(
-            selected_recipe_payload=selected_recipe_payload,
-            task_operation=task_operation,
-            agent_runtime_spec=agent_runtime_spec_payload,
-            execution_permit=execution_permit,
-    )
-    task_operation["agent_runtime_config"] = agent_runtime_config.to_dict()
-    agent_runtime_enabled_phases = set(agent_runtime_config.enabled_phases)
-    memory_view = dict(chain_runtime.get("memory_runtime_view") or {})
-    context_policy = dict(chain_runtime.get("context_policy_result") or {})
-    execution_mode = str(task_execution_policy_payload.get("execution_mode") or "single_agent")
-    effective_limits = runtime_limits_from_task_operation(task_operation, fallback=runtime_host.limits)
+    task_operation = assembly.task_operation
+    task_contract = assembly.task_contract
+    task_intent_contract = assembly.task_intent_contract
+    selected_recipe_payload = assembly.selected_recipe_payload
+    bundle_spec_payload = assembly.bundle_spec_payload
+    task_spec_payload = assembly.task_spec_payload
+    task_execution_assembly_payload = assembly.task_execution_assembly_payload
+    task_flow_contract_binding_payload = assembly.task_flow_contract_binding_payload
+    task_execution_policy_payload = assembly.task_execution_policy_payload
+    task_memory_request_profile_payload = assembly.task_memory_request_profile_payload
+    task_communication_protocol_payload = assembly.task_communication_protocol_payload
+    task_graph_payload = assembly.task_graph_payload
+    runtime_spec_payload = assembly.runtime_spec_payload
+    graph_payload = assembly.graph_payload
+    task_body_orchestration_payload = assembly.task_body_orchestration_payload
+    agent_runtime_spec_payload = assembly.agent_runtime_spec_payload
+    invocation_payload = assembly.invocation_payload
+    assembly_contract = assembly.assembly_contract
+    effective_agent_runtime_profile = assembly.effective_agent_runtime_profile
+    effective_agent_profile_id = assembly.effective_agent_profile_id
+    agent_runtime_config = assembly.agent_runtime_config
+    execution_permit = assembly.execution_permit
+    agent_runtime_enabled_phases = assembly.agent_runtime_enabled_phases
+    memory_view = assembly.memory_view
+    context_policy = assembly.context_policy
+    execution_mode = assembly.execution_mode
+    effective_limits = assembly.effective_limits
     result_refs: list[str] = []
     final_main_context: dict[str, Any] = {}
     final_task_summary_refs: list[dict[str, Any]] = []
@@ -384,999 +265,135 @@ async def run_agent_invocation_stream(
             **stage_execution_request_diagnostics(dict(task_selection or {})),
         },
     )
-    state = start.loop_state
-    sandbox_policy = prepare_runtime_sandbox_policy_for_turn(
-        root_dir=runtime_host.root_dir,
-        session_id=session_id,
-        task_run_id=state.task_run_id,
-        task_contract=task_contract,
-        user_message=user_message,
-        selected_recipe_payload=selected_recipe_payload,
-        task_selection={**dict(task_selection or {}), **dict(runtime_context_override or {})},
-        state_index=runtime_host.state_index,
-        event_log=runtime_host.event_log,
-    )
-    file_management_policy = prepare_runtime_file_management_policy_for_turn(
-        root_dir=runtime_host.root_dir,
-        task_run_id=state.task_run_id,
-        selected_recipe_payload=selected_recipe_payload,
-        task_selection={**dict(task_selection or {}), **dict(runtime_context_override or {})},
-        sandbox_policy=sandbox_policy,
-    )
-    if sandbox_policy.get("enabled") is True:
-        sandbox_event = runtime_host.event_log.append(
-            state.task_run_id,
-            "runtime_sandbox_prepared",
-            payload={
-                "sandbox_policy": sandbox_policy,
-                "scope": "tool_layer_side_effect_isolation",
-                "real_workspace_access": str(sandbox_policy.get("real_workspace_access") or "read_only"),
-            },
-            refs={
-                "sandbox_root_ref": str(sandbox_policy.get("sandbox_root") or ""),
-                "task_contract_ref": str(task_contract.get("task_id") or task_id),
-            },
-        )
-        yield {"type": "runtime_loop_event", "event": sandbox_event.to_dict()}
-    if file_management_policy.get("enabled") is True:
-        file_management_event = runtime_host.event_log.append(
-            state.task_run_id,
-            "runtime_file_management_prepared",
-            payload={
-                "file_management_policy": file_management_policy,
-                "scope": "system_owned_file_environment",
-                "profile_id": str(file_management_policy.get("profile_id") or ""),
-                "environment_id": str(file_management_policy.get("environment_id") or ""),
-            },
-            refs={
-                "task_contract_ref": str(task_contract.get("task_id") or task_id),
-                "file_profile_ref": str(file_management_policy.get("profile_id") or ""),
-            },
-        )
-        yield {"type": "runtime_loop_event", "event": file_management_event.to_dict()}
-    search_policy_event = runtime_host.event_log.append(
-        state.task_run_id,
-        "search_policy_resolved",
-        payload={
-            "search_policy": list(search_policy) if search_policy is not None else None,
-            "allowed_sources": sorted(allowed_search_sources),
-            "sandbox_policy": sandbox_policy,
-            "file_management_policy": file_management_policy,
-        },
-    )
-    yield {"type": "runtime_loop_event", "event": search_policy_event.to_dict()}
-    yield {
-        "type": "runtime_loop_started",
-        "task_run": start.task_run.to_dict(),
-        "agent_run": start.agent_run.to_dict(),
-        "coordination_run": start.coordination_run.to_dict() if start.coordination_run is not None else None,
-        "checkpoint": start.checkpoint.to_dict(),
-        "events": [dict(item) for item in start.events],
-    }
-    for event in start.events:
-        yield {"type": "runtime_loop_event", "event": dict(event)}
-    
-    task_contract_ref = str(task_contract.get("task_id") or task_id)
-    runtime_task_ledger = build_initial_task_run_ledger(
-        task_run_id=state.task_run_id,
-        task_contract_ref=task_contract_ref,
-        task_spec_payload=task_spec_payload,
-        selected_recipe_payload=selected_recipe_payload,
-    )
-    if runtime_task_ledger is not None:
-        runtime_task_ledger = start_task_run_step(
-            runtime_task_ledger,
-            started_at=time.time(),
-            diagnostics={"transition_reason": "task_contract_built"},
-        )
-    runtime_boundary_refs = persist_agent_invocation_boundary_objects(
-        runtime_host.runtime_objects,
-        task_run_id=state.task_run_id,
-        agent_invocation=invocation_payload,
-        assembly_contract=assembly_contract,
-        execution_permit=execution_permit,
-    )
-    task_event = runtime_host.event_log.append(
-        state.task_run_id,
-        "task_contract_built",
-        payload={
-            "task_contract": task_contract,
-            "task_intent_contract": task_intent_contract,
-            "selected_recipe": selected_recipe_payload,
-            "bundle_spec": bundle_spec_payload,
-            "task_spec": task_spec_payload,
-            "task_execution_assembly": task_execution_assembly_payload,
-            "task_projection_binding": task_projection_binding_payload,
-            "task_flow_contract_binding": task_flow_contract_binding_payload,
-            "task_execution_policy": task_execution_policy_payload,
-            "task_memory_request_profile": task_memory_request_profile_payload,
-            "task_communication_protocol": task_communication_protocol_payload,
-            "graph_record": graph_payload,
-            "task_graph_record": task_graph_payload,
-            "task_graph_runtime_spec": runtime_spec_payload,
-            "task_body_orchestration": task_body_orchestration_payload,
-            "agent_runtime_spec": agent_runtime_spec_payload,
-            "agent_runtime_config": agent_runtime_config.to_dict(),
-            "agent_invocation": agent_invocation_diagnostics(invocation_payload),
-            "agent_assembly_contract": assembly_contract_diagnostics(assembly_contract),
-            "execution_permit": execution_permit_diagnostics(execution_permit),
-            "runtime_boundary_objects": dict(runtime_boundary_refs),
-            "task_run_ledger": runtime_task_ledger.to_dict() if runtime_task_ledger is not None else {},
-            "sandbox_policy": sandbox_policy,
-            "source": source,
-        },
-        refs={
-            "task_contract_ref": task_contract_ref,
-            "task_intent_ref": str(task_intent_contract.get("task_intent_id") or ""),
-            "task_template_id": str(selected_recipe_payload.get("template_id") or selected_recipe_payload.get("recipe_id") or ""),
-            "task_spec_ref": str(task_spec_payload.get("task_spec_ref") or ""),
-            "task_execution_assembly_ref": str(task_execution_assembly_payload.get("assembly_id") or ""),
-            "task_projection_binding_ref": str(task_projection_binding_payload.get("binding_id") or ""),
-            "task_flow_contract_binding_ref": str(task_flow_contract_binding_payload.get("binding_id") or ""),
-            "task_execution_policy_ref": str(
-                task_execution_policy_payload.get("policy_id") or ""
-            ),
-            "task_memory_request_profile_ref": str(task_memory_request_profile_payload.get("profile_id") or ""),
-            "task_communication_protocol_ref": str(task_communication_protocol_payload.get("protocol_id") or ""),
-            "graph_ref": str(
-                task_graph_payload.get("graph_id")
-                or graph_payload.get("graph_id")
-                or graph_payload.get("task_graph_id")
-                or ""
-            ),
-            "task_body_orchestration_ref": str(task_body_orchestration_payload.get("orchestration_id") or ""),
-            "agent_runtime_spec_ref": str(agent_runtime_spec_payload.get("runtime_spec_id") or ""),
-            "agent_invocation_ref": str(invocation_payload.get("invocation_id") or ""),
-            "agent_assembly_contract_ref": str(assembly_contract.get("assembly_id") or ""),
-            "work_order_ref": str(assembly_contract.get("work_order_id") or ""),
-            "execution_permit_ref": str(execution_permit.get("permit_id") or ""),
-            "agent_invocation_object_ref": str(runtime_boundary_refs.get("agent_invocation_object_ref") or ""),
-            "agent_assembly_object_ref": str(runtime_boundary_refs.get("agent_assembly_object_ref") or ""),
-            "execution_permit_object_ref": str(runtime_boundary_refs.get("execution_permit_object_ref") or ""),
-            "bundle_spec_ref": str(bundle_spec_payload.get("bundle_id") or ""),
-            "task_run_ledger_ref": runtime_task_ledger.ledger_id if runtime_task_ledger is not None else "",
-        },
-    )
-    yield {"type": "runtime_loop_event", "event": task_event.to_dict()}
-    runtime_object_events = runtime_host._sync_runtime_objects_after_task_contract(
-        start_result=start,
-        event_offset=task_event.offset,
-        execution_mode=execution_mode,
-        task_agent_binding_ref=str(task_execution_assembly_payload.get("task_agent_binding_ref") or ""),
-        graph_payload=graph_payload,
-        task_graph_payload=task_graph_payload,
-        communication_protocol_payload=task_communication_protocol_payload,
-        task_execution_policy_payload=task_execution_policy_payload,
-        effective_limits=effective_limits,
-        task_spec_payload=task_spec_payload,
-    )
-    for runtime_event in runtime_object_events:
-        yield {"type": "runtime_loop_event", "event": runtime_event.to_dict()}
-    latest_streamed_offset = max(
-        [task_event.offset, *[int(getattr(event, "offset", -1)) for event in runtime_object_events]],
-        default=task_event.offset,
-    )
-    for logged_event in runtime_host.event_log.list_events(state.task_run_id):
-        if logged_event.offset > latest_streamed_offset:
-            yield {"type": "runtime_loop_event", "event": logged_event.to_dict()}
-            latest_streamed_offset = max(latest_streamed_offset, logged_event.offset)
-    current_worker_spawn_results = runtime_host.state_index.list_task_worker_spawn_results(state.task_run_id)
-    current_worker_agent_runs = [
-        item
-        for item in runtime_host.state_index.list_task_agent_runs(state.task_run_id)
-        if str(item.spawn_mode or "") == "worker_spawn"
-    ]
-    runtime_execution_facts = {
-        "worker_spawn_summary": {
-            "spawn_request_count": len(runtime_host.state_index.list_task_worker_spawn_requests(state.task_run_id)),
-            "spawn_result_count": len(current_worker_spawn_results),
-            "spawned_agent_ids": [
-                str(item.spawned_agent_id or "")
-                for item in current_worker_spawn_results
-                if str(item.status or "") == "spawned" and str(item.spawned_agent_id or "")
-            ],
-            "blocked_spawn_count": sum(
-                1 for item in current_worker_spawn_results if str(item.status or "") == "blocked"
-            ),
-            "worker_agent_run_ids": [
-                str(item.agent_run_id or "")
-                for item in current_worker_agent_runs
-                if str(item.agent_run_id or "")
-            ],
-        }
-    }
-    if runtime_task_ledger is not None:
-        current_step = current_task_step_run(runtime_task_ledger)
-        if current_step is not None:
-            step_event = runtime_host._record_task_run_step_event(
-                state.task_run_id,
-                event_type="step_entered",
-                step_run=current_step,
-                ledger=runtime_task_ledger,
-                reason="task_contract_built",
-                refs={"task_contract_ref": task_contract_ref},
-            )
-            yield {"type": "runtime_loop_event", "event": step_event.to_dict()}
-            ledger_event = runtime_host._record_task_run_ledger_updated(
-                state.task_run_id,
-                ledger=runtime_task_ledger,
-                reason="task_contract_built",
-                refs={"task_contract_ref": task_contract_ref},
-            )
-            yield {"type": "runtime_loop_event", "event": ledger_event.to_dict()}
-    current_turn_context = dict(task_operation.get("current_turn_context") or {})
-    model_stream_policy = model_stream_policy_from_task_execution_assembly(
-        task_execution_assembly_payload,
-        current_turn_context=current_turn_context,
-        agent_assembly_contract=assembly_contract,
-        runtime_policy=dict(task_operation.get("runtime_stream_policy") or {}),
-    )
-    artifact_policy_for_validation = artifact_policy_from_task_execution_assembly(
-        selected_recipe_payload=selected_recipe_payload,
-        task_execution_assembly=task_execution_assembly_payload,
-        current_turn_context=current_turn_context,
-        agent_assembly_contract=assembly_contract,
-        runtime_policy=dict(task_operation.get("runtime_artifact_policy") or {}),
-    )
-    if current_turn_context:
-        current_turn_event = runtime_host.event_log.append(
-            state.task_run_id,
-            "current_turn_context_resolved",
-            payload={
-                "current_turn_context": current_turn_context,
-                "execution_mode": str(current_turn_context.get("execution_mode") or ""),
-                "stream_policy": model_stream_policy,
-                "bundle_id": str(current_turn_context.get("bundle_id") or ""),
-                "bundle_item_count": len(list(current_turn_context.get("bundle_items") or [])),
-                "followup_target_count": len(list(current_turn_context.get("followup_target_refs") or [])),
-            },
-            refs={"task_contract_ref": task_contract_ref},
-        )
-        yield {"type": "runtime_loop_event", "event": current_turn_event.to_dict()}
-        for trace_event in intent_continuation_trace_events(current_turn_context):
-            trace_record = runtime_host.event_log.append(
-                state.task_run_id,
-                trace_event["event_type"],
-                payload=dict(trace_event.get("payload") or {}),
-                refs={"task_contract_ref": task_contract_ref},
-            )
-            yield {"type": "runtime_loop_event", "event": trace_record.to_dict()}
-    query_understanding = dict(task_operation.get("query_understanding") or {})
-    retrieval_results: list[dict[str, Any]] | None = None
-    system_retrieval_stage = SystemRetrievalStage(
-        evidence_orchestrator=runtime_host.evidence_orchestrator,
-        event_log=runtime_host.event_log,
-        record_task_run_step_event=runtime_host._record_task_run_step_event,
-        record_task_run_ledger_updated=runtime_host._record_task_run_ledger_updated,
-        state_with_task_run_ledger=runtime_host._state_with_task_run_ledger,
-        write_checkpoint_event=runtime_host._write_checkpoint_event,
-    )
-    if system_retrieval_stage.should_run(
-        query_understanding=query_understanding,
-        selected_recipe_payload=selected_recipe_payload,
-        task_operation=task_operation,
-        allowed_search_sources=allowed_search_sources,
-        evidence_phase_required="evidence" in agent_runtime_enabled_phases,
-    ):
-        retrieval_outcome = await system_retrieval_stage.run(
-            task_run_id=state.task_run_id,
+    preflight_result: AgentRuntimePreflightResult | None = None
+    async for preflight_event in run_agent_runtime_preflight(
+        AgentRuntimePreflightInput(
+            runtime_host=runtime_host,
+            start=start,
             session_id=session_id,
             task_id=task_id,
             user_message=user_message,
-            current_turn_context=current_turn_context,
-            query_understanding=query_understanding,
+            history=history,
+            source=source,
+            task_selection=task_selection,
+            runtime_context_override=runtime_context_override,
+            search_policy=search_policy,
+            allowed_search_sources=allowed_search_sources,
+            agent_runtime_chain=agent_runtime_chain,
+            model_response_executor=model_response_executor,
+            runtime_context_manager=runtime_context_manager,
+            memory_intent=memory_intent,
+            model_selection=model_selection,
+            tool_instances=tool_instances,
+            task_operation=task_operation,
+            task_contract=task_contract,
+            task_intent_contract=task_intent_contract,
+            selected_recipe_payload=selected_recipe_payload,
+            bundle_spec_payload=bundle_spec_payload,
+            task_spec_payload=task_spec_payload,
+            task_execution_assembly_payload=task_execution_assembly_payload,
+            task_flow_contract_binding_payload=task_flow_contract_binding_payload,
+            task_execution_policy_payload=task_execution_policy_payload,
+            task_memory_request_profile_payload=task_memory_request_profile_payload,
+            task_communication_protocol_payload=task_communication_protocol_payload,
+            task_graph_payload=task_graph_payload,
+            runtime_spec_payload=runtime_spec_payload,
+            graph_payload=graph_payload,
+            task_body_orchestration_payload=task_body_orchestration_payload,
+            agent_runtime_spec_payload=agent_runtime_spec_payload,
+            invocation_payload=invocation_payload,
+            assembly_contract=assembly_contract,
+            effective_agent_runtime_profile=effective_agent_runtime_profile,
+            execution_permit=execution_permit,
+            agent_runtime_config=agent_runtime_config,
+            agent_runtime_enabled_phases=agent_runtime_enabled_phases,
+            memory_view=memory_view,
+            context_policy=context_policy,
+            execution_mode=execution_mode,
+            effective_limits=effective_limits,
+        )
+    ):
+        if isinstance(preflight_event, AgentRuntimePreflightResult):
+            preflight_result = preflight_event
+            continue
+        yield preflight_event
+    if preflight_result is None:
+        raise RuntimeError("AgentRuntime preflight did not produce a result")
+    if preflight_result.terminal:
+        return
+
+    state = preflight_result.state
+    runtime_task_ledger = preflight_result.runtime_task_ledger
+    result_refs = preflight_result.result_refs
+    final_main_context = preflight_result.final_main_context
+    final_task_summary_refs = preflight_result.final_task_summary_refs
+    task_contract_ref = preflight_result.task_contract_ref
+    current_turn_context = preflight_result.current_turn_context
+    model_stream_policy = preflight_result.model_stream_policy
+    artifact_policy_for_validation = preflight_result.artifact_policy_for_validation
+    sandbox_policy = preflight_result.sandbox_policy
+    file_management_policy = preflight_result.file_management_policy
+    directive = preflight_result.directive
+    resource_policy = preflight_result.resource_policy
+    runtime_tool_instances = preflight_result.runtime_tool_instances
+    resolved_model_spec = preflight_result.resolved_model_spec
+    context_snapshot = preflight_result.context_snapshot
+
+    turn_loop_result: AgentTurnLoopResult | None = None
+    async for turn_loop_event in run_agent_turn_loop(
+        AgentTurnLoopInput(
+            runtime_host=runtime_host,
+            state=state,
+            runtime_task_ledger=runtime_task_ledger,
+            result_refs=result_refs,
+            initial_final_main_context=final_main_context,
+            initial_final_task_summary_refs=final_task_summary_refs,
+            task_id=task_id,
+            user_message=user_message,
+            task_operation=task_operation,
+            resource_policy=resource_policy,
+            runtime_context_manager=runtime_context_manager,
+            model_response_executor=model_response_executor,
+            tool_runtime_executor=tool_runtime_executor,
+            context_model_messages=list(context_snapshot.model_messages),
+            directive=directive,
+            runtime_tool_instances=runtime_tool_instances,
+            model_stream_policy=model_stream_policy,
+            resolved_model_spec=resolved_model_spec,
+            allowed_search_sources=allowed_search_sources,
+            sandbox_policy=sandbox_policy,
+            file_management_policy=file_management_policy,
+            start_task_run=start.task_run,
             selected_recipe_payload=selected_recipe_payload,
             task_spec_payload=task_spec_payload,
+            effective_limits=effective_limits,
             task_contract_ref=task_contract_ref,
-            runtime_task_ledger=runtime_task_ledger,
-            state=state,
-            allowed_search_sources=allowed_search_sources,
         )
-        runtime_task_ledger = retrieval_outcome.ledger
-        state = retrieval_outcome.state
-        retrieval_results = retrieval_outcome.retrieval_results
-        result_refs.extend(list(retrieval_outcome.result_refs))
-        final_main_context.update(dict(retrieval_outcome.main_context))
-        final_task_summary_refs.extend(list(retrieval_outcome.task_summary_refs))
-        for event in retrieval_outcome.events:
-            yield event
-    memory_event = runtime_host.event_log.append(
-        state.task_run_id,
-        "memory_runtime_view_built",
-        payload={
-            "memory_runtime_view_ref": str(memory_view.get("view_id") or ""),
-            "conversation_candidate_count": diagnostic_int(memory_view, "conversation_candidate_count"),
-            "state_candidate_count": diagnostic_int(memory_view, "state_candidate_count"),
-            "long_term_candidate_count": diagnostic_int(memory_view, "long_term_candidate_count"),
-        },
-        refs={"memory_runtime_view_ref": str(memory_view.get("view_id") or "")},
-    )
-    yield {"type": "runtime_loop_event", "event": memory_event.to_dict()}
-    directive, resource_policy = build_model_response_runtime_admission(
-        task_operation,
-        operation_registry=runtime_host.operation_gate.registry,
-        agent_runtime_profile=effective_agent_runtime_profile,
-        sandbox_policy=sandbox_policy,
-    )
-    current_turn_capability_plan = build_current_turn_capability_plan(
-        tool_instances=tool_instances,
-        resource_policy=resource_policy,
-        definitions_by_name=runtime_host.tool_authorization_index.definitions_by_name,
-        normalize_operation_id=runtime_host.operation_gate.registry.normalize_id,
-        task_operation=task_operation,
-        allowed_search_sources=allowed_search_sources,
-        execution_permit=execution_permit,
-    )
-    tool_capability_table = prepare_runtime_tool_capability_table_for_turn(
-        task_operation={**dict(task_operation), "resource_policy": resource_policy, "task_id": task_id},
-        file_management_policy=file_management_policy,
-        execution_permit=execution_permit,
-        runtime_available_operations=current_turn_capability_plan.allowed_operations,
-    )
-    if tool_capability_table is not None:
-        task_operation["tool_capability_table"] = tool_capability_table
-        current_turn_capability_plan = apply_tool_capability_table_to_turn_plan(
-            current_turn_capability_plan,
-            tool_capability_table,
-        )
-    current_turn_capability_plan_payload = current_turn_capability_plan.to_dict()
-    tool_capability_overlay = capability_table_to_runtime_plan_overlay(tool_capability_table)
-    if tool_capability_overlay:
-        current_turn_capability_plan_payload["tool_capability_table"] = tool_capability_overlay
-    task_operation["current_turn_capability_plan"] = current_turn_capability_plan_payload
-    resolved_model_spec = None
-    model_resolution: dict[str, Any] = {}
-    settings_service = getattr(getattr(model_response_executor, "model_runtime", None), "settings_service", None)
-    if settings_service is not None:
-        model_requirement = model_requirement_for_model_resolution(
-            task_execution_assembly=task_execution_assembly_payload,
-            current_turn_context=current_turn_context,
-            agent_assembly_contract=assembly_contract,
-        )
-        graph_runtime_defaults = chat_model_selection_runtime_defaults(model_selection)
-        resolved_model_spec = ModelProfileResolver(settings_service).resolve_model_spec(
-            agent_runtime_profile=effective_agent_runtime_profile,
-            model_requirement=dict(model_requirement) if isinstance(model_requirement, dict) else {},
-            runtime_lane=str(agent_runtime_spec_payload.get("runtime_lane") or ""),
-            graph_runtime_defaults=graph_runtime_defaults,
-        )
-        model_resolution = resolved_model_spec.to_public_dict()
-        model_resolution_event = runtime_host.event_log.append(
-            state.task_run_id,
-            "model_profile_resolved",
-            payload={"model_resolution": model_resolution},
-            refs={
-                "task_contract_ref": task_contract_ref,
-                "agent_profile_ref": str(getattr(effective_agent_runtime_profile, "agent_profile_id", "") or ""),
-            },
-        )
-        yield {"type": "runtime_loop_event", "event": model_resolution_event.to_dict()}
-    task_safety_envelope = dict(dict(task_operation.get("operation_requirement") or {}).get("metadata") or {}).get(
-        "safety_envelope",
-        {},
-    )
-    task_safety_validators = build_task_safety_validators(
-        root_dir=runtime_host.root_dir,
-        safety_envelope=task_safety_envelope,
-        sandbox_policy=sandbox_policy,
-    )
-    runtime_tool_instances = tool_instances_for_policy_and_permit(
-        tool_instances=tool_instances,
-        resource_policy=resource_policy,
-        definitions_by_name=runtime_host.tool_authorization_index.definitions_by_name,
-        normalize_operation_id=runtime_host.operation_gate.registry.normalize_id,
-        allowed_search_sources=allowed_search_sources,
-        sandbox_policy=sandbox_policy,
-        execution_permit=execution_permit,
-        task_operation=task_operation,
-        capability_plan=current_turn_capability_plan,
-    )
-    runtime_capability_state = build_runtime_capability_state(
-        task_operation,
-        resource_policy=resource_policy,
-        agent_runtime_profile=effective_agent_runtime_profile,
-        visible_tool_names=list(current_turn_capability_plan.model_visible_tools),
-        sandbox_policy=sandbox_policy,
-    )
-    pre_model_phase_result = append_pre_model_phase_events(
-        runtime_host=runtime_host,
-        task_run_id=state.task_run_id,
-        task_contract_ref=task_contract_ref,
-        task_id=task_id,
-        selected_recipe_payload=selected_recipe_payload,
-        agent_runtime_config=agent_runtime_config,
-    )
-    for phase_event in pre_model_phase_result.events:
-        yield phase_event
-    effective_runtime_execution_facts = {
-        **dict(runtime_execution_facts or {}),
-        **dict(pre_model_phase_result.runtime_execution_facts or {}),
-        "runtime_capability_state": runtime_capability_state,
-    }
-    projection_cycle = stage_projection_cycle or StageProjectionCycle()
-    stage_projection = projection_cycle.build_from_orchestration(
-        task_id=task_id,
-        task_body_orchestration=task_body_orchestration_payload,
-        agent_runtime_spec=agent_runtime_spec_payload,
-    )
-    projection_event = runtime_host.event_log.append(
-        state.task_run_id,
-        "stage_projection_built",
-        payload={
-            "stage_projection": stage_projection.to_dict(),
-            "task_body_orchestration_ref": str(task_body_orchestration_payload.get("orchestration_id") or ""),
-            "agent_runtime_spec_ref": str(agent_runtime_spec_payload.get("runtime_spec_id") or ""),
-        },
-        refs={
-            "projection_ref": stage_projection.projection_ref,
-            "prompt_manifest_ref": stage_projection.prompt_manifest_ref,
-            "task_body_orchestration_ref": str(task_body_orchestration_payload.get("orchestration_id") or ""),
-            "agent_runtime_spec_ref": str(agent_runtime_spec_payload.get("runtime_spec_id") or ""),
-        },
-    )
-    yield {"type": "runtime_loop_event", "event": projection_event.to_dict()}
-    
-    effective_context_policy = (
-        build_context_policy_with_retrieval(
-            agent_runtime_chain=agent_runtime_chain,
-            session_id=session_id,
-            user_message=user_message,
-            memory_intent=memory_intent,
-            task_operation=task_operation,
-            retrieval_results=retrieval_results,
-            allowed_search_sources=allowed_search_sources,
-        )
-        if retrieval_results
-        else context_policy
-    )
-    context_snapshot = runtime_context_manager.prepare_model_context(
-        session_id=session_id,
-        task_id=task_id,
-        user_message=user_message,
-        history=history,
-        memory_intent=memory_intent,
-        memory_runtime_view=memory_view,
-        context_policy_result=effective_context_policy,
-        stage_projection_snapshot=stage_projection,
-        runtime_execution_facts=effective_runtime_execution_facts,
-        runtime_assembly=dict(assembly_contract.get("runtime_assembly") or dict(current_turn_context or {}).get("runtime_assembly") or {}),
-        agent_assembly_contract=assembly_contract,
-    )
-    context_event = runtime_host.event_log.append(
-        state.task_run_id,
-        "context_snapshot_built",
-        payload={
-            "context_snapshot": context_snapshot.to_dict(),
-            "context_policy_result": effective_context_policy,
-        },
-        refs={
-            "memory_runtime_view_ref": str(memory_view.get("view_id") or ""),
-            "context_snapshot_ref": context_snapshot.snapshot_id,
-            "context_policy_ref": context_snapshot.context_policy_ref,
-            "projection_ref": stage_projection.projection_ref,
-            "prompt_manifest_ref": stage_projection.prompt_manifest_ref,
-            "task_body_orchestration_ref": str(task_body_orchestration_payload.get("orchestration_id") or ""),
-            "agent_runtime_spec_ref": str(agent_runtime_spec_payload.get("runtime_spec_id") or ""),
-        },
-    )
-    yield {"type": "runtime_loop_event", "event": context_event.to_dict()}
-    invariant_report = runtime_context_manager.check_invariants(context_snapshot)
-    invariant_event = runtime_host.event_log.append(
-        state.task_run_id,
-        "context_invariant_checked",
-        payload={"invariant_report": invariant_report.to_dict()},
-        refs={
-            "context_snapshot_ref": context_snapshot.snapshot_id,
-            "invariant_report_ref": invariant_report.report_id,
-        },
-    )
-    yield {"type": "runtime_loop_event", "event": invariant_event.to_dict()}
-    yield {"type": "runtime_context_invariant", "report": invariant_report.to_dict()}
-    
-    state = RuntimeLoopState(
-        task_run_id=state.task_run_id,
-        status="running",
-        transition="start",
-        turn_count=1,
-        step_count=task_run_step_count(runtime_task_ledger),
-        current_step_id=runtime_task_ledger.current_step_id if runtime_task_ledger is not None else "",
-        agent_id=state.agent_id,
-        agent_profile_id=state.agent_profile_id,
-        runtime_lane=state.runtime_lane,
-        task_agent_binding_ref=state.task_agent_binding_ref,
-        task_template_id=str(selected_recipe_payload.get("template_id") or selected_recipe_payload.get("recipe_id") or ""),
-        task_spec_ref=str(task_spec_payload.get("task_spec_ref") or ""),
-        task_result_ref="",
-        skill_workflow_ref=state.skill_workflow_ref,
-        health_issue_ref=state.health_issue_ref,
-        memory_state_ref=str(memory_view.get("view_id") or ""),
-        context_snapshot_ref=context_snapshot.snapshot_id,
-        projection_ref=stage_projection.projection_ref,
-        prompt_manifest_ref=stage_projection.prompt_manifest_ref,
-        token_pressure=dict(context_snapshot.token_pressure),
-        diagnostics={
-            **dict(state.diagnostics),
-            "task_contract_ref": task_contract_ref,
-            "runtime_chain_built": True,
-            "effective_loop_limits": effective_limits.to_dict(),
-            "runtime_context_manager_applied": True,
-            "stage_projection_cycle_applied": True,
-            "task_body_orchestration_ref": str(task_body_orchestration_payload.get("orchestration_id") or ""),
-            "agent_runtime_spec_ref": str(agent_runtime_spec_payload.get("runtime_spec_id") or ""),
-            "context_invariant_checked": True,
-            "context_needs_compaction": invariant_report.needs_compaction,
-            "task_template_id": str(selected_recipe_payload.get("template_id") or selected_recipe_payload.get("recipe_id") or ""),
-            "task_spec_ref": str(task_spec_payload.get("task_spec_ref") or ""),
-        },
-    )
-    checkpoint = runtime_host._write_checkpoint_event(state, event_offset=invariant_event.offset)
-    yield {"type": "runtime_loop_event", "event": checkpoint.to_dict()}
-    
-    control_decision = check_runtime_loop_control(
-        state,
-        limits=effective_limits,
-        started_at=start.task_run.created_at,
-        model_call_count=0,
-        event_count=len(runtime_host.event_log.list_events(state.task_run_id)),
-    )
-    control_event = runtime_host.event_log.append(
-        state.task_run_id,
-        "loop_control_checked",
-        payload={"control": control_decision.to_dict()},
-        refs={"task_contract_ref": task_contract_ref},
-    )
-    yield {"type": "runtime_loop_event", "event": control_event.to_dict()}
-    yield {"type": "runtime_loop_control", "control": control_decision.to_dict()}
-    if not control_decision.allowed:
-        yield {
-            "type": "error",
-            "error": control_decision.reason,
-            "content": control_decision.message or "RuntimeLoop 控制策略终止了本轮任务。",
-            "answer_channel": "orchestration_fail_closed",
-            "answer_source": "runtime_loop_control",
-        }
-        if runtime_task_ledger is not None and current_task_step_run(runtime_task_ledger) is not None:
-            state, runtime_task_ledger, transition_events = runtime_host._apply_failed_step_transition(
-                state=state,
-                runtime_task_ledger=runtime_task_ledger,
-                reason="runtime_loop_control",
-                failure_reason=control_decision.reason,
-                ledger_diagnostics={"terminal_reason": control_decision.reason},
-            )
-            for transition_event in transition_events:
-                yield {"type": "runtime_loop_event", "event": transition_event.to_dict()}
-        terminal_state = state.with_status(
-            "failed",
-            transition="stop_after_final_output",
-            terminal_reason=control_decision.reason,
-            diagnostics={"runtime_loop_control": control_decision.to_dict()},
-        )
-        terminal_event = runtime_host.event_log.append(
-            terminal_state.task_run_id,
-            "loop_terminal",
-            payload={
-                "terminal_reason": terminal_state.terminal_reason,
-                "status": terminal_state.status,
-                "runtime_loop_control": control_decision.to_dict(),
-            },
-        )
-        yield {"type": "runtime_loop_event", "event": terminal_event.to_dict()}
-        checkpoint_event = runtime_host._write_checkpoint_event(terminal_state, event_offset=terminal_event.offset)
-        yield {"type": "runtime_loop_event", "event": checkpoint_event.to_dict()}
-        finished = runtime_host.task_run_finalizer.upsert_finished_task_run(
-            start_task_run=start.task_run,
-            start_agent_run=start.agent_run,
-            start_coordination_run=start.coordination_run,
-            task_contract_ref=task_contract_ref,
-            terminal_state=terminal_state,
-            checkpoint_event=checkpoint_event,
-            final_content="",
-            diagnostics={"runtime_loop_control_reason": control_decision.reason},
-        )
-        for runtime_event in finished.events:
-            yield {"type": "runtime_loop_event", "event": runtime_event.to_dict()}
-        return
-    
-    directive_event = runtime_host.event_log.append(
-        state.task_run_id,
-        "runtime_directive_issued",
-        payload={
-            "directive": directive.to_dict(),
-            "resource_policy": resource_policy.to_dict(),
-            "search_policy": list(search_policy) if search_policy is not None else None,
-            "allowed_search_sources": sorted(allowed_search_sources),
-            "current_turn_capability_plan": current_turn_capability_plan_payload,
-            "tool_capability_table": tool_capability_overlay,
-            "runtime_capability_state": runtime_capability_state,
-            "sandbox_policy": sandbox_policy,
-            "file_management_policy": file_management_policy,
-            "effective_tool_names": [
-                str(getattr(tool, "name", "") or "")
-                for tool in list(runtime_tool_instances)
-                if str(getattr(tool, "name", "") or "")
-            ],
-        },
-        refs={
-            "directive_ref": directive.directive_id,
-            "resource_policy_ref": resource_policy.policy_id,
-        },
-    )
-    yield {"type": "runtime_loop_event", "event": directive_event.to_dict()}
-    yield {
-        "type": "runtime_directive",
-        "directive": directive.to_dict(),
-        "resource_policy": resource_policy.to_dict(),
-        "search_policy": list(search_policy) if search_policy is not None else None,
-        "allowed_search_sources": sorted(allowed_search_sources),
-        "current_turn_capability_plan": current_turn_capability_plan_payload,
-        "tool_capability_table": tool_capability_overlay,
-        "runtime_capability_state": runtime_capability_state,
-        "sandbox_policy": sandbox_policy,
-        "file_management_policy": file_management_policy,
-        "effective_tool_names": [
-            str(getattr(tool, "name", "") or "")
-            for tool in list(runtime_tool_instances)
-            if str(getattr(tool, "name", "") or "")
-        ],
-    }
-    gate_result = runtime_host.operation_gate.check(
-        "op.model_response",
-        resource_policy=resource_policy,
-        directive_ref=directive.directive_id,
-        context=OperationGatePipelineContext(
-            permission_mode=runtime_host._current_permission_mode(),
-            operation_input={"operation_id": "op.model_response"},
-            validators=task_safety_validators,
-        ),
-    )
-    gate_event = runtime_host.event_log.append(
-        state.task_run_id,
-        "operation_gate_checked",
-        payload={"gate": gate_result.to_dict()},
-        refs={
-            "operation_id": gate_result.operation_id,
-            "directive_ref": directive.directive_id,
-        },
-    )
-    yield {"type": "runtime_loop_event", "event": gate_event.to_dict()}
-    yield {"type": "operation_gate", "gate": gate_result.to_dict()}
-    if not gate_result.allowed:
-        error_event = {
-            "type": "error",
-            "error": gate_result.reason,
-            "content": "OperationGate 未放行模型回答，本轮停止执行。",
-            "answer_channel": "orchestration_fail_closed",
-            "answer_source": "operation_gate",
-        }
-        yield error_event
-        if runtime_task_ledger is not None and current_task_step_run(runtime_task_ledger) is not None:
-            state, runtime_task_ledger, transition_events = runtime_host._apply_failed_step_transition(
-                state=state,
-                runtime_task_ledger=runtime_task_ledger,
-                reason="operation_gate",
-                refs={"operation_id": gate_result.operation_id},
-                failure_reason="blocked_by_gate",
-                diagnostics={"operation_id": gate_result.operation_id},
-                ledger_diagnostics={"terminal_reason": "blocked_by_gate"},
-            )
-            for transition_event in transition_events:
-                yield {"type": "runtime_loop_event", "event": transition_event.to_dict()}
-        terminal_state = state.with_status(
-            "blocked",
-            transition="stop_after_final_output",
-            terminal_reason="blocked_by_gate",
-            diagnostics={"operation_gate_reason": gate_result.reason},
-        )
-        terminal_event = runtime_host.event_log.append(
-            terminal_state.task_run_id,
-            "loop_terminal",
-            payload={
-                "terminal_reason": terminal_state.terminal_reason,
-                "status": terminal_state.status,
-                "operation_gate_reason": gate_result.reason,
-            },
-        )
-        yield {"type": "runtime_loop_event", "event": terminal_event.to_dict()}
-        checkpoint_event = runtime_host._write_checkpoint_event(terminal_state, event_offset=terminal_event.offset)
-        yield {"type": "runtime_loop_event", "event": checkpoint_event.to_dict()}
-        finished = runtime_host.task_run_finalizer.upsert_finished_task_run(
-            start_task_run=start.task_run,
-            start_agent_run=start.agent_run,
-            start_coordination_run=start.coordination_run,
-            task_contract_ref=task_contract_ref,
-            terminal_state=terminal_state,
-            checkpoint_event=checkpoint_event,
-            final_content="",
-            diagnostics={"operation_gate_reason": gate_result.reason},
-        )
-        for runtime_event in finished.events:
-            yield {"type": "runtime_loop_event", "event": runtime_event.to_dict()}
-        return
-    
-    final_content = ""
-    final_answer_metadata: dict[str, Any] = {}
-    run_outcome: dict[str, Any] = {}
-    terminal_reason = "completed"
-    preserve_final_answer_metadata = bool(final_content and final_answer_metadata)
-    
-    final_bundle_summary_refs: list[dict[str, Any]] = []
-    observation_aggregator = ObservationAggregator()
-    current_bundle_items = bundle_items_from_runtime_contract(
-        task_spec_payload=task_spec_payload,
-    )
-    tool_call_accumulator = ModelToolCallAccumulator()
-    tool_messages: list[ToolMessage] = []
-    tool_observation_count = 0
-    executed_bundle_ordinals: list[int] = []
-    tool_repetition_guard = ToolRepetitionGuard()
-    repeated_tool_halt = False
-    if not final_content:
-        executor_event = runtime_host.event_log.append(
-            state.task_run_id,
-            "executor_started",
-            payload={"executor_type": "model", "runtime_channel": "agent_runtime"},
-            refs={"task_contract_ref": task_contract_ref, "directive_ref": directive.directive_id},
-        )
-        yield {"type": "runtime_loop_event", "event": executor_event.to_dict()}
-        turn_application = ModelTurnApplicationState(
-            loop_state=state,
-            runtime_task_ledger=runtime_task_ledger,
-            result_refs=result_refs,
-            final_content=final_content,
-            final_answer_metadata=final_answer_metadata,
-            terminal_reason=terminal_reason,
-            final_main_context=final_main_context,
-            final_task_summary_refs=final_task_summary_refs,
-            final_bundle_summary_refs=final_bundle_summary_refs,
-            tool_observation_count=tool_observation_count,
-            executed_bundle_ordinals=executed_bundle_ordinals,
-            repeated_tool_halt=repeated_tool_halt,
-        )
-        async for emitted_event in run_agent_model_turn(
-            AgentModelTurnInput(
-                runtime_host=runtime_host,
-                execution_engine=runtime_host.execution_engine,
-                application=turn_application,
-                task_run_id=state.task_run_id,
-                user_message=user_message,
-                task_id=task_id,
-                task_operation=task_operation,
-                resource_policy=resource_policy,
-                current_step_id_provider=lambda: (
-                    turn_application.runtime_task_ledger.current_step_id
-                    if turn_application.runtime_task_ledger is not None
-                    else turn_application.loop_state.current_step_id
-                ),
-                runtime_context_manager=runtime_context_manager,
-                model_response_executor=model_response_executor,
-                tool_runtime_executor=tool_runtime_executor,
-                model_messages=list(context_snapshot.model_messages),
-                directive=directive,
-                runtime_tool_instances=runtime_tool_instances,
-                model_stream_policy=model_stream_policy,
-                resolved_model_spec=resolved_model_spec,
-                allowed_search_sources=allowed_search_sources,
-                sandbox_policy=sandbox_policy,
-                file_management_policy=file_management_policy,
-                start_task_run=start.task_run,
-                tool_call_accumulator=tool_call_accumulator,
-                collected_tool_messages=tool_messages,
-                observation_aggregator=observation_aggregator,
-                current_bundle_items=current_bundle_items,
-                tool_repetition_guard=tool_repetition_guard,
-                selected_recipe_payload=selected_recipe_payload,
-                preserve_answer_metadata=preserve_final_answer_metadata,
-                apply_tool_call_transition=True,
-                apply_projection_only_when_present=True,
-            )
-        ):
-            yield emitted_event
-        if turn_application.approval_waiting:
-            return
-        state = turn_application.loop_state
-        runtime_task_ledger = turn_application.runtime_task_ledger
-        result_refs = turn_application.result_refs
-        final_content = turn_application.final_content
-        final_answer_metadata = dict(turn_application.final_answer_metadata)
-        run_outcome = dict(final_answer_metadata.get("run_outcome") or final_answer_metadata.get("completion") or {})
-        terminal_reason = turn_application.terminal_reason
-        final_main_context = dict(turn_application.final_main_context)
-        final_task_summary_refs = [dict(item) for item in turn_application.final_task_summary_refs]
-        final_bundle_summary_refs = [dict(item) for item in turn_application.final_bundle_summary_refs]
-        tool_observation_count = turn_application.tool_observation_count
-        executed_bundle_ordinals = list(turn_application.executed_bundle_ordinals)
-        repeated_tool_halt = turn_application.repeated_tool_halt
-    
-    turn_count = 1
-    model_call_count = 1
-    followup_messages: list[Any] = []
-    retrieval_followup_observed = False
-    if len(tool_call_accumulator.pending_tool_calls) > 1 and terminal_reason == "completed":
-        final_content = ""
-        final_answer_metadata = {}
-        preserve_final_answer_metadata = False
-    if tool_call_accumulator.pending_tool_calls and tool_messages and terminal_reason == "completed":
-        followup_messages = build_initial_followup_messages(
-            context_model_messages=list(context_snapshot.model_messages),
-            tool_call_accumulator=tool_call_accumulator,
-            tool_messages=tool_messages,
-            user_message=user_message,
-            aggregation=observation_aggregator.snapshot(),
-            current_bundle_items=current_bundle_items,
-            remaining_model_calls=max(effective_limits.max_model_calls - model_call_count, 0),
-        )
-    while followup_messages and terminal_reason == "completed":
-        turn_count += 1
-        model_call_count += 1
-        loop_state_for_control = RuntimeLoopState(
-            task_run_id=state.task_run_id,
-            status="running",
-            transition="continue_after_tool_result",
-            turn_count=turn_count,
-            step_count=task_run_step_count(runtime_task_ledger),
-            current_step_id=runtime_task_ledger.current_step_id if runtime_task_ledger is not None else state.current_step_id,
-            agent_id=state.agent_id,
-            agent_profile_id=state.agent_profile_id,
-            runtime_lane=state.runtime_lane,
-            task_agent_binding_ref=state.task_agent_binding_ref,
-            task_template_id=state.task_template_id,
-            task_spec_ref=state.task_spec_ref,
-            task_result_ref=state.task_result_ref,
-            skill_workflow_ref=state.skill_workflow_ref,
-            health_issue_ref=state.health_issue_ref,
-            memory_state_ref=state.memory_state_ref,
-            context_snapshot_ref=state.context_snapshot_ref,
-            projection_ref=state.projection_ref,
-            prompt_manifest_ref=state.prompt_manifest_ref,
-            token_pressure=dict(state.token_pressure),
-            diagnostics=dict(state.diagnostics),
-        )
-        followup_control = check_runtime_loop_control(
-            loop_state_for_control,
-            limits=effective_limits,
-            started_at=start.task_run.created_at,
-            model_call_count=model_call_count - 1,
-            event_count=len(runtime_host.event_log.list_events(state.task_run_id)),
-        )
-        followup_control_event = runtime_host.event_log.append(
-            state.task_run_id,
-            "loop_control_checked",
-            payload={"control": followup_control.to_dict()},
-            refs={"task_contract_ref": task_contract_ref},
-        )
-        yield {"type": "runtime_loop_event", "event": followup_control_event.to_dict()}
-        yield {"type": "runtime_loop_control", "control": followup_control.to_dict()}
-        if not followup_control.allowed:
-            terminal_reason = followup_control.reason
-            if not final_content:
-                final_answer_metadata = {
-                    "answer_channel": "orchestration_fail_closed",
-                    "answer_source": "runtime_loop_control",
-                    "answer_canonical_state": "no_agent_final_answer",
-                    "answer_persist_policy": "persist_debug_only",
-                    "answer_finalization_policy": "none",
-                    "answer_fallback_reason": str(followup_control.reason or "runtime_loop_control"),
-                }
-            break
-        followup_event = runtime_host.event_log.append(
-            state.task_run_id,
-            "loop_iteration_started",
-            payload={
-                "transition": "continue_after_tool_result",
-                "turn_count": turn_count,
-                "step_count": task_run_step_count(runtime_task_ledger),
-                "tool_result_count": len([item for item in followup_messages if isinstance(item, ToolMessage)]),
-            },
-        )
-        yield {"type": "runtime_loop_event", "event": followup_event.to_dict()}
-        state = runtime_host._state_with_task_run_ledger(
-            state,
-            runtime_task_ledger,
-            transition="continue_after_tool_result",
-            result_refs=result_refs,
-        )
-        next_tool_call_accumulator = ModelToolCallAccumulator()
-        next_tool_messages: list[ToolMessage] = []
-        turn_application = ModelTurnApplicationState(
-            loop_state=state,
-            runtime_task_ledger=runtime_task_ledger,
-            result_refs=result_refs,
-            final_content=final_content,
-            final_answer_metadata=final_answer_metadata,
-            terminal_reason=terminal_reason,
-            final_main_context=final_main_context,
-            final_task_summary_refs=final_task_summary_refs,
-            final_bundle_summary_refs=final_bundle_summary_refs,
-            tool_observation_count=tool_observation_count,
-            executed_bundle_ordinals=executed_bundle_ordinals,
-            repeated_tool_halt=repeated_tool_halt,
-        )
-        async for emitted_event in run_agent_model_turn(
-            AgentModelTurnInput(
-                runtime_host=runtime_host,
-                execution_engine=runtime_host.execution_engine,
-                application=turn_application,
-                task_run_id=state.task_run_id,
-                user_message=user_message,
-                task_id=task_id,
-                task_operation=task_operation,
-                resource_policy=resource_policy,
-                current_step_id_provider=lambda: (
-                    turn_application.runtime_task_ledger.current_step_id
-                    if turn_application.runtime_task_ledger is not None
-                    else turn_application.loop_state.current_step_id
-                ),
-                runtime_context_manager=runtime_context_manager,
-                model_response_executor=model_response_executor,
-                tool_runtime_executor=tool_runtime_executor,
-                model_messages=followup_messages,
-                directive=directive,
-                runtime_tool_instances=runtime_tool_instances,
-                model_stream_policy=model_stream_policy,
-                resolved_model_spec=resolved_model_spec,
-                allowed_search_sources=allowed_search_sources,
-                sandbox_policy=sandbox_policy,
-                file_management_policy=file_management_policy,
-                start_task_run=start.task_run,
-                tool_call_accumulator=next_tool_call_accumulator,
-                collected_tool_messages=next_tool_messages,
-                observation_aggregator=observation_aggregator,
-                current_bundle_items=current_bundle_items,
-                tool_repetition_guard=tool_repetition_guard,
-                selected_recipe_payload=selected_recipe_payload,
-                preserve_answer_metadata=preserve_final_answer_metadata,
-                fail_running_step_on_executor_error=True,
-                fail_running_step_on_loop_error=True,
-            )
-        ):
-            yield emitted_event
-        if turn_application.approval_waiting:
-            return
-        state = turn_application.loop_state
-        runtime_task_ledger = turn_application.runtime_task_ledger
-        result_refs = turn_application.result_refs
-        final_content = turn_application.final_content
-        final_answer_metadata = dict(turn_application.final_answer_metadata)
-        terminal_reason = turn_application.terminal_reason
-        final_main_context = dict(turn_application.final_main_context)
-        final_task_summary_refs = [dict(item) for item in turn_application.final_task_summary_refs]
-        final_bundle_summary_refs = [dict(item) for item in turn_application.final_bundle_summary_refs]
-        tool_observation_count = turn_application.tool_observation_count
-        executed_bundle_ordinals = list(turn_application.executed_bundle_ordinals)
-        repeated_tool_halt = turn_application.repeated_tool_halt
-        if (
-            next_tool_call_accumulator.pending_tool_calls
-            and next_tool_messages
-            and terminal_reason == "completed"
-            and tool_observation_count > 0
-            and is_retrieval_task_mode(str(task_spec_payload.get("task_mode") or ""))
-        ):
-            retrieval_followup_observed = True
-        if next_tool_call_accumulator.pending_tool_calls and next_tool_messages and terminal_reason == "completed":
-            if repeated_tool_halt:
-                terminal_reason = "repeated_tool_halt"
-                if not final_content:
-                    final_answer_metadata = {
-                        "answer_channel": "orchestration_fail_closed",
-                        "answer_source": "runtime_loop_control",
-                        "answer_canonical_state": "no_agent_final_answer",
-                        "answer_persist_policy": "persist_debug_only",
-                        "answer_finalization_policy": "none",
-                        "answer_fallback_reason": "repeated_tool_halt",
-                    }
-                followup_messages = []
-                break
-            followup_messages = build_next_followup_messages(
-                previous_messages=followup_messages,
-                tool_call_accumulator=next_tool_call_accumulator,
-                tool_messages=next_tool_messages,
-                user_message=user_message,
-                aggregation=observation_aggregator.snapshot(),
-                current_bundle_items=current_bundle_items,
-                remaining_model_calls=max(effective_limits.max_model_calls - model_call_count, 0),
-            )
+    ):
+        if isinstance(turn_loop_event, AgentTurnLoopResult):
+            turn_loop_result = turn_loop_event
             continue
-        followup_messages = []
+        yield turn_loop_event
+    if turn_loop_result is None:
+        raise RuntimeError("AgentRuntime turn loop did not produce a result")
+    if turn_loop_result.approval_waiting:
+        return
+    state = turn_loop_result.state
+    runtime_task_ledger = turn_loop_result.runtime_task_ledger
+    result_refs = turn_loop_result.result_refs
+    final_content = turn_loop_result.final_content
+    final_answer_metadata = turn_loop_result.final_answer_metadata
+    run_outcome = turn_loop_result.run_outcome
+    terminal_reason = turn_loop_result.terminal_reason
+    final_main_context = turn_loop_result.final_main_context
+    final_task_summary_refs = turn_loop_result.final_task_summary_refs
+    final_bundle_summary_refs = turn_loop_result.final_bundle_summary_refs
+    current_bundle_items = turn_loop_result.current_bundle_items
+    executed_bundle_ordinals = turn_loop_result.executed_bundle_ordinals
+    observation_aggregator = turn_loop_result.observation_aggregator
+    tool_observation_count = turn_loop_result.tool_observation_count
+    turn_count = turn_loop_result.turn_count
+    tool_call_count = turn_loop_result.tool_call_count
     
     phase_outcome, phase_events = apply_post_model_phases(
         runtime_host=runtime_host,
@@ -1389,7 +406,7 @@ async def run_agent_invocation_stream(
         final_content=final_content,
         final_answer_metadata=final_answer_metadata,
         terminal_reason=terminal_reason,
-        tool_call_count=len(tool_call_accumulator.pending_tool_calls),
+        tool_call_count=tool_call_count,
         tool_observation_count=tool_observation_count,
     )
     for phase_event in phase_events:

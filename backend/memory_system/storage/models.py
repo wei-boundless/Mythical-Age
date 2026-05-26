@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Literal
 
@@ -10,6 +10,7 @@ from .text_utils import normalize_storage_text
 MemoryType = Literal["user", "feedback", "project", "reference"]
 MemoryClass = Literal["work", "preference"]
 MessageRole = Literal["system", "user", "assistant", "tool"]
+TemporalFactRelation = Literal["supersedes", "merged_into", "invalidates", "refines", "conflicts_with"]
 DEFAULT_DURABLE_SCHEMA_VERSION = "durable-memory.v3"
 
 
@@ -90,6 +91,36 @@ class MemoryNote:
             }
         )
         return f"{frontmatter}\n\n{body}\n"
+
+
+@dataclass(slots=True)
+class TemporalFactEdge:
+    edge_id: str
+    relation: TemporalFactRelation
+    source_note_id: str
+    target_note_id: str = ""
+    created_at: str = field(default_factory=utc_now_iso)
+    actor: str = "memory_manager"
+    reason: str = ""
+    source_evidence_ref: str = ""
+    source_note_sha256: str = ""
+    target_note_sha256: str = ""
+    before_sha256: str = ""
+    after_sha256: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+    authority: str = "durable_memory.temporal_fact_edge"
+
+    def __post_init__(self) -> None:
+        allowed = {"supersedes", "merged_into", "invalidates", "refines", "conflicts_with"}
+        if self.relation not in allowed:
+            raise ValueError(f"Unsupported temporal fact relation: {self.relation}")
+        if not normalize_storage_text(self.source_note_id):
+            raise ValueError("TemporalFactEdge requires source_note_id")
+        if self.authority != "durable_memory.temporal_fact_edge":
+            raise ValueError("TemporalFactEdge cannot carry runtime authority")
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 @dataclass(slots=True)

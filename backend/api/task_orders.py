@@ -41,7 +41,6 @@ async def create_task_order(payload: TaskOrderCreateRequest):
     if not task_record.enabled:
         raise HTTPException(status_code=409, detail="Specific task is disabled")
 
-    projection_binding = flow_registry.get_projection_binding(task_id)
     flow_contract_binding = flow_registry.get_flow_contract_binding(task_id)
     execution_policy = flow_registry.get_task_execution_policy(task_id)
     creation = TaskOrderFactory().create_specific_task_order(
@@ -51,7 +50,6 @@ async def create_task_order(payload: TaskOrderCreateRequest):
         source=str(payload.source or "task_library").strip() or "task_library",
         source_ref=str(payload.source_ref or f"task_system.specific_task:{task_id}").strip(),
         domain_id=str(payload.domain_id or task_record.domain_id).strip(),
-        projection_binding=projection_binding.to_dict() if projection_binding is not None else None,
         flow_contract_binding=flow_contract_binding.to_dict() if flow_contract_binding is not None else None,
         execution_policy=execution_policy.to_dict() if execution_policy is not None else None,
         order_intent=dict(payload.task_order_intent or {}),

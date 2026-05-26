@@ -255,10 +255,10 @@ def _object_to_dict(value: Any) -> dict[str, Any]:
     else:
         try:
             payload = asdict(value)
-        except TypeError:
-            payload = {}
+        except TypeError as exc:
+            raise ValueError(f"State memory object is not serializable: {type(value).__name__}") from exc
     if not isinstance(payload, dict):
-        return {}
+        raise ValueError(f"State memory object did not serialize to a mapping: {type(value).__name__}")
     return {
         str(key): item
         for key, item in payload.items()

@@ -55,7 +55,6 @@ import {
 import {
   deleteTaskSystemDomain,
   deleteTaskSystemSpecificRecord,
-  createSoulProjectionCard,
   getArtifactRepositoryOverview,
   getFormalMemoryOverview,
   getOrchestrationAgents,
@@ -74,7 +73,6 @@ import {
   upsertTaskSystemEntryPolicy,
   upsertTaskSystemExecutionPolicy,
   upsertTaskSystemFlowContractBinding,
-  upsertTaskSystemProjectionBinding,
   upsertTaskSystemSpecificRecord,
   upsertTaskSystemTaskGraph,
   upsertTaskWorkflow,
@@ -98,7 +96,6 @@ import {
   type TaskGraphRecord,
   type TaskGraphRuntimeSpec,
   type TaskGraphStandardView,
-  type TaskProjectionBinding,
   type TaskSystemOverview,
   type TaskWorkflowRecord,
 } from "@/lib/api";
@@ -111,7 +108,6 @@ type TaskConfigPanel = "definition";
 type ContractPanel = "library" | "templates";
 
 type WorkflowDraft = TaskWorkflowRecord & {
-  compatible_projection_ids_text: string;
   visible_skill_ids_text: string;
   steps_text: string;
   stop_conditions_text: string;
@@ -347,7 +343,6 @@ function emptyWorkflow(taskMode = "bounded_patch"): WorkflowDraft {
     workflow_id: "workflow.dev.bounded_patch",
     title: "默认执行流程",
     task_mode: taskMode,
-    compatible_projection_ids: [],
     visible_skill_ids: [],
     steps: [],
     input_boundary: "",
@@ -358,7 +353,6 @@ function emptyWorkflow(taskMode = "bounded_patch"): WorkflowDraft {
     prompt: "",
     enabled: true,
     metadata: { managed_by: "task_domain_console" },
-    compatible_projection_ids_text: "",
     visible_skill_ids_text: "",
     steps_text: "",
     stop_conditions_text: "",
@@ -370,29 +364,15 @@ function workflowDraftFrom(workflow?: TaskWorkflowRecord | null, taskMode = "bou
   const base = workflow ?? emptyWorkflow(taskMode);
   return {
     ...base,
-    compatible_projection_ids: base.compatible_projection_ids ?? [],
     visible_skill_ids: base.visible_skill_ids ?? [],
     steps: base.steps ?? [],
     stop_conditions: base.stop_conditions ?? [],
     required_evidence_refs: base.required_evidence_refs ?? [],
     metadata: base.metadata ?? {},
-    compatible_projection_ids_text: listText(base.compatible_projection_ids ?? []),
     visible_skill_ids_text: listText(base.visible_skill_ids ?? []),
     steps_text: stepsToText(base.steps ?? []),
     stop_conditions_text: listText(base.stop_conditions ?? []),
     required_evidence_refs_text: listText(base.required_evidence_refs ?? []),
-  };
-}
-
-function emptyProjectionBinding(taskId = "", projectionId = ""): TaskProjectionBinding {
-  return {
-    task_id: taskId,
-    projection_selection_mode: "task_default",
-    allowed_projection_ids: projectionId ? [projectionId] : [],
-    default_projection_id: projectionId,
-    projection_required: false,
-    notes: "",
-    metadata: { managed_by: "task_domain_console" },
   };
 }
 
@@ -689,7 +669,6 @@ export function TaskSystemView() {
   const [domainDraft, setDomainDraft] = useState<TaskDomainRecord>(emptyTaskDomain());
   const [taskDraft, setTaskDraft] = useState<SpecificTaskRecord>(emptySpecificTaskRecord());
   const [workflowDraft, setWorkflowDraft] = useState<WorkflowDraft>(emptyWorkflow());
-  const [projectionDraft, setProjectionDraft] = useState<TaskProjectionBinding>(emptyProjectionBinding());
   const [flowDraft, setFlowDraft] = useState<TaskFlowContractBinding>(emptyFlowBinding());
   const [executionDraft, setExecutionDraft] = useState<TaskExecutionPolicy>(emptyExecutionPolicy());
   const [taskPolicyText, setTaskPolicyText] = useState("{}");
@@ -841,7 +820,6 @@ export function TaskSystemView() {
   const selectedTask = selectedDomainTasks.find((item) => item.task_id === selectedTaskId) ?? selectedDomainTasks[0] ?? null;
   const selectedTaskDomain = selectedDomain;
   const domainContractSpecs = useMemo(() => scopedContractSpecs(contractSpecs, selectedDomain), [contractSpecs, selectedDomain]);
-  const projectionBinding = (consolePayload?.task_management.projection_bindings ?? []).find((item) => item.task_id === selectedTask?.task_id);
   const flowBinding = (consolePayload?.task_management.flow_contract_bindings ?? []).find((item) => item.task_id === selectedTask?.task_id);
   const executionPolicy = (consolePayload?.task_management.execution_policies ?? []).find((item) => item.task_id === selectedTask?.task_id);
   const selectedWorkflow = workflows.find((item) => item.workflow_id === selectedTask?.default_workflow_id);
@@ -1052,63 +1030,6 @@ export function TaskSystemView() {
     setWorkspaceView("orchestration");
   }, [editorTaskGraphId, selectedTaskGraphId, setOrchestrationInspectorTarget, setWorkspaceView, taskGraphDraftV2.graph_id, taskLayer]);
 
-  const createProjectionFromNodePrompt = useCallback(async ({
-    node,
-    nodeId,
-    prompt,
-  }: {
-    node: Record<string, unknown>;
-    nodeId: string;
-    prompt: string;
-  }) => {
-    const latestProjectionCatalog = projectionCatalog?.cards?.length ? projectionCatalog : await getSoulProjectionCards();
-    if (latestProjectionCatalog !== projectionCatalog) {
-      setProjectionCatalog(latestProjectionCatalog);
-    }
-    const cards = latestProjectionCatalog?.cards ?? [];
-    const currentProjectionId = String(node.projection_id ?? node.projection_overlay_id ?? "").trim();
-    const selectedProjectionId = String(latestProjectionCatalog?.selected_projection_id ?? "").trim();
-    const baseCard = cards.find((card) => card.projection_id === currentProjectionId)
-      ?? cards.find((card) => card.projection_id === selectedProjectionId)
-      ?? cards[0];
-    if (!baseCard?.soul_id) {
-      throw new Error("投影系统暂无可用 Soul，无法创建节点投影");
-    }
-    const graphRef = taskGraphDraftV2.graph_id || editorTaskGraphId || selectedTaskGraphId || "task_graph";
-    const graphSlug = slugFromTitle(graphRef);
-    const nodeSlug = slugFromTitle(nodeId || String(node.node_id ?? node.title ?? "node"));
-    const role = String(node.work_posture ?? node.role ?? "task_graph_node").trim() || "task_graph_node";
-    const agentId = String(node.agent_id ?? "").trim();
-    const agentProfile = orchestrationAgentCatalog?.profiles.find((profile) => String(profile.agent_id ?? "") === agentId);
-    const agentProfileId = String(agentProfile?.agent_profile_id ?? baseCard.agent_profile_id ?? "task_graph_node_agent").trim();
-    const nextProjectionId = `projection.taskgraph.${graphSlug}.${nodeSlug}`;
-    const nextCatalog = await createSoulProjectionCard({
-      projection_id: nextProjectionId,
-      soul_id: baseCard.soul_id,
-      projection_kind: "task_graph_node",
-      owner_system: "task_system",
-      source_task_graph_refs: [graphRef].filter(Boolean),
-      projection_name: `${text(node.title ?? node.label ?? nodeId, nodeId)} / 节点职责`,
-      role_type: role,
-      task_mode: editorDomainTasks.find((task) => task.task_id === graphNodeTaskId(node))?.task_mode || selectedTask?.task_mode || "task_graph_node",
-      agent_profile_id: agentProfileId,
-      projection_prompt: prompt,
-      usage_summary: "由图工作台节点职责生成的静态投影，用于运行装配时绑定节点 Prompt。",
-      memory_policy_summary: "记忆读写连接由 TaskGraph 资源节点、读写边与 Agent 运行档案共同决定。",
-      output_contract_summary: "输出边界由 TaskGraph 节点契约和边交接契约决定。",
-      select_after_create: false,
-    });
-    setProjectionCatalog(nextCatalog);
-    return nextProjectionId;
-  }, [
-    editorDomainTasks,
-    editorTaskGraphId,
-    orchestrationAgentCatalog?.profiles,
-    projectionCatalog,
-    selectedTask?.task_mode,
-    selectedTaskGraphId,
-    taskGraphDraftV2.graph_id,
-  ]);
   useEffect(() => {
     if (!selectedDomain) return;
     setDomainDraft({
@@ -1159,10 +1080,9 @@ export function TaskSystemView() {
     setTaskPolicyText(JSON.stringify(selectedTask.task_policy ?? {}, null, 2));
     setArtifactPolicyDraft(artifactPolicyDraftFrom(selectedTask.task_policy ?? {}));
     setWorkflowDraft(workflowDraftFrom(selectedWorkflow, selectedTask.task_mode));
-    setProjectionDraft(projectionBinding ?? emptyProjectionBinding(selectedTask.task_id, ""));
     setFlowDraft(flowBinding ?? emptyFlowBinding(selectedTask.task_id, selectedTask.default_flow_contract_id));
     setExecutionDraft(executionPolicy ?? emptyExecutionPolicy(selectedTask.task_id));
-  }, [selectedTask, selectedWorkflow, projectionBinding, flowBinding, executionPolicy]);
+  }, [selectedTask, selectedWorkflow, flowBinding, executionPolicy]);
 
   useEffect(() => {
     if (!activeTaskGraph) {
@@ -1213,7 +1133,6 @@ export function TaskSystemView() {
       setTaskPolicyText(JSON.stringify(nextTask.task_policy, null, 2));
       setArtifactPolicyDraft(artifactPolicyDraftFrom(nextTask.task_policy));
       setWorkflowDraft({ ...emptyWorkflow(nextTask.task_mode), workflow_id: ids.workflow_id, title: `${ids.display_numbers.workflow} Workflow` });
-      setProjectionDraft(emptyProjectionBinding(nextTask.task_id, ""));
       setFlowDraft(emptyFlowBinding(nextTask.task_id, ids.flow_id));
       setExecutionDraft(emptyExecutionPolicy(nextTask.task_id));
       setNotice("已生成任务草稿，请补充任务名称与装配配置后保存。");
@@ -1754,14 +1673,12 @@ export function TaskSystemView() {
       const taskPayload = { ...taskDraft, task_policy: mergeArtifactPolicy(taskPolicyText, artifactPolicyDraft) };
       await upsertTaskWorkflow(workflowDraft.workflow_id, {
         ...workflowDraft,
-        compatible_projection_ids: splitList(workflowDraft.compatible_projection_ids_text),
         visible_skill_ids: splitList(workflowDraft.visible_skill_ids_text),
         steps: stepsFromText(workflowDraft.steps_text),
         stop_conditions: splitList(workflowDraft.stop_conditions_text),
         required_evidence_refs: splitList(workflowDraft.required_evidence_refs_text),
       });
       await upsertTaskSystemSpecificRecord(taskPayload.task_id, taskPayload);
-      await upsertTaskSystemProjectionBinding(taskPayload.task_id, projectionDraft);
       await upsertTaskSystemFlowContractBinding(taskPayload.task_id, flowDraft);
       const payload = await upsertTaskSystemExecutionPolicy(taskPayload.task_id, {
         ...executionDraft,
@@ -2406,8 +2323,6 @@ export function TaskSystemView() {
       updateTaskGraphPublishState={updateTaskGraphPublishState}
       updateTaskGraphRuntimePolicy={updateTaskGraphRuntimePolicy}
       orchestrationAgentCatalog={orchestrationAgentCatalog}
-      onCreateProjectionFromPrompt={createProjectionFromNodePrompt}
-      projectionCards={domainProjectionCards}
     />
   );
 

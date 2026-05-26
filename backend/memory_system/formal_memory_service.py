@@ -157,10 +157,14 @@ class FormalMemoryService:
             or ""
         ).strip()
         if scope_kind == "run_scoped":
-            scope_id = task_run_id or requested_scope_id or "unbound_run"
+            scope_id = task_run_id or requested_scope_id
+            if not scope_id:
+                raise ValueError(f"run_scoped formal memory requires task_run_id or explicit scope_id: {logical_id}")
             effective_repository_id = f"run:{_safe_scope_id(scope_id)}:{logical_id}"
         elif scope_kind == "project_scoped":
-            scope_id = requested_scope_id or "default_project"
+            scope_id = requested_scope_id
+            if not scope_id:
+                raise ValueError(f"project_scoped formal memory requires project_id or explicit scope_id: {logical_id}")
             effective_repository_id = f"project:{_safe_scope_id(scope_id)}:{logical_id}"
         else:
             scope_id = requested_scope_id or "global"

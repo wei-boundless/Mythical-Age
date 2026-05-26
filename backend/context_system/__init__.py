@@ -26,6 +26,8 @@ __all__ = [
     "RuntimeContextManager",
     "RuntimeContextObservationRecord",
     "RuntimeContextSnapshot",
+    "SealedContextLedgerEntry",
+    "SealedContextReceipt",
     "TaskSummaryRef",
     "build_context_package_result",
     "get_context_budget_preset",
@@ -58,6 +60,8 @@ _EXPORTS = {
     "RuntimeContextManager": ("runtime.shared.context_manager", "RuntimeContextManager"),
     "RuntimeContextObservationRecord": ("runtime.shared.context_manager", "RuntimeContextObservationRecord"),
     "RuntimeContextSnapshot": ("runtime.shared.context_manager", "RuntimeContextSnapshot"),
+    "SealedContextLedgerEntry": ("context_system.models.context_models", "SealedContextLedgerEntry"),
+    "SealedContextReceipt": ("context_system.models.context_models", "SealedContextReceipt"),
     "TaskSummaryRef": ("context_system.policy.runtime_models", "TaskSummaryRef"),
     "build_context_package_result": ("context_system.policy.package_builder", "build_context_package_result"),
     "get_context_budget_preset": ("context_system.budget.presets", "get_context_budget_preset"),
@@ -81,6 +85,8 @@ if TYPE_CHECKING:
         ContextControllerResult,
         ContextPackage,
         PressureLevel,
+        SealedContextLedgerEntry,
+        SealedContextReceipt,
     )
     from context_system.packaging.controller import ContextController
     from context_system.policy import (

@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from config import get_settings
+from context_system.models.context_models import hash_context_section_package
 from prompting.long_term_context import build_long_term_context_bundle
 from prompting.manifest import PromptManifest, build_prompt_manifest, prompt_section
 from prompting.prompt_cache import (
@@ -60,6 +61,7 @@ def _render_context_package_block(
     }
     lines: list[str] = []
     sections = _sections_for_package(package, mode=mode)
+    _assert_context_package_receipt_valid(package, sections)
     allow_hot_truth = _package_allows_hot_truth_prompt(package)
     for section_name, heading in section_order:
         if section_name == "hot_truth_window" and not allow_hot_truth:
@@ -120,6 +122,19 @@ def _sections_for_package(
     if hasattr(package, "model_visible_sections"):
         return getattr(package, "model_visible_sections")
     return package.sections
+
+
+def _assert_context_package_receipt_valid(
+    package: ContextPackage,
+    sections: dict[str, list[str]],
+) -> None:
+    receipt = getattr(package, "sealed_receipt", None)
+    if receipt is None:
+        return
+    expected = str(getattr(receipt, "package_sha256", "") or "")
+    actual = hash_context_section_package(sections)
+    if expected and expected != actual:
+        raise ValueError("ContextPackage sealed receipt does not match model-visible sections")
 
 
 def build_static_prompt(

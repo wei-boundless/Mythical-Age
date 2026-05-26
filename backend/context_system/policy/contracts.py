@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
-from context_system.models.context_models import ContextPackage
+from context_system.models.context_models import ContextPackage, SealedContextReceipt
 
 
 ContextDecision = Literal["include", "drop"]
@@ -30,6 +30,7 @@ class ContextCandidateDecision:
 class ContextPolicyResult:
     package: ContextPackage
     decisions: tuple[ContextCandidateDecision, ...]
+    sealed_receipt: SealedContextReceipt
     read_only: bool = True
     authority: str = "context_policy_result"
     diagnostics: dict[str, Any] = field(default_factory=dict)
@@ -39,11 +40,16 @@ class ContextPolicyResult:
             raise ValueError("ContextPolicyResult must remain read_only")
         if self.authority != "context_policy_result":
             raise ValueError("ContextPolicyResult cannot carry runtime authority")
+        if not self.sealed_receipt.read_only:
+            raise ValueError("ContextPolicyResult sealed receipt must remain read_only")
+        if self.package.sealed_receipt is not None and self.package.sealed_receipt != self.sealed_receipt:
+            raise ValueError("ContextPolicyResult package receipt mismatch")
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "package": self.package.to_dict(),
             "decisions": [decision.to_dict() for decision in self.decisions],
+            "sealed_receipt": self.sealed_receipt.to_dict(),
             "read_only": self.read_only,
             "authority": self.authority,
             "diagnostics": dict(self.diagnostics),

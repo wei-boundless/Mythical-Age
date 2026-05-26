@@ -13,6 +13,31 @@ def _edge() -> dict:
     }
 
 
+def test_formal_memory_run_scope_requires_explicit_task_run_or_scope_id(tmp_path) -> None:
+    service = FormalMemoryService(tmp_path)
+
+    try:
+        service.resolve_repository_scope(logical_repository_id="memory.project.world")
+    except ValueError as exc:
+        assert "run_scoped formal memory requires task_run_id" in str(exc)
+    else:
+        raise AssertionError("run-scoped formal memory silently created an unbound_run scope")
+
+
+def test_formal_memory_project_scope_requires_explicit_project_id(tmp_path) -> None:
+    service = FormalMemoryService(tmp_path)
+
+    try:
+        service.resolve_repository_scope(
+            logical_repository_id="memory.project.world",
+            lifecycle_policy={"scope_kind": "project_scoped"},
+        )
+    except ValueError as exc:
+        assert "project_scoped formal memory requires project_id" in str(exc)
+    else:
+        raise AssertionError("project-scoped formal memory silently created a default_project scope")
+
+
 def test_formal_memory_defaults_to_task_run_isolation(tmp_path) -> None:
     service = FormalMemoryService(tmp_path)
     service.sync_graph_spec(

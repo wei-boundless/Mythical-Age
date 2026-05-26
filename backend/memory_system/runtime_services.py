@@ -6,7 +6,7 @@ from typing import Any
 from project_layout import ProjectLayout
 
 from .formal_memory_service import FormalMemoryService
-from .task_durable_memory_service import TaskDurableMemoryService
+from .task_durable_memory import TaskDurableMemoryService
 from .working_memory_finalizer import WorkingMemoryFinalizer
 from .working_memory_service import WorkingMemoryService
 

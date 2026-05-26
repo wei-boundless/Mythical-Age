@@ -73,20 +73,9 @@ def _next_prefixed_id(existing_ids: list[str], *, prefix: str, width: int = 6) -
 
 
 def _workflow_from_dict(payload: dict[str, Any]) -> TaskWorkflowBinding:
-    compatible_projection_ids = tuple(
-        str(item)
-        for item in list(
-            payload.get("compatible_projection_ids")
-            or payload.get("allowed_projection_ids")
-            or payload.get("allowed_projection_template_ids")
-            or []
-        )
-        if str(item)
-    )
     return TaskWorkflowBinding(
         workflow_id=str(payload.get("workflow_id") or ""),
         title=str(payload.get("title") or ""),
-        compatible_projection_ids=compatible_projection_ids,
         visible_skill_ids=tuple(str(item) for item in list(payload.get("visible_skill_ids") or []) if str(item)),
         steps=tuple(dict(item) for item in list(payload.get("steps") or []) if isinstance(item, dict)),
         input_boundary=str(payload.get("input_boundary") or ""),
@@ -140,7 +129,6 @@ class TaskWorkflowRegistry:
         *,
         workflow_id: str,
         title: str,
-        compatible_projection_ids: tuple[str, ...] = (),
         visible_skill_ids: tuple[str, ...] = (),
         steps: tuple[dict[str, Any], ...] = (),
         input_boundary: str = "",
@@ -158,7 +146,6 @@ class TaskWorkflowRegistry:
         workflow = TaskWorkflowBinding(
             workflow_id=target,
             title=str(title or target).strip(),
-            compatible_projection_ids=tuple(str(item).strip() for item in compatible_projection_ids if str(item).strip()),
             visible_skill_ids=tuple(str(item).strip() for item in visible_skill_ids if str(item).strip()),
             steps=tuple(dict(item) for item in steps if isinstance(item, dict)),
             input_boundary=str(input_boundary or "").strip(),

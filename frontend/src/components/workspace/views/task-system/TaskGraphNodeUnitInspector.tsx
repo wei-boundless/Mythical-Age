@@ -44,10 +44,8 @@ export function TaskGraphNodeUnitInspector({
   domainTaskOptions,
   formatAgent,
   formatContract,
-  formatProjection,
   interfaces,
   node,
-  projectionOptions,
   selected,
   unitEdges,
   updateTaskGraphNode,
@@ -57,10 +55,8 @@ export function TaskGraphNodeUnitInspector({
   domainTaskOptions: Array<{ value: string; label: string }>;
   formatAgent: (agentId: string) => string;
   formatContract: (contractId: string) => string;
-  formatProjection: (projectionId: string) => string;
   interfaces: UnitInterfaceSpec[];
   node: Record<string, unknown>;
-  projectionOptions: string[];
   selected: ComposableUnitSpec;
   unitEdges: UnitPortEdgeSpec[];
   updateTaskGraphNode: (nodeId: string, patch: Record<string, unknown>) => void;
@@ -108,14 +104,6 @@ export function TaskGraphNodeUnitInspector({
             onChange={(value) => updateTaskGraphNode(nodeId, { agent_id: value })}
             options={agentOptions}
             value={stringValue(node.agent_id)}
-            wide
-          />
-          <TaskGraphObjectSelectField
-            formatOption={formatProjection}
-            label="职责 Projection"
-            onChange={(value) => updateTaskGraphNode(nodeId, { projection_id: value, projection_overlay_id: value })}
-            options={projectionOptions}
-            value={stringValue(node.projection_id ?? node.projection_overlay_id)}
             wide
           />
         </div>

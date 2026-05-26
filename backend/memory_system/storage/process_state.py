@@ -318,12 +318,9 @@ class ProcessStateManager:
     def _load_from_path(self, path: Path) -> ProcessState | None:
         if not path.exists():
             return None
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            return None
+        payload = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(payload, dict):
-            return None
+            raise ValueError(f"Process state payload must be a JSON object: {path}")
         return ProcessState.from_dict(payload)
 
 

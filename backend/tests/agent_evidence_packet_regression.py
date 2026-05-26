@@ -9,7 +9,7 @@ from evidence.agent_evidence_packet import build_agent_evidence_packet_from_mcp_
 from evidence.mcp_models import MCPRequest
 from agent_system.registry.agent_registry import default_agent_descriptors
 from runtime.execution.agent_delegation_executor import AgentDelegationExecutor
-from runtime.execution.agent_delegation_executor import _child_system_prompt
+from runtime.execution.delegation_review import child_system_prompt
 from runtime.execution.child_agent_runtime_executor import ChildAgentRuntimeExecutor, _build_mcp_request
 from runtime.execution.delegation_models import AgentDelegationRequest
 from runtime.search_agent_runtime import SearchAgentRuntime
@@ -1227,7 +1227,7 @@ def test_child_fallback_prompt_uses_projection_identity_and_work_style() -> None
         "projection_prompt": "## 工作职责\n\n你要区分正文页、目录页、过渡页、相关页、结论页。",
     }
 
-    prompt = _child_system_prompt(agent, profile, projection_card=projection_card)
+    prompt = child_system_prompt(agent, profile, projection_card=projection_card)
 
     assert "PDF 阅读与证据整理员" in prompt
     assert "目录页、过渡页" in prompt

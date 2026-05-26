@@ -1,0 +1,474 @@
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass, field
+from typing import Any
+
+from .contracts import MemoryContextCandidate, StateMemoryRestoreCandidate
+from .runtime_view import MemoryRuntimeView, normalize_memory_layer, normalize_memory_layers
+
+
+@dataclass(frozen=True, slots=True)
+class MemoryRequest:
+    request_id: str
+    task_id: str
+    session_id: str
+    agent_id: str
+    requested_memory_layers: tuple[str, ...] = ()
+    requested_topics: tuple[str, ...] = ()
+    task_run_id: str = ""
+    graph_id: str = ""
+    owner_node_id: str = ""
+    node_run_id: str = ""
+    run_attempt_id: str = ""
+    memory_priority: str = "normal"
+    allow_long_term_memory: bool = False
+    reason: str = ""
+    authority: str = "memory_system.memory_request"
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["requested_memory_layers"] = list(self.requested_memory_layers)
+        payload["requested_topics"] = list(self.requested_topics)
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
+class MemoryScopePolicy:
+    policy_id: str
+    agent_id: str
+    allowed_layers: tuple[str, ...] = ()
+    allow_long_term_read: bool = False
+    allow_long_term_write: bool = False
+    allow_state_restore: bool = True
+    allow_working_memory_read: bool = True
+    allow_task_durable_memory_read: bool = False
+    allow_cross_task_memory: bool = False
+    writeback_policy: str = "task_default"
+    authority: str = "orchestration.memory_scope_policy"
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["allowed_layers"] = list(self.allowed_layers)
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
+class MemoryBundle:
+    bundle_id: str
+    request_id: str
+    session_id: str
+    agent_id: str
+    runtime_view: MemoryRuntimeView
+    context_package: dict[str, Any]
+    context_candidates: tuple[MemoryContextCandidate, ...] = ()
+    restore_candidates: tuple[StateMemoryRestoreCandidate, ...] = ()
+    selected_layers: tuple[str, ...] = ()
+    selected_topics: tuple[str, ...] = ()
+    diagnostics: dict[str, Any] = field(default_factory=dict)
+    authority: str = "memory_system.memory_bundle"
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["runtime_view"] = self.runtime_view.to_dict()
+        payload["context_candidates"] = [item.to_dict() for item in self.context_candidates]
+        payload["restore_candidates"] = [item.to_dict() for item in self.restore_candidates]
+        payload["selected_layers"] = list(self.selected_layers)
+        payload["selected_topics"] = list(self.selected_topics)
+        return payload
+
+
+@dataclass(slots=True, frozen=True)
+class MemoryReadPlan:
+    requested_layers: tuple[str, ...] = ()
+    allow_long_term: bool = False
+    state_read_requested: bool = False
+    state_read_mode: str = ""
+    requested_topics: tuple[str, ...] = ()
+    working_memory_kinds: tuple[str, ...] = ()
+    working_memory_semantics: tuple[str, ...] = ()
+    task_durable_kinds: tuple[str, ...] = ()
+    task_durable_semantics: tuple[str, ...] = ()
+    working_scope: dict[str, str] = field(default_factory=dict)
+    task_durable_scope: dict[str, str] = field(default_factory=dict)
+    working_limit: int = 20
+    task_durable_limit: int = 20
+    note_limit: int = 5
+    authority: str = "memory_orchestrator.read_plan"
+
+    def wants(self, layer: str) -> bool:
+        return normalize_memory_layer(layer) in self.requested_layers
+
+    def diagnostics(self) -> dict[str, Any]:
+        working_scope = dict(self.working_scope)
+        task_durable_scope = dict(self.task_durable_scope)
+        return {
+            "read_plan_authority": self.authority,
+            "requested_memory_layers": list(self.requested_layers),
+            "allow_long_term": self.allow_long_term,
+            "state_read_requested": self.state_read_requested,
+            "state_read_mode": self.state_read_mode,
+            "requested_topics": list(self.requested_topics),
+            "working_memory_task_run_id": working_scope.get("task_run_id", ""),
+            "working_memory_scope": {
+                "graph_id": working_scope.get("graph_id", ""),
+                "owner_node_id": working_scope.get("owner_node_id", ""),
+                "node_run_id": working_scope.get("node_run_id", ""),
+                "run_attempt_id": working_scope.get("run_attempt_id", ""),
+            },
+            "task_durable_memory_scope": task_durable_scope,
+        }
+
+
+@dataclass(slots=True, frozen=True)
+class MemoryCandidatePool:
+    conversation_candidates: tuple[MemoryContextCandidate, ...] = ()
+    state_candidates: tuple[MemoryContextCandidate, ...] = ()
+    working_candidates: tuple[MemoryContextCandidate, ...] = ()
+    task_durable_candidates: tuple[MemoryContextCandidate, ...] = ()
+    long_term_candidates: tuple[MemoryContextCandidate, ...] = ()
+    restore_candidates: tuple[StateMemoryRestoreCandidate, ...] = ()
+    conversation_snapshot: Any | None = None
+    state_snapshot: Any | None = None
+
+    @property
+    def context_candidates(self) -> tuple[MemoryContextCandidate, ...]:
+        return (
+            *self.conversation_candidates,
+            *self.state_candidates,
+            *self.working_candidates,
+            *self.task_durable_candidates,
+            *self.long_term_candidates,
+        )
+
+    def diagnostics(self) -> dict[str, int]:
+        return {
+            "conversation_candidate_count": len(self.conversation_candidates),
+            "state_candidate_count": len(self.state_candidates),
+            "working_candidate_count": len(self.working_candidates),
+            "task_durable_candidate_count": len(self.task_durable_candidates),
+            "long_term_candidate_count": len(self.long_term_candidates),
+            "restore_candidate_count": len(self.restore_candidates),
+        }
+
+
+class MemoryOrchestrator:
+    """Builds the explicit read plan for runtime memory supply."""
+
+    def build_read_plan(
+        self,
+        memory_request_profile: dict[str, Any] | None,
+        *,
+        note_limit: int = 5,
+    ) -> MemoryReadPlan:
+        profile = dict(memory_request_profile or {})
+        requested_layers = normalize_memory_layers(profile.get("requested_memory_layers"))
+        requested_topics = tuple(_normalize_strings(profile.get("requested_topics")))
+        effective_note_limit = int(note_limit or 5)
+        if requested_topics:
+            effective_note_limit = max(effective_note_limit, min(len(requested_topics) + 2, 8))
+        state_read_requested = "state" in requested_layers
+        return MemoryReadPlan(
+            requested_layers=tuple(requested_layers),
+            allow_long_term=bool(profile.get("allow_long_term_memory", False)),
+            state_read_requested=state_read_requested,
+            state_read_mode=str(profile.get("state_read_mode") or ("recall_candidates" if state_read_requested else "")).strip(),
+            requested_topics=requested_topics,
+            working_memory_kinds=tuple(_normalize_strings(profile.get("working_memory_kinds"))),
+            working_memory_semantics=tuple(_normalize_strings(profile.get("working_memory_semantics"))),
+            task_durable_kinds=tuple(
+                _normalize_strings(profile.get("task_durable_memory_kinds") or profile.get("task_durable_kinds"))
+            ),
+            task_durable_semantics=tuple(
+                _normalize_strings(profile.get("task_durable_memory_semantics") or profile.get("task_durable_semantics"))
+            ),
+            working_scope={
+                "task_run_id": str(profile.get("task_run_id") or ""),
+                "task_id": str(profile.get("task_id") or ""),
+                "graph_id": str(profile.get("graph_id") or ""),
+                "owner_node_id": str(profile.get("owner_node_id") or ""),
+                "node_run_id": str(profile.get("node_run_id") or ""),
+                "run_attempt_id": str(profile.get("run_attempt_id") or ""),
+            },
+            task_durable_scope={
+                "namespace_id": str(profile.get("task_durable_namespace_id") or profile.get("namespace_id") or ""),
+                "domain_id": str(profile.get("domain_id") or ""),
+                "task_id": str(profile.get("task_id") or ""),
+                "graph_id": str(profile.get("graph_id") or ""),
+                "project_id": str(profile.get("project_id") or ""),
+                "artifact_namespace": str(profile.get("artifact_namespace") or ""),
+            },
+            working_limit=_safe_limit(profile.get("working_memory_limit"), default=20),
+            task_durable_limit=_safe_limit(profile.get("task_durable_memory_limit") or profile.get("task_durable_limit"), default=20),
+            note_limit=effective_note_limit,
+        )
+
+
+class MemorySupplier:
+    """Fetches memory candidates, but only according to an explicit plan."""
+
+    def fetch_candidates(
+        self,
+        memory_service: Any,
+        *,
+        session_id: str,
+        plan: MemoryReadPlan,
+        query: str | None = None,
+        memory_intent: Any | None = None,
+        relevant_notes: list[Any] | None = None,
+    ) -> MemoryCandidatePool:
+        conversation_snapshot = memory_service.conversation_memory.load_snapshot(session_id) if plan.wants("conversation") else None
+        state_snapshot = memory_service.state_memory.load_snapshot(session_id) if plan.state_read_requested else None
+        conversation_candidates = (
+            tuple(memory_service.conversation_memory.context_candidates(session_id))
+            if plan.wants("conversation")
+            else ()
+        )
+        state_candidates = (
+            tuple(memory_service.state_memory.context_candidates(session_id))
+            if plan.state_read_requested
+            else ()
+        )
+        working_candidates = (
+            tuple(
+                memory_service.working_memory.context_candidates(
+                    task_run_id=plan.working_scope["task_run_id"],
+                    task_id=plan.working_scope["task_id"],
+                    graph_id=plan.working_scope["graph_id"],
+                    owner_node_id=plan.working_scope["owner_node_id"],
+                    node_run_id=plan.working_scope["node_run_id"],
+                    run_attempt_id=plan.working_scope["run_attempt_id"],
+                    requested_kinds=plan.working_memory_kinds,
+                    requested_semantics=plan.working_memory_semantics,
+                    limit=plan.working_limit,
+                )
+            )
+            if plan.wants("working")
+            else ()
+        )
+        task_durable_candidates = (
+            tuple(
+                memory_service.task_durable_memory.context_candidates(
+                    namespace_id=plan.task_durable_scope["namespace_id"],
+                    domain_id=plan.task_durable_scope["domain_id"],
+                    task_id=plan.task_durable_scope["task_id"],
+                    graph_id=plan.task_durable_scope["graph_id"],
+                    project_id=plan.task_durable_scope["project_id"],
+                    artifact_namespace=plan.task_durable_scope["artifact_namespace"],
+                    requested_kinds=plan.task_durable_kinds,
+                    requested_semantics=plan.task_durable_semantics,
+                    limit=plan.task_durable_limit,
+                )
+            )
+            if plan.wants("task_durable") and memory_service.task_durable_memory is not None
+            else ()
+        )
+        restore_candidates = (
+            tuple(memory_service.state_memory.restore_candidates(session_id))
+            if plan.state_read_requested
+            else ()
+        )
+        long_term_candidates = (
+            tuple(
+                memory_service.build_long_term_memory_context_candidates(
+                    session_id=session_id,
+                    query=query,
+                    memory_intent=memory_intent,
+                    relevant_notes=relevant_notes,
+                    note_limit=plan.note_limit,
+                )
+            )
+            if plan.allow_long_term and plan.wants("long_term")
+            else ()
+        )
+        return MemoryCandidatePool(
+            conversation_snapshot=conversation_snapshot,
+            state_snapshot=state_snapshot,
+            conversation_candidates=conversation_candidates,
+            state_candidates=state_candidates,
+            working_candidates=working_candidates,
+            task_durable_candidates=task_durable_candidates,
+            long_term_candidates=long_term_candidates,
+            restore_candidates=restore_candidates,
+        )
+
+
+def build_memory_runtime_view(
+    memory_service: Any,
+    *,
+    session_id: str,
+    query: str | None = None,
+    memory_intent: Any | None = None,
+    memory_request_profile: dict[str, Any] | None = None,
+    relevant_notes: list[Any] | None = None,
+    note_limit: int = 5,
+    orchestrator: MemoryOrchestrator | None = None,
+    supplier: MemorySupplier | None = None,
+) -> MemoryRuntimeView:
+    read_plan = (orchestrator or MemoryOrchestrator()).build_read_plan(
+        memory_request_profile,
+        note_limit=note_limit,
+    )
+    candidate_pool = (supplier or MemorySupplier()).fetch_candidates(
+        memory_service,
+        session_id=session_id,
+        plan=read_plan,
+        query=query,
+        memory_intent=memory_intent,
+        relevant_notes=relevant_notes,
+    )
+    return MemoryRuntimeView(
+        view_id=f"memory-runtime:{session_id or 'default'}",
+        session_id=session_id,
+        conversation_snapshot=candidate_pool.conversation_snapshot,
+        state_snapshot=candidate_pool.state_snapshot,
+        context_candidates=candidate_pool.context_candidates,
+        restore_candidates=candidate_pool.restore_candidates,
+        read_only=True,
+        memory_write_allowed=False,
+        diagnostics={
+            **candidate_pool.diagnostics(),
+            "memory_write_allowed": False,
+            "read_plan": read_plan.diagnostics(),
+            **read_plan.diagnostics(),
+        },
+    )
+
+
+def build_memory_request(
+    *,
+    task_id: str,
+    session_id: str,
+    agent_id: str,
+    memory_request_profile: dict[str, Any] | None = None,
+    reason: str = "",
+) -> MemoryRequest:
+    profile = dict(memory_request_profile or {})
+    requested_layers = normalize_memory_layers(profile.get("requested_memory_layers"))
+    requested_topics = _normalize_strings(profile.get("requested_topics"))
+    return MemoryRequest(
+        request_id=f"memreq:{task_id}:{session_id}:{agent_id}",
+        task_id=task_id,
+        session_id=session_id,
+        agent_id=agent_id,
+        requested_memory_layers=tuple(requested_layers),
+        requested_topics=tuple(requested_topics),
+        task_run_id=str(profile.get("task_run_id") or ""),
+        graph_id=str(profile.get("graph_id") or ""),
+        owner_node_id=str(profile.get("owner_node_id") or ""),
+        node_run_id=str(profile.get("node_run_id") or ""),
+        run_attempt_id=str(profile.get("run_attempt_id") or ""),
+        memory_priority=str(profile.get("memory_priority") or "normal"),
+        allow_long_term_memory=bool(profile.get("allow_long_term_memory", False)),
+        reason=reason or str(profile.get("memory_scope_hint") or ""),
+    )
+
+
+def build_memory_scope_policy(
+    *,
+    agent_id: str,
+    memory_request_profile: dict[str, Any] | None = None,
+) -> MemoryScopePolicy:
+    profile = dict(memory_request_profile or {})
+    allowed_layers = normalize_memory_layers(profile.get("requested_memory_layers"))
+    allow_long_term = bool(profile.get("allow_long_term_memory", False)) or "long_term" in allowed_layers
+    allow_task_durable = "task_durable" in allowed_layers
+    return MemoryScopePolicy(
+        policy_id=f"memscope:{agent_id}",
+        agent_id=agent_id,
+        allowed_layers=tuple(allowed_layers),
+        allow_long_term_read=allow_long_term,
+        allow_long_term_write=False,
+        allow_state_restore="state" in allowed_layers,
+        allow_working_memory_read="working" in allowed_layers,
+        allow_task_durable_memory_read=allow_task_durable,
+        allow_cross_task_memory=False,
+        writeback_policy=str(profile.get("writeback_policy") or "task_default"),
+    )
+
+
+def apply_memory_scope_policy(request: MemoryRequest, scope_policy: MemoryScopePolicy) -> MemoryRequest:
+    allowed = set(scope_policy.allowed_layers)
+    requested_layers = [layer for layer in request.requested_memory_layers if layer in allowed]
+    allow_long_term = request.allow_long_term_memory and scope_policy.allow_long_term_read
+    if not allow_long_term:
+        requested_layers = [layer for layer in requested_layers if layer != "long_term"]
+    if not scope_policy.allow_working_memory_read:
+        requested_layers = [layer for layer in requested_layers if layer != "working"]
+    if not scope_policy.allow_task_durable_memory_read:
+        requested_layers = [layer for layer in requested_layers if layer != "task_durable"]
+    return MemoryRequest(
+        request_id=request.request_id,
+        task_id=request.task_id,
+        session_id=request.session_id,
+        agent_id=request.agent_id,
+        requested_memory_layers=tuple(requested_layers),
+        requested_topics=request.requested_topics,
+        task_run_id=request.task_run_id,
+        graph_id=request.graph_id,
+        owner_node_id=request.owner_node_id,
+        node_run_id=request.node_run_id,
+        run_attempt_id=request.run_attempt_id,
+        memory_priority=request.memory_priority,
+        allow_long_term_memory=allow_long_term,
+        reason=request.reason,
+    )
+
+
+def build_memory_bundle(
+    *,
+    request: MemoryRequest,
+    runtime_view: MemoryRuntimeView,
+    context_policy_result: Any | None = None,
+) -> MemoryBundle:
+    context_package = {}
+    diagnostics = {
+        "memory_runtime_view_ref": runtime_view.view_id,
+        "context_candidate_count": len(runtime_view.context_candidates),
+        "restore_candidate_count": len(runtime_view.restore_candidates),
+        "selected_layer_count": len(request.requested_memory_layers),
+    }
+    if context_policy_result is not None:
+        context_package = context_policy_result.to_dict() if hasattr(context_policy_result, "to_dict") else dict(context_policy_result)
+        diagnostics["context_policy_attached"] = True
+    else:
+        diagnostics["context_policy_attached"] = False
+    return MemoryBundle(
+        bundle_id=f"membundle:{request.task_id}:{request.session_id}:{request.agent_id}",
+        request_id=request.request_id,
+        session_id=request.session_id,
+        agent_id=request.agent_id,
+        runtime_view=runtime_view,
+        context_package=context_package,
+        context_candidates=tuple(runtime_view.context_candidates),
+        restore_candidates=tuple(runtime_view.restore_candidates),
+        selected_layers=request.requested_memory_layers,
+        selected_topics=request.requested_topics,
+        diagnostics=diagnostics,
+    )
+
+
+def build_memory_read_plan(
+    memory_request_profile: dict[str, Any] | None,
+    *,
+    note_limit: int = 5,
+) -> MemoryReadPlan:
+    return MemoryOrchestrator().build_read_plan(memory_request_profile, note_limit=note_limit)
+
+
+def _normalize_strings(values: Any) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in list(values or ()):
+        value = str(item or "").strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        normalized.append(value)
+    return normalized
+
+
+def _safe_limit(value: Any, *, default: int) -> int:
+    try:
+        return max(1, min(int(value or default), 1000))
+    except (TypeError, ValueError):
+        return default

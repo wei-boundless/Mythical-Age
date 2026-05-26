@@ -5,6 +5,8 @@ from context_system.models.context_models import (
     ContextControllerResult,
     ContextPackage,
     PressureLevel,
+    SealedContextLedgerEntry,
+    SealedContextReceipt,
 )
 
 __all__ = [
@@ -12,4 +14,6 @@ __all__ = [
     "ContextControllerResult",
     "ContextPackage",
     "PressureLevel",
+    "SealedContextLedgerEntry",
+    "SealedContextReceipt",
 ]

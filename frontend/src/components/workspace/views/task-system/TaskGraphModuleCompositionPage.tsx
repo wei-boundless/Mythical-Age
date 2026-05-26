@@ -20,7 +20,6 @@ export function TaskGraphModuleCompositionPage({
   onEditorFocus,
   onOpenGraph,
   orchestrationAgentCatalog,
-  projectionCards,
   standardView,
   standardViewStale = false,
   standardViewLoading,
@@ -44,7 +43,6 @@ export function TaskGraphModuleCompositionPage({
   onEditorFocus?: (focus: Partial<TaskGraphEditorFocus> & { layer?: TaskGraphEditorFocus["layer"] }) => void;
   onOpenGraph?: (graphId: string) => void;
   orchestrationAgentCatalog?: OrchestrationAgentRuntimeCatalog | null;
-  projectionCards?: Array<{ projection_id: string; title?: string; soul_name?: string; soul_id?: string }>;
   standardView: TaskGraphStandardView | null;
   standardViewStale?: boolean;
   standardViewLoading?: boolean;
@@ -70,7 +68,6 @@ export function TaskGraphModuleCompositionPage({
       onEditorFocus={onEditorFocus}
       onOpenGraph={onOpenGraph}
       orchestrationAgentCatalog={orchestrationAgentCatalog}
-      projectionCards={projectionCards}
       standardView={standardView}
       standardViewStale={standardViewStale}
       standardViewLoading={standardViewLoading}

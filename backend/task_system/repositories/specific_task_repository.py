@@ -122,6 +122,27 @@ class SpecificTaskRepository:
         )
         return record
 
+    def delete_many(self, task_ids: set[str]) -> set[str]:
+        targets = {str(item or "").strip() for item in task_ids if str(item or "").strip()}
+        if not targets:
+            return set()
+        payload = self.storage.read_object("specific_task_records.json", {"specific_task_records": []})
+        deleted_task_ids = {
+            str(item).strip()
+            for item in list(payload.get("deleted_task_ids") or [])
+            if str(item).strip()
+        }
+        deleted_task_ids.update(targets)
+        records = [item for item in self.list() if item.task_id not in targets]
+        self.storage.write_object(
+            "specific_task_records.json",
+            {
+                "specific_task_records": [item.to_dict() for item in records],
+                "deleted_task_ids": sorted(deleted_task_ids),
+            },
+        )
+        return targets
+
 
 def _specific_task_record_from_payload(item: dict[str, object]) -> SpecificTaskRecord:
     return SpecificTaskRecord(

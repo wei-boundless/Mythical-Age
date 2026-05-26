@@ -51,7 +51,6 @@ class TaskAssignment:
     participant_agent_ids: tuple[str, ...] = ()
     workflow_id: str = ""
     workflow_file_ref: str = ""
-    projection_id: str = ""
     input_contract_id: str = ""
     output_contract_id: str = ""
     safety_policy: dict[str, Any] = field(default_factory=dict)
@@ -62,8 +61,6 @@ class TaskAssignment:
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["participant_agent_ids"] = list(self.participant_agent_ids)
-        if not str(payload.get("projection_id") or "").strip():
-            payload.pop("projection_id", None)
         task_structure = dict(payload.get("task_structure") or {})
         chain_type = str(task_structure.get("execution_chain_type") or task_structure.get("chain_type") or "").strip()
         if not chain_type:
@@ -107,32 +104,6 @@ class TaskDomainRecord:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
-
-
-@dataclass(frozen=True, slots=True)
-class TaskProjectionBinding:
-    binding_id: str
-    task_id: str
-    projection_selection_mode: str = "task_default"
-    allowed_projection_ids: tuple[str, ...] = ()
-    default_projection_id: str = ""
-    projection_required: bool = False
-    notes: str = ""
-    metadata: dict[str, Any] = field(default_factory=dict)
-    authority: str = "task_system.task_projection_binding"
-
-    def __post_init__(self) -> None:
-        if self.authority != "task_system.task_projection_binding":
-            raise ValueError("TaskProjectionBinding authority must be task_system.task_projection_binding")
-        if not self.binding_id:
-            raise ValueError("TaskProjectionBinding requires binding_id")
-        if not self.task_id:
-            raise ValueError("TaskProjectionBinding requires task_id")
-
-    def to_dict(self) -> dict[str, Any]:
-        payload = asdict(self)
-        payload["allowed_projection_ids"] = list(self.allowed_projection_ids)
-        return payload
 
 
 @dataclass(frozen=True, slots=True)

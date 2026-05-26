@@ -23,7 +23,6 @@ export type TaskGraphNode = Record<string, unknown> & {
   label?: string;
   task_id?: string;
   agent_id?: string;
-  projection_id?: string;
   executor_policy?: Record<string, unknown>;
   role?: string;
   work_posture?: string;
@@ -119,7 +118,5 @@ export type TaskGraphWorkbenchProps = {
   refreshTaskGraphStandardView: () => Promise<void>;
   a2aCatalog: TaskGraphAgentCardCatalog | null;
   orchestrationAgentCatalog: OrchestrationAgentRuntimeCatalog | null;
-  onCreateProjectionFromPrompt?: (input: { node: Record<string, unknown>; nodeId: string; prompt: string }) => Promise<string>;
   contractSpecs: ContractSpec[];
-  projectionCards?: Array<{ projection_id: string; title?: string; soul_name?: string; soul_id?: string }>;
 };

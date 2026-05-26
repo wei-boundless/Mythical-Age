@@ -5,7 +5,7 @@ import json
 from types import SimpleNamespace
 
 from memory_system import MemoryFacade
-from memory_system.maintenance_agent import MemoryMaintenanceAgent
+from memory_system.maintenance import MemoryMaintenanceAgent
 from memory_system.storage.models import MemoryNote
 
 
@@ -86,6 +86,32 @@ def test_memory_maintenance_coordinator_writes_session_and_durable_via_agent(tmp
     assert receipt.durable_write_count == 1
     assert "接通记忆管理 Agent" in facade.session_memory.manager("session-memory-maintenance").load()
     assert facade.memory_manager.note_path("memory-agent-boundary").exists()
+
+
+def test_memory_maintenance_agent_session_draft_does_not_overwrite_process_state(tmp_path) -> None:
+    facade = MemoryFacade(tmp_path)
+    facade.set_model_invoker(_fake_invoker(_agent_payload()))
+
+    receipt = facade.run_memory_maintenance_after_commit(
+        session_id="session-maintenance-state-boundary",
+        messages=[
+            {"role": "user", "content": "继续推进记忆系统重构"},
+            {"role": "assistant", "content": "已经整理当前状态"},
+        ],
+        main_context={"active_goal": "系统权威目标：重构 runtime 读取链"},
+        task_summary_refs=[{"query": "重构 runtime 读取链", "summary": "读取链已由 plan 控制。"}],
+    )
+
+    manager = facade.session_memory.manager("session-maintenance-state-boundary")
+    state = manager.load_state()
+    rendered_view = manager.load()
+
+    assert receipt.status == "succeeded"
+    assert state.active_goal == "系统权威目标：重构 runtime 读取链"
+    assert "接通记忆管理 Agent" in rendered_view
+    assert state.active_goal not in rendered_view
+    assert receipt.diagnostics["proposal_authority"] == "memory_maintenance_agent.proposal"
+    assert receipt.diagnostics["commit_authority"] == "memory_system.memory_committer"
 
 
 def test_memory_maintenance_model_failure_does_not_fallback_write_durable(tmp_path) -> None:
@@ -253,4 +279,71 @@ def test_durable_merge_deprecates_sources(tmp_path) -> None:
     assert set(receipt.diagnostics["durable_actions"]["deprecated"]) == {"old-a", "old-b"}
     assert old_a is not None and old_a.status == "deprecated"
     assert old_b is not None and old_b.status == "deprecated"
+    edges = facade.memory_manager.list_temporal_fact_edges()
+    merge_edges = [
+        edge
+        for edge in edges
+        if edge.relation == "merged_into" and edge.target_note_id == "merged-rule"
+    ]
+    assert {edge.source_note_id for edge in merge_edges} == {"old-a", "old-b"}
+    assert all(edge.actor == "agent:1" for edge in merge_edges)
+    assert all(edge.source_evidence_ref for edge in merge_edges)
+
+
+def test_durable_update_records_refine_edge(tmp_path) -> None:
+    facade = MemoryFacade(tmp_path)
+    facade.memory_manager.save_note(
+        MemoryNote(
+            slug="memory-policy",
+            title="记忆政策",
+            summary="长期记忆只保存稳定事实。",
+            canonical_statement="长期记忆只保存稳定事实。",
+            body="旧描述。",
+            memory_type="project",
+            memory_class="work",
+        )
+    )
+    facade.set_model_invoker(
+        _fake_invoker(
+            _agent_payload(
+                durable_actions=[
+                    {
+                        "action": "update",
+                        "target_note_id": "memory-policy",
+                        "memory_type": "project",
+                        "memory_class": "work",
+                        "title": "记忆政策",
+                        "canonical_statement": "长期记忆必须有证据和来源引用。",
+                        "summary": "长期记忆写入必须保留证据。",
+                        "evidence_excerpt": "用户要求长期记忆更新必须真实可追踪",
+                        "source_message_refs": ["message:1"],
+                    }
+                ]
+            )
+        )
+    )
+
+    receipt = facade.run_memory_maintenance_after_commit(
+        session_id="session-update-edge",
+        messages=[{"role": "user", "content": "更新长期记忆"}, {"role": "assistant", "content": "完成"}],
+    )
+
+    updated = facade.memory_manager.load_note_record("memory-policy")
+    edges = facade.memory_manager.list_temporal_fact_edges()
+    refine_edges = [
+        edge
+        for edge in edges
+        if edge.relation == "refines" and edge.source_note_id == "memory-policy"
+    ]
+
+    assert receipt.durable_memory_succeeded is True
+    assert receipt.diagnostics["durable_actions"]["updated"] == ["memory-policy"]
+    assert updated is not None
+    assert updated.canonical_statement == "长期记忆必须有证据和来源引用。"
+    assert len(refine_edges) == 1
+    assert refine_edges[0].target_note_id == "memory-policy"
+    assert refine_edges[0].before_sha256
+    assert refine_edges[0].after_sha256
+    assert refine_edges[0].before_sha256 != refine_edges[0].after_sha256
+    assert refine_edges[0].source_evidence_ref
 

@@ -10,8 +10,7 @@ from .continuity import ForegroundContinuityStateStore, MemoryMessageAdapter, Se
 from .conversation_memory import ConversationMemoryStoreAdapter
 from .durable import DurableMemoryLayer
 from .governance_service import DurableMemoryGovernanceService
-from .maintenance_agent import MemoryMaintenanceAgent
-from .maintenance_coordinator import MemoryMaintenanceCoordinator
+from .maintenance import MemoryMaintenanceAgent, MemoryMaintenanceCoordinator
 from .runtime_services import MemoryRuntimeServices
 from .state_memory import StateMemoryStoreAdapter
 
@@ -91,7 +90,7 @@ class MemoryFacade:
             session_id=session_id,
             lane_id="session_memory_maintenance",
         )
-        from .maintenance_models import MemoryMaintenanceReceipt
+        from .maintenance import MemoryMaintenanceReceipt
 
         return MemoryMaintenanceReceipt(
             run_id=record.task_id,

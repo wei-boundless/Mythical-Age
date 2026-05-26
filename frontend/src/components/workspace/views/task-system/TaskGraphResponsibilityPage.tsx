@@ -38,7 +38,7 @@ function CognitionPackagePanel({
 
       <div className="task-graph-mini-kv">
         <p><span>Agent</span><strong>{nodePackage.agentId || "未绑定"}</strong></p>
-        <p><span>Projection</span><strong>{nodePackage.projectionId || "未绑定"}</strong></p>
+        <p><span>角色</span><strong>{nodePackage.role || "participant"}</strong></p>
         <p><span>Clock Scope</span><strong>{nodePackage.timelineScope}</strong></p>
         <p><span>输入包</span><strong>{nodePackage.inputPackets.length}</strong></p>
         <p><span>输出/交接</span><strong>{nodePackage.outputs.length}</strong></p>
@@ -93,8 +93,6 @@ function CognitionPackagePanel({
 export function TaskGraphResponsibilityPage({
   activeGraphEdges,
   activeGraphNodes,
-  onCreateProjectionFromPrompt,
-  projectionCards,
   selectedGraphNode,
   selectedGraphNodeId,
   selectedGraphEdge,
@@ -107,8 +105,6 @@ export function TaskGraphResponsibilityPage({
 }: {
   activeGraphEdges: Array<Record<string, unknown>>;
   activeGraphNodes: Array<Record<string, unknown>>;
-  onCreateProjectionFromPrompt?: (input: { node: Record<string, unknown>; nodeId: string; prompt: string }) => Promise<string>;
-  projectionCards?: Array<{ projection_id: string; title?: string; soul_name?: string; soul_id?: string }>;
   selectedGraphNode: Record<string, unknown> | null;
   selectedGraphNodeId: string;
   selectedGraphEdge: Record<string, unknown> | null;
@@ -201,8 +197,6 @@ export function TaskGraphResponsibilityPage({
         </aside>
         <div className="task-graph-cognition-workbench__main">
           <NodeResponsibilityCard
-            onCreateProjectionFromPrompt={onCreateProjectionFromPrompt}
-            projectionCards={projectionCards}
             selectedGraphNode={selectedGraphNode}
             selectedGraphNodeId={selectedGraphNodeId}
             updateTaskGraphNode={updateTaskGraphNode}

@@ -15,6 +15,9 @@ def test_default_task_environments_reference_file_profiles() -> None:
     writing = registry.require("env.writing").spec
     coding = registry.require("env.vibe_coding").spec
     research = registry.require("env.web_research").spec
+    data = registry.require("env.data_analysis").spec
+    document = registry.require("env.document_processing").spec
+    general = registry.require("env.general_workspace").spec
 
     assert writing.tool_space.shell_policy == "denied"
     assert "file_profile.writing_manuscript" in writing.file_management.file_profile_refs
@@ -37,6 +40,18 @@ def test_default_task_environments_reference_file_profiles() -> None:
     assert research.tool_space.network_policy == "allowed"
     assert research.execution_policy.network_execution_policy == "allowed"
 
+    assert "file_profile.data_analysis_workspace" in data.file_management.file_profile_refs
+    assert data.tool_space.shell_policy == "denied"
+    assert "op.python_repl" in data.tool_space.allowed_operation_market
+
+    assert "file_profile.document_processing" in document.file_management.file_profile_refs
+    assert document.tool_space.shell_policy == "denied"
+    assert document.execution_policy.write_scope_policy == "document_artifacts_only"
+
+    assert "file_profile.general_workspace" in general.file_management.file_profile_refs
+    assert general.runtime_policy.graph_allowed is False
+    assert "op.shell" in general.tool_space.denied_operation_refs
+
 
 def test_resolved_writing_environment_builds_file_access_table() -> None:
     resolved = resolve_task_environment("env.writing")
@@ -57,3 +72,17 @@ def test_resolved_environment_can_apply_agent_file_action_ceiling() -> None:
     assert table.is_allowed(repository_id="repo.coding.project_workspace", action="read") is True
     assert table.is_allowed(repository_id="repo.coding.sandbox_workspace", action="write") is False
     assert any(denial.source == "agent_profile" and denial.action == "write" for denial in table.denials)
+
+
+def test_all_default_task_environments_resolve_file_access_tables() -> None:
+    for environment_id in (
+        "env.writing",
+        "env.vibe_coding",
+        "env.web_research",
+        "env.data_analysis",
+        "env.document_processing",
+        "env.general_workspace",
+    ):
+        resolved = resolve_task_environment(environment_id)
+        assert resolved.spec.environment_id == environment_id
+        assert resolved.file_access_tables

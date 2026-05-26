@@ -8,6 +8,7 @@ def test_formal_memory_candidate_commit_and_directed_read(tmp_path) -> None:
     service = FormalMemoryService(tmp_path)
     service.sync_graph_spec(
         graph_id="graph:writing",
+        task_run_id="taskrun:writing",
         graph_spec={
             "nodes": [
                 {

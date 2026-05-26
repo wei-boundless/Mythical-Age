@@ -238,7 +238,6 @@ def _merge_explicit_graph_module_node(
         role="graph_module",
         agent_id="",
         runtime_lane="",
-        projection_id="",
         task_id=graph_module_runtime.task_id,
         executor_policy={
             **dict(explicit.executor_policy or {}),
@@ -270,7 +269,6 @@ def _merge_explicit_graph_module_node(
                 **dict(explicit_metadata.get("effective_policy_sources") or {}),
                 **dict(graph_module_metadata.get("effective_policy_sources") or {}),
                 "agent_id": "graph_module_container",
-                "projection_id": "graph_module_container",
                 "graph_module_merge": "graph.nodes[]",
             },
         },

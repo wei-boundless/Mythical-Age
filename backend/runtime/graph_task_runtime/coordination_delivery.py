@@ -40,7 +40,6 @@ async def run_coordination_delivery_stream(
     agent_runtime_chain = request.agent_runtime_chain
     model_response_executor = request.model_response_executor
     runtime_context_manager = request.runtime_context_manager
-    stage_projection_cycle = request.stage_projection_cycle
     memory_intent = request.memory_intent
     assistant_message_committer = request.assistant_message_committer
     tool_runtime_executor = request.tool_runtime_executor
@@ -126,7 +125,6 @@ async def run_coordination_delivery_stream(
             ),
             model_response_executor=model_response_executor,
             runtime_context_manager=runtime_context_manager,
-            stage_projection_cycle=stage_projection_cycle,
             memory_intent=memory_intent,
             task_selection=task_selection,
             assistant_message_committer=assistant_message_committer,

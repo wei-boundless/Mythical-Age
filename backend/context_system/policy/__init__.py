@@ -9,6 +9,8 @@ __all__ = [
     "EvidenceSummary",
     "MainContextState",
     "MemoryContextPolicy",
+    "SealedContextLedgerEntry",
+    "SealedContextReceipt",
     "TaskSummaryRef",
     "build_context_package_result",
 ]
@@ -19,6 +21,8 @@ _EXPORTS = {
     "EvidenceSummary": ("context_system.policy.runtime_models", "EvidenceSummary"),
     "MainContextState": ("context_system.policy.runtime_models", "MainContextState"),
     "MemoryContextPolicy": ("context_system.policy.package_builder", "MemoryContextPolicy"),
+    "SealedContextLedgerEntry": ("context_system.models.context_models", "SealedContextLedgerEntry"),
+    "SealedContextReceipt": ("context_system.models.context_models", "SealedContextReceipt"),
     "TaskSummaryRef": ("context_system.policy.runtime_models", "TaskSummaryRef"),
     "build_context_package_result": ("context_system.policy.package_builder", "build_context_package_result"),
 }
@@ -27,6 +31,7 @@ if TYPE_CHECKING:
     from context_system.policy.contracts import ContextCandidateDecision, ContextPolicyResult
     from context_system.policy.package_builder import MemoryContextPolicy, build_context_package_result
     from context_system.policy.runtime_models import EvidenceSummary, MainContextState, TaskSummaryRef
+    from context_system.models.context_models import SealedContextLedgerEntry, SealedContextReceipt
 
 
 def __getattr__(name: str):

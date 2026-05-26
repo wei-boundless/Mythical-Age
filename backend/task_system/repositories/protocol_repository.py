@@ -93,3 +93,14 @@ class TaskCommunicationProtocolRepository:
             {"communication_protocols": [item.to_dict() for item in protocols]},
         )
         return protocol
+
+    def delete_many(self, protocol_ids: set[str]) -> set[str]:
+        targets = {str(item or "").strip() for item in protocol_ids if str(item or "").strip()}
+        if not targets:
+            return set()
+        protocols = [item for item in self.list() if item.protocol_id not in targets]
+        self.storage.write_object(
+            "task_communication_protocols.json",
+            {"communication_protocols": [item.to_dict() for item in protocols]},
+        )
+        return targets

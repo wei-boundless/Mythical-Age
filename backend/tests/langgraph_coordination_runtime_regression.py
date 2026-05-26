@@ -1978,7 +1978,11 @@ def test_formal_memory_read_edge_does_not_fallback_to_working_memory(tmp_path) -
             }
         ],
     }
-    runtime.formal_memory.sync_graph_spec(graph_id="graph.test.formal_memory_read", graph_spec=graph_spec)
+    runtime.formal_memory.sync_graph_spec(
+        graph_id="graph.test.formal_memory_read",
+        graph_spec=graph_spec,
+        task_run_id="taskrun:formal-read",
+    )
     candidate, _write_txn = runtime.formal_memory.write_candidate_from_edge(
         edge={
             "edge_id": "edge.world_author.memory.world",

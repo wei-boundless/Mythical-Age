@@ -46,7 +46,6 @@ export type TaskGraphCognitionPackage = {
   title: string;
   role: string;
   agentId: string;
-  projectionId: string;
   phaseId: string;
   sequenceIndex: number;
   timelineScope: string;
@@ -330,7 +329,6 @@ export function buildTaskGraphCognitionModel({
         title: nodeTitle(node, index),
         role: stringValue(node.role ?? node.work_posture ?? node.node_type, "participant"),
         agentId: stringValue(node.agent_id),
-        projectionId: stringValue(node.projection_id ?? node.projection_overlay_id),
         phaseId: stringValue(node.phase_id, "phase.unassigned"),
         sequenceIndex: Number(node.sequence_index ?? index + 1),
         timelineScope: `${stringValue(node.phase_id, "phase.unassigned")}/S${Number(node.sequence_index ?? index + 1)}`,
@@ -348,7 +346,6 @@ export function buildTaskGraphCognitionModel({
         issues: [] as string[],
       };
       const issues = [
-        basePackage.agentId && !basePackage.projectionId ? "节点已绑定 Agent，但缺少 Projection 引用" : "",
         !basePackage.roleIdentity ? "节点缺少角色身份说明" : "",
         ...basePackage.inputPackets.flatMap((packet) => packet.issues),
         basePackage.outputs.length === 0 ? "节点没有明确输出、交接或提交确认配置" : "",

@@ -53,7 +53,7 @@ def _slug_ref(value: object, fallback: str = "node") -> str:
     return normalized or fallback
 
 
-def _build_task_graph_node_projection_prompt(node: dict[str, object], metadata: dict[str, object]) -> str:
+def _build_task_graph_node_role_prompt(node: dict[str, object], metadata: dict[str, object]) -> str:
     role_prompt = str(metadata.get("role_prompt") or "").strip()
     if role_prompt:
         return role_prompt
@@ -102,12 +102,10 @@ def _strip_task_graph_prompt_metadata(
     return cleaned
 
 
-def _strip_empty_task_graph_projection_fields(node: dict[str, object]) -> dict[str, object]:
+def _strip_task_graph_projection_fields(node: dict[str, object]) -> dict[str, object]:
     next_node = dict(node)
-    if not str(next_node.get("projection_id") or "").strip():
-        next_node.pop("projection_id", None)
-    if not str(next_node.get("projection_overlay_id") or "").strip():
-        next_node.pop("projection_overlay_id", None)
+    next_node.pop("projection_id", None)
+    next_node.pop("projection_overlay_id", None)
     return next_node
 
 
@@ -122,9 +120,9 @@ def _migrate_task_graph_legacy_prompt_nodes(
     prompt_registry = PromptLibraryRegistry(base_dir)
     migrated_nodes: list[dict[str, object]] = []
     for node in nodes:
-        next_node = _strip_empty_task_graph_projection_fields(dict(node))
+        next_node = _strip_task_graph_projection_fields(dict(node))
         metadata = dict(next_node.get("metadata") or {})
-        prompt = _build_task_graph_node_projection_prompt(next_node, metadata)
+        prompt = _build_task_graph_node_role_prompt(next_node, metadata)
         prompt_resource_id = ""
         if prompt:
             resource = prompt_registry.migrate_task_graph_node_prompt(
@@ -135,8 +133,6 @@ def _migrate_task_graph_legacy_prompt_nodes(
                 prompt=prompt,
             )
             prompt_resource_id = resource.resource_id
-            next_node.pop("projection_id", None)
-            next_node.pop("projection_overlay_id", None)
         if prompt or any(key in metadata for key in TASK_GRAPH_PROMPT_METADATA_KEYS):
             next_node["metadata"] = _strip_task_graph_prompt_metadata(
                 metadata,
@@ -200,16 +196,6 @@ class TaskDomainUpsertRequest(BaseModel):
     metadata: dict[str, object] = Field(default_factory=dict)
 
 
-class TaskProjectionBindingUpsertRequest(BaseModel):
-    task_id: str = Field(..., min_length=3, max_length=160)
-    projection_selection_mode: str = Field(default="task_default", max_length=120)
-    allowed_projection_ids: list[str] = Field(default_factory=list)
-    default_projection_id: str = Field(default="", max_length=160)
-    projection_required: bool = False
-    notes: str = Field(default="", max_length=1000)
-    metadata: dict[str, object] = Field(default_factory=dict)
-
-
 class TaskFlowContractBindingUpsertRequest(BaseModel):
     task_id: str = Field(..., min_length=3, max_length=160)
     flow_contract_id: str = Field(..., min_length=3, max_length=160)
@@ -237,7 +223,6 @@ class TaskWorkflowUpsertRequest(BaseModel):
     workflow_id: str = Field(..., min_length=3, max_length=160)
     title: str = Field(..., min_length=1, max_length=160)
     task_mode: str = Field(default="", max_length=120)
-    compatible_projection_ids: list[str] = Field(default_factory=list)
     visible_skill_ids: list[str] = Field(default_factory=list)
     steps: list[dict[str, object]] = Field(default_factory=list)
     input_boundary: str = Field(default="", max_length=1000)
@@ -408,13 +393,10 @@ def _task_system_payload(base_dir) -> dict[str, object]:
     entry_policies = [item.to_dict() for item in registry.list_general_task_profiles()]
     task_assignments = [item.to_dict() for item in registry.list_task_assignments()]
     specific_task_records = [item.to_dict() for item in registry.list_specific_task_records()]
-    projection_binding_models = registry.list_projection_bindings()
-    explicit_projection_binding_models = registry.list_explicit_projection_bindings()
     flow_contract_binding_models = registry.list_flow_contract_bindings()
     explicit_flow_contract_binding_models = registry.list_explicit_flow_contract_bindings()
     execution_policy_models = registry.list_task_execution_policies()
     explicit_execution_policy_models = registry.list_explicit_task_execution_policies()
-    projection_bindings = [model.to_dict() for model in projection_binding_models]
     flow_contract_bindings = [model.to_dict() for model in flow_contract_binding_models]
     explicit_execution_task_ids = {item.task_id for item in explicit_execution_policy_models}
     execution_policies = [item.to_dict() for item in execution_policy_models]
@@ -455,13 +437,6 @@ def _task_system_payload(base_dir) -> dict[str, object]:
             "specific_task_record_count": len(specific_task_records),
             "task_assignment_count": len(task_assignments),
             "task_flow_count": len(task_flows),
-            "projection_binding_count": len(explicit_projection_binding_models),
-            "derived_projection_binding_count": _derived_count(
-                projection_binding_models,
-                explicit_projection_binding_models,
-                key_attr="binding_id",
-            ),
-            "effective_projection_binding_count": len(projection_binding_models),
             "flow_contract_binding_count": len(explicit_flow_contract_binding_models),
             "derived_flow_contract_binding_count": _derived_count(
                 flow_contract_binding_models,
@@ -491,7 +466,6 @@ def _task_system_payload(base_dir) -> dict[str, object]:
             "task_domains": task_domains,
             "specific_task_records": specific_task_records,
             "task_flow_definitions": task_flows,
-            "projection_bindings": projection_bindings,
             "flow_contract_bindings": flow_contract_bindings,
             "execution_policies": execution_policies,
             "contract_catalog": contract_catalog,
@@ -1571,7 +1545,6 @@ async def upsert_task_system_workflow(workflow_id: str, payload: TaskWorkflowUps
         TaskWorkflowRegistry(runtime.base_dir).upsert_workflow(
             workflow_id=payload.workflow_id,
             title=payload.title,
-            compatible_projection_ids=tuple(payload.compatible_projection_ids),
             visible_skill_ids=tuple(payload.visible_skill_ids),
             steps=tuple(dict(item) for item in payload.steps),
             input_boundary=payload.input_boundary,
@@ -1631,31 +1604,6 @@ async def delete_task_system_specific_record(task_id: str) -> dict[str, object]:
     payload = _task_system_payload(runtime.base_dir)
     payload["last_deletion"] = deletion
     return payload
-
-
-@router.put("/tasks/projection-bindings/{task_id}")
-async def upsert_task_system_projection_binding(
-    task_id: str,
-    payload: TaskProjectionBindingUpsertRequest,
-) -> dict[str, object]:
-    runtime = require_runtime()
-    if payload.task_id != task_id:
-        payload = payload.model_copy(update={"task_id": task_id})
-    try:
-        TaskFlowRegistry(runtime.base_dir).upsert_projection_binding(
-            task_id=payload.task_id,
-            projection_selection_mode=payload.projection_selection_mode,
-            allowed_projection_ids=tuple(payload.allowed_projection_ids),
-            default_projection_id=payload.default_projection_id,
-            projection_required=payload.projection_required,
-            notes=payload.notes,
-            metadata=payload.metadata,
-        )
-    except ValueError as exc:
-        from fastapi import HTTPException
-
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return _task_system_payload(runtime.base_dir)
 
 
 @router.put("/tasks/flow-contract-bindings/{task_id}")

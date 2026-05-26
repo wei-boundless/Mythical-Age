@@ -9,7 +9,7 @@ from memory_system.conversation_memory import ConversationMemoryStoreAdapter
 from memory_system.contracts import ConversationMemorySnapshot, MemoryContextCandidate, StateMemoryRestoreCandidate
 from memory_system.runtime_view import MemoryRuntimeView
 from memory_system.state_memory import StateMemoryStoreAdapter
-from memory_system.supply import (
+from memory_system.runtime_supply import (
     MemoryBundle,
     build_memory_request,
     build_memory_scope_policy,
@@ -103,6 +103,38 @@ def test_state_memory_rejects_path_traversal_session_id(tmp_path) -> None:
         raise AssertionError("StateMemoryStoreAdapter accepted an unsafe session id")
 
 
+def test_state_memory_snapshot_rejects_unserializable_state_sections(tmp_path) -> None:
+    adapter = StateMemoryStoreAdapter(tmp_path)
+
+    class BrokenManager:
+        def load_state(self):
+            return type(
+                "BrokenState",
+                (),
+                {
+                    "active_goal": "bad state section",
+                    "flow_state": object(),
+                    "task_state": {},
+                    "context_slots": {},
+                    "bundle_result_refs": [],
+                    "current_result_refs": [],
+                    "key_results": [],
+                    "historical_result_refs": [],
+                    "next_step": [],
+                    "updated_at": "",
+                },
+            )()
+
+    adapter.manager = lambda _session_id: BrokenManager()  # type: ignore[method-assign]
+
+    try:
+        adapter.load_snapshot("session-broken-state")
+    except ValueError as exc:
+        assert "not serializable" in str(exc)
+    else:
+        raise AssertionError("Unserializable process state section was silently dropped")
+
+
 def test_session_memory_layer_rejects_path_traversal_session_id(tmp_path) -> None:
     facade = MemoryFacade(tmp_path)
 
@@ -146,6 +178,19 @@ def test_foreground_continuity_state_corruption_is_not_silently_ignored(tmp_path
         assert "Expecting property name" in str(exc)
     else:
         raise AssertionError("Foreground continuity state corruption was silently ignored")
+
+
+def test_process_state_corruption_is_not_silently_replaced_by_mirror(tmp_path) -> None:
+    manager = SessionMemoryManager(tmp_path / "session-process-corrupt")
+    manager.state_manager.overwrite(ProcessState(active_goal="valid mirror exists"))
+    manager.state_manager.process_state_path.write_text("{broken-json", encoding="utf-8")
+
+    try:
+        manager.load_state()
+    except ValueError as exc:
+        assert "Expecting property name" in str(exc)
+    else:
+        raise AssertionError("Corrupt process_state.json was silently replaced by state.json")
 
 
 def test_session_memory_projection_does_not_guess_task_switch_from_keywords(tmp_path) -> None:
@@ -658,6 +703,43 @@ def test_context_budget_provider_failure_is_visible(tmp_path) -> None:
         assert "budget resolver unavailable" in str(exc)
     else:
         raise AssertionError("Context budget provider failure was silently replaced with a default")
+
+
+def test_context_package_does_not_expand_memory_layers_from_relevant_notes(tmp_path) -> None:
+    facade = MemoryFacade(tmp_path)
+    note = MemoryNote(
+        slug="explicit-long-term-only",
+        title="长期记忆必须显式读取",
+        summary="relevant_notes 不能自动打开 long_term。",
+        canonical_statement="长期记忆读取必须由 read plan 授权。",
+        body="候选可以被上层预选，但是否注入仍由显式读取计划控制。",
+        memory_type="project",
+        memory_class="work",
+    )
+
+    result = facade.bundle_service.build_memory_context_package_result(
+        session_id="session-no-implicit-long-term",
+        query="记忆规则是什么？",
+        relevant_notes=[note],
+    )
+
+    assert result.package.model_visible_sections["relevant_durable_context"] == []
+    assert result.diagnostics["context_candidate_count"] == 0
+
+
+def test_context_package_requires_explicit_state_read_plan(tmp_path) -> None:
+    session_id = "session-no-implicit-state"
+    facade = MemoryFacade(tmp_path)
+    manager = facade.session_memory.manager(session_id)
+    manager.state_manager.overwrite(ProcessState(active_goal="不要默认注入 state"))
+
+    result = facade.bundle_service.build_memory_context_package_result(
+        session_id=session_id,
+        query="继续",
+    )
+
+    assert result.package.model_visible_sections["active_process_context"] == []
+    assert result.diagnostics["context_candidate_count"] == 0
 
 
 def test_context_budget_provider_empty_payload_is_rejected(tmp_path) -> None:

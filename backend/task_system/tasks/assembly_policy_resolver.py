@@ -23,15 +23,14 @@ def resolve_specific_task_assembly_policy(
     task_policy = dict(getattr(task_record, "task_policy", {}) or {})
     metadata = dict(getattr(task_record, "metadata", {}) or {})
     execution_policy_metadata = dict(getattr(execution_policy, "metadata", {}) or {}) if execution_policy is not None else {}
-    environment_id = _first_value(
+    environment_id = _resolve_environment_id(
         selection.get("task_environment_id"),
         selection.get("environment_id"),
         metadata.get("task_environment_id"),
         metadata.get("environment_id"),
         task_policy.get("task_environment_id"),
         task_policy.get("environment_id"),
-        getattr(task_record, "domain_id", ""),
-        "env.vibe_coding",
+        legacy_domain_id=getattr(task_record, "domain_id", ""),
     )
     flow_ref = _first_value(
         selection.get("flow_ref"),
@@ -156,6 +155,45 @@ def _first_value(*values: Any) -> str:
         text = str(value or "").strip()
         if text:
             return text
+    return ""
+
+
+def _resolve_environment_id(*values: Any, legacy_domain_id: Any = "") -> str:
+    explicit = _first_value(*values)
+    if explicit:
+        return _normalize_environment_id(explicit)
+    return _environment_id_from_legacy_domain(legacy_domain_id) or "env.vibe_coding"
+
+
+def _normalize_environment_id(value: Any) -> str:
+    text = str(value or "").strip()
+    if text in {"writing", "domain.writing", "domain.writing.modular_novel", "domain.writing_modular_novel"}:
+        return "env.writing"
+    if text in {"research", "web_research", "domain.research", "domain.web_research"}:
+        return "env.web_research"
+    if text in {"coding", "development", "vibe_coding", "domain.development", "domain.custom_4"}:
+        return "env.vibe_coding"
+    if text.startswith("env."):
+        return text
+    return text
+
+
+def _environment_id_from_legacy_domain(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if "writing" in text:
+        return "env.writing"
+    if "research" in text or "web" in text:
+        return "env.web_research"
+    if "data" in text:
+        return "env.data_analysis"
+    if "document" in text or "pdf" in text:
+        return "env.document_processing"
+    if "general" in text:
+        return "env.general_workspace"
+    if "development" in text or "custom_4" in text or "coding" in text:
+        return "env.vibe_coding"
     return ""
 
 

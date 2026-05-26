@@ -2674,7 +2674,7 @@ class LangGraphCoordinationRuntime:
             node_id=node_id,
             operation="read",
         )
-        if not repository_read_edges:
+        if not repository_read_edges and not read_policy:
             return {}
         graph_spec = dict(dict(state.get("diagnostics") or {}).get("coordination_graph_spec") or {})
         graph_id = str(graph_spec.get("graph_ref") or graph_spec.get("graph_id") or dict(state.get("diagnostics") or {}).get("graph_ref") or "")
@@ -2703,6 +2703,29 @@ class LangGraphCoordinationRuntime:
             except Exception as exc:  # pragma: no cover - defensive runtime diagnostics
                 formal_selection_error = str(exc)
         node_run_id = f"{root_task_run_id}:{stage_id}"
+        working_selection: dict[str, Any] = {}
+        if read_policy:
+            working_selection = self.working_memory.select_for_node(
+                task_run_id=root_task_run_id,
+                graph_id=graph_id,
+                owner_node_id=node_id,
+                node_run_id=node_run_id,
+                reader_agent_id=str(contract.get("agent_id") or ""),
+                node_role=str(contract.get("role") or contract.get("work_posture") or ""),
+                memory_read_policy=read_policy,
+                dynamic_read_policy=graph_policy,
+                request={
+                    "requested_kinds": list(read_policy.get("readable_kinds") or []),
+                    "acceptable_scopes": list(read_policy.get("readable_scopes") or []),
+                    "max_items": int(read_policy.get("max_items") or graph_policy.get("max_items") or 50),
+                    "allow_handoff_visibility": True,
+                    "readable_owner_node_ids": _working_memory_source_node_ids_for_stage(
+                        state=state,
+                        target_stage_id=stage_id,
+                        target_node_id=node_id,
+                    ),
+                },
+            )
         context = _formal_memory_only_context(
             task_run_id=root_task_run_id,
             graph_id=graph_id,
@@ -2710,6 +2733,36 @@ class LangGraphCoordinationRuntime:
             node_run_id=node_run_id,
             run_attempt_id=str(dict(state.get("retry_counts") or {}).get(stage_id) or 0),
         )
+        if working_selection:
+            required_items = [item.to_dict() for item in list(working_selection.get("required_items") or [])]
+            preferred_items = [item.to_dict() for item in list(working_selection.get("preferred_items") or [])]
+            required_refs = [str(item.get("work_memory_id") or "") for item in required_items if str(item.get("work_memory_id") or "")]
+            preferred_refs = [str(item.get("work_memory_id") or "") for item in preferred_items if str(item.get("work_memory_id") or "")]
+            context.update(
+                {
+                    "required_refs": required_refs,
+                    "preferred_refs": preferred_refs,
+                    "required_items": required_items,
+                    "preferred_items": preferred_items,
+                    "read_log_id": str(working_selection.get("read_log_id") or ""),
+                    "working_memory.required": {
+                        "item_count": len(required_items),
+                        "refs": required_refs,
+                        "items": required_items,
+                        "content_mode": "summary",
+                    },
+                    "working_memory.preferred": {
+                        "item_count": len(preferred_items),
+                        "refs": preferred_refs,
+                        "items": preferred_items,
+                        "content_mode": "summary",
+                    },
+                }
+            )
+            diagnostics = dict(context.get("diagnostics") or {})
+            diagnostics["working_memory_primary"] = True
+            diagnostics["working_memory"] = dict(working_selection.get("diagnostics") or {})
+            context["diagnostics"] = diagnostics
         if repository_read_edges:
             diagnostics = dict(context.get("diagnostics") or {})
             diagnostics["formal_memory_primary"] = True
@@ -4567,6 +4620,38 @@ def _required_canonical_memory_content_violations(working_memory_context: dict[s
             }
         )
     return violations
+
+
+def _working_memory_source_node_ids_for_stage(
+    *,
+    state: CoordinationRuntimeState,
+    target_stage_id: str,
+    target_node_id: str,
+) -> list[str]:
+    graph_spec = dict(dict(state.get("diagnostics") or {}).get("coordination_graph_spec") or {})
+    stage_contracts = {
+        str(item.get("stage_id") or item.get("node_id") or "").strip(): dict(item)
+        for item in list(graph_spec.get("stage_contracts") or [])
+        if isinstance(item, dict) and str(item.get("stage_id") or item.get("node_id") or "").strip()
+    }
+    source_node_ids: list[str] = []
+    for raw_edge in list(graph_spec.get("edges") or []):
+        edge = dict(raw_edge or {}) if isinstance(raw_edge, dict) else {}
+        edge_target_stage = str(edge.get("target_stage_id") or edge.get("target") or "").strip()
+        edge_target_node = str(edge.get("target_node_id") or edge.get("target") or "").strip()
+        if edge_target_stage not in {target_stage_id, ""} and edge_target_node not in {target_node_id, ""}:
+            continue
+        policy = dict(edge.get("working_memory_handoff_policy") or {})
+        if not policy:
+            continue
+        source_stage_id = str(edge.get("source_stage_id") or edge.get("source") or "").strip()
+        source_node_id = str(edge.get("source_node_id") or edge.get("source") or "").strip()
+        if source_stage_id and source_stage_id in stage_contracts:
+            source_node_id = str(stage_contracts[source_stage_id].get("node_id") or source_node_id or source_stage_id)
+        value = source_node_id or source_stage_id
+        if value and value not in source_node_ids:
+            source_node_ids.append(value)
+    return source_node_ids
 
 
 def _memory_edge_allows_refs_only_auto_candidate(edge: dict[str, Any]) -> bool:

@@ -121,7 +121,7 @@ def answer_metadata_from_done_event(
             raw = existing.get(key)
         return str(raw or "")
 
-    return {
+    metadata = {
         "answer_channel": value("answer_channel"),
         "answer_source": value("answer_source"),
         "answer_canonical_state": value("answer_canonical_state"),
@@ -133,3 +133,10 @@ def answer_metadata_from_done_event(
         "timeout_seconds": value("timeout_seconds"),
         "partial_delta_count": value("partial_delta_count"),
     }
+    for key in ("completion", "run_outcome"):
+        payload = event.get(key)
+        if not isinstance(payload, dict) and merge_existing:
+            payload = existing.get(key)
+        if isinstance(payload, dict):
+            metadata[key] = dict(payload)
+    return metadata

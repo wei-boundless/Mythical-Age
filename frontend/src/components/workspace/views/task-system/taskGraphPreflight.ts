@@ -274,31 +274,30 @@ export function buildTaskGraphPreflightReport({
     const metadata = node.metadata && typeof node.metadata === "object" && !Array.isArray(node.metadata)
       ? node.metadata as Record<string, unknown>
       : {};
-    const projectionId = stringValue(node.projection_id ?? node.projection_overlay_id);
     const legacyMigration = metadata.legacy_prompt_migration && typeof metadata.legacy_prompt_migration === "object" && !Array.isArray(metadata.legacy_prompt_migration)
       ? metadata.legacy_prompt_migration as Record<string, unknown>
       : {};
     const legacyFieldNames = Array.isArray(legacyMigration.legacy_field_names)
       ? legacyMigration.legacy_field_names.map((value) => stringValue(value)).filter(Boolean)
       : [];
-    const migrationStatus = stringValue(legacyMigration.migration_status);
-    if (!projectionId && legacyFieldNames.length > 0) {
+    const rolePrompt = stringValue(node.role_prompt ?? metadata.role_prompt ?? node.prompt);
+    if (!rolePrompt && legacyFieldNames.length > 0) {
       pushIssue(issues, {
         severity: "warning",
         scope: "node",
         target_id: nodeId,
-        title: "节点职责尚未绑定投影",
-        detail: "该节点已有旧职责字段待迁移，但尚未迁移为投影系统中的 Projection。",
-        source: "frontend.preflight.projection_binding",
+        title: "旧职责字段尚未收口",
+        detail: "该节点仍保留旧职责字段，请合并为面向 Agent 的角色 Prompt，并明确职责、边界和裁决要求。",
+        source: "frontend.preflight.prompt_semantics",
       });
     }
-    if (!projectionId && legacyFieldNames.length === 0 && agentId) {
+    if (!rolePrompt && legacyFieldNames.length === 0 && agentId) {
       pushIssue(issues, {
         severity: "info",
         scope: "node",
         target_id: nodeId,
-        title: "节点未绑定投影",
-        detail: "建议绑定投影系统中的 Projection，让节点职责和 Prompt Manifest 可追踪。",
+        title: "节点缺少角色 Prompt",
+        detail: "建议为节点补充面向 Agent 的角色 Prompt，让职责、输入边界和输出裁决可追踪。",
         source: "frontend.preflight.prompt_semantics",
       });
     }

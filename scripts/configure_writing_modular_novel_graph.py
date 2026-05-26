@@ -24,6 +24,7 @@ from task_system.registry.flow_registry import TaskFlowRegistry
 
 MANAGED_BY = "codex_writing_modular_novel_graph_20260521_native"
 DOMAIN_ID = "domain.writing.modular_novel"
+ENVIRONMENT_ID = "env.writing"
 WRITING_MODULE_ID = "writing_modular_novel"
 PROTOCOL_ID = "protocol.writing.modular_novel"
 MODEL_PROFILE_REF = "llm.deepseek.flash_long_output_65536"
@@ -1295,6 +1296,7 @@ def configure(base_dir: Path | str | None = None) -> dict[str, Any]:
 
     configured = {
         "domain_id": DOMAIN_ID,
+        "environment_id": ENVIRONMENT_ID,
         "protocol_id": PROTOCOL_ID,
         "graph_ids": [MASTER_GRAPH_ID, DESIGN_GRAPH_ID, CHAPTER_GRAPH_ID, FINALIZE_GRAPH_ID],
         "requested_chapters": CHAPTER_REQUESTED_COUNT,
@@ -1325,18 +1327,19 @@ def _upsert_domain(registry: TaskFlowRegistry) -> None:
         metadata={
             "managed_by": MANAGED_BY,
             "architecture": "native_graph_module_composition",
+            "environment_id": ENVIRONMENT_ID,
         },
     )
 
 
 def _upsert_agents(backend_dir: Path) -> None:
     agent_registry = AgentRegistry(backend_dir)
-    for agent_id, name, projection in (
-        (WORKER_AGENT_ID, "模块化写作执行员", "projection.writing.modular_novel.worker"),
-        (CREATOR_AGENT_ID, "模块化写作创作设计员", "projection.writing.modular_novel.world_designer"),
-        (REVIEWER_AGENT_ID, "模块化写作专业审核员", "projection.writing.modular_novel.world_reviewer"),
-        (MEMORY_AGENT_ID, "模块化写作记忆管家", "projection.writing.modular_novel.memory_steward"),
-        (MONITOR_AGENT_ID, "模块化写作运行监控员", "projection.writing.modular_novel.runtime_monitor"),
+    for agent_id, name in (
+        (WORKER_AGENT_ID, "模块化写作执行员"),
+        (CREATOR_AGENT_ID, "模块化写作创作设计员"),
+        (REVIEWER_AGENT_ID, "模块化写作专业审核员"),
+        (MEMORY_AGENT_ID, "模块化写作记忆管家"),
+        (MONITOR_AGENT_ID, "模块化写作运行监控员"),
     ):
         agent_registry.upsert_agent(
             agent_id=agent_id,
@@ -1344,10 +1347,11 @@ def _upsert_agents(backend_dir: Path) -> None:
             agent_category="custom_agent",
             description=f"{name}。用于模块化长篇写作任务图运行；采用简单文本产出边界，文件、记忆与断点由编排系统托管。",
             enabled=True,
-            default_projection_id=projection,
+            default_projection_id="",
             metadata={
                 "managed_by": MANAGED_BY,
                 "domain_id": DOMAIN_ID,
+                "environment_id": ENVIRONMENT_ID,
                 "agent_template_id": f"task_graph.{WRITING_MODULE_ID}.node_agent",
             },
         )
@@ -1358,35 +1362,35 @@ def _upsert_agents(backend_dir: Path) -> None:
             WORKER_AGENT_ID,
             "task_graph.writing.modular_novel.worker",
             ("coordination_task",),
-            ("task", "projection", "runtime_contracts", "artifact_refs", "memory_runtime_view"),
+            ("task", "runtime_contracts", "artifact_refs", "memory_runtime_view"),
             ("op.text_metric",),
         ),
         (
             CREATOR_AGENT_ID,
             "task_graph.writing.modular_novel.creator",
             ("coordination_task",),
-            ("task", "projection", "runtime_contracts", "artifact_refs", "memory_runtime_view"),
+            ("task", "runtime_contracts", "artifact_refs", "memory_runtime_view"),
             ("op.text_metric",),
         ),
         (
             REVIEWER_AGENT_ID,
             "task_graph.writing.modular_novel.reviewer",
             ("coordination_task",),
-            ("task", "projection", "runtime_contracts", "artifact_refs", "memory_runtime_view"),
+            ("task", "runtime_contracts", "artifact_refs", "memory_runtime_view"),
             (),
         ),
         (
             MEMORY_AGENT_ID,
             "task_graph.writing.modular_novel.memory_steward",
             ("coordination_task", "system_memory"),
-            ("task", "projection", "runtime_contracts", "artifact_refs", "memory_runtime_view"),
+            ("task", "runtime_contracts", "artifact_refs", "memory_runtime_view"),
             (),
         ),
         (
             MONITOR_AGENT_ID,
             "task_graph.writing.modular_novel.runtime_monitor",
             ("task_graph_monitor",),
-            ("task", "projection", "runtime_contracts", "artifact_refs", "memory_runtime_view", "task_graph_monitor"),
+            ("task", "runtime_contracts", "artifact_refs", "memory_runtime_view", "task_graph_monitor"),
             (),
         ),
     ):
@@ -1447,6 +1451,7 @@ def _upsert_agents(backend_dir: Path) -> None:
             metadata={
                 "managed_by": MANAGED_BY,
                 "domain_id": DOMAIN_ID,
+                "environment_id": ENVIRONMENT_ID,
                 "source_task_graph_refs": [MASTER_GRAPH_ID, DESIGN_GRAPH_ID, CHAPTER_GRAPH_ID, FINALIZE_GRAPH_ID],
                 "runtime_template_id": template_id,
                 "agent_mode": "text_artifact_worker",
@@ -1579,7 +1584,7 @@ def _contract_spec(
         ),
         version="1.0.0",
         enabled=True,
-        metadata={"managed_by": MANAGED_BY, "domain_id": DOMAIN_ID},
+        metadata={"managed_by": MANAGED_BY, "domain_id": DOMAIN_ID, "environment_id": ENVIRONMENT_ID},
     )
 
 
@@ -1638,7 +1643,7 @@ def _upsert_protocol(registry: TaskFlowRegistry) -> None:
         timeout_policy="fail_closed",
         error_signal_policy="raise_to_coordinator",
         enabled=True,
-        metadata={"managed_by": MANAGED_BY, "domain_id": DOMAIN_ID},
+        metadata={"managed_by": MANAGED_BY, "domain_id": DOMAIN_ID, "environment_id": ENVIRONMENT_ID},
     )
 
 
@@ -1685,7 +1690,6 @@ def _upsert_task_asset(
     registry.workflow_registry.upsert_workflow(
         workflow_id=workflow_id,
         title=title,
-        compatible_projection_ids=(),
         steps=(
             {"step_id": "read_contract_packet", "title": "读取契约化输入包"},
             {"step_id": "execute_node", "title": "执行节点职责"},
@@ -1698,7 +1702,7 @@ def _upsert_task_asset(
         output_contract_id=output_contract_id,
         prompt=prompt,
         enabled=True,
-        metadata={"managed_by": MANAGED_BY, "domain_id": DOMAIN_ID, "node_id": node_id},
+        metadata={"managed_by": MANAGED_BY, "domain_id": DOMAIN_ID, "environment_id": ENVIRONMENT_ID, "node_id": node_id},
     )
     registry.upsert_flow(
         flow_id=flow_id,
@@ -1713,12 +1717,12 @@ def _upsert_task_asset(
         metadata={
             "managed_by": MANAGED_BY,
             "domain_id": DOMAIN_ID,
+            "environment_id": ENVIRONMENT_ID,
             "task_id": task_id,
             "node_id": node_id,
             "runtime_interaction_mode": "role_mode",
             "interaction_mode": "role_mode",
             "execution_mode": "single",
-            "suppress_bundle_projection": True,
             "task_graph_node_runtime": True,
         },
     )
@@ -1733,27 +1737,27 @@ def _upsert_task_asset(
         output_contract_id=output_contract_id,
         default_flow_contract_id=flow_id,
         default_workflow_id=workflow_id,
-        default_projection_policy="prompt_library_stage_role",
+        default_projection_policy="",
         task_policy={
             "safety_policy": {"verification_mode": "artifact_or_trace", "write_mode": "scoped", "safety_class": "S2_bounded"},
+            "environment_id": ENVIRONMENT_ID,
             "task_structure": {
                 "execution_chain_type": "coordination_node",
                 "memory_scope_hint": "writing_modular_novel",
                 "node_id": node_id,
                 "runtime_interaction_mode": "role_mode",
-                "suppress_bundle_projection": True,
             },
             "operation_policy": _node_operation_policy(node_id=node_id),
         },
         metadata={
             "managed_by": MANAGED_BY,
             "domain_id": DOMAIN_ID,
+            "environment_id": ENVIRONMENT_ID,
             "node_id": node_id,
             "package_template": WRITING_MODULE_ID,
             "runtime_interaction_mode": "role_mode",
             "interaction_mode": "role_mode",
             "execution_mode": "single",
-            "suppress_bundle_projection": True,
             "task_graph_node_runtime": True,
         },
     )
@@ -1776,7 +1780,6 @@ def _upsert_task_asset(
             "memory_scope_hint": "writing_modular_novel",
             "node_id": node_id,
             "runtime_interaction_mode": "role_mode",
-            "suppress_bundle_projection": True,
             "workflow_steps": [
                 {"step_id": "read_contract_packet", "title": "读取契约化输入包"},
                 {"step_id": "execute_node", "title": "执行节点职责"},
@@ -1787,16 +1790,15 @@ def _upsert_task_asset(
         metadata={
             "managed_by": MANAGED_BY,
             "domain_id": DOMAIN_ID,
+            "environment_id": ENVIRONMENT_ID,
             "node_id": node_id,
             "package_template": WRITING_MODULE_ID,
             "runtime_interaction_mode": "role_mode",
             "interaction_mode": "role_mode",
             "execution_mode": "single",
-            "suppress_bundle_projection": True,
             "task_graph_node_runtime": True,
         },
     )
-    registry.delete_projection_binding(task_id)
     registry.upsert_flow_contract_binding(
         task_id=task_id,
         flow_contract_id=flow_id,
@@ -1969,7 +1971,6 @@ def _node_payload(node: NodeSpec) -> dict[str, Any]:
             "runtime_interaction_mode": "role_mode",
             "interaction_mode": "role_mode",
             "execution_mode": "single",
-            "suppress_bundle_projection": True,
             "model_profile_ref": MODEL_PROFILE_REF,
             "task_graph_node_runtime": True,
             "artifact_context_policy": _artifact_context_policy(node),
@@ -3039,6 +3040,7 @@ def _upsert_master_graph(registry: TaskFlowRegistry) -> None:
         metadata={
             "managed_by": MANAGED_BY,
             "architecture": "graph_as_first_class_task_unit",
+            "environment_id": ENVIRONMENT_ID,
             "graph_module_composition": True,
             "phase_definitions": [
                 {"phase_id": "phase.master.design_init", "title": "设计初始化", "sequence_index": 10},

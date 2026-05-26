@@ -186,7 +186,7 @@ export function TaskGraphWorkbench({
   };
   const repairPreflightIssue = (issue: TaskGraphPreflightIssue) => {
     if (
-      (issue.source === "frontend.preflight.prompt_semantics" || issue.source === "frontend.preflight.projection_binding")
+      issue.source === "frontend.preflight.prompt_semantics"
       && issue.scope === "node"
       && issue.target_id
     ) {
@@ -426,7 +426,6 @@ export function TaskGraphWorkbench({
           onEditorFocus={applyEditorFocus}
           onOpenGraph={openGraphInStudio}
           orchestrationAgentCatalog={rest.orchestrationAgentCatalog}
-          projectionCards={rest.projectionCards}
           standardView={rest.taskGraphStandardView}
           standardViewStale={taskGraphStandardViewStale}
           standardViewLoading={rest.taskGraphStandardViewLoading}
@@ -457,8 +456,6 @@ export function TaskGraphWorkbench({
         <TaskGraphResponsibilityPage
           activeGraphEdges={activeGraphEdges}
           activeGraphNodes={activeGraphNodes}
-          onCreateProjectionFromPrompt={rest.onCreateProjectionFromPrompt}
-          projectionCards={rest.projectionCards}
           selectedGraphEdge={rest.selectedGraphEdge}
           selectedGraphEdgeId={rest.selectedGraphEdgeId}
           selectedGraphNode={rest.selectedGraphNode}

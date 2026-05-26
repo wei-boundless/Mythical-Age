@@ -66,7 +66,6 @@ export function TaskGraphComposableEditorPage({
   onEditorFocus,
   onOpenGraph,
   orchestrationAgentCatalog,
-  projectionCards,
   standardView,
   standardViewStale = false,
   standardViewLoading,
@@ -90,7 +89,6 @@ export function TaskGraphComposableEditorPage({
   onEditorFocus?: (focus: Partial<TaskGraphEditorFocus> & { layer?: TaskGraphEditorFocus["layer"] }) => void;
   onOpenGraph?: (graphId: string) => void;
   orchestrationAgentCatalog?: OrchestrationAgentRuntimeCatalog | null;
-  projectionCards?: Array<{ projection_id: string; title?: string; soul_name?: string; soul_id?: string }>;
   standardView: TaskGraphStandardView | null;
   standardViewStale?: boolean;
   standardViewLoading?: boolean;
@@ -219,7 +217,6 @@ export function TaskGraphComposableEditorPage({
           onSelectSubject={applySubject}
           orchestrationAgentCatalog={orchestrationAgentCatalog}
           portEdges={displayPortEdges}
-          projectionCards={projectionCards}
           selectedSubject={selectedSubject}
           taskGraphs={taskGraphs}
           units={displayUnits}

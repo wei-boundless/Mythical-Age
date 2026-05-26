@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from task_system.environments import resolve_task_environment
+
 from .sandbox_policy import workspace_root_for_runtime
 
 
@@ -105,6 +107,9 @@ def _default_policy_for_environment(*, environment_id: str, sandbox_enabled: boo
     normalized = str(environment_id or "").strip()
     if not normalized:
         return {}
+    environment_policy = _policy_from_task_environment_spec(normalized, sandbox_enabled=sandbox_enabled)
+    if environment_policy:
+        return environment_policy
     if normalized in {"env.writing", "writing"}:
         return {
             "enabled": True,
@@ -142,4 +147,99 @@ def _default_policy_for_environment(*, environment_id: str, sandbox_enabled: boo
             "write": write_repository,
             "edit": write_repository,
         },
+    }
+
+
+def _policy_from_task_environment_spec(environment_id: str, *, sandbox_enabled: bool) -> dict[str, Any]:
+    try:
+        resolved = resolve_task_environment(environment_id)
+    except KeyError:
+        return {}
+    spec = resolved.spec
+    file_management = spec.file_management
+    profile_id = next(iter(file_management.file_profile_refs), "")
+    if not profile_id:
+        return {}
+    resource_space = spec.resource_space.to_dict()
+    artifact_policy = spec.artifact_policy.to_dict()
+    execution_policy = spec.execution_policy.to_dict()
+    repositories = _repositories_from_environment_spec(
+        environment_id=spec.environment_id,
+        resource_space=resource_space,
+        artifact_policy=artifact_policy,
+        file_management=file_management.to_dict(),
+        sandbox_enabled=sandbox_enabled,
+    )
+    return {
+        "enabled": True,
+        "environment_id": spec.environment_id,
+        "profile_id": profile_id,
+        "repositories": repositories,
+        "canonical_write_policy": file_management.canonical_write_policy,
+        "artifact_projection_policy": file_management.artifact_projection_policy,
+        "memory_projection_policy": file_management.memory_projection_policy,
+        "write_scope_policy": str(execution_policy.get("write_scope_policy") or ""),
+        "source": "task_environment_spec",
+    }
+
+
+def _repositories_from_environment_spec(
+    *,
+    environment_id: str,
+    resource_space: dict[str, Any],
+    artifact_policy: dict[str, Any],
+    file_management: dict[str, Any],
+    sandbox_enabled: bool,
+) -> dict[str, str]:
+    if environment_id == "env.writing":
+        return {
+            "read": "repo.writing.official_work",
+            "open": "repo.writing.official_work",
+            "search": "repo.writing.official_work",
+            "write": "repo.writing.draft_workspace",
+            "edit": "repo.writing.draft_workspace",
+        }
+    if environment_id == "env.vibe_coding":
+        workspace_repository = "repo.coding.sandbox_workspace" if sandbox_enabled else "repo.coding.project_workspace"
+        return {
+            "read": workspace_repository,
+            "search": workspace_repository,
+            "write": workspace_repository,
+            "edit": workspace_repository,
+        }
+    if environment_id == "env.web_research":
+        return {
+            "read": "repo.research.evidence_archive",
+            "search": "repo.research.evidence_archive",
+            "write": "repo.research.evidence_archive",
+            "edit": "repo.research.evidence_archive",
+        }
+    if environment_id == "env.data_analysis":
+        return {
+            "read": "repo.data.dataset_repository",
+            "search": "repo.data.dataset_repository",
+            "write": "repo.data.analysis_workspace",
+            "edit": "repo.data.analysis_workspace",
+        }
+    if environment_id == "env.document_processing":
+        return {
+            "read": "repo.document.document_repository",
+            "search": "repo.document.document_repository",
+            "write": "repo.document.extraction_workspace",
+            "edit": "repo.document.extraction_workspace",
+        }
+    if environment_id == "env.general_workspace":
+        return {
+            "read": "repo.general.conversation_artifacts",
+            "search": "repo.general.conversation_artifacts",
+            "write": "repo.general.conversation_artifacts",
+            "edit": "repo.general.conversation_artifacts",
+        }
+    artifact_root = str(artifact_policy.get("artifact_root") or resource_space.get("artifact_root_policy") or "runtime_output")
+    managed_policy = str(resource_space.get("managed_file_environment_policy") or "runtime_output")
+    return {
+        "read": managed_policy,
+        "search": managed_policy,
+        "write": artifact_root,
+        "edit": artifact_root,
     }

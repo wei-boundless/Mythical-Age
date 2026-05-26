@@ -22,6 +22,9 @@ def default_task_environments() -> tuple[TaskEnvironmentDefinition, ...]:
         writing_environment(),
         vibe_coding_environment(),
         web_research_environment(),
+        data_analysis_environment(),
+        document_processing_environment(),
+        general_workspace_environment(),
     )
 
 
@@ -287,6 +290,226 @@ def web_research_environment() -> TaskEnvironmentDefinition:
             allowed_runtime_lanes=("single_agent", "task_graph"),
             preferred_runtime_lanes=("single_agent",),
             graph_allowed=True,
+            delegation_allowed=False,
+            human_gate_allowed=True,
+        ),
+    )
+    return TaskEnvironmentDefinition(record=record, spec=spec)
+
+
+def data_analysis_environment() -> TaskEnvironmentDefinition:
+    record = TaskEnvironmentRecord(
+        environment_id="env.data_analysis",
+        title="Data Analysis",
+        description="Managed data analysis environment for structured files, tables, charts, and reproducible analysis artifacts.",
+        environment_kind="data_analysis",
+    )
+    spec = TaskEnvironmentSpec(
+        spec_id="envspec.data_analysis.default",
+        environment_id=record.environment_id,
+        prompt_space=PromptSpace(
+            allowed_prompt_libraries=("prompt_library.data_analysis",),
+            allowed_prompt_packs=("data_inspection", "statistical_summary", "chart_generation", "analysis_report"),
+            default_prompt_pack_refs=("data_analysis.role_prompts.default",),
+        ),
+        skill_space=SkillSpace(
+            allowed_skill_refs=("structured_data_analysis", "charting", "spreadsheet_analysis"),
+            skill_pack_refs=("skill_pack.data_analysis.default",),
+        ),
+        tool_space=ToolSpace(
+            allowed_operation_market=(
+                "op.model_response",
+                "op.read_file",
+                "op.search_files",
+                "op.read_structured_file",
+                "op.write_file",
+                "op.edit_file",
+                "op.python_repl",
+            ),
+            denied_operation_refs=("op.shell", "op.browser_control"),
+            allowed_tool_market=("read_file", "search_files", "read_structured_file", "write_file", "edit_file", "python_repl"),
+            denied_tool_refs=("terminal", "browser_control"),
+            browser_policy="denied",
+            shell_policy="denied",
+            network_policy="denied",
+        ),
+        file_management=FileManagementBinding(
+            file_profile_refs=("file_profile.data_analysis_workspace",),
+            required_repository_kinds=("dataset_repository", "analysis_workspace", "artifact_repository"),
+            canonical_write_policy="analysis_artifact_versioned",
+        ),
+        resource_space=ResourceSpace(
+            workspace_policy="analysis_workspace",
+            material_mount_policy="dataset_mounts",
+            project_file_policy="none",
+            managed_file_environment_policy="file_profile.data_analysis_workspace",
+            artifact_root_policy="analysis_artifact_repository",
+        ),
+        memory_space=MemorySpace(
+            environment_memory_refs=("data_dictionary", "analysis_notes"),
+            retrieval_index_refs=("dataset_index",),
+        ),
+        execution_policy=ExecutionPolicy(
+            sandbox_required=True,
+            sandbox_mode="analysis_workspace",
+            real_workspace_access="none",
+            write_scope_policy="analysis_artifacts_only",
+            shell_execution_policy="denied",
+            browser_execution_policy="denied",
+            network_execution_policy="denied",
+        ),
+        risk_policy=RiskPolicy(
+            default_permission_mode="deny_by_default",
+            approval_required_risk_levels=("large_export",),
+            auto_denied_risk_levels=("shell", "external_write"),
+        ),
+        runtime_policy=RuntimePolicy(
+            allowed_runtime_lanes=("single_agent", "task_graph"),
+            preferred_runtime_lanes=("single_agent",),
+            graph_allowed=True,
+            delegation_allowed=True,
+            human_gate_allowed=True,
+        ),
+    )
+    return TaskEnvironmentDefinition(record=record, spec=spec)
+
+
+def document_processing_environment() -> TaskEnvironmentDefinition:
+    record = TaskEnvironmentRecord(
+        environment_id="env.document_processing",
+        title="Document Processing",
+        description="Managed document processing environment for PDFs, office documents, OCR outputs, and review artifacts.",
+        environment_kind="document_processing",
+    )
+    spec = TaskEnvironmentSpec(
+        spec_id="envspec.document_processing.default",
+        environment_id=record.environment_id,
+        prompt_space=PromptSpace(
+            allowed_prompt_libraries=("prompt_library.document_processing",),
+            allowed_prompt_packs=("document_reading", "ocr_review", "document_summary", "citation_review"),
+            default_prompt_pack_refs=("document_processing.role_prompts.default",),
+        ),
+        skill_space=SkillSpace(
+            allowed_skill_refs=("pdf_analysis", "document_extraction", "ocr_review"),
+            skill_pack_refs=("skill_pack.document_processing.default",),
+        ),
+        tool_space=ToolSpace(
+            allowed_operation_market=(
+                "op.model_response",
+                "op.read_file",
+                "op.search_files",
+                "op.read_structured_file",
+                "op.write_file",
+                "op.edit_file",
+            ),
+            denied_operation_refs=("op.shell", "op.browser_control", "op.python_repl"),
+            allowed_tool_market=("read_file", "search_files", "read_structured_file", "write_file", "edit_file"),
+            denied_tool_refs=("terminal", "browser_control", "python_repl"),
+            browser_policy="denied",
+            shell_policy="denied",
+            network_policy="denied",
+        ),
+        file_management=FileManagementBinding(
+            file_profile_refs=("file_profile.document_processing",),
+            required_repository_kinds=("document_repository", "extraction_workspace", "artifact_repository"),
+            canonical_write_policy="versioned_document_artifacts",
+        ),
+        resource_space=ResourceSpace(
+            workspace_policy="document_workspace",
+            material_mount_policy="document_mounts",
+            project_file_policy="none",
+            managed_file_environment_policy="file_profile.document_processing",
+            artifact_root_policy="document_artifact_repository",
+        ),
+        memory_space=MemorySpace(
+            environment_memory_refs=("document_corpus_notes",),
+            retrieval_index_refs=("document_index",),
+        ),
+        execution_policy=ExecutionPolicy(
+            sandbox_required=False,
+            real_workspace_access="none",
+            write_scope_policy="document_artifacts_only",
+            shell_execution_policy="denied",
+            browser_execution_policy="denied",
+            network_execution_policy="denied",
+        ),
+        risk_policy=RiskPolicy(
+            default_permission_mode="deny_by_default",
+            approval_required_risk_levels=("formal_document_publish",),
+            auto_denied_risk_levels=("shell", "external_write"),
+        ),
+        runtime_policy=RuntimePolicy(
+            allowed_runtime_lanes=("single_agent", "task_graph"),
+            preferred_runtime_lanes=("single_agent",),
+            graph_allowed=True,
+            delegation_allowed=False,
+            human_gate_allowed=True,
+        ),
+    )
+    return TaskEnvironmentDefinition(record=record, spec=spec)
+
+
+def general_workspace_environment() -> TaskEnvironmentDefinition:
+    record = TaskEnvironmentRecord(
+        environment_id="env.general_workspace",
+        title="General Workspace",
+        description="Default bounded workspace environment for lightweight tasks that do not require a specialized environment.",
+        environment_kind="general_workspace",
+    )
+    spec = TaskEnvironmentSpec(
+        spec_id="envspec.general_workspace.default",
+        environment_id=record.environment_id,
+        prompt_space=PromptSpace(
+            allowed_prompt_libraries=("prompt_library.general",),
+            allowed_prompt_packs=("general_assistant", "lightweight_task"),
+            default_prompt_pack_refs=("general.role_prompts.default",),
+        ),
+        skill_space=SkillSpace(
+            allowed_skill_refs=("general_reasoning", "workspace_reading"),
+            skill_pack_refs=("skill_pack.general_workspace.default",),
+        ),
+        tool_space=ToolSpace(
+            allowed_operation_market=("op.model_response", "op.read_file", "op.search_text", "op.memory_read"),
+            denied_operation_refs=("op.shell", "op.browser_control", "op.write_file", "op.edit_file"),
+            allowed_tool_market=("read_file", "search_text", "memory_search"),
+            denied_tool_refs=("terminal", "browser_control", "write_file", "edit_file"),
+            browser_policy="denied",
+            shell_policy="denied",
+            network_policy="denied",
+        ),
+        file_management=FileManagementBinding(
+            file_profile_refs=("file_profile.general_workspace",),
+            required_repository_kinds=("conversation_artifacts",),
+            canonical_write_policy="read_mostly",
+        ),
+        resource_space=ResourceSpace(
+            workspace_policy="read_mostly",
+            material_mount_policy="task_decided",
+            project_file_policy="read_only",
+            managed_file_environment_policy="file_profile.general_workspace",
+            artifact_root_policy="conversation_artifacts",
+        ),
+        memory_space=MemorySpace(
+            environment_memory_refs=("conversation_context",),
+            retrieval_index_refs=("conversation_index",),
+        ),
+        execution_policy=ExecutionPolicy(
+            sandbox_required=False,
+            real_workspace_access="read_only",
+            write_scope_policy="artifact_only",
+            shell_execution_policy="denied",
+            browser_execution_policy="denied",
+            network_execution_policy="denied",
+        ),
+        risk_policy=RiskPolicy(
+            default_permission_mode="deny_by_default",
+            approval_required_risk_levels=("workspace_write",),
+            auto_denied_risk_levels=("shell", "external_write"),
+        ),
+        runtime_policy=RuntimePolicy(
+            allowed_runtime_lanes=("single_agent",),
+            preferred_runtime_lanes=("single_agent",),
+            graph_allowed=False,
             delegation_allowed=False,
             human_gate_allowed=True,
         ),

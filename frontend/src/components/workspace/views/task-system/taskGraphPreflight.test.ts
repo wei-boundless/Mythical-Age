@@ -222,7 +222,7 @@ describe("TaskGraph preflight", () => {
     expect(report.issues.some((issue) => issue.scope === "phase" && issue.target_id === "phase.review")).toBe(true);
   });
 
-  it("warns when legacy node prompt has not been migrated to projection binding", () => {
+  it("warns when legacy node prompt has not been consolidated into role prompt", () => {
     const report = buildTaskGraphPreflightReport({
       dirty: false,
       editorIssueCount: 0,
@@ -234,7 +234,7 @@ describe("TaskGraph preflight", () => {
           metadata: {
             legacy_prompt_migration: {
               legacy_field_names: ["role_identity", "responsibility_scope", "definition_of_done"],
-              migration_status: "pending_projection_binding",
+              migration_status: "pending_role_prompt",
             },
           },
         },
@@ -242,7 +242,7 @@ describe("TaskGraph preflight", () => {
       edges: [],
     });
 
-    expect(report.issues.some((issue) => issue.source === "frontend.preflight.projection_binding")).toBe(true);
+    expect(report.issues.some((issue) => issue.source === "frontend.preflight.prompt_semantics")).toBe(true);
   });
 
   it("does not block publishing on warnings and info issues", () => {

@@ -16,7 +16,6 @@ class AgentRunRequest:
     agent_runtime_chain: Any
     model_response_executor: Any
     runtime_context_manager: Any
-    stage_projection_cycle: Any | None = None
     memory_intent: Any | None = None
     task_selection: dict[str, Any] | None = None
     assistant_message_committer: Callable[[dict[str, Any]], Any] | None = None

@@ -55,20 +55,6 @@ def _dedupe(values: list[str] | tuple[str, ...]) -> list[str]:
     return result
 
 
-def _projection_tags(task_mode: str) -> list[str]:
-    if "capability_execution" in task_mode:
-        return ["direct-execution", "result-first"]
-    if "knowledge_retrieval" in task_mode:
-        return ["evidence-first", "grounded-answer"]
-    if "information_search" in task_mode:
-        return ["evidence-first", "traceability"]
-    if "inspection_and_correction" in task_mode:
-        return ["risk-review", "consistency"]
-    if "local_material_read" in task_mode:
-        return ["structure-first", "precise"]
-    return ["concise"]
-
-
 def _task_contract_execution_mode(current_turn_context: dict[str, Any]) -> str:
     mode = str(current_turn_context.get("execution_mode") or "").strip()
     if mode == "bundle":
@@ -669,8 +655,6 @@ def _build_coordination_request_brief(
         "selected_task_id",
         "graph_id",
         "task_graph_id",
-        "projection_id",
-        "selected_projection_id",
         "workflow_id",
         "task_workflow_id",
         "target_root",
@@ -749,7 +733,6 @@ def _resolve_registered_task(
     if specific_task_id:
         record = flow_registry.get_specific_task_record(specific_task_id)
         if record is not None:
-            projection_binding = flow_registry.get_projection_binding(specific_task_id)
             flow_contract_binding = flow_registry.get_flow_contract_binding(specific_task_id)
             flow = flow_registry.get_flow(str(flow_contract_binding.flow_contract_id if flow_contract_binding is not None else record.default_flow_contract_id or "").strip())
             return {
@@ -758,7 +741,6 @@ def _resolve_registered_task(
                 "task_title": record.task_title,
                 "task_mode": _record_task_mode(record, flow),
                 "workflow_id": str(record.default_workflow_id or getattr(flow, "default_workflow_id", "") or "").strip(),
-                "projection_id": str(getattr(projection_binding, "default_projection_id", "") or "").strip(),
                 "input_contract_id": record.input_contract_id,
                 "output_contract_id": record.output_contract_id,
                 "flow_id": str(getattr(flow_contract_binding, "flow_contract_id", "") or record.default_flow_contract_id or "").strip(),
@@ -789,7 +771,6 @@ def _resolve_registered_task(
         "task_title": default_general_profile.title,
         "task_mode": "main_conversation_entry",
         "workflow_id": default_general_profile.default_workflow_id,
-        "projection_id": default_general_profile.default_projection_id,
         "input_contract_id": default_general_profile.input_contract_id,
         "output_contract_id": default_general_profile.output_contract_id,
         "conversation_entry_policy": default_general_profile.conversation_entry_policy,

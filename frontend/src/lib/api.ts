@@ -233,17 +233,6 @@ export type TaskDomainRecord = {
   metadata?: Record<string, unknown>;
 };
 
-export type TaskProjectionBinding = {
-  binding_id?: string;
-  task_id: string;
-  projection_selection_mode: string;
-  allowed_projection_ids: string[];
-  default_projection_id: string;
-  projection_required: boolean;
-  notes: string;
-  metadata?: Record<string, unknown>;
-};
-
 export type TaskFlowContractBinding = {
   binding_id?: string;
   task_id: string;
@@ -893,7 +882,6 @@ export type TaskConnectionDiagnosticIssue = {
 export type ConversationEntryPolicyUpsertPayload = ConversationEntryPolicy;
 export type TaskDomainUpsertPayload = TaskDomainRecord;
 export type SpecificTaskRecordUpsertPayload = SpecificTaskRecord;
-export type TaskProjectionBindingUpsertPayload = TaskProjectionBinding;
 export type TaskFlowContractBindingUpsertPayload = TaskFlowContractBinding;
 export type TaskExecutionPolicyUpsertPayload = TaskExecutionPolicy;
 export type ContractSpecUpsertPayload = ContractSpec;
@@ -930,7 +918,6 @@ export type TaskSystemOverview = {
     specific_task_records: SpecificTaskRecord[];
     task_flow_definitions: TaskSystemFlowUpsertPayload[];
     workflow_resources: TaskWorkflowRecord[];
-    projection_bindings: TaskProjectionBinding[];
     flow_contract_bindings: TaskFlowContractBinding[];
     execution_policies: TaskExecutionPolicy[];
     contract_catalog?: TaskContractDescriptor[];
@@ -1126,7 +1113,6 @@ export type TaskWorkflowRecord = {
   workflow_id: string;
   title: string;
   task_mode: string;
-  compatible_projection_ids: string[];
   visible_skill_ids: string[];
   steps: Array<Record<string, unknown>>;
   input_boundary: string;
@@ -4040,13 +4026,6 @@ export async function upsertTaskSystemSpecificRecord(taskId: string, payload: Sp
 export async function deleteTaskSystemSpecificRecord(taskId: string) {
   return request<TaskSystemOverview>(`/tasks/specific-records/${encodeURIComponent(taskId)}`, {
     method: "DELETE"
-  });
-}
-
-export async function upsertTaskSystemProjectionBinding(taskId: string, payload: TaskProjectionBindingUpsertPayload) {
-  return request<TaskSystemOverview>(`/tasks/projection-bindings/${encodeURIComponent(taskId)}`, {
-    method: "PUT",
-    body: JSON.stringify(payload)
   });
 }
 

@@ -342,7 +342,6 @@ def _runtime_node_from_task_graph_node(
         role=("graph_module" if is_graph_module else str(raw_node.work_posture or node_metadata.get("role") or ("coordinator" if agent_id == coordinator_agent_id else "participant")).strip()),
         agent_id=agent_id,
         runtime_lane="" if is_graph_module else str(raw_node.runtime_lane or "").strip(),
-        projection_id="" if is_graph_module else str(raw_node.projection_id or raw_node.projection_overlay_id or "").strip(),
         task_id="" if is_graph_module else str(raw_node.task_id or "").strip(),
         executor_policy=dict(getattr(raw_node, "executor_policy", {}) or node_metadata.get("executor_policy") or {}),
         execution_mode=execution_mode,
@@ -623,7 +622,6 @@ def _normalize_nodes(
                 role=str(raw.get("role") or ("coordinator" if agent_id == coordination_task.coordinator_agent_id else "participant")).strip(),
                 agent_id=agent_id or coordination_task.coordinator_agent_id,
                 runtime_lane=str(raw.get("lane") or raw.get("runtime_lane") or "").strip(),
-                projection_id=str(raw.get("projection_id") or raw.get("projection_overlay_id") or "").strip(),
                 task_id=task_id,
                 execution_mode=str(raw.get("execution_mode") or "sync").strip() or "sync",
                 wait_policy=str(raw.get("wait_policy") or "wait_all_upstream_completed").strip() or "wait_all_upstream_completed",
@@ -645,7 +643,7 @@ def _normalize_nodes(
                     for key, value in raw.items()
                     if key not in {
                         "node_id", "id", "title", "label", "node_type", "role", "agent_id", "lane", "runtime_lane",
-                        "projection_id", "projection_overlay_id", "task_id", "subtask_ref",
+                        "task_id", "subtask_ref",
                         "execution_mode", "wait_policy", "join_policy", "dispatch_group", "phase_id", "sequence_index",
                         "timeline_group_id", "blocks_phase_exit", "context_visibility_policy", "memory_read_policy",
                         "memory_writeback_policy", "dynamic_memory_read_policy", "artifact_policy", "review_gate_policy",

@@ -4,8 +4,11 @@ from memory_system import MemoryFacade
 from memory_system.contracts import MemoryContextCandidate
 from memory_system.runtime_view import MemoryRuntimeView
 from context_system.policy import build_context_package_result
+from context_system.models.context_models import hash_context_section_package
 from memory_system.storage.models import MemoryNote
 from memory_system.storage.process_state import ContextSlots, ProcessState
+from prompting.builder import _render_context_package_block
+from runtime.shared.context_manager import _render_context_policy_block
 from token_accounting import count_text_tokens
 
 
@@ -43,6 +46,10 @@ _Current-turn outputs, conclusions, or artifacts that remain active._
         session_id=session_id,
         query="记忆系统原则是什么？",
         relevant_notes=[note],
+        memory_request_profile={
+            "requested_memory_layers": ["state", "long_term"],
+            "allow_long_term_memory": True,
+        },
     )
     package = result.package
 
@@ -55,6 +62,11 @@ _Current-turn outputs, conclusions, or artifacts that remain active._
     assert "长期记忆不能覆盖当前任务事实" in "\n".join(package.model_visible_sections["relevant_durable_context"])
     assert all(decision.decision == "include" for decision in result.decisions)
     assert result.diagnostics["memory_write_allowed"] is False
+    assert result.sealed_receipt.read_only is True
+    assert package.sealed_receipt == result.sealed_receipt
+    assert result.sealed_receipt.memory_runtime_view_ref == result.diagnostics["memory_runtime_view_ref"]
+    assert result.sealed_receipt.package_sha256 == hash_context_section_package(package.model_visible_sections)
+    assert set(result.sealed_receipt.included_candidate_ids) == {decision.candidate_id for decision in result.decisions}
 
 
 def test_context_policy_result_reuses_supplied_memory_runtime_view(tmp_path) -> None:
@@ -87,6 +99,7 @@ def test_context_policy_result_reuses_supplied_memory_runtime_view(tmp_path) -> 
 
     assert result.package.model_visible_sections["active_process_context"]
     assert "supplied-result" in "\n".join(result.package.model_visible_sections["active_process_context"])
+    assert result.sealed_receipt.included_candidate_ids == ("supplied-state",)
 
 
 def test_context_policy_drops_long_term_before_state_when_budget_is_tight() -> None:
@@ -126,6 +139,8 @@ def test_context_policy_drops_long_term_before_state_when_budget_is_tight() -> N
 
     assert "state-candidate" in included
     assert "long-term-candidate" in dropped
+    assert set(result.sealed_receipt.included_candidate_ids) == included
+    assert set(result.sealed_receipt.dropped_candidate_ids) == dropped
     assert result.package.model_visible_sections["active_process_context"]
     assert not result.package.model_visible_sections["relevant_durable_context"]
     assert any("long_term_budget_cap_exceeded" in item for item in result.package.dropped_items)
@@ -163,6 +178,12 @@ def test_context_policy_accounts_retrieval_evidence_in_budget() -> None:
     assert result.package.token_accounting["retrieval_tokens"] > 0
     assert result.diagnostics["retrieval_evidence_dropped_count"] >= 1
     assert any("retrieval_budget_exceeded" in item for item in result.package.dropped_items)
+    included_hashes = {
+        entry.rendered_sha256
+        for entry in result.sealed_receipt.included_entries
+        if entry.source_kind == "retrieval_evidence"
+    }
+    assert included_hashes == set(result.sealed_receipt.section_item_hashes["retrieval_evidence"])
 
 
 def test_context_policy_uses_shared_token_counter_for_retrieval_accounting() -> None:
@@ -183,5 +204,91 @@ def test_context_policy_uses_shared_token_counter_for_retrieval_accounting() -> 
 
     rendered = result.package.model_visible_sections["retrieval_evidence"][0]
     assert result.package.token_accounting["retrieval_tokens"] == count_text_tokens(rendered)
+
+
+def test_context_policy_sealed_receipt_allows_only_included_candidate_content() -> None:
+    included_candidate = MemoryContextCandidate(
+        candidate_id="allowed-state",
+        memory_layer="state",
+        source="test",
+        content_ref="state:allowed",
+        rendered_preview="active_result_handle_id: allowed-result",
+        token_estimate=20,
+        budget_class="required",
+        requires_verification_before_use=False,
+    )
+    dropped_candidate = MemoryContextCandidate(
+        candidate_id="denied-long-term",
+        memory_layer="long_term",
+        source="test",
+        content_ref="note:denied",
+        rendered_preview="这条长期记忆因为预算不足不能进入模型可见上下文。" * 20,
+        token_estimate=400,
+        budget_class="optional",
+        requires_verification_before_use=True,
+    )
+    view = MemoryRuntimeView(
+        view_id="memory-runtime:sealed-ledger",
+        session_id="test",
+        context_candidates=(included_candidate, dropped_candidate),
+    )
+
+    result = build_context_package_result(
+        view,
+        available_context_tokens=60,
+        reserved_output_tokens=20,
+        long_term_token_cap=30,
+    )
+
+    rendered_model_context = "\n".join(
+        item
+        for items in result.package.model_visible_sections.values()
+        for item in items
+    )
+    included_by_policy = {entry.candidate_id for entry in result.sealed_receipt.included_entries}
+    dropped_by_policy = {entry.candidate_id for entry in result.sealed_receipt.dropped_entries}
+
+    assert "allowed-result" in rendered_model_context
+    assert "预算不足不能进入模型可见上下文" not in rendered_model_context
+    assert included_by_policy == {"allowed-state"}
+    assert dropped_by_policy == {"denied-long-term"}
+    assert all(entry.rendered_sha256 for entry in result.sealed_receipt.included_entries)
+    assert all(not entry.rendered_sha256 for entry in result.sealed_receipt.dropped_entries)
+    assert result.to_dict()["sealed_receipt"]["included_candidate_ids"] == ["allowed-state"]
+
+
+def test_sealed_context_receipt_rejects_tampered_model_visible_sections() -> None:
+    candidate = MemoryContextCandidate(
+        candidate_id="sealed-state",
+        memory_layer="state",
+        source="test",
+        rendered_preview="active_result_handle_id: sealed-result",
+        token_estimate=20,
+        budget_class="required",
+        requires_verification_before_use=False,
+    )
+    view = MemoryRuntimeView(
+        view_id="memory-runtime:tamper-check",
+        session_id="test",
+        context_candidates=(candidate,),
+    )
+    result = build_context_package_result(view)
+
+    result.package.model_visible_sections["active_process_context"].append("unauthorized injected memory")
+    tampered_payload = result.to_dict()
+
+    try:
+        _render_context_package_block(result.package, include_durable_context=True)
+    except ValueError as exc:
+        assert "sealed receipt" in str(exc)
+    else:
+        raise AssertionError("Prompt builder rendered a tampered sealed context package")
+
+    try:
+        _render_context_policy_block(tampered_payload)
+    except ValueError as exc:
+        assert "sealed receipt" in str(exc)
+    else:
+        raise AssertionError("Runtime context renderer accepted tampered sealed context package")
 
 

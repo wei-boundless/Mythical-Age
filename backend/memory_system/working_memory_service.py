@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import hashlib
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,22 @@ class WorkingMemoryPolicyDenied(ValueError):
     def __init__(self, denied_reason: str) -> None:
         super().__init__(denied_reason)
         self.denied_reason = denied_reason
+
+
+@dataclass(frozen=True, slots=True)
+class WorkingMemoryReadContext:
+    task_run_id: str
+    graph_id: str
+    owner_node_id: str
+    node_run_id: str
+    run_attempt_id: str
+    reader_agent_id: str
+    node_role: str
+    read_policy: dict[str, Any]
+    dynamic_policy: dict[str, Any]
+    read_request: dict[str, Any]
+    token_budget: int
+    read_count_so_far: int
 
 
 class WorkingMemoryService:
@@ -182,51 +199,130 @@ class WorkingMemoryService:
         token_budget: int = 0,
         read_count_so_far: int = 0,
     ) -> dict[str, Any]:
-        task_run = str(task_run_id or "").strip()
-        if not task_run:
-            raise ValueError("WorkingMemoryService.select_for_node requires task_run_id")
-        read_policy = dict(memory_read_policy or {})
-        dynamic_policy = dict(dynamic_read_policy or {})
-        read_request = dict(request or {})
-        denied_reason = _read_denied_reason(
-            read_policy=read_policy,
-            dynamic_policy=dynamic_policy,
-            read_request=read_request,
+        context = self._build_read_context(
+            task_run_id=task_run_id,
+            graph_id=graph_id,
+            owner_node_id=owner_node_id,
+            node_run_id=node_run_id,
+            run_attempt_id=run_attempt_id,
+            reader_agent_id=reader_agent_id,
+            node_role=node_role,
+            memory_read_policy=memory_read_policy,
+            dynamic_read_policy=dynamic_read_policy,
+            request=request,
+            token_budget=token_budget,
             read_count_so_far=read_count_so_far,
         )
+        denied_reason = self._read_denied_reason(context)
         if denied_reason:
-            log = self.record_read(
-                task_run_id=task_run,
-                graph_id=graph_id,
-                owner_node_id=owner_node_id,
-                node_run_id=node_run_id,
-                run_attempt_id=run_attempt_id,
-                reader_agent_id=reader_agent_id,
+            log = self._record_selection_read(
+                context,
                 selected_item_ids=(),
                 excluded_item_ids=(),
-                request={**read_request, "node_role": node_role},
                 denied_reason=denied_reason,
             )
             return _selection_payload((), (), log, denied_reason=denied_reason)
 
-        items = self.query_items(
+        items = self._candidate_pool_for_read(context)
+        selected, excluded, token_used = self._select_authorized_items(context, items)
+        selected_with_temporal = self._expand_temporal_neighbors(
+            selected,
+            items=items,
+            read_request=context.read_request,
+            dynamic_policy=context.dynamic_policy,
+            token_budget=max(0, context.token_budget - token_used),
+        )
+        selected_ids = tuple(item.work_memory_id for item in selected_with_temporal)
+        excluded_ids = tuple(item.work_memory_id for item in excluded if item.work_memory_id not in selected_ids)
+        log = self._record_selection_read(
+            context,
+            selected_item_ids=selected_ids,
+            excluded_item_ids=excluded_ids,
+        )
+        return _selection_payload(selected_with_temporal, tuple(excluded), log)
+
+    def _build_read_context(
+        self,
+        *,
+        task_run_id: str,
+        graph_id: str,
+        owner_node_id: str,
+        node_run_id: str,
+        run_attempt_id: str,
+        reader_agent_id: str,
+        node_role: str,
+        memory_read_policy: dict[str, Any] | None,
+        dynamic_read_policy: dict[str, Any] | None,
+        request: dict[str, Any] | None,
+        token_budget: int,
+        read_count_so_far: int,
+    ) -> WorkingMemoryReadContext:
+        task_run = str(task_run_id or "").strip()
+        if not task_run:
+            raise ValueError("WorkingMemoryService.select_for_node requires task_run_id")
+        return WorkingMemoryReadContext(
             task_run_id=task_run,
             graph_id=graph_id,
-            limit=max(200, int(read_request.get("candidate_pool_limit") or read_policy.get("candidate_pool_limit") or 200)),
+            owner_node_id=owner_node_id,
+            node_run_id=node_run_id,
+            run_attempt_id=run_attempt_id,
+            reader_agent_id=reader_agent_id,
+            node_role=node_role,
+            read_policy=dict(memory_read_policy or {}),
+            dynamic_policy=dict(dynamic_read_policy or {}),
+            read_request=dict(request or {}),
+            token_budget=max(0, int(token_budget or 0)),
+            read_count_so_far=max(0, int(read_count_so_far or 0)),
         )
+
+    def _read_denied_reason(self, context: WorkingMemoryReadContext) -> str:
+        return _read_denied_reason(
+            read_policy=context.read_policy,
+            dynamic_policy=context.dynamic_policy,
+            read_request=context.read_request,
+            read_count_so_far=context.read_count_so_far,
+        )
+
+    def _candidate_pool_for_read(self, context: WorkingMemoryReadContext) -> tuple[WorkingMemoryItem, ...]:
+        return self.query_items(
+            task_run_id=context.task_run_id,
+            graph_id=context.graph_id,
+            limit=max(
+                200,
+                int(
+                    context.read_request.get("candidate_pool_limit")
+                    or context.read_policy.get("candidate_pool_limit")
+                    or 200
+                ),
+            ),
+        )
+
+    def _select_authorized_items(
+        self,
+        context: WorkingMemoryReadContext,
+        items: tuple[WorkingMemoryItem, ...],
+    ) -> tuple[list[WorkingMemoryItem], list[WorkingMemoryItem], int]:
         selected: list[WorkingMemoryItem] = []
         excluded: list[WorkingMemoryItem] = []
         token_used = 0
-        max_initial_items = max(1, int(read_request.get("max_items") or read_policy.get("max_items") or 200))
-        explicit_requested_kinds = read_request.get("requested_kinds") or read_request.get("requested_kind")
-        requested_kinds = set(_strings(explicit_requested_kinds or read_policy.get("readable_kinds")))
-        requested_semantics = set(_strings(read_request.get("requested_semantics") or read_request.get("requested_semantic") or read_policy.get("readable_semantics")))
-        repository_read_edges = _normalized_repository_read_edges(read_request.get("repository_read_edges") or read_policy.get("repository_read_edges"))
+        max_initial_items = max(1, int(context.read_request.get("max_items") or context.read_policy.get("max_items") or 200))
+        explicit_requested_kinds = context.read_request.get("requested_kinds") or context.read_request.get("requested_kind")
+        requested_kinds = set(_strings(explicit_requested_kinds or context.read_policy.get("readable_kinds")))
+        requested_semantics = set(
+            _strings(
+                context.read_request.get("requested_semantics")
+                or context.read_request.get("requested_semantic")
+                or context.read_policy.get("readable_semantics")
+            )
+        )
+        repository_read_edges = _normalized_repository_read_edges(
+            context.read_request.get("repository_read_edges") or context.read_policy.get("repository_read_edges")
+        )
         if repository_read_edges and not explicit_requested_kinds:
             requested_kinds = set()
-        readable_scopes = _effective_readable_scopes(read_request=read_request, read_policy=read_policy)
-        readable_visibilities = _effective_readable_visibilities(read_request=read_request, read_policy=read_policy)
-        required_stage_ids = set(_strings(read_request.get("required_stage_ids")))
+        readable_scopes = _effective_readable_scopes(read_request=context.read_request, read_policy=context.read_policy)
+        readable_visibilities = _effective_readable_visibilities(read_request=context.read_request, read_policy=context.read_policy)
+        required_stage_ids = set(_strings(context.read_request.get("required_stage_ids")))
         for item in items:
             if item.status != "accepted":
                 excluded.append(item)
@@ -234,21 +330,21 @@ class WorkingMemoryService:
             if readable_visibilities and item.visibility not in readable_visibilities:
                 excluded.append(item)
                 continue
-            if item.visibility == "private_to_agent" and item.writer_agent_id != reader_agent_id:
+            if item.visibility == "private_to_agent" and item.writer_agent_id != context.reader_agent_id:
                 excluded.append(item)
                 continue
-            if item.visibility == "private_to_node" and item.owner_node_id != owner_node_id:
+            if item.visibility == "private_to_node" and item.owner_node_id != context.owner_node_id:
                 excluded.append(item)
                 continue
             if item.visibility == "handoff_only" and not _handoff_visibility_allowed(
                 item=item,
-                owner_node_id=owner_node_id,
-                read_request=read_request,
-                read_policy=read_policy,
+                owner_node_id=context.owner_node_id,
+                read_request=context.read_request,
+                read_policy=context.read_policy,
             ):
                 excluded.append(item)
                 continue
-            if item.visibility in {"coordinator_only", "human_review_only"} and node_role not in {"coordinator", "human_gate"}:
+            if item.visibility in {"coordinator_only", "human_review_only"} and context.node_role not in {"coordinator", "human_gate"}:
                 excluded.append(item)
                 continue
             if readable_scopes and item.scope not in readable_scopes:
@@ -267,7 +363,7 @@ class WorkingMemoryService:
                 excluded.append(item)
                 continue
             item_tokens = count_text_tokens(item.summary or item.title or str(item.payload)[:500])
-            if token_budget and token_used + item_tokens > token_budget:
+            if context.token_budget and token_used + item_tokens > context.token_budget:
                 excluded.append(item)
                 continue
             if len(selected) >= max_initial_items:
@@ -275,27 +371,28 @@ class WorkingMemoryService:
                 continue
             token_used += item_tokens
             selected.append(item)
-        selected_with_temporal = self._expand_temporal_neighbors(
-            selected,
-            items=items,
-            read_request=read_request,
-            dynamic_policy=dynamic_policy,
-            token_budget=max(0, int(token_budget or 0) - token_used),
+        return selected, excluded, token_used
+
+    def _record_selection_read(
+        self,
+        context: WorkingMemoryReadContext,
+        *,
+        selected_item_ids: list[str] | tuple[str, ...],
+        excluded_item_ids: list[str] | tuple[str, ...],
+        denied_reason: str = "",
+    ) -> WorkingMemoryReadLog:
+        return self.record_read(
+            task_run_id=context.task_run_id,
+            graph_id=context.graph_id,
+            owner_node_id=context.owner_node_id,
+            node_run_id=context.node_run_id,
+            run_attempt_id=context.run_attempt_id,
+            reader_agent_id=context.reader_agent_id,
+            selected_item_ids=selected_item_ids,
+            excluded_item_ids=excluded_item_ids,
+            request={**context.read_request, "node_role": context.node_role},
+            denied_reason=denied_reason,
         )
-        selected_ids = tuple(item.work_memory_id for item in selected_with_temporal)
-        excluded_ids = tuple(item.work_memory_id for item in excluded if item.work_memory_id not in selected_ids)
-        log = self.record_read(
-            task_run_id=task_run,
-            graph_id=graph_id,
-            owner_node_id=owner_node_id,
-            node_run_id=node_run_id,
-            run_attempt_id=run_attempt_id,
-            reader_agent_id=reader_agent_id,
-            selected_item_ids=selected_ids,
-            excluded_item_ids=excluded_ids,
-            request={**read_request, "node_role": node_role},
-        )
-        return _selection_payload(selected_with_temporal, tuple(excluded), log)
 
     def resolve_handoff_into_working_memory(
         self,

@@ -56,7 +56,6 @@ async def _execute_stage_request_in_background(
             agent_runtime_chain=runtime.query_runtime.agent_runtime_chain,
             model_response_executor=runtime.query_runtime.model_response_executor,
             runtime_context_manager=runtime.query_runtime.runtime_context_manager,
-            stage_projection_cycle=None,
             memory_intent=analyze_memory_intent(stage_execution_request.message),
             assistant_message_committer=lambda _payload: None,
             tool_runtime_executor=runtime.query_runtime.tool_runtime_executor,

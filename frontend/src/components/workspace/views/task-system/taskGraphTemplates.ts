@@ -58,7 +58,6 @@ type TemplateNodeInput = {
   task_title?: string;
   blocks_phase_exit?: boolean;
   review_gate?: boolean;
-  projection_id?: string;
   input_contract_id?: string;
   output_contract_id?: string;
   dispatch_group?: string;
@@ -145,8 +144,6 @@ function makeNode(input: TemplateNodeInput, domainId: string): TaskGraphNode {
     agent_id: input.agent_id,
     role: input.role,
     work_posture: input.role,
-    projection_id: input.projection_id,
-    projection_overlay_id: input.projection_id,
     input_contract_id: input.input_contract_id,
     output_contract_id: input.output_contract_id ?? (input.review_gate ? "contract.review.verdict" : undefined),
     node_contract_id: input.output_contract_id ?? (input.review_gate ? "contract.review.verdict" : undefined),

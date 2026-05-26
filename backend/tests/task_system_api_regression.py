@@ -9,7 +9,7 @@ from api import orchestration_catalog as orchestration_catalog_api
 from api import task_system as tasks_api
 from orchestration import coordination_rewind, coordination_scheduler
 from runtime.execution.node_execution_request import NodeExecutionRequest
-from runtime.agent_runtime import AgentRuntime
+from runtime.agent_runtime import AgentRuntime, AgentRuntimeServices
 from runtime.graph_task_runtime import GraphTaskRuntime
 from runtime.subruntime import graph_module_core_artifact_refs, latest_unconsumed_graph_module_imported_result
 from artifact_system import ArtifactRepositoryService
@@ -53,7 +53,7 @@ def _graph_task_runtime_stub(state_index: RuntimeStateIndex, *, event_log: Any |
 
 
 def _runtime_with_graph_task_facade(*, base_dir: Path, loop: TaskRunLoop) -> SimpleNamespace:
-    agent_runtime = AgentRuntime(task_run_loop=loop)
+    agent_runtime = AgentRuntime(services=AgentRuntimeServices.from_runtime_host(loop))
     loop.agent_runtime = agent_runtime
     return SimpleNamespace(
         base_dir=base_dir,
@@ -1377,9 +1377,9 @@ def test_task_system_overview_exposes_formal_task_management_layers(tmp_path: Pa
 
     assert payload["authority"] == "task_system.management_console"
     assert summary["specific_task_record_count"] == len(task_management["specific_task_records"])
-    assert summary["projection_binding_count"] == 0
-    assert summary["derived_projection_binding_count"] == len(task_management["projection_bindings"])
-    assert summary["effective_projection_binding_count"] == len(task_management["projection_bindings"])
+    assert "projection_binding_count" not in summary
+    assert "derived_projection_binding_count" not in summary
+    assert "effective_projection_binding_count" not in summary
     assert summary["flow_contract_binding_count"] == 0
     assert summary["derived_flow_contract_binding_count"] == len(task_management["flow_contract_bindings"])
     assert summary["effective_flow_contract_binding_count"] == len(task_management["flow_contract_bindings"])
@@ -1393,7 +1393,7 @@ def test_task_system_overview_exposes_formal_task_management_layers(tmp_path: Pa
     assert all("writing" not in str(item.get("domain_id") or "") for item in task_management["task_domains"])
     assert all("writing" not in str(item.get("task_id") or "") for item in task_management["specific_task_records"])
     assert all("writing" not in str(item.get("flow_id") or "") for item in task_management["task_flow_definitions"])
-    assert all("writing" not in str(item.get("task_id") or "") for item in task_management["projection_bindings"])
+    assert "projection_bindings" not in task_management
     assert all("writing" not in str(item.get("task_id") or "") for item in task_management["flow_contract_bindings"])
     assert all("writing" not in str(item.get("task_id") or "") for item in task_management["execution_policies"])
     assert task_graph_management["communication_protocols"] == []
@@ -1519,16 +1519,6 @@ def test_specific_task_delete_cascades_task_assembly_objects(tmp_path: Path) -> 
                 ),
             )
         )
-        asyncio.run(
-            tasks_api.upsert_task_system_projection_binding(
-                "task.research.experiment",
-                tasks_api.TaskProjectionBindingUpsertRequest(
-                    task_id="task.research.experiment",
-                    projection_selection_mode="task_default",
-                    default_projection_id="projection.research",
-                ),
-            )
-        )
         payload = asyncio.run(tasks_api.delete_task_system_specific_record("task.research.experiment"))
     finally:
         tasks_api.require_runtime = original  # type: ignore[assignment]
@@ -1536,7 +1526,7 @@ def test_specific_task_delete_cascades_task_assembly_objects(tmp_path: Path) -> 
     task_management = payload["task_management"]
 
     assert all(item["task_id"] != "task.research.experiment" for item in task_management["specific_task_records"])
-    assert all(item["task_id"] != "task.research.experiment" for item in task_management["projection_bindings"])
+    assert "projection_bindings" not in task_management
     assert all(item["task_id"] != "task.research.experiment" for item in task_management["flow_contract_bindings"])
     assert all(item["task_id"] != "task.research.experiment" for item in task_management["execution_policies"])
     assert all(item["workflow_id"] != "workflow.900102" for item in task_management["workflow_resources"])
@@ -1747,19 +1737,6 @@ def test_task_system_formal_object_upserts_persist_and_return_management_payload
     original = tasks_api.require_runtime
     tasks_api.require_runtime = lambda: _RuntimeStub(tmp_path)  # type: ignore[assignment]
     try:
-        projection_payload = asyncio.run(
-            tasks_api.upsert_task_system_projection_binding(
-                "task.dev.light_web_game",
-                tasks_api.TaskProjectionBindingUpsertRequest(
-                    task_id="task.dev.light_web_game",
-                    projection_selection_mode="allow_list",
-                    allowed_projection_ids=["projection.dev.builder"],
-                    default_projection_id="projection.dev.builder",
-                    projection_required=True,
-                    notes="test projection binding",
-                ),
-            )
-        )
         flow_contract_payload = asyncio.run(
             tasks_api.upsert_task_system_flow_contract_binding(
                 "task.dev.light_web_game",
@@ -1810,20 +1787,14 @@ def test_task_system_formal_object_upserts_persist_and_return_management_payload
         tasks_api.require_runtime = original  # type: ignore[assignment]
 
     registry = TaskFlowRegistry(tmp_path)
-    projection_binding = registry.get_projection_binding("task.dev.light_web_game")
     flow_binding = registry.get_flow_contract_binding("task.dev.light_web_game")
     execution_policy = registry.get_task_execution_policy("task.dev.light_web_game")
     protocol = registry.get_task_communication_protocol("protocol.dev.parallel_review")
 
-    assert projection_payload["task_management"]["projection_bindings"]
+    assert "projection_bindings" not in flow_contract_payload["task_management"]
     assert flow_contract_payload["task_management"]["flow_contract_bindings"]
     assert execution_payload["task_management"]["execution_policies"]
     assert protocol_payload["task_graph_management"]["communication_protocols"]
-
-    assert projection_binding is not None
-    assert projection_binding.projection_selection_mode == "allow_list"
-    assert projection_binding.default_projection_id == "projection.dev.builder"
-    assert projection_binding.projection_required is True
 
     assert flow_binding is not None
     assert flow_binding.override_policy == "strict_task_default"

@@ -25,6 +25,7 @@ from runtime.search_agent_runtime import DEEPSEARCH_TEMPLATE_ID, SearchAgentRunt
 from runtime_encoding import utf8_subprocess_text_kwargs
 
 from .delegation_models import AgentDelegationRequest
+from .delegation_policy import mcp_route_for_operation, operation_for_delegation
 
 
 class ChildAgentRuntimeExecutor:
@@ -63,7 +64,7 @@ class ChildAgentRuntimeExecutor:
                 profile=profile,
                 config=runtime_config.search or normalize_runtime_config({"search": {}}).search,
             )
-        operation_id = _operation_for_delegation(request=request, profile=profile)
+        operation_id = operation_for_delegation(delegation_kind=request.delegation_kind, profile=profile)
         if not operation_id:
             return {
                 "status": "failed",
@@ -71,7 +72,7 @@ class ChildAgentRuntimeExecutor:
                 "limitations": ["child_operation_not_authorized"],
                 "diagnostics": {"child_execution_mode": "profile_authorized_specialist"},
             }
-        mcp_route = _mcp_route_for_operation(operation_id)
+        mcp_route = mcp_route_for_operation(operation_id)
         if operation_id == "op.web_search":
             return await self._run_web_research(request=request, agent=agent)
         if not mcp_route:
@@ -229,49 +230,6 @@ class ChildAgentRuntimeExecutor:
             },
             "diagnostics": {"source": "child_runtime_unsupported_route"},
         }
-
-
-_DELEGATION_OPERATION_BY_KIND = {
-    "pdf": "op.mcp_pdf",
-    "pdf_reading": "op.mcp_pdf",
-    "document_reading": "op.mcp_pdf",
-    "structured_data": "op.mcp_structured_data",
-    "table_analysis": "op.mcp_structured_data",
-    "structured_data_lookup": "op.mcp_structured_data",
-    "retrieval": "op.mcp_retrieval",
-    "evidence_lookup": "op.mcp_retrieval",
-    "knowledge_retrieval": "op.mcp_retrieval",
-    "knowledge_search": "op.mcp_retrieval",
-    "web": "op.web_search",
-    "web_research": "op.web_search",
-    "external_web_lookup": "op.web_search",
-    "current_information_lookup": "op.web_search",
-    "official_source_lookup": "op.web_search",
-    "codebase_search": "op.search_text",
-    "local_search": "op.search_text",
-    "workspace_search": "op.search_text",
-    "file_search": "op.search_text",
-    "memory_search": "op.memory_read",
-    "memory_lookup": "op.memory_read",
-    "memory_recall": "op.memory_read",
-}
-
-
-def _operation_for_delegation(*, request: AgentDelegationRequest, profile: Any) -> str:
-    allowed = {str(item).strip() for item in tuple(getattr(profile, "allowed_operations", ()) or ()) if str(item).strip()}
-    blocked = {str(item).strip() for item in tuple(getattr(profile, "blocked_operations", ()) or ()) if str(item).strip()}
-    available = allowed - blocked
-    kind = str(request.delegation_kind or "").strip()
-    operation_id = _DELEGATION_OPERATION_BY_KIND.get(kind, "")
-    return operation_id if operation_id in available else ""
-
-
-def _mcp_route_for_operation(operation_id: str) -> str:
-    return {
-        "op.mcp_pdf": "pdf",
-        "op.mcp_structured_data": "structured_data",
-        "op.mcp_retrieval": "retrieval",
-    }.get(str(operation_id or "").strip(), "")
 
 
 def _run_web_search_sync(*, root_dir: Path, query: str, topic: str, time_range: str, max_results: int) -> dict[str, Any]:

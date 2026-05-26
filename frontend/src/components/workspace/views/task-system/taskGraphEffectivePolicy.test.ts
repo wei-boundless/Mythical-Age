@@ -54,18 +54,18 @@ describe("taskGraphEffectivePolicy", () => {
     }).source).toBe("system_default");
   });
 
-  it("reads nested metadata values for projection defaults", () => {
+  it("reads nested metadata values for node runtime defaults", () => {
     const result = resolveTaskGraphEffectivePolicy({
-      key: "projection_id",
+      key: "runtime_lane",
       node: {
         metadata: {
-          projection_id: "projection.review",
+          runtime_lane: "coordination_task",
         },
       },
       systemDefault: "未配置",
     });
 
-    expect(result.value).toBe("projection.review");
+    expect(result.value).toBe("coordination_task");
     expect(result.source).toBe("node_explicit");
   });
 });

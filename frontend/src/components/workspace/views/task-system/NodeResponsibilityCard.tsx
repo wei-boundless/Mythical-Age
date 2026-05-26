@@ -1,6 +1,6 @@
 "use client";
 
-import { Wand2 } from "lucide-react";
+import { Save } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { TaskSystemField, TaskSystemSelectField, TaskSystemToolbarButton } from "./TaskSystemWorkbenchUi";
@@ -17,20 +17,7 @@ function uniqueStrings(values: Array<string | null | undefined>) {
   return Array.from(new Set(values.map((item) => String(item ?? "").trim()).filter(Boolean)));
 }
 
-function projectionLabel(
-  projectionId: string,
-  cards: Array<{ projection_id: string; title?: string; soul_name?: string; soul_id?: string }> = [],
-) {
-  const value = String(projectionId || "").trim();
-  if (!value) return "不绑定投影";
-  const card = cards.find((item) => String(item.projection_id ?? "") === value);
-  if (!card) return value;
-  const title = String(card.title || card.projection_id || value);
-  const soul = String(card.soul_name || card.soul_id || "").trim();
-  return soul ? `${title} · ${soul}` : title;
-}
-
-function metadataAfterProjectionBind(metadata: Record<string, unknown>) {
+function metadataAfterRolePromptSave(metadata: Record<string, unknown>, prompt: string) {
   const {
     role_identity: roleIdentity,
     responsibility_scope: responsibilityScope,
@@ -38,7 +25,7 @@ function metadataAfterProjectionBind(metadata: Record<string, unknown>) {
     definition_of_done: definitionOfDone,
     ...rest
   } = metadata;
-  const migratedFieldNames = [
+  const consolidatedFieldNames = [
     roleIdentity ? "role_identity" : "",
     responsibilityScope ? "responsibility_scope" : "",
     responsibilityExclusions ? "responsibility_exclusions" : "",
@@ -46,9 +33,10 @@ function metadataAfterProjectionBind(metadata: Record<string, unknown>) {
   ].filter(Boolean);
   return {
     ...rest,
+    role_prompt: prompt,
     legacy_prompt_migration: {
-      legacy_field_names: migratedFieldNames,
-      migration_status: "projection_bound",
+      legacy_field_names: consolidatedFieldNames,
+      migration_status: consolidatedFieldNames.length ? "role_prompt_consolidated" : "role_prompt_native",
     },
   };
 }
@@ -67,21 +55,16 @@ export function buildNodeResponsibilityPrompt(metadata: Record<string, unknown>)
 }
 
 export function NodeResponsibilityCard({
-  onCreateProjectionFromPrompt,
-  projectionCards = [],
   selectedGraphNode,
   selectedGraphNodeId,
   updateTaskGraphNode,
 }: {
-  onCreateProjectionFromPrompt?: (input: { node: Record<string, unknown>; nodeId: string; prompt: string }) => Promise<string>;
-  projectionCards?: Array<{ projection_id: string; title?: string; soul_name?: string; soul_id?: string }>;
   selectedGraphNode: Record<string, unknown> | null;
   selectedGraphNodeId: string;
   updateTaskGraphNode: (nodeId: string, patch: Record<string, unknown>) => void;
 }) {
   const nodeMetadata = asRecord(selectedGraphNode?.metadata);
   const executorPolicy = asRecord(selectedGraphNode?.executor_policy ?? nodeMetadata.executor_policy);
-  const [creatingProjection, setCreatingProjection] = useState(false);
   const [promptDraft, setPromptDraft] = useState("");
 
   useEffect(() => {
@@ -89,8 +72,9 @@ export function NodeResponsibilityCard({
       setPromptDraft("");
       return;
     }
-    const prompt = buildNodeResponsibilityPrompt(asRecord(selectedGraphNode.metadata));
-    setPromptDraft(prompt);
+    const metadata = asRecord(selectedGraphNode.metadata);
+    const prompt = String(selectedGraphNode.role_prompt ?? metadata.role_prompt ?? "").trim();
+    setPromptDraft(prompt || buildNodeResponsibilityPrompt(metadata));
   }, [selectedGraphNode, selectedGraphNodeId]);
 
   if (!selectedGraphNode || !selectedGraphNodeId) {
@@ -126,31 +110,13 @@ export function NodeResponsibilityCard({
   const legacyFieldNames = Array.isArray(legacyMigration.legacy_field_names)
     ? legacyMigration.legacy_field_names.map((value) => String(value ?? "").trim()).filter(Boolean)
     : [];
-  const projectionId = String(selectedGraphNode.projection_id ?? selectedGraphNode.projection_overlay_id ?? "");
-  const projectionOptions = uniqueStrings([
-    projectionId,
-    ...projectionCards.map((item) => String(item.projection_id ?? "")),
-  ]);
-  const createAndBindProjection = async () => {
-    if (!onCreateProjectionFromPrompt) {
-      return;
-    }
-    setCreatingProjection(true);
-    try {
-      const prompt = promptDraft.trim() || buildNodeResponsibilityPrompt(nodeMetadata);
-      const nextProjectionId = await onCreateProjectionFromPrompt({
-        node: selectedGraphNode,
-        nodeId: selectedGraphNodeId,
-        prompt,
-      });
-      updateTaskGraphNode(selectedGraphNodeId, {
-        metadata: metadataAfterProjectionBind(nodeMetadata),
-        projection_id: nextProjectionId,
-        projection_overlay_id: nextProjectionId,
-      });
-    } finally {
-      setCreatingProjection(false);
-    }
+  const rolePrompt = String(selectedGraphNode.role_prompt ?? nodeMetadata.role_prompt ?? "").trim();
+  const saveRolePrompt = () => {
+    const prompt = promptDraft.trim() || buildNodeResponsibilityPrompt(nodeMetadata);
+    updateTaskGraphNode(selectedGraphNodeId, {
+      role_prompt: prompt,
+      metadata: metadataAfterRolePromptSave(nodeMetadata, prompt),
+    });
   };
 
   return (
@@ -167,18 +133,11 @@ export function NodeResponsibilityCard({
         <p><span>角色</span><strong>{String(selectedGraphNode.role ?? selectedGraphNode.work_posture ?? "participant")}</strong></p>
         <p><span>Agent</span><strong>{String(selectedGraphNode.agent_id ?? "未绑定")}</strong></p>
         <p><span>执行器</span><strong>{String(executorPolicy.default_executor ?? "agent")}</strong></p>
-        <p><span>投影</span><strong>{projectionLabel(projectionId, projectionCards)}</strong></p>
-        <p><span>Legacy Prompt</span><strong>{legacyFieldNames.length > 0 ? "已迁移记录" : "无"}</strong></p>
+        <p><span>角色 Prompt</span><strong>{rolePrompt ? "已配置" : "草稿待保存"}</strong></p>
+        <p><span>Legacy Prompt</span><strong>{legacyFieldNames.length > 0 ? "待收口" : "无"}</strong></p>
       </div>
 
       <div className="boundary-form">
-        <TaskSystemSelectField
-          formatOption={(value) => projectionLabel(value, projectionCards)}
-          label="节点投影"
-          onChange={(value) => updateTaskGraphNode(selectedGraphNodeId, { projection_id: value, projection_overlay_id: value })}
-          options={projectionOptions}
-          value={projectionId}
-        />
         <TaskSystemSelectField
           label="默认执行器"
           onChange={(value) => patchExecutorPolicy({ default_executor: value, allowed_executors: Array.from(new Set(["agent", value])) })}
@@ -233,21 +192,21 @@ export function NodeResponsibilityCard({
             value={String(nodeMetadata.definition_of_done ?? "")}
           />
         </TaskSystemField>
-        <div className="boundary-actions">
-          <TaskSystemToolbarButton disabled={creatingProjection || !onCreateProjectionFromPrompt} onClick={() => void createAndBindProjection()}>
-            <Wand2 size={14} />{creatingProjection ? "创建投影中" : "生成并绑定投影"}
-          </TaskSystemToolbarButton>
-        </div>
-        <TaskSystemField label="投影 Prompt 草稿">
+        <TaskSystemField label="角色 Prompt">
           <textarea
             onChange={(event) => setPromptDraft(event.target.value)}
             placeholder="你是一名审核员。你只负责...你不负责...你必须输出..."
             value={promptDraft}
           />
         </TaskSystemField>
+        <div className="boundary-actions">
+          <TaskSystemToolbarButton onClick={saveRolePrompt}>
+            <Save size={14} />保存角色 Prompt
+          </TaskSystemToolbarButton>
+        </div>
         <div className="task-graph-note">
-          <strong>迁移提示</strong>
-          <span>Prompt 草稿只用于创建投影；点击“生成并绑定投影”后会写入投影系统，TaskGraph 只保存 Projection 引用。</span>
+          <strong>Prompt 边界</strong>
+          <span>节点职责直接写入任务图节点，运行时按角色 Prompt、输入契约和输出契约装配，不再通过 Projection 选择身份。</span>
         </div>
       </div>
     </article>

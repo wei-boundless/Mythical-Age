@@ -89,8 +89,6 @@ class TaskGraphNodeDefinition:
     contract_bindings: dict[str, Any] = field(default_factory=dict)
     runtime_lane: str = ""
     context_visibility_policy: dict[str, Any] = field(default_factory=dict)
-    projection_id: str = ""
-    projection_overlay_id: str = ""
     executor_policy: dict[str, Any] = field(default_factory=dict)
     failure_policy: dict[str, Any] = field(default_factory=dict)
     human_gate_policy: dict[str, Any] = field(default_factory=dict)
@@ -126,12 +124,7 @@ class TaskGraphNodeDefinition:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        payload = asdict(self)
-        if not str(payload.get("projection_id") or "").strip():
-            payload.pop("projection_id", None)
-        if not str(payload.get("projection_overlay_id") or "").strip():
-            payload.pop("projection_overlay_id", None)
-        return payload
+        return asdict(self)
 
 
 @dataclass(frozen=True, slots=True)
@@ -302,8 +295,6 @@ def task_graph_node_from_dict(payload: dict[str, Any]) -> TaskGraphNodeDefinitio
         ),
         runtime_lane=runtime_lane,
         context_visibility_policy=dict(payload.get("context_visibility_policy") or {}),
-        projection_id=str(payload.get("projection_id") or payload.get("projection_overlay_id") or "").strip(),
-        projection_overlay_id=str(payload.get("projection_overlay_id") or "").strip(),
         executor_policy=executor_policy,
         failure_policy=failure_policy,
         human_gate_policy=human_gate_policy,

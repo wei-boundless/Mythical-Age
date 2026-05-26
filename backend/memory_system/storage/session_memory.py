@@ -1,39 +1,20 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 from typing import Any
 
 from .process_state import ContextSlots, DialogueState, FlowState, TaskState, TurnUnderstanding
 from .flow_snapshots import FlowSnapshot, FlowSnapshotManager
 from .models import utc_now_iso
-from .process_engine import ProcessStateEngine
 from .process_state import ProcessStateManager
 from .session_memory_view import DEFAULT_TEMPLATE, SessionMemoryViewBuilder
 from .text_utils import normalize_storage_text
-from .turn_projection import FILE_PATTERN, TurnProjectionBuilder
 
 
-class SessionUnderstandingProcessor:
-    """Projects session truth into working memory without deciding current-turn intent."""
-
-    def __init__(self) -> None:
-        self.turn_projector = TurnProjectionBuilder()
-        self.turn_analyzer = self.turn_projector
-        self.process_engine = ProcessStateEngine(self.turn_projector)
-
-    def process(
-        self,
-        messages: list[Any],
-        previous_state: DialogueState,
-        *,
-        max_items: int = 6,
-    ) -> DialogueState:
-        snapshot = self.turn_projector.project(messages, previous_state)
-        return self.process_engine.assemble(
-            snapshot,
-            previous_state,
-            max_items=max_items,
-        )
+FILE_PATTERN = re.compile(
+    r"[\w./-]+\.(?:py|ts|tsx|js|md|json|yaml|yml|pdf|csv|xlsx|xls|parquet)"
+)
 
 
 class SessionMemoryManager:
@@ -50,7 +31,6 @@ class SessionMemoryManager:
         self.summary_path = self.session_dir / "summary.md"
         self.state_manager = ProcessStateManager(self.session_dir)
         self.flow_snapshot_manager = FlowSnapshotManager(self.session_dir)
-        self.processor = SessionUnderstandingProcessor()
         self.view_builder = SessionMemoryViewBuilder()
         self._ensure_view_files()
 
@@ -195,13 +175,11 @@ class SessionMemoryManager:
             constraint_items=constraint_items,
         )
 
-        process_engine = self.processor.process_engine
-        turn_projector = self.processor.turn_projector
         flow_type = "memory_projection"
         flow_id = (
             previous_state.flow_state.flow_id
             if previous_state.flow_state.flow_type == flow_type
-            else f"{flow_type}:{turn_projector._slugify(active_goal or 'active')}"
+            else f"{flow_type}:{self._slugify(active_goal or 'active')}"
         )
         flow_state = FlowState(
             flow_id=flow_id,
@@ -228,7 +206,7 @@ class SessionMemoryManager:
             current_task_state=current_task_state,
             normalized_task_summaries=normalized_task_summaries,
         )
-        current_result_refs = process_engine._dedupe_items(
+        current_result_refs = self._dedupe_items(
             [item["answer"] or item["summary"] for item in normalized_task_summaries if item["answer"] or item["summary"]],
             max_items=max_items,
             max_chars=260,
@@ -239,12 +217,12 @@ class SessionMemoryManager:
             for item in bundle_result_refs
             if item.get("ordinal") and item.get("summary")
         ]
-        current_result_refs = process_engine._dedupe_items(
+        current_result_refs = self._dedupe_items(
             [*current_result_refs, *bundle_result_text_refs],
             max_items=max_items,
             max_chars=260,
         )
-        historical_result_refs = process_engine._dedupe_items(
+        historical_result_refs = self._dedupe_items(
             [
                 *list(previous_state.historical_result_refs),
                 *[
@@ -258,12 +236,12 @@ class SessionMemoryManager:
             max_items=max_items,
             max_chars=260,
         )
-        decision_items = process_engine._dedupe_items(
+        decision_items = self._dedupe_items(
             [item["answer"] or item["summary"] for item in normalized_task_summaries if item["answer"] or item["summary"]],
             max_items=max_items,
             max_chars=240,
         )
-        key_user_requests = process_engine._dedupe_items(
+        key_user_requests = self._dedupe_items(
             [active_goal],
             max_items=max_items,
         )
@@ -278,26 +256,26 @@ class SessionMemoryManager:
         next_steps: list[str] = []
         task_state = TaskState(
             current_step=current_step,
-            completed_steps=process_engine._dedupe_items(
+            completed_steps=self._dedupe_items(
                 [f"已完成：{item}" for item in current_result_refs[:2]],
                 max_items=3,
             ),
             pending_steps=[],
             next_step="",
         )
-        errors_and_corrections = process_engine._dedupe_items(
+        errors_and_corrections = self._dedupe_items(
             list(correction_items),
             max_items=max_items,
         )
-        worklog = process_engine._dedupe_items(
+        worklog = self._dedupe_items(
             [
-                f"user: {process_engine._shorten(active_goal, 140)}",
+                f"user: {self._shorten(active_goal, 140)}",
                 *[
-                    f"assistant: {process_engine._shorten(item, 140)}"
+                    f"assistant: {self._shorten(item, 140)}"
                     for item in current_result_refs[:2]
                 ],
                 *[
-                    f"user-correction: {process_engine._shorten(item, 140)}"
+                    f"user-correction: {self._shorten(item, 140)}"
                     for item in correction_items[:2]
                 ],
             ],
@@ -318,8 +296,8 @@ class SessionMemoryManager:
             current_task_state=current_task_state,
             warm_context=warm_context,
             key_user_requests=key_user_requests,
-            files_and_functions=process_engine._dedupe_items(file_hints, max_items=max_items),
-            conventions_and_constraints=process_engine._dedupe_items(constraint_items, max_items=max_items),
+            files_and_functions=self._dedupe_items(file_hints, max_items=max_items),
+            conventions_and_constraints=self._dedupe_items(constraint_items, max_items=max_items),
             errors_and_corrections=errors_and_corrections,
             decisions_and_learnings=decision_items,
             current_result_refs=current_result_refs,
@@ -701,7 +679,7 @@ class SessionMemoryManager:
             items.append(
                 f"最新结果摘要：{self._shorten(self._coerce_text(normalized_task_summaries[-1].get('summary')), 160)}"
             )
-        return self.processor.process_engine._dedupe_items(items, max_items=max_items, max_chars=220)
+        return self._dedupe_items(items, max_items=max_items, max_chars=220)
 
     def _build_projection_task_current_step(
         self,
@@ -739,7 +717,7 @@ class SessionMemoryManager:
             items.append(f"近期结果：{self._shorten(self._coerce_text(normalized_task_summaries[-2].get('answer') or normalized_task_summaries[-2].get('summary')), 120)}")
         elif not current_result_refs and historical_result_refs:
             items.append(f"近期结果：{self._shorten(historical_result_refs[0], 120)}")
-        return self.processor.process_engine._dedupe_items(items, max_items=max_items, max_chars=200)
+        return self._dedupe_items(items, max_items=max_items, max_chars=200)
 
     def _extract_projection_file_hints(self, items: list[str]) -> list[str]:
         hints: list[str] = []
@@ -756,7 +734,18 @@ class SessionMemoryManager:
         return " ".join(words) or "Ongoing session"
 
     def _shorten(self, text: str, limit: int) -> str:
-        return self.processor.process_engine._shorten(self._coerce_text(text), limit)
+        compact = " ".join(self._coerce_text(text).split())
+        return compact[:limit] + ("..." if len(compact) > limit else "")
+
+    def _slugify(self, text: str) -> str:
+        normalized = self._coerce_text(text).lower()
+        ascii_slug = re.sub(r"[^a-z0-9]+", "-", normalized).strip("-")
+        if ascii_slug:
+            return ascii_slug[:48]
+        for chunk in re.findall(r"[\u4e00-\u9fff]{2,12}", normalized):
+            if chunk:
+                return chunk[:12]
+        return "active"
 
     def _read_value(self, source: Any, key: str) -> Any:
         if source is None:
@@ -835,6 +824,20 @@ class SessionMemoryManager:
             if cleaned and cleaned not in deduped:
                 deduped.append(cleaned)
         return deduped
+
+    def _dedupe_items(
+        self,
+        items: list[str],
+        *,
+        max_items: int,
+        max_chars: int = 240,
+    ) -> list[str]:
+        deduped: list[str] = []
+        for item in items:
+            cleaned = " ".join(self._coerce_text(item).split()).strip()
+            if cleaned and cleaned not in deduped:
+                deduped.append(cleaned[:max_chars].rstrip())
+        return deduped[:max_items]
 
     def _safe_int(self, value: Any) -> int:
         try:

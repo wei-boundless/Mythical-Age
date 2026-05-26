@@ -89,7 +89,6 @@ def test_prompt_library_syncs_workflow_prompt_as_stage_role_without_projection_b
     TaskWorkflowRegistry(tmp_path).upsert_workflow(
         workflow_id="workflow.test.node.world_review",
         title="世界观审核",
-        compatible_projection_ids=(),
         steps=({"step_id": "review", "title": "审核世界观"},),
         prompt="你是一名世界观审核员。你只负责评审当前世界观设定是否完整、一致、可支撑后续写作。",
         enabled=True,

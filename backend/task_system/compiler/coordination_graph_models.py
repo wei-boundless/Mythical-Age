@@ -12,7 +12,6 @@ class TaskGraphRuntimeNode:
     role: str
     agent_id: str = ""
     runtime_lane: str = ""
-    projection_id: str = ""
     task_id: str = ""
     executor_policy: dict[str, Any] = field(default_factory=dict)
     execution_mode: str = "sync"

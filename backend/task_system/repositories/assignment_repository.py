@@ -8,7 +8,6 @@ from task_system.registry.flow_models import (
     SpecificTaskRecord,
     TaskAssignment,
     TaskFlowDefinition,
-    TaskProjectionBinding,
 )
 from task_system.repositories.common import merge_items_by_key
 from task_system.storage import TaskSystemStorage
@@ -21,32 +20,23 @@ class AssignmentRepository:
         *,
         list_flows: Callable[[], list[TaskFlowDefinition]],
         list_specific_task_records: Callable[[], list[SpecificTaskRecord]],
-        list_projection_bindings: Callable[[], list[TaskProjectionBinding]],
         get_flow: Callable[[str], TaskFlowDefinition | None],
-        get_projection_binding: Callable[[str], TaskProjectionBinding | None],
         synthetic_record_for_runtime: Callable[[str], SpecificTaskRecord | None],
         removed_config_predicate: Callable[[dict[str, object]], bool],
     ) -> None:
         self.storage = TaskSystemStorage(base_dir)
         self.list_flows = list_flows
         self.list_specific_task_records = list_specific_task_records
-        self.list_projection_bindings = list_projection_bindings
         self.get_flow = get_flow
-        self.get_projection_binding = get_projection_binding
         self.synthetic_record_for_runtime = synthetic_record_for_runtime
         self.removed_config_predicate = removed_config_predicate
 
     def list(self) -> list[TaskAssignment]:
         flow_by_id = {item.flow_id: item for item in self.list_flows()}
-        projection_binding_by_task_id = {
-            item.task_id: item
-            for item in self.list_projection_bindings()
-        }
         default_assignments = [
             self.assignment_from_specific_task_record(
                 item,
                 flow=flow_by_id.get(str(item.default_flow_contract_id or f"flow.{item.task_id.removeprefix('task.')}").strip()),
-                projection_binding=projection_binding_by_task_id.get(item.task_id),
             ).to_dict()
             for item in self.list_specific_task_records()
         ]
@@ -85,12 +75,19 @@ class AssignmentRepository:
         self.storage.write_object("task_assignments.json", {"assignments": [item.to_dict() for item in assignments]})
         return assignment
 
+    def delete_for_task_ids(self, task_ids: set[str]) -> set[str]:
+        targets = {str(item or "").strip() for item in task_ids if str(item or "").strip()}
+        if not targets:
+            return set()
+        assignments = [item for item in self.list() if item.task_id not in targets]
+        self.storage.write_object("task_assignments.json", {"assignments": [item.to_dict() for item in assignments]})
+        return targets
+
     def assignment_from_specific_task_record(
         self,
         record: SpecificTaskRecord,
         *,
         flow: TaskFlowDefinition | None = None,
-        projection_binding: TaskProjectionBinding | None = None,
     ) -> TaskAssignment:
         flow_id = str(record.default_flow_contract_id or f"flow.{record.task_id.removeprefix('task.')}").strip()
         task_policy = dict(record.task_policy or {})
@@ -112,10 +109,6 @@ class AssignmentRepository:
                 else {}
             ),
         }
-        projection_id = ""
-        projection_binding = projection_binding if projection_binding is not None else self.get_projection_binding(record.task_id)
-        if projection_binding is not None:
-            projection_id = str(projection_binding.default_projection_id or "").strip()
         workflow_file_ref = f"workflow:{record.default_workflow_id}" if record.default_workflow_id else ""
         return TaskAssignment(
             task_id=record.task_id,
@@ -128,7 +121,6 @@ class AssignmentRepository:
             participant_agent_ids=(),
             workflow_id=record.default_workflow_id,
             workflow_file_ref=workflow_file_ref,
-            projection_id=projection_id,
             input_contract_id=record.input_contract_id,
             output_contract_id=record.output_contract_id,
             safety_policy=safety_policy,
@@ -150,7 +142,6 @@ def _assignment_from_dict(payload: dict[str, object]) -> TaskAssignment:
         participant_agent_ids=normalize_agent_id_sequence(str(item) for item in list(payload.get("participant_agent_ids") or []) if str(item)),
         workflow_id=str(payload.get("workflow_id") or ""),
         workflow_file_ref=str(payload.get("workflow_file_ref") or ""),
-        projection_id=str(payload.get("projection_id") or payload.get("projection_template_id") or ""),
         input_contract_id=str(payload.get("input_contract_id") or ""),
         output_contract_id=str(payload.get("output_contract_id") or ""),
         safety_policy=dict(payload.get("safety_policy") or {}),

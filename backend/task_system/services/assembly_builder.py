@@ -10,7 +10,7 @@ from request_intent.frame_access import capability_needs
 from request_intent.frame_access import material_kinds
 from task_system.contracts.capability_requirements import build_operation_requirement
 
-from task_system.services.assembly_models import ProjectionSelectionResult, TaskExecutionAssembly
+from task_system.services.assembly_models import TaskExecutionAssembly
 from task_system.services.assembly_support import (
     _align_runtime_definitions,
     _align_task_binding_with_template,
@@ -19,7 +19,6 @@ from task_system.services.assembly_support import (
     _build_task_spec,
     build_runtime_task_intent_contract,
     _dedupe,
-    _projection_tags,
     _resolve_operation_approval_policy,
     _resolve_registered_task,
     _resolve_task_mode,
@@ -35,6 +34,7 @@ from task_system.planning.execution_shape_resolver import resolve_execution_shap
 from task_system.registry.flow_registry import TaskFlowRegistry
 from task_system.contracts.runtime_contracts import SkillRuntimeView, skill_runtime_views_from_registry
 from task_system.registry.workflow_registry import TaskWorkflowRegistry
+from task_system.environments import resolve_task_environment
 
 
 def build_task_execution_assembly_bundle(
@@ -317,15 +317,6 @@ def build_task_execution_assembly_bundle(
         current_turn_context=current_turn_payload,
         task_mode=task_mode,
     )
-    projection_selection = _build_projection_selection_result(
-        task_id=task_contract.task_id,
-        task_mode=task_mode,
-        registered_task=registered_task,
-        current_turn_context=current_turn_payload,
-        task_workflow=task_workflow,
-        merged_binding=merged_binding,
-    )
-    projection_binding = flow_registry.get_projection_binding(binding_task_id)
     flow_contract_binding = flow_registry.get_flow_contract_binding(binding_task_id)
     memory_request_profile = flow_registry.get_task_memory_request_profile(binding_task_id)
     memory_request_profile_payload = _memory_request_profile_payload(
@@ -333,10 +324,6 @@ def build_task_execution_assembly_bundle(
         task_id=binding_task_id or task_contract.task_id,
         task_mode=task_mode,
         query_understanding=dict(query_understanding or {}),
-    )
-    projection_selection = _align_projection_selection_with_binding(
-        projection_selection=projection_selection,
-        projection_binding=projection_binding,
     )
     runtime_limits = dict(task_spec.constraints or {}).get("runtime_limits") or {}
     communication_protocol = _select_communication_protocol(
@@ -388,9 +375,6 @@ def build_task_execution_assembly_bundle(
         task_spec_ref=task_spec.task_spec_ref,
         bundle_spec_ref=bundle_spec.bundle_id if bundle_spec is not None else "",
         workflow_id=str((task_workflow or {}).get("workflow_id") or ""),
-        projection_selection_ref=f"taskproj:{task_id}",
-        projection_binding_ref=str(getattr(projection_binding, "binding_id", "") or ""),
-        projection_id=str(projection_selection.selected_projection_id or getattr(projection_binding, "default_projection_id", "") or ""),
         flow_contract_binding_ref=str(getattr(flow_contract_binding, "binding_id", "") or ""),
         flow_contract_id=str(getattr(flow_contract_binding, "flow_contract_id", "") or str((registered_task or {}).get("flow_id") or "")),
         execution_chain_type=execution_chain_type,
@@ -425,7 +409,6 @@ def build_task_execution_assembly_bundle(
             "specific_task_assembly_policy": specific_task_policy.to_dict() if specific_task_policy is not None else {},
             "task_environment_id": str(specific_task_policy.environment_id if specific_task_policy is not None else ""),
             "workflow_title": str((task_workflow or {}).get("title") or ""),
-            "projection_source": projection_selection.selection_source,
             "memory_layers": list(memory_request_profile_payload.get("requested_memory_layers") or ()),
             "memory_topics": list(memory_request_profile_payload.get("requested_topics") or ()),
             "execution_policy_mode": str(getattr(execution_policy, "execution_mode", "") or ""),
@@ -452,12 +435,10 @@ def build_task_execution_assembly_bundle(
         "binding": merged_binding.to_dict(),
         "skill_runtime_views": [view.to_dict() for view in skill_views],
         "operation_requirement": operation_requirement.to_dict(),
-        "projection_selection": projection_selection.to_dict(),
         "task_execution_assembly": assembly.to_dict(),
         "specific_task_record": specific_task_record.to_dict() if specific_task_record is not None else {},
         "specific_task_assembly_policy": specific_task_policy.to_dict() if specific_task_policy is not None else {},
         "task_environment": _task_environment_payload(specific_task_policy),
-        "task_projection_binding": projection_binding.to_dict() if projection_binding is not None else {},
         "task_flow_contract_binding": flow_contract_binding.to_dict() if flow_contract_binding is not None else {},
         "task_execution_policy": execution_policy.to_dict() if execution_policy is not None else {},
         "task_memory_request_profile": memory_request_profile_payload,
@@ -474,7 +455,6 @@ def build_task_execution_assembly_bundle(
         "_task_workflow_obj": task_workflow,
         "_task_spec_obj": task_spec,
         "_operation_requirement_obj": operation_requirement,
-        "_projection_selection_obj": projection_selection,
     }
 
 
@@ -831,84 +811,6 @@ def _memory_request_profile_payload(
     return payload
 
 
-def _build_projection_selection_result(
-    *,
-    task_id: str,
-    task_mode: str,
-    registered_task: dict[str, Any] | None,
-    current_turn_context: dict[str, Any],
-    task_workflow: dict[str, Any] | None,
-    merged_binding: Any,
-) -> ProjectionSelectionResult:
-    explicit_projection_id = str(
-        current_turn_context.get("projection_id")
-        or current_turn_context.get("projection_card_id")
-        or current_turn_context.get("selected_projection_id")
-        or ""
-    ).strip()
-    if explicit_projection_id:
-        return ProjectionSelectionResult(
-            task_id=task_id,
-            selected_projection_id=explicit_projection_id,
-            role_type=str(merged_binding.projection_selector or "task_default"),
-            posture_tags=tuple(_projection_tags(task_mode)),
-            selection_reason="selected by current turn context",
-            selection_source="current_turn_context",
-        )
-    explicit_agent_id = str(current_turn_context.get("agent_id") or "").strip()
-    if explicit_agent_id:
-        return ProjectionSelectionResult(
-            task_id=task_id,
-            selected_projection_id="",
-            role_type=str(merged_binding.projection_selector or "agent_default"),
-            posture_tags=tuple(_projection_tags(task_mode)),
-            selection_reason="agent selected by current turn; use agent default projection",
-            selection_source="agent_default",
-        )
-    projection_mode = str(getattr(merged_binding, "projection_selector", "") or "").strip()
-    if projection_mode == "agent_default_projection":
-        return ProjectionSelectionResult(
-            task_id=task_id,
-            selected_projection_id="",
-            role_type="agent_default",
-            posture_tags=tuple(_projection_tags(task_mode)),
-            selection_reason="task requires projection resolution from the bound agent",
-            selection_source="agent_default",
-        )
-    registered_projection_id = str((registered_task or {}).get("projection_id") or "").strip()
-    if registered_projection_id:
-        return ProjectionSelectionResult(
-            task_id=task_id,
-            selected_projection_id=registered_projection_id,
-            role_type=str(merged_binding.projection_selector or "task_default"),
-            posture_tags=tuple(_projection_tags(task_mode)),
-            selection_reason="selected by registered task binding",
-            selection_source="registered_task",
-        )
-    workflow_projection_ids = [
-        str(item).strip()
-        for item in list((task_workflow or {}).get("compatible_projection_ids") or [])
-        if str(item).strip()
-    ]
-    if len(workflow_projection_ids) == 1:
-        return ProjectionSelectionResult(
-            task_id=task_id,
-            selected_projection_id=workflow_projection_ids[0],
-            role_type=str(merged_binding.projection_selector or "task_default"),
-            posture_tags=tuple(_projection_tags(task_mode)),
-            selection_reason="single compatible workflow projection",
-            selection_source="workflow",
-        )
-    return ProjectionSelectionResult(
-        task_id=task_id,
-        selected_projection_id="",
-        role_type=str(merged_binding.projection_selector or "task_default"),
-        posture_tags=tuple(_projection_tags(task_mode)),
-        selection_reason="derived from task binding role and task mode",
-        selection_source="task_binding",
-    )
-
-
 def _resolve_task_operation_policy(
     *,
     selected_recipe: Any,
@@ -983,29 +885,17 @@ def _resolve_task_operation_policy(
 def _task_environment_payload(specific_task_policy: SpecificTaskAssemblyPolicy | None) -> dict[str, Any]:
     if specific_task_policy is None:
         return {}
+    try:
+        resolved = resolve_task_environment(specific_task_policy.environment_id)
+        environment_payload = resolved.to_dict()
+    except KeyError:
+        environment_payload = {}
     return {
         "environment_id": specific_task_policy.environment_id,
         "specific_task_assembly_policy_ref": specific_task_policy.policy_id,
         "authority": "task_system.specific_task_assembly_policy",
+        "resolved_task_environment": environment_payload,
     }
-
-
-def _align_projection_selection_with_binding(
-    *,
-    projection_selection: ProjectionSelectionResult,
-    projection_binding: Any,
-) -> ProjectionSelectionResult:
-    mode = str(getattr(projection_binding, "projection_selection_mode", "") or "").strip()
-    if mode != "agent_default_projection":
-        return projection_selection
-    return ProjectionSelectionResult(
-        task_id=projection_selection.task_id,
-        selected_projection_id="",
-        role_type="agent_default",
-        posture_tags=tuple(projection_selection.posture_tags),
-        selection_reason="task projection binding requires the bound agent default projection",
-        selection_source="agent_default",
-    )
 
 
 def _skill_views_for_task_binding(

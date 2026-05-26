@@ -107,7 +107,6 @@ export function TaskGraphObjectInspector({
   onSelectSubject,
   orchestrationAgentCatalog,
   portEdges,
-  projectionCards = [],
   selectedSubject,
   taskGraphs,
   units,
@@ -130,7 +129,6 @@ export function TaskGraphObjectInspector({
   onSelectSubject: (subject: TaskGraphComposableSubject) => void;
   orchestrationAgentCatalog?: OrchestrationAgentRuntimeCatalog | null;
   portEdges: UnitPortEdgeSpec[];
-  projectionCards?: Array<{ projection_id: string; title?: string; soul_name?: string; soul_id?: string }>;
   selectedSubject: TaskGraphComposableSubject;
   taskGraphs?: TaskGraphRecord[];
   units: ComposableUnitSpec[];
@@ -159,7 +157,6 @@ export function TaskGraphObjectInspector({
     ...((orchestrationAgentCatalog?.agents ?? []).map((agent) => stringValue(agent.agent_id))),
     ...((a2aCatalog?.agent_cards ?? []).map((card) => stringValue(card.agent_id))),
   ]);
-  const projectionOptions = projectionCards.map((item) => item.projection_id);
   const graphOptions = (taskGraphs ?? []).map((item) => item.graph_id);
 
   const formatUnit = (unitId: string) => {
@@ -179,14 +176,6 @@ export function TaskGraphObjectInspector({
     const agentName = stringValue(agent?.display_name ?? agent?.agent_name);
     if (agentName) return `${agentName} · ${agentId}`;
     return card?.name ? `${String(card.name)} · ${agentId}` : agentId;
-  };
-  const formatProjection = (projectionId: string) => {
-    const card = projectionCards.find((item) => item.projection_id === projectionId);
-    if (!projectionId) return "不绑定 Projection";
-    if (!card) return projectionId;
-    const title = stringValue(card.title ?? card.projection_id, projectionId);
-    const soul = stringValue(card.soul_name ?? card.soul_id);
-    return soul ? `${title} · ${soul}` : title;
   };
   const formatGraph = (graphId: string) => {
     const graph = (taskGraphs ?? []).find((item) => item.graph_id === graphId);
@@ -263,10 +252,8 @@ export function TaskGraphObjectInspector({
         domainTaskOptions={domainTaskOptions}
         formatAgent={formatAgent}
         formatContract={formatContract}
-        formatProjection={formatProjection}
         interfaces={interfaces}
         node={node}
-        projectionOptions={projectionOptions}
         selected={selected}
         unitEdges={unitEdges}
         updateTaskGraphNode={updateTaskGraphNode}

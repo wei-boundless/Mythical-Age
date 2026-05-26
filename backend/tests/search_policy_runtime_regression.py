@@ -13,7 +13,7 @@ from capability_system import build_default_operation_registry
 from capability_system.tool_authorization import build_tool_authorization_index
 from capability_system.tool_definitions import build_tool_instances, get_tool_definitions
 from runtime.execution_permit import tool_instances_for_policy_and_permit
-from runtime.agent_runtime.invocation_loop import _resolve_runtime_search_sources
+from runtime.agent_runtime.context import resolve_runtime_search_sources
 
 
 def test_normalized_empty_search_policy_blocks_source_bound_operations() -> None:
@@ -56,7 +56,7 @@ def test_task_run_loop_filters_main_runtime_tools_by_search_policy(tmp_path) -> 
 
 
 def test_coordination_task_without_search_policy_defaults_to_no_search_sources() -> None:
-    allowed = _resolve_runtime_search_sources(
+    allowed = resolve_runtime_search_sources(
         search_policy=None,
         task_selection={
             "coordination_run_id": "coordrun:test",
@@ -69,7 +69,7 @@ def test_coordination_task_without_search_policy_defaults_to_no_search_sources()
 
 
 def test_main_session_without_search_policy_keeps_default_search_sources() -> None:
-    allowed = _resolve_runtime_search_sources(
+    allowed = resolve_runtime_search_sources(
         search_policy=None,
         task_selection={"turn_id": "turn:test"},
     )
@@ -78,7 +78,7 @@ def test_main_session_without_search_policy_keeps_default_search_sources() -> No
 
 
 def test_direct_agent_invocation_ref_does_not_make_turn_coordination_scoped() -> None:
-    allowed = _resolve_runtime_search_sources(
+    allowed = resolve_runtime_search_sources(
         search_policy=None,
         task_selection={
             "turn_id": "turn:test",

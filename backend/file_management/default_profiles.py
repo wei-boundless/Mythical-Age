@@ -15,6 +15,9 @@ def default_file_environment_profiles() -> tuple[ManagedFileEnvironmentProfile, 
         writing_manuscript_profile(),
         vibe_coding_project_profile(),
         web_research_evidence_profile(),
+        data_analysis_workspace_profile(),
+        document_processing_profile(),
+        general_workspace_profile(),
     )
 
 
@@ -356,4 +359,151 @@ def web_research_evidence_profile() -> ManagedFileEnvironmentProfile:
             ),
         ),
         default_access_policy={"external_write": "denied", "evidence_capture": "allowed"},
+    )
+
+
+def data_analysis_workspace_profile() -> ManagedFileEnvironmentProfile:
+    return ManagedFileEnvironmentProfile(
+        profile_id="file_profile.data_analysis_workspace",
+        title="Data Analysis File Environment",
+        description="Managed datasets, analysis workspace, and analysis artifacts.",
+        repository_specs=(
+            ManagedFileRepositorySpec(
+                repository_id="repo.data.dataset_repository",
+                repository_kind="material_mount",
+                storage_adapter="fsspec_local",
+                scope_kind="run_scoped",
+                root_ref="data://datasets",
+                title="Dataset repository",
+                readable=True,
+                searchable=True,
+                access_rules=(
+                    FileAccessRule(action="read", behavior="allow", reason="datasets are readable"),
+                    FileAccessRule(action="search", behavior="allow", reason="datasets are searchable"),
+                    FileAccessRule(action="write", behavior="deny", reason="source datasets are immutable"),
+                ),
+            ),
+            ManagedFileRepositorySpec(
+                repository_id="repo.data.analysis_workspace",
+                repository_kind="sandbox_workspace",
+                storage_adapter="sandbox_overlay",
+                scope_kind="run_scoped",
+                root_ref="data://analysis_workspace",
+                title="Analysis workspace",
+                readable=True,
+                writable=True,
+                searchable=True,
+                access_rules=(
+                    FileAccessRule(action="read", behavior="allow", reason="analysis workspace is readable"),
+                    FileAccessRule(action="search", behavior="allow", reason="analysis workspace is searchable"),
+                    FileAccessRule(action="write", behavior="allow", reason="analysis artifacts are writable"),
+                    FileAccessRule(action="edit", behavior="allow", reason="analysis artifacts are editable"),
+                ),
+            ),
+            ManagedFileRepositorySpec(
+                repository_id="repo.data.artifact_repository",
+                repository_kind="artifact_repository",
+                storage_adapter="artifact_repository",
+                scope_kind="run_scoped",
+                root_ref="artifact://data_analysis",
+                title="Data analysis artifact repository",
+                readable=True,
+                writable=True,
+                searchable=True,
+                versioned=True,
+                access_rules=(
+                    FileAccessRule(action="read", behavior="allow", reason="analysis artifacts are readable"),
+                    FileAccessRule(action="write", behavior="allow", reason="analysis artifacts can be saved"),
+                ),
+            ),
+        ),
+        default_access_policy={"source_dataset_write": "denied", "analysis_artifact_write": "allowed"},
+    )
+
+
+def document_processing_profile() -> ManagedFileEnvironmentProfile:
+    return ManagedFileEnvironmentProfile(
+        profile_id="file_profile.document_processing",
+        title="Document Processing File Environment",
+        description="Managed document repository, extraction workspace, and document artifacts.",
+        repository_specs=(
+            ManagedFileRepositorySpec(
+                repository_id="repo.document.document_repository",
+                repository_kind="material_mount",
+                storage_adapter="fsspec_local",
+                scope_kind="run_scoped",
+                root_ref="document://source",
+                title="Document repository",
+                readable=True,
+                searchable=True,
+                access_rules=(
+                    FileAccessRule(action="read", behavior="allow", reason="source documents are readable"),
+                    FileAccessRule(action="search", behavior="allow", reason="source documents are searchable"),
+                    FileAccessRule(action="write", behavior="deny", reason="source documents are immutable"),
+                ),
+            ),
+            ManagedFileRepositorySpec(
+                repository_id="repo.document.extraction_workspace",
+                repository_kind="sandbox_workspace",
+                storage_adapter="fsspec_local",
+                scope_kind="run_scoped",
+                root_ref="document://extraction_workspace",
+                title="Document extraction workspace",
+                readable=True,
+                writable=True,
+                searchable=True,
+                access_rules=(
+                    FileAccessRule(action="read", behavior="allow", reason="extractions are readable"),
+                    FileAccessRule(action="search", behavior="allow", reason="extractions are searchable"),
+                    FileAccessRule(action="write", behavior="allow", reason="extractions can be written"),
+                    FileAccessRule(action="edit", behavior="allow", reason="extractions can be edited"),
+                ),
+            ),
+            ManagedFileRepositorySpec(
+                repository_id="repo.document.artifact_repository",
+                repository_kind="artifact_repository",
+                storage_adapter="artifact_repository",
+                scope_kind="run_scoped",
+                root_ref="artifact://document_processing",
+                title="Document artifact repository",
+                readable=True,
+                writable=True,
+                searchable=True,
+                versioned=True,
+                access_rules=(
+                    FileAccessRule(action="read", behavior="allow", reason="document artifacts are readable"),
+                    FileAccessRule(action="write", behavior="allow", reason="document artifacts can be saved"),
+                ),
+            ),
+        ),
+        default_access_policy={"source_document_write": "denied", "document_artifact_write": "allowed"},
+    )
+
+
+def general_workspace_profile() -> ManagedFileEnvironmentProfile:
+    return ManagedFileEnvironmentProfile(
+        profile_id="file_profile.general_workspace",
+        title="General Workspace File Environment",
+        description="Read-mostly general workspace for lightweight conversation-scoped artifacts.",
+        repository_specs=(
+            ManagedFileRepositorySpec(
+                repository_id="repo.general.conversation_artifacts",
+                repository_kind="artifact_repository",
+                storage_adapter="artifact_repository",
+                scope_kind="session_scoped",
+                root_ref="artifact://general_workspace",
+                title="Conversation artifact repository",
+                readable=True,
+                writable=True,
+                searchable=True,
+                versioned=True,
+                access_rules=(
+                    FileAccessRule(action="read", behavior="allow", reason="conversation artifacts are readable"),
+                    FileAccessRule(action="search", behavior="allow", reason="conversation artifacts are searchable"),
+                    FileAccessRule(action="write", behavior="allow", reason="conversation artifacts can be saved"),
+                    FileAccessRule(action="edit", behavior="ask", reason="artifact edits require task grant"),
+                ),
+            ),
+        ),
+        default_access_policy={"workspace_write": "denied", "artifact_write": "allowed"},
     )

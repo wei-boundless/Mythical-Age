@@ -92,6 +92,14 @@ class TopologyRepository:
         self.storage.write_object("topology_templates.json", {"topology_templates": [item.to_dict() for item in templates]})
         return template
 
+    def delete_many(self, template_ids: set[str]) -> set[str]:
+        targets = {str(item or "").strip() for item in template_ids if str(item or "").strip()}
+        if not targets:
+            return set()
+        templates = [item for item in self.list() if item.template_id not in targets]
+        self.storage.write_object("topology_templates.json", {"topology_templates": [item.to_dict() for item in templates]})
+        return targets
+
 
 def _normalize_agent_refs_in_mapping(payload: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(payload)

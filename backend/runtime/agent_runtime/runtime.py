@@ -5,6 +5,7 @@ from typing import Any
 
 from .invocation_loop import run_agent_invocation_stream
 from .request import AgentRunRequest
+from .services import AgentRuntimeServices
 
 
 class AgentRuntime:
@@ -15,22 +16,22 @@ class AgentRuntime:
     operation gates, model/tool execution, and artifact stores.
     """
 
-    def __init__(self, *, task_run_loop: Any) -> None:
-        self._task_run_loop = task_run_loop
+    def __init__(self, *, services: AgentRuntimeServices) -> None:
+        self._services = services
 
     @property
     def state_index(self) -> Any:
-        return self._task_run_loop.state_index
+        return self._services.state_index
 
     async def run_stream(self, request: AgentRunRequest) -> AsyncIterator[dict[str, Any]]:
-        async for event in run_agent_invocation_stream(self._task_run_loop, request):
+        async for event in run_agent_invocation_stream(self._services, request):
             yield event
 
     def get_task_run(self, task_run_id: str) -> Any | None:
-        return self._task_run_loop.state_index.get_task_run(task_run_id)
+        return self._services.get_task_run(task_run_id)
 
     def get_trace(self, task_run_id: str, **kwargs: Any) -> dict[str, Any] | None:
-        return self._task_run_loop.get_trace(task_run_id, **kwargs)
+        return self._services.get_trace(task_run_id, **kwargs)
 
     def event_count(self, task_run_id: str) -> int:
-        return len(self._task_run_loop.event_log.list_events(task_run_id))
+        return self._services.event_count(task_run_id)

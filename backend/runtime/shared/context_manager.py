@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 from datetime import datetime
 from dataclasses import asdict, dataclass, field
@@ -586,6 +587,7 @@ def _is_control_plane_projection_section(section: dict[str, Any]) -> bool:
 def _render_context_policy_block(context_policy_result: dict[str, Any] | None) -> str:
     package = dict((context_policy_result or {}).get("package") or {})
     model_sections = dict(package.get("model_visible_sections") or package.get("sections") or {})
+    _assert_context_policy_receipt_valid(context_policy_result, model_sections)
     allow_hot_truth = _context_package_allows_hot_truth_prompt(package)
     section_order = [
         "active_process_context",
@@ -629,6 +631,29 @@ def _render_context_policy_block(context_policy_result: dict[str, Any] | None) -
             *lines,
         ]
     )
+
+
+def _assert_context_policy_receipt_valid(
+    context_policy_result: dict[str, Any] | None,
+    model_sections: dict[str, Any],
+) -> None:
+    payload = dict(context_policy_result or {})
+    package = dict(payload.get("package") or {})
+    receipt = dict(payload.get("sealed_receipt") or package.get("sealed_receipt") or {})
+    expected = str(receipt.get("package_sha256") or "")
+    if not expected:
+        return
+    normalized = {
+        str(name): [
+            str(item or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+            for item in list(items or [])
+        ]
+        for name, items in dict(model_sections or {}).items()
+    }
+    actual_payload = json.dumps(normalized, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    actual = hashlib.sha256(actual_payload.encode("utf-8")).hexdigest()
+    if expected != actual:
+        raise ValueError("ContextPolicy sealed receipt does not match model-visible sections")
 
 
 def _merge_actual_history_pressure(

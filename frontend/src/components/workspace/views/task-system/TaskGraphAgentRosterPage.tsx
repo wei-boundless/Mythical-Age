@@ -134,8 +134,8 @@ export function TaskGraphAgentRosterPage({
         <article className="boundary-card">
           <header><strong>提示词主数据</strong></header>
           <div className="task-graph-note">
-            <strong>归属已切换到投影系统</strong>
-            <span>图级和节点级提示词不再在任务图内直接编辑；请在职责与交接页生成并绑定投影。</span>
+            <strong>归属已切换到任务图节点</strong>
+            <span>图级和节点级提示词由节点角色 Prompt、输入契约和输出契约共同表达；请在职责与交接页收口旧职责字段。</span>
           </div>
         </article>
       </section>
@@ -154,11 +154,7 @@ export function TaskGraphAgentRosterPage({
               agentRolePreset: role === "coordinator" ? { agent_id: coordinatorAgentId } : null,
               systemDefault: "agent:0",
             });
-            const projectionPolicy = resolveTaskGraphEffectivePolicy({
-              key: "projection_id",
-              node,
-              graph: asRecord(taskGraphDraft.metadata),
-            });
+            const rolePrompt = String(node.role_prompt ?? nodeMetadata.role_prompt ?? "").trim();
             return (
               <article className="task-graph-agent-node-card" key={nodeId || `node_${index}`}>
                 <div className="task-graph-agent-node-card__title">
@@ -177,9 +173,9 @@ export function TaskGraphAgentRosterPage({
                     <em>编排系统</em>
                   </p>
                   <p>
-                    <span>投影来源</span>
-                    <strong>{projectionPolicy.configured ? effectivePolicyDisplayValue(projectionPolicy.value) : "未绑定"}</strong>
-                    <em>{projectionPolicy.source_label}</em>
+                    <span>角色 Prompt</span>
+                    <strong>{rolePrompt ? "已配置" : "未配置"}</strong>
+                    <em>任务图节点</em>
                   </p>
                 </div>
                 <TaskSystemSelectField
@@ -196,13 +192,13 @@ export function TaskGraphAgentRosterPage({
                   options={["coordinator", "planner", "executor", "reviewer", "verifier", "summarizer", "merge", "acceptance", "participant"]}
                   value={String(node.work_posture ?? node.role ?? "participant")}
                 />
-                <TaskSystemField label="节点职责投影">
-                  <input readOnly value={String(node.projection_id ?? node.projection_overlay_id ?? "未绑定")} />
+                <TaskSystemField label="节点角色 Prompt">
+                  <input readOnly value={rolePrompt || "未配置"} />
                 </TaskSystemField>
                 {legacyFieldNames(nodeMetadata.legacy_prompt_migration).length > 0 ? (
                   <div className="task-graph-note">
-                    <strong>旧提示词待迁移</strong>
-                    <span>该节点仍有旧职责字段，请到职责与交接页生成并绑定投影。</span>
+                    <strong>旧提示词待收口</strong>
+                    <span>该节点仍有旧职责字段，请到职责与交接页合并为角色 Prompt。</span>
                   </div>
                 ) : null}
               </article>

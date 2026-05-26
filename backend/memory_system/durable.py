@@ -9,7 +9,6 @@ from pydantic import BaseModel, Field
 
 from .manifest_scan import MemoryHeader, format_memory_manifest, scan_memory_headers
 from memory_system.layout import durable_memory_layout_from_backend_dir
-from memory_system.storage.exact_lookup import ExactMemoryMatch, find_exact_memory_matches
 from memory_system.storage.memory_manager import MemoryManager
 
 
@@ -242,16 +241,6 @@ class DurableMemoryLayer:
         if selected_notes:
             return self._result_from_preselected_notes(selected_notes)
 
-        if not self._should_attempt_recall(query, memory_intent):
-            return MemoryRecallResult(
-                selection=MemoryRecallSelection(
-                    should_recall=False,
-                    reason="no_memory_signal",
-                    confidence=1.0,
-                    ignore_memory=bool(getattr(memory_intent, "ignore_memory", False)),
-                ),
-            )
-
         request = self.build_recall_request(
             query=query,
             memory_intent=memory_intent,
@@ -292,16 +281,6 @@ class DurableMemoryLayer:
         if selected_notes:
             return self._result_from_preselected_notes(selected_notes)
 
-        if not self._should_attempt_recall(query, memory_intent):
-            return MemoryRecallResult(
-                selection=MemoryRecallSelection(
-                    should_recall=False,
-                    reason="no_memory_signal",
-                    confidence=1.0,
-                    ignore_memory=bool(getattr(memory_intent, "ignore_memory", False)),
-                ),
-            )
-
         request = self.build_recall_request(
             query=query,
             memory_intent=memory_intent,
@@ -337,35 +316,6 @@ class DurableMemoryLayer:
         excerpt = " ".join(useful_lines)
         return excerpt[:280].strip()
 
-    def find_exact_matches(
-        self,
-        query: str | None,
-        memory_intent: Any | None,
-        *,
-        note_limit: int,
-    ) -> list[ExactMemoryMatch]:
-        self._ensure_runtime_governance()
-        if (
-            not query
-            or memory_intent is None
-            or bool(getattr(memory_intent, "ignore_memory", False))
-        ):
-            return []
-        if not (
-            bool(getattr(memory_intent, "explicit_read_inventory", False))
-            or str(getattr(memory_intent, "intent", "") or "") == "memory_read_signal"
-            or list(getattr(memory_intent, "preferred_types", []) or [])
-            or list(getattr(memory_intent, "preferred_memory_classes", []) or [])
-            or getattr(memory_intent, "memory_read_mode", "none") == "durable_exact"
-        ):
-            return []
-        return find_exact_memory_matches(
-            self.memory_manager.root_dir,
-            query,
-            preferred_types=list(getattr(memory_intent, "preferred_types", []) or []),
-            limit=min(3, note_limit),
-        )
-
     def _ensure_runtime_governance(self) -> None:
         if self._runtime_governed:
             return
@@ -388,13 +338,6 @@ class DurableMemoryLayer:
             for header in headers
             if header.eligible_for_injection and header.status == "active"
         ]
-
-    def _should_attempt_recall(self, query: str | None, memory_intent: Any | None) -> bool:
-        if not str(query or "").strip():
-            return False
-        if bool(getattr(memory_intent, "ignore_memory", False)):
-            return False
-        return True
 
     def _load_selected_note_dicts(
         self,

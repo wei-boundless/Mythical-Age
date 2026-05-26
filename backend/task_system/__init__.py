@@ -12,7 +12,6 @@ __all__ = [
     "TaskDomainRecord",
     "AgentTaskCarryingProfile",
     "TaskWorkflowBinding",
-    "TaskProjectionBinding",
     "TaskFlowContractBinding",
     "ContractSpec",
     "ContractField",
@@ -55,7 +54,6 @@ __all__ = [
     "StaticSplitPlan",
     "build_static_split_plan",
     "build_static_split_plans_for_graph",
-    "ProjectionSelectionResult",
     "TaskExecutionAssembly",
     "TaskSpec",
     "TaskIntentContract",
@@ -105,7 +103,6 @@ def __getattr__(name: str) -> Any:
         "TaskAssignment",
         "SpecificTaskRecord",
         "TaskDomainRecord",
-        "TaskProjectionBinding",
         "TaskFlowContractBinding",
         "TaskExecutionPolicy",
         "TaskMemoryRequestProfile",
@@ -125,7 +122,6 @@ def __getattr__(name: str) -> Any:
             TaskFlowDefinition,
             TaskFlowContractBinding,
             TaskMemoryRequestProfile,
-            TaskProjectionBinding,
         )
 
         return {
@@ -133,7 +129,6 @@ def __getattr__(name: str) -> Any:
             "TaskAssignment": TaskAssignment,
             "SpecificTaskRecord": SpecificTaskRecord,
             "TaskDomainRecord": TaskDomainRecord,
-            "TaskProjectionBinding": TaskProjectionBinding,
             "TaskFlowContractBinding": TaskFlowContractBinding,
             "TaskExecutionPolicy": TaskExecutionPolicy,
             "TaskMemoryRequestProfile": TaskMemoryRequestProfile,
@@ -364,11 +359,10 @@ def __getattr__(name: str) -> Any:
         from task_system.contracts.match_contracts import TaskIntentContract
 
         return TaskIntentContract
-    if name in {"ProjectionSelectionResult", "TaskExecutionAssembly"}:
-        from task_system.services.assembly_models import ProjectionSelectionResult, TaskExecutionAssembly
+    if name in {"TaskExecutionAssembly"}:
+        from task_system.services.assembly_models import TaskExecutionAssembly
 
         return {
-            "ProjectionSelectionResult": ProjectionSelectionResult,
             "TaskExecutionAssembly": TaskExecutionAssembly,
         }[name]
     if name in {"BundleSpec", "BundleItemSpec"}:

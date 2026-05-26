@@ -5,29 +5,6 @@ from typing import Any
 
 
 @dataclass(frozen=True, slots=True)
-class ProjectionSelectionResult:
-    task_id: str
-    selected_projection_id: str = ""
-    role_type: str = ""
-    posture_tags: tuple[str, ...] = ()
-    selection_reason: str = ""
-    selection_source: str = ""
-    authority: str = "task_system.projection_selection_result"
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        if self.authority != "task_system.projection_selection_result":
-            raise ValueError("ProjectionSelectionResult authority must be task_system.projection_selection_result")
-        if not self.task_id:
-            raise ValueError("ProjectionSelectionResult requires task_id")
-
-    def to_dict(self) -> dict[str, Any]:
-        payload = asdict(self)
-        payload["posture_tags"] = list(self.posture_tags)
-        return payload
-
-
-@dataclass(frozen=True, slots=True)
 class TaskExecutionAssembly:
     assembly_id: str
     task_id: str
@@ -38,9 +15,6 @@ class TaskExecutionAssembly:
     task_spec_ref: str = ""
     bundle_spec_ref: str = ""
     workflow_id: str = ""
-    projection_selection_ref: str = ""
-    projection_binding_ref: str = ""
-    projection_id: str = ""
     flow_contract_binding_ref: str = ""
     flow_contract_id: str = ""
     execution_chain_type: str = "single_agent_chain"

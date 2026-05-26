@@ -2148,6 +2148,8 @@ class TaskRunLoop:
                 state_index=self.state_index,
                 event_log=self.event_log,
                 evidence_orchestrator=self.evidence_orchestrator,
+                operation_gate=self.operation_gate,
+                permission_mode_provider=self._current_permission_mode,
             )
             self._agent_delegation_executor = executor
         return executor

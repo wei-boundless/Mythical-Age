@@ -15,6 +15,7 @@ from .config import (
 )
 from .request import AgentRunRequest
 from .runtime import AgentRuntime
+from .services import AgentRuntimeServices
 from .lifecycle import AgentRuntimeStartResult
 from .turn_context import AgentTurnContextBuildResult, build_agent_turn_context
 from .execution_permit import execution_permit_diagnostics, resolve_agent_execution_permit
@@ -22,6 +23,7 @@ from .model_turn import AgentModelTurnInput, run_agent_model_turn
 
 __all__ = [
     "AgentRuntime",
+    "AgentRuntimeServices",
     "AgentRunContext",
     "AgentRunRequest",
     "AgentRuntimeStartResult",

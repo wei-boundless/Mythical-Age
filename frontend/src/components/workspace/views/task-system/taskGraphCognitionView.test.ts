@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { buildTaskGraphCognitionModel } from "./taskGraphCognitionView";
 
 describe("TaskGraph cognition view", () => {
-  it("assembles a node execution cognition package from projection, memory, handoff, and outputs", () => {
+  it("assembles a node execution cognition package from role prompt, memory, handoff, and outputs", () => {
     const nodes = [
       {
         node_id: "memory.project",
@@ -19,7 +19,6 @@ describe("TaskGraph cognition view", () => {
         node_id: "draft",
         title: "Draft",
         agent_id: "agent.writer",
-        projection_id: "projection.writer",
         phase_id: "phase.plan",
         sequence_index: 2,
         output_contract_id: "contract.output",

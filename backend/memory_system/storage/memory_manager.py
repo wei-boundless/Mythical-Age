@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 import re
 from typing import NamedTuple
@@ -7,7 +9,7 @@ from typing import NamedTuple
 from memory_system.layout import DurableMemoryLayout
 
 from .frontmatter import parse_frontmatter
-from .models import DEFAULT_DURABLE_SCHEMA_VERSION, MemoryNote
+from .models import DEFAULT_DURABLE_SCHEMA_VERSION, MemoryNote, TemporalFactEdge
 from .note_hygiene import is_runtime_noise_note, normalize_durable_fact_text
 from .text_utils import normalize_storage_text, repair_mojibake
 
@@ -52,6 +54,7 @@ class MemoryManager:
         self.layout = DurableMemoryLayout(self.root_dir)
         self.layout.ensure_dirs()
         self.index_path = self.layout.index_path
+        self.temporal_edges_path = self.layout.meta_dir / "temporal_fact_edges.jsonl"
         if not self.index_path.exists():
             self.index_path.write_text(
                 "# Memory Index\n\n"
@@ -83,10 +86,12 @@ class MemoryManager:
 
     def save_note(self, note: MemoryNote) -> Path:
         note.slug = self.slugify(note.slug or note.title or note.canonical_statement)
-        governed_note, notes_to_update = self._apply_save_governance(note)
+        governed_note, notes_to_update, temporal_edges = self._apply_save_governance(note)
         for staged_note in notes_to_update:
             self._write_note(staged_note)
         path = self._write_note(governed_note)
+        for edge in temporal_edges:
+            self.record_temporal_fact_edge(edge)
         self.sync_index()
         return path
 
@@ -128,7 +133,10 @@ class MemoryManager:
         existing = self.load_note_record(slug)
         if existing is None:
             raise KeyError(f"Unknown durable memory note: {slug}")
+        target_slug = self.slugify(slug)
         current = self._loaded_to_memory_note(existing)
+        current.slug = target_slug
+        before_markdown = current.to_markdown()
         now = MemoryNote(slug="", title="", summary="", body="").updated_at
         current.title = patch.title or current.title
         current.summary = patch.summary or current.summary
@@ -142,9 +150,37 @@ class MemoryManager:
         current.last_confirmed_at = now
         current.status = "active"
         current.eligible_for_injection = "true"
-        return self.save_note(current)
+        path = self._write_note(current)
+        self.sync_index()
+        self.record_temporal_fact_edge(
+            self.build_temporal_fact_edge(
+                relation="refines",
+                source_note_id=target_slug,
+                target_note_id=target_slug,
+                actor=patch.created_by or "memory_manager.update_note",
+                reason=patch.source_kind or "durable_memory_update",
+                source_evidence_ref=patch.source_message_excerpt,
+                before_text=before_markdown,
+                after_text=current.to_markdown(),
+                metadata={
+                    "operation": "update_note",
+                    "patch_source_session_id": patch.source_session_id,
+                    "patch_confidence": patch.confidence,
+                },
+            )
+        )
+        return path
 
-    def deprecate_notes(self, slugs: list[str], *, replacement_slug: str, reason: str = "") -> list[str]:
+    def deprecate_notes(
+        self,
+        slugs: list[str],
+        *,
+        replacement_slug: str,
+        reason: str = "",
+        actor: str = "memory_manager.deprecate_notes",
+        source_evidence_ref: str = "",
+        metadata: dict[str, object] | None = None,
+    ) -> list[str]:
         deprecated: list[str] = []
         now = MemoryNote(slug="", title="", summary="", body="").updated_at
         for slug in slugs:
@@ -157,9 +193,86 @@ class MemoryManager:
             note.invalidation_reason = reason or f"merged_into:{replacement_slug}"
             note.updated_at = now
             self._write_note(note)
+            self.record_temporal_fact_edge(
+                self.build_temporal_fact_edge(
+                    relation="merged_into" if replacement_slug else "invalidates",
+                    source_note_id=note.slug,
+                    target_note_id=replacement_slug,
+                    actor=actor,
+                    reason=note.invalidation_reason,
+                    source_evidence_ref=source_evidence_ref,
+                    before_text=existing.content,
+                    after_text=note.to_markdown(),
+                    metadata={"operation": "deprecate_notes", **dict(metadata or {})},
+                )
+            )
             deprecated.append(note.slug)
         self.sync_index()
         return deprecated
+
+    def build_temporal_fact_edge(
+        self,
+        *,
+        relation: str,
+        source_note_id: str,
+        target_note_id: str = "",
+        actor: str = "memory_manager",
+        reason: str = "",
+        source_evidence_ref: str = "",
+        source_text: str = "",
+        target_text: str = "",
+        before_text: str = "",
+        after_text: str = "",
+        metadata: dict[str, object] | None = None,
+    ) -> TemporalFactEdge:
+        source = self.slugify(source_note_id)
+        target = self.slugify(target_note_id) if target_note_id else ""
+        now = MemoryNote(slug="", title="", summary="", body="").updated_at
+        edge_seed = {
+            "relation": relation,
+            "source": source,
+            "target": target,
+            "created_at": now,
+            "before": self._text_sha256(before_text),
+            "after": self._text_sha256(after_text),
+            "reason": reason,
+        }
+        edge_id = f"edge:{self._text_sha256(json.dumps(edge_seed, ensure_ascii=False, sort_keys=True))[:20]}"
+        return TemporalFactEdge(
+            edge_id=edge_id,
+            relation=relation,  # type: ignore[arg-type]
+            source_note_id=source,
+            target_note_id=target,
+            created_at=now,
+            actor=actor or "memory_manager",
+            reason=normalize_storage_text(reason),
+            source_evidence_ref=normalize_storage_text(source_evidence_ref),
+            source_note_sha256=self._text_sha256(source_text),
+            target_note_sha256=self._text_sha256(target_text),
+            before_sha256=self._text_sha256(before_text),
+            after_sha256=self._text_sha256(after_text),
+            metadata=dict(metadata or {}),
+        )
+
+    def record_temporal_fact_edge(self, edge: TemporalFactEdge) -> None:
+        payload = edge.to_dict()
+        self.temporal_edges_path.parent.mkdir(parents=True, exist_ok=True)
+        with self.temporal_edges_path.open("a", encoding="utf-8", newline="\n") as handle:
+            handle.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
+
+    def list_temporal_fact_edges(self) -> list[TemporalFactEdge]:
+        if not self.temporal_edges_path.exists():
+            return []
+        edges: list[TemporalFactEdge] = []
+        for line in self.temporal_edges_path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            payload = json.loads(stripped)
+            if not isinstance(payload, dict):
+                raise ValueError("Temporal fact edge record must be a JSON object")
+            edges.append(TemporalFactEdge(**payload))
+        return edges
 
     def list_index_entries(self) -> list[str]:
         content = repair_mojibake(self.index_path.read_text(encoding="utf-8"))
@@ -870,7 +983,7 @@ class MemoryManager:
             invalidation_reason=loaded.invalidation_reason,
         )
 
-    def _apply_save_governance(self, note: MemoryNote) -> tuple[MemoryNote, list[MemoryNote]]:
+    def _apply_save_governance(self, note: MemoryNote) -> tuple[MemoryNote, list[MemoryNote], list[TemporalFactEdge]]:
         now = MemoryNote(slug="", title="", summary="", body="").updated_at
         incoming = note
         incoming.updated_at = now
@@ -881,17 +994,51 @@ class MemoryManager:
         incoming.stability = normalize_storage_text(incoming.stability) or "stable"
 
         staged_updates: list[MemoryNote] = []
+        temporal_edges: list[TemporalFactEdge] = []
         for loaded in self.list_notes():
             existing = self._loaded_to_memory_note(loaded)
             if self._notes_are_equivalent(existing, incoming):
+                before = existing.to_markdown()
                 merged = self._merge_equivalent_note(existing, incoming, now)
-                return merged, staged_updates
+                if before != merged.to_markdown():
+                    temporal_edges.append(
+                        self.build_temporal_fact_edge(
+                            relation="refines",
+                            source_note_id=existing.slug,
+                            target_note_id=merged.slug,
+                            actor=incoming.created_by or "memory_manager.save_note",
+                            reason="equivalent_note_merged",
+                            source_evidence_ref=incoming.source_message_excerpt,
+                            source_text=incoming.to_markdown(),
+                            target_text=merged.to_markdown(),
+                            before_text=before,
+                            after_text=merged.to_markdown(),
+                            metadata={"operation": "save_note", "governance": "merge_equivalent_note"},
+                        )
+                    )
+                return merged, staged_updates, temporal_edges
             if self._should_supersede(existing, incoming):
+                before = existing.to_markdown()
                 deprecated = self._deprecate_note(existing, replacement_slug=incoming.slug, now=now)
                 staged_updates.append(deprecated)
                 if not incoming.supersedes:
                     incoming.supersedes = existing.slug
-        return incoming, staged_updates
+                temporal_edges.append(
+                    self.build_temporal_fact_edge(
+                        relation="supersedes",
+                        source_note_id=incoming.slug,
+                        target_note_id=existing.slug,
+                        actor=incoming.created_by or "memory_manager.save_note",
+                        reason=deprecated.invalidation_reason,
+                        source_evidence_ref=incoming.source_message_excerpt,
+                        source_text=incoming.to_markdown(),
+                        target_text=existing.to_markdown(),
+                        before_text=before,
+                        after_text=deprecated.to_markdown(),
+                        metadata={"operation": "save_note", "governance": "should_supersede"},
+                    )
+                )
+        return incoming, staged_updates, temporal_edges
 
     def _notes_are_equivalent(self, existing: MemoryNote, incoming: MemoryNote) -> bool:
         if existing.memory_type != incoming.memory_type or existing.memory_class != incoming.memory_class:
@@ -944,3 +1091,9 @@ class MemoryManager:
             if normalized and normalized not in merged:
                 merged.append(normalized)
         return merged
+
+    def _text_sha256(self, text: str) -> str:
+        normalized = str(text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+        if not normalized:
+            return ""
+        return hashlib.sha256(normalized.encode("utf-8")).hexdigest()

@@ -478,6 +478,10 @@ def _inspect_session_memory(runtime: Any, session_id: str, *, query: str = "", l
         query=query.strip() or None,
         memory_intent=intent,
         note_limit=limit,
+        memory_request_profile={
+            "requested_memory_layers": ["state", "long_term"],
+            "allow_long_term_memory": True,
+        },
     )
     payload = result.to_dict()
     package = dict(payload.get("package") or {})
@@ -487,6 +491,10 @@ def _inspect_session_memory(runtime: Any, session_id: str, *, query: str = "", l
         query=query.strip() or None,
         memory_intent=intent,
         note_limit=limit,
+        memory_request_profile={
+            "requested_memory_layers": ["state", "long_term"],
+            "allow_long_term_memory": True,
+        },
     )
     state = memory_view.state_snapshot
     rendered_sections = "\n".join(

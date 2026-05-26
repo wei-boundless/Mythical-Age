@@ -12,6 +12,7 @@ from context_system import RuntimeContextManager
 from runtime import (
     AgentRunRequest,
     AgentRuntime,
+    AgentRuntimeServices,
     GraphTaskRuntime,
     ModelResponseRuntimeExecutor,
     ModelRuntimeError,
@@ -106,7 +107,9 @@ class QueryRuntime:
                 settings_service=settings_service,
             ),
         )
-        self.agent_runtime = AgentRuntime(task_run_loop=self.task_run_loop)
+        self.agent_runtime = AgentRuntime(
+            services=AgentRuntimeServices.from_runtime_host(self.task_run_loop)
+        )
         self.task_run_loop.agent_runtime = self.agent_runtime
         self.graph_task_runtime = GraphTaskRuntime(
             task_run_loop=self.task_run_loop,

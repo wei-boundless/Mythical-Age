@@ -116,12 +116,6 @@ export function TaskGraphNodeStandardPage({
                   value={stringValue(currentNode.agent_id)}
                 />
               </TaskSystemField>
-              <TaskSystemField label="Projection ID">
-                <input
-                  onChange={(event) => updateTaskGraphNode(currentNodeId, { projection_id: event.target.value })}
-                  value={stringValue(currentNode.projection_id)}
-                />
-              </TaskSystemField>
               <TaskSystemField label="阶段">
                 <input
                   onChange={(event) => updateTaskGraphNode(currentNodeId, { phase_id: event.target.value })}
@@ -168,7 +162,7 @@ export function TaskGraphNodeStandardPage({
 
       <aside className="task-graph-cognition-workbench__aside">
         <article className="boundary-card">
-          <header><strong>标准对象投影</strong><span>{standardNode?.node_id || "未加载"}</span></header>
+          <header><strong>标准对象视图</strong><span>{standardNode?.node_id || "未加载"}</span></header>
           {standardNode ? (
             <>
               <div className="task-graph-mini-kv">
@@ -187,7 +181,7 @@ export function TaskGraphNodeStandardPage({
           ) : (
             <div className="task-graph-note">
               <strong>标准视图尚未对齐到该节点</strong>
-              <span>保存或刷新标准对象视图后，这里会显示后端编译出来的节点标准对象投影。</span>
+              <span>保存或刷新标准对象视图后，这里会显示后端编译出来的节点标准对象。</span>
             </div>
           )}
         </article>

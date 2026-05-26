@@ -2,24 +2,44 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-import json
 import time
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from capability_system.search_policy import agent_allowed_by_search_policy, normalize_search_policy
-from runtime.context_management import compact_child_result_observation
+from capability_system import build_default_operation_registry
+from permissions import OperationGate, OperationGatePipelineContext
+from runtime.shared.safety import build_task_safety_validators
 from runtime.model_gateway.model_runtime import stringify_content
 from agent_system.identity import normalize_agent_id
 from agent_system.registry.agent_registry import AgentRegistry
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
-from orchestration.delegation_protocol import default_expected_output_contract
 from agent_system.models.model_profile_resolver import ModelProfileResolver
-from soul.projection_store import get_projection_card
 
 from .child_agent_runtime_executor import ChildAgentRuntimeExecutor
 from .delegation_models import AgentDelegationRequest, AgentDelegationResult
+from .delegation_policy import (
+    build_child_operation_resource_policy,
+    merge_child_operation_gate_results,
+    required_operations_for_delegation,
+)
+from .delegation_result_policy import (
+    agent_evidence_shadow_readiness,
+    build_parent_delegation_observation,
+    delegation_consumed_handles,
+    delegation_payload_primary_path,
+    delegation_produced_handles,
+    validate_delegation_result_quality,
+)
+from .delegation_review import (
+    child_projection_card,
+    child_system_prompt,
+    child_user_message,
+    delegation_kind_is_model_only_review,
+    delegation_requires_model_only_review,
+    parse_model_only_review_payload,
+)
 from ..shared.event_log import RuntimeEventLog
 from ..shared.models import AgentRun, AgentRunResult
 from ..memory.state_index import RuntimeStateIndex
@@ -37,6 +57,8 @@ class AgentDelegationExecutor:
         event_log: RuntimeEventLog | None = None,
         child_runner: ChildRunner | None = None,
         evidence_orchestrator: Any | None = None,
+        operation_gate: OperationGate | None = None,
+        permission_mode_provider: Callable[[], str] | None = None,
     ) -> None:
         self.root_dir = Path(root_dir)
         self.state_index = state_index or RuntimeStateIndex(self.root_dir)
@@ -44,6 +66,8 @@ class AgentDelegationExecutor:
         self.agent_registry = AgentRegistry(self.root_dir)
         self.runtime_registry = AgentRuntimeRegistry(self.root_dir)
         self.child_runner = child_runner
+        self.operation_gate = operation_gate or OperationGate(build_default_operation_registry())
+        self.permission_mode_provider = permission_mode_provider
         self.child_runtime_executor = ChildAgentRuntimeExecutor(self.root_dir, evidence_orchestrator=evidence_orchestrator)
 
     async def execute(
@@ -98,14 +122,44 @@ class AgentDelegationExecutor:
             },
             refs={"agent_run_ref": child_agent_run.agent_run_id, "delegation_request_ref": request.request_id},
         )
+        gate_event = None
         try:
-            child_payload = await asyncio.wait_for(
-                self.execute_child_agent(
-                    context=child_context,
-                    model_response_executor=model_response_executor,
-                ),
-                timeout=_delegation_timeout_seconds(request),
+            gate_result = self.check_child_operation_permit(
+                request=request,
+                child_agent_run=child_agent_run,
+                context=child_context,
             )
+            gate_event = self.event_log.append(
+                request.task_run_id,
+                "child_agent_operation_gate_checked",
+                payload={"gate": gate_result.to_dict()},
+                refs={
+                    "agent_run_ref": child_agent_run.agent_run_id,
+                    "delegation_request_ref": request.request_id,
+                    "operation_id": gate_result.operation_id,
+                },
+            )
+            if not gate_result.allowed:
+                child_payload = {
+                    "status": "failed",
+                    "summary": "子 Agent 专业能力未获系统授权，已停止执行。",
+                    "answer_candidate": "子 Agent 专业能力未获系统授权，已停止执行。",
+                    "confidence": "low",
+                    "limitations": ["child_operation_gate_blocked", gate_result.reason],
+                    "diagnostics": {
+                        "child_operation_gate": gate_result.to_dict(),
+                        "child_execution_mode": "profile_authorized_specialist",
+                    },
+                }
+            else:
+                child_context["child_operation_gate"] = gate_result.to_dict()
+                child_payload = await asyncio.wait_for(
+                    self.execute_child_agent(
+                        context=child_context,
+                        model_response_executor=model_response_executor,
+                    ),
+                    timeout=_delegation_timeout_seconds(request),
+                )
         except asyncio.TimeoutError:
             child_payload = {
                 "status": "failed",
@@ -205,8 +259,62 @@ class AgentDelegationExecutor:
             "request": request,
             "result": result,
             "observation": self.build_parent_observation(result),
-            "events": (request_event, agent_run_event, child_runtime_event, *completion_events),
+            "events": tuple(
+                event
+                for event in (request_event, agent_run_event, child_runtime_event, gate_event, *completion_events)
+                if event is not None
+            ),
         }
+
+    def check_child_operation_permit(
+        self,
+        *,
+        request: AgentDelegationRequest,
+        child_agent_run: AgentRun,
+        context: dict[str, Any],
+    ):
+        profile = type("ProfilePayload", (), dict(context.get("runtime_profile") or {}))()
+        operation_ids = required_operations_for_delegation(delegation_kind=request.delegation_kind, profile=profile)
+        if delegation_requires_model_only_review(request, profile):
+            operation_ids = ("op.model_response",)
+        policy = build_child_operation_resource_policy(
+            request=request,
+            child_agent_run=child_agent_run,
+            operation_ids=operation_ids,
+            profile=profile,
+            operation_gate=self.operation_gate,
+        )
+        directive_ref = f"runtime-directive:{request.task_run_id}:delegation:{request.request_id}"
+        results = [
+            self.operation_gate.check(
+                operation_id,
+                resource_policy=policy,
+                directive_ref=directive_ref,
+                context=OperationGatePipelineContext(
+                    permission_mode=self._current_permission_mode(),
+                    headless_mode=True,
+                    operation_input={
+                        "operation_id": operation_id,
+                        "path": delegation_payload_primary_path(dict(request.input_payload or {})),
+                        "args": dict(request.input_payload or {}),
+                        "delegation_request_id": request.request_id,
+                        "target_agent_id": request.target_agent_id,
+                        "delegation_kind": request.delegation_kind,
+                    },
+                    validators=build_task_safety_validators(
+                        root_dir=self.root_dir,
+                        safety_envelope={},
+                        sandbox_policy={},
+                    ),
+                ),
+            )
+            for operation_id in operation_ids
+        ]
+        return merge_child_operation_gate_results(
+            request=request,
+            child_agent_run=child_agent_run,
+            results=results,
+        )
 
     def validate_request(self, request: AgentDelegationRequest, *, parent_agent_run: AgentRun) -> dict[str, Any]:
         reasons: list[str] = []
@@ -280,6 +388,17 @@ class AgentDelegationExecutor:
             reasons.append("self_delegation_denied")
         return {"blocked_reasons": list(dict.fromkeys(reasons))}
 
+    def _current_permission_mode(self) -> str:
+        provider = self.permission_mode_provider
+        if callable(provider):
+            try:
+                mode = str(provider() or "").strip()
+                if mode:
+                    return mode
+            except Exception:
+                return "default"
+        return "default"
+
     def _normalize_request_target(
         self,
         request: AgentDelegationRequest,
@@ -320,15 +439,15 @@ class AgentDelegationExecutor:
     def build_child_runtime_context(self, request: AgentDelegationRequest, *, child_agent_run: AgentRun) -> dict[str, Any]:
         profile = self.runtime_registry.get_profile(request.target_agent_id)
         agent = self.agent_registry.get_agent(request.target_agent_id)
-        projection_card = _child_projection_card(self.root_dir, agent)
+        projection_card = child_projection_card(self.root_dir, agent)
         return {
             "request": request.to_dict(),
             "agent_run": child_agent_run.to_dict(),
             "agent": agent.to_dict() if agent is not None else {},
             "runtime_profile": profile.to_dict() if profile is not None else {},
             "projection_card": projection_card,
-            "system_prompt": _child_system_prompt(agent, profile, projection_card=projection_card),
-            "user_message": _child_user_message(request),
+            "system_prompt": child_system_prompt(agent, profile, projection_card=projection_card),
+            "user_message": child_user_message(request),
             "communication_protocol": dict(dict(request.input_payload or {}).get("agent_communication_protocol") or {}),
         }
 
@@ -341,7 +460,7 @@ class AgentDelegationExecutor:
         request = AgentDelegationRequest(**dict(context.get("request") or {}))
         agent = type("AgentPayload", (), dict(context.get("agent") or {}))()
         profile = type("ProfilePayload", (), dict(context.get("runtime_profile") or {}))()
-        requires_model_only_review = _delegation_requires_model_only_review(request, profile)
+        requires_model_only_review = delegation_requires_model_only_review(request, profile)
         if not requires_model_only_review:
             specialist_payload = await self.child_runtime_executor.run(
                 request=request,
@@ -392,7 +511,7 @@ class AgentDelegationExecutor:
                 "diagnostics": {"model_resolution": model_resolution} if model_resolution else {},
             }
         content = stringify_content(getattr(response, "content", response)).strip()
-        structured = _parse_model_only_review_payload(content)
+        structured = parse_model_only_review_payload(content)
         if structured:
             verdict = str(structured.get("verdict") or "").strip()
             limitations = [
@@ -454,10 +573,10 @@ class AgentDelegationExecutor:
         if direct_writeback_hints:
             diagnostics["context_writeback_hints"] = direct_writeback_hints
         evidence_packet = dict(diagnostics.get("agent_evidence_packet") or {})
-        consumed_handles = _delegation_consumed_handles(request=request, child_payload=child_payload)
-        produced_handles = _delegation_produced_handles(child_payload=child_payload)
+        consumed_handles = delegation_consumed_handles(request=request, child_payload=child_payload)
+        produced_handles = delegation_produced_handles(child_payload=child_payload)
         if evidence_packet:
-            diagnostics["agent_evidence_shadow_readiness"] = _agent_evidence_shadow_readiness(
+            diagnostics["agent_evidence_shadow_readiness"] = agent_evidence_shadow_readiness(
                 packet=evidence_packet,
                 summary=summary,
             )
@@ -484,31 +603,7 @@ class AgentDelegationExecutor:
         )
 
     def build_parent_observation(self, result: AgentDelegationResult) -> dict[str, Any]:
-        context_writeback_hints = _context_writeback_hints_from_result(result)
-        observation = {
-            "type": "agent_delegation_result",
-            "status": result.status,
-            "target_agent_id": result.target_agent_id,
-            "summary": result.summary,
-            "answer_candidate": result.answer_candidate,
-            "diagnostics": dict(result.diagnostics or {}),
-            **_verifier_observation_fields(result),
-            "evidence_refs": list(result.evidence_refs),
-            "artifact_refs": list(result.artifact_refs),
-            "confidence": result.confidence,
-            "limitations": list(result.limitations),
-            "followup_questions": list(result.followup_questions),
-            "consumed_handles": list(result.consumed_handles),
-            "produced_handles": list(result.produced_handles),
-            "result_ref": result.result_id,
-            "child_agent_run_ref": result.child_agent_run_ref,
-            **({"context_writeback_hints": context_writeback_hints} if context_writeback_hints else {}),
-        }
-        return compact_child_result_observation(
-            observation,
-            root_dir=self.root_dir,
-            run_id=result.result_id,
-        )
+        return build_parent_delegation_observation(result=result, root_dir=self.root_dir)
 
     def _blocked_result(self, request: AgentDelegationRequest, *, parent_agent_run: AgentRun, reasons: list[str]) -> AgentDelegationResult:
         _ = parent_agent_run
@@ -526,54 +621,6 @@ class AgentDelegationExecutor:
             diagnostics={"blocked_reasons": list(reasons)},
         )
 
-def _child_projection_card(root_dir: Path, agent: Any | None) -> dict[str, Any]:
-    projection_id = str(getattr(agent, "default_projection_id", "") or "").strip()
-    if not projection_id:
-        return {}
-    return dict(get_projection_card(_soul_base_dir(root_dir), projection_id) or {})
-
-
-def _soul_base_dir(root_dir: Path) -> Path:
-    resolved = Path(root_dir)
-    if (resolved / "soul" / "projections").exists():
-        return resolved
-    if (resolved / "backend" / "soul" / "projections").exists():
-        return resolved / "backend"
-    return resolved
-
-
-def _context_writeback_hints_from_result(result: AgentDelegationResult) -> dict[str, Any]:
-    diagnostics = dict(result.diagnostics or {})
-    direct_hints = {
-        key: value
-        for key, value in dict(diagnostics.get("context_writeback_hints") or {}).items()
-        if value not in ("", [], {}, None)
-    }
-    if direct_hints:
-        return direct_hints
-    mcp_result = dict(diagnostics.get("mcp_result") or {})
-    canonical = dict(mcp_result.get("canonical_result") or {})
-    bindings = dict(canonical.get("bindings") or {})
-    presentation_hints = dict(canonical.get("presentation_hints") or {})
-    source_path = str(bindings.get("active_dataset") or bindings.get("active_pdf") or bindings.get("active_table") or "").strip()
-    source_kind = "dataset" if bindings.get("active_dataset") else "pdf" if bindings.get("active_pdf") else "table" if bindings.get("active_table") else ""
-    subset_labels = [
-        str(item or "").strip()
-        for item in list(presentation_hints.get("subset_labels") or [])
-        if str(item or "").strip()
-    ]
-    payload = {
-        "source_kind": source_kind,
-        "source_path": source_path,
-        "active_object_handle_id": _first_text(canonical.get("object_handle_ids")),
-        "active_result_handle_id": str(canonical.get("primary_result_handle_id") or _first_text(canonical.get("result_handle_ids"))),
-        "active_subset_handle_id": str(presentation_hints.get("subset_handle_id") or ""),
-        "subset_filter_column": str(presentation_hints.get("subset_filter_column") or ""),
-        "subset_labels": subset_labels,
-    }
-    return {key: value for key, value in payload.items() if value not in ("", [], {}, None)}
-
-
 def _delegation_timeout_seconds(request: AgentDelegationRequest) -> float:
     policy = dict(request.timeout_policy or {})
     raw = policy.get("timeout_seconds")
@@ -582,154 +629,6 @@ def _delegation_timeout_seconds(request: AgentDelegationRequest) -> float:
     except (TypeError, ValueError):
         value = 90.0
     return min(max(value, 1.0), 300.0)
-
-
-def _delegation_requires_model_only_review(request: AgentDelegationRequest, profile: Any) -> bool:
-    if _profile_requires_model_only_review(profile):
-        return True
-    return _delegation_kind_is_model_only_review(request.delegation_kind)
-
-
-def _profile_requires_model_only_review(profile: Any) -> bool:
-    metadata = dict(getattr(profile, "metadata", {}) or {})
-    return str(metadata.get("child_execution_mode") or "").strip() == "model_only_review"
-
-
-def _delegation_kind_is_model_only_review(delegation_kind: str) -> bool:
-    kind = str(delegation_kind or "").strip()
-    return kind in {
-        "completion_verification",
-        "semantic_verification",
-        "deliverable_review",
-        "artifact_review",
-        "quality_review",
-        "plan_review",
-    }
-
-
-def _parse_model_only_review_payload(content: str) -> dict[str, Any]:
-    raw = str(content or "").strip()
-    if not raw:
-        return {}
-    candidates = [raw]
-    if raw.startswith("```"):
-        stripped = raw.strip("`").strip()
-        if stripped.lower().startswith("json"):
-            stripped = stripped[4:].strip()
-        candidates.append(stripped)
-    for candidate in candidates:
-        try:
-            payload = json.loads(candidate)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(payload, dict):
-            return dict(payload)
-    return {}
-
-
-def _verifier_observation_fields(result: AgentDelegationResult) -> dict[str, Any]:
-    diagnostics = dict(result.diagnostics or {})
-    review = dict(diagnostics.get("verifier_review") or {})
-    if not review:
-        return {}
-    return {
-        "verifier_review": review,
-        "verdict": str(review.get("verdict") or diagnostics.get("verdict") or ""),
-        "missing_requirements": list(review.get("missing_requirements") or diagnostics.get("missing_requirements") or []),
-        "unsupported_claims": list(review.get("unsupported_claims") or diagnostics.get("unsupported_claims") or []),
-        "required_revisions": list(review.get("required_revisions") or diagnostics.get("required_revisions") or []),
-    }
-
-
-def _first_text(values: Any) -> str:
-    for item in list(values or []):
-        text = str(item or "").strip()
-        if text:
-            return text
-    return ""
-
-
-def _child_system_prompt(agent: Any | None, profile: Any | None, *, projection_card: dict[str, Any] | None = None) -> str:
-    description = str(getattr(agent, "description", "") or "").strip()
-    operations = ", ".join(str(item) for item in tuple(getattr(profile, "allowed_operations", ()) or ()))
-    projection = dict(projection_card or {})
-    identity_anchor = str(projection.get("identity_anchor") or "").strip()
-    projection_prompt = str(projection.get("projection_prompt") or "").strip()
-    lines: list[str] = []
-    if identity_anchor:
-        lines.append(identity_anchor)
-    else:
-        lines.append(description or "你是一名受限子 Agent，只负责完成委派给你的边界化任务。")
-    if projection_prompt:
-        lines.append(projection_prompt)
-    if _profile_requires_model_only_review(profile):
-        lines.extend(
-            [
-                "## 复核职责",
-                "你是一名交付复核员。你只负责检查主 Agent 的候选回答、产物、证据和用户目标是否互相支撑。",
-                "你不修改文件，不替主 Agent 重写最终回答，不把缺失证据包装成已完成。",
-                "你的裁决只能是 pass、needs_revision 或 blocked。",
-                "请返回 JSON 对象，字段包括 summary、verdict、missing_requirements、unsupported_claims、required_revisions、evidence_refs、artifact_refs、confidence、limitations。",
-            ]
-        )
-    lines.extend(
-        [
-            "## 协作边界",
-            "你服务于主 Agent 的委派任务。你要把专业材料整理成主 Agent 可以判断和收口的结果。",
-            "你不负责替主 Agent 做最终面向用户的表达，也不要扩大任务范围。",
-            "你只返回已经完成的结果、证据引用、产物引用、置信度和限制说明。",
-            f"你可使用的操作范围是：{operations or '仅模型响应'}。",
-            "不要输出执行计划、伪工具调用语法或“我将调用某工具”的描述。",
-            "如果已经拿到结果，直接整理结果；如果无法执行，直接说明失败原因和限制。",
-            "如果信息不足或能力不可用，请明确写入限制和缺口，不要假装完成。",
-        ]
-    )
-    return "\n\n".join(part for part in lines if str(part).strip())
-
-
-def _child_user_message(request: AgentDelegationRequest) -> str:
-    payload = dict(request.input_payload or {})
-    protocol = dict(payload.get("agent_communication_protocol") or {})
-    expected_output_contract = dict(
-        request.expected_output_contract
-        or protocol.get("expected_output_contract")
-        or default_expected_output_contract(
-            source_kind=str(protocol.get("source_kind") or payload.get("source_kind") or ""),
-            delegation_kind=request.delegation_kind,
-        )
-    )
-    lines = [
-        f"委派类型：{request.delegation_kind}",
-        f"任务说明：{request.instruction}",
-        "通信协议：",
-        json.dumps(
-            {
-                "protocol_id": str(protocol.get("protocol_id") or "protocol.agent.direct_delegation.v1"),
-                "child_agent_contract": dict(protocol.get("child_agent_contract") or {}),
-                "expected_output_contract": expected_output_contract,
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
-        "输入：",
-        json.dumps(payload, ensure_ascii=False, indent=2),
-    ]
-    if _delegation_kind_is_model_only_review(request.delegation_kind):
-        lines.extend(
-            [
-                "请只返回一个 JSON 对象，不要写 Markdown，不要写执行计划。",
-                "JSON 字段：summary、verdict、missing_requirements、unsupported_claims、required_revisions、evidence_refs、artifact_refs、confidence、limitations。",
-                "verdict 只能是 pass、needs_revision 或 blocked。",
-            ]
-        )
-    else:
-        lines.extend(
-            [
-                "请返回可供主 Agent 收口使用的中文结果摘要，只写已经完成的结果或明确失败原因。",
-                "不要写执行计划，不要输出 <op.*> 或 JSON action 这类工具调用文本。",
-            ]
-        )
-    return "\n".join(lines)
 
 
 def _delegation_request_counts_against_budget(
@@ -744,205 +643,12 @@ def _delegation_request_counts_against_budget(
         return False
     previous_payload = dict(previous_request.input_payload or {})
     current_payload = dict(current_request.input_payload or {})
-    previous_path = _delegation_payload_primary_path(previous_payload)
-    current_path = _delegation_payload_primary_path(current_payload)
+    previous_path = delegation_payload_primary_path(previous_payload)
+    current_path = delegation_payload_primary_path(current_payload)
     limitations = tuple(getattr(result, "limitations", ()) or ())
     if limitations == ("missing_object_handle",) and current_path and not previous_path:
         return False
     return True
-
-
-def _delegation_payload_primary_path(payload: dict[str, Any]) -> str:
-    direct = str(
-        payload.get("file_path")
-        or payload.get("path")
-        or payload.get("active_pdf")
-        or payload.get("active_dataset")
-        or ""
-    ).strip()
-    if direct:
-        return direct
-    for key in ("file_paths", "paths", "active_pdfs", "active_datasets"):
-        values = payload.get(key)
-        if isinstance(values, (list, tuple)):
-            for item in values:
-                value = str(item or "").strip()
-                if value:
-                    return value
-        elif isinstance(values, str) and values.strip():
-            return values.strip()
-    return ""
-
-
-def _delegation_consumed_handles(*, request: AgentDelegationRequest, child_payload: dict[str, Any]) -> list[str]:
-    explicit = [
-        str(item).strip()
-        for item in list(child_payload.get("consumed_handles") or [])
-        if str(item).strip()
-    ]
-    if explicit:
-        return list(dict.fromkeys(explicit))
-    payload = dict(request.input_payload or {})
-    handles = [
-        str(payload.get("active_subset_handle_id") or "").strip(),
-        str(payload.get("active_result_handle_id") or "").strip(),
-        str(payload.get("active_object_handle_id") or "").strip(),
-        _delegation_payload_primary_path(payload),
-    ]
-    return [item for item in dict.fromkeys(handles) if item]
-
-
-def _delegation_produced_handles(*, child_payload: dict[str, Any]) -> list[str]:
-    explicit = [
-        str(item).strip()
-        for item in list(child_payload.get("produced_handles") or [])
-        if str(item).strip()
-    ]
-    if explicit:
-        return list(dict.fromkeys(explicit))
-    diagnostics = dict(child_payload.get("diagnostics") or {})
-    mcp_result = dict(diagnostics.get("mcp_result") or {})
-    canonical = dict(mcp_result.get("canonical_result") or {})
-    handles = [
-        str(canonical.get("primary_result_handle_id") or "").strip(),
-        *[str(item or "").strip() for item in list(canonical.get("result_handle_ids") or [])],
-        *[str(item or "").strip() for item in list(canonical.get("artifact_refs") or [])],
-    ]
-    return [item for item in dict.fromkeys(handles) if item]
-
-
-def _agent_evidence_shadow_readiness(*, packet: dict[str, Any], summary: str) -> dict[str, Any]:
-    facts = list(packet.get("facts") or [])
-    evidence = list(packet.get("evidence") or [])
-    hints = list(packet.get("hints") or [])
-    unknowns = list(packet.get("unknowns") or [])
-    limits = list(packet.get("limits") or [])
-    confidence = str(packet.get("confidence") or "unknown")
-    fact_count = len(facts)
-    evidence_count = len(evidence)
-    unknown_count = len(unknowns)
-    limit_count = len(limits)
-    evidence_sufficient = fact_count > 0 and evidence_count > 0 and confidence in {"high", "medium"}
-    if evidence_sufficient and not unknowns:
-        recommendation = "main_agent_can_reason_from_facts"
-    elif evidence_sufficient:
-        recommendation = "main_agent_can_reason_from_facts_with_caveats"
-    elif hints:
-        recommendation = "main_agent_should_treat_child_answer_as_hint_only"
-    else:
-        recommendation = "main_agent_should_request_or_recover_evidence"
-    return {
-        "mode": "shadow_only",
-        "packet_id": str(packet.get("packet_id") or ""),
-        "domain": str(packet.get("domain") or "other"),
-        "evidence_sufficient": evidence_sufficient,
-        "fact_count": fact_count,
-        "evidence_count": evidence_count,
-        "hint_count": len(hints),
-        "unknown_count": unknown_count,
-        "limit_count": limit_count,
-        "confidence": confidence,
-        "summary_is_primary_path": True,
-        "summary_chars": len(str(summary or "")),
-        "recommendation": recommendation,
-    }
-
-
-def validate_delegation_result_quality(
-    *,
-    request: AgentDelegationRequest,
-    child_payload: dict[str, Any],
-    summary: str,
-) -> dict[str, Any]:
-    text = str(summary or "").strip()
-    evidence_refs = [str(item) for item in list(child_payload.get("evidence_refs") or []) if str(item)]
-    artifact_refs = [str(item) for item in list(child_payload.get("artifact_refs") or []) if str(item)]
-    limitations = [str(item) for item in list(child_payload.get("limitations") or []) if str(item)]
-    reasons: list[str] = []
-    lowered = text.casefold()
-    plan_markers = (
-        "我将",
-        "我会",
-        "首先，我将",
-        "让我",
-        "将使用",
-        "尝试读取",
-        "i will",
-        "i'll",
-    )
-    pseudo_tool_markers = (
-        "<op.",
-        "</op.",
-        '"action"',
-        "```json",
-        "op.mcp_pdf",
-        "op.read_structured_file",
-        "op.mcp_structured_data",
-        "op.mcp_retrieval",
-    )
-    if not text:
-        reasons.append("empty_child_summary")
-    if any(marker.casefold() in lowered for marker in plan_markers) and not (evidence_refs or artifact_refs or limitations):
-        reasons.append("plan_text_without_evidence")
-    if any(marker.casefold() in lowered for marker in pseudo_tool_markers) and not (evidence_refs or artifact_refs):
-        reasons.append("pseudo_tool_text_without_execution_refs")
-    specialist_kind = str(request.delegation_kind or "").strip()
-    if _delegation_kind_is_model_only_review(specialist_kind):
-        verdict = str(child_payload.get("verdict") or dict(child_payload.get("diagnostics") or {}).get("verdict") or "").strip()
-        review = dict(dict(child_payload.get("diagnostics") or {}).get("verifier_review") or {})
-        if not verdict and review:
-            verdict = str(review.get("verdict") or "").strip()
-        if verdict not in {"pass", "needs_revision", "blocked"}:
-            reasons.append("verifier_result_missing_valid_verdict")
-        status = "invalid" if "verifier_result_missing_valid_verdict" in reasons else "pass"
-        normalized_status = str(child_payload.get("status") or "completed")
-        if status == "invalid":
-            normalized_status = "invalid_output"
-        return {
-            "status": status,
-            "reasons": reasons,
-            "normalized_status": normalized_status,
-        }
-    if specialist_kind in {
-        "pdf",
-        "pdf_reading",
-        "table_analysis",
-        "structured_data",
-        "structured_data_lookup",
-        "retrieval",
-        "evidence_lookup",
-        "knowledge_search",
-        "knowledge_retrieval",
-        "codebase_search",
-        "local_search",
-        "workspace_search",
-        "file_search",
-        "memory_search",
-        "memory_lookup",
-        "memory_recall",
-        "web",
-        "web_research",
-        "external_web_lookup",
-        "current_information_lookup",
-        "official_source_lookup",
-    }:
-        if not (evidence_refs or artifact_refs or limitations):
-            reasons.append("specialist_result_without_refs_or_limitations")
-    status = "pass"
-    normalized_status = str(child_payload.get("status") or "completed")
-    invalid_reasons = {"empty_child_summary", "plan_text_without_evidence", "pseudo_tool_text_without_execution_refs"}
-    if any(reason in invalid_reasons for reason in reasons):
-        status = "invalid"
-        normalized_status = "invalid_output"
-    elif reasons:
-        status = "warning"
-    if limitations and normalized_status == "completed" and not (evidence_refs or artifact_refs):
-        normalized_status = "failed"
-    return {
-        "status": status,
-        "reasons": reasons,
-        "normalized_status": normalized_status,
-    }
 
 
 def _delegation_kinds_from_profile(profile: Any) -> tuple[str, ...]:
