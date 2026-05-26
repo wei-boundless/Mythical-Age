@@ -12,6 +12,7 @@ import type {
 } from "@/lib/api";
 import type { TaskGraphTemplateBuildInput, TaskGraphTemplateId } from "./taskGraphTemplates";
 import type { TaskGraphDraftV2, TaskGraphPublishStateV2 } from "./taskGraphDraftV2";
+import type { TaskGraphEditorSelection } from "./taskGraphEditorSelection";
 
 export type TaskGraphKind = "single_agent" | "multi_agent" | "coordination";
 
@@ -90,6 +91,8 @@ export type TaskGraphWorkbenchProps = {
   addTaskGraphNode: () => void;
   linkingFromNodeId: string;
   setLinkingFromNodeId: (value: string) => void;
+  taskGraphEditorSelection: TaskGraphEditorSelection;
+  setTaskGraphEditorSelection: (updater: (current: TaskGraphEditorSelection) => TaskGraphEditorSelection) => void;
   selectedGraphNodeId: string;
   selectedGraphEdgeId: string;
   setSelectedGraphEdgeId: (value: string) => void;
@@ -110,6 +113,7 @@ export type TaskGraphWorkbenchProps = {
   updateTaskGraphNode: (nodeId: string, patch: Record<string, unknown>) => void;
   updateTaskGraphEdge: (edgeId: string, patch: Record<string, unknown>) => void;
   taskGraphStandardView: TaskGraphStandardView | null;
+  taskGraphStandardViewStale: boolean;
   taskGraphStandardViewLoading: boolean;
   taskGraphStandardViewError: string;
   refreshTaskGraphStandardView: () => Promise<void>;

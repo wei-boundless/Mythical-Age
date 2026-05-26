@@ -41,7 +41,7 @@ def build_composable_graph_view(
     timeline_blocks = [
         dict(item)
         for item in list(layered.get("timeline_blocks") or [])
-        if isinstance(item, dict)
+        if isinstance(item, dict) and item.get("migration_only") is True
     ]
     units = [
         *[_unit_from_node(node) for node in graph.nodes],
@@ -91,6 +91,7 @@ def build_composable_graph_view(
             "source": "task_system.task_graph_definition",
             "node_unit_count": len(graph.nodes),
             "timeline_block_unit_count": len(timeline_blocks),
+            "timeline_block_units_migration_only": True,
             "graph_module_runtime_count": len(graph_module_runtime),
             "legacy_edge_count": len(graph.edges),
             "overlay_unit_count": len(_overlay_list(overlay, "units")),

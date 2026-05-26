@@ -8,7 +8,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from prompt_library.assembler import assemble_runtime_prompt_contract
-from runtime.agent_runtime.professional.completion_judgment import build_verification_review, judge_completion
+from runtime.agent_runtime.phases import build_verification_review, judge_completion
 
 
 SEMANTIC_CONTRACT = {

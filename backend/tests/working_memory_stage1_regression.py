@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from memory_system import MemoryFacade, MemoryContextCandidate, WorkingMemoryPolicyProfile
+from memory_system import MemoryFacade
+from memory_system.contracts import MemoryContextCandidate
+from memory_system.working_memory_models import WorkingMemoryPolicyProfile
 
 
 def test_working_memory_item_is_node_run_scoped_and_idempotent(tmp_path) -> None:
     facade = MemoryFacade(tmp_path)
 
-    first = facade.create_working_memory_item(
+    first = facade.working_memory.create_item(
         task_run_id="taskrun:novel",
         task_id="task.novel",
         graph_id="graph:novel",
@@ -19,7 +21,7 @@ def test_working_memory_item_is_node_run_scoped_and_idempotent(tmp_path) -> None
         payload={"chapter": 1, "text": "..."}, 
         idempotency_key="chapter-001-attempt-01-draft",
     )
-    duplicate = facade.create_working_memory_item(
+    duplicate = facade.working_memory.create_item(
         task_run_id="taskrun:novel",
         task_id="task.novel",
         graph_id="graph:novel",
@@ -32,7 +34,7 @@ def test_working_memory_item_is_node_run_scoped_and_idempotent(tmp_path) -> None
         payload={"chapter": 1, "text": "..."}, 
         idempotency_key="chapter-001-attempt-01-draft",
     )
-    second_run = facade.create_working_memory_item(
+    second_run = facade.working_memory.create_item(
         task_run_id="taskrun:novel",
         task_id="task.novel",
         graph_id="graph:novel",
@@ -50,8 +52,8 @@ def test_working_memory_item_is_node_run_scoped_and_idempotent(tmp_path) -> None
     assert first.node_run_id == "chapter_writer.chapter_001"
     assert second_run.node_run_id == "chapter_writer.chapter_002"
 
-    chapter_one = facade.query_working_memory_items(node_run_id="chapter_writer.chapter_001")
-    chapter_two = facade.query_working_memory_items(node_run_id="chapter_writer.chapter_002")
+    chapter_one = facade.working_memory.query_items(node_run_id="chapter_writer.chapter_001")
+    chapter_two = facade.working_memory.query_items(node_run_id="chapter_writer.chapter_002")
 
     assert len(chapter_one) == 1
     assert len(chapter_two) == 1
@@ -61,7 +63,7 @@ def test_working_memory_item_is_node_run_scoped_and_idempotent(tmp_path) -> None
 
 def test_working_memory_status_transition_and_read_log_are_persisted(tmp_path) -> None:
     facade = MemoryFacade(tmp_path)
-    item = facade.create_working_memory_item(
+    item = facade.working_memory.create_item(
         task_run_id="taskrun:coord",
         graph_id="graph:coord",
         owner_node_id="planner",
@@ -72,8 +74,8 @@ def test_working_memory_status_transition_and_read_log_are_persisted(tmp_path) -
         summary="拆分三阶段执行计划",
     )
 
-    accepted = facade.accept_working_memory_item(item.work_memory_id, actor_id="agent:main")
-    log = facade.record_working_memory_read(
+    accepted = facade.working_memory.accept_item(item.work_memory_id, actor_id="agent:main")
+    log = facade.working_memory.record_read(
         task_run_id="taskrun:coord",
         graph_id="graph:coord",
         owner_node_id="writer",
@@ -88,14 +90,14 @@ def test_working_memory_status_transition_and_read_log_are_persisted(tmp_path) -
     assert log.selected_item_ids == (item.work_memory_id,)
     assert log.token_estimate > 0
 
-    logs = facade.list_working_memory_read_logs("taskrun:coord")
+    logs = facade.working_memory.list_read_logs("taskrun:coord")
     assert len(logs) == 1
     assert logs[0].reader_agent_id == "agent:writer"
 
 
 def test_working_memory_handoff_transaction_and_temporal_edges_work(tmp_path) -> None:
     facade = MemoryFacade(tmp_path)
-    draft = facade.create_working_memory_item(
+    draft = facade.working_memory.create_item(
         task_run_id="taskrun:story",
         graph_id="graph:story",
         owner_node_id="scene_writer",
@@ -105,7 +107,7 @@ def test_working_memory_handoff_transaction_and_temporal_edges_work(tmp_path) ->
         kind="timeline_event_draft",
         summary="主角在夜里离开故乡",
     )
-    result = facade.create_working_memory_item(
+    result = facade.working_memory.create_item(
         task_run_id="taskrun:story",
         graph_id="graph:story",
         owner_node_id="scene_writer",
@@ -116,7 +118,7 @@ def test_working_memory_handoff_transaction_and_temporal_edges_work(tmp_path) ->
         summary="主角抵达都城",
     )
 
-    transaction = facade.create_working_memory_handoff_transaction(
+    transaction = facade.working_memory.create_handoff_transaction(
         task_run_id="taskrun:story",
         graph_id="graph:story",
         edge_id="scene_01_to_scene_02",
@@ -124,12 +126,12 @@ def test_working_memory_handoff_transaction_and_temporal_edges_work(tmp_path) ->
         source_message_hash="hash:scene:01:02",
         candidate_work_memory_ids=[draft.work_memory_id],
     )
-    committed = facade.commit_working_memory_handoff_transaction(
+    committed = facade.working_memory.commit_handoff_transaction(
         transaction.transaction_id,
         adopted_work_memory_ids=[draft.work_memory_id],
         ephemeral_context_refs=["scene-summary:01"],
     )
-    edge = facade.create_working_memory_temporal_edge(
+    edge = facade.working_memory.create_temporal_edge(
         task_run_id="taskrun:story",
         graph_id="graph:story",
         source_item_id=draft.work_memory_id,
@@ -141,12 +143,12 @@ def test_working_memory_handoff_transaction_and_temporal_edges_work(tmp_path) ->
     assert committed.transaction_status == "committed"
     assert committed.adopted_work_memory_ids == (draft.work_memory_id,)
     assert edge.relation == "before"
-    assert facade.list_working_memory_temporal_edges("taskrun:story")[0].target_item_id == result.work_memory_id
+    assert facade.working_memory.list_temporal_edges("taskrun:story")[0].target_item_id == result.work_memory_id
 
 
 def test_working_memory_controlled_read_respects_visibility_and_scope(tmp_path) -> None:
     facade = MemoryFacade(tmp_path)
-    shared = facade.create_working_memory_item(
+    shared = facade.working_memory.create_item(
         task_run_id="taskrun:visibility",
         graph_id="graph:visibility",
         owner_node_id="writer",
@@ -158,7 +160,7 @@ def test_working_memory_controlled_read_respects_visibility_and_scope(tmp_path) 
         visibility="shared_in_graph",
         scope="graph_scope",
     )
-    facade.create_working_memory_item(
+    facade.working_memory.create_item(
         task_run_id="taskrun:visibility",
         graph_id="graph:visibility",
         owner_node_id="writer",
@@ -171,7 +173,7 @@ def test_working_memory_controlled_read_respects_visibility_and_scope(tmp_path) 
         scope="node_scope",
     )
 
-    selection = facade.select_working_memory_for_node(
+    selection = facade.working_memory.select_for_node(
         task_run_id="taskrun:visibility",
         graph_id="graph:visibility",
         owner_node_id="writer",
@@ -189,7 +191,7 @@ def test_working_memory_controlled_read_respects_visibility_and_scope(tmp_path) 
 def test_working_memory_dynamic_read_denial_is_logged(tmp_path) -> None:
     facade = MemoryFacade(tmp_path)
 
-    selection = facade.select_working_memory_for_node(
+    selection = facade.working_memory.select_for_node(
         task_run_id="taskrun:denied",
         graph_id="graph:denied",
         owner_node_id="writer",
@@ -201,14 +203,14 @@ def test_working_memory_dynamic_read_denial_is_logged(tmp_path) -> None:
     )
 
     assert selection["denied_reason"] == "requested_kind_outside_policy"
-    logs = facade.list_working_memory_read_logs("taskrun:denied")
+    logs = facade.working_memory.list_read_logs("taskrun:denied")
     assert len(logs) == 1
     assert logs[0].denied_reason == "requested_kind_outside_policy"
 
 
 def test_working_memory_temporal_expansion_respects_limit(tmp_path) -> None:
     facade = MemoryFacade(tmp_path)
-    first = facade.create_working_memory_item(
+    first = facade.working_memory.create_item(
         task_run_id="taskrun:temporal",
         graph_id="graph:temporal",
         owner_node_id="writer",
@@ -219,7 +221,7 @@ def test_working_memory_temporal_expansion_respects_limit(tmp_path) -> None:
         visibility="shared_in_graph",
         scope="graph_scope",
     )
-    second = facade.create_working_memory_item(
+    second = facade.working_memory.create_item(
         task_run_id="taskrun:temporal",
         graph_id="graph:temporal",
         owner_node_id="writer",
@@ -230,7 +232,7 @@ def test_working_memory_temporal_expansion_respects_limit(tmp_path) -> None:
         visibility="shared_in_graph",
         scope="graph_scope",
     )
-    facade.create_working_memory_temporal_edge(
+    facade.working_memory.create_temporal_edge(
         task_run_id="taskrun:temporal",
         graph_id="graph:temporal",
         source_item_id=first.work_memory_id,
@@ -238,7 +240,7 @@ def test_working_memory_temporal_expansion_respects_limit(tmp_path) -> None:
         relation="before",
     )
 
-    selection = facade.select_working_memory_for_node(
+    selection = facade.working_memory.select_for_node(
         task_run_id="taskrun:temporal",
         graph_id="graph:temporal",
         owner_node_id="reviewer",
@@ -255,7 +257,7 @@ def test_working_memory_temporal_expansion_respects_limit(tmp_path) -> None:
 
 def test_working_memory_handoff_resolution_is_idempotent_and_adopts_refs(tmp_path) -> None:
     facade = MemoryFacade(tmp_path)
-    accepted = facade.create_working_memory_item(
+    accepted = facade.working_memory.create_item(
         task_run_id="taskrun:handoff",
         graph_id="graph:handoff",
         owner_node_id="planner",
@@ -267,7 +269,7 @@ def test_working_memory_handoff_resolution_is_idempotent_and_adopts_refs(tmp_pat
         scope="edge_scope",
     )
 
-    first = facade.resolve_working_memory_handoff(
+    first = facade.working_memory.resolve_handoff_into_working_memory(
         task_run_id="taskrun:handoff",
         graph_id="graph:handoff",
         edge_id="planner_to_writer",
@@ -278,7 +280,7 @@ def test_working_memory_handoff_resolution_is_idempotent_and_adopts_refs(tmp_pat
         working_memory_refs=[accepted.work_memory_id],
         summary="计划摘要",
     )
-    replay = facade.resolve_working_memory_handoff(
+    replay = facade.working_memory.resolve_handoff_into_working_memory(
         task_run_id="taskrun:handoff",
         graph_id="graph:handoff",
         edge_id="planner_to_writer",
@@ -293,12 +295,12 @@ def test_working_memory_handoff_resolution_is_idempotent_and_adopts_refs(tmp_pat
     assert replay.transaction_id == first.transaction_id
     assert first.transaction_status == "committed"
     assert first.adopted_work_memory_ids == (accepted.work_memory_id,)
-    assert len(facade.list_working_memory_handoff_transactions("taskrun:handoff")) == 1
+    assert len(facade.working_memory.list_handoff_transactions("taskrun:handoff")) == 1
 
 
 def test_working_memory_policy_profile_round_trip(tmp_path) -> None:
     facade = MemoryFacade(tmp_path)
-    profile = facade.save_working_memory_policy_profile(
+    profile = facade.working_memory.save_policy_profile(
         profile_id="wmprofile:novel",
         allowed_kinds=["chapter_draft", "character_state_delta", "continuity_conflict"],
         allowed_semantics=["draft_artifact", "working_fact", "conflict"],
@@ -307,7 +309,7 @@ def test_working_memory_policy_profile_round_trip(tmp_path) -> None:
         retry_memory_rules={"keep_failure_reflection": True},
     )
 
-    loaded = facade.get_working_memory_policy_profile("wmprofile:novel")
+    loaded = facade.working_memory.get_policy_profile("wmprofile:novel")
 
     assert isinstance(profile, WorkingMemoryPolicyProfile)
     assert loaded is not None
@@ -318,7 +320,7 @@ def test_working_memory_policy_profile_round_trip(tmp_path) -> None:
 
 def test_working_memory_context_candidates_remain_candidate_only(tmp_path) -> None:
     facade = MemoryFacade(tmp_path)
-    accepted = facade.create_working_memory_item(
+    accepted = facade.working_memory.create_item(
         task_run_id="taskrun:ctx",
         task_id="task.ctx",
         graph_id="graph:ctx",
@@ -329,7 +331,7 @@ def test_working_memory_context_candidates_remain_candidate_only(tmp_path) -> No
         summary="章节草稿候选",
         status="accepted",
     )
-    proposed = facade.create_working_memory_item(
+    proposed = facade.working_memory.create_item(
         task_run_id="taskrun:ctx",
         task_id="task.ctx",
         graph_id="graph:ctx",
@@ -341,7 +343,7 @@ def test_working_memory_context_candidates_remain_candidate_only(tmp_path) -> No
         status="proposed",
     )
 
-    candidates = facade.build_working_memory_context_candidates(
+    candidates = facade.bundle_service.build_working_memory_context_candidates(
         task_run_id="taskrun:ctx",
         node_run_id="writer.run.001",
     )
@@ -359,7 +361,7 @@ def test_working_memory_context_candidates_remain_candidate_only(tmp_path) -> No
 
 def test_memory_runtime_view_includes_working_memory_candidates_when_requested(tmp_path) -> None:
     facade = MemoryFacade(tmp_path)
-    facade.create_working_memory_item(
+    facade.working_memory.create_item(
         task_run_id="taskrun:view",
         task_id="task.view",
         graph_id="graph:view",
@@ -370,7 +372,7 @@ def test_memory_runtime_view_includes_working_memory_candidates_when_requested(t
         summary="按三阶段推进任务",
         status="accepted",
     )
-    facade.create_working_memory_item(
+    facade.working_memory.create_item(
         task_run_id="taskrun:view",
         task_id="task.view",
         graph_id="graph:view",
@@ -382,7 +384,7 @@ def test_memory_runtime_view_includes_working_memory_candidates_when_requested(t
         status="accepted",
     )
 
-    view = facade.build_memory_runtime_view(
+    view = facade.bundle_service.build_memory_runtime_view(
         session_id="session-working-view",
         memory_request_profile={
             "requested_memory_layers": ["working"],
@@ -403,7 +405,7 @@ def test_memory_runtime_view_includes_working_memory_candidates_when_requested(t
 
 def test_memory_runtime_view_includes_task_durable_only_when_requested(tmp_path) -> None:
     facade = MemoryFacade(tmp_path)
-    item = facade.create_task_durable_memory_item(
+    item = facade.task_durable_memory.create_item(
         task_id="task.view",
         graph_id="graph:view",
         kind="project_rule",
@@ -411,7 +413,7 @@ def test_memory_runtime_view_includes_task_durable_only_when_requested(tmp_path)
         canonical_statement="任务内读取任务长期记忆，不默认读取全局长期记忆。",
     )
 
-    default_view = facade.build_memory_runtime_view(
+    default_view = facade.bundle_service.build_memory_runtime_view(
         session_id="session-task-durable-view",
         memory_request_profile={
             "requested_memory_layers": ["working"],
@@ -419,7 +421,7 @@ def test_memory_runtime_view_includes_task_durable_only_when_requested(tmp_path)
             "graph_id": "graph:view",
         },
     )
-    task_durable_view = facade.build_memory_runtime_view(
+    task_durable_view = facade.bundle_service.build_memory_runtime_view(
         session_id="session-task-durable-view",
         memory_request_profile={
             "requested_memory_layers": ["task_durable"],
@@ -437,7 +439,7 @@ def test_memory_runtime_view_includes_task_durable_only_when_requested(tmp_path)
 
 def test_memory_bundle_carries_working_memory_candidates_without_write_authority(tmp_path) -> None:
     facade = MemoryFacade(tmp_path)
-    facade.create_working_memory_item(
+    facade.working_memory.create_item(
         task_run_id="taskrun:bundle",
         task_id="task.bundle",
         graph_id="graph:bundle",
@@ -449,7 +451,7 @@ def test_memory_bundle_carries_working_memory_candidates_without_write_authority
         status="accepted",
     )
 
-    bundle = facade.build_memory_bundle(
+    bundle = facade.bundle_service.build_memory_bundle(
         task_id="task.bundle",
         session_id="session-working-bundle",
         agent_id="agent:0",
@@ -470,7 +472,7 @@ def test_memory_bundle_carries_working_memory_candidates_without_write_authority
 
 def test_working_memory_finalizer_splits_archive_promotion_conflict_and_discard(tmp_path) -> None:
     facade = MemoryFacade(tmp_path)
-    accepted_plan = facade.create_working_memory_item(
+    accepted_plan = facade.working_memory.create_item(
         task_run_id="taskrun:finalize",
         graph_id="graph:finalize",
         owner_node_id="planner",
@@ -480,7 +482,7 @@ def test_working_memory_finalizer_splits_archive_promotion_conflict_and_discard(
         summary="采用三阶段方案",
         status="accepted",
     )
-    draft = facade.create_working_memory_item(
+    draft = facade.working_memory.create_item(
         task_run_id="taskrun:finalize",
         graph_id="graph:finalize",
         owner_node_id="writer",
@@ -490,7 +492,7 @@ def test_working_memory_finalizer_splits_archive_promotion_conflict_and_discard(
         summary="未采纳的中间草稿",
         status="draft",
     )
-    conflict = facade.create_working_memory_item(
+    conflict = facade.working_memory.create_item(
         task_run_id="taskrun:finalize",
         graph_id="graph:finalize",
         owner_node_id="reviewer",
@@ -501,15 +503,15 @@ def test_working_memory_finalizer_splits_archive_promotion_conflict_and_discard(
         status="conflicted",
     )
 
-    result = facade.finalize_working_memory_task_run(
+    result = facade.working_memory_finalizer.finalize_task_run(
         "taskrun:finalize",
         actor_id="agent:main",
         terminal_reason="completed",
     )
 
-    loaded_plan = facade.get_working_memory_item(accepted_plan.work_memory_id)
-    loaded_draft = facade.get_working_memory_item(draft.work_memory_id)
-    loaded_conflict = facade.get_working_memory_item(conflict.work_memory_id)
+    loaded_plan = facade.working_memory.get_item(accepted_plan.work_memory_id)
+    loaded_draft = facade.working_memory.get_item(draft.work_memory_id)
+    loaded_conflict = facade.working_memory.get_item(conflict.work_memory_id)
 
     assert result.promotion_candidate_count == 1
     assert result.discarded_count == 1
@@ -526,7 +528,7 @@ def test_working_memory_finalizer_splits_archive_promotion_conflict_and_discard(
 
 def test_working_memory_finalizer_retains_retry_memory_by_attempt(tmp_path) -> None:
     facade = MemoryFacade(tmp_path)
-    reflection = facade.create_working_memory_item(
+    reflection = facade.working_memory.create_item(
         task_run_id="taskrun:retry",
         owner_node_id="writer",
         node_run_id="writer.chapter_01",
@@ -535,7 +537,7 @@ def test_working_memory_finalizer_retains_retry_memory_by_attempt(tmp_path) -> N
         summary="第一轮失败原因",
         status="proposed",
     )
-    guidance = facade.create_working_memory_item(
+    guidance = facade.working_memory.create_item(
         task_run_id="taskrun:retry",
         owner_node_id="writer",
         node_run_id="writer.chapter_01",
@@ -545,7 +547,7 @@ def test_working_memory_finalizer_retains_retry_memory_by_attempt(tmp_path) -> N
         status="proposed",
     )
 
-    result = facade.finalize_working_memory_task_run(
+    result = facade.working_memory_finalizer.finalize_task_run(
         "taskrun:retry",
         actor_id="runloop",
         terminal_reason="completed",
@@ -553,9 +555,11 @@ def test_working_memory_finalizer_retains_retry_memory_by_attempt(tmp_path) -> N
     )
 
     assert result.archived_count == 2
-    loaded_reflection = facade.get_working_memory_item(reflection.work_memory_id)
-    loaded_guidance = facade.get_working_memory_item(guidance.work_memory_id)
+    loaded_reflection = facade.working_memory.get_item(reflection.work_memory_id)
+    loaded_guidance = facade.working_memory.get_item(guidance.work_memory_id)
     assert loaded_reflection.status == "archived"
     assert loaded_guidance.status == "archived"
     assert loaded_reflection.run_attempt_id == "attempt_01"
     assert loaded_guidance.run_attempt_id == "attempt_02"
+
+

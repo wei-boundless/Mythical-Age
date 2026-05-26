@@ -124,7 +124,7 @@ class _CapturingSpecRuntime:
         return SimpleNamespace(content="bounded spec ok")
 
 
-class _BlockingActionGateRuntime:
+class _BlockingForcedToolRuntime:
     async def invoke_messages(self, _messages):
         time.sleep(10)
         return SimpleNamespace(content="late blocking content")
@@ -314,7 +314,7 @@ def test_model_response_policy_caps_underlying_model_spec_timeout() -> None:
             model_spec=original_spec,
             model_stream_policy={
                 "model_response_timeout_seconds": 0.05,
-                "action_gate_timeout_applied": True,
+                "forced_tool_timeout_applied": True,
             },
         ):
             events.append(event)
@@ -331,7 +331,7 @@ def test_model_response_policy_caps_underlying_model_spec_timeout() -> None:
     assert runtime.seen_model_spec.diagnostics["runtime_policy_timeout_applied"] is True
 
 
-def test_forced_tool_choice_disables_deepseek_thinking_for_action_gate_round() -> None:
+def test_forced_tool_choice_disables_deepseek_thinking_for_forced_tool_round() -> None:
     runtime = _CapturingSpecRuntime()
     executor = ModelResponseRuntimeExecutor(model_runtime=runtime)
     original_spec = SimpleNamespace(
@@ -365,7 +365,7 @@ def test_forced_tool_choice_disables_deepseek_thinking_for_action_gate_round() -
             model_spec=original_spec,
             model_stream_policy={
                 "model_response_timeout_seconds": 0.05,
-                "action_gate_timeout_applied": True,
+                "forced_tool_timeout_applied": True,
             },
         ):
             events.append(event)
@@ -381,8 +381,8 @@ def test_forced_tool_choice_disables_deepseek_thinking_for_action_gate_round() -
     assert runtime.seen_model_spec.diagnostics["deepseek_thinking_disabled_for_forced_tool_choice"] is True
 
 
-def test_action_gate_model_timeout_survives_blocking_async_invoker() -> None:
-    executor = ModelResponseRuntimeExecutor(model_runtime=_BlockingActionGateRuntime())
+def test_forced_tool_model_timeout_survives_blocking_async_invoker() -> None:
+    executor = ModelResponseRuntimeExecutor(model_runtime=_BlockingForcedToolRuntime())
 
     async def _collect():
         events = []
@@ -393,7 +393,7 @@ def test_action_gate_model_timeout_survives_blocking_async_invoker() -> None:
             directive=_directive(),
             model_stream_policy={
                 "model_response_timeout_seconds": 0.05,
-                "action_gate_timeout_applied": True,
+                "forced_tool_timeout_applied": True,
             },
         ):
             events.append(event)

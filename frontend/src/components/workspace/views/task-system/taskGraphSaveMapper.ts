@@ -3,6 +3,15 @@ import type { TaskGraphEdgeRecord, TaskGraphNodeRecord, TaskGraphRecord } from "
 import type { TaskGraphDraftV2 } from "./taskGraphDraftV2";
 import { asRecord, stringListOf } from "./taskGraphDraftV2";
 
+export type TaskGraphPublishCommitIntent = "save_draft" | "publish" | "mark_run_bound" | "archive";
+
+export type TaskGraphPublishCommit = {
+  editor_publish_state: TaskGraphDraftV2["publish_state"];
+  backend_publish_state: "draft" | "published";
+  enabled: boolean;
+  metadata_patch: Record<string, unknown>;
+};
+
 export type BuildTaskGraphUpsertPayloadInput = {
   taskGraphDraft: TaskGraphDraftV2;
   domain_id: string;
@@ -35,6 +44,39 @@ function subtaskRefsFromNodes(nodes: Array<Record<string, unknown>>): string[] {
 
 function communicationModesFromEdges(edges: Array<Record<string, unknown>>): string[] {
   return stringListOf(edges.map((edge) => String(edge.mode ?? edge.edge_type ?? "")));
+}
+
+export function resolveTaskGraphPublishCommit(intent: TaskGraphPublishCommitIntent): TaskGraphPublishCommit {
+  if (intent === "publish") {
+    return {
+      editor_publish_state: "published",
+      backend_publish_state: "published",
+      enabled: true,
+      metadata_patch: { editor_publish_state: "published" },
+    };
+  }
+  if (intent === "mark_run_bound") {
+    return {
+      editor_publish_state: "run_bound",
+      backend_publish_state: "published",
+      enabled: true,
+      metadata_patch: { editor_publish_state: "run_bound" },
+    };
+  }
+  if (intent === "archive") {
+    return {
+      editor_publish_state: "archived",
+      backend_publish_state: "draft",
+      enabled: false,
+      metadata_patch: { editor_publish_state: "archived" },
+    };
+  }
+  return {
+    editor_publish_state: "saved",
+    backend_publish_state: "draft",
+    enabled: false,
+    metadata_patch: { editor_publish_state: "saved" },
+  };
 }
 
 export function buildTaskGraphUpsertPayload({

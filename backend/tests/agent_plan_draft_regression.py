@@ -10,12 +10,12 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from prompt_library.assembler import assemble_runtime_prompt_contract
-from runtime.agent_runtime.professional.agent_plan import (
+from runtime.agent_runtime.phases import (
     AgentPlanRequired,
     build_agent_plan_draft,
     empty_agent_plan_draft,
+    review_plan_coverage,
 )
-from runtime.agent_runtime.professional.plan_coverage import review_plan_coverage
 from request_intent.request_signals import build_request_signals
 from task_system.services.assembly_builder import build_task_execution_assembly_bundle
 from tests.support.runtime_stubs import model_turn_context

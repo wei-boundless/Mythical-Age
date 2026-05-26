@@ -10,9 +10,9 @@ if str(BACKEND_DIR) not in sys.path:
 from agent_system.profiles.runtime_profile_models import AgentRuntimeProfile
 from runtime.agent_assembly import DirectWorkOrder, build_agent_invocation
 from runtime.agent_runtime import build_agent_runtime_config, resolve_agent_execution_permit
-from runtime.agent_runtime.config.mode_policy import ModePolicy
 from runtime.agent_runtime.policies import (
     ControlPolicy,
+    ModePolicy,
     PlanningPolicy,
 )
 
@@ -108,7 +108,7 @@ def test_professional_mode_policy_lives_under_agent_runtime_config() -> None:
     assert payload["enabled_phases"][-3:] == ["evidence", "verification", "closeout"]
 
 
-def test_execution_permit_uses_agent_runtime_config_not_professional_control_flag() -> None:
+def test_execution_permit_uses_agent_runtime_config_not_mode_specific_runner_flag() -> None:
     profile = AgentRuntimeProfile(
         agent_profile_id="main_interactive_agent",
         agent_id="agent:0",

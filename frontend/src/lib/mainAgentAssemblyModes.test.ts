@@ -33,19 +33,17 @@ describe("main agent assembly mode projection", () => {
     });
   });
 
-  it("adds the professional execution strategy only for professional mode", () => {
+  it("does not turn professional mode into a separate execution strategy", () => {
     const professional = buildMainAgentTaskSelection(null, "professional");
     const standard = buildMainAgentTaskSelection(null, "standard");
 
-    expect(professional?.runtime_assembly_hint).toMatchObject({
-      execution_strategy: "professional_task_run",
-    });
     expect(professional?.intent_decision).toMatchObject({
-      execution_strategy: "professional_task_run",
+      interaction_mode: "professional_mode",
     });
-    expect(standard?.runtime_assembly_hint).not.toMatchObject({
-      execution_strategy: "professional_task_run",
-    });
+    expect(Object.keys(professional?.runtime_assembly_hint ?? {})).not.toContain("execution_strategy");
+    expect(Object.keys(professional?.mode_policy ?? {})).not.toContain("execution_strategy");
+    expect(Object.keys(professional?.intent_decision ?? {})).not.toContain("execution_strategy");
+    expect(Object.keys(standard?.runtime_assembly_hint ?? {})).not.toContain("execution_strategy");
   });
 
   it("does not send task graph launch selection from the main chat page", () => {
@@ -114,18 +112,15 @@ describe("main agent assembly mode projection", () => {
         runtime_lane: "old_lane",
         runtime_assembly_hint: {
           runtime_mode: "professional_task",
-          execution_strategy: "professional_task_run",
           task_hint: "keep",
         },
         mode_policy: {
           interaction_mode: "professional_mode",
           runtime_lane: "old_lane",
-          execution_strategy: "professional_task_run",
           custom: true,
         },
         intent_decision: {
           interaction_mode: "professional_mode",
-          execution_strategy: "professional_task_run",
           user_intent: "keep",
         },
         stream_policy: {
@@ -161,15 +156,6 @@ describe("main agent assembly mode projection", () => {
         interaction_mode: "standard_mode",
         user_intent: "keep",
       },
-    });
-    expect(payload?.runtime_assembly_hint).not.toMatchObject({
-      execution_strategy: "professional_task_run",
-    });
-    expect(payload?.mode_policy).not.toMatchObject({
-      execution_strategy: "professional_task_run",
-    });
-    expect(payload?.intent_decision).not.toMatchObject({
-      execution_strategy: "professional_task_run",
     });
   });
 });

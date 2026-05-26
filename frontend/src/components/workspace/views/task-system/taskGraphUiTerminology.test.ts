@@ -10,8 +10,8 @@ describe("task graph UI terminology", () => {
 
     expect(visibleText).not.toContain("Graph Builder");
     expect(visibleText).not.toContain("Compiled View");
+    expect(visibleText).not.toContain("legacy 来源");
     expect(visibleText).toContain("拓扑编辑");
     expect(visibleText).toContain("编译预览");
   });
 });
-

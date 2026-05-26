@@ -53,11 +53,6 @@ WARM_CONTEXT_CHAR_BUDGET = 960
 
 
 @dataclass(slots=True)
-class ActiveProjection:
-    source_excerpt: str
-
-
-@dataclass(slots=True)
 class TurnProjectionSnapshot:
     cleaned_messages: list[Message]
     user_messages: list[Message]
@@ -66,8 +61,6 @@ class TurnProjectionSnapshot:
     active_goal: str
     active_goal_turn_type: str
     last_turn_type: str
-    task_switch: bool
-    active_understanding: ActiveProjection
 
 
 class TurnProjectionBuilder:
@@ -93,8 +86,6 @@ class TurnProjectionBuilder:
             active_goal=active_goal,
             active_goal_turn_type=active_goal_turn_type,
             last_turn_type=last_turn_type,
-            task_switch=False,
-            active_understanding=ActiveProjection(source_excerpt=active_goal),
         )
 
     def _clean_messages(self, messages: list[Message]) -> list[Message]:

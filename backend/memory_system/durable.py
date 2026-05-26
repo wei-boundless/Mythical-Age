@@ -1,16 +1,169 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
-import re
 from typing import Any, Callable
+
+from pydantic import BaseModel, Field
 
 from .manifest_scan import MemoryHeader, format_memory_manifest, scan_memory_headers
 from memory_system.layout import durable_memory_layout_from_backend_dir
-from .read_agent import MemoryReadAgent
-from .read_models import MemoryRecallRequest, MemoryRecallResult, MemoryRecallSelection
 from memory_system.storage.exact_lookup import ExactMemoryMatch, find_exact_memory_matches
 from memory_system.storage.memory_manager import MemoryManager
+
+
+MessageInvoker = Callable[[list[dict[str, str]]], Any]
+
+
+class MemoryRecallRequest(BaseModel):
+    query: str = ""
+    main_context: dict[str, object] = Field(default_factory=dict)
+    task_summaries: list[dict[str, object]] = Field(default_factory=list)
+    session_summary: str = ""
+    manifest_headers: list[dict[str, object]] = Field(default_factory=list)
+    recently_surfaced_note_ids: list[str] = Field(default_factory=list)
+    explicit_memory_mode: str = "none"
+    ignore_memory: bool = False
+    recent_tools: list[str] = Field(default_factory=list)
+    preferred_types: list[str] = Field(default_factory=list)
+    preferred_memory_classes: list[str] = Field(default_factory=list)
+
+
+class MemoryRecallSelection(BaseModel):
+    should_recall: bool = False
+    selected_note_ids: list[str] = Field(default_factory=list)
+    reason: str = ""
+    confidence: float = 0.0
+    needs_verification: bool = False
+    manifest_only: bool = False
+    ignore_memory: bool = False
+
+
+class MemoryRecallResult(BaseModel):
+    selection: MemoryRecallSelection = Field(default_factory=MemoryRecallSelection)
+    selected_headers: list[dict[str, object]] = Field(default_factory=list)
+    selected_notes: list[dict[str, object]] = Field(default_factory=list)
+    rendered_summary: str = ""
+
+
+class MemoryReadAgent:
+    def __init__(self, *, message_invoker: MessageInvoker | None = None) -> None:
+        self._message_invoker = message_invoker
+
+    def set_message_invoker(self, message_invoker: MessageInvoker | None) -> None:
+        self._message_invoker = message_invoker
+
+    async def select_relevant(self, request: MemoryRecallRequest) -> MemoryRecallSelection:
+        if request.ignore_memory:
+            return MemoryRecallSelection(
+                should_recall=False,
+                reason="ignore_memory",
+                confidence=1.0,
+                ignore_memory=True,
+            )
+
+        headers = list(request.manifest_headers)
+        if not headers:
+            return MemoryRecallSelection(
+                should_recall=False,
+                reason="no_manifest_headers",
+                confidence=1.0,
+            )
+
+        if request.explicit_memory_mode == "inventory":
+            return MemoryRecallSelection(
+                should_recall=False,
+                reason="explicit_memory_inventory",
+                confidence=1.0,
+                manifest_only=True,
+            )
+
+        if self._message_invoker is None:
+            return MemoryRecallSelection(
+                should_recall=False,
+                reason="no_durable_memory_selector_configured",
+                confidence=1.0,
+            )
+
+        selection = await self._select_with_model(request)
+        if selection is not None:
+            return selection
+        return MemoryRecallSelection(
+            should_recall=False,
+            reason="durable_memory_selector_failed",
+            confidence=1.0,
+        )
+
+    async def _select_with_model(self, request: MemoryRecallRequest) -> MemoryRecallSelection | None:
+        assert self._message_invoker is not None
+        headers = request.manifest_headers[:80]
+        manifest = "\n".join(
+            f"- {header.get('note_id', '')} | {header.get('memory_type', '')}/{header.get('memory_class', '')} | "
+            f"{header.get('title', '')} | {header.get('description', '')}"
+            for header in headers
+        )
+        system_prompt = (
+            "You are the durable memory recall subagent. "
+            "Given a user query, main working context, and a manifest of available durable memory headers, "
+            "select only the memory note ids that are clearly useful for answering the current query. "
+            "Be strict. If nothing is clearly useful, return an empty selection. "
+            "Never answer the user directly. Return JSON with keys: should_recall, selected_note_ids, reason, confidence, "
+            "needs_verification, manifest_only, ignore_memory."
+        )
+        user_prompt = json.dumps(
+            {
+                "query": request.query,
+                "main_context": request.main_context,
+                "task_summaries": request.task_summaries[:4],
+                "session_summary": request.session_summary[:600],
+                "explicit_memory_mode": request.explicit_memory_mode,
+                "ignore_memory": request.ignore_memory,
+                "preferred_types": request.preferred_types,
+                "preferred_memory_classes": request.preferred_memory_classes,
+                "recent_tools": request.recent_tools[:8],
+                "recently_surfaced_note_ids": request.recently_surfaced_note_ids[:12],
+                "manifest": manifest,
+            },
+            ensure_ascii=False,
+        )
+        try:
+            response = await self._message_invoker(
+                [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ]
+            )
+            content = getattr(response, "content", "")
+            if isinstance(content, list):
+                text = "".join(
+                    str(block.get("text", ""))
+                    for block in content
+                    if isinstance(block, dict) and block.get("type") == "text"
+                )
+            else:
+                text = str(content or "")
+            payload = self._extract_json(text)
+            selection = MemoryRecallSelection.model_validate(payload)
+            valid_ids = {str(header.get("note_id", "") or "") for header in request.manifest_headers}
+            selection.selected_note_ids = [
+                note_id for note_id in selection.selected_note_ids if note_id in valid_ids
+            ][:5]
+            if not selection.selected_note_ids and not selection.manifest_only:
+                selection.should_recall = False
+            return selection
+        except Exception:
+            return None
+
+    def _extract_json(self, text: str) -> dict[str, object]:
+        stripped = text.strip()
+        if stripped.startswith("{") and stripped.endswith("}"):
+            return json.loads(stripped)
+        start = stripped.find("{")
+        end = stripped.rfind("}")
+        if start >= 0 and end > start:
+            return json.loads(stripped[start : end + 1])
+        raise ValueError("No JSON object found in model response")
 
 
 class DurableMemoryLayer:
@@ -34,50 +187,6 @@ class DurableMemoryLayer:
             "model_turn_decision_required": True,
         }
 
-    def build_persistent_memory_block(
-        self,
-        *,
-        query: str | None = None,
-        memory_intent: Any | None = None,
-        note_limit: int = 5,
-        relevant_notes: list[Any] | None = None,
-    ) -> str:
-        recall_result = self.recall_memories(
-            query=query,
-            memory_intent=memory_intent,
-            note_limit=note_limit,
-            selected_notes=relevant_notes if relevant_notes else None,
-        )
-        return self._render_persistent_memory_block(
-            query=query,
-            memory_intent=memory_intent,
-            note_limit=note_limit,
-            recall_result=recall_result,
-            relevant_notes=relevant_notes,
-        )
-
-    async def abuild_persistent_memory_block(
-        self,
-        *,
-        query: str | None = None,
-        memory_intent: Any | None = None,
-        note_limit: int = 5,
-        relevant_notes: list[Any] | None = None,
-    ) -> str:
-        recall_result = await self.arecall_memories(
-            query=query,
-            memory_intent=memory_intent,
-            note_limit=note_limit,
-            selected_notes=relevant_notes if relevant_notes else None,
-        )
-        return self._render_persistent_memory_block(
-            query=query,
-            memory_intent=memory_intent,
-            note_limit=note_limit,
-            recall_result=recall_result,
-            relevant_notes=relevant_notes,
-        )
-
     def build_manifest_block(self, *, note_limit: int = 5) -> str:
         self._ensure_runtime_governance()
         self.memory_manager.ensure_index_consistent()
@@ -85,51 +194,6 @@ class DurableMemoryLayer:
         if not manifest:
             return ""
         return f"## Durable Memory Manifest\n{manifest}"
-
-    def _render_persistent_memory_block(
-        self,
-        *,
-        query: str | None,
-        memory_intent: Any | None,
-        note_limit: int,
-        recall_result: MemoryRecallResult,
-        relevant_notes: list[Any] | None = None,
-    ) -> str:
-        self._ensure_runtime_governance()
-        self.memory_manager.ensure_index_consistent()
-        if not self._should_surface_durable_context(query, memory_intent, recall_result=recall_result):
-            return ""
-        sections: list[str] = []
-        exact_matches = self.find_exact_matches(query, memory_intent, note_limit=note_limit)
-
-        if exact_matches:
-            sections.append("## Exact Durable Memory Matches")
-            for match in exact_matches:
-                sections.extend(["", *self._render_note_for_model(match)])
-
-        exact_filenames = {match.filename for match in exact_matches}
-        surfaced_relevant_notes = [
-            note
-            for note in self._notes_from_result_or_payload(recall_result, relevant_notes)
-            if getattr(note, "filename", "") not in exact_filenames
-        ]
-        if surfaced_relevant_notes:
-            sections.append("")
-            sections.append("## Relevant Durable Memories")
-            for note in surfaced_relevant_notes:
-                sections.extend(["", *self._render_note_for_model(note)])
-
-        if (
-            not exact_matches
-            and not surfaced_relevant_notes
-            and recall_result.selection.manifest_only
-        ):
-            manifest_block = self.build_manifest_block(note_limit=note_limit)
-            if manifest_block:
-                sections.append("")
-                sections.append(manifest_block)
-
-        return "\n".join(section for section in sections if section is not None).strip()
 
     def build_recall_request(
         self,
@@ -175,6 +239,9 @@ class DurableMemoryLayer:
         selected_notes: list[Any] | None = None,
     ) -> MemoryRecallResult:
         self._ensure_runtime_governance()
+        if selected_notes:
+            return self._result_from_preselected_notes(selected_notes)
+
         if not self._should_attempt_recall(query, memory_intent):
             return MemoryRecallResult(
                 selection=MemoryRecallSelection(
@@ -184,9 +251,6 @@ class DurableMemoryLayer:
                     ignore_memory=bool(getattr(memory_intent, "ignore_memory", False)),
                 ),
             )
-
-        if selected_notes:
-            return self._result_from_preselected_notes(selected_notes)
 
         request = self.build_recall_request(
             query=query,
@@ -198,7 +262,11 @@ class DurableMemoryLayer:
             recent_tools=recent_tools,
         )
         if self._has_running_loop():
-            selection = self.read_agent._select_with_fallback(request)
+            selection = MemoryRecallSelection(
+                should_recall=False,
+                reason="sync_recall_inside_running_loop_requires_preselected_notes_or_async_call",
+                confidence=1.0,
+            )
         else:
             selection = asyncio.run(self.read_agent.select_relevant(request))
         return self._result_from_selection(
@@ -221,6 +289,9 @@ class DurableMemoryLayer:
         selected_notes: list[Any] | None = None,
     ) -> MemoryRecallResult:
         self._ensure_runtime_governance()
+        if selected_notes:
+            return self._result_from_preselected_notes(selected_notes)
+
         if not self._should_attempt_recall(query, memory_intent):
             return MemoryRecallResult(
                 selection=MemoryRecallSelection(
@@ -230,9 +301,6 @@ class DurableMemoryLayer:
                     ignore_memory=bool(getattr(memory_intent, "ignore_memory", False)),
                 ),
             )
-
-        if selected_notes:
-            return self._result_from_preselected_notes(selected_notes)
 
         request = self.build_recall_request(
             query=query,
@@ -249,50 +317,6 @@ class DurableMemoryLayer:
             manifest_headers=request.manifest_headers,
             note_limit=note_limit,
         )
-
-    def _render_note_for_model(self, note: Any) -> list[str]:
-        lines = [f"### {self._sanitize_for_model(getattr(note, 'title', '')).strip()}"]
-
-        memory_class = self._sanitize_for_model(str(getattr(note, "memory_class", "") or "")).strip()
-        memory_type = self._sanitize_for_model(str(getattr(note, "memory_type", "") or "")).strip()
-        if memory_class or memory_type:
-            lines.append(f"Kind: {memory_class or 'unknown'} / {memory_type or 'unknown'}")
-
-        summary = self._sanitize_for_model(str(getattr(note, "summary", "") or "")).strip()
-        canonical = self._sanitize_for_model(str(getattr(note, "canonical_statement", "") or "")).strip()
-        detail = self._sanitize_for_model(
-            str(getattr(note, "content", "") or getattr(note, "body", "") or "")
-        ).strip()
-
-        if canonical:
-            lines.append(f"Canonical: {canonical}")
-        elif summary:
-            lines.append(f"Canonical: {summary}")
-
-        if summary and summary != canonical:
-            lines.append(f"Summary: {summary}")
-
-        tags = [
-            self._sanitize_for_model(str(tag)).strip()
-            for tag in list(getattr(note, "tags", []) or [])
-            if self._sanitize_for_model(str(tag)).strip()
-        ]
-        if tags:
-            lines.append(f"Tags: {', '.join(tags[:6])}")
-
-        retrieval_hints = [
-            self._sanitize_for_model(str(hint)).strip()
-            for hint in list(getattr(note, "retrieval_hints", []) or [])
-            if self._sanitize_for_model(str(hint)).strip()
-        ]
-        if retrieval_hints:
-            lines.append(f"Recall Hints: {', '.join(retrieval_hints[:6])}")
-
-        detail_excerpt = self._detail_excerpt(detail, canonical=canonical, summary=summary)
-        if detail_excerpt:
-            lines.append(f"Details: {detail_excerpt}")
-
-        return lines
 
     def _detail_excerpt(self, detail: str, *, canonical: str, summary: str) -> str:
         if not detail:
@@ -312,47 +336,6 @@ class DurableMemoryLayer:
             return ""
         excerpt = " ".join(useful_lines)
         return excerpt[:280].strip()
-
-    def _sanitize_for_model(self, text: str) -> str:
-        cleaned = str(text or "")
-        cleaned = re.sub(r"`?[\w./\\:-]*durable_memory[\\/][^`\s]+`?", "长期记忆记录", cleaned, flags=re.IGNORECASE)
-        cleaned = re.sub(r"`?[\w./\\:-]*session-memory[\\/][^`\s]+`?", "会话记录", cleaned, flags=re.IGNORECASE)
-        cleaned = re.sub(r"`?[\w./\\-]+\.md`?", "长期记忆记录", cleaned, flags=re.IGNORECASE)
-        cleaned = re.sub(r"\bMEMORY\.md\b", "长期记忆索引", cleaned, flags=re.IGNORECASE)
-        cleaned = re.sub(r"\s+", " ", cleaned)
-        return cleaned.strip()
-
-    def prefetch_relevant_notes(
-        self,
-        query: str,
-        memory_intent: Any | None = None,
-        *,
-        limit: int = 3,
-    ) -> list[Any]:
-        self._ensure_runtime_governance()
-        if memory_intent is None:
-            return []
-        result = self.recall_memories(
-            query=query,
-            memory_intent=memory_intent,
-            note_limit=limit,
-        )
-        return [self._dict_to_note_proxy(item) for item in result.selected_notes[:limit]]
-
-    def _should_surface_durable_context(
-        self,
-        query: str | None,
-        memory_intent: Any | None,
-        *,
-        recall_result: MemoryRecallResult | None = None,
-    ) -> bool:
-        if not self._should_attempt_recall(query, memory_intent):
-            return False
-        if recall_result is not None and recall_result.selected_notes:
-            return True
-        return bool(self.find_exact_matches(query, memory_intent, note_limit=3)) or (
-            recall_result is not None and recall_result.selection.manifest_only
-        )
 
     def find_exact_matches(
         self,
@@ -435,11 +418,11 @@ class DurableMemoryLayer:
     def _render_selected_summary(self, note_dicts: list[dict[str, object]]) -> str:
         lines: list[str] = []
         for note in note_dicts:
-            title = self._sanitize_for_model(str(note.get("title", "") or "")).strip()
-            canonical = self._sanitize_for_model(str(note.get("canonical_statement", "") or "")).strip()
-            summary = self._sanitize_for_model(str(note.get("summary", "") or "")).strip()
+            title = str(note.get("title", "") or "").strip()
+            canonical = str(note.get("canonical_statement", "") or "").strip()
+            summary = str(note.get("summary", "") or "").strip()
             detail = self._detail_excerpt(
-                self._sanitize_for_model(str(note.get("content", "") or "")).strip(),
+                str(note.get("content", "") or "").strip(),
                 canonical=canonical,
                 summary=summary,
             )
@@ -500,9 +483,10 @@ class DurableMemoryLayer:
 
     def _note_to_dict(self, note: Any, *, note_id: str = "") -> dict[str, object]:
         filename = str(getattr(note, "filename", "") or "")
+        slug = str(getattr(note, "slug", "") or "")
         return {
-            "note_id": note_id or filename.replace(".md", ""),
-            "filename": filename,
+            "note_id": note_id or slug or filename.replace(".md", ""),
+            "filename": filename or (f"{slug}.md" if slug else ""),
             "title": str(getattr(note, "title", "") or ""),
             "summary": str(getattr(note, "summary", "") or ""),
             "canonical_statement": str(getattr(note, "canonical_statement", "") or ""),
@@ -549,21 +533,5 @@ class DurableMemoryLayer:
             "summary": header.summary,
         }
 
-    def _notes_from_result_or_payload(
-        self,
-        result: MemoryRecallResult,
-        payload: list[Any] | None,
-    ) -> list[Any]:
-        if payload is not None:
-            return payload
-        return [self._dict_to_note_proxy(item) for item in result.selected_notes]
 
-    def _dict_to_note_proxy(self, payload: dict[str, object]) -> Any:
-        class _NoteProxy:
-            pass
-
-        note = _NoteProxy()
-        for key, value in payload.items():
-            setattr(note, key, value)
-        return note
 

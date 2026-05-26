@@ -279,6 +279,7 @@ def test_modular_writing_graph_config_compiles_graph_modules_and_chapter_batches
     master_graph = graphs["graph.writing.modular_novel.master"]
     assert "model_requirement" not in master_graph.contract_bindings.get("runtime", {})
     assert "subtask_refs" not in master_graph.metadata
+    assert "timeline_blocks" not in master_graph.metadata
     assert master_graph.metadata["graph_module_refs"] == [
         "graph.writing.modular_novel.design_init",
         "graph.writing.modular_novel.chapter_cycle",
@@ -309,6 +310,14 @@ def test_modular_writing_graph_config_compiles_graph_modules_and_chapter_batches
         "graph.writing.modular_novel.chapter_cycle",
         "graph.writing.modular_novel.finalize",
     ]
+    assert all(
+        dict(plan.metadata or {}).get("source_authority") == "task_system.graph_module_node"
+        for plan in master_spec.graph_module_runtime_plans
+    )
+    assert not any(
+        dict(plan.metadata or {}).get("migration_only") is True
+        for plan in master_spec.graph_module_runtime_plans
+    )
     assert [node.node_id for node in master_spec.nodes] == [
         "graph_module.design_init",
         "graph_module.chapter_cycle",

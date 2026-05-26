@@ -1406,7 +1406,7 @@ def _upsert_agents(backend_dir: Path) -> None:
             long_output_timeout_seconds=max(float(writing_model_profile.long_output_timeout_seconds or 0), 600.0),
             max_retries=max(int(writing_model_profile.max_retries or 0), 2),
             temperature=writing_model_profile.temperature,
-            thinking_mode="disabled",
+            thinking_mode="enabled",
             reasoning_effort=writing_model_profile.reasoning_effort or "high",
             stream_policy=dict(writing_model_profile.stream_policy),
             fallback_profile_ref=writing_model_profile.fallback_profile_ref,
@@ -3007,11 +3007,6 @@ def _upsert_master_graph(registry: TaskFlowRegistry) -> None:
         _master_edge("edge.design_init.chapter_cycle", "graph_module.design_init", "graph_module.chapter_cycle", "设计初始化提交后进入章节批次创作。"),
         _master_edge("edge.chapter_cycle.finalize", "graph_module.chapter_cycle", "graph_module.finalize", "目标卷数完成并形成卷级提交后进入收尾交付。"),
     )
-    timeline_blocks = (
-        _timeline_block("design_init", "设计初始化图", DESIGN_GRAPH_ID, "phase.master.design_init", 10),
-        _timeline_block("chapter_cycle", "章节批次创作图", CHAPTER_GRAPH_ID, "phase.master.chapter_cycle", 20),
-        _timeline_block("finalize", "收尾交付图", FINALIZE_GRAPH_ID, "phase.master.finalize", 30),
-    )
     registry.upsert_task_graph(
         graph_id=MASTER_GRAPH_ID,
         title="模块化长篇写作总任务图",
@@ -3045,7 +3040,6 @@ def _upsert_master_graph(registry: TaskFlowRegistry) -> None:
             "managed_by": MANAGED_BY,
             "architecture": "graph_as_first_class_task_unit",
             "graph_module_composition": True,
-            "timeline_blocks": list(timeline_blocks),
             "phase_definitions": [
                 {"phase_id": "phase.master.design_init", "title": "设计初始化", "sequence_index": 10},
                 {"phase_id": "phase.master.chapter_cycle", "title": "分卷创作循环", "sequence_index": 20},
@@ -3325,7 +3319,7 @@ def _model_requirement(node_id: str) -> dict[str, Any]:
         "min_context_tokens": 200000,
         "min_output_tokens": 8192,
         "preferred_output_tokens": preferred,
-        "thinking_mode": "disabled",
+        "thinking_mode": "enabled",
         "streaming_required": True,
         "fallback_allowed": True,
         "metadata": {"configured_by": MANAGED_BY, "node_id": node_id},

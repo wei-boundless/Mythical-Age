@@ -519,14 +519,6 @@ def _event_summary(event_type: str, payload: dict[str, Any]) -> str:
         return str(payload.get("error") or payload.get("message") or "loop error")
     if event_type == "loop_terminal":
         return f"status={payload.get('status') or ''}; reason={payload.get('terminal_reason') or ''}"
-    if event_type == "professional_task_semantic_plan_drafted":
-        return (
-            f"plan_items={len(list(payload.get('plan_items') or []))}; "
-            f"interaction_mode={payload.get('interaction_mode') or ''}"
-        )
-    if event_type == "professional_task_deliverable_validation_checked":
-        verification = dict(payload.get("verification") or {})
-        return f"verification={verification.get('interaction_mode') or ''}; passed={verification.get('passed') is True}"
     return event_type
 
 

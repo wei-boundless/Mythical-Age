@@ -12,7 +12,7 @@ _load_config_module = load_writing_modular_config_module
 _seed_storage = seed_writing_storage
 
 
-def test_writing_task_graph_uses_agent_runtime_professional_control_not_old_writing_private_chain(tmp_path: Path) -> None:
+def test_writing_task_graph_uses_agent_runtime_phase_policy_not_old_writing_private_chain(tmp_path: Path) -> None:
     base_dir = _seed_storage(tmp_path)
     config = _load_config_module()
     config.configure(base_dir)

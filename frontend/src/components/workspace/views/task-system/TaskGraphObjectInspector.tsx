@@ -16,7 +16,6 @@ import { taskGraphDisplayName } from "./taskGraphNameRegistry";
 import {
   TaskGraphGraphModuleInspector,
   TaskGraphModuleRuntimeInspector,
-  TaskGraphTimelineBlockInspector,
 } from "./TaskGraphGraphModuleInspector";
 import {
   TaskGraphInterfacePlaceholderPanel,
@@ -36,7 +35,7 @@ import {
 import type { TaskGraphComposableSubject } from "./taskGraphComposableEditorTypes";
 import type { TaskGraphWorkbenchAgentCatalog } from "./taskGraphTypes";
 import { graphEdgeId } from "./taskGraphTopologyUtils";
-import { coordinationTimelineBlocks, type TaskGraphTimelineBlock } from "./taskGraphTimeline";
+import { coordinationTimelineBlocks } from "./taskGraphTimeline";
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -57,10 +56,6 @@ function selectedUnit(subject: TaskGraphComposableSubject, units: ComposableUnit
 
 function selectedPortEdge(subject: TaskGraphComposableSubject, portEdges: UnitPortEdgeSpec[]) {
   return subject.kind === "port_edge" ? portEdges.find((edge) => edge.edge_id === subject.edge_id) ?? null : null;
-}
-
-function selectedTimelineBlock(subject: TaskGraphComposableSubject, blocks: TaskGraphTimelineBlock[]) {
-  return subject.kind === "timeline_block" ? blocks.find((block) => block.block_id === subject.block_id) ?? null : null;
 }
 
 function selectedGraphModuleRuntime(subject: TaskGraphComposableSubject, plans: GraphModuleRuntimePlanSpec[]) {
@@ -151,7 +146,6 @@ export function TaskGraphObjectInspector({
   const blocks = coordinationTimelineBlocks(metadata);
   const unit = selectedUnit(selectedSubject, units);
   const portEdge = selectedPortEdge(selectedSubject, portEdges);
-  const block = selectedTimelineBlock(selectedSubject, blocks);
   const nestedPlan = selectedGraphModuleRuntime(selectedSubject, graphModuleRuntime);
   const graphModuleExpansion = selectedGraphModuleExpansion(selectedSubject, graphModuleExpansions);
   const unitOptions = units.map((item) => item.unit_id);
@@ -205,35 +199,6 @@ export function TaskGraphObjectInspector({
     });
   };
 
-  const addTimelineBlock = () => {
-    const nextIndex = blocks.length + 1;
-    const blockId = `block.phase.${nextIndex}`;
-    updateTaskGraphMetadata({
-      timeline_blocks: [
-        ...blocks,
-        {
-          block_id: blockId,
-          block_type: nextIndex === 1 ? "design_graph" : "phase_graph",
-          title: `阶段图块 ${nextIndex}`,
-          phase_id: "phase.unassigned",
-          linked_graph_id: "",
-          entry_node_id: graphDraft.entry_node_id,
-          exit_node_id: graphDraft.output_node_id,
-          handoff_contract_id: `${blockId}.handoff`,
-          visibility_policy: "committed_only",
-          version_ref: "draft",
-          detach_policy: "preserve_version_anchor",
-        },
-      ],
-    });
-    onSelectSubject({ kind: "timeline_block", block_id: blockId });
-  };
-
-  const removeTimelineBlock = (blockId: string) => {
-    updateTaskGraphMetadata({ timeline_blocks: blocks.filter((item) => item.block_id !== blockId) });
-    onSelectSubject({ kind: "graph", graph_id: graphDraft.graph_id });
-  };
-
   const removeOverlayEdge = (edgeId: string) => {
     updateTaskGraphMetadata(removeTaskGraphOverlayPortEdge(metadata, edgeId));
     onSelectSubject({ kind: "graph", graph_id: graphDraft.graph_id });
@@ -273,7 +238,6 @@ export function TaskGraphObjectInspector({
   const renderGraphEditor = () => (
     <TaskGraphRootInspector
       activeGraphNodes={activeGraphNodes}
-      addTimelineBlock={addTimelineBlock}
       agentOptions={agentOptions}
       contractOptions={contractOptions}
       formatAgent={formatAgent}
@@ -353,18 +317,6 @@ export function TaskGraphObjectInspector({
     );
   };
 
-  const renderBlockEditor = (selected: TaskGraphTimelineBlock) => (
-    <TaskGraphTimelineBlockInspector
-      contractOptions={contractOptions}
-      formatContract={formatContract}
-      formatGraph={formatGraph}
-      graphOptions={graphOptions}
-      removeTimelineBlock={removeTimelineBlock}
-      selected={selected}
-      updateTimelineBlock={updateTimelineBlock}
-    />
-  );
-
   const renderGraphModuleRuntime = (plan: GraphModuleRuntimePlanSpec) => (
     <TaskGraphModuleRuntimeInspector plan={plan} />
   );
@@ -374,7 +326,6 @@ export function TaskGraphObjectInspector({
       {selectedSubject.kind === "graph" ? renderGraphEditor() : null}
       {unit ? renderUnitEditor(unit) : null}
       {portEdge ? renderPortEdgeEditor(portEdge) : null}
-      {block ? renderBlockEditor(block) : null}
       {nestedPlan ? renderGraphModuleRuntime(nestedPlan) : null}
       <TaskGraphModuleExpansionInspector
         expansion={graphModuleExpansion}

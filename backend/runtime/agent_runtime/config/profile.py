@@ -7,11 +7,11 @@ from ..policies import (
     CloseoutPolicy,
     ControlPolicy,
     EvidencePolicy,
+    ModePolicy,
     PlanningPolicy,
     ToolPolicy,
     VerificationPolicy,
 )
-from .mode_policy import ModePolicy
 
 
 @dataclass(frozen=True, slots=True)

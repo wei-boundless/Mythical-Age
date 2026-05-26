@@ -90,7 +90,7 @@ async def get_memory_overview(
     assert runtime.base_dir is not None
     assert runtime.memory_facade is not None
 
-    headers = runtime.memory_facade.scan_durable_memory_headers(limit=limit)
+    headers = runtime.memory_facade.governance_service.scan_durable_memory_headers(limit=limit)
     session_inspect = None
     if session_id:
         session_inspect = _inspect_session_memory(runtime, session_id, query=query)
@@ -98,7 +98,7 @@ async def get_memory_overview(
     return {
         "session_id": session_id or "",
         "query": query,
-        "durable_memory": _durable_overview(headers, runtime.memory_facade.describe_durable_maintenance_runtime()),
+        "durable_memory": _durable_overview(headers, _durable_maintenance_runtime(runtime.memory_facade)),
         "session_memory": session_inspect,
     }
 
@@ -268,7 +268,7 @@ async def create_durable_memory_note(payload: DurableMemoryCreateRequest) -> dic
     assert runtime.base_dir is not None
     assert runtime.memory_facade is not None
 
-    result = runtime.memory_facade.create_durable_memory_note(
+    result = runtime.memory_facade.governance_service.create_durable_memory_note(
         title=payload.title,
         canonical_statement=payload.canonical_statement,
         summary=payload.summary,
@@ -308,7 +308,7 @@ async def delete_durable_memory_note(filename: str, payload: DurableMemoryGovern
     runtime = require_runtime()
     assert runtime.memory_facade is not None
 
-    result = runtime.memory_facade.delete_durable_memory_note(
+    result = runtime.memory_facade.governance_service.delete_durable_memory_note(
         filename=filename,
         reason=payload.reason if payload else "",
     )
@@ -329,7 +329,7 @@ async def merge_durable_memory_notes(payload: DurableMemoryMergeRequest) -> dict
     assert runtime.base_dir is not None
     assert runtime.memory_facade is not None
 
-    result = runtime.memory_facade.merge_durable_memory_notes(
+    result = runtime.memory_facade.governance_service.merge_durable_memory_notes(
         filenames=list(payload.filenames),
         title=payload.title,
         canonical_statement=payload.canonical_statement,
@@ -361,7 +361,7 @@ async def recall_memory_preview(payload: RecallPreviewRequest) -> dict[str, Any]
         session_summary = str(history_payload.get("compressed_context", "") or "")
         context_result = _inspect_session_memory(runtime, payload.session_id, query=query, limit=payload.limit)
 
-    result = runtime.memory_facade.recall_durable_memories(
+    result = runtime.memory_facade.bundle_service.recall_durable_memories(
         query=query,
         memory_intent=intent,
         note_limit=payload.limit,
@@ -418,7 +418,7 @@ async def get_durable_memory_note(filename: str) -> dict[str, Any]:
     if not safe_name or "/" in safe_name or "\\" in safe_name or safe_name.startswith("."):
         raise HTTPException(status_code=400, detail="Invalid memory filename")
 
-    loaded = runtime.memory_facade.load_durable_memory_note(safe_name)
+    loaded = runtime.memory_facade.governance_service.load_durable_memory_note(safe_name)
     return {
         "header": _header_payload(loaded["header"]) if loaded.get("header") else None,
         "content_preview": _compact_text(str(loaded.get("content") or ""), 2600),
@@ -473,7 +473,7 @@ def _inspect_session_memory(runtime: Any, session_id: str, *, query: str = "", l
     assert runtime.memory_facade is not None
     messages = runtime.session_manager.load_session(session_id)
     intent = analyze_memory_intent(query) if query.strip() else None
-    result = runtime.memory_facade.build_memory_context_package_result(
+    result = runtime.memory_facade.bundle_service.build_memory_context_package_result(
         session_id=session_id,
         query=query.strip() or None,
         memory_intent=intent,
@@ -482,7 +482,7 @@ def _inspect_session_memory(runtime: Any, session_id: str, *, query: str = "", l
     payload = result.to_dict()
     package = dict(payload.get("package") or {})
     sections = dict(package.get("model_visible_sections") or {})
-    memory_view = runtime.memory_facade.build_memory_runtime_view(
+    memory_view = runtime.memory_facade.bundle_service.build_memory_runtime_view(
         session_id=session_id,
         query=query.strip() or None,
         memory_intent=intent,
@@ -506,7 +506,7 @@ def _inspect_session_memory(runtime: Any, session_id: str, *, query: str = "", l
         "warm_snapshots": [],
         "storage": {"memory_runtime_view": memory_view.view_id},
         "context_management": package,
-        "durable_matches": {"long_term_record_count": len(memory_view.long_term_records)},
+        "durable_matches": {"long_term_candidate_count": int(memory_view.diagnostics.get("long_term_candidate_count") or 0)},
         "maintenance_runtime": runtime.memory_facade.describe_memory_maintenance_runtime(),
     }
 
@@ -529,6 +529,13 @@ def _durable_overview(headers: list[MemoryHeader], maintenance_runtime: dict[str
         "by_class": dict(by_class),
         "headers": [_header_payload(header) for header in headers],
         "maintenance_runtime": maintenance_runtime,
+    }
+
+
+def _durable_maintenance_runtime(memory_facade: Any) -> dict[str, object]:
+    return {
+        **memory_facade.bundle_service.describe_durable_maintenance_runtime(),
+        "memory_maintenance": memory_facade.describe_memory_maintenance_runtime(),
     }
 
 
@@ -593,7 +600,7 @@ def _compact_text(value: str, limit: int) -> str:
 def _govern_existing_note(filename: str, *, status: str, eligible_for_injection: str, reason: str, action: str) -> dict[str, Any]:
     runtime = require_runtime()
     assert runtime.memory_facade is not None
-    result = runtime.memory_facade.set_durable_memory_note_status(
+    result = runtime.memory_facade.governance_service.set_durable_memory_note_status(
         filename=filename,
         status=status,
         eligible_for_injection=eligible_for_injection,

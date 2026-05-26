@@ -1,20 +1,42 @@
 from __future__ import annotations
 
+from dataclasses import asdict, dataclass, field
 from typing import Any, Callable
 
 from context_system.policy import build_context_package_result
 from context_system.budget.presets import get_context_budget_preset
+from token_accounting import count_text_tokens
 
-from .compaction import build_memory_compaction_result
+from .contracts import MemoryContextCandidate
+from .continuity import SessionMemoryLayer
 from .conversation_memory import ConversationMemoryStoreAdapter
-from .long_term_memory import LongTermMemoryStoreAdapter
-from .request_service import MemoryRequestService
 from .runtime_view import build_memory_runtime_view as build_runtime_view
-from .session import SessionMemoryLayer
 from .state_memory import StateMemoryStoreAdapter
 from .task_durable_memory_service import TaskDurableMemoryService
-from .supply import build_memory_bundle
+from .supply import apply_memory_scope_policy, build_memory_bundle, build_memory_request, build_memory_scope_policy
 from .working_memory_service import WorkingMemoryService
+
+
+@dataclass(slots=True, frozen=True)
+class MemoryCompactionResult:
+    """Read-only context compaction result for runtime adapters."""
+
+    session_id: str
+    pressure_level: str = "normal"
+    compaction_strategy: str = "none"
+    compacted: bool = False
+    read_only: bool = True
+    authority: str = "memory_compaction_result"
+    diagnostics: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.read_only:
+            raise ValueError("MemoryCompactionResult must remain read_only")
+        if self.authority != "memory_compaction_result":
+            raise ValueError("MemoryCompactionResult cannot carry runtime authority")
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 class MemoryBundleService:
@@ -27,10 +49,8 @@ class MemoryBundleService:
         conversation_memory: ConversationMemoryStoreAdapter,
         state_memory: StateMemoryStoreAdapter,
         working_memory: WorkingMemoryService,
-        long_term_memory: LongTermMemoryStoreAdapter,
         task_durable_memory: TaskDurableMemoryService | None = None,
         durable_memory: Any,
-        request_service: MemoryRequestService,
         context_budget_provider: Callable[[], dict[str, Any]] | None = None,
     ) -> None:
         self.session_memory = session_memory
@@ -38,9 +58,7 @@ class MemoryBundleService:
         self.state_memory = state_memory
         self.working_memory = working_memory
         self.task_durable_memory = task_durable_memory
-        self.long_term_memory = long_term_memory
         self.durable_memory = durable_memory
-        self.request_service = request_service
         self._context_budget_provider = context_budget_provider
 
     def build_state_memory_snapshot(self, session_id: str):
@@ -110,9 +128,6 @@ class MemoryBundleService:
             limit=limit,
         )
 
-    def build_long_term_memory_records(self, *, limit: int = 200, runtime_visible_only: bool = True):
-        return self.long_term_memory.load_records(limit=limit, runtime_visible_only=runtime_visible_only)
-
     def build_long_term_memory_context_candidates(
         self,
         *,
@@ -138,7 +153,7 @@ class MemoryBundleService:
             recent_tools=recent_tools,
             selected_notes=relevant_notes,
         )
-        return self.long_term_memory.context_candidates_from_recall_result(
+        return _long_term_context_candidates_from_recall_result(
             recall_result,
             session_id=session_id,
             query=str(query or ""),
@@ -243,13 +258,18 @@ class MemoryBundleService:
         relevant_notes: list[Any] | None = None,
         note_limit: int = 5,
     ):
-        request, _scope_policy = self.request_service.build_effective_memory_request(
+        request = build_memory_request(
             task_id=task_id,
             session_id=session_id,
             agent_id=agent_id,
             memory_request_profile=memory_request_profile,
             reason="memory_bundle_service_bundle_request",
         )
+        scope_policy = build_memory_scope_policy(
+            agent_id=agent_id,
+            memory_request_profile=memory_request_profile,
+        )
+        request = apply_memory_scope_policy(request, scope_policy)
         runtime_view = self.build_memory_runtime_view(
             session_id=session_id,
             query=query,
@@ -263,6 +283,7 @@ class MemoryBundleService:
             query=query,
             memory_intent=memory_intent,
             memory_request_profile=request.to_dict(),
+            memory_view=runtime_view,
             relevant_notes=relevant_notes,
             note_limit=note_limit,
         )
@@ -279,11 +300,13 @@ class MemoryBundleService:
         history: list[dict[str, Any]] | None = None,
     ):
         memory_view = self.build_memory_runtime_view(session_id=session_id)
-        return build_memory_compaction_result(
+        return MemoryCompactionResult(
             session_id=session_id,
-            history_count=len(history or []),
-            context_candidate_count=len(memory_view.context_candidates),
-            restore_candidate_count=len(memory_view.restore_candidates),
+            diagnostics={
+                "history_count": len(history or []),
+                "context_candidate_count": len(memory_view.context_candidates),
+                "restore_candidate_count": len(memory_view.restore_candidates),
+            },
         )
 
     def inspect_memory_context_compaction(
@@ -297,61 +320,6 @@ class MemoryBundleService:
         )
         return list(history or []), result.to_dict()
 
-    def build_persistent_memory_block(
-        self,
-        *,
-        query: str | None = None,
-        memory_intent: Any | None = None,
-        note_limit: int = 5,
-        relevant_notes: list[Any] | None = None,
-    ) -> str:
-        candidates = self.build_long_term_memory_context_candidates(
-            session_id="persistent_memory_preview",
-            query=query,
-            memory_intent=memory_intent,
-            note_limit=note_limit,
-            relevant_notes=relevant_notes,
-        )
-        return "\n\n".join(
-            candidate.rendered_preview for candidate in candidates if candidate.rendered_preview
-        ).strip()
-
-    async def abuild_persistent_memory_block(
-        self,
-        *,
-        query: str | None = None,
-        memory_intent: Any | None = None,
-        note_limit: int = 5,
-        relevant_notes: list[Any] | None = None,
-    ) -> str:
-        return self.build_persistent_memory_block(
-            query=query,
-            memory_intent=memory_intent,
-            note_limit=note_limit,
-            relevant_notes=relevant_notes,
-        )
-
-    def build_memory_recall_request(
-        self,
-        *,
-        query: str | None = None,
-        memory_intent: Any | None = None,
-        main_context: dict[str, object] | None = None,
-        task_summaries: list[dict[str, object]] | None = None,
-        session_summary: str = "",
-        recently_surfaced_note_ids: list[str] | None = None,
-        recent_tools: list[str] | None = None,
-    ):
-        return self.durable_memory.build_recall_request(
-            query=query,
-            memory_intent=memory_intent,
-            main_context=main_context,
-            task_summaries=task_summaries,
-            session_summary=session_summary,
-            recently_surfaced_note_ids=recently_surfaced_note_ids,
-            recent_tools=recent_tools,
-        )
-
     def recall_durable_memories(
         self,
         *,
@@ -363,6 +331,7 @@ class MemoryBundleService:
         session_summary: str = "",
         recently_surfaced_note_ids: list[str] | None = None,
         recent_tools: list[str] | None = None,
+        selected_notes: list[Any] | None = None,
     ):
         return self.durable_memory.recall_memories(
             query=query,
@@ -373,54 +342,18 @@ class MemoryBundleService:
             session_summary=session_summary,
             recently_surfaced_note_ids=recently_surfaced_note_ids,
             recent_tools=recent_tools,
+            selected_notes=selected_notes,
         )
-
-    async def arecall_durable_memories(
-        self,
-        *,
-        query: str | None = None,
-        memory_intent: Any | None = None,
-        note_limit: int = 5,
-        main_context: dict[str, object] | None = None,
-        task_summaries: list[dict[str, object]] | None = None,
-        session_summary: str = "",
-        recently_surfaced_note_ids: list[str] | None = None,
-        recent_tools: list[str] | None = None,
-    ):
-        return await self.durable_memory.arecall_memories(
-            query=query,
-            memory_intent=memory_intent,
-            note_limit=note_limit,
-            main_context=main_context,
-            task_summaries=task_summaries,
-            session_summary=session_summary,
-            recently_surfaced_note_ids=recently_surfaced_note_ids,
-            recent_tools=recent_tools,
-        )
-
-    def build_durable_manifest_block(self, *, note_limit: int = 5) -> str:
-        return self.durable_memory.build_manifest_block(note_limit=note_limit)
-
-    def prefetch_relevant_notes(
-        self,
-        query: str,
-        memory_intent: Any | None = None,
-        *,
-        limit: int = 3,
-    ) -> list[Any]:
-        return self.durable_memory.prefetch_relevant_notes(query, memory_intent, limit=limit)
 
     def describe_durable_maintenance_runtime(self) -> dict[str, object]:
         return self.durable_memory.describe_maintenance_runtime()
 
     def _context_budget(self) -> dict[str, Any]:
         if self._context_budget_provider is not None:
-            try:
-                payload = dict(self._context_budget_provider())
-                if payload:
-                    return payload
-            except Exception:
-                pass
+            payload = dict(self._context_budget_provider())
+            if not payload:
+                raise ValueError("context budget provider returned an empty payload")
+            return payload
         return get_context_budget_preset("deepseek_1m").to_dict()
 
     @staticmethod
@@ -442,3 +375,92 @@ class MemoryBundleService:
                 profile["allow_long_term_memory"] = True
         profile["requested_memory_layers"] = requested_layers
         return profile
+
+
+def _long_term_context_candidates_from_recall_result(
+    recall_result: Any,
+    *,
+    session_id: str = "",
+    query: str = "",
+) -> tuple[MemoryContextCandidate, ...]:
+    selected_notes = list(getattr(recall_result, "selected_notes", []) or [])
+    if not selected_notes and isinstance(recall_result, dict):
+        selected_notes = list(recall_result.get("selected_notes", []) or [])
+    candidates: list[MemoryContextCandidate] = []
+    for index, note in enumerate(selected_notes):
+        payload = dict(note or {}) if isinstance(note, dict) else _note_to_dict(note)
+        note_id = str(payload.get("note_id", "") or payload.get("filename", "") or f"note-{index}").strip()
+        title = str(payload.get("title", "") or note_id).strip()
+        canonical = str(payload.get("canonical_statement", "") or "").strip()
+        summary = str(payload.get("summary", "") or "").strip()
+        content = str(payload.get("content", "") or "").strip()
+        preview = _render_long_term_preview(title=title, canonical=canonical, summary=summary, content=content)
+        if not preview:
+            continue
+        candidates.append(
+            MemoryContextCandidate(
+                candidate_id=f"memory-context:{session_id or 'session'}:long-term:{note_id}",
+                memory_layer="long_term",
+                source="durable_memory.recall",
+                content_ref=str(payload.get("filename", "") or note_id),
+                rendered_preview=preview,
+                relevance=0.7,
+                confidence=_confidence_score(str(payload.get("confidence", "") or "")),
+                staleness="durable_memory_may_drift",
+                token_estimate=max(1, count_text_tokens(preview)),
+                budget_class="optional",
+                requires_verification_before_use=True,
+                metadata={
+                    "query": query,
+                    "memory_type": str(payload.get("memory_type", "") or ""),
+                    "memory_class": str(payload.get("memory_class", "") or ""),
+                    "status": str(payload.get("status", "") or ""),
+                    "verification_policy": "verify_file_function_flag_claims_against_current_state",
+                },
+            )
+        )
+    return tuple(candidates)
+
+
+def _note_to_dict(note: Any) -> dict[str, object]:
+    slug = str(getattr(note, "slug", "") or "")
+    filename = str(getattr(note, "filename", "") or "")
+    return {
+        "note_id": str(getattr(note, "note_id", "") or slug or filename.replace(".md", "")),
+        "filename": filename or (f"{slug}.md" if slug else ""),
+        "title": str(getattr(note, "title", "") or ""),
+        "summary": str(getattr(note, "summary", "") or ""),
+        "canonical_statement": str(getattr(note, "canonical_statement", "") or ""),
+        "content": str(getattr(note, "content", "") or getattr(note, "body", "") or ""),
+        "memory_type": str(getattr(note, "memory_type", "") or ""),
+        "memory_class": str(getattr(note, "memory_class", "") or ""),
+        "confidence": str(getattr(note, "confidence", "") or ""),
+        "status": str(getattr(note, "status", "") or ""),
+    }
+
+
+def _render_long_term_preview(*, title: str, canonical: str, summary: str, content: str) -> str:
+    lines: list[str] = []
+    if title:
+        lines.append(f"### {title}")
+    if canonical:
+        lines.append(f"Canonical: {canonical}")
+    elif summary:
+        lines.append(f"Canonical: {summary}")
+    if summary and summary != canonical:
+        lines.append(f"Summary: {summary}")
+    detail = " ".join(line.strip(" -#*\t") for line in content.splitlines() if line.strip())[:280].strip()
+    if detail and detail not in {canonical, summary}:
+        lines.append(f"Details: {detail}")
+    return "\n".join(lines).strip()
+
+
+def _confidence_score(confidence: str) -> float:
+    normalized = str(confidence or "").strip().lower()
+    if normalized == "high":
+        return 0.82
+    if normalized == "low":
+        return 0.35
+    if normalized == "medium":
+        return 0.6
+    return 0.5

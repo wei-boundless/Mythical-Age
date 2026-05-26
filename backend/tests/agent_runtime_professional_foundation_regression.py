@@ -6,11 +6,7 @@ from types import SimpleNamespace
 
 from api import orchestration_catalog as orchestration_api
 from orchestration.resource_inventory import build_runtime_resource_inventory
-from runtime.agent_runtime.professional.state_machine import (
-    initial_professional_run_state,
-    unsatisfied_obligations_from_verification,
-)
-from runtime.shared.resume_decision import decide_professional_run_resume
+from runtime.shared.resume_decision import decide_runtime_resume
 from runtime.memory.tool_observation_ledger import (
     ToolObservationLedger,
     build_tool_observation_record,
@@ -103,7 +99,7 @@ def test_tool_observation_ledger_classifies_write_and_verification() -> None:
                 "verification_intent": {
                     "stage": "verify_output",
                     "obligation": "verify_command",
-                    "authority": "agent_runtime.professional.action_gate",
+                    "authority": "runtime.agent_runtime.phase_pipeline",
                 },
             },
         },
@@ -134,24 +130,13 @@ def test_tool_observation_ledger_classifies_write_and_verification() -> None:
     assert ledger.records[0].side_effect_hash
 
 
-def test_professional_state_machine_tracks_unsatisfied_obligations() -> None:
-    state = initial_professional_run_state("taskrun:test")
-    state = state.advance("mode_policy_bound", reason="mode")
-    state = state.advance("blocked", reason="validation", unsatisfied_obligations=("write_output",), blocked_reason="missing_write")
-
-    assert state.state == "blocked"
-    assert state.unsatisfied_obligations == ("write_output",)
-    assert state.transitions[-1].from_state == "mode_policy_bound"
-    assert unsatisfied_obligations_from_verification({"missing_required_actions": ["verify_command"]}) == ("verify_command",)
-
-
 def test_resume_decision_uses_checkpoint_without_overriding_current_obligation() -> None:
     checkpoint = SimpleNamespace(
         checkpoint_id="rtchk:taskrun:test:9",
         event_offset=9,
         loop_state=SimpleNamespace(status="running", terminal_reason=""),
     )
-    decision = decide_professional_run_resume(
+    decision = decide_runtime_resume(
         task_run_id="taskrun:test",
         checkpoint=checkpoint,
         current_obligation={"required_writes": [{"kind": "workspace_change"}]},

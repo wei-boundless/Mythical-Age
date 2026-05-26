@@ -8,7 +8,7 @@ import type {
 export type RuntimeWorkKind =
   | "task_order_run"
   | "task_graph_run"
-  | "professional_task"
+  | "agent_runtime_run"
   | "chat_turn_runtime";
 
 export type RuntimeWorkProjection = {
@@ -105,14 +105,14 @@ function taskGraphProjection(item: GlobalRuntimeMonitorItem): RuntimeWorkProject
   };
 }
 
-function professionalProjection(item: GlobalRuntimeMonitorItem): RuntimeWorkProjection {
+function agentRuntimeProjection(item: GlobalRuntimeMonitorItem): RuntimeWorkProjection {
   return {
     workId: text(item.task_run_id),
-    workKind: "professional_task",
+    workKind: "agent_runtime_run",
     primaryRunId: text(item.task_run_id),
-    title: text(item.title) || text(item.task_id) || text(item.task_run_id) || "专业任务",
+    title: text(item.title) || text(item.task_id) || text(item.task_run_id) || "Agent 运行",
     status: statusFromMonitor(item),
-    displayTypeLabel: "专业任务",
+    displayTypeLabel: "Agent 运行",
     latestEventType: text(item.latest_event_type),
     isLive: bool(item.is_live) || item.display_bucket === "live",
   };
@@ -143,7 +143,7 @@ export function runtimeWorkProjectionFromMonitorItem(item: GlobalRuntimeMonitorI
   });
   if (orderProjection) return orderProjection;
   if (item.has_coordination || text(item.graph_id)) return taskGraphProjection(item);
-  if (text(item.latest_event_type).startsWith("professional_")) return professionalProjection(item);
+  if (text(item.latest_event_type).startsWith("agent_runtime_")) return agentRuntimeProjection(item);
   return chatTurnRuntimeProjection(item);
 }
 
@@ -170,14 +170,15 @@ export function runtimeWorkProjectionFromLiveMonitor(
       displayTypeLabel: "任务图",
     };
   }
-  if (record(monitor.professional_task_summary).available) {
+  const phaseSummary = record(monitor.agent_runtime_phase_summary);
+  if (phaseSummary.available) {
     return {
       workId: taskRunId,
-      workKind: "professional_task",
+      workKind: "agent_runtime_run",
       primaryRunId: taskRunId,
-      title: text(record(monitor.professional_task_summary).goal) || text(taskRun.title) || text(taskRun.task_id) || "专业任务",
+      title: text(phaseSummary.task_goal) || text(taskRun.title) || text(taskRun.task_id) || "Agent 运行",
       status: text(monitor.status) || "unknown",
-      displayTypeLabel: "专业任务",
+      displayTypeLabel: "Agent 运行",
     };
   }
   if (!taskRunId) return null;

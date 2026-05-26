@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from memory_system import MemoryFacade, MemoryRuntimeView
+from memory_system import MemoryFacade
 from memory_system.contracts import MemoryContextCandidate
+from memory_system.runtime_view import MemoryRuntimeView
 from context_system.policy import build_context_package_result
-from memory_system.storage import MemoryNote
+from memory_system.storage.models import MemoryNote
 from memory_system.storage.process_state import ContextSlots, ProcessState
 from token_accounting import count_text_tokens
 
@@ -38,7 +39,7 @@ _Current-turn outputs, conclusions, or artifacts that remain active._
         memory_class="work",
     )
 
-    result = facade.build_memory_context_package_result(
+    result = facade.bundle_service.build_memory_context_package_result(
         session_id=session_id,
         query="记忆系统原则是什么？",
         relevant_notes=[note],
@@ -78,7 +79,7 @@ def test_context_policy_result_reuses_supplied_memory_runtime_view(tmp_path) -> 
 
     facade.bundle_service.build_memory_runtime_view = _fail_rebuild  # type: ignore[method-assign]
 
-    result = facade.build_memory_context_package_result(
+    result = facade.bundle_service.build_memory_context_package_result(
         session_id="context-policy-session",
         query="复用上下文",
         memory_view=supplied_view,
@@ -182,4 +183,5 @@ def test_context_policy_uses_shared_token_counter_for_retrieval_accounting() -> 
 
     rendered = result.package.model_visible_sections["retrieval_evidence"][0]
     assert result.package.token_accounting["retrieval_tokens"] == count_text_tokens(rendered)
+
 

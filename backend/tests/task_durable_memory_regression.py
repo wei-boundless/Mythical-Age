@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from memory_system import MemoryContextCandidate, MemoryFacade
+from memory_system import MemoryFacade
+from memory_system.contracts import MemoryContextCandidate
 
 
 def test_task_durable_memory_creates_and_queries_isolated_namespaces(tmp_path) -> None:
     facade = MemoryFacade(tmp_path)
 
-    first = facade.create_task_durable_memory_item(
+    first = facade.task_durable_memory.create_item(
         task_id="novel.alpha",
         graph_id="graph:alpha",
         kind="character_state",
@@ -16,7 +17,7 @@ def test_task_durable_memory_creates_and_queries_isolated_namespaces(tmp_path) -
         summary="主角不能提前离开主城。",
         retrieval_hints=["主角", "主城"],
     )
-    second = facade.create_task_durable_memory_item(
+    second = facade.task_durable_memory.create_item(
         task_id="novel.beta",
         graph_id="graph:beta",
         kind="character_state",
@@ -26,9 +27,9 @@ def test_task_durable_memory_creates_and_queries_isolated_namespaces(tmp_path) -
         summary="不应污染 Alpha。",
     )
 
-    alpha_items = facade.query_task_durable_memory_items(namespace_id=first.namespace_id)
-    beta_items = facade.query_task_durable_memory_items(namespace_id=second.namespace_id)
-    namespaces = facade.list_task_durable_memory_namespaces()
+    alpha_items = facade.task_durable_memory.query_items(namespace_id=first.namespace_id)
+    beta_items = facade.task_durable_memory.query_items(namespace_id=second.namespace_id)
+    namespaces = facade.task_durable_memory.list_namespaces()
 
     assert first.namespace_id != second.namespace_id
     assert [item.task_memory_id for item in alpha_items] == [first.task_memory_id]
@@ -38,7 +39,7 @@ def test_task_durable_memory_creates_and_queries_isolated_namespaces(tmp_path) -
 
 def test_working_memory_promotes_to_task_durable_without_global_pollution(tmp_path) -> None:
     facade = MemoryFacade(tmp_path)
-    work_item = facade.create_working_memory_item(
+    work_item = facade.working_memory.create_item(
         task_run_id="taskrun:chapter",
         task_id="novel.longform",
         graph_id="graph:longform",
@@ -58,7 +59,7 @@ def test_working_memory_promotes_to_task_durable_without_global_pollution(tmp_pa
         actor_id="human:editor",
         reason="accepted continuity fact",
     )
-    updated_work_item = facade.get_working_memory_item(work_item.work_memory_id)
+    updated_work_item = facade.working_memory.get_item(work_item.work_memory_id)
     task_memory = result["task_memory"]
 
     assert updated_work_item is not None
@@ -67,12 +68,12 @@ def test_working_memory_promotes_to_task_durable_without_global_pollution(tmp_pa
     assert task_memory.task_id == "novel.longform"
     assert task_memory.graph_id == "graph:longform"
     assert task_memory.source_work_memory_ids == (work_item.work_memory_id,)
-    assert facade.scan_durable_memory_headers(limit=20) == []
+    assert facade.governance_service.scan_durable_memory_headers(limit=20) == []
 
 
 def test_task_durable_context_candidates_are_namespace_scoped(tmp_path) -> None:
     facade = MemoryFacade(tmp_path)
-    item = facade.create_task_durable_memory_item(
+    item = facade.task_durable_memory.create_item(
         task_id="novel.longform",
         graph_id="graph:longform",
         kind="timeline_fact",
@@ -81,7 +82,7 @@ def test_task_durable_context_candidates_are_namespace_scoped(tmp_path) -> None:
         canonical_statement="主角在第四章才抵达都城。",
         summary="第四章抵达都城。",
     )
-    facade.create_task_durable_memory_item(
+    facade.task_durable_memory.create_item(
         task_id="other.task",
         graph_id="graph:other",
         kind="timeline_fact",
@@ -105,7 +106,7 @@ def test_task_durable_context_candidates_are_namespace_scoped(tmp_path) -> None:
 
 def test_task_durable_global_promotion_requires_candidate_and_allowed_kind(tmp_path) -> None:
     facade = MemoryFacade(tmp_path)
-    item = facade.create_task_durable_memory_item(
+    item = facade.task_durable_memory.create_item(
         task_id="novel.longform",
         graph_id="graph:longform",
         kind="character_state",
@@ -137,12 +138,12 @@ def test_task_durable_global_promotion_requires_candidate_and_allowed_kind(tmp_p
     assert "candidate" in first_error
     assert marked["task_memory"].global_promotion_state == "candidate"
     assert "allowed global promotion kind" in second_error
-    assert facade.scan_durable_memory_headers(limit=20) == []
+    assert facade.governance_service.scan_durable_memory_headers(limit=20) == []
 
 
 def test_task_durable_global_promotion_writes_global_only_after_second_governance(tmp_path) -> None:
     facade = MemoryFacade(tmp_path)
-    item = facade.create_task_durable_memory_item(
+    item = facade.task_durable_memory.create_item(
         task_id="task.system",
         graph_id="graph:system",
         kind="cross_task_policy",
@@ -157,8 +158,8 @@ def test_task_durable_global_promotion_writes_global_only_after_second_governanc
         global_kind="cross_task_policy",
         reason="approved",
     )
-    headers = facade.scan_durable_memory_headers(limit=20)
-    updated = facade.get_task_durable_memory_item(item.task_memory_id)
+    headers = facade.governance_service.scan_durable_memory_headers(limit=20)
+    updated = facade.task_durable_memory.get_item(item.task_memory_id)
 
     assert promoted["filename"]
     assert updated is not None
@@ -166,3 +167,4 @@ def test_task_durable_global_promotion_writes_global_only_after_second_governanc
     assert updated.metadata["promoted_global_durable_filename"] == promoted["filename"]
     assert len(headers) == 1
     assert headers[0].title == "跨任务规则"
+

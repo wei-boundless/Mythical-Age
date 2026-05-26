@@ -9,7 +9,6 @@ export type RuntimeModeConfig = {
   runtime_lanes?: string[];
   recipe_id?: string;
   projection_strength?: string;
-  execution_strategy?: string;
   builtin?: boolean;
   editable?: boolean;
   description?: string;
@@ -45,7 +44,6 @@ export const BUILTIN_RUNTIME_MODES: RuntimeModeConfig[] = [
     runtime_lane: "professional_task",
     recipe_id: "runtime.recipe.professional_task",
     projection_strength: "style_only",
-    execution_strategy: "professional_task_run",
     builtin: true,
     editable: false,
   },
@@ -162,7 +160,6 @@ function normalizeModeRecord(record: Record<string, unknown>): RuntimeModeConfig
     runtime_lanes: runtimeLanes.length ? runtimeLanes : runtimeLane ? [runtimeLane] : [],
     recipe_id: String(record.recipe_id || "").trim() || undefined,
     projection_strength: String(record.projection_strength || "").trim() || undefined,
-    execution_strategy: String(record.execution_strategy || "").trim() || undefined,
     builtin: Boolean(record.builtin ?? BUILTIN_MODE_SET.has(mode)),
     editable: Boolean(record.editable ?? (!BUILTIN_MODE_SET.has(mode) || mode === "custom")),
     description: String(record.description || "").trim() || undefined,

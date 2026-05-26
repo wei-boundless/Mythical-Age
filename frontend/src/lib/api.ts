@@ -1695,7 +1695,7 @@ export type RuntimeLoopTaskRunLiveMonitor = {
   latest_checkpoint: Record<string, unknown> | null;
   loop_state: Record<string, unknown>;
   coordination_run: Record<string, unknown> | null;
-  professional_task_summary?: Record<string, unknown> | null;
+  agent_runtime_phase_summary?: Record<string, unknown> | null;
   task_order_projection?: TaskOrderProjection | null;
   has_coordination: boolean;
   status: string;

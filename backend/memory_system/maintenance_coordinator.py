@@ -195,11 +195,7 @@ class MemoryMaintenanceCoordinator:
             for index, item in enumerate(messages[max(0, last_index - 4) :], start=max(0, last_index - 4))
         ][-16:]
         manager = self.session_memory_layer.manager(session_id)
-        previous = ""
-        try:
-            previous = manager.load()
-        except Exception:
-            previous = ""
+        previous = manager.load()
         source_refs = [f"message:{index}" for index in range(last_index, len(messages))]
         headers = [
             {
@@ -270,7 +266,7 @@ class MemoryMaintenanceCoordinator:
                 durable_skipped = True
                 durable_error = str(exc)
                 durable_actions["rejected"].append(durable_error)
-                durable_skip_reason = "durable_write_rejected_by_sandbox"
+                durable_skip_reason = "durable_write_rejected_by_committer"
         return MemoryMaintenanceReceipt(
             run_id=request.run_id,
             session_id=request.session_id,
@@ -327,10 +323,7 @@ class MemoryMaintenanceCoordinator:
     def _update_runtime_state_projection(self, request: MemoryMaintenanceRequest) -> None:
         if not (request.main_context or request.task_summary_refs or request.bundle_summary_refs):
             return
-        updater = getattr(self.session_memory_layer, "update_runtime_state_from_context_state", None)
-        if not callable(updater):
-            return
-        updater(
+        self.session_memory_layer.update_runtime_state_from_context_state(
             request.session_id,
             dict(request.main_context or {}),
             task_summaries=list(request.task_summary_refs or []),
@@ -459,11 +452,10 @@ class MemoryMaintenanceCoordinator:
         path = self._session_dir(session_id) / "state.json"
         if not path.exists():
             return {}
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            return {}
-        return payload if isinstance(payload, dict) else {}
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("Memory maintenance runtime state must be a JSON object")
+        return payload
 
     def _save_state(self, session_id: str, payload: dict[str, Any]) -> None:
         path = self._session_dir(session_id) / "state.json"

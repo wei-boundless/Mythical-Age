@@ -15,8 +15,6 @@ RestoreKind = Literal[
     "file_awareness",
     "result_handle",
 ]
-WriteKind = Literal["update_summary", "update_state", "propose_long_term_fact"]
-GateDecision = Literal["pending", "accepted", "rejected"]
 MemoryCommitLayer = Literal["conversation", "state", "long_term", "governance_log"]
 MemoryCommitAction = Literal[
     "manual_create",
@@ -162,49 +160,6 @@ class StateMemorySnapshot:
         payload["key_results"] = list(self.key_results)
         payload["historical_result_refs"] = list(self.historical_result_refs)
         payload["next_step"] = list(self.next_step)
-        return payload
-
-
-@dataclass(slots=True, frozen=True)
-class LongTermMemoryRecord:
-    memory_id: str
-    memory_type: LongTermMemoryType
-    canonical_statement: str
-    evidence_ref: str = ""
-    created_at: str = ""
-    updated_at: str = ""
-    staleness_policy: str = "verify_against_current_state_before_use"
-    verification_policy: str = "required_for_file_function_flag_claims"
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass(slots=True, frozen=True)
-class MemoryWriteCandidate:
-    """Candidate-only writeback request; CommitGate owns persistence."""
-
-    candidate_id: str
-    target_layer: MemoryLayer
-    write_kind: WriteKind
-    content: str
-    source_event_refs: tuple[str, ...] = ()
-    stability: str = "unknown"
-    risk_flags: tuple[str, ...] = ()
-    gate_decision: GateDecision = "pending"
-    gate_reason: str = "not_evaluated"
-    authority: str = "candidate_only"
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        if self.authority != "candidate_only":
-            raise ValueError("MemoryWriteCandidate must remain candidate_only")
-
-    def to_dict(self) -> dict[str, Any]:
-        payload = asdict(self)
-        payload["source_event_refs"] = list(self.source_event_refs)
-        payload["risk_flags"] = list(self.risk_flags)
         return payload
 
 

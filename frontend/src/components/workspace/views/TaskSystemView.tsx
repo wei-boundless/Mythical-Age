@@ -7,7 +7,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { contractSpecTitle } from "@/components/workspace/views/task-system/ContractLibraryPanel";
 import { TaskGraphWorkbench } from "@/components/workspace/views/task-system/TaskGraphWorkbench";
-import { ProfessionalRunSessionPage } from "@/components/workspace/views/task-system/ProfessionalRunSessionPage";
+import { AgentRuntimePhaseMonitorPage } from "@/components/workspace/views/task-system/AgentRuntimePhaseMonitorPage";
 import { ResourceAuthorityMapPage } from "@/components/workspace/views/task-system/ResourceAuthorityMapPage";
 import { TaskSystemShell } from "@/components/workspace/views/task-system/TaskSystemShell";
 import { TaskContractLibraryPage } from "@/components/workspace/views/task-system/library/TaskContractLibraryPage";
@@ -24,7 +24,17 @@ import {
   type TaskGraphDraftV2,
   type TaskGraphPublishStateV2,
 } from "@/components/workspace/views/task-system/taskGraphDraftV2";
-import { buildTaskGraphUpsertPayload } from "@/components/workspace/views/task-system/taskGraphSaveMapper";
+import { buildTaskGraphUpsertPayload, resolveTaskGraphPublishCommit } from "@/components/workspace/views/task-system/taskGraphSaveMapper";
+import {
+  clearCanonicalSelection,
+  emptyTaskGraphEditorSelection,
+  emptyTaskGraphStandardViewState,
+  loadedTaskGraphStandardViewState,
+  markTaskGraphStandardViewStale,
+  selectCanonicalEdge,
+  selectCanonicalNode,
+  taskGraphDraftRevisionKey,
+} from "@/components/workspace/views/task-system/taskGraphEditorSelection";
 import {
   MODULAR_NOVEL_DOMAIN_ID,
   recommendedTaskGraphId,
@@ -96,7 +106,7 @@ import { useConfirmDialog } from "@/components/layout/ConfirmDialogProvider";
 import { useAppStore } from "@/lib/store";
 
 type TaskLayer = "management" | "editor";
-type TaskSystemLayer = "domains" | "tasks" | "graphs" | "contracts" | "resource-authority" | "professional-run" | "orchestration" | "runtime";
+type TaskSystemLayer = "domains" | "tasks" | "graphs" | "contracts" | "resource-authority" | "agent-runtime-phase" | "orchestration" | "runtime";
 type TaskConfigPanel = "definition";
 type ContractPanel = "library" | "templates";
 
@@ -669,8 +679,7 @@ export function TaskSystemView() {
   const [taskLayer, setTaskLayer] = useState<TaskLayer>("management");
   const [taskSystemLayer, setTaskSystemLayer] = useState<TaskSystemLayer>("domains");
   const [editingDomainName, setEditingDomainName] = useState(false);
-  const [selectedGraphNodeId, setSelectedGraphNodeId] = useState("");
-  const [selectedGraphEdgeId, setSelectedGraphEdgeId] = useState("");
+  const [taskGraphEditorSelection, setTaskGraphEditorSelection] = useState(() => emptyTaskGraphEditorSelection());
   const [linkingFromNodeId, setLinkingFromNodeId] = useState("");
   const [taskConfigPanel, setTaskConfigPanel] = useState<TaskConfigPanel>("definition");
   const [contractPanel, setContractPanel] = useState<ContractPanel>("library");
@@ -686,7 +695,7 @@ export function TaskSystemView() {
   const [taskPolicyText, setTaskPolicyText] = useState("{}");
   const [artifactPolicyDraft, setArtifactPolicyDraft] = useState<ArtifactPolicyDraft>(defaultArtifactPolicyDraft());
   const [taskGraphDraftV2, setTaskGraphDraftV2] = useState<TaskGraphDraftV2>(() => emptyTaskGraphDraftV2());
-  const [taskGraphStandardView, setTaskGraphStandardView] = useState<TaskGraphStandardView | null>(null);
+  const [taskGraphStandardViewState, setTaskGraphStandardViewState] = useState(() => emptyTaskGraphStandardViewState());
   const [taskGraphStandardViewLoading, setTaskGraphStandardViewLoading] = useState(false);
   const [taskGraphStandardViewError, setTaskGraphStandardViewError] = useState("");
   const [activeTaskGraphDetail, setActiveTaskGraphDetail] = useState<TaskGraphRecord | null>(null);
@@ -934,7 +943,7 @@ export function TaskSystemView() {
 
   const refreshTaskGraphStandardView = useCallback(async () => {
     if (!activeTaskGraphId) {
-      setTaskGraphStandardView(null);
+      setTaskGraphStandardViewState(emptyTaskGraphStandardViewState());
       setTaskGraphStandardViewError("");
       return;
     }
@@ -942,19 +951,28 @@ export function TaskSystemView() {
     setTaskGraphStandardViewError("");
     try {
       const payload = await getTaskSystemTaskGraphStandardView(activeTaskGraphId);
-      setTaskGraphStandardView(payload);
+      setTaskGraphStandardViewState(loadedTaskGraphStandardViewState({
+        view: payload,
+        graphId: activeTaskGraphId,
+        revisionKey: taskGraphDraftRevisionKey({
+          graphId: taskGraphDraftV2.graph_id,
+          nodes: taskGraphDraftV2.nodes ?? [],
+          edges: taskGraphDraftV2.edges ?? [],
+          metadata: asRecord(taskGraphDraftV2.metadata),
+        }),
+      }));
     } catch (exc) {
-      setTaskGraphStandardView(null);
+      setTaskGraphStandardViewState(emptyTaskGraphStandardViewState());
       setTaskGraphStandardViewError(exc instanceof Error ? exc.message : "标准对象视图加载失败");
     } finally {
       setTaskGraphStandardViewLoading(false);
     }
-  }, [activeTaskGraphId]);
+  }, [activeTaskGraphId, taskGraphDraftV2]);
 
   useEffect(() => {
     if (activeWorkspaceView !== "task-system") return;
     if (!activeTaskGraphId) {
-      setTaskGraphStandardView(null);
+      setTaskGraphStandardViewState(emptyTaskGraphStandardViewState());
       setTaskGraphStandardViewError("");
       return;
     }
@@ -1769,6 +1787,16 @@ export function TaskSystemView() {
     setError("");
     setNotice("");
     try {
+      const publishIntent = nextPublished === true
+        ? "publish"
+        : nextEditorPublishState === "published"
+          ? "publish"
+        : nextEditorPublishState === "run_bound"
+          ? "mark_run_bound"
+          : nextEditorPublishState === "archived"
+            ? "archive"
+            : "save_draft";
+      const publishCommit = resolveTaskGraphPublishCommit(publishIntent);
       const graphNodes = (taskGraphDraftV2.nodes ?? []).map(normalizeTaskGraphNode);
       const graphEdges = (taskGraphDraftV2.edges ?? []).map(normalizeTaskGraphEdge);
       const effectiveTaskGraphDraftV2: TaskGraphDraftV2 = {
@@ -1777,14 +1805,10 @@ export function TaskSystemView() {
         task_id: "",
         nodes: graphNodes,
         edges: graphEdges,
-        publish_state: nextPublished === true
-          ? "published"
-          : nextPublished === false
-            ? "draft"
-            : nextEditorPublishState ?? taskGraphDraftV2.publish_state,
+        publish_state: publishCommit.editor_publish_state,
         metadata: {
           ...asRecord(taskGraphDraftV2.metadata),
-          ...(nextEditorPublishState ? { editor_publish_state: nextEditorPublishState } : {}),
+          ...publishCommit.metadata_patch,
           domain_id: draftDomainId,
           task_id: undefined,
         },
@@ -1793,14 +1817,9 @@ export function TaskSystemView() {
         taskGraphDraft: effectiveTaskGraphDraftV2,
         domain_id: draftDomainId,
         task_id: "",
-        publish_state: nextPublished === true
-          ? "published"
-          : nextPublished === false
-            ? "draft"
-            : effectiveTaskGraphDraftV2.publish_state === "published" || effectiveTaskGraphDraftV2.publish_state === "run_bound"
-              ? "published"
-              : "draft",
+        publish_state: publishCommit.backend_publish_state,
       });
+      taskGraphPayload.enabled = publishCommit.enabled;
       const payload = await upsertTaskSystemTaskGraph(effectiveTaskGraphDraftV2.graph_id, taskGraphPayload);
       setTaskGraphDraftV2(effectiveTaskGraphDraftV2);
       syncTaskGraphTopology(graphNodes, graphEdges);
@@ -1811,10 +1830,20 @@ export function TaskSystemView() {
         setSelectedTaskGraphId(effectiveTaskGraphDraftV2.graph_id);
       }
       try {
-        setTaskGraphStandardView(await getTaskSystemTaskGraphStandardView(effectiveTaskGraphDraftV2.graph_id));
+        const refreshedStandardView = await getTaskSystemTaskGraphStandardView(effectiveTaskGraphDraftV2.graph_id);
+        setTaskGraphStandardViewState(loadedTaskGraphStandardViewState({
+          view: refreshedStandardView,
+          graphId: effectiveTaskGraphDraftV2.graph_id,
+          revisionKey: taskGraphDraftRevisionKey({
+            graphId: effectiveTaskGraphDraftV2.graph_id,
+            nodes: graphNodes,
+            edges: graphEdges,
+            metadata: asRecord(effectiveTaskGraphDraftV2.metadata),
+          }),
+        }));
         setTaskGraphStandardViewError("");
       } catch (viewExc) {
-        setTaskGraphStandardView(null);
+        setTaskGraphStandardViewState(emptyTaskGraphStandardViewState());
         setTaskGraphStandardViewError(viewExc instanceof Error ? viewExc.message : "标准对象视图刷新失败");
       }
       setNotice(nextPublished === true ? "任务图已发布。" : "任务图已保存。");
@@ -1870,6 +1899,25 @@ export function TaskSystemView() {
   const taskPolicyError = jsonError(taskPolicyText, "任务策略", "object");
   const activeGraphNodes = taskGraphDraftV2.nodes ?? [];
   const activeGraphEdges = taskGraphDraftV2.edges ?? [];
+  const taskGraphDraftRevision = taskGraphDraftRevisionKey({
+    graphId: taskGraphDraftV2.graph_id,
+    nodes: activeGraphNodes,
+    edges: activeGraphEdges,
+    metadata: asRecord(taskGraphDraftV2.metadata),
+  });
+  const taskGraphStandardView = taskGraphStandardViewState.view;
+  const taskGraphStandardViewStale = taskGraphStandardViewState.stale;
+  const selectedGraphNodeId = taskGraphEditorSelection.canonicalNodeId;
+  const selectedGraphEdgeId = taskGraphEditorSelection.canonicalEdgeId;
+  const setSelectedGraphNodeId = (value: string) => {
+    setTaskGraphEditorSelection((current) => value ? selectCanonicalNode(current, value) : { ...current, canonicalNodeId: "" });
+  };
+  const setSelectedGraphEdgeId = (value: string) => {
+    setTaskGraphEditorSelection((current) => value ? selectCanonicalEdge(current, value) : { ...current, canonicalEdgeId: "" });
+  };
+  useEffect(() => {
+    setTaskGraphStandardViewState((current) => markTaskGraphStandardViewStale(current, taskGraphDraftV2.graph_id, taskGraphDraftRevision));
+  }, [taskGraphDraftRevision, taskGraphDraftV2.graph_id]);
   const updateTaskGraphPublishState = (nextState: TaskGraphPublishStateV2) => {
     setTaskGraphDraftV2((current) => ({
       ...current,
@@ -2010,7 +2058,7 @@ export function TaskSystemView() {
     return counts;
   }, [runtimeArtifactOverview?.artifacts]);
   const runtimePageActive = activeWorkspaceView === "task-system" && taskLayer === "management" && taskSystemLayer === "runtime";
-  const professionalRunPageActive = activeWorkspaceView === "task-system" && taskLayer === "management" && taskSystemLayer === "professional-run";
+  const agentRuntimePhasePageActive = activeWorkspaceView === "task-system" && taskLayer === "management" && taskSystemLayer === "agent-runtime-phase";
   const resourceAuthorityPageActive = activeWorkspaceView === "task-system" && taskLayer === "management" && taskSystemLayer === "resource-authority";
   const loadRuntimeTaskRuns = useCallback(async () => {
     if (!currentSessionId) {
@@ -2056,7 +2104,7 @@ export function TaskSystemView() {
       loadRuntimeStores(),
     ]);
   }, [loadRuntimeStores, loadRuntimeTaskRuns]);
-  const refreshProfessionalRun = useCallback(async () => {
+  const refreshAgentRuntimePhaseMonitor = useCallback(async () => {
     await Promise.all([
       loadRuntimeTaskRuns(),
       loadRuntimeStores(),
@@ -2073,24 +2121,24 @@ export function TaskSystemView() {
   }, [loadRuntimeResourceInventory]);
 
   useEffect(() => {
-    if (!runtimePageActive && !professionalRunPageActive) return;
+    if (!runtimePageActive && !agentRuntimePhasePageActive) return;
     void loadRuntimeTaskRuns();
-  }, [loadRuntimeTaskRuns, professionalRunPageActive, runtimePageActive]);
+  }, [agentRuntimePhasePageActive, loadRuntimeTaskRuns, runtimePageActive]);
 
   useEffect(() => {
-    if ((!runtimePageActive && !professionalRunPageActive) || runtimeDefaultedRef.current || runtimeTaskRunId.trim()) return;
+    if ((!runtimePageActive && !agentRuntimePhasePageActive) || runtimeDefaultedRef.current || runtimeTaskRunId.trim()) return;
     const nextTaskRunId = runtimeBoundTaskRunId
       || getRuntimeTaskRunId(runtimeRunsForSelectedGraph[0])
       || getRuntimeTaskRunId(runtimeTaskRuns[0]);
     if (!nextTaskRunId) return;
     runtimeDefaultedRef.current = true;
     setRuntimeTaskRunId(nextTaskRunId);
-  }, [professionalRunPageActive, runtimeBoundTaskRunId, runtimePageActive, runtimeRunsForSelectedGraph, runtimeTaskRunId, runtimeTaskRuns]);
+  }, [agentRuntimePhasePageActive, runtimeBoundTaskRunId, runtimePageActive, runtimeRunsForSelectedGraph, runtimeTaskRunId, runtimeTaskRuns]);
 
   useEffect(() => {
-    if (!runtimePageActive && !professionalRunPageActive) return;
+    if (!runtimePageActive && !agentRuntimePhasePageActive) return;
     void loadRuntimeStores();
-  }, [loadRuntimeStores, professionalRunPageActive, runtimePageActive]);
+  }, [agentRuntimePhasePageActive, loadRuntimeStores, runtimePageActive]);
 
   useEffect(() => {
     if (!resourceAuthorityPageActive) return;
@@ -2129,10 +2177,10 @@ export function TaskSystemView() {
       detail: "资源归属",
     },
     {
-      value: "professional-run",
-      label: "专业运行",
+      value: "agent-runtime-phase",
+      label: "运行阶段",
       meta: runtimeTaskRunId.trim() || "未选择 TaskRun",
-      detail: "长任务会话",
+      detail: "AgentRuntime",
     },
     {
       value: "orchestration",
@@ -2148,7 +2196,7 @@ export function TaskSystemView() {
     },
   ];
   const primaryTaskSystemLayerItems = taskSystemLayerItems.filter((item) => ["domains", "tasks", "graphs"].includes(item.value));
-  const supportingTaskSystemLayerItems = taskSystemLayerItems.filter((item) => ["contracts", "resource-authority", "professional-run", "orchestration", "runtime"].includes(item.value));
+  const supportingTaskSystemLayerItems = taskSystemLayerItems.filter((item) => ["contracts", "resource-authority", "agent-runtime-phase", "orchestration", "runtime"].includes(item.value));
   const taskConfigPanelItems: Array<LayerNavItem<TaskConfigPanel>> = [
     {
       value: "definition",
@@ -2324,6 +2372,8 @@ export function TaskSystemView() {
       activeGraphNodes={activeGraphNodes}
       handleTopologyNodeClick={handleTopologyNodeClick}
       linkingFromNodeId={linkingFromNodeId}
+      taskGraphEditorSelection={taskGraphEditorSelection}
+      setTaskGraphEditorSelection={setTaskGraphEditorSelection}
       removeTaskGraphEdge={removeTaskGraphEdge}
       removeTaskGraphNode={removeTaskGraphNode}
       reverseTaskGraphEdge={reverseTaskGraphEdge}
@@ -2345,6 +2395,7 @@ export function TaskSystemView() {
       taskGraphDraftV2={taskGraphDraftV2}
       workspaceSlot={editorWorkspaceSlot}
       taskGraphStandardView={taskGraphStandardView}
+      taskGraphStandardViewStale={taskGraphStandardViewStale}
       taskGraphStandardViewError={taskGraphStandardViewError}
       taskGraphStandardViewLoading={taskGraphStandardViewLoading}
       refreshTaskGraphStandardView={refreshTaskGraphStandardView}
@@ -2502,10 +2553,10 @@ export function TaskSystemView() {
             />
           ) : null}
 
-          {taskSystemLayer === "professional-run" ? (
-            <ProfessionalRunSessionPage
+          {taskSystemLayer === "agent-runtime-phase" ? (
+            <AgentRuntimePhaseMonitorPage
               monitorForSelectedRun={runtimeMonitorForSelectedRun || null}
-              onRefresh={() => void refreshProfessionalRun()}
+              onRefresh={() => void refreshAgentRuntimePhaseMonitor()}
               onTaskRunIdChange={(taskRunId) => {
                 runtimeDefaultedRef.current = true;
                 setRuntimeTaskRunId(taskRunId);

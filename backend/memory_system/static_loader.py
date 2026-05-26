@@ -1,9 +1,35 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from pathlib import Path
 import json
 
-from .models import StaticContextBundle, StaticContextEntry, StaticContextSection
+
+@dataclass(frozen=True, slots=True)
+class StaticContextSection:
+    key: str
+    label: str
+    prompt_heading: str
+    relative_paths: tuple[str, ...]
+    injection_order: int
+
+
+@dataclass(frozen=True, slots=True)
+class StaticContextEntry:
+    key: str
+    label: str
+    prompt_heading: str
+    relative_path: str
+    injection_order: int
+    content: str
+
+
+@dataclass(slots=True)
+class StaticContextBundle:
+    sections: list[StaticContextEntry] = field(default_factory=list)
+
+    def ordered_sections(self) -> list[StaticContextEntry]:
+        return sorted(self.sections, key=lambda item: item.injection_order)
 
 
 STATIC_SOUL_COMPONENTS: tuple[StaticContextSection, ...] = (

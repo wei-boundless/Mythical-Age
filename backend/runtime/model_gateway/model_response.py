@@ -487,7 +487,7 @@ def _model_only_finalization(directive: RuntimeDirective) -> bool:
     diagnostics = dict(getattr(directive, "diagnostics", {}) or {})
     return (
         bool(diagnostics.get("model_only") is True)
-        and str(diagnostics.get("professional_task_mode") or diagnostics.get("interaction_mode") or "").strip()
+        and str(diagnostics.get("interaction_mode") or "").strip()
         in {"role_mode", "standard_mode", "professional_mode"}
     )
 
@@ -578,7 +578,7 @@ async def _await_model_invocation(
 def _thread_isolated_invocation_enabled(policy: dict[str, Any]) -> bool:
     if "isolate_blocking_model_invocation" in policy:
         return bool(policy.get("isolate_blocking_model_invocation") is not False)
-    return bool(policy.get("action_gate_timeout_applied") is True)
+    return bool(policy.get("forced_tool_timeout_applied") is True)
 
 
 async def _await_invocation_in_thread(invocation_factory: Any, *, timeout_seconds: float) -> Any:
@@ -733,14 +733,15 @@ def _model_spec_for_stream_policy(
         "timeout_seconds": bounded_timeout,
         "long_output_timeout_seconds": max(bounded_timeout, bounded_long_timeout),
     }
-    if bool(policy.get("action_gate_timeout_applied") is True):
+    forced_tool_timeout_applied = bool(policy.get("forced_tool_timeout_applied") is True)
+    if forced_tool_timeout_applied:
         updates["max_retries"] = 0
     forced_tool_name = _forced_tool_choice_name(tool_call_options)
     provider = str(getattr(model_spec, "provider", "") or "").strip().lower()
     if (
         forced_tool_name
         and provider == "deepseek"
-        and bool(policy.get("action_gate_timeout_applied") is True)
+        and forced_tool_timeout_applied
     ):
         updates["thinking_mode"] = "disabled"
     diagnostics = getattr(model_spec, "diagnostics", None)
@@ -757,12 +758,14 @@ def _model_spec_for_stream_policy(
                 }
                 if forced_tool_name
                 and provider == "deepseek"
-                and bool(policy.get("action_gate_timeout_applied") is True)
+                and forced_tool_timeout_applied
                 else {}
             ),
             **(
-                {"action_gate_timeout_applied": True}
-                if bool(policy.get("action_gate_timeout_applied") is True)
+                {
+                    "forced_tool_timeout_applied": True,
+                }
+                if forced_tool_timeout_applied
                 else {}
             ),
         }

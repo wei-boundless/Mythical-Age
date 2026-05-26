@@ -61,10 +61,10 @@ describe("runtimeWorkProjection", () => {
     });
   });
 
-  it("includes professional tasks and excludes graph module children", () => {
-    const professional = item({
-      task_run_id: "taskrun:professional",
-      latest_event_type: "professional_task_stage_summary",
+  it("includes agent runtime phase runs and excludes graph module children", () => {
+    const phaseRun = item({
+      task_run_id: "taskrun:agent-runtime",
+      latest_event_type: "agent_runtime_planning_phase_checked",
     });
     const child = item({
       task_run_id: "taskrun:child",
@@ -73,10 +73,10 @@ describe("runtimeWorkProjection", () => {
       has_coordination: true,
     });
 
-    const visible = visibleRuntimeMonitorItems({ authority: "test", summary: { total: 0, running: 0, waiting: 0, completed: 0, failed: 0 }, task_runs: [professional, child], updated_at: 1 });
+    const visible = visibleRuntimeMonitorItems({ authority: "test", summary: { total: 0, running: 0, waiting: 0, completed: 0, failed: 0 }, task_runs: [phaseRun, child], updated_at: 1 });
 
-    expect(visible.map((entry) => entry.task_run_id)).toEqual(["taskrun:professional"]);
-    expect(runtimeWorkProjectionFromMonitorItem(professional).workKind).toBe("professional_task");
+    expect(visible.map((entry) => entry.task_run_id)).toEqual(["taskrun:agent-runtime"]);
+    expect(runtimeWorkProjectionFromMonitorItem(phaseRun).workKind).toBe("agent_runtime_run");
   });
 
   it("does not project live monitor payloads without a task run identity", () => {
@@ -88,7 +88,7 @@ describe("runtimeWorkProjection", () => {
       has_coordination: false,
       coordination_run: null,
       loop_state: {},
-      professional_task_summary: null,
+      agent_runtime_phase_summary: null,
       latest_checkpoint: null,
       task_order_projection: null,
       updated_at: 1,

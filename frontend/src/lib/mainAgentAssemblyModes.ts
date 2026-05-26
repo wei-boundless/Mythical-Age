@@ -27,7 +27,6 @@ const MODE_OWNED_RUNTIME_HINT_KEYS = new Set([
   "interaction_mode",
   "runtime_mode",
   "projection_strength",
-  "execution_strategy",
   "recipe_id",
 ]);
 
@@ -36,13 +35,11 @@ const MODE_OWNED_POLICY_KEYS = new Set([
   "runtime_lane",
   "recipe_id",
   "projection_strength",
-  "execution_strategy",
   "mode_reason",
 ]);
 
 const MODE_OWNED_INTENT_KEYS = new Set([
   "interaction_mode",
-  "execution_strategy",
 ]);
 
 export const MAIN_AGENT_ID = "agent:0";
@@ -107,7 +104,6 @@ export const MAIN_AGENT_ASSEMBLY_MODES: Record<MainAgentAssemblyMode, MainAgentA
     runtime_assembly_hint: {
       interaction_mode: "professional_mode",
       runtime_mode: "professional_task",
-      execution_strategy: "professional_task_run",
       projection_strength: "style_only",
     },
     stream_policy: INTERACTIVE_STREAM_POLICY,
@@ -120,7 +116,6 @@ export const MAIN_AGENT_ASSEMBLY_MODES: Record<MainAgentAssemblyMode, MainAgentA
     },
     intent_decision: {
       interaction_mode: "professional_mode",
-      execution_strategy: "professional_task_run",
     },
   },
 };

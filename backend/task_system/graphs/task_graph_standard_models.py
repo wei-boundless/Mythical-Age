@@ -267,7 +267,11 @@ def build_task_graph_standard_view(
         output_node_id=graph.output_node_id,
         temporal_edges=tuple(dict(item) for item in list(layered.get("temporal_edges") or []) if isinstance(item, dict)),
         loop_frames=tuple(dict(item) for item in list(layered.get("loop_frames") or []) if isinstance(item, dict)),
-        timeline_blocks=tuple(dict(item) for item in list(layered.get("timeline_blocks") or []) if isinstance(item, dict)),
+        timeline_blocks=tuple(
+            {**dict(item), "migration_only": True}
+            for item in list(layered.get("timeline_blocks") or [])
+            if isinstance(item, dict)
+        ),
         phases=_phase_specs(graph),
         scheduler=dict(runtime_spec.diagnostics.get("scheduler_support") or {}),
         runtime_semantics=dict(runtime_spec.diagnostics.get("runtime_semantics") or {}),

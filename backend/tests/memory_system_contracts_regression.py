@@ -1,17 +1,14 @@
 from __future__ import annotations
 
-from memory_system.storage import MemoryNote
+from memory_system.storage.models import MemoryNote
 from memory_system.storage.process_state import ContextSlots, FlowState, ProcessState, TaskState
 from memory_system.storage.session_memory import SessionMemoryManager
 
-from memory_system import ConversationMemoryStoreAdapter, LongTermMemoryStoreAdapter, MemoryFacade, StateMemoryStoreAdapter
-from memory_system.contracts import (
-    ConversationMemorySnapshot,
-    LongTermMemoryRecord,
-    MemoryContextCandidate,
-    StateMemoryRestoreCandidate,
-)
+from memory_system import MemoryFacade
+from memory_system.conversation_memory import ConversationMemoryStoreAdapter
+from memory_system.contracts import ConversationMemorySnapshot, MemoryContextCandidate, StateMemoryRestoreCandidate
 from memory_system.runtime_view import MemoryRuntimeView
+from memory_system.state_memory import StateMemoryStoreAdapter
 from memory_system.supply import (
     MemoryBundle,
     build_memory_request,
@@ -85,9 +82,9 @@ def test_memory_facade_exposes_state_memory_preview_without_committing(tmp_path)
         )
     )
 
-    snapshot = facade.build_state_memory_snapshot(session_id)
-    restore_candidates = facade.build_state_memory_restore_candidates(session_id)
-    context_candidates = facade.build_state_memory_context_candidates(session_id)
+    snapshot = facade.bundle_service.build_state_memory_snapshot(session_id)
+    restore_candidates = facade.bundle_service.build_state_memory_restore_candidates(session_id)
+    context_candidates = facade.bundle_service.build_state_memory_context_candidates(session_id)
 
     assert snapshot.active_goal == "Expose StateMemory through facade"
     assert any(candidate.value == "result-11" for candidate in restore_candidates)
@@ -137,7 +134,21 @@ def test_foreground_continuity_state_is_immediately_available_without_runtime_wi
     assert loaded.bundle_result_refs[0]["ordinal"] == 2
 
 
-def test_session_memory_task_switch_resets_warm_context_for_new_domain(tmp_path) -> None:
+def test_foreground_continuity_state_corruption_is_not_silently_ignored(tmp_path) -> None:
+    facade = MemoryFacade(tmp_path)
+    path = facade.foreground_state.state_path("session-foreground-corrupt")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{broken-json", encoding="utf-8")
+
+    try:
+        facade.load_foreground_continuity_state("session-foreground-corrupt")
+    except ValueError as exc:
+        assert "Expecting property name" in str(exc)
+    else:
+        raise AssertionError("Foreground continuity state corruption was silently ignored")
+
+
+def test_session_memory_projection_does_not_guess_task_switch_from_keywords(tmp_path) -> None:
     manager = SessionMemoryManager(tmp_path / "session-switch")
     manager.state_manager.overwrite(
         ProcessState(
@@ -154,7 +165,8 @@ def test_session_memory_task_switch_resets_warm_context_for_new_domain(tmp_path)
     )
 
     assert state.active_goal == "现在做代码重构"
-    assert any("上一阶段目标" in item for item in state.warm_context)
+    assert "上一轮 PDF 结论" in state.warm_context
+    assert not any("上一阶段" in item or "切换后" in item for item in state.warm_context)
 
 
 def test_conversation_memory_adapter_excludes_state_sections(tmp_path) -> None:
@@ -222,38 +234,39 @@ _Current-turn outputs, conclusions, or artifacts that remain active._
 """
     )
 
-    snapshot = facade.build_conversation_memory_snapshot(session_id)
-    candidates = facade.build_conversation_memory_context_candidates(session_id)
+    snapshot = facade.bundle_service.build_conversation_memory_snapshot(session_id)
+    candidates = facade.bundle_service.build_conversation_memory_context_candidates(session_id)
 
     assert snapshot.session_id == session_id
     assert "继续推进 ConversationMemory" in snapshot.recent_dialogue_refs
     assert candidates[0].memory_layer == "conversation"
 
 
-def test_long_term_memory_records_are_runtime_visible_and_verification_scoped(tmp_path) -> None:
+def test_long_term_memory_context_candidate_carries_verification_policy(tmp_path) -> None:
     facade = MemoryFacade(tmp_path)
-    facade.memory_manager.save_note(
-        MemoryNote(
-            slug="answer-style",
-            title="用户偏好先讲结论",
-            summary="复杂问题先讲结论再展开。",
-            canonical_statement="复杂问题先讲结论。",
-            body="回答复杂设计问题时先讲结论，再分层展开。",
-            memory_type="user",
-            memory_class="preference",
-            confidence="high",
-        )
+    note = MemoryNote(
+        slug="answer-style",
+        title="用户偏好先讲结论",
+        summary="复杂问题先讲结论再展开。",
+        canonical_statement="复杂问题先讲结论。",
+        body="回答复杂设计问题时先讲结论，再分层展开。",
+        memory_type="user",
+        memory_class="preference",
+        confidence="high",
     )
 
-    adapter = LongTermMemoryStoreAdapter(facade.memory_manager.root_dir)
-    records = adapter.load_records()
+    candidates = facade.bundle_service.build_long_term_memory_context_candidates(
+        session_id="session-style",
+        query="回答风格",
+        relevant_notes=[note],
+    )
 
-    assert len(records) == 1
-    record = records[0]
-    assert isinstance(record, LongTermMemoryRecord)
-    assert record.memory_type == "user_preference"
-    assert record.verification_policy == "required_for_file_function_flag_claims"
-    assert record.metadata["eligible_for_injection"] is True
+    assert len(candidates) == 1
+    candidate = candidates[0]
+    assert candidate.memory_layer == "long_term"
+    assert candidate.metadata["memory_class"] == "preference"
+    assert candidate.metadata["verification_policy"] == "verify_file_function_flag_claims_against_current_state"
+    assert candidate.confidence == 0.82
 
 
 def test_long_term_memory_context_candidates_are_optional_and_do_not_override(tmp_path) -> None:
@@ -269,7 +282,7 @@ def test_long_term_memory_context_candidates_are_optional_and_do_not_override(tm
         confidence="medium",
     )
 
-    candidates = facade.build_long_term_memory_context_candidates(
+    candidates = facade.bundle_service.build_long_term_memory_context_candidates(
         session_id="session-g",
         query="记忆系统边界是什么？",
         relevant_notes=[note],
@@ -282,22 +295,6 @@ def test_long_term_memory_context_candidates_are_optional_and_do_not_override(tm
     assert candidate.requires_verification_before_use is True
     assert candidate.can_override_current_turn is False
     assert "状态记忆不能被默认保存为长期记忆" in candidate.rendered_preview
-
-
-def test_long_term_memory_write_candidate_stays_pending(tmp_path) -> None:
-    adapter = LongTermMemoryStoreAdapter(tmp_path / "durable_memory")
-
-    candidate = adapter.propose_write_candidate(
-        candidate_id="memory-write:demo",
-        content="用户偏好先讲结论。",
-        source_event_refs=("turn-1",),
-        stability="stable",
-    )
-
-    assert candidate.target_layer == "long_term"
-    assert candidate.gate_decision == "pending"
-    assert candidate.authority == "candidate_only"
-    assert "no_auto_commit" in candidate.risk_flags
 
 
 def test_memory_runtime_view_collects_three_layers_without_write_authority(tmp_path) -> None:
@@ -336,12 +333,12 @@ _Current-turn outputs, conclusions, or artifacts that remain active._
         memory_class="work",
     )
 
-    default_view = facade.build_memory_runtime_view(
+    default_view = facade.bundle_service.build_memory_runtime_view(
         session_id=session_id,
         query="记忆系统原则是什么？",
         relevant_notes=[note],
     )
-    requested_view = facade.build_memory_runtime_view(
+    requested_view = facade.bundle_service.build_memory_runtime_view(
         session_id=session_id,
         query="记忆系统原则是什么？",
         relevant_notes=[note],
@@ -366,11 +363,10 @@ _Current-turn outputs, conclusions, or artifacts that remain active._
     assert requested_view.state_snapshot.context_slots["active_constraints"]["subset_labels"] == ["Alice", "Bob"]
     assert all(candidate.authority == "candidate_only" for candidate in requested_view.restore_candidates)
     assert requested_view.diagnostics["state_read_requested"] is True
-    assert requested_view.long_term_records == ()
-    assert requested_view.diagnostics["long_term_records_prompt_visible"] is False
+    assert "long_term_records" not in requested_view.to_dict()
 
 
-def test_long_term_records_are_not_prompt_visible_even_when_long_term_requested(tmp_path) -> None:
+def test_long_term_records_are_not_exposed_even_when_long_term_requested(tmp_path) -> None:
     facade = MemoryFacade(tmp_path)
     facade.memory_manager.save_note(
         MemoryNote(
@@ -384,14 +380,75 @@ def test_long_term_records_are_not_prompt_visible_even_when_long_term_requested(
         )
     )
 
-    view = facade.build_memory_runtime_view(
+    view = facade.bundle_service.build_memory_runtime_view(
         session_id="session-long-term-records",
         query="无关问题",
         memory_request_profile={"requested_memory_layers": ["long_term"], "allow_long_term_memory": True},
     )
 
-    assert view.long_term_records == ()
-    assert view.diagnostics["long_term_records_policy"] == "diagnostics_or_management_only"
+    assert "long_term_records" not in view.to_dict()
+    assert view.diagnostics["long_term_candidate_count"] == 0
+
+
+def test_memory_runtime_view_rejects_unknown_memory_layer(tmp_path) -> None:
+    facade = MemoryFacade(tmp_path)
+
+    try:
+        facade.bundle_service.build_memory_runtime_view(
+            session_id="session-invalid-layer",
+            memory_request_profile={"requested_memory_layers": ["state", "legacy_magic"]},
+        )
+    except ValueError as exc:
+        assert "Unknown memory layer: legacy_magic" in str(exc)
+    else:
+        raise AssertionError("Memory runtime view accepted an unknown memory layer")
+
+
+def test_long_term_recall_without_selector_does_not_use_keyword_fallback(tmp_path) -> None:
+    facade = MemoryFacade(tmp_path)
+    facade.memory_manager.save_note(
+        MemoryNote(
+            slug="answer-style",
+            title="回答风格",
+            summary="复杂问题先讲结论。",
+            canonical_statement="复杂问题先讲结论。",
+            body="用户偏好复杂问题先讲结论。",
+            memory_type="user",
+            memory_class="preference",
+        )
+    )
+
+    result = facade.bundle_service.recall_durable_memories(
+        query="回答风格",
+        memory_intent=None,
+        note_limit=5,
+    )
+
+    assert result.selected_notes == []
+    assert result.selection.should_recall is False
+    assert result.selection.reason == "no_durable_memory_selector_configured"
+
+
+def test_preselected_long_term_notes_do_not_require_query_signal(tmp_path) -> None:
+    facade = MemoryFacade(tmp_path)
+    note = MemoryNote(
+        slug="preselected-note",
+        title="系统预选记忆",
+        summary="系统已经显式选择这条长期记忆。",
+        canonical_statement="预选长期记忆不需要 query 触发。",
+        body="这条记忆由上层 plan 或人工流程显式提供。",
+        memory_type="project",
+        memory_class="work",
+    )
+
+    result = facade.bundle_service.recall_durable_memories(
+        query="",
+        selected_notes=[note],
+    )
+
+    assert result.selection.reason == "preselected_notes"
+    assert result.selection.should_recall is True
+    assert result.selected_notes[0]["note_id"] == "preselected-note"
 
 
 def test_memory_runtime_view_collects_conversation_only_when_requested(tmp_path) -> None:
@@ -413,11 +470,11 @@ _Current-turn outputs, conclusions, or artifacts that remain active._
 """
     )
 
-    default_view = facade.build_memory_runtime_view(
+    default_view = facade.bundle_service.build_memory_runtime_view(
         session_id=session_id,
         query="继续",
     )
-    requested_view = facade.build_memory_runtime_view(
+    requested_view = facade.bundle_service.build_memory_runtime_view(
         session_id=session_id,
         query="继续",
         memory_request_profile={"requested_memory_layers": ["conversation"]},
@@ -546,7 +603,7 @@ _Current-turn outputs, conclusions, or artifacts that remain active._
 """
     )
 
-    bundle = facade.build_memory_bundle(
+    bundle = facade.bundle_service.build_memory_bundle(
         task_id="task.memory.bundle",
         session_id=session_id,
         agent_id="agent:0",
@@ -563,4 +620,55 @@ _Current-turn outputs, conclusions, or artifacts that remain active._
     assert bundle.context_package
     assert bundle.runtime_view.read_only is True
     assert bundle.diagnostics["context_policy_attached"] is True
+
+
+def test_memory_bundle_reuses_single_runtime_view_for_context_package(tmp_path) -> None:
+    facade = MemoryFacade(tmp_path)
+    calls = {"runtime_view": 0}
+    original = facade.bundle_service.build_memory_runtime_view
+
+    def _counting_build_memory_runtime_view(**kwargs):
+        calls["runtime_view"] += 1
+        return original(**kwargs)
+
+    facade.bundle_service.build_memory_runtime_view = _counting_build_memory_runtime_view  # type: ignore[method-assign]
+
+    facade.bundle_service.build_memory_bundle(
+        task_id="task.memory.single-read",
+        session_id="session-single-read",
+        agent_id="agent:0",
+        memory_request_profile={"requested_memory_layers": ["conversation"]},
+    )
+
+    assert calls["runtime_view"] == 1
+
+
+def test_context_budget_provider_failure_is_visible(tmp_path) -> None:
+    def _broken_budget():
+        raise RuntimeError("budget resolver unavailable")
+
+    facade = MemoryFacade(tmp_path, context_budget_provider=_broken_budget)
+
+    try:
+        facade.bundle_service.build_memory_context_package_result(
+            session_id="session-budget-failure",
+            memory_request_profile={"requested_memory_layers": ["state"]},
+        )
+    except RuntimeError as exc:
+        assert "budget resolver unavailable" in str(exc)
+    else:
+        raise AssertionError("Context budget provider failure was silently replaced with a default")
+
+
+def test_context_budget_provider_empty_payload_is_rejected(tmp_path) -> None:
+    facade = MemoryFacade(tmp_path, context_budget_provider=lambda: {})
+
+    try:
+        facade.session_memory.context_controller("session-empty-budget")
+    except ValueError as exc:
+        assert "context budget provider returned an empty payload" in str(exc)
+    else:
+        raise AssertionError("Empty context budget provider payload was accepted")
+
+
 

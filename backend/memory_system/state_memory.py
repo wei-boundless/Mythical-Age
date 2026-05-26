@@ -11,8 +11,8 @@ from .contracts import (
     StateMemoryRestoreCandidate,
     StateMemorySnapshot,
 )
-from .compat_types import SessionMemoryManager
 from .paths import normalize_session_id, safe_session_dir
+from .storage.session_memory import SessionMemoryManager
 
 
 class StateMemoryStoreAdapter:

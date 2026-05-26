@@ -20,21 +20,6 @@ class RuntimeResumeDecision:
         return asdict(self)
 
 
-@dataclass(frozen=True, slots=True)
-class ProfessionalRunResumeDecision:
-    decision_id: str
-    task_run_id: str
-    decision: str
-    reason: str
-    resume_from_checkpoint_ref: str = ""
-    current_obligation: dict[str, Any] = field(default_factory=dict)
-    checkpoint_summary: dict[str, Any] = field(default_factory=dict)
-    authority: str = "orchestration.professional_run_resume_decision"
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
 def decide_runtime_resume(
     *,
     task_run_id: str,
@@ -99,34 +84,6 @@ def decide_runtime_resume(
         },
         human_gate_summary=_human_gate_summary(human_gate),
     )
-
-
-def decide_professional_run_resume(
-    *,
-    task_run_id: str,
-    checkpoint: Any | None,
-    current_obligation: dict[str, Any] | None = None,
-    user_goal: str = "",
-) -> ProfessionalRunResumeDecision:
-    runtime_decision = decide_runtime_resume(
-        task_run_id=task_run_id,
-        checkpoint=checkpoint,
-        current_obligation=current_obligation,
-        user_goal=user_goal,
-    )
-    return ProfessionalRunResumeDecision(
-        decision_id=f"professional-resume:{task_run_id}",
-        task_run_id=str(task_run_id or ""),
-        decision=runtime_decision.decision
-        if runtime_decision.decision in {"start_new", "restart", "reuse_completed", "continue"}
-        else "continue",
-        reason=runtime_decision.reason,
-        resume_from_checkpoint_ref=runtime_decision.resume_from_checkpoint_ref,
-        current_obligation=dict(runtime_decision.current_obligation),
-        checkpoint_summary=dict(runtime_decision.checkpoint_summary),
-    )
-
-
 def _user_requests_restart(user_goal: str) -> bool:
     text = str(user_goal or "").lower()
     return any(marker in text for marker in ("重新开始", "从头", "restart", "start over"))

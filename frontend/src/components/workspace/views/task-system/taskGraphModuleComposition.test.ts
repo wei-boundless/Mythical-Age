@@ -16,8 +16,9 @@ describe("TaskGraph module composition facets", () => {
     expect(taskGraphModuleFacetFromEditorFocus("units")).toBe("units");
   });
 
-  it("maps timeline block focus to the stitching facet", () => {
-    expect(taskGraphModuleFacetFromEditorFocus("blocks")).toBe("stitching");
+  it("routes removed timeline block focus to graph module diagnostics", () => {
+    expect(taskGraphModuleFacetFromEditorFocus("blocks")).toBe("graph_module_runtime");
+    expect(taskGraphModuleFacetFromEditorFocus("stitching")).toBe("graph_module_runtime");
   });
 
   it("falls back to unit composition for unknown focus facets", () => {
@@ -31,7 +32,6 @@ describe("TaskGraph module composition facets", () => {
       "interfaces",
       "connections",
       "graph_module_runtime",
-      "stitching",
     ]);
     expect(TASK_GRAPH_MODULE_FACET_ITEMS.find((item) => item.id === "graph_module_runtime")?.title).toBe("图模块展开");
   });

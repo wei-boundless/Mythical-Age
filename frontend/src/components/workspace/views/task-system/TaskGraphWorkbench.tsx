@@ -25,6 +25,7 @@ import { TaskGraphTopologyPage } from "@/components/workspace/views/task-system/
 import type { TaskGraphStudioLayerId } from "./TaskGraphLayerNav";
 import { TaskGraphStudioShell } from "./TaskGraphStudioShell";
 import { asRecord, isTaskGraphPublishedState, type TaskGraphPublishStateV2 } from "./taskGraphDraftV2";
+import { clearCanonicalSelection, selectionFromFocus } from "./taskGraphEditorSelection";
 import {
   focusForPreflightIssue,
   mergeTaskGraphEditorFocus,
@@ -66,6 +67,7 @@ export function TaskGraphWorkbench({
   const taskGraphStandardView = rest.taskGraphStandardView;
   const taskGraphStandardViewLoading = rest.taskGraphStandardViewLoading;
   const taskGraphStandardViewError = rest.taskGraphStandardViewError;
+  const taskGraphStandardViewStale = rest.taskGraphStandardViewStale;
   const refreshTaskGraphStandardView = rest.refreshTaskGraphStandardView;
   const activeLayer = editorFocus.layer;
   const coordinatorAgentId = String(taskGraphDraftV2.runtime_policy.coordinator_agent_id || "agent:0");
@@ -94,6 +96,11 @@ export function TaskGraphWorkbench({
   };
   const compileExecutionPackage = async () => {
     if (!taskGraphDraftV2.graph_id) return;
+    if (rest.taskGraphDirty || taskGraphStandardViewStale) {
+      setExecutionPackage(null);
+      setExecutionPackageError("当前草稿或标准视图已过期，请先保存并刷新标准视图后再编译执行包。");
+      return;
+    }
     setExecutionPackageLoading(true);
     setExecutionPackageError("");
     try {
@@ -107,18 +114,7 @@ export function TaskGraphWorkbench({
   };
   const applyEditorFocus = (nextFocus: Partial<TaskGraphEditorFocus> & { layer?: TaskGraphStudioLayerId }) => {
     setEditorFocus((current) => mergeTaskGraphEditorFocus(current, nextFocus));
-    if (Object.prototype.hasOwnProperty.call(nextFocus, "node_id") || Object.prototype.hasOwnProperty.call(nextFocus, "repository_id")) {
-      rest.setSelectedGraphNodeId(String(nextFocus.node_id ?? nextFocus.repository_id ?? ""));
-      if (!Object.prototype.hasOwnProperty.call(nextFocus, "edge_id")) {
-        rest.setSelectedGraphEdgeId("");
-      }
-    }
-    if (Object.prototype.hasOwnProperty.call(nextFocus, "edge_id")) {
-      rest.setSelectedGraphEdgeId(String(nextFocus.edge_id ?? ""));
-      if (!Object.prototype.hasOwnProperty.call(nextFocus, "node_id") && !Object.prototype.hasOwnProperty.call(nextFocus, "repository_id")) {
-        rest.setSelectedGraphNodeId("");
-      }
-    }
+    rest.setTaskGraphEditorSelection((current) => selectionFromFocus(current, nextFocus));
   };
   const setActiveLayer = (layer: TaskGraphStudioLayerId) => {
     applyEditorFocus({ layer, facet: undefined, issue_id: undefined });
@@ -127,8 +123,7 @@ export function TaskGraphWorkbench({
     const target = rest.taskGraphs.find((graph) => graph.graph_id === graphId);
     if (!target) return;
     rest.setSelectedTaskGraphId(target.graph_id);
-    rest.setSelectedGraphNodeId("");
-    rest.setSelectedGraphEdgeId("");
+    rest.setTaskGraphEditorSelection(clearCanonicalSelection);
     setEditorFocus({ layer: "topology", facet: "graph" });
   };
   const focusPreflightIssue = (issue: TaskGraphPreflightIssue) => {
@@ -326,11 +321,13 @@ export function TaskGraphWorkbench({
           {taskGraphStandardViewLoading
             ? "正在编译图对象视图"
             : taskGraphStandardView
-              ? "节点 / 边 / 资源 / 时序已对齐"
+              ? taskGraphStandardViewStale ? "标准对象视图已过期" : "节点 / 边 / 资源 / 时序已对齐"
               : "尚未载入标准对象视图"}
         </strong>
         <small>
-          {taskGraphStandardView
+          {taskGraphStandardViewStale
+            ? "当前标准对象视图来自旧草稿；请保存并刷新后再用于发布、预检或执行包编译。"
+            : taskGraphStandardView
             ? `graph=${String(taskGraphStandardView.graph.graph_id ?? taskGraphDraftV2.graph_id)} · ${taskGraphStandardView.nodes.length} nodes · ${taskGraphStandardView.edges.length} edges · ${taskGraphStandardView.resources.length} resources`
             : "标准对象视图用于解释和校验当前草稿；可运行结构仍以 nodes / edges 草稿为唯一写入源。"}
         </small>
@@ -431,6 +428,7 @@ export function TaskGraphWorkbench({
           orchestrationAgentCatalog={rest.orchestrationAgentCatalog}
           projectionCards={rest.projectionCards}
           standardView={rest.taskGraphStandardView}
+          standardViewStale={taskGraphStandardViewStale}
           standardViewLoading={rest.taskGraphStandardViewLoading}
           taskGraphDraft={taskGraphDraftV2}
           taskGraphs={rest.taskGraphs}
@@ -461,8 +459,8 @@ export function TaskGraphWorkbench({
           activeGraphNodes={activeGraphNodes}
           onCreateProjectionFromPrompt={rest.onCreateProjectionFromPrompt}
           projectionCards={rest.projectionCards}
-          selectedGraphEdge={rest.selectedGraphEdge ?? activeGraphEdges[0] ?? null}
-          selectedGraphEdgeId={rest.selectedGraphEdgeId || String(activeGraphEdges[0]?.edge_id ?? activeGraphEdges[0]?.id ?? "")}
+          selectedGraphEdge={rest.selectedGraphEdge}
+          selectedGraphEdgeId={rest.selectedGraphEdgeId}
           selectedGraphNode={rest.selectedGraphNode}
           selectedGraphNodeId={rest.selectedGraphNodeId}
           standardView={rest.taskGraphStandardView}
@@ -543,6 +541,7 @@ export function TaskGraphWorkbench({
           metadata={taskGraphDraftV2.metadata}
           nodes={activeGraphNodes}
           standardView={rest.taskGraphStandardView}
+          standardViewStale={taskGraphStandardViewStale}
           onPublish={handlePublish}
           onRunBound={() => updateEditorPublishState("run_bound")}
           onSave={handleSaveDraft}

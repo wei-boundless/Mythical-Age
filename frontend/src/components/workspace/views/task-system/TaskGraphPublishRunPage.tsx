@@ -71,6 +71,7 @@ export function TaskGraphPublishRunPage({
   metadata,
   nodes,
   standardView,
+  standardViewStale = false,
   onPublish,
   onSave,
   onFocusIssue,
@@ -93,6 +94,7 @@ export function TaskGraphPublishRunPage({
   metadata?: Record<string, unknown>;
   nodes: Array<Record<string, unknown>>;
   standardView?: TaskGraphStandardView | null;
+  standardViewStale?: boolean;
   onPublish: () => void;
   onSave: () => void;
   onFocusIssue?: (issue: TaskGraphPreflightIssue) => void;
@@ -165,6 +167,16 @@ export function TaskGraphPublishRunPage({
   const boundBatchLifecycleSummary = buildTaskGraphBatchLifecycleSummary(taskGraphBoundRunMonitor?.batch_lifecycle);
   async function compileRuntimeSpec() {
     if (!graphId) return;
+    if (dirty || standardViewStale) {
+      const message = "当前草稿或标准视图已过期，请先保存并刷新标准视图后再编译执行包。";
+      setLocalExecutionPackage(null);
+      setLocalRuntimeSpec(null);
+      setLocalContractManifest(null);
+      setLocalRuntimeSpecError(message);
+      onSharedExecutionPackageChange?.(null);
+      onSharedRuntimeSpecErrorChange?.(message);
+      return;
+    }
     setRuntimeSpecLoading(true);
     setLocalRuntimeSpecError("");
     onSharedRuntimeSpecErrorChange?.("");
@@ -319,10 +331,10 @@ export function TaskGraphPublishRunPage({
             <TaskSystemToolbarButton disabled={saving === "task-graph"} onClick={onSave}>
               <Save size={15} />保存草稿
             </TaskSystemToolbarButton>
-            <TaskSystemToolbarButton disabled={!preflightReport.valid || saving === "task-graph"} onClick={onPublish} variant="primary">
+            <TaskSystemToolbarButton disabled={!preflightReport.valid || standardViewStale || saving === "task-graph"} onClick={onPublish} variant="primary">
               <Send size={15} />发布可运行
             </TaskSystemToolbarButton>
-            <TaskSystemToolbarButton disabled={!graphId || runtimeSpecLoading} onClick={() => void compileRuntimeSpec()}>
+            <TaskSystemToolbarButton disabled={!graphId || dirty || standardViewStale || runtimeSpecLoading} onClick={() => void compileRuntimeSpec()}>
               <RefreshCw size={15} />编译执行包
             </TaskSystemToolbarButton>
             <TaskSystemToolbarButton
@@ -354,9 +366,10 @@ export function TaskGraphPublishRunPage({
             <p><span>边</span><strong>{edges.length}</strong></p>
             <p><span>图状态</span><strong>{taskGraphPublishStateLabel(publishState)}</strong></p>
             <p><span>运行态</span><strong>{runStatusLabel}</strong></p>
+            <p><span>标准视图</span><strong>{standardViewStale ? "已过期" : standardView ? "当前" : "未载入"}</strong></p>
           </div>
           <div className="task-graph-note">
-            <strong>{published ? (publishState === "run_bound" ? "当前图已绑定运行" : "可创建真实运行") : "发布后才能创建运行"}</strong>
+            <strong>{standardViewStale ? "请先保存并刷新标准视图" : published ? (publishState === "run_bound" ? "当前图已绑定运行" : "可创建真实运行") : "发布后才能创建运行"}</strong>
             <span>创建运行会调用后端 TaskGraph 运行入口，生成真实 TaskRun、TaskGraphRun、checkpoint 和 trace。</span>
           </div>
         </article>

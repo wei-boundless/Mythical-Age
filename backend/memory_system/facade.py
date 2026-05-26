@@ -6,17 +6,13 @@ from typing import Any, Callable
 from project_layout import ProjectLayout
 from orchestration import BackgroundTaskManager
 from .bundle_service import MemoryBundleService
+from .continuity import ForegroundContinuityStateStore, MemoryMessageAdapter, SessionMemoryLayer
 from .conversation_memory import ConversationMemoryStoreAdapter
 from .durable import DurableMemoryLayer
-from .foreground_state import ForegroundContinuityStateStore
 from .governance_service import DurableMemoryGovernanceService
-from .long_term_memory import LongTermMemoryStoreAdapter
 from .maintenance_agent import MemoryMaintenanceAgent
 from .maintenance_coordinator import MemoryMaintenanceCoordinator
-from .messages import MemoryMessageAdapter
-from .request_service import MemoryRequestService
 from .runtime_services import MemoryRuntimeServices
-from .session import SessionMemoryLayer
 from .state_memory import StateMemoryStoreAdapter
 
 
@@ -44,23 +40,19 @@ class MemoryFacade:
         self.session_root = self.session_memory.session_root
         self.conversation_memory = ConversationMemoryStoreAdapter(self.session_root)
         self.state_memory = StateMemoryStoreAdapter(self.session_root)
-        self.long_term_memory = LongTermMemoryStoreAdapter(self.memory_manager.root_dir)
         layout = ProjectLayout.from_backend_dir(base_dir)
         self.runtime_services = MemoryRuntimeServices(layout.storage_root)
         self.working_memory = self.runtime_services.working_memory
         self.task_durable_memory = self.runtime_services.task_durable_memory
         self.formal_memory = self.runtime_services.formal_memory
         self.working_memory_finalizer = self.runtime_services.working_memory_finalizer
-        self.request_service = MemoryRequestService()
         self.bundle_service = MemoryBundleService(
             session_memory=self.session_memory,
             conversation_memory=self.conversation_memory,
             state_memory=self.state_memory,
             working_memory=self.working_memory,
             task_durable_memory=self.task_durable_memory,
-            long_term_memory=self.long_term_memory,
             durable_memory=self.durable_memory,
-            request_service=self.request_service,
             context_budget_provider=context_budget_provider,
         )
         self.governance_service = DurableMemoryGovernanceService(
@@ -169,118 +161,11 @@ class MemoryFacade:
     def delete_session_memory(self, session_id: str) -> bool:
         return self.session_memory.delete_session(session_id)
 
-    def build_context_package(
-        self,
-        session_id: str,
-        *,
-        history: list[dict[str, Any]] | None = None,
-        pending_user_message: str | None = None,
-        memory_intent: Any | None = None,
-        memory_request_profile: dict[str, Any] | None = None,
-        memory_view: Any | None = None,
-        relevant_notes: list[Any] | None = None,
-        retrieval_results: list[dict[str, Any]] | None = None,
-        rebuild_reason: str = "prompt_assembly",
-    ):
-        return self.build_memory_context_package_result(
-            session_id=session_id,
-            query=pending_user_message,
-            memory_intent=memory_intent,
-            memory_request_profile=memory_request_profile,
-            memory_view=memory_view,
-            relevant_notes=relevant_notes,
-            retrieval_results=retrieval_results,
-        ).package
-
-    def build_state_memory_snapshot(self, session_id: str):
-        return self.bundle_service.build_state_memory_snapshot(session_id)
-
-    def build_state_memory_restore_candidates(self, session_id: str):
-        return self.bundle_service.build_state_memory_restore_candidates(session_id)
-
     def load_foreground_continuity_state(self, session_id: str):
         return self.foreground_state.load(session_id)
 
     def save_foreground_continuity_state(self, **payload: Any):
         return self.foreground_state.project_from_commit(**payload)
-
-    def build_state_memory_context_candidates(self, session_id: str):
-        return self.bundle_service.build_state_memory_context_candidates(session_id)
-
-    def build_conversation_memory_snapshot(self, session_id: str):
-        return self.bundle_service.build_conversation_memory_snapshot(session_id)
-
-    def build_conversation_memory_context_candidates(self, session_id: str):
-        return self.bundle_service.build_conversation_memory_context_candidates(session_id)
-
-    def build_working_memory_context_candidates(self, **payload: Any):
-        return self.bundle_service.build_working_memory_context_candidates(**payload)
-
-    def build_task_durable_memory_context_candidates(self, **payload: Any):
-        return self.bundle_service.build_task_durable_memory_context_candidates(**payload)
-
-    def build_long_term_memory_records(self, *, limit: int = 200, runtime_visible_only: bool = True):
-        return self.bundle_service.build_long_term_memory_records(
-            limit=limit,
-            runtime_visible_only=runtime_visible_only,
-        )
-
-    def build_long_term_memory_context_candidates(
-        self,
-        *,
-        session_id: str = "",
-        query: str | None = None,
-        memory_intent: Any | None = None,
-        note_limit: int = 5,
-        main_context: dict[str, object] | None = None,
-        task_summaries: list[dict[str, object]] | None = None,
-        session_summary: str = "",
-        recently_surfaced_note_ids: list[str] | None = None,
-        recent_tools: list[str] | None = None,
-        relevant_notes: list[Any] | None = None,
-    ):
-        return self.bundle_service.build_long_term_memory_context_candidates(
-            session_id=session_id,
-            query=query,
-            memory_intent=memory_intent,
-            note_limit=note_limit,
-            main_context=main_context,
-            task_summaries=task_summaries,
-            session_summary=session_summary,
-            recently_surfaced_note_ids=recently_surfaced_note_ids,
-            recent_tools=recent_tools,
-            relevant_notes=relevant_notes,
-        )
-
-    def create_working_memory_item(self, **payload: Any):
-        return self.working_memory.create_item(**payload)
-
-    def get_working_memory_item(self, work_memory_id: str):
-        return self.working_memory.get_item(work_memory_id)
-
-    def query_working_memory_items(self, **filters: Any):
-        return self.working_memory.query_items(**filters)
-
-    def accept_working_memory_item(self, work_memory_id: str, **payload: Any):
-        return self.working_memory.accept_item(work_memory_id, **payload)
-
-    def discard_working_memory_item(self, work_memory_id: str, **payload: Any):
-        return self.working_memory.discard_item(work_memory_id, **payload)
-
-    def mark_working_memory_conflict(self, work_memory_id: str, **payload: Any):
-        return self.working_memory.mark_conflict(work_memory_id, **payload)
-
-    def record_working_memory_read(self, **payload: Any):
-        return self.working_memory.record_read(**payload)
-
-    def select_working_memory_for_node(self, **payload: Any):
-        return self.working_memory.select_for_node(**payload)
-
-    def list_working_memory_read_logs(self, task_run_id: str = "", *, limit: int = 200):
-        return self.working_memory.list_read_logs(task_run_id, limit=limit)
-
-    def create_working_memory_temporal_edge(self, **payload: Any):
-        return self.working_memory.create_temporal_edge(**payload)
 
     async def _run_background_memory_maintenance(self, payload: dict[str, Any]) -> dict[str, Any]:
         return await self.maintenance_coordinator.run_after_commit(
@@ -292,42 +177,6 @@ class MemoryFacade:
             bundle_summary_refs=list(payload.get("bundle_summary_refs") or []),
             durable_lane_enabled=bool(payload.get("durable_lane_enabled", True)),
         )
-
-    def list_working_memory_temporal_edges(self, task_run_id: str = ""):
-        return self.working_memory.list_temporal_edges(task_run_id)
-
-    def create_working_memory_handoff_transaction(self, **payload: Any):
-        return self.working_memory.create_handoff_transaction(**payload)
-
-    def resolve_working_memory_handoff(self, **payload: Any):
-        return self.working_memory.resolve_handoff_into_working_memory(**payload)
-
-    def commit_working_memory_handoff_transaction(self, transaction_id: str, **payload: Any):
-        return self.working_memory.commit_handoff_transaction(transaction_id, **payload)
-
-    def list_working_memory_handoff_transactions(self, task_run_id: str = ""):
-        return self.working_memory.list_handoff_transactions(task_run_id)
-
-    def save_working_memory_policy_profile(self, **payload: Any):
-        return self.working_memory.save_policy_profile(**payload)
-
-    def get_working_memory_policy_profile(self, profile_id: str):
-        return self.working_memory.get_policy_profile(profile_id)
-
-    def finalize_working_memory_task_run(self, task_run_id: str, **payload: Any):
-        return self.working_memory_finalizer.finalize_task_run(task_run_id, **payload)
-
-    def create_task_durable_memory_item(self, **payload: Any):
-        return self.task_durable_memory.create_item(**payload)
-
-    def get_task_durable_memory_item(self, task_memory_id: str):
-        return self.task_durable_memory.get_item(task_memory_id)
-
-    def query_task_durable_memory_items(self, **filters: Any):
-        return self.task_durable_memory.query_items(**filters)
-
-    def list_task_durable_memory_namespaces(self):
-        return self.task_durable_memory.list_namespaces()
 
     def promote_working_memory_item_to_task_durable(self, work_memory_id: str, **payload: Any) -> dict[str, Any]:
         item = self.working_memory.get_item(work_memory_id)
@@ -378,7 +227,7 @@ class MemoryFacade:
         promotion_kind = str(payload.get("global_kind") or item.metadata.get("global_kind") or item.kind or "").strip()
         if promotion_kind not in allowed_kinds:
             raise ValueError("Task durable memory item is not an allowed global promotion kind")
-        result = self.create_durable_memory_note(
+        result = self.governance_service.create_durable_memory_note(
             title=str(payload.get("title") or item.title or item.task_memory_id),
             canonical_statement=str(payload.get("canonical_statement") or item.canonical_statement or item.summary),
             summary=str(payload.get("summary") or item.summary or item.canonical_statement),
@@ -413,82 +262,6 @@ class MemoryFacade:
             "header": result.get("header"),
             "task_memory": updated,
         }
-
-    def build_memory_runtime_view(
-        self,
-        *,
-        session_id: str,
-        query: str | None = None,
-        memory_intent: Any | None = None,
-        memory_request_profile: dict[str, Any] | None = None,
-        relevant_notes: list[Any] | None = None,
-        note_limit: int = 5,
-    ):
-        return self.bundle_service.build_memory_runtime_view(
-            session_id=session_id,
-            query=query,
-            memory_intent=memory_intent,
-            memory_request_profile=memory_request_profile,
-            relevant_notes=relevant_notes,
-            note_limit=note_limit,
-        )
-
-    def build_memory_request(
-        self,
-        *,
-        task_id: str,
-        session_id: str,
-        agent_id: str,
-        memory_request_profile: dict[str, Any] | None = None,
-        reason: str = "",
-    ):
-        return self.request_service.build_memory_request(
-            task_id=task_id,
-            session_id=session_id,
-            agent_id=agent_id,
-            memory_request_profile=memory_request_profile,
-            reason=reason,
-        )
-
-    def build_memory_scope_policy(
-        self,
-        *,
-        agent_id: str,
-        memory_request_profile: dict[str, Any] | None = None,
-    ):
-        return self.request_service.build_memory_scope_policy(
-            agent_id=agent_id,
-            memory_request_profile=memory_request_profile,
-        )
-
-    def build_memory_context_package_result(
-        self,
-        *,
-        session_id: str,
-        query: str | None = None,
-        memory_intent: Any | None = None,
-        memory_request_profile: dict[str, Any] | None = None,
-        memory_view: Any | None = None,
-        relevant_notes: list[Any] | None = None,
-        retrieval_results: list[dict[str, Any]] | None = None,
-        note_limit: int = 5,
-        available_context_tokens: int | None = None,
-        reserved_output_tokens: int | None = None,
-        long_term_token_cap: int | None = None,
-    ):
-        return self.bundle_service.build_memory_context_package_result(
-            session_id=session_id,
-            query=query,
-            memory_intent=memory_intent,
-            memory_request_profile=memory_request_profile,
-            memory_view=memory_view,
-            relevant_notes=relevant_notes,
-            retrieval_results=retrieval_results,
-            note_limit=note_limit,
-            available_context_tokens=available_context_tokens,
-            reserved_output_tokens=reserved_output_tokens,
-            long_term_token_cap=long_term_token_cap,
-        )
 
     def build_memory_context_package(
         self,
@@ -535,173 +308,3 @@ class MemoryFacade:
             relevant_notes=relevant_notes,
             note_limit=note_limit,
         )
-
-    def build_memory_compaction_result(
-        self,
-        *,
-        session_id: str,
-        history: list[dict[str, Any]] | None = None,
-    ):
-        return self.bundle_service.build_memory_compaction_result(
-            session_id=session_id,
-            history=history,
-        )
-
-    def inspect_memory_context_compaction(
-        self,
-        session_id: str,
-        history: list[dict[str, Any]],
-    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-        return self.bundle_service.inspect_memory_context_compaction(session_id, history)
-
-    def build_persistent_memory_block(
-        self,
-        *,
-        query: str | None = None,
-        memory_intent: Any | None = None,
-        note_limit: int = 5,
-        relevant_notes: list[Any] | None = None,
-    ) -> str:
-        return self.bundle_service.build_persistent_memory_block(
-            query=query,
-            memory_intent=memory_intent,
-            note_limit=note_limit,
-            relevant_notes=relevant_notes,
-        )
-
-    async def abuild_persistent_memory_block(
-        self,
-        *,
-        query: str | None = None,
-        memory_intent: Any | None = None,
-        note_limit: int = 5,
-        relevant_notes: list[Any] | None = None,
-    ) -> str:
-        return await self.bundle_service.abuild_persistent_memory_block(
-            query=query,
-            memory_intent=memory_intent,
-            note_limit=note_limit,
-            relevant_notes=relevant_notes,
-        )
-
-    def build_memory_recall_request(
-        self,
-        *,
-        query: str | None = None,
-        memory_intent: Any | None = None,
-        main_context: dict[str, object] | None = None,
-        task_summaries: list[dict[str, object]] | None = None,
-        session_summary: str = "",
-        recently_surfaced_note_ids: list[str] | None = None,
-        recent_tools: list[str] | None = None,
-    ):
-        return self.bundle_service.build_memory_recall_request(
-            query=query,
-            memory_intent=memory_intent,
-            main_context=main_context,
-            task_summaries=task_summaries,
-            session_summary=session_summary,
-            recently_surfaced_note_ids=recently_surfaced_note_ids,
-            recent_tools=recent_tools,
-        )
-
-    def recall_durable_memories(
-        self,
-        *,
-        query: str | None = None,
-        memory_intent: Any | None = None,
-        note_limit: int = 5,
-        main_context: dict[str, object] | None = None,
-        task_summaries: list[dict[str, object]] | None = None,
-        session_summary: str = "",
-        recently_surfaced_note_ids: list[str] | None = None,
-        recent_tools: list[str] | None = None,
-    ):
-        return self.bundle_service.recall_durable_memories(
-            query=query,
-            memory_intent=memory_intent,
-            note_limit=note_limit,
-            main_context=main_context,
-            task_summaries=task_summaries,
-            session_summary=session_summary,
-            recently_surfaced_note_ids=recently_surfaced_note_ids,
-            recent_tools=recent_tools,
-        )
-
-    async def arecall_durable_memories(
-        self,
-        *,
-        query: str | None = None,
-        memory_intent: Any | None = None,
-        note_limit: int = 5,
-        main_context: dict[str, object] | None = None,
-        task_summaries: list[dict[str, object]] | None = None,
-        session_summary: str = "",
-        recently_surfaced_note_ids: list[str] | None = None,
-        recent_tools: list[str] | None = None,
-    ):
-        return await self.bundle_service.arecall_durable_memories(
-            query=query,
-            memory_intent=memory_intent,
-            note_limit=note_limit,
-            main_context=main_context,
-            task_summaries=task_summaries,
-            session_summary=session_summary,
-            recently_surfaced_note_ids=recently_surfaced_note_ids,
-            recent_tools=recent_tools,
-        )
-
-    def build_durable_manifest_block(self, *, note_limit: int = 5) -> str:
-        return self.bundle_service.build_durable_manifest_block(note_limit=note_limit)
-
-    def prefetch_relevant_notes(
-        self,
-        query: str,
-        memory_intent: Any | None = None,
-        *,
-        limit: int = 3,
-    ) -> list[Any]:
-        return self.bundle_service.prefetch_relevant_notes(query, memory_intent, limit=limit)
-
-    def describe_durable_maintenance_runtime(self) -> dict[str, object]:
-        return {
-            **self.bundle_service.describe_durable_maintenance_runtime(),
-            "memory_maintenance": self.describe_memory_maintenance_runtime(),
-        }
-
-    def govern_durable_notes(self) -> dict[str, Any]:
-        return self.governance_service.govern_durable_notes()
-
-    def scan_durable_memory_headers(self, *, limit: int = 200):
-        return self.governance_service.scan_durable_memory_headers(limit=limit)
-
-    def create_durable_memory_note(self, **payload: Any) -> dict[str, Any]:
-        return self.governance_service.create_durable_memory_note(**payload)
-
-    def set_durable_memory_note_status(self, **payload: Any) -> dict[str, Any]:
-        return self.governance_service.set_durable_memory_note_status(**payload)
-
-    def delete_durable_memory_note(self, **payload: Any) -> dict[str, Any]:
-        return self.governance_service.delete_durable_memory_note(**payload)
-
-    def merge_durable_memory_notes(self, **payload: Any) -> dict[str, Any]:
-        return self.governance_service.merge_durable_memory_notes(**payload)
-
-    def load_durable_memory_note(self, filename: str) -> dict[str, Any]:
-        return self.governance_service.load_durable_memory_note(filename)
-
-    def inspect_session_history_tokens(
-        self,
-        *,
-        session_id: str,
-        messages: list[dict[str, Any]],
-    ) -> dict[str, Any]:
-        py_messages = self.adapter.to_messages(messages, session_id=session_id)
-        compactor = self.session_memory.compactor(session_id)
-        raw_history_tokens = compactor.conversation_tokens(py_messages)
-        pressure_level = compactor.pressure_level(raw_history_tokens, len(py_messages))
-        return {
-            "raw_history_tokens": raw_history_tokens,
-            "history_budget_tokens": int(compactor.effective_history_token_budget),
-            "history_pressure_level": str(pressure_level),
-        }

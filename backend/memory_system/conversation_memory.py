@@ -6,9 +6,9 @@ from typing import Any
 from memory_system.storage.text_utils import normalize_storage_text
 from token_accounting import count_text_tokens
 
-from .contracts import ConversationMemorySnapshot, MemoryContextCandidate, MemoryWriteCandidate
-from .compat_types import SessionMemoryManager
+from .contracts import ConversationMemorySnapshot, MemoryContextCandidate
 from .paths import normalize_session_id, safe_session_dir
+from .storage.session_memory import SessionMemoryManager
 
 
 CONVERSATION_SECTION_HEADERS: tuple[str, ...] = (
@@ -82,33 +82,6 @@ class ConversationMemoryStoreAdapter:
                     "last_updated_at": snapshot.last_updated_at,
                 },
             ),
-        )
-
-    def propose_summary_update_candidate(
-        self,
-        *,
-        session_id: str,
-        content: str,
-        source_event_refs: tuple[str, ...] = (),
-    ) -> MemoryWriteCandidate | None:
-        rendered = normalize_storage_text(content).strip()
-        if not rendered:
-            return None
-        safe_session_id = normalize_session_id(session_id)
-        return MemoryWriteCandidate(
-            candidate_id=f"memory-write:{safe_session_id}:conversation:summary",
-            target_layer="conversation",
-            write_kind="update_summary",
-            content=rendered,
-            source_event_refs=source_event_refs,
-            stability="session_scoped",
-            gate_decision="pending",
-            gate_reason="session_memory_write_requires_memory_gate",
-            risk_flags=("session_memory_preview", "no_auto_commit"),
-            metadata={
-                "session_id": safe_session_id,
-                "target": "session_summary",
-            },
         )
 
     def _render_conversation_preview(self, sections: dict[str, list[str]]) -> str:

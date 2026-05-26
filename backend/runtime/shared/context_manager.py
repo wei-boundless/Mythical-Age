@@ -673,6 +673,7 @@ def _render_runtime_execution_block(runtime_execution_facts: dict[str, Any] | No
     facts = dict(runtime_execution_facts or {})
     worker_spawn = dict(facts.get("worker_spawn_summary") or {})
     capability_state = dict(facts.get("runtime_capability_state") or {})
+    phase_pipeline = dict(facts.get("agent_runtime_phase_pipeline") or {})
     current_time_fact = _resolve_runtime_current_time_fact(facts, capability_state)
     lines: list[str] = []
     if current_time_fact:
@@ -728,6 +729,52 @@ def _render_runtime_execution_block(runtime_execution_facts: dict[str, Any] | No
             lines.append("- 本轮没有额外模型可见工具；这只表示当前任务没有采用这些工具。")
         if admitted_operations:
             lines.append(f"- 本轮准入 operation：{', '.join(admitted_operations)}。")
+    if phase_pipeline:
+        enabled_phases = [
+            str(item).strip()
+            for item in list(phase_pipeline.get("enabled_phases") or [])
+            if str(item).strip()
+        ]
+        planning = dict(phase_pipeline.get("planning") or {})
+        plan = dict(planning.get("agent_plan_draft") or {})
+        review = dict(planning.get("plan_coverage_review") or {})
+        plan_steps = [
+            dict(item)
+            for item in list(plan.get("steps") or [])
+            if isinstance(item, dict)
+        ]
+        lines.extend(
+            [
+                "### Agent Runtime Phase Pipeline",
+                "系统已经把本轮运行模式装配为统一 AgentRuntime 的阶段要求；这些要求不会创建另一条 runtime。",
+                f"- 当前交互模式：{phase_pipeline.get('interaction_mode') or 'standard_mode'}。",
+                f"- 启用阶段：{', '.join(enabled_phases) if enabled_phases else 'model_turn'}。",
+                "- 计划由你生成或修正，系统只负责检查覆盖度、工具权限、证据和最终收口。",
+            ]
+        )
+        if plan_steps:
+            lines.append("- 当前计划草案：")
+            for index, step in enumerate(plan_steps[:8], start=1):
+                title = str(step.get("title") or step.get("step_id") or f"step {index}").strip()
+                purpose = str(step.get("purpose") or step.get("summary") or "").strip()
+                lines.append(f"  {index}. {title}" + (f"：{purpose}" if purpose else ""))
+        if review:
+            missing_actions = [
+                str(item).strip()
+                for item in list(review.get("missing_actions") or [])
+                if str(item).strip()
+            ]
+            missing_deliverables = [
+                str(item).strip()
+                for item in list(review.get("missing_deliverables") or [])
+                if str(item).strip()
+            ]
+            lines.append(f"- 计划覆盖审查：{'通过' if review.get('passed') is True else '需要修正'}。")
+            if missing_actions:
+                lines.append(f"- 缺少动作覆盖：{', '.join(missing_actions)}。")
+            if missing_deliverables:
+                lines.append(f"- 缺少交付覆盖：{', '.join(missing_deliverables)}。")
+        lines.append("不要把 phase 名称、内部审查字段或运行时事件名当作最终回答内容输出。")
     if worker_spawn:
         spawned_agent_ids = [
             str(item).strip()

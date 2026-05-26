@@ -1,4 +1,4 @@
-import { GitBranch, Layers3, Plus, RotateCw } from "lucide-react";
+import { GitBranch, RotateCw } from "lucide-react";
 
 import type { TaskGraphDraftV2 } from "./taskGraphDraftV2";
 import { TaskGraphContractBindingInspector } from "./TaskGraphContractBindingInspector";
@@ -24,7 +24,6 @@ function stringValue(value: unknown, fallback = "") {
 
 export function TaskGraphRootInspector({
   activeGraphNodes,
-  addTimelineBlock,
   agentOptions,
   contractOptions,
   formatAgent,
@@ -40,7 +39,6 @@ export function TaskGraphRootInspector({
   updateTaskGraphRuntimePolicy,
 }: {
   activeGraphNodes: Array<Record<string, unknown>>;
-  addTimelineBlock: () => void;
   agentOptions: string[];
   contractOptions: string[];
   formatAgent: (agentId: string) => string;
@@ -273,16 +271,10 @@ export function TaskGraphRootInspector({
         </div>
       </TaskGraphInspectorSection>
 
-      <TaskGraphInspectorSection icon={<Plus aria-hidden="true" size={15} />} title="结构动作">
-        <div className="task-graph-topology-actions task-graph-topology-actions--stacked">
-          <button onClick={addTimelineBlock} type="button">
-            <Layers3 aria-hidden="true" size={14} />
-            <span>新增图模块来源</span>
-          </button>
-        </div>
+      <TaskGraphInspectorSection icon={<GitBranch aria-hidden="true" size={15} />} title="结构动作">
         <div className="task-graph-note">
           <strong>端口边由 canonical edges 派生</strong>
-          <span>新增运行边请回到拓扑编辑；旧字段覆盖只在诊断层保留。</span>
+          <span>新增运行边请回到拓扑编辑；旧字段覆盖只在诊断层保留为迁移诊断，不再作为主编辑入口。</span>
         </div>
       </TaskGraphInspectorSection>
     </>

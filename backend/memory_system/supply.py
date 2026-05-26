@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from .contracts import MemoryContextCandidate, StateMemoryRestoreCandidate
-from .runtime_view import MemoryRuntimeView
+from .runtime_view import MemoryRuntimeView, normalize_memory_layers
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,7 +86,7 @@ def build_memory_request(
     reason: str = "",
 ) -> MemoryRequest:
     profile = dict(memory_request_profile or {})
-    requested_layers = _normalize_strings(profile.get("requested_memory_layers"))
+    requested_layers = normalize_memory_layers(profile.get("requested_memory_layers"))
     requested_topics = _normalize_strings(profile.get("requested_topics"))
     return MemoryRequest(
         request_id=f"memreq:{task_id}:{session_id}:{agent_id}",
@@ -112,9 +112,9 @@ def build_memory_scope_policy(
     memory_request_profile: dict[str, Any] | None = None,
 ) -> MemoryScopePolicy:
     profile = dict(memory_request_profile or {})
-    allowed_layers = _normalize_strings(profile.get("requested_memory_layers"))
+    allowed_layers = normalize_memory_layers(profile.get("requested_memory_layers"))
     allow_long_term = bool(profile.get("allow_long_term_memory", False)) or "long_term" in allowed_layers
-    allow_task_durable = "task_durable" in allowed_layers or "task_durable_memory" in allowed_layers
+    allow_task_durable = "task_durable" in allowed_layers
     return MemoryScopePolicy(
         policy_id=f"memscope:{agent_id}",
         agent_id=agent_id,
@@ -138,7 +138,7 @@ def apply_memory_scope_policy(request: MemoryRequest, scope_policy: MemoryScopeP
     if not scope_policy.allow_working_memory_read:
         requested_layers = [layer for layer in requested_layers if layer != "working"]
     if not scope_policy.allow_task_durable_memory_read:
-        requested_layers = [layer for layer in requested_layers if layer not in {"task_durable", "task_durable_memory"}]
+        requested_layers = [layer for layer in requested_layers if layer != "task_durable"]
     return MemoryRequest(
         request_id=request.request_id,
         task_id=request.task_id,

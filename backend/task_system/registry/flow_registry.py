@@ -30,6 +30,15 @@ from task_system.graphs.task_graph_models import (
     TaskGraphDefinition,
     task_graph_from_dict,
 )
+from task_system.repositories import (
+    AssignmentRepository,
+    FlowRepository,
+    SpecificTaskRepository,
+    TaskDomainRepository,
+    TaskCommunicationProtocolRepository,
+    TaskGraphRepository,
+    TopologyRepository,
+)
 from task_system.registry.workflow_registry import TaskWorkflowRegistry
 
 
@@ -608,6 +617,41 @@ class TaskFlowRegistry:
         self.agent_group_registry = None
         self.agent_runtime_registry = AgentRuntimeRegistry(self.base_dir)
         self.workflow_registry = TaskWorkflowRegistry(self.base_dir)
+        self.flow_repository = FlowRepository(
+            self.base_dir,
+            default_flows=default_task_flows,
+            removed_config_predicate=_is_removed_health_task_config,
+        )
+        self.specific_task_repository = SpecificTaskRepository(
+            self.base_dir,
+            list_flows=self.flow_repository.list,
+            record_from_flow=self._specific_task_record_from_flow,
+            synthetic_record_for_runtime=_synthetic_specific_task_record_for_runtime,
+            removed_config_predicate=_is_removed_health_task_config,
+        )
+        self.domain_repository = TaskDomainRepository(
+            self.base_dir,
+            default_domains=default_task_domains,
+        )
+        self.assignment_repository = AssignmentRepository(
+            self.base_dir,
+            list_flows=self.list_flows,
+            list_specific_task_records=self.list_specific_task_records,
+            list_projection_bindings=self.list_projection_bindings,
+            get_flow=self.get_flow,
+            get_projection_binding=self.get_projection_binding,
+            synthetic_record_for_runtime=_synthetic_specific_task_record_for_runtime,
+            removed_config_predicate=_is_removed_health_task_config,
+        )
+        self.task_graph_repository = TaskGraphRepository(self.base_dir)
+        self.protocol_repository = TaskCommunicationProtocolRepository(
+            self.base_dir,
+            default_protocols=default_task_communication_protocols,
+        )
+        self.topology_repository = TopologyRepository(
+            self.base_dir,
+            default_topologies=default_topology_templates,
+        )
         self._cache: dict[str, Any] = {}
 
     def _get_cached(self, key: str, loader):
@@ -685,53 +729,13 @@ class TaskFlowRegistry:
         return profile
 
     def list_flows(self) -> list[TaskFlowDefinition]:
-        def load() -> list[TaskFlowDefinition]:
-            default_payload = [item.to_dict() for item in default_task_flows()]
-            payload = _read_json(
-                _flows_path(self.base_dir),
-                {"flows": default_payload},
-            )
-            merged_payload = _merge_default_overlay_by_key(
-                default_payload,
-                [
-                    item
-                    for item in list(payload.get("flows") or [])
-                    if isinstance(item, dict) and not _is_removed_health_task_config(item)
-                ],
-                key="flow_id",
-            )
-            flows = []
-            for item in merged_payload:
-                flows.append(
-                    TaskFlowDefinition(
-                        flow_id=str(item.get("flow_id") or ""),
-                        title=str(item.get("title") or ""),
-                        input_contract_id=str(item.get("input_contract_id") or ""),
-                        output_contract_id=str(item.get("output_contract_id") or ""),
-                        default_agent_id=normalize_agent_id(str(item.get("default_agent_id") or "")),
-                        default_workflow_id=str(item.get("default_workflow_id") or ""),
-                        default_runtime_lane=str(item.get("default_runtime_lane") or ""),
-                        default_memory_scope=str(item.get("default_memory_scope") or ""),
-                        enabled=bool(item.get("enabled", True)),
-                        metadata=dict(item.get("metadata") or {}),
-                    )
-                )
-            normalized = [item.to_dict() for item in flows]
-            if payload.get("flows") != normalized:
-                _write_json(_flows_path(self.base_dir), {"flows": normalized})
-            return flows
-
-        return self._get_cached("flows", load)
+        return self._get_cached("flows", self.flow_repository.list)
 
     def get_flow(self, flow_id: str) -> TaskFlowDefinition | None:
-        target = str(flow_id or "").strip()
-        return next((item for item in self.list_flows() if item.flow_id == target), None)
+        return self.flow_repository.get(flow_id)
 
     def next_flow_id(self) -> str:
-        return _next_prefixed_id(
-            [item.flow_id for item in self.list_flows()],
-            prefix="flow.",
-        )
+        return self.flow_repository.next_id()
 
     def upsert_flow(
         self,
@@ -747,78 +751,30 @@ class TaskFlowRegistry:
         enabled: bool = True,
         metadata: dict[str, Any] | None = None,
     ) -> TaskFlowDefinition:
-        normalized_flow_id = str(flow_id or "").strip()
-        if not normalized_flow_id.startswith("flow."):
-            raise ValueError("flow_id must start with flow.")
-        flow = TaskFlowDefinition(
-            flow_id=normalized_flow_id,
-            title=str(title or normalized_flow_id).strip(),
-            input_contract_id=str(input_contract_id or "").strip(),
-            output_contract_id=str(output_contract_id or "").strip(),
-            default_agent_id=normalize_agent_id(str(default_agent_id or "").strip()),
-            default_workflow_id=str(default_workflow_id or "").strip(),
-            default_runtime_lane=str(default_runtime_lane or "").strip(),
-            default_memory_scope=str(default_memory_scope or "").strip(),
-            enabled=bool(enabled),
-            metadata=dict(metadata or {}),
+        flow = self.flow_repository.upsert(
+            flow_id=flow_id,
+            title=title,
+            input_contract_id=input_contract_id,
+            output_contract_id=output_contract_id,
+            default_agent_id=default_agent_id,
+            default_workflow_id=default_workflow_id,
+            default_runtime_lane=default_runtime_lane,
+            default_memory_scope=default_memory_scope,
+            enabled=enabled,
+            metadata=metadata,
         )
-        flows = [item for item in self.list_flows() if item.flow_id != normalized_flow_id]
-        flows.append(flow)
-        _write_json(_flows_path(self.base_dir), {"flows": [item.to_dict() for item in flows]})
         self._invalidate_cache()
         return flow
 
     def list_task_assignments(self) -> list[TaskAssignment]:
-        def load() -> list[TaskAssignment]:
-            flow_by_id = {item.flow_id: item for item in self.list_flows()}
-            projection_binding_by_task_id = {
-                item.task_id: item
-                for item in self.list_projection_bindings()
-            }
-            default_assignments = [
-                self._assignment_from_specific_task_record(
-                    item,
-                    flow=flow_by_id.get(str(item.default_flow_contract_id or f"flow.{item.task_id.removeprefix('task.')}").strip()),
-                    projection_binding=projection_binding_by_task_id.get(item.task_id),
-                ).to_dict()
-                for item in self.list_specific_task_records()
-            ]
-            payload = _read_json(
-                _assignments_path(self.base_dir),
-                {"assignments": default_assignments},
-            )
-            merged_payload = _merge_items_by_key(
-                default_assignments,
-                [
-                    item
-                    for item in list(payload.get("assignments") or [])
-                    if isinstance(item, dict) and not _is_removed_health_task_config(item)
-                ],
-                key="task_id",
-            )
-            assignments: list[TaskAssignment] = []
-            for item in merged_payload:
-                assignments.append(_assignment_from_dict(item))
-            normalized = [item.to_dict() for item in assignments]
-            if payload.get("assignments") != normalized:
-                _write_json(_assignments_path(self.base_dir), {"assignments": normalized})
-            return assignments
-
-        return self._get_cached("task_assignments", load)
+        return self._get_cached("task_assignments", self.assignment_repository.list)
 
     def get_general_task_profile(self, profile_id: str) -> GeneralTaskProfile | None:
         target = str(profile_id or "").strip()
         return next((item for item in self.list_general_task_profiles() if item.profile_id == target), None)
 
     def get_task_assignment(self, task_id: str) -> TaskAssignment | None:
-        target = str(task_id or "").strip()
-        stored_assignment = next((item for item in self.list_task_assignments() if item.task_id == target), None)
-        if stored_assignment is not None:
-            return stored_assignment
-        synthetic_record = _synthetic_specific_task_record_for_runtime(target)
-        if synthetic_record is None:
-            return None
-        return self._assignment_from_specific_task_record(synthetic_record)
+        return self.assignment_repository.get(task_id)
 
     def next_specific_task_id(self) -> str:
         ids = [item.task_id for item in self.list_task_assignments()]
@@ -826,53 +782,10 @@ class TaskFlowRegistry:
         return _next_prefixed_id(ids, prefix="task.")
 
     def list_task_domains(self) -> list[TaskDomainRecord]:
-        default_payload = [item.to_dict() for item in default_task_domains()]
-        payload = _read_json(
-            _task_domains_path(self.base_dir),
-            {"task_domains": default_payload},
-        )
-        deleted_domain_ids = {
-            str(item).strip()
-            for item in list(payload.get("deleted_domain_ids") or [])
-            if str(item).strip()
-        }
-        merged_payload = _merge_default_overlay_by_key(
-            [item for item in default_payload if str(item.get("domain_id") or "").strip() not in deleted_domain_ids],
-            [item for item in list(payload.get("task_domains") or []) if isinstance(item, dict)],
-            key="domain_id",
-        )
-        domains: list[TaskDomainRecord] = []
-        for item in merged_payload:
-            domain_id = str(item.get("domain_id") or "").strip()
-            if not domain_id:
-                continue
-            domains.append(
-                TaskDomainRecord(
-                    domain_id=domain_id,
-                    title=str(item.get("title") or domain_id).strip(),
-                    description=str(item.get("description") or "").strip(),
-                    enabled=bool(item.get("enabled", True)),
-                    sort_order=int(item.get("sort_order", 0) or 0),
-                    metadata=dict(item.get("metadata") or {}),
-                )
-            )
-        domains = sorted(domains, key=lambda item: (item.sort_order, item.title, item.domain_id))
-        normalized = [item.to_dict() for item in domains]
-        if payload.get("task_domains") != normalized:
-            _write_json(
-                _task_domains_path(self.base_dir),
-                {
-                    "task_domains": normalized,
-                    "deleted_domain_ids": sorted(deleted_domain_ids),
-                },
-            )
-        return domains
+        return self.domain_repository.list()
 
     def get_task_domain(self, domain_id: str) -> TaskDomainRecord | None:
-        target = str(domain_id or "").strip()
-        if not target:
-            return None
-        return next((item for item in self.list_task_domains() if item.domain_id == target), None)
+        return self.domain_repository.get(domain_id)
 
     def upsert_task_domain(
         self,
@@ -884,32 +797,13 @@ class TaskFlowRegistry:
         sort_order: int = 0,
         metadata: dict[str, Any] | None = None,
     ) -> TaskDomainRecord:
-        normalized_domain_id = str(domain_id or "").strip()
-        if not normalized_domain_id.startswith("domain."):
-            raise ValueError("domain_id must start with domain.")
-        record = TaskDomainRecord(
-            domain_id=normalized_domain_id,
-            title=str(title or normalized_domain_id).strip(),
-            description=str(description or "").strip(),
-            enabled=bool(enabled),
-            sort_order=int(sort_order),
-            metadata=dict(metadata or {}),
-        )
-        domains = [item for item in self.list_task_domains() if item.domain_id != normalized_domain_id]
-        domains.append(record)
-        domains = sorted(domains, key=lambda item: (item.sort_order, item.title, item.domain_id))
-        payload = _read_json(_task_domains_path(self.base_dir), {"task_domains": []})
-        deleted_domain_ids = {
-            str(item).strip()
-            for item in list(payload.get("deleted_domain_ids") or [])
-            if str(item).strip() and str(item).strip() != normalized_domain_id
-        }
-        _write_json(
-            _task_domains_path(self.base_dir),
-            {
-                "task_domains": [item.to_dict() for item in domains],
-                "deleted_domain_ids": sorted(deleted_domain_ids),
-            },
+        record = self.domain_repository.upsert(
+            domain_id=domain_id,
+            title=title,
+            description=description,
+            enabled=enabled,
+            sort_order=sort_order,
+            metadata=metadata,
         )
         self._invalidate_cache()
         return record
@@ -952,21 +846,7 @@ class TaskFlowRegistry:
             flow_ids=flow_ids,
         )
 
-        domains = [item for item in self.list_task_domains() if item.domain_id != target]
-        payload = _read_json(_task_domains_path(self.base_dir), {"task_domains": []})
-        deleted_domain_ids = {
-            str(item).strip()
-            for item in list(payload.get("deleted_domain_ids") or [])
-            if str(item).strip()
-        }
-        deleted_domain_ids.add(target)
-        _write_json(
-            _task_domains_path(self.base_dir),
-            {
-                "task_domains": [item.to_dict() for item in domains],
-                "deleted_domain_ids": sorted(deleted_domain_ids),
-            },
-        )
+        self.domain_repository.mark_deleted(target)
         _write_json(
             _specific_task_records_path(self.base_dir),
             {"specific_task_records": [item.to_dict() for item in self.list_specific_task_records() if item.task_id not in task_ids]},
@@ -1015,65 +895,10 @@ class TaskFlowRegistry:
         }
 
     def list_specific_task_records(self) -> list[SpecificTaskRecord]:
-        default_records = [self._specific_task_record_from_flow(flow).to_dict() for flow in self.list_flows()]
-        payload = _read_json(
-            _specific_task_records_path(self.base_dir),
-            {"specific_task_records": default_records},
-        )
-        deleted_task_ids = {
-            str(item).strip()
-            for item in list(payload.get("deleted_task_ids") or [])
-            if str(item).strip()
-        }
-        records: list[SpecificTaskRecord] = []
-        merged_payload = _merge_default_overlay_by_key(
-            [item for item in default_records if str(item.get("task_id") or "").strip() not in deleted_task_ids],
-            [
-                item
-                for item in list(payload.get("specific_task_records") or [])
-                if isinstance(item, dict) and not _is_removed_health_task_config(item)
-            ],
-            key="task_id",
-        )
-        for item in merged_payload:
-            records.append(
-                SpecificTaskRecord(
-                    task_id=str(item.get("task_id") or ""),
-                    task_title=str(item.get("task_title") or ""),
-                    domain_id=str(item.get("domain_id") or dict(item.get("metadata") or {}).get("domain_id") or ""),
-                    description=str(item.get("description") or ""),
-                    enabled=bool(item.get("enabled", True)),
-                    runtime_lane=str(item.get("runtime_lane") or dict(dict(item.get("task_policy") or {}).get("task_structure") or {}).get("runtime_lane_hint") or ""),
-                    input_contract_id=str(item.get("input_contract_id") or ""),
-                    output_contract_id=str(item.get("output_contract_id") or ""),
-                    acceptance_profile_id=str(item.get("acceptance_profile_id") or ""),
-                    default_flow_contract_id=str(item.get("default_flow_contract_id") or ""),
-                    default_workflow_id=str(item.get("default_workflow_id") or ""),
-                    default_projection_policy=str(item.get("default_projection_policy") or ""),
-                    task_policy=dict(item.get("task_policy") or {}),
-                    metadata=dict(item.get("metadata") or {}),
-                )
-            )
-        if not records:
-            records = [self._specific_task_record_from_flow(flow) for flow in self.list_flows()]
-        if records:
-            normalized = [item.to_dict() for item in records]
-            if payload.get("specific_task_records") != normalized:
-                _write_json(
-                    _specific_task_records_path(self.base_dir),
-                    {
-                        "specific_task_records": normalized,
-                        "deleted_task_ids": sorted(deleted_task_ids),
-                    },
-                )
-        return records
+        return self.specific_task_repository.list()
 
     def get_specific_task_record(self, task_id: str) -> SpecificTaskRecord | None:
-        target = str(task_id or "").strip()
-        stored_record = next((item for item in self.list_specific_task_records() if item.task_id == target), None)
-        if stored_record is not None:
-            return stored_record
-        return _synthetic_specific_task_record_for_runtime(target)
+        return self.specific_task_repository.get(task_id)
 
     def upsert_task_assignment(
         self,
@@ -1158,9 +983,8 @@ class TaskFlowRegistry:
             enabled=record.enabled,
             metadata=normalized_metadata,
         )
-        assignments = [item for item in self.list_task_assignments() if item.task_id != target]
-        assignments.append(assignment)
-        _write_json(_assignments_path(self.base_dir), {"assignments": [item.to_dict() for item in assignments]})
+        self.assignment_repository.upsert(assignment)
+        self._invalidate_cache()
         return assignment
 
     def upsert_specific_task_record(
@@ -1181,39 +1005,21 @@ class TaskFlowRegistry:
         task_policy: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> SpecificTaskRecord:
-        target = str(task_id or "").strip()
-        if not target.startswith("task."):
-            raise ValueError("task_id must start with task.")
-        record = SpecificTaskRecord(
-            task_id=target,
-            task_title=str(task_title or target).strip(),
-            domain_id=str(domain_id or "").strip(),
-            description=str(description or task_title or target).strip(),
-            enabled=bool(enabled),
-            runtime_lane=str(runtime_lane or "").strip(),
-            input_contract_id=str(input_contract_id or "").strip(),
-            output_contract_id=str(output_contract_id or "").strip(),
-            acceptance_profile_id=str(acceptance_profile_id or "").strip(),
-            default_flow_contract_id=str(default_flow_contract_id or "").strip(),
-            default_workflow_id=str(default_workflow_id or "").strip(),
-            default_projection_policy=str(default_projection_policy or "").strip(),
-            task_policy=dict(task_policy or {}),
-            metadata=dict(metadata or {}),
-        )
-        records = [item for item in self.list_specific_task_records() if item.task_id != target]
-        records.append(record)
-        payload = _read_json(_specific_task_records_path(self.base_dir), {"specific_task_records": []})
-        deleted_task_ids = {
-            str(item).strip()
-            for item in list(payload.get("deleted_task_ids") or [])
-            if str(item).strip() and str(item).strip() != target
-        }
-        _write_json(
-            _specific_task_records_path(self.base_dir),
-            {
-                "specific_task_records": [item.to_dict() for item in records],
-                "deleted_task_ids": sorted(deleted_task_ids),
-            },
+        record = self.specific_task_repository.upsert(
+            task_id=task_id,
+            task_title=task_title,
+            domain_id=domain_id,
+            description=description,
+            enabled=enabled,
+            runtime_lane=runtime_lane,
+            input_contract_id=input_contract_id,
+            output_contract_id=output_contract_id,
+            acceptance_profile_id=acceptance_profile_id,
+            default_flow_contract_id=default_flow_contract_id,
+            default_workflow_id=default_workflow_id,
+            default_projection_policy=default_projection_policy,
+            task_policy=task_policy,
+            metadata=metadata,
         )
         self._invalidate_cache()
         return record
@@ -1312,58 +1118,6 @@ class TaskFlowRegistry:
     def _specific_task_record_from_flow(self, flow: TaskFlowDefinition) -> SpecificTaskRecord:
         assignment = self._assignment_from_flow(flow)
         return _specific_task_record_from_assignment(assignment)
-
-    def _assignment_from_specific_task_record(
-        self,
-        record: SpecificTaskRecord,
-        *,
-        flow: TaskFlowDefinition | None = None,
-        projection_binding: TaskProjectionBinding | None = None,
-    ) -> TaskAssignment:
-        flow_id = str(record.default_flow_contract_id or f"flow.{record.task_id.removeprefix('task.')}").strip()
-        task_policy = dict(record.task_policy or {})
-        task_structure = dict(task_policy.get("task_structure") or {})
-        safety_policy = dict(task_policy.get("safety_policy") or {})
-        flow = flow if flow is not None else self.get_flow(flow_id)
-        default_agent_id = str(getattr(flow, "default_agent_id", "") or "agent:0").strip() or "agent:0"
-        flow_metadata = dict(getattr(flow, "metadata", {}) or {})
-        task_structure = {
-            **task_structure,
-            **(
-                {
-                    "task_graph_id": str(flow_metadata.get("task_graph_id") or flow_metadata.get("graph_id") or "").strip(),
-                    "communication_protocol_id": str(flow_metadata.get("communication_protocol_id") or "").strip(),
-                    "topology_template_id": str(flow_metadata.get("topology_template_id") or "").strip(),
-                    "agent_group_id": str(flow_metadata.get("agent_group_id") or "").strip(),
-                }
-                if flow is not None
-                else {}
-            ),
-        }
-        projection_id = ""
-        projection_binding = projection_binding if projection_binding is not None else self.get_projection_binding(record.task_id)
-        if projection_binding is not None:
-            projection_id = str(projection_binding.default_projection_id or "").strip()
-        workflow_file_ref = f"workflow:{record.default_workflow_id}" if record.default_workflow_id else ""
-        return TaskAssignment(
-            task_id=record.task_id,
-            task_title=record.task_title,
-            task_kind="specific_task",
-            flow_id=flow_id,
-            domain_id=record.domain_id,
-            runtime_lane=record.runtime_lane or str(task_structure.get("runtime_lane_hint") or getattr(flow, "default_runtime_lane", "") or ""),
-            default_agent_id=default_agent_id,
-            participant_agent_ids=(),
-            workflow_id=record.default_workflow_id,
-            workflow_file_ref=workflow_file_ref,
-            projection_id=projection_id,
-            input_contract_id=record.input_contract_id,
-            output_contract_id=record.output_contract_id,
-            safety_policy=safety_policy,
-            task_structure=task_structure,
-            enabled=record.enabled,
-            metadata=dict(record.metadata or {}),
-        )
 
     def list_bindings(self) -> list[TaskAgentBinding]:
         return [self.build_binding_for_flow(flow) for flow in self.list_flows()]
@@ -1952,30 +1706,13 @@ class TaskFlowRegistry:
         )
 
     def list_task_graphs(self) -> list[TaskGraphDefinition]:
-        payload = _read_json(_task_graphs_path(self.base_dir), {"task_graphs": []})
-        graphs = [
-            task_graph_from_dict(item)
-            for item in list(payload.get("task_graphs") or [])
-            if isinstance(item, dict)
-        ]
-        graphs = sorted(
-            [item for item in graphs if item.graph_id],
-            key=lambda item: (item.domain_id, item.title, item.graph_id),
-        )
-        normalized = [item.to_dict() for item in graphs]
-        if payload.get("task_graphs") != normalized:
-            _write_json(_task_graphs_path(self.base_dir), {"task_graphs": normalized})
-        return graphs
+        return self.task_graph_repository.list()
 
     def get_task_graph(self, graph_id: str) -> TaskGraphDefinition | None:
-        target = str(graph_id or "").strip()
-        return next((item for item in self.list_task_graphs() if item.graph_id == target), None)
+        return self.task_graph_repository.get(graph_id)
 
     def next_task_graph_id(self) -> str:
-        return _next_prefixed_id(
-            [item.graph_id for item in self.list_task_graphs()],
-            prefix="graph.",
-        )
+        return self.task_graph_repository.next_id()
 
     def upsert_task_graph(
         self,
@@ -1999,111 +1736,40 @@ class TaskFlowRegistry:
         enabled: bool = False,
         metadata: dict[str, Any] | None = None,
     ) -> TaskGraphDefinition:
-        target = str(graph_id or "").strip()
-        if not target.startswith("graph."):
-            raise ValueError("graph_id must start with graph.")
-        graph = task_graph_from_dict(
-            {
-                "graph_id": target,
-                "title": title,
-                "domain_id": domain_id,
-                "graph_kind": graph_kind,
-                "entry_node_id": entry_node_id,
-                "output_node_id": output_node_id,
-                "nodes": [dict(item) for item in nodes],
-                "edges": [dict(item) for item in edges],
-                "graph_contract_id": graph_contract_id,
-                "contract_bindings": dict(contract_bindings or {}),
-                "default_protocol_id": default_protocol_id,
-                "working_memory_policy_profile_id": working_memory_policy_profile_id,
-                "working_memory_policy": dict(working_memory_policy or {}),
-                "runtime_policy": dict(runtime_policy or {}),
-                "context_policy": dict(context_policy or {}),
-                "publish_state": publish_state,
-                "enabled": enabled,
-                "metadata": dict(metadata or {}),
-            }
+        graph = self.task_graph_repository.upsert(
+            graph_id=graph_id,
+            title=title,
+            domain_id=domain_id,
+            graph_kind=graph_kind,
+            entry_node_id=entry_node_id,
+            output_node_id=output_node_id,
+            nodes=nodes,
+            edges=edges,
+            graph_contract_id=graph_contract_id,
+            contract_bindings=contract_bindings,
+            default_protocol_id=default_protocol_id,
+            working_memory_policy_profile_id=working_memory_policy_profile_id,
+            working_memory_policy=working_memory_policy,
+            runtime_policy=runtime_policy,
+            context_policy=context_policy,
+            publish_state=publish_state,
+            enabled=enabled,
+            metadata=metadata,
         )
-        graphs = [item for item in self.list_task_graphs() if item.graph_id != target]
-        graphs.append(graph)
-        _write_json(_task_graphs_path(self.base_dir), {"task_graphs": [item.to_dict() for item in graphs]})
         self._invalidate_cache()
         return graph
 
     def get_topology_template(self, template_id: str) -> TopologyTemplate | None:
-        target = str(template_id or "").strip()
-        return next((item for item in self.list_topology_templates() if item.template_id == target), None)
+        return self.topology_repository.get(template_id)
 
     def list_topology_templates(self) -> list[TopologyTemplate]:
-        default_payload = [item.to_dict() for item in default_topology_templates()]
-        payload = _read_json(
-            _topology_templates_path(self.base_dir),
-            {"topology_templates": default_payload},
-        )
-        merged_payload = _merge_authoritative_defaults_by_key(
-            default_payload,
-            [item for item in list(payload.get("topology_templates") or []) if isinstance(item, dict)],
-            key="template_id",
-        )
-        templates: list[TopologyTemplate] = []
-        for item in merged_payload:
-            templates.append(
-                TopologyTemplate(
-                    template_id=str(item.get("template_id") or ""),
-                    title=str(item.get("title") or ""),
-                    nodes=tuple(_normalize_agent_refs_in_mapping(dict(value)) for value in list(item.get("nodes") or []) if isinstance(value, dict)),
-                    edges=tuple(dict(value) for value in list(item.get("edges") or []) if isinstance(value, dict)),
-                    handoff_rules=tuple(dict(value) for value in list(item.get("handoff_rules") or []) if isinstance(value, dict)),
-                    join_policy=str(item.get("join_policy") or "explicit_join"),
-                    failure_policy=str(item.get("failure_policy") or "fail_closed"),
-                    terminal_policy=str(item.get("terminal_policy") or "coordinator_terminal"),
-                    enabled=bool(item.get("enabled", False)),
-                    metadata=dict(item.get("metadata") or {}),
-                )
-            )
-        normalized = [item.to_dict() for item in templates]
-        if payload.get("topology_templates") != normalized:
-            _write_json(_topology_templates_path(self.base_dir), {"topology_templates": normalized})
-        return templates
+        return self.topology_repository.list()
 
     def next_topology_template_id(self) -> str:
-        return _next_prefixed_id(
-            [item.template_id for item in self.list_topology_templates()],
-            prefix="topology.",
-        )
+        return self.topology_repository.next_id()
 
     def list_task_communication_protocols(self) -> list[TaskCommunicationProtocol]:
-        default_payload = [item.to_dict() for item in default_task_communication_protocols()]
-        payload = _read_json(
-            _communication_protocols_path(self.base_dir),
-            {"communication_protocols": default_payload},
-        )
-        merged_payload = _merge_authoritative_defaults_by_key(
-            default_payload,
-            [item for item in list(payload.get("communication_protocols") or []) if isinstance(item, dict)],
-            key="protocol_id",
-        )
-        protocols: list[TaskCommunicationProtocol] = []
-        for item in merged_payload:
-            protocols.append(
-                TaskCommunicationProtocol(
-                    protocol_id=str(item.get("protocol_id") or ""),
-                    title=str(item.get("title") or ""),
-                    message_types=tuple(str(value).strip() for value in list(item.get("message_types") or []) if str(value).strip()),
-                    payload_contracts=tuple(str(value).strip() for value in list(item.get("payload_contracts") or []) if str(value).strip()),
-                    signal_rules=tuple(str(value).strip() for value in list(item.get("signal_rules") or []) if str(value).strip()),
-                    handoff_rules=tuple(str(value).strip() for value in list(item.get("handoff_rules") or []) if str(value).strip()),
-                    ack_policy=str(item.get("ack_policy") or "explicit_ack"),
-                    timeout_policy=str(item.get("timeout_policy") or "fail_closed"),
-                    error_signal_policy=str(item.get("error_signal_policy") or "raise_to_coordinator"),
-                    enabled=bool(item.get("enabled", False)),
-                    metadata=dict(item.get("metadata") or {}),
-                )
-            )
-        normalized = [item.to_dict() for item in protocols]
-        if payload.get("communication_protocols") != normalized:
-            _write_json(_communication_protocols_path(self.base_dir), {"communication_protocols": normalized})
-        return protocols
+        return self.protocol_repository.list()
 
     def list_contract_descriptors(self) -> list[TaskContractDescriptor]:
         collected: dict[tuple[str, str], dict[str, Any]] = {}
@@ -2188,8 +1854,7 @@ class TaskFlowRegistry:
         return sorted(descriptors, key=lambda item: (item.contract_kind, item.title, item.contract_id))
 
     def get_task_communication_protocol(self, protocol_id: str) -> TaskCommunicationProtocol | None:
-        target = str(protocol_id or "").strip()
-        return next((item for item in self.list_task_communication_protocols() if item.protocol_id == target), None)
+        return self.protocol_repository.get(protocol_id)
 
     def upsert_task_communication_protocol(
         self,
@@ -2206,45 +1871,19 @@ class TaskFlowRegistry:
         enabled: bool = False,
         metadata: dict[str, Any] | None = None,
     ) -> TaskCommunicationProtocol:
-        target = str(protocol_id or "").strip()
-        if not target.startswith("protocol."):
-            raise ValueError("protocol_id must start with protocol.")
-        protocol = TaskCommunicationProtocol(
-            protocol_id=target,
-            title=str(title or target).strip(),
-            message_types=tuple(
-                str(value).strip()
-                for value in message_types
-                if str(value).strip()
-            ),
-            payload_contracts=tuple(
-                str(value).strip()
-                for value in payload_contracts
-                if str(value).strip()
-            ),
-            signal_rules=tuple(
-                str(value).strip()
-                for value in signal_rules
-                if str(value).strip()
-            ),
-            handoff_rules=tuple(
-                str(value).strip()
-                for value in handoff_rules
-                if str(value).strip()
-            ),
-            ack_policy=str(ack_policy or "explicit_ack").strip(),
-            timeout_policy=str(timeout_policy or "fail_closed").strip(),
-            error_signal_policy=str(error_signal_policy or "raise_to_coordinator").strip(),
-            enabled=bool(enabled),
-            metadata=dict(metadata or {}),
+        return self.protocol_repository.upsert(
+            protocol_id=protocol_id,
+            title=title,
+            message_types=message_types,
+            payload_contracts=payload_contracts,
+            signal_rules=signal_rules,
+            handoff_rules=handoff_rules,
+            ack_policy=ack_policy,
+            timeout_policy=timeout_policy,
+            error_signal_policy=error_signal_policy,
+            enabled=enabled,
+            metadata=metadata,
         )
-        protocols = [item for item in self.list_task_communication_protocols() if item.protocol_id != target]
-        protocols.append(protocol)
-        _write_json(
-            _communication_protocols_path(self.base_dir),
-            {"communication_protocols": [item.to_dict() for item in protocols]},
-        )
-        return protocol
 
     def upsert_graph_task(
         self,
@@ -2375,25 +2014,18 @@ class TaskFlowRegistry:
         enabled: bool = False,
         metadata: dict[str, Any] | None = None,
     ) -> TopologyTemplate:
-        target = str(template_id or "").strip()
-        if not target.startswith("topology."):
-            raise ValueError("template_id must start with topology.")
-        template = TopologyTemplate(
-            template_id=target,
-            title=str(title or target).strip(),
-            nodes=tuple(_normalize_agent_refs_in_mapping(dict(item)) for item in nodes if isinstance(item, dict)),
-            edges=tuple(dict(item) for item in edges if isinstance(item, dict)),
-            handoff_rules=tuple(dict(item) for item in handoff_rules if isinstance(item, dict)),
-            join_policy=str(join_policy or "explicit_join").strip(),
-            failure_policy=str(failure_policy or "fail_closed").strip(),
-            terminal_policy=str(terminal_policy or "coordinator_terminal").strip(),
-            enabled=bool(enabled),
-            metadata=dict(metadata or {}),
+        return self.topology_repository.upsert(
+            template_id=template_id,
+            title=title,
+            nodes=nodes,
+            edges=edges,
+            handoff_rules=handoff_rules,
+            join_policy=join_policy,
+            failure_policy=failure_policy,
+            terminal_policy=terminal_policy,
+            enabled=enabled,
+            metadata=metadata,
         )
-        templates = [item for item in self.list_topology_templates() if item.template_id != target]
-        templates.append(template)
-        _write_json(_topology_templates_path(self.base_dir), {"topology_templates": [item.to_dict() for item in templates]})
-        return template
 
     def build_binding_for_flow(self, flow: TaskFlowDefinition) -> TaskAgentBinding:
         agent = self.agent_registry.get_agent(flow.default_agent_id)
@@ -2771,28 +2403,6 @@ def _validate_contains(
     if value not in allowed:
         failures.append(f"{field}_not_allowed")
         diagnostics[field] = {"value": value, "allowed": list(allowed)}
-
-
-def _assignment_from_dict(payload: dict[str, Any]) -> TaskAssignment:
-    return TaskAssignment(
-        task_id=str(payload.get("task_id") or ""),
-        task_title=str(payload.get("task_title") or ""),
-        task_kind=str(payload.get("task_kind") or "specific_task"),
-        flow_id=str(payload.get("flow_id") or ""),
-        domain_id=str(payload.get("domain_id") or dict(payload.get("metadata") or {}).get("domain_id") or ""),
-        runtime_lane=str(payload.get("runtime_lane") or dict(payload.get("task_structure") or {}).get("runtime_lane_hint") or ""),
-        default_agent_id=normalize_agent_id(str(payload.get("default_agent_id") or "agent:0")),
-        participant_agent_ids=normalize_agent_id_sequence(str(item) for item in list(payload.get("participant_agent_ids") or []) if str(item)),
-        workflow_id=str(payload.get("workflow_id") or ""),
-        workflow_file_ref=str(payload.get("workflow_file_ref") or ""),
-        projection_id=str(payload.get("projection_id") or payload.get("projection_template_id") or ""),
-        input_contract_id=str(payload.get("input_contract_id") or ""),
-        output_contract_id=str(payload.get("output_contract_id") or ""),
-        safety_policy=dict(payload.get("safety_policy") or {}),
-        task_structure=dict(payload.get("task_structure") or {}),
-        enabled=bool(payload.get("enabled", True)),
-        metadata=dict(payload.get("metadata") or {}),
-    )
 
 
 def _normalize_agent_refs_in_mapping(payload: dict[str, Any]) -> dict[str, Any]:

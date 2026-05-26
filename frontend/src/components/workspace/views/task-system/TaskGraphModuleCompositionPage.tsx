@@ -22,6 +22,7 @@ export function TaskGraphModuleCompositionPage({
   orchestrationAgentCatalog,
   projectionCards,
   standardView,
+  standardViewStale = false,
   standardViewLoading,
   taskGraphDraft,
   taskGraphs,
@@ -45,6 +46,7 @@ export function TaskGraphModuleCompositionPage({
   orchestrationAgentCatalog?: OrchestrationAgentRuntimeCatalog | null;
   projectionCards?: Array<{ projection_id: string; title?: string; soul_name?: string; soul_id?: string }>;
   standardView: TaskGraphStandardView | null;
+  standardViewStale?: boolean;
   standardViewLoading?: boolean;
   taskGraphDraft: TaskGraphDraftV2;
   taskGraphs?: TaskGraphRecord[];
@@ -70,6 +72,7 @@ export function TaskGraphModuleCompositionPage({
       orchestrationAgentCatalog={orchestrationAgentCatalog}
       projectionCards={projectionCards}
       standardView={standardView}
+      standardViewStale={standardViewStale}
       standardViewLoading={standardViewLoading}
       taskGraphDraft={taskGraphDraft}
       taskGraphs={taskGraphs}

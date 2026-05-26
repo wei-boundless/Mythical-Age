@@ -230,85 +230,34 @@ function projectionFromTaskOrderStream(data: Record<string, unknown>): TaskOrder
   };
 }
 
-function stageSummaryProjection(eventType: string, payload: Record<string, unknown>, meta: ReturnType<typeof runtimeEvent>): RuntimeVisibilityProjection {
-  const stageSummary = record(payload.stage_summary);
-  const written = arrayText(stageSummary.written_paths ?? stageSummary.written_artifacts ?? stageSummary.artifact_paths);
-  const artifacts = [
-    ...artifactsFromPaths(written),
-    ...artifactsFromMixed(stageSummary.artifact_refs),
-  ].slice(0, 6);
-  const pending = arrayText(stageSummary.pending_paths ?? stageSummary.pending_deliverables);
-  const verified = stageSummary.verified === true || stageSummary.verification_passed === true || text(stageSummary.validation_status) === "passed";
-  const observations = Array.isArray(stageSummary.latest_observations)
-    ? stageSummary.latest_observations
-        .map((item) => {
-          const itemRecord = record(item);
-          const tool = text(itemRecord.tool_name ?? itemRecord.source);
-          const result = short(itemRecord.result ?? itemRecord.text ?? itemRecord.summary, 120);
-          return [tool, result].filter(Boolean).join(" ");
-        })
-        .filter(Boolean)
-        .slice(0, 3)
-    : arrayText(stageSummary.observations, 3);
-  const nextStep = text(stageSummary.next_step);
-  const parts = [
-    written.length ? `已写入：${written.join("、")}` : "",
-    pending.length ? `待完成：${pending.join("、")}` : "",
-    observations.length ? `观察：${observations.join("；")}` : "",
-    `验证：${verified ? "已通过" : "未通过或未完成"}`,
-    nextStep ? `下一步：${nextStep}` : "",
-  ].filter(Boolean);
+function planningPhaseProjection(eventType: string, payload: Record<string, unknown>, meta: ReturnType<typeof runtimeEvent>): RuntimeVisibilityProjection {
+  const review = record(payload.plan_coverage_review);
+  const plan = record(payload.agent_plan_draft);
+  const requirement = record(payload.agent_plan_requirement);
+  const passed = review.passed === true;
+  const stepCount = Array.isArray(plan.steps) ? plan.steps.length : 0;
+  const reason = text(review.required_replan_reason ?? requirement.reason);
+  const body = [
+    `计划步骤：${stepCount}`,
+    reason ? `状态：${reason}` : "",
+  ].filter(Boolean).join("\n");
   return {
-    stageStatus: "阶段总结",
-    activityTitle: "阶段总结",
-    activityDetail: parts[0] || "专业任务已更新阶段摘要",
-    level: verified ? "success" : "running",
-    progressEntry: entry(eventType, "阶段总结", {
-      body: parts.join("\n"),
-      level: verified ? "success" : "running",
+    stageStatus: "检查执行计划",
+    activityTitle: "检查执行计划",
+    activityDetail: reason || (passed ? "计划覆盖要求" : "计划需要补充"),
+    level: passed ? "success" : "warning",
+    progressEntry: entry(eventType, "检查执行计划", {
+      body,
+      level: passed ? "success" : "warning",
       kind: "stage",
-      statusText: verified ? "已验证" : "进行中",
+      statusText: passed ? "通过" : "需补充",
       taskRunId: meta.taskRunId,
       eventId: meta.eventId,
       createdAt: meta.createdAt,
       meta: compactMeta([
-        metaItem("轮次", stageSummary.turn_count),
-        metaItem("工具请求", stageSummary.tool_call_count),
-        metaItem("工具返回", stageSummary.tool_observation_count),
+        metaItem("步骤", stepCount),
+        metaItem("来源", plan.source),
       ]),
-      artifacts,
-    }),
-  };
-}
-
-function progressPageProjection(eventType: string, payload: Record<string, unknown>, meta: ReturnType<typeof runtimeEvent>): RuntimeVisibilityProjection {
-  const page = record(payload.progress_page);
-  const summary = short(
-    page.summary
-    ?? page.current_status
-    ?? page.progress_summary
-    ?? page.next_step
-    ?? "专业任务进度已更新",
-  );
-  return {
-    stageStatus: "更新任务进度",
-    activityTitle: "更新任务进度",
-    activityDetail: summary,
-    level: "running",
-    progressEntry: entry(eventType, "更新任务进度", {
-      body: summary,
-      kind: "stage",
-      statusText: text(page.status) || "进行中",
-      taskRunId: meta.taskRunId,
-      eventId: meta.eventId,
-      createdAt: meta.createdAt,
-      meta: compactMeta([
-        metaItem("轮次", page.turn_count),
-        metaItem("工具请求", page.tool_call_count),
-        metaItem("工具返回", page.tool_observation_count),
-        metaItem("已完成", Array.isArray(page.completed) ? page.completed.length : ""),
-      ]),
-      artifacts: artifactsFromPaths(arrayText(page.written_paths, 6)),
     }),
   };
 }
@@ -509,13 +458,10 @@ export function projectRuntimeLoopEvent(data: Record<string, unknown>): RuntimeV
   const eventType = meta.eventType;
   const payload = meta.payload;
   if (!eventType) return {};
-  if (eventType === "professional_task_stage_summary") {
-    return stageSummaryProjection(eventType, payload, meta);
+  if (eventType === "agent_runtime_planning_phase_checked") {
+    return planningPhaseProjection(eventType, payload, meta);
   }
-  if (eventType === "professional_task_progress_page") {
-    return progressPageProjection(eventType, payload, meta);
-  }
-  if (eventType === "professional_task_deliverable_validation_checked") {
+  if (eventType === "agent_runtime_closeout_phase_checked") {
     return verificationProjection(eventType, payload, meta);
   }
   if (eventType === "tool_call_requested") {
@@ -531,43 +477,6 @@ export function projectRuntimeLoopEvent(data: Record<string, unknown>): RuntimeV
     return loopTerminalProjection(eventType, payload, meta);
   }
   const simple: Record<string, { title: string; level?: SessionActivityLevel; body?: string; kind?: RuntimeProgressEntry["kind"]; statusText?: string }> = {
-    professional_task_started: { title: "开始专业任务", body: text(payload.goal) },
-    professional_task_model_plan_bound: { title: "绑定任务计划" },
-    professional_task_semantic_plan_drafted: {
-      title: "形成任务计划",
-      body: `计划步骤：${Array.isArray(payload.plan_items) ? payload.plan_items.length : 0}`,
-    },
-    professional_tool_observation_ledger_updated: { title: "整理工具观察" },
-    professional_task_evidence_packet_built: { title: "构建证据包" },
-    professional_task_evidence_resubmission_requested: {
-      title: "重新提交证据",
-      level: "warning",
-      body: text(payload.reason),
-    },
-    professional_task_evidence_closeout_applied: { title: "收口证据" },
-    professional_task_deliverable_repair_started: {
-      title: "开始修正交付物",
-      level: "warning",
-      body: text(payload.reason),
-    },
-    professional_task_deliverable_repair_rejected: {
-      title: "修正被拒绝",
-      level: "error",
-      body: text(payload.reason),
-    },
-    professional_task_completion_judged: {
-      title: "判断完成度",
-      level: record(payload.completion_judgment).completed === true ? "success" : "warning",
-      body: text(record(payload.completion_judgment).reason),
-    },
-    professional_task_run_outcome_built: {
-      title: "生成运行结果",
-      level: "success",
-      body: text(record(payload.run_outcome).terminal_reason),
-      kind: "terminal",
-      statusText: "已生成",
-    },
-    professional_run_session_updated: { title: "更新专业任务会话" },
     runtime_directive_issued: { title: "准备执行", kind: "stage", statusText: "已下发" },
     approval_waiting: { title: "等待确认", level: "waiting", kind: "stage", statusText: "等待" },
     recovery_attempted: { title: "尝试纠错", level: "warning" },
@@ -575,7 +484,7 @@ export function projectRuntimeLoopEvent(data: Record<string, unknown>): RuntimeV
   };
   const projected = simple[eventType];
   if (!projected) return {};
-  const shouldShowProgress = eventType.startsWith("professional_")
+  const shouldShowProgress = eventType.startsWith("agent_runtime_")
     || eventType === "recovery_attempted"
     || eventType === "approval_waiting"
     || eventType === "loop_error";
@@ -588,7 +497,7 @@ export function projectRuntimeLoopEvent(data: Record<string, unknown>): RuntimeV
       ? entry(eventType, projected.title, {
           body: projected.body,
           level: projected.level || "running",
-          kind: projected.kind || (eventType.startsWith("professional_") ? "stage" : "system"),
+          kind: projected.kind || (eventType.startsWith("agent_runtime_") ? "stage" : "system"),
           statusText: projected.statusText || (projected.level === "success" ? "完成" : projected.level === "waiting" ? "等待" : "进行中"),
           taskRunId: meta.taskRunId,
           eventId: meta.eventId,

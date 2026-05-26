@@ -3,9 +3,32 @@ import { describe, expect, it } from "vitest";
 import type { TaskGraphRecord } from "@/lib/api";
 
 import { emptyTaskGraphDraftV2, inferTaskGraphBoundaryNodes, taskGraphRecordToDraftV2 } from "./taskGraphDraftV2";
-import { buildTaskGraphUpsertPayload } from "./taskGraphSaveMapper";
+import { buildTaskGraphUpsertPayload, resolveTaskGraphPublishCommit } from "./taskGraphSaveMapper";
 
 describe("TaskGraphDraftV2 mapping", () => {
+  it("resolves publish commit intent in one place", () => {
+    expect(resolveTaskGraphPublishCommit("save_draft")).toMatchObject({
+      editor_publish_state: "saved",
+      backend_publish_state: "draft",
+      enabled: false,
+    });
+    expect(resolveTaskGraphPublishCommit("publish")).toMatchObject({
+      editor_publish_state: "published",
+      backend_publish_state: "published",
+      enabled: true,
+    });
+    expect(resolveTaskGraphPublishCommit("mark_run_bound")).toMatchObject({
+      editor_publish_state: "run_bound",
+      backend_publish_state: "published",
+      enabled: true,
+    });
+    expect(resolveTaskGraphPublishCommit("archive")).toMatchObject({
+      editor_publish_state: "archived",
+      backend_publish_state: "draft",
+      enabled: false,
+    });
+  });
+
   it("infers graph boundaries from topology semantics instead of array order", () => {
     const boundaries = inferTaskGraphBoundaryNodes(
       [

@@ -1,6 +1,6 @@
 "use client";
 
-import { Cable, GitBranch, Network, ScanLine } from "lucide-react";
+import { Cable, GitBranch, Network } from "lucide-react";
 
 import { CoordinationTopologyGraph as TaskGraphTopologyCanvas } from "@/components/coordination/CoordinationTopologyGraph";
 import type { ComposableUnitSpec, GraphModuleExpansionSpec, UnitPortEdgeSpec } from "@/lib/api";
@@ -24,7 +24,6 @@ function unitNodeKind(unit: ComposableUnitSpec) {
 
 function edgeKind(edge: UnitPortEdgeSpec) {
   const metadata = asRecord(edge.metadata);
-  if (metadata.explicit_overlay) return "port_edge_overlay";
   if (edge.edge_type === "memory_handoff") return "memory_read";
   if (edge.edge_type === "artifact_context") return "artifact_context";
   if (edge.edge_type === "temporal_dependency") return "control_flow";
@@ -110,12 +109,11 @@ export function TaskGraphComposableCanvas({
       to: edge.target_unit_id,
       label: edgeLabel(edge),
       edgeKind: edgeKind(edge),
-      status: asRecord(edge.metadata).explicit_overlay ? "ready" : "idle",
+      status: "idle",
     }));
   const selectedNodeId = selectedSubject.kind === "unit" ? selectedSubject.unit_id : "";
   const selectedEdgeId = selectedSubject.kind === "port_edge" ? selectedSubject.edge_id : "";
   const graphModuleCount = units.filter((unit) => unit.unit_type === "graph").length;
-  const explicitEdgeCount = portEdges.filter((edge) => asRecord(edge.metadata).explicit_overlay).length;
   const expansionByUnitId = new Map(graphModuleExpansions.map((item) => [item.unit_id, item]));
   const selectedExpansionUnitId = selectedSubject.kind === "graph_module_expansion"
     ? selectedSubject.unit_id
@@ -148,7 +146,7 @@ export function TaskGraphComposableCanvas({
       to: edge.target_unit_id,
       label: edgeLabel(edge),
       edgeKind: edgeKind(edge),
-      status: asRecord(edge.metadata).explicit_overlay ? "ready" : "idle",
+      status: "idle",
     }));
   const importedNodes = (selectedExpansion?.nodes ?? []).map((node) => ({
     id: String(node.scoped_node_id ?? node.node_id ?? "").trim(),
@@ -206,7 +204,6 @@ export function TaskGraphComposableCanvas({
           <span>{canvasNodes.length} 节点</span>
           <span>{canvasEdges.length} 边</span>
           <span>{graphModuleCount} 图模块</span>
-          <span>{explicitEdgeCount} 覆盖</span>
         </div>
       </header>
 
@@ -225,11 +222,6 @@ export function TaskGraphComposableCanvas({
           <Network aria-hidden="true" size={14} />
           <span>图模块</span>
           <strong>只读展开</strong>
-        </button>
-        <button className={activeFacet === "stitching" ? "active" : ""} onClick={() => onFacetChange("stitching")} type="button">
-          <ScanLine aria-hidden="true" size={14} />
-          <span>图块</span>
-          <strong>legacy 来源</strong>
         </button>
       </section>
 
@@ -268,7 +260,6 @@ export function TaskGraphComposableCanvas({
         <span><i className="legend-dot legend-dot--unit" />普通 Unit</span>
         <span><i className="legend-dot legend-dot--graph" />图模块</span>
         <span><i className="legend-line legend-line--derived" />派生端口边</span>
-        <span><i className="legend-line legend-line--overlay" />metadata 覆盖边</span>
       </footer>
     </main>
   );

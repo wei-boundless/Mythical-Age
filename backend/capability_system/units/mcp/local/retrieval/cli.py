@@ -5,7 +5,8 @@ import json
 from pathlib import Path
 
 from memory_system.layout import durable_memory_layout_from_backend_dir
-from memory_system.storage import DurableMemoryConsolidator, MemoryManager
+from memory_system.storage.consolidation import DurableMemoryConsolidator
+from memory_system.storage.memory_manager import MemoryManager
 from project_layout import ProjectLayout
 
 from .parser_adapter import MultimodalParserAdapter

@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 from memory_system import MemoryFacade
 from memory_system.maintenance_agent import MemoryMaintenanceAgent
-from memory_system.storage import MemoryNote
+from memory_system.storage.models import MemoryNote
 
 
 def _agent_payload(*, durable_actions=None):
@@ -142,6 +142,7 @@ def test_memory_maintenance_rejects_durable_action_without_evidence(tmp_path) ->
     assert receipt.session_memory_succeeded is True
     assert receipt.durable_memory_succeeded is False
     assert receipt.durable_write_count == 0
+    assert receipt.durable_skip_reason == "durable_write_rejected_by_committer"
     assert receipt.diagnostics["durable_error"]
     assert facade.memory_manager.list_notes() == []
 
@@ -176,7 +177,23 @@ def test_durable_update_requires_existing_target(tmp_path) -> None:
     assert receipt.status == "succeeded"
     assert receipt.durable_memory_succeeded is False
     assert receipt.durable_write_count == 0
+    assert receipt.durable_skip_reason == "durable_write_rejected_by_committer"
     assert "Unknown durable memory update target" in receipt.diagnostics["durable_error"]
+
+
+def test_memory_maintenance_runtime_state_corruption_fails_visible(tmp_path) -> None:
+    facade = MemoryFacade(tmp_path)
+    state_path = facade.maintenance_coordinator._session_dir("session-corrupt-maintenance") / "state.json"
+    state_path.write_text("{broken-json", encoding="utf-8")
+
+    receipt = facade.run_memory_maintenance_after_commit(
+        session_id="session-corrupt-maintenance",
+        messages=[{"role": "user", "content": "触发维护"}],
+    )
+
+    assert receipt.status == "failed"
+    assert "Expecting property name" in receipt.error
+    assert receipt.durable_write_count == 0
 
 
 def test_durable_merge_deprecates_sources(tmp_path) -> None:
@@ -236,3 +253,4 @@ def test_durable_merge_deprecates_sources(tmp_path) -> None:
     assert set(receipt.diagnostics["durable_actions"]["deprecated"]) == {"old-a", "old-b"}
     assert old_a is not None and old_a.status == "deprecated"
     assert old_b is not None and old_b.status == "deprecated"
+

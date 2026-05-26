@@ -366,44 +366,6 @@ class MemoryManager:
             canonical,
         )
 
-    def select_relevant_notes(
-        self,
-        query: str,
-        *,
-        preferred_types: list[str] | None = None,
-        preferred_classes: list[str] | None = None,
-        limit: int = 3,
-        exclude_filenames: set[str] | None = None,
-        min_score: float = 3.5,
-    ) -> list[LoadedMemoryNote]:
-        query_terms = self._extract_terms(query)
-        if not query_terms:
-            return []
-
-        preferred_types = preferred_types or []
-        preferred_classes = preferred_classes or []
-        exclude_filenames = exclude_filenames or set()
-
-        scored: list[tuple[float, LoadedMemoryNote]] = []
-        for path in self.list_note_paths():
-            if path.name in exclude_filenames:
-                continue
-            note = self._load_loaded_note(path)
-            if not self._is_runtime_eligible(note):
-                continue
-            score = self._score_loaded_note(
-                note,
-                query_terms,
-                preferred_types=preferred_types,
-                preferred_classes=preferred_classes,
-            )
-            if score < min_score:
-                continue
-            scored.append((score, note))
-
-        scored.sort(key=lambda item: item[0], reverse=True)
-        return [note for _, note in scored[:limit]]
-
     def _upsert_index_line(self, title: str, filename: str, summary: str) -> None:
         safe_title = normalize_storage_text(title)
         safe_summary = normalize_storage_text(summary)
@@ -819,72 +781,6 @@ class MemoryManager:
             content=body_text,
         )
 
-    def _score_loaded_note(
-        self,
-        note: LoadedMemoryNote,
-        query_terms: set[str],
-        *,
-        preferred_types: list[str],
-        preferred_classes: list[str],
-    ) -> float:
-        title_terms = self._extract_terms(note.title)
-        summary_terms = self._extract_terms(note.summary)
-        canonical_terms = self._extract_terms(note.canonical_statement)
-        filename_terms = self._extract_terms(note.filename)
-        body_terms = self._extract_terms(note.content[:800])
-        retrieval_hint_terms = {
-            term
-            for hint in note.retrieval_hints
-            for term in self._extract_terms(hint)
-        }
-
-        score = 0.0
-        score += 4.5 * len(query_terms & title_terms)
-        score += 4.0 * len(query_terms & summary_terms)
-        score += 4.2 * len(query_terms & canonical_terms)
-        score += 3.0 * len(query_terms & retrieval_hint_terms)
-        score += 2.0 * len(query_terms & filename_terms)
-        score += 1.2 * len(query_terms & body_terms)
-
-        lowered_query = repair_mojibake(" ".join(sorted(query_terms))).lower()
-        if note.memory_type.lower() in preferred_types:
-            score += 3.0
-        if note.memory_class.lower() in preferred_classes:
-            score += 2.5
-
-        if note.memory_class == "preference" and any(
-            marker in lowered_query for marker in ("喜欢", "偏好", "习惯", "默认", "风格", "要求")
-        ):
-            score += 2.0
-        if note.memory_class == "work" and any(
-            marker in lowered_query for marker in ("项目", "架构", "流程", "工作流", "重点", "约定", "规范")
-        ):
-            score += 2.0
-
-        return score
-
-    def _extract_terms(self, text: str) -> set[str]:
-        normalized = repair_mojibake(text).lower()
-        terms: set[str] = set()
-
-        for token in re.findall(r"[a-z0-9_.+#-]{2,}", normalized):
-            if token not in _STOP_TERMS:
-                terms.add(token)
-
-        for chunk in re.findall(r"[\u4e00-\u9fff]{2,12}", normalized):
-            if chunk not in _STOP_TERMS:
-                terms.add(chunk)
-            max_window = min(4, len(chunk))
-            for window in range(2, max_window + 1):
-                for start in range(0, len(chunk) - window + 1):
-                    piece = chunk[start : start + window]
-                    if any(char in _STOP_CHARS for char in piece):
-                        continue
-                    if piece not in _STOP_TERMS:
-                        terms.add(piece)
-
-        return terms
-
     def _truncate_entrypoint(self, content: str, warn: bool = True) -> str:
         trimmed = content.strip()
         if not trimmed:
@@ -1048,27 +944,3 @@ class MemoryManager:
             if normalized and normalized not in merged:
                 merged.append(normalized)
         return merged
-
-
-_STOP_TERMS = {
-    "user",
-    "memory",
-    "project",
-    "workflow",
-    "reference",
-    "preference",
-    "work",
-    "用户",
-    "当前",
-    "系统",
-    "相关",
-    "长期",
-    "信息",
-    "记忆",
-    "什么",
-    "哪个",
-    "现在",
-    "已经",
-}
-
-_STOP_CHARS = "的是了呢吗吧呀和与及在有就还都"

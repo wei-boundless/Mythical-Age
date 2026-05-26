@@ -104,26 +104,6 @@ def score_runtime_event(event: dict[str, Any], *, total_events: int = 0, index: 
             semantic_score=0.4,
             novelty_score=0.1,
         )
-    if event_type == "professional_task_semantic_plan_drafted":
-        return EvidenceScore(
-            causal_score=0.7,
-            temporal_score=base,
-            decision_score=1.0,
-            recovery_score=0.5,
-            reproduction_score=0.8,
-            semantic_score=0.5,
-            novelty_score=0.2,
-        )
-    if event_type == "professional_task_deliverable_validation_checked":
-        return EvidenceScore(
-            causal_score=0.7,
-            temporal_score=base,
-            decision_score=0.6,
-            recovery_score=0.8,
-            reproduction_score=0.4,
-            semantic_score=0.5,
-            novelty_score=0.2,
-        )
     if event_type in {"task_run_ledger_updated", "step_completed", "step_entered", "step_failed", "step_skipped"}:
         return EvidenceScore(
             causal_score=0.5,

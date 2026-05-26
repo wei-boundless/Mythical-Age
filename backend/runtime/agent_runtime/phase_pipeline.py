@@ -11,10 +11,15 @@ from runtime.memory.tool_observation_ledger import (
     build_tool_observation_record,
 )
 
-from .professional.agent_plan import AgentPlanRequired, build_agent_plan_draft, empty_agent_plan_draft
-from .professional.completion_judgment import build_verification_review, judge_completion
-from .professional.goal_contract import _goal_contract_from_semantic_contract
-from .professional.plan_coverage import review_plan_coverage
+from .phases import (
+    AgentPlanRequired,
+    build_agent_plan_draft,
+    build_verification_review,
+    empty_agent_plan_draft,
+    goal_contract_from_semantic_contract,
+    judge_completion,
+    review_plan_coverage,
+)
 
 
 @dataclass(slots=True)
@@ -25,6 +30,12 @@ class AgentPhaseOutcome:
     final_content: str = ""
 
 
+@dataclass(frozen=True, slots=True)
+class PreModelPhaseResult:
+    events: tuple[dict[str, Any], ...] = ()
+    runtime_execution_facts: dict[str, Any] = field(default_factory=dict)
+
+
 def append_pre_model_phase_events(
     *,
     runtime_host: Any,
@@ -33,10 +44,10 @@ def append_pre_model_phase_events(
     task_id: str,
     selected_recipe_payload: dict[str, Any],
     agent_runtime_config: Any,
-) -> list[dict[str, Any]]:
+) -> PreModelPhaseResult:
     enabled = set(getattr(agent_runtime_config, "enabled_phases", ()) or ())
     if "planning" not in enabled:
-        return []
+        return PreModelPhaseResult()
     metadata = dict(selected_recipe_payload.get("metadata") or {})
     semantic_contract = dict(metadata.get("task_requirement_contract") or {})
     execution_obligation = dict(
@@ -78,7 +89,22 @@ def append_pre_model_phase_events(
         },
         refs={"task_contract_ref": task_contract_ref},
     )
-    return [{"type": "runtime_loop_event", "event": event.to_dict()}]
+    facts = {
+        "agent_runtime_phase_pipeline": {
+            "authority": "runtime.agent_runtime.phase_pipeline",
+            "interaction_mode": str(getattr(agent_runtime_config, "interaction_mode", "") or ""),
+            "enabled_phases": list(getattr(agent_runtime_config, "enabled_phases", ()) or ()),
+            "planning": {
+                "agent_plan_requirement": requirement,
+                "agent_plan_draft": plan,
+                "plan_coverage_review": review,
+            },
+        }
+    }
+    return PreModelPhaseResult(
+        events=({"type": "runtime_loop_event", "event": event.to_dict()},),
+        runtime_execution_facts=facts,
+    )
 
 
 def apply_post_model_phases(
@@ -121,7 +147,7 @@ def apply_post_model_phases(
         task_run_id=task_run_id,
         observations=observations,
     )
-    goal_contract = _goal_contract_from_semantic_contract(
+    goal_contract = goal_contract_from_semantic_contract(
         task_run_id=task_run_id,
         user_message=user_message,
         semantic_contract=semantic_contract,

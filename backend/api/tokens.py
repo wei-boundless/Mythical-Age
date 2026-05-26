@@ -32,16 +32,22 @@ async def session_tokens(session_id: str) -> dict[str, Any]:
 
     system_tokens = _count_tokens(system_prompt)
     message_tokens = _count_tokens("\n".join(message_text))
-    token_diagnostics = runtime.memory_facade.inspect_session_history_tokens(
-        session_id=session_id,
-        messages=list(record.get("messages", [])),
-    )
+    messages = list(record.get("messages", []))
+    py_messages = runtime.memory_facade.adapter.to_messages(messages, session_id=session_id)
+    compactor = runtime.memory_facade.session_memory.compactor(session_id)
+    raw_history_tokens = compactor.conversation_tokens(py_messages)
+    pressure_level = compactor.pressure_level(raw_history_tokens, len(py_messages))
+    token_diagnostics = {
+        "raw_history_tokens": raw_history_tokens,
+        "history_budget_tokens": int(compactor.effective_history_token_budget),
+        "history_pressure_level": str(pressure_level),
+    }
     raw_history_tokens = int(token_diagnostics.get("raw_history_tokens", 0))
     context_compaction: dict[str, Any] = {}
     try:
-        _compacted_history, context_compaction = runtime.memory_facade.inspect_memory_context_compaction(
+        _compacted_history, context_compaction = runtime.memory_facade.bundle_service.inspect_memory_context_compaction(
             session_id,
-            record.get("messages", []),
+            messages,
         )
     except Exception:
         context_compaction = {}

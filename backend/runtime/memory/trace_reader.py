@@ -484,7 +484,7 @@ class RuntimeLoopTraceReader:
         if checkpoint is not None:
             loop_state["checkpoint_resume_state"] = dict(getattr(checkpoint, "resume_state", {}) or {})
         events = self.event_log.list_events(task_run_id)
-        professional_task_summary = _professional_task_summary(
+        agent_runtime_phase_summary = _agent_runtime_phase_summary(
             task_run=task_run,
             loop_state=loop_state,
             events=events,
@@ -497,7 +497,7 @@ class RuntimeLoopTraceReader:
             "latest_checkpoint": _checkpoint_summary(checkpoint) if checkpoint is not None else None,
             "loop_state": _loop_state_summary(loop_state),
             "coordination_run": coordination_view,
-            "professional_task_summary": professional_task_summary,
+            "agent_runtime_phase_summary": agent_runtime_phase_summary,
             "project_runtime_status": (
                 self.state_index.get_project_runtime_status(str(dict(task_run).get("diagnostics", {}).get("project_id") or "")).to_dict()
                 if str(dict(task_run).get("diagnostics", {}).get("project_id") or "")
@@ -666,118 +666,66 @@ def _loop_state_summary(loop_state: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _professional_task_summary(
+def _agent_runtime_phase_summary(
     *,
     task_run: dict[str, Any],
     loop_state: dict[str, Any],
     events: list[RuntimeEvent],
     checkpoint: Any,
 ) -> dict[str, Any] | None:
-    started_event = _latest_runtime_event(events, "professional_task_started")
-    plan_event = _latest_runtime_event(events, "professional_task_semantic_plan_drafted")
-    state_event = _latest_runtime_event(events, "professional_task_state_changed")
-    ledger_event = _latest_runtime_event(events, "professional_tool_observation_ledger_updated")
-    session_event = _latest_runtime_event(events, "professional_run_session_updated")
-    verification_event = _latest_runtime_event(events, "professional_task_deliverable_validation_checked")
-    progress_page_event = _latest_runtime_event(events, "professional_task_progress_page")
-    stage_summary_event = _latest_runtime_event(events, "professional_task_stage_summary")
-    completion_judgment_event = _latest_runtime_event(events, "professional_task_completion_judged")
-    run_outcome_event = _latest_runtime_event(events, "professional_control_outcome_built")
+    planning_event = _latest_runtime_event(events, "agent_runtime_planning_phase_checked")
+    closeout_event = _latest_runtime_event(events, "agent_runtime_closeout_phase_checked")
     diagnostics = dict(loop_state.get("diagnostics") or {})
-    interaction_lanes = {"role_interaction", "standard_task", "professional_task"}
-    interaction_recipe_ids = {
-        "runtime.recipe.role_interaction",
-        "runtime.recipe.standard_task",
-        "runtime.recipe.professional_task",
-    }
-    is_professional_task = bool(
-        started_event is not None
-        or plan_event is not None
-        or verification_event is not None
-        or str(task_run.get("runtime_lane") or "") in interaction_lanes
-        or str(loop_state.get("runtime_lane") or "") in interaction_lanes
-        or str(loop_state.get("task_template_id") or "") in interaction_recipe_ids
-        or str(diagnostics.get("interaction_mode") or "")
+    config = dict(diagnostics.get("agent_runtime_config") or {})
+    config_mode_policy = dict(config.get("mode_policy") or {})
+    interaction_mode = str(
+        config_mode_policy.get("interaction_mode")
+        or config.get("interaction_mode")
+        or diagnostics.get("interaction_mode")
+        or ""
     )
-    if not is_professional_task:
+    enabled_phases = [
+        str(item)
+        for item in list(config.get("enabled_phases") or [])
+        if str(item).strip()
+    ]
+    has_phase_policy = bool(planning_event is not None or closeout_event is not None or enabled_phases)
+    if not has_phase_policy:
         return None
-
-    started_payload = dict(started_event.payload or {}) if started_event is not None else {}
-    plan_payload = dict(plan_event.payload or {}) if plan_event is not None else {}
-    state_payload = dict(state_event.payload or {}) if state_event is not None else {}
     ledger = _latest_task_run_ledger_from_events(events)
     current_step_id = str(
         dict(ledger).get("current_step_id")
         or loop_state.get("current_step_id")
         or ""
     )
-    verification = _professional_verification_summary(verification_event)
-    professional_run_state = _professional_run_state_summary(
-        session_event=session_event,
-        ledger_event=ledger_event,
-        verification_event=verification_event,
-        state_payload=state_payload,
-        diagnostics=diagnostics,
-    )
-    tool_observation_ledger = _professional_tool_observation_ledger_summary(
-        ledger_event=ledger_event,
-        session_event=session_event,
-        verification_event=verification_event,
-    )
-    professional_run_session = _professional_run_session_summary(session_event)
-    observation = _professional_observation_summary(events)
+    planning = _agent_runtime_planning_summary(planning_event)
+    verification = _agent_runtime_closeout_verification_summary(closeout_event)
+    tool_observation_ledger = _agent_runtime_tool_observation_ledger_summary(closeout_event)
+    run_outcome = _agent_runtime_run_outcome_from_closeout(closeout_event)
+    observation = _agent_runtime_observation_summary(events)
     return {
         "available": True,
         "task_run_id": str(task_run.get("task_run_id") or loop_state.get("task_run_id") or ""),
-        "runtime_control": str(started_payload.get("runtime_control") or "agent_runtime.phase_pipeline"),
-        "interaction_mode": str(
-            started_payload.get("interaction_mode")
-            or plan_payload.get("interaction_mode")
-            or diagnostics.get("interaction_mode")
-            or ""
+        "runtime_control": "agent_runtime.phase_pipeline",
+        "interaction_mode": interaction_mode,
+        "mode": interaction_mode,
+        "enabled_phases": enabled_phases,
+        "state": _agent_runtime_phase_state(
+            status=str(task_run.get("status") or loop_state.get("status") or ""),
+            verification=verification,
+            planning_event=planning_event,
+            closeout_event=closeout_event,
         ),
-        "mode": str(
-            started_payload.get("interaction_mode")
-            or plan_payload.get("interaction_mode")
-            or diagnostics.get("interaction_mode")
-            or ""
-        ),
-        "goal": str(started_payload.get("goal") or ""),
-        "state": str(
-            professional_run_state.get("state")
-            or state_payload.get("to_state")
-            or diagnostics.get("professional_state")
-            or ""
-        ),
-        "transition": {
-            "from_state": str(state_payload.get("from_state") or ""),
-            "to_state": str(state_payload.get("to_state") or ""),
-            "terminal_reason": str(state_payload.get("terminal_reason") or ""),
-        },
-        "plan": {
-            "source": str(plan_payload.get("plan_source") or ""),
-            "ledger_backed": bool(plan_payload.get("ledger_backed") is True or bool(ledger)),
-            "item_count": len(list(plan_payload.get("plan_items") or [])),
-            "tool_execution_enabled": bool(plan_payload.get("tool_execution_enabled") is True),
-            "delegation_enabled": bool(plan_payload.get("delegation_enabled") is True),
-            "allowed_tool_names": [
-                str(item)
-                for item in list(plan_payload.get("allowed_tool_names") or [])
-                if str(item)
-            ],
-        },
+        "planning": planning,
+        "plan": planning,
         "current_plan_item": _current_plan_item_summary(ledger, current_step_id=current_step_id),
-        "progress": _professional_ledger_progress(ledger, current_step_id=current_step_id),
-        "progress_page": _professional_progress_page_summary(progress_page_event),
-        "stage_summary": _professional_stage_summary(stage_summary_event),
+        "progress": _agent_runtime_ledger_progress(ledger, current_step_id=current_step_id),
         "observation": observation,
         "verification": verification,
-        "completion_judgment": _professional_completion_judgment_summary(completion_judgment_event),
-        "run_outcome": _professional_run_outcome_summary(run_outcome_event),
-        "professional_run_state": professional_run_state,
-        "professional_run_session": professional_run_session,
+        "completion_judgment": dict(verification.get("completion_judgment") or {}),
+        "run_outcome": run_outcome,
         "tool_observation_ledger": tool_observation_ledger,
-        "blocker": _professional_task_blocker(
+        "blocker": _agent_runtime_phase_blocker(
             task_run=task_run,
             loop_state=loop_state,
             events=events,
@@ -802,7 +750,7 @@ def _professional_task_summary(
             if events
             else None
         ),
-        "authority": "runtime_professional_task_summary",
+        "authority": "runtime.agent_runtime.phase_summary",
     }
 
 
@@ -822,90 +770,36 @@ def _latest_task_run_ledger_from_events(events: list[RuntimeEvent]) -> dict[str,
     return {}
 
 
-def _professional_run_state_summary(
-    *,
-    session_event: RuntimeEvent | None,
-    ledger_event: RuntimeEvent | None,
-    verification_event: RuntimeEvent | None,
-    state_payload: dict[str, Any],
-    diagnostics: dict[str, Any],
-) -> dict[str, Any]:
-    state = _first_record_payload(
-        (
-            session_event,
-            "professional_run_state",
-        ),
-        (
-            ledger_event,
-            "professional_run_state",
-        ),
-        (
-            verification_event,
-            "verification.professional_run_state",
-        ),
-    )
-    transitions = [
+def _agent_runtime_planning_summary(event: RuntimeEvent | None) -> dict[str, Any]:
+    if event is None:
+        return {"status": "not_required", "passed": True}
+    payload = dict(event.payload or {})
+    plan = dict(payload.get("agent_plan_draft") or {})
+    requirement = dict(payload.get("agent_plan_requirement") or {})
+    review = dict(payload.get("plan_coverage_review") or {})
+    steps = [
         dict(item)
-        for item in list(state.get("transitions") or [])
+        for item in list(plan.get("steps") or [])
         if isinstance(item, dict)
     ]
-    latest_transition = transitions[-1] if transitions else {}
     return {
-        "run_state_id": str(state.get("run_state_id") or ""),
-        "task_run_id": str(state.get("task_run_id") or ""),
-        "state": str(
-            state.get("state")
-            or state_payload.get("to_state")
-            or diagnostics.get("professional_state")
-            or ""
-        ),
-        "transition_count": len(transitions),
-        "latest_transition": {
-            "from_state": str(latest_transition.get("from_state") or ""),
-            "to_state": str(latest_transition.get("to_state") or ""),
-            "reason": str(latest_transition.get("reason") or ""),
-            "evidence_refs": [
-                str(item)
-                for item in list(latest_transition.get("evidence_refs") or [])
-                if str(item)
-            ],
-        } if latest_transition else {},
-        "unsatisfied_obligations": [
-            str(item)
-            for item in list(state.get("unsatisfied_obligations") or [])
-            if str(item)
-        ],
-        "blocked_reason": str(state.get("blocked_reason") or ""),
-        "diagnostics": dict(state.get("diagnostics") or {}),
-        "authority": str(state.get("authority") or "orchestration.professional_run_state"),
+        "status": "passed" if bool(review.get("passed") is True) else "needs_revision",
+        "passed": bool(review.get("passed") is True),
+        "source": str(plan.get("source") or ""),
+        "plan_id": str(plan.get("plan_id") or ""),
+        "item_count": len(steps),
+        "agent_plan_requirement": requirement,
+        "agent_plan_draft": plan,
+        "plan_coverage_review": review,
+        "event_id": event.event_id,
+        "created_at": event.created_at,
+        "authority": str(payload.get("phase_authority") or "runtime.agent_runtime.phase_pipeline"),
     }
 
 
-def _professional_tool_observation_ledger_summary(
-    *,
-    ledger_event: RuntimeEvent | None,
-    session_event: RuntimeEvent | None,
-    verification_event: RuntimeEvent | None,
-) -> dict[str, Any]:
+def _agent_runtime_tool_observation_ledger_summary(event: RuntimeEvent | None) -> dict[str, Any]:
     ledger_payload = _first_record_payload(
-        (
-            ledger_event,
-            "tool_observation_ledger",
-        ),
-        (
-            session_event,
-            "tool_observation_ledger",
-        ),
-        (
-            verification_event,
-            "verification.tool_observation_ledger",
-        ),
-    )
-    event_summary = _first_record_payload(
-        (
-            ledger_event,
-            "summary",
-        ),
+        (event, "verification.tool_observation_ledger"),
     )
     records = [
         dict(item)
@@ -927,12 +821,11 @@ def _professional_tool_observation_ledger_summary(
             }
         ),
     }
-    summary = {**computed_summary, **event_summary}
     latest_record = records[-1] if records else {}
     return {
         "ledger_id": str(ledger_payload.get("ledger_id") or ""),
         "task_run_id": str(ledger_payload.get("task_run_id") or ""),
-        "summary": summary,
+        "summary": computed_summary,
         "latest_record": _tool_observation_record_summary(latest_record) if latest_record else {},
         "authority": str(ledger_payload.get("authority") or "orchestration.tool_observation_ledger"),
     }
@@ -956,22 +849,6 @@ def _tool_observation_record_summary(record: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _professional_run_session_summary(session_event: RuntimeEvent | None) -> dict[str, Any]:
-    session = _first_record_payload((session_event, "professional_run_session"))
-    if not session:
-        return {}
-    return {
-        "session_id": str(session.get("session_id") or ""),
-        "task_run_id": str(session.get("task_run_id") or ""),
-        "interaction_mode": str(session.get("interaction_mode") or ""),
-        "state_ref": str(session.get("state_ref") or ""),
-        "tool_observation_ledger_ref": str(session.get("tool_observation_ledger_ref") or ""),
-        "resume_decision": dict(session.get("resume_decision") or {}),
-        "execution_obligation": dict(session.get("execution_obligation") or {}),
-        "authority": str(session.get("authority") or "orchestration.professional_run_session"),
-    }
-
-
 def _first_record_payload(*candidates: tuple[RuntimeEvent | None, str]) -> dict[str, Any]:
     for event, dotted_key in candidates:
         payload = _payload_by_dotted_key(dict(event.payload or {}) if event is not None else {}, dotted_key)
@@ -989,140 +866,19 @@ def _payload_by_dotted_key(payload: dict[str, Any], dotted_key: str) -> dict[str
     return dict(current or {}) if isinstance(current, dict) else {}
 
 
-def _professional_ledger_progress(ledger: dict[str, Any], *, current_step_id: str) -> dict[str, Any]:
+def _agent_runtime_ledger_progress(ledger: dict[str, Any], *, current_step_id: str) -> dict[str, Any]:
     step_runs = [dict(item) for item in list(dict(ledger or {}).get("step_runs") or []) if isinstance(item, dict)]
     return {
         "ledger_id": str(dict(ledger or {}).get("ledger_id") or ""),
         "ledger_status": str(dict(ledger or {}).get("status") or ""),
         "current_step_id": str(current_step_id or dict(ledger or {}).get("current_step_id") or ""),
         "step_count": len(step_runs),
-        "plan_item_count": sum(1 for item in step_runs if _is_professional_plan_step(item)),
+        "plan_item_count": sum(1 for item in step_runs if _is_agent_runtime_plan_step(item)),
         "completed_count": sum(1 for item in step_runs if str(item.get("status") or "") == "completed"),
         "running_count": sum(1 for item in step_runs if str(item.get("status") or "") == "running"),
         "pending_count": sum(1 for item in step_runs if str(item.get("status") or "") == "pending"),
         "failed_count": sum(1 for item in step_runs if str(item.get("status") or "") == "failed"),
         "skipped_count": sum(1 for item in step_runs if str(item.get("status") or "") == "skipped"),
-    }
-
-
-def _professional_progress_page_summary(event: RuntimeEvent | None) -> dict[str, Any]:
-    progress_page = _first_record_payload((event, "progress_page"))
-    if not progress_page:
-        return {}
-    return {
-        "summary": str(
-            progress_page.get("summary")
-            or progress_page.get("current_status")
-            or progress_page.get("progress_summary")
-            or ""
-        ),
-        "turn_count": int(progress_page.get("turn_count") or 0),
-        "tool_call_count": int(progress_page.get("tool_call_count") or 0),
-        "tool_observation_count": int(progress_page.get("tool_observation_count") or 0),
-        "written_paths": [
-            str(item)
-            for item in list(
-                progress_page.get("written_paths")
-                or progress_page.get("artifact_paths")
-                or []
-            )
-            if str(item)
-        ][:8],
-        "pending_paths": [
-            str(item)
-            for item in list(
-                progress_page.get("pending_paths")
-                or progress_page.get("pending_deliverables")
-                or []
-            )
-            if str(item)
-        ][:8],
-        "event_id": event.event_id if event is not None else "",
-        "created_at": event.created_at if event is not None else 0.0,
-    }
-
-
-def _professional_stage_summary(event: RuntimeEvent | None) -> dict[str, Any]:
-    stage_summary = _first_record_payload((event, "stage_summary"))
-    if not stage_summary:
-        return {}
-    written_paths = [
-        str(item)
-        for item in list(
-            stage_summary.get("written_paths")
-            or stage_summary.get("written_artifacts")
-            or stage_summary.get("artifact_paths")
-            or []
-        )
-        if str(item)
-    ]
-    pending_paths = [
-        str(item)
-        for item in list(
-            stage_summary.get("pending_paths")
-            or stage_summary.get("pending_deliverables")
-            or []
-        )
-        if str(item)
-    ]
-    return {
-        "written_paths": written_paths[:8],
-        "pending_paths": pending_paths[:8],
-        "verified": bool(stage_summary.get("verified") is True),
-        "validation_status": str(stage_summary.get("validation_status") or ""),
-        "next_step": str(stage_summary.get("next_step") or ""),
-        "latest_observations": [
-            str(item)
-            for item in list(stage_summary.get("latest_observations") or stage_summary.get("observations") or [])
-            if str(item)
-        ][:5],
-        "turn_count": int(stage_summary.get("turn_count") or 0),
-        "tool_call_count": int(stage_summary.get("tool_call_count") or 0),
-        "tool_observation_count": int(stage_summary.get("tool_observation_count") or 0),
-        "event_id": event.event_id if event is not None else "",
-        "created_at": event.created_at if event is not None else 0.0,
-    }
-
-
-def _professional_completion_judgment_summary(event: RuntimeEvent | None) -> dict[str, Any]:
-    judgment = _first_record_payload((event, "completion_judgment"))
-    review = _first_record_payload((event, "verification_review"))
-    if not judgment and not review:
-        return {}
-    return {
-        "completed": bool(judgment.get("completed") is True),
-        "reason": str(judgment.get("reason") or review.get("summary") or ""),
-        "missing": [
-            str(item)
-            for item in list(judgment.get("missing") or judgment.get("missing_deliverables") or [])
-            if str(item)
-        ][:8],
-        "review_status": str(review.get("status") or ""),
-        "event_id": event.event_id if event is not None else "",
-        "created_at": event.created_at if event is not None else 0.0,
-    }
-
-
-def _professional_run_outcome_summary(event: RuntimeEvent | None) -> dict[str, Any]:
-    outcome = _first_record_payload((event, "run_outcome"))
-    if not outcome:
-        return {}
-    return {
-        "terminal_reason": str(outcome.get("terminal_reason") or ""),
-        "status": str(outcome.get("status") or ""),
-        "result_refs": [
-            str(item)
-            for item in list(outcome.get("result_refs") or [])
-            if str(item)
-        ][:8],
-        "artifact_refs": [
-            str(item)
-            for item in list(outcome.get("artifact_refs") or [])
-            if str(item)
-        ][:8],
-        "final_content_preview": str(outcome.get("final_content") or "")[:240],
-        "event_id": event.event_id if event is not None else "",
-        "created_at": event.created_at if event is not None else 0.0,
     }
 
 
@@ -1161,17 +917,15 @@ def _current_plan_item_summary(ledger: dict[str, Any], *, current_step_id: str) 
     }
 
 
-def _is_professional_plan_step(step_run: dict[str, Any]) -> bool:
+def _is_agent_runtime_plan_step(step_run: dict[str, Any]) -> bool:
     diagnostics = dict(step_run.get("diagnostics") or {})
     return bool(
         str(step_run.get("step_kind") or "") == "plan_item"
         or dict(diagnostics.get("plan_item") or {})
-        or str(step_run.get("step_id") or "").startswith("professional.")
-        
     )
 
 
-def _professional_observation_summary(events: list[RuntimeEvent]) -> dict[str, Any]:
+def _agent_runtime_observation_summary(events: list[RuntimeEvent]) -> dict[str, Any]:
     tool_call_events = [event for event in events if str(event.event_type or "") == "tool_call_requested"]
     observation_events = [
         event
@@ -1225,7 +979,7 @@ def _executor_observation_payload(event: RuntimeEvent | None) -> dict[str, Any]:
     return observation
 
 
-def _professional_verification_summary(event: RuntimeEvent | None) -> dict[str, Any]:
+def _agent_runtime_closeout_verification_summary(event: RuntimeEvent | None) -> dict[str, Any]:
     if event is None:
         return {"status": "not_run", "passed": False}
     verification = dict(dict(event.payload or {}).get("verification") or {})
@@ -1233,14 +987,49 @@ def _professional_verification_summary(event: RuntimeEvent | None) -> dict[str, 
     return {
         "status": "passed" if passed else "failed",
         "passed": passed,
-        "mode": str(verification.get("mode") or ""),
-        "checks": dict(verification.get("checks") or {}),
+        "interaction_mode": str(verification.get("interaction_mode") or ""),
+        "enabled_phases": list(verification.get("enabled_phases") or []),
+        "evidence_packet": dict(verification.get("evidence_packet") or {}),
+        "tool_observation_ledger": dict(verification.get("tool_observation_ledger") or {}),
+        "deliverable_validation": dict(verification.get("deliverable_validation") or {}),
+        "obligation_validation": dict(verification.get("obligation_validation") or {}),
+        "verification_review": dict(verification.get("verification_review") or {}),
+        "completion_judgment": dict(verification.get("completion_judgment") or {}),
+        "phase_authority": str(verification.get("phase_authority") or ""),
         "event_id": event.event_id,
         "created_at": event.created_at,
     }
 
 
-def _professional_task_blocker(
+def _agent_runtime_run_outcome_from_closeout(event: RuntimeEvent | None) -> dict[str, Any]:
+    verification = dict(dict(event.payload or {}).get("verification") or {}) if event is not None else {}
+    judgment = dict(verification.get("completion_judgment") or {})
+    return {
+        "terminal_reason": str(judgment.get("terminal_reason") or ""),
+        "completed": bool(judgment.get("completed") is True),
+        "authority": str(verification.get("phase_authority") or "runtime.agent_runtime.phase_pipeline"),
+        "event_id": event.event_id if event is not None else "",
+        "created_at": event.created_at if event is not None else 0.0,
+    } if verification else {}
+
+
+def _agent_runtime_phase_state(
+    *,
+    status: str,
+    verification: dict[str, Any],
+    planning_event: RuntimeEvent | None,
+    closeout_event: RuntimeEvent | None,
+) -> str:
+    if str(status or "") in {"blocked", "failed", "aborted"}:
+        return str(status or "")
+    if closeout_event is not None:
+        return "closeout_passed" if verification.get("passed") is True else "closeout_failed"
+    if planning_event is not None:
+        return "planning_checked"
+    return str(status or "running")
+
+
+def _agent_runtime_phase_blocker(
     *,
     task_run: dict[str, Any],
     loop_state: dict[str, Any],
@@ -1272,7 +1061,7 @@ def _professional_task_blocker(
     if str(verification.get("status") or "") == "failed":
         return {
             "kind": "verification_failed",
-            "summary": "Autonomous task verification did not pass.",
+            "summary": "AgentRuntime phase verification did not pass.",
             "event_id": str(verification.get("event_id") or ""),
         }
     return {}

@@ -199,7 +199,6 @@ def default_runtime_lane_descriptors() -> tuple[RuntimeLaneDescriptor, ...]:
             metadata={
                 "interaction_mode": "professional_mode",
                 "projection_strength": "style_only",
-                "control_runner": "agent_runtime.professional_control",
             },
         ),
         _lane(

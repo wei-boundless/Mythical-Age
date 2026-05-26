@@ -14,7 +14,6 @@ from .turn_projection import (
     FILE_PATTERN,
     RESULT_MARKERS,
     SECRET_PATTERNS,
-    ActiveProjection,
     TurnProjectionBuilder,
     TurnProjectionSnapshot,
     WARM_CONTEXT_CHAR_BUDGET,
@@ -56,9 +55,8 @@ class ProcessStateEngine:
         *,
         max_items: int = 6,
     ) -> DialogueState:
-        active_goal, active_goal_turn_type, task_switch = self._resolve_active_goal_fields(
+        active_goal, active_goal_turn_type = self._resolve_active_goal_fields(
             snapshot,
-            previous_state,
         )
         projected_messages = snapshot.cleaned_messages
         projected_assistant_messages = [message for message in projected_messages if message.role == "assistant"]
@@ -81,7 +79,6 @@ class ProcessStateEngine:
             active_goal,
             snapshot.turn_trace,
             current_assistant_messages,
-            active_understanding=snapshot.active_understanding,
             current_result_items=current_result_items,
             max_items=max_items,
         )
@@ -92,33 +89,25 @@ class ProcessStateEngine:
             projected_assistant_messages,
             current_result_refs=current_result_items,
             historical_result_refs=historical_result_items,
-            task_switch=task_switch,
             max_items=max_items,
         )
         flow_state = self._build_flow_state(
             active_goal,
-            active_understanding=snapshot.active_understanding,
             previous_state=previous_state,
             turn_trace=snapshot.turn_trace,
-            task_switch=task_switch,
-            file_hints=file_hints,
         )
         task_state = self._build_task_state(
             active_goal,
             snapshot.turn_trace,
             current_assistant_messages,
             previous_state=previous_state,
-            task_switch=task_switch,
             next_steps=next_steps,
             current_result_items=current_result_items,
         )
         context_slots = self._build_context_slots(
             active_goal,
-            active_understanding=snapshot.active_understanding,
             previous_state=previous_state,
-            task_switch=task_switch,
             convention_hints=convention_hints,
-            turn_trace=snapshot.turn_trace,
         )
         risk_flags, risk_notes, warm_context = self._assess_and_guard_risks(
             cleaned_messages=projected_messages,
@@ -129,7 +118,6 @@ class ProcessStateEngine:
             context_slots=context_slots,
             warm_context=warm_context,
             current_task_state=current_task_state,
-            task_switch=task_switch,
         )
         errors_and_corrections = self._dedupe_items(
             self._extract_error_hints(projected_assistant_messages),
@@ -171,13 +159,11 @@ class ProcessStateEngine:
     def _resolve_active_goal_fields(
         self,
         snapshot: TurnProjectionSnapshot,
-        previous_state: DialogueState,
-    ) -> tuple[str, str, bool]:
+    ) -> tuple[str, str]:
         active_goal = snapshot.active_goal
         active_goal_turn_type = snapshot.active_goal_turn_type
-        task_switch = snapshot.task_switch
 
-        return active_goal, active_goal_turn_type, task_switch
+        return active_goal, active_goal_turn_type
 
     def _split_assistant_messages_for_current_turn(
         self,
@@ -232,11 +218,8 @@ class ProcessStateEngine:
         self,
         active_goal: str,
         *,
-        active_understanding: ActiveProjection,
         previous_state: DialogueState,
         turn_trace: list[TurnUnderstanding],
-        task_switch: bool,
-        file_hints: list[str],
     ) -> FlowState:
         flow_type = "memory_projection"
         if previous_state.flow_state.flow_type == flow_type:
@@ -257,13 +240,11 @@ class ProcessStateEngine:
         assistant_messages: list[Message],
         *,
         previous_state: DialogueState,
-        task_switch: bool,
         next_steps: list[str],
         current_result_items: list[str],
     ) -> TaskState:
         completed_steps: list[str] = []
-        if not task_switch:
-            completed_steps.extend(previous_state.task_state.completed_steps[-1:])
+        completed_steps.extend(previous_state.task_state.completed_steps[-1:])
         completed_steps.extend(
             f"已完成：{self._shorten(item, 120)}"
             for item in current_result_items[-2:]
@@ -275,8 +256,6 @@ class ProcessStateEngine:
 
         pending_steps = list(next_steps[:2])
         current_step = self._infer_current_step(active_goal, turn_trace, assistant_messages)
-        if task_switch and active_goal:
-            pending_steps.insert(0, f"为新流程建立上下文：{self._shorten(active_goal, 80)}")
 
         return TaskState(
             current_step=current_step,
@@ -289,11 +268,8 @@ class ProcessStateEngine:
         self,
         active_goal: str,
         *,
-        active_understanding: ActiveProjection,
         previous_state: DialogueState,
-        task_switch: bool,
         convention_hints: list[str],
-        turn_trace: list[TurnUnderstanding],
     ) -> ContextSlots:
         active_pdf, active_dataset = self._extract_slots_from_active_goal(active_goal)
         active_pdf_mode = self._infer_pdf_mode_from_goal(active_goal)
@@ -317,7 +293,7 @@ class ProcessStateEngine:
         previous_active_pdf = normalize_storage_text(getattr(previous_slots, "active_pdf", "")).strip()
         previous_active_dataset = normalize_storage_text(getattr(previous_slots, "active_dataset", "")).strip()
         active_entity = "pdf_document" if active_pdf else "dataset" if active_dataset else ""
-        active_rule = self._extract_constraint_slot(turn_trace, convention_hints, previous_state, task_switch=task_switch)
+        active_rule = self._extract_constraint_slot(convention_hints, previous_state)
         committed_pdf = active_pdf or previous_committed_pdf
         committed_pdf_owner_task_id = (
             previous_committed_pdf_owner_task_id
@@ -446,7 +422,6 @@ class ProcessStateEngine:
         turn_trace: list[TurnUnderstanding],
         assistant_messages: list[Message],
         *,
-        active_understanding: ActiveProjection,
         current_result_items: list[str],
         max_items: int,
     ) -> list[str]:
@@ -473,30 +448,19 @@ class ProcessStateEngine:
         *,
         current_result_refs: list[str],
         historical_result_refs: list[str],
-        task_switch: bool,
         max_items: int,
     ) -> list[str]:
         items: list[str] = []
-        previous_goal = previous_state.active_goal
         previous_state_items = list(previous_state.current_task_state)
-        previous_results = self._visible_result_refs(previous_state)
         previous_warm = list(previous_state.warm_context)
 
-        if task_switch and previous_goal and previous_goal != active_goal:
-            items.extend(f"上一阶段目标：{item}" for item in [previous_goal][:1])
-            items.extend(f"上一阶段状态：{item}" for item in previous_state_items[:1])
-            items.extend(f"上一阶段结果：{item}" for item in previous_results[:1])
-            items.extend(previous_warm[:2])
-        else:
-            items.extend(previous_warm[:2])
-            items.extend(f"延续状态：{item}" for item in previous_state_items[:1])
+        items.extend(previous_warm[:2])
+        items.extend(f"延续状态：{item}" for item in previous_state_items[:1])
 
         recent_decisions = list(previous_state.decisions_and_learnings[-1:])
         items.extend(f"近期结论：{item}" for item in recent_decisions)
 
-        if task_switch:
-            items.extend(f"近期结果：{item}" for item in historical_result_refs[:1])
-        elif not current_result_refs:
+        if not current_result_refs:
             items.extend(f"近期结果：{item}" for item in historical_result_refs[:1])
 
         prior_requests = [
@@ -531,17 +495,10 @@ class ProcessStateEngine:
             return self._shorten(assistant_messages[-1].content, 120)
         return active_goal
 
-    def _can_carry_forward_active_entity(self, active_entity: str) -> bool:
-        entity = normalize_storage_text(active_entity)
-        return bool(entity) and entity not in {"pdf_document", "dataset"}
-
     def _extract_constraint_slot(
         self,
-        turn_trace: list[TurnUnderstanding],
         convention_hints: list[str],
         previous_state: DialogueState,
-        *,
-        task_switch: bool,
     ) -> str:
         convention_hint = next(
             (
@@ -555,9 +512,7 @@ class ProcessStateEngine:
         )
         if convention_hint:
             return self._shorten(convention_hint, 120)
-        if not task_switch:
-            return previous_state.context_slots.active_rule
-        return ""
+        return previous_state.context_slots.active_rule
 
     def _extract_file_hints(self, messages: list[Message]) -> list[str]:
         hints: list[str] = []
@@ -652,7 +607,6 @@ class ProcessStateEngine:
         context_slots: ContextSlots,
         warm_context: list[str],
         current_task_state: list[str],
-        task_switch: bool,
     ) -> tuple[list[str], list[str], list[str]]:
         risk_flags: list[str] = []
         risk_notes: list[str] = []

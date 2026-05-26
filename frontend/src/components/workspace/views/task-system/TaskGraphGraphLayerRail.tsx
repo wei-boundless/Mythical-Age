@@ -1,6 +1,6 @@
 "use client";
 
-import { Boxes, Cable, FileWarning, GitBranch, Layers3, Network, Route } from "lucide-react";
+import { Boxes, Cable, FileWarning, GitBranch, Layers3, Network } from "lucide-react";
 
 import type { ComposableUnitSpec, GraphModuleExpansionSpec, GraphModuleRuntimePlanSpec, TaskGraphStandardView, UnitPortEdgeSpec } from "@/lib/api";
 
@@ -11,7 +11,6 @@ import { TASK_GRAPH_MODULE_FACET_ITEMS } from "./taskGraphModuleComposition";
 import type { TaskGraphComposableSubject } from "./taskGraphComposableEditorTypes";
 import { taskGraphComposableSubjectKey } from "./taskGraphComposableEditorTypes";
 import type { TaskGraphPreflightIssue } from "./taskGraphPreflight";
-import { coordinationTimelineBlocks, type TaskGraphTimelineBlock } from "./taskGraphTimeline";
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -95,7 +94,6 @@ export function TaskGraphGraphLayerRail({
 }) {
   const metadata = asRecord(graphDraft.metadata);
   const subjectKey = taskGraphComposableSubjectKey(selectedSubject);
-  const blocks = coordinationTimelineBlocks(metadata);
   const counts = unitTypeCounts(units);
   const graphName = taskGraphDisplayName(graphDraft.graph_id, standardView?.graph, metadata, graphDraft.title || graphDraft.graph_id);
   const graphSubject: TaskGraphComposableSubject = { kind: "graph", graph_id: graphDraft.graph_id };
@@ -236,36 +234,7 @@ export function TaskGraphGraphLayerRail({
               </button>
             );
           })}
-          {!units.some((unit) => unit.unit_type === "graph") ? (
-            <div className="task-graph-composer-empty">canonical 图模块节点或 legacy 图块绑定 linked_graph_id 后会形成导入图模块诊断。</div>
-          ) : null}
-        </div>
-      </section>
-
-      <section className="task-graph-composer-panel">
-        <header>
-          <Route aria-hidden="true" size={15} />
-          <strong>图模块来源</strong>
-        </header>
-        <div className="task-graph-composer-object-list">
-          {blocks.map((block: TaskGraphTimelineBlock) => {
-            const subject: TaskGraphComposableSubject = { kind: "timeline_block", block_id: block.block_id };
-            const active = subjectKey === taskGraphComposableSubjectKey(subject);
-            const issue = firstIssueForTarget(issues, block.block_id);
-            return (
-              <button className={active ? "active" : ""} key={block.block_id} onClick={() => onSelectSubject(subject)} type="button">
-                <Layers3 aria-hidden="true" size={14} />
-                <span>
-                  <strong>{block.title || block.block_id}</strong>
-                  <small>{block.block_type} / {block.linked_graph_id || "本图阶段窗口"}</small>
-                </span>
-                {issue ? <em>{issue.severity}</em> : null}
-              </button>
-            );
-          })}
-          {!blocks.length ? (
-            <div className="task-graph-composer-empty">还没有图模块来源，右侧选择当前任务图后可以新增。</div>
-          ) : null}
+          {!units.some((unit) => unit.unit_type === "graph") ? <div className="task-graph-composer-empty">canonical 图模块节点绑定 linked_graph_id 后会形成导入图模块诊断。</div> : null}
         </div>
       </section>
 

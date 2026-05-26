@@ -19,9 +19,6 @@ import type { TaskGraphWorkbenchAgentCatalog } from "./taskGraphTypes";
 
 function subjectFromFocus(editorFocus: TaskGraphEditorFocus | undefined, graphId: string): TaskGraphComposableSubject {
   if (editorFocus?.edge_id) return { kind: "port_edge", edge_id: editorFocus.edge_id };
-  if ((editorFocus?.facet === "stitching" || editorFocus?.facet === "blocks") && editorFocus?.node_id) {
-    return { kind: "timeline_block", block_id: editorFocus.node_id };
-  }
   if (editorFocus?.node_id) return { kind: "unit", unit_id: editorFocus.node_id.startsWith("unit.") ? editorFocus.node_id : `unit.node.${editorFocus.node_id.replace(/[:/\\]+/g, ".")}` };
   return { kind: "graph", graph_id: graphId };
 }
@@ -71,6 +68,7 @@ export function TaskGraphComposableEditorPage({
   orchestrationAgentCatalog,
   projectionCards,
   standardView,
+  standardViewStale = false,
   standardViewLoading,
   taskGraphDraft,
   taskGraphs,
@@ -94,6 +92,7 @@ export function TaskGraphComposableEditorPage({
   orchestrationAgentCatalog?: OrchestrationAgentRuntimeCatalog | null;
   projectionCards?: Array<{ projection_id: string; title?: string; soul_name?: string; soul_id?: string }>;
   standardView: TaskGraphStandardView | null;
+  standardViewStale?: boolean;
   standardViewLoading?: boolean;
   taskGraphDraft: TaskGraphDraftV2;
   taskGraphs?: TaskGraphRecord[];
@@ -133,10 +132,6 @@ export function TaskGraphComposableEditorPage({
       setSelectedSubject({ kind: "port_edge", edge_id: focusEdgeId });
       return;
     }
-    if ((focusFacet === "stitching" || focusFacet === "blocks") && focusNodeId) {
-      setSelectedSubject({ kind: "timeline_block", block_id: focusNodeId });
-      return;
-    }
     if (focusNodeId) {
       setSelectedSubject({
         kind: "unit",
@@ -164,10 +159,6 @@ export function TaskGraphComposableEditorPage({
       onEditorFocus?.({ layer: "modules", facet: nextFacet, edge_id: subject.edge_id });
       return;
     }
-    if (subject.kind === "timeline_block") {
-      onEditorFocus?.({ layer: "modules", facet: nextFacet, node_id: subject.block_id });
-      return;
-    }
     if (subject.kind === "issue") {
       onEditorFocus?.({ layer: "modules", facet: nextFacet, issue_id: subject.issue.issue_id });
       return;
@@ -182,6 +173,7 @@ export function TaskGraphComposableEditorPage({
           <span>编译预览</span>
           <strong>标准视图用于诊断，不是第二套运行图编辑器</strong>
           <small>
+            {standardViewStale ? "当前编译预览已过期，请保存并刷新标准视图后再用于发布判断。 " : ""}
             当前页面展示后端从 canonical nodes / edges 编译出的 units、interfaces、port edges 和图模块展开。
             {overlayPortEdgeCount ? ` 检测到 ${overlayPortEdgeCount} 条 metadata 覆盖边，请迁移为 canonical edge 后再发布。` : " 没有检测到覆盖边。"}
           </small>

@@ -572,32 +572,7 @@ def _timeline_blocks(*, graph: TaskGraphDefinition, nodes: list[TaskGraphNodeDef
     ]
     if explicit:
         return [_timeline_block_payload(item, index) for index, item in enumerate(explicit)]
-    phase_ids = list(dict.fromkeys(str(node.phase_id or "").strip() for node in nodes if str(node.phase_id or "").strip()))
-    blocks: list[dict[str, Any]] = []
-    for index, phase_id in enumerate(phase_ids):
-        phase_nodes = sorted(
-            [node for node in nodes if str(node.phase_id or "").strip() == phase_id],
-            key=lambda item: (int(item.sequence_index or 0), item.node_id),
-        )
-        if not phase_nodes:
-            continue
-        blocks.append(
-            {
-                "block_id": f"block.{phase_id}",
-                "block_type": "phase_graph",
-                "title": phase_id.replace("phase.", "") or phase_id,
-                "phase_id": phase_id,
-                "entry_node_id": phase_nodes[0].node_id,
-                "exit_node_id": phase_nodes[-1].node_id,
-                "handoff_contract_id": "",
-                "visibility_policy": "committed_only",
-                "version_ref": "",
-                "detach_policy": "preserve_version_anchor",
-                "derived": True,
-                "authority": "task_system.timeline_block",
-            }
-        )
-    return blocks
+    return []
 
 
 def _timeline_block_payload(payload: dict[str, Any], index: int) -> dict[str, Any]:
@@ -625,6 +600,7 @@ def _timeline_block_payload(payload: dict[str, Any], index: int) -> dict[str, An
         "contract_bindings": contract_bindings,
         "metadata": metadata,
         "authority": "task_system.timeline_block",
+        "migration_only": True,
     }
 
 
