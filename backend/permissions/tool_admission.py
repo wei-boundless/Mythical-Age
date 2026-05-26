@@ -9,7 +9,7 @@ from orchestration.runtime_directive import RuntimeDirective
 from runtime.shared.action_request import RuntimeActionRequest
 
 
-def build_tool_request_runtime_adoption(
+def build_tool_request_runtime_admission(
     *,
     action_request: RuntimeActionRequest,
     task_id: str,
@@ -18,7 +18,7 @@ def build_tool_request_runtime_adoption(
     operation_descriptor: OperationDescriptor | None,
     adopted_resource_policy: ResourcePolicy | None,
 ) -> tuple[RuntimeDirective, ResourcePolicy]:
-    """Adopt a tool request for runtime dispatch."""
+    """Admit a tool request for supervised runtime dispatch."""
 
     policy_ref = f"respol:{task_id}:tool-preflight:{action_request.request_id}"
     decision_kind, reason = _tool_request_decision(
@@ -64,7 +64,7 @@ def build_tool_request_runtime_adoption(
             "destructive": bool(operation_descriptor.destructive) if operation_descriptor is not None else False,
             "memory_write_allowed": False,
             "filesystem_write_allowed": bool(operation_id in {"op.write_file", "op.edit_file"} and tool_allowed),
-            "adoption_owner": "TaskRunLoop",
+            "admission_owner": "TaskRunLoop",
             "task_safety_envelope": dict(
                 dict(task_operation.get("operation_requirement") or {}).get("metadata") or {}
             ).get("safety_envelope", {}),
@@ -88,7 +88,7 @@ def build_tool_request_runtime_adoption(
             "tool_dispatch_enabled": tool_allowed,
             "tool_requires_approval": requires_approval,
             "directive_only_executor": True,
-            "adoption_owner": "TaskRunLoop",
+            "admission_owner": "TaskRunLoop",
         },
     )
     return directive, resource_policy

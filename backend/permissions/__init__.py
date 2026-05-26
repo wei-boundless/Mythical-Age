@@ -19,13 +19,13 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "ResourceDecision": (".resource_policy", "ResourceDecision"),
     "ResourcePolicy": (".resource_policy", "ResourcePolicy"),
     "RuntimeApprovalContext": (".resource_policy_builder", "RuntimeApprovalContext"),
-    "build_model_response_runtime_adoption": (
+    "build_model_response_runtime_admission": (
         ".runtime_policy_builder",
-        "build_model_response_runtime_adoption",
+        "build_model_response_runtime_admission",
     ),
     "build_resource_policy_candidate": (".resource_policy_builder", "build_resource_policy_candidate"),
     "build_runtime_capability_state": (".runtime_policy_builder", "build_runtime_capability_state"),
-    "build_tool_request_runtime_adoption": (".tool_adoption", "build_tool_request_runtime_adoption"),
+    "build_tool_request_runtime_admission": (".tool_admission", "build_tool_request_runtime_admission"),
     "decide_tool_permission": (".decision_pipeline", "decide_tool_permission"),
     "list_allowed_tool_names": (".decision_pipeline", "list_allowed_tool_names"),
     "mode_allows_tool": (".policy", "mode_allows_tool"),

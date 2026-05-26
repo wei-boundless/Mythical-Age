@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+import time
+import uuid
 from typing import Any
+
+from capability_system.search_policy import normalize_search_policy
+
+from runtime.execution.delegation_models import AgentDelegationRequest
 
 
 def merge_task_spec_binding_into_delegation_payload(
@@ -97,6 +103,70 @@ def classify_delegation_goal_alignment(
     ):
         return "offtopic"
     return "unknown"
+
+
+def build_delegation_request(
+    *,
+    task_run_id: str,
+    action_request: Any,
+    parent_agent_run_ref: str,
+    source_agent_id: str,
+    user_message: str,
+    task_operation: dict[str, Any] | None = None,
+    allowed_search_sources: set[str] | None = None,
+    session_id: str = "",
+) -> AgentDelegationRequest:
+    tool_call = dict(action_request.payload.get("tool_call") or {})
+    tool_args = dict(tool_call.get("args") or {})
+    instruction = clean_text(tool_args.get("instruction"))
+    input_payload = dict(tool_args.get("input_payload") or {})
+    task_spec_payload = dict(dict(task_operation or {}).get("task_spec") or {})
+    task_spec_inputs = dict(task_spec_payload.get("inputs") or {})
+    agent_communication_protocol = dict(task_spec_inputs.get("agent_communication_protocol") or {})
+    if agent_communication_protocol:
+        input_payload.setdefault("agent_communication_protocol", agent_communication_protocol)
+    input_payload = merge_task_spec_binding_into_delegation_payload(
+        input_payload,
+        task_spec_payload=task_spec_payload,
+        current_turn_context=dict(dict(task_operation or {}).get("current_turn_context") or {}),
+        user_message=user_message,
+    )
+    recipe_metadata = dict(dict(dict(task_operation or {}).get("selected_recipe") or {}).get("metadata") or {})
+    delegation_kind = clean_text(tool_args.get("delegation_kind") or recipe_metadata.get("delegation_kind"))
+    target_agent_id = clean_text(tool_args.get("target_agent_id") or recipe_metadata.get("delegate_target_agent_id"))
+    diagnostics = {
+        "tool_call_id": clean_text(tool_call.get("id")),
+        "operation_id": clean_text(getattr(action_request, "operation_id", "")),
+        "allowed_search_sources": sorted(
+            allowed_search_sources if allowed_search_sources is not None else normalize_search_policy(None)
+        ),
+        "goal_alignment": classify_delegation_goal_alignment(
+            user_message=user_message,
+            instruction=instruction,
+            input_payload=input_payload,
+        ),
+        "current_user_message": clean_text(user_message),
+    }
+    return AgentDelegationRequest(
+        request_id=f"delegation:req:{task_run_id}:{uuid.uuid4().hex[:8]}",
+        task_run_id=task_run_id,
+        session_id=session_id,
+        parent_agent_run_ref=parent_agent_run_ref,
+        source_agent_id=source_agent_id,
+        target_agent_id=target_agent_id,
+        delegation_kind=delegation_kind,
+        instruction=instruction,
+        input_payload=input_payload,
+        context_policy=dict(tool_args.get("context_policy") or {}),
+        expected_output_contract=dict(
+            tool_args.get("expected_output_contract")
+            or agent_communication_protocol.get("expected_output_contract")
+            or {}
+        ),
+        timeout_policy=dict(tool_args.get("timeout_policy") or {}),
+        created_at=time.time(),
+        diagnostics=diagnostics,
+    )
 
 
 def clean_text(value: Any) -> str:

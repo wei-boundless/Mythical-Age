@@ -146,13 +146,6 @@ class PromptLibraryRegistry:
             task_id = str(metadata.get("task_id") or _task_id_from_workflow(workflow_id)).strip()
             node_id = str(metadata.get("node_id") or _node_id_from_workflow(workflow_id)).strip()
             domain_id = str(metadata.get("domain_id") or "").strip()
-            legacy_projection_ids = tuple(
-                dict.fromkeys(
-                    str(item).strip()
-                    for item in list(workflow.compatible_projection_ids or [])
-                    if str(item).strip()
-                )
-            )
             resources.append(
                 PromptResource(
                     resource_id=_stable_resource_id(
@@ -175,7 +168,6 @@ class PromptLibraryRegistry:
                     cache_scope="static",
                     model_visible=True,
                     source_ref=f"storage/tasks/task_workflows.json#{workflow_id}.prompt",
-                    legacy_projection_ids=legacy_projection_ids,
                     version="v1",
                     enabled=bool(workflow.enabled),
                     metadata={
@@ -183,7 +175,6 @@ class PromptLibraryRegistry:
                         "source_type": "task_workflow_prompt",
                         "domain_id": domain_id,
                         "output_contract_id": str(workflow.output_contract_id or ""),
-                        "legacy_projection_ids": list(legacy_projection_ids),
                     },
                 )
             )
@@ -227,7 +218,6 @@ class PromptLibraryRegistry:
             cache_scope="static",
             model_visible=True,
             source_ref=f"task_graph:{graph_id}#nodes.{node_id}.metadata.role_prompt",
-            legacy_projection_ids=(),
             version="v1",
             enabled=True,
             metadata={

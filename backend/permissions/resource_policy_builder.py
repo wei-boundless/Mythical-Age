@@ -169,7 +169,7 @@ def _decide_operation(
         return ResourceDecision(
             operation_id=descriptor.operation_id,
             decision="deny",
-            reason="operation is denied by default before runtime adoption",
+            reason="operation is denied by default before runtime admission",
             risk_tags=descriptor.risk_tags,
         )
     if approval_policy == "auto" and (descriptor.destructive or set(descriptor.risk_tags) & DANGEROUS_AUTO_RISK_TAGS):

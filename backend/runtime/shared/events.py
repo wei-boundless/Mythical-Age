@@ -49,7 +49,7 @@ RuntimeEventType = Literal[
     "model_stream_recovery",
     "model_item_received",
     "executor_observation_received",
-    "recipe_mcp_blocked_by_search_policy",
+    "system_retrieval_blocked_by_search_policy",
     "output_boundary_applied",
     "commit_gate_checked",
     "task_artifact_validation_checked",

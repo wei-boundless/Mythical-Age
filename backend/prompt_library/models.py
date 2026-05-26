@@ -27,7 +27,6 @@ class PromptResource:
     cache_scope: str = "static"
     model_visible: bool = True
     source_ref: str = ""
-    legacy_projection_ids: tuple[str, ...] = ()
     version: str = "v1"
     enabled: bool = True
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -41,7 +40,6 @@ class PromptResource:
             "applies_to_domains",
             "applies_to_modes",
             "applies_to_agents",
-            "legacy_projection_ids",
         ):
             payload[key] = list(payload[key])
         payload["chars"] = len(self.content)
@@ -206,11 +204,6 @@ def prompt_resource_from_dict(payload: dict[str, Any]) -> PromptResource:
         cache_scope=str(payload.get("cache_scope") or "static"),
         model_visible=bool(payload.get("model_visible", True)),
         source_ref=str(payload.get("source_ref") or ""),
-        legacy_projection_ids=tuple(
-            str(item).strip()
-            for item in list(payload.get("legacy_projection_ids") or [])
-            if str(item).strip()
-        ),
         version=str(payload.get("version") or "v1"),
         enabled=bool(payload.get("enabled", True)),
         metadata=dict(payload.get("metadata") or {}),

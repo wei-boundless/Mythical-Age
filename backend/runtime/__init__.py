@@ -126,8 +126,8 @@ from agent_system.registry.worker_agent_blueprints import WorkerAgentBlueprint, 
 _LAZY_EXPORTS = {
     "TaskRunLoop": (".unit_runtime.loop", "TaskRunLoop"),
     "TaskRunLoopStartResult": (".unit_runtime.loop", "TaskRunLoopStartResult"),
-    "build_model_response_runtime_adoption": ("permissions", "build_model_response_runtime_adoption"),
-    "build_tool_request_runtime_adoption": ("permissions", "build_tool_request_runtime_adoption"),
+    "build_model_response_runtime_admission": ("permissions", "build_model_response_runtime_admission"),
+    "build_tool_request_runtime_admission": ("permissions", "build_tool_request_runtime_admission"),
 }
 
 
@@ -240,11 +240,11 @@ __all__ = [
     "build_task_graph_run_monitor_view",
     "build_execution_receipt",
     "build_idempotency_token",
-    "build_model_response_runtime_adoption",
+    "build_model_response_runtime_admission",
     "build_model_response_observation",
     "build_tool_result_observation",
     "build_tool_execution_error_observation",
-    "build_tool_request_runtime_adoption",
+    "build_tool_request_runtime_admission",
     "build_tool_action_request",
     "build_request_fingerprint",
     "derive_replay_policy",

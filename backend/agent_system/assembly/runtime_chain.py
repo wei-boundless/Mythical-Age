@@ -17,6 +17,7 @@ from runtime.agent_assembly.boundary import (
     build_task_selection_payload,
     build_turn_context_payload,
 )
+from runtime.context_management.system_retrieval import task_operation_requests_context_retrieval
 from ..identity import normalize_agent_id
 from ..profiles.runtime_profile_registry import AgentRuntimeRegistry
 from .runtime_bundle_builder import build_orchestration_runtime_bundle
@@ -208,7 +209,7 @@ class AgentRuntimeChainAssembler:
             memory_intent=memory_intent,
             memory_request_profile=memory_request_profile,
             memory_runtime_view=memory_view,
-            retrieval_allowed=_task_operation_allows_retrieval(task_operation),
+            retrieval_allowed=task_operation_requests_context_retrieval(task_operation),
         )
         context_payload = _to_dict(context_policy_result)
         orchestration_bundle = build_orchestration_runtime_bundle(
@@ -461,35 +462,6 @@ def _context_assembly_policy_from_payload(payload: dict[str, Any] | None) -> dic
     runtime_assembly = dict(item.get("runtime_assembly") or {})
     diagnostics = dict(runtime_assembly.get("diagnostics") or {})
     return dict(runtime_assembly.get("context_assembly_policy") or diagnostics.get("context_assembly_policy") or {})
-
-
-def _task_operation_allows_retrieval(task_operation: dict[str, Any]) -> bool:
-    query_understanding = dict(task_operation.get("query_understanding") or {})
-    capability = dict(query_understanding.get("capability_intent") or {})
-    signals = dict(query_understanding.get("turn_signals") or {})
-    context_binding = dict(query_understanding.get("context_binding") or {})
-    if str(context_binding.get("kind") or "") == "explicit_task_selection":
-        return False
-    if bool(signals.get("memory_recall_required")):
-        return False
-    assembly = dict(task_operation.get("task_execution_assembly") or {})
-    if str(assembly.get("runtime_lane") or "").strip() == "coordination_task":
-        return False
-    operation_requirement = dict(task_operation.get("operation_requirement") or {})
-    operations = {
-        str(item or "").strip()
-        for item in [
-            *list(operation_requirement.get("required_operations") or []),
-            *list(operation_requirement.get("optional_operations") or []),
-        ]
-        if str(item or "").strip()
-    }
-    if "op.mcp_retrieval" in operations:
-        return True
-    recipe = dict(task_operation.get("selected_recipe") or {})
-    if str(recipe.get("source_kind") or "").strip() in {"knowledge", "retrieval", "knowledge_base"}:
-        return True
-    return False
 
 
 def _align_understanding_with_explicit_task_selection(

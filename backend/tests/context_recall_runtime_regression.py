@@ -11,15 +11,8 @@ if str(BACKEND_DIR) not in sys.path:
 from runtime.model_gateway.model_response import ModelResponseRuntimeExecutor
 from orchestration.runtime_directive import RuntimeDirective
 from request_intent.request_signals import build_request_signals
-from runtime.unit_runtime.loop import TaskRunLoop
-
-
-def _runtime() -> TaskRunLoop:
-    runtime = TaskRunLoop.__new__(TaskRunLoop)
-    runtime.state_index = SimpleNamespace(
-        get_task_run=lambda _task_run_id: SimpleNamespace(session_id="session-context-recall")
-    )
-    return runtime
+from runtime.context_management.system_retrieval import build_system_retrieval_request_parts
+from runtime.execution_engine.delegation_context import build_delegation_request
 
 
 def _candidate_context() -> dict:
@@ -54,7 +47,6 @@ def _candidate_context() -> dict:
 
 
 def test_delegation_payload_uses_context_recall_candidate_without_old_contract() -> None:
-    runtime = _runtime()
     action_request = SimpleNamespace(
         operation_id="op.delegate_to_agent",
         payload={
@@ -77,14 +69,14 @@ def test_delegation_payload_uses_context_recall_candidate_without_old_contract()
         },
     }
 
-    request = TaskRunLoop._build_delegation_request(
-        runtime,
+    request = build_delegation_request(
         task_run_id="task-run-context-recall",
         action_request=action_request,
         parent_agent_run_ref="agentrun:main",
         source_agent_id="agent:main",
         user_message="只基于刚才这前五名员工，按部门做一个归类总结，不要回到全表重算。",
         task_operation=task_operation,
+        session_id="session-context-recall",
     )
 
     assert request.input_payload["path"] == "Data/employees.xlsx"
@@ -93,10 +85,8 @@ def test_delegation_payload_uses_context_recall_candidate_without_old_contract()
     assert "followup_execution_contract" not in request.input_payload
 
 
-def test_recipe_mcp_request_derives_path_from_context_recall_candidate() -> None:
-    runtime = _runtime()
-    _, operation_id, bindings, constraints, _ = TaskRunLoop._recipe_mcp_request_parts(
-        runtime,
+def test_system_retrieval_request_derives_path_from_context_recall_candidate() -> None:
+    _, operation_id, bindings, constraints, _ = build_system_retrieval_request_parts(
         user_message="只基于刚才这前五名员工按部门总结。",
         current_turn_context=_candidate_context(),
         query_understanding=build_request_signals("只基于刚才这前五名员工按部门总结。").to_dict(),

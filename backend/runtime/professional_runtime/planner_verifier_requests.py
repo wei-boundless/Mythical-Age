@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from runtime.model_visibility import model_visible_semantic_contract
+from agent_runtime.understanding import model_visible_semantic_contract
 
 
 @dataclass(frozen=True, slots=True)

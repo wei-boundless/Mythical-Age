@@ -370,7 +370,7 @@ def test_runtime_execution_block_includes_current_time_for_realtime_search() -> 
         {
             "runtime_capability_state": {
                 "turn_requested_operations": ["op.model_response", "op.web_search"],
-                "turn_adopted_operations": ["op.model_response", "op.web_search"],
+                "turn_admitted_operations": ["op.model_response", "op.web_search"],
             },
             "current_time_fact": {
                 "timezone": "Asia/Shanghai",
@@ -391,7 +391,7 @@ def test_runtime_execution_block_omits_current_time_for_non_realtime_tasks() -> 
         {
             "runtime_capability_state": {
                 "turn_requested_operations": ["op.model_response", "op.search_text"],
-                "turn_adopted_operations": ["op.model_response", "op.search_text"],
+                "turn_admitted_operations": ["op.model_response", "op.search_text"],
             }
         }
     )

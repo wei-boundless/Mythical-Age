@@ -9,6 +9,7 @@ from .final_output import (
     select_final_answer_from_task_summary_refs,
 )
 from .delegation_context import (
+    build_delegation_request,
     classify_delegation_goal_alignment,
     merge_task_spec_binding_into_delegation_payload,
 )
@@ -69,6 +70,7 @@ __all__ = [
     "build_repeated_tool_halt_message",
     "build_runtime_budget_exhausted_message",
     "build_initial_followup_messages",
+    "build_delegation_request",
     "build_next_followup_messages",
     "build_search_policy_blocked_tool_observation",
     "begin_tool_call_request",

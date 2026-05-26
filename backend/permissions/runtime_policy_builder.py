@@ -16,7 +16,7 @@ from orchestration.runtime_directive import RuntimeDirective
 SANDBOX_SIDE_EFFECT_OPERATIONS = {"op.write_file", "op.edit_file", "op.shell", "op.python_repl"}
 
 
-def build_model_response_runtime_adoption(
+def build_model_response_runtime_admission(
     task_operation: dict[str, Any],
     *,
     operation_registry: OperationRegistry | None = None,
@@ -24,10 +24,10 @@ def build_model_response_runtime_adoption(
     approval_context: RuntimeApprovalContext | None = None,
     sandbox_policy: dict[str, Any] | None = None,
 ) -> tuple[RuntimeDirective, ResourcePolicy]:
-    """Adopt the current single-agent model lane into an executable directive.
+    """Admit the current single-agent model lane into an executable directive.
 
     Task and skill contracts only produce candidate operation requirements.
-    This adoption step is where the RuntimeLoop turns those candidates into the
+    This admission step is where the RuntimeLoop turns those candidates into the
     executable ResourcePolicy consumed by AuthorizedToolSet and OperationGate.
     """
 
@@ -100,7 +100,7 @@ def build_model_response_runtime_adoption(
                 operation in {"op.write_file", "op.edit_file"} for operation in allowed_operations
             ),
             "sandbox_policy": _public_sandbox_policy(sandbox_policy),
-            "adoption_owner": "TaskRunLoop",
+            "admission_owner": "TaskRunLoop",
             "authorization_inputs": {
                 "task_operation_requirement": True,
                 "agent_runtime_profile": bool(agent_runtime_profile is not None),
@@ -131,7 +131,7 @@ def build_model_response_runtime_adoption(
         runtime_executable=True,
         diagnostics={
             "directive_only_executor": True,
-            "adoption_owner": "TaskRunLoop",
+            "admission_owner": "TaskRunLoop",
             "task_execution_assembly_ref": str(task_execution_assembly.get("assembly_id") or ""),
             "task_body_orchestration_ref": str(task_body_orchestration.get("orchestration_id") or ""),
             "agent_runtime_spec_ref": str(agent_runtime_spec.get("runtime_spec_id") or ""),
@@ -153,7 +153,7 @@ def build_runtime_capability_state(
     requested = _requested_operations(task_operation)
     profile_allowed = sorted(_agent_allowed_operations(agent_runtime_profile))
     profile_blocked = sorted(_agent_blocked_operations(agent_runtime_profile))
-    adopted = tuple(
+    admitted = tuple(
         _dedupe(
             [
                 *list(resource_policy.allowed_operations),
@@ -162,7 +162,7 @@ def build_runtime_capability_state(
             ]
         )
     )
-    adopted_set = set(adopted)
+    admitted_set = set(admitted)
     write_ops = {"op.write_file", "op.edit_file"}
     visible_tools = tuple(_dedupe([str(item or "").strip() for item in visible_tool_names if str(item or "").strip()]))
     return {
@@ -172,17 +172,17 @@ def build_runtime_capability_state(
         "agent_profile_operations": profile_allowed,
         "agent_profile_blocked_operations": profile_blocked,
         "turn_requested_operations": list(requested),
-        "turn_adopted_operations": list(adopted),
+        "turn_admitted_operations": list(admitted),
         "turn_visible_tools": list(visible_tools),
         "approval_required_operations": list(resource_policy.requires_approval_operations),
         "blocked_by_profile_operations": [
             operation for operation in requested if operation in set(profile_blocked) or operation not in set(profile_allowed)
         ],
         "blocked_by_turn_policy_operations": [
-            operation for operation in profile_allowed if operation not in adopted_set and operation != "op.model_response"
+            operation for operation in profile_allowed if operation not in admitted_set and operation != "op.model_response"
         ],
         "profile_write_capable": bool(write_ops & set(profile_allowed)) and not bool(write_ops & set(profile_blocked)),
-        "turn_write_operation_adopted": bool(write_ops & adopted_set),
+        "turn_write_operation_admitted": bool(write_ops & admitted_set),
         "turn_write_tool_visible": any(tool in {"write_file", "edit_file"} for tool in visible_tools),
         "commit_scope_diagnostics": {
             "resource_policy_filesystem_write_allowed": bool(

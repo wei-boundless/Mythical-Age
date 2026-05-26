@@ -10,7 +10,9 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from runtime.unit_runtime.loop import _main_model_owned_turn_decision
+from agent_runtime.understanding.model_turn_decision_runtime import (
+    main_model_owned_turn_decision as _main_model_owned_turn_decision,
+)
 
 
 def _decision_payload() -> dict[str, object]:

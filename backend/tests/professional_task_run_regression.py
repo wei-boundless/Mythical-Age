@@ -953,7 +953,7 @@ class _EvidenceCloseoutLeakModelRuntimeStub:
         return SimpleNamespace(
             content=(
                 "name=\"read_file\" string=\"true\">\n"
-                "<｜｜DSML｜｜parameter name=\"path\">backend/runtime/shared/tool_adoption.py"
+                "<｜｜DSML｜｜parameter name=\"path\">backend/permissions/tool_admission.py"
             )
         )
 

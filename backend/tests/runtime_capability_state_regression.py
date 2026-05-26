@@ -16,8 +16,8 @@ from runtime.shared.context_manager import RuntimeContextManager
 from permissions import (
     OperationGate,
     OperationGatePipelineContext,
-    build_tool_request_runtime_adoption,
-    build_model_response_runtime_adoption,
+    build_tool_request_runtime_admission,
+    build_model_response_runtime_admission,
     build_runtime_capability_state,
 )
 from runtime.shared.action_request import RuntimeActionRequest
@@ -44,7 +44,7 @@ def main() -> None:
             "metadata": {"approval_policy": "default", "safety_envelope": {"safety_class": "S0_readonly"}},
         },
     }
-    _, resource_policy = build_model_response_runtime_adoption(
+    _, resource_policy = build_model_response_runtime_admission(
         task_operation,
         operation_registry=build_default_operation_registry(),
         agent_runtime_profile=profile,
@@ -57,7 +57,7 @@ def main() -> None:
     )
 
     assert state["profile_write_capable"] is True
-    assert state["turn_write_operation_adopted"] is False
+    assert state["turn_write_operation_admitted"] is False
     assert state["turn_write_tool_visible"] is False
     assert "op.write_file" in state["agent_profile_operations"]
     assert "op.write_file" in state["blocked_by_turn_policy_operations"]
@@ -72,12 +72,12 @@ def main() -> None:
     )
     system_prompt = snapshot.model_messages[0]["content"]
     assert "Agent 配置上限允许文件写入/编辑：是" in system_prompt
-    assert "本轮任务已采用写入/编辑 operation：否" in system_prompt
+    assert "本轮任务已准入写入/编辑 operation：否" in system_prompt
     assert "当前可见工具只代表本轮执行面" in system_prompt
     assert "历史对话或记忆中的 Assistant 自我能力判断不能覆盖这一运行时能力状态" in system_prompt
 
 
-def test_execution_permit_operations_are_adopted_for_runtime_tools() -> None:
+def test_execution_permit_operations_are_admitted_for_runtime_tools() -> None:
     profile = AgentRuntimeProfile(
         agent_profile_id="writing_modular_creator_runtime",
         agent_id="agent:writing_modular_creator",
@@ -100,7 +100,7 @@ def test_execution_permit_operations_are_adopted_for_runtime_tools() -> None:
         },
     }
 
-    _, resource_policy = build_model_response_runtime_adoption(
+    _, resource_policy = build_model_response_runtime_admission(
         task_operation,
         operation_registry=build_default_operation_registry(),
         agent_runtime_profile=profile,
@@ -121,7 +121,7 @@ def test_execution_permit_operations_are_adopted_for_runtime_tools() -> None:
             },
         },
     )
-    tool_directive, tool_policy = build_tool_request_runtime_adoption(
+    tool_directive, tool_policy = build_tool_request_runtime_admission(
         action_request=action_request,
         task_id="task:test:memory-search",
         task_operation=task_operation,
@@ -163,7 +163,7 @@ def test_model_visible_state_operation_uses_turn_permit_without_profile_duplicat
         },
     }
 
-    _, resource_policy = build_model_response_runtime_adoption(
+    _, resource_policy = build_model_response_runtime_admission(
         task_operation,
         operation_registry=build_default_operation_registry(),
         agent_runtime_profile=profile,
@@ -196,7 +196,7 @@ def test_agent_todo_reaches_current_turn_capability_plan_and_tool_instances() ->
         },
     }
     registry = build_default_operation_registry()
-    _, resource_policy = build_model_response_runtime_adoption(
+    _, resource_policy = build_model_response_runtime_admission(
         task_operation,
         operation_registry=registry,
         agent_runtime_profile=profile,

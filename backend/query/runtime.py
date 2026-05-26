@@ -20,6 +20,7 @@ from orchestration import (
 from project_layout import ProjectLayout
 from prompting import build_static_prompt, build_system_prompt
 from query.models import QueryRequest
+from query.system_routes import run_direct_system_route
 from request_intent import analyze_memory_intent
 from task_system.orders.intent_decision import TaskIntentDecisionService
 from task_system.orders.models import ConversationTurn
@@ -39,7 +40,7 @@ class QueryRuntime:
     The old query layer used to own planning, tool routing, worker orchestration,
     follow-up execution, context restore, and writeback. Those responsibilities
     are intentionally gone from this class. QueryRuntime now only accepts API
-    input, emits stream events, and calls the adopted single-agent runtime lane.
+    input, emits stream events, and calls the admitted single-agent runtime lane.
     """
 
     def __init__(
@@ -211,55 +212,17 @@ class QueryRuntime:
                         "decision": recovery_decision,
                     }
 
-                image_generation = dict(request.image_generation or {})
-                image_model = str(image_generation.get("model") or "").strip().lower()
-                if image_model in {"gpt-image-2", "image-2"} or str(image_generation.get("mode") or "").strip().lower() == "generate":
-                    from soul.image_asset_service import SoulImageAssetError, SoulImageAssetService
-
-                    asset_kind = str(image_generation.get("asset_kind") or "chat").strip() or "chat"
-                    size = str(image_generation.get("size") or "1024x1024").strip() or "1024x1024"
-                    target_id = str(image_generation.get("target_id") or turn_id).strip() or turn_id
-                    try:
-                        generated = await SoulImageAssetService(self.base_dir).generate(
-                            prompt=request.message,
-                            target_id=target_id,
-                            asset_kind=asset_kind,
-                            size=size,
-                            overwrite=bool(image_generation.get("overwrite") or False),
-                        )
-                    except SoulImageAssetError as exc:
-                        yield {"type": "error", "error": str(exc), "code": "provider_unavailable"}
-                        return
-                    asset_path = str(generated.get("asset_path") or "").strip()
-                    revised_prompt = str(generated.get("revised_prompt") or "").strip()
-                    content = "已生成图像。"
-                    await self._apply_assistant_message_commit_async(
+                direct_system_route_event = await run_direct_system_route(
+                    base_dir=self.base_dir,
+                    request=request,
+                    turn_id=turn_id,
+                    assistant_message_committer=lambda payload: self._apply_assistant_message_commit_async(
                         request.session_id,
-                        {
-                            "role": "assistant",
-                            "content": content,
-                            "image": {
-                                "src": asset_path,
-                                "alt": request.message,
-                                "caption": revised_prompt or "",
-                            } if asset_path else None,
-                            "turn_id": turn_id,
-                            "answer_channel": "image",
-                            "answer_source": "soul_image_asset_service",
-                            "answer_canonical_state": "complete",
-                            "answer_persist_policy": "store",
-                            "answer_finalization_policy": "final",
-                        },
-                    )
-                    yield {
-                        "type": "done",
-                        "content": content,
-                        "image": {
-                            "src": asset_path,
-                            "alt": request.message,
-                            "caption": revised_prompt or "",
-                        } if asset_path else None,
-                    }
+                        payload,
+                    ),
+                )
+                if direct_system_route_event is not None:
+                    yield direct_system_route_event
                     return
 
                 memory_intent = analyze_memory_intent(request.message)
@@ -583,51 +546,8 @@ class QueryRuntime:
             return None
         return None
 
-    async def _execution_events(
-        self,
-        session_id: str,
-        message: str,
-        history: list[dict[str, Any]],
-        *,
-        ephemeral_system_messages: list[str] | None = None,
-        explicit_subtasks: list[dict[str, Any]] | None = None,
-        search_policy: list[str] | None = None,
-        trace=None,
-    ):
-        if trace is not None:
-            trace.annotate(
-                {
-                    "app.query_runtime_role": "adapter_only",
-                    "app.runtime_channel": "single_agent_runtime",
-                }
-            )
-        async for event in self.astream(
-            QueryRequest(
-                session_id=session_id,
-                message=message,
-                history=history,
-                search_policy=list(search_policy) if search_policy is not None else None,
-            )
-        ):
-            yield event
-
-    def run_memory_maintenance(self, session_id: str, *, durable: bool = True) -> dict[str, Any]:
-        history = self.session_manager.load_session(session_id)
-        receipt = self.memory_facade.run_memory_maintenance_after_commit(
-            session_id=session_id,
-            messages=history,
-            durable_lane_enabled=durable,
-        )
-        return receipt.to_dict() if hasattr(receipt, "to_dict") else dict(receipt or {})
-
     async def generate_title(self, first_user_message: str) -> str:
         return await self.model_runtime.generate_title(first_user_message)
-
-    async def summarize_history(self, messages: list[dict[str, Any]]) -> str:
-        return await self.model_runtime.summarize_history(messages)
-
-    async def _run_post_turn_tasks(self, session_id: str, *, title_seed: str | None = None) -> None:
-        return None
 
     def _commit_user_message(self, *, session_id: str, content: str, task_id: str):
         decision = build_user_message_commit_decision(
@@ -699,53 +619,7 @@ class QueryRuntime:
         }
 
     async def _apply_assistant_message_commit_async(self, session_id: str, payload: dict[str, Any]):
-        appended = self.session_manager.append_messages(
-            session_id,
-            [
-                {
-                    "role": payload.get("role"),
-                    "content": payload.get("content"),
-                    "image": payload.get("image"),
-                    "answer_channel": payload.get("answer_channel"),
-                    "answer_source": payload.get("answer_source"),
-                    "answer_canonical_state": payload.get("answer_canonical_state"),
-                    "answer_persist_policy": payload.get("answer_persist_policy"),
-                    "answer_finalization_policy": payload.get("answer_finalization_policy"),
-                    "answer_fallback_reason": payload.get("answer_fallback_reason"),
-                }
-            ],
-        )
-        history = self.session_manager.load_session(session_id)
-        main_context = dict(payload.get("main_context") or {})
-        task_summary_refs = [
-            dict(item)
-            for item in list(payload.get("task_summary_refs") or [])
-            if isinstance(item, dict)
-        ]
-        bundle_summary_refs = [
-            dict(item)
-            for item in list(payload.get("bundle_summary_refs") or [])
-            if isinstance(item, dict)
-        ]
-        self._write_runtime_state_projection(
-            session_id=session_id,
-            main_context=main_context,
-            task_summary_refs=task_summary_refs,
-            bundle_summary_refs=bundle_summary_refs,
-        )
-        receipt = self.memory_facade.enqueue_memory_maintenance_after_commit(
-            session_id=session_id,
-            messages=history,
-            turn_id=str(payload.get("turn_id") or ""),
-            main_context=main_context,
-            task_summary_refs=task_summary_refs,
-            bundle_summary_refs=bundle_summary_refs,
-        )
-        return {
-            "appended_messages": appended,
-            **self._memory_receipt_commit_payload(receipt),
-            "file_work_context_writeback": bool(main_context or task_summary_refs or bundle_summary_refs),
-        }
+        return self._apply_assistant_message_commit(session_id, payload)
 
     def _write_runtime_state_projection(
         self,

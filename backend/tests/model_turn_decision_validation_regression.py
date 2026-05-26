@@ -9,7 +9,11 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from agent_runtime.understanding.model_turn_decision import model_turn_decision_from_payload
-from runtime.unit_runtime.loop import _canonical_model_turn_decision_payload, _fallback_model_turn_decision, _main_model_owned_turn_decision
+from agent_runtime.understanding.model_turn_decision_runtime import (
+    canonical_model_turn_decision_payload as _canonical_model_turn_decision_payload,
+    fallback_model_turn_decision as _fallback_model_turn_decision,
+    main_model_owned_turn_decision as _main_model_owned_turn_decision,
+)
 
 
 class _FailingDecisionModelRuntime:
@@ -139,20 +143,21 @@ def test_fallback_model_turn_decision_blocks_without_system_authored_plan() -> N
     assert diagnostics["decision_status"] == "blocked"
     assert diagnostics["fallback_understanding_removed"] is True
     assert decision["action_intent"] == "block"
-    assert decision["task_goal_type"] == "blocked_understanding"
+    assert decision["task_goal_type"] == "blocked"
     assert decision["resource_contract"] == {}
     assert "task_domain" not in decision
 
 
-def test_unregistered_game_goal_type_normalizes_to_registered_profile() -> None:
+def test_unregistered_goal_type_is_not_rewritten_by_runtime_keywords() -> None:
     payload = _canonical_model_turn_decision_payload(
         _base_decision_payload(task_goal_type="game_expansion_with_narrative_and_mechanics"),
         user_message="请扩展浏览器肉鸽游戏，加入五关战役、成长机制和 Boss 战。",
         task_selection={"interaction_mode": "professional_mode"},
     )
 
-    assert payload["task_goal_type"] == "game_vertical_slice_delivery"
-    assert payload["diagnostics"]["original_task_goal_type"] == "game_expansion_with_narrative_and_mechanics"
+    assert payload["task_goal_type"] == "game_expansion_with_narrative_and_mechanics"
+    assert payload["diagnostics"]["unsupported_task_goal_type"] == "game_expansion_with_narrative_and_mechanics"
+    assert payload["diagnostics"]["supported_task_goal_types_required"] is True
 
 
 def test_model_turn_decision_provider_failure_blocks_without_executable_fallback() -> None:

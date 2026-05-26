@@ -326,11 +326,6 @@ def _node_prompt_source(
             str(node_prompt_resource.get("source_ref") or "").strip(),
             str(prompt_plan_item.get("source_ref") or "").strip(),
             str(node_prompt_resource.get("workflow_id") or "").strip(),
-            *[
-                str(value).strip()
-                for value in list(node_prompt_resource.get("legacy_projection_ids") or [])
-                if str(value).strip()
-            ],
         )
         if item
     ) or (str(metadata.get("task_workflow_id") or task_id),)

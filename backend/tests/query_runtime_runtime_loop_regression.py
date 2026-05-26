@@ -297,6 +297,35 @@ def test_astream_marks_task_order_failed_when_runtime_blocks_before_start() -> N
     assert "model_turn_decision_unavailable_or_blocked" in run.terminal_reason
 
 
+def test_astream_blocks_before_assembly_when_action_permit_denies_write() -> None:
+    runtime = _build_stream_runtime()
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            QueryRequest(
+                session_id="session-action-permit-denied",
+                message="请修改 backend/api/chat.py，但不要写任何文件。",
+                history=[],
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    blocked_event = next(
+        dict(event.get("event") or {})
+        for event in events
+        if event.get("type") == "runtime_loop_event"
+        and dict(event.get("event") or {}).get("event_type") == "runtime_blocked_before_assembly"
+    )
+    payload = dict(blocked_event.get("payload") or {})
+
+    assert payload["reason"] == "action_permit_denied"
+    assert payload["denied_reasons"] == ["write_forbidden_by_boundary"]
+    assert not any(event.get("type") == "runtime_loop_started" for event in events)
+
+
 def test_removed_health_task_selection_falls_back_to_general_runtime() -> None:
     runtime = _build_stream_runtime()
 
@@ -524,7 +553,7 @@ def test_runtime_trace_exposes_worker_spawn_trace_for_light_web_game(tmp_path: P
     assert trace["worker_spawn_results"]
 
 
-def test_delegate_mode_template_skips_legacy_template_mcp_phase() -> None:
+def test_delegate_mode_does_not_start_system_retrieval_phase() -> None:
     runtime = _build_stream_runtime()
 
     async def _collect() -> list[dict[str, object]]:
@@ -553,19 +582,25 @@ def test_delegate_mode_template_skips_legacy_template_mcp_phase() -> None:
     )
     payload = dict(built_event.get("payload") or {})
     recipe = dict(payload.get("selected_recipe") or {})
-    assert str(recipe.get("recipe_id") or "") in {
-        "runtime.recipe.conversation",
-        "runtime.recipe.standard_task",
-        "runtime.recipe.pdf_analysis",
-    }
+    assert str(recipe.get("recipe_id") or "")
     assert str(recipe.get("execution_kind") or "") in {
         "conversation",
         "professional",
         "standard_mode",
         "capability",
+        "role_mode",
     }
 
-    assert "mcp_start" not in event_types
+    executor_events = [
+        dict(event.get("event") or {})
+        for event in events
+        if event.get("type") == "runtime_loop_event"
+        and dict(event.get("event") or {}).get("event_type") == "executor_started"
+    ]
+    assert not any(
+        str(dict(event.get("payload") or {}).get("runtime_channel") or "") == "system_retrieval"
+        for event in executor_events
+    )
 
 
 def test_terminal_state_index_failure_still_yields_done() -> None:

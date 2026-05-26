@@ -9,7 +9,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from agent_system.assembly.runtime_chain import AgentRuntimeChainAssembler
 from agent_system.profiles.runtime_profile_models import AgentRuntimeProfile
-from runtime.unit_runtime.loop import _task_operation_allows_context_retrieval
+from runtime.context_management.system_retrieval import task_operation_allows_context_retrieval
 from tests.support.runtime_stubs import model_turn_context
 
 
@@ -111,7 +111,7 @@ def test_coordination_task_context_retrieval_requires_explicit_permission() -> N
         "selected_recipe": {"source_kind": "knowledge"},
     }
 
-    assert not _task_operation_allows_context_retrieval(
+    assert not task_operation_allows_context_retrieval(
         task_operation=task_operation,
         allowed_search_sources={"rag"},
     )

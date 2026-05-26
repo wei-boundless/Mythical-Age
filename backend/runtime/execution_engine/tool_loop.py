@@ -5,7 +5,7 @@ from typing import Any, Callable
 
 from capability_system.search_policy import normalize_search_policy, operation_allowed_by_search_policy
 from capability_system.tool_authorization import resolve_tool_operation_id
-from permissions import build_tool_request_runtime_adoption
+from permissions import build_tool_request_runtime_admission
 from permissions.context_models import PermissionContext
 from runtime.shared.action_request import build_tool_action_request
 from runtime.shared.execution_record import (
@@ -174,7 +174,7 @@ async def handle_tool_call_requested_event(
     tool_name = str(action_request.payload.get("tool_name") or "")
     tool_args = dict(dict(action_request.payload.get("tool_call") or {}).get("args") or {})
     descriptor = operation_gate.registry.get_operation(operation_id)
-    tool_directive, tool_policy = build_tool_request_runtime_adoption(
+    tool_directive, tool_policy = build_tool_request_runtime_admission(
         action_request=action_request,
         task_id=task_id,
         task_operation=task_operation,

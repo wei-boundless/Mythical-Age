@@ -14,10 +14,8 @@ from typing import Any, Callable
 from langchain_core.messages import ToolMessage
 
 from capability_system import build_default_operation_registry
-from capability_system.local_mcp_registry import get_local_mcp_unit, get_local_mcp_unit_for_source_kind
 from capability_system.search_policy import (
     normalize_search_policy,
-    operation_allowed_by_search_policy,
 )
 from capability_system.tool_authorization import resolve_tool_operation_id
 from agent_system.registry.agent_registry import AgentRegistry
@@ -55,15 +53,13 @@ from task_system.tasks.run_models import (
 from task_system.tasks.spec_models import TaskSpec
 from task_system.tasks.step_models import StepInputBinding, TaskStepBlueprint
 from task_system.planning.execution_recipe_models import ExecutionRecipe, TaskValidationRule
-from task_system.goal_profiles import get_task_goal_profile
-from request_intent.frame_access import explicit_paths, turn_signals
 from agent_runtime.understanding import (
     build_action_permit,
     build_boundary_policy,
     build_context_candidates,
     build_request_facts,
     build_runtime_start_packet,
-    model_turn_decision_from_payload,
+    main_model_owned_turn_decision,
 )
 
 from context_system.projection.projection import (
@@ -105,7 +101,6 @@ from ..agent_assembly import (
     stage_execution_request_from_runtime_control,
     strip_control_context,
 )
-from ..model_visibility import strip_task_domain_authority
 from ..execution_permit import (
     append_approval_rejection_observation,
     build_execution_permit_from_payload,
@@ -119,14 +114,13 @@ from ..execution_engine import (
     RuntimeExecutionEngine,
     apply_observation_aggregation,
     build_initial_followup_messages,
+    build_delegation_request,
     build_next_followup_messages,
     builtin_tool_lane_answer_from_observation,
     classify_raw_model_event,
     classify_runtime_event,
-    classify_delegation_goal_alignment,
     finalize_after_followup_tool_results,
     finalize_budget_exhausted_followup,
-    merge_task_spec_binding_into_delegation_payload,
     record_tool_observation_projection,
     select_final_answer_from_context,
     select_final_answer_from_task_summary_refs,
@@ -157,7 +151,7 @@ from .runtime_policy import (
     model_stream_policy_from_task_execution_assembly,
     safe_int,
 )
-from permissions import build_model_response_runtime_adoption, build_runtime_capability_state
+from permissions import build_model_response_runtime_admission, build_runtime_capability_state
 from ..shared.models import (
     AgentHandoffEnvelope,
     AgentRun,
@@ -186,8 +180,11 @@ from ..execution.delegation_models import AgentDelegationRequest
 from ..shared.tool_repetition_guard import ToolRepetitionGuard
 from agent_system.registry.worker_agent_blueprints import WorkerAgentSpawnRequest, WorkerAgentSpawnResult
 from agent_system.registry.worker_agent_factory import WorkerAgentFactory
-from evidence import MCPExecutionPlan, MCPRequest
-from runtime.model_gateway.model_runtime import stringify_content
+from ..context_management.system_retrieval import (
+    SystemRetrievalStage,
+    build_context_policy_with_retrieval,
+    final_main_context_can_finalize,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -278,7 +275,6 @@ class TaskRunLoop:
         self.operation_gate = operation_gate or OperationGate(build_default_operation_registry())
         self.permission_mode_provider = permission_mode_provider
         self.limits = limits or RuntimeLoopLimits()
-        self._model_turn_decision_cache: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
         self.tool_authorization_index = self._build_tool_authorization_index()
         self.execution_engine = RuntimeExecutionEngine(
             event_log=self.event_log,
@@ -1379,7 +1375,7 @@ class TaskRunLoop:
             memory_runtime_view={},
             current_turn_context=runtime_context_override,
         ).to_dict()
-        model_turn_decision, model_turn_diagnostics = await _main_model_owned_turn_decision(
+        model_turn_decision, model_turn_diagnostics = await main_model_owned_turn_decision(
             user_message=user_message,
             request_facts=request_facts,
             task_selection=runtime_chain_task_selection,
@@ -1408,6 +1404,25 @@ class TaskRunLoop:
                 "runtime_start_packet": runtime_start_packet,
             }
         )
+        if not bool(action_permit.get("allowed") is True):
+            denied_reasons = [
+                str(item).strip()
+                for item in list(action_permit.get("denied_reasons") or [])
+                if str(item).strip()
+            ]
+            blocked_event = self.event_log.append(
+                f"task-run:{task_id}",
+                "runtime_blocked_before_assembly",
+                payload={
+                    "reason": "action_permit_denied",
+                    "denied_reasons": denied_reasons,
+                    "model_turn_decision": model_turn_decision,
+                    "action_permit": action_permit,
+                    "runtime_start_packet": runtime_start_packet,
+                },
+            )
+            yield {"type": "runtime_loop_event", "event": blocked_event.to_dict()}
+            return
         if str(model_turn_decision.get("action_intent") or "") == "block":
             blocked_event = self.event_log.append(
                 f"task-run:{task_id}",
@@ -1873,13 +1888,22 @@ class TaskRunLoop:
                 yield {"type": "runtime_loop_event", "event": trace_record.to_dict()}
         query_understanding = dict(task_operation.get("query_understanding") or {})
         retrieval_results: list[dict[str, Any]] | None = None
-        if self._should_run_recipe_mcp_phase(
+        system_retrieval_stage = SystemRetrievalStage(
+            evidence_orchestrator=self.evidence_orchestrator,
+            event_log=self.event_log,
+            record_task_run_step_event=self._record_task_run_step_event,
+            record_task_run_ledger_updated=self._record_task_run_ledger_updated,
+            state_with_task_run_ledger=self._state_with_task_run_ledger,
+            write_checkpoint_event=self._write_checkpoint_event,
+        )
+        if system_retrieval_stage.should_run(
             query_understanding=query_understanding,
             selected_recipe_payload=selected_recipe_payload,
             task_operation=task_operation,
             allowed_search_sources=allowed_search_sources,
+            professional_task=_is_professional_task_run_recipe(selected_recipe_payload),
         ):
-            mcp_outcome = await self._run_recipe_mcp_phase(
+            retrieval_outcome = await system_retrieval_stage.run(
                 task_run_id=state.task_run_id,
                 session_id=session_id,
                 task_id=task_id,
@@ -1893,13 +1917,13 @@ class TaskRunLoop:
                 state=state,
                 allowed_search_sources=allowed_search_sources,
             )
-            runtime_task_ledger = mcp_outcome["ledger"]
-            state = mcp_outcome["state"]
-            retrieval_results = mcp_outcome["retrieval_results"]
-            result_refs.extend(list(mcp_outcome["result_refs"]))
-            final_main_context.update(dict(mcp_outcome["main_context"]))
-            final_task_summary_refs.extend(list(mcp_outcome["task_summary_refs"]))
-            for event in mcp_outcome["events"]:
+            runtime_task_ledger = retrieval_outcome.ledger
+            state = retrieval_outcome.state
+            retrieval_results = retrieval_outcome.retrieval_results
+            result_refs.extend(list(retrieval_outcome.result_refs))
+            final_main_context.update(dict(retrieval_outcome.main_context))
+            final_task_summary_refs.extend(list(retrieval_outcome.task_summary_refs))
+            for event in retrieval_outcome.events:
                 yield event
         memory_event = self.event_log.append(
             state.task_run_id,
@@ -1913,7 +1937,7 @@ class TaskRunLoop:
             refs={"memory_runtime_view_ref": str(memory_view.get("view_id") or "")},
         )
         yield {"type": "runtime_loop_event", "event": memory_event.to_dict()}
-        directive, resource_policy = build_model_response_runtime_adoption(
+        directive, resource_policy = build_model_response_runtime_admission(
             task_operation,
             operation_registry=self.operation_gate.registry,
             agent_runtime_profile=effective_agent_runtime_profile,
@@ -2027,7 +2051,7 @@ class TaskRunLoop:
         yield {"type": "runtime_loop_event", "event": projection_event.to_dict()}
 
         effective_context_policy = (
-            self._rebuild_context_policy_with_retrieval(
+            build_context_policy_with_retrieval(
                 agent_runtime_chain=agent_runtime_chain,
                 session_id=session_id,
                 user_message=user_message,
@@ -2307,7 +2331,7 @@ class TaskRunLoop:
         final_answer_metadata: dict[str, Any] = {}
         run_outcome: dict[str, Any] = {}
         terminal_reason = "completed"
-        if final_main_context and self._final_main_context_can_finalize(
+        if final_main_context and final_main_context_can_finalize(
             selected_recipe_payload=selected_recipe_payload,
             retrieval_results=retrieval_results,
         ):
@@ -4735,340 +4759,6 @@ class TaskRunLoop:
             },
         )
 
-    def _should_run_recipe_mcp_phase(
-        self,
-        *,
-        query_understanding: dict[str, Any],
-        selected_recipe_payload: dict[str, Any],
-        task_operation: dict[str, Any],
-        allowed_search_sources: set[str],
-    ) -> bool:
-        operation_requirement = dict(task_operation.get("operation_requirement") or {})
-        resolution = dict(dict(operation_requirement.get("metadata") or {}).get("runtime_operation_resolution") or {})
-        if str(resolution.get("execution_mode") or "").strip() == "delegate":
-            return False
-        if _is_professional_task_run_recipe(selected_recipe_payload):
-            return False
-        source_kind = str(
-            selected_recipe_payload.get("source_kind")
-            or dict(selected_recipe_payload.get("metadata") or {}).get("source_kind")
-            or _source_kind_from_model_decision(query_understanding)
-            or ""
-        ).strip()
-        if get_local_mcp_unit_for_source_kind(source_kind) is not None:
-            unit = get_local_mcp_unit_for_source_kind(source_kind)
-            return operation_allowed_by_search_policy(
-                str(getattr(unit, "operation_id", "") or ""),
-                allowed_search_sources,
-            )
-        return (
-            source_kind in {"knowledge", "knowledge_base", "retrieval"}
-            and operation_allowed_by_search_policy("op.mcp_retrieval", allowed_search_sources)
-        )
-
-    def _rebuild_context_policy_with_retrieval(
-        self,
-        *,
-        agent_runtime_chain: Any,
-        session_id: str,
-        user_message: str,
-        memory_intent: Any | None,
-        task_operation: dict[str, Any],
-        retrieval_results: list[dict[str, Any]] | None,
-        allowed_search_sources: set[str],
-    ) -> dict[str, Any]:
-        memory_request_profile = dict(task_operation.get("task_memory_request_profile") or {})
-        retrieval_allowed = _task_operation_allows_context_retrieval(
-            task_operation=task_operation,
-            allowed_search_sources=allowed_search_sources,
-        )
-        context_policy_result = agent_runtime_chain.build_context_policy_result(
-            session_id=session_id,
-            message=user_message,
-            memory_intent=memory_intent,
-            memory_request_profile=memory_request_profile,
-            retrieval_results=retrieval_results if retrieval_allowed else None,
-            retrieval_allowed=retrieval_allowed,
-        )
-        if context_policy_result is None:
-            return {}
-        if hasattr(context_policy_result, "to_dict"):
-            return dict(context_policy_result.to_dict())
-        return dict(context_policy_result)
-
-    async def _run_recipe_mcp_phase(
-        self,
-        *,
-        task_run_id: str,
-        session_id: str,
-        task_id: str,
-        user_message: str,
-        current_turn_context: dict[str, Any],
-        query_understanding: dict[str, Any],
-        selected_recipe_payload: dict[str, Any],
-        task_spec_payload: dict[str, Any],
-        task_contract_ref: str,
-        runtime_task_ledger: TaskRunLedger | None,
-        state: RuntimeLoopState,
-        allowed_search_sources: set[str],
-    ) -> dict[str, Any]:
-        events: list[dict[str, Any]] = []
-        result_refs: list[str] = []
-        main_context: dict[str, Any] = {}
-        task_summary_refs: list[dict[str, Any]] = []
-        retrieval_results: list[dict[str, Any]] = []
-        if self.evidence_orchestrator is None:
-            return {
-                "events": events,
-                "ledger": runtime_task_ledger,
-                "state": state,
-                "result_refs": result_refs,
-                "main_context": main_context,
-                "task_summary_refs": task_summary_refs,
-                "retrieval_results": retrieval_results,
-            }
-
-        mcp_route, operation_id, bindings, constraints, answer_source = self._recipe_mcp_request_parts(
-            user_message=user_message,
-            current_turn_context=current_turn_context,
-            query_understanding=query_understanding,
-            selected_recipe_payload=selected_recipe_payload,
-            task_spec_payload=task_spec_payload,
-        )
-        if not operation_allowed_by_search_policy(operation_id, allowed_search_sources):
-            blocked_event = self.event_log.append(
-                task_run_id,
-                "recipe_mcp_blocked_by_search_policy",
-                payload={
-                    "mcp_route": mcp_route,
-                    "operation_id": operation_id,
-                    "allowed_sources": sorted(allowed_search_sources),
-                },
-                refs={"task_contract_ref": task_contract_ref, "operation_id": operation_id},
-            )
-            events.append({"type": "runtime_loop_event", "event": blocked_event.to_dict()})
-            return {
-                "events": events,
-                "ledger": runtime_task_ledger,
-                "state": state,
-                "result_refs": result_refs,
-                "main_context": main_context,
-                "task_summary_refs": task_summary_refs,
-                "retrieval_results": retrieval_results,
-            }
-        retrieval_event = self.event_log.append(
-            task_run_id,
-            "executor_started",
-            payload={"executor_type": "mcp", "runtime_channel": "single_agent_runtime", "mcp_route": mcp_route},
-            refs={"task_contract_ref": task_contract_ref, "operation_id": operation_id},
-        )
-        events.append({"type": "runtime_loop_event", "event": retrieval_event.to_dict()})
-
-        mcp_request = MCPRequest(
-            request_id=f"mcpreq:{task_id}:{mcp_route}",
-            session_id=session_id,
-            query=str(user_message),
-            mcp_route=mcp_route,
-            task_frame={
-                "task_id": task_id,
-                "authority": str(query_understanding.get("authority") or ""),
-                "model_turn_decision": dict(query_understanding.get("model_turn_decision") or {}),
-            },
-            bindings=bindings,
-            constraints=constraints,
-            owner_task_id=task_id,
-            arbitration_reason=f"runtime_{mcp_route}_pre_execution",
-            message_id=f"{task_id}:{mcp_route}",
-        )
-        mcp_plan = MCPExecutionPlan(
-            mcp_route=mcp_route,
-            request=mcp_request,
-            expected_result="canonical",
-            fallback_execution_kind="none",
-            cutover_mode="primary",
-        )
-
-        done_event: dict[str, Any] | None = None
-        async for event in self.evidence_orchestrator.stream_execution(
-            session_id=session_id,
-            execution=None,
-            mcp_plan=mcp_plan,
-            main_context={},
-            trace=None,
-        ):
-            if event.get("type") == "retrieval":
-                retrieval_results = [dict(item) for item in list(event.get("results") or [])]
-            if event.get("type") == "done":
-                done_event = dict(event)
-                continue
-            events.append(dict(event))
-
-        if done_event is not None:
-            result_ref = f"mcp_result:{mcp_request.request_id}"
-            result_refs.append(result_ref)
-            main_context = dict(done_event.get("main_context") or {})
-            task_summary_refs = [dict(item) for item in list(done_event.get("task_summary_refs") or [])]
-            current_step = current_task_step_run(runtime_task_ledger)
-            if (
-                runtime_task_ledger is not None
-                and current_step is not None
-                and current_step.status == "running"
-                and current_step.executor_type == "mcp"
-                and step_supports_operation(current_step, operation_id)
-            ):
-                runtime_task_ledger = complete_task_run_step(
-                    runtime_task_ledger,
-                    step_id=current_step.step_id,
-                    completed_at=time.time(),
-                    observation_refs=(result_ref,),
-                    output_refs=(result_ref,),
-                    step_result_ref=result_ref,
-                    executor_ref=operation_id,
-                    diagnostics={"transition_reason": f"{mcp_route}_mcp_completed"},
-                )
-                completed_step = find_task_step_run(runtime_task_ledger, current_step.step_id)
-                if completed_step is not None:
-                    step_completed_event = self._record_task_run_step_event(
-                        task_run_id,
-                        event_type="step_completed",
-                        step_run=completed_step,
-                        ledger=runtime_task_ledger,
-                        reason=f"{mcp_route}_mcp_completed",
-                        refs={"operation_id": operation_id},
-                    )
-                    events.append({"type": "runtime_loop_event", "event": step_completed_event.to_dict()})
-                runtime_task_ledger = advance_task_run_ledger(
-                    runtime_task_ledger,
-                    started_at=time.time(),
-                    diagnostics={"transition_reason": f"{mcp_route}_mcp_completed"},
-                )
-                ledger_event = self._record_task_run_ledger_updated(
-                    task_run_id,
-                    ledger=runtime_task_ledger,
-                    reason=f"{mcp_route}_mcp_completed",
-                    refs={"operation_id": operation_id},
-                )
-                events.append({"type": "runtime_loop_event", "event": ledger_event.to_dict()})
-                entered_step = current_task_step_run(runtime_task_ledger)
-                if entered_step is not None and entered_step.step_id != current_step.step_id:
-                    step_entered_event = self._record_task_run_step_event(
-                        task_run_id,
-                        event_type="step_entered",
-                        step_run=entered_step,
-                        ledger=runtime_task_ledger,
-                        reason=f"{mcp_route}_mcp_completed",
-                        refs={"operation_id": operation_id},
-                    )
-                    events.append({"type": "runtime_loop_event", "event": step_entered_event.to_dict()})
-                state = self._state_with_task_run_ledger(
-                    state,
-                    runtime_task_ledger,
-                    result_refs=result_refs,
-                    diagnostics={"last_step_transition": f"{mcp_route}_mcp_completed"},
-                )
-                checkpoint_event = self._write_checkpoint_event(state, event_offset=ledger_event.offset)
-                events.append({"type": "runtime_loop_event", "event": checkpoint_event.to_dict()})
-
-            if main_context:
-                main_context.setdefault("answer_source", answer_source)
-
-        return {
-            "events": events,
-            "ledger": runtime_task_ledger,
-            "state": state,
-            "result_refs": result_refs,
-            "main_context": main_context,
-            "task_summary_refs": task_summary_refs,
-            "retrieval_results": retrieval_results,
-        }
-
-    def _recipe_mcp_request_parts(
-        self,
-        *,
-        user_message: str,
-        current_turn_context: dict[str, Any],
-        query_understanding: dict[str, Any],
-        selected_recipe_payload: dict[str, Any],
-        task_spec_payload: dict[str, Any] | None = None,
-    ) -> tuple[str, str, dict[str, Any], dict[str, Any], str]:
-        source_kind = str(
-            selected_recipe_payload.get("source_kind")
-            or dict(selected_recipe_payload.get("metadata") or {}).get("source_kind")
-            or _source_kind_from_model_decision(query_understanding)
-            or ""
-        ).strip()
-        unit = get_local_mcp_unit_for_source_kind(source_kind)
-        parameters: dict[str, Any] = {}
-        paths = explicit_paths(query_understanding)
-        if paths:
-            parameters["path"] = paths[0]
-        bindings: dict[str, Any] = {}
-        constraints: dict[str, Any] = {}
-        if unit is not None:
-            path_key = str(unit.request_path_parameter or "").strip()
-            binding_key = str(unit.followup_binding_key or "").strip()
-            if path_key and binding_key and binding_key != "current_turn_context":
-                path = str(
-                    parameters.get(path_key)
-                    or self._path_from_context_recall(
-                        current_turn_context,
-                        source_kind=str(unit.source_kind or source_kind or ""),
-                        binding_key=binding_key,
-                    )
-                    or ""
-                ).strip()
-                bindings = {binding_key: path} if path else {}
-                constraints = {path_key: path} if path else {}
-            if unit.request_mode_parameter:
-                mode_key = str(unit.request_mode_parameter).strip()
-                mode = str(parameters.get(mode_key) or unit.request_default_mode or "").strip()
-                if mode:
-                    constraints[mode_key] = mode
-            if binding_key == "current_turn_context":
-                bindings = {"current_turn_context": dict(current_turn_context or {})}
-            return unit.route, unit.operation_id, bindings, constraints, unit.answer_source
-        bindings = {"current_turn_context": dict(current_turn_context or {})}
-        retrieval_unit = get_local_mcp_unit("retrieval")
-        if retrieval_unit is not None:
-            return retrieval_unit.route, retrieval_unit.operation_id, bindings, {}, retrieval_unit.answer_source
-        return "retrieval", "op.mcp_retrieval", bindings, {}, "runtime_rag_mcp"
-
-    def _final_main_context_can_finalize(
-        self,
-        *,
-        selected_recipe_payload: dict[str, Any],
-        retrieval_results: list[dict[str, Any]] | None,
-    ) -> bool:
-        source_kind = str(
-            selected_recipe_payload.get("source_kind")
-            or dict(selected_recipe_payload.get("metadata") or {}).get("source_kind")
-            or ""
-        ).strip()
-        unit = get_local_mcp_unit_for_source_kind(source_kind)
-        if unit is not None and unit.route != "retrieval":
-            return True
-        return bool(retrieval_results)
-
-    def _path_from_context_recall(
-        self,
-        current_turn_context: dict[str, Any],
-        *,
-        source_kind: str,
-        binding_key: str,
-    ) -> str:
-        source = str(source_kind or "").strip()
-        key = str(binding_key or "").strip()
-        for candidate in list(dict(current_turn_context or {}).get("context_recall_candidates") or []):
-            if not isinstance(candidate, dict):
-                continue
-            if source and str(candidate.get("source_kind") or "").strip() != source:
-                continue
-            payload = dict(candidate.get("recall_payload") or {})
-            path = str(payload.get(key) or payload.get("path") or "").strip()
-            if path:
-                return path
-        return ""
-
     def _build_tool_authorization_index(self):
         from capability_system.tool_authorization import build_tool_authorization_index
         from capability_system.tool_definitions import get_tool_definitions
@@ -5098,57 +4788,16 @@ class TaskRunLoop:
         task_operation: dict[str, Any] | None = None,
         allowed_search_sources: set[str] | None = None,
     ) -> AgentDelegationRequest:
-        tool_call = dict(action_request.payload.get("tool_call") or {})
-        tool_args = dict(tool_call.get("args") or {})
         task_run = self.state_index.get_task_run(task_run_id)
-        instruction = str(tool_args.get("instruction") or "").strip()
-        input_payload = dict(tool_args.get("input_payload") or {})
-        task_spec_payload = dict(dict(task_operation or {}).get("task_spec") or {})
-        task_spec_inputs = dict(task_spec_payload.get("inputs") or {})
-        agent_communication_protocol = dict(task_spec_inputs.get("agent_communication_protocol") or {})
-        if agent_communication_protocol:
-            input_payload.setdefault("agent_communication_protocol", agent_communication_protocol)
-        input_payload = merge_task_spec_binding_into_delegation_payload(
-            input_payload,
-            task_spec_payload=task_spec_payload,
-            current_turn_context=dict(dict(task_operation or {}).get("current_turn_context") or {}),
-            user_message=user_message,
-        )
-        recipe_metadata = dict(dict(dict(task_operation or {}).get("selected_recipe") or {}).get("metadata") or {})
-        delegation_kind = str(tool_args.get("delegation_kind") or recipe_metadata.get("delegation_kind") or "").strip()
-        target_agent_id = str(tool_args.get("target_agent_id") or recipe_metadata.get("delegate_target_agent_id") or "").strip()
-        diagnostics = {
-            "tool_call_id": str(tool_call.get("id") or ""),
-            "operation_id": str(action_request.operation_id or ""),
-            "allowed_search_sources": sorted(
-                allowed_search_sources if allowed_search_sources is not None else normalize_search_policy(None)
-            ),
-            "goal_alignment": classify_delegation_goal_alignment(
-                user_message=user_message,
-                instruction=instruction,
-                input_payload=input_payload,
-            ),
-            "current_user_message": str(user_message or "").strip(),
-        }
-        return AgentDelegationRequest(
-            request_id=f"delegation:req:{task_run_id}:{uuid.uuid4().hex[:8]}",
+        return build_delegation_request(
             task_run_id=task_run_id,
-            session_id=str(task_run.session_id if task_run is not None else ""),
+            action_request=action_request,
             parent_agent_run_ref=parent_agent_run_ref,
             source_agent_id=source_agent_id,
-            target_agent_id=target_agent_id,
-            delegation_kind=delegation_kind,
-            instruction=instruction,
-            input_payload=input_payload,
-            context_policy=dict(tool_args.get("context_policy") or {}),
-            expected_output_contract=dict(
-                tool_args.get("expected_output_contract")
-                or agent_communication_protocol.get("expected_output_contract")
-                or {}
-            ),
-            timeout_policy=dict(tool_args.get("timeout_policy") or {}),
-            created_at=time.time(),
-            diagnostics=diagnostics,
+            user_message=user_message,
+            task_operation=task_operation,
+            allowed_search_sources=allowed_search_sources,
+            session_id=str(task_run.session_id if task_run is not None else ""),
         )
 
 def _build_initial_task_run_ledger(
@@ -5834,35 +5483,6 @@ def _extract_task_search_policy(selection: dict[str, Any]) -> list[str] | tuple[
     return None
 
 
-def _task_operation_allows_context_retrieval(
-    *,
-    task_operation: dict[str, Any],
-    allowed_search_sources: set[str],
-) -> bool:
-    if not operation_allowed_by_search_policy("op.mcp_retrieval", allowed_search_sources):
-        return False
-    query_understanding = dict(task_operation.get("query_understanding") or {})
-    signals = turn_signals(query_understanding)
-    if bool(signals.get("memory_recall_required")):
-        return False
-    current_turn = dict(task_operation.get("current_turn_context") or {})
-    if _selection_is_coordination_task(current_turn):
-        return False
-    operation_requirement = dict(task_operation.get("operation_requirement") or {})
-    operations = {
-        str(item or "").strip()
-        for item in [
-            *list(operation_requirement.get("required_operations") or []),
-            *list(operation_requirement.get("optional_operations") or []),
-        ]
-        if str(item or "").strip()
-    }
-    if "op.mcp_retrieval" in operations:
-        return True
-    recipe = dict(task_operation.get("selected_recipe") or {})
-    return str(recipe.get("source_kind") or "").strip() in {"knowledge", "retrieval", "knowledge_base"}
-
-
 def _agent_profile_id_for_runtime_spec(registry: Any, runtime_spec_payload: dict[str, Any]) -> str:
     agent_id = str(runtime_spec_payload.get("agent_id") or "").strip()
     if not agent_id:
@@ -6464,357 +6084,10 @@ def _assistant_commit_metadata(final_answer_metadata: dict[str, Any] | None) -> 
     }
 
 
-async def _main_model_owned_turn_decision(
-    *,
-    user_message: str,
-    request_facts: dict[str, Any],
-    task_selection: dict[str, Any],
-    model_runtime: Any | None,
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    invoker = getattr(model_runtime, "invoke_messages", None)
-    if not callable(invoker):
-        return _blocked_model_turn_decision(
-            user_message=user_message,
-            reason="model_runtime_unavailable",
-            diagnostics={"model_call_performed": False, "model_authority_used": False},
-        )
-
-    messages = _model_turn_decision_messages(
-        user_message=user_message,
-        request_facts=request_facts,
-        task_selection=task_selection,
-    )
-    raw_text = ""
-    parse_diagnostics: dict[str, Any] = {}
-    validation: dict[str, Any] = {}
-    accepted_attempt = 0
-    for attempt in range(1, 3):
-        try:
-            response = await invoker(messages)
-        except Exception as exc:
-            return _fallback_model_turn_decision(
-                user_message=user_message,
-                reason="model_turn_decision_model_call_failed",
-                task_selection=task_selection,
-                request_facts=request_facts,
-                diagnostics={
-                    "model_call_performed": True,
-                    "model_authority_used": False,
-                    "error": str(exc)[:500],
-                    "understanding_attempts": attempt,
-                },
-            )
-
-        raw_text = stringify_content(getattr(response, "content", response)).strip()
-        payload, parse_diagnostics = _parse_model_turn_decision_payload(raw_text)
-        if payload is None:
-            validation = {"decision_status": "rejected_invalid", **parse_diagnostics}
-            messages = _model_turn_decision_repair_messages(
-                original_messages=messages,
-                invalid_response=raw_text,
-                validation=validation,
-            )
-            continue
-
-        decision, validation = model_turn_decision_from_payload(payload, user_message=user_message)
-        if decision is not None:
-            accepted_attempt = attempt
-            break
-        messages = _model_turn_decision_repair_messages(
-            original_messages=messages,
-            invalid_response=raw_text,
-            validation=validation,
-        )
-    else:
-        decision = None
-
-    if decision is None:
-        return _fallback_model_turn_decision(
-            user_message=user_message,
-            reason="model_turn_decision_invalid_after_repair",
-            task_selection=task_selection,
-            request_facts=request_facts,
-            diagnostics={
-                "model_call_performed": True,
-                "model_authority_used": False,
-                **parse_diagnostics,
-                **dict(validation or {}),
-                "understanding_attempts": 2,
-            },
-        )
-    decision_payload = decision.to_dict()
-    decision_payload = _canonical_model_turn_decision_payload(
-        decision_payload,
-        user_message=user_message,
-        task_selection=task_selection,
-    )
-    decision_payload["diagnostics"] = {
-        **dict(decision_payload.get("diagnostics") or {}),
-        "main_model_owns_task_understanding": True,
-        "model_call_performed": True,
-    }
-    return decision_payload, {
-        "decision_status": "accepted",
-        "model_call_performed": True,
-        "model_authority_used": True,
-        "understanding_attempts": accepted_attempt or 1,
-        **dict(validation or {}),
-        **parse_diagnostics,
-    }
-
-
-def _fallback_model_turn_decision(
-    *,
-    user_message: str,
-    reason: str,
-    task_selection: dict[str, Any],
-    request_facts: dict[str, Any] | None = None,
-    diagnostics: dict[str, Any] | None = None,
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    selection = dict(task_selection or {})
-    facts = dict(request_facts or {})
-    selected_task_id = str(selection.get("selected_task_id") or "").strip()
-    details = dict(diagnostics or {})
-    return _blocked_model_turn_decision(
-        user_message=user_message,
-        reason=reason,
-        diagnostics={
-            **details,
-            "model_call_performed": True,
-            "model_authority_used": False,
-            "fallback_understanding_removed": True,
-            "fallback_policy": "fail_closed_without_system_authored_agent_decision",
-            "selected_task_id": selected_task_id,
-            "explicit_path_count": len(list(facts.get("explicit_paths") or [])),
-        },
-    )
-
-
-def _canonical_model_turn_decision_payload(
-    payload: dict[str, Any],
-    *,
-    user_message: str,
-    task_selection: dict[str, Any],
-) -> dict[str, Any]:
-    item = dict(payload or {})
-    original = str(item.get("task_goal_type") or "").strip()
-    canonical = _canonical_task_goal_type(original, user_message=user_message, task_selection=task_selection)
-    if canonical == original:
-        return item
-    diagnostics = dict(item.get("diagnostics") or {})
-    diagnostics["original_task_goal_type"] = original
-    diagnostics["task_goal_type_normalized_to"] = canonical
-    diagnostics["task_goal_type_normalization_reason"] = "unregistered_development_goal_alias"
-    item["task_goal_type"] = canonical
-    item["diagnostics"] = diagnostics
-    return item
-
-
-def _canonical_task_goal_type(
-    task_goal_type: str,
-    *,
-    user_message: str,
-    task_selection: dict[str, Any],
-) -> str:
-    normalized = str(task_goal_type or "").strip()
-    if normalized and get_task_goal_profile(normalized) is not None:
-        return normalized
-    model_visible_selection = _model_turn_decision_visible_task_selection(task_selection)
-    text = f"{user_message}\n{json.dumps(model_visible_selection, ensure_ascii=False, default=str)}".lower()
-    game_markers = ("游戏", "肉鸽", "roguelike", "boss", "关卡", "战役", "game", "dungeon", "campaign")
-    if any(marker in text for marker in game_markers) or any(marker in normalized.lower() for marker in ("game", "roguelike", "dungeon", "campaign")):
-        return "game_vertical_slice_delivery"
-    frontend_markers = ("前端", "frontend", "ui", "页面", "浏览器", "web app")
-    if any(marker in text for marker in frontend_markers) or any(marker in normalized.lower() for marker in ("frontend", "ui", "web")):
-        return "frontend_app_delivery"
-    action = str(dict(task_selection or {}).get("action_intent") or "").strip()
-    if action == "edit_workspace" or any(marker in text for marker in ("实现", "修改", "写入", "更新", "代码", "工程")):
-        return "implementation"
-    return normalized or "light_qa"
-
-
-def _model_turn_decision_messages(
-    *,
-    user_message: str,
-    request_facts: dict[str, Any],
-    task_selection: dict[str, Any],
-) -> list[dict[str, str]]:
-    model_visible_request_facts = _model_turn_decision_visible_request_facts(request_facts)
-    model_visible_task_selection = _model_turn_decision_visible_task_selection(task_selection)
-    schema = {
-        "authority": "agent_runtime.model_turn_decision",
-        "decision_id": "model-turn-decision:<stable id or omit>",
-        "user_message": "<original user request>",
-        "interaction_intent": "answer|explain|inspect|review|plan|modify|create|run|verify|continue|stop|restore",
-        "action_intent": "answer_only|read_context|search_external|edit_workspace|run_command|start_service|use_browser|delegate|ask_clarification|block",
-        "work_mode": "conversation|read_only_analysis|implementation|verification|planning|delegated|background",
-        "task_goal_type": "<specific conventional task type>",
-        "domain_mismatch_signal": {},
-        "target_objects": [],
-        "desired_outcome": "",
-        "deliverables": [],
-        "constraints": [],
-        "forbidden_actions": [],
-        "selected_skill_ids": [],
-        "resource_contract": {
-            "source_projects": [{"path": "", "role": "source", "required": True}],
-            "target_projects": [{"path": "", "role": "target", "required": True}],
-            "required_read_files": [],
-            "required_read_dirs": [],
-            "required_write_files": [],
-            "required_write_dirs": [],
-            "asset_policy": {},
-        },
-        "context_binding_decision": {},
-        "planning_required": False,
-        "todo_required": False,
-        "completion_criteria": [],
-        "needs_clarification": False,
-        "clarification_question": "",
-        "confidence": 0.0,
-        "ambiguity": [],
-        "diagnostics": {},
-    }
-    system = (
-        "你是 agent 的当前轮理解决策器。你只负责理解用户请求并输出一个 JSON 对象，"
-        "不要执行任务，不要选择具体工具，不要写解释文字。\n"
-        "你的判断必须来自用户请求、request_facts、task_selection 和上下文显式事实。"
-        "不要用关键词模板代替理解；如果资源、目录、产物是任务成功的必要条件，必须写入 resource_contract。\n"
-        "如果请求要求基于已有项目继续开发，source_projects 表示必须读取和继承的源项目，"
-        "target_projects 表示必须写入或交付的目标项目。assets、public、static、images、textures、sprites "
-        "等资源目录如果需要继承或产出，必须进入 required_read_dirs / required_write_dirs。\n"
-        "只输出合法 JSON，不要 Markdown，不要代码块。"
-    )
-    user = {
-        "schema": schema,
-        "request_facts": model_visible_request_facts,
-        "task_selection": model_visible_task_selection,
-        "user_message": str(user_message or ""),
-    }
-    return [
-        {"role": "system", "content": system},
-        {"role": "user", "content": json.dumps(user, ensure_ascii=False)},
-    ]
-
-
-def _model_turn_decision_visible_request_facts(request_facts: dict[str, Any] | None) -> dict[str, Any]:
-    facts = dict(request_facts or {})
-    if isinstance(facts.get("explicit_selection"), dict):
-        facts["explicit_selection"] = _model_turn_decision_visible_task_selection(
-            dict(facts.get("explicit_selection") or {})
-        )
-    return _model_turn_decision_visible_task_selection(facts)
-
-
-def _model_turn_decision_visible_task_selection(task_selection: dict[str, Any] | None) -> dict[str, Any]:
-    sanitized = strip_task_domain_authority(dict(task_selection or {}))
-    if isinstance(sanitized, dict):
-        sanitized.pop("agent_invocation", None)
-        sanitized.pop("runtime_control", None)
-    return dict(sanitized or {})
-
-
-def _parse_model_turn_decision_payload(text: str) -> tuple[dict[str, Any] | None, dict[str, Any]]:
-    raw = str(text or "").strip()
-    if raw.startswith("```"):
-        raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE).strip()
-        raw = re.sub(r"\s*```$", "", raw).strip()
-    try:
-        payload = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        return None, {
-            "parse_error": str(exc),
-            "raw_response_preview": raw[:800],
-        }
-    if not isinstance(payload, dict):
-        return None, {"parse_error": "model_turn_decision_json_must_be_object"}
-    return payload, {"raw_response_chars": len(raw)}
-
-
-def _model_turn_decision_repair_messages(
-    *,
-    original_messages: list[dict[str, str]],
-    invalid_response: str,
-    validation: dict[str, Any],
-) -> list[dict[str, str]]:
-    return [
-        *list(original_messages),
-        {
-            "role": "assistant",
-            "content": str(invalid_response or "")[:4000],
-        },
-        {
-            "role": "user",
-            "content": (
-                "上一次输出不能作为 ModelTurnDecision 使用。"
-                "请根据同一个用户请求重新输出一个合法 JSON 对象，只输出 JSON。\n"
-                f"校验结果：{json.dumps(dict(validation or {}), ensure_ascii=False)}"
-            ),
-        },
-    ]
-
-
-def _blocked_model_turn_decision(
-    *,
-    user_message: str,
-    reason: str,
-    diagnostics: dict[str, Any] | None = None,
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    details = dict(diagnostics or {})
-    decision = {
-        "decision_id": f"model-turn-decision:blocked:{uuid.uuid4().hex[:8]}",
-        "user_message": str(user_message or "").strip(),
-        "interaction_intent": "stop",
-        "action_intent": "block",
-        "work_mode": "conversation",
-        "task_goal_type": "blocked_understanding",
-        "domain_mismatch_signal": {},
-        "target_objects": [],
-        "desired_outcome": "理解决策未通过，运行时停止。",
-        "deliverables": [],
-        "constraints": [],
-        "forbidden_actions": ["execute_without_model_turn_decision"],
-        "selected_skill_ids": [],
-        "resource_contract": {},
-        "context_binding_decision": {"mode": "blocked_model_turn_decision", "reason": reason},
-        "planning_required": False,
-        "todo_required": False,
-        "completion_criteria": [],
-        "needs_clarification": False,
-        "clarification_question": "",
-        "confidence": 0.0,
-        "ambiguity": [reason],
-        "diagnostics": details,
-        "authority": "agent_runtime.model_turn_decision",
-    }
-    return decision, {
-        "decision_status": "blocked",
-        "block_reason": reason,
-        **details,
-    }
-
-
 def _truthy(value: Any) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {"1", "true", "yes", "on", "enabled"}
     return bool(value is True)
-
-
-def _source_kind_from_model_decision(query_understanding: dict[str, Any]) -> str:
-    decision = dict(dict(query_understanding or {}).get("model_turn_decision") or {})
-    action_intent = str(decision.get("action_intent") or "").strip()
-    targets = [str(item).strip().lower() for item in list(decision.get("target_objects") or []) if str(item).strip()]
-    if action_intent == "search_external":
-        return "external_web"
-    if any(target.endswith(".pdf") for target in targets):
-        return "pdf"
-    if any(target.endswith((".csv", ".tsv", ".xlsx", ".xls", ".parquet")) for target in targets):
-        return "dataset"
-    if any(target.endswith((".py", ".ts", ".tsx", ".js", ".jsx", ".css", ".html", ".md", ".txt", ".json", ".yaml", ".yml", ".toml")) for target in targets):
-        return "workspace"
-    if action_intent in {"read_context", "edit_workspace", "run_command", "start_service"}:
-        return "workspace"
-    return ""
 
 
 class _ContinuationAgentRuntimeChain:

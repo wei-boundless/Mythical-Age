@@ -96,6 +96,10 @@ def build_boundary_policy(
     scoped_source_readonly = any(marker in text for marker in _SCOPED_SOURCE_WRITE_FORBID_MARKERS)
     global_write_forbidden = any(marker in text for marker in _GLOBAL_WRITE_FORBID_MARKERS)
     broad_no_modify = any(marker in text for marker in _BROAD_NO_MODIFY_MARKERS)
+    if global_write_forbidden:
+        forbidden.extend(["edit_workspace", "write_file", "modify_code"])
+    elif broad_no_modify and not write_required_by_context:
+        forbidden.extend(["edit_workspace", "write_file", "modify_code"])
     if any(marker in text for marker in ("不要联网", "不要搜索", "不要查网页", "no web", "do not search")):
         forbidden.extend(["search_external", "fetch_url"])
     if any(marker in text for marker in ("先写计划", "先给计划", "必须先写计划", "计划书")):

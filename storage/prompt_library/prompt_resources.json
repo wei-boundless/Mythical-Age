@@ -32,15 +32,13 @@
       "cache_scope": "static",
       "model_visible": true,
       "source_ref": "storage/tasks/task_workflows.json#workflow.general.main_conversation.prompt",
-      "legacy_projection_ids": [],
       "version": "v1",
       "enabled": true,
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
         "domain_id": "",
-        "output_contract_id": "AssistantFinalAnswer",
-        "legacy_projection_ids": []
+        "output_contract_id": "AssistantFinalAnswer"
       },
       "authority": "prompt_library.prompt_resource",
       "chars": 44
@@ -79,15 +77,13 @@
       "cache_scope": "static",
       "model_visible": true,
       "source_ref": "storage/tasks/task_workflows.json#workflow.writing.modular_novel.node.baseline_memory_seed.prompt",
-      "legacy_projection_ids": [],
       "version": "v1",
       "enabled": true,
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
         "domain_id": "domain.writing.modular_novel",
-        "output_contract_id": "contract.writing.modular_novel.baseline_commit",
-        "legacy_projection_ids": []
+        "output_contract_id": "contract.writing.modular_novel.baseline_commit"
       },
       "authority": "prompt_library.prompt_resource",
       "chars": 190
@@ -126,15 +122,13 @@
       "cache_scope": "static",
       "model_visible": true,
       "source_ref": "storage/tasks/task_workflows.json#workflow.writing.modular_novel.node.chapter_draft.prompt",
-      "legacy_projection_ids": [],
       "version": "v1",
       "enabled": true,
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
         "domain_id": "domain.writing.modular_novel",
-        "output_contract_id": "contract.writing.modular_novel.chapter_draft",
-        "legacy_projection_ids": []
+        "output_contract_id": "contract.writing.modular_novel.chapter_draft"
       },
       "authority": "prompt_library.prompt_resource",
       "chars": 1888
@@ -173,15 +167,13 @@
       "cache_scope": "static",
       "model_visible": true,
       "source_ref": "storage/tasks/task_workflows.json#workflow.writing.modular_novel.node.chapter_outline.prompt",
-      "legacy_projection_ids": [],
       "version": "v1",
       "enabled": true,
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
         "domain_id": "domain.writing.modular_novel",
-        "output_contract_id": "contract.writing.modular_novel.chapter_outline",
-        "legacy_projection_ids": []
+        "output_contract_id": "contract.writing.modular_novel.chapter_outline"
       },
       "authority": "prompt_library.prompt_resource",
       "chars": 600
@@ -220,15 +212,13 @@
       "cache_scope": "static",
       "model_visible": true,
       "source_ref": "storage/tasks/task_workflows.json#workflow.writing.modular_novel.node.chapter_progress_router.prompt",
-      "legacy_projection_ids": [],
       "version": "v1",
       "enabled": true,
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
         "domain_id": "domain.writing.modular_novel",
-        "output_contract_id": "contract.writing.modular_novel.progress_route",
-        "legacy_projection_ids": []
+        "output_contract_id": "contract.writing.modular_novel.progress_route"
       },
       "authority": "prompt_library.prompt_resource",
       "chars": 153
@@ -267,15 +257,13 @@
       "cache_scope": "static",
       "model_visible": true,
       "source_ref": "storage/tasks/task_workflows.json#workflow.writing.modular_novel.node.chapter_review.prompt",
-      "legacy_projection_ids": [],
       "version": "v1",
       "enabled": true,
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
         "domain_id": "domain.writing.modular_novel",
-        "output_contract_id": "contract.writing.modular_novel.chapter_review",
-        "legacy_projection_ids": []
+        "output_contract_id": "contract.writing.modular_novel.chapter_review"
       },
       "authority": "prompt_library.prompt_resource",
       "chars": 922
@@ -314,15 +302,13 @@
       "cache_scope": "static",
       "model_visible": true,
       "source_ref": "storage/tasks/task_workflows.json#workflow.writing.modular_novel.node.character_design.prompt",
-      "legacy_projection_ids": [],
       "version": "v1",
       "enabled": true,
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
         "domain_id": "domain.writing.modular_novel",
-        "output_contract_id": "contract.writing.modular_novel.character_design",
-        "legacy_projection_ids": []
+        "output_contract_id": "contract.writing.modular_novel.character_design"
       },
       "authority": "prompt_library.prompt_resource",
       "chars": 1067
@@ -361,15 +347,13 @@
       "cache_scope": "static",
       "model_visible": true,
       "source_ref": "storage/tasks/task_workflows.json#workflow.writing.modular_novel.node.character_review.prompt",
-      "legacy_projection_ids": [],
       "version": "v1",
       "enabled": true,
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
         "domain_id": "domain.writing.modular_novel",
-        "output_contract_id": "contract.writing.modular_novel.character_review",
-        "legacy_projection_ids": []
+        "output_contract_id": "contract.writing.modular_novel.character_review"
       },
       "authority": "prompt_library.prompt_resource",
       "chars": 1012
@@ -408,15 +392,13 @@
       "cache_scope": "static",
       "model_visible": true,
       "source_ref": "storage/tasks/task_workflows.json#workflow.writing.modular_novel.node.design_sync.prompt",
-      "legacy_projection_ids": [],
       "version": "v1",
       "enabled": true,
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
         "domain_id": "domain.writing.modular_novel",
-        "output_contract_id": "contract.writing.modular_novel.design_alignment",
-        "legacy_projection_ids": []
+        "output_contract_id": "contract.writing.modular_novel.design_alignment"
       },
       "authority": "prompt_library.prompt_resource",
       "chars": 570
@@ -455,15 +437,13 @@
       "cache_scope": "static",
       "model_visible": true,
       "source_ref": "storage/tasks/task_workflows.json#workflow.writing.modular_novel.node.extension_commit.prompt",
-      "legacy_projection_ids": [],
       "version": "v1",
       "enabled": true,
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
         "domain_id": "domain.writing.modular_novel",
-        "output_contract_id": "contract.writing.modular_novel.extension_commit",
-        "legacy_projection_ids": []
+        "output_contract_id": "contract.writing.modular_novel.extension_commit"
       },
       "authority": "prompt_library.prompt_resource",
       "chars": 205
@@ -502,15 +482,13 @@
       "cache_scope": "static",
       "model_visible": true,
       "source_ref": "storage/tasks/task_workflows.json#workflow.writing.modular_novel.node.extension_review.prompt",
-      "legacy_projection_ids": [],
       "version": "v1",
       "enabled": true,
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
         "domain_id": "domain.writing.modular_novel",
-        "output_contract_id": "contract.writing.modular_novel.extension_review",
-        "legacy_projection_ids": []
+        "output_contract_id": "contract.writing.modular_novel.extension_review"
       },
       "authority": "prompt_library.prompt_resource",
       "chars": 242
@@ -549,15 +527,13 @@
       "cache_scope": "static",
       "model_visible": true,
       "source_ref": "storage/tasks/task_workflows.json#workflow.writing.modular_novel.node.final_assemble.prompt",
-      "legacy_projection_ids": [],
       "version": "v1",
       "enabled": true,
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
         "domain_id": "domain.writing.modular_novel",
-        "output_contract_id": "contract.writing.modular_novel.final_manuscript",
-        "legacy_projection_ids": []
+        "output_contract_id": "contract.writing.modular_novel.final_manuscript"
       },
       "authority": "prompt_library.prompt_resource",
       "chars": 147
@@ -596,15 +572,13 @@
       "cache_scope": "static",
       "model_visible": true,
       "source_ref": "storage/tasks/task_workflows.json#workflow.writing.modular_novel.node.final_review.prompt",
-      "legacy_projection_ids": [],
       "version": "v1",
       "enabled": true,
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
         "domain_id": "domain.writing.modular_novel",
-        "output_contract_id": "contract.writing.modular_novel.final_review",
-        "legacy_projection_ids": []
+        "output_contract_id": "contract.writing.modular_novel.final_review"
       },
       "authority": "prompt_library.prompt_resource",
       "chars": 251
@@ -643,15 +617,13 @@
       "cache_scope": "static",
       "model_visible": true,
       "source_ref": "storage/tasks/task_workflows.json#workflow.writing.modular_novel.node.memory_commit_chapter.prompt",
-      "legacy_projection_ids": [],
       "version": "v1",
       "enabled": true,
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
         "domain_id": "domain.writing.modular_novel",
-        "output_contract_id": "contract.writing.modular_novel.chapter_batch_commit",
-        "legacy_projection_ids": []
+        "output_contract_id": "contract.writing.modular_novel.chapter_batch_commit"
       },
       "authority": "prompt_library.prompt_resource",
       "chars": 352
@@ -690,15 +662,13 @@
       "cache_scope": "static",
       "model_visible": true,
       "source_ref": "storage/tasks/task_workflows.json#workflow.writing.modular_novel.node.memory_commit_character.prompt",
-      "legacy_projection_ids": [],
       "version": "v1",
       "enabled": true,
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
         "domain_id": "domain.writing.modular_novel",
-        "output_contract_id": "contract.writing.modular_novel.character_commit",
-        "legacy_projection_ids": []
+        "output_contract_id": "contract.writing.modular_novel.character_commit"
       },
       "authority": "prompt_library.prompt_resource",
       "chars": 355
@@ -737,15 +707,13 @@
       "cache_scope": "static",
       "model_visible": true,
       "source_ref": "storage/tasks/task_workflows.json#workflow.writing.modular_novel.node.memory_commit_world.prompt",
-      "legacy_projection_ids": [],
       "version": "v1",
       "enabled": true,
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
         "domain_id": "domain.writing.modular_novel",
-        "output_contract_id": "contract.writing.modular_novel.world_commit",
-        "legacy_projection_ids": []
+        "output_contract_id": "contract.writing.modular_novel.world_commit"
       },
       "authority": "prompt_library.prompt_resource",
       "chars": 620
@@ -784,15 +752,13 @@
       "cache_scope": "static",
       "model_visible": true,
       "source_ref": "storage/tasks/task_workflows.json#workflow.writing.modular_novel.node.memory_finalize.prompt",
-      "legacy_projection_ids": [],
       "version": "v1",
       "enabled": true,
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
         "domain_id": "domain.writing.modular_novel",
-        "output_contract_id": "contract.writing.modular_novel.final_memory_seal",
-        "legacy_projection_ids": []
+        "output_contract_id": "contract.writing.modular_novel.final_memory_seal"
       },
       "authority": "prompt_library.prompt_resource",
       "chars": 162
@@ -831,15 +797,13 @@
       "cache_scope": "static",
       "model_visible": true,
       "source_ref": "storage/tasks/task_workflows.json#workflow.writing.modular_novel.node.next_volume_router.prompt",
-      "legacy_projection_ids": [],
       "version": "v1",
       "enabled": true,
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
         "domain_id": "domain.writing.modular_novel",
-        "output_contract_id": "contract.writing.modular_novel.volume_route",
-        "legacy_projection_ids": []
+        "output_contract_id": "contract.writing.modular_novel.volume_route"
       },
       "authority": "prompt_library.prompt_resource",
       "chars": 150
@@ -878,15 +842,13 @@
       "cache_scope": "static",
       "model_visible": true,
       "source_ref": "storage/tasks/task_workflows.json#workflow.writing.modular_novel.node.outline_design.prompt",
-      "legacy_projection_ids": [],
       "version": "v1",
       "enabled": true,
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
         "domain_id": "domain.writing.modular_novel",
-        "output_contract_id": "contract.writing.modular_novel.outline_design",
-        "legacy_projection_ids": []
+        "output_contract_id": "contract.writing.modular_novel.outline_design"
       },
       "authority": "prompt_library.prompt_resource",
       "chars": 527
@@ -925,15 +887,13 @@
       "cache_scope": "static",
       "model_visible": true,
       "source_ref": "storage/tasks/task_workflows.json#workflow.writing.modular_novel.node.outline_review.prompt",
-      "legacy_projection_ids": [],
       "version": "v1",
       "enabled": true,
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
         "domain_id": "domain.writing.modular_novel",
-        "output_contract_id": "contract.writing.modular_novel.outline_review",
-        "legacy_projection_ids": []
+        "output_contract_id": "contract.writing.modular_novel.outline_review"
       },
       "authority": "prompt_library.prompt_resource",
       "chars": 421
@@ -972,15 +932,13 @@
       "cache_scope": "static",
       "model_visible": true,
       "source_ref": "storage/tasks/task_workflows.json#workflow.writing.modular_novel.node.plot_design.prompt",
-      "legacy_projection_ids": [],
       "version": "v1",
       "enabled": true,
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
         "domain_id": "domain.writing.modular_novel",
-        "output_contract_id": "contract.writing.modular_novel.plot_design",
-        "legacy_projection_ids": []
+        "output_contract_id": "contract.writing.modular_novel.plot_design"
       },
       "authority": "prompt_library.prompt_resource",
       "chars": 817
@@ -1019,15 +977,13 @@
       "cache_scope": "static",
       "model_visible": true,
       "source_ref": "storage/tasks/task_workflows.json#workflow.writing.modular_novel.node.project_brief.prompt",
-      "legacy_projection_ids": [],
       "version": "v1",
       "enabled": true,
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
         "domain_id": "domain.writing.modular_novel",
-        "output_contract_id": "contract.writing.modular_novel.project_brief",
-        "legacy_projection_ids": []
+        "output_contract_id": "contract.writing.modular_novel.project_brief"
       },
       "authority": "prompt_library.prompt_resource",
       "chars": 356
@@ -1066,15 +1022,13 @@
       "cache_scope": "static",
       "model_visible": true,
       "source_ref": "storage/tasks/task_workflows.json#workflow.writing.modular_novel.node.volume_commit.prompt",
-      "legacy_projection_ids": [],
       "version": "v1",
       "enabled": true,
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
         "domain_id": "domain.writing.modular_novel",
-        "output_contract_id": "contract.writing.modular_novel.volume_commit",
-        "legacy_projection_ids": []
+        "output_contract_id": "contract.writing.modular_novel.volume_commit"
       },
       "authority": "prompt_library.prompt_resource",
       "chars": 179
@@ -1113,15 +1067,13 @@
       "cache_scope": "static",
       "model_visible": true,
       "source_ref": "storage/tasks/task_workflows.json#workflow.writing.modular_novel.node.volume_plan.prompt",
-      "legacy_projection_ids": [],
       "version": "v1",
       "enabled": true,
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
         "domain_id": "domain.writing.modular_novel",
-        "output_contract_id": "contract.writing.modular_novel.volume_plan",
-        "legacy_projection_ids": []
+        "output_contract_id": "contract.writing.modular_novel.volume_plan"
       },
       "authority": "prompt_library.prompt_resource",
       "chars": 361
@@ -1160,15 +1112,13 @@
       "cache_scope": "static",
       "model_visible": true,
       "source_ref": "storage/tasks/task_workflows.json#workflow.writing.modular_novel.node.volume_postmortem.prompt",
-      "legacy_projection_ids": [],
       "version": "v1",
       "enabled": true,
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
         "domain_id": "domain.writing.modular_novel",
-        "output_contract_id": "contract.writing.modular_novel.volume_postmortem",
-        "legacy_projection_ids": []
+        "output_contract_id": "contract.writing.modular_novel.volume_postmortem"
       },
       "authority": "prompt_library.prompt_resource",
       "chars": 261
@@ -1207,15 +1157,13 @@
       "cache_scope": "static",
       "model_visible": true,
       "source_ref": "storage/tasks/task_workflows.json#workflow.writing.modular_novel.node.volume_review.prompt",
-      "legacy_projection_ids": [],
       "version": "v1",
       "enabled": true,
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
         "domain_id": "domain.writing.modular_novel",
-        "output_contract_id": "contract.writing.modular_novel.volume_review",
-        "legacy_projection_ids": []
+        "output_contract_id": "contract.writing.modular_novel.volume_review"
       },
       "authority": "prompt_library.prompt_resource",
       "chars": 324
@@ -1254,15 +1202,13 @@
       "cache_scope": "static",
       "model_visible": true,
       "source_ref": "storage/tasks/task_workflows.json#workflow.writing.modular_novel.node.world_design.prompt",
-      "legacy_projection_ids": [],
       "version": "v1",
       "enabled": true,
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
         "domain_id": "domain.writing.modular_novel",
-        "output_contract_id": "contract.writing.modular_novel.world_candidate",
-        "legacy_projection_ids": []
+        "output_contract_id": "contract.writing.modular_novel.world_candidate"
       },
       "authority": "prompt_library.prompt_resource",
       "chars": 1748
@@ -1301,15 +1247,13 @@
       "cache_scope": "static",
       "model_visible": true,
       "source_ref": "storage/tasks/task_workflows.json#workflow.writing.modular_novel.node.world_outline_extension_proposal.prompt",
-      "legacy_projection_ids": [],
       "version": "v1",
       "enabled": true,
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
         "domain_id": "domain.writing.modular_novel",
-        "output_contract_id": "contract.writing.modular_novel.extension_proposal",
-        "legacy_projection_ids": []
+        "output_contract_id": "contract.writing.modular_novel.extension_proposal"
       },
       "authority": "prompt_library.prompt_resource",
       "chars": 296
@@ -1348,15 +1292,13 @@
       "cache_scope": "static",
       "model_visible": true,
       "source_ref": "storage/tasks/task_workflows.json#workflow.writing.modular_novel.node.world_review.prompt",
-      "legacy_projection_ids": [],
       "version": "v1",
       "enabled": true,
       "metadata": {
         "managed_by": "prompt_library.task_workflow_sync",
         "source_type": "task_workflow_prompt",
         "domain_id": "domain.writing.modular_novel",
-        "output_contract_id": "contract.writing.modular_novel.world_review",
-        "legacy_projection_ids": []
+        "output_contract_id": "contract.writing.modular_novel.world_review"
       },
       "authority": "prompt_library.prompt_resource",
       "chars": 1453

@@ -34,7 +34,7 @@ def test_boundary_policy_scopes_source_readonly_without_blocking_sandbox_report_
     assert permit["denied_reasons"] == []
 
 
-def test_boundary_policy_global_no_file_write_marker_is_diagnostic_not_hard_permission() -> None:
+def test_boundary_policy_global_no_file_write_marker_blocks_write_action() -> None:
     boundary = build_boundary_policy(
         user_message="只分析 backend/app.py，不要写任何文件。",
     ).to_dict()
@@ -46,12 +46,12 @@ def test_boundary_policy_global_no_file_write_marker_is_diagnostic_not_hard_perm
         boundary_policy=boundary,
     ).to_dict()
 
-    assert boundary["write_allowed"] is True
-    assert "write_file" not in boundary["forbidden_actions"]
+    assert boundary["write_allowed"] is False
+    assert "write_file" in boundary["forbidden_actions"]
     assert boundary["diagnostics"]["global_write_forbid_signal"] is True
     assert boundary["diagnostics"]["natural_language_markers_are_intent_signals"] is True
-    assert permit["allowed"] is True
-    assert permit["denied_reasons"] == []
+    assert permit["allowed"] is False
+    assert permit["denied_reasons"] == ["write_forbidden_by_boundary"]
 
 
 def test_action_permit_honors_model_turn_structured_write_forbid() -> None:

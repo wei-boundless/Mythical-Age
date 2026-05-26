@@ -254,7 +254,6 @@ def test_modular_writing_graph_config_compiles_graph_modules_and_chapter_batches
     assert world_prompt_resource.source_ref == (
         "storage/tasks/task_workflows.json#workflow.writing.modular_novel.node.world_design.prompt"
     )
-    assert world_prompt_resource.legacy_projection_ids == ()
     assert chapter_prompt_resource is not None
     assert chapter_prompt_resource.content == chapter_draft.metadata["role_prompt"]
     assert registry.get_projection_binding("task.writing.modular_novel.node.world_design") is None
