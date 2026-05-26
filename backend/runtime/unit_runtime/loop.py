@@ -1415,6 +1415,15 @@ class TaskRunLoop:
                 },
             )
             yield {"type": "runtime_loop_event", "event": blocked_event.to_dict()}
+            yield {
+                "type": "error",
+                "error": "Action permit denied before runtime assembly.",
+                "code": "action_permit_denied",
+                "terminal_reason": "action_permit_denied",
+                "content": "本轮请求被运行许可策略阻止，未进入执行阶段。",
+                "denied_reasons": denied_reasons,
+                "action_permit": action_permit,
+            }
             return
         if str(model_turn_decision.get("action_intent") or "") == "block":
             blocked_event = self.event_log.append(
@@ -1427,6 +1436,15 @@ class TaskRunLoop:
                 },
             )
             yield {"type": "runtime_loop_event", "event": blocked_event.to_dict()}
+            yield {
+                "type": "error",
+                "error": "Model turn decision blocked runtime execution.",
+                "code": "model_turn_decision_blocked",
+                "terminal_reason": "model_turn_decision_unavailable_or_blocked",
+                "content": "本轮请求没有获得可执行的模型决策，未进入执行阶段。",
+                "model_turn_decision": model_turn_decision,
+                "diagnostics": model_turn_diagnostics,
+            }
             return
         chain_runtime = agent_runtime_chain.build_runtime(
             session_id=session_id,

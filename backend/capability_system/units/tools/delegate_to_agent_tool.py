@@ -8,12 +8,12 @@ from pydantic import BaseModel, Field
 
 class DelegateToAgentInput(BaseModel):
     target_agent_id: str = Field(
-        default="",
+        ...,
         description="目标子Agent正式ID：agent:knowledge_searcher、agent:codebase_searcher、agent:memory_searcher、agent:pdf_reader、agent:table_analyst、agent:web_researcher、agent:verifier。必须显式填写；运行时只做权限校验，不会根据 delegation_kind 替你选择目标。",
     )
     instruction: str = Field(..., description="委派任务说明；像给专业同事派活一样写清目标、对象、路径、页码、筛选口径和期望结果。")
     delegation_kind: str = Field(
-        default="",
+        ...,
         description="委派类型：知识库/RAG 用 knowledge_search；本地代码库搜索用 codebase_search；正式记忆召回用 memory_search；PDF 文件阅读用 pdf_reading；Excel/CSV/表格分析用 table_analysis；公开网页检索与来源核验用 web_research。",
     )
     input_payload: dict[str, Any] = Field(

@@ -634,7 +634,7 @@ def _tool_definitions() -> list[ToolDefinition]:
             module="tools.delegate_to_agent_tool",
             factory=lambda _base_dir: DelegateToAgentTool(),
             contract=ToolExecutionContract(
-                required_inputs=["instruction"],
+                required_inputs=["target_agent_id", "delegation_kind", "instruction"],
                 owner_scope="none",
                 missing_binding_behavior="deny",
                 context_policy="isolated",

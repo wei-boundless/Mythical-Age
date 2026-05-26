@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from fastapi import APIRouter
@@ -12,6 +13,8 @@ from query import QueryRequest
 from sessions import validate_session_id
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+TERMINAL_STREAM_EVENTS = {"done", "error", "stopped"}
 
 
 class ChatRequest(BaseModel):
@@ -58,10 +61,33 @@ async def chat(payload: ChatRequest):
     )
 
     async def event_generator():
-        async for event in runtime.query_runtime.astream(request):
-            event_type = str(event.get("type", "message"))
-            data = {key: value for key, value in event.items() if key != "type"}
-            yield _sse(event_type, data)
+        terminal_event = ""
+        try:
+            async for event in runtime.query_runtime.astream(request):
+                event_type = str(event.get("type", "message"))
+                data = {key: value for key, value in event.items() if key != "type"}
+                yield _sse(event_type, data)
+                if event_type in TERMINAL_STREAM_EVENTS:
+                    terminal_event = event_type
+                    break
+        except Exception as exc:
+            logger.exception("Chat stream failed before terminal event.")
+            yield _sse(
+                "error",
+                {
+                    "error": str(exc) or "Chat stream failed.",
+                    "code": "stream_exception",
+                },
+            )
+            return
+        if not terminal_event:
+            yield _sse(
+                "error",
+                {
+                    "error": "Chat stream ended without a terminal event.",
+                    "code": "missing_terminal_event",
+                },
+            )
 
     if payload.stream:
         return StreamingResponse(event_generator(), media_type="text/event-stream")

@@ -295,6 +295,8 @@ def test_astream_marks_task_order_failed_when_runtime_blocks_before_start() -> N
     assert run.status == "failed"
     assert run.task_run_id == ""
     assert "model_turn_decision_unavailable_or_blocked" in run.terminal_reason
+    error = next(event for event in events if event.get("type") == "error")
+    assert error["code"] == "model_turn_decision_blocked"
 
 
 def test_astream_blocks_before_assembly_when_action_permit_denies_write() -> None:
@@ -324,6 +326,8 @@ def test_astream_blocks_before_assembly_when_action_permit_denies_write() -> Non
     assert payload["reason"] == "action_permit_denied"
     assert payload["denied_reasons"] == ["write_forbidden_by_boundary"]
     assert not any(event.get("type") == "runtime_loop_started" for event in events)
+    error = next(event for event in events if event.get("type") == "error")
+    assert error["code"] == "action_permit_denied"
 
 
 def test_removed_health_task_selection_falls_back_to_general_runtime() -> None:

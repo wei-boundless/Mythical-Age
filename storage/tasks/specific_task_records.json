@@ -1,0 +1,1719 @@
+{
+  "specific_task_records": [
+    {
+      "task_id": "task.writing.modular_novel.node.project_brief",
+      "task_title": "项目启动包",
+      "domain_id": "domain.writing.modular_novel",
+      "description": "项目启动包",
+      "enabled": true,
+      "runtime_lane": "coordination_task",
+      "input_contract_id": "contract.user_request.basic",
+      "output_contract_id": "contract.writing.modular_novel.project_brief",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.modular_novel.node.project_brief",
+      "default_workflow_id": "workflow.writing.modular_novel.node.project_brief",
+      "default_projection_policy": "workflow_compatible_or_task_default",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_modular_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_contract_packet",
+              "title": "读取契约化输入包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "commit_artifact_refs",
+              "title": "提交结构化产物引用"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "node_id": "project_brief",
+          "runtime_interaction_mode": "role_mode",
+          "suppress_bundle_projection": true,
+          "trigger_signals": [],
+          "notes": ""
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel",
+        "node_id": "project_brief",
+        "package_template": "writing_modular_novel",
+        "runtime_interaction_mode": "role_mode",
+        "interaction_mode": "role_mode",
+        "execution_mode": "single",
+        "suppress_bundle_projection": true,
+        "task_graph_node_runtime": true,
+        "task_assignment_id": "task.writing.modular_novel.node.project_brief",
+        "source_flow_id": "flow.writing.modular_novel.node.project_brief"
+      }
+    },
+    {
+      "task_id": "task.writing.modular_novel.node.world_design",
+      "task_title": "世界观设定候选",
+      "domain_id": "domain.writing.modular_novel",
+      "description": "世界观设定候选",
+      "enabled": true,
+      "runtime_lane": "coordination_task",
+      "input_contract_id": "contract.user_request.basic",
+      "output_contract_id": "contract.writing.modular_novel.world_candidate",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.modular_novel.node.world_design",
+      "default_workflow_id": "workflow.writing.modular_novel.node.world_design",
+      "default_projection_policy": "workflow_compatible_or_task_default",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_modular_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_contract_packet",
+              "title": "读取契约化输入包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "commit_artifact_refs",
+              "title": "提交结构化产物引用"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "node_id": "world_design",
+          "runtime_interaction_mode": "role_mode",
+          "suppress_bundle_projection": true,
+          "trigger_signals": [],
+          "notes": ""
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel",
+        "node_id": "world_design",
+        "package_template": "writing_modular_novel",
+        "runtime_interaction_mode": "role_mode",
+        "interaction_mode": "role_mode",
+        "execution_mode": "single",
+        "suppress_bundle_projection": true,
+        "task_graph_node_runtime": true,
+        "task_assignment_id": "task.writing.modular_novel.node.world_design",
+        "source_flow_id": "flow.writing.modular_novel.node.world_design"
+      }
+    },
+    {
+      "task_id": "task.writing.modular_novel.node.world_review",
+      "task_title": "世界观审核",
+      "domain_id": "domain.writing.modular_novel",
+      "description": "世界观审核",
+      "enabled": true,
+      "runtime_lane": "coordination_task",
+      "input_contract_id": "contract.user_request.basic",
+      "output_contract_id": "contract.writing.modular_novel.world_review",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.modular_novel.node.world_review",
+      "default_workflow_id": "workflow.writing.modular_novel.node.world_review",
+      "default_projection_policy": "workflow_compatible_or_task_default",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_modular_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_contract_packet",
+              "title": "读取契约化输入包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "commit_artifact_refs",
+              "title": "提交结构化产物引用"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "node_id": "world_review",
+          "runtime_interaction_mode": "role_mode",
+          "suppress_bundle_projection": true,
+          "trigger_signals": [],
+          "notes": ""
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel",
+        "node_id": "world_review",
+        "package_template": "writing_modular_novel",
+        "runtime_interaction_mode": "role_mode",
+        "interaction_mode": "role_mode",
+        "execution_mode": "single",
+        "suppress_bundle_projection": true,
+        "task_graph_node_runtime": true,
+        "task_assignment_id": "task.writing.modular_novel.node.world_review",
+        "source_flow_id": "flow.writing.modular_novel.node.world_review"
+      }
+    },
+    {
+      "task_id": "task.writing.modular_novel.node.memory_commit_world",
+      "task_title": "世界观提交",
+      "domain_id": "domain.writing.modular_novel",
+      "description": "世界观提交",
+      "enabled": true,
+      "runtime_lane": "coordination_task",
+      "input_contract_id": "contract.user_request.basic",
+      "output_contract_id": "contract.writing.modular_novel.world_commit",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.modular_novel.node.memory_commit_world",
+      "default_workflow_id": "workflow.writing.modular_novel.node.memory_commit_world",
+      "default_projection_policy": "workflow_compatible_or_task_default",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_modular_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_contract_packet",
+              "title": "读取契约化输入包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "commit_artifact_refs",
+              "title": "提交结构化产物引用"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "node_id": "memory_commit_world",
+          "runtime_interaction_mode": "role_mode",
+          "suppress_bundle_projection": true,
+          "trigger_signals": [],
+          "notes": ""
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel",
+        "node_id": "memory_commit_world",
+        "package_template": "writing_modular_novel",
+        "runtime_interaction_mode": "role_mode",
+        "interaction_mode": "role_mode",
+        "execution_mode": "single",
+        "suppress_bundle_projection": true,
+        "task_graph_node_runtime": true,
+        "task_assignment_id": "task.writing.modular_novel.node.memory_commit_world",
+        "source_flow_id": "flow.writing.modular_novel.node.memory_commit_world"
+      }
+    },
+    {
+      "task_id": "task.writing.modular_novel.node.character_design",
+      "task_title": "人设与关系设计",
+      "domain_id": "domain.writing.modular_novel",
+      "description": "人设与关系设计",
+      "enabled": true,
+      "runtime_lane": "coordination_task",
+      "input_contract_id": "contract.user_request.basic",
+      "output_contract_id": "contract.writing.modular_novel.character_design",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.modular_novel.node.character_design",
+      "default_workflow_id": "workflow.writing.modular_novel.node.character_design",
+      "default_projection_policy": "workflow_compatible_or_task_default",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_modular_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_contract_packet",
+              "title": "读取契约化输入包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "commit_artifact_refs",
+              "title": "提交结构化产物引用"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "node_id": "character_design",
+          "runtime_interaction_mode": "role_mode",
+          "suppress_bundle_projection": true,
+          "trigger_signals": [],
+          "notes": ""
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel",
+        "node_id": "character_design",
+        "package_template": "writing_modular_novel",
+        "runtime_interaction_mode": "role_mode",
+        "interaction_mode": "role_mode",
+        "execution_mode": "single",
+        "suppress_bundle_projection": true,
+        "task_graph_node_runtime": true,
+        "task_assignment_id": "task.writing.modular_novel.node.character_design",
+        "source_flow_id": "flow.writing.modular_novel.node.character_design"
+      }
+    },
+    {
+      "task_id": "task.writing.modular_novel.node.character_review",
+      "task_title": "人设与关系审核",
+      "domain_id": "domain.writing.modular_novel",
+      "description": "人设与关系审核",
+      "enabled": true,
+      "runtime_lane": "coordination_task",
+      "input_contract_id": "contract.user_request.basic",
+      "output_contract_id": "contract.writing.modular_novel.character_review",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.modular_novel.node.character_review",
+      "default_workflow_id": "workflow.writing.modular_novel.node.character_review",
+      "default_projection_policy": "workflow_compatible_or_task_default",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_modular_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_contract_packet",
+              "title": "读取契约化输入包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "commit_artifact_refs",
+              "title": "提交结构化产物引用"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "node_id": "character_review",
+          "runtime_interaction_mode": "role_mode",
+          "suppress_bundle_projection": true,
+          "trigger_signals": [],
+          "notes": ""
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel",
+        "node_id": "character_review",
+        "package_template": "writing_modular_novel",
+        "runtime_interaction_mode": "role_mode",
+        "interaction_mode": "role_mode",
+        "execution_mode": "single",
+        "suppress_bundle_projection": true,
+        "task_graph_node_runtime": true,
+        "task_assignment_id": "task.writing.modular_novel.node.character_review",
+        "source_flow_id": "flow.writing.modular_novel.node.character_review"
+      }
+    },
+    {
+      "task_id": "task.writing.modular_novel.node.plot_design",
+      "task_title": "剧情与伏笔设计",
+      "domain_id": "domain.writing.modular_novel",
+      "description": "剧情与伏笔设计",
+      "enabled": true,
+      "runtime_lane": "coordination_task",
+      "input_contract_id": "contract.user_request.basic",
+      "output_contract_id": "contract.writing.modular_novel.plot_design",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.modular_novel.node.plot_design",
+      "default_workflow_id": "workflow.writing.modular_novel.node.plot_design",
+      "default_projection_policy": "workflow_compatible_or_task_default",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_modular_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_contract_packet",
+              "title": "读取契约化输入包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "commit_artifact_refs",
+              "title": "提交结构化产物引用"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "node_id": "plot_design",
+          "runtime_interaction_mode": "role_mode",
+          "suppress_bundle_projection": true,
+          "trigger_signals": [],
+          "notes": ""
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel",
+        "node_id": "plot_design",
+        "package_template": "writing_modular_novel",
+        "runtime_interaction_mode": "role_mode",
+        "interaction_mode": "role_mode",
+        "execution_mode": "single",
+        "suppress_bundle_projection": true,
+        "task_graph_node_runtime": true,
+        "task_assignment_id": "task.writing.modular_novel.node.plot_design",
+        "source_flow_id": "flow.writing.modular_novel.node.plot_design"
+      }
+    },
+    {
+      "task_id": "task.writing.modular_novel.node.design_sync",
+      "task_title": "创作架构对齐",
+      "domain_id": "domain.writing.modular_novel",
+      "description": "创作架构对齐",
+      "enabled": true,
+      "runtime_lane": "coordination_task",
+      "input_contract_id": "contract.user_request.basic",
+      "output_contract_id": "contract.writing.modular_novel.design_alignment",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.modular_novel.node.design_sync",
+      "default_workflow_id": "workflow.writing.modular_novel.node.design_sync",
+      "default_projection_policy": "workflow_compatible_or_task_default",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_modular_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_contract_packet",
+              "title": "读取契约化输入包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "commit_artifact_refs",
+              "title": "提交结构化产物引用"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "node_id": "design_sync",
+          "runtime_interaction_mode": "role_mode",
+          "suppress_bundle_projection": true,
+          "trigger_signals": [],
+          "notes": ""
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel",
+        "node_id": "design_sync",
+        "package_template": "writing_modular_novel",
+        "runtime_interaction_mode": "role_mode",
+        "interaction_mode": "role_mode",
+        "execution_mode": "single",
+        "suppress_bundle_projection": true,
+        "task_graph_node_runtime": true,
+        "task_assignment_id": "task.writing.modular_novel.node.design_sync",
+        "source_flow_id": "flow.writing.modular_novel.node.design_sync"
+      }
+    },
+    {
+      "task_id": "task.writing.modular_novel.node.memory_commit_character",
+      "task_title": "人设与关系提交",
+      "domain_id": "domain.writing.modular_novel",
+      "description": "人设与关系提交",
+      "enabled": true,
+      "runtime_lane": "coordination_task",
+      "input_contract_id": "contract.user_request.basic",
+      "output_contract_id": "contract.writing.modular_novel.character_commit",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.modular_novel.node.memory_commit_character",
+      "default_workflow_id": "workflow.writing.modular_novel.node.memory_commit_character",
+      "default_projection_policy": "workflow_compatible_or_task_default",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_modular_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_contract_packet",
+              "title": "读取契约化输入包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "commit_artifact_refs",
+              "title": "提交结构化产物引用"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "node_id": "memory_commit_character",
+          "runtime_interaction_mode": "role_mode",
+          "suppress_bundle_projection": true,
+          "trigger_signals": [],
+          "notes": ""
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel",
+        "node_id": "memory_commit_character",
+        "package_template": "writing_modular_novel",
+        "runtime_interaction_mode": "role_mode",
+        "interaction_mode": "role_mode",
+        "execution_mode": "single",
+        "suppress_bundle_projection": true,
+        "task_graph_node_runtime": true,
+        "task_assignment_id": "task.writing.modular_novel.node.memory_commit_character",
+        "source_flow_id": "flow.writing.modular_novel.node.memory_commit_character"
+      }
+    },
+    {
+      "task_id": "task.writing.modular_novel.node.outline_design",
+      "task_title": "全书细纲设计",
+      "domain_id": "domain.writing.modular_novel",
+      "description": "全书细纲设计",
+      "enabled": true,
+      "runtime_lane": "coordination_task",
+      "input_contract_id": "contract.user_request.basic",
+      "output_contract_id": "contract.writing.modular_novel.outline_design",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.modular_novel.node.outline_design",
+      "default_workflow_id": "workflow.writing.modular_novel.node.outline_design",
+      "default_projection_policy": "workflow_compatible_or_task_default",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_modular_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_contract_packet",
+              "title": "读取契约化输入包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "commit_artifact_refs",
+              "title": "提交结构化产物引用"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "node_id": "outline_design",
+          "runtime_interaction_mode": "role_mode",
+          "suppress_bundle_projection": true,
+          "trigger_signals": [],
+          "notes": ""
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel",
+        "node_id": "outline_design",
+        "package_template": "writing_modular_novel",
+        "runtime_interaction_mode": "role_mode",
+        "interaction_mode": "role_mode",
+        "execution_mode": "single",
+        "suppress_bundle_projection": true,
+        "task_graph_node_runtime": true,
+        "task_assignment_id": "task.writing.modular_novel.node.outline_design",
+        "source_flow_id": "flow.writing.modular_novel.node.outline_design"
+      }
+    },
+    {
+      "task_id": "task.writing.modular_novel.node.outline_review",
+      "task_title": "细纲审核",
+      "domain_id": "domain.writing.modular_novel",
+      "description": "细纲审核",
+      "enabled": true,
+      "runtime_lane": "coordination_task",
+      "input_contract_id": "contract.user_request.basic",
+      "output_contract_id": "contract.writing.modular_novel.outline_review",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.modular_novel.node.outline_review",
+      "default_workflow_id": "workflow.writing.modular_novel.node.outline_review",
+      "default_projection_policy": "workflow_compatible_or_task_default",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_modular_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_contract_packet",
+              "title": "读取契约化输入包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "commit_artifact_refs",
+              "title": "提交结构化产物引用"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "node_id": "outline_review",
+          "runtime_interaction_mode": "role_mode",
+          "suppress_bundle_projection": true,
+          "trigger_signals": [],
+          "notes": ""
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel",
+        "node_id": "outline_review",
+        "package_template": "writing_modular_novel",
+        "runtime_interaction_mode": "role_mode",
+        "interaction_mode": "role_mode",
+        "execution_mode": "single",
+        "suppress_bundle_projection": true,
+        "task_graph_node_runtime": true,
+        "task_assignment_id": "task.writing.modular_novel.node.outline_review",
+        "source_flow_id": "flow.writing.modular_novel.node.outline_review"
+      }
+    },
+    {
+      "task_id": "task.writing.modular_novel.node.baseline_memory_seed",
+      "task_title": "基准库初始化",
+      "domain_id": "domain.writing.modular_novel",
+      "description": "基准库初始化",
+      "enabled": true,
+      "runtime_lane": "coordination_task",
+      "input_contract_id": "contract.user_request.basic",
+      "output_contract_id": "contract.writing.modular_novel.baseline_commit",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.modular_novel.node.baseline_memory_seed",
+      "default_workflow_id": "workflow.writing.modular_novel.node.baseline_memory_seed",
+      "default_projection_policy": "workflow_compatible_or_task_default",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_modular_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_contract_packet",
+              "title": "读取契约化输入包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "commit_artifact_refs",
+              "title": "提交结构化产物引用"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "node_id": "baseline_memory_seed",
+          "runtime_interaction_mode": "role_mode",
+          "suppress_bundle_projection": true,
+          "trigger_signals": [],
+          "notes": ""
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel",
+        "node_id": "baseline_memory_seed",
+        "package_template": "writing_modular_novel",
+        "runtime_interaction_mode": "role_mode",
+        "interaction_mode": "role_mode",
+        "execution_mode": "single",
+        "suppress_bundle_projection": true,
+        "task_graph_node_runtime": true,
+        "task_assignment_id": "task.writing.modular_novel.node.baseline_memory_seed",
+        "source_flow_id": "flow.writing.modular_novel.node.baseline_memory_seed"
+      }
+    },
+    {
+      "task_id": "task.writing.modular_novel.node.volume_plan",
+      "task_title": "分卷计划",
+      "domain_id": "domain.writing.modular_novel",
+      "description": "分卷计划",
+      "enabled": true,
+      "runtime_lane": "coordination_task",
+      "input_contract_id": "contract.user_request.basic",
+      "output_contract_id": "contract.writing.modular_novel.volume_plan",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.modular_novel.node.volume_plan",
+      "default_workflow_id": "workflow.writing.modular_novel.node.volume_plan",
+      "default_projection_policy": "workflow_compatible_or_task_default",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_modular_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_contract_packet",
+              "title": "读取契约化输入包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "commit_artifact_refs",
+              "title": "提交结构化产物引用"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "node_id": "volume_plan",
+          "runtime_interaction_mode": "role_mode",
+          "suppress_bundle_projection": true,
+          "trigger_signals": [],
+          "notes": ""
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel",
+        "node_id": "volume_plan",
+        "package_template": "writing_modular_novel",
+        "runtime_interaction_mode": "role_mode",
+        "interaction_mode": "role_mode",
+        "execution_mode": "single",
+        "suppress_bundle_projection": true,
+        "task_graph_node_runtime": true,
+        "task_assignment_id": "task.writing.modular_novel.node.volume_plan",
+        "source_flow_id": "flow.writing.modular_novel.node.volume_plan"
+      }
+    },
+    {
+      "task_id": "task.writing.modular_novel.node.chapter_outline",
+      "task_title": "章节批次细纲",
+      "domain_id": "domain.writing.modular_novel",
+      "description": "章节批次细纲",
+      "enabled": true,
+      "runtime_lane": "coordination_task",
+      "input_contract_id": "contract.user_request.basic",
+      "output_contract_id": "contract.writing.modular_novel.chapter_outline",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.modular_novel.node.chapter_outline",
+      "default_workflow_id": "workflow.writing.modular_novel.node.chapter_outline",
+      "default_projection_policy": "workflow_compatible_or_task_default",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_modular_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_contract_packet",
+              "title": "读取契约化输入包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "commit_artifact_refs",
+              "title": "提交结构化产物引用"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "node_id": "chapter_outline",
+          "runtime_interaction_mode": "role_mode",
+          "suppress_bundle_projection": true,
+          "trigger_signals": [],
+          "notes": ""
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel",
+        "node_id": "chapter_outline",
+        "package_template": "writing_modular_novel",
+        "runtime_interaction_mode": "role_mode",
+        "interaction_mode": "role_mode",
+        "execution_mode": "single",
+        "suppress_bundle_projection": true,
+        "task_graph_node_runtime": true,
+        "task_assignment_id": "task.writing.modular_novel.node.chapter_outline",
+        "source_flow_id": "flow.writing.modular_novel.node.chapter_outline"
+      }
+    },
+    {
+      "task_id": "task.writing.modular_novel.node.chapter_draft",
+      "task_title": "章节正文草稿",
+      "domain_id": "domain.writing.modular_novel",
+      "description": "章节正文草稿",
+      "enabled": true,
+      "runtime_lane": "coordination_task",
+      "input_contract_id": "contract.user_request.basic",
+      "output_contract_id": "contract.writing.modular_novel.chapter_draft",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.modular_novel.node.chapter_draft",
+      "default_workflow_id": "workflow.writing.modular_novel.node.chapter_draft",
+      "default_projection_policy": "workflow_compatible_or_task_default",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_modular_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_contract_packet",
+              "title": "读取契约化输入包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "commit_artifact_refs",
+              "title": "提交结构化产物引用"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "node_id": "chapter_draft",
+          "runtime_interaction_mode": "role_mode",
+          "suppress_bundle_projection": true,
+          "trigger_signals": [],
+          "notes": ""
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel",
+        "node_id": "chapter_draft",
+        "package_template": "writing_modular_novel",
+        "runtime_interaction_mode": "role_mode",
+        "interaction_mode": "role_mode",
+        "execution_mode": "single",
+        "suppress_bundle_projection": true,
+        "task_graph_node_runtime": true,
+        "task_assignment_id": "task.writing.modular_novel.node.chapter_draft",
+        "source_flow_id": "flow.writing.modular_novel.node.chapter_draft"
+      }
+    },
+    {
+      "task_id": "task.writing.modular_novel.node.chapter_review",
+      "task_title": "章节批次审核",
+      "domain_id": "domain.writing.modular_novel",
+      "description": "章节批次审核",
+      "enabled": true,
+      "runtime_lane": "coordination_task",
+      "input_contract_id": "contract.user_request.basic",
+      "output_contract_id": "contract.writing.modular_novel.chapter_review",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.modular_novel.node.chapter_review",
+      "default_workflow_id": "workflow.writing.modular_novel.node.chapter_review",
+      "default_projection_policy": "workflow_compatible_or_task_default",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_modular_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_contract_packet",
+              "title": "读取契约化输入包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "commit_artifact_refs",
+              "title": "提交结构化产物引用"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "node_id": "chapter_review",
+          "runtime_interaction_mode": "role_mode",
+          "suppress_bundle_projection": true,
+          "trigger_signals": [],
+          "notes": ""
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel",
+        "node_id": "chapter_review",
+        "package_template": "writing_modular_novel",
+        "runtime_interaction_mode": "role_mode",
+        "interaction_mode": "role_mode",
+        "execution_mode": "single",
+        "suppress_bundle_projection": true,
+        "task_graph_node_runtime": true,
+        "task_assignment_id": "task.writing.modular_novel.node.chapter_review",
+        "source_flow_id": "flow.writing.modular_novel.node.chapter_review"
+      }
+    },
+    {
+      "task_id": "task.writing.modular_novel.node.memory_commit_chapter",
+      "task_title": "章节批次提交",
+      "domain_id": "domain.writing.modular_novel",
+      "description": "章节批次提交",
+      "enabled": true,
+      "runtime_lane": "coordination_task",
+      "input_contract_id": "contract.user_request.basic",
+      "output_contract_id": "contract.writing.modular_novel.chapter_batch_commit",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.modular_novel.node.memory_commit_chapter",
+      "default_workflow_id": "workflow.writing.modular_novel.node.memory_commit_chapter",
+      "default_projection_policy": "workflow_compatible_or_task_default",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_modular_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_contract_packet",
+              "title": "读取契约化输入包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "commit_artifact_refs",
+              "title": "提交结构化产物引用"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "node_id": "memory_commit_chapter",
+          "runtime_interaction_mode": "role_mode",
+          "suppress_bundle_projection": true,
+          "trigger_signals": [],
+          "notes": ""
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel",
+        "node_id": "memory_commit_chapter",
+        "package_template": "writing_modular_novel",
+        "runtime_interaction_mode": "role_mode",
+        "interaction_mode": "role_mode",
+        "execution_mode": "single",
+        "suppress_bundle_projection": true,
+        "task_graph_node_runtime": true,
+        "task_assignment_id": "task.writing.modular_novel.node.memory_commit_chapter",
+        "source_flow_id": "flow.writing.modular_novel.node.memory_commit_chapter"
+      }
+    },
+    {
+      "task_id": "task.writing.modular_novel.node.chapter_progress_router",
+      "task_title": "章节进度路由",
+      "domain_id": "domain.writing.modular_novel",
+      "description": "章节进度路由",
+      "enabled": true,
+      "runtime_lane": "coordination_task",
+      "input_contract_id": "contract.user_request.basic",
+      "output_contract_id": "contract.writing.modular_novel.progress_route",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.modular_novel.node.chapter_progress_router",
+      "default_workflow_id": "workflow.writing.modular_novel.node.chapter_progress_router",
+      "default_projection_policy": "workflow_compatible_or_task_default",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_modular_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_contract_packet",
+              "title": "读取契约化输入包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "commit_artifact_refs",
+              "title": "提交结构化产物引用"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "node_id": "chapter_progress_router",
+          "runtime_interaction_mode": "role_mode",
+          "suppress_bundle_projection": true,
+          "trigger_signals": [],
+          "notes": ""
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel",
+        "node_id": "chapter_progress_router",
+        "package_template": "writing_modular_novel",
+        "runtime_interaction_mode": "role_mode",
+        "interaction_mode": "role_mode",
+        "execution_mode": "single",
+        "suppress_bundle_projection": true,
+        "task_graph_node_runtime": true,
+        "task_assignment_id": "task.writing.modular_novel.node.chapter_progress_router",
+        "source_flow_id": "flow.writing.modular_novel.node.chapter_progress_router"
+      }
+    },
+    {
+      "task_id": "task.writing.modular_novel.node.volume_review",
+      "task_title": "卷级审核",
+      "domain_id": "domain.writing.modular_novel",
+      "description": "卷级审核",
+      "enabled": true,
+      "runtime_lane": "coordination_task",
+      "input_contract_id": "contract.user_request.basic",
+      "output_contract_id": "contract.writing.modular_novel.volume_review",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.modular_novel.node.volume_review",
+      "default_workflow_id": "workflow.writing.modular_novel.node.volume_review",
+      "default_projection_policy": "workflow_compatible_or_task_default",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_modular_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_contract_packet",
+              "title": "读取契约化输入包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "commit_artifact_refs",
+              "title": "提交结构化产物引用"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "node_id": "volume_review",
+          "runtime_interaction_mode": "role_mode",
+          "suppress_bundle_projection": true,
+          "trigger_signals": [],
+          "notes": ""
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel",
+        "node_id": "volume_review",
+        "package_template": "writing_modular_novel",
+        "runtime_interaction_mode": "role_mode",
+        "interaction_mode": "role_mode",
+        "execution_mode": "single",
+        "suppress_bundle_projection": true,
+        "task_graph_node_runtime": true,
+        "task_assignment_id": "task.writing.modular_novel.node.volume_review",
+        "source_flow_id": "flow.writing.modular_novel.node.volume_review"
+      }
+    },
+    {
+      "task_id": "task.writing.modular_novel.node.volume_commit",
+      "task_title": "卷级提交",
+      "domain_id": "domain.writing.modular_novel",
+      "description": "卷级提交",
+      "enabled": true,
+      "runtime_lane": "coordination_task",
+      "input_contract_id": "contract.user_request.basic",
+      "output_contract_id": "contract.writing.modular_novel.volume_commit",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.modular_novel.node.volume_commit",
+      "default_workflow_id": "workflow.writing.modular_novel.node.volume_commit",
+      "default_projection_policy": "workflow_compatible_or_task_default",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_modular_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_contract_packet",
+              "title": "读取契约化输入包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "commit_artifact_refs",
+              "title": "提交结构化产物引用"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "node_id": "volume_commit",
+          "runtime_interaction_mode": "role_mode",
+          "suppress_bundle_projection": true,
+          "trigger_signals": [],
+          "notes": ""
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel",
+        "node_id": "volume_commit",
+        "package_template": "writing_modular_novel",
+        "runtime_interaction_mode": "role_mode",
+        "interaction_mode": "role_mode",
+        "execution_mode": "single",
+        "suppress_bundle_projection": true,
+        "task_graph_node_runtime": true,
+        "task_assignment_id": "task.writing.modular_novel.node.volume_commit",
+        "source_flow_id": "flow.writing.modular_novel.node.volume_commit"
+      }
+    },
+    {
+      "task_id": "task.writing.modular_novel.node.volume_postmortem",
+      "task_title": "卷后复盘",
+      "domain_id": "domain.writing.modular_novel",
+      "description": "卷后复盘",
+      "enabled": true,
+      "runtime_lane": "coordination_task",
+      "input_contract_id": "contract.user_request.basic",
+      "output_contract_id": "contract.writing.modular_novel.volume_postmortem",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.modular_novel.node.volume_postmortem",
+      "default_workflow_id": "workflow.writing.modular_novel.node.volume_postmortem",
+      "default_projection_policy": "workflow_compatible_or_task_default",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_modular_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_contract_packet",
+              "title": "读取契约化输入包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "commit_artifact_refs",
+              "title": "提交结构化产物引用"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "node_id": "volume_postmortem",
+          "runtime_interaction_mode": "role_mode",
+          "suppress_bundle_projection": true,
+          "trigger_signals": [],
+          "notes": ""
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel",
+        "node_id": "volume_postmortem",
+        "package_template": "writing_modular_novel",
+        "runtime_interaction_mode": "role_mode",
+        "interaction_mode": "role_mode",
+        "execution_mode": "single",
+        "suppress_bundle_projection": true,
+        "task_graph_node_runtime": true,
+        "task_assignment_id": "task.writing.modular_novel.node.volume_postmortem",
+        "source_flow_id": "flow.writing.modular_novel.node.volume_postmortem"
+      }
+    },
+    {
+      "task_id": "task.writing.modular_novel.node.world_outline_extension_proposal",
+      "task_title": "设定与大纲补充提案",
+      "domain_id": "domain.writing.modular_novel",
+      "description": "设定与大纲补充提案",
+      "enabled": true,
+      "runtime_lane": "coordination_task",
+      "input_contract_id": "contract.user_request.basic",
+      "output_contract_id": "contract.writing.modular_novel.extension_proposal",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.modular_novel.node.world_outline_extension_proposal",
+      "default_workflow_id": "workflow.writing.modular_novel.node.world_outline_extension_proposal",
+      "default_projection_policy": "workflow_compatible_or_task_default",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_modular_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_contract_packet",
+              "title": "读取契约化输入包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "commit_artifact_refs",
+              "title": "提交结构化产物引用"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "node_id": "world_outline_extension_proposal",
+          "runtime_interaction_mode": "role_mode",
+          "suppress_bundle_projection": true,
+          "trigger_signals": [],
+          "notes": ""
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel",
+        "node_id": "world_outline_extension_proposal",
+        "package_template": "writing_modular_novel",
+        "runtime_interaction_mode": "role_mode",
+        "interaction_mode": "role_mode",
+        "execution_mode": "single",
+        "suppress_bundle_projection": true,
+        "task_graph_node_runtime": true,
+        "task_assignment_id": "task.writing.modular_novel.node.world_outline_extension_proposal",
+        "source_flow_id": "flow.writing.modular_novel.node.world_outline_extension_proposal"
+      }
+    },
+    {
+      "task_id": "task.writing.modular_novel.node.extension_review",
+      "task_title": "补充提案审核",
+      "domain_id": "domain.writing.modular_novel",
+      "description": "补充提案审核",
+      "enabled": true,
+      "runtime_lane": "coordination_task",
+      "input_contract_id": "contract.user_request.basic",
+      "output_contract_id": "contract.writing.modular_novel.extension_review",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.modular_novel.node.extension_review",
+      "default_workflow_id": "workflow.writing.modular_novel.node.extension_review",
+      "default_projection_policy": "workflow_compatible_or_task_default",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_modular_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_contract_packet",
+              "title": "读取契约化输入包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "commit_artifact_refs",
+              "title": "提交结构化产物引用"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "node_id": "extension_review",
+          "runtime_interaction_mode": "role_mode",
+          "suppress_bundle_projection": true,
+          "trigger_signals": [],
+          "notes": ""
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel",
+        "node_id": "extension_review",
+        "package_template": "writing_modular_novel",
+        "runtime_interaction_mode": "role_mode",
+        "interaction_mode": "role_mode",
+        "execution_mode": "single",
+        "suppress_bundle_projection": true,
+        "task_graph_node_runtime": true,
+        "task_assignment_id": "task.writing.modular_novel.node.extension_review",
+        "source_flow_id": "flow.writing.modular_novel.node.extension_review"
+      }
+    },
+    {
+      "task_id": "task.writing.modular_novel.node.extension_commit",
+      "task_title": "动态记忆提交",
+      "domain_id": "domain.writing.modular_novel",
+      "description": "动态记忆提交",
+      "enabled": true,
+      "runtime_lane": "coordination_task",
+      "input_contract_id": "contract.user_request.basic",
+      "output_contract_id": "contract.writing.modular_novel.extension_commit",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.modular_novel.node.extension_commit",
+      "default_workflow_id": "workflow.writing.modular_novel.node.extension_commit",
+      "default_projection_policy": "workflow_compatible_or_task_default",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_modular_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_contract_packet",
+              "title": "读取契约化输入包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "commit_artifact_refs",
+              "title": "提交结构化产物引用"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "node_id": "extension_commit",
+          "runtime_interaction_mode": "role_mode",
+          "suppress_bundle_projection": true,
+          "trigger_signals": [],
+          "notes": ""
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel",
+        "node_id": "extension_commit",
+        "package_template": "writing_modular_novel",
+        "runtime_interaction_mode": "role_mode",
+        "interaction_mode": "role_mode",
+        "execution_mode": "single",
+        "suppress_bundle_projection": true,
+        "task_graph_node_runtime": true,
+        "task_assignment_id": "task.writing.modular_novel.node.extension_commit",
+        "source_flow_id": "flow.writing.modular_novel.node.extension_commit"
+      }
+    },
+    {
+      "task_id": "task.writing.modular_novel.node.next_volume_router",
+      "task_title": "下一卷路由",
+      "domain_id": "domain.writing.modular_novel",
+      "description": "下一卷路由",
+      "enabled": true,
+      "runtime_lane": "coordination_task",
+      "input_contract_id": "contract.user_request.basic",
+      "output_contract_id": "contract.writing.modular_novel.volume_route",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.modular_novel.node.next_volume_router",
+      "default_workflow_id": "workflow.writing.modular_novel.node.next_volume_router",
+      "default_projection_policy": "workflow_compatible_or_task_default",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_modular_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_contract_packet",
+              "title": "读取契约化输入包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "commit_artifact_refs",
+              "title": "提交结构化产物引用"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "node_id": "next_volume_router",
+          "runtime_interaction_mode": "role_mode",
+          "suppress_bundle_projection": true,
+          "trigger_signals": [],
+          "notes": ""
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel",
+        "node_id": "next_volume_router",
+        "package_template": "writing_modular_novel",
+        "runtime_interaction_mode": "role_mode",
+        "interaction_mode": "role_mode",
+        "execution_mode": "single",
+        "suppress_bundle_projection": true,
+        "task_graph_node_runtime": true,
+        "task_assignment_id": "task.writing.modular_novel.node.next_volume_router",
+        "source_flow_id": "flow.writing.modular_novel.node.next_volume_router"
+      }
+    },
+    {
+      "task_id": "task.writing.modular_novel.node.final_assemble",
+      "task_title": "全书汇编",
+      "domain_id": "domain.writing.modular_novel",
+      "description": "全书汇编",
+      "enabled": true,
+      "runtime_lane": "coordination_task",
+      "input_contract_id": "contract.user_request.basic",
+      "output_contract_id": "contract.writing.modular_novel.final_manuscript",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.modular_novel.node.final_assemble",
+      "default_workflow_id": "workflow.writing.modular_novel.node.final_assemble",
+      "default_projection_policy": "workflow_compatible_or_task_default",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_modular_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_contract_packet",
+              "title": "读取契约化输入包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "commit_artifact_refs",
+              "title": "提交结构化产物引用"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "node_id": "final_assemble",
+          "runtime_interaction_mode": "role_mode",
+          "suppress_bundle_projection": true,
+          "trigger_signals": [],
+          "notes": ""
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel",
+        "node_id": "final_assemble",
+        "package_template": "writing_modular_novel",
+        "runtime_interaction_mode": "role_mode",
+        "interaction_mode": "role_mode",
+        "execution_mode": "single",
+        "suppress_bundle_projection": true,
+        "task_graph_node_runtime": true,
+        "task_assignment_id": "task.writing.modular_novel.node.final_assemble",
+        "source_flow_id": "flow.writing.modular_novel.node.final_assemble"
+      }
+    },
+    {
+      "task_id": "task.writing.modular_novel.node.final_review",
+      "task_title": "最终审查",
+      "domain_id": "domain.writing.modular_novel",
+      "description": "最终审查",
+      "enabled": true,
+      "runtime_lane": "coordination_task",
+      "input_contract_id": "contract.user_request.basic",
+      "output_contract_id": "contract.writing.modular_novel.final_review",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.modular_novel.node.final_review",
+      "default_workflow_id": "workflow.writing.modular_novel.node.final_review",
+      "default_projection_policy": "workflow_compatible_or_task_default",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_modular_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_contract_packet",
+              "title": "读取契约化输入包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "commit_artifact_refs",
+              "title": "提交结构化产物引用"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "node_id": "final_review",
+          "runtime_interaction_mode": "role_mode",
+          "suppress_bundle_projection": true,
+          "trigger_signals": [],
+          "notes": ""
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel",
+        "node_id": "final_review",
+        "package_template": "writing_modular_novel",
+        "runtime_interaction_mode": "role_mode",
+        "interaction_mode": "role_mode",
+        "execution_mode": "single",
+        "suppress_bundle_projection": true,
+        "task_graph_node_runtime": true,
+        "task_assignment_id": "task.writing.modular_novel.node.final_review",
+        "source_flow_id": "flow.writing.modular_novel.node.final_review"
+      }
+    },
+    {
+      "task_id": "task.writing.modular_novel.node.memory_finalize",
+      "task_title": "最终记忆封存",
+      "domain_id": "domain.writing.modular_novel",
+      "description": "最终记忆封存",
+      "enabled": true,
+      "runtime_lane": "coordination_task",
+      "input_contract_id": "contract.user_request.basic",
+      "output_contract_id": "contract.writing.modular_novel.final_memory_seal",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.modular_novel.node.memory_finalize",
+      "default_workflow_id": "workflow.writing.modular_novel.node.memory_finalize",
+      "default_projection_policy": "workflow_compatible_or_task_default",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_modular_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_contract_packet",
+              "title": "读取契约化输入包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "commit_artifact_refs",
+              "title": "提交结构化产物引用"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "node_id": "memory_finalize",
+          "runtime_interaction_mode": "role_mode",
+          "suppress_bundle_projection": true,
+          "trigger_signals": [],
+          "notes": ""
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel",
+        "node_id": "memory_finalize",
+        "package_template": "writing_modular_novel",
+        "runtime_interaction_mode": "role_mode",
+        "interaction_mode": "role_mode",
+        "execution_mode": "single",
+        "suppress_bundle_projection": true,
+        "task_graph_node_runtime": true,
+        "task_assignment_id": "task.writing.modular_novel.node.memory_finalize",
+        "source_flow_id": "flow.writing.modular_novel.node.memory_finalize"
+      }
+    },
+    {
+      "task_id": "task.000001",
+      "task_title": "TaskGraph 收尾验证任务",
+      "domain_id": "domain.general",
+      "description": "用于 TaskGraph Studio 收尾联调",
+      "enabled": true,
+      "runtime_lane": "",
+      "input_contract_id": "UserMessage",
+      "output_contract_id": "AssistantFinalAnswer",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.000001",
+      "default_workflow_id": "workflow.000001",
+      "default_projection_policy": "workflow_compatible_or_task_default",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "execution_chain_type": "coordination_chain",
+          "trigger_signals": []
+        }
+      },
+      "metadata": {
+        "managed_by": "codex_smoke",
+        "domain_id": "domain.general"
+      }
+    }
+  ],
+  "deleted_task_ids": [
+    "task.writing.modular_novel.chapter_cycle",
+    "task.writing.modular_novel.design_init",
+    "task.writing.modular_novel.finalize",
+    "task.writing.modular_novel.master"
+  ]
+}

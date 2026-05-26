@@ -27,6 +27,11 @@ async def _fake_error_astream(_request):
     }
 
 
+async def _fake_missing_terminal_astream(_request):
+    yield {"type": "input_commit_gate", "commit_gate": {"allowed": True}}
+    yield {"type": "task_intent_decision", "decision": {"status": "ok"}}
+
+
 async def _fake_image_generate(self, **kwargs):
     target_id = str(kwargs.get("target_id") or "chat-turn").replace(":", "-")
     return {
@@ -188,6 +193,31 @@ def test_non_stream_chat_returns_error_status() -> None:
                 "error": "model unavailable",
                 "code": "provider_unavailable",
             }
+        finally:
+            runtime.query_runtime.astream = original_astream  # type: ignore[method-assign]
+
+
+def test_stream_chat_emits_error_when_runtime_ends_without_terminal_event() -> None:
+    with TestClient(app) as client:
+        runtime = app_runtime.require_ready()
+
+        original_astream = runtime.query_runtime.astream
+        runtime.query_runtime.astream = _fake_missing_terminal_astream  # type: ignore[method-assign]
+        try:
+            created = client.post("/api/sessions", json={"title": "Missing terminal"})
+            assert created.status_code == 200
+            session_id = created.json()["id"]
+
+            response = client.post(
+                "/api/chat",
+                json={"message": "hello missing terminal", "session_id": session_id, "stream": True},
+            )
+
+            assert response.status_code == 200
+            assert "event: input_commit_gate" in response.text
+            assert "event: task_intent_decision" in response.text
+            assert "event: error" in response.text
+            assert "missing_terminal_event" in response.text
         finally:
             runtime.query_runtime.astream = original_astream  # type: ignore[method-assign]
 

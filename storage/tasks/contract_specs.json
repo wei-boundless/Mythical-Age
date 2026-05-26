@@ -1,0 +1,3906 @@
+{
+  "contract_specs": [
+    {
+      "contract_id": "contract.writing.modular_novel.baseline_commit",
+      "title_zh": "基准库初始化输出契约",
+      "title_en": "baseline_commit",
+      "contract_kind": "final_output",
+      "description": "基准库初始化输出契约。用于模块化长篇写作任务图，能力来自通用任务图契约、工具和运行策略。",
+      "input_fields": [
+        {
+          "field_id": "上游交接包",
+          "title_zh": "上游交接包",
+          "field_type": "string",
+          "required": true,
+          "description": "上游交接包",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "output_fields": [
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": true,
+          "description": "artifact_refs",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "baseline_memory_seed_ref",
+          "title_zh": "baseline_memory_seed_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "baseline_memory_seed_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [
+        {
+          "requirement_id": "artifact.memory_baseline_baseline_commit_round__round_index_03d__md",
+          "title_zh": "memory/baseline/baseline_commit_round_{round_index:03d}.md",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "",
+          "naming_rule": "memory/baseline/baseline_commit_round_{round_index:03d}.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "contract_writing_modular_novel_baseline_commit.artifact_refs",
+          "title_zh": "必须产出可追踪产物引用",
+          "rule_type": "artifact_exists",
+          "severity": "error",
+          "target_field": "artifact_refs",
+          "criteria": "长文本和节点结果必须以 artifact refs 交接，不能只返回摘要。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [],
+      "context_visibility_policy": {
+        "main_session_history": "summary",
+        "upstream_outputs": "summary",
+        "sibling_nodes": "status_only",
+        "artifact_access": "refs_only",
+        "notes": ""
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_packet",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": false,
+        "retry_limit": 0,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [],
+      "allowed_runtime_lanes": [],
+      "version": "1.0.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel"
+      }
+    },
+    {
+      "contract_id": "contract.writing.modular_novel.chapter_batch_commit",
+      "title_zh": "章节批次提交输出契约",
+      "title_en": "chapter_batch_commit",
+      "contract_kind": "final_output",
+      "description": "章节批次提交输出契约。用于模块化长篇写作任务图，能力来自通用任务图契约、工具和运行策略。",
+      "input_fields": [
+        {
+          "field_id": "上游交接包",
+          "title_zh": "上游交接包",
+          "field_type": "string",
+          "required": true,
+          "description": "上游交接包",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "output_fields": [
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": true,
+          "description": "artifact_refs",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "memory_commit_chapter_ref",
+          "title_zh": "memory_commit_chapter_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "memory_commit_chapter_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [
+        {
+          "requirement_id": "artifact.volume__volume_index_padded__chapters_chapter__batch_chapter_range__chapter_commit_round__round_index_03d__md",
+          "title_zh": "volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/chapter_commit_round_{round_index:03d}.md",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "",
+          "naming_rule": "volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/chapter_commit_round_{round_index:03d}.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "contract_writing_modular_novel_chapter_batch_commit.artifact_refs",
+          "title_zh": "必须产出可追踪产物引用",
+          "rule_type": "artifact_exists",
+          "severity": "error",
+          "target_field": "artifact_refs",
+          "criteria": "长文本和节点结果必须以 artifact refs 交接，不能只返回摘要。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [],
+      "context_visibility_policy": {
+        "main_session_history": "summary",
+        "upstream_outputs": "summary",
+        "sibling_nodes": "status_only",
+        "artifact_access": "refs_only",
+        "notes": ""
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_packet",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": false,
+        "retry_limit": 0,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [],
+      "allowed_runtime_lanes": [],
+      "version": "1.0.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel"
+      }
+    },
+    {
+      "contract_id": "contract.writing.modular_novel.chapter_batch_request",
+      "title_zh": "章节批次请求契约",
+      "title_en": "chapter_batch_request",
+      "contract_kind": "global_task",
+      "description": "章节批次请求契约。用于模块化长篇写作任务图，不承载任何写作专用后端权限。",
+      "input_fields": [
+        {
+          "field_id": "project_id",
+          "title_zh": "project_id",
+          "field_type": "string",
+          "required": false,
+          "description": "project_id",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "batch_start_index",
+          "title_zh": "batch_start_index",
+          "field_type": "string",
+          "required": false,
+          "description": "batch_start_index",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "batch_end_index",
+          "title_zh": "batch_end_index",
+          "field_type": "string",
+          "required": false,
+          "description": "batch_end_index",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "unit_batch_id",
+          "title_zh": "unit_batch_id",
+          "field_type": "string",
+          "required": false,
+          "description": "unit_batch_id",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "baseline_memory_ref",
+          "title_zh": "baseline_memory_ref",
+          "field_type": "result_ref",
+          "required": false,
+          "description": "baseline_memory_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "output_fields": [
+        {
+          "field_id": "batch_plan_ref",
+          "title_zh": "batch_plan_ref",
+          "field_type": "result_ref",
+          "required": true,
+          "description": "batch_plan_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "runtime_context",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "batch_boundary",
+          "title_zh": "batch_boundary",
+          "field_type": "string",
+          "required": false,
+          "description": "batch_boundary",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "runtime_context",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "required_memory_refs",
+          "title_zh": "required_memory_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "required_memory_refs",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "runtime_context",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [],
+      "acceptance_rules": [
+        {
+          "rule_id": "contract_writing_modular_novel_chapter_batch_request.structured_refs",
+          "title_zh": "必须使用结构化引用交接",
+          "rule_type": "required_field_present",
+          "severity": "error",
+          "target_field": "artifact_refs",
+          "criteria": "长文本、章节正文、设计文档与最终稿必须以 artifact/result ref 交接，不把全文塞入普通上下文。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [],
+      "context_visibility_policy": {
+        "main_session_history": "summary",
+        "upstream_outputs": "summary",
+        "sibling_nodes": "status_only",
+        "artifact_access": "refs_only",
+        "notes": ""
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_packet",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": false,
+        "retry_limit": 0,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [],
+      "allowed_runtime_lanes": [],
+      "version": "1.0.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel"
+      }
+    },
+    {
+      "contract_id": "contract.writing.modular_novel.chapter_cycle_commit",
+      "title_zh": "章节循环图提交契约",
+      "title_en": "chapter_cycle_commit",
+      "contract_kind": "final_output",
+      "description": "章节循环图提交契约。用于模块化长篇写作任务图，能力来自通用任务图契约、工具和运行策略。",
+      "input_fields": [
+        {
+          "field_id": "baseline_memory_ref",
+          "title_zh": "baseline_memory_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "baseline_memory_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "target_volumes",
+          "title_zh": "target_volumes",
+          "field_type": "string",
+          "required": true,
+          "description": "target_volumes",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "chapters_per_volume",
+          "title_zh": "chapters_per_volume",
+          "field_type": "string",
+          "required": true,
+          "description": "chapters_per_volume",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "output_fields": [
+        {
+          "field_id": "volume_commit_refs",
+          "title_zh": "volume_commit_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "volume_commit_refs",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "chapter_commit_refs",
+          "title_zh": "chapter_commit_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "chapter_commit_refs",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "dynamic_memory_ref",
+          "title_zh": "dynamic_memory_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "dynamic_memory_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": true,
+          "description": "artifact_refs",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [],
+      "acceptance_rules": [
+        {
+          "rule_id": "contract_writing_modular_novel_chapter_cycle_commit.artifact_refs",
+          "title_zh": "必须产出可追踪产物引用",
+          "rule_type": "artifact_exists",
+          "severity": "error",
+          "target_field": "artifact_refs",
+          "criteria": "长文本和节点结果必须以 artifact refs 交接，不能只返回摘要。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [],
+      "context_visibility_policy": {
+        "main_session_history": "summary",
+        "upstream_outputs": "summary",
+        "sibling_nodes": "status_only",
+        "artifact_access": "refs_only",
+        "notes": ""
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_packet",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": false,
+        "retry_limit": 0,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [],
+      "allowed_runtime_lanes": [],
+      "version": "1.0.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel"
+      }
+    },
+    {
+      "contract_id": "contract.writing.modular_novel.chapter_draft",
+      "title_zh": "章节正文草稿输出契约",
+      "title_en": "chapter_draft",
+      "contract_kind": "node_execution",
+      "description": "章节正文草稿输出契约。用于模块化长篇写作任务图，能力来自通用任务图契约、工具和运行策略。",
+      "input_fields": [
+        {
+          "field_id": "上游交接包",
+          "title_zh": "上游交接包",
+          "field_type": "string",
+          "required": true,
+          "description": "上游交接包",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "output_fields": [
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": true,
+          "description": "artifact_refs",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "chapter_draft_ref",
+          "title_zh": "chapter_draft_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "chapter_draft_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [
+        {
+          "requirement_id": "artifact.volume__volume_index_padded__chapters_chapter__batch_chapter_range__draft_round__round_index_03d__md",
+          "title_zh": "volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/draft_round_{round_index:03d}.md",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "",
+          "naming_rule": "volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/draft_round_{round_index:03d}.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "contract_writing_modular_novel_chapter_draft.artifact_refs",
+          "title_zh": "必须产出可追踪产物引用",
+          "rule_type": "artifact_exists",
+          "severity": "error",
+          "target_field": "artifact_refs",
+          "criteria": "长文本和节点结果必须以 artifact refs 交接，不能只返回摘要。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [],
+      "context_visibility_policy": {
+        "main_session_history": "summary",
+        "upstream_outputs": "summary",
+        "sibling_nodes": "status_only",
+        "artifact_access": "refs_only",
+        "notes": ""
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_packet",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": false,
+        "retry_limit": 0,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [],
+      "allowed_runtime_lanes": [],
+      "version": "1.0.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel"
+      }
+    },
+    {
+      "contract_id": "contract.writing.modular_novel.chapter_outline",
+      "title_zh": "章节批次细纲输出契约",
+      "title_en": "chapter_outline",
+      "contract_kind": "node_execution",
+      "description": "章节批次细纲输出契约。用于模块化长篇写作任务图，能力来自通用任务图契约、工具和运行策略。",
+      "input_fields": [
+        {
+          "field_id": "上游交接包",
+          "title_zh": "上游交接包",
+          "field_type": "string",
+          "required": true,
+          "description": "上游交接包",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "output_fields": [
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": true,
+          "description": "artifact_refs",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "chapter_outline_ref",
+          "title_zh": "chapter_outline_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "chapter_outline_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [
+        {
+          "requirement_id": "artifact.volume__volume_index_padded__chapters_chapter__batch_chapter_range__outline_round__round_index_03d__md",
+          "title_zh": "volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/outline_round_{round_index:03d}.md",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "",
+          "naming_rule": "volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/outline_round_{round_index:03d}.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "contract_writing_modular_novel_chapter_outline.artifact_refs",
+          "title_zh": "必须产出可追踪产物引用",
+          "rule_type": "artifact_exists",
+          "severity": "error",
+          "target_field": "artifact_refs",
+          "criteria": "长文本和节点结果必须以 artifact refs 交接，不能只返回摘要。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [],
+      "context_visibility_policy": {
+        "main_session_history": "summary",
+        "upstream_outputs": "summary",
+        "sibling_nodes": "status_only",
+        "artifact_access": "refs_only",
+        "notes": ""
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_packet",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": false,
+        "retry_limit": 0,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [],
+      "allowed_runtime_lanes": [],
+      "version": "1.0.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel"
+      }
+    },
+    {
+      "contract_id": "contract.writing.modular_novel.chapter_review",
+      "title_zh": "章节批次审核输出契约",
+      "title_en": "chapter_review",
+      "contract_kind": "node_execution",
+      "description": "章节批次审核输出契约。用于模块化长篇写作任务图，能力来自通用任务图契约、工具和运行策略。",
+      "input_fields": [
+        {
+          "field_id": "上游交接包",
+          "title_zh": "上游交接包",
+          "field_type": "string",
+          "required": true,
+          "description": "上游交接包",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "output_fields": [
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": true,
+          "description": "artifact_refs",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "chapter_review_ref",
+          "title_zh": "chapter_review_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "chapter_review_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [
+        {
+          "requirement_id": "artifact.volume__volume_index_padded__chapters_chapter__batch_chapter_range__review_round__round_index_03d__md",
+          "title_zh": "volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/review_round_{round_index:03d}.md",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "",
+          "naming_rule": "volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/review_round_{round_index:03d}.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "contract_writing_modular_novel_chapter_review.artifact_refs",
+          "title_zh": "必须产出可追踪产物引用",
+          "rule_type": "artifact_exists",
+          "severity": "error",
+          "target_field": "artifact_refs",
+          "criteria": "长文本和节点结果必须以 artifact refs 交接，不能只返回摘要。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [],
+      "context_visibility_policy": {
+        "main_session_history": "summary",
+        "upstream_outputs": "summary",
+        "sibling_nodes": "status_only",
+        "artifact_access": "refs_only",
+        "notes": ""
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_packet",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": false,
+        "retry_limit": 0,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [],
+      "allowed_runtime_lanes": [],
+      "version": "1.0.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel"
+      }
+    },
+    {
+      "contract_id": "contract.writing.modular_novel.character_commit",
+      "title_zh": "人设与关系提交输出契约",
+      "title_en": "character_commit",
+      "contract_kind": "final_output",
+      "description": "人设与关系提交输出契约。用于模块化长篇写作任务图，能力来自通用任务图契约、工具和运行策略。",
+      "input_fields": [
+        {
+          "field_id": "上游交接包",
+          "title_zh": "上游交接包",
+          "field_type": "string",
+          "required": true,
+          "description": "上游交接包",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "output_fields": [
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": true,
+          "description": "artifact_refs",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "memory_commit_character_ref",
+          "title_zh": "memory_commit_character_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "memory_commit_character_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [
+        {
+          "requirement_id": "artifact.memory_character_character_commit_round__round_index_03d__md",
+          "title_zh": "memory/character/character_commit_round_{round_index:03d}.md",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "",
+          "naming_rule": "memory/character/character_commit_round_{round_index:03d}.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "contract_writing_modular_novel_character_commit.artifact_refs",
+          "title_zh": "必须产出可追踪产物引用",
+          "rule_type": "artifact_exists",
+          "severity": "error",
+          "target_field": "artifact_refs",
+          "criteria": "长文本和节点结果必须以 artifact refs 交接，不能只返回摘要。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [],
+      "context_visibility_policy": {
+        "main_session_history": "summary",
+        "upstream_outputs": "summary",
+        "sibling_nodes": "status_only",
+        "artifact_access": "refs_only",
+        "notes": ""
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_packet",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": false,
+        "retry_limit": 0,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [],
+      "allowed_runtime_lanes": [],
+      "version": "1.0.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel"
+      }
+    },
+    {
+      "contract_id": "contract.writing.modular_novel.character_design",
+      "title_zh": "人设与关系设计输出契约",
+      "title_en": "character_design",
+      "contract_kind": "node_execution",
+      "description": "人设与关系设计输出契约。用于模块化长篇写作任务图，能力来自通用任务图契约、工具和运行策略。",
+      "input_fields": [
+        {
+          "field_id": "上游交接包",
+          "title_zh": "上游交接包",
+          "field_type": "string",
+          "required": true,
+          "description": "上游交接包",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "output_fields": [
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": true,
+          "description": "artifact_refs",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "character_design_ref",
+          "title_zh": "character_design_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "character_design_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [
+        {
+          "requirement_id": "artifact.design_character_design_round__round_index_03d__md",
+          "title_zh": "design/character_design_round_{round_index:03d}.md",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "",
+          "naming_rule": "design/character_design_round_{round_index:03d}.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "contract_writing_modular_novel_character_design.artifact_refs",
+          "title_zh": "必须产出可追踪产物引用",
+          "rule_type": "artifact_exists",
+          "severity": "error",
+          "target_field": "artifact_refs",
+          "criteria": "长文本和节点结果必须以 artifact refs 交接，不能只返回摘要。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [],
+      "context_visibility_policy": {
+        "main_session_history": "summary",
+        "upstream_outputs": "summary",
+        "sibling_nodes": "status_only",
+        "artifact_access": "refs_only",
+        "notes": ""
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_packet",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": false,
+        "retry_limit": 0,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [],
+      "allowed_runtime_lanes": [],
+      "version": "1.0.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel"
+      }
+    },
+    {
+      "contract_id": "contract.writing.modular_novel.character_review",
+      "title_zh": "人设与关系审核输出契约",
+      "title_en": "character_review",
+      "contract_kind": "node_execution",
+      "description": "人设与关系审核输出契约。用于模块化长篇写作任务图，能力来自通用任务图契约、工具和运行策略。",
+      "input_fields": [
+        {
+          "field_id": "上游交接包",
+          "title_zh": "上游交接包",
+          "field_type": "string",
+          "required": true,
+          "description": "上游交接包",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "output_fields": [
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": true,
+          "description": "artifact_refs",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "character_review_ref",
+          "title_zh": "character_review_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "character_review_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [
+        {
+          "requirement_id": "artifact.design_character_review_round__round_index_03d__md",
+          "title_zh": "design/character_review_round_{round_index:03d}.md",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "",
+          "naming_rule": "design/character_review_round_{round_index:03d}.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "contract_writing_modular_novel_character_review.artifact_refs",
+          "title_zh": "必须产出可追踪产物引用",
+          "rule_type": "artifact_exists",
+          "severity": "error",
+          "target_field": "artifact_refs",
+          "criteria": "长文本和节点结果必须以 artifact refs 交接，不能只返回摘要。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [],
+      "context_visibility_policy": {
+        "main_session_history": "summary",
+        "upstream_outputs": "summary",
+        "sibling_nodes": "status_only",
+        "artifact_access": "refs_only",
+        "notes": ""
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_packet",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": false,
+        "retry_limit": 0,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [],
+      "allowed_runtime_lanes": [],
+      "version": "1.0.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel"
+      }
+    },
+    {
+      "contract_id": "contract.writing.modular_novel.design_alignment",
+      "title_zh": "创作架构对齐输出契约",
+      "title_en": "design_alignment",
+      "contract_kind": "node_execution",
+      "description": "创作架构对齐输出契约。用于模块化长篇写作任务图，能力来自通用任务图契约、工具和运行策略。",
+      "input_fields": [
+        {
+          "field_id": "上游交接包",
+          "title_zh": "上游交接包",
+          "field_type": "string",
+          "required": true,
+          "description": "上游交接包",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "output_fields": [
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": true,
+          "description": "artifact_refs",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "design_sync_ref",
+          "title_zh": "design_sync_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "design_sync_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [
+        {
+          "requirement_id": "artifact.design_design_alignment_round__round_index_03d__md",
+          "title_zh": "design/design_alignment_round_{round_index:03d}.md",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "",
+          "naming_rule": "design/design_alignment_round_{round_index:03d}.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "contract_writing_modular_novel_design_alignment.artifact_refs",
+          "title_zh": "必须产出可追踪产物引用",
+          "rule_type": "artifact_exists",
+          "severity": "error",
+          "target_field": "artifact_refs",
+          "criteria": "长文本和节点结果必须以 artifact refs 交接，不能只返回摘要。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [],
+      "context_visibility_policy": {
+        "main_session_history": "summary",
+        "upstream_outputs": "summary",
+        "sibling_nodes": "status_only",
+        "artifact_access": "refs_only",
+        "notes": ""
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_packet",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": false,
+        "retry_limit": 0,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [],
+      "allowed_runtime_lanes": [],
+      "version": "1.0.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel"
+      }
+    },
+    {
+      "contract_id": "contract.writing.modular_novel.design_commit",
+      "title_zh": "设计初始化提交契约",
+      "title_en": "design_commit",
+      "contract_kind": "final_output",
+      "description": "设计初始化提交契约。用于模块化长篇写作任务图，能力来自通用任务图契约、工具和运行策略。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "project_brief_ref",
+          "title_zh": "project_brief_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "project_brief_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "world_commit_ref",
+          "title_zh": "world_commit_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "world_commit_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "character_design_ref",
+          "title_zh": "character_design_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "character_design_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "plot_design_ref",
+          "title_zh": "plot_design_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "plot_design_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "outline_commit_ref",
+          "title_zh": "outline_commit_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "outline_commit_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "baseline_memory_ref",
+          "title_zh": "baseline_memory_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "baseline_memory_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": true,
+          "description": "artifact_refs",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [],
+      "acceptance_rules": [
+        {
+          "rule_id": "contract_writing_modular_novel_design_commit.artifact_refs",
+          "title_zh": "必须产出可追踪产物引用",
+          "rule_type": "artifact_exists",
+          "severity": "error",
+          "target_field": "artifact_refs",
+          "criteria": "长文本和节点结果必须以 artifact refs 交接，不能只返回摘要。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [],
+      "context_visibility_policy": {
+        "main_session_history": "summary",
+        "upstream_outputs": "summary",
+        "sibling_nodes": "status_only",
+        "artifact_access": "refs_only",
+        "notes": ""
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_packet",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": false,
+        "retry_limit": 0,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [],
+      "allowed_runtime_lanes": [],
+      "version": "1.0.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel"
+      }
+    },
+    {
+      "contract_id": "contract.writing.modular_novel.extension_commit",
+      "title_zh": "动态记忆提交输出契约",
+      "title_en": "extension_commit",
+      "contract_kind": "final_output",
+      "description": "动态记忆提交输出契约。用于模块化长篇写作任务图，能力来自通用任务图契约、工具和运行策略。",
+      "input_fields": [
+        {
+          "field_id": "上游交接包",
+          "title_zh": "上游交接包",
+          "field_type": "string",
+          "required": true,
+          "description": "上游交接包",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "output_fields": [
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": true,
+          "description": "artifact_refs",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "extension_commit_ref",
+          "title_zh": "extension_commit_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "extension_commit_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [
+        {
+          "requirement_id": "artifact.volume__volume_index_padded__extension_commit_round__round_index_03d__md",
+          "title_zh": "volume_{volume_index_padded}/extension_commit_round_{round_index:03d}.md",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "",
+          "naming_rule": "volume_{volume_index_padded}/extension_commit_round_{round_index:03d}.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "contract_writing_modular_novel_extension_commit.artifact_refs",
+          "title_zh": "必须产出可追踪产物引用",
+          "rule_type": "artifact_exists",
+          "severity": "error",
+          "target_field": "artifact_refs",
+          "criteria": "长文本和节点结果必须以 artifact refs 交接，不能只返回摘要。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [],
+      "context_visibility_policy": {
+        "main_session_history": "summary",
+        "upstream_outputs": "summary",
+        "sibling_nodes": "status_only",
+        "artifact_access": "refs_only",
+        "notes": ""
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_packet",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": false,
+        "retry_limit": 0,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [],
+      "allowed_runtime_lanes": [],
+      "version": "1.0.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel"
+      }
+    },
+    {
+      "contract_id": "contract.writing.modular_novel.extension_proposal",
+      "title_zh": "设定与大纲补充提案输出契约",
+      "title_en": "extension_proposal",
+      "contract_kind": "node_execution",
+      "description": "设定与大纲补充提案输出契约。用于模块化长篇写作任务图，能力来自通用任务图契约、工具和运行策略。",
+      "input_fields": [
+        {
+          "field_id": "上游交接包",
+          "title_zh": "上游交接包",
+          "field_type": "string",
+          "required": true,
+          "description": "上游交接包",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "output_fields": [
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": true,
+          "description": "artifact_refs",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "world_outline_extension_proposal_ref",
+          "title_zh": "world_outline_extension_proposal_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "world_outline_extension_proposal_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [
+        {
+          "requirement_id": "artifact.volume__volume_index_padded__extension_proposal_round__round_index_03d__md",
+          "title_zh": "volume_{volume_index_padded}/extension_proposal_round_{round_index:03d}.md",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "",
+          "naming_rule": "volume_{volume_index_padded}/extension_proposal_round_{round_index:03d}.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "contract_writing_modular_novel_extension_proposal.artifact_refs",
+          "title_zh": "必须产出可追踪产物引用",
+          "rule_type": "artifact_exists",
+          "severity": "error",
+          "target_field": "artifact_refs",
+          "criteria": "长文本和节点结果必须以 artifact refs 交接，不能只返回摘要。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [],
+      "context_visibility_policy": {
+        "main_session_history": "summary",
+        "upstream_outputs": "summary",
+        "sibling_nodes": "status_only",
+        "artifact_access": "refs_only",
+        "notes": ""
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_packet",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": false,
+        "retry_limit": 0,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [],
+      "allowed_runtime_lanes": [],
+      "version": "1.0.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel"
+      }
+    },
+    {
+      "contract_id": "contract.writing.modular_novel.extension_review",
+      "title_zh": "补充提案审核输出契约",
+      "title_en": "extension_review",
+      "contract_kind": "node_execution",
+      "description": "补充提案审核输出契约。用于模块化长篇写作任务图，能力来自通用任务图契约、工具和运行策略。",
+      "input_fields": [
+        {
+          "field_id": "上游交接包",
+          "title_zh": "上游交接包",
+          "field_type": "string",
+          "required": true,
+          "description": "上游交接包",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "output_fields": [
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": true,
+          "description": "artifact_refs",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "extension_review_ref",
+          "title_zh": "extension_review_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "extension_review_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [
+        {
+          "requirement_id": "artifact.volume__volume_index_padded__extension_review_round__round_index_03d__md",
+          "title_zh": "volume_{volume_index_padded}/extension_review_round_{round_index:03d}.md",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "",
+          "naming_rule": "volume_{volume_index_padded}/extension_review_round_{round_index:03d}.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "contract_writing_modular_novel_extension_review.artifact_refs",
+          "title_zh": "必须产出可追踪产物引用",
+          "rule_type": "artifact_exists",
+          "severity": "error",
+          "target_field": "artifact_refs",
+          "criteria": "长文本和节点结果必须以 artifact refs 交接，不能只返回摘要。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [],
+      "context_visibility_policy": {
+        "main_session_history": "summary",
+        "upstream_outputs": "summary",
+        "sibling_nodes": "status_only",
+        "artifact_access": "refs_only",
+        "notes": ""
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_packet",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": false,
+        "retry_limit": 0,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [],
+      "allowed_runtime_lanes": [],
+      "version": "1.0.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel"
+      }
+    },
+    {
+      "contract_id": "contract.writing.modular_novel.final_delivery",
+      "title_zh": "最终交付契约",
+      "title_en": "final_delivery",
+      "contract_kind": "final_output",
+      "description": "最终交付契约。用于模块化长篇写作任务图，能力来自通用任务图契约、工具和运行策略。",
+      "input_fields": [
+        {
+          "field_id": "chapter_commit_refs",
+          "title_zh": "chapter_commit_refs",
+          "field_type": "array",
+          "required": true,
+          "description": "chapter_commit_refs",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "baseline_memory_ref",
+          "title_zh": "baseline_memory_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "baseline_memory_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "delivery_requirements",
+          "title_zh": "delivery_requirements",
+          "field_type": "string",
+          "required": true,
+          "description": "delivery_requirements",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "output_fields": [
+        {
+          "field_id": "final_manuscript_ref",
+          "title_zh": "final_manuscript_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "final_manuscript_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "final_review_ref",
+          "title_zh": "final_review_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "final_review_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "delivery_manifest_ref",
+          "title_zh": "delivery_manifest_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "delivery_manifest_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "memory_finalize_receipt_ref",
+          "title_zh": "memory_finalize_receipt_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "memory_finalize_receipt_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": true,
+          "description": "artifact_refs",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [],
+      "acceptance_rules": [
+        {
+          "rule_id": "contract_writing_modular_novel_final_delivery.artifact_refs",
+          "title_zh": "必须产出可追踪产物引用",
+          "rule_type": "artifact_exists",
+          "severity": "error",
+          "target_field": "artifact_refs",
+          "criteria": "长文本和节点结果必须以 artifact refs 交接，不能只返回摘要。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [],
+      "context_visibility_policy": {
+        "main_session_history": "summary",
+        "upstream_outputs": "summary",
+        "sibling_nodes": "status_only",
+        "artifact_access": "refs_only",
+        "notes": ""
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_packet",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": false,
+        "retry_limit": 0,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [],
+      "allowed_runtime_lanes": [],
+      "version": "1.0.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel"
+      }
+    },
+    {
+      "contract_id": "contract.writing.modular_novel.final_manuscript",
+      "title_zh": "全书汇编输出契约",
+      "title_en": "final_manuscript",
+      "contract_kind": "node_execution",
+      "description": "全书汇编输出契约。用于模块化长篇写作任务图，能力来自通用任务图契约、工具和运行策略。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": true,
+          "description": "artifact_refs",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "final_assemble_ref",
+          "title_zh": "final_assemble_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "final_assemble_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [
+        {
+          "requirement_id": "artifact.final_final_manuscript_md",
+          "title_zh": "final/final_manuscript.md",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "",
+          "naming_rule": "final/final_manuscript.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        },
+        {
+          "requirement_id": "artifact.final_delivery_manifest_md",
+          "title_zh": "final/delivery_manifest.md",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "",
+          "naming_rule": "final/delivery_manifest.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "contract_writing_modular_novel_final_manuscript.artifact_refs",
+          "title_zh": "必须产出可追踪产物引用",
+          "rule_type": "artifact_exists",
+          "severity": "error",
+          "target_field": "artifact_refs",
+          "criteria": "长文本和节点结果必须以 artifact refs 交接，不能只返回摘要。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [],
+      "context_visibility_policy": {
+        "main_session_history": "summary",
+        "upstream_outputs": "summary",
+        "sibling_nodes": "status_only",
+        "artifact_access": "refs_only",
+        "notes": ""
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_packet",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": false,
+        "retry_limit": 0,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [],
+      "allowed_runtime_lanes": [],
+      "version": "1.0.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel"
+      }
+    },
+    {
+      "contract_id": "contract.writing.modular_novel.final_memory_seal",
+      "title_zh": "最终记忆封存输出契约",
+      "title_en": "final_memory_seal",
+      "contract_kind": "final_output",
+      "description": "最终记忆封存输出契约。用于模块化长篇写作任务图，能力来自通用任务图契约、工具和运行策略。",
+      "input_fields": [
+        {
+          "field_id": "上游交接包",
+          "title_zh": "上游交接包",
+          "field_type": "string",
+          "required": true,
+          "description": "上游交接包",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "output_fields": [
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": true,
+          "description": "artifact_refs",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "memory_finalize_ref",
+          "title_zh": "memory_finalize_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "memory_finalize_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [
+        {
+          "requirement_id": "artifact.final_memory_finalize_round__round_index_03d__md",
+          "title_zh": "final/memory_finalize_round_{round_index:03d}.md",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "",
+          "naming_rule": "final/memory_finalize_round_{round_index:03d}.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "contract_writing_modular_novel_final_memory_seal.artifact_refs",
+          "title_zh": "必须产出可追踪产物引用",
+          "rule_type": "artifact_exists",
+          "severity": "error",
+          "target_field": "artifact_refs",
+          "criteria": "长文本和节点结果必须以 artifact refs 交接，不能只返回摘要。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [],
+      "context_visibility_policy": {
+        "main_session_history": "summary",
+        "upstream_outputs": "summary",
+        "sibling_nodes": "status_only",
+        "artifact_access": "refs_only",
+        "notes": ""
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_packet",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": false,
+        "retry_limit": 0,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [],
+      "allowed_runtime_lanes": [],
+      "version": "1.0.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel"
+      }
+    },
+    {
+      "contract_id": "contract.writing.modular_novel.final_review",
+      "title_zh": "最终审查输出契约",
+      "title_en": "final_review",
+      "contract_kind": "node_execution",
+      "description": "最终审查输出契约。用于模块化长篇写作任务图，能力来自通用任务图契约、工具和运行策略。",
+      "input_fields": [
+        {
+          "field_id": "上游交接包",
+          "title_zh": "上游交接包",
+          "field_type": "string",
+          "required": true,
+          "description": "上游交接包",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "output_fields": [
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": true,
+          "description": "artifact_refs",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "final_review_ref",
+          "title_zh": "final_review_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "final_review_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [
+        {
+          "requirement_id": "artifact.final_final_review_round__round_index_03d__md",
+          "title_zh": "final/final_review_round_{round_index:03d}.md",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "",
+          "naming_rule": "final/final_review_round_{round_index:03d}.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "contract_writing_modular_novel_final_review.artifact_refs",
+          "title_zh": "必须产出可追踪产物引用",
+          "rule_type": "artifact_exists",
+          "severity": "error",
+          "target_field": "artifact_refs",
+          "criteria": "长文本和节点结果必须以 artifact refs 交接，不能只返回摘要。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [],
+      "context_visibility_policy": {
+        "main_session_history": "summary",
+        "upstream_outputs": "summary",
+        "sibling_nodes": "status_only",
+        "artifact_access": "refs_only",
+        "notes": ""
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_packet",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": false,
+        "retry_limit": 0,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [],
+      "allowed_runtime_lanes": [],
+      "version": "1.0.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel"
+      }
+    },
+    {
+      "contract_id": "contract.writing.modular_novel.graph",
+      "title_zh": "模块化长篇写作图契约",
+      "title_en": "graph",
+      "contract_kind": "global_task",
+      "description": "模块化长篇写作图契约。用于模块化长篇写作任务图，能力来自通用任务图契约、工具和运行策略。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": true,
+          "description": "artifact_refs",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "run_summary",
+          "title_zh": "run_summary",
+          "field_type": "string",
+          "required": false,
+          "description": "run_summary",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [],
+      "acceptance_rules": [
+        {
+          "rule_id": "contract_writing_modular_novel_graph.artifact_refs",
+          "title_zh": "必须产出可追踪产物引用",
+          "rule_type": "artifact_exists",
+          "severity": "error",
+          "target_field": "artifact_refs",
+          "criteria": "长文本和节点结果必须以 artifact refs 交接，不能只返回摘要。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [],
+      "context_visibility_policy": {
+        "main_session_history": "summary",
+        "upstream_outputs": "summary",
+        "sibling_nodes": "status_only",
+        "artifact_access": "refs_only",
+        "notes": ""
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_packet",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": false,
+        "retry_limit": 0,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [],
+      "allowed_runtime_lanes": [],
+      "version": "1.0.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel"
+      }
+    },
+    {
+      "contract_id": "contract.writing.modular_novel.graph_module_handoff",
+      "title_zh": "图模块导入交接契约",
+      "title_en": "graph_module_handoff",
+      "contract_kind": "edge_handoff",
+      "description": "图模块导入交接契约。用于模块化长篇写作任务图，能力来自通用任务图契约、工具和运行策略。",
+      "input_fields": [
+        {
+          "field_id": "importing_graph_id",
+          "title_zh": "importing_graph_id",
+          "field_type": "string",
+          "required": true,
+          "description": "importing_graph_id",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "source_graph_module_id",
+          "title_zh": "source_graph_module_id",
+          "field_type": "string",
+          "required": true,
+          "description": "source_graph_module_id",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "upstream_commit_refs",
+          "title_zh": "upstream_commit_refs",
+          "field_type": "array",
+          "required": true,
+          "description": "upstream_commit_refs",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "output_fields": [
+        {
+          "field_id": "imported_graph_id",
+          "title_zh": "imported_graph_id",
+          "field_type": "string",
+          "required": false,
+          "description": "imported_graph_id",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "imported_run_ref",
+          "title_zh": "imported_run_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "imported_run_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "committed_output_refs",
+          "title_zh": "committed_output_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "committed_output_refs",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "handoff_summary",
+          "title_zh": "handoff_summary",
+          "field_type": "string",
+          "required": false,
+          "description": "handoff_summary",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [],
+      "acceptance_rules": [
+        {
+          "rule_id": "contract_writing_modular_novel_graph_module_handoff.artifact_refs",
+          "title_zh": "必须产出可追踪产物引用",
+          "rule_type": "artifact_exists",
+          "severity": "error",
+          "target_field": "artifact_refs",
+          "criteria": "长文本和节点结果必须以 artifact refs 交接，不能只返回摘要。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [],
+      "context_visibility_policy": {
+        "main_session_history": "summary",
+        "upstream_outputs": "summary",
+        "sibling_nodes": "status_only",
+        "artifact_access": "refs_only",
+        "notes": ""
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_packet",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": false,
+        "retry_limit": 0,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [],
+      "allowed_runtime_lanes": [],
+      "version": "1.0.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel"
+      }
+    },
+    {
+      "contract_id": "contract.writing.modular_novel.memory_packet",
+      "title_zh": "记忆库读写包契约",
+      "title_en": "memory_packet",
+      "contract_kind": "edge_handoff",
+      "description": "记忆库读写包契约。用于模块化长篇写作任务图，能力来自通用任务图契约、工具和运行策略。",
+      "input_fields": [
+        {
+          "field_id": "repository_node_id",
+          "title_zh": "repository_node_id",
+          "field_type": "string",
+          "required": true,
+          "description": "repository_node_id",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "collection",
+          "title_zh": "collection",
+          "field_type": "string",
+          "required": true,
+          "description": "collection",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "topics",
+          "title_zh": "topics",
+          "field_type": "string",
+          "required": true,
+          "description": "topics",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "operation",
+          "title_zh": "operation",
+          "field_type": "string",
+          "required": true,
+          "description": "operation",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "output_fields": [
+        {
+          "field_id": "memory_refs",
+          "title_zh": "memory_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "memory_refs",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "canonical_text_refs",
+          "title_zh": "canonical_text_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "canonical_text_refs",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": true,
+          "description": "artifact_refs",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "memory_receipt_ref",
+          "title_zh": "memory_receipt_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "memory_receipt_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [],
+      "acceptance_rules": [
+        {
+          "rule_id": "contract_writing_modular_novel_memory_packet.artifact_refs",
+          "title_zh": "必须产出可追踪产物引用",
+          "rule_type": "artifact_exists",
+          "severity": "error",
+          "target_field": "artifact_refs",
+          "criteria": "长文本和节点结果必须以 artifact refs 交接，不能只返回摘要。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [],
+      "context_visibility_policy": {
+        "main_session_history": "summary",
+        "upstream_outputs": "summary",
+        "sibling_nodes": "status_only",
+        "artifact_access": "refs_only",
+        "notes": ""
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_packet",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": false,
+        "retry_limit": 0,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [],
+      "allowed_runtime_lanes": [],
+      "version": "1.0.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel"
+      }
+    },
+    {
+      "contract_id": "contract.writing.modular_novel.outline_design",
+      "title_zh": "全书细纲设计输出契约",
+      "title_en": "outline_design",
+      "contract_kind": "node_execution",
+      "description": "全书细纲设计输出契约。用于模块化长篇写作任务图，能力来自通用任务图契约、工具和运行策略。",
+      "input_fields": [
+        {
+          "field_id": "上游交接包",
+          "title_zh": "上游交接包",
+          "field_type": "string",
+          "required": true,
+          "description": "上游交接包",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "output_fields": [
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": true,
+          "description": "artifact_refs",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "outline_design_ref",
+          "title_zh": "outline_design_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "outline_design_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [
+        {
+          "requirement_id": "artifact.outline_outline_design_round__round_index_03d__md",
+          "title_zh": "outline/outline_design_round_{round_index:03d}.md",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "",
+          "naming_rule": "outline/outline_design_round_{round_index:03d}.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "contract_writing_modular_novel_outline_design.artifact_refs",
+          "title_zh": "必须产出可追踪产物引用",
+          "rule_type": "artifact_exists",
+          "severity": "error",
+          "target_field": "artifact_refs",
+          "criteria": "长文本和节点结果必须以 artifact refs 交接，不能只返回摘要。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [],
+      "context_visibility_policy": {
+        "main_session_history": "summary",
+        "upstream_outputs": "summary",
+        "sibling_nodes": "status_only",
+        "artifact_access": "refs_only",
+        "notes": ""
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_packet",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": false,
+        "retry_limit": 0,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [],
+      "allowed_runtime_lanes": [],
+      "version": "1.0.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel"
+      }
+    },
+    {
+      "contract_id": "contract.writing.modular_novel.outline_review",
+      "title_zh": "细纲审核输出契约",
+      "title_en": "outline_review",
+      "contract_kind": "node_execution",
+      "description": "细纲审核输出契约。用于模块化长篇写作任务图，能力来自通用任务图契约、工具和运行策略。",
+      "input_fields": [
+        {
+          "field_id": "上游交接包",
+          "title_zh": "上游交接包",
+          "field_type": "string",
+          "required": true,
+          "description": "上游交接包",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "output_fields": [
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": true,
+          "description": "artifact_refs",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "outline_review_ref",
+          "title_zh": "outline_review_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "outline_review_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [
+        {
+          "requirement_id": "artifact.outline_outline_review_round__round_index_03d__md",
+          "title_zh": "outline/outline_review_round_{round_index:03d}.md",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "",
+          "naming_rule": "outline/outline_review_round_{round_index:03d}.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "contract_writing_modular_novel_outline_review.artifact_refs",
+          "title_zh": "必须产出可追踪产物引用",
+          "rule_type": "artifact_exists",
+          "severity": "error",
+          "target_field": "artifact_refs",
+          "criteria": "长文本和节点结果必须以 artifact refs 交接，不能只返回摘要。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [],
+      "context_visibility_policy": {
+        "main_session_history": "summary",
+        "upstream_outputs": "summary",
+        "sibling_nodes": "status_only",
+        "artifact_access": "refs_only",
+        "notes": ""
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_packet",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": false,
+        "retry_limit": 0,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [],
+      "allowed_runtime_lanes": [],
+      "version": "1.0.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel"
+      }
+    },
+    {
+      "contract_id": "contract.writing.modular_novel.plot_design",
+      "title_zh": "剧情与伏笔设计输出契约",
+      "title_en": "plot_design",
+      "contract_kind": "node_execution",
+      "description": "剧情与伏笔设计输出契约。用于模块化长篇写作任务图，能力来自通用任务图契约、工具和运行策略。",
+      "input_fields": [
+        {
+          "field_id": "上游交接包",
+          "title_zh": "上游交接包",
+          "field_type": "string",
+          "required": true,
+          "description": "上游交接包",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "output_fields": [
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": true,
+          "description": "artifact_refs",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "plot_design_ref",
+          "title_zh": "plot_design_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "plot_design_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [
+        {
+          "requirement_id": "artifact.design_plot_design_round__round_index_03d__md",
+          "title_zh": "design/plot_design_round_{round_index:03d}.md",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "",
+          "naming_rule": "design/plot_design_round_{round_index:03d}.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "contract_writing_modular_novel_plot_design.artifact_refs",
+          "title_zh": "必须产出可追踪产物引用",
+          "rule_type": "artifact_exists",
+          "severity": "error",
+          "target_field": "artifact_refs",
+          "criteria": "长文本和节点结果必须以 artifact refs 交接，不能只返回摘要。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [],
+      "context_visibility_policy": {
+        "main_session_history": "summary",
+        "upstream_outputs": "summary",
+        "sibling_nodes": "status_only",
+        "artifact_access": "refs_only",
+        "notes": ""
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_packet",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": false,
+        "retry_limit": 0,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [],
+      "allowed_runtime_lanes": [],
+      "version": "1.0.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel"
+      }
+    },
+    {
+      "contract_id": "contract.writing.modular_novel.progress_route",
+      "title_zh": "章节进度路由输出契约",
+      "title_en": "progress_route",
+      "contract_kind": "node_execution",
+      "description": "章节进度路由输出契约。用于模块化长篇写作任务图，能力来自通用任务图契约、工具和运行策略。",
+      "input_fields": [
+        {
+          "field_id": "上游交接包",
+          "title_zh": "上游交接包",
+          "field_type": "string",
+          "required": true,
+          "description": "上游交接包",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "output_fields": [
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": true,
+          "description": "artifact_refs",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "chapter_progress_router_ref",
+          "title_zh": "chapter_progress_router_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "chapter_progress_router_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [
+        {
+          "requirement_id": "artifact.volume__volume_index_padded__chapters_chapter__batch_chapter_range__progress_route_round__round_index_03d__md",
+          "title_zh": "volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/progress_route_round_{round_index:03d}.md",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "",
+          "naming_rule": "volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/progress_route_round_{round_index:03d}.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "contract_writing_modular_novel_progress_route.artifact_refs",
+          "title_zh": "必须产出可追踪产物引用",
+          "rule_type": "artifact_exists",
+          "severity": "error",
+          "target_field": "artifact_refs",
+          "criteria": "长文本和节点结果必须以 artifact refs 交接，不能只返回摘要。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [],
+      "context_visibility_policy": {
+        "main_session_history": "summary",
+        "upstream_outputs": "summary",
+        "sibling_nodes": "status_only",
+        "artifact_access": "refs_only",
+        "notes": ""
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_packet",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": false,
+        "retry_limit": 0,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [],
+      "allowed_runtime_lanes": [],
+      "version": "1.0.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel"
+      }
+    },
+    {
+      "contract_id": "contract.writing.modular_novel.project_brief",
+      "title_zh": "项目启动包输出契约",
+      "title_en": "project_brief",
+      "contract_kind": "node_execution",
+      "description": "项目启动包输出契约。用于模块化长篇写作任务图，能力来自通用任务图契约、工具和运行策略。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": true,
+          "description": "artifact_refs",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "project_brief_ref",
+          "title_zh": "project_brief_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "project_brief_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [
+        {
+          "requirement_id": "artifact.project_brief_md",
+          "title_zh": "project_brief.md",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "",
+          "naming_rule": "project_brief.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "contract_writing_modular_novel_project_brief.artifact_refs",
+          "title_zh": "必须产出可追踪产物引用",
+          "rule_type": "artifact_exists",
+          "severity": "error",
+          "target_field": "artifact_refs",
+          "criteria": "长文本和节点结果必须以 artifact refs 交接，不能只返回摘要。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [],
+      "context_visibility_policy": {
+        "main_session_history": "summary",
+        "upstream_outputs": "summary",
+        "sibling_nodes": "status_only",
+        "artifact_access": "refs_only",
+        "notes": ""
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_packet",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": false,
+        "retry_limit": 0,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [],
+      "allowed_runtime_lanes": [],
+      "version": "1.0.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel"
+      }
+    },
+    {
+      "contract_id": "contract.writing.modular_novel.volume_commit",
+      "title_zh": "卷级提交输出契约",
+      "title_en": "volume_commit",
+      "contract_kind": "final_output",
+      "description": "卷级提交输出契约。用于模块化长篇写作任务图，能力来自通用任务图契约、工具和运行策略。",
+      "input_fields": [
+        {
+          "field_id": "上游交接包",
+          "title_zh": "上游交接包",
+          "field_type": "string",
+          "required": true,
+          "description": "上游交接包",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "output_fields": [
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": true,
+          "description": "artifact_refs",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "volume_commit_ref",
+          "title_zh": "volume_commit_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "volume_commit_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [
+        {
+          "requirement_id": "artifact.volume__volume_index_padded__volume_commit_round__round_index_03d__md",
+          "title_zh": "volume_{volume_index_padded}/volume_commit_round_{round_index:03d}.md",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "",
+          "naming_rule": "volume_{volume_index_padded}/volume_commit_round_{round_index:03d}.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "contract_writing_modular_novel_volume_commit.artifact_refs",
+          "title_zh": "必须产出可追踪产物引用",
+          "rule_type": "artifact_exists",
+          "severity": "error",
+          "target_field": "artifact_refs",
+          "criteria": "长文本和节点结果必须以 artifact refs 交接，不能只返回摘要。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [],
+      "context_visibility_policy": {
+        "main_session_history": "summary",
+        "upstream_outputs": "summary",
+        "sibling_nodes": "status_only",
+        "artifact_access": "refs_only",
+        "notes": ""
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_packet",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": false,
+        "retry_limit": 0,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [],
+      "allowed_runtime_lanes": [],
+      "version": "1.0.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel"
+      }
+    },
+    {
+      "contract_id": "contract.writing.modular_novel.volume_plan",
+      "title_zh": "分卷计划输出契约",
+      "title_en": "volume_plan",
+      "contract_kind": "node_execution",
+      "description": "分卷计划输出契约。用于模块化长篇写作任务图，能力来自通用任务图契约、工具和运行策略。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": true,
+          "description": "artifact_refs",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "volume_plan_ref",
+          "title_zh": "volume_plan_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "volume_plan_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [
+        {
+          "requirement_id": "artifact.volume__volume_index_padded__volume_plan_round__round_index_03d__md",
+          "title_zh": "volume_{volume_index_padded}/volume_plan_round_{round_index:03d}.md",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "",
+          "naming_rule": "volume_{volume_index_padded}/volume_plan_round_{round_index:03d}.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "contract_writing_modular_novel_volume_plan.artifact_refs",
+          "title_zh": "必须产出可追踪产物引用",
+          "rule_type": "artifact_exists",
+          "severity": "error",
+          "target_field": "artifact_refs",
+          "criteria": "长文本和节点结果必须以 artifact refs 交接，不能只返回摘要。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [],
+      "context_visibility_policy": {
+        "main_session_history": "summary",
+        "upstream_outputs": "summary",
+        "sibling_nodes": "status_only",
+        "artifact_access": "refs_only",
+        "notes": ""
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_packet",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": false,
+        "retry_limit": 0,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [],
+      "allowed_runtime_lanes": [],
+      "version": "1.0.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel"
+      }
+    },
+    {
+      "contract_id": "contract.writing.modular_novel.volume_postmortem",
+      "title_zh": "卷后复盘输出契约",
+      "title_en": "volume_postmortem",
+      "contract_kind": "node_execution",
+      "description": "卷后复盘输出契约。用于模块化长篇写作任务图，能力来自通用任务图契约、工具和运行策略。",
+      "input_fields": [
+        {
+          "field_id": "上游交接包",
+          "title_zh": "上游交接包",
+          "field_type": "string",
+          "required": true,
+          "description": "上游交接包",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "output_fields": [
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": true,
+          "description": "artifact_refs",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "volume_postmortem_ref",
+          "title_zh": "volume_postmortem_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "volume_postmortem_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [
+        {
+          "requirement_id": "artifact.volume__volume_index_padded__volume_postmortem_round__round_index_03d__md",
+          "title_zh": "volume_{volume_index_padded}/volume_postmortem_round_{round_index:03d}.md",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "",
+          "naming_rule": "volume_{volume_index_padded}/volume_postmortem_round_{round_index:03d}.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "contract_writing_modular_novel_volume_postmortem.artifact_refs",
+          "title_zh": "必须产出可追踪产物引用",
+          "rule_type": "artifact_exists",
+          "severity": "error",
+          "target_field": "artifact_refs",
+          "criteria": "长文本和节点结果必须以 artifact refs 交接，不能只返回摘要。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [],
+      "context_visibility_policy": {
+        "main_session_history": "summary",
+        "upstream_outputs": "summary",
+        "sibling_nodes": "status_only",
+        "artifact_access": "refs_only",
+        "notes": ""
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_packet",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": false,
+        "retry_limit": 0,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [],
+      "allowed_runtime_lanes": [],
+      "version": "1.0.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel"
+      }
+    },
+    {
+      "contract_id": "contract.writing.modular_novel.volume_review",
+      "title_zh": "卷级审核输出契约",
+      "title_en": "volume_review",
+      "contract_kind": "node_execution",
+      "description": "卷级审核输出契约。用于模块化长篇写作任务图，能力来自通用任务图契约、工具和运行策略。",
+      "input_fields": [
+        {
+          "field_id": "上游交接包",
+          "title_zh": "上游交接包",
+          "field_type": "string",
+          "required": true,
+          "description": "上游交接包",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "output_fields": [
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": true,
+          "description": "artifact_refs",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "volume_review_ref",
+          "title_zh": "volume_review_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "volume_review_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [
+        {
+          "requirement_id": "artifact.volume__volume_index_padded__volume_review_round__round_index_03d__md",
+          "title_zh": "volume_{volume_index_padded}/volume_review_round_{round_index:03d}.md",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "",
+          "naming_rule": "volume_{volume_index_padded}/volume_review_round_{round_index:03d}.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "contract_writing_modular_novel_volume_review.artifact_refs",
+          "title_zh": "必须产出可追踪产物引用",
+          "rule_type": "artifact_exists",
+          "severity": "error",
+          "target_field": "artifact_refs",
+          "criteria": "长文本和节点结果必须以 artifact refs 交接，不能只返回摘要。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [],
+      "context_visibility_policy": {
+        "main_session_history": "summary",
+        "upstream_outputs": "summary",
+        "sibling_nodes": "status_only",
+        "artifact_access": "refs_only",
+        "notes": ""
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_packet",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": false,
+        "retry_limit": 0,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [],
+      "allowed_runtime_lanes": [],
+      "version": "1.0.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel"
+      }
+    },
+    {
+      "contract_id": "contract.writing.modular_novel.volume_route",
+      "title_zh": "下一卷路由输出契约",
+      "title_en": "volume_route",
+      "contract_kind": "node_execution",
+      "description": "下一卷路由输出契约。用于模块化长篇写作任务图，能力来自通用任务图契约、工具和运行策略。",
+      "input_fields": [
+        {
+          "field_id": "上游交接包",
+          "title_zh": "上游交接包",
+          "field_type": "string",
+          "required": true,
+          "description": "上游交接包",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "output_fields": [
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": true,
+          "description": "artifact_refs",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "next_volume_router_ref",
+          "title_zh": "next_volume_router_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "next_volume_router_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [
+        {
+          "requirement_id": "artifact.volume__volume_index_padded__next_volume_route_round__round_index_03d__md",
+          "title_zh": "volume_{volume_index_padded}/next_volume_route_round_{round_index:03d}.md",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "",
+          "naming_rule": "volume_{volume_index_padded}/next_volume_route_round_{round_index:03d}.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "contract_writing_modular_novel_volume_route.artifact_refs",
+          "title_zh": "必须产出可追踪产物引用",
+          "rule_type": "artifact_exists",
+          "severity": "error",
+          "target_field": "artifact_refs",
+          "criteria": "长文本和节点结果必须以 artifact refs 交接，不能只返回摘要。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [],
+      "context_visibility_policy": {
+        "main_session_history": "summary",
+        "upstream_outputs": "summary",
+        "sibling_nodes": "status_only",
+        "artifact_access": "refs_only",
+        "notes": ""
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_packet",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": false,
+        "retry_limit": 0,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [],
+      "allowed_runtime_lanes": [],
+      "version": "1.0.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel"
+      }
+    },
+    {
+      "contract_id": "contract.writing.modular_novel.world_candidate",
+      "title_zh": "世界观设定候选输出契约",
+      "title_en": "world_candidate",
+      "contract_kind": "node_execution",
+      "description": "世界观设定候选输出契约。用于模块化长篇写作任务图，能力来自通用任务图契约、工具和运行策略。",
+      "input_fields": [
+        {
+          "field_id": "上游交接包",
+          "title_zh": "上游交接包",
+          "field_type": "string",
+          "required": true,
+          "description": "上游交接包",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "output_fields": [
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": true,
+          "description": "artifact_refs",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "world_design_ref",
+          "title_zh": "world_design_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "world_design_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [
+        {
+          "requirement_id": "artifact.world_world_candidate_round__round_index_03d__md",
+          "title_zh": "world/world_candidate_round_{round_index:03d}.md",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "",
+          "naming_rule": "world/world_candidate_round_{round_index:03d}.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "contract_writing_modular_novel_world_candidate.artifact_refs",
+          "title_zh": "必须产出可追踪产物引用",
+          "rule_type": "artifact_exists",
+          "severity": "error",
+          "target_field": "artifact_refs",
+          "criteria": "长文本和节点结果必须以 artifact refs 交接，不能只返回摘要。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [],
+      "context_visibility_policy": {
+        "main_session_history": "summary",
+        "upstream_outputs": "summary",
+        "sibling_nodes": "status_only",
+        "artifact_access": "refs_only",
+        "notes": ""
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_packet",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": false,
+        "retry_limit": 0,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [],
+      "allowed_runtime_lanes": [],
+      "version": "1.0.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel"
+      }
+    },
+    {
+      "contract_id": "contract.writing.modular_novel.world_commit",
+      "title_zh": "世界观提交输出契约",
+      "title_en": "world_commit",
+      "contract_kind": "final_output",
+      "description": "世界观提交输出契约。用于模块化长篇写作任务图，能力来自通用任务图契约、工具和运行策略。",
+      "input_fields": [
+        {
+          "field_id": "通过候选正文",
+          "title_zh": "通过候选正文",
+          "field_type": "string",
+          "required": true,
+          "description": "通过候选正文",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "审核裁决报告",
+          "title_zh": "审核裁决报告",
+          "field_type": "string",
+          "required": true,
+          "description": "审核裁决报告",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "output_fields": [
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": true,
+          "description": "artifact_refs",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "memory_commit_world_ref",
+          "title_zh": "memory_commit_world_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "memory_commit_world_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [
+        {
+          "requirement_id": "artifact.memory_world_world_commit_round__round_index_03d__md",
+          "title_zh": "memory/world/world_commit_round_{round_index:03d}.md",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "",
+          "naming_rule": "memory/world/world_commit_round_{round_index:03d}.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "contract_writing_modular_novel_world_commit.artifact_refs",
+          "title_zh": "必须产出可追踪产物引用",
+          "rule_type": "artifact_exists",
+          "severity": "error",
+          "target_field": "artifact_refs",
+          "criteria": "长文本和节点结果必须以 artifact refs 交接，不能只返回摘要。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [],
+      "context_visibility_policy": {
+        "main_session_history": "summary",
+        "upstream_outputs": "summary",
+        "sibling_nodes": "status_only",
+        "artifact_access": "refs_only",
+        "notes": ""
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_packet",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": false,
+        "retry_limit": 0,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [],
+      "allowed_runtime_lanes": [],
+      "version": "1.0.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel"
+      }
+    },
+    {
+      "contract_id": "contract.writing.modular_novel.world_review",
+      "title_zh": "世界观审核输出契约",
+      "title_en": "world_review",
+      "contract_kind": "node_execution",
+      "description": "世界观审核输出契约。用于模块化长篇写作任务图，能力来自通用任务图契约、工具和运行策略。",
+      "input_fields": [
+        {
+          "field_id": "上游交接包",
+          "title_zh": "上游交接包",
+          "field_type": "string",
+          "required": true,
+          "description": "上游交接包",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "output_fields": [
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": true,
+          "description": "artifact_refs",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "world_review_ref",
+          "title_zh": "world_review_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "world_review_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [
+        {
+          "requirement_id": "artifact.world_world_review_round__round_index_03d__md",
+          "title_zh": "world/world_review_round_{round_index:03d}.md",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "",
+          "naming_rule": "world/world_review_round_{round_index:03d}.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "contract_writing_modular_novel_world_review.artifact_refs",
+          "title_zh": "必须产出可追踪产物引用",
+          "rule_type": "artifact_exists",
+          "severity": "error",
+          "target_field": "artifact_refs",
+          "criteria": "长文本和节点结果必须以 artifact refs 交接，不能只返回摘要。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [],
+      "context_visibility_policy": {
+        "main_session_history": "summary",
+        "upstream_outputs": "summary",
+        "sibling_nodes": "status_only",
+        "artifact_access": "refs_only",
+        "notes": ""
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_packet",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": false,
+        "retry_limit": 0,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [],
+      "allowed_runtime_lanes": [],
+      "version": "1.0.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel"
+      }
+    }
+  ]
+}

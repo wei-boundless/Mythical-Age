@@ -99,7 +99,7 @@ def test_system_retrieval_request_derives_path_from_context_recall_candidate() -
     assert constraints == {"path": "Data/employees.xlsx"}
 
 
-def test_model_executor_auto_delegates_when_delegate_operation_required() -> None:
+def test_model_executor_does_not_fabricate_delegate_tool_call_when_model_answers() -> None:
     class _Runtime:
         async def invoke_messages(self, _messages):
             return SimpleNamespace(content="第二部分的约束是旧摘要里的两句话。")
@@ -128,9 +128,67 @@ def test_model_executor_auto_delegates_when_delegate_operation_required() -> Non
 
     events = __import__("asyncio").run(_collect())
 
+    assert all(event["type"] != "tool_call_requested" for event in events)
+    assert events[-1]["type"] == "done"
+    assert "第二部分的约束是旧摘要里的两句话。" in str(events[-1]["content"])
+
+
+def test_model_executor_forwards_explicit_delegate_tool_call_without_target_inference() -> None:
+    class _Runtime:
+        async def invoke_messages(self, _messages):
+            return SimpleNamespace(content="unused")
+
+        async def invoke_messages_with_tools(self, _messages, _tools, **_kwargs):
+            return SimpleNamespace(
+                content="",
+                tool_calls=[
+                    {
+                        "id": "call-delegate-1",
+                        "name": "delegate_to_agent",
+                        "args": {
+                            "target_agent_id": "agent:pdf_reader",
+                            "delegation_kind": "pdf_reading",
+                            "instruction": "阅读第二部分并压缩成两句话。",
+                            "input_payload": {
+                                "query": "第二部分的约束能不能只用两句话说清楚？",
+                                "path": "knowledge/report.pdf",
+                            },
+                        },
+                    }
+                ],
+            )
+
+    directive = RuntimeDirective(
+        directive_id="runtime-directive:test:explicit-delegate",
+        task_id="task:explicit-delegate",
+        plan_ref="plan:test",
+        stage_ref="stage:test",
+        executor_type="model",
+        adopted_resource_policy_ref="respol:test",
+        operation_refs=("op.model_response", "op.delegate_to_agent"),
+    )
+    executor = ModelResponseRuntimeExecutor(model_runtime=_Runtime())
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in executor.stream(
+            user_message="再回到 PDF，第二部分的约束能不能只用两句话说清楚？",
+            model_messages=[],
+            directive=directive,
+            tool_instances=[SimpleNamespace(name="delegate_to_agent")],
+        ):
+            events.append(event)
+        return events
+
+    events = __import__("asyncio").run(_collect())
+
     assert [event["type"] for event in events] == ["tool_call_requested"]
+    tool_call = dict(events[0]["tool_call"])
+    args = dict(tool_call["args"])
     assert events[0]["tool_name"] == "delegate_to_agent"
-    assert dict(events[0]["tool_call"])["args"]["input_payload"]["query"] == "再回到 PDF，第二部分的约束能不能只用两句话说清楚？"
+    assert args["target_agent_id"] == "agent:pdf_reader"
+    assert args["delegation_kind"] == "pdf_reading"
+    assert args["input_payload"]["path"] == "knowledge/report.pdf"
 
 
 def test_model_executor_does_not_auto_delegate_for_direct_web_search_lane() -> None:

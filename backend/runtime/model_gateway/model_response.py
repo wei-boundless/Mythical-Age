@@ -401,27 +401,6 @@ class ModelResponseRuntimeExecutor:
                 "answer_source": "runtime_directive:model_response",
             }
             return
-        if _should_auto_delegate_model_answer(directive=directive, model_messages=model_messages):
-            yield {
-                "type": "tool_call_requested",
-                "tool_call": {
-                    "id": f"auto_delegate:{directive.task_id}",
-                    "name": "delegate_to_agent",
-                    "args": {
-                        "instruction": str(user_message or "").strip(),
-                        "input_payload": {"query": str(user_message or "").strip()},
-                    },
-                    "type": "tool_call",
-                },
-                "tool_name": "delegate_to_agent",
-                "operation_id": "op.delegate_to_agent",
-                "directive_ref": directive.directive_id,
-                "assistant_content": "",
-                "assistant_additional_kwargs": {
-                    "auto_dispatch_reason": "delegate_required_model_answer_blocked",
-                },
-            }
-            return
         output_boundary = AssistantOutputBoundary()
         _seed_boundary_with_prior_tool_receipts(output_boundary, model_messages)
         output_boundary.ingest_ai_update(raw_content, has_tool_calls=False)
@@ -558,20 +537,6 @@ def _is_tool_message(message: Any) -> bool:
     if isinstance(message, dict):
         return str(message.get("role") or message.get("type") or "").strip().lower() == "tool"
     return False
-
-
-def _should_auto_delegate_model_answer(*, directive: RuntimeDirective, model_messages: list[Any]) -> bool:
-    diagnostics = dict(getattr(directive, "diagnostics", {}) or {})
-    if diagnostics.get("auto_delegate_model_answer") is False:
-        return False
-    if "op.delegate_to_agent" not in {str(item or "").strip() for item in tuple(directive.operation_refs or ())}:
-        return False
-    for message in list(model_messages or []):
-        if str(getattr(message, "type", "") or "").strip().lower() == "tool":
-            return False
-        if message.__class__.__name__ == "ToolMessage":
-            return False
-    return True
 
 
 def _chunk_text(chunk: Any) -> str:

@@ -56,7 +56,6 @@ def _professional_task_directive(
             "delegation_disabled": not delegation_enabled,
             "tool_execution_enabled": True,
             "controlled_tool_rounds": max(1, int(max_tool_rounds or 1)),
-            "auto_delegate_model_answer": False,
         },
     )
 

@@ -1321,6 +1321,8 @@
       "module": "tools.delegate_to_agent_tool",
       "contract": {
         "required_inputs": [
+          "target_agent_id",
+          "delegation_kind",
           "instruction"
         ],
         "required_bindings": [],
