@@ -7,12 +7,29 @@ from task_system.services.assembly_support import build_runtime_task_intent_cont
 
 
 def test_unknown_professional_goal_keeps_generic_strategy_without_losing_obligations() -> None:
+    decision = {
+        "authority": "agent_runtime.model_turn_decision",
+        "decision_id": "model-turn-decision:test",
+        "user_message": "执行一个新的复杂仓库治理任务，修改相关文件，并运行 pytest 验证。",
+        "interaction_intent": "modify",
+        "action_intent": "edit_workspace",
+        "work_mode": "implementation",
+        "task_goal_type": "unregistered_professional_goal",
+        "desired_outcome": "执行新的复杂仓库治理任务。",
+        "deliverables": ["change_summary", "changed_files", "verification_result_or_limitation"],
+        "completion_criteria": ["run pytest or explain verification limits"],
+        "context_binding_decision": {},
+        "confidence": 0.9,
+    }
     contract = build_runtime_task_intent_contract(
         session_id="session-generic-prototype",
         task_id="task-generic",
         user_goal="执行一个新的复杂仓库治理任务，修改相关文件，并运行 pytest 验证。",
         query_understanding=build_request_signals("执行一个新的复杂仓库治理任务，修改相关文件，并运行 pytest 验证。").to_dict(),
-        current_turn_context={"semantic_task_type": "unregistered_professional_goal"},
+        current_turn_context={
+            "semantic_task_type": "unregistered_professional_goal",
+            "model_turn_decision": decision,
+        },
     )
 
     semantic = contract.task_requirement_contract

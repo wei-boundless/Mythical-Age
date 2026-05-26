@@ -172,14 +172,13 @@ def _model_turn_decision_response_for_messages(messages) -> SimpleNamespace | No
     user_message = str(payload.get("user_message") or "").strip()
     decision = dict(selection.get("model_turn_decision") or {})
     if not decision:
-        inferred_goal_type = _infer_professional_test_goal_type(
-            user_message=user_message,
-            selection=selection,
-        )
-        action_intent = "edit_workspace" if _professional_test_goal_requires_workspace_edit(
-            user_message=user_message,
-            task_goal_type=inferred_goal_type,
-        ) else "read_context"
+        inferred_goal_type = str(selection.get("semantic_task_type") or "bounded_tool_task").strip()
+        action_intent = "edit_workspace" if inferred_goal_type in {
+            "artifact_delivery",
+            "frontend_app_delivery",
+            "game_vertical_slice_delivery",
+            "code_fix_execution",
+        } else "read_context"
         decision = dict(
             model_turn_context(
                 action_intent=action_intent,
@@ -209,34 +208,6 @@ def _model_turn_decision_response_for_messages(messages) -> SimpleNamespace | No
     decision.setdefault("resource_contract", {})
     decision.setdefault("confidence", 0.9)
     return SimpleNamespace(content=json.dumps(decision, ensure_ascii=False))
-
-
-def _infer_professional_test_goal_type(*, user_message: str, selection: dict[str, object]) -> str:
-    explicit = str(selection.get("semantic_task_type") or "").strip()
-    if explicit:
-        return explicit
-    text = str(user_message or "")
-    lowered = text.lower()
-    if any(marker in text for marker in ("失败", "根因", "回归测试", "测试报告", "失败归类")) or any(
-        marker in lowered for marker in ("failing", "failure", "triage")
-    ):
-        return "test_report_triage"
-    if any(marker in text for marker in ("写入", "产物", "生成文件", "保存到")):
-        return "artifact_delivery"
-    if any(marker in text for marker in ("材料", "综合", "根据", "基于")):
-        return "material_synthesis"
-    return "bounded_tool_task"
-
-
-def _professional_test_goal_requires_workspace_edit(*, user_message: str, task_goal_type: str) -> bool:
-    text = str(user_message or "")
-    lowered = text.lower()
-    if task_goal_type in {"artifact_delivery", "frontend_app_delivery", "game_vertical_slice_delivery", "code_fix_execution"}:
-        return True
-    return bool(
-        any(marker in text for marker in ("写入", "修复代码", "修改代码", "改代码", "生成文件", "创建文件"))
-        or any(marker in lowered for marker in ("write ", "fix ", "patch ", "implement "))
-    )
 
 
 def _professional_test_deliverables_for_goal(*, task_goal_type: str, action_intent: str) -> list[str]:
@@ -780,7 +751,7 @@ class _TerminalBeforeEditModelRuntimeStub:
                     {
                         "id": "call-run-order-pipeline-pytest",
                         "name": "terminal",
-                        "args": {"command": "python -c \"from backend.order_pipeline import total; assert total([1, 2]) == 3; print('PYTEST_OK')\""},
+                        "args": {"command": "grep -q 'return sum(values)' backend/order_pipeline.py && echo PYTEST_OK"},
                         "type": "tool_call",
                     }
                 ],
@@ -855,12 +826,12 @@ class _RepairThenVerifyModelRuntimeStub:
             assert "terminal" in tool_names
             assert "read_file" not in tool_names
             return AIMessage(
-                content="我已经完成修改，下一步运行 Python 断言验证。",
+                content="我已经完成修改，下一步运行 Python 断言验证写入结果。",
                 tool_calls=[
                     {
                         "id": "call-run-pytest-after-repair",
                         "name": "terminal",
-                        "args": {"command": "python -c \"import sys; sys.path.insert(0, 'backend'); from fixed_counter import inc; assert inc(1) == 2; print('PYTEST_OK')\""},
+                        "args": {"command": "grep -q 'return value + 1' backend/fixed_counter.py && echo PYTEST_OK"},
                         "type": "tool_call",
                     }
                 ],
@@ -995,7 +966,7 @@ class _MaterialSynthesisLeakModelRuntimeStub:
         )
 
 
-class _ArtifactDeliveryMissingTermModelRuntimeStub:
+class _ArtifactDeliveryMissingDeliverableModelRuntimeStub:
     def __init__(self) -> None:
         self.tool_enabled_calls = 0
         self.plain_calls = 0
@@ -1052,6 +1023,7 @@ class _VerificationThenReadModelRuntimeStub:
         self.tool_enabled_calls = 0
         self.seen_terminal = False
         self.seen_json = False
+        self.tool_names_by_call: list[list[str]] = []
 
     async def invoke_messages(self, messages, **_kwargs):
         return await self.invoke_messages_with_tools(messages, [], **_kwargs)
@@ -1059,6 +1031,7 @@ class _VerificationThenReadModelRuntimeStub:
     async def invoke_messages_with_tools(self, messages, tools, **_kwargs):
         self.tool_enabled_calls += 1
         tool_names = [str(getattr(tool, "name", "") or "") for tool in list(tools or [])]
+        self.tool_names_by_call.append(tool_names)
         tool_text = _tool_message_text(messages)
         self.seen_terminal = self.seen_terminal or "/workspace" in tool_text.replace("\\", "/")
         self.seen_json = self.seen_json or "timeout_ms" in tool_text
@@ -1071,27 +1044,27 @@ class _VerificationThenReadModelRuntimeStub:
                     "限制：本轮只读取本地快照和运行只读目录命令，没有访问真实服务。"
                 )
             )
-        if self.seen_terminal:
-            assert "read_file" in tool_names
+        if self.seen_json:
+            assert "terminal" in tool_names
             return AIMessage(
-                content="我已确认目录，继续读取快照。",
+                content="我已读取快照，继续运行只读命令确认目录。",
                 tool_calls=[
                     {
-                        "id": "call-read-after-terminal",
-                        "name": "read_file",
-                        "args": {"path": "tests/fixtures/professional_task_suite/ops_incident_snapshot.json"},
+                        "id": "call-terminal-after-read",
+                        "name": "terminal",
+                        "args": {"command": "Get-Location | Select-Object -ExpandProperty Path"},
                         "type": "tool_call",
                     }
                 ],
             )
-        assert "terminal" in tool_names
+        assert "read_file" in tool_names
         return AIMessage(
-            content="我先运行只读命令确认工作目录。",
+            content="我先读取配置快照。",
             tool_calls=[
                 {
-                    "id": "call-terminal-before-read",
-                    "name": "terminal",
-                    "args": {"command": "Get-Location | Select-Object -ExpandProperty Path"},
+                    "id": "call-read-before-terminal",
+                    "name": "read_file",
+                    "args": {"path": "tests/fixtures/professional_task_suite/ops_incident_snapshot.json"},
                     "type": "tool_call",
                 }
             ],
@@ -1525,8 +1498,8 @@ class _ActionGateRecoverableProviderErrorModelRuntimeStub:
         if self.seen_material:
             return SimpleNamespace(
                 content=(
-                    "完成状态：已完成。\n"
-                    "当前结论：已读取材料。\n"
+                    "材料发现：已读取 recoverable_material.md，并确认恢复路径可以继续使用真实工具观察。\n"
+                    "综合结论：provider 错误恢复后应回到必读材料动作，而不是跳过合同或伪造结论。\n"
                     "限制：本测试只验证 action gate provider 错误恢复。"
                 )
             )
@@ -1722,6 +1695,8 @@ def _professional_task_selection(
     max_tool_rounds: int | None = None,
     semantic_task_type: str | None = "bounded_tool_task",
     model_agent_plan_draft: dict[str, object] | None = None,
+    completion_criteria: list[str] | None = None,
+    resource_contract: dict[str, object] | None = None,
 ) -> dict[str, object]:
     decision_goal_type = str(semantic_task_type or "bounded_tool_task")
     action_intent = "edit_workspace" if decision_goal_type in {
@@ -1729,19 +1704,15 @@ def _professional_task_selection(
         "frontend_app_delivery",
         "game_vertical_slice_delivery",
         "code_fix_execution",
-        "test_report_triage",
     } else "read_context"
     interaction_intent = "create" if decision_goal_type in {
         "artifact_delivery",
         "frontend_app_delivery",
         "game_vertical_slice_delivery",
     } else "modify" if decision_goal_type == "code_fix_execution" else "inspect"
-    deliverables = (
-        ["runnable_artifact_refs", "verification_evidence"]
-        if decision_goal_type in {"artifact_delivery", "frontend_app_delivery", "game_vertical_slice_delivery"}
-        else ["change_summary", "changed_files", "verification_result_or_limitation"]
-        if decision_goal_type == "code_fix_execution"
-        else ["tool_grounded_answer"]
+    deliverables = _professional_test_deliverables_for_goal(
+        task_goal_type=decision_goal_type,
+        action_intent=action_intent,
     )
     selection: dict[str, object] = {
         **model_turn_context(
@@ -1752,6 +1723,7 @@ def _professional_task_selection(
             deliverables=deliverables,
             planning_required=action_intent == "edit_workspace",
             todo_required=action_intent == "edit_workspace",
+            completion_criteria=list(completion_criteria or []),
             task_goal_type=decision_goal_type,
             task_domain="development" if action_intent == "edit_workspace" else "analysis",
         ),
@@ -1774,8 +1746,17 @@ def _professional_task_selection(
         }
     if semantic_task_type:
         selection["semantic_task_type"] = semantic_task_type
+    if resource_contract is not None:
+        selection["model_turn_decision"] = {
+            **dict(selection["model_turn_decision"]),
+            "resource_contract": dict(resource_contract),
+        }
     selection["model_agent_plan_draft"] = model_agent_plan_draft or _professional_model_agent_plan(decision_goal_type)
     return selection
+
+
+def _artifact_resource_contract(*paths: str) -> dict[str, object]:
+    return {"required_write_files": [str(path) for path in paths if str(path).strip()]}
 
 
 def _professional_model_agent_plan(
@@ -1785,34 +1766,14 @@ def _professional_model_agent_plan(
     include_verification: bool = False,
     material_step_count: int = 1,
 ) -> dict[str, object]:
-    all_deliverables = [
-        "direct_answer",
-        "source_or_memory_boundary",
-        "inspection_findings",
-        "evidence_refs",
-        "tool_grounded_answer",
-        "failure_classification",
-        "structural_root_causes",
-        "regression_test_plan",
-        "evidence_limits",
-        "event_chain",
-        "turning_points",
-        "recovery_candidates",
-        "change_summary",
-        "changed_files",
-        "verification_result_or_limitation",
-        "artifact_refs",
-        "completion_status",
-        "material_findings",
-        "cross_material_conclusions",
-        "runnable_artifact_refs",
-        "gameplay_acceptance",
-        "visual_asset_refs",
-        "verification_evidence",
-        "workflow_acceptance",
-        "limitations",
-        "final_report",
-    ]
+    action_intent = "edit_workspace" if (
+        include_write
+        or task_goal_type in {"artifact_delivery", "code_fix_execution", "frontend_app_delivery", "game_vertical_slice_delivery"}
+    ) else "read_context"
+    deliverables = _professional_test_deliverables_for_goal(
+        task_goal_type=task_goal_type,
+        action_intent=action_intent,
+    )
     steps: list[dict[str, object]] = [
         {
             "step_id": "professional.mode_policy",
@@ -1938,7 +1899,7 @@ def _professional_model_agent_plan(
             "required_operations": ["op.model_response"],
             "contract_refs": [
                 "validate_deliverables",
-                *all_deliverables,
+                *deliverables,
             ],
             "evidence_expectations": ["completion_judgment"],
         }
@@ -2191,7 +2152,7 @@ def test_professional_test_report_triage_builds_evidence_packet_and_strict_valid
     assert model_runtime.seen_structured_report is True
 
 
-def test_professional_triage_prompt_cannot_suppress_repair_and_pytest_obligations() -> None:
+def test_professional_code_fix_prompt_cannot_suppress_repair_and_pytest_obligations() -> None:
     backend_root = _isolated_backend_root()
     fixture = backend_root / "tests" / "fixtures" / "professional_task_suite" / "failing_sixty_turn_summary.json"
     fixture.parent.mkdir(parents=True, exist_ok=True)
@@ -2218,10 +2179,11 @@ def test_professional_triage_prompt_cannot_suppress_repair_and_pytest_obligation
                 "修复代码，然后运行 pytest 或等价 Python 断言验证。"
             ),
             task_selection=_professional_task_selection(
-                semantic_task_type="test_report_triage",
+                semantic_task_type="code_fix_execution",
                 max_tool_rounds=4,
+                completion_criteria=["run pytest or equivalent Python assertion and report the result"],
                 model_agent_plan_draft=_professional_model_agent_plan(
-                    "test_report_triage",
+                    "code_fix_execution",
                     include_write=True,
                     include_verification=True,
                 ),
@@ -2261,10 +2223,63 @@ def test_professional_triage_prompt_cannot_suppress_repair_and_pytest_obligation
     assert monitor_session["interaction_mode"] == "professional_mode"
     assert monitor_session["tool_observation_ledger_ref"] == observation_ledger["ledger_id"]
     assert (backend_root / "fixed_counter.py").exists() is False
-    assert "PYTEST_OK" in str(done.get("content") or "")
+    terminal_record = next(
+        dict(record)
+        for record in list(observation_ledger.get("records") or [])
+        if dict(record).get("tool_name") == "terminal"
+    )
+    assert dict(terminal_record.get("command_receipt") or {}).get("passed") is True
     assert model_runtime.seen_report is True
     assert model_runtime.seen_write is True
     assert model_runtime.seen_pytest is True
+
+
+def test_professional_triage_does_not_escalate_to_repair_from_user_text() -> None:
+    backend_root = _isolated_backend_root()
+    fixture = backend_root / "tests" / "fixtures" / "professional_task_suite" / "failing_sixty_turn_summary.json"
+    fixture.parent.mkdir(parents=True, exist_ok=True)
+    fixture.write_text(
+        (
+            '{"run_id":"fixture-professional-triage-boundary","failed_turns":1,'
+            '"failures":[{"turn":21,"check":"output_boundary","symptom":"repair text must not grant write authority"}]}'
+        ),
+        encoding="utf-8",
+    )
+    model_runtime = _RepairThenVerifyModelRuntimeStub()
+    runtime = _runtime(
+        base_dir=backend_root,
+        model_runtime=model_runtime,
+        tool_runtime=_ToolRuntimeWithSideEffectsStub(backend_root),
+    )
+
+    _, runtime_events, done, _task_run_id = asyncio.run(
+        _collect_runtime_events(
+            runtime,
+            session_id="session-professional-triage-no-escalation",
+            message=(
+                "追踪 tests/fixtures/professional_task_suite/failing_sixty_turn_summary.json 的失败原因，"
+                "修复代码，然后运行 pytest 或等价 Python 断言验证。"
+            ),
+            task_selection=_professional_task_selection(
+                semantic_task_type="test_report_triage",
+                max_tool_rounds=4,
+                model_agent_plan_draft=_professional_model_agent_plan("test_report_triage"),
+            ),
+        )
+    )
+    plan_event = _latest_event(runtime_events, "professional_task_semantic_plan_drafted")
+    plan_payload = dict(plan_event.get("payload") or {})
+    plan_ids = [str(dict(item).get("plan_item_id") or "") for item in list(plan_payload.get("plan_items") or [])]
+    task_contract = dict(plan_payload.get("agent_plan_draft") or {}).get("diagnostics", {})
+    contract = dict(dict(task_contract).get("readonly_planner_request") or {}).get("semantic_contract", {})
+
+    assert "professional.produce_output" not in plan_ids
+    assert "professional.verify_output" not in plan_ids
+    assert dict(contract).get("task_goal_type") == "test_report_triage"
+    assert done["terminal_reason"] == "executor_failed"
+    assert model_runtime.seen_write is False
+    assert model_runtime.seen_pytest is False
+    assert (backend_root / "fixed_counter.py").exists() is False
 
 
 def test_professional_task_sandbox_redirects_write_file_side_effects() -> None:
@@ -2421,6 +2436,10 @@ def test_professional_task_recovers_provider_timeout_with_missing_output_paths()
             task_selection=_professional_task_selection(
                 semantic_task_type="artifact_delivery",
                 max_tool_rounds=5,
+                resource_contract=_artifact_resource_contract(
+                    "frontend/public/games/arcane_dungeon_studio/index.html",
+                    "frontend/public/games/arcane_dungeon_studio/game.js",
+                ),
             ),
         )
     )
@@ -2515,7 +2534,7 @@ def test_professional_task_budget_exhaustion_forces_model_closeout() -> None:
                 "分析 tests/fixtures/professional_task_suite/failing_sixty_turn_summary.json，"
                 "找结构性根因并给回归测试。"
             ),
-            task_selection=_professional_task_selection(max_tool_rounds=1, semantic_task_type=None),
+            task_selection=_professional_task_selection(max_tool_rounds=1, semantic_task_type="test_report_triage"),
         )
     )
     event_types = _event_types(runtime_events)
@@ -2555,7 +2574,7 @@ def test_professional_read_material_gate_allows_same_round_context_recovery_with
                 "分析 tests/fixtures/professional_task_suite/multitool_budget.json，"
                 "找结构性根因并给回归测试。"
             ),
-            task_selection=_professional_task_selection(semantic_task_type=None, max_tool_rounds=3),
+            task_selection=_professional_task_selection(semantic_task_type="test_report_triage", max_tool_rounds=3),
         )
     )
     verify_event = _latest_event(runtime_events, "professional_task_deliverable_validation_checked")
@@ -2569,7 +2588,7 @@ def test_professional_read_material_gate_allows_same_round_context_recovery_with
 
     assert budget_events == []
     assert checks["tool_budget_exhausted"] is False
-    assert model_runtime.seen_extra_context is True
+    assert model_runtime.seen_extra_context is False
     assert done["terminal_reason"] in {"completed", "partial_contract_failed"}
     assert "structural_root_causes" in str(done.get("content") or "")
 
@@ -2658,7 +2677,12 @@ def test_professional_task_blocks_terminal_until_required_code_edit_is_observed(
     assert checks["verification_command_count"] >= 1
     assert verification["passed"] is True
     assert done["terminal_reason"] == "completed"
-    assert "PYTEST_OK" in str(done.get("content") or "")
+    terminal_record = next(
+        dict(record)
+        for record in list(dict(verification.get("tool_observation_ledger") or {}).get("records") or [])
+        if dict(record).get("tool_name") == "terminal"
+    )
+    assert dict(terminal_record.get("command_receipt") or {}).get("passed") is True
 
 
 def test_professional_task_tool_markup_leak_cannot_pass_validation() -> None:
@@ -2673,7 +2697,7 @@ def test_professional_task_tool_markup_leak_cannot_pass_validation() -> None:
                 "分析 tests/fixtures/professional_task_suite/failing_sixty_turn_summary.json，"
                 "找结构性根因并给出回归测试。"
             ),
-            task_selection=_professional_task_selection(semantic_task_type=None),
+            task_selection=_professional_task_selection(semantic_task_type="test_report_triage"),
         )
     )
     verify_event = _latest_event(runtime_events, "professional_task_deliverable_validation_checked")
@@ -2691,7 +2715,7 @@ def test_professional_task_tool_markup_leak_cannot_pass_validation() -> None:
     assert completion["terminal_reason"] == done["terminal_reason"]
 
 
-def test_professional_task_uses_evidence_closeout_after_final_markup_leak() -> None:
+def test_professional_task_blocks_semantic_closeout_after_final_markup_leak() -> None:
     backend_root = _isolated_backend_root()
     fixture = backend_root / "tests" / "fixtures" / "professional_task_suite" / "failing_sixty_turn_summary.json"
     fixture.parent.mkdir(parents=True, exist_ok=True)
@@ -2735,21 +2759,15 @@ def test_professional_task_uses_evidence_closeout_after_final_markup_leak() -> N
     validation = dict(verification.get("deliverable_validation") or {})
     content = str(done.get("content") or "")
 
-    assert "professional_task_evidence_closeout_applied" in event_types
-    assert verification["passed"] is True
-    assert validation["passed"] is True
-    assert done["terminal_reason"] == "completed"
-    assert content
-    assert "失败归类" in content
-    assert "结构性根因" in content
-    assert "回归测试" in content
-    assert "证据边界" in content
-    assert "artifact/writeback" in content
+    assert "professional_task_evidence_closeout_applied" not in event_types
+    assert verification["passed"] is False
+    assert validation["passed"] is False
+    assert done["terminal_reason"] in {"tool_call_markup_leaked", "partial_contract_failed"}
     assert "name=\"read_file\"" not in content
     assert "<｜｜DSML" not in content
 
 
-def test_professional_material_synthesis_uses_evidence_closeout_after_dsml_leak() -> None:
+def test_professional_material_synthesis_blocks_semantic_closeout_after_dsml_leak() -> None:
     backend_root = _isolated_backend_root()
     fixture = backend_root / "tests" / "fixtures" / "professional_task_suite" / "inventory_note.md"
     fixture.parent.mkdir(parents=True, exist_ok=True)
@@ -2777,23 +2795,20 @@ def test_professional_material_synthesis_uses_evidence_closeout_after_dsml_leak(
     verification = dict(dict(verify_event.get("payload") or {}).get("verification") or {})
     content = str(done.get("content") or "")
 
-    assert "professional_task_evidence_closeout_applied" in event_types
-    assert verification["passed"] is True
-    assert done["terminal_reason"] == "completed"
-    assert "治理" in content
-    assert "库存" in content
-    assert "行动" in content
+    assert "professional_task_evidence_closeout_applied" not in event_types
+    assert verification["passed"] is False
+    assert done["terminal_reason"] in {"tool_call_markup_leaked", "partial_contract_failed"}
     assert "name=\"search_files\"" not in content
     assert "<｜｜DSML" not in content
     assert model_runtime.seen_material is True
 
 
-def test_professional_verification_blocks_complete_when_required_terms_are_missing() -> None:
+def test_professional_verification_blocks_complete_when_required_deliverables_are_missing() -> None:
     backend_root = _isolated_backend_root()
     fixture = backend_root / "tests" / "fixtures" / "professional_task_suite" / "node_status_filter_contract.json"
     fixture.parent.mkdir(parents=True, exist_ok=True)
     fixture.write_text('{"feature":"status_filter","states":["ready","blocked"]}', encoding="utf-8")
-    model_runtime = _ArtifactDeliveryMissingTermModelRuntimeStub()
+    model_runtime = _ArtifactDeliveryMissingDeliverableModelRuntimeStub()
     runtime = _runtime(
         base_dir=backend_root,
         model_runtime=model_runtime,
@@ -2803,7 +2818,7 @@ def test_professional_verification_blocks_complete_when_required_terms_are_missi
     _, runtime_events, done, _task_run_id = asyncio.run(
         _collect_runtime_events(
             runtime,
-            session_id="session-professional-missing-response-terms",
+            session_id="session-professional-missing-deliverables",
             message=(
                 "请用专业模式根据 tests/fixtures/professional_task_suite/node_status_filter_contract.json，"
                 "在 sandbox overlay 中完成一个最小端到端功能草案：后端筛选接口说明、前端状态筛选交互、以及至少两个测试点。"
@@ -2817,20 +2832,30 @@ def test_professional_verification_blocks_complete_when_required_terms_are_missi
     run_state = dict(verification.get("professional_run_state") or {})
 
     assert verification["passed"] is False
-    assert "后端" in verification["missing_response_terms"]
-    assert "前端" in verification["missing_response_terms"]
-    assert "测试" in verification["missing_response_terms"]
+    assert verification["missing_response_terms"] == []
+    assert verification["missing_deliverables"] == ["limitations"]
     assert run_state["state"] == "blocked"
     assert done["terminal_reason"] == "partial_contract_failed"
     assert model_runtime.seen_write is True
     completion = dict(done.get("completion") or {})
     assert completion["completed"] is False
     assert completion["status"] == "partial"
-    assert "后端" in str(completion)
+    assert "artifact_refs" in str(completion)
 
 
-def test_professional_goal_contract_expands_output_directory_file_list() -> None:
+def test_professional_goal_contract_uses_structured_output_paths_only() -> None:
     from runtime.professional_runtime.goal_contract import _goal_contract_from_semantic_contract
+
+    bare_goal_contract = _goal_contract_from_semantic_contract(
+        task_run_id="taskrun:multifile-contract-bare",
+        user_message=(
+            "请在 sandbox overlay 中完成多文件网页工程，目录必须是 frontend/public/games/snake_plus/。"
+            "必须写入 index.html、styles.css、game.js、README.md。"
+        ),
+        semantic_contract={"task_goal_type": "artifact_delivery"},
+    )
+    assert bare_goal_contract.required_output_paths == []
+    assert bare_goal_contract.requires_write_output is False
 
     goal_contract = _goal_contract_from_semantic_contract(
         task_run_id="taskrun:multifile-contract",
@@ -2838,7 +2863,7 @@ def test_professional_goal_contract_expands_output_directory_file_list() -> None
             "请在 sandbox overlay 中完成多文件网页工程，目录必须是 frontend/public/games/snake_plus/。"
             "必须写入 index.html、styles.css、game.js、README.md。"
         ),
-        semantic_contract={"task_goal_type": "artifact_delivery"},
+        semantic_contract=_multifile_artifact_semantic_contract(),
     )
 
     assert goal_contract.required_output_paths == [
@@ -2864,7 +2889,7 @@ def test_professional_obligation_requires_all_explicit_output_paths() -> None:
             "请在 sandbox overlay 中完成多文件网页工程，目录必须是 frontend/public/games/snake_plus/。"
             "必须写入 index.html、styles.css、game.js、README.md。"
         ),
-        semantic_contract={"task_goal_type": "artifact_delivery"},
+        semantic_contract=_multifile_artifact_semantic_contract(),
     )
     ledger = ToolObservationLedger(
         ledger_id="ledger:multifile-obligation",
@@ -2892,8 +2917,8 @@ def test_professional_obligation_requires_all_explicit_output_paths() -> None:
         )
 
     validation = validate_obligations(
-        execution_obligation={},
-        semantic_contract={"task_goal_type": "artifact_delivery"},
+        execution_obligation=_multifile_artifact_execution_obligation(),
+        semantic_contract=_multifile_artifact_semantic_contract(),
         goal_contract=goal_contract,
         tool_observation_ledger=ledger,
         final_content="已完成：文件 index.html、styles.css。验证：未运行。",
@@ -2926,7 +2951,7 @@ def test_professional_deliverable_progress_selects_next_missing_path_and_state_o
             "请在 sandbox overlay 中完成多文件网页工程，目录必须是 frontend/public/games/snake_plus/。"
             "必须写入 index.html、styles.css、game.js、README.md，并创建 assets/ 目录。"
         ),
-        semantic_contract={"task_goal_type": "artifact_delivery"},
+        semantic_contract=_multifile_artifact_semantic_contract(include_assets=True),
     )
     ledger = ToolObservationLedger(
         ledger_id="ledger:deliverable-progress",
@@ -2965,6 +2990,33 @@ def test_professional_deliverable_progress_selects_next_missing_path_and_state_o
     assert "ensure_dir:frontend/public/games/snake_plus/assets" in progress.missing_obligations()
 
 
+def _multifile_artifact_execution_obligation(*, include_assets: bool = False) -> dict[str, object]:
+    required_writes: list[dict[str, object]] = [
+        {"kind": "file_write", "path": "frontend/public/games/snake_plus/index.html", "required": True},
+        {"kind": "file_write", "path": "frontend/public/games/snake_plus/styles.css", "required": True},
+        {"kind": "file_write", "path": "frontend/public/games/snake_plus/game.js", "required": True},
+        {"kind": "file_write", "path": "frontend/public/games/snake_plus/README.md", "required": True},
+    ]
+    if include_assets:
+        required_writes.append(
+            {"kind": "directory_write", "path": "frontend/public/games/snake_plus/assets", "required": True}
+        )
+    return {
+        "required_writes": required_writes,
+        "required_deliverables": ["artifact_refs", "completion_status"],
+    }
+
+
+def _multifile_artifact_semantic_contract(*, include_assets: bool = False) -> dict[str, object]:
+    return {
+        "task_goal_type": "artifact_delivery",
+        "user_goal": "交付多文件网页工程。",
+        "deliverables": ["artifact_refs", "completion_status", "limitations"],
+        "required_actions": ["validate_deliverables", "apply_real_change"],
+        "execution_obligation": _multifile_artifact_execution_obligation(include_assets=include_assets),
+    }
+
+
 def test_professional_state_cycle_allows_terminal_then_read_before_closeout() -> None:
     backend_root = _isolated_backend_root()
     fixture = backend_root / "tests" / "fixtures" / "professional_task_suite" / "ops_incident_snapshot.json"
@@ -2983,14 +3035,13 @@ def test_professional_state_cycle_allows_terminal_then_read_before_closeout() ->
             session_id="session-professional-terminal-then-read",
             message=(
                 "请用专业模式排查 tests/fixtures/professional_task_suite/ops_incident_snapshot.json "
-                "里的本地服务超时问题。你需要运行一个只读命令确认当前工作目录，再给出原因、修复建议和验证步骤。"
+                "里的本地服务超时问题。读取材料后运行一个只读命令确认当前工作目录，再给出原因、修复建议和验证步骤。"
             ),
             task_selection=_professional_task_selection(
                 semantic_task_type="bounded_tool_task",
                 max_tool_rounds=3,
                 model_agent_plan_draft=_professional_model_agent_plan(
                     "bounded_tool_task",
-                    include_verification=True,
                 ),
             ),
         )
@@ -3000,10 +3051,21 @@ def test_professional_state_cycle_allows_terminal_then_read_before_closeout() ->
     state = dict(verification.get("professional_run_state") or {})
     content = str(done.get("content") or "")
 
+    tool_ledger = dict(verification.get("tool_observation_ledger") or {})
+    terminal_record = next(
+        dict(record)
+        for record in list(tool_ledger.get("records") or [])
+        if dict(record).get("tool_name") == "terminal"
+    )
+
     assert verification["passed"] is True
     assert state["state"] == "complete"
     assert done["terminal_reason"] == "completed"
     assert model_runtime.seen_terminal is True
+    assert "terminal" not in model_runtime.tool_names_by_call[0]
+    assert "read_file" in model_runtime.tool_names_by_call[0]
+    assert terminal_record["satisfies"] == []
+    assert terminal_record["command_receipt"]["passed"] is True
     assert "原因" in content
     assert "修复建议" in content
     assert "验证步骤" in content
@@ -3155,11 +3217,8 @@ def test_professional_action_gate_forces_write_after_required_material_read_with
     assert model_runtime.seen_action_gate_rejection is True
     assert model_runtime.seen_paired_action_gate_rejection is True
     assert model_runtime.seen_write is True
-    assert model_runtime.tool_names_by_call[1] == ["write_file"]
-    assert getattr(model_runtime.tool_call_options_by_call[1], "tool_choice", None) == {
-        "type": "function",
-        "function": {"name": "write_file"},
-    }
+    assert model_runtime.tool_names_by_call[1] == ["write_file", "edit_file"]
+    assert getattr(model_runtime.tool_call_options_by_call[1], "parallel_tool_calls", None) is False
     assert checks["tool_call_count"] == 2
     assert checks["write_observation_count"] >= 1
     assert verification["passed"] is True
@@ -3245,8 +3304,10 @@ def test_professional_action_gate_terminal_get_item_satisfies_verify_output() ->
                 "然后用终端命令确认这个文件存在。"
             ),
             task_selection=_professional_task_selection(
-                semantic_task_type="code_fix_execution",
+                semantic_task_type="artifact_delivery",
                 max_tool_rounds=5,
+                completion_criteria=["verify the written output file exists with terminal"],
+                resource_contract=_artifact_resource_contract("output/vibe-code-smoke/verify-gate-report.md"),
             ),
         )
     )
@@ -3296,8 +3357,10 @@ def test_professional_verify_gate_auto_verifies_after_wrong_tool_drift() -> None
                 "然后用终端命令确认这个文件存在。"
             ),
             task_selection=_professional_task_selection(
-                semantic_task_type="code_fix_execution",
+                semantic_task_type="artifact_delivery",
                 max_tool_rounds=6,
+                completion_criteria=["verify the written output file exists with terminal"],
+                resource_contract=_artifact_resource_contract("output/vibe-code-smoke/verify-drift-report.md"),
             ),
         )
     )
@@ -3336,8 +3399,10 @@ def test_professional_budget_closeout_auto_verifies_written_output() -> None:
                 "然后用终端命令确认这个文件存在。"
             ),
             task_selection=_professional_task_selection(
-                semantic_task_type="code_fix_execution",
+                semantic_task_type="artifact_delivery",
                 max_tool_rounds=2,
+                completion_criteria=["verify the written output file exists with terminal"],
+                resource_contract=_artifact_resource_contract("output/vibe-code-smoke/verify-drift-report.md"),
             ),
         )
     )
@@ -3358,7 +3423,7 @@ def test_professional_budget_closeout_auto_verifies_written_output() -> None:
     assert done["terminal_reason"] == "completed"
 
 
-def test_code_fix_evidence_closeout_reports_read_material_paths() -> None:
+def test_code_fix_evidence_closeout_blocks_when_agent_skips_required_verification() -> None:
     backend_root = _isolated_backend_root()
     material = backend_root / "tests" / "fixtures" / "professional_task_suite" / "README.md"
     material.parent.mkdir(parents=True, exist_ok=True)
@@ -3382,17 +3447,19 @@ def test_code_fix_evidence_closeout_reports_read_material_paths() -> None:
             task_selection=_professional_task_selection(
                 semantic_task_type="code_fix_execution",
                 max_tool_rounds=3,
+                completion_criteria=["verify the written output file exists with terminal"],
             ),
         )
     )
     verify_event = _latest_event(runtime_events, "professional_task_deliverable_validation_checked")
     verification = dict(dict(verify_event.get("payload") or {}).get("verification") or {})
 
-    assert "README.md" in str(done.get("content") or "")
     assert model_runtime.seen_material is True
     assert model_runtime.verify_drift_count >= 1
-    assert verification["passed"] is True
-    assert done["terminal_reason"] == "completed"
+    assert verification["passed"] is False
+    assert "verify_command" in set(verification.get("missing_required_actions") or [])
+    assert str(done.get("content") or "") == ""
+    assert done["terminal_reason"] == "partial_contract_failed"
 
 
 def test_professional_action_gate_recovers_provider_error_after_wrong_tool() -> None:

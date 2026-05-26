@@ -3,6 +3,7 @@ from __future__ import annotations
 import subprocess
 import uuid
 from dataclasses import asdict, dataclass, field
+from hashlib import sha1
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
@@ -19,7 +20,7 @@ class DockerSandboxConfig:
     sbx_executable: str = DEFAULT_SBX_EXECUTABLE
     sbx_agent: str = "shell"
     sbx_name: str = ""
-    workdir: str = "/workspace"
+    workdir: str = ""
     memory: str = "1g"
     cpus: str = "1.0"
     environment: dict[str, str] = field(default_factory=dict)
@@ -40,7 +41,7 @@ class DockerSandboxConfig:
             sbx_executable=str(sbx.get("executable") or DEFAULT_SBX_EXECUTABLE).strip() or DEFAULT_SBX_EXECUTABLE,
             sbx_agent=str(sbx.get("agent") or "shell").strip() or "shell",
             sbx_name=str(sbx.get("name") or payload.get("workspace_key") or "").strip(),
-            workdir=str(sbx.get("workdir") or "/workspace").strip() or "/workspace",
+            workdir=str(sbx.get("workdir") or "").strip(),
             memory=str(sbx.get("memory") or "1g").strip() or "1g",
             cpus=str(sbx.get("cpus") or "1.0").strip() or "1.0",
             environment=environment,
@@ -161,13 +162,15 @@ class DockerSandboxBackend:
         container_command: Sequence[str],
         config: DockerSandboxConfig,
         sandbox_name: str,
+        sandbox_root: str | Path | None = None,
     ) -> tuple[str, ...]:
         args: list[str] = [
             config.sbx_executable,
             "exec",
-            "--workdir",
-            _sbx_workdir(config),
         ]
+        workdir = _sbx_workdir(config, sandbox_root=sandbox_root)
+        if workdir:
+            args.extend(["--workdir", workdir])
         for key, value in sorted(config.environment.items()):
             args.extend(["--env", f"{key}={value}"])
         args.append(sandbox_name)
@@ -197,6 +200,7 @@ class DockerSandboxBackend:
             container_command=container_command,
             config=config,
             sandbox_name=sandbox_name,
+            sandbox_root=sandbox_root,
         )
         try:
             create_result = self._runner(
@@ -207,7 +211,49 @@ class DockerSandboxBackend:
                 check=False,
                 **utf8_subprocess_text_kwargs(),
             )
-            if int(create_result.returncode or 0) not in {0} and not _sbx_already_exists(create_result):
+            if int(create_result.returncode or 0) not in {0} and _sbx_already_exists(create_result):
+                remove_command = self.build_sbx_remove_command(
+                    config=config,
+                    sandbox_name=sandbox_name,
+                )
+                remove_result = self._runner(
+                    list(remove_command),
+                    cwd=str(Path(sandbox_root).resolve()),
+                    capture_output=True,
+                    timeout=config.timeout_seconds,
+                    check=False,
+                    **utf8_subprocess_text_kwargs(),
+                )
+                if int(remove_result.returncode or 0) not in {0}:
+                    stdout = (remove_result.stdout or "") + (create_result.stdout or "")
+                    stderr = (remove_result.stderr or "") + (create_result.stderr or "")
+                    exit_code = int(remove_result.returncode or 0)
+                    timed_out = False
+                    output = ((stdout or "") + (stderr or "")).strip() or "[no output]"
+                    return self._execution_result(
+                        command=command,
+                        exec_command=exec_command,
+                        stdout=stdout,
+                        stderr=stderr,
+                        exit_code=exit_code,
+                        timed_out=timed_out,
+                        output=output[: config.output_limit_chars],
+                        config=config,
+                        run_id=run_id,
+                        execution_kind=f"{execution_kind}.create",
+                        workspace_root=workspace_root,
+                        sandbox_root=sandbox_root,
+                        create_command=create_command,
+                    )
+                create_result = self._runner(
+                    list(create_command),
+                    cwd=str(Path(sandbox_root).resolve()),
+                    capture_output=True,
+                    timeout=config.timeout_seconds,
+                    check=False,
+                    **utf8_subprocess_text_kwargs(),
+                )
+            if int(create_result.returncode or 0) not in {0}:
                 stdout = create_result.stdout or ""
                 stderr = create_result.stderr or ""
                 exit_code = int(create_result.returncode or 0)
@@ -238,7 +284,11 @@ class DockerSandboxBackend:
             )
             stdout = completed.stdout or ""
             stderr = completed.stderr or ""
-            exit_code = int(completed.returncode or 0)
+            exit_code = _effective_sbx_exit_code(
+                returncode=int(completed.returncode or 0),
+                stdout=stdout,
+                stderr=stderr,
+            )
             timed_out = False
         except FileNotFoundError:
             stdout = ""
@@ -319,11 +369,23 @@ class DockerSandboxBackend:
             receipt=receipt,
         )
 
+    def build_sbx_remove_command(
+        self,
+        *,
+        config: DockerSandboxConfig,
+        sandbox_name: str,
+    ) -> tuple[str, ...]:
+        return (config.sbx_executable, "rm", "--force", sandbox_name)
+
 
 def _sandbox_name(value: str, *, run_id: str) -> str:
     raw = str(value or "").strip() or f"agent-sandbox-{run_id}"
-    safe = "".join(ch.lower() if ch.isalnum() or ch in {"-", ".", "+"} else "-" for ch in raw).strip("-.+")
-    return safe[:63] or f"agent-sandbox-{run_id}"
+    safe = "".join(ch.lower() if ch.isalnum() or ch in {"-", "_"} else "-" for ch in raw).strip("-_")
+    safe = "-".join(part for part in safe.split("-") if part)
+    if len(safe) > 63:
+        digest = sha1(raw.encode("utf-8")).hexdigest()[:10]
+        safe = f"{safe[:52].strip('-_')}-{digest}".strip("-_")
+    return safe or f"agent-sandbox-{run_id}"
 
 
 def _normalize_shell_command_for_sbx(command: str) -> str:
@@ -335,13 +397,9 @@ def _normalize_shell_command_for_sbx(command: str) -> str:
         escaped = path.replace("'", "'\"'\"'")
         return (
             f"if [ -f '{escaped}' ]; then "
-            f"python - <<'PY'\n"
-            f"from pathlib import Path\n"
-            f"p=Path({path!r})\n"
-            f"st=p.stat()\n"
-            f"print('Name Length LastWriteTime')\n"
-            f"print(f'{{p.name}} {{st.st_size}} {{st.st_mtime}}')\n"
-            f"PY\n"
+            f"size=$(wc -c < '{escaped}' | tr -d ' '); "
+            f"mtime=$(stat -c %Y '{escaped}' 2>/dev/null || echo unknown); "
+            f"printf 'Name Length LastWriteTime\\n%s %s %s\\n' \"$(basename '{escaped}')\" \"$size\" \"$mtime\"; "
             f"else echo 'missing: {escaped}' >&2; exit 1; fi"
         )
     return text
@@ -380,14 +438,35 @@ def _cpus_as_sbx_value(value: str) -> str:
     return str(max(1, int(round(parsed))))
 
 
-def _sbx_workdir(config: DockerSandboxConfig) -> str:
-    if config.workdir and config.workdir != "/workspace":
+def _sbx_workdir(config: DockerSandboxConfig, *, sandbox_root: str | Path | None = None) -> str:
+    if config.workdir:
         return config.workdir
-    return "."
+    if sandbox_root is not None:
+        return _host_path_to_sbx_mount_path(Path(sandbox_root))
+    return ""
+
+
+def _effective_sbx_exit_code(*, returncode: int, stdout: str, stderr: str) -> int:
+    text = f"{stdout or ''}\n{stderr or ''}".lower()
+    fatal_markers = (
+        "oci runtime exec failed",
+        "container not found",
+        "sandbox not found",
+    )
+    if int(returncode or 0) == 0 and any(marker in text for marker in fatal_markers):
+        return 1
+    return int(returncode or 0)
 
 
 def _host_path(path: Path) -> str:
     return str(path.resolve()).replace("\\", "/")
+
+
+def _host_path_to_sbx_mount_path(path: Path) -> str:
+    value = str(path.resolve()).replace("\\", "/")
+    if len(value) >= 3 and value[1:3] == ":/":
+        return f"/{value[0].lower()}{value[2:]}"
+    return value
 
 
 def _is_inside(path: Path, root: Path) -> bool:

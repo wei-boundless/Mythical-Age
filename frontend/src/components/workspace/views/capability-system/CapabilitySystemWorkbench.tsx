@@ -66,41 +66,31 @@ const EMPTY_SERVER: ExternalMCPServerConfig = {
 const GROUPS: Array<{
   id: Exclude<CapabilityPage, "overview">;
   title: string;
-  detail: string;
-  source: string;
-  action: string;
+  summary: string;
   icon: LucideIcon;
 }> = [
   {
     id: "skills",
     title: "工作方法",
-    detail: "管理 Skills、模型可见提示和 SKILL.md。",
-    source: "方法层",
-    action: "编辑方法",
+    summary: "管理模型可以采用的工作方式、使用条件和输出规则。",
     icon: Sparkles,
   },
   {
     id: "tools",
     title: "执行工具",
-    detail: "维护本地工具的类型、边界、风险和备注。",
-    source: "执行层",
-    action: "管理工具",
+    summary: "管理可调用工具的语义用途、风险等级和自动路由策略。",
     icon: Wrench,
   },
   {
     id: "mcp",
     title: "服务接入",
-    detail: "本地 MCP、外部 MCP 和端点投影统一管理。",
-    source: "接入层",
-    action: "配置服务",
+    summary: "管理外部服务、服务状态和可暴露给模型的服务能力。",
     icon: PlugZap,
   },
   {
     id: "units",
-    title: "授权治理",
-    detail: "查看统一能力投影、权限、健康和依赖。",
-    source: "治理层",
-    action: "查看治理",
+    title: "能力可用性",
+    summary: "查看能力是否可用、是否需要审批，以及运行健康状态。",
     icon: ShieldCheck,
   },
 ];
@@ -289,6 +279,41 @@ function statusTone(status: string) {
   if (status === "failed" || status === "unsupported" || status === "not_supported") return "bad";
   if (status === "disabled") return "muted";
   return "wait";
+}
+
+function visibilityLabel(value: string | undefined) {
+  if (!value) return "未配置";
+  if (value === "model_visible" || value === "visible") return "模型可见";
+  if (value === "hidden" || value === "internal_only") return "仅内部使用";
+  if (value === "manual" || value === "explicit") return "需显式使用";
+  if (value === "schema_only") return "仅暴露结构";
+  return value;
+}
+
+function providerKindLabel(value: string | undefined) {
+  if (!value) return "未配置";
+  if (value === "builtin") return "内置能力";
+  if (value === "external") return "外部服务";
+  if (value === "local") return "本地服务";
+  if (value === "mcp") return "MCP 服务";
+  return value;
+}
+
+function semanticToolPurpose(tool: OperationTool) {
+  return tool.operation_metadata.llm_description
+    || tool.operation_metadata.note
+    || tool.operation_metadata.tool_boundary
+    || "暂无用途说明";
+}
+
+function semanticSkillUse(skill: OperationSkill) {
+  return skill.prompt_view.use_when
+    || skill.runtime.description
+    || compactList(skill.runtime.supported_task_kinds);
+}
+
+function semanticEndpointPurpose(endpoint: CapabilityEndpoint) {
+  return endpoint.description || endpoint.title || endpoint.name || "暂无说明";
 }
 
 function externalConfigFromServer(server: MCPManagementServer | null): ExternalMCPServerConfig {
@@ -719,10 +744,10 @@ export function CapabilitySystemWorkbench() {
         return {
           ...group,
           value: catalog?.skills.length ?? 0,
-          meta: `${summary?.model_visible_skills ?? 0} 个模型可见`,
+          meta: `${summary?.model_visible_skills ?? 0} 个可被模型使用`,
           facts: [
-            { label: "可编辑", value: "SKILL.md" },
-            { label: "重点", value: "prompt 合同" },
+            { label: "管理", value: "使用条件" },
+            { label: "输出", value: "回答规则" },
           ],
         };
       }
@@ -732,8 +757,8 @@ export function CapabilitySystemWorkbench() {
           value: catalog?.tools.length ?? 0,
           meta: `${summary?.tool_risks?.["高"] ?? 0} 个高风险`,
           facts: [
-            { label: "边界", value: Object.keys(summary?.tool_boundaries ?? {}).length || 0 },
-            { label: "类型", value: summary?.tool_types?.length ?? 0 },
+            { label: "用途分类", value: summary?.tool_types?.length ?? 0 },
+            { label: "风险分层", value: Object.keys(summary?.tool_risks ?? {}).length || 0 },
           ],
         };
       }
@@ -741,10 +766,10 @@ export function CapabilitySystemWorkbench() {
         return {
           ...group,
           value: mcpSummary?.server_count ?? 0,
-          meta: `${mcpSummary?.tool_count ?? 0} 个 MCP tool`,
+          meta: `${mcpSummary?.tool_count ?? 0} 个服务能力`,
           facts: [
             { label: "外部", value: mcpSummary?.external_server_count ?? 0 },
-            { label: "端点", value: catalog?.capability_endpoints?.length ?? 0 },
+            { label: "可发现", value: catalog?.capability_endpoints?.length ?? 0 },
           ],
         };
       }
@@ -753,8 +778,8 @@ export function CapabilitySystemWorkbench() {
         value: catalog?.capability_units?.length ?? 0,
         meta: `${summary?.validation_error_count ?? 0} 个错误`,
         facts: [
-          { label: "Operations", value: summary?.operation_count ?? catalog?.operations?.length ?? 0 },
-          { label: "问题", value: summary?.validation_issue_count ?? issues.length },
+          { label: "可用能力", value: summary?.operation_count ?? catalog?.operations?.length ?? 0 },
+          { label: "需处理", value: summary?.validation_issue_count ?? issues.length },
         ],
       };
     });
@@ -763,11 +788,11 @@ export function CapabilitySystemWorkbench() {
         <div className="capability-overview-bar">
           <div>
             <strong>能力群</strong>
-            <span>从用途进入管理页，MCP 与端点在服务接入里统一处理。</span>
+            <span>按用户能理解的用途管理能力、工具和外部服务。</span>
           </div>
           <div className="capability-overview-bar__stats">
-            <span>{summary?.operation_count ?? catalog?.operations?.length ?? 0} operations</span>
-            <span>{summary?.validation_issue_count ?? 0} issues</span>
+            <span>{summary?.operation_count ?? catalog?.operations?.length ?? 0} 项能力</span>
+            <span>{summary?.validation_issue_count ?? 0} 个待处理</span>
           </div>
         </div>
 
@@ -778,10 +803,8 @@ export function CapabilitySystemWorkbench() {
               <button className="capability-group-card" key={card.id} onClick={() => openCapabilityPage(card.id)} type="button">
                 <span className="capability-group-card__icon"><Icon size={18} /></span>
                 <span className="capability-group-card__copy">
-                  <span>{card.source}</span>
                   <strong>{card.title}</strong>
-                  <em>{card.detail}</em>
-                  <i>{card.action}</i>
+                  <em>{card.summary}</em>
                 </span>
                 <span className="capability-group-card__metric">
                   <strong>{card.value}</strong>
@@ -806,8 +829,8 @@ export function CapabilitySystemWorkbench() {
             {issues.slice(0, 8).map((issue, index) => (
               <article key={`${issue.code}-${issue.subject}-${index}`}>
                 <span>{issue.severity}</span>
-                <strong>{issue.code}</strong>
-                <p>{issue.message}</p>
+                <strong>{issue.message}</strong>
+                <p>{issue.subject || issue.code}</p>
               </article>
             ))}
           </div>
@@ -827,9 +850,9 @@ export function CapabilitySystemWorkbench() {
               onClick={() => setSelectedUnitId(unit.capability_id)}
               type="button"
             >
-              <span>{unit.kind} · {unit.provider_kind}</span>
+              <span>{providerKindLabel(unit.provider_kind)} · {statusLabel(unit.status)}</span>
               <strong>{unit.title || unit.capability_id}</strong>
-              <p>{unit.operation_ids.join(" / ") || "未声明 operation"}</p>
+              <p>{unit.summary || compactList(unit.risk, "暂无说明")}</p>
             </button>
           ))}
         </div>
@@ -838,7 +861,7 @@ export function CapabilitySystemWorkbench() {
             <>
               <div className="operation-detail__head">
                 <div>
-                  <span>{selectedUnit.kind} · {selectedUnit.capability_id}</span>
+                  <span>{providerKindLabel(selectedUnit.provider_kind)} · {statusLabel(selectedUnit.status)}</span>
                   <h3>{selectedUnit.title || selectedUnit.capability_id}</h3>
                   <p>{selectedUnit.summary || "暂无说明"}</p>
                 </div>
@@ -850,23 +873,27 @@ export function CapabilitySystemWorkbench() {
               <FactGrid
                 columns={4}
                 items={[
-                  { label: "Operations", value: selectedUnit.operation_ids.join(" / ") || "未声明" },
-                  { label: "Provider", value: selectedUnit.provider || "未配置" },
-                  { label: "Visibility", value: selectedUnit.model_visibility || selectedUnit.runtime_visibility || "未配置" },
-                  { label: "Health", value: selectedUnit.health?.reason || selectedUnit.health?.status || "active" },
+                  { label: "可见性", value: visibilityLabel(selectedUnit.model_visibility || selectedUnit.runtime_visibility) },
+                  { label: "接入来源", value: providerKindLabel(selectedUnit.provider_kind) },
+                  { label: "健康状态", value: statusLabel(String(selectedUnit.health?.status || selectedUnit.status || "active")) },
+                  { label: "风险提示", value: compactList(selectedUnit.risk, "未标注") },
                 ]}
               />
               <FactGrid
                 columns={4}
                 items={[
-                  { label: "Profile", value: selectedUnit.permission_view?.profile_state ?? "unknown" },
-                  { label: "Turn", value: selectedUnit.permission_view?.adoption_state ?? "not_checked" },
-                  { label: "Gate", value: selectedUnit.permission_view?.gate_state ?? "not_checked" },
-                  { label: "Approval", value: selectedUnit.permission_view?.approval_state ?? "not_required" },
+                  { label: "配置状态", value: statusLabel(String(selectedUnit.permission_view?.profile_state ?? "unknown")) },
+                  { label: "本轮可用", value: statusLabel(String(selectedUnit.permission_view?.adoption_state ?? "not_checked")) },
+                  { label: "准入检查", value: statusLabel(String(selectedUnit.permission_view?.gate_state ?? "not_checked")) },
+                  { label: "审批要求", value: selectedUnit.permission_view?.approval_state === "not_required" ? "无需审批" : String(selectedUnit.permission_view?.approval_state ?? "未检查") },
                 ]}
               />
-              <Foldout title="依赖 / 风险 / 来源" note="治理视图">
+              <Foldout title="内部映射与来源" note="调试">
                 <div className="operation-inline-stack">
+                  <article>
+                    <strong>内部能力</strong>
+                    <p>{selectedUnit.operation_ids.join(" / ") || "未声明"}</p>
+                  </article>
                   <article>
                     <strong>依赖</strong>
                     {selectedUnit.dependencies.length ? (
@@ -878,10 +905,6 @@ export function CapabilitySystemWorkbench() {
                         ))}
                       </div>
                     ) : <p>没有声明依赖。</p>}
-                  </article>
-                  <article>
-                    <strong>风险标签</strong>
-                    <p>{selectedUnit.risk.join(" / ") || "未标注"}</p>
                   </article>
                   <article>
                     <strong>源码来源</strong>
@@ -928,9 +951,9 @@ export function CapabilitySystemWorkbench() {
               }}
               type="button"
             >
-              <span>{skill.runtime.activation_policy || "skill"}</span>
+              <span>{visibilityLabel(skill.runtime.activation_policy)}</span>
               <strong>{skill.runtime.title || skill.runtime.name}</strong>
-              <p>{skill.runtime.preferred_route || compactList(skill.runtime.supported_task_kinds)}</p>
+              <p>{semanticSkillUse(skill)}</p>
             </button>
           ))}
         </div>
@@ -939,7 +962,7 @@ export function CapabilitySystemWorkbench() {
             <>
               <div className="operation-detail__head">
                 <div>
-                  <span>Skill · {selectedSkill.runtime.name}</span>
+                  <span>{visibilityLabel(selectedSkill.runtime.activation_policy)} · 工作方法</span>
                   <h3>{selectedSkill.runtime.title || selectedSkill.runtime.name}</h3>
                   <p>{selectedSkill.runtime.description}</p>
                 </div>
@@ -963,10 +986,10 @@ export function CapabilitySystemWorkbench() {
               <FactGrid
                 columns={4}
                 items={[
-                  { label: "路径", value: selectedSkill.runtime.path },
-                  { label: "路由", value: selectedSkill.runtime.preferred_route || "未配置" },
-                  { label: "任务", value: compactList(selectedSkill.runtime.supported_task_kinds) },
-                  { label: "上下文", value: selectedSkill.runtime.context_mode || "未配置" },
+                  { label: "使用条件", value: selectedSkill.prompt_view.use_when || "未配置" },
+                  { label: "输出规则", value: selectedSkill.prompt_view.output_rule || "未配置" },
+                  { label: "适用任务", value: compactList(selectedSkill.runtime.supported_task_kinds) },
+                  { label: "上下文方式", value: selectedSkill.runtime.context_mode || "未配置" },
                 ]}
               />
               {selectedSkill.validation_errors.length ? (
@@ -995,9 +1018,23 @@ export function CapabilitySystemWorkbench() {
                     <label>使用条件<textarea value={promptDraft.use_when} onChange={(event) => setPromptDraft((prev) => ({ ...prev, use_when: event.target.value }))} /></label>
                     <label>输出规则<textarea value={promptDraft.output_rule} onChange={(event) => setPromptDraft((prev) => ({ ...prev, output_rule: event.target.value }))} /></label>
                   </div>
-                ) : <pre>{selectedSkill.prompt_block || "这个 skill 暂无模型可见提示。"}</pre>}
+                ) : (
+                  <div className="operation-semantic-text">
+                    <p>{selectedSkill.prompt_view.capability || selectedSkill.runtime.description || "这个 skill 暂无能力说明。"}</p>
+                    <p><strong>使用条件：</strong>{selectedSkill.prompt_view.use_when || "未配置"}</p>
+                    <p><strong>输出规则：</strong>{selectedSkill.prompt_view.output_rule || "未配置"}</p>
+                  </div>
+                )}
               </section>
-              <Foldout title="SKILL.md" note="完整文件" open={skillEditing}>
+              <Foldout title="SKILL.md 与内部路由" note="调试" open={skillEditing}>
+                <FactGrid
+                  columns={3}
+                  items={[
+                    { label: "内部名称", value: selectedSkill.runtime.name },
+                    { label: "文件路径", value: selectedSkill.runtime.path },
+                    { label: "推荐路由", value: selectedSkill.runtime.preferred_route || "未配置" },
+                  ]}
+                />
                 <textarea readOnly={!skillEditing} value={skillDraft} onChange={(event) => setSkillDraft(event.target.value)} />
               </Foldout>
             </>
@@ -1026,9 +1063,9 @@ export function CapabilitySystemWorkbench() {
               onClick={() => setSelectedToolName(tool.name)}
               type="button"
             >
-              <span>{tool.operation_metadata.tool_type}</span>
+              <span>{tool.operation_metadata.tool_type} · {tool.operation_metadata.risk_level}风险</span>
               <strong>{tool.display_name || tool.name}</strong>
-              <p>{tool.operation_metadata.risk_level}风险 · {tool.operation_id}</p>
+              <p>{semanticToolPurpose(tool)}</p>
             </button>
           ))}
         </div>
@@ -1037,9 +1074,9 @@ export function CapabilitySystemWorkbench() {
             <>
               <div className="operation-detail__head">
                 <div>
-                  <span>Tool · {selectedTool.name}</span>
+                  <span>{selectedTool.operation_metadata.tool_type} · {visibilityLabel(selectedTool.runtime_visibility)}</span>
                   <h3>{selectedTool.display_name || selectedTool.name}</h3>
-                  <p>{selectedTool.module} · {selectedTool.operation_id}</p>
+                  <p>{semanticToolPurpose(selectedTool)}</p>
                 </div>
                 <div className={`operation-risk-badge ${RISK_CLASS[selectedTool.operation_metadata.risk_level] ?? ""}`}>
                   <AlertTriangle size={16} />
@@ -1049,10 +1086,10 @@ export function CapabilitySystemWorkbench() {
               <FactGrid
                 columns={4}
                 items={[
-                  { label: "边界", value: selectedTool.operation_metadata.tool_boundary },
-                  { label: "类型", value: selectedTool.operation_metadata.tool_type },
-                  { label: "可见性", value: selectedTool.runtime_visibility },
-                  { label: "策略", value: selectedTool.operation_metadata.runtime_policy },
+                  { label: "用途分类", value: selectedTool.operation_metadata.tool_type },
+                  { label: "风险等级", value: `${selectedTool.operation_metadata.risk_level}风险` },
+                  { label: "模型可见", value: visibilityLabel(selectedTool.runtime_visibility) },
+                  { label: "自动路由", value: selectedTool.safe_for_auto_route ? "允许" : "需显式触发" },
                 ]}
               />
               <div className="operation-tool-control">
@@ -1075,15 +1112,15 @@ export function CapabilitySystemWorkbench() {
                   保存备注
                 </button>
               </div>
-              <FactGrid
-                columns={3}
-                items={[
-                  { label: "提示暴露", value: selectedTool.prompt_exposure_policy },
-                  { label: "资源策略", value: selectedTool.resource_exposure_policy },
-                  { label: "自动路由", value: selectedTool.safe_for_auto_route ? "允许" : "需显式触发" },
-                ]}
-              />
-              <Foldout title="执行 / 解析 / 输出契约" note="调试">
+              <Foldout title="内部映射与执行契约" note="调试">
+                <FactGrid
+                  columns={3}
+                  items={[
+                    { label: "内部工具", value: selectedTool.name },
+                    { label: "能力映射", value: selectedTool.operation_id || "未映射" },
+                    { label: "模块来源", value: selectedTool.module || "未配置" },
+                  ]}
+                />
                 <div className="operation-json-stack">
                   <article><strong>执行契约</strong><pre>{jsonText(selectedTool.contract)}</pre></article>
                   <article><strong>解析契约</strong><pre>{jsonText(selectedTool.resolution_contract)}</pre></article>
@@ -1102,11 +1139,11 @@ export function CapabilitySystemWorkbench() {
       <section className="capability-mcp-page">
         <div className="capability-mcp-rail">
           <div className="capability-page-head">
-            <div><strong>Provider</strong><span>{mcpCatalog?.summary.server_count ?? 0} 个 server</span></div>
+            <div><strong>服务接入</strong><span>{mcpCatalog?.summary.server_count ?? 0} 个服务</span></div>
             <button className="action-button action-button--ghost" onClick={() => {
               setSelectedServerKey("");
               setMcpDraft(EMPTY_SERVER);
-            }} type="button">新建外部</button>
+            }} type="button">接入外部服务</button>
           </div>
           <div className="mcp-server-list">
             {visibleMcpServers.map((server) => {
@@ -1117,8 +1154,8 @@ export function CapabilitySystemWorkbench() {
                   <span className={`mcp-server-row__status mcp-status mcp-status--${tone}`} />
                   <span className="mcp-server-row__copy">
                     <strong>{server.title || server.server_id}</strong>
-                    <em>{server.provider_kind} / {server.transport} / {statusLabel(server.status)}</em>
-                    <small>{server.operation_ids.join(", ") || server.status_reason || "等待发现"}</small>
+                    <em>{providerKindLabel(server.provider_kind)} · {statusLabel(server.status)}</em>
+                    <small>{server.description || server.status_reason || `${server.tools.length} 个服务能力`}</small>
                   </span>
                 </button>
               );
@@ -1129,9 +1166,9 @@ export function CapabilitySystemWorkbench() {
           <section className="capability-mcp-section">
             <div className="operation-detail__head">
               <div>
-                <span>{effectiveServer ? `${effectiveServer.provider_kind} · ${effectiveServer.server_id}` : "external · new"}</span>
+                <span>{effectiveServer ? `${providerKindLabel(effectiveServer.provider_kind)} · ${statusLabel(effectiveServer.status)}` : "外部服务 · 新建"}</span>
                 <h3>{effectiveServer?.title || "外部 MCP 配置"}</h3>
-                <p>{effectiveServer?.description || "本地和外部 MCP 在这里统一管理，端点只作为投影展示。"}</p>
+                <p>{effectiveServer?.description || "配置外部服务的用途、连接方式和可用能力。"}</p>
               </div>
               <div className="operation-detail__actions">
                 <button className="action-button action-button--ghost" disabled={!effectiveServer || loading} onClick={() => void inspectSelectedMcpServer()} type="button">
@@ -1142,21 +1179,25 @@ export function CapabilitySystemWorkbench() {
             </div>
             {isExternalServer || isNewExternal || !effectiveServer ? (
               <div className="mcp-form-grid capability-mcp-form">
-                <label><span>服务器 ID</span><input value={mcpDraft.server_id} onChange={(event) => setMcpDraft({ ...mcpDraft, server_id: event.target.value })} /></label>
-                <label><span>标题</span><input value={mcpDraft.title} onChange={(event) => setMcpDraft({ ...mcpDraft, title: event.target.value })} /></label>
-                <label><span>传输方式</span><select value={mcpDraft.transport} onChange={(event) => setMcpDraft({ ...mcpDraft, transport: event.target.value })}><option value="stdio">stdio</option><option value="streamable_http">streamable_http</option></select></label>
-                <label><span>作用域</span><input value={mcpDraft.scope} onChange={(event) => setMcpDraft({ ...mcpDraft, scope: event.target.value })} /></label>
-                <label className="mcp-form-wide"><span>启动命令</span><input value={mcpDraft.command} onChange={(event) => setMcpDraft({ ...mcpDraft, command: event.target.value })} /></label>
-                <label className="mcp-form-wide"><span>URL</span><input value={mcpDraft.url} onChange={(event) => setMcpDraft({ ...mcpDraft, url: event.target.value })} /></label>
+                <label><span>服务标识</span><input value={mcpDraft.server_id} onChange={(event) => setMcpDraft({ ...mcpDraft, server_id: event.target.value })} /></label>
+                <label><span>服务名称</span><input value={mcpDraft.title} onChange={(event) => setMcpDraft({ ...mcpDraft, title: event.target.value })} /></label>
+                <label><span>连接方式</span><select value={mcpDraft.transport} onChange={(event) => setMcpDraft({ ...mcpDraft, transport: event.target.value })}><option value="stdio">本地命令</option><option value="streamable_http">HTTP 服务</option></select></label>
+                <label><span>适用范围</span><input value={mcpDraft.scope} onChange={(event) => setMcpDraft({ ...mcpDraft, scope: event.target.value })} /></label>
+                <label className="mcp-form-wide"><span>本地启动命令</span><input value={mcpDraft.command} onChange={(event) => setMcpDraft({ ...mcpDraft, command: event.target.value })} /></label>
+                <label className="mcp-form-wide"><span>服务地址</span><input value={mcpDraft.url} onChange={(event) => setMcpDraft({ ...mcpDraft, url: event.target.value })} /></label>
                 <label className="mcp-form-wide"><span>工作目录</span><input value={mcpDraft.cwd} onChange={(event) => setMcpDraft({ ...mcpDraft, cwd: event.target.value })} /></label>
                 <label className="mcp-form-wide"><span>描述</span><textarea value={mcpDraft.description} onChange={(event) => setMcpDraft({ ...mcpDraft, description: event.target.value })} rows={3} /></label>
-                <label><span>参数</span><textarea value={mcpArgsDraft} onChange={(event) => setMcpArgsDraft(event.target.value)} rows={5} /></label>
                 <label><span>标签</span><textarea value={mcpTagsDraft} onChange={(event) => setMcpTagsDraft(event.target.value)} rows={5} /></label>
-                <label><span>环境变量 JSON</span><textarea value={mcpEnvDraft} onChange={(event) => setMcpEnvDraft(event.target.value)} rows={5} /></label>
-                <label><span>元数据 JSON</span><textarea value={mcpMetadataDraft} onChange={(event) => setMcpMetadataDraft(event.target.value)} rows={5} /></label>
-                <label><span>默认允许 operation</span><textarea value={mcpAllowedDraft} onChange={(event) => setMcpAllowedDraft(event.target.value)} rows={4} /></label>
-                <label><span>需要审批 operation</span><textarea value={mcpApprovalDraft} onChange={(event) => setMcpApprovalDraft(event.target.value)} rows={4} /></label>
-                <label className="mcp-form-wide"><span>拒绝 operation</span><textarea value={mcpDeniedDraft} onChange={(event) => setMcpDeniedDraft(event.target.value)} rows={3} /></label>
+                <label><span>默认允许能力</span><textarea value={mcpAllowedDraft} onChange={(event) => setMcpAllowedDraft(event.target.value)} rows={4} /></label>
+                <label><span>需要审批能力</span><textarea value={mcpApprovalDraft} onChange={(event) => setMcpApprovalDraft(event.target.value)} rows={4} /></label>
+                <label className="mcp-form-wide"><span>禁止能力</span><textarea value={mcpDeniedDraft} onChange={(event) => setMcpDeniedDraft(event.target.value)} rows={3} /></label>
+                <Foldout title="启动参数与环境变量" note="调试">
+                  <div className="mcp-form-grid capability-mcp-form">
+                    <label><span>参数</span><textarea value={mcpArgsDraft} onChange={(event) => setMcpArgsDraft(event.target.value)} rows={5} /></label>
+                    <label><span>环境变量 JSON</span><textarea value={mcpEnvDraft} onChange={(event) => setMcpEnvDraft(event.target.value)} rows={5} /></label>
+                    <label className="mcp-form-wide"><span>元数据 JSON</span><textarea value={mcpMetadataDraft} onChange={(event) => setMcpMetadataDraft(event.target.value)} rows={5} /></label>
+                  </div>
+                </Foldout>
                 <div className="capability-mcp-actions">
                   {isExternalServer ? <button className="action-button action-button--danger" disabled={saving === "mcp-delete"} onClick={() => void removeMcpServer(mcpDraft.server_id)} type="button"><Trash2 size={14} />删除</button> : null}
                   <button className="action-button action-button--primary" disabled={saving === "mcp-server"} onClick={() => void saveMcpServer()} type="button">
@@ -1170,10 +1211,10 @@ export function CapabilitySystemWorkbench() {
                 <FactGrid
                   columns={4}
                   items={[
-                    { label: "Provider", value: effectiveServer.provider_id },
-                    { label: "Server", value: effectiveServer.server_id },
-                    { label: "Transport", value: effectiveServer.transport },
-                    { label: "Status", value: statusLabel(effectiveServer.status) },
+                    { label: "服务来源", value: providerKindLabel(effectiveServer.provider_kind) },
+                    { label: "连接方式", value: effectiveServer.transport === "stdio" ? "本地命令" : effectiveServer.transport },
+                    { label: "可用状态", value: statusLabel(effectiveServer.status) },
+                    { label: "服务能力", value: `${selectedServerTools.length || effectiveServer.tools.length} 个` },
                   ]}
                 />
                 <Foldout title="Provider 诊断" note="调试">
@@ -1184,7 +1225,7 @@ export function CapabilitySystemWorkbench() {
           </section>
           <section className="capability-mcp-section">
             <div className="capability-page-head">
-              <div><strong>MCP Tools</strong><span>{selectedServerTools.length || visibleMcpTools.length} 个可见 tool</span></div>
+              <div><strong>服务能力</strong><span>{selectedServerTools.length || visibleMcpTools.length} 个可用项</span></div>
             </div>
             <div className="mcp-tool-list capability-mcp-tool-list">
               {(selectedServerTools.length ? selectedServerTools : visibleMcpTools).map((tool) => {
@@ -1192,7 +1233,7 @@ export function CapabilitySystemWorkbench() {
                 return (
                   <button className={selectedMcpToolKey === key ? "mcp-tool-row mcp-tool-row--active" : "mcp-tool-row"} key={key} onClick={() => setSelectedMcpToolKey(key)} type="button">
                     <strong>{tool.title || tool.tool_name}</strong>
-                    <span>{tool.provider_kind} / {tool.operation_id || "未映射 operation"}</span>
+                    <span>{visibilityLabel(tool.model_visibility)} · {statusLabel(tool.status || "not_inspected")}</span>
                   </button>
                 );
               })}
@@ -1201,21 +1242,23 @@ export function CapabilitySystemWorkbench() {
               <div className="capability-mcp-call">
                 <FactGrid
                   columns={4}
-                  items={[
-                    { label: "Tool", value: selectedMcpTool.tool_name },
-                    { label: "Operation", value: selectedMcpTool.operation_id || "未映射" },
-                    { label: "Model", value: selectedMcpTool.model_visibility },
-                    { label: "Status", value: statusLabel(selectedMcpTool.status || "not_inspected") },
+                items={[
+                    { label: "能力名称", value: selectedMcpTool.title || selectedMcpTool.tool_name },
+                    { label: "模型可见", value: visibilityLabel(selectedMcpTool.model_visibility) },
+                    { label: "可用状态", value: statusLabel(selectedMcpTool.status || "not_inspected") },
+                    { label: "标签", value: compactList(selectedMcpTool.tags, "未标注") },
                   ]}
                 />
-                <textarea value={mcpCallArgsDraft} onChange={(event) => setMcpCallArgsDraft(event.target.value)} rows={4} />
-                <div className="operation-detail__actions">
-                  <button className="action-button action-button--ghost" onClick={() => void previewMcpTool(selectedMcpTool)} type="button">预检</button>
-                  <button className="action-button action-button--ghost" onClick={() => void callMcpTool(selectedMcpTool)} type="button">调用</button>
-                </div>
-                {mcpResult ? <pre className="mcp-call-result">{mcpResult}</pre> : null}
-                <Foldout title="Schema / Diagnostics" note="调试">
+                <p className="capability-semantic-copy">{selectedMcpTool.description || "暂无能力说明。"}</p>
+                <Foldout title="预检 / 调用 / Schema" note="调试">
+                  <textarea value={mcpCallArgsDraft} onChange={(event) => setMcpCallArgsDraft(event.target.value)} rows={4} />
+                  <div className="operation-detail__actions">
+                    <button className="action-button action-button--ghost" onClick={() => void previewMcpTool(selectedMcpTool)} type="button">预检</button>
+                    <button className="action-button action-button--ghost" onClick={() => void callMcpTool(selectedMcpTool)} type="button">调用</button>
+                  </div>
+                  {mcpResult ? <pre className="mcp-call-result">{mcpResult}</pre> : null}
                   <div className="operation-json-stack">
+                    <article><strong>内部映射</strong><pre>{jsonText({ tool: selectedMcpTool.tool_name, operation: selectedMcpTool.operation_id, provider: selectedMcpTool.provider_id, server: selectedMcpTool.server_id })}</pre></article>
                     <article><strong>Input Schema</strong><pre>{jsonText(selectedMcpTool.input_schema)}</pre></article>
                     <article><strong>Output Schema</strong><pre>{jsonText(selectedMcpTool.output_schema)}</pre></article>
                     <article><strong>Diagnostics</strong><pre>{jsonText(selectedMcpTool.diagnostics)}</pre></article>
@@ -1226,25 +1269,25 @@ export function CapabilitySystemWorkbench() {
           </section>
           <section className="capability-mcp-section">
             <div className="capability-page-head">
-              <div><strong>端点投影</strong><span>{visibleEndpoints.length} 个 endpoint</span></div>
+              <div><strong>能力投影</strong><span>{visibleEndpoints.length} 个可发现入口</span></div>
             </div>
             <div className="capability-endpoint-list">
               {visibleEndpoints.map((endpoint) => (
                 <button className={selectedEndpoint?.endpoint_id === endpoint.endpoint_id ? "capability-endpoint-row capability-endpoint-row--active" : "capability-endpoint-row"} key={endpoint.endpoint_id} onClick={() => setSelectedEndpointId(endpoint.endpoint_id)} type="button">
                   <strong>{endpoint.title || endpoint.name}</strong>
-                  <span>{endpoint.kind} / {endpoint.operation_id}</span>
+                  <span>{visibilityLabel(endpoint.model_visibility)} · {semanticEndpointPurpose(endpoint)}</span>
                 </button>
               ))}
             </div>
             {selectedEndpoint ? (
-              <Foldout title={selectedEndpoint.title || selectedEndpoint.name} note={selectedEndpoint.server_name}>
+              <Foldout title={selectedEndpoint.title || selectedEndpoint.name} note="调试">
                 <FactGrid
                   columns={4}
                   items={[
-                    { label: "Operation", value: selectedEndpoint.operation_id },
-                    { label: "Lane", value: selectedEndpoint.runtime_lane },
-                    { label: "Transport", value: selectedEndpoint.transport },
-                    { label: "Model", value: selectedEndpoint.model_visibility },
+                    { label: "内部能力", value: selectedEndpoint.operation_id },
+                    { label: "运行通道", value: selectedEndpoint.runtime_lane },
+                    { label: "连接方式", value: selectedEndpoint.transport },
+                    { label: "模型可见", value: visibilityLabel(selectedEndpoint.model_visibility) },
                   ]}
                 />
                 <pre>{jsonText({ input_schema: selectedEndpoint.input_schema, output_schema: selectedEndpoint.output_schema, metadata: selectedEndpoint.metadata })}</pre>
@@ -1256,17 +1299,17 @@ export function CapabilitySystemWorkbench() {
     );
   }
 
-  const activePlaceholder = activePage === "mcp" ? "搜索 provider / server / tool / endpoint" :
-      activePage === "tools" ? "搜索工具 / operation / 风险" :
-        activePage === "skills" ? "搜索 skill / route / prompt" :
-          "搜索能力单元 / operation / provider";
+  const activePlaceholder = activePage === "mcp" ? "搜索服务名称、能力说明或状态" :
+      activePage === "tools" ? "搜索工具用途、风险或说明" :
+        activePage === "skills" ? "搜索工作方法、使用条件或输出规则" :
+          "搜索能力用途、可用状态或接入来源";
 
   return (
     <div className="workspace-view capability-system-console">
       <header className="workspace-view__header">
         <div>
           <h2 className="workspace-view__title">能力系统</h2>
-          <p className="workspace-view__subtitle">按能力用途进入管理页；服务接入里统一处理本地和外部 MCP。</p>
+          <p className="workspace-view__subtitle">管理模型能使用什么能力、什么时候能用，以及需要怎样治理。</p>
         </div>
         <div className="workspace-view__actions">
           {activePage !== "overview" ? (
@@ -1283,21 +1326,6 @@ export function CapabilitySystemWorkbench() {
 
       {error ? <div className="workspace-alert workspace-alert--danger">{error}</div> : null}
       {notice ? <div className="workspace-alert">{notice}</div> : null}
-
-      {activePage !== "overview" ? (
-        <nav className="operation-switcher" aria-label="能力系统分类">
-          {GROUPS.map((item) => {
-            const Icon = item.icon;
-            return (
-              <button className={activePage === item.id ? "operation-switcher__item operation-switcher__item--active" : "operation-switcher__item"} key={item.id} onClick={() => openCapabilityPage(item.id)} type="button">
-                <span className="operation-switcher__icon"><Icon size={16} /></span>
-                <strong>{item.title}</strong>
-                <span>{item.detail}</span>
-              </button>
-            );
-          })}
-        </nav>
-      ) : null}
 
       {activePage !== "overview" ? (
         <div className="workspace-search">

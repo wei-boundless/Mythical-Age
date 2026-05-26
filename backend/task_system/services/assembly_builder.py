@@ -203,6 +203,7 @@ def build_task_execution_assembly_bundle(
         [
             *list(resolved_runtime_operations.get("optional_operations") or ()),
             *policy_optional_operations,
+            *_agent_profile_capability_operations(agent_runtime_profile),
             *[operation for skill in skill_views for operation in skill.required_operations],
         ]
     )
@@ -499,6 +500,26 @@ def _text_artifact_runtime_allowed_operations(agent_runtime_profile: AgentRuntim
         if str(item or "").strip()
     }
     return {item for item in allowed if item not in blocked and item in {"op.model_response", "op.memory_read", "op.text_metric"}}
+
+
+def _agent_profile_capability_operations(agent_runtime_profile: AgentRuntimeProfile | None) -> list[str]:
+    if agent_runtime_profile is None:
+        return []
+    blocked = {
+        str(item or "").strip()
+        for item in tuple(getattr(agent_runtime_profile, "blocked_operations", ()) or ())
+        if str(item or "").strip()
+    }
+    return _dedupe(
+        [
+            operation
+            for operation in [
+                str(item or "").strip()
+                for item in tuple(getattr(agent_runtime_profile, "allowed_operations", ()) or ())
+            ]
+            if operation and operation != "op.model_response" and operation not in blocked
+        ]
+    )
 
 
 def _normalize_current_turn_for_registered_task(

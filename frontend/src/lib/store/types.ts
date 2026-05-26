@@ -116,15 +116,12 @@ export type SkillSummary = {
 export type WorkspaceView =
   | "chat"
   | "memory"
-  | "test-system"
   | "health-system"
   | "capability-system"
   | "soul-system"
-  | "evidence"
   | "task-system"
   | "orchestration"
   | "code-environment"
-  | "experiments"
   | "playground"
   | "system-config";
 
@@ -147,7 +144,7 @@ export type ChatMode = "chat" | "image";
 export type MainAgentAssemblyMode = "role" | "standard" | "professional";
 
 export type MemoryInspectorTarget = {
-  source: "test-system" | "manual";
+  source: "manual";
   runId?: string;
   turnId?: string;
   turnIndex?: number;
@@ -156,7 +153,7 @@ export type MemoryInspectorTarget = {
 };
 
 export type OrchestrationInspectorTarget = {
-  source: "test-system" | "task-system" | "live-session" | "manual";
+  source: "task-system" | "live-session" | "manual";
   runId?: string;
   turnId?: string;
   turnIndex?: number;

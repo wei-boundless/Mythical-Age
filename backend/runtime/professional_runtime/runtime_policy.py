@@ -100,12 +100,23 @@ def _with_professional_task_instruction(
                 "todo 要拆到可执行小步，尤其是大型源码文件应拆成骨架写入、分段 edit_file、验证和收口；"
                 "todo 不能替代真实文件写入、命令验证或最终证据。"
             )
-        if "write_file" in set(allowed_tools):
+        if "write_file" in set(allowed_tools) and goal_contract is not None and goal_contract.requires_write_output:
+            target_paths = [
+                str(path).strip()
+                for path in list(goal_contract.required_output_paths or [])
+                if str(path).strip()
+            ]
+            target_line = (
+                "目标契约列出的缺失产物路径是：" + "、".join(target_paths[:6]) + "。"
+                if target_paths
+                else "目标契约要求真实写入产物，但没有绑定具体路径；你需要在允许写入范围内产出真实文件。"
+            )
             write_guidance = (
                 f"{write_guidance}"
-                "如果用户明确要求写入、保存、产出草案文件或在 sandbox overlay 中交付文件，"
-                "在读到核心材料后应尽快调用 write_file 产出文件；不要把工具预算耗尽在泛化搜索上。"
-                "如果目标列出多个文件，你需要逐个文件真实写入或增量编辑，直到缺失路径全部补齐。"
+                "目标契约要求真实文件写入；在读到核心材料后应尽快调用 write_file 或 edit_file 产出文件，"
+                "不要把工具预算耗尽在泛化搜索上。"
+                f"{target_line}"
+                "如果目标契约列出多个文件，你需要逐个文件真实写入或增量编辑，直到缺失路径全部补齐。"
                 "大型源码文件不要强行一次写完整；先写可运行骨架，再用 edit_file 分段补齐系统。"
             )
         tool_line = (

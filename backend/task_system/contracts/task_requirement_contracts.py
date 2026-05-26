@@ -92,8 +92,8 @@ def build_task_requirement_contract(
                 ),
                 [dict(item) for item in list(obligation.get("required_reads") or []) if isinstance(item, dict)],
             ),
-            task_goal_spec=task_goal_spec,
-            user_goal=user_goal,
+            execution_obligation=obligation,
+            semantic_contract_outputs=_structured_output_paths_from_goal_spec(task_goal_spec),
         )
     )
     goal_profile = get_task_goal_profile(task_goal_type)
@@ -111,6 +111,11 @@ def build_task_requirement_contract(
     )
     domain_value = str(getattr(goal_profile, "task_domain", "") or _domain_for_goal_type(task_goal_type, understanding))
     task_domain_binding = _system_task_domain_binding(current_turn=current_turn, inputs=inputs)
+    required_actions = _contract_required_actions(
+        task_goal_type=task_goal_type,
+        materials=materials,
+        obligation=obligation,
+    )
     return TaskRequirementContract(
         contract_id=f"semantic-task:{session_id}:{task_id}",
         task_goal_type=task_goal_type,
@@ -121,14 +126,7 @@ def build_task_requirement_contract(
         materials=materials,
         deliverables=tuple(deliverables),
         required_reasoning_steps=tuple(_reasoning_steps_for_goal_type(task_goal_type)),
-        required_actions=tuple(
-            _dedupe(
-                [
-                    *_required_actions_for_goal_type(task_goal_type, materials=materials),
-                    *_required_actions_for_obligation(obligation),
-                ]
-            )
-        ),
+        required_actions=tuple(required_actions),
         forbidden_actions=tuple(
             _dedupe(
                 [
@@ -332,6 +330,8 @@ def _collect_materials(
             path = _complete_partial_known_root_path(match.group("path"), text=str(user_goal or ""), start=match.start())
             if _path_looks_like_command_argument(text=str(user_goal or ""), start=match.start(), path=path):
                 continue
+            if _path_looks_like_required_output(text=str(user_goal or ""), start=match.start(), end=match.end()):
+                continue
             add(path, role="failure_report" if path.lower().endswith(".json") else "material")
     return materials
 
@@ -384,13 +384,19 @@ def _merge_materials(primary: list[dict[str, Any]], obligation_reads: list[dict[
 def _filter_output_materials(
     materials: list[dict[str, Any]],
     *,
-    task_goal_spec: dict[str, Any],
-    user_goal: str,
+    execution_obligation: dict[str, Any],
+    semantic_contract_outputs: list[str],
 ) -> list[dict[str, Any]]:
-    task_goal_type = str(task_goal_spec.get("task_goal_type") or "").strip()
-    output_paths = _output_paths_from_goal_frame(task_goal_spec)
-    if task_goal_type in {"game_vertical_slice_delivery", "frontend_app_delivery"}:
-        output_paths.extend(_paths_in_output_context(user_goal))
+    output_paths = _dedupe(
+        [
+            *semantic_contract_outputs,
+            *[
+                str(item.get("path") or "").strip()
+                for item in list(dict(execution_obligation or {}).get("required_writes") or [])
+                if isinstance(item, dict) and str(item.get("path") or "").strip()
+            ],
+        ]
+    )
     if not output_paths:
         return materials
     return [
@@ -400,7 +406,7 @@ def _filter_output_materials(
     ]
 
 
-def _output_paths_from_goal_frame(task_goal_spec: dict[str, Any]) -> list[str]:
+def _structured_output_paths_from_goal_spec(task_goal_spec: dict[str, Any]) -> list[str]:
     paths: list[str] = []
     for key in ("core_deliverables", "supporting_deliverables"):
         for item in list(task_goal_spec.get(key) or []):
@@ -417,18 +423,6 @@ def _output_paths_from_goal_frame(task_goal_spec: dict[str, Any]) -> list[str]:
     ]
     paths.extend(constraints)
     return _dedupe([_normalize_path(path) for path in paths if path])
-
-
-def _paths_in_output_context(text: str) -> list[str]:
-    output_paths: list[str] = []
-    for match in _PATH_RE.finditer(str(text or "")):
-        path = _normalize_path(match.group("path"))
-        if not path:
-            continue
-        context = str(text or "")[max(0, match.start() - 36) : match.end() + 36]
-        if any(marker in context for marker in ("写入", "输出", "最终报告", "阶段产物", "产物", "生成到", "保存到")):
-            output_paths.append(path)
-    return _dedupe(output_paths)
 
 
 def _same_path(left: str, right: str) -> bool:
@@ -512,6 +506,35 @@ def _path_looks_like_command_argument(*, text: str, start: int, path: str) -> bo
     return any(marker in prefix for marker in ("pytest ", "python ", "node ", "npm ", "pnpm ", "yarn "))
 
 
+def _path_looks_like_required_output(*, text: str, start: int, end: int) -> bool:
+    normalized = str(text or "").replace("\\", "/")
+    left = normalized.rfind("\n", 0, start)
+    right = normalized.find("\n", end)
+    line_start = 0 if left < 0 else left + 1
+    line_end = len(normalized) if right < 0 else right
+    context = normalized[max(line_start, start - 48) : min(line_end, end + 48)]
+    output_index = _last_marker_index(
+        context,
+        ("目标输出", "输出目录", "输出到", "写入", "保存", "生成", "产出", "落到", "创建", "新建"),
+    )
+    if output_index < 0:
+        return False
+    read_index = _last_marker_index(
+        context,
+        ("只读", "源项目", "源工程", "源路径", "源目录", "读回", "读取", "打开", "查看", "分析", "追踪", "结合", "基于", "根据", "参考", "从", "载入", "检查"),
+    )
+    return output_index >= read_index
+
+
+def _last_marker_index(text: str, markers: tuple[str, ...]) -> int:
+    indexes = [
+        str(text or "").rfind(marker)
+        for marker in markers
+        if str(text or "").rfind(marker) >= 0
+    ]
+    return max(indexes) if indexes else -1
+
+
 def _domain_for_goal_type(task_goal_type: str, query_understanding: dict[str, Any]) -> str:
     profile = get_task_goal_profile(task_goal_type)
     if profile is not None:
@@ -557,6 +580,26 @@ def _required_actions_for_goal_type(task_goal_type: str, *, materials: tuple[dic
     if profile is not None and profile.required_actions:
         actions.extend(profile.required_actions)
         return _dedupe(actions)
+    return _dedupe(actions)
+
+
+def _contract_required_actions(
+    *,
+    task_goal_type: str,
+    materials: tuple[dict[str, Any], ...],
+    obligation: dict[str, Any],
+) -> list[str]:
+    actions = [
+        *_required_actions_for_goal_type(task_goal_type, materials=materials),
+        *_required_actions_for_obligation(obligation),
+    ]
+    if task_goal_type in {"test_report_triage", "inspection", "material_synthesis", "runtime_trace_analysis"}:
+        readonly_allowed = {
+            "read_material",
+            "build_evidence_packet",
+            "validate_deliverables",
+        }
+        return _dedupe([item for item in actions if item in readonly_allowed])
     return _dedupe(actions)
 
 
@@ -636,6 +679,12 @@ def _contract_deliverables(*, task_goal_type: str, obligation: dict[str, Any]) -
         return _dedupe([item for item in [*base, *obligation_deliverables] if item in allowed])
     if task_goal_type == "code_fix_execution":
         allowed = {"change_summary", "changed_files", "verification_result_or_limitation", "evidence_limits"}
+        return _dedupe([item for item in [*base, *obligation_deliverables] if item in allowed])
+    if task_goal_type == "test_report_triage":
+        allowed = {"failure_classification", "structural_root_causes", "regression_test_plan", "evidence_limits"}
+        return _dedupe([item for item in [*base, *obligation_deliverables] if item in allowed])
+    if task_goal_type == "inspection":
+        allowed = {"inspection_findings", "evidence_refs", "limitations"}
         return _dedupe([item for item in [*base, *obligation_deliverables] if item in allowed])
     if task_goal_type == "game_vertical_slice_delivery":
         allowed = {

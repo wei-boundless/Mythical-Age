@@ -99,7 +99,12 @@ def test_tool_observation_ledger_classifies_write_and_verification() -> None:
                     "exit_code": 0,
                     "passed": True,
                     "output_preview": "1 passed",
-                }
+                },
+                "verification_intent": {
+                    "stage": "verify_output",
+                    "obligation": "verify_command",
+                    "authority": "professional_runtime.action_gate",
+                },
             },
         },
     )

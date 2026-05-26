@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-import re
 from typing import Any
 
 from request_intent.frame_access import (
@@ -146,27 +145,6 @@ def default_task_definitions() -> dict[str, TaskDefinition]:
     return {definition.definition_id: definition for definition in definitions}
 
 
-def select_task_definitions(user_goal: str) -> list[TaskDefinition]:
-    text = str(user_goal or "").lower()
-    definitions = default_task_definitions()
-    has_local_target = _has_local_material_evidence(text)
-    if has_local_target and _has_change_intent(text) and _has_review_intent(text):
-        return [
-            definitions["task.task_execution"],
-            definitions["task.inspection_and_correction"],
-        ]
-    if _has_external_search_intent(text):
-        return [definitions["task.information_search"]]
-    if has_local_target and _has_local_read_intent(text):
-        return [
-            definitions["task.local_material_read"],
-            definitions["task.information_synthesis"],
-        ]
-    if has_local_target and _has_review_intent(text):
-        return [definitions["task.inspection_and_correction"]]
-    return [definitions["task.request_intake"]]
-
-
 def select_runtime_task_definitions(
     user_goal: str,
     *,
@@ -216,55 +194,4 @@ def select_runtime_task_definitions(
         return [definitions["task.final_response"]]
 
     raise RuntimeError(f"Unsupported ModelTurnDecision action_intent for task definitions: {action_intent}")
-
-
-def _has_local_material_evidence(text: str) -> bool:
-    """Return true only when the request points at a concrete local artifact."""
-    if _has_path_like_reference(text):
-        return True
-    explicit_local_refs = (
-        "docs/",
-        "backend/",
-        "frontend/",
-        "backend\\",
-        "frontend\\",
-        ".md",
-        ".py",
-        ".tsx",
-        ".ts",
-        ".json",
-        ".toml",
-        ".yaml",
-        ".yml",
-        "文件",
-        "文档",
-        "目录",
-        "代码",
-        "仓库",
-        "项目代码",
-        "本地",
-    )
-    return any(ref in text for ref in explicit_local_refs)
-
-def _has_path_like_reference(text: str) -> bool:
-    extension_pattern = r"\.(md|py|tsx|ts|json|toml|yaml|yml|css|html|sql|txt)\b"
-    if re.search(extension_pattern, text):
-        return True
-    return bool(re.search(r"(^|\s|`)(\.{0,2}[a-z0-9_\-\u4e00-\u9fff]+[\\/][^\s`]+)", text))
-
-
-def _has_change_intent(text: str) -> bool:
-    return any(token in text for token in ("修改", "实现", "修复", "落地", "改一下", "更新", "edit", "change"))
-
-
-def _has_local_read_intent(text: str) -> bool:
-    return any(token in text for token in ("读取", "打开", "查看", "读一下", "看一下", "read", "open"))
-
-
-def _has_review_intent(text: str) -> bool:
-    return any(token in text for token in ("检查", "审查", "矛盾", "review", "verify"))
-
-
-def _has_external_search_intent(text: str) -> bool:
-    return any(token in text for token in ("联网", "搜索", "官方资料", "web search"))
 

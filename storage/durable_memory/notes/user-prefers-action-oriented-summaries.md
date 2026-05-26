@@ -8,21 +8,21 @@ memory_class: preference
 tags: [user, preference, 用户在处理报告分析任务时，明确要求将结论压成带行动动词的行动建议，偏好面向业务/管理层的简洁、可执行输出格式。此外，用户要求复杂问题结论前置再补依据，称呼用户为'岩'，信息不足时先明确说缺什么不直接猜，而是基于已有证据给出最稳妥判断并标注可靠程度，同时指出优先补充哪块信息。, 用户偏好行动导向的总结输出及交互约定, 用户要求报告结论以行动建议形式输出，每条带行动动词，面向业务负责人汇报场景。复杂问题结论前置再补依据。称呼用户为'岩'。信息不足时先明确缺口，基于已有证据给出最稳妥判断并标注可靠程度，再指出优先补充方向。, 用户偏好]
 retrieval_hints: [用户在处理报告分析任务时，明确要求将结论压成带行动动词的行动建议，偏好面向业务/管理层的简洁、可执行输出格式。此外，用户要求复杂问题结论前置再补依据，称呼用户为'岩'，信息不足时先明确说缺什么不直接猜，而是基于已有证据给出最稳妥判断并标注可靠程度，同时指出优先补充哪块信息。, 用户偏好行动导向的总结输出及交互约定, 用户要求报告结论以行动建议形式输出，每条带行动动词，面向业务负责人汇报场景。复杂问题结论前置再补依据。称呼用户为'岩'。信息不足时先明确缺口，基于已有证据给出最稳妥判断并标注可靠程度，再指出优先补充方向。, 交互约定, 回答风格, 信息不足处理, 称呼偏好, 用户偏好, 称呼, 岩, 结论前置, 输出格式, 行动建议, 称呼岩, 行动导向]
 created_at: 2026-05-20T01:17:38+00:00
-updated_at: 2026-05-20T13:36:20+00:00
+updated_at: 2026-05-26T06:58:50+00:00
 created_by: agent:1
 source_session_id: 733435ea454b4079afa765649c43492f
 source_role: conversation
 source_message_excerpt: 用户：'记住：如果信息不足，先明确告诉我缺什么，不要直接猜。' 助手确认：'信息不足时，我会先明确告诉你缺什么、为什么缺，再基于已有证据给出当前最稳妥的判断，同时指出优先补充哪块信息。'
 confidence: high
-status: active
+status: archived
 last_confirmed_at: 2026-05-20T13:36:20+00:00
 scope: project
 stability: stable
 source_kind: memory_maintenance_agent
-eligible_for_injection: true
+eligible_for_injection: false
 review_after: 
 supersedes: user-prefers-action-oriented-summaries
-invalidation_reason: 
+invalidation_reason: Archived from durable reader
 ---
 
 ## Canonical Memory

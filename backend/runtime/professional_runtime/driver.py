@@ -37,9 +37,6 @@ from .evidence_closeout import (
     _answer_metadata_from_done_event,
     _artifact_output_refs_from_tool_payload,
     _build_artifact_delivery_evidence_closeout_answer,
-    _build_code_fix_evidence_closeout_answer,
-    _build_evidence_closeout_answer,
-    _build_generic_evidence_closeout_answer,
     _build_profile_delivery_evidence_closeout_answer,
     _contains_tool_call_markup,
     _event_protocol_leak_detected,
@@ -49,11 +46,7 @@ from .evidence_closeout import (
     _runtime_event_observation_ref,
     _sanitize_final_content,
     _should_apply_artifact_delivery_evidence_closeout,
-    _should_apply_code_fix_evidence_closeout,
-    _should_apply_evidence_closeout,
-    _should_apply_generic_evidence_closeout,
     _should_apply_profile_delivery_evidence_closeout,
-    _should_apply_protocol_leak_evidence_closeout,
     _should_repair_professional_closeout,
     _strip_tool_call_markup,
     _tool_observation_payload,
@@ -695,6 +688,7 @@ def _observation_payload_with_action_gate_intent(
             **dict(envelope.get("structured_payload") or {}),
             "verification_intent": verification_intent,
         }
+        envelope["command_receipt"] = dict(item.get("command_receipt") or envelope.get("command_receipt") or {})
     item["structured_payload"] = structured_payload
     item["result_envelope"] = envelope
     return item
@@ -712,6 +706,8 @@ def _auto_verify_output_observation(
     if not gate.forced or gate.stage != "verify_output":
         return None
     if tool_observation_ledger.verification_passed():
+        return None
+    if _requires_agent_supplied_verification(goal_contract):
         return None
     target_path = next(
         (
@@ -808,6 +804,22 @@ def _auto_verify_output_observation(
         execution_receipt=dict(envelope.get("execution_receipt") or {}),
         result_envelope=envelope,
     )
+
+
+def _requires_agent_supplied_verification(goal_contract: ProfessionalTaskGoalContract) -> bool:
+    tool_kinds = {
+        str(item or "").strip()
+        for item in list(goal_contract.required_tool_kinds or [])
+        if str(item or "").strip()
+    }
+    if "verify_command" not in tool_kinds:
+        return False
+    output_kinds = {
+        str(item or "").strip()
+        for item in list(goal_contract.required_output_kinds or [])
+        if str(item or "").strip()
+    }
+    return bool(output_kinds.intersection({"change_summary", "changed_files"}))
 
 
 def _powershell_single_quoted(value: str) -> str:
@@ -2235,14 +2247,6 @@ class ProfessionalTaskRunDriver:
                     ]
                     outcome.final_content = ""
                     continue
-                if _should_apply_protocol_leak_evidence_closeout(
-                    outcome=outcome,
-                    semantic_contract=semantic_contract,
-                    goal_contract=goal_contract,
-                    tool_observation_ledger=tool_observation_ledger,
-                    observations=structured_observations,
-                ):
-                    break
                 sanitized = _sanitize_final_content(outcome.final_content)
                 outcome.final_content = sanitized
                 if not sanitized:
@@ -2594,121 +2598,6 @@ class ProfessionalTaskRunDriver:
                 **_queue_diagnostics(final_deliverable_progress),
             },
         )
-        if _should_apply_evidence_closeout(
-            outcome=outcome,
-            semantic_contract=semantic_contract,
-            goal_contract=goal_contract,
-            tool_observation_ledger=tool_observation_ledger,
-            evidence_packet=evidence_packet.to_dict(),
-            final_protocol_leak_detected=final_protocol_leak_detected,
-            tool_budget_exhausted=tool_call_budget_exceeded,
-        ):
-            evidence_closeout = _build_evidence_closeout_answer(
-                semantic_contract=semantic_contract,
-                evidence_packet=evidence_packet.to_dict(),
-            )
-            if evidence_closeout:
-                closeout_deliverable_validation = validate_deliverable(
-                    final_answer=evidence_closeout,
-                    semantic_contract=semantic_contract,
-                    evidence_packet=evidence_packet.to_dict(),
-                    strict=bool(verification_policy.get("strict") is True),
-                    required_output_paths=goal_contract.required_output_paths,
-                ).to_dict()
-                closeout_obligation_validation = validate_obligations(
-                    execution_obligation=execution_obligation,
-                    semantic_contract=semantic_contract,
-                    goal_contract=goal_contract,
-                    tool_observation_ledger=tool_observation_ledger,
-                    final_content=evidence_closeout,
-                    deliverable_validation=closeout_deliverable_validation,
-                    terminal_reason="completed",
-                    tool_execution_enabled=tool_execution_enabled,
-                    tool_call_count=len(pending_tool_calls),
-                    tool_observation_count=tool_observation_count,
-                    delegation_enabled=delegation_enabled,
-                    delegation_observation_count=delegation_observation_count,
-                    write_budget_reserved=False,
-                    tool_budget_exhausted=tool_call_budget_exceeded,
-                    contract_gate_blocked=False,
-                    protocol_leak_detected=False,
-                ).to_dict()
-                if bool(closeout_obligation_validation.get("passed") is True):
-                    previous_terminal_reason = outcome.terminal_reason
-                    outcome.final_content = evidence_closeout
-                    outcome.terminal_reason = "completed"
-                    final_protocol_leak_detected = False
-                    closeout_event = self.event_log.append(
-                        task_run_id,
-                        "professional_task_evidence_closeout_applied",
-                        payload={
-                            "interaction_mode": interaction_mode,
-                            "reason": "protocol_leak_or_empty_closeout_after_real_evidence",
-                            "previous_terminal_reason": previous_terminal_reason,
-                            "fact_count": len(list(evidence_packet.to_dict().get("facts") or [])),
-                            "classification_count": len(list(evidence_packet.to_dict().get("classifications") or [])),
-                            "deliverable_validation": closeout_deliverable_validation,
-                            "obligation_validation": closeout_obligation_validation,
-                        },
-                        refs={"task_contract_ref": task_contract_ref},
-                    )
-                    yield {"type": "runtime_loop_event", "event": closeout_event.to_dict()}
-        if _should_apply_generic_evidence_closeout(
-            outcome=outcome,
-            semantic_contract=semantic_contract,
-            goal_contract=goal_contract,
-            tool_observation_ledger=tool_observation_ledger,
-            evidence_packet=evidence_packet.to_dict(),
-        ):
-            evidence_closeout = _build_generic_evidence_closeout_answer(
-                semantic_contract=semantic_contract,
-                evidence_packet=evidence_packet.to_dict(),
-            )
-            if evidence_closeout:
-                closeout_deliverable_validation = validate_deliverable(
-                    final_answer=evidence_closeout,
-                    semantic_contract=semantic_contract,
-                    evidence_packet=evidence_packet.to_dict(),
-                    strict=bool(verification_policy.get("strict") is True),
-                    required_output_paths=goal_contract.required_output_paths,
-                ).to_dict()
-                closeout_obligation_validation = validate_obligations(
-                    execution_obligation=execution_obligation,
-                    semantic_contract=semantic_contract,
-                    goal_contract=goal_contract,
-                    tool_observation_ledger=tool_observation_ledger,
-                    final_content=evidence_closeout,
-                    deliverable_validation=closeout_deliverable_validation,
-                    terminal_reason="completed",
-                    tool_execution_enabled=tool_execution_enabled,
-                    tool_call_count=len(pending_tool_calls),
-                    tool_observation_count=tool_observation_count,
-                    delegation_enabled=delegation_enabled,
-                    delegation_observation_count=delegation_observation_count,
-                    write_budget_reserved=False,
-                    tool_budget_exhausted=tool_call_budget_exceeded,
-                    contract_gate_blocked=False,
-                    protocol_leak_detected=False,
-                ).to_dict()
-                if bool(closeout_obligation_validation.get("passed") is True):
-                    previous_terminal_reason = outcome.terminal_reason
-                    outcome.final_content = evidence_closeout
-                    outcome.terminal_reason = "completed"
-                    final_protocol_leak_detected = False
-                    closeout_event = self.event_log.append(
-                        task_run_id,
-                        "professional_task_evidence_closeout_applied",
-                        payload={
-                            "interaction_mode": interaction_mode,
-                            "reason": "generic_evidence_closeout_after_budget_or_protocol_failure",
-                            "previous_terminal_reason": previous_terminal_reason,
-                            "fact_count": len(list(evidence_packet.to_dict().get("facts") or [])),
-                            "deliverable_validation": closeout_deliverable_validation,
-                            "obligation_validation": closeout_obligation_validation,
-                        },
-                        refs={"task_contract_ref": task_contract_ref},
-                    )
-                    yield {"type": "runtime_loop_event", "event": closeout_event.to_dict()}
         if _should_apply_artifact_delivery_evidence_closeout(
             outcome=outcome,
             semantic_contract=semantic_contract,
@@ -2791,60 +2680,6 @@ class ProfessionalTaskRunDriver:
                     refs={"task_contract_ref": task_contract_ref},
                 )
                 yield {"type": "runtime_loop_event", "event": closeout_event.to_dict()}
-        if _should_apply_code_fix_evidence_closeout(
-            outcome=outcome,
-            semantic_contract=semantic_contract,
-            tool_observation_ledger=tool_observation_ledger,
-            final_protocol_leak_detected=final_protocol_leak_detected,
-        ):
-            evidence_closeout = _build_code_fix_evidence_closeout_answer(
-                tool_observation_ledger=tool_observation_ledger,
-                evidence_packet=evidence_packet.to_dict(),
-            )
-            if evidence_closeout:
-                closeout_deliverable_validation = validate_deliverable(
-                    final_answer=evidence_closeout,
-                    semantic_contract=semantic_contract,
-                    evidence_packet=evidence_packet.to_dict(),
-                    strict=bool(verification_policy.get("strict") is True),
-                    required_output_paths=goal_contract.required_output_paths,
-                ).to_dict()
-                closeout_obligation_validation = validate_obligations(
-                    execution_obligation=execution_obligation,
-                    semantic_contract=semantic_contract,
-                    goal_contract=goal_contract,
-                    tool_observation_ledger=tool_observation_ledger,
-                    final_content=evidence_closeout,
-                    deliverable_validation=closeout_deliverable_validation,
-                    terminal_reason="completed",
-                    tool_execution_enabled=tool_execution_enabled,
-                    tool_call_count=len(pending_tool_calls),
-                    tool_observation_count=tool_observation_count,
-                    delegation_enabled=delegation_enabled,
-                    delegation_observation_count=delegation_observation_count,
-                    write_budget_reserved=False,
-                    tool_budget_exhausted=tool_call_budget_exceeded,
-                    contract_gate_blocked=False,
-                    protocol_leak_detected=False,
-                ).to_dict()
-                if bool(closeout_deliverable_validation.get("protocol_leak_detected") is not True):
-                    previous_terminal_reason = outcome.terminal_reason
-                    outcome.final_content = evidence_closeout
-                    outcome.terminal_reason = "completed" if bool(closeout_obligation_validation.get("passed") is True) else "partial_contract_failed"
-                    final_protocol_leak_detected = False
-                    closeout_event = self.event_log.append(
-                        task_run_id,
-                        "professional_task_evidence_closeout_applied",
-                        payload={
-                            "interaction_mode": interaction_mode,
-                            "reason": "code_fix_evidence_closeout_after_protocol_failure",
-                            "previous_terminal_reason": previous_terminal_reason,
-                            "deliverable_validation": closeout_deliverable_validation,
-                            "obligation_validation": closeout_obligation_validation,
-                        },
-                        refs={"task_contract_ref": task_contract_ref},
-                    )
-                    yield {"type": "runtime_loop_event", "event": closeout_event.to_dict()}
         deliverable_validation = validate_deliverable(
             final_answer=outcome.final_content,
             semantic_contract=semantic_contract,

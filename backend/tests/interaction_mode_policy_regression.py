@@ -16,6 +16,7 @@ def _runtime_contract(
     interaction_intent: str,
     task_goal_type: str,
     task_domain: str = "workspace",
+    completion_criteria: list[str] | None = None,
     current_turn_context: dict[str, object] | None = None,
 ):
     turn_context = model_turn_context(
@@ -25,6 +26,7 @@ def _runtime_contract(
         desired_outcome=user_goal,
         task_goal_type=task_goal_type,
         task_domain=task_domain,
+        completion_criteria=completion_criteria,
     )
     query_understanding = {
         **build_request_signals(user_goal).to_dict(),
@@ -229,6 +231,7 @@ def test_failure_repair_with_pytest_is_obligation_driven_professional_mode() -> 
         work_mode="implementation",
         interaction_intent="modify",
         task_goal_type="code_fix_execution",
+        completion_criteria=["运行 pytest 或说明真实验证限制"],
     )
 
     semantic = contract.task_requirement_contract

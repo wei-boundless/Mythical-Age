@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { Database, LayoutGrid, MessageSquare, Network, Settings, Sparkles, Workflow } from "lucide-react";
+import { Database, HeartPulse, LayoutGrid, MessageSquare, Network, Settings, Sparkles, Workflow } from "lucide-react";
 
 import { AppProvider, useAppStore } from "@/lib/store";
 import { lazy, Suspense } from "react";
@@ -12,6 +12,7 @@ import { TaskGraphRunInteractionDock } from "@/components/workspace/views/task-s
 import type { WorkspaceView } from "@/lib/store/types";
 
 const CapabilitySystemView = lazy(() => import("@/components/workspace/views/CapabilitySystemView").then((module) => ({ default: module.CapabilitySystemView })));
+const HealthSystemView = lazy(() => import("@/components/workspace/views/HealthSystemView").then((module) => ({ default: module.HealthSystemView })));
 const MemoryView = lazy(() => import("@/components/workspace/views/MemoryView").then((module) => ({ default: module.MemoryView })));
 const OrchestrationView = lazy(() => import("@/components/workspace/views/OrchestrationView").then((module) => ({ default: module.OrchestrationView })));
 const PlaygroundView = lazy(() => import("@/components/workspace/views/PlaygroundView").then((module) => ({ default: module.PlaygroundView })));
@@ -31,6 +32,7 @@ function LazyView({ children }: { children: ReactNode }) {
 const WORKSPACE_QUERY_VIEWS = new Set<WorkspaceView>([
   "chat",
   "memory",
+  "health-system",
   "playground",
   "task-system",
   "orchestration",
@@ -48,6 +50,7 @@ const SYSTEM_NAV_ITEMS: Array<{ view: WorkspaceView; label: string; icon: typeof
   { view: "task-system", label: "任务", icon: Workflow },
   { view: "orchestration", label: "编排", icon: Network },
   { view: "capability-system", label: "能力", icon: LayoutGrid },
+  { view: "health-system", label: "健康", icon: HeartPulse },
   { view: "soul-system", label: "灵魂", icon: Sparkles },
   { view: "system-config", label: "配置", icon: Settings },
 ];
@@ -135,6 +138,7 @@ function Workspace() {
       && activeWorkspaceView !== "memory"
       && activeWorkspaceView !== "playground"
       && activeWorkspaceView !== "task-system"
+      && activeWorkspaceView !== "health-system"
       && activeWorkspaceView !== "capability-system"
       && activeWorkspaceView !== "soul-system"
       && activeWorkspaceView !== "orchestration"
@@ -175,6 +179,7 @@ function Workspace() {
     activeWorkspaceView === "chat"
     || activeWorkspaceView === "orchestration"
     || activeWorkspaceView === "task-system"
+    || activeWorkspaceView === "health-system"
     || activeWorkspaceView === "code-environment"
     || activeWorkspaceView === "capability-system"
     || activeWorkspaceView === "soul-system";
@@ -197,6 +202,12 @@ function Workspace() {
     content = (
       <SystemPageShell label="代码环境" view="code-environment">
         <LazyView><CodeEnvironmentView /></LazyView>
+      </SystemPageShell>
+    );
+  } else if (activeWorkspaceView === "health-system") {
+    content = (
+      <SystemPageShell label="健康系统" view="health-system">
+        <LazyView><HealthSystemView /></LazyView>
       </SystemPageShell>
     );
   } else if (activeWorkspaceView === "memory") {

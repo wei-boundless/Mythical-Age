@@ -267,72 +267,18 @@ def _satisfies_for_tool(
         if (
             has_structured_envelope
             and receipt
-            and _terminal_observation_is_verification(
-                args or {},
-                result_text,
-                status=status,
-                command_receipt=receipt,
-                structured_payload=dict(structured_payload or {}),
-            )
+            and receipt.get("passed") is True
+            and _structured_verification_intent(structured_payload)
         ):
             return ("verify_command",)
         return ()
     if tool_name == "browser_control":
-        return ("verify_command",)
+        if has_structured_envelope and status == "ok" and _structured_verification_intent(structured_payload):
+            return ("verify_command",)
+        return ()
     if tool_name == "delegate_to_agent":
         return ("delegate_review",)
     return ()
-
-
-def _terminal_observation_is_verification(
-    args: dict[str, Any],
-    result_text: str,
-    *,
-    status: str,
-    command_receipt: dict[str, Any] | None = None,
-    structured_payload: dict[str, Any] | None = None,
-) -> bool:
-    if _structured_verification_intent(structured_payload):
-        return True
-    command = str(args.get("command") or "").lower()
-    text = str(result_text or "").lower()
-    combined = f"{command}\n{text}"
-    verification_markers = (
-        "pytest",
-        "npm test",
-        "pnpm test",
-        "yarn test",
-        "npm run build",
-        "pnpm build",
-        "yarn build",
-        "tsc",
-        "playwright",
-        "verification",
-        "verify",
-        "验证",
-        "test-path",
-        "testpath",
-        "assert",
-        "检查",
-    )
-    output_reference_markers = (
-        "index.html",
-        "styles.css",
-        "game.js",
-        "readme.md",
-        "assets/",
-        "file exists",
-        "exists",
-        "引用",
-        "存在",
-    )
-    if any(marker in combined for marker in verification_markers):
-        return True
-    if status == "ok" and any(marker in combined for marker in output_reference_markers) and any(
-        marker in command for marker in ("test-path", "get-content", "select-string", "dir ", "ls ", "python", "node", "powershell")
-    ):
-        return True
-    return False
 
 
 def _structured_verification_intent(structured_payload: dict[str, Any] | None) -> bool:

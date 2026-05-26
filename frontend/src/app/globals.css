@@ -3914,6 +3914,7 @@ button:hover {
 
 .memory-console {
   position: relative;
+  padding-bottom: 1rem;
 }
 
 .memory-search {
@@ -3927,6 +3928,12 @@ button:hover {
     radial-gradient(circle at 8% 0%, color-mix(in srgb, var(--color-soul) 14%, transparent), transparent 36%),
     linear-gradient(135deg, rgba(255, 255, 255, 0.036), transparent 58%),
     var(--color-panel);
+}
+
+.memory-library-count {
+  margin-left: 0.4rem;
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
 }
 
 .memory-durable-reader__detail > span,
@@ -3957,6 +3964,98 @@ button:hover {
   gap: 0.42rem;
 }
 
+.memory-governance-guide {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.42rem;
+  margin-bottom: 0.72rem;
+}
+
+.memory-governance-guide button,
+.memory-selection-bar {
+  border: 1px solid color-mix(in srgb, var(--color-soul) 18%, transparent);
+  border-radius: 0.72rem;
+  background: rgba(255, 255, 255, 0.028);
+  color: var(--color-text-soft);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.memory-governance-guide button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  padding: 0.36rem 0.54rem;
+  text-align: left;
+}
+
+.memory-governance-guide button:hover {
+  border-color: color-mix(in srgb, var(--color-soul) 42%, transparent);
+  background: color-mix(in srgb, var(--color-soul) 9%, rgba(255, 255, 255, 0.035));
+  color: var(--color-text);
+}
+
+.memory-governance-guide b {
+  margin-right: 0.28rem;
+  color: var(--color-text);
+}
+
+.memory-governance-guide__danger {
+  border-color: color-mix(in srgb, var(--color-danger) 36%, transparent) !important;
+}
+
+.memory-governance-guide__danger:hover {
+  background: color-mix(in srgb, var(--color-danger) 11%, rgba(255, 255, 255, 0.035)) !important;
+  color: color-mix(in srgb, var(--color-danger) 78%, var(--color-text)) !important;
+}
+
+.memory-governance-shortcuts {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.32rem;
+  margin: 0.72rem 0 0;
+}
+
+.memory-governance-shortcuts button {
+  border: 1px solid color-mix(in srgb, var(--color-soul) 22%, transparent);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.032);
+  color: var(--color-text-soft);
+  font-size: 0.66rem;
+  padding: 0.22rem 0.48rem;
+}
+
+.memory-governance-shortcuts button:hover {
+  border-color: color-mix(in srgb, var(--color-soul) 46%, transparent);
+  color: var(--color-text);
+}
+
+.memory-selection-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.72rem;
+  padding: 0.5rem 0.58rem;
+}
+
+.memory-selection-bar span {
+  color: var(--color-text);
+  font-weight: 650;
+}
+
+.memory-selection-bar button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 28%, transparent);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--color-text);
+  font-size: 0.7rem;
+  padding: 0.26rem 0.52rem;
+}
+
 .memory-durable-reader__actions button {
   display: inline-flex;
   align-items: center;
@@ -3981,8 +4080,9 @@ button:hover {
 
 .memory-durable-reader__layout {
   display: grid;
-  grid-template-columns: minmax(240px, 0.42fr) minmax(0, 1fr);
+  grid-template-columns: minmax(280px, 0.38fr) minmax(0, 1fr);
   gap: 0.72rem;
+  min-height: clamp(420px, 54vh, 620px);
 }
 
 .memory-status-filter {
@@ -4011,9 +4111,10 @@ button:hover {
   display: grid;
   align-content: start;
   gap: 0.48rem;
-  max-height: 520px;
+  max-height: clamp(420px, 54vh, 620px);
   overflow: auto;
   padding-right: 0.18rem;
+  scrollbar-gutter: stable;
 }
 
 .memory-durable-row {
@@ -4062,14 +4163,18 @@ button:hover {
 }
 
 .memory-durable-reader__detail {
+  display: grid;
+  align-content: start;
+  max-height: clamp(420px, 54vh, 620px);
   min-height: 420px;
-  overflow: hidden;
+  overflow: auto;
   border: 1px solid color-mix(in srgb, var(--color-soul) 18%, rgba(255, 255, 255, 0.075));
   border-radius: var(--radius-card);
   background:
     radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--color-soul) 11%, transparent), transparent 36%),
     rgba(255, 255, 255, 0.026);
   padding: 0.78rem;
+  scrollbar-gutter: stable;
 }
 
 .memory-durable-reader__badges {
@@ -4097,6 +4202,56 @@ button:hover {
   white-space: pre-wrap;
 }
 
+.memory-semantic-body {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.72rem;
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 0.78rem;
+  background: rgba(255, 255, 255, 0.035);
+  padding: 0.72rem;
+}
+
+.memory-semantic-body > div {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.34rem;
+  color: var(--color-text);
+}
+
+.memory-semantic-body h4,
+.memory-semantic-body p {
+  margin: 0;
+}
+
+.memory-semantic-body h4 {
+  color: var(--color-text);
+  font-size: 0.82rem;
+}
+
+.memory-semantic-body p {
+  color: var(--color-text);
+  font-size: 0.92rem;
+  line-height: 1.72;
+  white-space: pre-wrap;
+}
+
+.memory-semantic-body small {
+  color: var(--color-text-muted);
+  font-size: 0.68rem;
+  line-height: 1.45;
+}
+
+.memory-raw-preview {
+  margin-top: 0.68rem;
+}
+
+.memory-raw-preview summary {
+  cursor: pointer;
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+}
+
 .memory-durable-reader__actions {
   margin-top: 0.68rem;
 }
@@ -4107,6 +4262,32 @@ button:hover {
   background:
     radial-gradient(circle at 8% 0%, color-mix(in srgb, var(--color-soul) 14%, transparent), transparent 36%),
     var(--color-panel);
+}
+
+.memory-governance-editor__summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.memory-governance-editor__summary::-webkit-details-marker {
+  display: none;
+}
+
+.memory-governance-editor__summary > span {
+  color: var(--color-text);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.memory-governance-editor__scroll {
+  margin-top: 0.6rem;
+  max-height: clamp(280px, 38vh, 460px);
+  overflow: auto;
+  padding: 0 0.18rem 0.9rem 0;
+  scrollbar-gutter: stable;
 }
 
 .memory-governance-editor__grid {
@@ -5690,6 +5871,10 @@ button:hover {
   line-height: 1.45;
 }
 
+.memory-governance-editor__panel .memory-governance-hint {
+  color: var(--color-text);
+}
+
 .memory-governance-editor__panel input,
 .memory-governance-editor__panel textarea,
 .memory-governance-editor__panel select {
@@ -5701,6 +5886,27 @@ button:hover {
   font: inherit;
   font-size: 0.78rem;
   padding: 0.58rem 0.66rem;
+}
+
+.operation-semantic-text,
+.capability-semantic-copy {
+  margin: 0;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 14%, rgba(255, 255, 255, 0.075));
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.032);
+  color: var(--color-text);
+  font-size: 0.82rem;
+  line-height: 1.62;
+  padding: 0.72rem;
+}
+
+.operation-semantic-text {
+  display: grid;
+  gap: 0.42rem;
+}
+
+.operation-semantic-text p {
+  margin: 0;
 }
 
 .memory-governance-editor__panel textarea {
@@ -6830,67 +7036,6 @@ button:hover {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.9rem;
-}
-
-.test-system-tabs {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 0.58rem;
-}
-
-.test-system-tab {
-  position: relative;
-  overflow: hidden;
-  min-height: 78px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-card);
-  background:
-    radial-gradient(circle at 10% 0%, color-mix(in srgb, var(--color-soul) 14%, transparent), transparent 38%),
-    linear-gradient(145deg, rgba(255, 255, 255, 0.045), transparent 54%),
-    var(--color-panel-strong);
-  color: var(--color-text);
-  padding: 0.76rem;
-  text-align: left;
-  transition:
-    border-color 0.18s ease,
-    box-shadow 0.18s ease,
-    transform 0.18s ease;
-}
-
-.test-system-tab::after {
-  content: "";
-  position: absolute;
-  inset: auto 0 0;
-  height: 3px;
-  transform: scaleX(0);
-  transform-origin: left;
-  background: linear-gradient(90deg, var(--color-soul), transparent);
-  transition: transform 0.18s ease;
-}
-
-.test-system-tab:hover,
-.test-system-tab--active {
-  transform: translateY(-2px);
-  border-color: color-mix(in srgb, var(--color-soul) 44%, transparent);
-  box-shadow: 0 16px 36px color-mix(in srgb, var(--color-soul) 14%, rgba(0, 0, 0, 0.16));
-}
-
-.test-system-tab--active::after {
-  transform: scaleX(1);
-}
-
-.test-system-tab strong {
-  display: block;
-  color: var(--color-text);
-  font-size: 0.92rem;
-}
-
-.test-system-tab span {
-  display: block;
-  margin-top: 0.28rem;
-  color: var(--color-text-muted);
-  font-size: 0.68rem;
-  line-height: 1.35;
 }
 
 .test-control-hero {
@@ -8491,33 +8636,6 @@ html[data-soul="xuannv"] .soul-portrait__label {
   line-height: 1.55;
 }
 
-.operation-switcher {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.8rem;
-}
-
-.operation-switcher__item {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.55rem;
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.035);
-  color: var(--color-text-soft);
-  padding: 0.75rem 1rem;
-  transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
-}
-
-.operation-switcher__item--active,
-.operation-switcher__item:hover {
-  border-color: color-mix(in srgb, var(--color-soul) 55%, transparent);
-  background: var(--color-soul-soft);
-  color: var(--color-text);
-  transform: translateY(-1px);
-}
-
 .operation-layout {
   display: grid;
   grid-template-columns: minmax(260px, 0.38fr) minmax(0, 1fr);
@@ -9234,12 +9352,6 @@ html[data-soul="xuannv"] .soul-portrait__label {
   margin: 0;
 }
 
-.capability-system-console .operation-switcher {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.5rem;
-}
-
-.capability-system-console .operation-switcher__item,
 .capability-system-console .operation-skill-card,
 .capability-system-console .operation-tool-card,
 .capability-system-console .operation-unit-card,
@@ -9254,20 +9366,6 @@ html[data-soul="xuannv"] .soul-portrait__label {
   border-radius: 8px;
   background: #fff;
   box-shadow: none;
-}
-
-.capability-system-console .operation-switcher__item {
-  gap: 0.18rem;
-  padding: 0.58rem 0.68rem;
-  color: #767670;
-}
-
-.capability-system-console .operation-switcher__item--active,
-.capability-system-console .operation-switcher__item:hover {
-  border-color: #2c3340;
-  background: #f7f7f5;
-  color: var(--color-text);
-  transform: none;
 }
 
 .capability-system-console .operation-layout {
@@ -10037,10 +10135,6 @@ html[data-soul="xuannv"] .soul-portrait__label {
   color: var(--color-text-soft);
   font-size: 0.84rem;
   line-height: 1.5;
-}
-
-.test-system-view .test-system-tabs {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .test-running-banner {
@@ -23015,7 +23109,6 @@ html[data-soul="xuannv"] .soul-portrait__label {
   .agent-system-hero__stats,
   .agent-node-grid,
   .agent-detail__matrix,
-  .test-system-view .test-system-tabs,
   .health-system-tabs,
   .health-workbench-metrics,
   .test-health-hero__stats,
@@ -26380,7 +26473,6 @@ html[data-workspace-tone] .agent-workbench {
 .system-page-shell .capability-issue-panel,
 .system-page-shell .capability-mcp-section,
 .system-page-shell .capability-mcp-rail,
-.system-page-shell .capability-system-console .operation-switcher__item,
 .system-page-shell .capability-system-console .operation-skill-card,
 .system-page-shell .capability-system-console .operation-tool-card,
 .system-page-shell .capability-system-console .operation-unit-card,
@@ -26402,7 +26494,6 @@ html[data-workspace-tone] .agent-workbench {
 }
 
 .system-page-shell .capability-group-card,
-.system-page-shell .capability-system-console .operation-switcher__item,
 .system-page-shell .capability-system-console .operation-skill-card,
 .system-page-shell .capability-system-console .operation-tool-card,
 .system-page-shell .capability-system-console .operation-unit-card,
@@ -26414,8 +26505,6 @@ html[data-workspace-tone] .agent-workbench {
 }
 
 .system-page-shell .capability-group-card:hover,
-.system-page-shell .capability-system-console .operation-switcher__item--active,
-.system-page-shell .capability-system-console .operation-switcher__item:hover,
 .system-page-shell .capability-system-console .operation-skill-card--active,
 .system-page-shell .capability-system-console .operation-tool-card--active,
 .system-page-shell .capability-system-console .operation-unit-card--active,
@@ -29090,14 +29179,6 @@ html[data-workspace-tone] .agent-workbench {
     min-width: 0;
     text-align: left;
   }
-
-  .capability-system-console .operation-switcher {
-    grid-template-columns: 1fr;
-  }
-
-  .capability-system-console .operation-switcher__item {
-    justify-content: flex-start;
-  }
 }
 
 /* Soul Portal */
@@ -31593,7 +31674,6 @@ html[data-workspace-tone] .agent-workbench {
 .agent-workbench .capability-issue-panel,
 .agent-workbench .capability-mcp-section,
 .agent-workbench .capability-mcp-rail,
-.agent-workbench .capability-system-console .operation-switcher__item,
 .agent-workbench .capability-system-console .operation-skill-card,
 .agent-workbench .capability-system-console .operation-tool-card,
 .agent-workbench .capability-system-console .operation-unit-card,
@@ -31625,7 +31705,6 @@ html[data-workspace-tone] .agent-workbench {
 .agent-workbench .orchestration-management-card,
 .agent-workbench .orchestration-contract-card,
 .agent-workbench .capability-group-card,
-.agent-workbench .capability-system-console .operation-switcher__item,
 .agent-workbench .capability-system-console .operation-skill-card,
 .agent-workbench .capability-system-console .operation-tool-card,
 .agent-workbench .capability-system-console .operation-unit-card,
@@ -31646,8 +31725,6 @@ html[data-workspace-tone] .agent-workbench {
 .agent-workbench .orchestration-event:hover,
 .agent-workbench .orchestration-event--active,
 .agent-workbench .capability-group-card:hover,
-.agent-workbench .capability-system-console .operation-switcher__item--active,
-.agent-workbench .capability-system-console .operation-switcher__item:hover,
 .agent-workbench .capability-system-console .operation-skill-card--active,
 .agent-workbench .capability-system-console .operation-tool-card--active,
 .agent-workbench .capability-system-console .operation-unit-card--active,
@@ -31881,19 +31958,6 @@ html[data-workspace-tone] .agent-workbench {
 .system-page-shell .capability-system-console .workspace-view__subtitle {
   max-width: 72ch;
   line-height: 1.55;
-}
-
-.agent-workbench .capability-system-console .operation-switcher,
-.system-page-shell .capability-system-console .operation-switcher {
-  gap: 0.68rem;
-}
-
-.agent-workbench .capability-system-console .operation-switcher__item,
-.system-page-shell .capability-system-console .operation-switcher__item {
-  min-height: 44px;
-  gap: 0.46rem;
-  padding: 0.68rem 0.78rem;
-  line-height: 1.35;
 }
 
 .agent-workbench .capability-overview,
@@ -33705,7 +33769,6 @@ html[data-workspace-tone] .agent-workbench {
 .system-page-shell .capability-issue-panel,
 .system-page-shell .capability-mcp-section,
 .system-page-shell .capability-mcp-rail,
-.system-page-shell .capability-system-console .operation-switcher__item,
 .system-page-shell .capability-system-console .operation-skill-card,
 .system-page-shell .capability-system-console .operation-tool-card,
 .system-page-shell .capability-system-console .operation-unit-card,
@@ -33727,8 +33790,6 @@ html[data-workspace-tone] .agent-workbench {
 }
 
 .system-page-shell .capability-group-card:hover,
-.system-page-shell .capability-system-console .operation-switcher__item--active,
-.system-page-shell .capability-system-console .operation-switcher__item:hover,
 .system-page-shell .capability-system-console .operation-skill-card--active,
 .system-page-shell .capability-system-console .operation-tool-card--active,
 .system-page-shell .capability-system-console .operation-unit-card--active,
@@ -34017,7 +34078,6 @@ html[data-workspace-tone] .agent-workbench {
 .system-page-shell:not(.system-page-shell--soul-system) .capability-issue-panel,
 .system-page-shell:not(.system-page-shell--soul-system) .capability-mcp-section,
 .system-page-shell:not(.system-page-shell--soul-system) .capability-mcp-rail,
-.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-switcher__item,
 .system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-skill-card,
 .system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-tool-card,
 .system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-unit-card,
@@ -34101,8 +34161,6 @@ html[data-workspace-tone] .agent-workbench {
 .system-page-shell:not(.system-page-shell--soul-system) .orchestration-mode-hero--active,
 .system-page-shell:not(.system-page-shell--soul-system) .orchestration-execution-card--selected,
 .system-page-shell:not(.system-page-shell--soul-system) .capability-group-card:hover,
-.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-switcher__item--active,
-.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-switcher__item:hover,
 .system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-skill-card--active,
 .system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-tool-card--active,
 .system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-unit-card--active,
@@ -34376,6 +34434,100 @@ html[data-workspace-tone] .agent-workbench {
 .system-page-shell:not(.system-page-shell--soul-system) .capability-group-card {
   min-height: 92px;
   padding: 10px;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console {
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .capability-overview,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-layout,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-mcp-page {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .capability-group-grid {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .capability-group-card {
+  grid-template-columns: 34px minmax(0, 1fr) minmax(94px, auto);
+  align-items: center;
+  min-height: 84px;
+  gap: 10px;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .capability-group-card__copy {
+  gap: 3px;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .capability-group-card__copy em,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-group-card__metric span {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .capability-group-card__metric {
+  min-width: 94px;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-layout {
+  grid-template-columns: minmax(260px, 0.3fr) minmax(0, 1fr);
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-list,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-detail,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-mcp-rail,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-mcp-main {
+  min-height: 0;
+  max-height: 100%;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-list {
+  padding-right: 2px;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-skill-card,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-tool-card,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-unit-card {
+  min-height: 64px;
+  padding: 8px 10px;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-skill-card p,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-tool-card p,
+.system-page-shell:not(.system-page-shell--soul-system) .capability-system-console .operation-unit-card p {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .capability-mcp-page {
+  grid-template-columns: minmax(280px, 0.32fr) minmax(0, 1fr);
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .memory-durable-reader__layout {
+  min-height: min(620px, calc(100vh - 220px));
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .memory-durable-reader__list,
+.system-page-shell:not(.system-page-shell--soul-system) .memory-durable-reader__detail {
+  max-height: min(620px, calc(100vh - 220px));
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-console-head {
+  grid-template-columns: minmax(220px, 0.95fr) minmax(260px, 1.05fr) auto;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .orchestration-console-head__title p {
+  max-width: 76ch;
 }
 
 .system-page-shell:not(.system-page-shell--soul-system) .memory-console,

@@ -83,53 +83,6 @@ _SCOPED_SOURCE_WRITE_FORBID_MARKERS = (
     "do not modify source project",
     "don't modify source project",
 )
-_WRITE_MARKERS = (
-    "写入",
-    "生成文件",
-    "产出",
-    "实现",
-    "修改文件",
-    "修改相关文件",
-    "改文件",
-    "改代码",
-    "修改代码",
-    "修复代码",
-    "修复",
-    "修正",
-    "补丁",
-    "创建文件",
-    "新建文件",
-    "apply",
-    "patch",
-    "fix",
-    "implement",
-)
-_VERIFY_MARKERS = (
-    "运行测试",
-    "跑测试",
-    "测试通过",
-    "验证通过",
-    "运行 pytest",
-    "pytest",
-    "运行命令",
-    "只读命令",
-    "命令验证",
-    "run tests",
-    "run pytest",
-    "verify",
-)
-_DELIVER_MARKERS = (
-    "交付",
-    "产物",
-    "计划书",
-    "方案",
-    "报告",
-    "总结",
-    "列出",
-    "写成",
-)
-
-
 def build_execution_obligation(
     *,
     session_id: str,
@@ -141,12 +94,14 @@ def build_execution_obligation(
     text = str(user_goal or "").strip()
     lowered = text.lower()
     current_turn = dict(current_turn_context or {})
+    model_decision = dict(current_turn.get("model_turn_decision") or {})
     inputs = {
         **dict(explicit_inputs or {}),
         **dict(current_turn.get("explicit_inputs") or {}),
     }
     resource_contract = _resource_contract_from_current_turn(current_turn)
-    reads = _collect_required_reads_from_resource_contract(resource_contract)
+    contract_reads = _collect_required_reads_from_resource_contract(resource_contract)
+    reads = contract_reads
     if not reads:
         reads = _collect_required_reads(text=text, explicit_inputs=inputs, current_turn=current_turn)
     goal_frame = dict(current_turn.get("task_goal_spec") or current_turn.get("goal_frame") or {})
@@ -155,6 +110,11 @@ def build_execution_obligation(
         current_turn=current_turn,
     )
     contract_writes = _collect_required_writes_from_resource_contract(resource_contract)
+    model_writes = _model_decision_write_requirements(
+        model_decision=model_decision,
+        explicit_inputs=inputs,
+        resource_contract=resource_contract,
+    )
     scoped_write_constraints = _scoped_write_constraints(
         text=text,
         current_turn=current_turn,
@@ -168,22 +128,17 @@ def build_execution_obligation(
     )
     forbid_write = _structured_write_forbidden(current_turn)
     write_required = (
-        _requires_real_write(lowered)
-        or bool(contract_writes)
+        bool(contract_writes)
+        or bool(model_writes)
         or bool(profile_obligation["required_writes"])
     ) and not forbid_write
-    verify_required = _has_any(lowered, _VERIFY_MARKERS) or bool(profile_obligation["required_verifications"])
+    model_verification = _model_decision_verification_requirements(model_decision, goal_frame)
+    verify_required = bool(profile_obligation["required_verifications"]) or bool(model_verification["verifications"])
     required_writes = tuple(
         _dedupe_dicts(
             [
                 *(contract_writes if not forbid_write else []),
-                *(
-                    []
-                    if contract_writes or forbid_write
-                    else _build_write_requirements(text=text, explicit_inputs=inputs)
-                    if _requires_real_write(lowered)
-                    else []
-                ),
+                *([] if forbid_write else list(model_writes)),
                 *([] if forbid_write else list(profile_obligation["required_writes"])),
             ],
             key_fields=("kind", "path", "source"),
@@ -192,8 +147,8 @@ def build_execution_obligation(
     required_commands = tuple(
         _dedupe_dicts(
             [
-                *(_build_command_requirements(text=text) if _has_any(lowered, _VERIFY_MARKERS) else []),
                 *list(profile_obligation["required_commands"]),
+                *list(model_verification["commands"]),
             ],
             key_fields=("kind", "command_hint", "source"),
         )
@@ -201,8 +156,8 @@ def build_execution_obligation(
     required_verifications = tuple(
         _dedupe_dicts(
             [
-                *(_build_verification_requirements(text=text) if _has_any(lowered, _VERIFY_MARKERS) else []),
                 *list(profile_obligation["required_verifications"]),
+                *list(model_verification["verifications"]),
             ],
             key_fields=("kind", "verification_kind", "criterion_id"),
         )
@@ -210,8 +165,9 @@ def build_execution_obligation(
     required_deliverables = tuple(
         _dedupe(
             [
-                *_infer_required_deliverables(lowered, write_required=write_required, verify_required=verify_required),
+                *_model_decision_deliverables(model_decision),
                 *list(profile_obligation["required_deliverables"]),
+                *(["verification_result_or_limitation"] if verify_required else []),
             ]
         )
     )
@@ -226,13 +182,35 @@ def build_execution_obligation(
         "verify_required": verify_required,
         "forbid_write": forbid_write,
         "natural_language_write_forbid_signal": natural_language_write_forbid_signal,
-        "forbid_write_authority": "intent_signal_only",
+        "forbid_write_authority": "model_turn_decision_or_boundary_policy",
         "hard_write_authority": "operation_gate_and_sandbox_policy",
         "structured_write_forbidden": forbid_write,
         "scoped_write_constraints": scoped_write_constraints,
-        "deliverable_markers": [marker for marker in _DELIVER_MARKERS if marker in lowered],
         "profile_obligation": profile_obligation["evidence"],
         "resource_contract_used": bool(resource_contract),
+        "model_decision_used": bool(model_decision),
+        "natural_language_action_inference_removed": True,
+        "read_paths_compiled_from": (
+            "model_resource_contract"
+            if contract_reads
+            else "request_facts_or_explicit_inputs"
+            if reads
+            else ""
+        ),
+        "execution_actions_compiled_from": [
+            *(("model_resource_contract",) if contract_writes else ()),
+            *(("model_turn_decision",) if model_writes else ()),
+            *(
+                ("task_goal_profile",)
+                if (
+                    profile_obligation["required_writes"]
+                    or profile_obligation["required_commands"]
+                    or profile_obligation["required_verifications"]
+                )
+                else ()
+            ),
+            *(("model_completion_criteria",) if model_verification["verifications"] else ()),
+        ],
     }
     confidence = 0.35
     if reads:
@@ -526,6 +504,23 @@ def _profile_obligation_requirements(
     if "run_browser_verification" in actions:
         commands.append({"kind": "browser_or_runtime_check", "command_hint": "start_or_open_app", "required": True, "source": "task_goal_profile"})
         verifications.append({"kind": "browser_verification", "required": True, "source": "task_goal_profile"})
+    if "run_verification" in actions:
+        commands.append({"kind": "verification_command", "required": True, "source": "task_goal_profile"})
+        default_verifications = [
+            str(item).strip()
+            for item in tuple(getattr(profile, "default_verifications", ()) or ())
+            if str(item).strip()
+        ]
+        verifications.append(
+            {
+                "kind": "evidence",
+                "verification_kind": "evidence",
+                "criterion_id": default_verifications[0] if default_verifications else "",
+                "title": default_verifications[0] if default_verifications else "",
+                "required": True,
+                "source": "task_goal_profile",
+            }
+        )
     required_verifications = (
         []
         if explicit_task_goal_type
@@ -559,6 +554,101 @@ def _profile_obligation_requirements(
             "task_goal_spec_type": str(task_goal_spec.get("task_goal_type") or ""),
         },
     }
+
+
+def _model_decision_verification_requirements(
+    model_decision: dict[str, Any],
+    task_goal_spec: dict[str, Any],
+) -> dict[str, tuple[dict[str, Any], ...]]:
+    decision = dict(model_decision or {})
+    criteria = [
+        str(item or "").strip()
+        for item in [
+            *list(decision.get("completion_criteria") or []),
+            *[
+                str(dict(item).get("title") or dict(item).get("criterion_id") or "")
+                for item in list(dict(task_goal_spec or {}).get("required_verifications") or [])
+                if isinstance(item, dict)
+            ],
+        ]
+        if str(item or "").strip()
+    ]
+    action_intent = str(decision.get("action_intent") or "").strip()
+    work_mode = str(decision.get("work_mode") or "").strip()
+    requires_verification = bool(criteria) or action_intent in {"run_command", "use_browser", "start_service"} or work_mode == "verification"
+    if not requires_verification:
+        return {"commands": (), "verifications": ()}
+    command_kind = "browser_or_runtime_check" if action_intent in {"use_browser", "start_service"} else "verification_command"
+    verification_kind = "browser_verification" if action_intent in {"use_browser", "start_service"} else "evidence"
+    command = {
+        "kind": command_kind,
+        "required": True,
+        "source": "model_turn_decision",
+    }
+    verification = {
+        "kind": verification_kind,
+        "verification_kind": verification_kind,
+        "required": True,
+        "source": "model_turn_decision",
+    }
+    if criteria:
+        verification["criteria"] = criteria
+    return {"commands": (command,), "verifications": (verification,)}
+
+
+def _model_decision_write_requirements(
+    *,
+    model_decision: dict[str, Any],
+    explicit_inputs: dict[str, Any],
+    resource_contract: dict[str, Any],
+) -> tuple[dict[str, Any], ...]:
+    decision = dict(model_decision or {})
+    action_intent = str(decision.get("action_intent") or "").strip()
+    work_mode = str(decision.get("work_mode") or "").strip()
+    if action_intent not in {"edit_workspace"} and work_mode != "implementation":
+        return ()
+    if _collect_required_writes_from_resource_contract(resource_contract):
+        return ()
+    explicit_output = str(
+        explicit_inputs.get("output_path")
+        or explicit_inputs.get("artifact_path")
+        or explicit_inputs.get("target_output_path")
+        or ""
+    ).strip()
+    if explicit_output:
+        return (
+            {
+                "kind": "file_write",
+                "path": explicit_output,
+                "required": True,
+                "source": "model_turn_decision",
+            },
+        )
+    return (
+        {
+            "kind": "workspace_change",
+            "required": True,
+            "source": "model_turn_decision",
+        },
+    )
+
+
+def _model_decision_deliverables(model_decision: dict[str, Any]) -> list[str]:
+    return _dedupe(
+        [
+            _slug_label(str(item or ""))
+            for item in list(dict(model_decision or {}).get("deliverables") or [])
+            if str(item or "").strip()
+        ]
+    )
+
+
+def _slug_label(value: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    slug = re.sub(r"[^A-Za-z0-9_\-\u4e00-\u9fff]+", "_", text).strip("_").lower()
+    return slug or text[:40]
 
 
 def _collect_required_reads(
@@ -607,6 +697,8 @@ def _collect_required_reads(
         path_end = path_start + len(normalized_fragment or raw_path)
         if _path_looks_like_command_argument(text=text, start=match.start(), path=path):
             continue
+        if _path_looks_like_required_output(text=text, start=path_start, end=path_end):
+            continue
         if not _path_looks_like_required_input(text=text, start=path_start, end=path_end, path=path):
             continue
         role = "failure_report" if path.lower().endswith(".json") and _has_any(text.lower(), ("失败", "fail", "测试报告")) else "material"
@@ -615,96 +707,6 @@ def _collect_required_reads(
         role = "failure_report" if path.lower().endswith(".json") and _has_any(text.lower(), ("失败", "fail", "测试报告")) else "material"
         add(path, role=role)
     return reads
-
-
-def _build_write_requirements(*, text: str, explicit_inputs: dict[str, Any]) -> list[dict[str, Any]]:
-    output_paths = _extract_output_paths(text)
-    explicit_output = str(
-        explicit_inputs.get("output_path")
-        or explicit_inputs.get("artifact_path")
-        or explicit_inputs.get("target_output_path")
-        or ""
-    ).strip()
-    if explicit_output:
-        output_paths = _dedupe([explicit_output, *output_paths])
-    if output_paths:
-        return [
-            {"kind": "file_write", "path": path, "required": True, "source": "user_goal"}
-            for path in output_paths
-        ]
-    return [{"kind": "workspace_change", "required": True, "source": "user_goal"}]
-
-
-def _build_command_requirements(*, text: str) -> list[dict[str, Any]]:
-    lowered = str(text or "").lower()
-    if "pytest" in lowered:
-        return [{"kind": "test_command", "command_hint": "pytest", "required": True}]
-    return [{"kind": "verification_command", "required": True}]
-
-
-def _build_verification_requirements(*, text: str) -> list[dict[str, Any]]:
-    lowered = str(text or "").lower()
-    if "pytest" in lowered:
-        return [{"kind": "pytest", "required": True}]
-    return [{"kind": "command_output", "required": True}]
-
-
-def _infer_required_deliverables(lowered: str, *, write_required: bool, verify_required: bool) -> list[str]:
-    deliverables: list[str] = []
-    if write_required:
-        deliverables.extend(["change_summary", "changed_files"])
-    if verify_required:
-        deliverables.append("verification_result_or_limitation")
-    failure_report_context = any(marker in lowered for marker in ("失败", "根因", "fail", "failure", "测试报告")) or (
-        "回归" in lowered and "测试" in lowered
-    )
-    if not write_required and failure_report_context:
-        deliverables.extend(["failure_classification", "structural_root_causes", "regression_test_plan", "evidence_limits"])
-    return _dedupe(deliverables)
-
-
-def _extract_output_paths(text: str) -> list[str]:
-    output_paths: list[str] = _expand_output_directory_file_lists(text)
-    for match in _PATH_RE.finditer(text):
-        prefix = str(text or "")[max(0, match.start() - 24) : match.start()]
-        if any(marker in prefix for marker in ("写入", "保存", "生成", "产出", "输出到", "落到", "创建", "新建")):
-            output_paths.append(
-                _complete_partial_known_root_path(
-                    _normalize_path(match.group("path")),
-                    text=text,
-                    start=match.start(),
-                )
-            )
-    return _dedupe(output_paths)
-
-
-def _expand_output_directory_file_lists(text: str) -> list[str]:
-    normalized = str(text or "").replace("\\", "/")
-    output_dirs: list[str] = _explicit_output_directories(normalized)
-    dir_pattern = re.compile(
-        r"(?P<dir>(?:[\w.\-\u4e00-\u9fff]+/)+[\w.\-\u4e00-\u9fff]+/)",
-        re.IGNORECASE,
-    )
-    for match in dir_pattern.finditer(normalized):
-        directory = _normalize_path(str(match.group("dir") or "")).strip("/")
-        context = _local_path_context(normalized, start=match.start(), end=match.end(), radius=24)
-        if directory and _context_indicates_output_path(context):
-            output_dirs.append(directory)
-    if not output_dirs:
-        return []
-    file_pattern = re.compile(
-        r"(?<![\w/\\.-])(?P<file>[\w.\-\u4e00-\u9fff]+?\.(?:html|css|js|jsx|ts|tsx|py|json|md|txt|csv|yaml|yml|toml))(?![\w/\\.-])",
-        re.IGNORECASE,
-    )
-    files = [_normalize_path(str(match.group("file") or "")) for match in file_pattern.finditer(normalized)]
-    return _dedupe(
-        [
-            f"{directory}/{filename}"
-            for directory in output_dirs
-            for filename in files
-            if filename and "/" not in filename
-        ]
-    )
 
 
 def _normalize_path(path: str) -> str:
@@ -773,17 +775,14 @@ def _path_looks_like_required_input(*, text: str, start: int, path: str, end: in
     return False
 
 
-def _explicit_output_directories(text: str) -> list[str]:
-    result: list[str] = []
-    pattern = re.compile(
-        r"(?:目标输出目录|输出目录|目标目录|写入目录|保存目录|产物目录)[^/\\]{0,48}(?P<dir>(?:frontend|backend|output|docs|storage|scripts|tests|src|app|packages|knowledge)/(?:[\w.\-\u4e00-\u9fff]+/)*[\w.\-\u4e00-\u9fff]+/?)",
-        re.IGNORECASE,
-    )
-    for match in pattern.finditer(str(text or "").replace("\\", "/")):
-        directory = _normalize_path(str(match.group("dir") or "")).strip("/")
-        if directory:
-            result.append(directory)
-    return _dedupe(result)
+def _path_looks_like_required_output(*, text: str, start: int, end: int) -> bool:
+    normalized = str(text or "").replace("\\", "/")
+    context = _local_path_context(normalized, start=start, end=end, radius=48)
+    if not _context_indicates_output_path(context):
+        return False
+    read_index = _last_read_marker_index(context)
+    output_index = _last_output_marker_index(context)
+    return output_index >= 0 and output_index >= read_index
 
 
 def _local_path_context(text: str, *, start: int, end: int, radius: int) -> str:
@@ -878,6 +877,24 @@ def _first_output_marker_index(text: str) -> int:
     return min(indexes) if indexes else -1
 
 
+def _last_output_marker_index(text: str) -> int:
+    indexes = [
+        str(text or "").rfind(marker)
+        for marker in ("目标输出", "输出目录", "输出到", "写入", "保存", "生成", "产出", "落到", "创建", "新建")
+        if str(text or "").rfind(marker) >= 0
+    ]
+    return max(indexes) if indexes else -1
+
+
+def _last_read_marker_index(text: str) -> int:
+    indexes = [
+        str(text or "").rfind(marker)
+        for marker in ("只读", "源项目", "源工程", "源路径", "源目录", "读回", "读取", "打开", "查看", "分析", "追踪", "结合", "基于", "根据", "参考", "从", "载入", "检查")
+        if str(text or "").rfind(marker) >= 0
+    ]
+    return max(indexes) if indexes else -1
+
+
 def _first_output_path_index(text: str) -> int:
     match = re.search(r"(?:^|[^\w/\\.-])(?:output|dist|build|coverage)/", str(text or ""), flags=re.IGNORECASE)
     return match.start() + (1 if match.group(0) and not match.group(0)[0].isalnum() else 0) if match else -1
@@ -900,54 +917,6 @@ def _kind_from_path(path: str) -> str:
 
 def _has_any(text: str, markers: tuple[str, ...]) -> bool:
     return any(marker.lower() in str(text or "").lower() for marker in markers)
-
-
-def _requires_real_write(lowered: str) -> bool:
-    text = _without_negative_write_phrases(str(lowered or "").lower())
-    if any(marker in text for marker in ("读回", "验收", "确认上一轮", "确认上轮")) and not any(
-        marker in text
-        for marker in ("必须写入", "重新写入", "继续写入", "修改", "修复", "生成文件", "创建文件", "新建文件")
-    ):
-        return False
-    explicit_markers = (
-        "写入",
-        "生成文件",
-        "产出",
-        "实现",
-        "修改文件",
-        "修改相关文件",
-        "改文件",
-        "改代码",
-        "修改代码",
-        "修复代码",
-        "修正代码",
-        "补丁",
-        "创建文件",
-        "新建文件",
-        "apply",
-        "patch",
-        "implement",
-    )
-    if any(marker in text for marker in explicit_markers):
-        return True
-    advisory_context = any(marker in text for marker in ("修复建议", "验证步骤", "排查", "建议", "怎么修", "如何修"))
-    if advisory_context:
-        return False
-    if re.search(r"\bfix(?:e[ds]|ing)?\b", text) and not any(marker in text for marker in ("fix advice", "fix suggestion", "how to fix")):
-        return True
-    return any(marker in text for marker in ("修复", "修正"))
-
-
-def _without_negative_write_phrases(text: str) -> str:
-    cleaned = str(text or "")
-    for marker in sorted(
-        [*_GLOBAL_FORBID_WRITE_MARKERS, *_BROAD_NO_MODIFY_MARKERS],
-        key=len,
-        reverse=True,
-    ):
-        if marker:
-            cleaned = cleaned.replace(marker.lower(), " ")
-    return cleaned
 
 
 def _dedupe(values: list[str]) -> list[str]:

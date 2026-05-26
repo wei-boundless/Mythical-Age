@@ -141,12 +141,7 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
             for item in tuple(tool_policy.get("allowed_operation_refs") or ())
             if str(item).strip() != "op.model_response"
         ]
-        if _needs_agent_todo(
-            interaction_mode=interaction_mode,
-            semantic_contract=semantic_contract,
-            agent_plan_draft=agent_plan_draft,
-            step_blueprints=step_blueprints,
-        ):
+        if _agent_todo_explicitly_available(semantic_contract=semantic_contract):
             optional_operations.append("op.agent_todo")
         return {
             "title": _interaction_mode_title(interaction_mode),
@@ -209,6 +204,33 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
                     "Do not invent evidence, tool execution, file writes, or test results that did not happen.",
                     "Do not output tool calls, DSML, raw parameters, or internal protocol fragments.",
                     *tuple(_deliverable_requirement_lines(semantic_contract, strict=strict)),
+                ),
+            },
+        }
+    if recipe_id == "runtime.recipe.task_graph_node":
+        return {
+            "title": "Task graph node runtime",
+            "description": "Run a task-system stage through its assigned agent runtime assembly without resolving a nested conversation route.",
+            "task_mode": "task_runtime",
+            "source_kind": "task_system",
+            "output_schema": {
+                "final_answer": {"type": "string", "required": True},
+                "node_result": {"type": "object", "required": False},
+                "artifact_refs": {"type": "array", "required": False},
+            },
+            "required_operations": ("op.model_response",),
+            "optional_operations": (),
+            "step_blueprints": (
+                _step("execute_task_node", "Execute task node", "execute"),
+                _step("finalize_task_node", "Finalize task node", "finalize"),
+            ),
+            "metadata": {
+                "execution_strategy": "task_system_managed_node",
+                "runtime_lane_hint": "coordination_task",
+                "final_answer_requirements": (
+                    "Complete the current task-system stage according to the provided stage work order.",
+                    "Do not choose a different task environment, route, or retrieval lane from the stage instructions.",
+                    "Do not invent evidence, file writes, or node outputs that were not produced in this run.",
                 ),
             },
         }
@@ -414,13 +436,7 @@ def _runtime_task_id_from_contract(semantic_contract: dict[str, Any]) -> str:
     return contract_id or "runtime"
 
 
-def _needs_agent_todo(
-    *,
-    interaction_mode: str,
-    semantic_contract: dict[str, Any],
-    agent_plan_draft: dict[str, Any],
-    step_blueprints: tuple[TaskStepBlueprint, ...],
-) -> bool:
+def _agent_todo_explicitly_available(*, semantic_contract: dict[str, Any]) -> bool:
     todo_policy = dict(semantic_contract.get("todo_policy") or {}) if isinstance(semantic_contract.get("todo_policy"), dict) else {}
     if bool(todo_policy.get("enabled") is False):
         return False
@@ -433,22 +449,12 @@ def _needs_agent_todo(
     }
     if "op.agent_todo" in explicit_optional:
         return True
-    steps = [item for item in list(agent_plan_draft.get("steps") or []) if isinstance(item, dict)]
-    if len(steps) > 1 or len(step_blueprints) > 2:
-        return True
-    user_flow = [
+    tool_policy = dict(semantic_contract.get("tool_policy") or {}) if isinstance(semantic_contract.get("tool_policy"), dict) else {}
+    return "op.agent_todo" in {
         str(item).strip()
-        for item in list(semantic_contract.get("user_provided_flow") or [])
+        for item in list(tool_policy.get("optional_operations") or tool_policy.get("allowed_operation_refs") or [])
         if str(item).strip()
-    ]
-    if len(user_flow) > 1:
-        return True
-    explicit_constraints = [
-        str(item).strip()
-        for item in list(semantic_contract.get("explicit_constraints") or [])
-        if str(item).strip()
-    ]
-    return any(marker in item for item in explicit_constraints for marker in ("先", "然后", "再", "最后"))
+    }
 
 
 def _deliverable_requirement_lines(semantic_contract: dict[str, Any], *, strict: bool) -> tuple[str, ...]:

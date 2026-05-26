@@ -47,7 +47,12 @@ def test_tool_observation_ledger_classifies_core_tool_side_effects() -> None:
                     "exit_code": 0,
                     "passed": True,
                     "output_preview": "1 passed",
-                }
+                },
+                "verification_intent": {
+                    "stage": "verify_output",
+                    "obligation": "verify_command",
+                    "authority": "professional_runtime.action_gate",
+                },
             },
         },
     )
@@ -146,7 +151,12 @@ def test_tool_observation_ledger_records_structured_paths_and_command_receipts()
                     "exit_code": 0,
                     "passed": True,
                     "output_preview": "1 passed",
-                }
+                },
+                "verification_intent": {
+                    "stage": "verify_output",
+                    "obligation": "verify_command",
+                    "authority": "professional_runtime.action_gate",
+                },
             },
         },
     )
@@ -234,7 +244,7 @@ def test_terminal_parser_error_is_not_a_passing_verification() -> None:
 
     assert envelope.status == "error"
     assert envelope.command_receipt["passed"] is False
-    assert ledger.has_verification("pytest") is True
+    assert ledger.has_verification("pytest") is False
     assert ledger.verification_passed() is False
 
 
@@ -272,7 +282,7 @@ def test_terminal_pytest_failure_is_not_a_passing_verification() -> None:
     assert ledger.verification_passed() is False
 
 
-def test_terminal_pytest_success_is_a_passing_verification() -> None:
+def test_terminal_pytest_success_without_structured_intent_is_only_command_fact() -> None:
     envelope = build_tool_result_envelope(
         tool_name="terminal",
         tool_args={"command": "python -m pytest backend/tests/foo.py"},
@@ -299,7 +309,9 @@ def test_terminal_pytest_success_is_a_passing_verification() -> None:
 
     assert envelope.status == "ok"
     assert envelope.command_receipt["passed"] is True
-    assert ledger.verification_passed() is True
+    assert ledger.has_verification("pytest") is False
+    assert ledger.verification_passed() is False
+    assert ledger.records[0].command_receipt["passed"] is True
 
 
 def test_terminal_action_gate_verification_intent_satisfies_verify_command_without_keyword_guessing() -> None:

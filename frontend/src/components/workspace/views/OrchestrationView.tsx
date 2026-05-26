@@ -58,7 +58,6 @@ import {
 
 type AgentCategory = "main_agent" | "builtin_agent" | "custom_agent";
 type OrchestrationLayer = "identity" | "groups" | "runtime_permissions" | "runtime_config" | "model_runtime" | "context_memory" | "collaboration" | "overview" | "diagnostics";
-type CustomDirectoryMode = "grouped" | "ungrouped";
 type AssemblySelectionKind = "agent" | "group" | "empty";
 
 type AgentDraft = OrchestrationAgentUpsertPayload & {
@@ -71,6 +70,7 @@ type AgentGroupDraft = OrchestrationAgentGroup & {
 };
 
 const CATEGORY_ORDER: AgentCategory[] = ["main_agent", "builtin_agent", "custom_agent"];
+const DEFAULT_SUB_AGENT_GROUP_ID = "__default_sub_agent_group__";
 
 const CATEGORY_LABELS: Record<AgentCategory, string> = {
   main_agent: "主 Agent",
@@ -407,7 +407,6 @@ export function OrchestrationView() {
   const [selectedGroupId, setSelectedGroupId] = useState("");
   const [activeCategory, setActiveCategory] = useState<AgentCategory>("custom_agent");
   const [activeLayer, setActiveLayer] = useState<OrchestrationLayer>("groups");
-  const [customDirectoryMode, setCustomDirectoryMode] = useState<CustomDirectoryMode>("grouped");
   const [query, setQuery] = useState("");
   const [agentMode, setAgentMode] = useState<"existing" | "new">("existing");
   const [groupMode, setGroupMode] = useState<"existing" | "new">("existing");
@@ -442,8 +441,8 @@ export function OrchestrationView() {
         return String(preferredCustom?.agent_id || mergedPayload.agents[0]?.agent_id || "");
       });
       if (!firstGroupId && mergedPayload.agents.some((agent) => agentCategory(agent) === "custom_agent")) {
-        setCustomDirectoryMode("ungrouped");
-        setActiveLayer("identity");
+        setSelectedGroupId(DEFAULT_SUB_AGENT_GROUP_ID);
+        setActiveLayer("groups");
       }
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "编排系统加载失败");
@@ -517,8 +516,7 @@ export function OrchestrationView() {
         setActiveCategory(category);
         if (category === "custom_agent") {
           const group = agentGroups.find((item) => item.member_agent_ids.some((memberId) => String(memberId) === focusAgentId));
-          setCustomDirectoryMode(group ? "grouped" : "ungrouped");
-          setSelectedGroupId(group?.group_id || "");
+          setSelectedGroupId(group?.group_id || DEFAULT_SUB_AGENT_GROUP_ID);
         }
       }
     }
@@ -529,7 +527,8 @@ export function OrchestrationView() {
 
   const selectedAgent = agents.find((agent) => String(agent.agent_id) === selectedAgentId) ?? null;
   const selectedGroup = agentGroups.find((group) => group.group_id === selectedGroupId) ?? null;
-  const selectionKind: AssemblySelectionKind = activeCategory === "custom_agent" && customDirectoryMode === "grouped" && activeLayer === "groups"
+  const selectedDefaultSubAgentGroup = activeCategory === "custom_agent" && selectedGroupId === DEFAULT_SUB_AGENT_GROUP_ID;
+  const selectionKind: AssemblySelectionKind = activeCategory === "custom_agent" && activeLayer === "groups" && !selectedDefaultSubAgentGroup
     ? "group"
     : selectedAgent || agentMode === "new"
       ? "agent"
@@ -615,9 +614,10 @@ export function OrchestrationView() {
 
   useEffect(() => {
     if (loading || groupMode === "new") return;
-    if (activeCategory !== "custom_agent" || customDirectoryMode !== "grouped") return;
+    if (activeCategory !== "custom_agent") return;
+    if (selectedGroupId === DEFAULT_SUB_AGENT_GROUP_ID) return;
     if (selectedGroupId && agentGroups.some((group) => group.group_id === selectedGroupId)) return;
-    const firstGroupId = agentGroups[0]?.group_id || "";
+    const firstGroupId = agentGroups[0]?.group_id || DEFAULT_SUB_AGENT_GROUP_ID;
     if (firstGroupId !== selectedGroupId) {
       setSelectedGroupId(firstGroupId);
     }
@@ -632,7 +632,6 @@ export function OrchestrationView() {
     loading,
     selectedAgentId,
     selectedGroupId,
-    customDirectoryMode,
   ]);
 
   const activeGroup = groupedAgents.find((group) => group.category === activeCategory);
@@ -673,7 +672,7 @@ export function OrchestrationView() {
   ];
   const layerTabs: Array<[OrchestrationLayer, string, string]> = selectionKind === "group"
     ? [["groups", "分组", String(splitList(groupDraft.member_agent_ids_text).length)]]
-    : activeCategory === "custom_agent" && customDirectoryMode === "grouped"
+    : activeCategory === "custom_agent"
       ? [["groups", "分组", String(agentGroups.length)], ...agentLayerTabs]
       : agentLayerTabs;
   const activeLayerTab = layerTabs.find(([value]) => value === activeLayer) ?? layerTabs[0] ?? ["identity", "身份", ""];
@@ -733,11 +732,10 @@ export function OrchestrationView() {
     const first = visibleAgents.find((agent) => agentCategory(agent) === category);
     setAgentMode("existing");
     if (category === "custom_agent") {
-      setCustomDirectoryMode("grouped");
       setActiveLayer("groups");
       setGroupMode("existing");
       const firstGroup = agentGroups[0];
-      setSelectedGroupId(firstGroup?.group_id || "");
+      setSelectedGroupId(firstGroup?.group_id || DEFAULT_SUB_AGENT_GROUP_ID);
       setSelectedAgentId("");
     } else {
       setSelectedGroupId("");
@@ -754,13 +752,7 @@ export function OrchestrationView() {
     if (agentCategory(agent) === "custom_agent") {
       const group = agentGroups.find((item) => item.member_agent_ids.some((memberId) => String(memberId) === agentId));
       setActiveCategory("custom_agent");
-      if (group) {
-        setCustomDirectoryMode("grouped");
-        setSelectedGroupId(group.group_id);
-      } else {
-        setCustomDirectoryMode("ungrouped");
-        setSelectedGroupId("");
-      }
+      setSelectedGroupId(group?.group_id || DEFAULT_SUB_AGENT_GROUP_ID);
     } else {
       setSelectedGroupId("");
     }
@@ -770,25 +762,15 @@ export function OrchestrationView() {
   function selectSubAgentGroup(groupId: string) {
     setSelectedGroupId(groupId);
     setGroupMode("existing");
-    setCustomDirectoryMode("grouped");
-    setSelectedAgentId("");
     setAgentMode("existing");
-    setActiveLayer("groups");
-  }
-
-  function selectCustomDirectoryMode(mode: CustomDirectoryMode) {
-    setCustomDirectoryMode(mode);
-    setAgentMode("existing");
-    setGroupMode("existing");
-    if (mode === "grouped") {
-      setSelectedAgentId("");
-      setSelectedGroupId((current) => current || agentGroups[0]?.group_id || "");
-      setActiveLayer("groups");
+    if (groupId === DEFAULT_SUB_AGENT_GROUP_ID) {
+      const firstDefaultAgentId = String(ungroupedCustomAgents[0]?.agent_id || "");
+      setSelectedAgentId(firstDefaultAgentId);
+      setActiveLayer(firstDefaultAgentId ? "identity" : "groups");
       return;
     }
-    setSelectedGroupId("");
-    setSelectedAgentId(String(ungroupedCustomAgents[0]?.agent_id || ""));
-    setActiveLayer(ungroupedCustomAgents[0] ? "identity" : "groups");
+    setSelectedAgentId("");
+    setActiveLayer("groups");
   }
 
   async function startBlankAgentDraft() {
@@ -807,9 +789,8 @@ export function OrchestrationView() {
     setAgentMode("new");
     setGroupMode("existing");
     setSelectedAgentId("");
-    setSelectedGroupId("");
+    setSelectedGroupId(DEFAULT_SUB_AGENT_GROUP_ID);
     setActiveCategory("custom_agent");
-    setCustomDirectoryMode("ungrouped");
     setActiveLayer("identity");
     setAgentDraft({
       ...EMPTY_AGENT_DRAFT,
@@ -904,7 +885,6 @@ export function OrchestrationView() {
 
   function startBlankGroupDraft() {
     setActiveCategory("custom_agent");
-    setCustomDirectoryMode("grouped");
     setActiveLayer("groups");
     setGroupMode("new");
     setSelectedGroupId("");
@@ -964,7 +944,6 @@ export function OrchestrationView() {
       setSelectedAgentId("");
       setGroupMode("existing");
       setActiveCategory("custom_agent");
-      setCustomDirectoryMode("grouped");
       setActiveLayer("groups");
       setNotice(`${currentGroup?.title || selectedGroupId} 已删除。`);
     } catch (exc) {
@@ -1028,14 +1007,12 @@ export function OrchestrationView() {
           selectedGroupId={selectedGroupId}
           selectionKind={selectionKind}
           selectSubAgentGroup={selectSubAgentGroup}
-          selectCustomDirectoryMode={selectCustomDirectoryMode}
           setQuery={setQuery}
           selectedGroupAgents={selectedGroupAgents}
           saving={saving}
           startBlankAgentDraft={startBlankAgentDraft}
           startBlankGroupDraft={startBlankGroupDraft}
           ungroupedCustomAgents={ungroupedCustomAgents}
-          customDirectoryMode={customDirectoryMode}
           removeAgentById={async (agentId, agentName) => {
             if (await confirm({
               title: `删除 Agent「${agentName || agentId}」`,

@@ -61,18 +61,20 @@ def resolve_execution_shape(
     )
     reasons: list[str] = []
 
-    if registered_task:
-        if _explicit_task_runtime(current_turn):
-            reasons.append("explicit_task_runtime")
-            return ExecutionShape(
-                recipe_id="runtime.recipe.task_graph_node",
-                execution_kind="task_runtime",
-                source_kind="task_system",
-                finalization_policy={"requires_model_finalize": True, "tool_observation_can_finalize": False},
-                resolution_source="registered_task",
-                resolution_reasons=tuple(reasons),
-                diagnostics=diagnostics,
-            )
+    if _explicit_task_runtime(current_turn):
+        reasons.append("explicit_task_runtime")
+        return ExecutionShape(
+            recipe_id="runtime.recipe.task_graph_node",
+            execution_kind="task_runtime",
+            source_kind="task_system",
+            finalization_policy={"requires_model_finalize": True, "tool_observation_can_finalize": False},
+            resolution_source="task_runtime_context",
+            resolution_reasons=tuple(reasons),
+            diagnostics={
+                **diagnostics,
+                "registered_task_present": bool(registered_task),
+            },
+        )
 
     if action_intent == "block":
         reasons.append("model_turn_block")
@@ -342,11 +344,15 @@ def _shape_diagnostics(
 
 
 def _explicit_task_runtime(current_turn: dict[str, Any]) -> bool:
-    if str(current_turn.get("selected_task_id") or current_turn.get("task_id") or "").strip():
-        return True
     if str(current_turn.get("continuation_stage_id") or "").strip():
         return True
+    if str(current_turn.get("stage_execution_request_ref") or "").strip():
+        return True
+    if str(current_turn.get("coordination_run_id") or "").strip():
+        return True
     if dict(current_turn.get("stage_execution_request") or {}):
+        return True
+    if dict(current_turn.get("node_work_order") or {}):
         return True
     return False
 
