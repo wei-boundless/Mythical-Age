@@ -162,7 +162,7 @@ def test_model_agent_plan_draft_is_accepted_when_schema_valid() -> None:
     assert review["gate_status"] == "passed"
 
 
-def test_plan_coverage_hard_gate_blocks_execution_steps_when_model_plan_misses_contract() -> None:
+def test_plan_coverage_hard_gate_stays_policy_without_generating_plan_steps() -> None:
     message = "请重构前端任务图编辑器，做成可运行的编辑器体验，并用浏览器验证关键工作流。"
     turn_context = model_turn_context(
         action_intent="edit_workspace",
@@ -219,9 +219,8 @@ def test_plan_coverage_hard_gate_blocks_execution_steps_when_model_plan_misses_c
     assert coverage["gate_status"] == "blocked_replan_required"
     assert coverage["diagnostics"]["hard_gate"] is True
     assert "apply_real_change" in coverage["missing_actions"]
-    assert "step_execution.implement_frontend_changes" not in step_ids
-    assert "verification" not in step_ids
-    assert step_ids[-1] == "finalization"
+    assert metadata["runtime_step_topology"] == "unified_agent_task_lifecycle"
+    assert step_ids == ["agent_execution", "final_acceptance"]
 
 
 def test_prompt_sections_require_agent_plan_and_explain_hard_gate() -> None:

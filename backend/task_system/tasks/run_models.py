@@ -32,6 +32,7 @@ class TaskStepRun:
     attempt_count: int = 0
     failure_reason: str = ""
     step_result_ref: str = ""
+    step_summary_ref: str = ""
     executor_ref: str = ""
     diagnostics: dict[str, Any] = field(default_factory=dict)
     authority: str = "task_system.task_step_run"
@@ -194,6 +195,7 @@ def complete_task_run_step(
     observation_refs: tuple[str, ...] = (),
     output_refs: tuple[str, ...] = (),
     step_result_ref: str = "",
+    step_summary_ref: str = "",
     executor_ref: str = "",
     diagnostics: dict[str, Any] | None = None,
 ) -> TaskRunLedger:
@@ -211,6 +213,7 @@ def complete_task_run_step(
         observation_refs=_dedupe_tuple((*current.observation_refs, *observation_refs)),
         output_refs=_dedupe_tuple((*current.output_refs, *output_refs)),
         step_result_ref=step_result_ref or current.step_result_ref,
+        step_summary_ref=step_summary_ref or current.step_summary_ref,
         executor_ref=executor_ref or current.executor_ref,
         diagnostics=_merged_dict(current.diagnostics, diagnostics),
         failure_reason="",
@@ -235,6 +238,7 @@ def fail_task_run_step(
     observation_refs: tuple[str, ...] = (),
     output_refs: tuple[str, ...] = (),
     step_result_ref: str = "",
+    step_summary_ref: str = "",
     executor_ref: str = "",
     diagnostics: dict[str, Any] | None = None,
 ) -> TaskRunLedger:
@@ -252,6 +256,7 @@ def fail_task_run_step(
         observation_refs=_dedupe_tuple((*current.observation_refs, *observation_refs)),
         output_refs=_dedupe_tuple((*current.output_refs, *output_refs)),
         step_result_ref=step_result_ref or current.step_result_ref,
+        step_summary_ref=step_summary_ref or current.step_summary_ref,
         executor_ref=executor_ref or current.executor_ref,
         diagnostics=_merged_dict(current.diagnostics, diagnostics),
         failure_reason=str(failure_reason or current.failure_reason or "step_failed"),

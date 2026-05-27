@@ -36,6 +36,115 @@ class _FailingDecisionModelRuntime:
         raise RuntimeError("simulated provider unavailable")
 
 
+class _ScriptedDecisionModelRuntime:
+    def __init__(
+        self,
+        *,
+        decision: dict[str, object],
+        final_content: str = "单轮收口回答",
+    ) -> None:
+        self.decision = dict(decision)
+        self.final_content = final_content
+        self.calls: list[list[dict[str, object]]] = []
+
+    async def invoke_messages(self, messages, **_kwargs):
+        self.calls.append([dict(message) for message in list(messages or []) if isinstance(message, dict)])
+        if _is_model_turn_decision_request(messages):
+            return SimpleNamespace(content=json.dumps(self.decision, ensure_ascii=False))
+        return SimpleNamespace(content=self.final_content)
+
+
+class _DirectAnswerDecisionModelRuntime:
+    def __init__(self) -> None:
+        self.call_count = 0
+
+    async def invoke_messages(self, messages, **_kwargs):
+        self.call_count += 1
+        if self.call_count == 1:
+            return SimpleNamespace(
+                content=json.dumps(
+                    {
+                        "authority": "agent_runtime.model_turn_decision",
+                        "decision_id": "model-turn-decision:direct-answer",
+                        "user_message": "你好，介绍一下 harness。",
+                        "interaction_intent": "answer",
+                        "action_intent": "answer_only",
+                        "work_mode": "conversation",
+                        "task_goal_type": "",
+                        "domain_mismatch_signal": {},
+                        "target_objects": [],
+                        "desired_outcome": "直接回答用户问题。",
+                        "deliverables": ["conversational_response"],
+                        "constraints": [],
+                        "forbidden_actions": [],
+                        "selected_skill_ids": [],
+                        "resource_contract": {},
+                        "context_binding_decision": {},
+                        "planning_required": False,
+                        "todo_required": False,
+                        "completion_criteria": [],
+                        "needs_clarification": False,
+                        "clarification_question": "",
+                        "confidence": 0.96,
+                        "ambiguity": [],
+                        "diagnostics": {"test_decision": True},
+                    },
+                    ensure_ascii=False,
+                )
+            )
+        return SimpleNamespace(content="这是直接回答，不需要启动任务运行。")
+
+
+def _scripted_model_turn_decision(
+    *,
+    action_intent: str,
+    work_mode: str,
+    interaction_intent: str,
+    task_goal_type: str = "",
+    desired_outcome: str = "测试目标。",
+    deliverables: list[str] | None = None,
+    target_objects: list[str] | None = None,
+    resource_contract: dict[str, object] | None = None,
+    planning_required: bool = False,
+    completion_criteria: list[str] | None = None,
+) -> dict[str, object]:
+    return {
+        "authority": "agent_runtime.model_turn_decision",
+        "decision_id": f"model-turn-decision:test:{action_intent}:{task_goal_type or 'turn'}",
+        "user_message": desired_outcome,
+        "interaction_intent": interaction_intent,
+        "action_intent": action_intent,
+        "work_mode": work_mode,
+        "task_goal_type": task_goal_type,
+        "domain_mismatch_signal": {},
+        "target_objects": list(target_objects or []),
+        "desired_outcome": desired_outcome,
+        "deliverables": list(deliverables or []),
+        "constraints": [],
+        "forbidden_actions": [],
+        "selected_skill_ids": [],
+        "resource_contract": dict(resource_contract or {}),
+        "context_binding_decision": {"mode": "scripted_test_decision"},
+        "planning_required": planning_required,
+        "todo_required": False,
+        "completion_criteria": list(completion_criteria or []),
+        "needs_clarification": False,
+        "clarification_question": "",
+        "confidence": 0.97,
+        "ambiguity": [],
+        "diagnostics": {"test_scripted_decision": True},
+    }
+
+
+def _is_model_turn_decision_request(messages: object) -> bool:
+    try:
+        first = list(messages or [])[0]  # type: ignore[arg-type]
+    except Exception:
+        return False
+    content = str(dict(first).get("content") if isinstance(first, dict) else getattr(first, "content", "") or "")
+    return "理解决策器" in content and "只输出合法 JSON" in content
+
+
 class _InspectionDecisionModelRuntime:
     async def invoke_messages(self, _messages, **_kwargs):
         return SimpleNamespace(
@@ -220,9 +329,9 @@ class _WriteVerifyCompletionExecutor:
         }
 
 
-def _build_stream_runtime() -> QueryRuntime:
+def _build_stream_runtime(*, model_runtime: object | None = None, base_dir: Path | None = None) -> QueryRuntime:
     return QueryRuntime(
-        base_dir=isolated_backend_root("query-runtime-loop-"),
+        base_dir=base_dir or isolated_backend_root("query-runtime-loop-"),
         settings_service=PrimarySettingsStub(),
         session_manager=InMemorySessionManagerStub(),
         memory_facade=QueryRuntimeMemoryFacadeStub(),
@@ -230,7 +339,7 @@ def _build_stream_runtime() -> QueryRuntime:
         tool_runtime=EmptyToolRuntimeStub(),
         skill_registry=EmptySkillRegistryStub(),
         permission_service=DefaultPermissionStub(),
-        model_runtime=SingleMessageModelRuntimeStub(),
+        model_runtime=model_runtime or SingleMessageModelRuntimeStub(),
     )
 
 
@@ -267,7 +376,19 @@ def _main_agent_mode_task_selection(
 
 
 def test_astream_specific_light_web_game_task_can_write_new_file(tmp_path: Path) -> None:
-    runtime = _build_stream_runtime()
+    runtime = _build_stream_runtime(
+        model_runtime=SingleMessageModelRuntimeStub(
+            model_turn_decision=_scripted_model_turn_decision(
+                action_intent="edit_workspace",
+                work_mode="implementation",
+                interaction_intent="create",
+                task_goal_type="game_vertical_slice_delivery",
+                desired_outcome="生成一个可运行的轻量网页小游戏。",
+                deliverables=["runnable_artifact_refs", "gameplay_acceptance", "verification_evidence"],
+                target_objects=["task.dev.light_web_game"],
+            )
+        )
+    )
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
@@ -320,6 +441,14 @@ def test_agent_runtime_emits_stream_delta_once() -> None:
                 task_selection={
                     "turn_id": "turn:session-stream-dedup:1",
                     "stream_policy": {"enabled": True, "mode": "model_text_stream"},
+                    "model_turn_decision": _scripted_model_turn_decision(
+                        action_intent="answer_only",
+                        work_mode="conversation",
+                        interaction_intent="answer",
+                        task_goal_type="light_qa",
+                        desired_outcome="流式回答用户当前问题。",
+                        deliverables=["direct_answer"],
+                    ),
                 },
                 tool_runtime_executor=runtime.tool_runtime_executor,
                 tool_instances=runtime._all_tool_instances(),
@@ -495,6 +624,28 @@ def test_professional_harness_real_tools_gate_completion_on_artifact_evidence() 
     assert "verify_command" in verify_record["satisfies"]
     assert dict(verify_record["command_receipt"])["passed"] is True
     assert verify_record["evidence_source"] == "structured_envelope"
+    step_summary_events = [
+        dict(event.get("event") or {})
+        for event in events
+        if event.get("type") == "harness_loop_event"
+        and dict(event.get("event") or {}).get("event_type") == "step_summary_recorded"
+    ]
+    ledger_events = [
+        dict(event.get("event") or {})
+        for event in events
+        if event.get("type") == "harness_loop_event"
+        and dict(event.get("event") or {}).get("event_type") == "task_run_ledger_updated"
+    ]
+    assert step_summary_events
+    assert ledger_events
+    summary_refs = {str(dict(event.get("refs") or {}).get("step_summary_ref") or "") for event in step_summary_events}
+    ledger_summary_refs = {
+        str(dict(step).get("step_summary_ref") or "")
+        for ledger_event in ledger_events
+        for step in list(dict(dict(ledger_event.get("payload") or {}).get("task_run_ledger") or {}).get("step_runs") or [])
+    }
+    assert summary_refs <= ledger_summary_refs
+    assert all(dict(dict(event.get("payload") or {}).get("step_execution_summary") or {}).get("hidden_reasoning_included") is False for event in step_summary_events)
     assert verification["passed"] is True
     assert judgment["completion_allowed"] is True
     assert terminal_payload["status"] == "completed"
@@ -508,7 +659,16 @@ def test_query_runtime_assembles_compressed_context_before_model_history() -> No
         {"role": "user", "content": f"old-{index}"}
         for index in range(14)
     ]
-    model_runtime = SingleMessageModelRuntimeStub()
+    model_runtime = _ScriptedDecisionModelRuntime(
+        decision=_scripted_model_turn_decision(
+            action_intent="edit_workspace",
+            work_mode="implementation",
+            interaction_intent="modify",
+            task_goal_type="implementation",
+            desired_outcome="继续已有项目任务，需要进入任务生命周期继承历史上下文。",
+            deliverables=["change_summary", "verification_result_or_limitation"],
+        )
+    )
     runtime = QueryRuntime(
         base_dir=isolated_backend_root("query-runtime-history-assembly-"),
         settings_service=PrimarySettingsStub(),
@@ -536,7 +696,7 @@ def test_query_runtime_assembles_compressed_context_before_model_history() -> No
         async for _event in runtime.astream(
             QueryRequest(
                 session_id="session-history-assembly",
-                message="继续",
+                message="继续已有项目任务。",
                 history=[],
             )
         ):
@@ -606,23 +766,35 @@ def test_astream_reports_prestart_failure_without_task_order_chain() -> None:
 
     events = asyncio.run(_collect())
     assert any(
-        dict(event.get("event") or {}).get("event_type") == "model_turn_decision_unresolved"
+        dict(event.get("event") or {}).get("event_type") == "understanding_failed"
         for event in events
-        if event.get("type") == "harness_loop_event"
+        if event.get("type") == "agent_turn_event"
     )
+    assert not any(event.get("type") == "harness_run_started" for event in events)
     error = next(event for event in events if event.get("type") == "error")
     assert error["code"] == "model_turn_decision_unresolved"
 
 
-def test_astream_does_not_hard_block_write_from_natural_language_marker() -> None:
-    runtime = _build_stream_runtime()
+def test_astream_direct_answer_uses_agent_turn_without_task_run() -> None:
+    model_runtime = _DirectAnswerDecisionModelRuntime()
+    runtime = QueryRuntime(
+        base_dir=isolated_backend_root("query-runtime-direct-answer-turn-"),
+        settings_service=PrimarySettingsStub(),
+        session_manager=InMemorySessionManagerStub(),
+        memory_facade=QueryRuntimeMemoryFacadeStub(),
+        retrieval_service=SimpleNamespace(),
+        tool_runtime=EmptyToolRuntimeStub(),
+        skill_registry=EmptySkillRegistryStub(),
+        permission_service=DefaultPermissionStub(),
+        model_runtime=model_runtime,
+    )
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
         async for event in runtime.astream(
             QueryRequest(
-                session_id="session-action-permit-denied",
-                message="请修改 backend/api/chat.py，但不要写任何文件。",
+                session_id="session-direct-answer-turn",
+                message="你好，介绍一下 harness。",
                 history=[],
             )
         ):
@@ -630,11 +802,50 @@ def test_astream_does_not_hard_block_write_from_natural_language_marker() -> Non
         return events
 
     events = asyncio.run(_collect())
-    assert not any(
-        dict(event.get("event") or {}).get("event_type") == "runtime_blocked_before_assembly"
-        for event in events
-        if event.get("type") == "harness_loop_event"
+    done = next(event for event in events if event.get("type") == "done")
+    assert done["content"] == "这是直接回答，不需要启动任务运行。"
+    assert any(dict(event.get("event") or {}).get("event_type") == "direct_response_started" for event in events if event.get("type") == "agent_turn_event")
+    assert not any(event.get("type") == "harness_run_started" for event in events)
+    assert runtime.harness_service_host.list_session_traces("session-direct-answer-turn")["task_run_count"] == 0
+
+
+def test_task_selection_remains_context_and_does_not_skip_agent_understanding() -> None:
+    runtime = _build_stream_runtime(
+        model_runtime=SingleMessageModelRuntimeStub(
+            model_turn_decision=_scripted_model_turn_decision(
+                action_intent="edit_workspace",
+                work_mode="implementation",
+                interaction_intent="create",
+                task_goal_type="game_vertical_slice_delivery",
+                desired_outcome="生成一个可运行的轻量网页小游戏。",
+                deliverables=["runnable_artifact_refs", "gameplay_acceptance", "verification_evidence"],
+                target_objects=["task.dev.light_web_game"],
+            )
+        )
     )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            QueryRequest(
+                session_id="session-task-selection-through-understanding",
+                message="请生成一个可运行的轻量网页小游戏。",
+                history=[],
+                task_selection={"selected_task_id": "task.dev.light_web_game"},
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    agent_turn_event_types = [
+        dict(event.get("event") or {}).get("event_type")
+        for event in events
+        if event.get("type") == "agent_turn_event"
+    ]
+    assert "understanding_started" in agent_turn_event_types
+    assert "understanding_completed" in agent_turn_event_types
+    assert "understanding_skipped_for_explicit_contract" not in agent_turn_event_types
     assert any(event.get("type") == "harness_run_started" for event in events)
 
 
@@ -653,7 +864,17 @@ def test_removed_health_task_selection_falls_back_to_general_runtime() -> None:
                 agent_runtime_chain=runtime.agent_runtime_chain,
                 model_response_executor=runtime.model_response_executor,
                 runtime_context_manager=runtime.runtime_context_manager,
-                task_selection={"selected_task_id": "task.health.issue_triage"},
+                task_selection={
+                    "selected_task_id": "task.health.issue_triage",
+                    "model_turn_decision": _scripted_model_turn_decision(
+                        action_intent="answer_only",
+                        work_mode="conversation",
+                        interaction_intent="answer",
+                        task_goal_type="light_qa",
+                        desired_outcome="分诊健康问题的旧 specific task 配置已经移除，走通用主 Agent 回答。",
+                        deliverables=["direct_answer", "source_or_memory_boundary"],
+                    ),
+                },
                 tool_runtime_executor=runtime.tool_runtime_executor,
                 tool_instances=runtime._all_tool_instances(),
             )
@@ -718,6 +939,15 @@ def test_graph_node_assembly_contract_overrides_stale_task_selection_agent() -> 
                     "agent_profile_id": "pdf_analysis_agent",
                     "runtime_lane": "pdf_delegate",
                     "agent_invocation": invocation,
+                    "model_turn_decision": _scripted_model_turn_decision(
+                        action_intent="edit_workspace",
+                        work_mode="implementation",
+                        interaction_intent="create",
+                        task_goal_type="game_vertical_slice_delivery",
+                        desired_outcome="执行图节点指定的小游戏原型任务。",
+                        deliverables=["runnable_artifact_refs", "gameplay_acceptance", "verification_evidence"],
+                        target_objects=["task.dev.light_web_game"],
+                    ),
                 },
                 tool_runtime_executor=runtime.tool_runtime_executor,
                 tool_instances=runtime._all_tool_instances(),
@@ -762,7 +992,19 @@ def test_main_agent_assembly_modes_select_expected_runtime_lanes() -> None:
     }
 
     for mode, (interaction_mode, runtime_lane, recipe_id) in cases.items():
-        runtime = _build_stream_runtime()
+        runtime = _build_stream_runtime(
+            model_runtime=_ScriptedDecisionModelRuntime(
+                decision=_scripted_model_turn_decision(
+                    action_intent="read_context",
+                    work_mode="read_only_analysis",
+                    interaction_intent="inspect",
+                    task_goal_type="inspection",
+                    desired_outcome="验证主 Agent 在只读任务生命周期中的装配模式。",
+                    deliverables=["inspection_findings", "evidence_refs", "limitations"],
+                    planning_required=mode == "professional",
+                )
+            )
+        )
         task_selection = _main_agent_mode_task_selection(
             interaction_mode=interaction_mode,
             runtime_lane=runtime_lane,
@@ -832,7 +1074,18 @@ def test_main_agent_assembly_modes_select_expected_runtime_lanes() -> None:
 
 
 def test_query_runtime_enters_agent_runtime_boundary_before_legacy_loop() -> None:
-    runtime = _build_stream_runtime()
+    runtime = _build_stream_runtime(
+        model_runtime=_ScriptedDecisionModelRuntime(
+            decision=_scripted_model_turn_decision(
+                action_intent="edit_workspace",
+                work_mode="implementation",
+                interaction_intent="modify",
+                task_goal_type="implementation",
+                desired_outcome="验证 QueryRuntime 只把任务启动交给 agent turn controller。",
+                deliverables=["change_summary", "verification_result_or_limitation"],
+            )
+        )
+    )
     captured: list[AgentRunRequest] = []
     original_run = runtime.agent_harness.run_stream
 
@@ -886,7 +1139,17 @@ def test_runtime_trace_exposes_worker_spawn_trace_for_light_web_game(tmp_path: P
         tool_runtime=EmptyToolRuntimeStub(),
         skill_registry=EmptySkillRegistryStub(),
         permission_service=DefaultPermissionStub(),
-        model_runtime=SingleMessageModelRuntimeStub(),
+        model_runtime=SingleMessageModelRuntimeStub(
+            model_turn_decision=_scripted_model_turn_decision(
+                action_intent="edit_workspace",
+                work_mode="implementation",
+                interaction_intent="create",
+                task_goal_type="game_vertical_slice_delivery",
+                desired_outcome="开发一个轻量网页小游戏原型。",
+                deliverables=["runnable_artifact_refs", "gameplay_acceptance", "verification_evidence"],
+                target_objects=["task.dev.light_web_game"],
+            )
+        ),
     )
 
     async def _collect() -> tuple[list[dict[str, object]], str]:
@@ -919,7 +1182,25 @@ def test_runtime_trace_exposes_worker_spawn_trace_for_light_web_game(tmp_path: P
 
 
 def test_delegate_mode_does_not_start_system_retrieval_phase() -> None:
-    runtime = _build_stream_runtime()
+    runtime = _build_stream_runtime(
+        model_runtime=_ScriptedDecisionModelRuntime(
+            decision=_scripted_model_turn_decision(
+                action_intent="edit_workspace",
+                work_mode="implementation",
+                interaction_intent="modify",
+                task_goal_type="pdf_analysis",
+                desired_outcome="分析指定 PDF 的核心结论并报告证据边界。",
+                deliverables=["document_findings", "evidence_refs", "limitations"],
+                target_objects=["knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf"],
+                resource_contract={
+                    "required_read_files": [
+                        "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf"
+                    ]
+                },
+                completion_criteria=["报告来源边界，不能启动旧 system_retrieval 阶段"],
+            )
+        )
+    )
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
@@ -969,7 +1250,18 @@ def test_delegate_mode_does_not_start_system_retrieval_phase() -> None:
 
 
 def test_terminal_state_index_failure_still_yields_done() -> None:
-    runtime = _build_stream_runtime()
+    runtime = _build_stream_runtime(
+        model_runtime=_ScriptedDecisionModelRuntime(
+            decision=_scripted_model_turn_decision(
+                action_intent="edit_workspace",
+                work_mode="implementation",
+                interaction_intent="modify",
+                task_goal_type="implementation",
+                desired_outcome="生成一个值班提示并通过任务生命周期收口。",
+                deliverables=["change_summary", "verification_result_or_limitation"],
+            )
+        )
+    )
 
     def _raise_state_index_failure(*_args, **_kwargs):
         raise PermissionError("simulated state_index replace failure")
@@ -999,7 +1291,18 @@ def test_terminal_state_index_failure_still_yields_done() -> None:
 
 
 def test_agent_runtime_reports_coordination_continuation_without_running_graph_stage() -> None:
-    runtime = _build_stream_runtime()
+    runtime = _build_stream_runtime(
+        model_runtime=_ScriptedDecisionModelRuntime(
+            decision=_scripted_model_turn_decision(
+                action_intent="edit_workspace",
+                work_mode="implementation",
+                interaction_intent="modify",
+                task_goal_type="implementation",
+                desired_outcome="执行一个可收口的任务并报告后续协调续跑载荷。",
+                deliverables=["change_summary", "verification_result_or_limitation"],
+            )
+        )
+    )
     original_upsert = runtime.harness_service_host.task_run_finalizer.upsert_finished_task_run
 
     def _upsert_with_continuation(*args, **kwargs):

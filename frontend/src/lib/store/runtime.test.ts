@@ -430,6 +430,89 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.streamChat.mock.calls[0]?.[0]?.session_id).toBe("session:fresh");
   });
 
+  it("keeps stopped activity scoped to the session that was stopped", async () => {
+    vi.useRealTimers();
+    api.listSessions.mockResolvedValue([
+      {
+        id: "session:stopped",
+        title: "Stopped",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 1,
+      },
+      {
+        id: "session:other",
+        title: "Other",
+        created_at: 2,
+        updated_at: 2,
+        message_count: 0,
+      },
+    ]);
+    api.getSessionHistory.mockResolvedValue({ messages: [] });
+    api.createSession.mockResolvedValue({
+      id: "session:new",
+      title: "New Session",
+      created_at: 3,
+      updated_at: 3,
+      message_count: 0,
+    });
+    api.streamChat.mockImplementation(async () => {
+      throw new DOMException("signal is aborted without reason", "AbortError");
+    });
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:stopped",
+      sessions: [
+        {
+          id: "session:stopped",
+          title: "Stopped",
+          created_at: 1,
+          updated_at: 1,
+          message_count: 1,
+        },
+        {
+          id: "session:other",
+          title: "Other",
+          created_at: 2,
+          updated_at: 2,
+          message_count: 0,
+        },
+      ],
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.sendMessage("停一下");
+    expect(store.getState().sessionActivity).toMatchObject({
+      level: "stopped",
+      title: "已停止本轮生成",
+      event: "stopped",
+    });
+    expect(store.getState().sessionActivitiesById["session:stopped"]).toMatchObject({
+      level: "stopped",
+      title: "已停止本轮生成",
+    });
+
+    await runtime.actions.createNewSession();
+    expect(store.getState().currentSessionId).toBe("session:new");
+    expect(store.getState().sessionActivity).toMatchObject({
+      level: "idle",
+      event: "",
+    });
+
+    await runtime.actions.selectSession("session:other");
+    expect(store.getState().sessionActivity).toMatchObject({
+      level: "idle",
+      event: "",
+    });
+
+    await runtime.actions.selectSession("session:stopped");
+    expect(store.getState().sessionActivity).toMatchObject({
+      level: "stopped",
+      title: "已停止本轮生成",
+      event: "stopped",
+    });
+  });
+
   it("keeps the page mounted when session creation times out during initialization", async () => {
     vi.useRealTimers();
     api.listSessions.mockRejectedValue(new Error("Request timed out after 12000ms: /sessions"));

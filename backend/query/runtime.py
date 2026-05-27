@@ -10,7 +10,6 @@ from evidence.output_policy import RAGEvidenceOutputPolicy
 from observability import build_debug_trace_event, start_turn_trace
 from context_system import RuntimeContextManager
 from harness import AgentHarness, AgentRuntimeServices, GraphHarness, HarnessServiceHost
-from harness.runtime import AgentRunRequest
 from runtime import ModelResponseRuntimeExecutor, ModelRuntimeError, ToolRuntimeExecutor
 from runtime.shared.history_assembler import assemble_runtime_history
 from agent_system.assembly.runtime_chain import AgentRuntimeChainAssembler
@@ -24,6 +23,7 @@ from prompting import build_static_prompt, build_system_prompt
 from query.models import QueryRequest
 from query.system_routes import run_direct_system_route
 from request_intent import analyze_memory_intent
+from agent_runtime import AgentTurnController, AgentTurnControllerInput
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +96,15 @@ class QueryRuntime:
             services=AgentRuntimeServices.from_runtime_host(self.harness_service_host)
         )
         self.harness_service_host.agent_runtime = self.agent_harness
+        self.agent_turn_controller = AgentTurnController(
+            runtime_host=self.harness_service_host,
+            agent_harness=self.agent_harness,
+            agent_runtime_chain=self.agent_runtime_chain,
+            model_response_executor=self.model_response_executor,
+            runtime_context_manager=self.runtime_context_manager,
+            tool_runtime_executor=self.tool_runtime_executor,
+            tool_instances_provider=self._all_tool_instances,
+        )
         self.graph_harness = GraphHarness(
             service_host=self.harness_service_host,
             agent_harness=self.agent_harness,
@@ -155,6 +164,7 @@ class QueryRuntime:
         turn_id = f"turn:{request.session_id}:{turn_index}"
         try:
             task_id = f"taskinst:{turn_id}:{_task_instance_suffix(dict(request.task_selection or {}))}"
+            agent_invocation_id = f"aginvoke:{turn_id}:main"
             input_commit_gate = self._commit_user_message(
                 session_id=request.session_id,
                 content=request.message,
@@ -197,24 +207,21 @@ class QueryRuntime:
                     request_task_selection=dict(request.task_selection or {}),
                     turn_id=turn_id,
                 )
-                async for event in self.agent_harness.run_stream(
-                    AgentRunRequest(
+                async for event in self.agent_turn_controller.run_stream(
+                    AgentTurnControllerInput(
                         session_id=request.session_id,
+                        turn_id=turn_id,
+                        agent_invocation_id=agent_invocation_id,
                         task_id=task_id,
                         user_message=request.message,
                         history=history,
                         source="query_runtime.adapter",
-                        agent_runtime_chain=self.agent_runtime_chain,
-                        model_response_executor=self.model_response_executor,
-                        runtime_context_manager=self.runtime_context_manager,
                         memory_intent=memory_intent,
                         task_selection=runtime_task_selection,
                         assistant_message_committer=lambda payload: self._apply_assistant_message_commit_async(
                             request.session_id,
                             {**dict(payload or {}), "turn_id": turn_id},
                         ),
-                        tool_runtime_executor=self.tool_runtime_executor,
-                        tool_instances=self._all_tool_instances(),
                         agent_runtime_profile=agent_runtime_profile,
                         search_policy=list(request.search_policy) if request.search_policy is not None else None,
                         model_selection=dict(request.model_selection or {}),

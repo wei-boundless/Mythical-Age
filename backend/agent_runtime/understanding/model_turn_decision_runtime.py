@@ -172,11 +172,16 @@ def canonical_model_turn_decision_payload(
 ) -> dict[str, Any]:
     item = dict(payload or {})
     task_goal_type = str(item.get("task_goal_type") or "").strip()
-    if task_goal_type and get_task_goal_profile(task_goal_type) is not None:
+    if not task_goal_type:
+        diagnostics = dict(item.get("diagnostics") or {})
+        diagnostics["task_goal_type_required_only_for_task_run"] = True
+        item["diagnostics"] = diagnostics
+        return item
+    if get_task_goal_profile(task_goal_type) is not None:
         return item
     diagnostics = dict(item.get("diagnostics") or {})
     diagnostics["unsupported_task_goal_type"] = task_goal_type
-    diagnostics["supported_task_goal_types_required"] = True
+    diagnostics["supported_task_goal_types_required_for_task_run"] = True
     item["diagnostics"] = diagnostics
     return item
 
@@ -196,7 +201,7 @@ def model_turn_decision_messages(
         "interaction_intent": "answer|explain|inspect|review|plan|modify|create|run|verify|continue|stop|restore",
         "action_intent": "answer_only|read_context|search_external|edit_workspace|run_command|start_service|use_browser|delegate|ask_clarification|block",
         "work_mode": "conversation|read_only_analysis|implementation|verification|planning|delegated|background",
-        "task_goal_type": "<specific conventional task type>",
+        "task_goal_type": "<specific conventional task type; omit or empty when this is ordinary conversation>",
         "domain_mismatch_signal": {},
         "target_objects": [],
         "desired_outcome": "",
@@ -228,6 +233,8 @@ def model_turn_decision_messages(
         "不要执行任务，不要选择具体工具，不要写解释文字。\n"
         "你的判断必须来自用户请求、request_facts、task_selection 和上下文显式事实。"
         "不要用关键词模板代替理解；如果资源、目录、产物是任务成功的必要条件，必须写入 resource_contract。\n"
+        "普通问答、解释、澄清、轻量讨论不需要 task_goal_type；只有你判断本轮必须进入正式任务生命周期时，"
+        "才填写具体 task_goal_type。\n"
         "如果请求要求基于已有项目继续开发，source_projects 表示必须读取和继承的源项目，"
         "target_projects 表示必须写入或交付的目标项目。assets、public、static、images、textures、sprites "
         "等资源目录如果需要继承或产出，必须进入 required_read_dirs / required_write_dirs。\n"

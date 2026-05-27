@@ -1,4 +1,4 @@
-import type { StoreState } from "./types";
+import type { SessionActivityState, StoreState } from "./types";
 
 type Listener = () => void;
 
@@ -31,6 +31,16 @@ export function createStore<T>(initialState: T): Store<T> {
   };
 }
 
+export function createIdleSessionActivity(updatedAt = 0): SessionActivityState {
+  return {
+    level: "idle",
+    title: "待命",
+    detail: "输入消息后，会在这里显示当前处理阶段。",
+    event: "",
+    updatedAt
+  };
+}
+
 export function getDefaultState(): StoreState {
   return {
     activeWorkspaceView: "chat",
@@ -44,13 +54,8 @@ export function getDefaultState(): StoreState {
     messages: [],
     isStreaming: false,
     activeStreamSessionIds: [],
-    sessionActivity: {
-      level: "idle",
-      title: "待命",
-      detail: "输入消息后，会在这里显示当前处理阶段。",
-      event: "",
-      updatedAt: 0
-    },
+    sessionActivity: createIdleSessionActivity(),
+    sessionActivitiesById: {},
     ragMode: false,
     searchPolicy: {
       rag: false,

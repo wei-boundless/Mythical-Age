@@ -208,6 +208,7 @@ export type StoreState = {
   isStreaming: boolean;
   activeStreamSessionIds: string[];
   sessionActivity: SessionActivityState;
+  sessionActivitiesById: Record<string, SessionActivityState>;
   ragMode: boolean;
   searchPolicy: SearchPolicyState;
   modelProviderConfig: ModelProviderConfig | null;

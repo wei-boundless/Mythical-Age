@@ -110,11 +110,20 @@ def test_tool_result_step_transition_advances_matching_tool_step(tmp_path: Path)
 
     assert next_ledger is not None
     assert next_ledger.step_runs[0].status == "completed"
+    assert next_ledger.step_runs[0].step_summary_ref
+    summary = loop.runtime_objects.get_object(next_ledger.step_runs[0].step_summary_ref)
+    assert summary["authority"] == "task_run.step_execution_summary"
+    assert summary["step_id"] == "step.read"
+    assert summary["observations"] == ["obs:tool"]
     assert next_state.diagnostics["last_step_transition"] == "tool_result_received"
     assert [event.event_type for event in events] == [
+        "step_summary_recorded",
         "step_completed",
         "task_run_ledger_updated",
         "checkpoint_written",
     ]
+    assert events[0].refs["step_summary_ref"] == next_ledger.step_runs[0].step_summary_ref
+    assert events[1].payload["step_run"]["step_summary_ref"] == next_ledger.step_runs[0].step_summary_ref
+    assert events[2].payload["task_run_ledger"]["step_runs"][0]["step_summary_ref"] == next_ledger.step_runs[0].step_summary_ref
 
 

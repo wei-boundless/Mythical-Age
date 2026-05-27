@@ -136,7 +136,7 @@ def _model_plan(*, task_goal_type: str, contract_refs: list[str], deliverable_re
     }
 
 
-def test_professional_game_goal_requires_agent_plan_before_execution_steps() -> None:
+def test_professional_game_goal_keeps_plan_gate_as_policy_not_runtime_steps() -> None:
     bundle = _runtime_bundle(
         ROGUELIKE_PROMPT,
         task_selection={
@@ -160,29 +160,18 @@ def test_professional_game_goal_requires_agent_plan_before_execution_steps() -> 
 
     assert current_turn["task_goal_spec"]["task_goal_type"] == "game_vertical_slice_delivery"
     assert semantic_contract["task_goal_type"] == "game_vertical_slice_delivery"
-    assert metadata["understanding_step_compiler"] == "task_system.planning.understanding_step_compiler"
-    assert ids[:8] == [
-        "turn_intake",
-        "context_resolution",
-        "task_goal_understanding",
-        "domain_flow_matching",
-        "contract_compilation",
-        "prompt_assembly",
-        "execution_planning",
-        "plan_coverage_review",
-    ]
+    assert metadata["runtime_step_topology"] == "unified_agent_task_lifecycle"
+    assert ids == ["agent_execution", "final_acceptance"]
     assert metadata["agent_plan_requirement"]["authority"] == "runtime.agent_plan_requirement"
     assert agent_plan["source"] == "agent_plan_required"
     assert agent_plan["steps"] == []
     assert coverage["passed"] is False
     assert coverage["gate_status"] == "blocked_replan_required"
     assert "agent_plan_draft_missing_or_empty" in coverage["required_replan_reason"]
-    assert not any(item.startswith("step_execution.") for item in ids)
-    assert ids[-1] == "finalization"
     assert metadata["compiled_step_ids"] == ids
 
 
-def test_frontend_goal_compiles_browser_verification_operations_from_agent_plan() -> None:
+def test_frontend_goal_keeps_browser_verification_as_policy_operation() -> None:
     bundle = _runtime_bundle(
         "请重构前端任务图编辑器，做成可运行的编辑器体验，并用浏览器验证关键工作流。",
         task_selection={
@@ -199,7 +188,8 @@ def test_frontend_goal_compiles_browser_verification_operations_from_agent_plan(
     agent_plan = dict(metadata["agent_plan_draft"])
     coverage = dict(metadata["plan_coverage_review"])
     ids = _step_ids(recipe)
-    verification = next(item for item in list(recipe["step_blueprints"]) if item["step_id"] == "verification")
+    agent_execution = next(item for item in list(recipe["step_blueprints"]) if item["step_id"] == "agent_execution")
+    final_acceptance = next(item for item in list(recipe["step_blueprints"]) if item["step_id"] == "final_acceptance")
 
     assert recipe["recipe_id"] == "runtime.recipe.professional_task"
     assert recipe["execution_kind"] == "professional_mode"
@@ -211,9 +201,9 @@ def test_frontend_goal_compiles_browser_verification_operations_from_agent_plan(
     assert agent_plan["source"] == "model_agent_plan_draft"
     assert coverage["passed"] is True
     assert "run_browser_verification" in coverage["covered_actions"]
-    assert "step_execution.apply_change" in ids
-    assert "step_execution.run_browser_verification" in ids
-    assert "op.browser_control" in verification["optional_operations"]
+    assert ids == ["agent_execution", "final_acceptance"]
+    assert "op.browser_control" in agent_execution["optional_operations"]
+    assert "op.browser_control" in final_acceptance["optional_operations"]
 
 
 def test_code_fix_goal_compiles_professional_recipe() -> None:
@@ -247,12 +237,10 @@ def test_code_fix_goal_compiles_professional_recipe() -> None:
     assert metadata["interaction_mode"] == "professional_mode"
     assert metadata["runtime_lane_hint"] == "professional_task"
     assert metadata["requires_evidence_packet"] is True
-    assert "step_execution.inspect_project" in ids
-    assert "step_execution.apply_change" in ids
-    assert "step_execution.finalize_delivery" in ids
+    assert ids == ["agent_execution", "final_acceptance"]
 
 
-def test_role_mode_uses_lightweight_understanding_steps_without_professional_domain_execution() -> None:
+def test_role_mode_uses_same_unified_agent_task_lifecycle() -> None:
     bundle = _runtime_bundle(
         "陪我聊一下今天的状态。",
         task_selection={
@@ -275,7 +263,7 @@ def test_role_mode_uses_lightweight_understanding_steps_without_professional_dom
     ids = _step_ids(recipe)
 
     assert recipe["metadata"]["interaction_mode"] == "role_mode"
-    assert ids == ["turn_intake", "context_resolution", "prompt_assembly", "finalization"]
-    assert not any(item.startswith("step_execution.") for item in ids)
+    assert recipe["metadata"]["runtime_step_topology"] == "unified_agent_task_lifecycle"
+    assert ids == ["agent_execution", "final_acceptance"]
 
 

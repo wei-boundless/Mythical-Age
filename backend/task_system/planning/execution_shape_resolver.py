@@ -271,7 +271,7 @@ def _agent_mode_shape(
     action_permit: dict[str, Any],
 ) -> ExecutionShape:
     return ExecutionShape(
-        recipe_id=str(mode_policy.get("recipe_id") or "runtime.recipe.professional_task"),
+        recipe_id=str(mode_policy.get("recipe_id") or _default_agent_mode_recipe_id(interaction_mode)),
         execution_kind=interaction_mode,
         source_kind=source_kind,
         finalization_policy={
@@ -324,6 +324,14 @@ def _shape_from_recipe_id(
         resolution_reasons=tuple(reasons),
         diagnostics=diagnostics,
     )
+
+
+def _default_agent_mode_recipe_id(interaction_mode: str) -> str:
+    return {
+        "role_mode": "runtime.recipe.role_interaction",
+        "standard_mode": "runtime.recipe.standard_task",
+        "professional_mode": "runtime.recipe.professional_task",
+    }.get(str(interaction_mode or "").strip(), "runtime.recipe.standard_task")
 
 
 def _shape_diagnostics(

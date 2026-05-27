@@ -101,12 +101,19 @@ class EmptyToolRuntimeStub:
 
 
 class SingleMessageModelRuntimeStub:
-    def __init__(self, content: str = "单轮收口回答") -> None:
+    def __init__(
+        self,
+        content: str = "单轮收口回答",
+        *,
+        model_turn_decision: dict[str, object] | None = None,
+    ) -> None:
         self.content = content
+        self.model_turn_decision = dict(model_turn_decision or {})
 
     async def invoke_messages(self, messages, **_kwargs):
         if _is_model_turn_decision_request(messages):
-            return SimpleNamespace(content=json.dumps(_default_model_turn_decision_payload(messages), ensure_ascii=False))
+            decision = self.model_turn_decision or _default_model_turn_decision_payload(messages)
+            return SimpleNamespace(content=json.dumps(decision, ensure_ascii=False))
         return SimpleNamespace(content=self.content)
 
 
@@ -216,68 +223,39 @@ def _is_model_turn_decision_request(messages: Any) -> bool:
 
 def _default_model_turn_decision_payload(messages: Any) -> dict[str, object]:
     user_message = ""
-    task_selection: dict[str, object] = {}
     try:
         request_payload = json.loads(str(list(messages or [])[-1].get("content") or "{}"))
         user_message = str(request_payload.get("user_message") or "")
-        task_selection = dict(request_payload.get("task_selection") or {})
     except Exception:
         user_message = "test"
-        task_selection = {}
-    text = user_message.lower()
-    selected_task_id = str(task_selection.get("selected_task_id") or "").strip()
-    explicit_mode = str(
-        task_selection.get("interaction_mode")
-        or task_selection.get("runtime_interaction_mode")
-        or dict(task_selection.get("mode_policy") or {}).get("interaction_mode")
-        or ""
-    ).strip()
-    action_intent = "answer_only"
-    work_mode = "conversation"
-    interaction_intent = "answer"
-    task_goal_type = "light_qa"
-    planning_required = False
-    todo_required = False
-    deliverables: list[str] = ["conversational_response"]
-    if selected_task_id or any(marker in text for marker in ("生成", "开发", "实现", "修改", "重构", "修复", "运行", "验证", "game", "游戏", "前端", "代码")):
-        action_intent = "edit_workspace"
-        work_mode = "implementation"
-        interaction_intent = "create" if any(marker in text for marker in ("生成", "create", "新增")) else "modify"
-        task_goal_type = "game_vertical_slice_delivery" if "游戏" in text or "game" in text or selected_task_id == "task.dev.light_web_game" else "implementation"
-        planning_required = explicit_mode == "professional_mode"
-        todo_required = False
-        deliverables = ["changed_files", "verification_result_or_limitation"]
-    elif any(marker in text for marker in ("分析", "pdf", ".pdf", "报告")):
-        action_intent = "read_context"
-        work_mode = "read_only_analysis"
-        interaction_intent = "inspect"
-        task_goal_type = "document_analysis"
-        deliverables = ["analysis_summary"]
     return {
         "authority": "agent_runtime.model_turn_decision",
         "decision_id": "model-turn-decision:stub",
         "user_message": user_message,
-        "interaction_intent": interaction_intent,
-        "action_intent": action_intent,
-        "work_mode": work_mode,
-        "task_goal_type": task_goal_type,
+        "interaction_intent": "answer",
+        "action_intent": "answer_only",
+        "work_mode": "conversation",
+        "task_goal_type": "",
         "domain_mismatch_signal": {},
-        "target_objects": [selected_task_id] if selected_task_id else [],
+        "target_objects": [],
         "desired_outcome": user_message or "test outcome",
-        "deliverables": deliverables,
+        "deliverables": ["conversational_response"],
         "constraints": [],
         "forbidden_actions": [],
         "selected_skill_ids": [],
         "resource_contract": {},
         "context_binding_decision": {"mode": "test_stub"},
-        "planning_required": planning_required,
-        "todo_required": todo_required,
+        "planning_required": False,
+        "todo_required": False,
         "completion_criteria": [],
         "needs_clarification": False,
         "clarification_question": "",
         "confidence": 0.9,
         "ambiguity": [],
-        "diagnostics": {"test_stub_decision": True},
+        "diagnostics": {
+            "test_stub_decision": True,
+            "keyword_routing_disabled": True,
+        },
     }
 
 

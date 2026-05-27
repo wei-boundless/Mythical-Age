@@ -33,6 +33,7 @@ from task_system.tasks.run_models import (
     next_pending_step_run,
     step_supports_operation,
 )
+from task_system.tasks.step_summary import build_step_execution_summary
 from harness.loop.checkpoint_store import HarnessCheckpointStore
 from harness.loop.control import HarnessLoopLimits
 from harness.loop.state import HarnessLoopState
@@ -1202,6 +1203,31 @@ class HarnessServiceHost:
             "operation_id": operation_id,
             **dict(diagnostics or {}),
         }
+        if current_step.executor_type == "agent":
+            runtime_task_ledger = self._append_running_step_evidence(
+                runtime_task_ledger,
+                step_id=current_step.step_id,
+                observation_refs=(observation_ref,),
+                output_refs=(observation_ref,),
+                step_result_ref=observation_ref,
+                executor_ref=str(observation_payload.get("tool_name") or operation_id),
+                diagnostics=transition_diagnostics,
+            )
+            ledger_event = self._record_task_run_ledger_updated(
+                state.task_run_id,
+                ledger=runtime_task_ledger,
+                reason=reason,
+                refs={"operation_id": operation_id, "observation_ref": observation_ref},
+                diagnostics={"evidence_accumulated_without_step_completion": True},
+            )
+            state = self._state_with_task_run_ledger(
+                state,
+                runtime_task_ledger,
+                result_refs=result_refs,
+                diagnostics={"last_step_transition": f"{reason}:evidence_accumulated"},
+            )
+            return state, runtime_task_ledger, [ledger_event]
+        summary_ref = ""
         runtime_task_ledger = complete_task_run_step(
             runtime_task_ledger,
             step_id=current_step.step_id,
@@ -1209,12 +1235,26 @@ class HarnessServiceHost:
             observation_refs=(observation_ref,),
             output_refs=(observation_ref,),
             step_result_ref=observation_ref,
+            step_summary_ref=summary_ref,
             executor_ref=str(observation_payload.get("tool_name") or operation_id),
             diagnostics=transition_diagnostics,
         )
         events: list[Any] = []
         completed_step = find_task_step_run(runtime_task_ledger, current_step.step_id)
         if completed_step is not None:
+            summary_ref, completed_step, runtime_task_ledger, summary_event = self._record_step_execution_summary(
+                ledger=runtime_task_ledger,
+                step_run=completed_step,
+                reason=reason,
+                status="completed",
+                refs={"operation_id": operation_id, "observation_ref": observation_ref},
+                diagnostics={
+                    **transition_diagnostics,
+                    "command_receipt": dict(observation_payload.get("command_receipt") or {}),
+                    "verification_intent": dict(observation_payload.get("verification_intent") or {}),
+                },
+            )
+            events.append(summary_event)
             events.append(
                 self._record_task_run_step_event(
                     state.task_run_id,
@@ -1223,6 +1263,7 @@ class HarnessServiceHost:
                     ledger=runtime_task_ledger,
                     reason=reason,
                     refs={"operation_id": operation_id, "observation_ref": observation_ref},
+                    diagnostics={"step_summary_ref": summary_ref},
                 )
             )
         runtime_task_ledger = advance_task_run_ledger(
@@ -1287,17 +1328,28 @@ class HarnessServiceHost:
             "transition_reason": "tool_call_requested",
             "operation_id": operation_id,
         }
+        summary_ref = ""
         runtime_task_ledger = complete_task_run_step(
             runtime_task_ledger,
             step_id=current_step.step_id,
             completed_at=time.time(),
             output_refs=(action_request_ref,),
+            step_summary_ref=summary_ref,
             executor_ref=operation_id or current_step.executor_ref,
             diagnostics=diagnostics,
         )
         events: list[Any] = []
         completed_step = find_task_step_run(runtime_task_ledger, current_step.step_id)
         if completed_step is not None:
+            summary_ref, completed_step, runtime_task_ledger, summary_event = self._record_step_execution_summary(
+                ledger=runtime_task_ledger,
+                step_run=completed_step,
+                reason="tool_call_requested",
+                status="completed",
+                refs={"operation_id": operation_id},
+                diagnostics=diagnostics,
+            )
+            events.append(summary_event)
             events.append(
                 self._record_task_run_step_event(
                     state.task_run_id,
@@ -1306,6 +1358,7 @@ class HarnessServiceHost:
                     ledger=runtime_task_ledger,
                     reason="tool_call_requested",
                     refs={"operation_id": operation_id},
+                    diagnostics={"step_summary_ref": summary_ref},
                 )
             )
         runtime_task_ledger = advance_task_run_ledger(
@@ -1370,6 +1423,7 @@ class HarnessServiceHost:
             "transition_reason": reason,
             **dict(diagnostics or {}),
         }
+        summary_ref = ""
         runtime_task_ledger = fail_task_run_step(
             runtime_task_ledger,
             step_id=current_step.step_id,
@@ -1378,12 +1432,22 @@ class HarnessServiceHost:
             observation_refs=observation_refs,
             output_refs=output_refs,
             step_result_ref=step_result_ref,
+            step_summary_ref=summary_ref,
             executor_ref=executor_ref or current_step.executor_ref,
             diagnostics=transition_diagnostics,
         )
         events: list[Any] = []
         failed_step = find_task_step_run(runtime_task_ledger, current_step.step_id)
         if failed_step is not None:
+            summary_ref, failed_step, runtime_task_ledger, summary_event = self._record_step_execution_summary(
+                ledger=runtime_task_ledger,
+                step_run=failed_step,
+                reason=reason,
+                status="failed",
+                refs=dict(refs or {}),
+                diagnostics=transition_diagnostics,
+            )
+            events.append(summary_event)
             events.append(
                 self._record_task_run_step_event(
                     state.task_run_id,
@@ -1392,6 +1456,7 @@ class HarnessServiceHost:
                     ledger=runtime_task_ledger,
                     reason=reason,
                     refs=refs,
+                    diagnostics={"step_summary_ref": summary_ref},
                 )
             )
         ledger_event = self._record_task_run_ledger_updated(
@@ -1884,6 +1949,114 @@ class HarnessServiceHost:
                 "task_run_ledger_ref": ledger.ledger_id,
                 "task_step_ref": step_run.step_id,
                 **dict(refs or {}),
+            },
+        )
+
+    def _record_step_execution_summary(
+        self,
+        *,
+        ledger: TaskRunLedger,
+        step_run: TaskStepRun,
+        reason: str,
+        status: str,
+        refs: dict[str, Any] | None = None,
+        diagnostics: dict[str, Any] | None = None,
+    ) -> tuple[str, TaskStepRun, TaskRunLedger, Any]:
+        summary = build_step_execution_summary(
+            ledger=ledger,
+            step_run=step_run,
+            reason=reason,
+            status=status,
+            refs=dict(refs or {}),
+            diagnostics=dict(diagnostics or {}),
+        )
+        object_id = summary.summary_id.replace(":", "_")
+        summary_ref = self.runtime_objects.put_object(
+            "step_execution_summary",
+            object_id,
+            summary.to_dict(),
+        )
+        updated_steps: list[TaskStepRun] = []
+        updated_step = step_run
+        for item in ledger.step_runs:
+            if item.step_id == step_run.step_id:
+                from dataclasses import replace
+
+                updated_step = replace(
+                    item,
+                    step_summary_ref=summary_ref,
+                    diagnostics={
+                        **dict(item.diagnostics or {}),
+                        "step_summary_ref": summary_ref,
+                    },
+                )
+                updated_steps.append(updated_step)
+            else:
+                updated_steps.append(item)
+        from dataclasses import replace
+
+        updated_ledger = replace(
+            ledger,
+            step_runs=tuple(updated_steps),
+            diagnostics={
+                **dict(ledger.diagnostics or {}),
+                "latest_step_summary_ref": summary_ref,
+            },
+        )
+        summary_event = self.event_log.append(
+            ledger.task_run_id,
+            "step_summary_recorded",
+            payload={
+                "step_execution_summary": summary.to_dict(),
+                "summary_ref": summary_ref,
+                "reason": reason,
+            },
+            refs={
+                "task_run_ledger_ref": ledger.ledger_id,
+                "task_step_ref": step_run.step_id,
+                "step_summary_ref": summary_ref,
+                **dict(refs or {}),
+            },
+        )
+        return summary_ref, updated_step, updated_ledger, summary_event
+
+    def _append_running_step_evidence(
+        self,
+        ledger: TaskRunLedger,
+        *,
+        step_id: str,
+        observation_refs: tuple[str, ...] = (),
+        output_refs: tuple[str, ...] = (),
+        step_result_ref: str = "",
+        executor_ref: str = "",
+        diagnostics: dict[str, Any] | None = None,
+    ) -> TaskRunLedger:
+        from dataclasses import replace
+
+        updated_steps: list[TaskStepRun] = []
+        for item in ledger.step_runs:
+            if item.step_id != step_id:
+                updated_steps.append(item)
+                continue
+            updated_steps.append(
+                replace(
+                    item,
+                    observation_refs=_dedupe_refs((*item.observation_refs, *observation_refs)),
+                    output_refs=_dedupe_refs((*item.output_refs, *output_refs)),
+                    step_result_ref=step_result_ref or item.step_result_ref,
+                    executor_ref=executor_ref or item.executor_ref,
+                    diagnostics={
+                        **dict(item.diagnostics or {}),
+                        **dict(diagnostics or {}),
+                    },
+                )
+            )
+        return replace(
+            ledger,
+            step_runs=tuple(updated_steps),
+            diagnostics={
+                **dict(ledger.diagnostics or {}),
+                "latest_running_step_evidence_ref": step_result_ref,
             },
         )
 

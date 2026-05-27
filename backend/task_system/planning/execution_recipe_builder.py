@@ -11,7 +11,6 @@ from task_system.planning.agent_plan_support import (
     empty_agent_plan_draft,
     review_plan_coverage,
 )
-from task_system.planning.understanding_step_compiler import compile_understanding_runtime_steps
 from task_system.tasks.step_models import TaskStepBlueprint
 
 
@@ -128,13 +127,10 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
             agent_plan_requirement = {}
             agent_plan_draft = {}
             plan_coverage_review = {}
-        step_blueprints = compile_understanding_runtime_steps(
-            interaction_mode=interaction_mode,
-            semantic_contract=semantic_contract,
+        step_blueprints = _main_agent_runtime_steps(
             mode_policy=mode_policy,
+            semantic_contract=semantic_contract,
             execution_obligation=execution_obligation,
-            plan_coverage_review=plan_coverage_review,
-            agent_plan_draft=agent_plan_draft,
         )
         optional_operations = [
             str(item)
@@ -159,7 +155,7 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
                 "execution_strategy": "interaction_mode_run",
                 "runtime_lane_hint": runtime_lane,
                 "interaction_mode": interaction_mode,
-                "understanding_step_compiler": "task_system.planning.understanding_step_compiler",
+                "runtime_step_topology": "unified_agent_task_lifecycle",
                 "compiled_step_count": len(step_blueprints),
                 "compiled_step_ids": [step.step_id for step in step_blueprints],
                 "mode_policy": mode_policy,
@@ -426,6 +422,92 @@ def _interaction_mode_title(interaction_mode: str) -> str:
         "standard_mode": "Main Agent standard task",
         "professional_mode": "Main Agent professional task",
     }.get(str(interaction_mode or ""), "Main Agent interaction task")
+
+
+def _main_agent_runtime_steps(
+    *,
+    mode_policy: dict[str, Any],
+    semantic_contract: dict[str, Any],
+    execution_obligation: dict[str, Any],
+) -> tuple[TaskStepBlueprint, ...]:
+    execution_operations = _agent_runtime_operations(
+        mode_policy=mode_policy,
+        semantic_contract=semantic_contract,
+        execution_obligation=execution_obligation,
+    )
+    verification_operations = _verification_operations(
+        mode_policy=mode_policy,
+        semantic_contract=semantic_contract,
+        execution_obligation=execution_obligation,
+    )
+    return (
+        _step(
+            "agent_execution",
+            "Agent execution",
+            "execute",
+            executor_type="agent",
+            required_operations=("op.model_response",),
+            optional_operations=execution_operations,
+            output_contract_id="execution_evidence",
+        ),
+        _step(
+            "final_acceptance",
+            "Final acceptance",
+            "verify",
+            executor_type="system",
+            input_refs=("execution_evidence",),
+            required_operations=(),
+            optional_operations=verification_operations,
+            output_contract_id="completion_judgment",
+        ),
+    )
+
+
+def _agent_runtime_operations(
+    *,
+    mode_policy: dict[str, Any],
+    semantic_contract: dict[str, Any],
+    execution_obligation: dict[str, Any],
+) -> tuple[str, ...]:
+    tool_policy = dict(mode_policy.get("tool_policy") or semantic_contract.get("tool_policy") or {})
+    values = [
+        str(item).strip()
+        for item in list(
+            tool_policy.get("allowed_operation_refs")
+            or tool_policy.get("optional_operations")
+            or semantic_contract.get("optional_operations")
+            or []
+        )
+        if str(item).strip()
+    ]
+    actions = {str(item).strip() for item in list(semantic_contract.get("required_actions") or []) if str(item).strip()}
+    if list(execution_obligation.get("required_reads") or []) or actions.intersection({"read_material", "inspect_code"}):
+        values.extend(["op.read_file", "op.search_text", "op.search_files"])
+    if list(execution_obligation.get("required_writes") or []) or actions.intersection({"apply_real_change", "integrate_asset"}):
+        values.extend(["op.write_file", "op.edit_file"])
+    if list(execution_obligation.get("required_commands") or []) or "run_browser_verification" in actions:
+        values.append("op.shell")
+    if "run_browser_verification" in actions:
+        values.append("op.browser_control")
+    return tuple(item for item in _dedupe(values) if item != "op.model_response")
+
+
+def _verification_operations(
+    *,
+    mode_policy: dict[str, Any],
+    semantic_contract: dict[str, Any],
+    execution_obligation: dict[str, Any],
+) -> tuple[str, ...]:
+    values = list(
+        _agent_runtime_operations(
+            mode_policy=mode_policy,
+            semantic_contract=semantic_contract,
+            execution_obligation=execution_obligation,
+        )
+    )
+    if list(execution_obligation.get("required_verifications") or []):
+        values.append("op.shell")
+    return tuple(_dedupe(values))
 
 
 def _runtime_task_id_from_contract(semantic_contract: dict[str, Any]) -> str:

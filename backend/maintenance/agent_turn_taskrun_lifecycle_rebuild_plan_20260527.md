@@ -1,1541 +1,1754 @@
-# Agent Turn 与 TaskRun 生命周期重构计划 - 2026-05-27
+# 单 Agent Harness 运行时与 TaskRun 生命周期重构计划书
 
-本计划用于修复当前单 agent harness 控制流的结构性问题。目标不是给旧链路补兜底，而是建立成熟 agent 机制：系统提供环境、权限、上下文、可观测性和任务启动能力；agent 先理解请求并判断本轮应如何行动；只有显式任务合同或 agent 判断需要正式任务生命周期时，才进入 TaskRun。
+日期：2026-05-27
 
-## 1. 核心结论
+状态：依据成熟 agent 设计原则重写的实施蓝图
 
-当前系统的问题不是“TaskRun 启动太晚”，而是“普通 chat 过早被当成 TaskRun”。如果把所有用户消息都强行包进 `taskinst`，就会破坏 agent 的自主判断：普通回答、澄清、轻量读取、代码审查、长任务执行都会被压成同一种 task assembly 流程。
-
-目标架构必须拆成两层：
+依据文档：
 
 ```text
-ChatTurn / AgentInvocation
--> 理解、判断、授权、反馈
--> 决定是否开启 TaskRun
-
-TaskRun
--> 只承载一段正式任务生命周期
--> 由 loop 在明确合同下开启、推进、恢复、验收、关闭
+docs/系统框架/003-单AgentHarness运行时设计书-20260527.md
 ```
 
-换句话说，TaskRun 不是用户每发一句话就自动存在的容器，而是 agent loop 在需要执行一段可追踪任务时创建的生命周期对象。
-
-## 2. 设计原则
-
-### 2.1 主模型拥有语义判断权
-
-系统不能用关键词、route hint、profile fallback、task goal 猜测来替 agent 决定用户要什么。代码层只能提供事实和边界：
-
-- 用户原文。
-- 显式选择的任务、agent、合同、文件路径。
-- 当前会话状态、候选上下文、可用工具。
-- 权限、沙箱、资源约束。
-- 已存在 artifacts、checkpoint、失败记录。
-
-用户意图、是否需要工具、是否需要写文件、是否需要 TaskRun，必须由 agent 的结构化决策给出。
-
-### 2.2 TaskRun 只代表正式任务生命周期
-
-TaskRun 必须具备这些特征：
-
-- 有明确目标或任务合同。
-- 有执行边界、权限边界和资源边界。
-- 有可观测事件、checkpoint、恢复策略。
-- 长任务必须绑定真实 artifacts 或真实外部效果。
-- 完成状态必须经过证据和验收，不允许只凭自然语言宣布完成。
-
-不满足这些条件的普通问答不应创建 TaskRun。
-
-### 2.3 系统不阻塞 agent 能力，但必须控制边界
-
-成熟 agent 的控制不是“把 agent 关进固定流程”，而是：
-
-- 允许 agent 自己判断下一步。
-- 系统在执行前做权限门禁。
-- 系统在执行后记录观察结果。
-- 系统在完成前做证据验证。
-- 系统在失败时提供恢复入口。
-
-系统不能在理解阶段抢先执行任务分类，也不能在执行阶段静默替 agent 换目标。
-
-### 2.4 所有关键阶段必须可观测
-
-即使没有 TaskRun，也必须有 `AgentTurn` 或 `AgentInvocation` 记录。否则理解决策卡住时，监控只能看到 `task_run_count: 0`，无法判断 agent 是否进入、卡住、超时或失败。
-
-### 2.5 禁止启发式关键词修复
-
-本次修复禁止新增以下类型逻辑：
-
-- 根据“写/创建/修复/测试”等关键词决定是否 TaskRun。
-- 根据文件后缀决定用户意图。
-- 根据旧 profile fallback 自动生成 task goal。
-- 根据自然语言完成宣告判断 artifact 完成。
-
-可以保留路径提取、显式参数读取、结构化合同解析，因为它们是事实，不是意图裁决。
-
-## 3. 理想控制流
-
-### 3.1 普通 chat 入口
+适用范围：
 
 ```text
-/api/chat
--> QueryRuntime.astream
--> AgentTurnController.start_turn
--> AgentTurnStarted event
--> RequestFacts
--> BoundaryPolicy
--> ContextCandidates
--> AgentUnderstandingDecision
--> ExecutionDecision
--> ActionPermit
--> 执行对应分支
--> AgentTurnCompleted / Failed
+backend/query/runtime.py
+backend/agent_runtime
+backend/harness/runtime
+backend/harness/loop
+backend/task_system/tasks
+backend/task_system/planning
+backend/runtime/model_gateway
+backend/tests
 ```
 
-`QueryRuntime` 只负责 API 输入、会话消息提交、SSE 输出和调用 agent turn 控制器。它不应直接构造正式 task lifecycle。
+本计划只服务一个目标：把当前单 Agent Harness 重构为成熟 coding agent 风格的受控运行时。系统不再替 agent 做语义任务判断，不再用旧控制字段静默开启 TaskRun，不再用终态补账让长任务看起来完成。系统负责装配运行时、开放行动接口、执行权限门禁、记录观察证据、恢复失败、验证真实交付物；agent 在每次运行时内理解、计划、行动、自审、修复和收尾。
 
-### 3.2 ExecutionDecision 类型
+## 0. 执行结论
 
-`ExecutionDecision` 是成熟 agent 控制流的关键结构，建议至少包含：
+目标主链固定为：
 
 ```text
-direct_answer
-ask_clarification
-read_only_inspection
-tool_turn
-task_run
+User Input
+-> TurnScope
+-> RuntimeEnvelope
+-> RuntimeInvocationPacket
+-> ModelActionRequest
+-> AdmissionDecision
+-> ExecutionContext
+-> ObservationRecord
+-> next RuntimeInvocationPacket
+-> SelfReviewRecord
+-> AcceptanceRecord
+-> UserVisibleFinalAnswer
+```
+
+两层状态机固定为：
+
+```text
+AgentTurn 轻状态机：
+接收用户输入，装配 turn runtime，调用 agent，校验 agent 行动请求，
+执行 bounded observation 或开启 TaskRun，最后提交用户可见回答。
+
+TaskRun 长任务状态机：
+只在 agent 显式请求并通过 admission 后开启，负责步骤推进、工具执行、
+观察回灌、自审、修复、artifact 验收、最终回答。
+```
+
+根本变化：
+
+```text
+旧的“系统先理解任务，再替 agent 选择执行路径”删除。
+新的“系统每次调用前装配运行时，让 agent 在运行时中做判断并请求行动”落地。
+```
+
+本计划禁止的方向：
+
+```text
+不建立系统侧意图识别层。
+不建立系统侧任务原语选择表。
+不把 professional_mode 当作 TaskRun 触发器。
+不从 selected_task_id 推导任务目标字段。
+不把 read/search/browser/delegate 静默升级成长任务。
+不在 TaskRun 入口重新解释用户原始请求。
+不让 finalizer 启动、完成、跳过步骤。
+不让最终自然语言代替真实 artifact、receipt、自审和验收。
+```
+
+## 1. 成熟 agent 对照标准
+
+### 1.1 Claude Code 可见源码结论
+
+已检查本地源码：
+
+```text
+D:\AI应用\claude-code-nb-main\query.ts
+D:\AI应用\claude-code-nb-main\Tool.ts
+D:\AI应用\claude-code-nb-main\constants\prompts.ts
+D:\AI应用\claude-code-nb-main\tools\EnterPlanModeTool
+D:\AI应用\claude-code-nb-main\tools\ExitPlanModeTool
+D:\AI应用\claude-code-nb-main\tools\AgentTool
+```
+
+可确认的成熟设计事实：
+
+| 成熟设计点 | 可见实现事实 | 对本项目的硬要求 |
+| --- | --- | --- |
+| 主循环由模型输出驱动 | `query.ts` 收集模型 `tool_use`，执行工具，把工具结果追加回消息后继续循环 | 不能先由系统分类任务再启动不同拓扑 |
+| 行动通过真实接口表达 | 模型输出工具调用、计划模式工具、子 agent 工具、最终回答 | 本项目必须使用 `ModelActionRequest` 表达 agent 真实行动请求 |
+| 权限是运行时门禁 | `ToolPermissionContext` 管理模式、允许、拒绝、询问规则 | 权限不能只写在 prompt 中，必须在执行前裁决 |
+| 工具默认保守 | `buildTool` 默认不是并发安全、不是只读 | 工具能力表必须显式声明只读、副作用和审批要求 |
+| Plan mode 是模式和工具 | `EnterPlanModeTool` 改变 permission mode，`ExitPlanModeTool` 请求审批出口 | 计划不是任务类型，也不是专业模式旧结构 |
+| Subagent 是工具化调用 | `AgentTool` 通过 `whenToUse` 暴露能力 | 委派是 agent 行动请求，不是系统预分类 |
+| 验证要有裁决 | verification agent 输出 `PASS/FAIL/PARTIAL` | 长任务验收必须有可审计裁决记录 |
+
+### 1.2 Codex 类成熟 coding agent 标准
+
+本项目后续实现以成熟 coding agent 的行为为标准：
+
+```text
+读代码前不臆断。
+每次模型调用前装配工具、权限、上下文、artifact、预算和输出契约。
+模型自己决定读、查、改、测、问、计划、修复或收尾。
+工具结果作为 observation 回灌给下一次模型调用。
+写入和长任务必须绑定真实文件、真实命令或浏览器 receipt、真实验收。
+用户看见自然的进展和结果，不看内部控制 id。
+```
+
+因此，本项目不能用一个系统侧分类器模拟 agent 判断。系统必须把 runtime 做好，让 agent 在受控环境中发挥能力。
+
+## 2. 当前代码审查结论
+
+### 2.1 当前真实入口链
+
+用户请求当前进入路径：
+
+```text
+backend/query/runtime.py
+QueryRuntime.astream
+-> backend/agent_runtime/turn_controller.py
+   AgentTurnController.run_stream
+-> backend/harness/agent_harness.py
+   AgentHarness.run_stream
+-> backend/harness/loop/agent_loop.py
+   run_agent_invocation_stream
+-> backend/harness/loop/agent_preflight.py
+   run_agent_runtime_preflight
+-> backend/harness/loop/agent_turn_loop.py
+   run_agent_turn_loop
+-> backend/harness/loop/agent_model_turn.py
+   run_agent_model_turn
+-> backend/harness/loop/agent_execution/engine.py
+   RuntimeExecutionEngine.stream_model_turn
+-> backend/runtime/model_gateway/model_response.py
+   ModelResponseRuntimeExecutor.stream
+```
+
+已有基础：
+
+```text
+backend/query/runtime.py
+  已基本成为 API adapter。
+
+backend/agent_runtime/turn_models.py
+  已有 AgentTurnRecord，可作为外层轻状态机基础。
+
+backend/harness/loop/state.py
+  已有 HarnessLoopState，可作为 TaskRun 内部 loop 状态基础。
+
+backend/task_system/tasks/run_models.py
+  已有 TaskRunLedger / TaskStepRun，可作为长任务账本基础。
+
+backend/harness/loop/agent_execution/tool_loop.py
+  已有 OperationGate、PermissionContext、ToolSupervisor、receipt、approval_waiting。
+
+backend/runtime/model_gateway/model_response.py
+  已有 directive-only executor，可作为受控执行底座。
+```
+
+### 2.2 当前核心偏差
+
+#### 偏差 A：系统侧理解和执行判断仍占主权
+
+文件：
+
+```text
+backend/agent_runtime/turn_controller.py
+backend/agent_runtime/understanding/model_turn_decision.py
+backend/agent_runtime/understanding/model_turn_decision_runtime.py
+backend/agent_runtime/execution_decision.py
+```
+
+当前问题：
+
+```text
+ModelTurnDecision 被系统当作生产控制节点。
+ExecutionDecision 从 action_intent 映射执行模式。
+普通 turn 被迫经过任务理解语义。
+```
+
+目标：
+
+```text
+删除系统侧理解管线的生产主权。
+保留的结构化输出必须改为 agent 在真实 invocation 中发出的行动请求。
+系统只校验行动请求，不替 agent 选择行动。
+```
+
+#### 偏差 B：轻量观察被静默升级为 TaskRun
+
+文件：
+
+```text
+backend/agent_runtime/execution_decision.py
+```
+
+当前问题：
+
+```text
+read_context
+search_external
+use_browser
 delegate
-block
 ```
 
-字段建议：
+会被系统映射到 TaskRun。这违反成熟 agent 模式：读、查、浏览、委派可以是当前 turn 的 bounded observation，只有 agent 请求正式长任务并通过 admission 后才创建 TaskRun。
 
-```json
-{
-  "authority": "agent_runtime.execution_decision",
-  "decision_id": "...",
-  "turn_id": "...",
-  "execution_mode": "direct_answer|ask_clarification|read_only_inspection|tool_turn|task_run|delegate|block",
-  "decision_basis_refs": [],
-  "status_code": "decision.accepted",
-  "phase": "execution_decision",
-  "next_action": "respond|ask_user|inspect_context|run_tool|launch_task_run|delegate|block",
-  "blocking_reason": "",
-  "requires_task_run": false,
-  "requires_artifacts": false,
-  "requires_write": false,
-  "requires_command": false,
-  "requires_browser": false,
-  "resource_contract": {},
-  "permission_request": {},
-  "task_contract_seed": {},
-  "completion_contract": {},
-  "uncertainty": [],
-  "needs_clarification": false,
-  "clarification_question": "",
-  "confidence": 0.0
-}
-```
-
-`task_contract_seed` 只有在 `execution_mode == task_run` 时才允许成为 TaskRun 创建输入。普通回答可以没有 `task_goal_type`。
-
-注意：`ExecutionDecision` 是控制协议，不是用户文案。不要让 agent 输出“我将先检查相关代码”这类自然语言状态。专业 coding agent 的状态应该是可执行、可审计、可恢复的结构化裁决；UI/CLI 可以根据 `phase/status_code/next_action/blocking_reason` 渲染用户提示。
-
-### 3.3 TaskRun 开启点
-
-TaskRun 应由 loop 在以下两种情况下开启：
-
-1. 外部已送入显式任务合同。
-   例如 task graph 节点、用户选择的具体任务、恢复某个已有 TaskRun、系统调度任务。
-
-2. 当前 agent turn 的 `ExecutionDecision.execution_mode == task_run`。
-   这代表 agent 判断本轮需要一段正式任务生命周期。
-
-推荐入口：
+目标：
 
 ```text
-AgentTurnController
--> if explicit_task_contract:
-      TaskRunLoop.start_from_contract(...)
--> elif execution_decision.execution_mode == "task_run":
-      TaskRunLoop.start_from_decision(...)
--> else:
-      DirectTurnLoop / ToolTurnLoop
+删除 ExecutionDecision 的生产路由职责。
+建立 AdmissionDecision：只对 agent 已发出的行动请求做 allow / deny / ask_approval / invalid / needs_contract 裁决。
 ```
 
-`TaskRunLoop.start_from_decision()` 是唯一从普通 chat 转入 TaskRun 的入口。
+#### 偏差 C：direct answer 绕过运行时装配
 
-## 4. TaskRun 生命周期设计
-
-TaskRun 是 loop 开启的一段任务生命周期，不是 chat turn 的别名。建议状态机如下：
+文件：
 
 ```text
-created
--> admitted
--> assembled
--> running
--> waiting_approval
--> recovering
--> verifying
--> finalizing
--> completed
-
-失败/中止分支：
-created/admitted/assembled/running/verifying/finalizing
--> failed | blocked | aborted
+backend/agent_runtime/turn_controller.py
 ```
 
-### 4.1 created
-
-创建 TaskRun 记录，但还不执行模型或工具。
-
-必须写入：
-
-- `task_run_id`
-- `session_id`
-- `turn_id`
-- `source_agent_invocation_id`
-- `task_contract_ref`
-- `execution_mode`
-- `artifact_policy`
-- `permission_policy`
-- `recovery_policy`
-
-### 4.2 admitted
-
-检查这个 TaskRun 是否允许启动：
-
-- 是否来自显式合同或 agent execution decision。
-- 是否有目标、边界、权限、资源约束。
-- 是否有 artifact 要求和完成标准。
-- 是否和当前 agent profile/runtime lane 匹配。
-
-失败时进入 `blocked`，不能降级为普通回答伪装成功。
-
-### 4.3 assembled
-
-把合同装配成 runtime start packet：
-
-- system prompt
-- role prompt
-- context package
-- tool table
-- sandbox/file policy
-- artifact repository binding
-- checkpoint policy
-- closeout policy
-
-装配层不能重新解释用户目标，只能使用上游 decision/contract。
-
-### 4.4 running
-
-执行 loop：
+当前问题：
 
 ```text
-model step
--> tool request
--> permission gate
--> tool execution
--> observation ledger
--> model step
+_invoke_direct_answer() 直接拼 raw messages 调 invoke_messages。
 ```
 
-loop 可以让 agent 自由规划和使用工具，但每次外部动作都必须通过权限和环境控制。
-
-### 4.5 waiting_approval
-
-当 agent 请求越权操作、危险命令、写入关键路径、网络访问或用户确认时进入该状态。
-
-要求：
-
-- 记录 pending approval token。
-- SSE/CLI 返回用户可见等待事件。
-- resume 时从 checkpoint 恢复，不重新发明任务。
-
-### 4.6 recovering
-
-失败恢复不是自然语言重试，而是结构化恢复：
-
-- 读取 checkpoint。
-- 读取 artifact repository 当前状态。
-- 读取 observation ledger。
-- 让 agent 判断恢复策略。
-- 只允许在原任务合同边界内继续。
-
-恢复不能偷偷换目标，不能把失败任务改成普通回答完成。
-
-### 4.7 verifying
-
-长任务完成必须进入验证阶段。验证依据：
-
-- artifact repository records
-- structured tool receipts
-- observed paths
-- command receipts
-- acceptance checks
-- browser/screenshot/test outputs
-- final closeout judgment
-
-自然语言“我已完成”不能作为完成证据。
-
-### 4.8 finalizing
-
-最终写回：
-
-- TaskRun terminal status。
-- final answer。
-- artifact refs。
-- verification summary。
-- memory receipts。
-- trace summary。
-- session live view。
-
-只有验证通过才允许 `completed`。验证失败必须是 `failed` 或 `blocked`，并给出下一步恢复建议。
-
-## 5. AgentTurn 状态机与执行细节
-
-AgentTurn 是每一轮用户输入的控制壳。它必须存在，即使本轮最后只是普通回答。它负责让系统知道 agent 当前是在理解、决策、执行轻量动作、启动 TaskRun，还是已经失败。
-
-### 5.1 AgentTurn 状态机
+目标：
 
 ```text
-received
--> facts_built
--> boundary_checked
--> context_candidates_built
--> understanding
--> deciding
--> permit_checking
--> direct_responding
--> tool_turn_running
--> launching_task_run
--> waiting_task_run
--> closing
--> completed
-
-失败/阻断分支：
-received/facts_built/boundary_checked/context_candidates_built/understanding/deciding/permit_checking/direct_responding/tool_turn_running/launching_task_run/closing
--> clarification_required | blocked | failed | timed_out | aborted
+direct answer 也必须先编译 RuntimeInvocationPacket。
+所有模型调用共享同一装配、权限、输出契约和审计链。
 ```
 
-状态含义：
+#### 偏差 D：TaskRun 入口仍有重新理解能力
 
-- `received`：API 已接收用户输入，并生成 `turn_id`。
-- `facts_built`：系统只抽取事实，不判断意图。
-- `boundary_checked`：系统完成安全、权限、产品边界判断。
-- `context_candidates_built`：系统给出候选上下文，不替 agent 选目标。
-- `understanding`：agent 正在理解用户请求。
-- `deciding`：agent 正在输出本轮执行决策。
-- `permit_checking`：系统根据决策做权限门禁。
-- `direct_responding`：agent 直接回答，不创建 TaskRun。
-- `tool_turn_running`：agent 做轻量工具轮，不创建 TaskRun。
-- `launching_task_run`：agent 决定开启正式任务生命周期，系统正在创建 TaskRun。
-- `waiting_task_run`：TaskRun 已接管，AgentTurn 等待其终态或阶段性回写。
-- `closing`：系统正在提交 assistant 消息、写 memory、更新 live view。
-- `completed`：本轮 turn 完成。
-- `clarification_required`：agent 判断必须先问用户。
-- `blocked`：边界或权限阻断。
-- `failed`：系统或模型失败，已给出用户可见错误。
-- `timed_out`：理解、决策、直接回答或工具轮超时。
-- `aborted`：用户或系统取消。
-
-### 5.2 AgentTurn 持久模型
-
-建议新增 `AgentTurnRecord`：
-
-```json
-{
-  "turn_id": "turn:<session_id>:<index>",
-  "session_id": "...",
-  "agent_invocation_id": "aginvoke:<turn_id>:main",
-  "user_message_ref": "...",
-  "status": "received|facts_built|...|completed|failed",
-  "source": "chat|cli|graph|resume|automation",
-  "created_at": 0.0,
-  "updated_at": 0.0,
-  "request_facts": {},
-  "boundary_policy": {},
-  "context_candidates": {},
-  "understanding_decision": {},
-  "execution_decision": {},
-  "action_permit": {},
-  "active_task_run_id": "",
-  "terminal_reason": "",
-  "status_code": "",
-  "phase": "",
-  "blocking_reason": "",
-  "diagnostics": {}
-}
-```
-
-持久化要求：
-
-- `received` 必须在任何模型调用前写入。
-- 每次状态变化必须更新 `updated_at`。
-- 模型调用开始前必须写 `understanding_started` 或 `decision_started` 事件。
-- 任何异常都必须收敛为 `failed/timed_out/blocked/clarification_required`，不能让 SSE 无终态。
-
-### 5.3 AgentTurn 事件规范
-
-每个事件必须有：
-
-```json
-{
-  "scope": "agent_turn",
-  "turn_id": "...",
-  "event_type": "...",
-  "status_after": "...",
-  "payload": {},
-  "created_at": 0.0
-}
-```
-
-最低事件集：
-
-- `agent_turn_received`
-- `request_facts_built`
-- `boundary_policy_checked`
-- `context_candidates_built`
-- `understanding_started`
-- `understanding_completed`
-- `understanding_failed`
-- `execution_decision_started`
-- `execution_decision_completed`
-- `action_permit_checked`
-- `direct_response_started`
-- `direct_response_completed`
-- `tool_turn_started`
-- `tool_turn_observed`
-- `task_run_launch_requested`
-- `task_run_launched`
-- `task_run_terminal_observed`
-- `agent_turn_closing`
-- `agent_turn_completed`
-- `agent_turn_failed`
-- `agent_turn_timed_out`
-- `agent_turn_blocked`
-
-SSE/CLI 至少要把以下事件转成用户可见消息：
-
-- `understanding_started`：正在理解请求。
-- `execution_decision_completed`：已决定直接回答、使用工具或开启任务。
-- `task_run_launched`：正式任务已启动；`task_run_id` 只作为系统内部关联键记录。
-- `task_run_terminal_observed`：任务完成/失败/阻断。
-- 所有 terminal 事件。
-
-事件 payload 中不存手写聊天文案。事件只存 `phase`、`status_code`、`next_action`、`blocking_reason`、`task_run_id`、`artifact_refs`、`error_code` 等结构化字段。presentation 层负责把这些字段渲染为 CLI/SSE/前端文案。
-
-`task_run_id`、`turn_id`、`agent_invocation_id` 默认不展示给普通用户。它们用于系统恢复、监控、日志关联、开发者调试和显式“查看运行详情”场景。用户默认只看到任务状态、阻塞原因、交付物、验证结果和下一步操作。
-
-### 5.4 Agent 和系统逐步交互协议
-
-#### Step 1: API 接收
-
-系统动作：
-
-1. 校验 `session_id`。
-2. 生成 `turn_id` 与 `agent_invocation_id`。
-3. 提交用户消息。
-4. 写入 `AgentTurnRecord(status=received)`。
-5. SSE 发出 `agent_turn_received`。
-
-agent 权限：
-
-- 此阶段 agent 不参与。
-
-禁止：
-
-- 禁止创建 TaskRun。
-- 禁止选择 `task_goal_type`。
-
-#### Step 2: 系统构建 facts/boundary/context candidates
-
-系统动作：
-
-1. `RequestFacts`：抽取显式路径、显式 task selection、显式 artifact refs、显式权限参数。
-2. `BoundaryPolicy`：判断安全边界、产品边界、是否必须拒绝。
-3. `ContextCandidates`：列出可能相关的 memory、文件、artifact、task run、tool，不做最终选择。
-4. 更新 AgentTurn 状态到 `context_candidates_built`。
-
-agent 权限：
-
-- 此阶段 agent 不参与。
-
-禁止：
-
-- 禁止根据关键词判断“用户要写文件/要跑命令/要开启任务”。
-- 禁止把 candidate 变成 selected goal。
-
-#### Step 3: agent 理解
-
-系统给 agent 的输入：
-
-```json
-{
-  "user_message": "...",
-  "request_facts": {},
-  "boundary_policy": {},
-  "context_candidates": {},
-  "conversation_summary": "",
-  "available_execution_modes": [
-    "direct_answer",
-    "ask_clarification",
-    "read_only_inspection",
-    "tool_turn",
-    "task_run",
-    "delegate",
-    "block"
-  ]
-}
-```
-
-agent 输出 `AgentUnderstandingDecision`：
-
-```json
-{
-  "authority": "agent_runtime.understanding_decision",
-  "turn_id": "...",
-  "understood_user_goal": "",
-  "user_goal_type": "question|clarification|inspection|implementation|verification|long_task|unknown",
-  "known_requirements": [],
-  "unknowns": [],
-  "target_objects": [],
-  "explicit_constraints": [],
-  "success_meaning": "",
-  "risk_notes": [],
-  "requires_context_selection": false,
-  "confidence": 0.0
-}
-```
-
-系统校验：
-
-- `authority` 必须正确。
-- `turn_id` 必须匹配。
-- `understood_user_goal` 不能为空，除非 `user_goal_type=unknown`。
-- 不能包含工具执行结果。
-
-失败处理：
-
-- JSON 无效：允许一次 repair。
-- repair 后仍无效：AgentTurn -> `failed`，SSE 返回 `understanding_invalid`。
-- 模型超时：AgentTurn -> `timed_out`，SSE 返回 `understanding_timeout`。
-
-#### Step 4: agent 决定执行模式
-
-agent 输出 `ExecutionDecision`：
-
-```json
-{
-  "authority": "agent_runtime.execution_decision",
-  "turn_id": "...",
-  "execution_mode": "direct_answer|ask_clarification|read_only_inspection|tool_turn|task_run|delegate|block",
-  "decision_basis_refs": [],
-  "status_code": "decision.accepted",
-  "phase": "execution_decision",
-  "next_action": "respond|ask_user|inspect_context|run_tool|launch_task_run|delegate|block",
-  "blocking_reason": "",
-  "requires_task_run": false,
-  "requires_write": false,
-  "requires_command": false,
-  "requires_browser": false,
-  "requires_network": false,
-  "requires_artifacts": false,
-  "selected_context_refs": [],
-  "tool_intent": {},
-  "permission_request": {},
-  "task_contract_seed": {},
-  "completion_contract": {},
-  "clarification_question": "",
-  "block_reason": "",
-  "confidence": 0.0
-}
-```
-
-一致性规则：
-
-- `execution_mode=direct_answer` 时，`requires_task_run` 必须为 false。
-- `execution_mode=ask_clarification` 时，必须有 `clarification_question`。
-- `execution_mode=block` 时，必须有 `block_reason`。
-- `execution_mode=task_run` 时，`requires_task_run` 必须为 true，且 `task_contract_seed` 必须包含目标、边界、完成标准。
-- `requires_artifacts=true` 时，必须有 `completion_contract.artifact_requirements`。
-- `requires_write/requires_command/requires_browser/requires_network` 为 true 时，必须有对应 `permission_request`。
-
-系统校验失败时：
-
-- 不允许自动改 decision。
-- 返回 `execution_decision_invalid`。
-- AgentTurn -> `failed` 或 `clarification_required`。
-
-#### Step 5: 系统权限门禁
-
-系统输入：
-
-- `BoundaryPolicy`
-- `ExecutionDecision`
-- 当前 permission mode
-- tool/file/network/browser policy
-- explicit user approvals
-
-系统输出 `ActionPermit`：
-
-```json
-{
-  "authority": "agent_runtime.action_permit",
-  "turn_id": "...",
-  "allowed": true,
-  "execution_mode": "...",
-  "granted_operations": [],
-  "denied_operations": [],
-  "approval_required": false,
-  "approval_request": {},
-  "sandbox_policy": {},
-  "file_policy": {},
-  "network_policy": {},
-  "diagnostics": {}
-}
-```
-
-规则：
-
-- `ActionPermit` 只能授权或拒绝，不能改目标。
-- 权限不足时进入 `blocked` 或 `waiting_approval`，不能降级为普通回答声称完成。
-
-#### Step 6: 分派执行
-
-分派规则：
+文件：
 
 ```text
-direct_answer
--> DirectResponseLoop
-
-ask_clarification
--> Commit clarification answer
-
-read_only_inspection
--> ReadOnlyInspectionLoop
-
-tool_turn
--> ToolTurnLoop
-
-task_run
--> TaskRunLoop.start_from_execution_decision
-
-delegate
--> Delegation admission
-
-block
--> Blocked final response
+backend/harness/runtime/turn_context.py
+backend/harness/loop/agent_loop.py
 ```
 
-禁止：
-
-- `direct_answer` 分支创建 TaskRun。
-- `tool_turn` 分支写入文件，除非 decision 和 permit 明确允许并升级为 TaskRun。
-- `read_only_inspection` 分支执行 shell 修改命令。
-
-## 6. AgentTurn 与 TaskRun 对接设计
-
-### 6.1 HandoffPacket
-
-AgentTurn 转入 TaskRun 时，必须生成 `TaskRunHandoffPacket`：
-
-```json
-{
-  "authority": "agent_runtime.task_run_handoff",
-  "turn_id": "...",
-  "agent_invocation_id": "...",
-  "session_id": "...",
-  "source": "execution_decision|explicit_contract|resume",
-  "understanding_decision_ref": "...",
-  "execution_decision": {},
-  "action_permit": {},
-  "task_contract_seed": {},
-  "resource_contract": {},
-  "completion_contract": {},
-  "artifact_policy": {},
-  "recovery_policy": {},
-  "status_code": "task_run.launch_requested",
-  "phase": "launching_task_run"
-}
-```
-
-该 packet 是普通 turn 到 TaskRun 的唯一入口。TaskRun assembly 只能读取这个 packet 和显式合同，不能重新猜测用户意图。
-
-### 6.2 start_from_execution_decision
-
-`TaskRunLoop.start_from_execution_decision(packet)` 执行：
-
-1. 校验 `packet.authority`。
-2. 校验 `execution_decision.execution_mode == task_run`。
-3. 校验 `action_permit.allowed == true`。
-4. 编译正式 `TaskContract`。
-5. 创建 artifact repository scope。
-6. 创建 `TaskRun(status=created)`。
-7. 写 `task_run_created_from_agent_turn` 事件。
-8. 状态推进到 `admitted`。
-9. 将 `task_run_id` 写入 AgentTurn 的 `active_task_run_id`，作为内部关联键。
-
-如果第 1 到 4 步失败：
-
-- 不创建 TaskRun。
-- AgentTurn -> `failed`。
-- SSE 返回明确失败原因。
-
-如果第 5 到 7 步失败：
-
-- 如果 TaskRun 已创建，TaskRun -> `failed`。
-- AgentTurn -> `failed`。
-- 必须写入失败事件，避免半截不可见 run。
-
-### 6.3 start_from_contract
-
-`TaskRunLoop.start_from_contract(contract)` 用于显式任务：
-
-1. 校验合同来源。
-2. 跳过普通 agent execution decision。
-3. 仍然构造 AgentTurn 记录，状态直接到 `launching_task_run`。
-4. 创建 TaskRun。
-5. TaskRun 终态回写 AgentTurn。
-
-显式合同优先级高于普通 chat decision。agent 可以在 TaskRun 内执行合同，但不能在启动前覆盖合同目标。
-
-### 6.4 AgentTurn 等待 TaskRun
-
-AgentTurn 进入 `waiting_task_run` 后：
-
-- 订阅 TaskRun terminal event。
-- 将 TaskRun 的阶段性事件转发为 SSE。
-- 记录 `active_task_run_id`。
-- 不再直接提交最终 assistant message，除非 TaskRun 返回 closeout packet。
-
-TaskRun 返回：
-
-```json
-{
-  "authority": "task_run.closeout_packet",
-  "task_run_id": "...",
-  "turn_id": "...",
-  "terminal_status": "completed|failed|blocked|aborted",
-  "terminal_reason": "",
-  "final_content": "",
-  "artifact_refs": [],
-  "verification_summary": {},
-  "recovery_hint": {},
-  "memory_writeback": {}
-}
-```
-
-AgentTurn 根据 closeout packet 进入 `closing`。
-
-## 7. DirectResponseLoop 与 ToolTurnLoop
-
-### 7.1 DirectResponseLoop
-
-适用：
-
-- 普通问答。
-- 解释。
-- 不需要读取外部上下文的建议。
-- 简短总结。
-
-流程：
-
-1. AgentTurn -> `direct_responding`。
-2. 系统构造 answer prompt。
-3. agent 生成最终回答。
-4. 系统提交 assistant message。
-5. AgentTurn -> `completed`。
-6. SSE 发送 `done`。
-
-约束：
-
-- 不创建 TaskRun。
-- 不写 artifact。
-- 不声称执行了工具或文件修改。
-- 如果回答过程中发现需要读文件/运行命令，必须返回 `execution_escalation_requested`，由 AgentTurn 重新进入 `deciding`。
-
-### 7.2 ReadOnlyInspectionLoop
-
-适用：
-
-- 代码审查。
-- 文件解释。
-- 搜索上下文。
-- 不修改文件的分析。
-
-流程：
-
-1. AgentTurn -> `tool_turn_running`。
-2. 系统只授予 read/search 类工具。
-3. agent 请求读取。
-4. 系统执行读取并记录 observation。
-5. agent 输出审查/解释。
-6. AgentTurn -> `closing -> completed`。
-
-约束：
-
-- 不写文件。
-- 不启动服务。
-- 不运行破坏性命令。
-- 如果 agent 判断需要修复，必须输出 escalation decision，由系统转入 `task_run` admission。
-
-### 7.3 ToolTurnLoop
-
-适用：
-
-- 单轮或短轮工具动作。
-- 不需要正式 artifact 生命周期。
-- 可在 turn 内完成并验证的小操作。
-
-流程：
-
-1. AgentTurn -> `tool_turn_running`。
-2. 根据 `ActionPermit.granted_operations` 构造工具表。
-3. agent 发起工具请求。
-4. 系统执行工具并记录 structured observation。
-5. agent 根据 observation 继续或收尾。
-6. 若产生外部效果，必须有 structured receipt。
-7. AgentTurn -> `closing -> completed`。
-
-升级规则：
-
-- 出现多步骤写入、真实 artifact、长时间命令、需要 checkpoint、需要恢复、需要用户批准时，ToolTurnLoop 必须停止并请求 `task_run`。
-
-## 8. TaskRun 状态机执行细节
-
-### 8.1 created -> admitted
-
-输入：
-
-- `TaskRunHandoffPacket` 或 explicit contract。
-
-检查项：
-
-- 目标非空。
-- 权限已授权或可进入 waiting approval。
-- artifact policy 与 completion contract 一致。
-- runtime lane 存在。
-- agent profile 存在。
-- task_run_id 未冲突。
-
-输出：
-
-- `task_run_admitted` event。
-
-失败：
-
-- `task_run_admission_failed`。
-- TaskRun -> `blocked` 或 `failed`。
-
-### 8.2 admitted -> assembled
-
-系统生成：
-
-- `RuntimeStartPacket`
-- `TaskContract`
-- `PromptAssembly`
-- `ToolRuntimePolicy`
-- `ArtifactRepositoryBinding`
-- `CheckpointPolicy`
-- `CloseoutPolicy`
-
-禁止：
-
-- 禁止 assembly 层重写 `understood_user_goal`。
-- 禁止 assembly 层发明新的 `task_goal_type`。
-- 禁止 fallback 到 `general_response`。
-
-### 8.3 assembled -> running
-
-loop 初始化：
-
-- 写 checkpoint。
-- 写 `task_run_running`。
-- 发 SSE `task_run_running`。
-- 将 prompt、tools、policies 交给模型执行器。
-
-agent 能力：
-
-- 可以规划。
-- 可以调用授权工具。
-- 可以根据 observation 调整方案。
-- 可以请求升级权限。
-- 可以声明阻塞。
-
-系统职责：
-
-- 执行权限门禁。
-- 执行工具。
-- 记录 observation。
-- 维护 budget/timeout/checkpoint。
-- 不替 agent 改目标。
-
-### 8.4 running -> waiting_approval
-
-触发：
-
-- agent 请求未授权操作。
-- 文件写入越过边界。
-- 命令风险过高。
-- 网络/browser 权限不足。
-- 用户确认是任务合同要求。
-
-系统动作：
-
-1. 创建 approval token。
-2. 写 checkpoint。
-3. TaskRun -> `waiting_approval`。
-4. AgentTurn/CLI/SSE 返回审批请求。
-
-恢复：
-
-- 用户同意：TaskRun -> `running`，继续 checkpoint。
-- 用户拒绝：agent 必须重新规划或 TaskRun -> `blocked`。
-
-### 8.5 running -> recovering
-
-触发：
-
-- 模型调用失败。
-- 工具失败。
-- 进程中断。
-- 服务重启。
-- verification 失败但允许修复。
-
-恢复输入：
-
-- latest checkpoint。
-- event log。
-- observation ledger。
-- artifact repository state。
-- failed step。
-- remaining budget。
-
-恢复流程：
-
-1. 系统进入 `recovering`。
-2. 构造 recovery prompt 给 agent。
-3. agent 输出 `RecoveryDecision`：
-
-```json
-{
-  "authority": "task_run.recovery_decision",
-  "task_run_id": "...",
-  "recovery_action": "retry_step|revise_plan|request_approval|declare_blocked|fail",
-  "reason": "",
-  "preserve_artifacts": [],
-  "discard_artifacts": [],
-  "next_step": {},
-  "needs_user_input": false
-}
-```
-
-4. 系统校验 recovery action 不越过原合同。
-5. 返回 `running`、`waiting_approval`、`blocked` 或 `failed`。
-
-禁止：
-
-- 禁止恢复时换任务。
-- 禁止把 verification 失败改写成 completed。
-- 禁止丢弃已产出 artifact 而无记录。
-
-### 8.6 running -> verifying
-
-触发：
-
-- agent 输出 `ready_for_verification`。
-- tool loop 达到完成条件。
-- contract 要求的 steps 全部完成。
-
-VerificationPacket：
-
-```json
-{
-  "authority": "task_run.verification_packet",
-  "task_run_id": "...",
-  "claimed_completed_items": [],
-  "artifact_refs": [],
-  "observed_paths": [],
-  "command_receipts": [],
-  "acceptance_checks": [],
-  "known_limitations": []
-}
-```
-
-系统验证：
-
-- artifact refs 存在。
-- required files 存在且在允许目录。
-- command receipts 真实来自工具执行。
-- acceptance checks 通过。
-- browser/screenshot/test 输出真实可读取。
-- known limitations 不违反核心完成条件。
-
-失败：
-
-- 如果可修复：TaskRun -> `recovering`。
-- 如果不可修复：TaskRun -> `failed`。
-
-### 8.7 verifying -> finalizing
-
-只有 verification 通过后进入 finalizing。
-
-系统构造 CloseoutPacket：
-
-```json
-{
-  "authority": "task_run.closeout_packet",
-  "task_run_id": "...",
-  "terminal_status": "completed",
-  "final_content": "",
-  "artifact_refs": [],
-  "verification_summary": {},
-  "memory_writeback": {},
-  "trace_summary": {}
-}
-```
-
-agent 可参与 final response 组织，但不能覆盖 verification 结果。
-
-### 8.8 finalizing -> completed/failed/blocked/aborted
-
-finalizing 必须完成：
-
-- upsert TaskRun terminal state。
-- append final event。
-- write checkpoint terminal marker。
-- commit assistant message。
-- write memory maintenance receipt。
-- update session live view。
-- notify AgentTurn。
-- SSE 发送 `done/error/stopped`。
-
-任何一步失败：
-
-- 如果 assistant message 已提交但 state 未更新，必须进入 recovery repair。
-- 如果 state 已完成但 message 未提交，必须补交或返回明确 `finalization_partial_failure`。
-- 不允许静默丢 terminal event。
-
-## 9. TaskRun 步骤执行摘要
-
-当前代码已有 `TaskRunLedger.step_runs`、`step_entered/step_completed/step_failed` 事件、`observation_refs`、`output_refs`、`diagnostics`、`execution_summary` 和 observation ledger。这些能记录“步骤状态”和“证据引用”，但还不是成熟 coding agent 的“每一步执行摘要”。
-
-成熟 agent 需要为每个任务步骤生成结构化 `StepExecutionSummary`。它不是 UI 进度文案，也不是隐藏推理摘要，而是任务恢复、审查、最终验收和用户理解都可复用的步骤级执行记录。
-
-### 9.1 StepExecutionSummary 模型
-
-建议新增：
-
-```json
-{
-  "authority": "task_run.step_execution_summary",
-  "summary_id": "stepsummary:<task_run_id>:<step_id>:<attempt>",
-  "task_run_id": "...",
-  "step_id": "...",
-  "attempt": 1,
-  "status": "completed|failed|blocked|skipped",
-  "action_summary": "",
-  "inputs_used": [],
-  "operations_performed": [],
-  "files_read": [],
-  "files_written": [],
-  "commands_run": [],
-  "artifacts_touched": [],
-  "observations": [],
-  "outputs": [],
-  "verification": {
-    "performed": false,
-    "passed": false,
-    "evidence_refs": [],
-    "limitations": []
-  },
-  "failure": {
-    "reason": "",
-    "recoverable": false,
-    "recovery_hint": ""
-  },
-  "next_step_recommendation": "",
-  "hidden_reasoning_included": false
-}
-```
-
-要求：
-
-- `action_summary` 是执行事实摘要，不是“我准备做什么”。
-- `observations` 只能引用真实 tool/model observation。
-- `files_written` 必须来自 structured tool receipts 或 artifact records。
-- `commands_run` 必须来自 command receipts。
-- `verification.evidence_refs` 必须指向真实验证证据。
-- 不允许包含隐藏推理。
-- 不允许用自然语言补造没有发生的操作。
-
-### 9.2 生成时机
-
-每个 TaskRun step 必须在以下时机生成或更新摘要：
+当前问题：
 
 ```text
-step_entered
--> 创建空 StepExecutionSummary 草稿，status=running 不对用户展示
-
-step_completed
--> 根据 observation ledger、tool receipts、artifact records 生成 completed summary
-
-step_failed
--> 根据失败事件、异常、partial observations 生成 failed summary
-
-verification_completed
--> 回填 verification 字段
-
-recovery_decision_completed
--> 回填 recovery_hint 或 next_step_recommendation
+run_agent_invocation_stream() 调用 build_agent_turn_context()。
+build_agent_turn_context() 可以再次调用 main_model_owned_turn_decision()。
 ```
 
-如果 step 没有工具动作而只由模型完成，也必须有 summary，至少记录：
-
-- 本步骤做了什么判断或产出了什么。
-- 使用了哪些上下文。
-- 输出引用是什么。
-- 是否需要后续验证。
-
-### 9.3 生成责任边界
-
-系统负责：
-
-- 收集真实 observation、receipt、artifact refs。
-- 生成不可伪造字段：文件、命令、artifact、验证结果。
-- 校验 summary 中的 refs 是否真实存在。
-- 持久化 summary。
-
-agent 负责：
-
-- 用简短、专业、可审查的语言总结本步骤实际完成内容。
-- 说明阻塞、限制和建议的下一步。
-- 不声称系统证据中不存在的动作。
-
-推荐实现方式：
+目标：
 
 ```text
-StepSummaryBuilder
--> 输入 structured evidence packet
--> 调用 agent 生成 action_summary / limitation / next_step_recommendation
--> 系统合并不可伪造字段
--> StepSummaryValidator 校验
--> StepSummaryStore 持久化
+TaskRun 入口只消费已通过 admission 的 TaskRunContract。
+TaskRun 入口不得重新解释用户意图。
+用户当前输入和合同都作为 runtime 输入给 agent，而不是由系统重新分类。
 ```
 
-### 9.4 Step summary prompt
+#### 偏差 E：RuntimeStartPacket 不是每次调用的 RuntimeInvocationPacket
 
-该 prompt 只用于步骤摘要，不用于执行决策：
+文件：
 
 ```text
-你负责为当前任务步骤生成执行摘要。
-你只根据系统提供的结构化证据、工具观察、文件记录、命令回执和 artifact refs 总结已经发生的事实。
-不要写计划，不要写隐藏推理，不要补充没有证据的动作。
-如果步骤失败，说明失败点、已完成部分、是否可恢复，以及建议下一步。
-如果步骤成功，说明本步骤完成了什么、产生了什么输出、是否做过验证。
+backend/harness/runtime/start_packet.py
 ```
 
-### 9.5 存储与展示
-
-存储：
-
-- `TaskStepRun.step_result_ref` 指向 `StepExecutionSummary.summary_id`。
-- `TaskStepRun.diagnostics.step_summary_ref` 保存同一个 ref。
-- event log 记录 `step_summary_recorded`。
-- final `TaskResult` 包含 `step_summary_refs`。
-
-展示：
-
-- 普通用户默认看到压缩后的步骤摘要列表，不显示内部 id。
-- 开发者/监控视图可展开每个 summary 的 refs、receipts、diagnostics。
-- 最终回答可以引用“完成了哪些步骤、哪些通过验证、哪些有阻塞”，但不暴露 `task_run_id`。
-
-### 9.6 恢复中的用途
-
-恢复时必须读取：
-
-- latest checkpoint。
-- TaskRunLedger。
-- StepExecutionSummary 列表。
-- observation ledger。
-- artifact repository。
-
-恢复 prompt 应优先给 agent 步骤摘要，而不是完整原始日志。原始日志只在需要核验证据时提供。这能让长任务续跑更稳定，也能避免 agent 在恢复时重复已完成步骤。
-
-### 9.7 验收标准
-
-新增测试：
-
-- 每个 completed step 都有 `StepExecutionSummary`。
-- 每个 failed step 都有 failure summary 和 recoverability。
-- summary 中的 files/artifacts/commands 必须来自真实 receipts。
-- 没有工具动作的 model step 也有执行摘要。
-- final TaskResult 包含 step summary refs。
-- resume 时 recovery prompt 能读取 step summaries。
-
-## 10. 收尾协议
-
-### 10.1 AgentTurn 收尾
-
-AgentTurn 收尾输入可能来自：
-
-- DirectResponseLoop final answer。
-- ReadOnlyInspectionLoop final answer。
-- ToolTurnLoop final answer。
-- TaskRun CloseoutPacket。
-- Block/Clarification/Error packet。
-
-统一收尾流程：
-
-1. AgentTurn -> `closing`。
-2. 构造 assistant payload。
-3. 提交 session message。
-4. 触发 memory maintenance。
-5. 更新 turn terminal state。
-6. 更新 live monitor。
-7. SSE 发送 terminal event。
-
-terminal event 规则：
-
-- 成功：`done`。
-- 失败：`error`。
-- 用户停止：`stopped`。
-- 等待审批：非 terminal，不能关闭 SSE，除非客户端协议要求返回 waiting 状态。
-
-### 10.2 最终回答必须如实反映执行层级
-
-普通回答：
-
-- 不提 TaskRun。
-- 不声称有 artifact。
-
-轻量读取：
-
-- 可以说明读取了哪些上下文。
-- 不声称修改。
-
-TaskRun 完成：
-
-- 必须包含 artifact refs。
-- 必须包含验证摘要。
-- 默认不向普通用户展示 `task_run_id`；开发者模式、监控视图或用户要求运行详情时可以展示。
-
-TaskRun 失败：
-
-- 必须说明失败阶段。
-- 必须说明已完成部分。
-- 必须说明恢复入口。
-
-### 10.3 防止重复收尾
-
-需要 terminal idempotency key：
+当前问题：
 
 ```text
-terminal_key = <turn_id>:<terminal_status>:<source_ref>
+旧 start packet 围绕 request_facts / boundary_policy / context_candidates /
+model_turn_decision / action_permit 组织。
 ```
 
-重复 closeout 时：
-
-- 不重复提交 assistant message。
-- 不重复写 memory。
-- 可以重复返回同一个 terminal event。
-
-## 11. 失败恢复总则
-
-### 11.1 AgentTurn 级失败
-
-适用：
-
-- understanding timeout。
-- decision invalid。
-- direct response timeout。
-- permission denied。
-- direct/tool turn exception。
-
-处理：
-
-1. 写 `agent_turn_failed/timed_out/blocked`。
-2. 提交用户可见错误或澄清。
-3. 不创建 TaskRun。
-4. 保留 retry token。
-
-Retry：
-
-- 用户重试时新建 AgentTurn。
-- 可引用上一轮 failed turn 的 diagnostics。
-- 不复用未完成 TaskRun，因为没有 TaskRun。
-
-### 11.2 TaskRun 级失败
-
-适用：
-
-- 已创建 TaskRun 后失败。
-
-处理：
-
-1. TaskRun 写失败 checkpoint。
-2. TaskRun 状态进入 `recovering` 或 terminal failed。
-3. AgentTurn 记录 active TaskRun 失败。
-4. final answer 提供恢复入口。
-
-Retry：
-
-- 如果合同仍有效，resume 同一个 TaskRun。
-- 如果用户改变目标，创建新 AgentTurn 和新 TaskRun。
-
-### 11.3 服务重启恢复
-
-启动时扫描：
-
-- 非 terminal AgentTurn。
-- 非 terminal TaskRun。
-- waiting approval token。
-- stale running checkpoint。
-
-恢复策略：
-
-- AgentTurn 在 `understanding/deciding/direct_responding/tool_turn_running` 且无 TaskRun：标记 `failed`，提示可重试。
-- AgentTurn 在 `waiting_task_run`：读取 TaskRun 状态并同步。
-- TaskRun 在 `running` 且有 checkpoint：进入 `recovering`。
-- TaskRun 在 `waiting_approval`：保持等待。
-- TaskRun 在 `finalizing`：执行 finalization repair。
-
-## 12. Prompt 设计原则
-
-### 12.1 系统给 agent 的理解 prompt
-
-应该写成 agent 能理解的职责，而不是开发说明：
+目标：
 
 ```text
-你是本轮请求的理解决策者。
-你先判断用户真正想达成什么，再判断本轮应该直接回答、请求澄清、读取上下文、使用工具、开启正式任务生命周期，还是拒绝执行。
-你不执行任务，不调用工具，不编造已经完成的结果。
-如果需要正式任务生命周期，你必须说明为什么普通回答不足以完成，并给出任务合同种子、资源边界和完成标准。
-如果不需要正式任务生命周期，你不能输出 task_goal_type。
+替换为 RuntimeInvocationPacket。
+每次模型调用、工具回灌、自审、修复、恢复、最终回答前都重新编译 packet。
 ```
 
-### 12.2 TaskRun 内 agent prompt
+#### 偏差 F：TaskRun 内 follow-up 直接构造消息
 
-TaskRun 内 prompt 应该围绕具体角色、目标、边界、交付物和裁决要求：
+文件：
 
 ```text
-你是当前 TaskRun 的执行 agent。
-你负责在给定合同和权限边界内完成任务。
-你可以规划、读取、修改、运行验证命令，并根据工具观察调整执行。
-你不能用自然语言声明代替真实交付物。
-当你认为完成时，必须提交 artifact refs、验证结果和最终验收说明。
-如果任务无法完成，你必须说明阻塞原因、已完成部分、恢复入口。
+backend/harness/loop/agent_turn_loop.py
+backend/harness/loop/agent_execution/followup_cycle.py
 ```
 
-## 13. 代码改造阶段
+当前问题：
 
-### 阶段一：建立 AgentTurnController
+```text
+build_initial_followup_messages()
+build_next_followup_messages()
+```
 
-新增：
+直接承担模型调用输入主权。
 
-- `backend/agent_runtime/turn_controller.py`
-- `backend/agent_runtime/turn_models.py`
-- `backend/agent_runtime/execution_decision.py`
-- `backend/agent_runtime/execution_decision_runtime.py`
+目标：
+
+```text
+这些函数只能降为 prompt/message fragment helper。
+最终模型输入必须来自 RuntimeCompiler.compile_invocation_packet()。
+```
+
+#### 偏差 G：finalizer 能补完步骤
+
+文件：
+
+```text
+backend/harness/loop/agent_finalization.py
+```
+
+当前问题：
+
+```text
+terminal finalize 会启动 pending step、完成 running step、跳过未验证 step。
+```
+
+目标：
+
+```text
+finalizer 只能读取已完成且已验收状态，并提交用户可见结果。
+step 状态推进只能发生在 loop 执行、自审和验收阶段。
+```
+
+#### 偏差 H：没有一等 self-review 和 acceptance
+
+文件：
+
+```text
+backend/task_system/tasks/run_models.py
+backend/task_system/tasks/step_summary.py
+backend/harness/service_host.py
+backend/harness/loop/agent_phase_pipeline.py
+```
+
+当前问题：
+
+```text
+StepExecutionSummary 是系统摘要，不是 agent self-review。
+artifact validation 是局部能力，不是一等 AcceptanceRecord。
+```
+
+目标：
+
+```text
+新增 SelfReviewRecord，由 agent 独立 invocation 产出。
+新增 AcceptanceRecord，由系统基于 artifact、receipt、self-review、权限和审批记录裁决。
+```
+
+#### 偏差 I：终态消息回传链路必须可验证
+
+当前风险：
+
+```text
+测试、工具、验收结果可能写入内部事件，但最终用户消息没有稳定回传。
+```
+
+目标：
+
+```text
+每个 terminal path 都必须生成用户可见终态事件：
+completed
+blocked
+failed
+needs_user
+```
+
+终态事件必须引用已提交的 ObservationRecord / AcceptanceRecord，但用户正文不能泄露内部 id。
+
+## 3. 目标权责链
+
+| 层 | 允许拥有的权力 | 禁止拥有的权力 | 产物 |
+| --- | --- | --- | --- |
+| `QueryRuntime` | 接收 API 输入，提交用户消息，启动 turn | 判断用户意图、选择 TaskRun | `TurnInput` |
+| `AgentTurnLoop` | 管理一轮用户输入的生命周期 | 用关键词或旧字段替 agent 选择行动 | `AgentTurnRecord` |
+| `RuntimeCompiler` | 为每次模型调用装配 runtime | 根据用户文本决定行动 | `RuntimeInvocationPacket` |
+| `Model` | 理解当前 runtime，发出行动请求或最终回答 | 绕过系统权限直接执行副作用 | `ModelActionRequest` |
+| `Admission` | 校验行动请求、权限、合同完整性 | 把无效请求改写成另一个行动 | `AdmissionDecision` |
+| `Execution` | 执行已授权工具、文件、命令、浏览器操作 | 重写用户目标或补充 agent 未请求的行动 | `ExecutionContext` / receipt |
+| `Observation` | 记录真实事实、错误、输出引用 | 裁决任务完成 | `ObservationRecord` |
+| `TaskRunLoop` | 推进已开启的长任务状态机 | 重新理解原始用户意图 | `TaskRunLedger` |
+| `SelfReview` | 让 agent 审查当前步骤或最终结果 | 替系统验收 artifact | `SelfReviewRecord` |
+| `Acceptance` | 根据证据裁决是否可完成 | 生成不存在的证据 | `AcceptanceRecord` |
+| `Presentation` | 生成自然用户可见消息 | 泄露隐藏推理和内部控制 id | assistant message |
+
+## 4. 目标对象模型
+
+### 4.1 RuntimeEnvelope
+
+新增文件：
+
+```text
+backend/harness/runtime/envelope.py
+```
 
 职责：
 
-- 创建 `AgentTurnStarted`。
-- 执行 RequestFacts / BoundaryPolicy / ContextCandidates。
-- 调用模型生成 `AgentUnderstandingDecision` 和 `ExecutionDecision`。
-- 超时、失败、阻断都生成用户可见事件。
-- 根据 decision 分派 direct/tool/task_run。
-
-### 阶段二：拆除 QueryRuntime 的 task-first 入口
-
-修改：
-
-- `backend/query/runtime.py`
-
-目标：
-
-- 不再无条件构造 `taskinst:...:general_response` 作为正式任务。
-- 改为构造 `turn_id` 和 `agent_invocation_id`。
-- 只在 `ExecutionDecision == task_run` 或显式 task selection 时生成 TaskRun 请求。
-
-### 阶段三：重构 ModelTurnDecision
-
-修改：
-
-- `backend/agent_runtime/understanding/model_turn_decision.py`
-- `backend/agent_runtime/understanding/model_turn_decision_runtime.py`
-
-目标：
-
-- 移除普通 turn 的 `task_goal_type_required`。
-- `task_goal_type` 只属于 TaskRun contract projection。
-- prompt 改成“理解 + 执行模式判断”，不是“任务类型分类器”。
-
-### 阶段四：TaskRunLoop start API 正名
-
-修改：
-
-- `backend/harness/loop/agent_loop.py`
-- `backend/harness/agent_harness.py`
-- `backend/harness/service_host.py`
-- `backend/harness/runtime/agent_assembly.py`
-
-目标：
-
-- `AgentHarness.run_stream()` 只接受正式 TaskRun request 或 explicit invocation。
-- 增加 `start_from_contract` / `start_from_execution_decision` 概念。
-- `runtime_host.start()` 之前必须已有合法 task lifecycle admission packet。
-
-### 阶段五：补齐 AgentTurn 可观测性
-
-新增或扩展：
-
-- state index 中的 `agent_turns`
-- event log 中的 turn scope
-- live monitor 中的 current agent turn view
-
-必须支持：
-
-- 没有 TaskRun 的普通回答也能被监控。
-- 理解决策超时能看到卡点。
-- CLI/SSE 能收到 terminal event。
-- `task_run_count: 0` 不再代表“系统没有响应信息”。
-
-### 阶段六：长任务 artifacts 与恢复验收
-
-在已有 artifact 机制上补强：
-
-- TaskRun admission 必须绑定 artifact repository scope。
-- 长任务 closeout 必须读取 artifact records。
-- completion judgment 必须依赖结构化 evidence。
-- 恢复时必须读取 artifact repository 和 observation ledger。
-- final response 必须包含真实 artifact refs 或明确失败原因。
-
-## 14. 必须删除或迁移的旧权责
-
-以下逻辑如果仍在普通 chat 路径上做决定，需要删除或迁移：
-
-- `QueryRuntime` 中默认 task instance 语义。
-- 普通 turn 的 `task_goal_type_required`。
-- assembly 阶段从普通 turn 强制投射 `task_goal_spec`。
-- 任何 profile/route hint 在模型决策前决定任务类型的逻辑。
-- 任何把自然语言完成宣告当完成证据的逻辑。
-
-可以保留：
-
-- 显式 task selection。
-- 显式 graph/stage contract。
-- 路径、后缀、显式资源引用等事实提取。
-- 权限门禁。
-- artifact 结构化校验。
-
-## 15. 验收标准
-
-### 15.1 普通聊天
-
-输入普通问题，系统应：
-
-- 创建 AgentTurn。
-- 不创建 TaskRun。
-- 返回 `done`。
-- session monitor 能看到最近 turn 状态。
-
-### 15.2 澄清
-
-输入信息不足请求，系统应：
-
-- 创建 AgentTurn。
-- 返回 clarification。
-- 不创建 TaskRun。
-- 不伪造任务失败。
-
-### 15.3 轻量审查
-
-输入“审查这段代码/解释这个文件”，系统可选择 read-only inspection：
-
-- 可以读取上下文。
-- 不写文件。
-- 默认不创建 TaskRun。
-- 如果 agent 判断范围扩大，可解释并升级为 TaskRun。
-
-### 15.4 显式任务合同
-
-输入已绑定 task/graph/stage 的请求，系统应：
-
-- 直接进入 TaskRun admission。
-- 不让普通 chat decision 覆盖合同。
-- 保留合同目标和权限边界。
-
-### 15.5 agent 自主开启长任务
-
-输入复杂开发/修复/生成 artifact 请求，agent 可判断 `execution_mode=task_run`：
-
-- TaskRun 由 loop 创建。
-- artifact repository 绑定成功。
-- 执行、验证、finalize 全链路可观测。
-
-### 15.6 理解决策超时
-
-模拟模型决策超时，系统应：
-
-- 有 AgentTurn 记录。
-- SSE/CLI 返回 error 或 retryable failure。
-- 不出现静默无消息。
-- 不创建半截 TaskRun。
-
-### 15.7 长任务完成验收
-
-长任务必须：
-
-- 有真实 artifact refs。
-- 有结构化 verification evidence。
-- completion judgment 通过。
-- TaskRun 才能 completed。
-
-### 15.8 状态机验收
-
-新增状态机测试：
-
-- AgentTurn 每个非 terminal 状态都有 terminal 出口。
-- Direct answer 不创建 TaskRun。
-- ToolTurn 升级 TaskRun 时必须生成 HandoffPacket。
-- TaskRun admission 失败不会留下不可见半截运行。
-- TaskRun finalization 失败可 repair。
-- 服务重启后 stale AgentTurn/TaskRun 可被正确恢复或标记失败。
-
-## 16. 推荐测试命令
-
-先补 focused tests：
-
-```powershell
-python -m pytest backend/tests/query_runtime_runtime_loop_regression.py -q
-python -m pytest backend/tests/model_turn_decision_validation_regression.py -q
-python -m pytest backend/tests/completion_judgment_regression.py -q
-python -m pytest backend/tests/task_graph_artifact_validation_test.py -q
+```text
+描述一次受控运行环境的外壳。
+它是 runtime 装配的输入边界，不是 agent 决策结果。
 ```
 
-再做真实 CLI/SSE 实测：
+字段：
 
-```powershell
-python -m backend.cli.main --api-base http://127.0.0.1:8003/api --verbose send "你好，简单解释一下这个项目当前 agent harness 是做什么的"
-python -m backend.cli.main --api-base http://127.0.0.1:8003/api --verbose send "请创建 output/e2e_completion_artifact.md，写入 completion evidence e2e，并验证文件真实存在"
+```text
+envelope_id
+scope_kind: turn | task_run | step | delegate | recovery
+session_id
+turn_id
+task_run_id
+step_id
+agent_profile_ref
+task_environment_ref
+mode_policy
+tool_policy
+permission_policy
+sandbox_policy
+file_policy
+memory_policy
+artifact_policy
+prompt_policy
+output_policy
+budget_policy
+approval_policy
+recovery_policy
+diagnostics
+authority = harness.runtime.envelope
 ```
 
-第一条应无 TaskRun 或仅有 AgentTurn；第二条应由 agent decision 开启 TaskRun，并最终绑定真实 artifact。
+禁止字段：
 
-## 17. 实施顺序
+```text
+system_inferred_intent
+system_selected_action
+ordinary_turn_task_goal_type
+```
 
-推荐按以下顺序一次性推进，每阶段必须有测试保护：
+### 4.2 RuntimeInvocationPacket
 
-1. 新建 AgentTurn/ExecutionDecision 数据结构和测试。
-2. 接入 QueryRuntime，但先保持 TaskRun 路径可用。
-3. 移除普通 chat 的 task-first 强制路径。
-4. 拆掉普通 turn 的 `task_goal_type_required`。
-5. 改造 harness 入口，使 TaskRun 只从合同或 execution decision 开启。
-6. 补监控和 CLI/SSE terminal 事件。
-7. 补长任务 artifact/recovery/final acceptance 测试。
-8. 删除旧测试中保护 task-first 行为的断言。
+新增文件：
 
-最终目标是：系统不替 agent 做语义决定，agent 不绕过系统权限和证据边界；TaskRun 成为 loop 明确开启、可恢复、可验收的一段任务生命周期。
+```text
+backend/harness/runtime/invocation_packet.py
+```
 
+职责：
+
+```text
+每次模型调用唯一输入合同。
+任何模型调用都必须先创建新的 packet。
+```
+
+字段：
+
+```text
+packet_id
+envelope_ref
+invocation_kind
+invocation_index
+session_id
+turn_id
+task_run_id
+step_id
+model_messages
+system_instructions
+agent_role_prompt
+prompt_pack_refs
+available_tools
+available_modes
+permission_snapshot
+context_refs
+observation_refs
+artifact_refs
+current_task_contract_ref
+current_plan_ref
+current_repair_refs
+output_contract
+stop_conditions
+budget_snapshot
+user_visible_status_policy
+hidden_control_refs
+authority = harness.runtime.invocation_packet
+```
+
+必须重新编译的场景：
+
+```text
+普通 turn 第一次 agent 调用。
+direct answer。
+bounded observation 后。
+TaskRun step action。
+工具结果回灌后。
+进入计划模式后。
+用户中途修改后。
+agent 自审前。
+repair 前。
+resume 后。
+最终回答前。
+```
+
+### 4.3 ModelActionRequest
+
+新增文件：
+
+```text
+backend/harness/loop/model_action_protocol.py
+```
+
+职责：
+
+```text
+记录 agent 在本次 invocation 中真实发出的行动请求。
+它不是系统侧意图枚举，也不是路由分类器。
+```
+
+请求族：
+
+```text
+final_answer
+tool_call
+ask_user
+enter_plan_mode
+exit_plan_mode
+request_task_run
+delegate_agent
+record_plan
+revise_plan
+repair_step
+invalidate_step
+self_review
+final_review
+block
+```
+
+硬规则：
+
+```text
+只能由模型输出或外部已验证合同入口创建。
+系统不得从用户关键词创建。
+系统不得从旧 action_intent 创建。
+系统不得替 agent 补请求字段。
+```
+
+### 4.4 AdmissionDecision
+
+新增文件：
+
+```text
+backend/harness/loop/admission.py
+```
+
+职责：
+
+```text
+对 agent 已发出的行动请求做执行前裁决。
+```
+
+字段：
+
+```text
+admission_id
+action_request_ref
+decision: allow | deny | ask_approval | invalid | needs_contract
+permission_delta
+contract_errors
+resource_errors
+approval_request_ref
+user_visible_reason
+system_reason
+authority = harness.loop.admission
+```
+
+硬规则：
+
+```text
+deny 不可改写为别的行动。
+invalid 不可自动变成 TaskRun。
+needs_contract 只能请求 agent 或用户补合同。
+```
+
+### 4.5 ToolCapabilityTable
+
+新增文件：
+
+```text
+backend/harness/runtime/tool_capability_table.py
+```
+
+职责：
+
+```text
+为当前 invocation 暴露模型可用的工具能力。
+工具可见性由 environment、mode、permission 和 invocation_kind 决定。
+```
+
+字段：
+
+```text
+tool_name
+description_for_agent
+input_schema
+read_only
+destructive
+requires_approval
+requires_task_run
+allowed_in_plan_mode
+allowed_in_bounded_turn
+allowed_in_task_run
+permission_policy_ref
+receipt_policy
+```
+
+硬规则：
+
+```text
+默认不可假设只读。
+默认不可假设无副作用。
+工具表只暴露能力，不替 agent 选择工具。
+```
+
+### 4.6 ExecutionContext
+
+新增文件：
+
+```text
+backend/harness/runtime/execution_context.py
+```
+
+职责：
+
+```text
+执行工具、文件、命令、浏览器、artifact 操作前的系统执行合同。
+```
+
+字段：
+
+```text
+execution_context_id
+packet_ref
+action_request_ref
+admission_ref
+tool_name
+operation_id
+workspace_root
+sandbox_snapshot
+permission_receipt_ref
+approval_token_ref
+file_policy_ref
+artifact_policy_ref
+timeout
+idempotency_key
+authority = harness.runtime.execution_context
+```
+
+硬规则：
+
+```text
+没有 action_request_ref 不执行。
+没有 admission_ref 不执行。
+没有 ExecutionContext 不调用副作用工具。
+```
+
+### 4.7 ObservationRecord
+
+新增文件：
+
+```text
+backend/harness/loop/observation_records.py
+```
+
+职责：
+
+```text
+记录真实观察结果，不裁决任务完成。
+```
+
+字段：
+
+```text
+observation_id
+source: model | tool | file | shell | browser | artifact | approval | verifier
+packet_ref
+action_request_ref
+execution_context_ref
+receipt_ref
+summary
+payload_ref
+error
+created_at
+authority = harness.loop.observation
+```
+
+### 4.8 PlanRecord
+
+新增文件：
+
+```text
+backend/harness/loop/plan_records.py
+```
+
+职责：
+
+```text
+记录 agent 基于真实 runtime 和 observation 形成的计划。
+```
+
+字段：
+
+```text
+plan_ref
+task_contract_ref
+created_from_packet_ref
+steps
+risks
+verification_strategy
+artifact_strategy
+open_questions
+approval_required
+authority = agent.plan_record
+```
+
+硬规则：
+
+```text
+系统不能脚手架式生成正式计划。
+计划必须由 agent invocation 输出。
+计划修改必须产生新的 revision 记录。
+```
+
+### 4.9 TaskRunContract
+
+新增文件：
+
+```text
+backend/harness/loop/task_run_contract.py
+```
+
+职责：
+
+```text
+TaskRun admission 接受后的正式长任务合同。
+```
+
+字段：
+
+```text
+contract_id
+contract_source: model_request | external_contract
+user_visible_goal
+task_run_goal
+required_artifacts
+required_verifications
+completion_criteria
+resource_requirements
+permission_requirements
+acceptance_policy
+recovery_policy
+created_from_packet_ref
+authority = harness.loop.task_run_contract
+```
+
+本轮实施边界：
+
+```text
+优先实现 model_request 入口。
+external_contract 只建立新合同接口，不接入旧 selected_task_id 路径。
+外部合同正式开放前，必须经过 admission，并且仍作为 runtime 输入交给 agent 判断当前行动。
+```
+
+### 4.10 StepRunState
+
+修改文件：
+
+```text
+backend/task_system/tasks/run_models.py
+```
+
+状态：
+
+```text
+pending
+ready
+running
+waiting_tool
+waiting_approval
+waiting_user
+self_reviewing
+repairing
+completed
+failed
+invalidated
+skipped_by_contract
+```
+
+硬规则：
+
+```text
+finalizer 不得启动 step。
+finalizer 不得完成 step。
+required step 没有 self-review 和 acceptance 不得 completed。
+skipped_by_contract 必须来自合同裁决，不得来自终态补账。
+```
+
+### 4.11 SelfReviewRecord
+
+新增文件：
+
+```text
+backend/harness/loop/self_review.py
+```
+
+职责：
+
+```text
+让 agent 独立审查当前步骤、修复或最终结果。
+```
+
+字段：
+
+```text
+self_review_id
+task_run_id
+step_id
+packet_ref
+review_scope: step | repair | final
+verdict: pass | fail | partial | needs_more_observation | needs_repair | ask_user
+checked_contract_refs
+checked_observation_refs
+checked_artifact_refs
+issues
+proposed_followup_request
+user_visible_summary
+authority = agent.self_review
+```
+
+硬规则：
+
+```text
+pass 必须引用真实 evidence。
+artifact 交付的 pass 必须引用真实 artifact。
+self-review 不是最终验收。
+```
+
+### 4.12 AcceptanceRecord
+
+新增文件：
+
+```text
+backend/harness/loop/acceptance.py
+```
+
+职责：
+
+```text
+系统基于证据裁决步骤、artifact 或最终结果是否可接受。
+```
+
+字段：
+
+```text
+acceptance_id
+scope: step | task_run | artifact | final
+task_run_id
+step_id
+self_review_ref
+required_artifact_refs
+required_receipt_refs
+verification_refs
+permission_receipts
+approval_receipts
+decision: accepted | rejected | partial | repair_required | blocked
+reason
+authority = harness.acceptance
+```
+
+### 4.13 UserVisibleStepSummary
+
+新增文件：
+
+```text
+backend/harness/loop/user_visible_status.py
+```
+
+职责：
+
+```text
+把真实执行进展转成用户可见的自然摘要。
+```
+
+字段：
+
+```text
+summary_id
+scope_ref
+what_happened
+evidence_summary
+status
+next_user_visible_status
+authority = harness.user_visible_status
+```
+
+禁止：
+
+```text
+hidden reasoning
+task_run_id
+packet_id
+directive_id
+开发节点说明式文本
+```
+
+## 5. 固定执行流
+
+### 5.1 普通 turn
+
+```text
+1. QueryRuntime 接收用户输入。
+2. 创建 TurnScope 和 RuntimeEnvelope(scope=turn)。
+3. RuntimeCompiler 编译 invocation_kind=turn_action 的 RuntimeInvocationPacket。
+4. 模型输出 ModelActionRequest 或 final answer。
+5. Admission 校验行动请求。
+6. final answer：编译 final_user_answer packet 后提交用户消息。
+7. tool_call：进入 bounded observation。
+8. request_task_run：进入 TaskRun admission。
+9. ask_user：提交用户可见问题。
+10. block：提交用户可见阻断原因。
+```
+
+### 5.2 Bounded observation
+
+```text
+1. agent 请求 read/search/browser 等轻量观察。
+2. Admission 校验工具可用性和权限。
+3. RuntimeCompiler 编译 ExecutionContext。
+4. 执行工具并写入 ObservationRecord。
+5. RuntimeCompiler 编译 invocation_kind=tool_observation_followup。
+6. agent 基于 observation 继续回答、请求更多观察、请求 TaskRun、询问用户或阻断。
+```
+
+硬规则：
+
+```text
+bounded observation 不创建 TaskRun。
+bounded observation 有 observation 和 receipt。
+bounded observation 失败必须回到 agent 或用户可见失败，不得静默吞掉。
+```
+
+### 5.3 Plan mode
+
+```text
+1. agent 输出 enter_plan_mode。
+2. Admission 校验当前环境允许计划模式。
+3. 权限快照切换为计划约束。
+4. RuntimeCompiler 编译 invocation_kind=plan。
+5. agent 读取真实上下文并产出 PlanRecord。
+6. agent 输出 exit_plan_mode。
+7. 系统按策略请求用户审批或进入 request_task_run admission。
+```
+
+硬规则：
+
+```text
+Plan mode 是 runtime 模式，不是任务类型。
+professional_mode 可以加强计划要求，但不能强制进入计划或 TaskRun。
+```
+
+### 5.4 TaskRun admission
+
+```text
+1. agent 输出 request_task_run，并给出 TaskRunContract 草案。
+2. Admission 检查合同完整性、权限、资源、artifact、verification、预算。
+3. 通过后系统创建 task_run_id。
+4. 创建 RuntimeEnvelope(scope=task_run)。
+5. 进入 TaskRunLoop。
+```
+
+硬规则：
+
+```text
+admission 前不生成正式 task_run_id。
+普通 turn 不要求任务目标字段。
+系统不从旧字段补合同。
+```
+
+### 5.5 TaskRun loop
+
+```text
+1. 选择 ready step。
+2. RuntimeCompiler 编译 invocation_kind=task_step_action。
+3. agent 输出工具调用、计划修订、询问用户、自审请求、阻断或最终检查请求。
+4. Admission 校验行动。
+5. RuntimeCompiler 编译 ExecutionContext。
+6. 执行并写 ObservationRecord。
+7. RuntimeCompiler 编译 follow-up packet。
+8. agent 继续行动，直到步骤进入 self_review。
+9. RuntimeCompiler 编译 invocation_kind=step_self_review。
+10. agent 输出 SelfReviewRecord。
+11. Acceptance 校验证据。
+12. step accepted 后进入下一步。
+```
+
+### 5.6 用户中途修改
+
+```text
+1. TaskRun running 时收到新的用户输入。
+2. loop 在安全边界暂停：当前不可中断工具完成后停住。
+3. RuntimeCompiler 编译 invocation_kind=user_revision_triage。
+4. agent 判断：
+   apply_to_current_step
+   revise_plan
+   revise_contract
+   split_new_task
+   ask_user
+   reject_conflict
+   abort_current
+5. Admission 校验合同、权限、artifact、预算是否改变。
+6. 受影响 step / artifact / summary 进入 invalidated。
+7. RuntimeCompiler 编译 repair 或 revised step packet。
+```
+
+硬规则：
+
+```text
+系统不直接改写合同。
+用户修改不能被普通聊天路径吞掉。
+已被新事实推翻的步骤必须显式 invalidated。
+```
+
+### 5.7 agent 发现前序错误
+
+```text
+1. 错误来自工具、测试、浏览器、self-review、verifier 或 agent 反思。
+2. RuntimeCompiler 编译 invocation_kind=step_invalidation_review。
+3. agent 指出受影响 step、artifact、assumption 和 evidence。
+4. 系统记录 invalidation。
+5. RuntimeCompiler 编译 invocation_kind=repair_action。
+6. agent 修复。
+7. 系统执行并记录新 observation。
+8. agent repair_self_review。
+9. Acceptance 决定修复是否接受。
+```
+
+硬规则：
+
+```text
+不能按旧计划硬跑。
+不能让 final answer 掩盖前序错误。
+不能让系统自动重排计划而不经过 agent 审查。
+```
+
+### 5.8 Resume / 自动续跑
+
+```text
+1. 系统加载 checkpoint、ledger、observation、artifact、pending approval。
+2. RuntimeCompiler 编译 invocation_kind=resume_safety_review。
+3. agent 检查当前状态是否可继续。
+4. Admission 校验权限、工具、环境是否仍有效。
+5. 可继续则从 recorded state 恢复；不可继续则进入 repair、ask_user 或 blocked。
+```
+
+硬规则：
+
+```text
+resume 不复用旧 packet。
+resume 不重复执行已有副作用工具。
+resume 层不得覆盖当前用户输入。
+```
+
+### 5.9 Finalization
+
+```text
+1. 所有 required step 已 accepted。
+2. RuntimeCompiler 编译 invocation_kind=final_self_review。
+3. agent 输出 final SelfReviewRecord。
+4. Acceptance 生成 final AcceptanceRecord。
+5. 通过后 RuntimeCompiler 编译 invocation_kind=final_user_answer。
+6. agent 生成用户可见最终回答。
+7. QueryRuntime / stream 提交 terminal event 和 assistant message。
+```
+
+硬规则：
+
+```text
+finalizer 只提交已验收结果。
+finalizer 不改变 step 执行状态。
+final acceptance 失败时必须回传失败或修复请求。
+测试结果、artifact 路径、失败原因必须来自真实 receipt 或 observation。
+```
+
+## 6. Prompt 与 runtime 装配设计
+
+### 6.1 每一步都必须装配 runtime
+
+每个 invocation 的 prompt pack 由以下输入决定：
+
+```text
+task_environment_ref
+agent_profile_ref
+mode_policy
+invocation_kind
+permission_snapshot
+tool_capability_table
+artifact_policy
+acceptance_policy
+current observations
+current contract
+current user revision
+```
+
+不能由以下输入决定：
+
+```text
+用户关键词。
+旧 professional topology。
+旧 action field。
+系统侧任务分类结果。
+```
+
+### 6.2 Prompt pack 清单
+
+新增或重建：
+
+```text
+backend/harness/runtime/prompts/models.py
+backend/harness/runtime/prompts/library.py
+backend/harness/runtime/prompts/packs.py
+backend/harness/runtime/prompts/assembler.py
+```
+
+必须支持的 invocation prompt：
+
+```text
+turn_action
+direct_answer
+tool_observation_followup
+enter_plan_mode
+plan_review
+request_task_run
+task_step_action
+step_self_review
+user_revision_triage
+step_invalidation_review
+repair_action
+repair_self_review
+resume_safety_review
+final_self_review
+final_user_answer
+```
+
+### 6.3 Prompt 写法标准
+
+禁止写给 agent 的文本：
+
+```text
+这是 runtime 节点。
+根据任务图执行 world_review。
+这个节点用于校验资产。
+```
+
+必须写成 agent 可理解的职责语言：
+
+```text
+你是一名交付验收员。
+你只负责判断当前交付物是否真实存在、是否被验证、是否满足用户请求。
+你不能替执行 agent 扩写成果。
+你必须指出证据缺口，并给出 accepted、partial、repair_required 或 rejected。
+```
+
+## 7. 文件级实施计划
+
+### 阶段一：建立新运行时协议模型
+
+新增：
+
+```text
+backend/harness/runtime/envelope.py
+backend/harness/runtime/invocation_packet.py
+backend/harness/runtime/compiler.py
+backend/harness/runtime/tool_capability_table.py
+backend/harness/runtime/execution_context.py
+backend/harness/loop/model_action_protocol.py
+backend/harness/loop/admission.py
+backend/harness/loop/observation_records.py
+backend/harness/loop/user_visible_status.py
+```
+
+修改：
+
+```text
+backend/harness/runtime/__init__.py
+backend/harness/loop/__init__.py
+backend/runtime/shared/events.py
+```
+
+完成标准：
+
+```text
+RuntimeEnvelope 可序列化并包含 authority。
+RuntimeInvocationPacket 校验 packet_id、envelope_ref、invocation_kind。
+ToolCapabilityTable 明确只读、副作用、审批、TaskRun 要求。
+ExecutionContext 强制绑定 packet_ref、action_request_ref、admission_ref。
+ModelActionRequest 只能表达模型行动请求。
+```
+
+测试：
+
+```text
+backend/tests/runtime_invocation_packet_regression.py
+backend/tests/model_action_admission_regression.py
+backend/tests/tool_capability_table_regression.py
+```
+
+### 阶段二：删除旧系统侧执行判断主权
+
+重写或删除：
+
+```text
+backend/agent_runtime/execution_decision.py
+backend/agent_runtime/understanding/model_turn_decision.py
+backend/agent_runtime/understanding/model_turn_decision_runtime.py
+```
+
+修改：
+
+```text
+backend/agent_runtime/turn_controller.py
+backend/agent_runtime/turn_models.py
+backend/query/runtime.py
+```
+
+执行细节：
+
+```text
+1. AgentTurnController 不再从旧 action 字段推出 TaskRun。
+2. AgentTurnController 创建 RuntimeEnvelope(scope=turn)。
+3. RuntimeCompiler 编译 turn_action packet。
+4. 模型输出 ModelActionRequest。
+5. Admission 裁决请求。
+6. direct_answer、bounded observation、request_task_run、ask_user、block 分别进入对应路径。
+7. direct_answer 也走 RuntimeInvocationPacket。
+8. 普通 turn 不校验任务目标注册表。
+```
+
+完成标准：
+
+```text
+read_context、search_external、use_browser、delegate 不会启动 TaskRun。
+professional_mode 的普通回答不会启动 TaskRun。
+无法解析模型行动请求时，turn 失败关闭并回传用户可见原因。
+```
+
+### 阶段三：实现 bounded observation turn
+
+新增：
+
+```text
+backend/agent_runtime/bounded_observation_loop.py
+```
+
+复用但重接：
+
+```text
+backend/harness/loop/agent_execution/engine.py
+backend/harness/loop/agent_execution/tool_loop.py
+backend/runtime/model_gateway/model_response.py
+```
+
+执行细节：
+
+```text
+1. agent 在 turn_action 或 follow-up 中请求轻量工具。
+2. Admission 判定该工具允许在 bounded turn 中使用。
+3. RuntimeCompiler 生成 ExecutionContext。
+4. 工具执行写入 ObservationRecord。
+5. RuntimeCompiler 重新编译 tool_observation_followup packet。
+6. agent 回答、继续观察、请求 TaskRun、询问用户或阻断。
+```
+
+完成标准：
+
+```text
+bounded observation 有 event log。
+bounded observation 有 permission receipt。
+bounded observation 有 observation refs。
+bounded observation 不写 TaskRunLedger。
+bounded observation 失败会回传用户可见状态。
+```
+
+### 阶段四：重建 TaskRun admission 和入口
+
+新增：
+
+```text
+backend/harness/loop/task_run_contract.py
+```
+
+修改：
+
+```text
+backend/harness/loop/agent_lifecycle.py
+backend/harness/loop/agent_loop.py
+backend/harness/runtime/agent_request.py
+backend/harness/runtime/agent_assembly.py
+backend/harness/runtime/turn_context.py
+```
+
+执行细节：
+
+```text
+1. agent 输出 request_task_run。
+2. Admission 校验 TaskRunContract。
+3. 通过后 start_agent_run 创建系统 task_run_id。
+4. AgentHarness 接收 TaskRunContract 和 RuntimeEnvelope。
+5. TaskRun 入口不再调用 main_model_owned_turn_decision。
+6. turn_context 的生产调用删除。
+```
+
+完成标准：
+
+```text
+TaskRun 只从 accepted request_task_run 进入。
+TaskRun 入口不能重新理解原始用户请求。
+旧 selected_task_id 路径不接入新 TaskRunContract。
+```
+
+### 阶段五：TaskRun 内每次模型调用都通过 RuntimeCompiler
+
+重命名或重写：
+
+```text
+backend/harness/loop/agent_turn_loop.py
+```
+
+建议目标命名：
+
+```text
+backend/harness/loop/model_tool_followup_loop.py
+```
+
+修改：
+
+```text
+backend/harness/loop/agent_model_turn.py
+backend/harness/loop/agent_execution/followup_cycle.py
+backend/harness/loop/agent_execution/engine.py
+backend/runtime/model_gateway/model_response.py
+```
+
+执行细节：
+
+```text
+1. step action 调用前编译 task_step_action packet。
+2. 工具执行后写 ObservationRecord。
+3. follow-up 调用前编译 tool_observation_followup packet。
+4. repair 调用前编译 repair_action packet。
+5. 原 follow-up message builder 降为 compiler 内部片段 helper，不能直接作为模型输入主权。
+```
+
+完成标准：
+
+```text
+每次 model response 都能追溯 packet_ref。
+每次 tool_call_requested 都能追溯 action_request_ref 和 execution_context_ref。
+每次 follow-up packet 包含最新 observation_refs。
+```
+
+### 阶段六：实现 self-review、用户修改和修复
+
+新增：
+
+```text
+backend/harness/loop/self_review.py
+backend/harness/loop/recovery.py
+backend/task_system/tasks/revision.py
+backend/task_system/tasks/invalidation.py
+backend/task_system/tasks/repair.py
+```
+
+修改：
+
+```text
+backend/task_system/tasks/run_models.py
+backend/task_system/tasks/step_summary.py
+backend/harness/loop/agent_event_application.py
+backend/harness/service_host.py
+```
+
+执行细节：
+
+```text
+1. step 完成候选进入 self_reviewing。
+2. RuntimeCompiler 编译 step_self_review packet。
+3. agent 输出 SelfReviewRecord。
+4. verdict=pass 后进入 Acceptance。
+5. verdict=needs_repair 进入 repair_action。
+6. verdict=needs_more_observation 回到 observation loop。
+7. 用户中途修改进入 user_revision_triage。
+8. 受影响 step / artifact / summary 必须 invalidated。
+```
+
+完成标准：
+
+```text
+SelfReviewRecord.pass 无 evidence refs 时拒绝。
+artifact step 无 artifact refs 时拒绝 pass。
+用户修改不会被吞掉。
+agent 发现前序错误能进入 invalidation + repair。
+```
+
+### 阶段七：实现 final acceptance 和终态回传
+
+新增：
+
+```text
+backend/harness/loop/acceptance.py
+```
+
+修改：
+
+```text
+backend/harness/loop/agent_phase_pipeline.py
+backend/harness/loop/agent_finalization.py
+backend/runtime/shared/artifact_paths.py
+backend/task_system/tasks/run_models.py
+backend/runtime/shared/events.py
+backend/query/runtime.py
+```
+
+执行细节：
+
+```text
+1. 所有 required step accepted 后，编译 final_self_review packet。
+2. agent 输出 final SelfReviewRecord。
+3. AcceptanceRecord 校验 artifact、receipt、self-review、permission、approval、checkpoint。
+4. 通过后编译 final_user_answer packet。
+5. 用户终态消息必须通过 stream 和 session commit 回传。
+6. 失败、阻断、等待用户也必须有用户可见 terminal event。
+```
+
+完成标准：
+
+```text
+finalizer 不再启动 pending step。
+finalizer 不再完成 running step。
+finalizer 不再跳过 required step。
+final acceptance 失败不能提交 completed。
+测试结果缺失时不能声称测试通过。
+终态消息不会因为内部状态写入失败而丢失。
+```
+
+### 阶段八：Prompt library 与模式覆盖
+
+新增：
+
+```text
+backend/harness/runtime/prompts/models.py
+backend/harness/runtime/prompts/library.py
+backend/harness/runtime/prompts/packs.py
+backend/harness/runtime/prompts/assembler.py
+```
+
+修改：
+
+```text
+backend/harness/runtime/compiler.py
+backend/harness/runtime/agent_assembly.py
+backend/harness/runtime/environment/*
+```
+
+执行细节：
+
+```text
+1. prompt pack 由 task_environment_ref、agent_profile_ref、mode_policy、invocation_kind 选择。
+2. role / standard / professional 是 runtime coverage policy。
+3. professional_mode 加强计划、自审、验收和摘要要求。
+4. professional_mode 不改变主 loop 架构，不强制 TaskRun。
+5. prompt 内容全部写成 agent 职责语言。
+```
+
+完成标准：
+
+```text
+业务 loop 不再手写临时 system prompt。
+同一 invocation_kind 在不同 environment 下可装配不同 prompt pack。
+prompt pack 不决定是否开启 TaskRun。
+```
+
+### 阶段九：清理旧结构和旧测试
+
+删除或彻底改写：
+
+```text
+backend/agent_runtime/execution_decision.py 的旧路由职责
+backend/agent_runtime/understanding 的生产控制路径
+backend/harness/runtime/turn_context.py 的 TaskRun 入口理解路径
+backend/harness/runtime/start_packet.py 的生产依赖
+backend/harness/loop/agent_turn_loop.py 的旧命名和旧输入主权
+backend/harness/loop/agent_finalization.py 的步骤补账逻辑
+backend/task_system/planning 中保护旧 topology 的文件
+```
+
+测试处理：
+
+```text
+删除只保护旧内部形状的测试。
+改写保护行为契约的测试。
+新增真实 runtime、admission、observation、自审、验收、终态回传测试。
+```
+
+完成标准：
+
+```text
+生产入口不再引用旧理解管线。
+生产入口不再引用旧 start packet。
+生产入口不再有系统侧行动路由。
+旧测试不再要求旧 topology 存在。
+```
+
+## 8. 状态机细节
+
+### 8.1 AgentTurn 轻状态机
+
+| 当前状态 | 条件 | 下一状态 | 产物 |
+| --- | --- | --- | --- |
+| received | 创建 turn envelope | compiling_runtime | RuntimeEnvelope |
+| compiling_runtime | packet 编译成功 | invoking_agent | RuntimeInvocationPacket(turn_action) |
+| invoking_agent | 模型输出 | validating_action | ModelActionRequest |
+| validating_action | final answer allowed | finalizing_turn | final_user_answer packet |
+| validating_action | tool allowed | bounded_observation | ExecutionContext |
+| validating_action | task request allowed | launching_task_run | TaskRunContract |
+| validating_action | ask user | waiting_user | user question |
+| validating_action | block | blocked | visible reason |
+| bounded_observation | observation recorded | compiling_runtime | ObservationRecord |
+| launching_task_run | TaskRun started | waiting_task_run | task_run system ref |
+| waiting_task_run | terminal event | finalizing_turn | accepted result refs |
+| finalizing_turn | message committed | completed | assistant message |
+| 任意非终态 | unrecoverable error | failed | user-visible failure |
+
+### 8.2 TaskRun 状态机
+
+| 当前状态 | 条件 | 下一状态 | 产物 |
+| --- | --- | --- | --- |
+| created | contract admitted | admitted | TaskRunContract |
+| admitted | envelope compiled | selecting_step | RuntimeEnvelope |
+| selecting_step | step ready | compiling_invocation | TaskStepRun |
+| compiling_invocation | packet compiled | invoking_agent | RuntimeInvocationPacket |
+| invoking_agent | model output | validating_action | ModelActionRequest |
+| validating_action | tool request | authorizing_action | AdmissionDecision |
+| authorizing_action | allowed | executing_action | ExecutionContext |
+| authorizing_action | approval required | waiting_approval | approval request |
+| executing_action | receipt produced | recording_observation | receipt |
+| recording_observation | observation saved | compiling_invocation | ObservationRecord |
+| recording_observation | step ready for review | self_reviewing | step_self_review packet |
+| self_reviewing | pass | accepting_step | SelfReviewRecord |
+| self_reviewing | needs repair | repairing | repair packet |
+| self_reviewing | needs observation | compiling_invocation | follow-up packet |
+| accepting_step | accepted | selecting_step | AcceptanceRecord |
+| accepting_step | repair required | repairing | AcceptanceRecord |
+| selecting_step | no more required steps | final_self_reviewing | final review packet |
+| final_self_reviewing | review produced | final_accepting | SelfReviewRecord |
+| final_accepting | accepted | final_answering | AcceptanceRecord |
+| final_answering | message committed | completed | assistant message |
+| 任意可恢复状态 | recoverable failure | recovering | recovery packet |
+| 任意不可恢复状态 | blocked | failed | visible failure |
+
+## 9. 用户可见输出协议
+
+用户应看到：
+
+```text
+我正在检查相关入口。
+我已经确认普通 direct answer 当前绕过运行时装配。
+我修改了 TaskRun finalizer 的补账逻辑，并运行了对应回归测试。
+测试失败在 artifact 验收阶段，原因是缺少真实 receipt。
+```
+
+用户不应看到：
+
+```text
+task_run_id
+packet_id
+directive_id
+hidden reasoning
+internal authority strings
+raw ledger dumps
+control protocol JSON
+```
+
+实现要求：
+
+```text
+stream event 可以携带 debug refs。
+assistant final content 默认不展示 internal refs。
+诊断面板可以显示 refs。
+所有 terminal path 必须回传用户可见结果。
+```
+
+## 10. 验证矩阵
+
+### 10.1 单元测试
+
+新增或改写：
+
+```text
+backend/tests/runtime_invocation_packet_regression.py
+backend/tests/model_action_admission_regression.py
+backend/tests/tool_capability_table_regression.py
+backend/tests/bounded_observation_turn_regression.py
+backend/tests/task_run_contract_admission_regression.py
+backend/tests/task_run_self_review_acceptance_regression.py
+backend/tests/task_run_no_finalizer_step_completion_regression.py
+backend/tests/user_revision_repair_regression.py
+backend/tests/terminal_message_delivery_regression.py
+```
+
+必须断言：
+
+```text
+RuntimeInvocationPacket 必须有 envelope_ref 和 invocation_kind。
+ExecutionContext 必须有 packet_ref、action_request_ref、admission_ref。
+read/search/browser/delegate 不会创建 TaskRun。
+direct answer 经过 RuntimeInvocationPacket。
+SelfReviewRecord.pass 无 evidence refs 被拒绝。
+artifact step 无 artifact refs 被拒绝。
+AcceptanceRecord 缺 required receipt 时 rejected。
+finalizer 不能改变 pending/running step 为 completed。
+terminal failure 也会产生用户可见消息。
+```
+
+### 10.2 集成测试
+
+必须覆盖：
+
+```text
+普通问答 direct answer，不创建 TaskRun。
+professional_mode 普通问答，不创建 TaskRun。
+读取项目文件后总结，走 bounded observation，不创建 TaskRun。
+浏览器或搜索观察后回答，走 bounded observation，不创建 TaskRun。
+代码修改请求，由 agent 请求 TaskRun，再通过 admission 创建 TaskRun。
+TaskRun 每次模型调用都有 packet_ref。
+工具调用都有 ExecutionContext 和 permission receipt。
+approval_waiting 可恢复。
+用户中途修改进入 user_revision_triage。
+测试失败进入 invalidation + repair。
+final acceptance rejected 时不提交 completed。
+```
+
+### 10.3 后端 CLI 实测
+
+用户偏好实测，因此最终实施必须跑真实后端 CLI / 窗口输入：
+
+```text
+你好，介绍一下 harness。
+请读 backend/agent_runtime/execution_decision.py 并总结问题。
+请搜索项目中 TaskRun 入口并给出审查意见。
+请修改一个小 bug 并运行测试。
+请完成一个需要真实 artifact 的长任务。
+在任务执行中途输入修改要求。
+制造一次测试失败，确认 agent 能修复或回传失败原因。
+```
+
+期望：
+
+```text
+普通问答无 TaskRun。
+只读观察无 TaskRun。
+写入和真实交付进入 TaskRun。
+测试结果通过真实命令 receipt 回传。
+长任务完成有 artifact、observation、self-review、acceptance。
+失败有用户可见失败消息。
+```
+
+固定本地节点：
+
+```text
+前端：http://127.0.0.1:3000
+后端：http://127.0.0.1:8003
+前端 API Base：http://127.0.0.1:8003/api
+```
+
+## 11. 切换规则
+
+实施时必须遵守：
+
+```text
+一旦某阶段接入新 RuntimeCompiler，对应旧生产入口必须删除。
+一旦 ModelActionRequest 接管行动表达，旧 ExecutionDecision 路由必须删除。
+一旦 TaskRunContract 接管长任务入口，旧 turn_context 理解路径必须删除。
+一旦 AcceptanceRecord 接管完成裁决，finalizer 补账逻辑必须删除。
+一旦 prompt pack 接管装配，业务 loop 手写 prompt 必须删除。
+```
+
+禁止保留：
+
+```text
+旧 professional task topology。
+旧 understanding step compiler。
+旧 RuntimeStartPacket 生产依赖。
+旧 action field 到 TaskRun 的映射。
+旧 selected task 到任务目标字段的推导。
+旧测试要求旧内部结构存在。
+```
+
+允许保留：
+
+```text
+真实工具执行能力。
+真实 permission / sandbox / approval 能力。
+真实 artifact path validation 能力。
+真实 event stream 和诊断事件能力。
+```
+
+保留条件：
+
+```text
+必须重新接到 RuntimeInvocationPacket、ModelActionRequest、AdmissionDecision、
+ExecutionContext、ObservationRecord、SelfReviewRecord、AcceptanceRecord 这条链上。
+```
+
+## 12. 最终完成定义
+
+重构完成必须同时满足：
+
+```text
+AgentTurn 是用户一轮输入生命周期。
+TaskRun 是正式长任务生命周期。
+每次模型调用都由 RuntimeCompiler 编译 RuntimeInvocationPacket。
+agent 自己请求工具、计划、TaskRun、修复、自审或最终回答。
+系统只做 admission、permission、execution、observation、acceptance、presentation。
+bounded observation 能完成轻量读/查/浏览。
+professional_mode 是 runtime coverage policy，不是强制 TaskRun 结构。
+长任务完成绑定真实 artifact、真实 receipt、self-review 和 final acceptance。
+用户中途修改进入 revision triage。
+agent 发现错误进入 invalidation + repair。
+resume 重新装配 runtime，不复用旧 packet。
+finalizer 不补账。
+测试结果和最终消息能真实回传。
+用户最终回答自然、简洁、不泄露内部控制协议。
+```
+
+任何实现如果让系统重新获得语义任务判断权、让旧字段重新决定 TaskRun、让 finalizer 继续补完成，均视为未完成。

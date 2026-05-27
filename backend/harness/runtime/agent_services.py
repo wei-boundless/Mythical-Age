@@ -32,6 +32,7 @@ class AgentRuntimeServices:
     start_run: Any
     sync_runtime_objects_after_task_contract: Any
     record_task_run_step_event: Any
+    record_step_execution_summary: Any
     record_task_run_ledger_updated: Any
     state_with_task_run_ledger: Any
     write_checkpoint_event: Any
@@ -64,6 +65,7 @@ class AgentRuntimeServices:
             start_run=host.start,
             sync_runtime_objects_after_task_contract=host._sync_runtime_objects_after_task_contract,
             record_task_run_step_event=host._record_task_run_step_event,
+            record_step_execution_summary=host._record_step_execution_summary,
             record_task_run_ledger_updated=host._record_task_run_ledger_updated,
             state_with_task_run_ledger=host._state_with_task_run_ledger,
             write_checkpoint_event=host._write_checkpoint_event,
@@ -84,6 +86,9 @@ class AgentRuntimeServices:
 
     def _record_task_run_step_event(self, *args: Any, **kwargs: Any) -> Any:
         return self.record_task_run_step_event(*args, **kwargs)
+
+    def _record_step_execution_summary(self, *args: Any, **kwargs: Any) -> Any:
+        return self.record_step_execution_summary(*args, **kwargs)
 
     def _record_task_run_ledger_updated(self, *args: Any, **kwargs: Any) -> Any:
         return self.record_task_run_ledger_updated(*args, **kwargs)

@@ -46,7 +46,7 @@ import {
   type SoulSummary
 } from "@/lib/souls";
 
-import type { Store } from "./core";
+import { createIdleSessionActivity, type Store } from "./core";
 import { reduceStreamEvent, startStreamingTurn, type StreamSession } from "./events";
 import { isVisibleRuntimeMonitorItem, runtimeWorkProjectionFromMonitorItem, visibleRuntimeMonitorItems } from "../runtimeWorkProjection";
 import type { ChatMode, ChatModelSelection, MainAgentAssemblyMode, SearchPolicySource, StoreActions, StoreState, TaskGraphMonitorBinding, TaskSelectionState, WorkspaceView } from "./types";
@@ -386,27 +386,22 @@ export class WorkspaceRuntime {
       if (this.store.getState().currentSessionId !== sessionId || this.sessionDetailsRequest !== requestId) {
         return;
       }
-      this.store.setState((prev) => ({
-        ...prev,
-        messages: toUiMessages(history.messages),
-        tokenStats: tokens,
-        sessionActivity: prev.sessionActivity.event === "session_history_load_failed"
-          ? {
-              level: "idle",
-              title: "待命",
-              detail: "输入消息后，会在这里显示当前处理阶段。",
-              event: "",
-              updatedAt: Date.now(),
-            }
-          : prev.sessionActivity,
-      }));
+      this.store.setState((prev) => {
+        const next: StoreState = {
+          ...prev,
+          messages: toUiMessages(history.messages),
+          tokenStats: tokens,
+        };
+        return prev.sessionActivity.event === "session_history_load_failed"
+          ? this.clearSessionActivityFor(next, sessionId)
+          : next;
+      });
     } catch (error) {
       if (this.store.getState().currentSessionId !== sessionId || this.sessionDetailsRequest !== requestId) {
         return;
       }
-      this.store.setState((prev) => ({
-        ...prev,
-        sessionActivity: {
+      this.store.setState((prev) => {
+        const activity: StoreState["sessionActivity"] = {
           level: "error",
           title: "历史读取超时",
           detail: this.errorMessage(error, "会话历史暂时读取失败，当前页面不会中断，可以继续使用或稍后重试。"),
@@ -421,8 +416,16 @@ export class WorkspaceRuntime {
             },
           },
           updatedAt: Date.now(),
-        },
-      }));
+        };
+        return {
+          ...prev,
+          sessionActivity: activity,
+          sessionActivitiesById: {
+            ...prev.sessionActivitiesById,
+            [sessionId]: activity,
+          },
+        };
+      });
     }
   }
 
@@ -448,6 +451,42 @@ export class WorkspaceRuntime {
     };
   }
 
+  private visibleSessionActivity(state: StoreState, sessionId: string | null = state.currentSessionId) {
+    if (!sessionId) {
+      return createIdleSessionActivity();
+    }
+    return state.sessionActivitiesById[sessionId] ?? createIdleSessionActivity();
+  }
+
+  private clearSessionActivityFor(state: StoreState, sessionId: string) {
+    const idle = createIdleSessionActivity(Date.now());
+    return {
+      ...state,
+      sessionActivity: state.currentSessionId === sessionId ? idle : state.sessionActivity,
+      sessionActivitiesById: {
+        ...state.sessionActivitiesById,
+        [sessionId]: idle,
+      },
+    };
+  }
+
+  private captureSessionActivity(state: StoreState, sessionId: string): StoreState {
+    return {
+      ...state,
+      sessionActivitiesById: {
+        ...state.sessionActivitiesById,
+        [sessionId]: state.sessionActivity,
+      },
+    };
+  }
+
+  private projectSelectedSessionActivity(state: StoreState, sessionId: string | null): StoreState {
+    return {
+      ...state,
+      sessionActivity: this.visibleSessionActivity(state, sessionId),
+    };
+  }
+
   private applyVisibleStreamState(streamState: StoreState, activeStreamSessionIds: string[]) {
     this.store.setState((prev) => ({
       ...prev,
@@ -457,6 +496,11 @@ export class WorkspaceRuntime {
       taskGraphRunMonitor: null,
       activeStreamSessionIds,
       isStreaming: activeStreamSessionIds.length > 0,
+      sessionActivity: streamState.sessionActivity,
+      sessionActivitiesById: {
+        ...prev.sessionActivitiesById,
+        ...streamState.sessionActivitiesById,
+      },
     }));
   }
 
@@ -474,6 +518,7 @@ export class WorkspaceRuntime {
         messages: [],
         tokenStats: null
       }));
+      this.store.setState((prev) => this.clearSessionActivityFor(prev, created.id));
       return created.id;
     })();
 
@@ -510,6 +555,7 @@ export class WorkspaceRuntime {
       taskGraphRunMonitor: null,
       tokenStats: null
     }));
+    this.store.setState((prev) => this.clearSessionActivityFor(prev, sessionId));
     await this.refreshSessions().catch((error) => {
       this.noteSessionRefreshFailure(error);
     });
@@ -537,6 +583,7 @@ export class WorkspaceRuntime {
         taskGraphRunMonitor: null,
         tokenStats: null
       }));
+      this.store.setState((prev) => this.projectSelectedSessionActivity(prev, sessionId));
       return true;
     }
     this.store.setState((prev) => ({
@@ -548,6 +595,7 @@ export class WorkspaceRuntime {
       taskGraphRunMonitor: null,
       tokenStats: null
     }));
+    this.store.setState((prev) => this.projectSelectedSessionActivity(prev, sessionId));
     return false;
   }
 
@@ -636,6 +684,7 @@ export class WorkspaceRuntime {
       activeStreamSessionIds,
       isStreaming: activeStreamSessionIds.length > 0,
     };
+    streamState = this.captureSessionActivity(streamState, sessionId);
     transition = {
       ...transition,
       state: streamState
@@ -694,6 +743,7 @@ export class WorkspaceRuntime {
               activeStreamSessionIds: currentActiveStreamSessionIds,
               isStreaming: currentActiveStreamSessionIds.length > 0,
             };
+            streamState = this.captureSessionActivity(streamState, sessionId);
             transition = {
               ...transition,
               state: streamState
@@ -737,6 +787,7 @@ export class WorkspaceRuntime {
         activeStreamSessionIds: currentActiveStreamSessionIds,
         isStreaming: currentActiveStreamSessionIds.length > 0,
       };
+      streamState = this.captureSessionActivity(streamState, sessionId);
       this.streamingSessionCache.set(sessionId, {
         messages: streamState.messages,
         orchestrationSnapshot: streamState.orchestrationSnapshot,
@@ -756,8 +807,14 @@ export class WorkspaceRuntime {
         && !prev.pendingEphemeralSystemMessages.length;
       this.store.setState((prev) => {
         const next = this.removeActiveStreamSession(prev, sessionId);
+        next.sessionActivitiesById = {
+          ...next.sessionActivitiesById,
+          [sessionId]: streamState.sessionActivity,
+        };
         if (streamEndedWithError) {
-          next.sessionActivity = streamState.sessionActivity;
+          next.sessionActivity = next.currentSessionId === sessionId
+            ? streamState.sessionActivity
+            : this.visibleSessionActivity(next);
         }
         if (
           shouldClearEphemeral(prev)
@@ -1073,7 +1130,13 @@ export class WorkspaceRuntime {
     this.streamAbortControllers.get(sessionId)?.abort();
     this.streamAbortControllers.delete(sessionId);
     this.store.setState((prev) => {
-      return this.removeActiveStreamSession(prev, sessionId);
+      const next = this.removeActiveStreamSession(prev, sessionId);
+      const { [sessionId]: _removed, ...sessionActivitiesById } = next.sessionActivitiesById;
+      return {
+        ...next,
+        sessionActivitiesById,
+        sessionActivity: next.currentSessionId === sessionId ? createIdleSessionActivity(Date.now()) : next.sessionActivity,
+      };
     });
     await this.refreshSessions().catch((error) => {
       this.noteSessionRefreshFailure(error);
@@ -1094,6 +1157,7 @@ export class WorkspaceRuntime {
         ...prev,
         currentSessionId: nextSessions[0].id
       }));
+      this.store.setState((prev) => this.projectSelectedSessionActivity(prev, nextSessions[0].id));
       await this.refreshSessionDetails(nextSessions[0].id).catch(() => undefined);
       return;
     }
@@ -1102,7 +1166,8 @@ export class WorkspaceRuntime {
       currentSessionId: null,
       messages: [],
       orchestrationSnapshot: null,
-      tokenStats: null
+      tokenStats: null,
+      sessionActivity: createIdleSessionActivity(Date.now())
     }));
   }
 

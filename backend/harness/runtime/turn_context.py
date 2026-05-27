@@ -51,6 +51,12 @@ async def build_agent_turn_context(
         **dict(invocation_model_context or {}),
         **dict(task_selection or {}),
     }
+    upstream_model_turn_decision = dict(runtime_context_override.get("model_turn_decision") or {})
+    upstream_model_turn_diagnostics = dict(runtime_context_override.get("model_turn_decision_diagnostics") or {})
+    upstream_request_facts = dict(runtime_context_override.get("request_facts") or {})
+    upstream_boundary_policy = dict(runtime_context_override.get("boundary_policy") or {})
+    upstream_context_candidates = dict(runtime_context_override.get("context_candidates") or {})
+    upstream_action_permit = dict(runtime_context_override.get("action_permit") or {})
     request_facts = build_request_facts(
         user_message=user_message,
         session_id=session_id,
@@ -58,28 +64,50 @@ async def build_agent_turn_context(
         turn_id=str(dict(task_selection or {}).get("turn_id") or ""),
         source=source,
         explicit_selection=task_selection,
-    ).to_dict()
-    boundary_policy = build_boundary_policy(
-        user_message=user_message,
-        request_facts=request_facts,
-        current_turn_context=runtime_context_override,
-    ).to_dict()
-    context_candidates = build_context_candidates(
-        request_facts=request_facts,
-        continuation_candidates=[],
-        memory_runtime_view={},
-        current_turn_context=runtime_context_override,
-    ).to_dict()
-    model_turn_decision, model_turn_diagnostics = await main_model_owned_turn_decision(
-        user_message=user_message,
-        request_facts=request_facts,
-        task_selection=task_selection,
-        model_runtime=getattr(model_response_executor, "model_runtime", None),
+    ).to_dict() if not upstream_request_facts else upstream_request_facts
+    boundary_policy = (
+        upstream_boundary_policy
+        if upstream_boundary_policy
+        else build_boundary_policy(
+            user_message=user_message,
+            request_facts=request_facts,
+            current_turn_context=runtime_context_override,
+        ).to_dict()
     )
-    action_permit = build_action_permit(
-        model_turn_decision=model_turn_decision,
-        boundary_policy=boundary_policy,
-    ).to_dict()
+    context_candidates = (
+        upstream_context_candidates
+        if upstream_context_candidates
+        else build_context_candidates(
+            request_facts=request_facts,
+            continuation_candidates=[],
+            memory_runtime_view={},
+            current_turn_context=runtime_context_override,
+        ).to_dict()
+    )
+    if upstream_model_turn_decision:
+        model_turn_decision = upstream_model_turn_decision
+        model_turn_diagnostics = {
+            "decision_status": "accepted",
+            "model_call_performed": False,
+            "model_authority_used": True,
+            "decision_source": "agent_turn_handoff",
+            **upstream_model_turn_diagnostics,
+        }
+    else:
+        model_turn_decision, model_turn_diagnostics = await main_model_owned_turn_decision(
+            user_message=user_message,
+            request_facts=request_facts,
+            task_selection=task_selection,
+            model_runtime=getattr(model_response_executor, "model_runtime", None),
+        )
+    action_permit = (
+        upstream_action_permit
+        if upstream_action_permit
+        else build_action_permit(
+            model_turn_decision=model_turn_decision,
+            boundary_policy=boundary_policy,
+        ).to_dict()
+    )
     runtime_start_packet = build_runtime_start_packet(
         user_request=user_message,
         request_facts=request_facts,

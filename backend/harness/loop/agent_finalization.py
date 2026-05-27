@@ -130,13 +130,34 @@ async def finalize_agent_run(
     if final_task_run_ledger is not None:
         for transition in ledger_transitions:
             step_run = transition["step_run"]
+            step_diagnostics = dict(transition.get("diagnostics") or {})
+            if transition["event_type"] in {"step_completed", "step_failed"} and not str(step_run.step_summary_ref or "").strip():
+                status = "completed" if transition["event_type"] == "step_completed" else "failed"
+                summary_ref, step_run, final_task_run_ledger, summary_event = runtime_host._record_step_execution_summary(
+                    ledger=final_task_run_ledger,
+                    step_run=step_run,
+                    reason=transition["reason"],
+                    status=status,
+                    refs={
+                        "terminal_reason": terminal_reason,
+                        "step_result_ref": str(step_run.step_result_ref or ""),
+                    },
+                    diagnostics={
+                        "transition_reason": transition["reason"],
+                        "terminal_reason": terminal_reason,
+                        "tool_observation_count": int(finalization.tool_observation_count or 0),
+                        **step_diagnostics,
+                    },
+                )
+                step_diagnostics = {**step_diagnostics, "step_summary_ref": summary_ref}
+                yield {"type": "harness_loop_event", "event": summary_event.to_dict()}
             step_event = runtime_host._record_task_run_step_event(
                 terminal_state.task_run_id,
                 event_type=transition["event_type"],
                 step_run=step_run,
                 ledger=final_task_run_ledger,
                 reason=transition["reason"],
-                diagnostics=dict(transition.get("diagnostics") or {}),
+                diagnostics=step_diagnostics,
             )
             yield {"type": "harness_loop_event", "event": step_event.to_dict()}
         ledger_event = runtime_host._record_task_run_ledger_updated(

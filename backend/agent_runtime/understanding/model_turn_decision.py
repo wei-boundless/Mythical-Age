@@ -74,8 +74,6 @@ def model_turn_decision_from_payload(
     if not isinstance(domain_mismatch_signal, dict):
         errors.append("domain_mismatch_signal_must_be_object")
         domain_mismatch_signal = {}
-    if not task_goal_type:
-        errors.append("task_goal_type_required")
     warnings: list[str] = []
     confidence = _confidence(raw.get("confidence"), warnings)
     binding = raw.get("context_binding_decision") or {}
