@@ -75,6 +75,7 @@ def test_agent_runtime_chain_cutsover_to_formal_orchestration_objects() -> None:
     assert "soul_runtime_view" not in task_operation
     assert payload["task_execution_assembly"]["authority"] == "task_system.task_execution_assembly"
     assert payload["task_body_orchestration"]["authority"] == "orchestration.task_body_orchestration"
+    assert payload["task_body_orchestration"]["prompt_manifest"]["authority"] == "orchestration.prompt_manifest"
     assert payload["agent_runtime_spec"]["authority"] == "orchestration.agent_runtime_spec"
 
 
@@ -225,8 +226,8 @@ def test_runtime_formalizes_worker_spawn_and_coordination_runtime_objects() -> N
     assert trace is not None
     assert "worker_agent_spawn_requested" in runtime_event_types
     assert "worker_agent_spawn_completed" in runtime_event_types
-    assert "coordination_node_run_created" in runtime_event_types
-    assert "handoff_envelope_created" in runtime_event_types
+    assert "coordination_node_run_created" not in runtime_event_types
+    assert "handoff_envelope_created" not in runtime_event_types
     assert trace["worker_spawn_requests"]
     assert trace["worker_spawn_results"]
     assert any(item["status"] == "spawned" for item in trace["worker_spawn_results"])
@@ -241,23 +242,7 @@ def test_runtime_formalizes_worker_spawn_and_coordination_runtime_objects() -> N
     assert "op.edit_file" in spawned_profile.allowed_operations
     assert "op.shell" in spawned_profile.blocked_operations
     assert len(trace["agent_runs"]) >= 2
-    assert trace["coordination_runs"]
-    assert trace["coordination_runs"][0]["diagnostics"]["coordination_engine"] == "harness.graph_coordination_engine"
-    assert trace["coordination_runs"][0]["diagnostics"]["coordination_graph_spec"]["valid"] is True
-    assert trace["coordination_runs"][0]["node_runs"]
-    assert all(
-        node["diagnostics"]["coordination_engine"] == "harness.graph_coordination_engine"
-        for node in trace["coordination_runs"][0]["node_runs"]
-    )
-    assert trace["coordination_runs"][0]["handoff_envelopes"]
-    assert all(
-        handoff["diagnostics"]["coordination_engine"] in {
-            "harness.graph_coordination_engine",
-            "harness.graph_coordination_traversal",
-        }
-        for handoff in trace["coordination_runs"][0]["handoff_envelopes"]
-    )
-    assert trace["coordination_runs"][0]["latest_merge_result"] is not None
+    assert trace["coordination_runs"] == []
 
 
 def test_runtime_does_not_register_removed_story_pipeline() -> None:

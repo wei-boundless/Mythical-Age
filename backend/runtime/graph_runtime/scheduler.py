@@ -189,7 +189,7 @@ def bootstrap_scheduler_state(
         failed_node_ids=tuple(failed_node_ids),
         terminal_status=resolved_terminal,
         diagnostics={
-            "runtime_spec_source": str(dict(runtime_spec.diagnostics or {}).get("source") or ""),
+            "scheduler_input_source": str(dict(runtime_spec.diagnostics or {}).get("source") or ""),
             "scheduler_phase": "runtime_bootstrap" if mode == "active" else "shadow_bootstrap",
             "node_count": len(execution_nodes),
             "resource_node_count": len(runtime_spec.nodes) - len(execution_nodes),

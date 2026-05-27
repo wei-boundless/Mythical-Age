@@ -103,9 +103,9 @@ def test_orchestration_runtime_bundle_builds_formal_objects() -> None:
     assert orchestration["task_execution_assembly_ref"] == task_bundle["task_execution_assembly"]["assembly_id"]
     assert runtime_spec["task_body_orchestration_ref"] == orchestration["orchestration_id"]
     assert runtime_spec["resource_policy_candidate_ref"] == task_bundle["operation_requirement"]["requirement_id"]
-    assert "projection_requirement" not in orchestration
     assert "soul_runtime_view" not in orchestration
-    assert "prompt_manifest" not in orchestration
+    assert orchestration["prompt_manifest"]["authority"] == "orchestration.prompt_manifest"
+    assert orchestration["prompt_manifest"]["validation"]["passed"] is True
     assert orchestration["diagnostics"]["soul_runtime_projection_enabled"] is False
     assert runtime_spec["diagnostics"]["soul_runtime_projection_enabled"] is False
 
@@ -222,8 +222,19 @@ def test_orchestration_runtime_bundle_respects_shared_contract_flag() -> None:
     )
     orchestration_without_shared = payload_without_shared["task_body_orchestration"]
 
+    shared_sections = {
+        item["section_id"]
+        for item in orchestration_with_shared["prompt_manifest"]["sections"]
+    }
+    no_shared_sections = {
+        item["section_id"]
+        for item in orchestration_without_shared["prompt_manifest"]["sections"]
+    }
+
     assert "soul_runtime_view" not in orchestration_with_shared
     assert "soul_runtime_view" not in orchestration_without_shared
+    assert "shared_common_contract" in shared_sections
+    assert "shared_common_contract" not in no_shared_sections
     assert orchestration_with_shared["diagnostics"]["soul_runtime_projection_enabled"] is False
     assert orchestration_without_shared["diagnostics"]["soul_runtime_projection_enabled"] is False
 

@@ -304,7 +304,6 @@ async def finalize_agent_run(
         messages_ref=terminal_state.messages_ref,
         context_snapshot_ref=terminal_state.context_snapshot_ref,
         memory_state_ref=terminal_state.memory_state_ref,
-        projection_ref=terminal_state.projection_ref,
         prompt_manifest_ref=terminal_state.prompt_manifest_ref,
         pending_action_requests=terminal_state.pending_action_requests,
         pending_approval_state=terminal_state.pending_approval_state,

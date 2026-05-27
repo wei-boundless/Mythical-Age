@@ -268,7 +268,9 @@ def test_modular_writing_graph_config_compiles_graph_modules_and_chapter_batches
         if str(item.task_id).startswith("task.writing.modular_novel.node.")
     ]
     assert writing_records
-    assert all(item.default_projection_policy == "" for item in writing_records)
+    assert {node.task_id for graph in graphs.values() for node in graph.nodes if node.task_id}.issubset(
+        {item.task_id for item in writing_records}
+    )
     wrapper_task_ids = {
         "task.writing.modular_novel.master",
         "task.writing.modular_novel.design_init",

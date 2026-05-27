@@ -27,14 +27,14 @@ def test_boundary_policy_scopes_source_readonly_without_blocking_sandbox_report_
 
     assert boundary["write_allowed"] is True
     assert not {"edit_workspace", "write_file", "modify_code"}.intersection(boundary["forbidden_actions"])
-    assert boundary["diagnostics"]["scoped_source_readonly"] is True
+    assert boundary["diagnostics"]["natural_language_marker_policy"] == "disabled_for_hard_permissions"
     assert boundary["diagnostics"]["hard_boundary"] is False
     assert boundary["diagnostics"]["authority_boundary"] == "operation_gate_and_sandbox_policy"
     assert permit["allowed"] is True
     assert permit["denied_reasons"] == []
 
 
-def test_boundary_policy_global_no_file_write_marker_blocks_write_action() -> None:
+def test_boundary_policy_natural_language_no_file_write_does_not_create_hard_permission_block() -> None:
     boundary = build_boundary_policy(
         user_message="只分析 backend/app.py，不要写任何文件。",
     ).to_dict()
@@ -46,12 +46,12 @@ def test_boundary_policy_global_no_file_write_marker_blocks_write_action() -> No
         boundary_policy=boundary,
     ).to_dict()
 
-    assert boundary["write_allowed"] is False
-    assert "write_file" in boundary["forbidden_actions"]
-    assert boundary["diagnostics"]["global_write_forbid_signal"] is True
-    assert boundary["diagnostics"]["natural_language_markers_are_intent_signals"] is True
-    assert permit["allowed"] is False
-    assert permit["denied_reasons"] == ["write_forbidden_by_boundary"]
+    assert boundary["write_allowed"] is True
+    assert boundary["forbidden_actions"] == []
+    assert boundary["diagnostics"]["natural_language_markers_are_intent_signals"] is False
+    assert boundary["diagnostics"]["natural_language_marker_policy"] == "disabled_for_hard_permissions"
+    assert permit["allowed"] is True
+    assert permit["denied_reasons"] == []
 
 
 def test_action_permit_honors_model_turn_structured_write_forbid() -> None:

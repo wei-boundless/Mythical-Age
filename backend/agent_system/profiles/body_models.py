@@ -13,7 +13,6 @@ class AgentBodyProfile:
     default_runtime_lane_profile_id: str
     default_output_boundary_profile_id: str
     default_operation_policy_mode: str = "fail_closed"
-    default_projection_policy: str = "task_projection_first"
     metadata: dict[str, Any] = field(default_factory=dict)
     authority: str = "orchestration.agent_body_profile"
 

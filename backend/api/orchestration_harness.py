@@ -272,7 +272,6 @@ async def stop_task_run(
                 },
             },
         )
-        checkpoint_event = harness_service_host._write_checkpoint_event(loop_state, event_offset=checkpoint.event_offset)
         task_run_event = harness_service_host.event_log.append(
             task_run_id,
             "task_run_stopped",
@@ -281,14 +280,13 @@ async def stop_task_run(
                 "reason": terminal_reason,
                 "message": payload.message.strip(),
                 "coordination_run_id": coordination_run.coordination_run_id if coordination_run is not None else "",
-                "checkpoint_ref": checkpoint_event.refs.get("checkpoint_ref") or checkpoint.checkpoint_id,
             },
             refs={
                 "task_run_ref": task_run_id,
-                "checkpoint_ref": checkpoint_event.refs.get("checkpoint_ref") or checkpoint.checkpoint_id,
                 "coordination_run_ref": coordination_run.coordination_run_id if coordination_run is not None else "",
             },
         )
+        checkpoint_event = harness_service_host._write_checkpoint_event(loop_state, event_offset=task_run_event.offset)
         state_index.upsert_task_run(
             TaskRun(
                 task_run_id=task_run.task_run_id,

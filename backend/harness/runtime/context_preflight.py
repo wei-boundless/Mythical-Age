@@ -126,7 +126,6 @@ def prepare_agent_runtime_context(
         health_issue_ref=state.health_issue_ref,
         memory_state_ref=str(memory_view.get("view_id") or ""),
         context_snapshot_ref=context_snapshot.snapshot_id,
-        projection_ref="",
         prompt_manifest_ref="",
         token_pressure=dict(context_snapshot.token_pressure),
         diagnostics={

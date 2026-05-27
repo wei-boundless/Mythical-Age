@@ -22,7 +22,7 @@ class TaskDefinition:
     completion_criteria: tuple[str, ...] = ()
     default_skill_refs: tuple[str, ...] = ()
     default_operation_requirements: tuple[str, ...] = ()
-    default_projection_role: str = ""
+    default_prompt_role: str = ""
     review_policy: str = "optional"
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -39,7 +39,7 @@ def default_task_definitions() -> dict[str, TaskDefinition]:
             level="basic",
             goal_summary="Clarify and bind an ambiguous user request.",
             completion_criteria=("User goal is captured.", "No execution is performed."),
-            default_projection_role="analyst",
+            default_prompt_role="analyst",
         ),
         TaskDefinition(
             definition_id="task.information_search",
@@ -50,7 +50,7 @@ def default_task_definitions() -> dict[str, TaskDefinition]:
             completion_criteria=("Sources are traceable.", "Unknowns are called out."),
             default_skill_refs=(),
             default_operation_requirements=("op.web_search", "op.fetch_url"),
-            default_projection_role="evidence_first",
+            default_prompt_role="evidence_first",
         ),
         TaskDefinition(
             definition_id="task.capability_execution",
@@ -63,7 +63,7 @@ def default_task_definitions() -> dict[str, TaskDefinition]:
                 "Available operation is executed when required inputs are present.",
                 "Answer is grounded in the capability result.",
             ),
-            default_projection_role="operator",
+            default_prompt_role="operator",
         ),
         TaskDefinition(
             definition_id="task.knowledge_retrieval",
@@ -73,7 +73,7 @@ def default_task_definitions() -> dict[str, TaskDefinition]:
             goal_summary="Retrieve relevant knowledge-base evidence and answer from it.",
             completion_criteria=("Relevant evidence is retrieved.", "Answer is grounded in retrieved material."),
             default_skill_refs=("skill.rag-skill",),
-            default_projection_role="evidence_first",
+            default_prompt_role="evidence_first",
         ),
         TaskDefinition(
             definition_id="task.local_material_read",
@@ -84,7 +84,7 @@ def default_task_definitions() -> dict[str, TaskDefinition]:
             completion_criteria=("Only task-relevant local material is used.",),
             default_skill_refs=(),
             default_operation_requirements=("op.read_file", "op.search_files"),
-            default_projection_role="analyst",
+            default_prompt_role="analyst",
         ),
         TaskDefinition(
             definition_id="task.information_synthesis",
@@ -95,7 +95,7 @@ def default_task_definitions() -> dict[str, TaskDefinition]:
             completion_criteria=("Summary is grounded in supplied material.",),
             default_skill_refs=(),
             default_operation_requirements=("op.search_text",),
-            default_projection_role="structure_first",
+            default_prompt_role="structure_first",
         ),
         TaskDefinition(
             definition_id="task.memory_recall",
@@ -106,7 +106,7 @@ def default_task_definitions() -> dict[str, TaskDefinition]:
             completion_criteria=("Answer is grounded in memory context.", "No retrieval fallback is used unless memory is insufficient and route changes explicitly."),
             default_skill_refs=(),
             default_operation_requirements=("op.memory_read",),
-            default_projection_role="structure_first",
+            default_prompt_role="structure_first",
         ),
         TaskDefinition(
             definition_id="task.task_execution",
@@ -117,7 +117,7 @@ def default_task_definitions() -> dict[str, TaskDefinition]:
             completion_criteria=("Changes are scoped.", "Side effects are gated."),
             default_skill_refs=(),
             default_operation_requirements=("op.read_file", "op.search_text", "op.edit_file"),
-            default_projection_role="implementer",
+            default_prompt_role="implementer",
             review_policy="required",
         ),
         TaskDefinition(
@@ -129,7 +129,7 @@ def default_task_definitions() -> dict[str, TaskDefinition]:
             completion_criteria=("Risks are listed.", "Contradictions are identified."),
             default_skill_refs=(),
             default_operation_requirements=("op.read_file", "op.search_text"),
-            default_projection_role="risk_reviewer",
+            default_prompt_role="risk_reviewer",
             review_policy="required",
         ),
         TaskDefinition(
@@ -139,7 +139,7 @@ def default_task_definitions() -> dict[str, TaskDefinition]:
             level="basic",
             goal_summary="Produce the final user-facing response.",
             completion_criteria=("Answer is concise.", "No hidden execution artifacts leak."),
-            default_projection_role="communicator",
+            default_prompt_role="communicator",
         ),
     ]
     return {definition.definition_id: definition for definition in definitions}

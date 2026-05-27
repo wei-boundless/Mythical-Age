@@ -24,6 +24,7 @@ from task_system import (
     build_task_graph_standard_view,
     compile_task_graph_definition_runtime_spec,
 )
+from task_system.compiler.graph_harness_config_publisher import publish_graph_harness_config_for_graph
 from task_system.compiler.coordination_graph_models import TaskGraphRuntimeSpec
 from task_system.editor.graph_template_catalog import build_task_graph_template_catalog
 from task_system.environments import default_task_environment_registry
@@ -181,7 +182,6 @@ class SpecificTaskRecordUpsertRequest(BaseModel):
     acceptance_profile_id: str = Field(default="", max_length=160)
     default_flow_contract_id: str = Field(default="", max_length=160)
     default_workflow_id: str = Field(default="", max_length=160)
-    default_projection_policy: str = Field(default="", max_length=160)
     task_policy: dict[str, object] = Field(default_factory=dict)
     enabled: bool = True
     metadata: dict[str, object] = Field(default_factory=dict)
@@ -1084,7 +1084,7 @@ def _task_graph_execution_object_trace_index(
                 "object_type": "graph_module",
                 "object_id": plan.unit_id,
                 "title": plan.linked_graph_id or plan.unit_id,
-                "source_path": f"metadata.timeline_blocks[{dict(plan.metadata or {}).get('timeline_block_id') or plan.plan_id}]",
+                "source_path": f"graph.nodes[{dict(plan.metadata or {}).get('source_node_id') or plan.runtime_node_id}]",
                 "runtime_ref": {
                     "plan_id": plan.plan_id,
                     "runtime_node_id": plan.runtime_node_id,
@@ -1431,6 +1431,8 @@ async def upsert_task_system_task_graph_standard_view(
             enabled=next_graph.enabled,
             metadata=next_graph.metadata,
         )
+        if next_graph.publish_state == "published":
+            publish_graph_harness_config_for_graph(base_dir=runtime.base_dir, graph_id=next_graph.graph_id)
     except ValueError as exc:
         from fastapi import HTTPException
 
@@ -1593,7 +1595,6 @@ async def upsert_task_system_specific_record(task_id: str, payload: SpecificTask
             acceptance_profile_id=payload.acceptance_profile_id,
             default_flow_contract_id=payload.default_flow_contract_id,
             default_workflow_id=payload.default_workflow_id,
-            default_projection_policy=payload.default_projection_policy,
             task_policy=payload.task_policy,
             metadata=payload.metadata,
         )
@@ -1714,6 +1715,8 @@ async def upsert_task_system_task_graph(
             enabled=payload.enabled,
             metadata=payload.metadata,
         )
+        if payload.publish_state == "published":
+            publish_graph_harness_config_for_graph(base_dir=runtime.base_dir, graph_id=payload.graph_id)
     except ValueError as exc:
         from fastapi import HTTPException
 

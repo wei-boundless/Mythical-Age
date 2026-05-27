@@ -357,10 +357,9 @@ class AgentRegistry:
         soul_id = self._resolve_main_agent_runtime_defaults(
             soul_id=str(payload.get("default_soul_id") or ""),
         )
-        if soul_id == str(payload.get("default_soul_id") or "").strip().lower() and "default_projection_id" not in payload:
+        if soul_id == str(payload.get("default_soul_id") or "").strip().lower():
             return payload
         next_payload = dict(payload)
-        next_payload.pop("default_projection_id", None)
         next_payload["default_soul_id"] = soul_id
         return next_payload
 
@@ -523,7 +522,6 @@ def _enforce_system_builtin_payload(
         return payload
     enforced = dict(default_payload)
     enforced.update(payload)
-    enforced.pop("default_projection_id", None)
     enforced["agent_id"] = agent_id
     enforced["agent_category"] = str(default_payload.get("agent_category") or payload.get("agent_category") or "custom_agent")
     enforced["profile_type"] = str(default_payload.get("profile_type") or enforced["agent_category"])

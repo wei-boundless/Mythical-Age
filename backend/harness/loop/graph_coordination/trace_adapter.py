@@ -88,6 +88,16 @@ class CoordinationTraceAdapter:
             "coordination_flow": flow,
             "graph_ref": coordination_run.graph_ref,
             "graph_ref": coordination_run.graph_ref,
+            "graph_harness_config_id": str(
+                dict(state.get("diagnostics") or {}).get("graph_harness_config_id")
+                or dict(coordination_run.diagnostics or {}).get("graph_harness_config_id")
+                or ""
+            ),
+            "graph_harness_config_ref": str(
+                dict(state.get("diagnostics") or {}).get("graph_harness_config_ref")
+                or dict(coordination_run.diagnostics or {}).get("graph_harness_config_ref")
+                or ""
+            ),
             "graph_thread_id": str(state.get("coordination_run_id") or coordination_run.coordination_run_id),
             "graph_coordination_state": {
                 "active_stage_id": str(state.get("active_stage_id") or ""),

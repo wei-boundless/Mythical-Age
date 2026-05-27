@@ -52,6 +52,13 @@ def build_graph_module_runtime_handle_from_contract(
         or graph_module_plan.get("plan_id")
         or ""
     ).strip()
+    linked_config_id = str(
+        contract.get("linked_config_id")
+        or contract_metadata.get("linked_config_id")
+        or metadata.get("linked_config_id")
+        or graph_module_plan.get("linked_config_id")
+        or ""
+    ).strip()
     seed = {
         "importing_coordination_run_id": importing_coordination_run_id,
         "importing_stage_id": stage_id,
@@ -69,6 +76,7 @@ def build_graph_module_runtime_handle_from_contract(
         "importing_stage_id": stage_id,
         "importing_node_id": node_id,
         "linked_graph_id": linked_graph_id,
+        "linked_config_id": linked_config_id,
         "graph_module_runtime_plan_id": graph_module_plan_id,
         "graph_module_runtime_plan": graph_module_plan,
         "version_ref": _first_non_empty(contract.get("version_ref"), contract_metadata.get("version_ref"), metadata.get("version_ref"), graph_module_plan.get("version_ref")),
@@ -115,6 +123,12 @@ def build_graph_module_runtime_handle_from_request(request_payload: dict[str, An
             or graph_module_plan.get("linked_graph_id")
             or ""
         ),
+        "linked_config_id": str(
+            runtime_assembly.get("linked_config_id")
+            or executor_binding.get("linked_config_id")
+            or graph_module_plan.get("linked_config_id")
+            or ""
+        ),
         "graph_module_runtime_plan_id": str(
             runtime_assembly.get("graph_module_runtime_plan_id")
             or executor_binding.get("graph_module_runtime_plan_id")
@@ -156,6 +170,12 @@ def build_graph_module_runtime_handle_from_work_order(work_order_payload: dict[s
             or executor_binding.get("linked_graph_id")
             or executor_binding.get("imported_graph_id")
             or graph_module_plan.get("linked_graph_id")
+            or ""
+        ),
+        "linked_config_id": str(
+            runtime_assembly.get("linked_config_id")
+            or executor_binding.get("linked_config_id")
+            or graph_module_plan.get("linked_config_id")
             or ""
         ),
         "graph_module_runtime_plan_id": str(

@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from runtime.shared.dispatch_plan_compiler import _normalize_runtime_graph_payload
 from .config import build_agent_runtime_config
 from .context import (
     agent_profile_id_for_runtime_spec,
@@ -103,14 +102,9 @@ def build_agent_runtime_assembly(
     task_execution_policy_payload = dict(task_operation.get("task_execution_policy") or {})
     task_memory_request_profile_payload = dict(task_operation.get("task_memory_request_profile") or {})
     task_communication_protocol_payload = dict(task_operation.get("task_communication_protocol") or {})
-    raw_graph_payload = dict(task_operation.get("graph_record") or {})
-    task_graph_payload = dict(task_operation.get("task_graph_record") or task_operation.get("graph_record") or {})
-    runtime_spec_payload = dict(task_operation.get("task_graph_runtime_spec") or {})
-    graph_payload = _normalize_runtime_graph_payload(
-        raw_graph_payload=raw_graph_payload,
-        task_graph_payload=task_graph_payload,
-        runtime_spec_payload=runtime_spec_payload,
-    )
+    raw_graph_payload: dict[str, Any] = {}
+    task_graph_payload: dict[str, Any] = {}
+    graph_payload: dict[str, Any] = {}
     task_body_orchestration_payload = dict(
         chain_runtime.get("task_body_orchestration")
         or task_operation.get("task_body_orchestration")
@@ -121,6 +115,7 @@ def build_agent_runtime_assembly(
         or task_operation.get("agent_runtime_spec")
         or {}
     )
+    runtime_spec_payload = dict(agent_runtime_spec_payload)
 
     effective_invocation_payload = dict(invocation_payload or {})
     effective_assembly_contract = dict(assembly_contract or {})
@@ -230,5 +225,3 @@ def build_agent_runtime_assembly(
         execution_mode=str(task_execution_policy_payload.get("execution_mode") or "single_agent"),
         effective_limits=runtime_limits_from_task_operation(task_operation, fallback=runtime_host.limits),
     )
-
-

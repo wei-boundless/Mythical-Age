@@ -40,7 +40,6 @@ if ([string]::IsNullOrWhiteSpace($ArtifactRoot)) {
 $Payload = @{
     session_id = $SessionId
     task_id = $TaskId
-    require_published = $true
     include_trace = $true
     execute_initial_stage = $true
     initial_inputs = @{

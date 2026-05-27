@@ -12,7 +12,6 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.project_brief",
       "default_workflow_id": "workflow.writing.modular_novel.node.project_brief",
-      "default_projection_policy": "",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -72,7 +71,6 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.world_design",
       "default_workflow_id": "workflow.writing.modular_novel.node.world_design",
-      "default_projection_policy": "",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -132,7 +130,6 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.world_review",
       "default_workflow_id": "workflow.writing.modular_novel.node.world_review",
-      "default_projection_policy": "",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -192,7 +189,6 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.memory_commit_world",
       "default_workflow_id": "workflow.writing.modular_novel.node.memory_commit_world",
-      "default_projection_policy": "",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -252,7 +248,6 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.character_design",
       "default_workflow_id": "workflow.writing.modular_novel.node.character_design",
-      "default_projection_policy": "",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -312,7 +307,6 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.character_review",
       "default_workflow_id": "workflow.writing.modular_novel.node.character_review",
-      "default_projection_policy": "",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -372,7 +366,6 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.plot_design",
       "default_workflow_id": "workflow.writing.modular_novel.node.plot_design",
-      "default_projection_policy": "",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -432,7 +425,6 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.design_sync",
       "default_workflow_id": "workflow.writing.modular_novel.node.design_sync",
-      "default_projection_policy": "",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -492,7 +484,6 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.memory_commit_character",
       "default_workflow_id": "workflow.writing.modular_novel.node.memory_commit_character",
-      "default_projection_policy": "",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -552,7 +543,6 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.outline_design",
       "default_workflow_id": "workflow.writing.modular_novel.node.outline_design",
-      "default_projection_policy": "",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -612,7 +602,6 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.outline_review",
       "default_workflow_id": "workflow.writing.modular_novel.node.outline_review",
-      "default_projection_policy": "",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -672,7 +661,6 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.baseline_memory_seed",
       "default_workflow_id": "workflow.writing.modular_novel.node.baseline_memory_seed",
-      "default_projection_policy": "",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -732,7 +720,6 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.volume_plan",
       "default_workflow_id": "workflow.writing.modular_novel.node.volume_plan",
-      "default_projection_policy": "",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -792,7 +779,6 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.chapter_outline",
       "default_workflow_id": "workflow.writing.modular_novel.node.chapter_outline",
-      "default_projection_policy": "",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -852,7 +838,6 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.chapter_draft",
       "default_workflow_id": "workflow.writing.modular_novel.node.chapter_draft",
-      "default_projection_policy": "",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -912,7 +897,6 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.chapter_review",
       "default_workflow_id": "workflow.writing.modular_novel.node.chapter_review",
-      "default_projection_policy": "",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -972,7 +956,6 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.memory_commit_chapter",
       "default_workflow_id": "workflow.writing.modular_novel.node.memory_commit_chapter",
-      "default_projection_policy": "",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -1032,7 +1015,6 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.chapter_progress_router",
       "default_workflow_id": "workflow.writing.modular_novel.node.chapter_progress_router",
-      "default_projection_policy": "",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -1092,7 +1074,6 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.volume_review",
       "default_workflow_id": "workflow.writing.modular_novel.node.volume_review",
-      "default_projection_policy": "",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -1152,7 +1133,6 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.volume_commit",
       "default_workflow_id": "workflow.writing.modular_novel.node.volume_commit",
-      "default_projection_policy": "",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -1212,7 +1192,6 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.volume_postmortem",
       "default_workflow_id": "workflow.writing.modular_novel.node.volume_postmortem",
-      "default_projection_policy": "",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -1272,7 +1251,6 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.world_outline_extension_proposal",
       "default_workflow_id": "workflow.writing.modular_novel.node.world_outline_extension_proposal",
-      "default_projection_policy": "",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -1332,7 +1310,6 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.extension_review",
       "default_workflow_id": "workflow.writing.modular_novel.node.extension_review",
-      "default_projection_policy": "",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -1392,7 +1369,6 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.extension_commit",
       "default_workflow_id": "workflow.writing.modular_novel.node.extension_commit",
-      "default_projection_policy": "",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -1452,7 +1428,6 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.next_volume_router",
       "default_workflow_id": "workflow.writing.modular_novel.node.next_volume_router",
-      "default_projection_policy": "",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -1512,7 +1487,6 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.final_assemble",
       "default_workflow_id": "workflow.writing.modular_novel.node.final_assemble",
-      "default_projection_policy": "",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -1572,7 +1546,6 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.final_review",
       "default_workflow_id": "workflow.writing.modular_novel.node.final_review",
-      "default_projection_policy": "",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -1632,7 +1605,6 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing.modular_novel.node.memory_finalize",
       "default_workflow_id": "workflow.writing.modular_novel.node.memory_finalize",
-      "default_projection_policy": "",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",
@@ -1692,7 +1664,6 @@
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.000001",
       "default_workflow_id": "workflow.000001",
-      "default_projection_policy": "workflow_compatible_or_task_default",
       "task_policy": {
         "safety_policy": {
           "verification_mode": "artifact_or_trace",

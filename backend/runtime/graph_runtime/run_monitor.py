@@ -30,21 +30,21 @@ def build_task_graph_run_monitor_view(
     coord = dict(coordination_run or {})
     state = dict(coordination_state or {})
     diagnostics = dict(state.get("diagnostics") or {})
-    graph_spec = dict(
-        diagnostics.get("coordination_graph_spec")
-        or dict(coord.get("diagnostics") or {}).get("coordination_graph_spec")
-        or {}
+    coord_diagnostics = dict(coord.get("diagnostics") or {})
+    graph_spec = _graph_spec_from_runtime_authority(
+        state_diagnostics=diagnostics,
+        coordination_diagnostics=coord_diagnostics,
     )
     scheduler_state = dict(
         state.get("task_graph_scheduler_state")
         or diagnostics.get("task_graph_scheduler_state")
-        or dict(coord.get("diagnostics") or {}).get("task_graph_scheduler_state")
+        or coord_diagnostics.get("task_graph_scheduler_state")
         or {}
     )
     batch_lifecycle = dict(
         state.get("batch_lifecycle_runtime_state")
         or diagnostics.get("batch_lifecycle_runtime_state")
-        or dict(coord.get("diagnostics") or {}).get("batch_lifecycle_runtime_state")
+        or coord_diagnostics.get("batch_lifecycle_runtime_state")
         or {}
     )
     node_statuses = _node_statuses_from_state(state=state, scheduler_state=scheduler_state)
@@ -272,6 +272,31 @@ def _monitor_node(node: dict[str, Any], statuses: dict[str, str]) -> dict[str, A
         "artifact_refs": [],
         "last_result_ref": "",
     }
+
+
+def _graph_spec_from_runtime_authority(
+    *,
+    state_diagnostics: dict[str, Any],
+    coordination_diagnostics: dict[str, Any],
+) -> dict[str, Any]:
+    for payload in (
+        state_diagnostics.get("graph_harness_config"),
+        state_diagnostics.get("graph_harness_config_payload"),
+        coordination_diagnostics.get("graph_harness_config"),
+        coordination_diagnostics.get("graph_harness_config_payload"),
+    ):
+        config_payload = dict(payload or {})
+        if config_payload:
+            from harness.runtime.graph_config import graph_harness_config_runtime_spec_payload
+
+            runtime_payload = graph_harness_config_runtime_spec_payload(config_payload)
+            if runtime_payload:
+                return runtime_payload
+    return dict(
+        state_diagnostics.get("coordination_graph_spec")
+        or coordination_diagnostics.get("coordination_graph_spec")
+        or {}
+    )
 
 
 def _monitor_edge(edge: dict[str, Any], *, node_statuses: dict[str, str]) -> dict[str, Any]:

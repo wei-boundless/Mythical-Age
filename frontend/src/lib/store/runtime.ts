@@ -1479,7 +1479,6 @@ export class WorkspaceRuntime {
         artifact_root: artifactRoot,
         include_downstream: true,
         move_artifacts: false,
-        refresh_graph_spec: true,
         continue_after_rewind: true,
         current_turn_context: {
           operator_action: "refresh_running_graph_snapshot_continue",

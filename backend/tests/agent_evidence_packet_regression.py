@@ -1194,35 +1194,39 @@ def test_parent_observation_microcompacts_large_child_answer_with_evidence_summa
     assert observation["context_compaction"]["model_visible_evidence_summary_used"] is True
 
 
-def test_builtin_specialist_agents_have_default_professional_projections() -> None:
+def test_builtin_specialist_agents_use_descriptive_professional_roles() -> None:
     agents = {item.agent_id: item for item in default_agent_descriptors(now=1.0)}
 
-    assert agents["agent:knowledge_searcher"].default_projection_id == "projection.worker.rag_evidence_analyst"
-    assert agents["agent:pdf_reader"].default_projection_id == "projection.worker.pdf_evidence_reader"
-    assert agents["agent:table_analyst"].default_projection_id == "projection.worker.table_evidence_analyst"
-    assert agents["agent:web_researcher"].default_projection_id == "projection.worker.web_evidence_researcher"
+    assert "你是一名知识库检索员" in agents["agent:knowledge_searcher"].description
+    assert "你是一名 PDF 阅读分析员" in agents["agent:pdf_reader"].description
+    assert "你是一名表格与结构化数据分析员" in agents["agent:table_analyst"].description
+    assert "你是一名网页研究员" in agents["agent:web_researcher"].description
     assert agents["agent:knowledge_searcher"].default_soul_id == "hebo"
     assert agents["agent:pdf_reader"].default_soul_id == "hebo"
     assert agents["agent:table_analyst"].default_soul_id == "hebo"
     assert agents["agent:web_researcher"].default_soul_id == "hebo"
 
 
-def test_child_fallback_prompt_uses_projection_identity_and_work_style() -> None:
+def test_child_fallback_prompt_uses_runtime_profile_professional_role() -> None:
     agent = type(
         "Agent",
         (),
         {
             "description": "old description",
-            "default_projection_id": "projection.worker.pdf_evidence_reader",
         },
     )()
-    profile = type("Profile", (), {"allowed_operations": ("op.model_response", "op.mcp_pdf")})()
-    projection_card = {
-        "identity_anchor": "你是一名 PDF 阅读与证据整理员。你负责阅读指定 PDF。",
-        "projection_prompt": "## 工作职责\n\n你要区分正文页、目录页、过渡页、相关页、结论页。",
-    }
+    profile = type(
+        "Profile",
+        (),
+        {
+            "allowed_operations": ("op.model_response", "op.mcp_pdf"),
+            "metadata": {
+                "role_prompt": "你是一名 PDF 阅读与证据整理员。你负责阅读指定 PDF，并区分正文页、目录页、过渡页、相关页、结论页。"
+            },
+        },
+    )()
 
-    prompt = child_system_prompt(agent, profile, projection_card=projection_card)
+    prompt = child_system_prompt(agent, profile)
 
     assert "PDF 阅读与证据整理员" in prompt
     assert "目录页、过渡页" in prompt

@@ -643,7 +643,6 @@ def _loop_state_summary(loop_state: dict[str, Any]) -> dict[str, Any]:
         "current_step_id": str(loop_state.get("current_step_id") or ""),
         "agent_id": str(loop_state.get("agent_id") or ""),
         "runtime_lane": str(loop_state.get("runtime_lane") or ""),
-        "projection_ref": str(loop_state.get("projection_ref") or ""),
         "result_ref_count": len(list(loop_state.get("result_refs") or [])),
         "pending_approval_state": pending_approval_state,
         "resume_state": dict(loop_state.get("resume_state") or {}),
@@ -1675,7 +1674,6 @@ def _payload_summary(event_type: str, payload: dict[str, Any]) -> dict[str, Any]
                 "system_prompt_chars": int(snapshot.get("system_prompt_chars") or 0),
                 "context_policy_ref": str(snapshot.get("context_policy_ref") or ""),
                 "memory_runtime_view_ref": str(snapshot.get("memory_runtime_view_ref") or ""),
-                "projection_ref": str(snapshot.get("projection_ref") or ""),
                 "prompt_manifest_ref": str(snapshot.get("prompt_manifest_ref") or ""),
                 "token_pressure": dict(snapshot.get("token_pressure") or {}),
             }
@@ -1685,7 +1683,6 @@ def _payload_summary(event_type: str, payload: dict[str, Any]) -> dict[str, Any]
         summary.update(
             {
                 "snapshot_id": str(projection.get("snapshot_id") or ""),
-                "projection_ref": str(projection.get("projection_ref") or ""),
                 "prompt_manifest_ref": str(projection.get("prompt_manifest_ref") or ""),
                 "visible_tool_ids": list(projection.get("visible_tool_ids") or []),
                 "visible_skill_ids": list(projection.get("visible_skill_ids") or []),

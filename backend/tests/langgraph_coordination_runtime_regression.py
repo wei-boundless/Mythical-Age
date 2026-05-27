@@ -19,6 +19,10 @@ from harness.loop.graph_coordination.engine import (
     _stage_execution_message,
     _stage_quality_retry_target,
 )
+from harness.runtime.graph_config import (
+    GraphHarnessConfig,
+    build_graph_harness_config_from_runtime_spec,
+)
 from harness.loop.graph_coordination.node_result_committer import build_node_result_acceptance_draft
 from harness.loop.graph_coordination.context_packet_resolver import build_revision_packet_from_review
 from harness.loop.graph_coordination.context_packet_resolver import resolve_artifact_context_packet
@@ -27,6 +31,7 @@ from harness.execution.node_protocol.node_execution_request import NodeResultRea
 from runtime.memory.state_index import RuntimeStateIndex
 from harness.loop.coordination_delivery import _render_standard_input_package_for_model
 from task_system import TaskContractRegistry
+from task_system.compiler.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
 from task_system.registry.flow_models import CoordinationTaskDefinition, SpecificTaskRecord, TaskCommunicationProtocol, TopologyTemplate
 from task_system.graphs.task_graph_models import TaskGraphDefinition, TaskGraphEdgeDefinition, TaskGraphNodeDefinition
 from runtime.contracts.continuation_policy import parse_stage_contracts
@@ -488,7 +493,7 @@ def test_review_gate_revise_verdict_does_not_override_failure() -> None:
     assert _review_gate_event_is_accepted(event=event, contract=contract) is False
 
 
-def test_rewind_refresh_uses_live_graph_loop_policy_instead_of_stale_snapshot(tmp_path) -> None:
+def test_rewind_refresh_keeps_graph_harness_config_locked_instead_of_live_graph(tmp_path) -> None:
     stale_fields = _chapter_loop_derived_fields_for_test()
     live_fields = [dict(item) for item in _chapter_loop_derived_fields_for_test()]
     for item in stale_fields:
@@ -503,7 +508,7 @@ def test_rewind_refresh_uses_live_graph_loop_policy_instead_of_stale_snapshot(tm
             item["value"] = 10
 
     live_graph = _loop_graph_from_derived_fields(live_fields)
-    stale_graph = _loop_graph_from_derived_fields(stale_fields)
+    locked_graph = _loop_graph_from_derived_fields(stale_fields)
     registry = _RefreshGraphRegistry(live_graph)
     state_index = RuntimeStateIndex(tmp_path)
     event_log = RuntimeEventLog(tmp_path)
@@ -514,10 +519,10 @@ def test_rewind_refresh_uses_live_graph_loop_policy_instead_of_stale_snapshot(tm
         task_flow_registry=registry,
         trace_reader=_Trace({}),
     )
-    stale_graph_ref = runtime.runtime_objects.put_json_once(
-        "task_graph_definitions",
-        "coordrun:loop-refresh",
-        stale_graph.to_dict(),
+    locked_config = _graph_config_for_runtime_test(
+        locked_graph,
+        communication_protocol=registry.protocol,
+        specific_tasks=tuple(registry.list_specific_task_records()),
     )
     coordination_run = CoordinationRun(
         coordination_run_id="coordrun:loop-refresh",
@@ -529,7 +534,8 @@ def test_rewind_refresh_uses_live_graph_loop_policy_instead_of_stale_snapshot(tm
         status="running",
         diagnostics={
             "coordination_flow": {"current_stage_id": "chapter_outline"},
-            "task_graph_definition_ref": stale_graph_ref,
+            "graph_harness_config_id": locked_config.config_id,
+            "graph_harness_config_payload": locked_config.to_dict(),
         },
     )
     state_index.upsert_coordination_run(coordination_run)
@@ -543,12 +549,9 @@ def test_rewind_refresh_uses_live_graph_loop_policy_instead_of_stale_snapshot(tm
         reason="refresh_live_policy",
         inherited_inputs={
             "chapter_index": 1,
-            "batch_start_index": 1,
-            "batch_end_index": 5,
             "chapters_per_round": 5,
             "chapter_target_words": 2000,
         },
-        refresh_graph_spec=True,
     )
 
     derived = {
@@ -557,12 +560,15 @@ def test_rewind_refresh_uses_live_graph_loop_policy_instead_of_stale_snapshot(tm
     }
     explicit_inputs = result.state["stage_execution_request"]["explicit_inputs"]
 
-    assert derived["batch_end_index"]["value_key"] == "chapters_per_round"
-    assert derived["batch_target_words"]["value_key"] == "chapters_per_round"
-    assert explicit_inputs["batch_end_index"] == 5
-    assert explicit_inputs["batch_chapter_range"] == "001-005"
-    assert explicit_inputs["batch_target_words"] == 10000
-    assert "第1章至第5章" in explicit_inputs["graph_loop_summary"]
+    assert result.state["diagnostics"]["graph_harness_config_id"] == locked_config.config_id
+    assert "value_key" not in derived["batch_end_index"]
+    assert "value_key" not in derived["batch_target_words"]
+    assert derived["batch_end_index"]["value"] == 9
+    assert derived["batch_target_words"]["value"] == 10
+    assert explicit_inputs["batch_end_index"] == 9
+    assert explicit_inputs["batch_chapter_range"] == "001-009"
+    assert explicit_inputs["batch_target_words"] == 20000
+    assert "第1章至第9章" in explicit_inputs["graph_loop_summary"]
 
 
 def test_stage_execution_message_declares_runtime_batch_boundary_over_stale_project_brief() -> None:
@@ -810,6 +816,170 @@ def test_loop_derived_fields_use_runtime_batch_size_for_ten_chapter_request() ->
 _Trace = TraceReaderStub
 
 
+def _graph_config_for_runtime_test(
+    graph: TaskGraphDefinition,
+    *,
+    communication_protocol: TaskCommunicationProtocol | None = None,
+    specific_tasks: tuple[SpecificTaskRecord, ...] = (),
+    linked_module_config_ids: dict[str, str] | None = None,
+) -> GraphHarnessConfig:
+    runtime_spec = compile_task_graph_definition_runtime_spec(
+        graph=graph,
+        specific_tasks=specific_tasks,
+        communication_protocol=communication_protocol,
+    )
+    contract_manifest = _contract_manifest_for_runtime_test(
+        graph=graph,
+        runtime_spec_payload=runtime_spec.to_dict(),
+        communication_protocol=communication_protocol,
+    )
+    return build_graph_harness_config_from_runtime_spec(
+        graph=graph,
+        runtime_spec=runtime_spec,
+        contract_manifest=contract_manifest,
+        linked_module_config_ids=linked_module_config_ids or {},
+    )
+
+
+def _contract_manifest_for_runtime_test(
+    *,
+    graph: TaskGraphDefinition,
+    runtime_spec_payload: dict,
+    communication_protocol: TaskCommunicationProtocol | None = None,
+) -> dict:
+    nodes = [dict(item) for item in list(runtime_spec_payload.get("nodes") or []) if isinstance(item, dict)]
+    edges = [dict(item) for item in list(runtime_spec_payload.get("edges") or []) if isinstance(item, dict)]
+    payload_contracts = [
+        str(item)
+        for item in list(getattr(communication_protocol, "payload_contracts", ()) or [])
+        if str(item)
+    ]
+    return {
+        "manifest_id": f"contract-manifest:coordination:{graph.graph_id}",
+        "manifest_kind": "coordination",
+        "task_ref": graph.graph_id,
+        "graph_id": graph.graph_id,
+        "graph_ref": graph.graph_id,
+        "valid": True,
+        "global_contracts": [],
+        "node_contracts": [
+            {
+                "node_id": str(node.get("node_id") or ""),
+                "title": str(node.get("title") or node.get("node_id") or ""),
+                "node_type": str(node.get("node_type") or ""),
+                "task_id": str(node.get("task_id") or ""),
+                "agent_id": str(node.get("agent_id") or ""),
+                "runtime_lane": str(node.get("runtime_lane") or ""),
+                "input_contract_id": "",
+                "output_contract_id": "",
+                "contract_refs": [],
+                "source_refs": [graph.graph_id, str(node.get("task_id") or "")],
+                "schema_bindings": {},
+                "execution_bindings": {},
+                "artifact_bindings": {
+                    "artifact_policy": dict(node.get("artifact_policy") or {}),
+                    "stream_policy": dict(node.get("stream_policy") or {}),
+                },
+                "memory_bindings": {
+                    "memory_read_policy": dict(node.get("memory_read_policy") or {}),
+                    "memory_writeback_policy": dict(node.get("memory_writeback_policy") or {}),
+                    "dynamic_memory_read_policy": dict(node.get("dynamic_memory_read_policy") or {}),
+                },
+                "acceptance_bindings": {},
+                "runtime_bindings": dict(dict(node.get("execution_policy") or {}).get("runtime_bindings") or {}),
+                "unit_batch_bindings": {},
+                "governance_bindings": {},
+                "metadata": {
+                    "role": str(node.get("role") or ""),
+                    "role_prompt": str(dict(dict(node.get("prompt_contract") or {})).get("role_prompt") or ""),
+                    "memory_read_policy": dict(node.get("memory_read_policy") or {}),
+                    "memory_writeback_policy": dict(node.get("memory_writeback_policy") or {}),
+                    "dynamic_memory_read_policy": dict(node.get("dynamic_memory_read_policy") or {}),
+                    "review_gate_policy": dict(node.get("review_gate_policy") or {}),
+                    "human_gate_policy": dict(node.get("human_gate_policy") or {}),
+                    "artifact_policy": dict(node.get("artifact_policy") or {}),
+                    "stream_policy": dict(node.get("stream_policy") or {}),
+                    "contract_bindings": dict(dict(node.get("metadata") or {}).get("contract_bindings") or {}),
+                },
+            }
+            for node in nodes
+            if str(node.get("node_id") or "")
+        ],
+        "edge_handoff_contracts": [
+            {
+                "edge_id": str(edge.get("edge_id") or f"{edge.get('source_node_id', '')}->{edge.get('target_node_id', '')}"),
+                "source_node_id": str(edge.get("source_node_id") or ""),
+                "target_node_id": str(edge.get("target_node_id") or ""),
+                "message_type": str(edge.get("a2a_message_type") or "message/send"),
+                "contract_refs": [
+                    item
+                    for item in [
+                        str(edge.get("payload_contract_id") or ""),
+                        *payload_contracts,
+                    ]
+                    if item
+                ],
+                "handoff_policy": "filtered_handoff",
+                "schema_bindings": {},
+                "handoff_bindings": {},
+                "temporal_bindings": {},
+                "memory_bindings": {},
+                "artifact_bindings": {"artifact_ref_policy": dict(edge.get("artifact_ref_policy") or {})},
+                "governance_bindings": {},
+                "metadata": {
+                    "business_mode": str(edge.get("mode") or edge.get("edge_type") or ""),
+                    "protocol_id": str(getattr(communication_protocol, "protocol_id", "") or ""),
+                    "contract_bindings": dict(dict(edge.get("metadata") or {}).get("contract_bindings") or {}),
+                },
+            }
+            for edge in edges
+            if str(edge.get("source_node_id") or "") and str(edge.get("target_node_id") or "")
+        ],
+        "graph_module_handoff_contracts": [],
+        "runtime_contracts": [],
+        "acceptance_contracts": [],
+        "issues": [],
+        "graph_contract_bindings": dict(graph.contract_bindings or {}),
+        "metadata": {
+            "compiler": "contract_compiler.test_fixture",
+            "communication_protocol_id": str(getattr(communication_protocol, "protocol_id", "") or ""),
+            "layered_graph": {
+                "authority": "task_system.layered_graph_runtime_spec",
+                "graph_id": graph.graph_id,
+                "resource_nodes": [dict(item) for item in list(runtime_spec_payload.get("resource_nodes") or []) if isinstance(item, dict)],
+                "temporal_edges": [dict(item) for item in list(runtime_spec_payload.get("temporal_edges") or []) if isinstance(item, dict)],
+                "memory_edges": [dict(item) for item in list(runtime_spec_payload.get("memory_edges") or []) if isinstance(item, dict)],
+                "artifact_context_edges": [dict(item) for item in list(runtime_spec_payload.get("artifact_context_edges") or []) if isinstance(item, dict)],
+                "revision_edges": [dict(item) for item in list(runtime_spec_payload.get("revision_edges") or []) if isinstance(item, dict)],
+                "loop_frames": [dict(item) for item in list(runtime_spec_payload.get("loop_frames") or []) if isinstance(item, dict)],
+                "graph_module_runtime_plans": [dict(item) for item in list(runtime_spec_payload.get("graph_module_runtime_plans") or []) if isinstance(item, dict)],
+                "memory_matrix": dict(runtime_spec_payload.get("memory_matrix") or {}),
+            },
+        },
+    }
+
+
+def _graph_config_for_registry_test(registry, graph_id: str) -> GraphHarnessConfig:
+    graph = registry.get_task_graph(graph_id)
+    assert graph is not None
+    return _graph_config_for_runtime_test(
+        graph,
+        communication_protocol=registry.get_task_communication_protocol(
+            str(graph.default_protocol_id or dict(graph.metadata or {}).get("protocol_id") or "")
+        ),
+        specific_tasks=tuple(registry.list_specific_task_records()),
+    )
+
+
+def _graph_config_diagnostics_for_registry_test(registry, graph_id: str, diagnostics: dict | None = None) -> dict:
+    graph_config = _graph_config_for_registry_test(registry, graph_id)
+    return {
+        **dict(diagnostics or {}),
+        "graph_harness_config_id": graph_config.config_id,
+        "graph_harness_config_payload": graph_config.to_dict(),
+    }
+
+
 def _loop_graph_from_derived_fields(derived_fields: list[dict], *, graph_id: str = "graph.test.loop_refresh") -> TaskGraphDefinition:
     nodes = (
         TaskGraphNodeDefinition(
@@ -930,7 +1100,45 @@ def _task_graph_from_coordination(coordination: CoordinationTaskDefinition, *, p
             work_posture=str(node.get("role") or ""),
             phase_id=str(node.get("phase_id") or ""),
             sequence_index=int(node.get("sequence_index") or 0),
-            metadata={key: value for key, value in dict(node).items() if key not in {"node_id", "node_type", "title", "task_id", "agent_id", "runtime_lane", "lane", "role", "phase_id", "sequence_index"}},
+            human_gate_policy=dict(node.get("human_gate_policy") or {}),
+            review_gate_policy=dict(node.get("review_gate_policy") or {}),
+            artifact_context_policy=dict(node.get("artifact_context_policy") or {}),
+            revision_context_policy=dict(node.get("revision_context_policy") or {}),
+            quality_retry_policy=dict(node.get("quality_retry_policy") or {}),
+            progress_commit_policy=dict(node.get("progress_commit_policy") or {}),
+            artifact_policy=dict(node.get("artifact_policy") or {}),
+            stream_policy=dict(node.get("stream_policy") or {}),
+            memory_read_policy=dict(node.get("memory_read_policy") or {}),
+            memory_writeback_policy=dict(node.get("memory_writeback_policy") or {}),
+            dynamic_memory_read_policy=dict(node.get("dynamic_memory_read_policy") or {}),
+            metadata={
+                key: value
+                for key, value in dict(node).items()
+                if key
+                not in {
+                    "node_id",
+                    "node_type",
+                    "title",
+                    "task_id",
+                    "agent_id",
+                    "runtime_lane",
+                    "lane",
+                    "role",
+                    "phase_id",
+                    "sequence_index",
+                    "human_gate_policy",
+                    "review_gate_policy",
+                    "artifact_context_policy",
+                    "revision_context_policy",
+                    "quality_retry_policy",
+                    "progress_commit_policy",
+                    "artifact_policy",
+                    "stream_policy",
+                    "memory_read_policy",
+                    "memory_writeback_policy",
+                    "dynamic_memory_read_policy",
+                }
+            },
         )
         for node in coordination.graph_nodes
     )
@@ -1557,7 +1765,11 @@ def test_stage_message_expands_current_artifact_handoff(tmp_path) -> None:
         topology_template_id="topology.test.artifact_context",
         communication_protocol_id="protocol.test.artifact_context",
         status="running",
-        diagnostics={"coordination_flow": {"current_stage_id": "outline"}},
+        diagnostics=_graph_config_diagnostics_for_registry_test(
+            registry,
+            "graph.test.artifact_context",
+            {"coordination_flow": {"current_stage_id": "outline"}},
+        ),
     )
     state_index.upsert_coordination_run(coordination_run)
 
@@ -1599,7 +1811,11 @@ def test_graph_coordination_engine_injects_working_memory_context(tmp_path) -> N
         topology_template_id="topology.test.working_memory_runtime",
         communication_protocol_id="protocol.test.working_memory_runtime",
         status="running",
-        diagnostics={"coordination_flow": {"current_stage_id": "source"}},
+        diagnostics=_graph_config_diagnostics_for_registry_test(
+            registry,
+            "graph.test.working_memory_runtime",
+            {"coordination_flow": {"current_stage_id": "source"}},
+        ),
     )
     state_index.upsert_coordination_run(coordination_run)
 
@@ -1662,7 +1878,11 @@ def test_formal_memory_write_edge_uses_source_output_key(tmp_path) -> None:
         topology_template_id="topology.test.formal_memory_runtime",
         communication_protocol_id="protocol.test.formal_memory_runtime",
         status="running",
-        diagnostics={"coordination_flow": {"current_stage_id": "world_author"}},
+        diagnostics=_graph_config_diagnostics_for_registry_test(
+            registry,
+            "graph.test.formal_memory_runtime",
+            {"coordination_flow": {"current_stage_id": "world_author"}},
+        ),
     )
     state_index.upsert_coordination_run(coordination_run)
 
@@ -1728,7 +1948,11 @@ def test_formal_memory_write_edge_blocks_missing_source_output_key(tmp_path) -> 
         topology_template_id="topology.test.formal_memory_runtime",
         communication_protocol_id="protocol.test.formal_memory_runtime",
         status="running",
-        diagnostics={"coordination_flow": {"current_stage_id": "world_author"}},
+        diagnostics=_graph_config_diagnostics_for_registry_test(
+            registry,
+            "graph.test.formal_memory_runtime",
+            {"coordination_flow": {"current_stage_id": "world_author"}},
+        ),
     )
     state_index.upsert_coordination_run(coordination_run)
 
@@ -1788,7 +2012,11 @@ def test_formal_memory_commit_edge_uses_candidate_ref_and_verdict(tmp_path) -> N
         topology_template_id="topology.test.formal_memory_runtime",
         communication_protocol_id="protocol.test.formal_memory_runtime",
         status="running",
-        diagnostics={"coordination_flow": {"current_stage_id": "world_author"}},
+        diagnostics=_graph_config_diagnostics_for_registry_test(
+            registry,
+            "graph.test.formal_memory_runtime",
+            {"coordination_flow": {"current_stage_id": "world_author"}},
+        ),
     )
     state_index.upsert_coordination_run(coordination_run)
 
@@ -1872,7 +2100,11 @@ def test_formal_memory_commit_edge_uses_approval_source_candidate_refs(tmp_path)
         topology_template_id="topology.test.formal_memory_runtime",
         communication_protocol_id="protocol.test.formal_memory_runtime",
         status="running",
-        diagnostics={"coordination_flow": {"current_stage_id": "world_author"}},
+        diagnostics=_graph_config_diagnostics_for_registry_test(
+            registry,
+            "graph.test.formal_memory_runtime",
+            {"coordination_flow": {"current_stage_id": "world_author"}},
+        ),
     )
     state_index.upsert_coordination_run(coordination_run)
 
@@ -2381,7 +2613,11 @@ def test_graph_coordination_engine_commits_working_memory_decisions(tmp_path) ->
         topology_template_id="topology.test.working_memory_runtime",
         communication_protocol_id="protocol.test.working_memory_runtime",
         status="running",
-        diagnostics={"coordination_flow": {"current_stage_id": "source"}},
+        diagnostics=_graph_config_diagnostics_for_registry_test(
+            registry,
+            "graph.test.working_memory_runtime",
+            {"coordination_flow": {"current_stage_id": "source"}},
+        ),
     )
     state_index.upsert_coordination_run(coordination_run)
     item = runtime.working_memory.create_item(
@@ -2452,15 +2688,19 @@ def test_graph_coordination_engine_advances_by_stage_contract(tmp_path) -> None:
         topology_template_id="topology.test.bootstrap",
         communication_protocol_id="protocol.test.a2a",
         status="running",
-        diagnostics={
-            "coordination_flow": {
-                "current_stage_id": "project_scope",
-                "stages": [
-                    {"stage_id": "project_scope", "status": "running", "task_ref": "task.test.project"},
-                    {"stage_id": "novel_bible", "status": "pending", "task_ref": "task.test.novel_bible"},
-                ],
-            }
-        },
+        diagnostics=_graph_config_diagnostics_for_registry_test(
+            registry,
+            "graph.test.bootstrap",
+            {
+                "coordination_flow": {
+                    "current_stage_id": "project_scope",
+                    "stages": [
+                        {"stage_id": "project_scope", "status": "running", "task_ref": "task.test.project"},
+                        {"stage_id": "novel_bible", "status": "pending", "task_ref": "task.test.novel_bible"},
+                    ],
+                }
+            },
+        ),
     )
     state_index.upsert_coordination_run(coordination_run)
 
@@ -2645,8 +2885,51 @@ class _DiamondRegistry:
         return list(self.tasks)
 
 
-def _diamond_runtime(tmp_path):
+def _diamond_runtime(
+    tmp_path,
+    *,
+    extra_graph_edges: tuple[dict[str, object], ...] = (),
+    stage_contract_updates: dict[str, dict[str, object]] | None = None,
+    coordination_metadata_updates: dict[str, object] | None = None,
+    graph_node_updates: dict[str, dict[str, object]] | None = None,
+):
     registry = _DiamondRegistry()
+    if coordination_metadata_updates:
+        registry.coordination = replace(
+            registry.coordination,
+            metadata={
+                **dict(registry.coordination.metadata or {}),
+                **dict(coordination_metadata_updates),
+            },
+        )
+    if graph_node_updates:
+        updated_nodes = []
+        for raw_node in registry.coordination.graph_nodes:
+            node = dict(raw_node)
+            update = dict(graph_node_updates.get(str(node.get("node_id") or "")) or {})
+            if update:
+                node.update(update)
+            updated_nodes.append(node)
+        registry.coordination = replace(registry.coordination, graph_nodes=tuple(updated_nodes))
+    if stage_contract_updates:
+        updated_contracts = []
+        for raw_contract in list(dict(registry.coordination.metadata or {}).get("stage_contracts") or []):
+            contract = dict(raw_contract)
+            update = dict(stage_contract_updates.get(str(contract.get("stage_id") or contract.get("node_id") or "")) or {})
+            if update:
+                contract.update(update)
+            updated_contracts.append(contract)
+        registry.coordination = replace(
+            registry.coordination,
+            metadata={**dict(registry.coordination.metadata or {}), "stage_contracts": updated_contracts},
+        )
+    registry.topology = TopologyTemplate(
+        template_id=registry.topology.template_id,
+        title=registry.topology.title,
+        nodes=registry.coordination.graph_nodes,
+        edges=registry.coordination.graph_edges,
+        enabled=True,
+    )
     state_index = RuntimeStateIndex(tmp_path)
     event_log = RuntimeEventLog(tmp_path)
     runtime = GraphCoordinationEngine(
@@ -2656,6 +2939,47 @@ def _diamond_runtime(tmp_path):
         task_flow_registry=registry,
         trace_reader=_Trace({}),
     )
+    graph = registry.get_task_graph("graph.test.diamond")
+    assert graph is not None
+    graph_with_extra_edges = TaskGraphDefinition(
+        graph_id=graph.graph_id,
+        title=graph.title,
+        domain_id=graph.domain_id,
+        graph_kind=graph.graph_kind,
+        entry_node_id=graph.entry_node_id,
+        output_node_id=graph.output_node_id,
+        nodes=graph.nodes,
+        edges=(
+            *graph.edges,
+            *(
+                TaskGraphEdgeDefinition(
+                    edge_id=str(edge.get("edge_id") or ""),
+                    source_node_id=str(edge.get("source_node_id") or ""),
+                    target_node_id=str(edge.get("target_node_id") or ""),
+                    edge_type=str(edge.get("edge_type") or "handoff"),
+                    payload_contract_id=str(edge.get("payload_contract_id") or ""),
+                    artifact_ref_policy=dict(edge.get("artifact_ref_policy") or {}),
+                    metadata=dict(edge.get("metadata") or {}),
+                )
+                for edge in extra_graph_edges
+            ),
+        ),
+        graph_contract_id=graph.graph_contract_id,
+        contract_bindings=graph.contract_bindings,
+        default_protocol_id=graph.default_protocol_id,
+        working_memory_policy_profile_id=graph.working_memory_policy_profile_id,
+        working_memory_policy=graph.working_memory_policy,
+        runtime_policy=graph.runtime_policy,
+        context_policy=graph.context_policy,
+        publish_state=graph.publish_state,
+        enabled=graph.enabled,
+        metadata=graph.metadata,
+    )
+    graph_config = _graph_config_for_runtime_test(
+        graph_with_extra_edges,
+        communication_protocol=registry.protocol,
+        specific_tasks=tuple(registry.list_specific_task_records()),
+    )
     coordination_run = CoordinationRun(
         coordination_run_id="coordrun:diamond",
         task_run_id="taskrun:a",
@@ -2664,7 +2988,11 @@ def _diamond_runtime(tmp_path):
         topology_template_id="topology.test.diamond",
         communication_protocol_id="protocol.test.diamond",
         status="running",
-        diagnostics={"coordination_flow": {"current_stage_id": "a"}},
+        diagnostics={
+            "coordination_flow": {"current_stage_id": "a"},
+            "graph_harness_config_id": graph_config.config_id,
+            "graph_harness_config_payload": graph_config.to_dict(),
+        },
     )
     state_index.upsert_coordination_run(coordination_run)
     TaskContractRegistry(tmp_path)
@@ -2939,7 +3267,6 @@ def test_graph_coordination_engine_rewinds_stage_and_invalidates_downstream(tmp_
         stage_id="b",
         reason="bad_branch_output",
         inherited_inputs={"artifact_root": str(tmp_path), "b_ref": "artifact:stale-b.md"},
-        refresh_graph_spec=True,
     )
 
     assert result.stage_execution_request is not None
@@ -2969,28 +3296,24 @@ def test_graph_coordination_engine_rewinds_stage_and_invalidates_downstream(tmp_
 
 
 def test_graph_coordination_engine_rewind_ignores_feedback_edges(tmp_path) -> None:
-    runtime, _, coordination_run = _diamond_runtime(tmp_path)
-    runtime.initialize(coordination_run=coordination_run)
-    state = runtime.checkpoints.get_state(thread_id="coordrun:diamond")
-    graph_spec = dict(dict(state.get("diagnostics") or {}).get("coordination_graph_spec") or {})
-    graph_spec["edges"] = [
-        *list(graph_spec.get("edges") or []),
+    runtime, _, coordination_run = _diamond_runtime(
+        tmp_path,
+        extra_graph_edges=(
         {
             "edge_id": "d_b_feedback",
             "source_node_id": "d",
             "target_node_id": "b",
-            "mode": "review_feedback",
+            "edge_type": "review_feedback",
             "metadata": {"dependency_role": "feedback"},
         },
-    ]
-    state["diagnostics"] = {**dict(state.get("diagnostics") or {}), "coordination_graph_spec": graph_spec}
-    runtime.checkpoints.put_state(thread_id="coordrun:diamond", state=state, metadata={"event": "test_feedback_edge"})
+        ),
+    )
+    runtime.initialize(coordination_run=coordination_run)
 
     result = runtime.rewind_from_stage(
         coordination_run_id="coordrun:diamond",
         stage_id="d",
         reason="bad_final_output",
-        refresh_graph_spec=False,
     )
 
     assert result.diagnostics["invalidated_stage_ids"] == ["d"]
@@ -3077,7 +3400,11 @@ def test_graph_coordination_engine_uses_explicit_edges_for_sequence(tmp_path) ->
         topology_template_id="topology.test.sequence",
         communication_protocol_id="protocol.test.sequence",
         status="running",
-        diagnostics={"coordination_flow": {"current_stage_id": "a"}},
+        diagnostics=_graph_config_diagnostics_for_registry_test(
+            registry,
+            "graph.test.sequence",
+            {"coordination_flow": {"current_stage_id": "a"}},
+        ),
     )
     state_index.upsert_coordination_run(coordination_run)
 
@@ -3154,14 +3481,19 @@ def test_graph_coordination_engine_retries_failed_stage_when_policy_allows(tmp_p
 
 
 def test_graph_coordination_engine_commit_identity_is_authoritative_state(tmp_path) -> None:
-    runtime, _, coordination_run = _diamond_runtime(tmp_path)
-    stage_contracts = runtime.task_flow_registry.coordination.metadata["stage_contracts"]
-    stage_contracts[0]["artifact_policy"] = {
-        "commit_identity_policy": {
-            "mode": "input_keys_and_artifact_refs",
-            "include_result_artifact_refs": True,
-        }
-    }
+    runtime, _, coordination_run = _diamond_runtime(
+        tmp_path,
+        stage_contract_updates={
+            "a": {
+                "artifact_policy": {
+                    "commit_identity_policy": {
+                        "mode": "input_keys_and_artifact_refs",
+                        "include_result_artifact_refs": True,
+                    }
+                }
+            }
+        },
+    )
 
     accepted = runtime.resume_from_task_result(
         coordination_run=coordination_run,
@@ -3203,12 +3535,15 @@ def test_graph_coordination_engine_commit_identity_is_authoritative_state(tmp_pa
 
 
 def test_failed_file_artifact_stage_does_not_satisfy_required_outputs(tmp_path) -> None:
-    runtime, _, coordination_run = _diamond_runtime(tmp_path)
-    stage_contracts = runtime.task_flow_registry.coordination.metadata["stage_contracts"]
-    stage_contracts[0]["artifact_policy"] = {"enabled": True}
-    stage_contracts[0]["output_mappings"] = [
-        {"output_key": "contract.test.a:artifact_refs", "required": True}
-    ]
+    runtime, _, coordination_run = _diamond_runtime(
+        tmp_path,
+        stage_contract_updates={
+            "a": {
+                "artifact_policy": {"enabled": True},
+                "output_mappings": [{"output_key": "contract.test.a:artifact_refs", "required": True}],
+            }
+        },
+    )
 
     result = runtime.resume_from_task_result(
         coordination_run=coordination_run,
@@ -3231,10 +3566,10 @@ def test_failed_file_artifact_stage_does_not_satisfy_required_outputs(tmp_path) 
 
 
 def test_graph_coordination_engine_enters_human_gate_when_policy_requires(tmp_path) -> None:
-    runtime, state_index, coordination_run = _diamond_runtime(tmp_path)
-    stage_contracts = runtime.task_flow_registry.coordination.metadata["stage_contracts"]
-    stage_contracts[0]["on_failure"] = "human_gate"
-    stage_contracts[0]["retry_policy"] = {"retry_limit": 0}
+    runtime, state_index, coordination_run = _diamond_runtime(
+        tmp_path,
+        stage_contract_updates={"a": {"on_failure": "human_gate", "retry_policy": {"retry_limit": 0}}},
+    )
 
     result = runtime.resume_from_task_result(
         coordination_run=coordination_run,
@@ -3261,11 +3596,11 @@ def test_graph_coordination_engine_enters_human_gate_when_policy_requires(tmp_pa
 
 
 def test_graph_coordination_engine_does_not_block_human_gate_when_auto_continue(tmp_path) -> None:
-    runtime, _, coordination_run = _diamond_runtime(tmp_path)
-    runtime.task_flow_registry.coordination.metadata["continuation_policy"] = {"human_gate_mode": "auto_continue"}
-    stage_contracts = runtime.task_flow_registry.coordination.metadata["stage_contracts"]
-    stage_contracts[0]["on_failure"] = "human_gate"
-    stage_contracts[0]["retry_policy"] = {"retry_limit": 0}
+    runtime, _, coordination_run = _diamond_runtime(
+        tmp_path,
+        coordination_metadata_updates={"continuation_policy": {"human_gate_mode": "auto_continue"}},
+        stage_contract_updates={"a": {"on_failure": "human_gate", "retry_policy": {"retry_limit": 0}}},
+    )
 
     result = runtime.resume_from_task_result(
         coordination_run=coordination_run,
@@ -3290,13 +3625,22 @@ def test_graph_coordination_engine_does_not_block_human_gate_when_auto_continue(
 
 
 def test_graph_coordination_engine_preserves_node_human_gate_policy_in_contract(tmp_path) -> None:
-    runtime, _, coordination_run = _diamond_runtime(tmp_path)
-    node = runtime.task_flow_registry.coordination.graph_nodes[0]
-    node["human_gate_policy"] = {"enabled": True, "mode": "non_blocking", "trigger_verdict": "human_review_required"}
-    contracts = runtime._contracts_for_run(
-        coordination_run=coordination_run,
-        coordination_task=runtime.task_flow_registry.coordination,
+    runtime, _, coordination_run = _diamond_runtime(
+        tmp_path,
+        graph_node_updates={
+            "a": {
+                "human_gate_policy": {
+                    "enabled": True,
+                    "mode": "non_blocking",
+                    "trigger_verdict": "human_review_required",
+                }
+            }
+        },
     )
+    graph_config = runtime._resolve_graph_harness_config(coordination_run)
+    assert graph_config is not None
+    topology_nodes = [dict(item) for item in graph_config.nodes]
+    contracts = runtime._contracts_for_config(graph_config=graph_config, topology_nodes=topology_nodes)
 
     assert contracts[0].human_gate_policy == {
         "enabled": True,
@@ -3306,10 +3650,10 @@ def test_graph_coordination_engine_preserves_node_human_gate_policy_in_contract(
 
 
 def test_graph_coordination_engine_human_gate_approve_routes_next(tmp_path) -> None:
-    runtime, _, coordination_run = _diamond_runtime(tmp_path)
-    stage_contracts = runtime.task_flow_registry.coordination.metadata["stage_contracts"]
-    stage_contracts[0]["on_failure"] = "human_gate"
-    stage_contracts[0]["retry_policy"] = {"retry_limit": 0}
+    runtime, _, coordination_run = _diamond_runtime(
+        tmp_path,
+        stage_contract_updates={"a": {"on_failure": "human_gate", "retry_policy": {"retry_limit": 0}}},
+    )
     runtime.resume_from_task_result(
         coordination_run=coordination_run,
         event=NodeResultReadyEvent(
@@ -3336,10 +3680,10 @@ def test_graph_coordination_engine_human_gate_approve_routes_next(tmp_path) -> N
 
 
 def test_graph_coordination_engine_human_gate_retry_routes_same_stage(tmp_path) -> None:
-    runtime, _, coordination_run = _diamond_runtime(tmp_path)
-    stage_contracts = runtime.task_flow_registry.coordination.metadata["stage_contracts"]
-    stage_contracts[0]["on_failure"] = "human_gate"
-    stage_contracts[0]["retry_policy"] = {"retry_limit": 0}
+    runtime, _, coordination_run = _diamond_runtime(
+        tmp_path,
+        stage_contract_updates={"a": {"on_failure": "human_gate", "retry_policy": {"retry_limit": 0}}},
+    )
     runtime.resume_from_task_result(
         coordination_run=coordination_run,
         event=NodeResultReadyEvent(
@@ -3365,10 +3709,10 @@ def test_graph_coordination_engine_human_gate_retry_routes_same_stage(tmp_path) 
 
 
 def test_graph_coordination_engine_human_gate_reject_fails_closed(tmp_path) -> None:
-    runtime, _, coordination_run = _diamond_runtime(tmp_path)
-    stage_contracts = runtime.task_flow_registry.coordination.metadata["stage_contracts"]
-    stage_contracts[0]["on_failure"] = "human_gate"
-    stage_contracts[0]["retry_policy"] = {"retry_limit": 0}
+    runtime, _, coordination_run = _diamond_runtime(
+        tmp_path,
+        stage_contract_updates={"a": {"on_failure": "human_gate", "retry_policy": {"retry_limit": 0}}},
+    )
     runtime.resume_from_task_result(
         coordination_run=coordination_run,
         event=NodeResultReadyEvent(
@@ -3436,31 +3780,76 @@ def test_parse_stage_contracts_derives_from_graph_nodes_when_metadata_is_missing
 
 
 def test_langgraph_runtime_emits_graph_module_stage_request(tmp_path) -> None:
+    imported_graph = TaskGraphDefinition(
+        graph_id="graph.test.imported_graph_module_runtime",
+        title="被导入图模块",
+        graph_kind="coordination",
+        nodes=(
+            TaskGraphNodeDefinition(
+                node_id="child",
+                node_type="agent",
+                title="子图节点",
+                task_id="task.test.graph_module.child",
+                agent_id="agent:0",
+            ),
+        ),
+        default_protocol_id="protocol.test.graph_module",
+        runtime_policy={"coordinator_agent_id": "agent:0"},
+        publish_state="published",
+        enabled=True,
+    )
     importing_graph = TaskGraphDefinition(
         graph_id="graph.test.importing_graph_module_runtime",
         title="导入方图模块运行",
         graph_kind="coordination",
         default_protocol_id="protocol.test.graph_module",
         runtime_policy={"coordinator_agent_id": "agent:0"},
-        metadata={
-            "timeline_blocks": [
-                {
-                    "block_id": "block.child",
-                    "block_type": "imported_graph",
-                    "title": "导入模块阶段",
-                    "phase_id": "phase.child",
+        nodes=(
+            TaskGraphNodeDefinition(
+                node_id="graph_module.block.child",
+                node_type="graph_module",
+                title="导入模块阶段",
+                phase_id="phase.child",
+                executor_policy={
+                    "default_executor": "graph_module",
+                    "allowed_executors": ["graph_module"],
+                    "linked_graph_id": "graph.test.imported_graph_module_runtime",
+                    "imported_graph_id": "graph.test.imported_graph_module_runtime",
+                },
+                contract_bindings={
+                    "handoff": {"handoff_contract_id": "contract.test.graph_module.handoff"},
+                    "runtime": {
+                        "graph_module_runtime": {
+                            "linked_graph_id": "graph.test.imported_graph_module_runtime",
+                            "version_ref": "v1",
+                        },
+                    },
+                },
+                metadata={
+                    "graph_module": True,
                     "linked_graph_id": "graph.test.imported_graph_module_runtime",
                     "version_ref": "v1",
+                    "graph_module_runtime_plan_id": "graph_module_runtime.block.child",
                     "handoff_contract_id": "contract.test.graph_module.handoff",
                     "input_port_id": "input.child",
                     "output_port_id": "output.child",
-                }
-            ],
-        },
+                    "visibility_policy": "committed_only",
+                },
+            ),
+        ),
         publish_state="published",
         enabled=True,
     )
     registry = _GraphModuleRegistry(importing_graph)
+    imported_config = _graph_config_for_runtime_test(
+        imported_graph,
+        communication_protocol=registry.protocol,
+    )
+    graph_config = _graph_config_for_runtime_test(
+        importing_graph,
+        communication_protocol=registry.protocol,
+        linked_module_config_ids={imported_graph.graph_id: imported_config.config_id},
+    )
     state_index = RuntimeStateIndex(tmp_path)
     event_log = RuntimeEventLog(tmp_path)
     runtime = GraphCoordinationEngine(
@@ -3477,6 +3866,10 @@ def test_langgraph_runtime_emits_graph_module_stage_request(tmp_path) -> None:
         coordinator_agent_id="agent:0",
         communication_protocol_id="protocol.test.graph_module",
         status="running",
+        diagnostics={
+            "graph_harness_config_id": graph_config.config_id,
+            "graph_harness_config_payload": graph_config.to_dict(),
+        },
     )
     state_index.upsert_coordination_run(coordination_run)
 
@@ -3494,6 +3887,7 @@ def test_langgraph_runtime_emits_graph_module_stage_request(tmp_path) -> None:
     handle = request.runtime_assembly["graph_module_runtime_handle"]
     assert handle["authority"] == "harness.execution.graph_module_runtime_handle"
     assert handle["linked_graph_id"] == "graph.test.imported_graph_module_runtime"
+    assert handle["linked_config_id"] == imported_config.config_id
     assert handle["graph_module_runtime_plan_id"] == "graph_module_runtime.block.child"
     assert handle["importing_coordination_run_id"] == "coordrun:graph-module"
     assert handle["handoff_contract_id"] == "contract.test.graph_module.handoff"
@@ -3523,8 +3917,6 @@ class _GraphModuleRegistry:
         return self.graph if graph_id == self.graph.graph_id else None
 
     def derive_coordination_task_view_from_graph(self, graph):
-        from task_system.compiler.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
-
         runtime_spec = compile_task_graph_definition_runtime_spec(graph=graph, communication_protocol=self.protocol)
         return CoordinationTaskDefinition(
             graph_id=graph.graph_id,

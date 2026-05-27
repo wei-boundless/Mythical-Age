@@ -55,11 +55,7 @@ def build_composable_graph_view(
         ],
     ]
     port_edges = [_port_edge_from_graph_edge(edge) for edge in graph.edges]
-    graph_module_runtime = [
-        _graph_module_runtime_from_timeline_block(graph=graph, block=block, unit_id=_graph_module_id_from_block(block, index))
-        for index, block in enumerate(timeline_blocks)
-        if str(block.get("linked_graph_id") or "").strip()
-    ]
+    graph_module_runtime: list[GraphModuleRuntimePlan] = []
     overlay = _composable_overlay(graph)
     units = _merge_units(units, _units_from_overlay(overlay))
     interfaces = _merge_interfaces(interfaces, _interfaces_from_overlay(overlay))
@@ -372,6 +368,10 @@ def _interface_from_node(node: TaskGraphNodeDefinition) -> UnitInterface:
     input_contract_id = str(schema_bindings.get("input_contract_id") or input_contract_id).strip()
     output_contract_id = str(schema_bindings.get("output_contract_id") or output_contract_id).strip()
     node_contract_id = str(execution_bindings.get("node_contract_id") or node_contract_id).strip()
+    handoff_contract_id = str(dict(bindings.get("handoff") or {}).get("handoff_contract_id") or "").strip()
+    if str(node.node_type or "").strip() == "graph_module":
+        input_contract_id = input_contract_id or handoff_contract_id
+        output_contract_id = output_contract_id or handoff_contract_id
     metadata = dict(node.metadata or {})
     context_visibility = dict(node.context_visibility_policy or {})
     return UnitInterface(
@@ -481,35 +481,6 @@ def _port_edge_from_graph_edge(edge: TaskGraphEdgeDefinition) -> UnitPortEdge:
             "legacy_edge": True,
             "contract_bindings": bindings,
             "raw_metadata": dict(edge.metadata or {}),
-        },
-    )
-
-
-def _graph_module_runtime_from_timeline_block(
-    *,
-    graph: TaskGraphDefinition,
-    block: dict[str, Any],
-    unit_id: str,
-) -> GraphModuleRuntimePlan:
-    block_id = str(block.get("block_id") or unit_id).strip()
-    return GraphModuleRuntimePlan(
-        plan_id=f"graph_module_runtime.{_safe_identifier(block_id)}",
-        importing_graph_id=graph.graph_id,
-        unit_id=unit_id,
-        linked_graph_id=str(block.get("linked_graph_id") or "").strip(),
-        version_ref=str(block.get("version_ref") or "").strip(),
-        handoff_contract_id=_timeline_block_handoff_contract_id(block),
-        input_port_id="input.default",
-        output_port_id="output.default",
-        isolation_policy="isolated_per_graph_module_run",
-        visibility_policy=str(block.get("visibility_policy") or "committed_only").strip() or "committed_only",
-        detach_policy=str(block.get("detach_policy") or "preserve_version_anchor").strip() or "preserve_version_anchor",
-        metadata={
-            "timeline_block_id": block_id,
-            "phase_id": str(block.get("phase_id") or "").strip(),
-            "entry_node_id": str(block.get("entry_node_id") or "").strip(),
-            "exit_node_id": str(block.get("exit_node_id") or "").strip(),
-            "contract_bindings": dict(block.get("contract_bindings") or {}),
         },
     )
 

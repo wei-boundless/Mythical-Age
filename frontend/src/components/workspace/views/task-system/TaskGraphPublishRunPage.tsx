@@ -220,7 +220,6 @@ export function TaskGraphPublishRunPage({
       const result = await startTaskGraphHarnessRun(graphId, {
         session_id: runSessionId.trim() || "session:task_graph_studio",
         include_trace: true,
-        require_published: true,
       });
       setTaskRunId(result.task_run_id);
       setLocalRuntimeSpec(result.runtime_spec);

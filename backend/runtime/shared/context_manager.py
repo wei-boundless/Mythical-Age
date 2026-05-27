@@ -27,7 +27,6 @@ class RuntimeContextSnapshot:
     prompt_source_report: dict[str, Any] = field(default_factory=dict)
     context_policy_ref: str = ""
     memory_runtime_view_ref: str = ""
-    projection_ref: str = ""
     prompt_manifest_ref: str = ""
     diagnostics: dict[str, Any] = field(default_factory=dict)
     authority: str = "orchestration.runtime_context_snapshot"
@@ -154,7 +153,6 @@ class RuntimeContextManager:
         pending = str(user_message or "")
         context_policy_ref = _context_policy_ref(context_policy_result)
         memory_view_ref = str((memory_runtime_view or {}).get("view_id") or "")
-        projection_ref = ""
         prompt_manifest_ref = ""
         runtime_prompt = _build_runtime_system_prompt(
             base_system_prompt=system_prompt,
@@ -178,7 +176,6 @@ class RuntimeContextManager:
             pending=pending,
             context_policy_ref=context_policy_ref,
             memory_view_ref=memory_view_ref,
-            projection_ref=projection_ref,
             prompt_manifest_ref=prompt_manifest_ref,
         )
         return RuntimeContextSnapshot(
@@ -198,7 +195,6 @@ class RuntimeContextManager:
             ),
             context_policy_ref=context_policy_ref,
             memory_runtime_view_ref=memory_view_ref,
-            projection_ref=projection_ref,
             prompt_manifest_ref=prompt_manifest_ref,
             diagnostics={
                 "context_owner": "RuntimeContextManager",
@@ -770,7 +766,6 @@ def _snapshot_id(
     pending: str,
     context_policy_ref: str,
     memory_view_ref: str,
-    projection_ref: str,
     prompt_manifest_ref: str,
 ) -> str:
     raw = repr(
@@ -782,7 +777,6 @@ def _snapshot_id(
             pending,
             context_policy_ref,
             memory_view_ref,
-            projection_ref,
             prompt_manifest_ref,
         )
     )

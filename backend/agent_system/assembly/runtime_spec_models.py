@@ -19,6 +19,7 @@ class TaskBodyOrchestration:
     resource_binding_plan: dict[str, Any] = field(default_factory=dict)
     verification_gate_plan: dict[str, Any] = field(default_factory=dict)
     fallback_plan: dict[str, Any] = field(default_factory=dict)
+    prompt_manifest: dict[str, Any] = field(default_factory=dict)
     diagnostics: dict[str, Any] = field(default_factory=dict)
     authority: str = "orchestration.task_body_orchestration"
 

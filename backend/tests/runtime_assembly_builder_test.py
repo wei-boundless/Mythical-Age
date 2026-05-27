@@ -19,8 +19,42 @@ from runtime.contracts.compiler_models import (
     ContractManifest,
 )
 from harness.execution.node_protocol.node_execution_request import NodeExecutionRequest
+from harness.runtime.graph_config import build_graph_harness_config_from_runtime_spec
 from task_system.compiler.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
 from task_system.graphs.task_graph_models import TaskGraphDefinition, TaskGraphEdgeDefinition, TaskGraphNodeDefinition
+
+
+def _graph_config(graph: TaskGraphDefinition):
+    runtime_spec = compile_task_graph_definition_runtime_spec(graph=graph)
+    return build_graph_harness_config_from_runtime_spec(
+        graph=graph,
+        runtime_spec=runtime_spec,
+        contract_manifest={
+            "manifest_id": f"contract-manifest:{graph.graph_id}",
+            "valid": True,
+            "node_contracts": [
+                {
+                    "node_id": node.node_id,
+                    "title": node.title,
+                    "node_type": node.node_type,
+                    "task_id": node.task_id,
+                    "agent_id": node.agent_id,
+                    "contract_refs": [],
+                    "source_refs": [],
+                    "schema_bindings": {},
+                    "execution_bindings": {},
+                    "artifact_bindings": {},
+                    "memory_bindings": {},
+                    "acceptance_bindings": {},
+                    "runtime_bindings": {},
+                    "unit_batch_bindings": {},
+                    "governance_bindings": {},
+                    "metadata": {},
+                }
+                for node in runtime_spec.nodes
+            ],
+        },
+    )
 
 
 def _manifest() -> ContractManifest:
@@ -100,9 +134,6 @@ def test_node_runtime_assembly_hides_main_history_and_links_handoff_packet() -> 
 
     assert payload["authority"] == "orchestration.node_runtime_assembly"
     assert payload["node_id"] == "worker"
-    assert "projection_id" not in payload
-    assert "projection_resolution_source" not in payload["diagnostics"]
-    assert "projection_ref" not in payload["diagnostics"]
     assert payload["diagnostics"]["agent_resolution_source"] == "node"
     assert payload["diagnostics"]["agent_profile_ref"] == "test_profile"
     assert payload["manifest_ref"] == "contract-manifest:test"
@@ -354,7 +385,7 @@ def test_stage_execution_request_carries_runtime_assembly() -> None:
     assert "projection_id" not in restored.to_dict()["runtime_assembly"]
 
 
-def test_harness_service_host_starts_task_graph_with_real_dispatch_plan(tmp_path: Path) -> None:
+def test_harness_service_host_starts_task_graph_from_graph_harness_config(tmp_path: Path) -> None:
     graph = TaskGraphDefinition(
         graph_id="graph.test.task_graph_run",
         title="测试任务图运行",
@@ -388,13 +419,10 @@ def test_harness_service_host_starts_task_graph_with_real_dispatch_plan(tmp_path
             ),
         ),
     )
-    runtime_spec = compile_task_graph_definition_runtime_spec(graph=graph)
-
     loop = HarnessServiceHost(tmp_path, backend_dir=Path("backend"))
     result = loop.start_task_graph_run(
         session_id="session:test",
-        graph=graph,
-        runtime_spec=runtime_spec,
+        graph_config=_graph_config(graph),
     )
 
     trace = loop.get_trace(result.task_run.task_run_id)
@@ -402,11 +430,7 @@ def test_harness_service_host_starts_task_graph_with_real_dispatch_plan(tmp_path
     indexed_task_run = loop.state_index.get_task_run(result.task_run.task_run_id)
     assert result.coordination_run is not None
     assert result.task_run.diagnostics["task_graph_run"] is True
-    dispatch_plan_summary = result.task_run.diagnostics["agent_dispatch_plan_summary"]
-    assert result.task_run.diagnostics["agent_dispatch_plan_ref"].startswith("rtobj:dispatch_plans:")
-    assert dispatch_plan_summary["record_count"] == 2
-    assert dispatch_plan_summary["ready_node_ids"] == ["collect"]
-    assert dispatch_plan_summary["blocked_node_ids"] == ["review"]
+    assert result.task_run.diagnostics["graph_runtime_source"] == "GraphHarnessConfig"
     stage_request = result.loop_state.diagnostics["stage_execution_request"]
     assert stage_request["stage_id"] == "collect"
     assert stage_request["task_ref"] == "task.test.collect"
@@ -416,6 +440,7 @@ def test_harness_service_host_starts_task_graph_with_real_dispatch_plan(tmp_path
     assert checkpoint is not None
     assert checkpoint.loop_state.runtime_lane == "task_graph_coordination"
     assert checkpoint.loop_state.diagnostics["graph_coordination_initialized"] is True
+    assert result.coordination_run.diagnostics["graph_harness_config_id"].startswith("ghcfg:")
     assert indexed_task_run is not None
     assert indexed_task_run.latest_checkpoint_ref == checkpoint.checkpoint_id
 
@@ -454,19 +479,16 @@ def test_harness_service_host_restores_task_graph_initial_inputs_for_same_sessio
             ),
         ),
     )
-    runtime_spec = compile_task_graph_definition_runtime_spec(graph=graph)
     loop = HarnessServiceHost(tmp_path, backend_dir=Path("backend"))
 
     first = loop.start_task_graph_run(
         session_id="session:test",
-        graph=graph,
-        runtime_spec=runtime_spec,
+        graph_config=_graph_config(graph),
         initial_inputs={"project_brief": "洪荒时代", "title": "洪荒时代"},
     )
     second = loop.start_task_graph_run(
         session_id="session:test",
-        graph=graph,
-        runtime_spec=runtime_spec,
+        graph_config=_graph_config(graph),
         initial_inputs={},
     )
 
@@ -511,15 +533,13 @@ def test_harness_service_host_rejects_legacy_task_graph_fallback_when_langgraph_
             ),
         ),
     )
-    runtime_spec = compile_task_graph_definition_runtime_spec(graph=graph)
     loop = HarnessServiceHost(tmp_path, backend_dir=Path("backend"))
     monkeypatch.setattr(loop.graph_coordination_engine, "supports", lambda coordination_run: False)
 
     with pytest.raises(RuntimeError, match="legacy initialization fallback was removed"):
         loop.start_task_graph_run(
             session_id="session:test",
-            graph=graph,
-            runtime_spec=runtime_spec,
+            graph_config=_graph_config(graph),
         )
 
 

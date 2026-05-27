@@ -128,7 +128,7 @@ def bootstrap_batch_lifecycle_runtime_state(
             "execution_mode_by_plan": execution_mode_by_plan,
             "concurrency_by_plan": concurrency_by_plan,
             "diagnostics": {
-                "source": "runtime_spec.diagnostics.split_plans",
+                "source": "graph_harness_config.control.batch_policy.split_plans",
                 "split_plan_count": len(split_plans),
                 "split_plan_policy_index": policy_index,
             },

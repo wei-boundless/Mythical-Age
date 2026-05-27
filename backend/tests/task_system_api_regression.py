@@ -25,7 +25,9 @@ from harness.loop.graph_coordination.trace_adapter import CoordinationTraceAdapt
 from runtime.memory.state_index import RuntimeStateIndex
 from harness import HarnessServiceHost
 from prompt_library import PromptLibraryRegistry
-from task_system import TaskFlowRegistry, TaskWorkflowRegistry
+from task_system import TaskContractRegistry, TaskFlowRegistry, TaskWorkflowRegistry
+from task_system.compiler.graph_harness_config_publisher import publish_graph_harness_config_for_graph
+from task_system.repositories import GraphHarnessConfigRepository
 from task_system.graphs.task_graph_models import TaskGraphDefinition, TaskGraphNodeDefinition
 from tests.support.runtime_stubs import RuntimeBaseDirStub
 
@@ -102,6 +104,98 @@ def _parallel_batch_api_graph() -> TaskGraphDefinition:
     )
 
 
+def _graph_config_for_test(graph: TaskGraphDefinition):
+    from harness.runtime.graph_config import build_graph_harness_config_from_runtime_spec
+    from task_system.compiler.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
+
+    return build_graph_harness_config_from_runtime_spec(
+        graph=graph,
+        runtime_spec=compile_task_graph_definition_runtime_spec(graph=graph),
+        contract_manifest={"manifest_id": f"contract-manifest:{graph.graph_id}", "valid": True},
+    )
+
+
+def test_graph_harness_config_publication_requires_explicit_graph_binding(tmp_path: Path) -> None:
+    graph = _parallel_batch_api_graph()
+    repository = GraphHarnessConfigRepository(tmp_path)
+    config = _graph_config_for_test(graph)
+
+    repository.upsert(config, publish=False)
+    assert repository.get(config.config_id) is not None
+    assert repository.get_published_for_graph(graph.graph_id) is None
+
+    repository.upsert(config, publish=True)
+    assert repository.get_published_for_graph(graph.graph_id) == config
+
+
+def test_task_graph_start_api_requires_published_config_binding(tmp_path: Path) -> None:
+    graph = _parallel_batch_api_graph()
+    backend_dir = tmp_path / "backend"
+    runtime_dir = tmp_path / "runtime"
+    registry = TaskFlowRegistry(backend_dir)
+    registry.upsert_task_graph(
+        graph_id=graph.graph_id,
+        title=graph.title,
+        graph_kind=graph.graph_kind,
+        entry_node_id=graph.entry_node_id,
+        output_node_id=graph.output_node_id,
+        nodes=tuple(node.to_dict() for node in graph.nodes),
+        runtime_policy=graph.runtime_policy,
+        publish_state="published",
+        enabled=True,
+    )
+    registry.upsert_graph_harness_config(_graph_config_for_test(graph), publish=False)
+    loop = HarnessServiceHost(runtime_dir, backend_dir=backend_dir)
+    runtime = _runtime_with_graph_task_facade(base_dir=backend_dir, loop=loop)
+
+    original = orchestration_api.require_runtime
+    orchestration_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    try:
+        try:
+            asyncio.run(
+                orchestration_api.start_task_graph_harness_run(
+                    graph.graph_id,
+                    orchestration_api.TaskGraphRunStartRequest(
+                        session_id="session:test",
+                        execute_initial_stage=False,
+                    ),
+                )
+            )
+            raised = None
+        except Exception as exc:  # noqa: BLE001 - assert the FastAPI HTTP error contract directly.
+            raised = exc
+    finally:
+        orchestration_api.require_runtime = original  # type: ignore[assignment]
+
+    assert getattr(raised, "status_code", None) == 409
+    assert "published GraphHarnessConfig" in str(getattr(raised, "detail", ""))
+
+
+def _seed_graph_module_contracts_for_test(base_dir: Path) -> None:
+    registry = TaskContractRegistry(base_dir)
+    for contract_id, title_zh, kind in (
+        ("contract.test.graph_module.handoff", "测试图模块交接", "edge_handoff"),
+        ("contract.test.graph_module.output", "测试图模块输出", "edge_handoff"),
+    ):
+        registry.upsert_contract_spec(
+            {
+                "contract_id": contract_id,
+                "title_zh": title_zh,
+                "contract_kind": kind,
+                "output_fields": [
+                    {
+                        "field_id": "artifact_refs",
+                        "title_zh": "产物引用",
+                        "field_type": "array",
+                        "required": True,
+                        "source_hint": "artifact",
+                        "visibility": "model_visible",
+                    }
+                ],
+            }
+        )
+
+
 def test_orchestration_agents_payload_keeps_removed_legacy_groups_absent(tmp_path: Path) -> None:
     TaskFlowRegistry(tmp_path).upsert_task_graph(
         graph_id="graph.test.runtime_lane",
@@ -168,8 +262,7 @@ def test_dispatch_ready_batches_api_returns_multiple_standard_requests(tmp_path:
     runtime = _runtime_with_graph_task_facade(base_dir=Path("backend"), loop=loop)
     start = loop.start_task_graph_run(
         session_id="session:test",
-        graph=graph,
-        runtime_spec=orchestration_api.compile_task_graph_definition_runtime_spec(graph=graph),
+        graph_config=_graph_config_for_test(graph),
     )
     assert start.coordination_run is not None
 
@@ -718,8 +811,9 @@ def test_finalizer_materialized_stage_artifacts_are_coordination_output_refs(tmp
 def test_graph_module_stage_scheduler_starts_and_reuses_imported_task_graph_run(tmp_path: Path) -> None:
     backend_dir = tmp_path / "backend"
     runtime_dir = tmp_path / "runtime_state"
+    _seed_graph_module_contracts_for_test(backend_dir)
     registry = TaskFlowRegistry(backend_dir)
-    registry.upsert_task_graph(
+    imported_graph = registry.upsert_task_graph(
         graph_id="graph.test.graph_module_imported_run",
         title="GraphModule 导入模块",
         graph_kind="multi_agent",
@@ -736,6 +830,7 @@ def test_graph_module_stage_scheduler_starts_and_reuses_imported_task_graph_run(
         publish_state="published",
         enabled=True,
     )
+    linked_config = publish_graph_harness_config_for_graph(base_dir=backend_dir, graph_id=imported_graph.graph_id)
     loop = HarnessServiceHost(runtime_dir, backend_dir=backend_dir)
     runtime = _runtime_with_graph_task_facade(base_dir=backend_dir, loop=loop)
     request = NodeExecutionRequest(
@@ -758,6 +853,7 @@ def test_graph_module_stage_scheduler_starts_and_reuses_imported_task_graph_run(
                 "importing_stage_id": "graph_module.block.child",
                 "importing_node_id": "graph_module.block.child",
                 "linked_graph_id": "graph.test.graph_module_imported_run",
+                "linked_config_id": linked_config.config_id,
                 "graph_module_runtime_plan_id": "graph_module_runtime.block.child",
                 "handoff_contract_id": "contract.test.graph_module.handoff",
                 "standard_input_package": {
@@ -787,6 +883,7 @@ def test_graph_module_stage_scheduler_starts_and_reuses_imported_task_graph_run(
                 "importing_stage_id": "graph_module.block.child",
                 "importing_node_id": "graph_module.block.child",
                 "linked_graph_id": "graph.test.graph_module_imported_run",
+                "linked_config_id": linked_config.config_id,
                 "graph_module_runtime_plan_id": "graph_module_runtime.block.child",
                 "handoff_contract_id": "contract.test.graph_module.handoff",
                 "standard_input_package": {
@@ -878,8 +975,9 @@ def test_graph_module_stage_scheduler_starts_and_reuses_imported_task_graph_run(
 def test_graph_module_imported_completion_commits_output_packet_and_releases_importing_stage(tmp_path: Path) -> None:
     backend_dir = tmp_path / "backend"
     runtime_dir = tmp_path / "runtime_state"
+    _seed_graph_module_contracts_for_test(backend_dir)
     registry = TaskFlowRegistry(backend_dir)
-    registry.upsert_task_graph(
+    imported_graph = registry.upsert_task_graph(
         graph_id="graph.test.imported_graph_module_commit",
         title="GraphModule 导入模块提交",
         graph_kind="multi_agent",
@@ -902,6 +1000,40 @@ def test_graph_module_imported_completion_commits_output_packet_and_releases_imp
         graph_kind="coordination",
         nodes=(
             {
+                "node_id": "graph_module.block.child",
+                "node_type": "graph_module",
+                "title": "导入模块阶段",
+                "execution_mode": "async",
+                "wait_policy": "wait_all_upstream_completed",
+                "join_policy": "all_success",
+                "executor_policy": {
+                    "default_executor": "graph_module",
+                    "allowed_executors": ["graph_module"],
+                    "linked_graph_id": "graph.test.imported_graph_module_commit",
+                    "imported_graph_id": "graph.test.imported_graph_module_commit",
+                    "auto_start_imported_initial_stage": False,
+                },
+                "contract_bindings": {
+                    "handoff": {"handoff_contract_id": "contract.test.graph_module.handoff"},
+                    "runtime": {
+                        "graph_module_runtime": {
+                            "linked_graph_id": "graph.test.imported_graph_module_commit",
+                            "version_ref": "published",
+                        }
+                    },
+                },
+                "metadata": {
+                    "graph_module": True,
+                    "linked_graph_id": "graph.test.imported_graph_module_commit",
+                    "version_ref": "published",
+                    "graph_module_runtime_plan_id": "graph_module_runtime.block.child",
+                    "handoff_contract_id": "contract.test.graph_module.handoff",
+                    "input_port_id": "input.child",
+                    "output_port_id": "output.child",
+                    "visibility_policy": "committed_only",
+                },
+            },
+            {
                 "node_id": "after_child",
                 "node_type": "agent",
                 "title": "后续节点",
@@ -919,19 +1051,6 @@ def test_graph_module_imported_completion_commits_output_packet_and_releases_imp
             },
         ),
         metadata={
-            "timeline_blocks": [
-                {
-                    "block_id": "block.child",
-                    "block_type": "imported_graph",
-                    "title": "导入模块阶段",
-                    "phase_id": "phase.child",
-                    "linked_graph_id": "graph.test.imported_graph_module_commit",
-                    "version_ref": "v1",
-                    "handoff_contract_id": "contract.test.graph_module.handoff",
-                    "input_port_id": "input.child",
-                    "output_port_id": "output.child",
-                }
-            ],
             "stage_contracts": [
                 {
                     "stage_id": "graph_module.block.child",
@@ -977,15 +1096,12 @@ def test_graph_module_imported_completion_commits_output_packet_and_releases_imp
         publish_state="published",
         enabled=True,
     )
+    parent_config = publish_graph_harness_config_for_graph(base_dir=backend_dir, graph_id=importing_graph.graph_id)
     loop = HarnessServiceHost(runtime_dir, backend_dir=backend_dir)
     runtime = _runtime_with_graph_task_facade(base_dir=backend_dir, loop=loop)
     parent_start = loop.start_task_graph_run(
         session_id="session:test",
-        graph=importing_graph,
-        runtime_spec=orchestration_api.compile_task_graph_definition_runtime_spec(
-            graph=importing_graph,
-            communication_protocol=None,
-        ),
+        graph_config=parent_config,
         initial_inputs={"user_goal": "运行导入方图"},
     )
     parent_coordination_run = parent_start.coordination_run
@@ -1174,8 +1290,9 @@ def test_graph_module_imported_result_waits_until_imported_graph_completed(tmp_p
 def test_graph_module_imported_failure_commits_failure_packet_and_uses_importing_failure_policy(tmp_path: Path) -> None:
     backend_dir = tmp_path / "backend"
     runtime_dir = tmp_path / "runtime_state"
+    _seed_graph_module_contracts_for_test(backend_dir)
     registry = TaskFlowRegistry(backend_dir)
-    registry.upsert_task_graph(
+    imported_graph = registry.upsert_task_graph(
         graph_id="graph.test.imported_graph_module_failure",
         title="GraphModule 失败导入模块",
         graph_kind="multi_agent",
@@ -1198,6 +1315,40 @@ def test_graph_module_imported_failure_commits_failure_packet_and_uses_importing
         graph_kind="coordination",
         nodes=(
             {
+                "node_id": "graph_module.block.child",
+                "node_type": "graph_module",
+                "title": "导入模块阶段",
+                "execution_mode": "async",
+                "wait_policy": "wait_all_upstream_completed",
+                "join_policy": "all_success",
+                "executor_policy": {
+                    "default_executor": "graph_module",
+                    "allowed_executors": ["graph_module"],
+                    "linked_graph_id": "graph.test.imported_graph_module_failure",
+                    "imported_graph_id": "graph.test.imported_graph_module_failure",
+                    "auto_start_imported_initial_stage": False,
+                },
+                "contract_bindings": {
+                    "handoff": {"handoff_contract_id": "contract.test.graph_module.handoff"},
+                    "runtime": {
+                        "graph_module_runtime": {
+                            "linked_graph_id": "graph.test.imported_graph_module_failure",
+                            "version_ref": "published",
+                        }
+                    },
+                },
+                "metadata": {
+                    "graph_module": True,
+                    "linked_graph_id": "graph.test.imported_graph_module_failure",
+                    "version_ref": "published",
+                    "graph_module_runtime_plan_id": "graph_module_runtime.block.child",
+                    "handoff_contract_id": "contract.test.graph_module.handoff",
+                    "input_port_id": "input.child",
+                    "output_port_id": "output.child",
+                    "visibility_policy": "committed_only",
+                },
+            },
+            {
                 "node_id": "after_child",
                 "node_type": "agent",
                 "title": "后续节点",
@@ -1216,19 +1367,6 @@ def test_graph_module_imported_failure_commits_failure_packet_and_uses_importing
             },
         ),
         metadata={
-            "timeline_blocks": [
-                {
-                    "block_id": "block.child",
-                    "block_type": "imported_graph",
-                    "title": "导入模块阶段",
-                    "phase_id": "phase.child",
-                    "linked_graph_id": "graph.test.imported_graph_module_failure",
-                    "version_ref": "v1",
-                    "handoff_contract_id": "contract.test.graph_module.handoff",
-                    "input_port_id": "input.child",
-                    "output_port_id": "output.child",
-                }
-            ],
             "stage_contracts": [
                 {
                     "stage_id": "graph_module.block.child",
@@ -1264,15 +1402,12 @@ def test_graph_module_imported_failure_commits_failure_packet_and_uses_importing
         publish_state="published",
         enabled=True,
     )
+    parent_config = publish_graph_harness_config_for_graph(base_dir=backend_dir, graph_id=importing_graph.graph_id)
     loop = HarnessServiceHost(runtime_dir, backend_dir=backend_dir)
     runtime = _runtime_with_graph_task_facade(base_dir=backend_dir, loop=loop)
     parent_start = loop.start_task_graph_run(
         session_id="session:test",
-        graph=importing_graph,
-        runtime_spec=orchestration_api.compile_task_graph_definition_runtime_spec(
-            graph=importing_graph,
-            communication_protocol=None,
-        ),
+        graph_config=parent_config,
         initial_inputs={"user_goal": "运行导入方图"},
     )
     parent_coordination_run = parent_start.coordination_run
@@ -1380,9 +1515,6 @@ def test_task_system_overview_exposes_formal_task_management_layers(tmp_path: Pa
 
     assert payload["authority"] == "task_system.management_console"
     assert summary["specific_task_record_count"] == len(task_management["specific_task_records"])
-    assert "projection_binding_count" not in summary
-    assert "derived_projection_binding_count" not in summary
-    assert "effective_projection_binding_count" not in summary
     assert summary["flow_contract_binding_count"] == 0
     assert summary["derived_flow_contract_binding_count"] == len(task_management["flow_contract_bindings"])
     assert summary["effective_flow_contract_binding_count"] == len(task_management["flow_contract_bindings"])
@@ -1396,7 +1528,6 @@ def test_task_system_overview_exposes_formal_task_management_layers(tmp_path: Pa
     assert all("writing" not in str(item.get("domain_id") or "") for item in task_management["task_domains"])
     assert all("writing" not in str(item.get("task_id") or "") for item in task_management["specific_task_records"])
     assert all("writing" not in str(item.get("flow_id") or "") for item in task_management["task_flow_definitions"])
-    assert "projection_bindings" not in task_management
     assert all("writing" not in str(item.get("task_id") or "") for item in task_management["flow_contract_bindings"])
     assert all("writing" not in str(item.get("task_id") or "") for item in task_management["execution_policies"])
     assert task_graph_management["communication_protocols"] == []
@@ -1529,7 +1660,6 @@ def test_specific_task_delete_cascades_task_assembly_objects(tmp_path: Path) -> 
     task_management = payload["task_management"]
 
     assert all(item["task_id"] != "task.research.experiment" for item in task_management["specific_task_records"])
-    assert "projection_bindings" not in task_management
     assert all(item["task_id"] != "task.research.experiment" for item in task_management["flow_contract_bindings"])
     assert all(item["task_id"] != "task.research.experiment" for item in task_management["execution_policies"])
     assert all(item["workflow_id"] != "workflow.900102" for item in task_management["workflow_resources"])
@@ -1655,21 +1785,39 @@ def test_task_graph_execution_package_expands_graph_module_imported_plan(tmp_pat
         graph_id="graph.test.importing_execution_plan",
         title="图模块导入执行计划",
         graph_kind="coordination",
-        metadata={
-            "timeline_blocks": [
-                {
-                    "block_id": "block.child",
-                    "block_type": "imported_graph",
-                    "title": "图模块阶段",
-                    "phase_id": "phase.child",
+        nodes=(
+            {
+                "node_id": "graph_module.block.child",
+                "node_type": "graph_module",
+                "title": "图模块阶段",
+                "phase_id": "phase.child",
+                "executor_policy": {
+                    "default_executor": "graph_module",
+                    "allowed_executors": ["graph_module"],
+                    "linked_graph_id": "graph.test.child_execution_plan",
+                    "imported_graph_id": "graph.test.child_execution_plan",
+                },
+                "contract_bindings": {
+                    "handoff": {"handoff_contract_id": "contract.agent_output.markdown"},
+                    "runtime": {
+                        "graph_module_runtime": {
+                            "linked_graph_id": "graph.test.child_execution_plan",
+                            "version_ref": "v1",
+                        }
+                    },
+                },
+                "metadata": {
+                    "graph_module": True,
                     "linked_graph_id": "graph.test.child_execution_plan",
                     "version_ref": "v1",
+                    "graph_module_runtime_plan_id": "graph_module_runtime.block.child",
                     "handoff_contract_id": "contract.agent_output.markdown",
                     "input_port_id": "input.child",
                     "output_port_id": "output.child",
-                }
-            ],
-        },
+                    "visibility_policy": "committed_only",
+                },
+            },
+        ),
         publish_state="published",
         enabled=True,
     )
@@ -1707,19 +1855,37 @@ def test_task_graph_execution_package_reports_missing_graph_module_imported_grap
         graph_id="graph.test.importing_missing_module",
         title="导入图模块缺失",
         graph_kind="coordination",
-        metadata={
-            "timeline_blocks": [
-                {
-                    "block_id": "block.missing",
-                    "block_type": "imported_graph",
-                    "title": "缺失图模块阶段",
-                    "phase_id": "phase.child",
+        nodes=(
+            {
+                "node_id": "graph_module.block.missing",
+                "node_type": "graph_module",
+                "title": "缺失图模块阶段",
+                "phase_id": "phase.child",
+                "executor_policy": {
+                    "default_executor": "graph_module",
+                    "allowed_executors": ["graph_module"],
+                    "linked_graph_id": "graph.test.missing_child",
+                    "imported_graph_id": "graph.test.missing_child",
+                },
+                "contract_bindings": {
+                    "handoff": {"handoff_contract_id": "contract.agent_output.markdown"},
+                    "runtime": {
+                        "graph_module_runtime": {
+                            "linked_graph_id": "graph.test.missing_child",
+                            "version_ref": "v1",
+                        }
+                    },
+                },
+                "metadata": {
+                    "graph_module": True,
                     "linked_graph_id": "graph.test.missing_child",
                     "version_ref": "v1",
+                    "graph_module_runtime_plan_id": "graph_module_runtime.block.missing",
                     "handoff_contract_id": "contract.agent_output.markdown",
-                }
-            ],
-        },
+                    "visibility_policy": "committed_only",
+                },
+            },
+        ),
         publish_state="published",
         enabled=True,
     )
@@ -1794,7 +1960,6 @@ def test_task_system_formal_object_upserts_persist_and_return_management_payload
     execution_policy = registry.get_task_execution_policy("task.dev.light_web_game")
     protocol = registry.get_task_communication_protocol("protocol.dev.parallel_review")
 
-    assert "projection_bindings" not in flow_contract_payload["task_management"]
     assert flow_contract_payload["task_management"]["flow_contract_bindings"]
     assert execution_payload["task_management"]["execution_policies"]
     assert protocol_payload["task_graph_management"]["communication_protocols"]
@@ -1927,7 +2092,6 @@ def test_task_system_specific_record_is_canonical_and_assignment_becomes_compat_
                     acceptance_profile_id="accept.game.delivery",
                     default_flow_contract_id="flow.dev.light_web_game",
                     default_workflow_id="workflow.dev.light_web_game",
-                    default_projection_policy="workflow_compatible_or_task_default",
                     task_policy={
                         "safety_policy": {"verification_mode": "qa_required"},
                         "task_structure": {"memory_scope_hint": "conversation_readonly"},

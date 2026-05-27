@@ -66,7 +66,6 @@ def graph_module_runtime_plans_from_layered_graph(
                 },
             )
         )
-    plans.extend(_timeline_block_runtime_plans(graph=graph, layered_graph=layered_graph, seen=seen))
     return plans
 
 
@@ -74,7 +73,7 @@ def runtime_nodes_from_graph_module_runtime_plans(plans: list[TaskGraphModuleRun
     return [
         TaskGraphRuntimeNode(
             node_id=plan.runtime_node_id,
-            title=str(dict(plan.metadata or {}).get("raw_node", {}).get("title") or dict(plan.metadata or {}).get("raw_block", {}).get("title") or plan.linked_graph_id or plan.runtime_node_id),
+            title=str(dict(plan.metadata or {}).get("raw_node", {}).get("title") or plan.linked_graph_id or plan.runtime_node_id),
             node_type="graph_module",
             role="graph_module",
             task_id=f"task_graph.node.{plan.importing_graph_id}.{plan.runtime_node_id}",
@@ -167,58 +166,6 @@ def graph_module_runtime_plan_issues(plans: list[TaskGraphModuleRuntimePlan]) ->
     return issues
 
 
-def _timeline_block_runtime_plans(
-    *,
-    graph: TaskGraphDefinition,
-    layered_graph: dict[str, Any],
-    seen: set[str],
-) -> list[TaskGraphModuleRuntimePlan]:
-    plans: list[TaskGraphModuleRuntimePlan] = []
-    for index, raw_block in enumerate(list(layered_graph.get("timeline_blocks") or []), start=1):
-        if not isinstance(raw_block, dict):
-            continue
-        block = dict(raw_block)
-        linked_graph_id = str(block.get("linked_graph_id") or "").strip()
-        if not linked_graph_id:
-            continue
-        block_id = str(block.get("block_id") or f"timeline_block_{index}").strip() or f"timeline_block_{index}"
-        plan_id = f"graph_module_runtime.{_safe_runtime_identifier(block_id)}"
-        if plan_id in seen:
-            continue
-        seen.add(plan_id)
-        runtime_node_id = f"graph_module.{_safe_runtime_identifier(block_id)}"
-        plans.append(
-            TaskGraphModuleRuntimePlan(
-                plan_id=plan_id,
-                importing_graph_id=graph.graph_id,
-                unit_id=f"unit.graph.{_safe_runtime_identifier(block_id)}",
-                runtime_node_id=runtime_node_id,
-                linked_graph_id=linked_graph_id,
-                version_ref=str(block.get("version_ref") or "").strip(),
-                handoff_contract_id=_timeline_block_handoff_contract_id(block),
-                input_port_id=str(block.get("input_port_id") or "input.default").strip() or "input.default",
-                output_port_id=str(block.get("output_port_id") or "output.default").strip() or "output.default",
-                isolation_policy=str(block.get("isolation_policy") or "isolated_per_graph_module_run").strip() or "isolated_per_graph_module_run",
-                visibility_policy=str(block.get("visibility_policy") or "committed_only").strip() or "committed_only",
-                detach_policy=str(block.get("detach_policy") or "preserve_version_anchor").strip() or "preserve_version_anchor",
-                phase_id=str(block.get("phase_id") or "").strip(),
-                sequence_index=int(block.get("sequence_index") or index),
-                metadata={
-                    "timeline_block_id": block_id,
-                    "block_type": str(block.get("block_type") or "").strip(),
-                    "entry_node_id": str(block.get("entry_node_id") or "").strip(),
-                    "exit_node_id": str(block.get("exit_node_id") or "").strip(),
-                    "source_authority": str(block.get("authority") or "task_system.timeline_block"),
-                    "migration_only": True,
-                    "contract_bindings": dict(block.get("contract_bindings") or {}),
-                    "legacy_contract_fields": dict(dict(block.get("metadata") or {}).get("legacy_contract_fields") or {}),
-                    "raw_block": block,
-                },
-            )
-        )
-    return plans
-
-
 def _merge_explicit_graph_module_node(
     *,
     explicit: TaskGraphRuntimeNode,
@@ -279,11 +226,3 @@ def _safe_runtime_identifier(value: str) -> str:
     sanitized = str(value or "").strip().replace(":", ".").replace("/", ".").replace("\\", ".")
     sanitized = ".".join(part for part in sanitized.split(".") if part)
     return sanitized or "unknown"
-
-
-def _timeline_block_handoff_contract_id(block: dict[str, Any]) -> str:
-    bindings = dict(block.get("contract_bindings") or {})
-    handoff = dict(bindings.get("handoff") or {})
-    return str(handoff.get("handoff_contract_id") or block.get("handoff_contract_id") or "").strip()
-
-

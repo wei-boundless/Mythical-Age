@@ -31,6 +31,7 @@ def resolve_specific_task_assembly_policy(
         metadata.get("environment_id"),
         task_policy.get("task_environment_id"),
         task_policy.get("environment_id"),
+        getattr(task_record, "domain_id", ""),
     )
     flow_ref = _first_value(
         selection.get("flow_ref"),

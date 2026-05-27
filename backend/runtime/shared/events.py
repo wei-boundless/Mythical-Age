@@ -17,8 +17,6 @@ RuntimeEventType = Literal[
     "coordination_node_run_updated",
     "handoff_envelope_created",
     "coordination_merge_result_created",
-    "agent_dispatch_plan_compiled",
-    "agent_notification_queued",
     "coordination_flow_registered",
     "coordination_flow_finalized",
     "coordination_stage_updated",

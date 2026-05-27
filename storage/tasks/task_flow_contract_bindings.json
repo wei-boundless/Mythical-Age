@@ -352,18 +352,6 @@
       "authority": "task_system.task_flow_contract_binding"
     },
     {
-      "binding_id": "taskflowbind:task.000001",
-      "task_id": "task.000001",
-      "flow_contract_id": "flow.000001",
-      "override_policy": "task_default",
-      "verification_gate_profile": "",
-      "fallback_policy": "fail_closed",
-      "metadata": {
-        "derived_from": "specific_task_record"
-      },
-      "authority": "task_system.task_flow_contract_binding"
-    },
-    {
       "binding_id": "taskflowbind:task.writing.modular_novel.node.memory_finalize",
       "task_id": "task.writing.modular_novel.node.memory_finalize",
       "flow_contract_id": "flow.writing.modular_novel.node.memory_finalize",
@@ -373,6 +361,18 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "node_id": "memory_finalize"
+      },
+      "authority": "task_system.task_flow_contract_binding"
+    },
+    {
+      "binding_id": "taskflowbind:task.000001",
+      "task_id": "task.000001",
+      "flow_contract_id": "flow.000001",
+      "override_policy": "task_default",
+      "verification_gate_profile": "",
+      "fallback_policy": "fail_closed",
+      "metadata": {
+        "derived_from": "specific_task_record"
       },
       "authority": "task_system.task_flow_contract_binding"
     }

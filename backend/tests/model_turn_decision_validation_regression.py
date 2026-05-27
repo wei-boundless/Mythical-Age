@@ -115,7 +115,7 @@ def test_model_turn_decision_accepts_resource_contract() -> None:
     assert validation["decision_status"] == "accepted"
 
 
-def test_fallback_model_turn_decision_blocks_without_system_authored_plan() -> None:
+def test_fallback_model_turn_decision_is_unresolved_without_system_authored_plan() -> None:
     message = (
         "请接手这个已有浏览器肉鸽游戏项目，扩展成一个完整的五关剧情战役版本，并加入成长机制和 Boss 战。\n\n"
         "只读源项目在：\n"
@@ -140,10 +140,11 @@ def test_fallback_model_turn_decision_blocks_without_system_authored_plan() -> N
         diagnostics={"validation_errors": ["interaction_intent_required"]},
     )
 
-    assert diagnostics["decision_status"] == "blocked"
+    assert diagnostics["decision_status"] == "unresolved"
     assert diagnostics["fallback_understanding_removed"] is True
-    assert decision["action_intent"] == "block"
-    assert decision["task_goal_type"] == "blocked"
+    assert decision["action_intent"] == "ask_clarification"
+    assert decision["task_goal_type"] == "clarification"
+    assert decision["needs_clarification"] is True
     assert decision["resource_contract"] == {}
     assert "task_domain" not in decision
 
@@ -160,7 +161,7 @@ def test_unregistered_goal_type_is_not_rewritten_by_runtime_keywords() -> None:
     assert payload["diagnostics"]["supported_task_goal_types_required"] is True
 
 
-def test_model_turn_decision_provider_failure_blocks_without_executable_fallback() -> None:
+def test_model_turn_decision_provider_failure_reports_runtime_error_without_executable_fallback() -> None:
     message = (
         "请接手已有浏览器游戏项目，目标输出目录 frontend/public/games/arcane_dungeon_studio，"
         "必须写入 index.html、styles.css、game.js、README.md，并加入五关、成长和 Boss。"
@@ -175,9 +176,9 @@ def test_model_turn_decision_provider_failure_blocks_without_executable_fallback
         )
     )
 
-    assert diagnostics["decision_status"] == "blocked"
-    assert diagnostics["fallback_understanding_removed"] is True
-    assert decision["action_intent"] == "block"
+    assert diagnostics["decision_status"] == "runtime_error"
+    assert decision["action_intent"] == "ask_clarification"
+    assert decision["needs_clarification"] is True
     assert decision["resource_contract"] == {}
 
 

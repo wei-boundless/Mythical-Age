@@ -25,6 +25,11 @@ def test_harness_service_host_stop_can_write_checkpoint(tmp_path) -> None:
             updated_at=timestamp,
         )
     )
+    initial_event = host.event_log.append(
+        task_run_id,
+        "loop_iteration",
+        payload={"seed": "test"},
+    )
     host.checkpoints.write(
         HarnessLoopState(
             task_run_id=task_run_id,
@@ -32,7 +37,7 @@ def test_harness_service_host_stop_can_write_checkpoint(tmp_path) -> None:
             transition="loop_iteration",
             diagnostics={"seed": "test"},
         ),
-        event_offset=0,
+        event_offset=initial_event.offset,
     )
 
     checkpoint = host.checkpoints.load_latest(task_run_id)
@@ -46,7 +51,17 @@ def test_harness_service_host_stop_can_write_checkpoint(tmp_path) -> None:
             "stop_request": {"reason": "user_aborted", "message": "test"},
         },
     )
-    checkpoint_event = host._write_checkpoint_event(loop_state, event_offset=checkpoint.event_offset)
+    stop_event = host.event_log.append(
+        task_run_id,
+        "task_run_stopped",
+        payload={"reason": "user_aborted"},
+    )
+    checkpoint_event = host._write_checkpoint_event(loop_state, event_offset=stop_event.offset)
+    refreshed = host.checkpoints.load_latest(task_run_id)
+
     assert checkpoint_event.refs["checkpoint_ref"]
+    assert refreshed is not None
+    assert refreshed.event_offset == stop_event.offset
+    assert refreshed.event_offset != checkpoint.event_offset
 
 

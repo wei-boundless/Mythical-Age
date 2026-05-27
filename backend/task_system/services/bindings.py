@@ -13,7 +13,7 @@ class TaskBindingRecord:
     enabled: bool = True
     source: str = "builtin"
     agent_profile_id: str = ""
-    projection_selector: str = "task_default"
+    prompt_role_selector: str = "task_default"
     skill_scope: tuple[str, ...] = ()
     denied_skills: tuple[str, ...] = ()
     required_operations: tuple[str, ...] = ()
@@ -47,7 +47,7 @@ def default_task_binding(definition: TaskDefinition) -> TaskBindingRecord:
     return TaskBindingRecord(
         binding_id=f"binding:{definition.definition_id}:builtin",
         definition_id=definition.definition_id,
-        projection_selector=definition.default_projection_role or "task_default",
+        prompt_role_selector=definition.default_prompt_role or "task_default",
         skill_scope=definition.default_skill_refs,
         required_operations=required_operations,
         denied_operations=denied_operations,
@@ -63,7 +63,7 @@ def merge_task_bindings(bindings: list[TaskBindingRecord]) -> TaskBindingRecord:
         definition_id="+".join(binding.definition_id for binding in bindings),
         enabled=all(binding.enabled for binding in bindings),
         source="merged_runtime",
-        projection_selector=bindings[-1].projection_selector,
+        prompt_role_selector=bindings[-1].prompt_role_selector,
         skill_scope=tuple(_dedupe([skill for binding in bindings for skill in binding.skill_scope])),
         denied_skills=tuple(_dedupe([skill for binding in bindings for skill in binding.denied_skills])),
         required_operations=tuple(_dedupe([operation for binding in bindings for operation in binding.required_operations])),

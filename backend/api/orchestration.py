@@ -29,7 +29,6 @@ from runtime.agent_assembly import (
     stage_execution_request_from_runtime_control,
 )
 from harness.execution.node_protocol.node_execution_request import NodeExecutionRequest
-from task_system.compiler.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
 from task_system import TaskFlowRegistry
 from sessions import InvalidSessionId, validate_session_id
 
@@ -60,7 +59,6 @@ class CoordinationRunRewindRequest(BaseModel):
     artifact_root: str = Field(default="", max_length=500)
     include_downstream: bool = True
     move_artifacts: bool = True
-    refresh_graph_spec: bool = True
     continue_after_rewind: bool = True
     current_turn_context: dict[str, Any] = Field(default_factory=dict)
 
@@ -69,7 +67,6 @@ class TaskGraphRunStartRequest(BaseModel):
     session_id: str = Field(default="task_graph_studio", max_length=180)
     task_id: str = Field(default="", max_length=180)
     initial_inputs: dict[str, Any] = Field(default_factory=dict)
-    require_published: bool = True
     include_trace: bool = True
     execute_initial_stage: bool = True
 
@@ -81,26 +78,16 @@ async def start_task_graph_harness_run(
 ) -> dict[str, Any]:
     runtime = require_runtime()
     registry = TaskFlowRegistry(runtime.base_dir)
-    graph = registry.get_task_graph(graph_id)
-    if graph is None:
-        raise HTTPException(status_code=404, detail="TaskGraph not found")
-    if payload.require_published and graph.publish_state != "published":
-        raise HTTPException(status_code=409, detail="TaskGraph must be published before run start")
-    protocol = registry.get_task_communication_protocol(
-        str(graph.default_protocol_id or dict(graph.metadata or {}).get("protocol_id") or "")
-    )
-    runtime_spec = compile_task_graph_definition_runtime_spec(
-        graph=graph,
-        specific_tasks=tuple(registry.list_specific_task_records()),
-        communication_protocol=protocol,
-    )
-    blocking_issues = [issue.to_dict() for issue in runtime_spec.issues if issue.severity == "error"]
-    if blocking_issues:
+    graph_config = registry.get_published_graph_harness_config(graph_id)
+    if graph_config is None:
+        graph = registry.get_task_graph(graph_id)
+        if graph is None:
+            raise HTTPException(status_code=404, detail="TaskGraph not found")
         raise HTTPException(
             status_code=409,
             detail={
-                "message": "TaskGraph runtime spec has blocking issues",
-                "issues": blocking_issues,
+                "message": "TaskGraph has no published GraphHarnessConfig; publish the graph config before run start.",
+                "graph_id": graph_id,
             },
         )
     session_id = payload.session_id.strip() or "task_graph_studio"
@@ -112,12 +99,10 @@ async def start_task_graph_harness_run(
     start = graph_harness.start_run(
         session_id=session_id,
         task_id=payload.task_id.strip(),
-        graph=graph,
-        runtime_spec=runtime_spec,
+        graph_config=graph_config,
         initial_inputs=dict(payload.initial_inputs or {}),
         diagnostics={
             "source": "harness.task_graph_start_api",
-            "require_published": payload.require_published,
         },
     )
     stage_execution_request = dict(start.loop_state.diagnostics.get("stage_execution_request") or {})
@@ -137,8 +122,9 @@ async def start_task_graph_harness_run(
                 node_work_order=node_work_order,
                 current_turn_context={
                     "authority": "context.task_graph_start",
-                    "task_graph_id": graph.graph_id,
-                    "selected_graph_id": graph.graph_id,
+                    "task_graph_id": graph_config.graph_id,
+                    "selected_graph_id": graph_config.graph_id,
+                    "graph_harness_config_id": graph_config.config_id,
                     "explicit_inputs": dict(payload.initial_inputs or {}),
                 },
             )
@@ -150,13 +136,14 @@ async def start_task_graph_harness_run(
             }
     return {
         "authority": "orchestration.task_graph_run_start",
-        "graph_id": graph.graph_id,
+        "graph_id": graph_config.graph_id,
+        "graph_harness_config_id": graph_config.config_id,
         "task_run_id": start.task_run.task_run_id,
         "coordination_run_id": start.coordination_run.coordination_run_id if start.coordination_run is not None else "",
         "task_run": start.task_run.to_dict(),
         "coordination_run": start.coordination_run.to_dict() if start.coordination_run is not None else None,
         "checkpoint": start.checkpoint.to_dict(),
-        "runtime_spec": runtime_spec.to_dict(),
+        "graph_harness_config": graph_config.to_dict(),
         "stage_execution_request": stage_execution_request or None,
         "node_work_order": node_work_order or None,
         "initial_stage_execution_events": initial_stage_execution_events,
@@ -650,7 +637,6 @@ async def rewind_coordination_run_from_stage(
             "artifact_root": artifact_root,
             "rewind_invalidated_artifacts": moved_artifacts,
         },
-        refresh_graph_spec=payload.refresh_graph_spec,
     )
     if result.diagnostics.get("reason") == "missing_coordination_run":
         raise HTTPException(status_code=404, detail="CoordinationRun not found")

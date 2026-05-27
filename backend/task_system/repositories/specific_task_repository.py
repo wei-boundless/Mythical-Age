@@ -82,7 +82,6 @@ class SpecificTaskRepository:
         acceptance_profile_id: str = "",
         default_flow_contract_id: str = "",
         default_workflow_id: str = "",
-        default_projection_policy: str = "",
         task_policy: dict[str, object] | None = None,
         metadata: dict[str, object] | None = None,
     ) -> SpecificTaskRecord:
@@ -101,7 +100,6 @@ class SpecificTaskRepository:
             acceptance_profile_id=str(acceptance_profile_id or "").strip(),
             default_flow_contract_id=str(default_flow_contract_id or "").strip(),
             default_workflow_id=str(default_workflow_id or "").strip(),
-            default_projection_policy=str(default_projection_policy or "").strip(),
             task_policy=dict(task_policy or {}),
             metadata=dict(metadata or {}),
         )
@@ -157,7 +155,6 @@ def _specific_task_record_from_payload(item: dict[str, object]) -> SpecificTaskR
         acceptance_profile_id=str(item.get("acceptance_profile_id") or ""),
         default_flow_contract_id=str(item.get("default_flow_contract_id") or ""),
         default_workflow_id=str(item.get("default_workflow_id") or ""),
-        default_projection_policy=str(item.get("default_projection_policy") or ""),
         task_policy=dict(item.get("task_policy") or {}),
         metadata=dict(item.get("metadata") or {}),
     )

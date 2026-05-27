@@ -242,7 +242,6 @@ async def run_agent_turn_loop(
             health_issue_ref=state.health_issue_ref,
             memory_state_ref=state.memory_state_ref,
             context_snapshot_ref=state.context_snapshot_ref,
-            projection_ref=state.projection_ref,
             prompt_manifest_ref=state.prompt_manifest_ref,
             token_pressure=dict(state.token_pressure),
             diagnostics=dict(state.diagnostics),

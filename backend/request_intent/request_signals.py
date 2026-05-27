@@ -12,23 +12,17 @@ from .memory_intent import MemoryIntent
 class TurnSignals:
     explicit_paths: tuple[str, ...] = ()
     material_suffixes: tuple[str, ...] = ()
-    raw_action_markers: tuple[str, ...] = ()
-    raw_constraint_markers: tuple[str, ...] = ()
     weak_capability_needs: tuple[str, ...] = ()
-    followup_markers: tuple[str, ...] = ()
     memory_recall_marker: bool = False
     memory_write_marker: bool = False
-    authority: str = "request_facts.structural_markers"
+    authority: str = "request_facts.structural_facts"
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         for key in (
             "explicit_paths",
             "material_suffixes",
-            "raw_action_markers",
-            "raw_constraint_markers",
             "weak_capability_needs",
-            "followup_markers",
         ):
             payload[key] = list(payload[key])
         return payload
@@ -118,14 +112,10 @@ def _signals_from_facts(facts: RequestFacts, *, memory_intent: MemoryIntent | No
         capability_needs.append("code_material")
     if bool(memory_intent is not None and getattr(memory_intent, "should_skip_rag", False)):
         capability_needs.append("memory_candidate")
-    followup = tuple(marker for marker in facts.raw_action_markers if marker in {"继续"})
     return TurnSignals(
         explicit_paths=tuple(facts.explicit_paths or ()),
         material_suffixes=suffixes,
-        raw_action_markers=tuple(facts.raw_action_markers or ()),
-        raw_constraint_markers=tuple(facts.raw_constraint_markers or ()),
         weak_capability_needs=tuple(_dedupe(capability_needs)),
-        followup_markers=followup,
         memory_recall_marker=bool(memory_intent is not None and getattr(memory_intent, "should_skip_rag", False)),
         memory_write_marker=bool(memory_intent is not None and getattr(memory_intent, "explicit_write_request", False)),
     )
@@ -165,12 +155,6 @@ def _context_binding(*, facts: RequestFacts, signals: TurnSignals) -> dict[str, 
     selection = dict(facts.explicit_selection or {})
     if selection:
         return selection
-    if signals.followup_markers:
-        return {
-            "kind": "continuation_candidate",
-            "source": "raw_marker",
-            "markers": list(signals.followup_markers),
-        }
     return {"kind": "current_turn"}
 
 
@@ -178,12 +162,8 @@ def _confidence(*, facts: RequestFacts, signals: TurnSignals) -> float:
     score = 0.34
     if facts.explicit_paths:
         score += 0.18
-    if signals.raw_constraint_markers:
-        score += 0.1
     if signals.weak_capability_needs:
         score += 0.08
-    if signals.followup_markers:
-        score += 0.06
     return min(score, 0.72)
 
 

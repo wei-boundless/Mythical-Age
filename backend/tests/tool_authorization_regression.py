@@ -667,6 +667,8 @@ def test_harness_service_host_approves_pending_approval_with_bound_token_and_gat
 
     assert result["decision"] == "approved"
     assert result["resume_result"]["executed"] is True
+    assert result["resume_status"] == "awaiting_agent_followup"
+    assert result["task_run_status"] == "running"
     assert len(executor.calls) == 1
     call = executor.calls[0]
     assert call["task_run_id"] == task_run.task_run_id
@@ -690,8 +692,12 @@ def test_harness_service_host_approves_pending_approval_with_bound_token_and_gat
     )
     assert resume_gate_event["payload"]["tool_supervision"]["authority"] == "runtime.tooling.tool_supervisor"
     assert stored is not None
-    assert stored.status == "completed"
+    assert stored.status == "running"
+    assert stored.terminal_reason == ""
     assert checkpoint is not None
+    assert checkpoint.loop_state.status == "running"
+    assert checkpoint.loop_state.terminal_reason == ""
+    assert checkpoint.loop_state.transition == "continue_after_approval"
     assert checkpoint.loop_state.pending_approval_state["status"] == "approved"
     token = checkpoint.loop_state.pending_approval_state["approval_token"]
     assert token["operation_id"] == "op.write_file"

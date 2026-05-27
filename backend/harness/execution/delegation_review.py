@@ -54,8 +54,10 @@ def parse_model_only_review_payload(content: str) -> dict[str, Any]:
 def child_system_prompt(agent: Any | None, profile: Any | None) -> str:
     description = str(getattr(agent, "description", "") or "").strip()
     operations = ", ".join(str(item) for item in tuple(getattr(profile, "allowed_operations", ()) or ()))
+    metadata = dict(getattr(profile, "metadata", {}) or {})
+    role_prompt = str(metadata.get("role_prompt") or metadata.get("professional_prompt") or "").strip()
     lines: list[str] = []
-    lines.append(description or "你是一名受限子 Agent，只负责完成委派给你的边界化任务。")
+    lines.append(role_prompt or description or "你是一名受限子 Agent，只负责完成委派给你的边界化任务。")
     if profile_requires_model_only_review(profile):
         lines.extend(
             [

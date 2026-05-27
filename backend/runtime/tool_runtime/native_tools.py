@@ -521,6 +521,7 @@ class NativeTerminalTool(_NativeToolBase):
 
     def _call_sync(self, args: dict[str, Any], context: ToolUseContext) -> ToolResultEnvelope:
         command = str(args.get("command") or "").strip()
+        structured_payload = _tool_call_structured_payload(args)
         blocked_reason = validate_sandbox_command_text(command, kind="command")
         if blocked_reason:
             receipt = {"command": command, "exit_code": 1, "passed": False, "output_preview": blocked_reason}
@@ -528,6 +529,7 @@ class NativeTerminalTool(_NativeToolBase):
                 tool_args=args,
                 status="error",
                 text=blocked_reason,
+                structured_payload=structured_payload,
                 command_receipt=receipt,
                 execution_receipt=context.execution_receipt,
             )
@@ -551,6 +553,7 @@ class NativeTerminalTool(_NativeToolBase):
                 tool_args=args,
                 status="ok" if execution.exit_code == 0 else "error",
                 text=execution.output,
+                structured_payload=structured_payload,
                 command_receipt={"command": command, **execution.receipt},
                 execution_receipt=context.execution_receipt,
             )
@@ -575,6 +578,7 @@ class NativeTerminalTool(_NativeToolBase):
             tool_args=args,
             status="ok" if exit_code == 0 else "error",
             text=text,
+            structured_payload=structured_payload,
             command_receipt=receipt,
             execution_receipt=context.execution_receipt,
         )
@@ -1185,6 +1189,20 @@ def _overwrite_intent_is_explicit(args: dict[str, Any], existing: Path, context:
             relative = ""
         return relative == artifact_root or relative.startswith(f"{artifact_root}/")
     return False
+
+
+def _tool_call_structured_payload(args: dict[str, Any]) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    verification_intent = args.get("verification_intent")
+    if isinstance(verification_intent, dict) and verification_intent:
+        payload["verification_intent"] = dict(verification_intent)
+    acceptance = args.get("acceptance")
+    if isinstance(acceptance, dict) and acceptance:
+        payload["acceptance"] = dict(acceptance)
+    acceptance_checks = args.get("acceptance_checks")
+    if isinstance(acceptance_checks, dict) and acceptance_checks:
+        payload["acceptance_checks"] = dict(acceptance_checks)
+    return payload
 
 
 def _file_sha256(path: Path) -> str:

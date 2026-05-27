@@ -155,6 +155,28 @@ async def run_agent_invocation_stream(
             "diagnostics": model_turn_diagnostics,
         }
         return
+    if agent_turn_context.model_turn_unresolved:
+        unresolved_event = runtime_host.event_log.append(
+            f"task-run:{task_id}",
+            "model_turn_decision_unresolved",
+            payload={
+                "reason": str(model_turn_diagnostics.get("unresolved_reason") or model_turn_diagnostics.get("block_reason") or ""),
+                "decision_status": str(model_turn_diagnostics.get("decision_status") or ""),
+                "model_turn_decision": model_turn_decision,
+                "diagnostics": model_turn_diagnostics,
+            },
+        )
+        yield {"type": "harness_loop_event", "event": unresolved_event.to_dict()}
+        yield {
+            "type": "error",
+            "error": "Model turn decision unresolved.",
+            "code": "model_turn_decision_unresolved",
+            "terminal_reason": "model_turn_decision_unresolved",
+            "content": str(model_turn_decision.get("clarification_question") or "本轮任务理解未稳定建立，需要补充信息或重试理解决策。"),
+            "model_turn_decision": model_turn_decision,
+            "diagnostics": model_turn_diagnostics,
+        }
+        return
     assembly = build_agent_runtime_assembly(
         runtime_host=runtime_host,
         agent_runtime_chain=agent_runtime_chain,
@@ -211,18 +233,6 @@ async def run_agent_invocation_stream(
         runtime_lane=str(agent_runtime_spec_payload.get("runtime_lane") or "standard_task"),
         task_agent_binding_ref=str(task_execution_assembly_payload.get("task_agent_binding_ref") or ""),
         execution_mode=execution_mode,
-        graph_ref=str(
-            task_graph_payload.get("graph_id")
-            or graph_payload.get("graph_id")
-            or graph_payload.get("task_graph_id")
-            or ""
-        ),
-        coordinator_agent_id=str(graph_payload.get("coordinator_agent_id") or ""),
-        topology_template_id=str(graph_payload.get("topology_template_id") or ""),
-        communication_protocol_id=str(task_communication_protocol_payload.get("protocol_id") or ""),
-        handoff_policy=str(graph_payload.get("handoff_policy") or ""),
-        failure_policy=str(graph_payload.get("conflict_resolution_policy") or ""),
-        merge_policy=str(graph_payload.get("output_merge_policy") or ""),
         diagnostics={
             "runtime_channel": "agent_runtime",
             "search_policy": list(search_policy) if search_policy is not None else None,
@@ -384,6 +394,13 @@ async def run_agent_invocation_stream(
     final_answer_metadata = phase_outcome.final_answer_metadata
     run_outcome = phase_outcome.run_outcome or run_outcome
     terminal_reason = phase_outcome.terminal_reason
+    completion_judgment = dict(
+        dict(run_outcome or {}).get("completion_judgment")
+        or dict(final_answer_metadata or {}).get("completion_judgment")
+        or {}
+    )
+    completion_gate_required = bool(completion_judgment)
+    completion_allowed = (not completion_gate_required) or bool(completion_judgment.get("completion_allowed") is True)
     
     artifact_validation = validate_required_artifact_file(
         root_dir=runtime_host.root_dir,
@@ -425,7 +442,7 @@ async def run_agent_invocation_stream(
     }
     terminal_status = (
         "completed"
-        if terminal_reason == "completed"
+        if terminal_reason == "completed" and completion_allowed
         else "completed"
         if terminal_reason in partial_terminal_reasons and final_content
         else "blocked"

@@ -22,8 +22,6 @@ class RequestFacts:
     source: str = ""
     explicit_paths: tuple[str, ...] = ()
     material_suffixes: tuple[str, ...] = ()
-    raw_action_markers: tuple[str, ...] = ()
-    raw_constraint_markers: tuple[str, ...] = ()
     explicit_selection: dict[str, Any] = field(default_factory=dict)
     diagnostics: dict[str, Any] = field(default_factory=dict)
     authority: str = "agent_runtime.request_facts"
@@ -32,8 +30,6 @@ class RequestFacts:
         payload = asdict(self)
         payload["explicit_paths"] = list(self.explicit_paths)
         payload["material_suffixes"] = list(self.material_suffixes)
-        payload["raw_action_markers"] = list(self.raw_action_markers)
-        payload["raw_constraint_markers"] = list(self.raw_constraint_markers)
         payload["explicit_selection"] = dict(self.explicit_selection or {})
         payload["diagnostics"] = dict(self.diagnostics or {})
         return payload
@@ -59,14 +55,13 @@ def build_request_facts(
         source=str(source or ""),
         explicit_paths=paths,
         material_suffixes=tuple(_dedupe([_suffix(path) for path in paths if _suffix(path)])),
-        raw_action_markers=tuple(_markers(text.lower(), ("问", "解释", "审查", "检查", "计划", "读", "看", "搜索", "修改", "实现", "修复", "运行", "验证", "继续", "停止"))),
-        raw_constraint_markers=tuple(_markers(text.lower(), ("不要", "不能", "只", "必须", "禁止", "不要改", "只分析", "不要修改", "不要搜索", "不要联网"))),
         explicit_selection=dict(explicit_selection or {}),
         diagnostics={
             "fact_only": True,
             "does_not_select_intent": True,
             "does_not_select_route": True,
             "does_not_select_tools": True,
+            "keyword_marker_extraction": "disabled",
         },
     )
 
@@ -104,10 +99,6 @@ def _suffix(path: str) -> str:
     if "." not in value:
         return ""
     return "." + value.rsplit(".", 1)[-1]
-
-
-def _markers(text: str, candidates: tuple[str, ...]) -> list[str]:
-    return _dedupe([marker for marker in candidates if marker and marker in text])
 
 
 def _dedupe(values: list[str] | tuple[str, ...]) -> list[str]:

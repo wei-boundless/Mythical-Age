@@ -97,7 +97,7 @@ def test_agent_runtime_chain_uses_realtime_network_without_active_skill() -> Non
     assert "candidate_tools" not in understanding
     assert "op.web_search" in list(operation_requirement.get("required_operations") or [])
     assert memory_request_profile["requested_memory_layers"] == ["conversation"]
-    sections = list(dict(task_body_orchestration.get("soul_runtime_view") or {}).get("sections") or [])
+    sections = list(dict(task_body_orchestration.get("prompt_manifest") or {}).get("sections") or [])
     contents = "\n".join(str(dict(item).get("content") or "") for item in sections)
     assert "OpenAI API 最新更新" in contents
     assert "Workflow ID:" not in contents
@@ -201,7 +201,7 @@ def test_agent_runtime_chain_expands_skill_only_after_model_selection() -> None:
     task_body_orchestration = dict(task_operation.get("task_body_orchestration") or {})
     runtime_sections = {
         str(dict(item).get("section_id") or ""): dict(item)
-        for item in list(dict(task_body_orchestration.get("soul_runtime_view") or {}).get("sections") or [])
+        for item in list(dict(task_body_orchestration.get("prompt_manifest") or {}).get("sections") or [])
     }
 
     assert list(task_spec.get("selected_skill_ids") or []) == ["skill.structured-data-analysis"]

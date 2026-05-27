@@ -513,7 +513,13 @@ class TaskRunFinalizer:
             "worker_agent_run_ids": [str(item.agent_run_id or "") for item in worker_agent_runs if str(item.agent_run_id or "")],
         }
         if target_coordination_run is not None:
-            graph_record = self._resolve_task_graph_view(target_coordination_run.graph_ref)
+            coordination_state_for_stage = (
+                self.graph_coordination_engine.checkpoints.get_state(
+                    thread_id=target_coordination_run.coordination_run_id,
+                )
+                if self.graph_coordination_engine.supports(target_coordination_run)
+                else {}
+            )
             if self.graph_coordination_engine.supports(target_coordination_run):
                 raw_flow_state = dict(target_coordination_run.diagnostics.get("coordination_flow") or {})
                 current_stage_request = _stage_execution_request_for_finalizer(
@@ -530,7 +536,7 @@ class TaskRunFinalizer:
                 request_stage_id = str(current_stage_request.get("stage_id") or "").strip()
                 flow_stage_id = str(raw_flow_state.get("current_stage_id") or "").strip()
                 resolved_stage_id = self._stage_id_for_task_ref(
-                    coordination_task=graph_record,
+                    coordination_state=coordination_state_for_stage,
                     task_ref=task_contract_ref or start_task_run.task_id,
                 )
                 current_stage_id = request_stage_id or resolved_stage_id or flow_stage_id
@@ -861,30 +867,15 @@ class TaskRunFinalizer:
             continuation_payload=finished.continuation_payload,
         )
 
-    def _resolve_task_graph_view(self, graph_ref: str):
-        target = str(graph_ref or "").strip()
-        if not target:
-            return None
-        task_graph = self.task_flow_registry.get_task_graph(target)
-        if task_graph is None:
-            return None
-        return self.task_flow_registry.derive_coordination_task_view_from_graph(task_graph)
-
     @staticmethod
-    def _stage_id_for_task_ref(*, coordination_task: Any | None, task_ref: str) -> str:
+    def _stage_id_for_task_ref(*, coordination_state: dict[str, Any] | None, task_ref: str) -> str:
         target = str(task_ref or "").strip()
-        metadata = dict(getattr(coordination_task, "metadata", {}) or {}) if coordination_task is not None else {}
-        for stage in list(metadata.get("stage_sequence") or []):
-            if not isinstance(stage, dict):
-                continue
-            if str(stage.get("task_ref") or "").strip() == target:
-                return str(stage.get("stage_id") or "").strip()
-        contracts = list(metadata.get("stage_contracts") or [])
-        for contract in contracts:
-            if not isinstance(contract, dict):
-                continue
+        if not target:
+            return ""
+        for stage_id, raw in dict(dict(coordination_state or {}).get("stage_contracts") or {}).items():
+            contract = dict(raw or {})
             if str(contract.get("task_ref") or "").strip() == target:
-                return str(contract.get("stage_id") or "").strip()
+                return str(stage_id or contract.get("stage_id") or "").strip()
         return ""
 
     def _artifact_root_from_context_or_events(

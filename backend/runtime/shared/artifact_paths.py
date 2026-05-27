@@ -75,30 +75,25 @@ def successful_write_file_paths(
         payload = dict(observation.get("payload") or {})
         if str(payload.get("tool_name") or "") != "write_file":
             continue
-        result = str(payload.get("result") or "")
-        if not _tool_result_indicates_write_success(result):
+        structured_paths = _structured_write_paths(payload)
+        if not structured_paths:
             continue
-        tool_args = dict(payload.get("tool_args") or {})
-        raw_path = str(tool_args.get("path") or "").strip()
-        if not raw_path:
-            raw_path = _path_from_write_result(result)
-        if not raw_path:
-            continue
-        candidate = Path(raw_path)
-        if not candidate.is_absolute():
-            candidate = workspace_root / str(raw_path).replace("\\", "/").strip().strip("/")
-        candidate = candidate.resolve()
-        try:
-            relative_path = candidate.relative_to(workspace_root).as_posix()
-        except ValueError:
-            relative_path = candidate.as_posix()
-        artifacts.append(
-            {
-                "path": relative_path,
-                "absolute_path": candidate.as_posix(),
-                "observation_ref": str(event.get("refs", {}).get("observation_ref") or ""),
-            }
-        )
+        for raw_path in structured_paths:
+            candidate = Path(raw_path)
+            if not candidate.is_absolute():
+                candidate = workspace_root / str(raw_path).replace("\\", "/").strip().strip("/")
+            candidate = candidate.resolve()
+            try:
+                relative_path = candidate.relative_to(workspace_root).as_posix()
+            except ValueError:
+                relative_path = candidate.as_posix()
+            artifacts.append(
+                {
+                    "path": relative_path,
+                    "absolute_path": candidate.as_posix(),
+                    "observation_ref": str(event.get("refs", {}).get("observation_ref") or ""),
+                }
+            )
     unique: dict[str, dict[str, str]] = {}
     for item in artifacts:
         unique[item["absolute_path"]] = item
@@ -161,17 +156,27 @@ def _unwrap_runtime_event(event: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
-def _tool_result_indicates_write_success(result: str) -> bool:
-    text = str(result or "")
-    lowered = text.lower()
-    return "write succeeded" in lowered or "wrote file" in lowered or "successfully wrote" in lowered
-
-
-def _path_from_write_result(result: str) -> str:
-    text = str(result or "").strip()
-    for marker in ("Write succeeded:", "write succeeded:", "Wrote file:", "wrote file:"):
-        if marker in text:
-            return text.split(marker, 1)[1].strip().splitlines()[0].strip()
-    return ""
+def _structured_write_paths(payload: dict[str, Any]) -> list[str]:
+    envelope = dict(payload.get("result_envelope") or {})
+    if str(envelope.get("status") or "ok") != "ok":
+        return []
+    structured = dict(envelope.get("structured_payload") or payload.get("structured_payload") or {})
+    paths: list[str] = []
+    paths.extend(str(path or "").strip() for path in list(envelope.get("observed_paths") or []) if str(path or "").strip())
+    paths.extend(str(path or "").strip() for path in list(structured.get("observed_paths") or []) if str(path or "").strip())
+    for ref in [*list(envelope.get("artifact_refs") or []), *list(structured.get("artifact_refs") or [])]:
+        if not isinstance(ref, dict):
+            continue
+        path = str(ref.get("path") or "").strip()
+        if path:
+            paths.append(path)
+    result: list[str] = []
+    seen: set[str] = set()
+    for path in paths:
+        normalized = path.replace("\\", "/").strip()
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            result.append(normalized)
+    return result
 
 

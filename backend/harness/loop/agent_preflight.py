@@ -178,7 +178,6 @@ async def run_agent_runtime_preflight(
             "task_communication_protocol": item.task_communication_protocol_payload,
             "graph_record": item.graph_payload,
             "task_graph_record": item.task_graph_payload,
-            "task_graph_runtime_spec": item.runtime_spec_payload,
             "task_body_orchestration": item.task_body_orchestration_payload,
             "agent_runtime_spec": item.agent_runtime_spec_payload,
             "agent_runtime_config": item.agent_runtime_config.to_dict(),
@@ -229,12 +228,8 @@ async def run_agent_runtime_preflight(
         event_offset=task_event.offset,
         execution_mode=item.execution_mode,
         task_agent_binding_ref=str(item.task_execution_assembly_payload.get("task_agent_binding_ref") or ""),
-        graph_payload=item.graph_payload,
-        task_graph_payload=item.task_graph_payload,
-        communication_protocol_payload=item.task_communication_protocol_payload,
         task_execution_policy_payload=item.task_execution_policy_payload,
         effective_limits=item.effective_limits,
-        task_spec_payload=item.task_spec_payload,
     )
     for runtime_event in runtime_object_events:
         yield {"type": "harness_loop_event", "event": runtime_event.to_dict()}
@@ -475,7 +470,7 @@ async def run_agent_runtime_preflight(
         yield {
             "type": "error",
             "error": control_decision.reason,
-            "content": control_decision.message or "RuntimeLoop 控制策略终止了本轮任务。",
+            "content": control_decision.message or "HarnessLoop 控制策略阻止了下一次调度，任务已明确失败。",
             "answer_channel": "orchestration_fail_closed",
             "answer_source": "harness_loop_control",
         }
@@ -514,7 +509,7 @@ async def run_agent_runtime_preflight(
             task_contract_ref=task_contract_ref,
             terminal_state=terminal_state,
             checkpoint_event=checkpoint_event,
-            final_content="",
+            final_content=control_decision.message or "HarnessLoop 控制策略阻止了下一次调度，任务未完成。",
             diagnostics={"harness_loop_control_reason": control_decision.reason},
         )
         for runtime_event in finished.events:
@@ -607,7 +602,7 @@ async def run_agent_runtime_preflight(
         yield {
             "type": "error",
             "error": gate_result.reason,
-            "content": "OperationGate 未放行模型回答，本轮停止执行。",
+            "content": f"OperationGate 未放行模型回答：{gate_result.reason or 'blocked_by_gate'}。",
             "answer_channel": "orchestration_fail_closed",
             "answer_source": "operation_gate",
         }
@@ -648,7 +643,7 @@ async def run_agent_runtime_preflight(
             task_contract_ref=task_contract_ref,
             terminal_state=terminal_state,
             checkpoint_event=checkpoint_event,
-            final_content="",
+            final_content=f"OperationGate 未放行模型回答：{gate_result.reason or 'blocked_by_gate'}。",
             diagnostics={"operation_gate_reason": gate_result.reason},
         )
         for runtime_event in finished.events:

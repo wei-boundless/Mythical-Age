@@ -450,23 +450,31 @@ def test_coordination_contract_compiler_compiles_graph_module_handoff_contracts(
         graph_id=coordination.graph_id,
         title=coordination.title,
         graph_kind="coordination",
-        metadata={
-            "timeline_blocks": [
-                {
-                    "block_id": "block.import",
-                    "block_type": "imported_graph",
-                    "title": "导入模块阶段",
-                    "phase_id": "phase.import",
+        nodes=(
+            TaskGraphNodeDefinition(
+                node_id="graph_module.block.import",
+                node_type="graph_module",
+                title="导入模块阶段",
+                contract_bindings={
+                    "handoff": {"handoff_contract_id": "contract.test.graph_module.binding_handoff"},
+                    "runtime": {
+                        "graph_module_runtime": {
+                            "linked_graph_id": "graph.test.imported",
+                            "version_ref": "v1",
+                        },
+                        "resume_policy": "resume_from_checkpoint",
+                    },
+                },
+                metadata={
+                    "graph_module": True,
                     "linked_graph_id": "graph.test.imported",
                     "version_ref": "v1",
-                    "handoff_contract_id": "contract.test.graph_module.handoff",
-                    "contract_bindings": {
-                        "handoff": {"handoff_contract_id": "contract.test.graph_module.binding_handoff"},
-                        "runtime": {"resume_policy": "resume_from_checkpoint"},
-                    },
-                }
-            ],
-        },
+                    "graph_module_runtime_plan_id": "graph_module_runtime.block.import",
+                    "input_port_id": "input.default",
+                    "output_port_id": "output.default",
+                },
+            ),
+        ),
     )
 
     graph_spec = compile_task_graph_definition_runtime_spec(graph=graph)
@@ -476,8 +484,7 @@ def test_coordination_contract_compiler_compiles_graph_module_handoff_contracts(
         graph_spec=graph_spec,
     )
 
-    assert manifest.valid is False
-    assert "contract_binding_conflict" in {item.code for item in manifest.issues}
+    assert manifest.valid is True
     graph_module_contract = manifest.graph_module_handoff_contracts[0]
     assert graph_module_contract.plan_id == "graph_module_runtime.block.import"
     assert graph_module_contract.runtime_node_id == "graph_module.block.import"
@@ -503,16 +510,27 @@ def test_coordination_contract_compiler_reports_missing_graph_module_handoff_con
         graph_id=coordination.graph_id,
         title=coordination.title,
         graph_kind="coordination",
-        metadata={
-            "timeline_blocks": [
-                {
-                    "block_id": "block.child",
-                    "block_type": "imported_graph",
+        nodes=(
+            TaskGraphNodeDefinition(
+                node_id="graph_module.block.child",
+                node_type="graph_module",
+                title="导入模块阶段",
+                contract_bindings={
+                    "runtime": {
+                        "graph_module_runtime": {
+                            "linked_graph_id": "graph.test.child",
+                            "version_ref": "v1",
+                        },
+                    },
+                },
+                metadata={
+                    "graph_module": True,
                     "linked_graph_id": "graph.test.child",
                     "version_ref": "v1",
-                }
-            ],
-        },
+                    "graph_module_runtime_plan_id": "graph_module_runtime.block.child",
+                },
+            ),
+        ),
     )
 
     graph_spec = compile_task_graph_definition_runtime_spec(graph=graph)

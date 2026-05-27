@@ -8,6 +8,7 @@ from .model_turn_decision_runtime import (
     fallback_model_turn_decision,
     main_model_owned_turn_decision,
     model_visible_semantic_contract,
+    unresolved_model_turn_decision,
 )
 from .request_facts import RequestFacts, build_request_facts
 
@@ -28,6 +29,7 @@ __all__ = [
     "main_model_owned_turn_decision",
     "model_visible_semantic_contract",
     "model_turn_decision_from_payload",
+    "unresolved_model_turn_decision",
 ]
 
 

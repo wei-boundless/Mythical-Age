@@ -29,5 +29,10 @@
       "terminal_timeout_seconds": 30,
       "component_char_limit": 20000
     }
+  },
+  "soul_image_assets": {
+    "base_url": "https://images.example.test/v1",
+    "model": "gpt-image-2",
+    "api_key": "image-key"
   }
 }

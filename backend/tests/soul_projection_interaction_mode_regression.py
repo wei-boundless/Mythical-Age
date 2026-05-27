@@ -44,17 +44,16 @@ def _runtime_for_goal(user_goal: str) -> dict:
     )
 
 
-def test_professional_code_task_projection_is_style_only_and_non_authoritative() -> None:
+def test_professional_code_task_prompt_profile_is_style_only_and_non_authoritative() -> None:
     runtime = _runtime_for_goal(
         "追踪 backend/tests/fixtures/professional_task_suite/failing_sixty_turn_summary.json 的失败原因，修复代码，然后运行 pytest 验证。"
     )
     orchestration = runtime["task_body_orchestration"]
-    projection = orchestration["projection_requirement"]
-    sections = {section["section_id"]: section for section in orchestration["soul_runtime_view"]["sections"]}
+    manifest = orchestration["prompt_manifest"]
+    sections = {section["section_id"]: section for section in manifest["sections"]}
 
-    assert projection["interaction_mode"] == "professional_mode"
-    assert projection["projection_strength"] == "style_only"
-    assert projection["mode_policy_ref"] == "orchestration.runtime_interaction_mode_policy"
+    assert "soul_runtime_view" not in orchestration
+    assert manifest["validation"]["interaction_mode"] == "professional_mode"
     assert "projection_section" not in sections
     assert sections["semantic_task_section"]["owner_layer"] == "task"
     assert sections["professional_profile_section"]["owner_layer"] == "task"
@@ -67,7 +66,7 @@ def test_professional_code_task_projection_is_style_only_and_non_authoritative()
     assert "专业长任务测试报告诊断员" not in sections["professional_profile_section"]["content"]
 
 
-def test_prompt_manifest_tracks_task_and_projection_section_sources() -> None:
+def test_prompt_manifest_tracks_task_and_professional_section_sources() -> None:
     runtime = _runtime_for_goal(
         "分析 backend/tests/fixtures/professional_task_suite/failing_sixty_turn_summary.json 的失败，列出结构性根因。"
     )

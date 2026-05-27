@@ -226,16 +226,10 @@ def test_build_task_graph_standard_view_projects_nodes_edges_resources_and_timel
     assert any(item["unit_id"] == "unit.graph.block.design" and item["ref"]["graph_id"] == "graph.design.initialization" for item in payload["units"])
     assert any(item["interface_id"] == "interface.node.draft" for item in payload["interfaces"])
     assert any(item["edge_id"] == "edge.input.draft" and item["source_unit_id"] == "unit.node.input" for item in payload["port_edges"])
-    assert payload["graph_module_runtime"][0]["linked_graph_id"] == "graph.design.initialization"
-    assert payload["graph_module_expansions"][0]["linked_graph_id"] == "graph.design.initialization"
-    assert payload["graph_module_expansions"][0]["imported_graph"]["title"] == "设计初始化图模块"
-    assert payload["graph_module_expansions"][0]["entry_node_id"] == "child_input"
-    assert any(item["node_id"] == "child_draft" for item in payload["graph_module_expansions"][0]["nodes"])
-    assert any(item["edge_id"] == "edge.child.draft.review" for item in payload["graph_module_expansions"][0]["edges"])
-    assert payload["graph_module_expansions"][0]["nodes"][0]["scoped_node_id"].startswith("graph_module.block.design::")
-    assert any(item["node_id"] == "child.memory" and item["scoped_node_id"].startswith("graph_module.block.design::") for item in payload["graph_module_expansions"][0]["resources"])
+    assert payload["graph_module_runtime"] == []
+    assert payload["graph_module_expansions"] == []
     assert payload["diagnostics"]["composable_graph"]["diagnostics"]["mode"] == "read_only_shadow_model"
-    assert payload["diagnostics"]["graph_module_expansion_count"] == 1
+    assert payload["diagnostics"]["graph_module_expansion_count"] == 0
 
 
 def test_task_graph_standard_view_surfaces_memory_protocol_preflight_issues(tmp_path: Path) -> None:
@@ -412,7 +406,7 @@ def test_task_graph_standard_view_api_round_trips_title_and_node_runtime(tmp_pat
     assert draft["runtime"]["dispatch_group"] == "drafting"
 
 
-def test_runtime_spec_promotes_linked_timeline_block_to_graph_module(tmp_path: Path) -> None:
+def test_runtime_spec_does_not_promote_linked_timeline_block_to_graph_module(tmp_path: Path) -> None:
     _seed_graph(tmp_path)
     graph = TaskFlowRegistry(tmp_path).get_task_graph("graph.test.standard_view")
     assert graph is not None
@@ -421,13 +415,11 @@ def test_runtime_spec_promotes_linked_timeline_block_to_graph_module(tmp_path: P
     graph_modules = spec["graph_module_runtime_plans"]
     graph_module_nodes = [node for node in spec["nodes"] if node["node_type"] == "graph_module"]
 
-    assert graph_modules[0]["linked_graph_id"] == "graph.design.initialization"
-    assert graph_modules[0]["runtime_node_id"] == "graph_module.block.design"
-    assert graph_module_nodes[0]["metadata"]["graph_module_runtime_plan_id"] == "graph_module_runtime.block.design"
-    assert graph_module_nodes[0]["metadata"]["execution_mode"] == "graph_module_run"
+    assert graph_modules == []
+    assert graph_module_nodes == []
 
 
-def test_runtime_spec_merges_explicit_graph_module_node_with_timeline_runtime(tmp_path: Path) -> None:
+def test_runtime_spec_compiles_explicit_graph_module_node_without_timeline_runtime(tmp_path: Path) -> None:
     registry = TaskFlowRegistry(tmp_path)
     registry.upsert_task_graph(
         graph_id="graph.test.explicit_graph_module",
@@ -449,30 +441,14 @@ def test_runtime_spec_merges_explicit_graph_module_node_with_timeline_runtime(tm
                 "sequence_index": 10,
                 "metadata": {"editor_node": True},
                 "contract_bindings": {
+                    "handoff": {"handoff_contract_id": "contract.agent_output.markdown"},
                     "runtime": {
-                        "model_requirement": {
-                            "profile_ref": "should_not_survive",
-                            "preferred_output_tokens": 65536,
-                        }
+                        "graph_module_runtime": {"linked_graph_id": "graph.test.imported", "version_ref": "published"},
+                        "model_requirement": {"profile_ref": "should_not_survive", "preferred_output_tokens": 65536},
                     }
                 },
             },
         ),
-        metadata={
-            "timeline_blocks": [
-                {
-                    "block_id": "import",
-                    "block_type": "graph_module",
-                    "title": "图模块运行块",
-                    "phase_id": "phase.import",
-                    "linked_graph_id": "graph.test.imported",
-                    "version_ref": "published",
-                    "contract_bindings": {
-                        "handoff": {"handoff_contract_id": "contract.agent_output.markdown"}
-                    },
-                }
-            ],
-        },
         publish_state="published",
         enabled=True,
     )
@@ -503,17 +479,11 @@ def test_runtime_spec_merges_explicit_graph_module_node_with_timeline_runtime(tm
     assert spec["subtask_refs"] == ()
 
 
-def test_graph_module_handoff_contract_binding_overrides_legacy_timeline_field(tmp_path: Path) -> None:
+def test_graph_module_handoff_contract_binding_comes_from_explicit_node(tmp_path: Path) -> None:
     _seed_graph(tmp_path)
     registry = TaskFlowRegistry(tmp_path)
     graph = registry.get_task_graph("graph.test.standard_view")
     assert graph is not None
-    metadata = dict(graph.metadata or {})
-    timeline_blocks = [dict(item) for item in list(metadata.get("timeline_blocks") or [])]
-    timeline_blocks[0]["handoff_contract_id"] = "contract.legacy.graph_module.handoff"
-    timeline_blocks[0]["contract_bindings"] = {
-        "handoff": {"handoff_contract_id": "contract.binding.graph_module.handoff"}
-    }
     registry.upsert_task_graph(
         graph_id=graph.graph_id,
         title=graph.title,
@@ -521,7 +491,29 @@ def test_graph_module_handoff_contract_binding_overrides_legacy_timeline_field(t
         graph_kind=graph.graph_kind,
         entry_node_id=graph.entry_node_id,
         output_node_id=graph.output_node_id,
-        nodes=tuple(item.to_dict() for item in graph.nodes),
+        nodes=(
+            *tuple(item.to_dict() for item in graph.nodes),
+            {
+                "node_id": "graph_module.design",
+                "node_type": "graph_module",
+                "title": "设计阶段图",
+                "contract_bindings": {
+                    "handoff": {"handoff_contract_id": "contract.binding.graph_module.handoff"},
+                    "runtime": {
+                        "graph_module_runtime": {
+                            "linked_graph_id": "graph.design.initialization",
+                            "version_ref": "v1",
+                        }
+                    },
+                },
+                "metadata": {
+                    "graph_module": True,
+                    "linked_graph_id": "graph.design.initialization",
+                    "version_ref": "v1",
+                    "graph_module_runtime_plan_id": "graph_module_runtime.design",
+                },
+            },
+        ),
         edges=tuple(item.to_dict() for item in graph.edges),
         graph_contract_id=graph.graph_contract_id,
         contract_bindings=graph.contract_bindings,
@@ -532,19 +524,18 @@ def test_graph_module_handoff_contract_binding_overrides_legacy_timeline_field(t
         context_policy=graph.context_policy,
         publish_state=graph.publish_state,
         enabled=graph.enabled,
-        metadata={**metadata, "timeline_blocks": timeline_blocks},
+        metadata=dict(graph.metadata or {}),
     )
 
     graph = registry.get_task_graph("graph.test.standard_view")
     assert graph is not None
     view = build_task_graph_standard_view(graph=graph, graph_lookup=registry).to_dict()
-    graph_interface = next(item for item in view["interfaces"] if item["unit_id"] == "unit.graph.block.design")
+    graph_interface = next(item for item in view["interfaces"] if item["unit_id"] == "unit.node.graph_module.design")
     runtime_spec = view["diagnostics"]["runtime_spec"]
 
-    assert view["timeline"]["timeline_blocks"][0]["handoff_contract_id"] == "contract.binding.graph_module.handoff"
     assert graph_interface["input_ports"][0]["payload_contract_id"] == "contract.binding.graph_module.handoff"
     assert runtime_spec["graph_module_runtime_plans"][0]["handoff_contract_id"] == "contract.binding.graph_module.handoff"
-    assert runtime_spec["nodes"][-1]["metadata"]["handoff_contract_id"] == "contract.binding.graph_module.handoff"
+    assert runtime_spec["nodes"][-1]["metadata"]["graph_module_runtime_plan_id"] == "graph_module_runtime.design"
 
 
 def test_standard_view_round_trips_contract_bindings(tmp_path: Path) -> None:
@@ -590,20 +581,27 @@ def test_graph_module_expansion_blocks_self_reference_and_surfaces_issue(tmp_pat
         output_node_id="input",
         nodes=(
             {"node_id": "input", "node_type": "input", "title": "输入"},
-        ),
-        metadata={
-            "timeline_blocks": [
-                {
-                    "block_id": "block.self",
-                    "block_type": "graph_module",
-                    "title": "自引用模块",
-                    "phase_id": "phase.self",
+            {
+                "node_id": "graph_module.block.self",
+                "node_type": "graph_module",
+                "title": "自引用模块",
+                "contract_bindings": {
+                    "handoff": {"handoff_contract_id": "contract.self.handoff"},
+                    "runtime": {
+                        "graph_module_runtime": {
+                            "linked_graph_id": "graph.test.self_import",
+                            "version_ref": "v1",
+                        }
+                    },
+                },
+                "metadata": {
+                    "graph_module": True,
                     "linked_graph_id": "graph.test.self_import",
-                    "handoff_contract_id": "contract.self.handoff",
                     "version_ref": "v1",
-                }
-            ],
-        },
+                    "graph_module_runtime_plan_id": "graph_module_runtime.block.self",
+                },
+            },
+        ),
         publish_state="published",
         enabled=True,
     )

@@ -10,6 +10,9 @@ from task_system.goal_profiles import get_task_goal_profile
 from .model_turn_decision import model_turn_decision_from_payload
 
 
+DECISION_STATUS_UNRESOLVED = "unresolved"
+DECISION_STATUS_RUNTIME_ERROR = "runtime_error"
+
 TASK_DOMAIN_AUTHORITY_KEYS = frozenset(
     {
         "domain",
@@ -34,9 +37,10 @@ async def main_model_owned_turn_decision(
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     invoker = getattr(model_runtime, "invoke_messages", None)
     if not callable(invoker):
-        return blocked_model_turn_decision(
+        return unresolved_model_turn_decision(
             user_message=user_message,
             reason="model_runtime_unavailable",
+            status=DECISION_STATUS_RUNTIME_ERROR,
             diagnostics={"model_call_performed": False, "model_authority_used": False},
         )
 
@@ -53,11 +57,10 @@ async def main_model_owned_turn_decision(
         try:
             response = await invoker(messages)
         except Exception as exc:
-            return fallback_model_turn_decision(
+            return unresolved_model_turn_decision(
                 user_message=user_message,
                 reason="model_turn_decision_model_call_failed",
-                task_selection=task_selection,
-                request_facts=request_facts,
+                status=DECISION_STATUS_RUNTIME_ERROR,
                 diagnostics={
                     "model_call_performed": True,
                     "model_authority_used": False,
@@ -111,11 +114,9 @@ async def main_model_owned_turn_decision(
         decision = None
 
     if decision is None:
-        return fallback_model_turn_decision(
+        return unresolved_model_turn_decision(
             user_message=user_message,
             reason="model_turn_decision_invalid_after_repair",
-            task_selection=task_selection,
-            request_facts=request_facts,
             diagnostics={
                 "model_call_performed": True,
                 "model_authority_used": False,
@@ -147,11 +148,8 @@ def fallback_model_turn_decision(
     request_facts: dict[str, Any] | None = None,
     diagnostics: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    selection = dict(task_selection or {})
-    facts = dict(request_facts or {})
-    selected_task_id = str(selection.get("selected_task_id") or "").strip()
     details = dict(diagnostics or {})
-    return blocked_model_turn_decision(
+    return unresolved_model_turn_decision(
         user_message=user_message,
         reason=reason,
         diagnostics={
@@ -159,9 +157,9 @@ def fallback_model_turn_decision(
             "model_call_performed": True,
             "model_authority_used": False,
             "fallback_understanding_removed": True,
-            "fallback_policy": "fail_closed_without_system_authored_agent_decision",
-            "selected_task_id": selected_task_id,
-            "explicit_path_count": len(list(facts.get("explicit_paths") or [])),
+            "fallback_policy": "unresolved_without_system_authored_agent_decision",
+            "selected_task_id": str(dict(task_selection or {}).get("selected_task_id") or "").strip(),
+            "explicit_path_count": len(list(dict(request_facts or {}).get("explicit_paths") or [])),
         },
     )
 
@@ -348,6 +346,52 @@ def blocked_model_turn_decision(
     return decision, {
         "decision_status": "blocked",
         "block_reason": reason,
+        **details,
+    }
+
+
+def unresolved_model_turn_decision(
+    *,
+    user_message: str,
+    reason: str,
+    status: str = DECISION_STATUS_UNRESOLVED,
+    diagnostics: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    details = dict(diagnostics or {})
+    normalized_status = status if status in {DECISION_STATUS_UNRESOLVED, DECISION_STATUS_RUNTIME_ERROR} else DECISION_STATUS_UNRESOLVED
+    decision = {
+        "decision_id": f"model-turn-decision:{normalized_status}:{uuid.uuid4().hex[:8]}",
+        "user_message": str(user_message or "").strip(),
+        "interaction_intent": "continue",
+        "action_intent": "ask_clarification",
+        "work_mode": "conversation",
+        "task_goal_type": "clarification",
+        "domain_mismatch_signal": {},
+        "target_objects": [],
+        "desired_outcome": "理解决策未稳定建立，需要继续澄清或重试决策。",
+        "deliverables": ["clarification_or_retry_request"],
+        "constraints": [],
+        "forbidden_actions": ["execute_without_model_turn_decision"],
+        "selected_skill_ids": [],
+        "resource_contract": {},
+        "context_binding_decision": {"mode": "unresolved_model_turn_decision", "reason": reason},
+        "planning_required": False,
+        "todo_required": False,
+        "completion_criteria": ["获得合法 ModelTurnDecision 后再执行任务动作"],
+        "needs_clarification": True,
+        "clarification_question": "我还没有稳定理解本轮任务，请补充目标、范围或允许我重试理解决策。",
+        "confidence": 0.0,
+        "ambiguity": [reason],
+        "diagnostics": {
+            **details,
+            "decision_control": "unresolved_not_blocked",
+            "system_must_not_execute_task_actions": True,
+        },
+        "authority": "agent_runtime.model_turn_decision",
+    }
+    return decision, {
+        "decision_status": normalized_status,
+        "unresolved_reason": reason,
         **details,
     }
 

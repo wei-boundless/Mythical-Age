@@ -266,7 +266,6 @@ export function CenterWorkspaceView() {
       const result = await startTaskGraphHarnessRun(graphId, {
         session_id: sessionId,
         initial_inputs: initialInputs,
-        require_published: true,
         include_trace: true,
         execute_initial_stage: true,
       });

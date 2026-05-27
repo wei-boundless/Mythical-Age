@@ -30,7 +30,11 @@ class AgentTurnContextBuildResult:
 
     @property
     def model_turn_blocked(self) -> bool:
-        return str(self.model_turn_decision.get("action_intent") or "") == "block"
+        return str(self.model_turn_diagnostics.get("decision_status") or "") == "blocked"
+
+    @property
+    def model_turn_unresolved(self) -> bool:
+        return str(self.model_turn_diagnostics.get("decision_status") or "") in {"unresolved", "runtime_error"}
 
 
 async def build_agent_turn_context(

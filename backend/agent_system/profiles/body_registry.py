@@ -42,7 +42,6 @@ class BodyProfileRegistry:
             default_runtime_lane_profile_id=lane_profile_id,
             default_output_boundary_profile_id=output_profile_id,
             default_operation_policy_mode="fail_closed",
-            default_projection_policy="disabled",
             metadata={
                 "agent_name": str(getattr(descriptor, "agent_name", "") or ""),
                 "agent_category": str(getattr(descriptor, "agent_category", "") or ""),

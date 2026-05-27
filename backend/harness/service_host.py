@@ -18,8 +18,10 @@ from project_layout import ProjectLayout
 from memory_system.runtime_services import MemoryRuntimeServices
 from artifact_system import ArtifactRepositoryService
 from task_system.registry.flow_registry import TaskFlowRegistry
-from task_system.compiler.coordination_graph_models import TaskGraphRuntimeSpec
-from task_system.graphs.task_graph_models import TaskGraphDefinition
+from harness.runtime.graph_config import (
+    GraphHarnessConfig,
+    graph_harness_config_from_run_diagnostics,
+)
 from task_system.tasks.run_models import (
     TaskRunLedger,
     TaskStepRun,
@@ -52,7 +54,6 @@ from harness.loop.graph_coordination.engine import GraphCoordinationEngine
 from harness.loop.agent_finalization import dedupe_refs as _dedupe_refs
 from harness.loop.agent_lifecycle import (
     AgentRuntimeStartResult,
-    build_coordination_state,
     start_agent_run,
     state_with_task_run_ledger,
     write_checkpoint_event,
@@ -78,14 +79,7 @@ from runtime.graph_runtime.monitoring import (
     evaluate_task_graph_monitor_snapshot,
 )
 from runtime.memory.timeline_ledger import TimelineLedgerStore
-from runtime.shared.dispatch_plan_compiler import (
-    _compile_agent_dispatch_plan_from_graph_payload,
-    _dispatch_edges_from_payload,
-    _dispatch_graph_payload_from_task_graph_runtime_spec,
-    _normalize_runtime_graph_payload,
-)
 from runtime.shared.models import (
-    AgentHandoffEnvelope,
     AgentRun,
     CoordinationRun,
     ProjectProgressLedger,
@@ -109,15 +103,6 @@ class HarnessServiceHost:
     This object owns stores, event logs, registries, execution engines, and
     recovery services. It does not own the agent or graph control loop.
     """
-
-    def _resolve_task_graph_view(self, graph_ref: str):
-        target = str(graph_ref or "").strip()
-        if not target:
-            return None
-        task_graph = self.task_flow_registry.get_task_graph(target)
-        if task_graph is None:
-            return None
-        return self.task_flow_registry.derive_coordination_task_view_from_graph(task_graph)
 
     def __init__(
         self,
@@ -332,8 +317,9 @@ class HarnessServiceHost:
                 **next_approval_state,
                 "resume_result": resume_result,
             }
-            final_status = "completed" if resume_result.get("executed") else "blocked"
-            terminal_reason = "completed" if resume_result.get("executed") else "blocked_by_gate"
+            final_status = "running" if resume_result.get("executed") else "blocked"
+            terminal_reason = "" if resume_result.get("executed") else "blocked_by_gate"
+            transition = "continue_after_approval" if resume_result.get("executed") else "stop_after_final_output"
         else:
             resume_result = {
                 "executed": False,
@@ -351,6 +337,7 @@ class HarnessServiceHost:
             )
             final_status = "blocked"
             terminal_reason = "blocked_by_gate"
+            transition = "stop_after_final_output"
         resolved_state = HarnessLoopState(
             task_run_id=checkpoint.loop_state.task_run_id,
             status=final_status,  # type: ignore[arg-type]
@@ -366,12 +353,11 @@ class HarnessServiceHost:
             task_result_ref=checkpoint.loop_state.task_result_ref,
             skill_workflow_ref=checkpoint.loop_state.skill_workflow_ref,
             health_issue_ref=checkpoint.loop_state.health_issue_ref,
-            transition="continue_after_approval",
+            transition=transition,
             terminal_reason=terminal_reason,  # type: ignore[arg-type]
             messages_ref=checkpoint.loop_state.messages_ref,
             context_snapshot_ref=checkpoint.loop_state.context_snapshot_ref,
             memory_state_ref=checkpoint.loop_state.memory_state_ref,
-            projection_ref=checkpoint.loop_state.projection_ref,
             prompt_manifest_ref=checkpoint.loop_state.prompt_manifest_ref,
             pending_action_requests=(),
             pending_approval_state=next_approval_state,
@@ -393,7 +379,13 @@ class HarnessServiceHost:
                 "approval_resume_result": resume_result,
             },
         )
-        checkpoint_event = self._write_checkpoint_event(resolved_state, event_offset=resumed_event.offset)
+        checkpoint_offset = int(resumed_event.offset)
+        for item in list(resume_result.get("events") or []):
+            try:
+                checkpoint_offset = max(checkpoint_offset, int(dict(item).get("offset") or checkpoint_offset))
+            except (TypeError, ValueError):
+                continue
+        checkpoint_event = self._write_checkpoint_event(resolved_state, event_offset=checkpoint_offset)
         self._upsert_task_run_runtime_state(
             task_run=task_run,
             status=final_status,
@@ -404,6 +396,7 @@ class HarnessServiceHost:
                 "pending_approval_state": next_approval_state,
                 "approval_resolution": resolution,
                 "approval_resume_result": resume_result,
+                "awaiting_agent_followup": bool(approved and resume_result.get("executed")),
             },
         )
         return {
@@ -412,6 +405,8 @@ class HarnessServiceHost:
             "decision": resolution["decision"],
             "approval": next_approval_state,
             "resume_result": resume_result,
+            "resume_status": "awaiting_agent_followup" if approved and resume_result.get("executed") else "terminal",
+            "task_run_status": final_status,
             "events": [resumed_event.to_dict(), checkpoint_event.to_dict()],
         }
 
@@ -576,15 +571,6 @@ class HarnessServiceHost:
         skill_workflow_ref: str = "",
         health_issue_ref: str = "",
         execution_mode: str = "single_agent",
-        graph_ref: str = "",
-        graph_payload: dict[str, Any] | None = None,
-        topology_template_payload: dict[str, Any] | None = None,
-        coordinator_agent_id: str = "",
-        topology_template_id: str = "",
-        communication_protocol_id: str = "",
-        handoff_policy: str = "",
-        failure_policy: str = "",
-        merge_policy: str = "",
         runtime_assembly: dict[str, Any] | None = None,
         diagnostics: dict[str, Any] | None = None,
     ) -> AgentRuntimeStartResult:
@@ -600,15 +586,6 @@ class HarnessServiceHost:
             skill_workflow_ref=skill_workflow_ref,
             health_issue_ref=health_issue_ref,
             execution_mode=execution_mode,
-            graph_ref=graph_ref,
-            graph_payload=graph_payload,
-            topology_template_payload=topology_template_payload,
-            coordinator_agent_id=coordinator_agent_id,
-            topology_template_id=topology_template_id,
-            communication_protocol_id=communication_protocol_id,
-            handoff_policy=handoff_policy,
-            failure_policy=failure_policy,
-            merge_policy=merge_policy,
             runtime_assembly=runtime_assembly,
             diagnostics=diagnostics,
         )
@@ -617,102 +594,242 @@ class HarnessServiceHost:
         self,
         *,
         session_id: str,
-        graph: TaskGraphDefinition,
-        runtime_spec: TaskGraphRuntimeSpec,
+        graph_config: GraphHarnessConfig,
         task_id: str = "",
         initial_inputs: dict[str, Any] | None = None,
         diagnostics: dict[str, Any] | None = None,
     ) -> AgentRuntimeStartResult:
-        """Create a durable harness run from a first-class TaskGraphDefinition."""
+        """Create a durable graph harness run from a published GraphHarnessConfig."""
+        config_payload = graph_config.to_dict()
+        control = dict(graph_config.control or {})
+        agents = dict(graph_config.agents or {})
+        configured_nodes = [dict(item) for item in list(graph_config.nodes or []) if isinstance(item, dict)]
+        if not configured_nodes:
+            raise RuntimeError(f"GraphHarnessConfig is missing executable nodes: {graph_config.config_id}")
         source_initial_inputs = dict(initial_inputs or {})
         if not source_initial_inputs:
             restored_initial_inputs = self._restore_task_graph_initial_inputs(
                 session_id=session_id,
-                graph_id=graph.graph_id,
+                graph_id=graph_config.graph_id,
             )
             if restored_initial_inputs:
                 source_initial_inputs = restored_initial_inputs
         effective_initial_inputs = ensure_project_runtime_inputs(
             initial_inputs=source_initial_inputs,
-            graph_id=graph.graph_id,
+            graph_id=graph_config.graph_id,
             session_id=session_id,
         )
-        runtime_policy = dict(graph.runtime_policy or {})
-        coordinator_agent_id = str(runtime_spec.coordinator_agent_id or runtime_policy.get("coordinator_agent_id") or "agent:0").strip() or "agent:0"
-        graph_definition_ref = self.runtime_objects.put_json_once(
-            "task_graph_definitions",
-            f"{session_id}:{task_id or graph.graph_id}:{graph.graph_id}",
-            graph.to_dict(),
-        )
-        graph_runtime_spec_ref = self.runtime_objects.put_json_once(
-            "task_graph_runtime_specs",
-            f"{session_id}:{task_id or graph.graph_id}:{graph.graph_id}",
-            runtime_spec.to_dict(),
-        )
-        graph_payload = _dispatch_graph_payload_from_task_graph_runtime_spec(
-            graph=graph,
-            runtime_spec=runtime_spec,
+        coordinator_agent_id = str(agents.get("coordinator_agent_id") or "agent:0").strip() or "agent:0"
+        graph_config_ref = self.runtime_objects.put_json_once(
+            "graph_harness_configs",
+            f"{session_id}:{task_id or graph_config.graph_id}:{graph_config.config_id}",
+            config_payload,
         )
         runtime_assembly = {
-            "authority": "orchestration.task_graph_runtime_spec_assembly",
-            "assembly_id": f"runtime-assembly:task-graph:{graph.graph_id}",
-            "graph_ref": graph.graph_id,
-            "runtime_spec_ref": f"runtime-spec:task-graph:{graph.graph_id}",
-            "runtime_spec": runtime_spec.to_dict(),
+            "authority": "harness.graph_harness_config_assembly",
+            "assembly_id": f"runtime-assembly:graph-harness-config:{graph_config.config_id}",
+            "graph_ref": graph_config.graph_id,
+            "graph_harness_config_id": graph_config.config_id,
+            "graph_harness_config_ref": graph_config_ref,
+            "graph_runtime_source": "GraphHarnessConfig",
+            "graph_node_count": len(configured_nodes),
+            "graph_edge_count": len(list(graph_config.edges or ())),
             "initial_inputs": dict(effective_initial_inputs),
-            "working_memory_policy_profile_id": graph.working_memory_policy_profile_id,
-            "working_memory_policy": dict(graph.working_memory_policy or {}),
+            "working_memory_policy_profile_id": str(dict(graph_config.memory or {}).get("working_memory_policy_profile_id") or ""),
+            "working_memory_policy": dict(dict(graph_config.memory or {}).get("working_memory_policy") or {}),
         }
         initial_inputs_ref = self.runtime_objects.put_object(
             "task_graph_initial_inputs",
-            f"{session_id}:{task_id or graph.graph_id}:{graph.graph_id}",
+            f"{session_id}:{task_id or graph_config.graph_id}:{graph_config.graph_id}",
             {
                 "session_id": session_id,
-                "task_id": task_id or graph.graph_id,
-                "graph_id": graph.graph_id,
+                "task_id": task_id or graph_config.graph_id,
+                "graph_id": graph_config.graph_id,
+                "graph_harness_config_id": graph_config.config_id,
                 "initial_inputs": dict(source_initial_inputs),
             },
         )
-        start = self.start(
-            session_id=session_id,
-            task_id=task_id or graph.graph_id,
-            task_contract_ref=graph.graph_contract_id or graph.graph_id,
-            agent_id=coordinator_agent_id,
-            agent_profile_id=str(runtime_policy.get("coordinator_agent_profile_id") or "task_graph_coordinator"),
-            runtime_lane=str(runtime_policy.get("runtime_lane") or "task_graph_coordination"),
-            execution_mode="task_graph_runtime",
-            graph_ref=graph.graph_id,
-            graph_payload=graph_payload,
-            coordinator_agent_id=coordinator_agent_id,
-            topology_template_id=str(graph.metadata.get("topology_template_id") or ""),
-            communication_protocol_id=graph.default_protocol_id,
-            handoff_policy=str((runtime_spec.communication_modes or ("handoff",))[0]),
-            failure_policy=str(runtime_policy.get("failure_policy") or ""),
-            merge_policy=str(runtime_policy.get("merge_policy") or ""),
-            runtime_assembly=runtime_assembly,
-            diagnostics={
+        task_id_value = task_id or graph_config.graph_id
+        task_run_id = f"taskrun:{session_id}:{task_id_value}:{uuid.uuid4().hex[:8]}"
+        agent_run_id = f"agrun:{task_run_id}:main"
+        coordination_run_id = f"coordrun:{task_run_id}:primary"
+        now = time.time()
+        runtime_lane = str(agents.get("runtime_lane") or "task_graph_coordination")
+        agent_profile_id = str(agents.get("coordinator_agent_profile_id") or "task_graph_coordinator")
+        coordination_task_payload = dict(dict(graph_config.diagnostics or {}).get("coordination_task") or {})
+        failure_policy = control.get("failure_policy")
+        failure_policy_text = str(dict(failure_policy).get("mode") if isinstance(failure_policy, dict) else failure_policy or "")
+        graph_run_diagnostics = {
+            "loop_owner": "harness.loop.graph_loop",
+            "runtime_channel": "graph_harness",
+            "task_graph_run": True,
+            "task_graph_id": graph_config.graph_id,
+            "task_graph_title": graph_config.graph_title,
+            "graph_harness_config_id": graph_config.config_id,
+            "graph_harness_config_ref": graph_config_ref,
+            "graph_harness_config_schema_version": graph_config.config_schema_version,
+            "graph_runtime_source": "GraphHarnessConfig",
+            "task_graph_initial_inputs_ref": initial_inputs_ref,
+            "graph_harness_config_node_count": len(configured_nodes),
+            "graph_harness_config_edge_count": len(list(graph_config.edges or ())),
+            "task_graph_initial_input_keys": sorted(str(key) for key in source_initial_inputs.keys()),
+            "project_id": str(effective_initial_inputs.get("project_id") or ""),
+            "project_title": str(effective_initial_inputs.get("project_title") or ""),
+            "metric_label": str(effective_initial_inputs.get("metric_label") or "units"),
+            "target_metric_total": int(
+                effective_initial_inputs.get("target_metric_total")
+                or effective_initial_inputs.get("target_words")
+                or 0
+            ),
+            "runtime_assembly_ref": str(runtime_assembly.get("assembly_id") or ""),
+            "loop_limits": self.limits.to_dict(),
+            **dict(diagnostics or {}),
+        }
+        started_event = self.event_log.append(
+            task_run_id,
+            "task_run_started",
+            payload={
+                "session_id": session_id,
+                "task_id": task_id_value,
+                "task_contract_ref": graph_config.root_task_ref or graph_config.graph_id,
+                "agent_id": coordinator_agent_id,
+                "agent_profile_id": agent_profile_id,
+                "runtime_lane": runtime_lane,
+                "execution_mode": "task_graph_runtime",
                 "task_graph_run": True,
-                "task_graph_id": graph.graph_id,
-                "task_graph_title": graph.title,
-                "task_graph_publish_state": graph.publish_state,
-                "task_graph_definition_ref": graph_definition_ref,
-                "task_graph_runtime_spec_ref": graph_runtime_spec_ref,
-                "task_graph_initial_inputs_ref": initial_inputs_ref,
-                "task_graph_runtime_spec_valid": runtime_spec.valid,
-                "task_graph_initial_input_keys": sorted(str(key) for key in source_initial_inputs.keys()),
-                "project_id": str(effective_initial_inputs.get("project_id") or ""),
-                "project_title": str(effective_initial_inputs.get("project_title") or ""),
-                "metric_label": str(effective_initial_inputs.get("metric_label") or "units"),
-                "target_metric_total": int(
-                    effective_initial_inputs.get("target_metric_total")
-                    or effective_initial_inputs.get("target_words")
-                    or 0
-                ),
-                **dict(diagnostics or {}),
+                "task_graph_id": graph_config.graph_id,
+                "graph_harness_config_id": graph_config.config_id,
+                "graph_harness_config_ref": graph_config_ref,
+                "runtime_assembly_ref": str(runtime_assembly.get("assembly_id") or ""),
+            },
+            refs={
+                "task_contract_ref": graph_config.root_task_ref or graph_config.graph_id,
+                "graph_harness_config_ref": graph_config_ref,
+                "runtime_assembly_ref": str(runtime_assembly.get("assembly_id") or ""),
             },
         )
-        if start.coordination_run is None:
-            return start
+        agent_run = AgentRun(
+            agent_run_id=agent_run_id,
+            task_run_id=task_run_id,
+            agent_id=coordinator_agent_id,
+            agent_profile_id=agent_profile_id,
+            role="coordinator",
+            spawn_mode="task_graph_runtime",
+            context_scope="task_graph",
+            runtime_lane=runtime_lane,
+            coordination_run_ref=coordination_run_id,
+            status="running",
+            created_at=now,
+            updated_at=now,
+            diagnostics={
+                "graph_harness_config_id": graph_config.config_id,
+                "graph_harness_config_ref": graph_config_ref,
+            },
+        )
+        coordination_run = CoordinationRun(
+            coordination_run_id=coordination_run_id,
+            task_run_id=task_run_id,
+            graph_ref=graph_config.graph_id,
+            coordinator_agent_id=coordinator_agent_id,
+            topology_template_id=str(coordination_task_payload.get("topology_template_id") or ""),
+            communication_protocol_id=str(control.get("communication_protocol_id") or ""),
+            handoff_policy=str(control.get("handoff_policy") or "handoff"),
+            failure_policy=failure_policy_text,
+            merge_policy=str(control.get("merge_policy") or ""),
+            status="running",
+            latest_checkpoint_ref="",
+            created_at=now,
+            updated_at=now,
+            diagnostics={
+                "coordination_engine": "harness.graph_coordination_engine",
+                "graph_harness_config_id": graph_config.config_id,
+                "graph_harness_config_ref": graph_config_ref,
+                "graph_harness_config_schema_version": graph_config.config_schema_version,
+                "graph_runtime_source": "GraphHarnessConfig",
+                "task_graph_initial_inputs_ref": initial_inputs_ref,
+            },
+        )
+        agent_run_event = self.event_log.append(
+            task_run_id,
+            "agent_run_created",
+            payload={"agent_run": agent_run.to_dict()},
+            refs={"agent_run_ref": agent_run.agent_run_id},
+        )
+        coordination_run_event = self.event_log.append(
+            task_run_id,
+            "coordination_run_created",
+            payload={"coordination_run": coordination_run.to_dict()},
+            refs={"coordination_run_ref": coordination_run.coordination_run_id},
+        )
+        iteration_event = self.event_log.append(
+            task_run_id,
+            "loop_iteration_started",
+            payload={"transition": "start", "turn_count": 0, "step_count": 0},
+        )
+        state = HarnessLoopState(
+            task_run_id=task_run_id,
+            status="running",
+            transition="start",
+            agent_id=coordinator_agent_id,
+            agent_profile_id=agent_profile_id,
+            runtime_lane=runtime_lane,
+            diagnostics=graph_run_diagnostics,
+        )
+        checkpoint = self.checkpoints.write(
+            state,
+            event_offset=iteration_event.offset,
+            execution_summary=self.execution_store.build_summary(task_run_id),
+            agent_runs=(agent_run,),
+            coordination_runs=(coordination_run,),
+        )
+        checkpoint_event = self.event_log.append(
+            task_run_id,
+            "checkpoint_written",
+            payload={
+                "checkpoint_id": checkpoint.checkpoint_id,
+                "event_offset": checkpoint.event_offset,
+                "checksum": checkpoint.checksum,
+                "execution_summary": checkpoint.execution_summary,
+                "runtime_objects_summary": checkpoint.runtime_objects_summary,
+            },
+            refs={"checkpoint_ref": checkpoint.checkpoint_id},
+        )
+        task_run = TaskRun(
+            task_run_id=task_run_id,
+            session_id=session_id,
+            task_id=task_id_value,
+            task_contract_ref=graph_config.root_task_ref or graph_config.graph_id,
+            agent_id=coordinator_agent_id,
+            agent_profile_id=agent_profile_id,
+            runtime_lane=runtime_lane,
+            status="running",
+            created_at=now,
+            updated_at=time.time(),
+            latest_event_offset=checkpoint_event.offset,
+            latest_checkpoint_ref=checkpoint.checkpoint_id,
+            diagnostics={
+                **graph_run_diagnostics,
+                "main_agent_run_ref": agent_run.agent_run_id,
+                "coordination_run_ref": coordination_run.coordination_run_id,
+            },
+        )
+        self.state_index.upsert_task_run(task_run)
+        self.state_index.upsert_agent_run(agent_run)
+        self.state_index.upsert_coordination_run(coordination_run)
+        start = AgentRuntimeStartResult(
+            task_run=task_run,
+            agent_run=agent_run,
+            coordination_run=coordination_run,
+            loop_state=state,
+            checkpoint=checkpoint,
+            events=(
+                started_event.to_dict(),
+                agent_run_event.to_dict(),
+                coordination_run_event.to_dict(),
+                iteration_event.to_dict(),
+                checkpoint_event.to_dict(),
+            ),
+        )
         if not self.graph_coordination_engine.supports(start.coordination_run):
             raise RuntimeError(
                 "TaskGraph coordination run is missing graph coordination stage contracts; legacy initialization fallback was removed."
@@ -790,7 +907,7 @@ class HarnessServiceHost:
                 ledger = make_initial_project_ledger(
                     project_id=project_id,
                     session_id=session_id,
-                    graph_id=graph.graph_id,
+                    graph_id=graph_config.graph_id,
                     project_title=str(effective_initial_inputs.get("project_title") or project_id),
                     metric_label=str(effective_initial_inputs.get("metric_label") or "units"),
                     target_metric_total=int(
@@ -832,7 +949,8 @@ class HarnessServiceHost:
                     issue_summary="Formal project run started.",
                     followup_status="watching",
                     diagnostics={
-                        "graph_id": graph.graph_id,
+                        "graph_id": graph_config.graph_id,
+                        "graph_harness_config_id": graph_config.config_id,
                         "metric_label": str(effective_initial_inputs.get("metric_label") or "units"),
                         "target_metric_total": int(
                             effective_initial_inputs.get("target_metric_total")
@@ -1304,21 +1422,11 @@ class HarnessServiceHost:
         event_offset: int,
         execution_mode: str,
         task_agent_binding_ref: str,
-        graph_payload: dict[str, Any],
-        communication_protocol_payload: dict[str, Any],
-        task_graph_payload: dict[str, Any] | None = None,
         task_execution_policy_payload: dict[str, Any] | None = None,
         effective_limits: HarnessLoopLimits | None = None,
-        task_spec_payload: dict[str, Any] | None = None,
     ) -> tuple[Any, ...]:
         events: list[Any] = []
         execution_policy_payload = dict(task_execution_policy_payload or {})
-        task_graph_payload = dict(task_graph_payload or graph_payload or {})
-        graph_payload = _normalize_runtime_graph_payload(
-            raw_graph_payload=graph_payload,
-            task_graph_payload=task_graph_payload,
-            runtime_spec_payload={},
-        )
         effective_limits_payload = effective_limits.to_dict() if effective_limits is not None else None
         if effective_limits_payload is not None:
             current_task_run = self.state_index.get_task_run(start_result.task_run.task_run_id) or start_result.task_run
@@ -1350,15 +1458,12 @@ class HarnessServiceHost:
             task_run_id=start_result.agent_run.task_run_id,
             agent_id=start_result.agent_run.agent_id,
             agent_profile_id=start_result.agent_run.agent_profile_id,
-            role="coordinator" if graph_payload else start_result.agent_run.role,
+            role=start_result.agent_run.role,
             spawn_mode=execution_mode,
             context_scope=start_result.agent_run.context_scope,
             runtime_lane=start_result.agent_run.runtime_lane,
             parent_agent_run_ref=start_result.agent_run.parent_agent_run_ref,
-            coordination_run_ref=(
-                start_result.agent_run.coordination_run_ref
-                or (coordination_run_id if graph_payload else "")
-            ),
+            coordination_run_ref=start_result.agent_run.coordination_run_ref,
             status="running",
             latest_checkpoint_ref=start_result.agent_run.latest_checkpoint_ref,
             result_ref=start_result.agent_run.result_ref,
@@ -1380,152 +1485,6 @@ class HarnessServiceHost:
             )
         )
         current_coordination_run: CoordinationRun | None = None
-        if graph_payload:
-            topology_template_payload = self._resolve_topology_template(
-                str(graph_payload.get("topology_template_id") or "")
-            )
-            coordination_flow = build_coordination_state(
-                coordination_task_payload=graph_payload,
-                topology_template=topology_template_payload,
-                communication_protocol_payload=communication_protocol_payload,
-            )
-            coordination_run = CoordinationRun(
-                coordination_run_id=coordination_run_id,
-                task_run_id=start_result.task_run.task_run_id,
-                graph_ref=str(
-                    task_graph_payload.get("graph_id")
-                    or graph_payload.get("graph_id")
-                    or graph_payload.get("task_graph_id")
-                    or ""
-                ),
-                coordinator_agent_id=str(graph_payload.get("coordinator_agent_id") or updated_agent_run.agent_id),
-                topology_template_id=str(graph_payload.get("topology_template_id") or ""),
-                communication_protocol_id=str(communication_protocol_payload.get("protocol_id") or ""),
-                handoff_policy=str(graph_payload.get("handoff_policy") or ""),
-                failure_policy=str(graph_payload.get("conflict_resolution_policy") or ""),
-                merge_policy=str(graph_payload.get("output_merge_policy") or ""),
-                status="running",
-                latest_checkpoint_ref="",
-                created_at=time.time(),
-                updated_at=time.time(),
-                diagnostics={
-                    "shared_context_policy": str(graph_payload.get("shared_context_policy") or ""),
-                    "memory_sharing_policy": str(graph_payload.get("memory_sharing_policy") or ""),
-                    "coordination_flow": coordination_flow,
-                },
-            )
-            self.state_index.upsert_coordination_run(coordination_run)
-            events.append(
-                self.event_log.append(
-                    start_result.task_run.task_run_id,
-                    "coordination_run_created",
-                    payload={"coordination_run": coordination_run.to_dict()},
-                    refs={"coordination_run_ref": coordination_run.coordination_run_id},
-                )
-            )
-            if coordination_flow:
-                events.append(
-                    self.event_log.append(
-                        start_result.task_run.task_run_id,
-                        "coordination_flow_registered",
-                        payload={"coordination_flow": coordination_flow},
-                        refs={"coordination_run_ref": coordination_run.coordination_run_id},
-                    )
-                )
-            dispatch_plan = _compile_agent_dispatch_plan_from_graph_payload(
-                task_run_id=start_result.task_run.task_run_id,
-                coordination_run_id=coordination_run.coordination_run_id,
-                graph_payload=graph_payload,
-                topology_template_payload=topology_template_payload,
-            )
-            coordination_run = CoordinationRun(
-                coordination_run_id=coordination_run.coordination_run_id,
-                task_run_id=coordination_run.task_run_id,
-                graph_ref=coordination_run.graph_ref,
-                coordinator_agent_id=coordination_run.coordinator_agent_id,
-                topology_template_id=coordination_run.topology_template_id,
-                communication_protocol_id=coordination_run.communication_protocol_id,
-                handoff_policy=coordination_run.handoff_policy,
-                failure_policy=coordination_run.failure_policy,
-                merge_policy=coordination_run.merge_policy,
-                status=coordination_run.status,
-                latest_checkpoint_ref=coordination_run.latest_checkpoint_ref,
-                created_at=coordination_run.created_at,
-                updated_at=time.time(),
-                diagnostics={
-                    **dict(coordination_run.diagnostics),
-                    "agent_dispatch_plan": dispatch_plan.to_dict(),
-                },
-            )
-            self.state_index.upsert_coordination_run(coordination_run)
-            current_task_run = self.state_index.get_task_run(start_result.task_run.task_run_id) or start_result.task_run
-            self.state_index.upsert_task_run(
-                TaskRun(
-                    task_run_id=current_task_run.task_run_id,
-                    session_id=current_task_run.session_id,
-                    task_id=current_task_run.task_id,
-                    task_contract_ref=current_task_run.task_contract_ref,
-                    agent_id=current_task_run.agent_id,
-                    agent_profile_id=current_task_run.agent_profile_id,
-                    runtime_lane=current_task_run.runtime_lane,
-                    status=current_task_run.status,
-                    created_at=current_task_run.created_at,
-                    updated_at=time.time(),
-                    latest_event_offset=current_task_run.latest_event_offset,
-                    latest_checkpoint_ref=current_task_run.latest_checkpoint_ref,
-                    terminal_reason=current_task_run.terminal_reason,
-                    diagnostics={
-                        **dict(current_task_run.diagnostics),
-                        "agent_dispatch_plan": dispatch_plan.to_dict(),
-                    },
-                )
-            )
-            events.append(
-                self.event_log.append(
-                    start_result.task_run.task_run_id,
-                    "agent_dispatch_plan_compiled",
-                    payload={"agent_dispatch_plan": dispatch_plan.to_dict(), "source": "coordination_task_contract"},
-                    refs={
-                        "coordination_run_ref": coordination_run.coordination_run_id,
-                        "dispatch_plan_ref": dispatch_plan.dispatch_plan_id,
-                    },
-                )
-            )
-            notification_events = [
-                self.event_log.append(
-                    start_result.task_run.task_run_id,
-                    "agent_notification_queued",
-                    payload={"queued_agent_notification": notification.to_dict(), "source": "dispatch_plan"},
-                    refs={
-                        "coordination_run_ref": coordination_run.coordination_run_id,
-                        "notification_ref": notification.notification_id,
-                    },
-                )
-                for notification in dispatch_plan.queued_notifications
-            ]
-            events.extend(notification_events)
-            envelope_events = self._sync_graph_handoff_runtime_objects(
-                task_run_id=start_result.task_run.task_run_id,
-                coordination_run=coordination_run,
-                parent_agent_run=updated_agent_run,
-                graph_payload=graph_payload,
-                topology_template_payload=topology_template_payload,
-            )
-            events.extend(envelope_events)
-            current_coordination_run = coordination_run
-            if self.graph_coordination_engine.supports(coordination_run):
-                runtime_result = self.graph_coordination_engine.initialize(
-                    coordination_run=coordination_run,
-                    event_task_run_id=start_result.task_run.task_run_id,
-                    inherited_inputs=dict(dict(task_spec_payload or {}).get("inputs") or {}),
-                )
-                events.extend(runtime_result.events)
-                refreshed = self.state_index.get_coordination_run(coordination_run.coordination_run_id)
-                if refreshed is not None:
-                    current_coordination_run = refreshed
-        else:
-            existing_coordination_runs = self.state_index.list_task_coordination_runs(start_result.task_run.task_run_id)
-            current_coordination_run = existing_coordination_runs[0] if existing_coordination_runs else None
 
         spawn_events, current_coordination_run = self._sync_worker_spawn_runtime_objects(
             task_run_id=start_result.task_run.task_run_id,
@@ -1537,15 +1496,6 @@ class HarnessServiceHost:
             event_offset=event_offset,
         )
         events.extend(spawn_events)
-
-        if (
-            current_coordination_run is not None
-            and not self.graph_coordination_engine.supports(current_coordination_run)
-            and not bool(dict(current_coordination_run.diagnostics or {}).get("worker_spawn_runtime"))
-        ):
-            raise RuntimeError(
-                f"Legacy coordination sync path was removed: {current_coordination_run.coordination_run_id}"
-            )
         return tuple(events)
 
     def _sync_worker_spawn_runtime_objects(
@@ -1743,151 +1693,7 @@ class HarnessServiceHost:
                 refs={"spawn_result_ref": finalized_spawn_result.spawn_result_id},
             )
         )
-        if coordination_run is None and self._execution_mode_allows_projection(execution_mode):
-            coordination_run = CoordinationRun(
-                coordination_run_id=f"coordrun:{task_run_id}:spawn",
-                task_run_id=task_run_id,
-                graph_ref=f"graph.auto:{task_run_id}",
-                coordinator_agent_id=parent_agent_run.agent_id,
-                topology_template_id="",
-                communication_protocol_id="",
-                handoff_policy="runtime_authorized_handoff",
-                failure_policy="fail_closed",
-                merge_policy="coordinator_final_merge",
-                status="running",
-                created_at=time.time(),
-                updated_at=time.time(),
-                diagnostics={
-                    "autogenerated": True,
-                    "worker_spawn_runtime": True,
-                    "reason": "worker_spawn_authorized_without_coordination_task",
-                },
-            )
-            self.state_index.upsert_coordination_run(coordination_run)
-            events.append(
-                self.event_log.append(
-                    task_run_id,
-                    "coordination_run_created",
-                    payload={"coordination_run": coordination_run.to_dict()},
-                    refs={"coordination_run_ref": coordination_run.coordination_run_id},
-                )
-            )
-            self.state_index.upsert_agent_run(
-                AgentRun(
-                    agent_run_id=child_agent_run.agent_run_id,
-                    task_run_id=child_agent_run.task_run_id,
-                    agent_id=child_agent_run.agent_id,
-                    agent_profile_id=child_agent_run.agent_profile_id,
-                    role=child_agent_run.role,
-                    spawn_mode=child_agent_run.spawn_mode,
-                    context_scope=child_agent_run.context_scope,
-                    runtime_lane=child_agent_run.runtime_lane,
-                    parent_agent_run_ref=child_agent_run.parent_agent_run_ref,
-                    coordination_run_ref=coordination_run.coordination_run_id,
-                    status=child_agent_run.status,
-                    latest_checkpoint_ref=child_agent_run.latest_checkpoint_ref,
-                    result_ref=child_agent_run.result_ref,
-                    created_at=child_agent_run.created_at,
-                    updated_at=time.time(),
-                    diagnostics=dict(child_agent_run.diagnostics),
-                )
-            )
         return events, coordination_run
-
-    def _sync_graph_handoff_runtime_objects(
-        self,
-        *,
-        task_run_id: str,
-        coordination_run: CoordinationRun,
-        parent_agent_run: AgentRun,
-        graph_payload: dict[str, Any],
-        topology_template_payload: dict[str, Any],
-    ) -> list[Any]:
-        events: list[Any] = []
-        edges = _dispatch_edges_from_payload(graph_payload, topology_template_payload)
-        if not edges:
-            return events
-        task_agent_runs = list(self.state_index.list_task_agent_runs(task_run_id))
-        existing_handoffs = {
-            str(item.handoff_id or "")
-            for item in self.state_index.list_coordination_handoffs(coordination_run.coordination_run_id)
-            if str(item.handoff_id or "")
-        }
-        for edge in edges:
-            source_node_id = str(edge.get("source_node_id") or edge.get("from") or edge.get("source") or "").strip()
-            target_node_id = str(edge.get("target_node_id") or edge.get("to") or edge.get("target") or "").strip()
-            if not source_node_id or not target_node_id:
-                continue
-            edge_id = str(edge.get("edge_id") or f"{source_node_id}->{target_node_id}").strip()
-            source_agent_run_ref = self._resolve_graph_node_agent_run_ref(
-                task_agent_runs=task_agent_runs,
-                node_id=source_node_id,
-                fallback_agent_run=parent_agent_run,
-            )
-            target_agent_run_ref = self._resolve_graph_node_agent_run_ref(
-                task_agent_runs=task_agent_runs,
-                node_id=target_node_id,
-                fallback_agent_run=parent_agent_run,
-            )
-            handoff_id = f"handoffenv:{_runtime_loop_short_hash({'coordination_run_id': coordination_run.coordination_run_id, 'edge_id': edge_id, 'source_agent_run_ref': source_agent_run_ref, 'target_agent_run_ref': target_agent_run_ref})}"
-            if handoff_id in existing_handoffs:
-                continue
-            envelope = AgentHandoffEnvelope(
-                handoff_id=handoff_id,
-                task_run_id=task_run_id,
-                coordination_run_id=coordination_run.coordination_run_id,
-                source_agent_run_ref=source_agent_run_ref,
-                target_agent_run_ref=target_agent_run_ref,
-                protocol_id=str(coordination_run.communication_protocol_id or ""),
-                message_type=str(edge.get("message_type") or edge.get("policy") or edge.get("edge_type") or "structured_handoff"),
-                payload_ref=edge_id,
-                ack_state="pending" if bool(edge.get("ack_required", True) is not False) else "not_required",
-                created_at=time.time(),
-                diagnostics={
-                    "coordination_engine": "harness.graph_coordination_engine",
-                    "source_node_id": source_node_id,
-                    "target_node_id": target_node_id,
-                    "edge_id": edge_id,
-                    "handoff_policy": str(edge.get("policy") or edge.get("edge_type") or ""),
-                    "payload_ref_kind": "graph_edge",
-                    "formalized_from": "coordination_dispatch_graph",
-                },
-            )
-            self.state_index.upsert_handoff_envelope(envelope)
-            events.append(
-                self.event_log.append(
-                    task_run_id,
-                    "handoff_envelope_created",
-                    payload={"handoff_envelope": envelope.to_dict()},
-                    refs={
-                        "coordination_run_ref": coordination_run.coordination_run_id,
-                        "handoff_ref": envelope.handoff_id,
-                        "source_agent_run_ref": source_agent_run_ref,
-                        "target_agent_run_ref": target_agent_run_ref,
-                    },
-                )
-            )
-            existing_handoffs.add(handoff_id)
-        return events
-
-    def _resolve_graph_node_agent_run_ref(
-        self,
-        *,
-        task_agent_runs: list[AgentRun],
-        node_id: str,
-        fallback_agent_run: AgentRun,
-    ) -> str:
-        normalized = str(node_id or "").strip()
-        if normalized in {"", "final_merge", "coordinator"}:
-            return str(fallback_agent_run.agent_run_id or "")
-        worker_runs = [
-            item
-            for item in task_agent_runs
-            if str(item.agent_run_id or "") != str(fallback_agent_run.agent_run_id or "")
-        ]
-        if worker_runs:
-            return str(worker_runs[0].agent_run_id or "")
-        return str(fallback_agent_run.agent_run_id or "")
 
     def _resolve_topology_template(self, template_id: str) -> dict[str, Any]:
         target = str(template_id or "").strip()
@@ -1913,10 +1719,6 @@ class HarnessServiceHost:
         except Exception:
             rendered = f"{template} {index}"
         return str(rendered or f"工作Agent {index}").strip()
-
-    @staticmethod
-    def _execution_mode_allows_projection(execution_mode: str) -> bool:
-        return str(execution_mode or "").strip() == "coordinated_agents"
 
     def _upsert_task_run_runtime_state(
         self,
@@ -1991,7 +1793,6 @@ class HarnessServiceHost:
             messages_ref=base_state.messages_ref,
             context_snapshot_ref=base_state.context_snapshot_ref,
             memory_state_ref=base_state.memory_state_ref,
-            projection_ref=base_state.projection_ref,
             prompt_manifest_ref=base_state.prompt_manifest_ref,
             pending_action_requests=(dict(approval_state),),
             pending_approval_state=dict(approval_state),

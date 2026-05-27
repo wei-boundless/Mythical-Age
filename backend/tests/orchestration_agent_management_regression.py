@@ -461,10 +461,9 @@ def test_custom_agent_prompt_profile_metadata_is_not_runtime_adopted(tmp_path):
 
     agent_registry.upsert_agent(
         agent_id="agent:9",
-        agent_name="投影绑定测试 Agent",
+        agent_name="旧名册 Prompt 测试 Agent",
         agent_category="custom_agent",
         default_soul_id="xuannv",
-        default_projection_id="xuannv__primary",
         metadata={
             "managed_by": "orchestration_console",
             "prompt_profile": {
@@ -487,6 +486,7 @@ def test_custom_agent_prompt_profile_metadata_is_not_runtime_adopted(tmp_path):
 
     assert loaded is not None
     assert loaded.metadata["prompt_profile"]["authority"] == "orchestration.agent_prompt_profile"
+    assert loaded.default_soul_id == "xuannv"
     bundle = build_orchestration_runtime_bundle(
         base_dir=tmp_path,
         session_id="session:projection-test",
@@ -499,7 +499,6 @@ def test_custom_agent_prompt_profile_metadata_is_not_runtime_adopted(tmp_path):
                 "task_mode": "projection_test",
                 "output_contract_id": "AssistantFinalAnswer",
                 "requested_outputs": ["AssistantFinalAnswer"]},
-            "projection_selection": {},
             "operation_requirement": {"requirement_id": "opreq:projection-test"}},
         agent_runtime_profile=runtime_registry.get_profile("agent:9"),
     )
@@ -512,7 +511,7 @@ def test_custom_agent_prompt_profile_metadata_is_not_runtime_adopted(tmp_path):
 
     assert "这段旧名册 Prompt 不能进入 runtime prompt" not in rendered
     assert "旧护栏不能进入 runtime prompt" not in rendered
-    assert orchestration["projection_ref"] == "xuannv__primary"
+    assert orchestration["prompt_manifest"]["validation"]["passed"] is True
 
 
 def test_builtin_agent_runtime_profile_allows_regular_updates(tmp_path):

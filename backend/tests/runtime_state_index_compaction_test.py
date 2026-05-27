@@ -12,12 +12,14 @@ def test_state_index_compacts_task_run_heavy_diagnostics(tmp_path) -> None:
             session_id="session",
             task_id="task.heavy",
             diagnostics={
-                "task_graph_definition": {"graph_id": "graph.heavy", "nodes": [{"node_id": "a"}]},
-                "task_graph_runtime_spec": {"graph_id": "graph.heavy", "nodes": [{"node_id": "a"}], "valid": True},
-                "agent_dispatch_plan": {
-                    "dispatch_plan_id": "dispatch:heavy",
-                    "records": [{"node_id": "a"}],
-                    "ready_node_ids": ["a"],
+                "graph_harness_config_payload": {
+                    "config_id": "ghcfg:graph.heavy:test",
+                    "graph_id": "graph.heavy",
+                    "graph_title": "Heavy Graph",
+                    "nodes": [{"node_id": "a"}],
+                    "edges": [],
+                    "modules": [],
+                    "status": "published",
                 },
             },
         )
@@ -27,13 +29,9 @@ def test_state_index_compacts_task_run_heavy_diagnostics(tmp_path) -> None:
     stored = snapshot["task_runs"]["taskrun:heavy"]
     diagnostics = stored["diagnostics"]
 
-    assert "task_graph_definition" not in diagnostics
-    assert "task_graph_runtime_spec" not in diagnostics
-    assert "agent_dispatch_plan" not in diagnostics
-    assert diagnostics["task_graph_definition_ref"].startswith("rtobj:task_graph_definitions:")
-    assert diagnostics["task_graph_runtime_spec_ref"].startswith("rtobj:task_graph_runtime_specs:")
-    assert diagnostics["agent_dispatch_plan_ref"].startswith("rtobj:dispatch_plans:")
-    assert diagnostics["agent_dispatch_plan_summary"]["record_count"] == 1
+    assert "graph_harness_config_payload" not in diagnostics
+    assert diagnostics["graph_harness_config_ref"].startswith("rtobj:graph_harness_configs:")
+    assert diagnostics["graph_harness_config_summary"]["config_id"] == "ghcfg:graph.heavy:test"
 
 
 def test_state_index_compacts_coordination_run_heavy_diagnostics(tmp_path) -> None:
@@ -45,8 +43,15 @@ def test_state_index_compacts_coordination_run_heavy_diagnostics(tmp_path) -> No
             graph_ref="graph.heavy",
             coordinator_agent_id="agent:0",
             diagnostics={
-                "task_graph_definition": {"graph_id": "graph.heavy", "nodes": [{"node_id": "a"}]},
-                "task_graph_runtime_spec": {"graph_id": "graph.heavy", "nodes": [{"node_id": "a"}], "valid": True},
+                "graph_harness_config_payload": {
+                    "config_id": "ghcfg:graph.heavy:test",
+                    "graph_id": "graph.heavy",
+                    "graph_title": "Heavy Graph",
+                    "nodes": [{"node_id": "a"}],
+                    "edges": [{"source_node_id": "a", "target_node_id": "b"}],
+                    "modules": [],
+                    "status": "published",
+                },
                 "coordination_graph_spec": {
                     "graph_id": "graph.heavy",
                     "nodes": [{"node_id": "a"}],
@@ -70,13 +75,12 @@ def test_state_index_compacts_coordination_run_heavy_diagnostics(tmp_path) -> No
     stored = snapshot["coordination_runs"]["coordrun:heavy"]
     diagnostics = stored["diagnostics"]
 
-    assert "task_graph_definition" not in diagnostics
-    assert "task_graph_runtime_spec" not in diagnostics
+    assert "graph_harness_config_payload" not in diagnostics
     assert "coordination_graph_spec" not in diagnostics
     assert "graph_coordination_state" not in diagnostics
     assert "task_graph_scheduler_state" not in diagnostics
-    assert diagnostics["task_graph_definition_ref"].startswith("rtobj:task_graph_definitions:")
-    assert diagnostics["task_graph_runtime_spec_ref"].startswith("rtobj:task_graph_runtime_specs:")
+    assert diagnostics["graph_harness_config_ref"].startswith("rtobj:graph_harness_configs:")
+    assert diagnostics["graph_harness_config_summary"]["edge_count"] == 1
     assert diagnostics["coordination_graph_spec_ref"].startswith("rtobj:coordination_graph_specs:")
     assert diagnostics["graph_coordination_state_summary"]["running_nodes"] == ["a"]
     assert diagnostics["graph_coordination_state_summary"]["completed_node_count"] == 1

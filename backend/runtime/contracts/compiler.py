@@ -480,15 +480,15 @@ def _compile_graph_module_handoff_contracts(
         handoff_bindings = dict(plan_bindings.get("handoff") or {})
         runtime_bindings = dict(plan_bindings.get("runtime") or {})
         governance_bindings = dict(plan_bindings.get("governance") or {})
-        raw_block = dict(metadata.get("raw_block") or {})
+        raw_node = dict(metadata.get("raw_node") or {})
         binding_handoff_contract_id = str(handoff_bindings.get("handoff_contract_id") or "").strip()
         plan_handoff_contract_id = str(getattr(plan, "handoff_contract_id", "") or "").strip()
         metadata_legacy_fields = dict(metadata.get("legacy_contract_fields") or {})
-        raw_block_legacy_fields = dict(dict(raw_block.get("metadata") or {}).get("legacy_contract_fields") or {})
+        raw_node_legacy_fields = dict(dict(raw_node.get("metadata") or {}).get("legacy_contract_fields") or {})
         legacy_handoff_contract_id = str(
             metadata_legacy_fields.get("handoff_contract_id")
-            or raw_block_legacy_fields.get("handoff_contract_id")
-            or raw_block.get("handoff_contract_id")
+            or raw_node_legacy_fields.get("handoff_contract_id")
+            or raw_node.get("handoff_contract_id")
             or ""
         ).strip()
         handoff_contract_id = binding_handoff_contract_id or plan_handoff_contract_id or legacy_handoff_contract_id
@@ -497,7 +497,7 @@ def _compile_graph_module_handoff_contracts(
             issues=issues,
             source_ref=source_ref,
             node_id=plan.runtime_node_id,
-            legacy_values={"timeline_block.handoff_contract_id": legacy_handoff_contract_id},
+            legacy_values={"node.handoff_contract_id": legacy_handoff_contract_id},
             binding_values={"handoff.handoff_contract_id": binding_handoff_contract_id},
         )
         if handoff_contract_id:
@@ -538,8 +538,7 @@ def _compile_graph_module_handoff_contracts(
                 runtime_bindings=runtime_bindings,
                 governance_bindings=governance_bindings,
                 metadata={
-                    "timeline_block_id": str(raw_block.get("block_id") or metadata.get("timeline_block_id") or ""),
-                    "block_type": str(raw_block.get("block_type") or metadata.get("block_type") or ""),
+                    "source_node_id": str(raw_node.get("node_id") or metadata.get("source_node_id") or ""),
                     "visibility_policy": plan.visibility_policy,
                     "isolation_policy": plan.isolation_policy,
                     "detach_policy": plan.detach_policy,

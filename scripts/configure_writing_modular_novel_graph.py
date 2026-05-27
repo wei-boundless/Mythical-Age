@@ -18,6 +18,7 @@ from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from agent_system.registry.agent_registry import AgentRegistry
 from prompt_library import PromptLibraryRegistry
 from task_system.contracts.contract_definition_models import AcceptanceRule, ArtifactRequirement, ContractField, ContractSpec
+from task_system.compiler.graph_harness_config_publisher import publish_graph_harness_config_for_graph
 from task_system.registry.contract_registry import TaskContractRegistry
 from task_system.registry.flow_registry import TaskFlowRegistry
 
@@ -1293,12 +1294,14 @@ def configure(base_dir: Path | str | None = None) -> dict[str, Any]:
     _upsert_imported_module_graph(registry, graph_id=CHAPTER_GRAPH_ID, nodes=CHAPTER_NODES, business_edges=CHAPTER_BUSINESS_EDGES)
     _upsert_imported_module_graph(registry, graph_id=FINALIZE_GRAPH_ID, nodes=FINALIZE_NODES, business_edges=FINALIZE_BUSINESS_EDGES)
     _upsert_master_graph(registry)
+    published_config = publish_graph_harness_config_for_graph(base_dir=backend_dir, graph_id=MASTER_GRAPH_ID)
 
     configured = {
         "domain_id": DOMAIN_ID,
         "environment_id": ENVIRONMENT_ID,
         "protocol_id": PROTOCOL_ID,
         "graph_ids": [MASTER_GRAPH_ID, DESIGN_GRAPH_ID, CHAPTER_GRAPH_ID, FINALIZE_GRAPH_ID],
+        "graph_harness_config_id": published_config.config_id,
         "requested_chapters": CHAPTER_REQUESTED_COUNT,
         "target_volumes": TARGET_VOLUMES,
         "chapters_per_volume": CHAPTERS_PER_VOLUME,
@@ -1739,7 +1742,6 @@ def _upsert_task_asset(
         output_contract_id=output_contract_id,
         default_flow_contract_id=flow_id,
         default_workflow_id=workflow_id,
-        default_projection_policy="",
         task_policy={
             "safety_policy": {"verification_mode": "artifact_or_trace", "write_mode": "scoped", "safety_class": "S2_bounded"},
             "task_environment_id": ENVIRONMENT_ID,

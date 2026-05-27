@@ -2,6 +2,7 @@ from __future__ import annotations
 import re
 import json
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any
 
 from task_system.runtime_semantics.protocol_boundary import has_protocol_leak
@@ -161,17 +162,8 @@ def _triage_coverage_from_evidence(
     }
     coverage: dict[str, dict[str, Any]] = {}
     failure_facts = [fact for fact in facts if str(fact.get("fact_type") or "") == "failure"]
-    has_write_evidence = bool(_artifact_write_paths_from_facts(facts)) or any(
-        _contains_any(str(fact.get("preview") or fact.get("summary") or ""), ("write succeeded", "edit succeeded", "写入成功", "已写入"))
-        for fact in facts
-    )
-    has_verification_evidence = any(
-        _contains_any(
-            str(fact.get("preview") or fact.get("summary") or ""),
-            ("pytest", "PYTEST_OK", "passed", "verification", "terminal", "验证", "测试通过"),
-        )
-        for fact in facts
-    )
+    has_write_evidence = bool(_artifact_write_paths_from_facts(facts))
+    has_verification_evidence = _has_structured_verification_evidence(facts)
     computed = {
         "failure_classification": bool(classifications),
         "structural_root_causes": bool(failure_facts and classifications),
@@ -207,22 +199,19 @@ def _validate_artifact_delivery(
 ) -> DeliverableValidationResult:
     required = [str(item) for item in list(semantic_contract.get("deliverables") or []) if str(item).strip()]
     facts = [dict(item) for item in list(evidence_packet.get("facts") or []) if isinstance(item, dict)]
-    has_write_evidence = any(
-        _contains_any(str(fact.get("preview") or fact.get("summary") or ""), ("write succeeded", "edit succeeded", "写入成功", "已写入"))
-        for fact in facts
-    )
     observed_paths = _artifact_write_paths_from_facts(facts)
+    has_write_evidence = bool(observed_paths)
     required_paths = _dedupe([str(item).replace("\\", "/").strip() for item in list(required_output_paths or [])])
     missing_required_paths = [
         path for path in required_paths if not _required_output_path_satisfied(path, observed_paths)
     ]
     checks = {
-        "artifact_refs": has_write_evidence and _contains_any(final_answer, ("文件", "路径", "产物", "artifact", ".md", ".json", ".txt")),
-        "completion_status": _contains_any(final_answer, ("已完成", "已写入", "完成", "修改", "交付", "生成")),
-        "limitations": _contains_any(final_answer, ("limitations", "limitation", "限制", "边界", "未运行", "未执行", "没有运行", "证据")),
-        "change_summary": _contains_any(final_answer, ("修改", "变更", "change", "已完成", "已写入", "交付")),
+        "artifact_refs": has_write_evidence,
+        "completion_status": bool(final_answer.strip()) and has_write_evidence,
+        "limitations": bool(final_answer.strip()),
+        "change_summary": bool(final_answer.strip()) and has_write_evidence,
         "changed_files": _contains_any(final_answer, ("文件", "路径", ".html", ".css", ".js", ".md")),
-        "verification_result_or_limitation": _contains_any(final_answer, ("验证", "terminal", "命令", "未运行", "未执行", "限制")),
+        "verification_result_or_limitation": bool(final_answer.strip()),
     }
     missing = [item for item in required if not checks.get(item, _generic_deliverable_present(final_answer, item))]
     missing.extend(f"output_path:{path}" for path in missing_required_paths)
@@ -449,53 +438,11 @@ def _has_source_or_artifact_evidence(facts: list[dict[str, Any]], final_answer: 
     observed_paths = _artifact_write_paths_from_facts(facts)
     if observed_paths:
         return True
-    text = _facts_text(facts)
-    return _contains_any(
-        text,
-        (
-            "write succeeded",
-            "edit succeeded",
-            "created",
-            "modified",
-            "changed file",
-            "patch",
-            "写入成功",
-            "已写入",
-            "已修改",
-            "创建",
-        ),
-    ) and _contains_any(final_answer, ("文件", "路径", ".html", ".js", ".css", ".tsx", ".jsx", ".png", ".jpg", "artifact"))
+    return False
 
 
 def _has_runtime_or_browser_evidence(facts: list[dict[str, Any]]) -> bool:
-    if _has_structured_verification_evidence(facts):
-        return True
-    text = _facts_text(facts)
-    return _contains_any(
-        text,
-        (
-            "browser",
-            "playwright",
-            "localhost",
-            "127.0.0.1",
-            "dev server",
-            "server started",
-            "npm run",
-            "pytest",
-            "passed",
-            "verify_command",
-            "verification_intent",
-            "vite",
-            "canvas",
-            "screenshot",
-            "dom",
-            "浏览器",
-            "启动",
-            "运行",
-            "截图",
-            "页面",
-        ),
-    )
+    return _has_structured_verification_evidence(facts)
 
 
 def _has_structured_verification_evidence(facts: list[dict[str, Any]]) -> bool:
@@ -503,43 +450,43 @@ def _has_structured_verification_evidence(facts: list[dict[str, Any]]) -> bool:
         item = dict(fact or {})
         receipt = dict(item.get("command_receipt") or {})
         intent = dict(item.get("verification_intent") or {})
+        if not _verification_intent_declared(intent):
+            continue
         if str(item.get("tool_name") or "").strip() == "browser_control" and bool(receipt.get("passed", True)) is True:
             return True
         if str(item.get("tool_name") or "").strip() != "terminal":
             continue
         if receipt.get("passed") is not True:
             continue
-        if str(intent.get("obligation") or "").strip() == "verify_command" or str(intent.get("stage") or "").strip() == "verify_output":
-            return True
-        command = str(receipt.get("command") or dict(item.get("tool_args") or {}).get("command") or "").lower()
-        if any(marker in command for marker in ("pytest", "npm test", "pnpm test", "yarn test", "npm run build", "pnpm build", "tsc", "playwright")):
-            return True
+        return True
     return False
 
 
-def _has_asset_evidence(facts: list[dict[str, Any]]) -> bool:
-    text = _facts_text(facts)
-    return _contains_any(
-        text,
-        (
-            "asset",
-            "assets/",
-            ".png",
-            ".jpg",
-            ".jpeg",
-            ".webp",
-            ".svg",
-            "image",
-            "sprite",
-            "texture",
-            "visual",
-            "资源",
-            "图片",
-            "图像",
-            "贴图",
-            "精灵",
-        ),
+def _verification_intent_declared(intent: dict[str, Any]) -> bool:
+    return bool(
+        str(intent.get("obligation") or "").strip() == "verify_command"
+        or str(intent.get("stage") or "").strip() == "verify_output"
+        or str(intent.get("required_action") or "").strip() == "verify_command"
     )
+
+
+def _has_asset_evidence(facts: list[dict[str, Any]]) -> bool:
+    paths = _dedupe(
+        [
+            *[
+                str(path or "").replace("\\", "/").strip()
+                for fact in facts
+                for path in list(fact.get("observed_paths") or [])
+            ],
+            *[
+                str(dict(ref).get("path") or "").replace("\\", "/").strip()
+                for fact in facts
+                for ref in list(fact.get("artifact_refs") or [])
+                if isinstance(ref, dict)
+            ],
+        ]
+    )
+    return any(Path(path).suffix.lower() in {".png", ".jpg", ".jpeg", ".webp", ".svg", ".gif"} for path in paths)
 
 
 def _asset_reference_integrity(
@@ -574,10 +521,13 @@ def _asset_reference_integrity(
 
 def _asset_refs_from_facts(facts: list[dict[str, Any]]) -> list[str]:
     refs: list[str] = []
-    pattern = re.compile(r"(?P<path>assets/[A-Za-z0-9_.\-/\u4e00-\u9fff]+\.(?:svg|png|jpg|jpeg|webp|gif))", re.IGNORECASE)
     for fact in facts:
-        text = json.dumps(fact, ensure_ascii=False, sort_keys=True)
-        refs.extend(match.group("path").replace("\\", "/").strip("/") for match in pattern.finditer(text))
+        for ref in list(fact.get("artifact_refs") or []):
+            if not isinstance(ref, dict):
+                continue
+            path = str(ref.get("path") or "").replace("\\", "/").strip("/")
+            if path and Path(path).suffix.lower() in {".png", ".jpg", ".jpeg", ".webp", ".svg", ".gif"}:
+                refs.append(path)
     return _dedupe(refs)
 
 
@@ -614,49 +564,32 @@ def _asset_ref_observed(ref: str, observed_paths: list[str], output_roots: list[
 
 
 def _has_functional_acceptance_evidence(facts: list[dict[str, Any]], final_answer: str, deliverables: list[str]) -> bool:
-    text = _facts_text(facts)
     if "gameplay_acceptance" in deliverables:
-        return _contains_any(
-            text,
-            (
-                "movement",
-                "attack",
-                "enemy",
-                "wave",
-                "boss",
-                "hud",
-                "collision",
-                "health",
-                "score",
-                "gameplay",
-                "移动",
-                "攻击",
-                "敌人",
-                "波次",
-                "生命",
-                "玩法",
-            ),
-        )
+        return _has_declared_acceptance(facts, "gameplay_acceptance")
     if "workflow_acceptance" in deliverables:
-        return _contains_any(
-            text,
-            (
-                "click",
-                "input",
-                "form",
-                "workflow",
-                "interaction",
-                "navigation",
-                "button",
-                "state updated",
-                "点击",
-                "输入",
-                "交互",
-                "流程",
-                "页面切换",
-            ),
-        )
-    return _contains_any(final_answer, ("验收", "acceptance"))
+        return _has_declared_acceptance(facts, "workflow_acceptance")
+    return _has_declared_acceptance(facts, "functional_acceptance")
+
+
+def _has_declared_acceptance(facts: list[dict[str, Any]], key: str) -> bool:
+    accepted_values = {key, "functional_acceptance"}
+    for fact in facts:
+        item = dict(fact or {})
+        acceptance = item.get("acceptance")
+        if isinstance(acceptance, dict) and acceptance.get("passed") is True:
+            kind = str(acceptance.get("kind") or acceptance.get("type") or "").strip()
+            if not kind or kind in accepted_values:
+                return True
+        checks = item.get("acceptance_checks")
+        if isinstance(checks, dict):
+            if checks.get(key) is True or checks.get("functional_acceptance") is True:
+                return True
+        structured = item.get("data")
+        if isinstance(structured, dict):
+            nested = structured.get("acceptance") or structured.get("acceptance_checks")
+            if isinstance(nested, dict) and (nested.get(key) is True or nested.get("functional_acceptance") is True or nested.get("passed") is True):
+                return True
+    return False
 
 
 def _unsupported_profile_claims(
@@ -731,17 +664,20 @@ def _contains_any(text: str, markers: tuple[str, ...]) -> bool:
 
 def _artifact_write_paths_from_facts(facts: list[dict[str, Any]]) -> list[str]:
     paths: list[str] = []
-    path_pattern = re.compile(
-        r"(?P<path>(?:[\w.\-\u4e00-\u9fff]+[\\/])+[\w.\-\u4e00-\u9fff ()（）]+\.[A-Za-z0-9]+)",
-        flags=re.IGNORECASE,
-    )
     for fact in facts:
+        tool_name = str(fact.get("tool_name") or "").strip()
+        if tool_name not in {"write_file", "edit_file"}:
+            continue
         for key in ("path", "artifact_ref"):
             value = str(fact.get(key) or "").replace("\\", "/").strip()
             if value:
                 paths.append(value.removeprefix("artifact:"))
-        text = str(fact.get("preview") or fact.get("summary") or "").replace("\\", "/")
-        paths.extend(match.group("path").strip() for match in path_pattern.finditer(text))
+        paths.extend(str(path or "").replace("\\", "/").strip() for path in list(fact.get("observed_paths") or []) if str(path or "").strip())
+        for ref in list(fact.get("artifact_refs") or []):
+            if isinstance(ref, dict):
+                value = str(ref.get("path") or "").replace("\\", "/").strip()
+                if value:
+                    paths.append(value)
     return _dedupe(paths)
 
 

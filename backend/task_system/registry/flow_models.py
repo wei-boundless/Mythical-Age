@@ -28,7 +28,6 @@ class GeneralTaskProfile:
     default_agent_id: str
     default_workflow_id: str
     entry_channel: str = "main_conversation"
-    default_projection_id: str = ""
     input_contract_id: str = ""
     output_contract_id: str = ""
     conversation_entry_policy: str = "user_dialogue_to_main_agent"
@@ -85,7 +84,6 @@ class SpecificTaskRecord:
     acceptance_profile_id: str = ""
     default_flow_contract_id: str = ""
     default_workflow_id: str = ""
-    default_projection_policy: str = ""
     task_policy: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -226,7 +224,6 @@ class AgentTaskCarryingProfile:
     carried_general_task_refs: tuple[str, ...] = ()
     carried_specific_task_refs: tuple[str, ...] = ()
     workflow_refs: tuple[str, ...] = ()
-    projection_refs: tuple[str, ...] = ()
     validation_state: str = "unchecked"
     blocked_reasons: tuple[str, ...] = ()
     diagnostics: dict[str, Any] = field(default_factory=dict)
@@ -237,7 +234,6 @@ class AgentTaskCarryingProfile:
             "carried_general_task_refs",
             "carried_specific_task_refs",
             "workflow_refs",
-            "projection_refs",
             "blocked_reasons",
         ):
             payload[key] = list(payload[key])

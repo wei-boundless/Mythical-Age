@@ -63,7 +63,7 @@ def test_professional_mode_recipe_uses_new_runtime_names() -> None:
     assert retired_mode_key not in metadata
 
 
-def test_professional_profile_is_injected_into_soul_runtime_view() -> None:
+def test_professional_profile_is_injected_into_prompt_manifest() -> None:
     user_goal = (
         "分析 backend/tests/fixtures/professional_task_suite/failing_sixty_turn_summary.json "
         "里的失败，输出失败归类、结构性根因和回归测试建议。"
@@ -88,11 +88,11 @@ def test_professional_profile_is_injected_into_soul_runtime_view() -> None:
     orchestration = runtime["task_body_orchestration"]
     sections = {
         section["section_id"]: section
-        for section in orchestration["soul_runtime_view"]["sections"]
+        for section in orchestration["prompt_manifest"]["sections"]
     }
 
-    assert orchestration["projection_requirement"]["interaction_mode"] == "professional_mode"
-    assert orchestration["projection_requirement"]["projection_strength"] == "style_only"
+    assert "soul_runtime_view" not in orchestration
+    assert orchestration["prompt_manifest"]["validation"]["interaction_mode"] == "professional_mode"
     assert "professional_profile_section" in sections
     assert "专业长任务测试报告诊断员" in sections["professional_profile_section"]["content"]
     assert "semantic_task_section" in sections
@@ -283,6 +283,60 @@ def test_profile_driven_validator_rejects_game_completion_without_evidence() -> 
 
 
 def test_profile_driven_validator_accepts_game_evidence_dimensions() -> None:
+    write_envelope = build_tool_result_envelope(
+        tool_name="write_file",
+        tool_args={"path": "backend/game/index.html"},
+        result={
+            "text": "Write succeeded: backend/game/index.html",
+            "structured_payload": {
+                "observed_paths": [
+                    "backend/game/index.html",
+                    "backend/game/game.js",
+                    "backend/game/assets/hero.png",
+                ],
+                "artifact_refs": [
+                    {"path": "backend/game/index.html", "kind": "file"},
+                    {"path": "backend/game/game.js", "kind": "file"},
+                    {"path": "backend/game/assets/hero.png", "kind": "file"},
+                ],
+            },
+        },
+    )
+    browser_envelope = build_tool_result_envelope(
+        tool_name="browser_control",
+        tool_args={"action": "verify_gameplay"},
+        result={
+            "text": "gameplay verified",
+            "structured_payload": {
+                "command_receipt": {"command": "browser_control verify_gameplay", "passed": True},
+                "verification_intent": {"stage": "verify_output", "obligation": "verify_command"},
+            },
+        },
+    )
+    evidence = build_evidence_packet(
+        task_run_id="game-evidence",
+        semantic_contract={
+            "task_goal_type": "game_vertical_slice_delivery",
+        },
+        observations=[
+            {
+                "observation_ref": "obs:write",
+                "tool_name": "write_file",
+                "result": write_envelope.text,
+                "result_envelope": write_envelope.to_dict(),
+                "structured_payload": dict(write_envelope.structured_payload),
+            },
+            {
+                "observation_ref": "obs:browser",
+                "tool_name": "browser_control",
+                "result": browser_envelope.text,
+                "result_envelope": browser_envelope.to_dict(),
+                "structured_payload": dict(browser_envelope.structured_payload),
+                "acceptance_checks": {"gameplay_acceptance": True},
+            },
+        ],
+    ).to_dict()
+    evidence["facts"][1]["acceptance_checks"] = {"gameplay_acceptance": True}
     result = validate_deliverable(
         final_answer=(
             "已完成浏览器游戏垂直切片：文件 backend/game/index.html、backend/game/game.js "
@@ -306,26 +360,7 @@ def test_profile_driven_validator_accepts_game_evidence_dimensions() -> None:
                 "validate_deliverables",
             ],
         },
-        evidence_packet={
-            "facts": [
-                {
-                    "fact_type": "observation",
-                    "preview": "write succeeded backend/game/index.html and backend/game/game.js",
-                },
-                {
-                    "fact_type": "observation",
-                    "preview": "write succeeded backend/game/assets/hero.png image asset sprite",
-                },
-                {
-                    "fact_type": "observation",
-                    "preview": "browser opened localhost:5173 canvas screenshot nonblank",
-                },
-                {
-                    "fact_type": "observation",
-                    "preview": "gameplay acceptance: movement attack enemy wave health hud",
-                },
-            ]
-        },
+        evidence_packet=evidence,
     )
 
     assert result.passed is True
@@ -334,6 +369,48 @@ def test_profile_driven_validator_accepts_game_evidence_dimensions() -> None:
 
 
 def test_profile_driven_validator_requires_frontend_workflow_evidence() -> None:
+    write_envelope = build_tool_result_envelope(
+        tool_name="write_file",
+        tool_args={"path": "frontend/src/App.tsx"},
+        result={
+            "text": "Write succeeded: frontend/src/App.tsx",
+            "structured_payload": {
+                "observed_paths": ["frontend/src/App.tsx"],
+                "artifact_refs": [{"path": "frontend/src/App.tsx", "kind": "file"}],
+            },
+        },
+    )
+    browser_envelope = build_tool_result_envelope(
+        tool_name="browser_control",
+        tool_args={"action": "open"},
+        result={
+            "text": "browser opened",
+            "structured_payload": {
+                "command_receipt": {"command": "browser_control open", "passed": True},
+                "verification_intent": {"stage": "verify_output", "obligation": "verify_command"},
+            },
+        },
+    )
+    evidence = build_evidence_packet(
+        task_run_id="frontend-missing-workflow",
+        semantic_contract={"task_goal_type": "frontend_app_delivery"},
+        observations=[
+            {
+                "observation_ref": "obs:write",
+                "tool_name": "write_file",
+                "result": write_envelope.text,
+                "result_envelope": write_envelope.to_dict(),
+                "structured_payload": dict(write_envelope.structured_payload),
+            },
+            {
+                "observation_ref": "obs:browser",
+                "tool_name": "browser_control",
+                "result": browser_envelope.text,
+                "result_envelope": browser_envelope.to_dict(),
+                "structured_payload": dict(browser_envelope.structured_payload),
+            },
+        ],
+    ).to_dict()
     result = validate_deliverable(
         final_answer="前端页面已修改，核心流程已完成并通过浏览器验证，但暂无额外限制。",
         semantic_contract={
@@ -351,12 +428,7 @@ def test_profile_driven_validator_requires_frontend_workflow_evidence() -> None:
                 "validate_deliverables",
             ],
         },
-        evidence_packet={
-            "facts": [
-                {"fact_type": "observation", "preview": "write succeeded frontend/src/App.tsx"},
-                {"fact_type": "observation", "preview": "browser opened localhost:3000 DOM screenshot"},
-            ]
-        },
+        evidence_packet=evidence,
     )
 
     assert result.passed is False
@@ -365,6 +437,50 @@ def test_profile_driven_validator_requires_frontend_workflow_evidence() -> None:
 
 
 def test_profile_driven_validator_accepts_frontend_write_browser_and_workflow_evidence() -> None:
+    write_envelope = build_tool_result_envelope(
+        tool_name="write_file",
+        tool_args={"path": "frontend/src/App.tsx"},
+        result={
+            "text": "Write succeeded: frontend/src/App.tsx",
+            "structured_payload": {
+                "observed_paths": ["frontend/src/App.tsx"],
+                "artifact_refs": [{"path": "frontend/src/App.tsx", "kind": "file"}],
+            },
+        },
+    )
+    browser_envelope = build_tool_result_envelope(
+        tool_name="browser_control",
+        tool_args={"action": "verify_workflow"},
+        result={
+            "text": "workflow verified",
+            "structured_payload": {
+                "command_receipt": {"command": "browser_control verify_workflow", "passed": True},
+                "verification_intent": {"stage": "verify_output", "obligation": "verify_command"},
+            },
+        },
+    )
+    evidence = build_evidence_packet(
+        task_run_id="frontend-workflow",
+        semantic_contract={"task_goal_type": "frontend_app_delivery"},
+        observations=[
+            {
+                "observation_ref": "obs:write",
+                "tool_name": "write_file",
+                "result": write_envelope.text,
+                "result_envelope": write_envelope.to_dict(),
+                "structured_payload": dict(write_envelope.structured_payload),
+            },
+            {
+                "observation_ref": "obs:browser",
+                "tool_name": "browser_control",
+                "result": browser_envelope.text,
+                "result_envelope": browser_envelope.to_dict(),
+                "structured_payload": dict(browser_envelope.structured_payload),
+                "acceptance_checks": {"workflow_acceptance": True},
+            },
+        ],
+    ).to_dict()
+    evidence["facts"][1]["acceptance_checks"] = {"workflow_acceptance": True}
     result = validate_deliverable(
         final_answer=(
             "已完成前端工作流交付：文件 frontend/src/App.tsx 已修改；"
@@ -385,13 +501,7 @@ def test_profile_driven_validator_accepts_frontend_write_browser_and_workflow_ev
                 "validate_deliverables",
             ],
         },
-        evidence_packet={
-            "facts": [
-                {"fact_type": "observation", "preview": "write succeeded frontend/src/App.tsx"},
-                {"fact_type": "observation", "preview": "browser opened localhost:3000 DOM screenshot"},
-                {"fact_type": "observation", "preview": "workflow acceptance click input state updated navigation"},
-            ]
-        },
+        evidence_packet=evidence,
     )
 
     assert result.passed is True
@@ -400,17 +510,37 @@ def test_profile_driven_validator_accepts_frontend_write_browser_and_workflow_ev
 
 
 def test_artifact_delivery_requires_each_declared_output_path() -> None:
+    write_envelope = build_tool_result_envelope(
+        tool_name="write_file",
+        tool_args={"path": "output/a.md"},
+        result={
+            "text": "Write succeeded: output/a.md",
+            "structured_payload": {
+                "observed_paths": ["output/a.md"],
+                "artifact_refs": [{"path": "output/a.md", "kind": "file"}],
+            },
+        },
+    )
+    evidence = build_evidence_packet(
+        task_run_id="artifact-delivery",
+        semantic_contract={"task_goal_type": "artifact_delivery"},
+        observations=[
+            {
+                "observation_ref": "obs:write",
+                "tool_name": "write_file",
+                "result": write_envelope.text,
+                "result_envelope": write_envelope.to_dict(),
+                "structured_payload": dict(write_envelope.structured_payload),
+            }
+        ],
+    ).to_dict()
     result = validate_deliverable(
         final_answer="已交付 output/a.md，output/b.md 尚未写入，限制已说明。",
         semantic_contract={
             "task_goal_type": "artifact_delivery",
             "deliverables": ["artifact_refs", "completion_status", "limitations"],
         },
-        evidence_packet={
-            "facts": [
-                {"fact_type": "observation", "preview": "write succeeded output/a.md"},
-            ]
-        },
+        evidence_packet=evidence,
         required_output_paths=["output/a.md", "output/b.md"],
     )
 

@@ -224,9 +224,26 @@ def build_task_graph_standard_view(
     )
     layered = dict(runtime_spec.diagnostics.get("layered_graph") or {})
     composable = build_composable_graph_view(graph=graph, layered_graph=layered)
+    runtime_graph_modules = tuple(
+        GraphModuleRuntimePlan(
+            plan_id=str(item.get("plan_id") or ""),
+            importing_graph_id=str(item.get("importing_graph_id") or graph.graph_id),
+            unit_id=str(item.get("unit_id") or f"unit.node.{str(item.get('runtime_node_id') or '').replace(':', '.')}"),
+            linked_graph_id=str(item.get("linked_graph_id") or ""),
+            version_ref=str(item.get("version_ref") or ""),
+            handoff_contract_id=str(item.get("handoff_contract_id") or ""),
+            input_port_id=str(item.get("input_port_id") or "input.default") or "input.default",
+            output_port_id=str(item.get("output_port_id") or "output.default") or "output.default",
+            isolation_policy=str(item.get("isolation_policy") or "isolated_per_graph_module_run") or "isolated_per_graph_module_run",
+            visibility_policy=str(item.get("visibility_policy") or "committed_only") or "committed_only",
+            detach_policy=str(item.get("detach_policy") or "preserve_version_anchor") or "preserve_version_anchor",
+            metadata={**dict(item.get("metadata") or {}), "runtime_node_id": str(item.get("runtime_node_id") or "")},
+        )
+        for item in [plan.to_dict() for plan in getattr(runtime_spec, "graph_module_runtime_plans", ()) or ()]
+    )
     graph_module_expansions = _graph_module_expansions(
         current_graph=graph,
-        graph_module_runtime=tuple(composable.graph_module_runtime),
+        graph_module_runtime=runtime_graph_modules,
         graph_lookup=graph_lookup,
     )
     resource_nodes = [dict(item) for item in list(layered.get("resource_nodes") or []) if isinstance(item, dict)]

@@ -47,9 +47,6 @@ def test_soul_role_prompt_is_role_only_without_runtime_duties(tmp_path: Path) ->
     _write(tmp_path, ACTIVE_SEED_PATH, (tmp_path / SEED_PATHS["hebo"]).read_text(encoding="utf-8"))
     _write(tmp_path, CORE_PATH, "# Core\n\n静态共同准则")
 
-    role_prompt = build_soul_catalog(tmp_path)["resource_catalog"]["cards"][1]
-    assert "default_projection_id" not in role_prompt
-
     from soul import SoulFacade
 
     prompt = SoulFacade(tmp_path).build_role_prompt(soul_id="hebo")
@@ -70,6 +67,5 @@ def test_main_agent_defaults_follow_active_soul_without_projection(tmp_path: Pat
     main_agent = registry.get_agent("agent:0")
     assert main_agent is not None
     assert main_agent.default_soul_id == "siyue"
-    assert "default_projection_id" not in main_agent.to_dict()
 
 

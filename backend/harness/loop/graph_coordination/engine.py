@@ -12,21 +12,20 @@ from langgraph.graph import END, START, StateGraph
 
 from memory_system.runtime_services import MemoryRuntimeServices
 from artifact_system import ArtifactRepositoryService
-from task_system import TaskContractRegistry
-from task_system.compiler.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
-from task_system.compiler.coordination_graph_models import TaskGraphRuntimeSpec
-from task_system.graphs.task_graph_models import task_graph_from_dict
+from harness.runtime.graph_config import (
+    GraphHarnessConfig,
+    graph_harness_config_coordination_task,
+    graph_harness_config_from_dict,
+    graph_harness_config_from_run_diagnostics,
+    graph_harness_config_runtime_spec_payload,
+)
 
 from harness.execution.node_protocol.node_execution_a2a_payload import build_node_execution_a2a_payload
 from runtime.shared.artifact_refs import ArtifactRefIndex
-from runtime.contracts.compiler import compile_coordination_contract_manifest
 from runtime.contracts.continuation_inputs import ContinuationInputBinder
 from runtime.contracts.continuation_policy import (
     CoordinationContinuationPolicy,
     CoordinationStageContract,
-    contract_by_stage,
-    parse_stage_contracts,
-    derive_stage_contracts_from_graph,
     validate_stage_contracts,
 )
 from runtime.memory.project_supervision import make_supervision_record
@@ -334,41 +333,30 @@ class GraphCoordinationEngine:
         self._app = self._build_app()
         self.kernel = GraphCoordinationKernel(app=self._app, checkpoints=self.checkpoints)
 
-    def _resolve_task_graph_view(self, coordination_run: CoordinationRun, *, prefer_live_graph: bool = False):
-        task_graph = self._resolve_task_graph_definition(coordination_run, prefer_live_graph=prefer_live_graph)
-        if task_graph is None:
-            return None
-        derive = getattr(self.task_flow_registry, "derive_coordination_task_view_from_graph", None)
-        if not callable(derive):
-            return None
-        return derive(task_graph)
-
-    def _resolve_task_graph_definition(self, coordination_run: CoordinationRun, *, prefer_live_graph: bool = False):
-        target = str(coordination_run.graph_ref or "").strip()
-        if prefer_live_graph and target:
-            get_task_graph = getattr(self.task_flow_registry, "get_task_graph", None)
-            if callable(get_task_graph):
-                live_graph = get_task_graph(target)
-                if live_graph is not None:
-                    return live_graph
+    def _resolve_graph_harness_config(self, coordination_run: CoordinationRun) -> GraphHarnessConfig | None:
         diagnostics = dict(coordination_run.diagnostics or {})
-        definition_ref = str(diagnostics.get("task_graph_definition_ref") or "").strip()
-        snapshot = self.runtime_objects.get_object(definition_ref) if definition_ref else {}
-        if snapshot:
-            return task_graph_from_dict(snapshot)
-        if not target:
-            return None
-        get_task_graph = getattr(self.task_flow_registry, "get_task_graph", None)
-        if not callable(get_task_graph):
-            return None
-        return get_task_graph(target)
+        config = graph_harness_config_from_run_diagnostics(
+            diagnostics,
+            registry=self.task_flow_registry,
+        )
+        if config is not None:
+            return config
+        config_ref = str(diagnostics.get("graph_harness_config_ref") or "").strip()
+        config_payload = self.runtime_objects.get_object(config_ref) if config_ref else {}
+        if config_payload:
+            return graph_harness_config_from_dict(config_payload)
+        return graph_harness_config_from_run_diagnostics(
+            dict(coordination_run.diagnostics or {}),
+            registry=self.task_flow_registry,
+        )
 
     def supports(self, coordination_run: CoordinationRun) -> bool:
-        coordination_task = self._resolve_task_graph_view(coordination_run)
-        if coordination_task is None:
+        graph_config = self._resolve_graph_harness_config(coordination_run)
+        if graph_config is None:
             return False
-        contracts = self._contracts_for_run(coordination_run=coordination_run, coordination_task=coordination_task)
-        return bool(contracts)
+        contracts = list(dict(graph_config.contracts or {}).get("stage_contracts") or [])
+        runtime_payload = graph_harness_config_runtime_spec_payload(graph_config)
+        return bool(contracts and list(runtime_payload.get("nodes") or []))
 
     def initialize(
         self,
@@ -377,10 +365,10 @@ class GraphCoordinationEngine:
         event_task_run_id: str = "",
         inherited_inputs: dict[str, Any] | None = None,
     ) -> GraphCoordinationResult:
-        coordination_task = self._resolve_task_graph_view(coordination_run)
-        if coordination_task is None:
-            return GraphCoordinationResult(diagnostics={"supported": False, "reason": "missing_coordination_task"})
-        state = self._load_or_bootstrap_state(coordination_run=coordination_run, coordination_task=coordination_task)
+        graph_config = self._resolve_graph_harness_config(coordination_run)
+        if graph_config is None:
+            return GraphCoordinationResult(diagnostics={"supported": False, "reason": "missing_graph_harness_config"})
+        state = self._load_or_bootstrap_state(coordination_run=coordination_run, graph_config=graph_config)
         if inherited_inputs:
             business_inherited_inputs = {
                 str(key): value
@@ -455,10 +443,10 @@ class GraphCoordinationEngine:
         inherited_inputs: dict[str, Any] | None = None,
         artifact_root: str = "",
     ) -> GraphCoordinationResult:
-        coordination_task = self._resolve_task_graph_view(coordination_run)
-        if coordination_task is None:
-            return GraphCoordinationResult(diagnostics={"supported": False, "reason": "missing_coordination_task"})
-        state = self._load_or_bootstrap_state(coordination_run=coordination_run, coordination_task=coordination_task)
+        graph_config = self._resolve_graph_harness_config(coordination_run)
+        if graph_config is None:
+            return GraphCoordinationResult(diagnostics={"supported": False, "reason": "missing_graph_harness_config"})
+        state = self._load_or_bootstrap_state(coordination_run=coordination_run, graph_config=graph_config)
         state["current_event"] = event.to_dict()
         state["current_task_result"] = dict(current_task_result or {})
         state["pending_inputs"] = {
@@ -601,7 +589,6 @@ class GraphCoordinationEngine:
         stage_id: str,
         reason: str = "stage_output_invalid",
         inherited_inputs: dict[str, Any] | None = None,
-        refresh_graph_spec: bool = True,
     ) -> GraphCoordinationResult:
         coordination_run = self.state_index.get_coordination_run(coordination_run_id)
         if coordination_run is None:
@@ -614,40 +601,6 @@ class GraphCoordinationEngine:
         target_stage_id = str(stage_id or "").strip()
         if not target_stage_id:
             return GraphCoordinationResult(diagnostics={"supported": False, "reason": "missing_stage_id"})
-
-        if refresh_graph_spec:
-            coordination_task = self._resolve_task_graph_view(coordination_run, prefer_live_graph=True)
-            if coordination_task is not None:
-                refreshed = self._bootstrap_state(
-                    coordination_run=coordination_run,
-                    coordination_task=coordination_task,
-                    prefer_live_graph=True,
-                )
-                for key in (
-                    "stage_order",
-                    "stage_contracts",
-                    "contract_manifest",
-                    "node_contracts",
-                    "edge_contracts",
-                ):
-                    if refreshed.get(key):
-                        state[key] = refreshed[key]
-                refreshed_diagnostics = dict(refreshed.get("diagnostics") or {})
-                diagnostics = dict(state.get("diagnostics") or {})
-                for key in (
-                    "coordination_graph_spec",
-                    "task_graph_scheduler_state",
-                    "contract_manifest_ref",
-                    "contract_manifest_valid",
-                    "contract_manifest_issue_count",
-                    "stage_contract_issues",
-                    "continuation_policy",
-                    "graph_loop_policy",
-                ):
-                    if key in refreshed_diagnostics:
-                        diagnostics[key] = refreshed_diagnostics[key]
-                diagnostics["rewind_refreshed_graph_spec"] = True
-                state["diagnostics"] = diagnostics
 
         invalidated_stage_ids = _downstream_stage_ids(state=state, stage_id=target_stage_id, include_self=True)
         if target_stage_id not in invalidated_stage_ids:
@@ -2427,6 +2380,7 @@ class GraphCoordinationEngine:
                     "default_executor": "graph_module",
                     "allowed_executors": ["graph_module"],
                     "linked_graph_id": str(graph_module_handle.get("linked_graph_id") or ""),
+                    "linked_config_id": str(graph_module_handle.get("linked_config_id") or ""),
                     "imported_graph_id": str(graph_module_handle.get("linked_graph_id") or ""),
                     "graph_module_runtime_handle": graph_module_handle,
                 }
@@ -3303,24 +3257,22 @@ class GraphCoordinationEngine:
             return "blocked"
         return "stage_execute"
 
-    def _load_or_bootstrap_state(self, *, coordination_run: CoordinationRun, coordination_task: Any) -> dict[str, Any]:
+    def _load_or_bootstrap_state(self, *, coordination_run: CoordinationRun, graph_config: GraphHarnessConfig) -> dict[str, Any]:
         stored = self.checkpoints.get_state(thread_id=coordination_run.coordination_run_id)
         if stored:
             return _normalize_coordination_authoritative_state(stored)
-        return self._bootstrap_state(coordination_run=coordination_run, coordination_task=coordination_task)
+        return self._bootstrap_state(coordination_run=coordination_run, graph_config=graph_config)
 
     def _bootstrap_state(
         self,
         *,
         coordination_run: CoordinationRun,
-        coordination_task: Any,
-        prefer_live_graph: bool = False,
+        graph_config: GraphHarnessConfig,
     ) -> dict[str, Any]:
-        topology_template = self.task_flow_registry.get_topology_template(coordination_run.topology_template_id)
         communication_protocol = self.task_flow_registry.get_task_communication_protocol(coordination_run.communication_protocol_id)
-        specific_tasks = tuple(self.task_flow_registry.list_specific_task_records())
-        task_graph = self._resolve_task_graph_definition(coordination_run, prefer_live_graph=prefer_live_graph)
-        if task_graph is None:
+        graph_spec_payload = graph_harness_config_runtime_spec_payload(graph_config)
+        graph_spec = _runtime_spec_from_payload(graph_spec_payload)
+        if graph_spec is None:
             return {
                 "coordination_run_id": coordination_run.coordination_run_id,
                 "root_task_run_id": coordination_run.task_run_id,
@@ -3328,33 +3280,25 @@ class GraphCoordinationEngine:
                 **_execution_boundary_cleared(),
                 "diagnostics": {
                     "coordination_engine": "harness.graph_coordination_engine",
-                    "task_graph_runtime_source": "missing_task_graph_definition",
+                    "task_graph_runtime_source": "missing_graph_harness_config_runtime_payload",
+                    "graph_harness_config_id": graph_config.config_id,
                     "stage_contract_issues": [
                         {
-                            "code": "missing_task_graph_definition",
-                            "message": "TaskGraph runtime requires a first-class TaskGraphDefinition snapshot or registry record.",
+                            "code": "missing_graph_harness_config_runtime_payload",
+                            "message": "GraphHarnessConfig must contain a compiled runtime payload before GraphLoop can start.",
                             "severity": "error",
                         }
                     ],
                 },
             }
-        runtime_spec_ref = str(dict(coordination_run.diagnostics or {}).get("task_graph_runtime_spec_ref") or "").strip()
-        graph_spec_payload = self.runtime_objects.get_object(runtime_spec_ref) if runtime_spec_ref and not prefer_live_graph else {}
-        graph_spec = (
-            _runtime_spec_from_payload(graph_spec_payload)
-            if graph_spec_payload
-            else None
-        ) or compile_task_graph_definition_runtime_spec(
-            graph=task_graph,
-            specific_tasks=specific_tasks,
-            communication_protocol=communication_protocol,
-        )
+        config_contracts = dict(graph_config.contracts or {})
         topology_nodes = _merge_runtime_nodes(
             compiled_nodes=[node.to_dict() for node in graph_spec.nodes],
-            configured_nodes=[dict(item) for item in list(getattr(topology_template, "nodes", ()) or [])],
+            configured_nodes=[dict(item) for item in list(graph_config.nodes or [])],
         )
-        contracts = self._contracts_for_run(coordination_run=coordination_run, coordination_task=coordination_task)
-        stage_sequence = [dict(item) for item in list(dict(getattr(coordination_task, "metadata", {}) or {}).get("stage_sequence") or []) if isinstance(item, dict)]
+        coordination_task = graph_harness_config_coordination_task(graph_config)
+        contracts = self._contracts_for_config(graph_config=graph_config, topology_nodes=topology_nodes)
+        stage_sequence = [dict(item) for item in list(config_contracts.get("stage_sequence") or []) if isinstance(item, dict)]
         issues = validate_stage_contracts(coordination_task=coordination_task, contracts=contracts, stage_sequence=stage_sequence)
         order = [contract.stage_id for contract in contracts]
         if not order:
@@ -3380,15 +3324,7 @@ class GraphCoordinationEngine:
             order = _topological_stage_order(topology_nodes, [edge.to_dict() for edge in graph_spec.edges])
         if not current_stage and order:
             current_stage = order[0]
-        manifest = compile_coordination_contract_manifest(
-            contract_registry=TaskContractRegistry(self.registry_base_dir),
-            coordination_task=coordination_task,
-            graph_spec=graph_spec,
-            specific_tasks=specific_tasks,
-            communication_protocol=communication_protocol,
-            agent_profiles=tuple(AgentRuntimeRegistry(self.registry_base_dir).list_profiles()),
-        )
-        manifest_payload = manifest.to_dict()
+        manifest_payload = dict(config_contracts.get("manifest") or {})
         node_contracts = {
             str(item.get("node_id") or ""): dict(item)
             for item in list(manifest_payload.get("node_contracts") or [])
@@ -3462,6 +3398,9 @@ class GraphCoordinationEngine:
             **_execution_boundary_cleared(),
             "diagnostics": {
                 "coordination_engine": "harness.graph_coordination_engine",
+                "graph_harness_config_id": graph_config.config_id,
+                "graph_harness_config_ref": str(dict(coordination_run.diagnostics or {}).get("graph_harness_config_ref") or ""),
+                "graph_harness_config_schema_version": graph_config.config_schema_version,
                 "communication_protocol_id": coordination_run.communication_protocol_id,
                 "a2a_runtime": {
                     "protocol": "official",
@@ -3477,10 +3416,10 @@ class GraphCoordinationEngine:
                 "graph_ref": graph_spec.graph_ref or graph_spec.graph_id,
                 "task_graph_scheduler_state": scheduler_state.to_dict(),
                 "batch_lifecycle_runtime_state": batch_lifecycle_runtime_state,
-                "task_graph_runtime_source": "task_graph_definition",
-                "contract_manifest_ref": manifest.manifest_id,
-                "contract_manifest_valid": manifest.valid,
-                "contract_manifest_issue_count": len(manifest.issues),
+                "task_graph_runtime_source": "graph_harness_config",
+                "contract_manifest_ref": str(manifest_payload.get("manifest_id") or graph_config.config_id),
+                "contract_manifest_valid": bool(manifest_payload.get("valid") is not False),
+                "contract_manifest_issue_count": len(list(manifest_payload.get("issues") or [])),
                 "stage_contract_issues": issues,
                 "continuation_policy": CoordinationContinuationPolicy.from_metadata(
                     coordination_metadata
@@ -3490,22 +3429,59 @@ class GraphCoordinationEngine:
             },
         }
 
-    def _contracts_for_run(self, *, coordination_run: CoordinationRun, coordination_task: Any) -> tuple[CoordinationStageContract, ...]:
-        topology_template = self.task_flow_registry.get_topology_template(coordination_run.topology_template_id)
-        topology_nodes = [dict(item) for item in list(getattr(topology_template, "nodes", ()) or [])]
-        topology_edges = [dict(item) for item in list(getattr(topology_template, "edges", ()) or [])]
-        contracts = parse_stage_contracts(
-            coordination_task=coordination_task,
-            topology_nodes=topology_nodes,
-            topology_edges=topology_edges,
-        )
-        if contracts:
-            return contracts
-        return derive_stage_contracts_from_graph(
-            coordination_task=coordination_task,
-            topology_nodes=topology_nodes,
-            topology_edges=topology_edges,
-        )
+    def _contracts_for_config(self, *, graph_config: GraphHarnessConfig, topology_nodes: list[dict[str, Any]]) -> tuple[CoordinationStageContract, ...]:
+        raw_contracts = [
+            dict(item)
+            for item in list(dict(graph_config.contracts or {}).get("stage_contracts") or [])
+            if isinstance(item, dict)
+        ]
+        node_by_stage = {
+            str(item.get("stage_id") or item.get("node_id") or "").strip(): dict(item)
+            for item in topology_nodes
+            if str(item.get("stage_id") or item.get("node_id") or "").strip()
+        }
+        contracts: list[CoordinationStageContract] = []
+        for raw in raw_contracts:
+            stage_id = str(raw.get("stage_id") or raw.get("node_id") or "").strip()
+            if not stage_id:
+                continue
+            node = node_by_stage.get(stage_id, {})
+            contracts.append(
+                CoordinationStageContract(
+                    stage_id=stage_id,
+                    task_ref=str(raw.get("task_ref") or node.get("task_id") or f"task_graph.node.{graph_config.graph_id}.{stage_id}"),
+                    node_id=str(raw.get("node_id") or node.get("node_id") or stage_id),
+                    required_inputs=tuple(str(item) for item in list(raw.get("required_inputs") or []) if str(item)),
+                    optional_inputs=tuple(str(item) for item in list(raw.get("optional_inputs") or []) if str(item)),
+                    input_bindings=tuple(dict(item) for item in list(raw.get("input_bindings") or []) if isinstance(item, dict)),
+                    output_mappings=tuple(dict(item) for item in list(raw.get("output_mappings") or []) if isinstance(item, dict)),
+                    gate_policy=str(raw.get("gate_policy") or ""),
+                    on_success=str(raw.get("on_success") or "advance"),
+                    on_failure=str(raw.get("on_failure") or "fail_closed"),
+                    retry_policy=dict(raw.get("retry_policy") or {}),
+                    agent_id=str(raw.get("agent_id") or node.get("agent_id") or ""),
+                    runtime_lane=str(raw.get("runtime_lane") or node.get("runtime_lane") or ""),
+                    role=str(raw.get("role") or node.get("role") or ""),
+                    title=str(raw.get("title") or node.get("title") or stage_id),
+                    input_contract_id=str(raw.get("input_contract_id") or node.get("input_contract_id") or ""),
+                    output_contract_id=str(raw.get("output_contract_id") or node.get("output_contract_id") or ""),
+                    node_type=str(raw.get("node_type") or node.get("node_type") or ""),
+                    executor_policy=dict(raw.get("executor_policy") or node.get("executor_policy") or {}),
+                    memory_read_policy=dict(raw.get("memory_read_policy") or node.get("memory_read_policy") or {}),
+                    memory_writeback_policy=dict(raw.get("memory_writeback_policy") or node.get("memory_writeback_policy") or {}),
+                    dynamic_memory_read_policy=dict(raw.get("dynamic_memory_read_policy") or node.get("dynamic_memory_read_policy") or {}),
+                    review_gate_policy=dict(raw.get("review_gate_policy") or node.get("review_gate_policy") or {}),
+                    human_gate_policy=dict(raw.get("human_gate_policy") or node.get("human_gate_policy") or {}),
+                    artifact_policy=dict(raw.get("artifact_policy") or node.get("artifact_policy") or {}),
+                    stream_policy=dict(raw.get("stream_policy") or node.get("stream_policy") or {}),
+                    artifact_context_policy=dict(raw.get("artifact_context_policy") or node.get("artifact_context_policy") or {}),
+                    revision_context_policy=dict(raw.get("revision_context_policy") or node.get("revision_context_policy") or {}),
+                    quality_retry_policy=dict(raw.get("quality_retry_policy") or node.get("quality_retry_policy") or {}),
+                    artifact_targets=tuple(dict(item) for item in list(raw.get("artifact_targets") or node.get("artifact_targets") or []) if isinstance(item, dict)),
+                    length_budget=dict(raw.get("length_budget") or {}),
+                )
+            )
+        return tuple(contracts)
 
     def _agent_profile_for(self, agent_id: str) -> Any:
         return AgentRuntimeRegistry(self.registry_base_dir).get_profile(agent_id)
@@ -3577,6 +3553,7 @@ def _contract_payload(contract: CoordinationStageContract, *, topology_nodes: li
             "graph_module_runtime_plan_id",
             "graph_module_runtime_plan",
             "linked_graph_id",
+            "linked_config_id",
             "version_ref",
             "handoff_contract_id",
             "input_port_id",
@@ -3594,9 +3571,14 @@ def _contract_payload(contract: CoordinationStageContract, *, topology_nodes: li
         executor_policy.setdefault("default_executor", "graph_module")
         executor_policy.setdefault("allowed_executors", ["graph_module"])
         executor_policy.setdefault("linked_graph_id", str(payload.get("linked_graph_id") or ""))
+        executor_policy.setdefault("linked_config_id", str(payload.get("linked_config_id") or ""))
         executor_policy.setdefault("imported_graph_id", str(payload.get("linked_graph_id") or ""))
         executor_policy.setdefault("auto_start_imported_initial_stage", True)
         payload["executor_policy"] = executor_policy
+        for key in ("linked_graph_id", "linked_config_id", "imported_graph_id"):
+            value = str(executor_policy.get(key) or "").strip()
+            if value and not str(payload.get(key) or "").strip():
+                payload[key] = value
         if not str(payload.get("task_ref") or "").strip():
             graph_id = str(payload.get("importing_graph_id") or dict(payload.get("graph_module_runtime_plan") or {}).get("importing_graph_id") or "")
             payload["task_ref"] = f"task_graph.node.{graph_id or 'graph'}.{payload.get('node_id') or contract.stage_id}"

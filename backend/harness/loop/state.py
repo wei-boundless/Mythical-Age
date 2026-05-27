@@ -29,7 +29,6 @@ class HarnessLoopState:
     messages_ref: str = ""
     context_snapshot_ref: str = ""
     memory_state_ref: str = ""
-    projection_ref: str = ""
     prompt_manifest_ref: str = ""
     pending_action_requests: tuple[dict[str, Any], ...] = ()
     pending_approval_state: dict[str, Any] = field(default_factory=dict)
@@ -80,7 +79,6 @@ class HarnessLoopState:
             messages_ref=str(state_payload.get("messages_ref") or ""),
             context_snapshot_ref=str(state_payload.get("context_snapshot_ref") or ""),
             memory_state_ref=str(state_payload.get("memory_state_ref") or ""),
-            projection_ref=str(state_payload.get("projection_ref") or ""),
             prompt_manifest_ref=str(state_payload.get("prompt_manifest_ref") or ""),
             pending_action_requests=tuple(state_payload.get("pending_action_requests") or ()),
             pending_approval_state=dict(state_payload.get("pending_approval_state") or {}),
@@ -124,7 +122,6 @@ class HarnessLoopState:
             messages_ref=self.messages_ref,
             context_snapshot_ref=self.context_snapshot_ref,
             memory_state_ref=self.memory_state_ref,
-            projection_ref=self.projection_ref,
             prompt_manifest_ref=self.prompt_manifest_ref,
             pending_action_requests=self.pending_action_requests,
             pending_approval_state=self.pending_approval_state,

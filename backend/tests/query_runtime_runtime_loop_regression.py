@@ -118,6 +118,108 @@ class _ToolThenCompletionExecutor:
         }
 
 
+class _ArtifactDeliveryDecisionModelRuntime:
+    async def invoke_messages(self, _messages, **_kwargs):
+        return SimpleNamespace(
+            content=json.dumps(
+                {
+                    "authority": "agent_runtime.model_turn_decision",
+                    "decision_id": "model-turn-decision:artifact-e2e",
+                    "user_message": "请交付真实文件并验证。",
+                    "interaction_intent": "create",
+                    "action_intent": "edit_workspace",
+                    "work_mode": "implementation",
+                    "task_goal_type": "artifact_delivery",
+                    "domain_mismatch_signal": {},
+                    "target_objects": ["output/e2e_completion_artifact.md"],
+                    "desired_outcome": "写入指定 artifact，运行真实文件存在性验证，并基于证据收口。",
+                    "deliverables": ["artifact_refs", "completion_status", "limitations"],
+                    "constraints": [],
+                    "forbidden_actions": [],
+                    "selected_skill_ids": [],
+                    "resource_contract": {
+                        "required_write_files": ["output/e2e_completion_artifact.md"],
+                    },
+                    "context_binding_decision": {"mode": "use_runtime_tools"},
+                    "planning_required": False,
+                    "todo_required": False,
+                    "completion_criteria": ["verify_command"],
+                    "needs_clarification": False,
+                    "clarification_question": "",
+                    "confidence": 0.97,
+                    "ambiguity": [],
+                    "diagnostics": {"test_decision": True},
+                },
+                ensure_ascii=False,
+            )
+        )
+
+
+class _WriteVerifyCompletionExecutor:
+    def __init__(self) -> None:
+        self.model_runtime = _ArtifactDeliveryDecisionModelRuntime()
+        self.turn_count = 0
+
+    async def stream(self, *, model_messages, directive, **_kwargs):
+        self.turn_count += 1
+        if self.turn_count == 1:
+            yield {
+                "type": "tool_call_requested",
+                "tool_call": {
+                    "id": "tool-call:e2e-write",
+                    "name": "write_file",
+                    "args": {
+                        "path": "output/e2e_completion_artifact.md",
+                        "content": "completion evidence e2e",
+                    },
+                    "type": "tool_call",
+                },
+                "tool_name": "write_file",
+                "operation_id": "op.write_file",
+                "directive_ref": directive.directive_id,
+                "assistant_content": "",
+            }
+            return
+        if self.turn_count == 2:
+            yield {
+                "type": "tool_call_requested",
+                "tool_call": {
+                    "id": "tool-call:e2e-verify",
+                    "name": "terminal",
+                    "args": {
+                        "command": "test -f output/e2e_completion_artifact.md",
+                        "verification_intent": {
+                            "stage": "verify_output",
+                            "obligation": "verify_command",
+                            "target_path": "output/e2e_completion_artifact.md",
+                            "authority": "test.harness_real_tool_e2e",
+                        },
+                    },
+                    "type": "tool_call",
+                },
+                "tool_name": "terminal",
+                "operation_id": "op.shell",
+                "directive_ref": directive.directive_id,
+                "assistant_content": "",
+            }
+            return
+        assert any(message.__class__.__name__ == "ToolMessage" for message in list(model_messages or []))
+        yield {
+            "type": "done",
+            "content": (
+                "已交付 artifact output/e2e_completion_artifact.md；"
+                "完成状态由系统 closeout 的结构化写入证据和验证 receipt 裁决；限制：仅覆盖文件存在性。"
+            ),
+            "answer_channel": "final_answer",
+            "answer_source": "runtime_directive:model_response",
+            "answer_canonical_state": "final",
+            "answer_persist_policy": "persist_canonical",
+            "answer_finalization_policy": "assistant_final",
+            "answer_fallback_reason": "",
+            "completion": {"completed": True, "authority": "test.model_final_claim"},
+        }
+
+
 def _build_stream_runtime() -> QueryRuntime:
     return QueryRuntime(
         base_dir=isolated_backend_root("query-runtime-loop-"),
@@ -292,6 +394,113 @@ def test_agent_runtime_tool_followup_completion_becomes_task_result_completion()
     assert task_result_completion == completion
 
 
+def test_professional_harness_real_tools_gate_completion_on_artifact_evidence() -> None:
+    base_dir = isolated_backend_root("query-runtime-artifact-e2e-")
+    tool_runtime = ToolRuntime(base_dir)
+    runtime = QueryRuntime(
+        base_dir=base_dir,
+        settings_service=PrimarySettingsStub(),
+        session_manager=InMemorySessionManagerStub(),
+        memory_facade=QueryRuntimeMemoryFacadeStub(),
+        retrieval_service=SimpleNamespace(),
+        tool_runtime=tool_runtime,
+        skill_registry=EmptySkillRegistryStub(),
+        permission_service=DefaultPermissionStub(),
+        model_runtime=SingleMessageModelRuntimeStub(),
+    )
+    model_response_executor = _WriteVerifyCompletionExecutor()
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.agent_harness.run_stream(
+            AgentRunRequest(
+                session_id="session-artifact-e2e",
+                task_id="taskinst:session-artifact-e2e:artifact",
+                user_message=(
+                    "请创建文件 output/e2e_completion_artifact.md，内容写入 completion evidence e2e，"
+                    "然后验证这个文件真实存在并告诉我结果。"
+                ),
+                history=[],
+                source="regression",
+                agent_runtime_chain=runtime.agent_runtime_chain,
+                model_response_executor=model_response_executor,
+                runtime_context_manager=runtime.runtime_context_manager,
+                task_selection={
+                    "interaction_mode": "professional_mode",
+                    "runtime_interaction_mode": "professional_mode",
+                    "runtime_lane": "professional_task",
+                    "mode_policy": {
+                        "interaction_mode": "professional_mode",
+                        "runtime_lane": "professional_task",
+                        "recipe_id": "runtime.recipe.professional_task",
+                    },
+                    "operation_policy": {
+                        "allowed_operations": ["op.write_file", "op.shell"],
+                        "required_operations": ["op.write_file", "op.shell"],
+                    },
+                    "sandbox_policy": {
+                        "enabled": True,
+                        "workspace_key": "artifact-e2e",
+                        "approval_policy": "sandboxed_side_effects",
+                    },
+                },
+                tool_runtime_executor=runtime.tool_runtime_executor,
+                tool_instances=runtime._all_tool_instances(),
+                agent_runtime_profile=runtime.agent_runtime_registry.get_profile("agent:0"),
+                search_policy=["workspace"],
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    artifact_path = (
+        base_dir.parent
+        / "output"
+        / "sandbox_runs"
+        / "artifact-e2e"
+        / "workspace"
+        / "output"
+        / "e2e_completion_artifact.md"
+    )
+    assert artifact_path.read_text(encoding="utf-8") == "completion evidence e2e"
+
+    closeout_event = next(
+        dict(event.get("event") or {})
+        for event in events
+        if event.get("type") == "harness_loop_event"
+        and dict(event.get("event") or {}).get("event_type") == "agent_runtime_closeout_phase_checked"
+    )
+    verification = dict(dict(closeout_event.get("payload") or {}).get("verification") or {})
+    ledger = dict(verification.get("tool_observation_ledger") or {})
+    summary = {
+        "records": [dict(item) for item in list(ledger.get("records") or [])],
+        "completion_judgment": dict(verification.get("completion_judgment") or {}),
+    }
+    write_record = next(item for item in summary["records"] if item.get("tool_name") == "write_file")
+    verify_record = next(item for item in summary["records"] if item.get("tool_name") == "terminal")
+    judgment = summary["completion_judgment"]
+    terminal_event = next(
+        dict(event.get("event") or {})
+        for event in events
+        if event.get("type") == "harness_loop_event"
+        and dict(event.get("event") or {}).get("event_type") == "loop_terminal"
+    )
+    terminal_payload = dict(terminal_event.get("payload") or {})
+
+    assert model_response_executor.turn_count == 3
+    assert "write_output" in write_record["satisfies"]
+    assert "output/e2e_completion_artifact.md" in write_record["observed_paths"]
+    assert write_record["evidence_source"] == "structured_envelope"
+    assert "verify_command" in verify_record["satisfies"]
+    assert dict(verify_record["command_receipt"])["passed"] is True
+    assert verify_record["evidence_source"] == "structured_envelope"
+    assert verification["passed"] is True
+    assert judgment["completion_allowed"] is True
+    assert terminal_payload["status"] == "completed"
+    assert dict(terminal_payload["task_result"])["status"] == "completed"
+
+
 def test_query_runtime_assembles_compressed_context_before_model_history() -> None:
     session_manager = InMemorySessionManagerStub()
     session_manager.compressed_context = "旧历史已经压缩为项目审查摘要。"
@@ -397,15 +606,15 @@ def test_astream_reports_prestart_failure_without_task_order_chain() -> None:
 
     events = asyncio.run(_collect())
     assert any(
-        dict(event.get("event") or {}).get("event_type") == "runtime_blocked_before_assembly"
+        dict(event.get("event") or {}).get("event_type") == "model_turn_decision_unresolved"
         for event in events
         if event.get("type") == "harness_loop_event"
     )
     error = next(event for event in events if event.get("type") == "error")
-    assert error["code"] == "model_turn_decision_blocked"
+    assert error["code"] == "model_turn_decision_unresolved"
 
 
-def test_astream_blocks_before_assembly_when_action_permit_denies_write() -> None:
+def test_astream_does_not_hard_block_write_from_natural_language_marker() -> None:
     runtime = _build_stream_runtime()
 
     async def _collect() -> list[dict[str, object]]:
@@ -421,19 +630,12 @@ def test_astream_blocks_before_assembly_when_action_permit_denies_write() -> Non
         return events
 
     events = asyncio.run(_collect())
-    blocked_event = next(
-        dict(event.get("event") or {})
+    assert not any(
+        dict(event.get("event") or {}).get("event_type") == "runtime_blocked_before_assembly"
         for event in events
         if event.get("type") == "harness_loop_event"
-        and dict(event.get("event") or {}).get("event_type") == "runtime_blocked_before_assembly"
     )
-    payload = dict(blocked_event.get("payload") or {})
-
-    assert payload["reason"] == "action_permit_denied"
-    assert payload["denied_reasons"] == ["write_forbidden_by_boundary"]
-    assert not any(event.get("type") == "harness_run_started" for event in events)
-    error = next(event for event in events if event.get("type") == "error")
-    assert error["code"] == "action_permit_denied"
+    assert any(event.get("type") == "harness_run_started" for event in events)
 
 
 def test_removed_health_task_selection_falls_back_to_general_runtime() -> None:

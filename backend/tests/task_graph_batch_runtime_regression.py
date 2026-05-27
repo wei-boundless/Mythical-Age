@@ -13,8 +13,17 @@ from runtime.graph_runtime.batch_runtime import (
     transition_batch_after_stage_result,
 )
 from runtime.graph_runtime.run_monitor import build_task_graph_run_monitor_view
+from harness.runtime.graph_config import build_graph_harness_config_from_runtime_spec
 from task_system.compiler.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
 from task_system.graphs.task_graph_models import TaskGraphDefinition, TaskGraphNodeDefinition
+
+
+def _graph_config(graph: TaskGraphDefinition):
+    return build_graph_harness_config_from_runtime_spec(
+        graph=graph,
+        runtime_spec=compile_task_graph_definition_runtime_spec(graph=graph),
+        contract_manifest={"manifest_id": f"contract-manifest:{graph.graph_id}", "valid": True},
+    )
 
 
 def _batch_graph() -> TaskGraphDefinition:
@@ -157,9 +166,8 @@ def test_batch_runtime_state_repairs_same_batch_before_failing() -> None:
 
 def test_task_graph_run_injects_batch_range_and_continues_until_batches_done(tmp_path: Path) -> None:
     graph = _batch_graph()
-    spec = compile_task_graph_definition_runtime_spec(graph=graph)
     loop = HarnessServiceHost(tmp_path, backend_dir=Path("backend"))
-    started = loop.start_task_graph_run(session_id="session:test", graph=graph, runtime_spec=spec)
+    started = loop.start_task_graph_run(session_id="session:test", graph_config=_graph_config(graph))
 
     assert started.coordination_run is not None
     first_request = started.loop_state.diagnostics["stage_execution_request"]
@@ -209,7 +217,7 @@ def test_parallel_batch_runtime_bootstraps_multiple_ready_batches_and_execution_
     assert set(state["ready_batch_ids"]) == {"item_1_2", "item_3_4", "item_5_6"}
 
     loop = HarnessServiceHost(tmp_path, backend_dir=Path("backend"))
-    started = loop.start_task_graph_run(session_id="session:test", graph=graph, runtime_spec=spec)
+    started = loop.start_task_graph_run(session_id="session:test", graph_config=_graph_config(graph))
 
     first_request = started.loop_state.diagnostics["stage_execution_request"]
     first_inputs = first_request["explicit_inputs"]
@@ -242,9 +250,8 @@ def test_parallel_batch_runtime_bootstraps_multiple_ready_batches_and_execution_
 
 def test_langgraph_runtime_dispatches_ready_parallel_batch_requests(tmp_path: Path) -> None:
     graph = _parallel_batch_graph()
-    spec = compile_task_graph_definition_runtime_spec(graph=graph)
     loop = HarnessServiceHost(tmp_path, backend_dir=Path("backend"))
-    started = loop.start_task_graph_run(session_id="session:test", graph=graph, runtime_spec=spec)
+    started = loop.start_task_graph_run(session_id="session:test", graph_config=_graph_config(graph))
     assert started.coordination_run is not None
 
     result = loop.graph_coordination_engine.dispatch_ready_batch_requests(
@@ -453,9 +460,8 @@ def test_batch_runtime_rewind_resets_failed_batches_to_dispatchable_work() -> No
 
 def test_coordination_rewind_resets_failed_batch_and_creates_new_request(tmp_path: Path) -> None:
     graph = _batch_graph()
-    spec = compile_task_graph_definition_runtime_spec(graph=graph)
     loop = HarnessServiceHost(tmp_path, backend_dir=Path("backend"))
-    started = loop.start_task_graph_run(session_id="session:test", graph=graph, runtime_spec=spec)
+    started = loop.start_task_graph_run(session_id="session:test", graph_config=_graph_config(graph))
     assert started.coordination_run is not None
     coordination_run = started.coordination_run
     request = started.loop_state.diagnostics["stage_execution_request"]
@@ -493,8 +499,8 @@ def test_coordination_rewind_resets_failed_batch_and_creates_new_request(tmp_pat
         coordination_run_id=coordination_run.coordination_run_id,
         stage_id="produce",
         reason="retry_after_prompt_fix",
-        refresh_graph_spec=True,
     )
+    assert rewound.state["diagnostics"]["graph_harness_config_id"] == _graph_config(graph).config_id
 
     assert rewound.stage_execution_request is not None
     payload = rewound.stage_execution_request.to_dict()
@@ -508,9 +514,8 @@ def test_coordination_rewind_resets_failed_batch_and_creates_new_request(tmp_pat
 
 def test_coordination_executor_failure_requeues_batch_without_business_repair(tmp_path: Path) -> None:
     graph = _batch_graph()
-    spec = compile_task_graph_definition_runtime_spec(graph=graph)
     loop = HarnessServiceHost(tmp_path, backend_dir=Path("backend"))
-    started = loop.start_task_graph_run(session_id="session:test", graph=graph, runtime_spec=spec)
+    started = loop.start_task_graph_run(session_id="session:test", graph_config=_graph_config(graph))
     assert started.coordination_run is not None
     coordination_run = started.coordination_run
     request = started.loop_state.diagnostics["stage_execution_request"]
@@ -553,9 +558,8 @@ def test_coordination_executor_failure_requeues_batch_without_business_repair(tm
 
 def test_coordination_technical_failure_circuit_breaks_to_blocked_checkpoint(tmp_path: Path) -> None:
     graph = _batch_graph()
-    spec = compile_task_graph_definition_runtime_spec(graph=graph)
     loop = HarnessServiceHost(tmp_path, backend_dir=Path("backend"))
-    started = loop.start_task_graph_run(session_id="session:test", graph=graph, runtime_spec=spec)
+    started = loop.start_task_graph_run(session_id="session:test", graph_config=_graph_config(graph))
     assert started.coordination_run is not None
     coordination_run = started.coordination_run
     request = started.loop_state.diagnostics["stage_execution_request"]

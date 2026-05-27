@@ -30,6 +30,7 @@ from task_system.graphs.task_graph_models import (
 )
 from task_system.repositories import (
     AssignmentRepository,
+    GraphHarnessConfigRepository,
     TaskAssemblyConfigRepository,
     FlowRepository,
     SpecificTaskRepository,
@@ -41,6 +42,7 @@ from task_system.repositories import (
 from task_system.services.graph_task_registry import TaskGraphRegistryService
 from task_system.services.registry_overview import TaskRegistryOverviewBuilder
 from task_system.registry.workflow_registry import TaskWorkflowRegistry
+from harness.runtime.graph_config import GraphHarnessConfig
 
 
 CONTRACT_TITLE_MAP: dict[str, str] = {
@@ -121,7 +123,6 @@ def _synthetic_specific_task_record_for_runtime(task_id: str) -> SpecificTaskRec
         acceptance_profile_id="",
         default_flow_contract_id=workflow_id.replace("workflow.", "flow.", 1) if workflow_id else f"flow.{target.removeprefix('task.')}",
         default_workflow_id=workflow_id,
-        default_projection_policy="workflow_compatible_or_task_default",
         task_policy={
             "safety_policy": dict(spec.get("safety_policy") or {}),
             "task_structure": {
@@ -245,7 +246,6 @@ def _specific_task_record_from_assignment(task: TaskAssignment) -> SpecificTaskR
         acceptance_profile_id=str(dict(task.metadata or {}).get("acceptance_profile_id") or ""),
         default_flow_contract_id=str(task.flow_id or ""),
         default_workflow_id=str(task.workflow_id or ""),
-        default_projection_policy="",
         task_policy={
             "safety_policy": dict(task.safety_policy or {}),
             "task_structure": dict(task.task_structure or {}),
@@ -357,6 +357,7 @@ class TaskFlowRegistry:
             normalize_execution_mode=normalize_task_execution_mode,
         )
         self.task_graph_repository = TaskGraphRepository(self.base_dir)
+        self.graph_harness_config_repository = GraphHarnessConfigRepository(self.base_dir)
         self.protocol_repository = TaskCommunicationProtocolRepository(
             self.base_dir,
             default_protocols=default_task_communication_protocols,
@@ -391,7 +392,6 @@ class TaskFlowRegistry:
         title: str,
         default_agent_id: str,
         default_workflow_id: str,
-        default_projection_id: str = "",
         input_contract_id: str = "",
         output_contract_id: str = "",
         conversation_entry_policy: str = "user_dialogue_to_main_agent",
@@ -403,7 +403,6 @@ class TaskFlowRegistry:
             title=title,
             default_agent_id=default_agent_id,
             default_workflow_id=default_workflow_id,
-            default_projection_id=default_projection_id,
             input_contract_id=input_contract_id,
             output_contract_id=output_contract_id,
             conversation_entry_policy=conversation_entry_policy,
@@ -594,7 +593,6 @@ class TaskFlowRegistry:
             acceptance_profile_id=str(normalized_metadata.get("acceptance_profile_id") or ""),
             default_flow_contract_id=normalized_flow_id,
             default_workflow_id=workflow_id,
-            default_projection_policy="",
             task_policy={
                 "safety_policy": dict(safety_policy or {}),
                 "task_structure": {
@@ -653,7 +651,6 @@ class TaskFlowRegistry:
         acceptance_profile_id: str = "",
         default_flow_contract_id: str = "",
         default_workflow_id: str = "",
-        default_projection_policy: str = "",
         task_policy: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> SpecificTaskRecord:
@@ -669,7 +666,6 @@ class TaskFlowRegistry:
             acceptance_profile_id=acceptance_profile_id,
             default_flow_contract_id=default_flow_contract_id,
             default_workflow_id=default_workflow_id,
-            default_projection_policy=default_projection_policy,
             task_policy=task_policy,
             metadata=metadata,
         )
@@ -952,6 +948,20 @@ class TaskFlowRegistry:
         )
         self._invalidate_cache()
         return graph
+
+    def list_graph_harness_configs(self) -> list[GraphHarnessConfig]:
+        return self.graph_harness_config_repository.list()
+
+    def get_graph_harness_config(self, config_id: str) -> GraphHarnessConfig | None:
+        return self.graph_harness_config_repository.get(config_id)
+
+    def get_published_graph_harness_config(self, graph_id: str) -> GraphHarnessConfig | None:
+        return self.graph_harness_config_repository.get_published_for_graph(graph_id)
+
+    def upsert_graph_harness_config(self, config: GraphHarnessConfig, *, publish: bool = True) -> GraphHarnessConfig:
+        stored = self.graph_harness_config_repository.upsert(config, publish=publish)
+        self._invalidate_cache()
+        return stored
 
     def get_topology_template(self, template_id: str) -> TopologyTemplate | None:
         return self.topology_repository.get(template_id)

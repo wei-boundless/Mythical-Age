@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
-from prompt_library import assemble_runtime_prompt_contract
+from prompt_library import (
+    assemble_runtime_prompt_contract,
+    assemble_runtime_prompt_sections,
+    build_prompt_manifest_validation,
+)
 
 from ..registry.agent_registry import AgentRegistry
 from ..identity import normalize_agent_id
@@ -114,6 +119,20 @@ def build_orchestration_runtime_bundle(
     prompt_contract_metadata = dict(prompt_contract.get("metadata") or {})
     prompt_selection_context = dict(prompt_contract_metadata.get("prompt_selection_context") or {})
     prompt_assembly_plan = dict(prompt_contract_metadata.get("prompt_assembly_plan") or {})
+    prompt_manifest = _prompt_manifest_from_contract(
+        base_dir=base_dir,
+        session_id=session_id,
+        task_id=task_id,
+        current_turn_context=current_turn_payload,
+        prompt_contract=prompt_contract,
+        interaction_mode=str(
+            prompt_selection_context.get("interaction_mode")
+            or dict(prompt_contract_metadata.get("mode_policy") or {}).get("interaction_mode")
+            or ""
+        ),
+        skill_runtime_views=skill_runtime_views,
+        use_shared_contract=bool(getattr(runtime_profile, "use_shared_contract", True)),
+    )
     prompt_flow_trace = _prompt_flow_trace(
         prompt_selection_context=prompt_selection_context,
         prompt_assembly_plan=prompt_assembly_plan,
@@ -149,12 +168,14 @@ def build_orchestration_runtime_bundle(
             "runtime_executable_default": True,
             "fallback_policy": "fail_closed",
         },
+        prompt_manifest=prompt_manifest,
         diagnostics={
             "builder": "orchestration.build_orchestration_runtime_bundle",
             "soul_runtime_projection_enabled": False,
             "prompt_selection_context": prompt_selection_context,
             "prompt_assembly_plan": prompt_assembly_plan,
             "prompt_flow_trace": prompt_flow_trace,
+            "prompt_manifest_ref": str(prompt_manifest.get("manifest_id") or ""),
             "memory_view_ref": str(memory_view.get("view_id") or ""),
             "context_policy_ref": _context_policy_ref(context_policy),
             "runtime_lane": runtime_lane_profile.lane_id,
@@ -205,6 +226,59 @@ def build_orchestration_runtime_bundle(
         "agent_runtime_spec": runtime_spec.to_dict(),
         "runtime_executable": True,
     }
+
+
+def _prompt_manifest_from_contract(
+    *,
+    base_dir: Path,
+    session_id: str,
+    task_id: str,
+    current_turn_context: dict[str, Any],
+    prompt_contract: dict[str, Any],
+    interaction_mode: str,
+    skill_runtime_views: list[dict[str, Any]],
+    use_shared_contract: bool,
+) -> dict[str, Any]:
+    request = SimpleNamespace(
+        task_id=task_id,
+        session_id=session_id,
+        turn_id=str(current_turn_context.get("turn_id") or ""),
+    )
+    sections = assemble_runtime_prompt_sections(
+        base_dir=base_dir,
+        contract=prompt_contract,
+        projection=None,
+        request=request,
+        soul_skill_views=tuple(_attribute_view(item) for item in skill_runtime_views),
+        soul_tool_views=(),
+        use_shared_contract=use_shared_contract,
+    )
+    section_payloads = [section.to_dict() if hasattr(section, "to_dict") else dict(section) for section in sections]
+    validation = build_prompt_manifest_validation(
+        interaction_mode=interaction_mode,
+        sections=section_payloads,
+    )
+    assembly_order = [
+        str(item.get("section_id") or "")
+        for item in section_payloads
+        if str(item.get("section_id") or "")
+    ]
+    return {
+        "authority": "orchestration.prompt_manifest",
+        "manifest_id": f"prompt-manifest:{task_id}",
+        "task_id": task_id,
+        "session_id": session_id,
+        "turn_id": str(current_turn_context.get("turn_id") or ""),
+        "assembly_order": assembly_order,
+        "total_sections": len(section_payloads),
+        "total_chars": sum(int(item.get("chars") or len(str(item.get("content") or ""))) for item in section_payloads),
+        "sections": section_payloads,
+        "validation": validation,
+    }
+
+
+def _attribute_view(payload: dict[str, Any]) -> Any:
+    return SimpleNamespace(**dict(payload or {}))
 
 
 def _requested_runtime_lane(

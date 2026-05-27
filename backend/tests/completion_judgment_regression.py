@@ -9,6 +9,8 @@ if str(ROOT) not in sys.path:
 
 from prompt_library.assembler import assemble_runtime_prompt_contract
 from harness.runtime.phases import build_verification_review, judge_completion
+from runtime.memory.evidence_packet import build_evidence_packet
+from runtime.tool_runtime.tool_result_envelope import build_tool_result_envelope
 
 
 SEMANTIC_CONTRACT = {
@@ -19,10 +21,50 @@ SEMANTIC_CONTRACT = {
 
 
 def test_completion_judgment_verified_requires_passed_validation() -> None:
-    evidence = {
-        "packet_id": "evidence:completion:verified",
-        "facts": [{"fact_type": "observation", "preview": "write succeeded frontend/src/App.tsx browser opened workflow click"}],
-        "limitations": []}
+    write_envelope = build_tool_result_envelope(
+        tool_name="write_file",
+        tool_args={"path": "frontend/src/App.tsx"},
+        result={
+            "text": "Write succeeded: frontend/src/App.tsx",
+            "structured_payload": {
+                "observed_paths": ["frontend/src/App.tsx"],
+                "artifact_refs": [{"path": "frontend/src/App.tsx", "kind": "file"}],
+            },
+        },
+    )
+    browser_envelope = build_tool_result_envelope(
+        tool_name="browser_control",
+        tool_args={"action": "verify_workflow"},
+        result={
+            "text": "workflow verified",
+            "structured_payload": {
+                "command_receipt": {"command": "browser_control verify_workflow", "passed": True},
+                "verification_intent": {"stage": "verify_output", "obligation": "verify_command"},
+                "acceptance_checks": {"workflow_acceptance": True},
+            },
+        },
+    )
+    evidence = build_evidence_packet(
+        task_run_id="completion-verified",
+        semantic_contract=SEMANTIC_CONTRACT,
+        observations=[
+            {
+                "observation_ref": "obs:write",
+                "tool_name": "write_file",
+                "result": write_envelope.text,
+                "result_envelope": write_envelope.to_dict(),
+                "structured_payload": dict(write_envelope.structured_payload),
+            },
+            {
+                "observation_ref": "obs:browser",
+                "tool_name": "browser_control",
+                "result": browser_envelope.text,
+                "result_envelope": browser_envelope.to_dict(),
+                "structured_payload": dict(browser_envelope.structured_payload),
+            },
+        ],
+    ).to_dict()
+    evidence["facts"][1]["acceptance_checks"] = {"workflow_acceptance": True}
     deliverable = {"passed": True, "missing_deliverables": [], "unsupported_claims": []}
     obligation = {"passed": True, "unsatisfied_obligations": []}
 
@@ -138,10 +180,31 @@ def test_completion_judgment_marks_unsupported_claims_as_contradicted() -> None:
 
 
 def test_completion_judgment_can_be_partially_verified_with_real_evidence_and_missing_items() -> None:
-    evidence = {
-        "packet_id": "evidence:completion:partial",
-        "facts": [{"fact_type": "observation", "preview": "write succeeded frontend/src/App.tsx"}],
-        "limitations": ["未运行浏览器验证。"]}
+    write_envelope = build_tool_result_envelope(
+        tool_name="write_file",
+        tool_args={"path": "frontend/src/App.tsx"},
+        result={
+            "text": "Write succeeded: frontend/src/App.tsx",
+            "structured_payload": {
+                "observed_paths": ["frontend/src/App.tsx"],
+                "artifact_refs": [{"path": "frontend/src/App.tsx", "kind": "file"}],
+            },
+        },
+    )
+    evidence = build_evidence_packet(
+        task_run_id="completion-partial",
+        semantic_contract=SEMANTIC_CONTRACT,
+        observations=[
+            {
+                "observation_ref": "obs:write",
+                "tool_name": "write_file",
+                "result": write_envelope.text,
+                "result_envelope": write_envelope.to_dict(),
+                "structured_payload": dict(write_envelope.structured_payload),
+            }
+        ],
+    ).to_dict()
+    evidence["limitations"] = ["未运行浏览器验证。"]
     deliverable = {"passed": False, "missing_deliverables": ["verification_evidence"], "unsupported_claims": []}
     obligation = {"passed": False, "unsatisfied_obligations": ["run_browser_verification"]}
 

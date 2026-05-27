@@ -453,28 +453,15 @@ class RuntimeStateIndex:
         compacted = dict(payload)
         diagnostics = dict(compacted.get("diagnostics") or {})
         object_id = str(compacted.get("task_run_id") or "")
-        if definition := dict(diagnostics.get("task_graph_definition") or {}):
-            diagnostics["task_graph_definition_ref"] = self.runtime_objects.put_json_once(
-                "task_graph_definitions",
+        if graph_config := dict(diagnostics.get("graph_harness_config") or diagnostics.get("graph_harness_config_payload") or {}):
+            diagnostics["graph_harness_config_ref"] = self.runtime_objects.put_json_once(
+                "graph_harness_configs",
                 object_id,
-                definition,
+                graph_config,
             )
-            diagnostics.pop("task_graph_definition", None)
-        if runtime_spec := dict(diagnostics.get("task_graph_runtime_spec") or {}):
-            diagnostics["task_graph_runtime_spec_ref"] = self.runtime_objects.put_json_once(
-                "task_graph_runtime_specs",
-                object_id,
-                runtime_spec,
-            )
-            diagnostics.pop("task_graph_runtime_spec", None)
-        if dispatch_plan := dict(diagnostics.get("agent_dispatch_plan") or {}):
-            diagnostics["agent_dispatch_plan_ref"] = self.runtime_objects.put_object(
-                "dispatch_plans",
-                object_id,
-                dispatch_plan,
-            )
-            diagnostics["agent_dispatch_plan_summary"] = _dispatch_plan_summary(dispatch_plan)
-            diagnostics.pop("agent_dispatch_plan", None)
+            diagnostics["graph_harness_config_summary"] = _graph_harness_config_summary(graph_config)
+            diagnostics.pop("graph_harness_config", None)
+            diagnostics.pop("graph_harness_config_payload", None)
         compacted["diagnostics"] = diagnostics
         return compacted
 
@@ -482,28 +469,15 @@ class RuntimeStateIndex:
         compacted = dict(payload)
         diagnostics = dict(compacted.get("diagnostics") or {})
         object_id = str(compacted.get("coordination_run_id") or "")
-        if definition := dict(diagnostics.get("task_graph_definition") or {}):
-            diagnostics["task_graph_definition_ref"] = self.runtime_objects.put_json_once(
-                "task_graph_definitions",
+        if graph_config := dict(diagnostics.get("graph_harness_config") or diagnostics.get("graph_harness_config_payload") or {}):
+            diagnostics["graph_harness_config_ref"] = self.runtime_objects.put_json_once(
+                "graph_harness_configs",
                 object_id,
-                definition,
+                graph_config,
             )
-            diagnostics.pop("task_graph_definition", None)
-        if runtime_spec := dict(diagnostics.get("task_graph_runtime_spec") or {}):
-            diagnostics["task_graph_runtime_spec_ref"] = self.runtime_objects.put_json_once(
-                "task_graph_runtime_specs",
-                object_id,
-                runtime_spec,
-            )
-            diagnostics.pop("task_graph_runtime_spec", None)
-        if dispatch_plan := dict(diagnostics.get("agent_dispatch_plan") or {}):
-            diagnostics["agent_dispatch_plan_ref"] = self.runtime_objects.put_object(
-                "dispatch_plans",
-                object_id,
-                dispatch_plan,
-            )
-            diagnostics["agent_dispatch_plan_summary"] = _dispatch_plan_summary(dispatch_plan)
-            diagnostics.pop("agent_dispatch_plan", None)
+            diagnostics["graph_harness_config_summary"] = _graph_harness_config_summary(graph_config)
+            diagnostics.pop("graph_harness_config", None)
+            diagnostics.pop("graph_harness_config_payload", None)
         if runtime_state := dict(
             diagnostics.get("graph_coordination_state")
             or {}
@@ -990,21 +964,6 @@ def _task_run_from_payload(payload: dict[str, Any]) -> TaskRun:
     )
 
 
-def _dispatch_plan_summary(payload: dict[str, Any]) -> dict[str, Any]:
-    records = list(payload.get("records") or [])
-    barriers = list(payload.get("barrier_states") or [])
-    notifications = list(payload.get("queued_notifications") or [])
-    return {
-        "dispatch_plan_id": str(payload.get("dispatch_plan_id") or ""),
-        "record_count": len(records),
-        "barrier_count": len(barriers),
-        "queued_notification_count": len(notifications),
-        "ready_node_ids": list(payload.get("ready_node_ids") or []),
-        "blocked_node_ids": list(payload.get("blocked_node_ids") or []),
-        "background_node_ids": list(payload.get("background_node_ids") or []),
-    }
-
-
 def _graph_coordination_state_summary(payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "active_stage_id": str(payload.get("active_stage_id") or ""),
@@ -1034,6 +993,23 @@ def _coordination_graph_spec_summary(payload: dict[str, Any]) -> dict[str, Any]:
         "node_count": len(nodes),
         "edge_count": len(edges),
         "valid": bool(payload.get("valid") is True),
+    }
+
+
+def _graph_harness_config_summary(payload: dict[str, Any]) -> dict[str, Any]:
+    nodes = list(payload.get("nodes") or [])
+    edges = list(payload.get("edges") or [])
+    modules = list(payload.get("modules") or [])
+    return {
+        "config_id": str(payload.get("config_id") or ""),
+        "graph_id": str(payload.get("graph_id") or ""),
+        "graph_title": str(payload.get("graph_title") or ""),
+        "schema_version": str(payload.get("config_schema_version") or ""),
+        "node_count": len(nodes),
+        "edge_count": len(edges),
+        "module_count": len(modules),
+        "content_hash": str(payload.get("content_hash") or ""),
+        "status": str(payload.get("status") or ""),
     }
 
 

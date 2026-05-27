@@ -3488,7 +3488,6 @@ export async function startTaskGraphHarnessRun(
     session_id?: string;
     task_id?: string;
     initial_inputs?: Record<string, unknown>;
-    require_published?: boolean;
     include_trace?: boolean;
     execute_initial_stage?: boolean;
   } = {}
@@ -3555,7 +3554,6 @@ export async function rewindOrchestrationFromStage(
     artifact_root?: string;
     include_downstream?: boolean;
     move_artifacts?: boolean;
-    refresh_graph_spec?: boolean;
     continue_after_rewind?: boolean;
     current_turn_context?: Record<string, unknown>;
   }
