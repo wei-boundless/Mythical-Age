@@ -49,5 +49,6 @@ working_memory/
 *.sqlite
 backend/tests/_artifacts/scifact_v2_*.json
 *.pyc
+*.pyc.*
 *.pyo
 .tmp-*.png

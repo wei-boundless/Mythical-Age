@@ -157,28 +157,48 @@ def select_runtime_task_definitions(
     """
     definitions = default_task_definitions()
     understanding = dict(query_understanding or {})
-    decision = dict(understanding.get("model_turn_decision") or {})
-    if not decision:
-        raise RuntimeError("ModelTurnDecision is required to select runtime task definitions")
-    action_intent = str(decision.get("action_intent") or "").strip()
-    work_mode = str(decision.get("work_mode") or "").strip()
-    interaction_intent = str(decision.get("interaction_intent") or "").strip()
+    action_request = dict(understanding.get("agent_turn_action_request") or {})
+    task_contract_seed = dict(understanding.get("task_contract_seed") or {})
+    task_goal_type = str(
+        dict(understanding.get("task_goal_spec") or {}).get("task_goal_type")
+        or task_contract_seed.get("task_goal_type")
+        or ""
+    ).strip()
     needs = capability_needs(understanding)
     kinds = material_kinds(understanding)
     binding = context_binding(understanding)
     if explicit_task_selected(understanding) or str(binding.get("kind") or "") == "explicit_task_selection":
         return [definitions["task.final_response"]]
 
-    if action_intent == "block":
-        raise RuntimeError("Blocked ModelTurnDecision cannot select runtime task definitions")
-    if action_intent == "search_external":
+    action_type = str(action_request.get("action_type") or "").strip()
+    if action_type == "block":
+        raise RuntimeError("Blocked AgentTurnActionRequest cannot select runtime task definitions")
+    if action_type and action_type != "request_task_run":
+        return [definitions["task.final_response"]]
+
+    resource_contract = dict(task_contract_seed.get("resource_contract") or {})
+    has_write_contract = bool(
+        list(resource_contract.get("required_write_files") or [])
+        or list(resource_contract.get("required_write_dirs") or [])
+    )
+    has_read_contract = bool(
+        list(resource_contract.get("required_read_files") or [])
+        or list(resource_contract.get("required_read_dirs") or [])
+    )
+    deliverables = {str(item).strip() for item in list(task_contract_seed.get("deliverables") or []) if str(item).strip()}
+
+    if task_goal_type in {"external_research"}:
         return [definitions["task.capability_execution"], definitions["task.information_search"]]
-    if action_intent in {"edit_workspace", "run_command", "start_service"} or work_mode in {"implementation", "verification"}:
+    if (
+        task_goal_type in {"code_fix_execution", "artifact_delivery", "frontend_app_delivery", "game_vertical_slice_delivery", "implementation", "verification"}
+        or has_write_contract
+        or deliverables
+    ):
         return [
             definitions["task.task_execution"],
             definitions["task.inspection_and_correction"],
         ]
-    if interaction_intent in {"review", "inspect"} or action_intent == "read_context":
+    if task_goal_type in {"inspection", "code_review", "pdf_analysis"} or has_read_contract:
         if kinds & {"workspace", "code", "pdf", "dataset"} or needs:
             return [definitions["task.inspection_and_correction"]]
         return [
@@ -190,10 +210,7 @@ def select_runtime_task_definitions(
         return [definitions["task.memory_recall"]]
     if "knowledge_lookup" in needs:
         return [definitions["task.knowledge_retrieval"]]
-    if action_intent == "answer_only":
-        return [definitions["task.final_response"]]
-
-    raise RuntimeError(f"Unsupported ModelTurnDecision action_intent for task definitions: {action_intent}")
+    return [definitions["task.task_execution"], definitions["task.inspection_and_correction"]]
 
 
 

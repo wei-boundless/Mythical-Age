@@ -140,19 +140,22 @@ class AgentRuntimeChainAssembler:
             **override_payload,
             **selection_override_payload,
         }
-        model_turn_decision = dict(early_context_payload.get("model_turn_decision") or {})
-        if not model_turn_decision:
-            raise RuntimeError("ModelTurnDecision is required before runtime assembly")
+        agent_turn_action_request = dict(early_context_payload.get("agent_turn_action_request") or {})
+        task_contract_seed = dict(
+            early_context_payload.get("task_contract_seed")
+            or agent_turn_action_request.get("task_contract_seed")
+            or {}
+        )
         query_understanding_payload = {
             **query_understanding.to_dict(),
-            "model_turn_decision": model_turn_decision,
-            "request_facts": dict(early_context_payload.get("request_facts") or {}),
-            "boundary_policy": dict(early_context_payload.get("boundary_policy") or {}),
-            "action_permit": dict(early_context_payload.get("action_permit") or {}),
+            "agent_turn_action_request": agent_turn_action_request,
+            "task_contract_seed": task_contract_seed,
+            "runtime_admission": dict(early_context_payload.get("runtime_admission") or {}),
         }
-        task_goal_spec = _task_goal_spec_from_model_turn_decision(
+        task_goal_spec = _task_goal_spec_from_admitted_contract(
             message=message,
-            model_turn_decision=model_turn_decision,
+            agent_turn_action_request=agent_turn_action_request,
+            task_contract_seed=task_contract_seed,
             query_understanding=query_understanding_payload,
             explicit_task_goal_spec=dict(early_context_payload.get("task_goal_spec") or {}),
             explicit_semantic_task_type=str(early_context_payload.get("semantic_task_type") or ""),
@@ -558,20 +561,20 @@ def _resolve_task_selection_default_agent_id(
     if general_profile is not None:
         return normalize_agent_id(str(general_profile.default_agent_id or "").strip())
     return ""
-def _task_goal_spec_from_model_turn_decision(
+def _task_goal_spec_from_admitted_contract(
     *,
     message: str,
-    model_turn_decision: dict[str, Any],
+    agent_turn_action_request: dict[str, Any],
+    task_contract_seed: dict[str, Any],
     query_understanding: dict[str, Any],
     explicit_task_goal_spec: dict[str, Any] | None = None,
     explicit_semantic_task_type: str = "",
 ) -> dict[str, Any]:
     explicit_goal = _authoritative_explicit_task_goal_spec(
         explicit_task_goal_spec,
-        model_turn_decision=model_turn_decision,
+        task_contract_seed=task_contract_seed,
     )
-    action_intent = str(model_turn_decision.get("action_intent") or "").strip()
-    model_task_goal_type = str(model_turn_decision.get("task_goal_type") or "").strip()
+    seed_task_goal_type = str(task_contract_seed.get("task_goal_type") or "").strip()
     selected_task_goal_type = str(explicit_semantic_task_type or "").strip()
     if explicit_goal:
         task_goal_type = str(explicit_goal.get("task_goal_type") or "").strip()
@@ -579,47 +582,49 @@ def _task_goal_spec_from_model_turn_decision(
     elif selected_task_goal_type:
         task_goal_type = selected_task_goal_type
         task_domain = _domain_for_concrete_task_goal(selected_task_goal_type)
-    elif model_task_goal_type:
-        task_goal_type = model_task_goal_type
-        task_domain = _domain_for_concrete_task_goal(model_task_goal_type)
+    elif seed_task_goal_type:
+        task_goal_type = seed_task_goal_type
+        task_domain = _domain_for_concrete_task_goal(seed_task_goal_type)
     else:
-        raise RuntimeError("ModelTurnDecision.task_goal_type is required before task goal projection")
+        task_goal_type = "general"
+        task_domain = "general"
     deliverables = [
         {"deliverable_id": _slug(value), "title": value, "kind": "deliverable", "role": "core", "required": True, "metadata": {}}
-        for value in list(model_turn_decision.get("deliverables") or [])
+        for value in list(task_contract_seed.get("deliverables") or [])
         if str(value).strip()
     ]
     criteria = [
         {"criterion_id": _slug(value), "title": value, "verification_kind": "evidence", "required": True, "metadata": {}}
-        for value in list(model_turn_decision.get("completion_criteria") or [])
+        for value in list(task_contract_seed.get("completion_criteria") or [])
         if str(value).strip()
     ]
     projected = {
-        "authority": "agent_runtime.model_turn_goal_projection",
+        "authority": "agent_runtime.admitted_task_goal_projection",
         "user_goal": str(message or "").strip(),
-        "goal_summary": str(model_turn_decision.get("desired_outcome") or message or "").strip()[:240],
+        "goal_summary": str(task_contract_seed.get("goal") or message or "").strip()[:240],
         "task_goal_type": task_goal_type,
         "task_domain": task_domain,
-        "complexity": "long_running" if bool(model_turn_decision.get("todo_required") or model_turn_decision.get("planning_required")) else "short",
+        "complexity": "long_running",
         "core_deliverables": deliverables,
         "supporting_deliverables": [],
         "success_criteria": criteria,
         "required_capabilities": [],
-        "required_verifications": criteria if action_intent in {"run_command", "use_browser"} else [],
-        "explicit_constraints": list(model_turn_decision.get("constraints") or []),
-        "forbidden_actions": list(model_turn_decision.get("forbidden_actions") or []),
-        "unacceptable_outcomes": ["invent_evidence", "execute_without_model_turn_decision"],
-        "ambiguity_points": list(model_turn_decision.get("ambiguity") or []),
+        "required_verifications": criteria,
+        "explicit_constraints": list(task_contract_seed.get("constraints") or []),
+        "forbidden_actions": list(task_contract_seed.get("forbidden_actions") or []),
+        "unacceptable_outcomes": ["invent_evidence", "execute_without_admitted_task_contract"],
+        "ambiguity_points": [],
         "clarification_policy": {
-            "clarification_needed": bool(model_turn_decision.get("needs_clarification") is True),
-            "question": str(model_turn_decision.get("clarification_question") or ""),
+            "clarification_needed": False,
+            "question": "",
         },
         "evidence": {
-            "model_turn_decision": model_turn_decision,
+            "agent_turn_action_request": agent_turn_action_request,
+            "task_contract_seed": task_contract_seed,
             "request_signals_diagnostics_only": query_understanding,
             "explicit_semantic_task_type": selected_task_goal_type,
         },
-        "confidence": float(model_turn_decision.get("confidence") or 0.0),
+        "confidence": 1.0 if task_contract_seed else 0.0,
     }
     if not explicit_goal:
         return projected
@@ -654,18 +659,16 @@ def _task_goal_spec_from_model_turn_decision(
 def _authoritative_explicit_task_goal_spec(
     explicit_task_goal_spec: dict[str, Any] | None,
     *,
-    model_turn_decision: dict[str, Any],
+    task_contract_seed: dict[str, Any],
 ) -> dict[str, Any]:
     goal = dict(explicit_task_goal_spec or {})
     task_goal_type = str(goal.get("task_goal_type") or "").strip()
     if not task_goal_type:
         return {}
     authority = str(goal.get("authority") or "").strip()
-    if authority and authority != "agent_runtime.model_turn_goal_projection":
+    if authority and authority != "agent_runtime.admitted_task_goal_projection":
         return {}
-    decision_authority = str(model_turn_decision.get("authority") or "").strip()
-    if decision_authority != "agent_runtime.model_turn_decision":
-        return {}
+    _ = task_contract_seed
     return goal
 
 

@@ -136,7 +136,8 @@ class SystemRetrievalStage:
             task_frame={
                 "task_id": task_id,
                 "authority": str(query_understanding.get("authority") or ""),
-                "model_turn_decision": dict(query_understanding.get("model_turn_decision") or {}),
+                "agent_turn_action_request": dict(query_understanding.get("agent_turn_action_request") or {}),
+                "task_contract_seed": dict(query_understanding.get("task_contract_seed") or {}),
             },
             bindings=bindings,
             constraints=constraints,
@@ -388,26 +389,10 @@ def system_retrieval_source_kind(
     return str(
         selected_recipe_payload.get("source_kind")
         or dict(selected_recipe_payload.get("metadata") or {}).get("source_kind")
-        or _source_kind_from_model_decision(query_understanding)
+        or dict(query_understanding.get("resource_contract") or {}).get("source_kind")
+        or dict(query_understanding.get("task_contract_seed") or {}).get("source_kind")
         or ""
     ).strip()
-
-
-def _source_kind_from_model_decision(query_understanding: dict[str, Any]) -> str:
-    decision = dict(dict(query_understanding or {}).get("model_turn_decision") or {})
-    action_intent = str(decision.get("action_intent") or "").strip()
-    targets = [str(item).strip().lower() for item in list(decision.get("target_objects") or []) if str(item).strip()]
-    if action_intent == "search_external":
-        return "external_web"
-    if any(target.endswith(".pdf") for target in targets):
-        return "pdf"
-    if any(target.endswith((".csv", ".tsv", ".xlsx", ".xls", ".parquet")) for target in targets):
-        return "dataset"
-    if any(target.endswith((".py", ".ts", ".tsx", ".js", ".jsx", ".css", ".html", ".md", ".txt", ".json", ".yaml", ".yml", ".toml")) for target in targets):
-        return "workspace"
-    if action_intent in {"read_context", "edit_workspace", "run_command", "start_service"}:
-        return "workspace"
-    return ""
 
 
 def _selection_is_coordination_task(selection: dict[str, Any]) -> bool:

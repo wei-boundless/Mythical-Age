@@ -252,12 +252,10 @@ def _resolve_task_goal_type(
     ).strip()
     if explicit:
         return explicit
-    model_turn_decision = dict(current_turn_context.get("model_turn_decision") or {})
-    if model_turn_decision:
-        concrete_model_goal = str(model_turn_decision.get("task_goal_type") or "").strip()
-        if concrete_model_goal:
-            return concrete_model_goal
-    raise RuntimeError("ModelTurnDecision.task_goal_type is required to resolve task goal type")
+    seed_goal_type = str(dict(current_turn_context.get("task_contract_seed") or {}).get("task_goal_type") or "").strip()
+    if seed_goal_type:
+        return seed_goal_type
+    return "general"
 
 
 def _task_goal_spec_type_is_authoritative(task_goal_type: str, task_goal_spec: dict[str, Any]) -> bool:
@@ -538,14 +536,13 @@ def _domain_for_goal_type(task_goal_type: str, query_understanding: dict[str, An
     profile = get_task_goal_profile(task_goal_type)
     if profile is not None:
         return profile.task_domain
-    decision = dict(dict(query_understanding or {}).get("model_turn_decision") or {})
-    action_intent = str(decision.get("action_intent") or "").strip()
-    work_mode = str(decision.get("work_mode") or "").strip()
-    if action_intent == "search_external":
+    seed = dict(dict(query_understanding or {}).get("task_contract_seed") or {})
+    resource_contract = dict(seed.get("resource_contract") or {})
+    if str(seed.get("task_goal_type") or "").strip() == "external_research":
         return "external_web"
-    if action_intent in {"edit_workspace", "run_command", "start_service"} or work_mode in {"implementation", "verification"}:
+    if list(resource_contract.get("required_write_files") or []) or list(resource_contract.get("required_write_dirs") or []):
         return "development"
-    if action_intent == "read_context":
+    if list(resource_contract.get("required_read_files") or []) or list(resource_contract.get("required_read_dirs") or []):
         return "workspace"
     return "general"
 

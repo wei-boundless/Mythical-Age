@@ -7,6 +7,7 @@ from typing import Any, Literal
 TaskRunStatus = Literal[
     "created",
     "running",
+    "waiting_executor",
     "waiting_approval",
     "blocked",
     "completed",
@@ -29,6 +30,7 @@ RuntimeTransition = Literal[
 RuntimeTerminalReason = Literal[
     "",
     "completed",
+    "waiting_executor",
     "waiting_approval",
     "blocked_by_gate",
     "budget_exhausted",

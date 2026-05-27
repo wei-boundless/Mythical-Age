@@ -65,27 +65,26 @@ class CommunicationFrame:
 def build_communication_frame(
     message: str,
     *,
-    action_intent: str = "",
     user_provided_flow: tuple[str, ...] | list[str] = (),
     ambiguity_points: tuple[str, ...] | list[str] = (),
     forbidden_actions: tuple[str, ...] | list[str] = (),
     query_understanding: dict[str, Any] | None = None,
 ) -> CommunicationFrame:
     text = str(message or "").strip()
-    lowered = text.lower()
     query = dict(query_understanding or {})
-    user_posture = _user_posture(lowered)
+    action_request = dict(query.get("agent_turn_action_request") or {})
+    task_contract = dict(query.get("task_contract_seed") or query.get("task_requirement_contract") or {})
+    action_type = str(action_request.get("action_type") or "").strip()
+    user_posture = _user_posture_from_runtime(action_type=action_type, task_contract=task_contract)
     agent_posture = _agent_posture(
-        user_posture=user_posture,
-        action_intent=action_intent,
+        action_type=action_type,
         ambiguity_points=tuple(ambiguity_points or ()),
         forbidden_actions=tuple(forbidden_actions or ()),
     )
     mode = _collaboration_mode(
-        user_posture=user_posture,
-        action_intent=action_intent,
+        action_type=action_type,
+        task_contract=task_contract,
         user_provided_flow=tuple(user_provided_flow or ()),
-        query_understanding=query,
     )
     return CommunicationFrame(
         frame_id=f"communication:{_slug(text)[:48] or 'runtime'}",
@@ -98,69 +97,51 @@ def build_communication_frame(
             forbidden_actions=tuple(forbidden_actions or ()),
         ),
         progress_policy=_progress_policy(mode=mode, user_provided_flow=tuple(user_provided_flow or ())),
-        final_response_contract=_final_response_contract(user_posture=user_posture, action_intent=action_intent, mode=mode),
+        final_response_contract=_final_response_contract(task_contract=task_contract, mode=mode),
         latest_user_instruction_priority=True,
         evidence={
-            "posture_markers": _posture_markers(lowered),
-            "model_turn_decision": dict(query.get("model_turn_decision") or {}),
+            "agent_turn_action_request_ref": str(action_request.get("request_id") or ""),
+            "task_contract_ref": str(task_contract.get("contract_id") or ""),
         },
     )
 
 
-def _user_posture(lowered: str) -> str:
-    if _has_any(lowered, ("不对", "不是", "你错", "纠正", "修正理解", "不要这样", "不是让你")):
-        return "correct"
-    if _has_any(lowered, ("奇怪", "不满", "敷衍", "藏私", "糊弄", "差不多就是不对")):
-        return "dissatisfied"
-    if _has_any(lowered, ("继续", "接着", "下一步", "往下", "推进")):
-        return "continue"
-    if _has_any(lowered, ("审查", "review", "检查一下", "评审")):
-        return "review"
-    if _has_any(lowered, ("设计", "规划", "计划", "方案", "架构", "怎么做")):
-        return "explore"
-    if _has_any(lowered, ("做", "实现", "开发", "修复", "修改", "写入", "生成", "创建", "执行", "开始")):
-        return "execute"
-    if _has_any(lowered, ("解释", "说明", "为什么", "是什么", "吗", "?")):
+def _user_posture_from_runtime(*, action_type: str, task_contract: dict[str, Any]) -> str:
+    if action_type == "ask_user":
         return "ask"
+    if action_type == "block":
+        return "dissatisfied" if task_contract else "conversation"
+    if action_type == "request_task_run":
+        return "execute"
     return "conversation"
 
 
 def _agent_posture(
     *,
-    user_posture: str,
-    action_intent: str,
+    action_type: str,
     ambiguity_points: tuple[str, ...],
     forbidden_actions: tuple[str, ...],
 ) -> str:
-    if user_posture in {"correct", "dissatisfied"}:
+    if action_type == "block":
         return "repair_understanding"
-    if user_posture == "continue":
-        return "continue_task"
-    if user_posture == "review":
-        return "review_first"
-    if ambiguity_points and action_intent in {"modify", "create", "execute"}:
+    if action_type == "ask_user" or ambiguity_points:
         return "clarify"
     if "modify_workspace" in set(forbidden_actions):
-        return "plan_first" if action_intent in {"modify", "create", "execute"} else "answer"
-    if user_posture == "explore":
         return "plan_first"
-    if user_posture == "execute" or action_intent in {"modify", "create"}:
+    if action_type == "request_task_run":
         return "execute"
     return "answer"
 
 
 def _collaboration_mode(
     *,
-    user_posture: str,
-    action_intent: str,
+    action_type: str,
+    task_contract: dict[str, Any],
     user_provided_flow: tuple[str, ...],
-    query_understanding: dict[str, Any],
 ) -> str:
-    if user_posture == "review" or action_intent == "verify":
-        return "verification"
-    if user_posture == "explore":
-        return "planning"
-    if action_intent in {"modify", "create"}:
+    if action_type == "request_task_run":
+        if _contract_requires_verification(task_contract):
+            return "verification"
         return "long_task" if len(user_provided_flow) >= 3 else "implementation"
     return "conversation"
 
@@ -186,25 +167,23 @@ def _progress_policy(*, mode: str, user_provided_flow: tuple[str, ...]) -> str:
     return "none"
 
 
-def _final_response_contract(*, user_posture: str, action_intent: str, mode: str) -> str:
-    if user_posture == "review":
-        return "findings_first"
-    if mode == "verification" or action_intent == "verify":
+def _final_response_contract(*, task_contract: dict[str, Any], mode: str) -> str:
+    if mode == "verification" or _contract_requires_verification(task_contract):
         return "verification_report"
-    if mode == "planning" or user_posture == "explore":
+    if mode == "planning":
         return "planning_report"
     if mode in {"implementation", "long_task"}:
         return "implementation_report"
     return "direct_answer"
 
 
-def _posture_markers(lowered: str) -> list[str]:
-    markers = ["纠偏", "继续", "审查", "设计", "执行", "解释", "不满"]
-    return [marker for marker in markers if marker in lowered]
-
-
-def _has_any(text: str, markers: tuple[str, ...]) -> bool:
-    return any(marker in text for marker in markers)
+def _contract_requires_verification(task_contract: dict[str, Any]) -> bool:
+    actions = {
+        str(item).strip()
+        for item in list(task_contract.get("required_actions") or [])
+        if str(item).strip()
+    }
+    return bool(actions.intersection({"run_verification", "run_browser_verification", "validate_deliverables"}))
 
 
 def _slug(value: str) -> str:

@@ -13,19 +13,6 @@ def request_intent_mapping(value: Any) -> dict[str, Any]:
     return dict(getattr(value, "__dict__", {}) or {})
 
 
-def model_turn_decision(value: Any) -> dict[str, Any]:
-    return dict(request_intent_mapping(value).get("model_turn_decision") or {})
-
-
-def action_permit(value: Any) -> dict[str, Any]:
-    return dict(request_intent_mapping(value).get("action_permit") or {})
-
-
-def request_facts(value: Any) -> dict[str, Any]:
-    mapping = request_intent_mapping(value)
-    return dict(mapping.get("request_facts") or {})
-
-
 def turn_signals(value: Any) -> dict[str, Any]:
     mapping = request_intent_mapping(value)
     return dict(mapping.get("structural_signals") or mapping.get("turn_signals") or {})
@@ -47,12 +34,10 @@ def context_binding(value: Any) -> dict[str, Any]:
 def capability_needs(value: Any) -> set[str]:
     mapping = request_intent_mapping(value)
     signals = turn_signals(value)
-    facts = request_facts(value)
     needs = [
         *list(mapping.get("capability_needs") or []),
         *list(capability_intent(value).get("capability_needs") or []),
         *list(signals.get("weak_capability_needs") or []),
-        *list(facts.get("weak_capability_needs") or []),
     ]
     return {str(item).strip() for item in needs if str(item).strip()}
 
@@ -60,7 +45,6 @@ def capability_needs(value: Any) -> set[str]:
 def material_kinds(value: Any) -> set[str]:
     suffixes = [
         *list(turn_signals(value).get("material_suffixes") or []),
-        *list(request_facts(value).get("material_suffixes") or []),
     ]
     kinds: set[str] = set()
     for suffix in suffixes:
@@ -86,11 +70,9 @@ def target_domain_hints(value: Any) -> set[str]:
 
 
 def explicit_paths(value: Any) -> list[str]:
-    facts = request_facts(value)
     signals = turn_signals(value)
     return _dedupe(
         [
-            *[str(item).strip() for item in list(facts.get("explicit_paths") or [])],
             *[str(item).strip() for item in list(signals.get("explicit_paths") or [])],
         ]
     )
@@ -98,11 +80,9 @@ def explicit_paths(value: Any) -> list[str]:
 
 def explicit_task_selected(value: Any) -> bool:
     binding = context_binding(value)
-    selection = dict(request_facts(value).get("explicit_selection") or {})
     signals = turn_signals(value)
     return (
         str(binding.get("kind") or "") == "explicit_task_selection"
-        or str(selection.get("kind") or "") == "explicit_task_selection"
         or bool(signals.get("explicit_task_selection"))
     )
 

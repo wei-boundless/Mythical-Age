@@ -197,8 +197,6 @@ class HealthRegistry:
         *,
         agent_runtime: Any,
         model_response_executor: Any,
-        agent_runtime_chain: Any,
-        runtime_context_manager: Any,
         tool_runtime_executor: Any | None = None,
         tool_instances: list[Any] | None = None,
     ) -> dict[str, Any]:
@@ -214,8 +212,6 @@ class HealthRegistry:
             user_message=user_message,
             agent_runtime=agent_runtime,
             model_response_executor=model_response_executor,
-            agent_runtime_chain=agent_runtime_chain,
-            runtime_context_manager=runtime_context_manager,
             tool_runtime_executor=tool_runtime_executor,
             tool_instances=tool_instances,
         )
@@ -228,8 +224,6 @@ class HealthRegistry:
         *,
         agent_runtime: Any | None = None,
         model_response_executor: Any | None = None,
-        agent_runtime_chain: Any | None = None,
-        runtime_context_manager: Any | None = None,
         tool_runtime_executor: Any | None = None,
         tool_instances: list[Any] | None = None,
     ) -> dict[str, Any]:
@@ -237,8 +231,6 @@ class HealthRegistry:
             payload,
             agent_runtime=agent_runtime,
             model_response_executor=model_response_executor,
-            agent_runtime_chain=agent_runtime_chain,
-            runtime_context_manager=runtime_context_manager,
             tool_runtime_executor=tool_runtime_executor,
             tool_instances=tool_instances,
         )
@@ -322,8 +314,6 @@ class HealthRegistry:
         source: str = "health_system.manual",
         agent_runtime: Any,
         model_response_executor: Any,
-        agent_runtime_chain: Any,
-        runtime_context_manager: Any,
         tool_runtime_executor: Any | None = None,
         tool_instances: list[Any] | None = None,
         user_message: str = "",
@@ -382,6 +372,7 @@ class HealthRegistry:
         async for event in agent_runtime.run_stream(
             AgentRunRequest(
                 session_id=session_id or HEALTH_SESSION_ID,
+                turn_id=f"turn:{session_id or HEALTH_SESSION_ID}:health:{int(time.time() * 1000)}",
                 task_id=task_id,
                 user_message=_build_health_runtime_user_message(
                     issue=issue.to_dict(),
@@ -390,25 +381,23 @@ class HealthRegistry:
                 ),
                 history=[],
                 source=source,
-                agent_runtime_chain=agent_runtime_chain,
                 model_response_executor=model_response_executor,
-                runtime_context_manager=runtime_context_manager,
                 task_selection=task_selection,
                 tool_runtime_executor=tool_runtime_executor,
                 tool_instances=list(tool_instances or []),
             )
         ):
             item = dict(event or {})
-            if item.get("type") == "runtime_loop_started":
+            if item.get("type") in {"harness_run_started", "task_run_lifecycle_started"}:
                 started_task_run = dict(item.get("task_run") or {})
-            if item.get("type") == "runtime_loop_event":
+            if item.get("type") in {"runtime_loop_event", "task_run_lifecycle_event"}:
                 runtime_events.append(dict(item.get("event") or {}))
             if item.get("type") in {"done", "error"}:
                 final_event = item
 
         task_run_id = str(started_task_run.get("task_run_id") or "")
         if not task_run_id:
-            raise RuntimeError("Health agent runtime did not emit runtime_loop_started")
+            raise RuntimeError("Health agent runtime did not emit harness_run_started")
         finished_task_run = agent_runtime.get_task_run(task_run_id)
         if finished_task_run is None:
             raise RuntimeError(f"TaskRun missing from RuntimeStateIndex: {task_run_id}")
@@ -518,8 +507,6 @@ class HealthRegistry:
         user_message: HealthAgentConversationMessage,
         agent_runtime: Any,
         model_response_executor: Any,
-        agent_runtime_chain: Any,
-        runtime_context_manager: Any,
         tool_runtime_executor: Any | None = None,
         tool_instances: list[Any] | None = None,
     ) -> HealthAgentConversationMessage:
@@ -554,8 +541,6 @@ class HealthRegistry:
             source="health_system.conversation",
             agent_runtime=agent_runtime,
             model_response_executor=model_response_executor,
-            agent_runtime_chain=agent_runtime_chain,
-            runtime_context_manager=runtime_context_manager,
             tool_runtime_executor=tool_runtime_executor,
             tool_instances=tool_instances,
             user_message=user_message.content,

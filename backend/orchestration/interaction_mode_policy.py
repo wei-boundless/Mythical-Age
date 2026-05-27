@@ -93,13 +93,7 @@ def build_runtime_interaction_mode_policy(
             ),
             explicit_policy,
         )
-    decision = _model_turn_decision(understanding, current_turn)
-    if not decision:
-        raise RuntimeError("ModelTurnDecision is required to select runtime interaction mode")
     task_goal_type = str(contract.get("task_goal_type") or "").strip()
-    action_intent = str(decision.get("action_intent") or "").strip()
-    work_mode = str(decision.get("work_mode") or "").strip()
-    interaction_intent = str(decision.get("interaction_intent") or "").strip()
     profile_mode = _interaction_mode_for_profile(get_task_goal_profile(task_goal_type))
     if profile_mode:
         return _with_explicit_turn_policy(
@@ -112,41 +106,41 @@ def build_runtime_interaction_mode_policy(
             ),
             explicit_policy,
         )
-    if action_intent in {"read_context", "search_external", "use_browser", "ask_clarification"}:
+    action_request = dict(understanding.get("agent_turn_action_request") or current_turn.get("agent_turn_action_request") or {})
+    action_type = str(action_request.get("action_type") or "").strip()
+    if action_type in {"respond", "ask_user"}:
         return _with_explicit_turn_policy(
             _policy_for_mode(
-                STANDARD_MODE,
-                mode_reason=f"model_action:{action_intent}",
+                ROLE_MODE,
+                mode_reason=f"agent_action:{action_type or 'respond'}",
                 contract=contract,
                 understanding=understanding,
                 execution_obligation=obligation,
             ),
             explicit_policy,
         )
-    if action_intent in {"edit_workspace", "run_command", "start_service", "delegate"} or work_mode in {"implementation", "verification", "delegated"}:
+    if _contract_requires_professional_mode(contract, understanding):
         return _with_explicit_turn_policy(
             _policy_for_mode(
                 PROFESSIONAL_MODE,
-                mode_reason=f"model_work_mode:{work_mode or action_intent}",
+                mode_reason=f"task_contract:{task_goal_type or 'professional_required'}",
                 contract=contract,
                 understanding=understanding,
                 execution_obligation=obligation,
             ),
             explicit_policy,
         )
-    if interaction_intent in {"plan", "review", "inspect"} or work_mode == "planning":
+    if action_type == "request_task_run":
         return _with_explicit_turn_policy(
             _policy_for_mode(
                 STANDARD_MODE,
-                mode_reason=f"model_interaction:{interaction_intent}",
+                mode_reason=f"task_contract:{task_goal_type or 'standard_task'}",
                 contract=contract,
                 understanding=understanding,
                 execution_obligation=obligation,
             ),
             explicit_policy,
         )
-    if action_intent != "answer_only":
-        raise RuntimeError(f"Unsupported ModelTurnDecision action_intent for interaction mode: {action_intent}")
     return _with_explicit_turn_policy(
         _policy_for_mode(
             ROLE_MODE,
@@ -625,17 +619,22 @@ def _diagnostics(contract: dict[str, Any], understanding: dict[str, Any], execut
     return {
         "task_goal_type": str(contract.get("task_goal_type") or ""),
         "professional_profile_id": str(contract.get("professional_profile_id") or ""),
-        "model_turn_decision": _model_turn_decision(understanding, {}),
-        "action_permit": dict(understanding.get("action_permit") or {}),
+        "agent_turn_action_request": dict(understanding.get("agent_turn_action_request") or {}),
+        "task_contract_seed": dict(understanding.get("task_contract_seed") or {}),
         "execution_obligation": _obligation_summary(obligation),
     }
 
 
-def _model_turn_decision(understanding: dict[str, Any], current_turn: dict[str, Any]) -> dict[str, Any]:
-    return dict(
-        dict(understanding or {}).get("model_turn_decision")
-        or dict(current_turn or {}).get("model_turn_decision")
-        or {}
+def _contract_requires_professional_mode(contract: dict[str, Any], understanding: dict[str, Any]) -> bool:
+    task_goal_type = str(contract.get("task_goal_type") or "").strip()
+    if task_goal_type in {"code_fix_execution", "artifact_delivery", "frontend_app_delivery", "game_vertical_slice_delivery", "implementation", "verification"}:
+        return True
+    seed = dict(understanding.get("task_contract_seed") or {})
+    resource_contract = dict(seed.get("resource_contract") or {})
+    return bool(
+        list(resource_contract.get("required_write_files") or [])
+        or list(resource_contract.get("required_write_dirs") or [])
+        or list(seed.get("deliverables") or [])
     )
 
 

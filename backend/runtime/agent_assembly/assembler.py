@@ -25,6 +25,7 @@ from .boundary import (
     build_task_selection_payload,
     runtime_control_ref_summary,
 )
+from .execution_permit import build_execution_permit
 
 
 def build_model_context(assembly: AgentAssemblyContract) -> dict[str, Any]:
@@ -162,8 +163,6 @@ def build_agent_invocation(
     base_dir: Path,
     agent_runtime_profile: AgentRuntimeProfile | None = None,
 ) -> AgentInvocation:
-    from harness.runtime.execution_policy import build_execution_permit
-
     assembly = build_agent_assembly_contract(
         work_order,
         base_dir=base_dir,
@@ -231,8 +230,6 @@ def build_execution_permit_for_work_order(
     base_dir: Path,
     agent_runtime_profile: AgentRuntimeProfile | None = None,
 ):
-    from harness.runtime.execution_policy import build_execution_permit
-
     assembly = build_agent_assembly_contract(
         work_order,
         base_dir=base_dir,

@@ -67,6 +67,25 @@ D:\AI应用\claude-code-nb-main\tools\AgentTool
 | Subagent 是 AgentTool 调用 | `AgentTool` 用 `whenToUse` 暴露 agent 能力，并重新装配子 agent | 子 agent 不是新 runtime；是另一次 agent invocation |
 | Verification 是独立 agent | verification agent 要求 `VERDICT: PASS/FAIL/PARTIAL` | 验收要有反证和证据，不由主 agent 自我声称代替 |
 
+### 1.2 Claude Code 源码级控制细节
+
+以下细节不是框架口号，而是可以直接约束本项目实现的工程机制：
+
+| 源码细节 | 解决的控制问题 | 本项目实现要求 |
+| --- | --- | --- |
+| `query.ts` 不信任 `stop_reason=tool_use`，而是以实际收到的 `tool_use` block 作为继续循环信号 | 避免服务端元信息不稳定导致 loop 误停或误跑 | `AgentLoop` 只能以结构化 `ModelActionRequest` / observation / lifecycle record 推进，不得以自然语言或弱标记推进 |
+| `yieldMissingToolResultBlocks()` 为异常路径补齐 tool result | 防止 orphan tool_use 进入下一次模型调用 | 系统一旦接受 action，就必须产出 `ObservationRecord`、`TaskLifecycleRecord`、`error` 或 `canceled`，禁止静默断链 |
+| 恢复时按 `tool_use_id` 去重，不按 message id 去重 | 流式消息可能共享 message id，按 message 去重会重复执行或孤立结果 | 所有可执行 action 必须有稳定 `request_id/action_id`，恢复与重试按 action id 幂等 |
+| streaming fallback 会 tombstone 半截 assistant message，并 discard 旧 executor | 防止旧 tool_use_id 的结果污染新模型响应 | 模型重试、fallback、恢复必须清空未闭合 action 上下文，不能把半成品 observation 回灌 |
+| `Tool` 默认 `isConcurrencySafe=false`、`isReadOnly=false` | 未声明安全的工具按不安全处理 | 工具准入只认显式能力元数据；不得靠工具名、关键词或乐观默认放行 |
+| 权限链顺序固定：deny/ask rule -> tool-specific check -> safety check -> mode/allow rule | 防止 bypass/模式覆盖安全裁决 | `AdmissionDecision` 必须先 fail-closed，再处理模式放行；安全和显式 deny 永远优先 |
+| async subagent 使用独立 AbortController，sync subagent 共享 parent controller | 区分后台长期任务和当前 turn 同步任务的取消语义 | `TaskRun` 必须区分前台绑定运行和后台独立运行；取消传播要明确 |
+| 子 agent 重新装配权限，只保留明确外部授权，不继承父 session 临时规则 | 防止委派越权 | 每个 TaskRun / 子 invocation 都重新装配 runtime，不继承未声明的父级权限 |
+| fork/resume 前过滤 incomplete tool calls | 防止恢复上下文带入半截 action | resume/compact 前必须执行 protocol sanitation，移除或闭合未完成 action |
+| 子 agent 空输出时显式返回“completed but no output” | 防止父 agent 误判没有事件发生 | TaskRun 完成必须有可读 completion result、artifact verdict 或 failure reason，禁止无消息完成 |
+| TodoWrite 完成多个任务但缺少 verification 时返回验证提醒 | 任务关闭前触发质量门禁 | todo/task lifecycle 可以有结构化自审提醒，但必须基于任务状态，不基于用户关键词 |
+| compact agent 禁止工具调用、可被 abort、恢复指令要求直接继续 | 压缩只保存继续执行所需事实，不改变任务裁决权 | 长任务续跑摘要是恢复输入，不是重新决策；恢复后必须从最新用户请求和任务状态继续 |
+
 ### 1.2 Codex 类成熟 Coding Agent 的可执行标准
 
 本项目对标的是成熟 coding agent 的行为标准：

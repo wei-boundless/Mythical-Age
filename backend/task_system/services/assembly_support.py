@@ -151,7 +151,7 @@ def build_runtime_task_intent_contract(
         session_id=session_id,
         task_id=task_id,
         user_goal=user_goal,
-        intent_kind=str(dict(current_turn.get("model_turn_decision") or {}).get("interaction_intent") or current_turn.get("intent") or ""),
+        intent_kind=str(dict(current_turn.get("agent_turn_action_request") or {}).get("action_type") or current_turn.get("intent") or ""),
         execution_intent=_execution_intent_from_context(
             current_turn_context=current_turn,
             bundle_items=bundle_items,
@@ -182,8 +182,8 @@ def build_runtime_task_intent_contract(
         mode_policy=mode_policy.to_dict(),
         diagnostics={
             "execution_mode": str(current_turn.get("execution_mode") or "single"),
-            "model_turn_decision": dict(current_turn.get("model_turn_decision") or {}),
-            "action_permit": dict(current_turn.get("action_permit") or {}),
+            "agent_turn_action_request": dict(current_turn.get("agent_turn_action_request") or {}),
+            "task_contract_seed": dict(current_turn.get("task_contract_seed") or {}),
             "interaction_mode": mode_policy.interaction_mode,
             "runtime_lane": mode_policy.runtime_lane,
             "projection_strength": mode_policy.projection_strength,
@@ -428,15 +428,15 @@ def _build_task_spec(
         for item in list(skill_runtime_views or [])
         if str((item.to_dict() if hasattr(item, "to_dict") else dict(item)).get("skill_id") or "").strip()
     }
-    model_selected_skill_ids = [
+    action_selected_skill_ids = [
         str(item).strip()
-        for item in list(dict(current_turn_context.get("model_turn_decision") or {}).get("selected_skill_ids") or [])
+        for item in list(dict(current_turn_context.get("agent_turn_action_request") or {}).get("selected_skill_ids") or [])
         if str(item).strip()
     ]
     selected_skill_ids = _dedupe(
         [
             skill_id if skill_id.startswith("skill.") else f"skill.{skill_id}"
-            for skill_id in model_selected_skill_ids
+            for skill_id in action_selected_skill_ids
             if (skill_id if skill_id.startswith("skill.") else f"skill.{skill_id}") in visible_skill_ids
         ]
     )
@@ -458,7 +458,7 @@ def _build_task_spec(
             "resolved_bindings": resolved_bindings,
         },
         constraints={
-            "intent": str(dict(current_turn_context.get("model_turn_decision") or {}).get("interaction_intent") or current_turn_context.get("intent") or ""),
+            "intent": str(dict(current_turn_context.get("agent_turn_action_request") or {}).get("action_type") or current_turn_context.get("intent") or ""),
             "execution_mode": str(current_turn_context.get("execution_mode") or "single"),
             "confidence": float(current_turn_context.get("confidence") or query_understanding.get("confidence") or 0.0),
             "runtime_limits": runtime_limits,
@@ -684,7 +684,7 @@ def _build_coordination_request_brief(
         "binding_refs": binding_refs,
         "understanding_refs": {
             "authority": str(query_understanding.get("authority") or ""),
-            "model_turn_decision_ref": str(dict(current_turn_context.get("model_turn_decision") or {}).get("decision_id") or ""),
+            "agent_turn_action_request_ref": str(dict(current_turn_context.get("agent_turn_action_request") or {}).get("request_id") or ""),
         },
     }
 

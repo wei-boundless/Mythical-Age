@@ -105,15 +105,15 @@ class SingleMessageModelRuntimeStub:
         self,
         content: str = "单轮收口回答",
         *,
-        model_turn_decision: dict[str, object] | None = None,
+        agent_turn_action_request: dict[str, object] | None = None,
     ) -> None:
         self.content = content
-        self.model_turn_decision = dict(model_turn_decision or {})
+        self.agent_turn_action_request = dict(agent_turn_action_request or {})
 
     async def invoke_messages(self, messages, **_kwargs):
-        if _is_model_turn_decision_request(messages):
-            decision = self.model_turn_decision or _default_model_turn_decision_payload(messages)
-            return SimpleNamespace(content=json.dumps(decision, ensure_ascii=False))
+        if _is_agent_turn_action_request(messages):
+            request = self.agent_turn_action_request or _default_agent_turn_action_request(messages)
+            return SimpleNamespace(content=json.dumps(request, ensure_ascii=False))
         return SimpleNamespace(content=self.content)
 
 
@@ -127,11 +127,9 @@ class StreamingMessageModelRuntimeStub(SingleMessageModelRuntimeStub):
             yield SimpleNamespace(content=chunk)
 
 
-def model_turn_context(
+def agent_turn_context(
     *,
-    action_intent: str = "answer_only",
-    work_mode: str = "conversation",
-    interaction_intent: str = "answer",
+    action_type: str = "respond",
     target_objects: list[str] | None = None,
     desired_outcome: str = "test outcome",
     deliverables: list[str] | None = None,
@@ -147,57 +145,43 @@ def model_turn_context(
 ) -> dict[str, object]:
     resolved_task_goal_type = str(task_goal_type or "").strip()
     if not resolved_task_goal_type:
-        raise ValueError("model_turn_context requires task_goal_type")
-    decision = {
-        "authority": "agent_runtime.model_turn_decision",
-        "decision_id": "model-turn-decision:test",
-        "user_message": "test",
-        "interaction_intent": interaction_intent,
-        "action_intent": action_intent,
-        "work_mode": work_mode,
+        raise ValueError("agent_turn_context requires task_goal_type")
+    task_contract_seed = {
+        "goal": desired_outcome,
         "task_goal_type": resolved_task_goal_type,
-        "domain_mismatch_signal": {},
-        "target_objects": list(target_objects or []),
-        "desired_outcome": desired_outcome,
         "deliverables": list(deliverables or []),
         "constraints": list(constraints or []),
         "forbidden_actions": list(forbidden_actions or []),
-        "selected_skill_ids": list(selected_skill_ids or []),
-        "context_binding_decision": {},
-        "planning_required": planning_required,
-        "todo_required": todo_required,
         "completion_criteria": list(completion_criteria or []),
-        "needs_clarification": False,
-        "clarification_question": "",
-        "confidence": 0.9,
-        "ambiguity": [],
+    }
+    if target_objects:
+        task_contract_seed["resource_contract"] = {"required_read_files": list(target_objects)}
+    if selected_skill_ids:
+        task_contract_seed["selected_skill_ids"] = list(selected_skill_ids)
+    action_request = {
+        "authority": "agent_runtime.agent_turn_action_request",
+        "request_id": "agent-turn-action:test",
+        "turn_id": "turn:test",
+        "action_type": action_type,
+        "final_answer": desired_outcome if action_type == "respond" else "",
+        "task_contract_seed": task_contract_seed if action_type == "request_task_run" else {},
+        "completion_contract": {"completion_criteria": list(completion_criteria or [])},
+        "permission_request": {},
+        "diagnostics": {"test_stub_action": True},
     }
     result: dict[str, object] = {
-        "model_turn_decision": decision,
-        "request_facts": {
-            "authority": "agent_runtime.request_facts",
-            "facts_id": "request-facts:test",
-            "user_message": "test",
+        "agent_turn_action_request": action_request,
+        "task_contract_seed": task_contract_seed,
+        "runtime_admission": {"authority": "agent_runtime.runtime_admission", "allowed": True},
+        "turn_signals": {
+            "authority": "turn_signals.structural",
             "explicit_paths": list(target_objects or []),
             "material_suffixes": [],
-        },
-        "boundary_policy": {
-            "authority": "agent_runtime.boundary_policy",
-            "policy_id": "boundary:test",
-            "forbidden_actions": list(forbidden_actions or []),
-        },
-        "action_permit": {
-            "authority": "agent_runtime.action_permit",
-            "permit_id": "action-permit:test",
-            "allowed": True,
-            "action_intent": action_intent,
-            "required_operations": ["op.model_response"],
-            "optional_operations": [],
         },
         **(
             {
                 "task_goal_spec": {
-                    "authority": "agent_runtime.model_turn_goal_projection",
+                    "authority": "agent_runtime.task_goal_projection",
                     "task_goal_type": resolved_task_goal_type,
                     **({"task_domain": str(task_domain).strip()} if str(task_domain or "").strip() else {}),
                     "forbidden_actions": list(forbidden_actions or []),
@@ -212,16 +196,16 @@ def model_turn_context(
     return result
 
 
-def _is_model_turn_decision_request(messages: Any) -> bool:
+def _is_agent_turn_action_request(messages: Any) -> bool:
     try:
         first = list(messages or [])[0]
     except Exception:
         return False
     content = str(dict(first).get("content") if isinstance(first, dict) else getattr(first, "content", "") or "")
-    return "理解决策器" in content and "只输出合法 JSON" in content
+    return "当前 turn 的主 agent" in content and "agent_runtime.agent_turn_action_request" in str(messages)
 
 
-def _default_model_turn_decision_payload(messages: Any) -> dict[str, object]:
+def _default_agent_turn_action_request(messages: Any) -> dict[str, object]:
     user_message = ""
     try:
         request_payload = json.loads(str(list(messages or [])[-1].get("content") or "{}"))
@@ -229,32 +213,16 @@ def _default_model_turn_decision_payload(messages: Any) -> dict[str, object]:
     except Exception:
         user_message = "test"
     return {
-        "authority": "agent_runtime.model_turn_decision",
-        "decision_id": "model-turn-decision:stub",
-        "user_message": user_message,
-        "interaction_intent": "answer",
-        "action_intent": "answer_only",
-        "work_mode": "conversation",
-        "task_goal_type": "",
-        "domain_mismatch_signal": {},
-        "target_objects": [],
-        "desired_outcome": user_message or "test outcome",
-        "deliverables": ["conversational_response"],
-        "constraints": [],
-        "forbidden_actions": [],
-        "selected_skill_ids": [],
-        "resource_contract": {},
-        "context_binding_decision": {"mode": "test_stub"},
-        "planning_required": False,
-        "todo_required": False,
-        "completion_criteria": [],
-        "needs_clarification": False,
-        "clarification_question": "",
-        "confidence": 0.9,
-        "ambiguity": [],
+        "authority": "agent_runtime.agent_turn_action_request",
+        "request_id": "agent-turn-action:stub:respond",
+        "turn_id": "",
+        "action_type": "respond",
+        "final_answer": user_message or "test outcome",
+        "task_contract_seed": {},
+        "completion_contract": {},
+        "permission_request": {},
         "diagnostics": {
-            "test_stub_decision": True,
-            "keyword_routing_disabled": True,
+            "test_stub_action_request": True,
         },
     }
 

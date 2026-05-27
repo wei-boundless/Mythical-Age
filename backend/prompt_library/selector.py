@@ -85,29 +85,31 @@ def build_prompt_selection_context(
     registered_metadata = dict(registered.get("metadata") or {})
     registered_policy = dict(registered.get("task_policy") or {})
     registered_structure = dict(registered_policy.get("task_structure") or {})
-    model_turn_decision = dict(
-        current_turn.get("model_turn_decision")
-        or dict(task_contract.get("bindings") or {}).get("model_turn_decision")
+    bindings = dict(task_contract.get("bindings") or {})
+    agent_turn_action_request = dict(
+        current_turn.get("agent_turn_action_request")
+        or bindings.get("agent_turn_action_request")
         or {}
     )
-    action_permit = dict(
-        current_turn.get("action_permit")
-        or dict(task_contract.get("bindings") or {}).get("action_permit")
+    task_contract_seed = dict(
+        current_turn.get("task_contract_seed")
+        or bindings.get("task_contract_seed")
+        or dict(agent_turn_action_request.get("task_contract_seed") or {})
         or {}
     )
-    boundary_policy = dict(
-        current_turn.get("boundary_policy")
-        or dict(task_contract.get("bindings") or {}).get("boundary_policy")
+    runtime_admission = dict(
+        current_turn.get("runtime_admission")
+        or bindings.get("runtime_admission")
         or {}
     )
-    request_facts = dict(
-        current_turn.get("request_facts")
-        or dict(task_contract.get("bindings") or {}).get("request_facts")
+    permission_request = dict(
+        current_turn.get("permission_request")
+        or dict(agent_turn_action_request.get("permission_request") or {})
         or {}
     )
     context_binding = dict(
         current_turn.get("context_binding")
-        or dict(model_turn_decision.get("context_binding_decision") or {})
+        or dict(task_contract_seed.get("context_binding") or {})
         or {}
     )
     semantic_contract = dict(
@@ -239,21 +241,6 @@ def build_prompt_selection_context(
             or assembly.get("task_mode")
             or "standard_mode"
         ).strip(),
-        work_mode=str(
-            model_turn_decision.get("work_mode")
-            or current_turn.get("work_mode")
-            or ""
-        ).strip(),
-        interaction_intent=str(
-            model_turn_decision.get("interaction_intent")
-            or current_turn.get("interaction_intent")
-            or ""
-        ).strip(),
-        action_intent=str(
-            model_turn_decision.get("action_intent")
-            or current_turn.get("action_intent")
-            or ""
-        ).strip(),
         runtime_lane=str(
             mode_policy.get("runtime_lane")
             or current_turn.get("runtime_lane")
@@ -299,10 +286,10 @@ def build_prompt_selection_context(
             for item in list(current_turn.get("visible_tool_ids") or current_turn.get("available_tool_ids") or [])
             if str(item).strip()
         ),
-        model_turn_decision=model_turn_decision,
-        action_permit=action_permit,
-        boundary_policy=boundary_policy,
-        request_facts=request_facts,
+        agent_turn_action_request=agent_turn_action_request,
+        task_contract_seed=task_contract_seed,
+        runtime_admission=runtime_admission,
+        permission_request=permission_request,
         context_binding=context_binding,
         task_requirement_contract=semantic_contract,
         goal_hypothesis_set=goal_hypothesis_set,
@@ -394,11 +381,8 @@ class PromptSelector:
             "recipe_step_count": len(context.recipe_steps),
             "step_sequence": list(context.step_sequence),
             "task_graph_node_runtime": context.task_graph_node_runtime,
-            "work_mode": context.work_mode,
-            "interaction_intent": context.interaction_intent,
-            "action_intent": context.action_intent,
-            "model_turn_decision_ref": str(context.model_turn_decision.get("decision_id") or ""),
-            "action_permit_ref": str(context.action_permit.get("permit_id") or ""),
+            "agent_turn_action_request_ref": str(context.agent_turn_action_request.get("request_id") or ""),
+            "runtime_admission_ref": str(context.runtime_admission.get("admission_id") or ""),
             "goal_hypothesis_set_ref": str(context.goal_hypothesis_set.get("hypothesis_set_id") or ""),
             "task_requirement_contract_ref": str(context.task_requirement_contract.get("contract_id") or ""),
             "agent_plan_ref": str(context.agent_plan_draft.get("plan_id") or ""),
@@ -583,9 +567,6 @@ def _compatibility_score(
     if resource.applies_to_modes and context.interaction_mode in resource.applies_to_modes:
         score += 250
         reasons.append("mode_match")
-    if resource.applies_to_modes and context.work_mode and context.work_mode in resource.applies_to_modes:
-        score += 90
-        reasons.append("work_mode_match")
     if resource.applies_to_agents and context.agent_id in resource.applies_to_agents:
         score += 220
         reasons.append("agent_match")
@@ -593,9 +574,9 @@ def _compatibility_score(
         context.task_domain,
         context.task_mode,
         context.process_kind,
-        context.work_mode,
-        context.action_intent,
-        context.interaction_intent,
+        context.runtime_lane,
+        context.current_step_kind,
+        context.current_step_id,
     }
     if resource.applies_to_domains and _matches_any(resource.applies_to_domains, domain_values):
         score += 180
@@ -725,13 +706,10 @@ def _is_verification_context(context: PromptSelectionContext) -> bool:
         context.stage_id,
         context.node_id,
         context.task_goal_type,
-        context.work_mode,
-        context.action_intent,
-        context.interaction_intent,
+        context.process_kind,
+        context.runtime_lane,
     }
-    if context.work_mode == "verification":
-        return True
-    if context.action_intent == "run_command":
+    if bool(context.verification_review):
         return True
     return any("verify" in item or "review" in item or "validation" in item for item in values if item)
 
@@ -739,9 +717,7 @@ def _is_verification_context(context: PromptSelectionContext) -> bool:
 def _is_planning_context(context: PromptSelectionContext) -> bool:
     if context.current_step_kind in {"execution_planning", "plan_coverage_review"}:
         return True
-    if context.work_mode == "planning":
-        return True
-    if context.model_turn_decision.get("planning_required") is True:
+    if context.agent_plan_requirement:
         return True
     return False
 
@@ -751,9 +727,7 @@ def _is_execution_context(context: PromptSelectionContext) -> bool:
         return True
     if context.current_step_id.startswith("step_execution."):
         return True
-    if context.work_mode == "implementation":
-        return True
-    if context.action_intent in {"edit_workspace", "start_service", "use_browser"}:
+    if context.agent_plan_draft and not context.completion_judgment:
         return True
     return False
 

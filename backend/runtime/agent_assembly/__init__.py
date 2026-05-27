@@ -1,4 +1,5 @@
 from .assembler import build_agent_assembly_contract, build_agent_invocation, build_execution_permit_for_work_order
+from .execution_permit import build_execution_permit
 from .boundary import (
     CONTROL_CONTEXT_KEYS,
     MODEL_CONTEXT_KEYS,
@@ -78,6 +79,7 @@ __all__ = [
     "build_agent_invocation",
     "build_assembly_contract_id",
     "build_execution_permit_for_work_order",
+    "build_execution_permit",
     "build_execution_permit_id",
     "build_execution_result_id",
     "build_model_context_payload",

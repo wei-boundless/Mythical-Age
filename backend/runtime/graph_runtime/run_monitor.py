@@ -287,11 +287,7 @@ def _graph_spec_from_runtime_authority(
     ):
         config_payload = dict(payload or {})
         if config_payload:
-            from harness.runtime.graph_config import graph_harness_config_runtime_spec_payload
-
-            runtime_payload = graph_harness_config_runtime_spec_payload(config_payload)
-            if runtime_payload:
-                return runtime_payload
+            return dict(config_payload.get("runtime_spec") or config_payload.get("compiled_runtime_payload") or {})
     return dict(
         state_diagnostics.get("coordination_graph_spec")
         or coordination_diagnostics.get("coordination_graph_spec")

@@ -94,7 +94,6 @@ def build_execution_obligation(
     text = str(user_goal or "").strip()
     lowered = text.lower()
     current_turn = dict(current_turn_context or {})
-    model_decision = dict(current_turn.get("model_turn_decision") or {})
     inputs = {
         **dict(explicit_inputs or {}),
         **dict(current_turn.get("explicit_inputs") or {}),
@@ -110,11 +109,6 @@ def build_execution_obligation(
         current_turn=current_turn,
     )
     contract_writes = _collect_required_writes_from_resource_contract(resource_contract)
-    model_writes = _model_decision_write_requirements(
-        model_decision=model_decision,
-        explicit_inputs=inputs,
-        resource_contract=resource_contract,
-    )
     scoped_write_constraints = _scoped_write_constraints(
         text=text,
         current_turn=current_turn,
@@ -129,16 +123,13 @@ def build_execution_obligation(
     forbid_write = _structured_write_forbidden(current_turn)
     write_required = (
         bool(contract_writes)
-        or bool(model_writes)
         or bool(profile_obligation["required_writes"])
     ) and not forbid_write
-    model_verification = _model_decision_verification_requirements(model_decision, goal_frame)
-    verify_required = bool(profile_obligation["required_verifications"]) or bool(model_verification["verifications"])
+    verify_required = bool(profile_obligation["required_verifications"])
     required_writes = tuple(
         _dedupe_dicts(
             [
                 *(contract_writes if not forbid_write else []),
-                *([] if forbid_write else list(model_writes)),
                 *([] if forbid_write else list(profile_obligation["required_writes"])),
             ],
             key_fields=("kind", "path", "source"),
@@ -148,7 +139,6 @@ def build_execution_obligation(
         _dedupe_dicts(
             [
                 *list(profile_obligation["required_commands"]),
-                *list(model_verification["commands"]),
             ],
             key_fields=("kind", "command_hint", "source"),
         )
@@ -157,7 +147,6 @@ def build_execution_obligation(
         _dedupe_dicts(
             [
                 *list(profile_obligation["required_verifications"]),
-                *list(model_verification["verifications"]),
             ],
             key_fields=("kind", "verification_kind", "criterion_id"),
         )
@@ -165,7 +154,6 @@ def build_execution_obligation(
     required_deliverables = tuple(
         _dedupe(
             [
-                *_model_decision_deliverables(model_decision),
                 *list(profile_obligation["required_deliverables"]),
                 *(["verification_result_or_limitation"] if verify_required else []),
             ]
@@ -182,24 +170,23 @@ def build_execution_obligation(
         "verify_required": verify_required,
         "forbid_write": forbid_write,
         "natural_language_write_forbid_signal": natural_language_write_forbid_signal,
-        "forbid_write_authority": "model_turn_decision_or_boundary_policy",
+        "forbid_write_authority": "runtime_contract_or_operation_gate",
         "hard_write_authority": "operation_gate_and_sandbox_policy",
         "structured_write_forbidden": forbid_write,
         "scoped_write_constraints": scoped_write_constraints,
         "profile_obligation": profile_obligation["evidence"],
         "resource_contract_used": bool(resource_contract),
-        "model_decision_used": bool(model_decision),
+        "agent_intent_classification_used": False,
         "natural_language_action_inference_removed": True,
         "read_paths_compiled_from": (
-            "model_resource_contract"
+            "resource_contract"
             if contract_reads
-            else "request_facts_or_explicit_inputs"
+            else "explicit_inputs_or_structural_paths"
             if reads
             else ""
         ),
         "execution_actions_compiled_from": [
-            *(("model_resource_contract",) if contract_writes else ()),
-            *(("model_turn_decision",) if model_writes else ()),
+            *(("resource_contract",) if contract_writes else ()),
             *(
                 ("task_goal_profile",)
                 if (
@@ -209,7 +196,6 @@ def build_execution_obligation(
                 )
                 else ()
             ),
-            *(("model_completion_criteria",) if model_verification["verifications"] else ()),
         ],
     }
     confidence = 0.35
@@ -236,12 +222,16 @@ def build_execution_obligation(
 
 
 def _resource_contract_from_current_turn(current_turn: dict[str, Any]) -> dict[str, Any]:
-    decision = dict(current_turn.get("model_turn_decision") or {})
-    resource_contract = decision.get("resource_contract")
-    if isinstance(resource_contract, dict) and resource_contract:
-        return dict(resource_contract)
-    direct = current_turn.get("resource_contract")
-    return dict(direct) if isinstance(direct, dict) and direct else {}
+    for key in ("resource_contract", "task_contract_seed", "task_requirement_contract"):
+        value = current_turn.get(key)
+        if not isinstance(value, dict):
+            continue
+        if key == "resource_contract" and value:
+            return dict(value)
+        nested = value.get("resource_contract")
+        if isinstance(nested, dict) and nested:
+            return dict(nested)
+    return {}
 
 
 def _collect_required_reads_from_resource_contract(resource_contract: dict[str, Any]) -> list[dict[str, Any]]:
@@ -258,7 +248,7 @@ def _collect_required_reads_from_resource_contract(resource_contract: dict[str, 
                     "kind": _kind_from_path(path),
                     "role": "source_file" if _is_material_mount_path(path) else "material",
                     "required": True,
-                    "source": "model_resource_contract",
+                    "source": "resource_contract",
                 }
             )
         for path in read_dirs:
@@ -268,7 +258,7 @@ def _collect_required_reads_from_resource_contract(resource_contract: dict[str, 
                     "kind": "asset_dir" if _is_asset_dir(path) else "directory",
                     "role": "source_asset_dir" if _is_asset_dir(path) else "source_dir",
                     "required": True,
-                    "source": "model_resource_contract",
+                    "source": "resource_contract",
                 }
             )
         return _dedupe_dicts(reads, key_fields=("path", "role", "source"))
@@ -280,7 +270,7 @@ def _collect_required_reads_from_resource_contract(resource_contract: dict[str, 
                     "kind": _kind_from_path(path),
                     "role": "source_file",
                     "required": True,
-                    "source": "model_resource_contract",
+                    "source": "resource_contract",
                 }
             )
         for path in read_dirs:
@@ -290,7 +280,7 @@ def _collect_required_reads_from_resource_contract(resource_contract: dict[str, 
                     "kind": "asset_dir" if _is_asset_dir(path) else "directory",
                     "role": "source_asset_dir" if _is_asset_dir(path) else "source_dir",
                     "required": True,
-                    "source": "model_resource_contract",
+                    "source": "resource_contract",
                 }
             )
     return _dedupe_dicts(reads, key_fields=("path", "role", "source"))
@@ -309,7 +299,7 @@ def _collect_required_writes_from_resource_contract(resource_contract: dict[str,
                     "kind": "file_write",
                     "path": path,
                     "required": True,
-                    "source": "model_resource_contract",
+                    "source": "resource_contract",
                 }
             )
         for path in write_dirs:
@@ -318,7 +308,7 @@ def _collect_required_writes_from_resource_contract(resource_contract: dict[str,
                     "kind": "asset_dir_write" if _is_asset_dir(path) else "directory_write",
                     "path": path,
                     "required": True,
-                    "source": "model_resource_contract",
+                    "source": "resource_contract",
                 }
             )
         return _dedupe_dicts(writes, key_fields=("kind", "path", "source"))
@@ -329,7 +319,7 @@ def _collect_required_writes_from_resource_contract(resource_contract: dict[str,
                     "kind": "file_write",
                     "path": _join_path(target_root, path),
                     "required": True,
-                    "source": "model_resource_contract",
+                    "source": "resource_contract",
                 }
             )
         for path in write_dirs:
@@ -338,7 +328,7 @@ def _collect_required_writes_from_resource_contract(resource_contract: dict[str,
                     "kind": "asset_dir_write" if _is_asset_dir(path) else "directory_write",
                     "path": _join_path(target_root, path),
                     "required": True,
-                    "source": "model_resource_contract",
+                    "source": "resource_contract",
                 }
             )
     return _dedupe_dicts(writes, key_fields=("kind", "path", "source"))
@@ -416,7 +406,8 @@ def _structured_write_forbidden(current_turn: dict[str, Any]) -> bool:
     forbidden = {
         str(item).strip()
         for item in [
-            *list(dict(current_turn.get("model_turn_decision") or {}).get("forbidden_actions") or []),
+            *list(dict(current_turn.get("task_contract_seed") or {}).get("forbidden_actions") or []),
+            *list(dict(current_turn.get("task_requirement_contract") or {}).get("forbidden_actions") or []),
             *list(dict(current_turn.get("task_goal_spec") or current_turn.get("goal_frame") or {}).get("forbidden_actions") or []),
             *list(current_turn.get("forbidden_actions") or []),
         ]
@@ -435,8 +426,10 @@ def _scoped_write_constraints(
     raw_constraints = [
         str(item or "").strip()
         for item in [
-            *list(dict(current_turn.get("model_turn_decision") or {}).get("constraints") or []),
-            *list(dict(current_turn.get("model_turn_decision") or {}).get("forbidden_actions") or []),
+            *list(dict(current_turn.get("task_contract_seed") or {}).get("constraints") or []),
+            *list(dict(current_turn.get("task_contract_seed") or {}).get("forbidden_actions") or []),
+            *list(dict(current_turn.get("task_requirement_contract") or {}).get("constraints") or []),
+            *list(dict(current_turn.get("task_requirement_contract") or {}).get("forbidden_actions") or []),
             *list(dict(current_turn.get("task_goal_spec") or current_turn.get("goal_frame") or {}).get("explicit_constraints") or []),
             *list(dict(current_turn.get("task_goal_spec") or current_turn.get("goal_frame") or {}).get("forbidden_actions") or []),
         ]
@@ -453,7 +446,7 @@ def _scoped_write_constraints(
             "target": "source_project",
             "access": "read_only",
             "paths": source_paths,
-            "source": "user_or_model_constraint",
+            "source": "runtime_contract_or_user_constraint",
         }
     ]
 
@@ -554,93 +547,6 @@ def _profile_obligation_requirements(
             "task_goal_spec_type": str(task_goal_spec.get("task_goal_type") or ""),
         },
     }
-
-
-def _model_decision_verification_requirements(
-    model_decision: dict[str, Any],
-    task_goal_spec: dict[str, Any],
-) -> dict[str, tuple[dict[str, Any], ...]]:
-    decision = dict(model_decision or {})
-    criteria = [
-        str(item or "").strip()
-        for item in [
-            *list(decision.get("completion_criteria") or []),
-            *[
-                str(dict(item).get("title") or dict(item).get("criterion_id") or "")
-                for item in list(dict(task_goal_spec or {}).get("required_verifications") or [])
-                if isinstance(item, dict)
-            ],
-        ]
-        if str(item or "").strip()
-    ]
-    action_intent = str(decision.get("action_intent") or "").strip()
-    work_mode = str(decision.get("work_mode") or "").strip()
-    requires_verification = bool(criteria) or action_intent in {"run_command", "use_browser", "start_service"} or work_mode == "verification"
-    if not requires_verification:
-        return {"commands": (), "verifications": ()}
-    command_kind = "browser_or_runtime_check" if action_intent in {"use_browser", "start_service"} else "verification_command"
-    verification_kind = "browser_verification" if action_intent in {"use_browser", "start_service"} else "evidence"
-    command = {
-        "kind": command_kind,
-        "required": True,
-        "source": "model_turn_decision",
-    }
-    verification = {
-        "kind": verification_kind,
-        "verification_kind": verification_kind,
-        "required": True,
-        "source": "model_turn_decision",
-    }
-    if criteria:
-        verification["criteria"] = criteria
-    return {"commands": (command,), "verifications": (verification,)}
-
-
-def _model_decision_write_requirements(
-    *,
-    model_decision: dict[str, Any],
-    explicit_inputs: dict[str, Any],
-    resource_contract: dict[str, Any],
-) -> tuple[dict[str, Any], ...]:
-    decision = dict(model_decision or {})
-    action_intent = str(decision.get("action_intent") or "").strip()
-    work_mode = str(decision.get("work_mode") or "").strip()
-    if action_intent not in {"edit_workspace"} and work_mode != "implementation":
-        return ()
-    if _collect_required_writes_from_resource_contract(resource_contract):
-        return ()
-    explicit_output = str(
-        explicit_inputs.get("output_path")
-        or explicit_inputs.get("artifact_path")
-        or explicit_inputs.get("target_output_path")
-        or ""
-    ).strip()
-    if explicit_output:
-        return (
-            {
-                "kind": "file_write",
-                "path": explicit_output,
-                "required": True,
-                "source": "model_turn_decision",
-            },
-        )
-    return (
-        {
-            "kind": "workspace_change",
-            "required": True,
-            "source": "model_turn_decision",
-        },
-    )
-
-
-def _model_decision_deliverables(model_decision: dict[str, Any]) -> list[str]:
-    return _dedupe(
-        [
-            _slug_label(str(item or ""))
-            for item in list(dict(model_decision or {}).get("deliverables") or [])
-            if str(item or "").strip()
-        ]
-    )
 
 
 def _slug_label(value: str) -> str:

@@ -103,6 +103,23 @@ D:\AI应用\claude-code-nb-main\tools\AgentTool
 | Subagent 是工具化调用 | `AgentTool` 通过 `whenToUse` 暴露能力 | 委派是 agent 行动请求，不是系统预分类 |
 | 验证要有裁决 | verification agent 输出 `PASS/FAIL/PARTIAL` | 长任务验收必须有可审计裁决记录 |
 
+### 1.1.1 可迁移的源码级控制机制
+
+这批机制必须进入本轮单 agent 重构，不作为后续“优化项”悬空：
+
+1. **行动事实优先**：loop 只根据真实结构化 action / observation 推进，不根据 `stop_reason`、自然语言状态或关键词推进。
+2. **协议闭合**：任何已接受 action 都必须闭合为 observation、lifecycle event、error 或 canceled。异常、fallback、abort 不能留下孤立 action。
+3. **action id 幂等**：恢复、重试、去重按 action id / request id，不按 message id 或 turn id。
+4. **半成品隔离**：模型 fallback、重试和恢复必须废弃未闭合 action 上下文，禁止旧 tool result 泄漏到新响应。
+5. **工具默认保守**：工具没有显式声明 read-only / concurrency-safe / side-effect-free 时，按有副作用处理。
+6. **权限顺序固定**：显式 deny、安全检查、工具自身检查先于模式放行；模式不是越权开关。
+7. **运行时重装配**：每次 model invocation、TaskRun step、resume、self-review、verification 都重新装配 runtime packet。
+8. **后台生命周期独立**：正式 TaskRun 与当前 turn 的取消/恢复关系必须显式声明，不能被父 turn 隐式杀死或隐式继续。
+9. **恢复前清理协议**：compact/resume 前必须清理或闭合 incomplete action。
+10. **完成不可空洞**：TaskRun 完成必须绑定 completion result、artifact verdict、verification receipt 或 failure reason。
+11. **自审基于结构状态**：todo/verification 提醒只能从任务状态和合同得出，不能从关键词猜测。
+12. **摘要不是裁决**：compact summary 只保存继续执行所需事实，不替代 agent 的下一步判断和系统验收。
+
 ### 1.2 Codex 类成熟 coding agent 标准
 
 本项目后续实现以成熟 coding agent 的行为为标准：

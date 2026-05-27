@@ -42,7 +42,7 @@ from task_system.repositories import (
 from task_system.services.graph_task_registry import TaskGraphRegistryService
 from task_system.services.registry_overview import TaskRegistryOverviewBuilder
 from task_system.registry.workflow_registry import TaskWorkflowRegistry
-from harness.runtime.graph_config import GraphHarnessConfig
+from harness.runtime_legacy.graph_config import GraphHarnessConfig
 
 
 CONTRACT_TITLE_MAP: dict[str, str] = {

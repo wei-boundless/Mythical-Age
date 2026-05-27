@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from .loop.agent_loop import run_agent_invocation_stream
-from .runtime import AgentRunRequest, AgentRuntimeServices
+from .runtime import AgentRunRequest
 
 
 class AgentHarness:
@@ -15,7 +15,7 @@ class AgentHarness:
     permitted service table.
     """
 
-    def __init__(self, *, services: AgentRuntimeServices) -> None:
+    def __init__(self, *, services: Any) -> None:
         self._services = services
 
     @property

@@ -68,10 +68,8 @@ def build_task_execution_assembly_bundle(
         current_turn_payload=current_turn_payload,
         registered_task=registered_task,
     )
-    if not dict(current_turn_payload.get("model_turn_decision") or {}):
-        raise RuntimeError("ModelTurnDecision is required before task assembly")
     if not dict(current_turn_payload.get("task_goal_spec") or current_turn_payload.get("goal_frame") or {}):
-        raise RuntimeError("Task goal projection must be produced from ModelTurnDecision before task assembly")
+        raise RuntimeError("Task goal projection must be produced from admitted task contract before task assembly")
     specific_task_record = (
         flow_registry.get_specific_task_record(str(registered_task.get("task_id") or ""))
         if registered_task and str(registered_task.get("task_type") or "") == "specific_task"
@@ -553,10 +551,12 @@ def _augment_skill_scope_from_runtime_intent(
 ):
     needs = capability_needs(query_understanding)
     kinds = material_kinds(query_understanding)
-    action_intent = str(dict(current_turn_context.get("model_turn_decision") or {}).get("action_intent") or "").strip()
+    task_contract_seed = dict(current_turn_context.get("task_contract_seed") or {})
+    resource_contract = dict(task_contract_seed.get("resource_contract") or {})
     target_objects = [
         str(item).strip().lower()
-        for item in list(dict(current_turn_context.get("model_turn_decision") or {}).get("target_objects") or [])
+        for key in ("required_read_files", "required_read_dirs", "required_write_files", "required_write_dirs")
+        for item in list(resource_contract.get(key) or [])
         if str(item).strip()
     ]
     additions: list[str] = []
@@ -570,7 +570,7 @@ def _augment_skill_scope_from_runtime_intent(
         additions.append("skill.structured-data-analysis")
     if "document_analysis" in needs or "pdf" in kinds or any(item.endswith(".pdf") for item in target_objects):
         additions.append("skill.pdf-analysis")
-    if action_intent in {"run_browser_verification", "open_browser"}:
+    if bool(dict(resource_contract.get("asset_policy") or {}).get("browser_verification")):
         additions.append("skill.browser-operation")
     current_scope = [str(item).strip() for item in list(getattr(merged_binding, "skill_scope", ()) or ()) if str(item).strip()]
     merged_scope = tuple(_dedupe([*current_scope, *additions]))
@@ -722,14 +722,19 @@ def _memory_request_profile_payload(
 ) -> dict[str, Any]:
     payload = memory_request_profile.to_dict() if memory_request_profile is not None else {}
     needs = capability_needs(query_understanding)
-    model_turn_decision = dict(dict(query_understanding or {}).get("model_turn_decision") or {})
-    action_intent = str(model_turn_decision.get("action_intent") or "").strip()
-    work_mode = str(model_turn_decision.get("work_mode") or "").strip()
+    task_contract_seed = dict(dict(query_understanding or {}).get("task_contract_seed") or {})
+    resource_contract = dict(task_contract_seed.get("resource_contract") or {})
+    has_resource_contract = bool(
+        list(resource_contract.get("required_read_files") or [])
+        or list(resource_contract.get("required_read_dirs") or [])
+        or list(resource_contract.get("required_write_files") or [])
+        or list(resource_contract.get("required_write_dirs") or [])
+    )
     if (
         not payload
         and (
             task_mode in {"short_realtime_lookup", "information_search"}
-            or action_intent == "search_external"
+            or str(task_contract_seed.get("task_goal_type") or "") == "external_research"
             or bool(needs & {"latest_information", "weather", "gold_price"})
         )
     ):
@@ -751,8 +756,7 @@ def _memory_request_profile_payload(
         not payload
         and (
             task_mode in {"capability_execution", "knowledge_retrieval"}
-            or action_intent in {"read_context", "edit_workspace", "run_command"}
-            or work_mode in {"read_only_analysis", "implementation", "verification"}
+            or has_resource_contract
             or bool(needs & {"dataset_analysis", "document_analysis", "workspace_material"})
         )
     ):
@@ -772,7 +776,6 @@ def _memory_request_profile_payload(
         )
     if (
         task_mode == "memory_recall"
-        or action_intent == "read_context"
         or "memory_recall" in needs
     ):
         requested_layers = _dedupe(

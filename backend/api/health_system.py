@@ -122,8 +122,6 @@ async def health_system_submit_command(payload: HealthManagementCommandRequest) 
             payload.model_dump(),
             agent_runtime=runtime.query_runtime.agent_harness,
             model_response_executor=runtime.query_runtime.model_response_executor,
-            agent_runtime_chain=runtime.query_runtime.agent_runtime_chain,
-            runtime_context_manager=runtime.query_runtime.runtime_context_manager,
             tool_runtime_executor=runtime.query_runtime.tool_runtime_executor,
             tool_instances=runtime.query_runtime._all_tool_instances(),
         )
@@ -205,8 +203,6 @@ async def health_system_append_conversation_message(
             payload.model_dump(),
             agent_runtime=runtime.query_runtime.agent_harness,
             model_response_executor=runtime.query_runtime.model_response_executor,
-            agent_runtime_chain=runtime.query_runtime.agent_runtime_chain,
-            runtime_context_manager=runtime.query_runtime.runtime_context_manager,
             tool_runtime_executor=runtime.query_runtime.tool_runtime_executor,
             tool_instances=runtime.query_runtime._all_tool_instances(),
         )
@@ -244,8 +240,6 @@ async def health_system_create_issue(payload: HealthIssueCreateRequest) -> dict[
             },
             agent_runtime=runtime.query_runtime.agent_harness,
             model_response_executor=runtime.query_runtime.model_response_executor,
-            agent_runtime_chain=runtime.query_runtime.agent_runtime_chain,
-            runtime_context_manager=runtime.query_runtime.runtime_context_manager,
             tool_runtime_executor=runtime.query_runtime.tool_runtime_executor,
             tool_instances=runtime.query_runtime._all_tool_instances(),
         )
@@ -324,8 +318,6 @@ async def health_system_agent_run_start(issue_id: str, payload: HealthAgentRunSt
             },
             agent_runtime=runtime.query_runtime.agent_harness,
             model_response_executor=runtime.query_runtime.model_response_executor,
-            agent_runtime_chain=runtime.query_runtime.agent_runtime_chain,
-            runtime_context_manager=runtime.query_runtime.runtime_context_manager,
             tool_runtime_executor=runtime.query_runtime.tool_runtime_executor,
             tool_instances=runtime.query_runtime._all_tool_instances(),
         )

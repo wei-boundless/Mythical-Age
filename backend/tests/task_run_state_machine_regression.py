@@ -88,7 +88,7 @@ def test_task_result_is_projected_from_runtime_ledger() -> None:
     assert result.template_id == ledger.template_id
 
 
-def test_terminal_finalize_skips_optional_verify_step() -> None:
+def test_terminal_finalize_does_not_complete_or_skip_unfinished_steps() -> None:
     recipe = _recipe(
         TaskStepBlueprint(
             step_id="step.write",
@@ -134,14 +134,11 @@ def test_terminal_finalize_skips_optional_verify_step() -> None:
     assert finalized is not None
     assert finalized.status == "completed"
     assert finalized.current_step_id == ""
-    assert [item["event_type"] for item in transitions] == [
-        "step_skipped",
-        "step_entered",
-        "step_completed",
-    ]
+    assert transitions == []
     statuses = {step.step_id: step.status for step in finalized.step_runs}
-    assert statuses["step.verify"] == "skipped"
-    assert statuses["step.finalize"] == "completed"
+    assert statuses["step.write"] == "completed"
+    assert statuses["step.verify"] == "running"
+    assert statuses["step.finalize"] == "pending"
 
 
 def test_failure_marks_running_step_failed() -> None:

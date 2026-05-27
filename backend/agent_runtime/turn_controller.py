@@ -6,16 +6,13 @@ from typing import Any, Callable
 
 from response_system.boundary.boundary import sanitize_visible_assistant_content
 
-from agent_runtime.understanding import (
-    build_action_permit,
-    build_boundary_policy,
-    build_context_candidates,
-    build_request_facts,
-    main_model_owned_turn_decision,
-)
-from harness.runtime import AgentRunRequest
+from harness.runtime import AgentRunRequest, RuntimeCompiler
 from .execution_decision import (
-    execution_decision_from_model_turn,
+    execution_decision_from_payload,
+)
+from .turn_action_request import (
+    execution_decision_from_agent_action,
+    main_agent_turn_action_request,
 )
 from .turn_store import AgentTurnStore
 
@@ -58,6 +55,7 @@ class AgentTurnController:
         self.runtime_context_manager = runtime_context_manager
         self.tool_runtime_executor = tool_runtime_executor
         self.tool_instances_provider = tool_instances_provider
+        self.runtime_compiler = RuntimeCompiler()
         self.turn_store = AgentTurnStore(
             runtime_objects=runtime_host.runtime_objects,
             event_log=runtime_host.event_log,
@@ -74,117 +72,105 @@ class AgentTurnController:
         )
         yield self._turn_event("agent_turn_received", record)
 
-        request_facts = build_request_facts(
+        record = self.turn_store.transition(
+            record,
+            "agent_invoking",
+            event_type="agent_turn_action_request_started",
+            phase="agent_action_request",
+            status_code="agent_action_request.started",
+        )
+        yield self._turn_event("agent_turn_action_request_started", record)
+        action_request, action_diagnostics = await main_agent_turn_action_request(
             user_message=item.user_message,
-            session_id=item.session_id,
-            task_id="",
+            history=item.history,
             turn_id=item.turn_id,
-            source=item.source,
-            explicit_selection=item.task_selection,
-        ).to_dict()
-        record = self.turn_store.transition(
-            record,
-            "facts_built",
-            event_type="request_facts_built",
-            request_facts=request_facts,
-            phase="request_facts",
-            status_code="facts.built",
-        )
-        yield self._turn_event("request_facts_built", record, {"request_facts": request_facts})
-
-        boundary_policy = build_boundary_policy(
-            user_message=item.user_message,
-            request_facts=request_facts,
-            current_turn_context=dict(item.task_selection or {}),
-        ).to_dict()
-        record = self.turn_store.transition(
-            record,
-            "boundary_checked",
-            event_type="boundary_policy_checked",
-            boundary_policy=boundary_policy,
-            phase="boundary_policy",
-            status_code="boundary.checked",
-        )
-        yield self._turn_event("boundary_policy_checked", record, {"boundary_policy": boundary_policy})
-
-        context_candidates = build_context_candidates(
-            request_facts=request_facts,
-            continuation_candidates=[],
-            memory_runtime_view={},
-            current_turn_context=dict(item.task_selection or {}),
-        ).to_dict()
-        record = self.turn_store.transition(
-            record,
-            "context_candidates_built",
-            event_type="context_candidates_built",
-            context_candidates=context_candidates,
-            phase="context_candidates",
-            status_code="context.candidates_built",
-        )
-        yield self._turn_event("context_candidates_built", record, {"context_candidates": context_candidates})
-
-        record = self.turn_store.transition(
-            record,
-            "understanding",
-            event_type="understanding_started",
-            phase="understanding",
-            status_code="understanding.started",
-        )
-        yield self._turn_event("understanding_started", record)
-        model_turn_decision, model_turn_diagnostics = await main_model_owned_turn_decision(
-            user_message=item.user_message,
-            request_facts=request_facts,
             task_selection=item.task_selection,
             model_runtime=getattr(self.model_response_executor, "model_runtime", None),
+            model_selection=item.model_selection,
+            runtime_compiler=self.runtime_compiler,
+            session_id=item.session_id,
+            agent_invocation_id=item.agent_invocation_id,
+            agent_profile_ref=str(getattr(item.agent_runtime_profile, "agent_profile_id", "") or "main_interactive_agent"),
         )
-        decision_status = str(model_turn_diagnostics.get("decision_status") or "")
-        if decision_status in {"unresolved", "runtime_error", "blocked"}:
+        action_runtime_context = _runtime_context_from_diagnostics(action_diagnostics)
+        if action_runtime_context:
+            self.runtime_host.event_log.append(
+                f"agent-turn:{item.turn_id}",
+                "runtime_invocation_packet_compiled",
+                payload=action_runtime_context,
+                refs={
+                    "turn_ref": item.turn_id,
+                    "runtime_envelope_ref": action_runtime_context.get("runtime_envelope_ref", ""),
+                    "runtime_invocation_packet_ref": action_runtime_context.get("runtime_invocation_packet_ref", ""),
+                },
+            )
+        decision_status = str(action_diagnostics.get("decision_status") or "")
+        if decision_status in {"unresolved", "runtime_error", "blocked", "rejected_invalid"}:
             status = "blocked" if decision_status == "blocked" else "failed"
             record = self.turn_store.transition(
                 record,
                 status,  # type: ignore[arg-type]
-                event_type="understanding_failed",
-                payload={"diagnostics": model_turn_diagnostics},
-                understanding_decision=model_turn_decision,
-                phase="understanding",
-                status_code=f"understanding.{decision_status or 'failed'}",
+                event_type="agent_turn_action_request_failed",
+                payload={"diagnostics": action_diagnostics},
+                agent_turn_action_request=action_request,
+                runtime_context=action_runtime_context,
+                phase="agent_action_request",
+                status_code=f"agent_action_request.{decision_status or 'failed'}",
                 blocking_reason=str(
-                    model_turn_diagnostics.get("unresolved_reason")
-                    or model_turn_diagnostics.get("block_reason")
-                    or "understanding_failed"
+                    action_diagnostics.get("unresolved_reason")
+                    or action_diagnostics.get("block_reason")
+                    or "agent_turn_action_request_failed"
                 ),
-                terminal_reason="understanding_failed",
+                terminal_reason="agent_turn_action_request_failed",
             )
-            yield self._turn_event("understanding_failed", record, {"diagnostics": model_turn_diagnostics})
+            yield self._turn_event("agent_turn_action_request_failed", record, {"diagnostics": action_diagnostics})
             yield {
                 "type": "error",
-                "error": "Model turn decision unresolved.",
-                "code": "model_turn_decision_unresolved",
-                "content": str(
-                    model_turn_decision.get("clarification_question")
-                    or "本轮任务理解未稳定建立，需要补充信息或重试理解决策。"
-                ),
-                "model_turn_decision": model_turn_decision,
-                "diagnostics": model_turn_diagnostics,
+                "error": "Agent turn action request unresolved.",
+                "code": "agent_turn_action_request_unresolved",
+                "content": str(action_request.get("user_question") or "本轮请求还需要补充信息或重试。"),
             }
             return
         record = self.turn_store.transition(
             record,
-            "deciding",
-            event_type="understanding_completed",
-            payload={"diagnostics": model_turn_diagnostics},
-            understanding_decision=model_turn_decision,
-            phase="understanding",
-            status_code="understanding.completed",
+            "action_requesting",
+            event_type="agent_turn_action_request_completed",
+            payload={"diagnostics": action_diagnostics},
+            agent_turn_action_request=action_request,
+            runtime_context=action_runtime_context,
+            phase="agent_action_request",
+            status_code="agent_action_request.completed",
         )
-        yield self._turn_event("understanding_completed", record, {"diagnostics": model_turn_diagnostics})
-        execution_decision = execution_decision_from_model_turn(
+        yield self._turn_event("agent_turn_action_request_completed", record, {"diagnostics": action_diagnostics})
+        execution_payload = execution_decision_from_agent_action(
             turn_id=item.turn_id,
-            model_turn_decision=model_turn_decision,
+            action_request=action_request,
         )
+        execution_decision, execution_validation = execution_decision_from_payload(
+            execution_payload,
+            turn_id=item.turn_id,
+        )
+        if execution_decision is None:
+            record = self.turn_store.transition(
+                record,
+                "failed",
+                event_type="execution_decision_failed",
+                payload={"diagnostics": execution_validation},
+                phase="execution_decision",
+                status_code="execution_decision.invalid",
+                terminal_reason="execution_decision_invalid",
+            )
+            yield self._turn_event("execution_decision_failed", record, {"diagnostics": execution_validation})
+            yield {
+                "type": "error",
+                "error": "Agent action request could not be admitted.",
+                "code": "execution_decision_invalid",
+                "content": "本轮动作请求未通过系统准入。",
+            }
+            return
         record = self.turn_store.transition(
             record,
-            "permit_checking",
+            "admission_checking",
             event_type="execution_decision_completed",
             execution_decision=execution_decision.to_dict(),
             phase="execution_decision",
@@ -195,40 +181,6 @@ class AgentTurnController:
             record,
             {"execution_decision": execution_decision.to_dict()},
         )
-
-        action_permit = build_action_permit(
-            model_turn_decision=model_turn_decision,
-            boundary_policy=boundary_policy,
-        ).to_dict()
-        if action_permit.get("allowed") is not True:
-            record = self.turn_store.transition(
-                record,
-                "blocked",
-                event_type="action_permit_blocked",
-                action_permit=action_permit,
-                phase="action_permit",
-                status_code="action_permit.blocked",
-                blocking_reason="action_permit_denied",
-                terminal_reason="action_permit_denied",
-            )
-            yield self._turn_event("action_permit_blocked", record, {"action_permit": action_permit})
-            yield {
-                "type": "error",
-                "error": "Action permit denied before runtime execution.",
-                "code": "action_permit_denied",
-                "content": "本轮请求被运行许可策略阻止，未进入执行阶段。",
-                "action_permit": action_permit,
-            }
-            return
-        record = self.turn_store.transition(
-            record,
-            "permit_checking",
-            event_type="action_permit_checked",
-            action_permit=action_permit,
-            phase="action_permit",
-            status_code="action_permit.allowed",
-        )
-        yield self._turn_event("action_permit_checked", record, {"action_permit": action_permit})
 
         if execution_decision.execution_mode == "ask_clarification":
             async for event in self._complete_direct_turn(
@@ -269,7 +221,9 @@ class AgentTurnController:
                 status_code="direct_response.started",
             )
             yield self._turn_event("direct_response_started", record)
-            content = await self._invoke_direct_answer(item=item, model_turn_decision=model_turn_decision)
+            content = str(action_request.get("final_answer") or "")
+            if not content:
+                content = await self._invoke_direct_answer(item=item, action_request=action_request)
             async for event in self._complete_direct_turn(
                 record=record,
                 content=content,
@@ -293,22 +247,18 @@ class AgentTurnController:
             **dict(item.task_selection or {}),
             "turn_id": item.turn_id,
             "agent_invocation_id": item.agent_invocation_id,
-            "model_turn_decision": model_turn_decision,
-            "model_turn_decision_diagnostics": model_turn_diagnostics,
+            "agent_turn_action_request": action_request,
+            "agent_turn_action_diagnostics": action_diagnostics,
             "execution_decision": execution_decision.to_dict(),
-            "request_facts": request_facts,
-            "boundary_policy": boundary_policy,
-            "context_candidates": context_candidates,
-            "action_permit": action_permit,
             "task_contract_seed": execution_decision.task_contract_seed,
             "agent_turn_handoff": {
                 "authority": "agent_runtime.task_run_handoff",
                 "turn_id": item.turn_id,
                 "agent_invocation_id": item.agent_invocation_id,
                 "session_id": item.session_id,
-                "source": "execution_decision",
+                "source": "agent_turn_action_request",
                 "execution_decision": execution_decision.to_dict(),
-                "action_permit": action_permit,
+                "agent_turn_action_request": action_request,
                 "task_contract_seed": execution_decision.task_contract_seed,
                 "resource_contract": dict(execution_decision.task_contract_seed.get("resource_contract") or {}),
                 "completion_contract": execution_decision.completion_contract,
@@ -379,28 +329,35 @@ class AgentTurnController:
         self,
         *,
         item: AgentTurnControllerInput,
-        model_turn_decision: dict[str, Any],
+        action_request: dict[str, Any],
     ) -> str:
         invoker = getattr(getattr(self.model_response_executor, "model_runtime", None), "invoke_messages", None)
         if not callable(invoker):
             return "模型运行时不可用，本轮停止执行。"
-        messages = [
-            {
-                "role": "system",
-                "content": (
-                    "你是当前对话轮次的回答 agent。你只回答用户当前问题。"
-                    "不要声称已经运行工具、修改文件或创建任务。"
-                    "不要输出内部运行 ID、控制协议或隐藏推理。"
-                ),
+        compilation = self.runtime_compiler.compile_direct_answer_packet(
+            session_id=item.session_id,
+            turn_id=item.turn_id,
+            agent_invocation_id=item.agent_invocation_id,
+            user_message=item.user_message,
+            history=item.history,
+            agent_profile_ref=str(getattr(item.agent_runtime_profile, "agent_profile_id", "") or "main_interactive_agent"),
+            model_selection=item.model_selection,
+        )
+        self.runtime_host.event_log.append(
+            f"agent-turn:{item.turn_id}",
+            "runtime_invocation_packet_compiled",
+            payload={
+                "runtime_envelope": compilation.envelope.to_dict(),
+                "runtime_invocation_packet": compilation.packet.to_dict(),
             },
-            *[dict(message) for message in list(item.history or [])],
-            {
-                "role": "user",
-                "content": item.user_message,
+            refs={
+                "turn_ref": item.turn_id,
+                "runtime_envelope_ref": compilation.envelope.envelope_id,
+                "runtime_invocation_packet_ref": compilation.packet.packet_id,
             },
-        ]
+        )
         response = await invoker(
-            messages,
+            list(compilation.packet.model_messages),
             **({"model_spec": item.model_selection} if item.model_selection else {}),
         )
         return sanitize_visible_assistant_content(_stringify_content(getattr(response, "content", response)))
@@ -493,6 +450,20 @@ def _safe_commit_result(value: Any) -> dict[str, Any]:
             if key in value
         }
     return {}
+
+
+def _runtime_context_from_diagnostics(diagnostics: dict[str, Any]) -> dict[str, Any]:
+    envelope = dict(dict(diagnostics or {}).get("runtime_envelope") or {})
+    packet = dict(dict(diagnostics or {}).get("runtime_invocation_packet") or {})
+    if not envelope and not packet:
+        return {}
+    return {
+        "runtime_envelope": envelope,
+        "runtime_invocation_packet": packet,
+        "runtime_envelope_ref": str(envelope.get("envelope_id") or ""),
+        "runtime_invocation_packet_ref": str(packet.get("packet_id") or ""),
+        "authority": "agent_runtime.turn_runtime_context",
+    }
 
 
 def _stringify_content(content: Any) -> str:

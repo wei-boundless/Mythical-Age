@@ -42,22 +42,20 @@ def resolve_execution_shape(
     semantic_contract = dict(task_intent_contract.task_requirement_contract or {})
     execution_obligation = dict(task_intent_contract.execution_obligation or semantic_contract.get("execution_obligation") or {})
     mode_policy = dict(task_intent_contract.mode_policy or {})
-    model_turn_decision = dict(current_turn.get("model_turn_decision") or {})
-    action_permit = dict(current_turn.get("action_permit") or {})
-    if not model_turn_decision:
-        raise RuntimeError("ModelTurnDecision is required to resolve execution shape")
-    action_intent = str(model_turn_decision.get("action_intent") or "").strip()
-    work_mode = str(model_turn_decision.get("work_mode") or "").strip()
-    interaction_intent = str(model_turn_decision.get("interaction_intent") or "").strip()
+    agent_turn_action_request = dict(current_turn.get("agent_turn_action_request") or {})
+    task_contract_seed = dict(current_turn.get("task_contract_seed") or {})
     interaction_mode = str(mode_policy.get("interaction_mode") or current_turn.get("interaction_mode") or "").strip()
     task_goal_type = str(semantic_contract.get("task_goal_type") or "").strip()
-    source_kind = _source_kind_from_model_decision(model_turn_decision, semantic_contract)
+    source_kind = _source_kind_from_contract(
+        task_contract_seed=task_contract_seed,
+        semantic_contract=semantic_contract,
+    )
     diagnostics = _shape_diagnostics(
         definition_ids,
         source_kind,
         current_turn,
-        model_turn_decision=model_turn_decision,
-        action_permit=action_permit,
+        agent_turn_action_request=agent_turn_action_request,
+        task_contract_seed=task_contract_seed,
     )
     reasons: list[str] = []
 
@@ -76,27 +74,19 @@ def resolve_execution_shape(
             },
         )
 
-    if action_intent == "block":
-        reasons.append("model_turn_block")
+    if str(agent_turn_action_request.get("action_type") or "") == "block":
+        reasons.append("agent_action:block")
         return ExecutionShape(
             recipe_id="runtime.recipe.conversation",
             execution_kind="blocked",
             source_kind="conversation",
             finalization_policy={"requires_model_finalize": True, "tool_observation_can_finalize": False},
-            resolution_source="model_turn_decision",
+            resolution_source="agent_turn_action_request",
             resolution_reasons=tuple(reasons),
             diagnostics=diagnostics,
         )
 
     if interaction_mode in {"role_mode", "standard_mode", "professional_mode"}:
-        if interaction_mode == "standard_mode" and action_intent == "read_context":
-            specialized_shape = _standard_read_context_shape(
-                source_kind=source_kind,
-                reasons=reasons,
-                diagnostics=diagnostics,
-            )
-            if specialized_shape is not None:
-                return specialized_shape
         reasons.append(f"interaction_mode:{interaction_mode}")
         return _agent_mode_shape(
             mode_policy=mode_policy,
@@ -108,8 +98,8 @@ def resolve_execution_shape(
             current_turn=current_turn,
             task_goal_type=task_goal_type,
             reasons=reasons,
-            model_turn_decision=model_turn_decision,
-            action_permit=action_permit,
+            agent_turn_action_request=agent_turn_action_request,
+            task_contract_seed=task_contract_seed,
         )
 
     if task_intent_contract.execution_intent == "bundle_task":
@@ -119,41 +109,41 @@ def resolve_execution_shape(
             execution_kind="bundle",
             source_kind="mixed_sources",
             finalization_policy={"requires_model_finalize": True, "tool_observation_can_finalize": False},
-            resolution_source="model_turn_decision",
+            resolution_source="task_contract",
             resolution_reasons=tuple(reasons),
             diagnostics=diagnostics,
         )
 
-    if action_intent == "search_external":
-        reasons.append("model_action:search_external")
+    if task_goal_type == "external_research":
+        reasons.append("task_goal_type:external_research")
         return ExecutionShape(
             recipe_id="runtime.recipe.information_search",
             execution_kind="search",
             source_kind="external_web",
             finalization_policy={"requires_model_finalize": True, "tool_observation_can_finalize": False},
-            resolution_source="model_turn_decision",
+            resolution_source="task_contract",
             resolution_reasons=tuple(reasons),
             diagnostics=diagnostics,
         )
 
-    if action_intent in {"edit_workspace", "run_command"} or work_mode in {"implementation", "verification"}:
-        reasons.append(f"model_action:{action_intent or work_mode}")
+    if task_goal_type in {"code_fix_execution", "artifact_delivery", "frontend_app_delivery", "game_vertical_slice_delivery", "implementation", "verification"}:
+        reasons.append(f"task_goal_type:{task_goal_type}")
         return _shape_from_recipe_id(
-            "runtime.recipe.workspace_patch" if action_intent == "edit_workspace" else "runtime.recipe.capability",
+            "runtime.recipe.workspace_patch",
             source_kind=source_kind or "workspace",
-            resolution_source="model_turn_decision",
+            resolution_source="task_contract",
             reasons=reasons,
             diagnostics=diagnostics,
         )
 
-    if action_intent == "read_context":
-        reasons.append("model_action:read_context")
+    if task_goal_type in {"inspection", "code_review", "pdf_analysis"} or source_kind in {"pdf", "dataset", "knowledge", "workspace"}:
+        reasons.append(f"task_contract_source:{source_kind or task_goal_type}")
         if source_kind == "pdf":
             return _shape_from_source_kind(
                 source_kind,
                 recipe_id="runtime.recipe.pdf_analysis",
                 execution_kind="capability",
-                resolution_source="model_turn_decision",
+                resolution_source="task_contract",
                 reasons=reasons,
                 diagnostics=diagnostics,
             )
@@ -162,7 +152,7 @@ def resolve_execution_shape(
                 source_kind,
                 recipe_id="runtime.recipe.structured_data_analysis",
                 execution_kind="capability",
-                resolution_source="model_turn_decision",
+                resolution_source="task_contract",
                 reasons=reasons,
                 diagnostics=diagnostics,
             )
@@ -171,7 +161,7 @@ def resolve_execution_shape(
                 "knowledge",
                 recipe_id="runtime.recipe.knowledge_retrieval",
                 execution_kind="retrieval",
-                resolution_source="model_turn_decision",
+                resolution_source="task_contract",
                 reasons=reasons,
                 diagnostics=diagnostics,
             )
@@ -180,60 +170,19 @@ def resolve_execution_shape(
             execution_kind="capability",
             source_kind=source_kind or "workspace",
             finalization_policy={"requires_model_finalize": True, "tool_observation_can_finalize": False},
-            resolution_source="model_turn_decision",
+            resolution_source="task_contract",
             resolution_reasons=tuple(reasons),
             diagnostics=diagnostics,
         )
 
-    if work_mode in {"planning", "conversation"} or interaction_intent in {"answer", "explain", "plan", "continue"}:
-        reasons.append(f"model_work_mode:{work_mode or interaction_intent}")
-        return ExecutionShape(
-            recipe_id="runtime.recipe.conversation",
-            execution_kind=work_mode or "conversation",
-            source_kind=source_kind or "conversation",
-            finalization_policy={"requires_model_finalize": True, "tool_observation_can_finalize": False},
-            resolution_source="model_turn_decision",
-            resolution_reasons=tuple(reasons),
-            diagnostics=diagnostics,
-        )
-
-    raise RuntimeError(f"Unsupported ModelTurnDecision execution shape: action={action_intent}, work_mode={work_mode}")
-
-
-def _standard_read_context_shape(
-    *,
-    source_kind: str,
-    reasons: list[str],
-    diagnostics: dict[str, Any],
-) -> ExecutionShape | None:
-    if source_kind == "pdf":
-        return _shape_from_source_kind(
-            source_kind,
-            recipe_id="runtime.recipe.pdf_analysis",
-            execution_kind="capability",
-            resolution_source="model_turn_decision",
-            reasons=[*reasons, "model_action:read_context", "material:pdf"],
-            diagnostics=diagnostics,
-        )
-    if source_kind == "dataset":
-        return _shape_from_source_kind(
-            source_kind,
-            recipe_id="runtime.recipe.structured_data_analysis",
-            execution_kind="capability",
-            resolution_source="model_turn_decision",
-            reasons=[*reasons, "model_action:read_context", "material:dataset"],
-            diagnostics=diagnostics,
-        )
-    if source_kind in {"knowledge", "knowledge_base", "retrieval"}:
-        return _shape_from_source_kind(
-            "knowledge",
-            recipe_id="runtime.recipe.knowledge_retrieval",
-            execution_kind="retrieval",
-            resolution_source="model_turn_decision",
-            reasons=[*reasons, "model_action:read_context", "material:knowledge"],
-            diagnostics=diagnostics,
-        )
-    return None
+    reasons.append("default_task_contract")
+    return _shape_from_recipe_id(
+        "runtime.recipe.capability",
+        source_kind=source_kind or "runtime_task",
+        resolution_source="task_contract",
+        reasons=reasons,
+        diagnostics=diagnostics,
+    )
 
 
 def _shape_from_source_kind(
@@ -267,8 +216,8 @@ def _agent_mode_shape(
     current_turn: dict[str, Any],
     task_goal_type: str,
     reasons: list[str],
-    model_turn_decision: dict[str, Any],
-    action_permit: dict[str, Any],
+    agent_turn_action_request: dict[str, Any],
+    task_contract_seed: dict[str, Any],
 ) -> ExecutionShape:
     return ExecutionShape(
         recipe_id=str(mode_policy.get("recipe_id") or _default_agent_mode_recipe_id(interaction_mode)),
@@ -288,8 +237,8 @@ def _agent_mode_shape(
                 definition_ids,
                 source_kind,
                 current_turn,
-                model_turn_decision=model_turn_decision,
-                action_permit=action_permit,
+                agent_turn_action_request=agent_turn_action_request,
+                task_contract_seed=task_contract_seed,
             ),
             "interaction_mode": interaction_mode,
             "runtime_lane": str(mode_policy.get("runtime_lane") or ""),
@@ -299,7 +248,6 @@ def _agent_mode_shape(
             "mode_policy": mode_policy,
             "task_requirement_contract": semantic_contract,
             "execution_obligation": execution_obligation,
-            "model_agent_plan_draft": dict(current_turn.get("model_agent_plan_draft") or {}),
         },
     )
 
@@ -339,15 +287,15 @@ def _shape_diagnostics(
     source_kind: str,
     current_turn: dict[str, Any],
     *,
-    model_turn_decision: dict[str, Any],
-    action_permit: dict[str, Any],
+    agent_turn_action_request: dict[str, Any],
+    task_contract_seed: dict[str, Any],
 ) -> dict[str, Any]:
     return {
         "definition_ids": sorted(definition_ids),
         "source_kind": source_kind,
         "current_turn_execution_mode": str(current_turn.get("execution_mode") or ""),
-        "model_turn_decision": dict(model_turn_decision or {}),
-        "action_permit": dict(action_permit or {}),
+        "agent_turn_action_request": dict(agent_turn_action_request or {}),
+        "task_contract_seed": dict(task_contract_seed or {}),
     }
 
 
@@ -365,12 +313,17 @@ def _explicit_task_runtime(current_turn: dict[str, Any]) -> bool:
     return False
 
 
-def _source_kind_from_model_decision(model_turn_decision: dict[str, Any], semantic_contract: dict[str, Any]) -> str:
+def _source_kind_from_contract(*, task_contract_seed: dict[str, Any], semantic_contract: dict[str, Any]) -> str:
     domain = str(semantic_contract.get("domain") or semantic_contract.get("task_domain") or "").strip()
-    action = str(model_turn_decision.get("action_intent") or "").strip()
-    work_mode = str(model_turn_decision.get("work_mode") or "").strip()
-    targets = [str(item or "").strip().lower() for item in list(model_turn_decision.get("target_objects") or []) if str(item or "").strip()]
-    if action == "search_external":
+    task_goal_type = str(task_contract_seed.get("task_goal_type") or semantic_contract.get("task_goal_type") or "").strip()
+    resource_contract = dict(task_contract_seed.get("resource_contract") or {})
+    targets = [
+        str(item or "").strip().lower()
+        for key in ("required_read_files", "required_read_dirs", "required_write_files", "required_write_dirs")
+        for item in list(resource_contract.get(key) or [])
+        if str(item or "").strip()
+    ]
+    if task_goal_type == "external_research":
         return "external_web"
     if any(target.endswith(".pdf") for target in targets):
         return "pdf"
@@ -378,7 +331,7 @@ def _source_kind_from_model_decision(model_turn_decision: dict[str, Any], semant
         return "dataset"
     if any(target.startswith(("knowledge/", "knowledge\\", "kb:", "knowledge:")) for target in targets):
         return "knowledge"
-    if action in {"edit_workspace", "run_command", "read_context"} or work_mode in {"implementation", "verification", "read_only_analysis"}:
+    if targets or task_goal_type in {"code_fix_execution", "artifact_delivery", "frontend_app_delivery", "game_vertical_slice_delivery", "implementation", "verification", "inspection", "code_review"}:
         return "workspace"
     return domain or "conversation"
 

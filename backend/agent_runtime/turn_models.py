@@ -6,12 +6,9 @@ from typing import Any, Literal
 
 AgentTurnStatus = Literal[
     "received",
-    "facts_built",
-    "boundary_checked",
-    "context_candidates_built",
-    "understanding",
-    "deciding",
-    "permit_checking",
+    "agent_invoking",
+    "action_requesting",
+    "admission_checking",
     "direct_responding",
     "tool_turn_running",
     "launching_task_run",
@@ -36,12 +33,11 @@ class AgentTurnRecord:
     source: str = "chat"
     created_at: float = 0.0
     updated_at: float = 0.0
-    request_facts: dict[str, Any] = field(default_factory=dict)
-    boundary_policy: dict[str, Any] = field(default_factory=dict)
-    context_candidates: dict[str, Any] = field(default_factory=dict)
-    understanding_decision: dict[str, Any] = field(default_factory=dict)
+    turn_signals: dict[str, Any] = field(default_factory=dict)
+    runtime_context: dict[str, Any] = field(default_factory=dict)
+    agent_turn_action_request: dict[str, Any] = field(default_factory=dict)
+    runtime_admission: dict[str, Any] = field(default_factory=dict)
     execution_decision: dict[str, Any] = field(default_factory=dict)
-    action_permit: dict[str, Any] = field(default_factory=dict)
     active_task_run_id: str = ""
     terminal_reason: str = ""
     status_code: str = ""

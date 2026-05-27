@@ -180,7 +180,7 @@ class DurableMemoryLayer:
         return {
             "authority": "memory_system.maintenance_coordinator",
             "durable_memory_maintained_by": "agent:1",
-            "model_turn_decision_required": True,
+            "runtime_contract_required": True,
         }
 
     def build_manifest_block(self, *, note_limit: int = 5) -> str:

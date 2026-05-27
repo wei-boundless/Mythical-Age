@@ -52,9 +52,6 @@ class PromptSelectionContext:
     user_goal: str = ""
     agent_id: str = ""
     interaction_mode: str = "standard_mode"
-    work_mode: str = ""
-    interaction_intent: str = ""
-    action_intent: str = ""
     runtime_lane: str = ""
     process_kind: str = ""
     task_goal_type: str = ""
@@ -78,10 +75,10 @@ class PromptSelectionContext:
     step_sequence: tuple[str, ...] = ()
     skill_ids: tuple[str, ...] = ()
     visible_tool_ids: tuple[str, ...] = ()
-    model_turn_decision: dict[str, Any] = field(default_factory=dict)
-    action_permit: dict[str, Any] = field(default_factory=dict)
-    boundary_policy: dict[str, Any] = field(default_factory=dict)
-    request_facts: dict[str, Any] = field(default_factory=dict)
+    agent_turn_action_request: dict[str, Any] = field(default_factory=dict)
+    task_contract_seed: dict[str, Any] = field(default_factory=dict)
+    runtime_admission: dict[str, Any] = field(default_factory=dict)
+    permission_request: dict[str, Any] = field(default_factory=dict)
     context_binding: dict[str, Any] = field(default_factory=dict)
     task_requirement_contract: dict[str, Any] = field(default_factory=dict)
     goal_hypothesis_set: dict[str, Any] = field(default_factory=dict)
@@ -101,10 +98,10 @@ class PromptSelectionContext:
         payload["step_sequence"] = list(self.step_sequence)
         payload["skill_ids"] = list(self.skill_ids)
         payload["visible_tool_ids"] = list(self.visible_tool_ids)
-        payload["model_turn_decision"] = dict(self.model_turn_decision or {})
-        payload["action_permit"] = dict(self.action_permit or {})
-        payload["boundary_policy"] = dict(self.boundary_policy or {})
-        payload["request_facts"] = dict(self.request_facts or {})
+        payload["agent_turn_action_request"] = dict(self.agent_turn_action_request or {})
+        payload["task_contract_seed"] = dict(self.task_contract_seed or {})
+        payload["runtime_admission"] = dict(self.runtime_admission or {})
+        payload["permission_request"] = dict(self.permission_request or {})
         payload["context_binding"] = dict(self.context_binding or {})
         payload["task_requirement_contract"] = dict(self.task_requirement_contract or {})
         payload["goal_hypothesis_set"] = dict(self.goal_hypothesis_set or {})

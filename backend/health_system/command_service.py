@@ -19,8 +19,6 @@ class HealthCommandService:
         *,
         agent_runtime: Any | None = None,
         model_response_executor: Any | None = None,
-        agent_runtime_chain: Any | None = None,
-        runtime_context_manager: Any | None = None,
         tool_runtime_executor: Any | None = None,
         tool_instances: list[Any] | None = None,
     ) -> dict[str, Any]:
@@ -31,8 +29,6 @@ class HealthCommandService:
                 command,
                 agent_runtime=agent_runtime,
                 model_response_executor=model_response_executor,
-                agent_runtime_chain=agent_runtime_chain,
-                runtime_context_manager=runtime_context_manager,
                 tool_runtime_executor=tool_runtime_executor,
                 tool_instances=tool_instances,
             )
@@ -61,8 +57,6 @@ class HealthCommandService:
         *,
         agent_runtime: Any | None,
         model_response_executor: Any | None,
-        agent_runtime_chain: Any | None,
-        runtime_context_manager: Any | None,
         tool_runtime_executor: Any | None,
         tool_instances: list[Any] | None,
     ) -> dict[str, Any]:
@@ -123,12 +117,7 @@ class HealthCommandService:
                     diagnostics={"admission": admission.to_dict()},
                 )
                 return self.registry._complete_command(command, receipt=receipt)
-            if (
-                agent_runtime is None
-                or model_response_executor is None
-                or agent_runtime_chain is None
-                or runtime_context_manager is None
-            ):
+            if agent_runtime is None or model_response_executor is None:
                 receipt = self.registry.command_builder.build_receipt(
                     command=command,
                     accepted=False,
@@ -158,8 +147,6 @@ class HealthCommandService:
                 source=command.source or "health_management_command",
                 agent_runtime=agent_runtime,
                 model_response_executor=model_response_executor,
-                agent_runtime_chain=agent_runtime_chain,
-                runtime_context_manager=runtime_context_manager,
                 tool_runtime_executor=tool_runtime_executor,
                 tool_instances=tool_instances,
             )

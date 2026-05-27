@@ -85,16 +85,10 @@ def assemble_runtime_prompt_contract(
     )
     node_prompt_resource = selected_stage_role.to_dict() if selected_stage_role is not None else {}
     task_goal_prompt_resource = selected_task_goal_role.to_dict() if selected_task_goal_role is not None else {}
-    model_turn_decision = dict(prompt_selection_context.model_turn_decision or {})
-    selected_skill_ids = [
-        str(item).strip()
-        for item in list(model_turn_decision.get("selected_skill_ids") or [])
-        if str(item).strip()
-    ]
     skill_detail_section, skill_activation = expand_selected_skill_bodies(
         base_dir=base_dir,
         skill_runtime_views=skill_runtime_views,
-        selected_skill_ids=selected_skill_ids,
+        selected_skill_ids=skill_ids,
     )
     interaction_mode = str(prompt_selection_context.interaction_mode or mode_policy.get("interaction_mode") or "").strip()
     return {
@@ -141,7 +135,7 @@ def assemble_runtime_prompt_contract(
         ),
         "mode_policy_section": _mode_policy_section(
             mode_policy,
-            model_turn_decision=model_turn_decision,
+            semantic_contract=semantic_contract,
         ),
         "resource_section": "",
         "output_section": _output_section(task_execution_assembly=task_execution_assembly, task_spec=task_spec),
@@ -156,7 +150,7 @@ def assemble_runtime_prompt_contract(
             "requested_outputs": list(task_execution_assembly.get("requested_outputs") or ()),
             "workflow_steps": workflow_steps,
             "visible_skill_ids": skill_ids,
-            "model_selected_skill_ids": selected_skill_ids,
+            "runtime_selected_skill_ids": skill_ids,
             "activated_skill_ids": list(skill_activation.get("accepted_skill_ids") or []),
             "rejected_skill_ids": list(skill_activation.get("rejected_skill_ids") or []),
             "skill_detail_source_refs": list(skill_activation.get("source_refs") or []),
@@ -424,24 +418,23 @@ def _completion_judgment_section(judgment: dict[str, Any], *, verification_revie
 def _mode_policy_section(
     mode_policy: dict[str, Any],
     *,
-    model_turn_decision: dict[str, Any] | None = None,
+    semantic_contract: dict[str, Any] | None = None,
 ) -> str:
     if not mode_policy:
         return ""
-    decision = dict(model_turn_decision or {})
+    contract = dict(semantic_contract or {})
     interaction_mode = str(mode_policy.get("interaction_mode") or "").strip()
     projection_strength = str(mode_policy.get("projection_strength") or "").strip()
-    work_mode = str(decision.get("work_mode") or "").strip()
-    action_intent = str(decision.get("action_intent") or "").strip()
     verification_policy = dict(mode_policy.get("verification_policy") or {})
     tool_policy = dict(mode_policy.get("tool_policy") or {})
+    required_actions = {
+        str(item).strip()
+        for item in list(contract.get("required_actions") or [])
+        if str(item).strip()
+    }
     lines = [
         f"当前交互模式：{interaction_mode or 'role_mode'}。",
     ]
-    if work_mode:
-        lines.append(f"当前工作模式：{work_mode}。")
-    if action_intent:
-        lines.append(f"当前行动意图：{action_intent}。")
     if interaction_mode == "role_mode":
         lines.append(f"角色参与强度：{projection_strength or 'primary'}。")
     if interaction_mode == "role_mode":
@@ -450,7 +443,7 @@ def _mode_policy_section(
         lines.append("请在当前回合内用有限工具解决明确问题，结论必须说明真实依据和限制。")
     elif interaction_mode == "professional_mode":
         lines.append("请以专业任务职责和语义契约为最高优先级推进，不要引入角色投影、灵魂设定或人格包袱来覆盖交付物和验证要求。")
-        if action_intent in {"edit_workspace", "run_command", "start_service", "use_browser"} or work_mode in {"implementation", "verification"}:
+        if required_actions.intersection({"inspect_code", "apply_real_change", "run_verification", "run_browser_verification"}):
             lines.append("当专业任务涉及代码、命令或浏览器验证时，需要先理解项目结构和相关文件职责，再做必要、可维护的真实修改或检查。")
             lines.append("最终回答必须基于真实变更、差异、命令或浏览器证据收口，不要把实现计划写成已完成结果。")
     if bool(tool_policy.get("requires_evidence_packet")):

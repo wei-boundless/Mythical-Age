@@ -582,6 +582,27 @@ def test_runtime_checkpoint_carries_working_memory_refs(tmp_path: Path) -> None:
     assert started.loop_state.diagnostics["loop_owner"] == "harness.loop.agent_lifecycle"
 
 
+def test_task_run_start_initializes_agent_todo_plan(tmp_path: Path) -> None:
+    loop = HarnessServiceHost(tmp_path, backend_dir=Path("backend"))
+
+    started = loop.start(
+        session_id="session:todo-start",
+        task_id="task:todo-start",
+        task_contract_ref="contract:todo-start",
+    )
+
+    trace = loop.get_trace(started.task_run.task_run_id, include_payloads=True)
+    event_types = [
+        str(dict(item).get("event_type") or "")
+        for item in list(dict(trace or {}).get("events") or [])
+    ]
+    todo_path = tmp_path / ".tmp" / "agent_todo" / "session_todo-start__task_todo-start.json"
+
+    assert "agent_todo_initialized" in event_types
+    assert todo_path.exists()
+    assert started.task_run.diagnostics["agent_todo_plan_ref"] == "agent-todo:session:todo-start:task:todo-start"
+
+
 def test_harness_service_host_can_submit_working_memory_candidates(tmp_path: Path) -> None:
     loop = HarnessServiceHost(tmp_path, backend_dir=Path("backend"))
 

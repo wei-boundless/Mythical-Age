@@ -8,22 +8,21 @@ from typing import Any
 from evidence import EvidenceOrchestrator, PDFWorker, RetrievalWorker, StructuredDataWorker
 from evidence.output_policy import RAGEvidenceOutputPolicy
 from observability import build_debug_trace_event, start_turn_trace
-from context_system import RuntimeContextManager
-from harness import AgentHarness, AgentRuntimeServices, GraphHarness, HarnessServiceHost
+from capability_system.tool_authorization import build_tool_authorization_index
+from harness import AgentHarness
+from harness.runtime import AgentRuntimeServices, SingleAgentRuntimeHost, assemble_runtime
 from runtime import ModelResponseRuntimeExecutor, ModelRuntimeError, ToolRuntimeExecutor
 from runtime.shared.history_assembler import assemble_runtime_history
-from agent_system.assembly.runtime_chain import AgentRuntimeChainAssembler
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from orchestration import (
     build_base_unit_catalog,
     build_user_message_commit_decision,
 )
 from project_layout import ProjectLayout
-from prompting import build_static_prompt, build_system_prompt
+from prompting import build_static_prompt
 from query.models import QueryRequest
 from query.system_routes import run_direct_system_route
-from request_intent import analyze_memory_intent
-from agent_runtime import AgentTurnController, AgentTurnControllerInput
+from harness.runtime import AgentRunRequest
 
 logger = logging.getLogger(__name__)
 
@@ -76,43 +75,23 @@ class QueryRuntime:
             if retrieval_enabled
             else None
         )
-        self.agent_runtime_chain = AgentRuntimeChainAssembler(
-            base_dir=base_dir,
-            memory_facade=memory_facade,
-            skill_registry=skill_registry,
-            tool_registry=getattr(tool_runtime, "registry", None),
-        )
-        self.runtime_context_manager = RuntimeContextManager(self.build_static_system_prompt_for_session)
-        self.harness_service_host = HarnessServiceHost(
+        self.single_agent_runtime_host = SingleAgentRuntimeHost(
             ProjectLayout.from_backend_dir(base_dir).runtime_state_dir,
             backend_dir=base_dir,
-            evidence_orchestrator=self.evidence_orchestrator,
             permission_mode_provider=_permission_mode_provider(
                 permission_service=permission_service,
                 settings_service=settings_service,
             ),
+            tool_authorization_index=build_tool_authorization_index(
+                list(getattr(tool_runtime, "definitions", []) or [])
+            ),
         )
         self.agent_harness = AgentHarness(
-            services=AgentRuntimeServices.from_runtime_host(self.harness_service_host)
-        )
-        self.harness_service_host.agent_runtime = self.agent_harness
-        self.agent_turn_controller = AgentTurnController(
-            runtime_host=self.harness_service_host,
-            agent_harness=self.agent_harness,
-            agent_runtime_chain=self.agent_runtime_chain,
-            model_response_executor=self.model_response_executor,
-            runtime_context_manager=self.runtime_context_manager,
-            tool_runtime_executor=self.tool_runtime_executor,
-            tool_instances_provider=self._all_tool_instances,
-        )
-        self.graph_harness = GraphHarness(
-            service_host=self.harness_service_host,
-            agent_harness=self.agent_harness,
+            services=AgentRuntimeServices.from_runtime_host(self.single_agent_runtime_host)
         )
         self.runtime_components = {
             "query_runtime": "adapter_only",
             "agent_harness": "active",
-            "graph_harness": "active",
             "evidence_orchestrator": "active" if retrieval_enabled else "disabled_missing_retrieval_service",
         }
 
@@ -125,20 +104,8 @@ class QueryRuntime:
         relevant_memory_notes: list[Any] | None = None,
         retrieval_results: list[dict[str, Any]] | None = None,
     ) -> str:
-        context_package = self.agent_runtime_chain.build_context_package(
-            session_id=session_id or "",
-            pending_user_message=pending_user_message,
-            memory_intent=memory_intent,
-            relevant_memory_notes=relevant_memory_notes,
-            retrieval_results=retrieval_results,
-        )
-        return build_system_prompt(
-            self.base_dir,
-            self.settings_service.get_rag_mode(),
-            persistent_memory=None,
-            session_memory=None,
-            context_package=context_package,
-        )
+        _ = (session_id, history, pending_user_message, memory_intent, relevant_memory_notes, retrieval_results)
+        return self.build_static_system_prompt_for_session()
 
     async def abuild_system_prompt_for_session(self, *args, **kwargs) -> str:
         return self.build_system_prompt_for_session(*args, **kwargs)
@@ -163,12 +130,10 @@ class QueryRuntime:
         turn_index = len(history_record.get("messages", [])) + 1
         turn_id = f"turn:{request.session_id}:{turn_index}"
         try:
-            task_id = f"taskinst:{turn_id}:{_task_instance_suffix(dict(request.task_selection or {}))}"
-            agent_invocation_id = f"aginvoke:{turn_id}:main"
             input_commit_gate = self._commit_user_message(
                 session_id=request.session_id,
                 content=request.message,
-                task_id=task_id,
+                turn_id=turn_id,
             )
             with start_turn_trace(
                 session_id=request.session_id,
@@ -201,30 +166,51 @@ class QueryRuntime:
                     yield direct_system_route_event
                     return
 
-                memory_intent = analyze_memory_intent(request.message)
                 agent_runtime_profile = self.agent_runtime_registry.get_profile("agent:0")
                 runtime_task_selection = _task_selection_for_runtime(
                     request_task_selection=dict(request.task_selection or {}),
                     turn_id=turn_id,
+                    runtime_mode=request.runtime_mode,
+                    soul_id=request.soul_id,
+                    runtime_profile=dict(request.runtime_profile or {}),
                 )
-                async for event in self.agent_turn_controller.run_stream(
-                    AgentTurnControllerInput(
+                agent_invocation_id = f"aginvoke:{turn_id}:main"
+                tool_instances = self._all_tool_instances()
+                runtime_assembly = assemble_runtime(
+                    backend_dir=self.base_dir,
+                    session_id=request.session_id,
+                    turn_id=turn_id,
+                    agent_invocation_id=agent_invocation_id,
+                    request_task_selection=runtime_task_selection,
+                    model_selection=dict(request.model_selection or {}),
+                    agent_runtime_profile=agent_runtime_profile,
+                    tool_instances=tool_instances,
+                    definitions_by_name=dict(self.single_agent_runtime_host.tool_authorization_index.definitions_by_name or {}),
+                )
+                yield {
+                    "type": "runtime_assembly_compiled",
+                    "runtime_assembly": runtime_assembly.to_dict(),
+                }
+                async for event in self.agent_harness.run_stream(
+                    AgentRunRequest(
                         session_id=request.session_id,
                         turn_id=turn_id,
-                        agent_invocation_id=agent_invocation_id,
-                        task_id=task_id,
                         user_message=request.message,
                         history=history,
                         source="query_runtime.adapter",
-                        memory_intent=memory_intent,
+                        model_response_executor=self.model_response_executor,
                         task_selection=runtime_task_selection,
                         assistant_message_committer=lambda payload: self._apply_assistant_message_commit_async(
                             request.session_id,
                             {**dict(payload or {}), "turn_id": turn_id},
                         ),
+                        tool_runtime_executor=self.tool_runtime_executor,
+                        tool_instances=tool_instances,
                         agent_runtime_profile=agent_runtime_profile,
                         search_policy=list(request.search_policy) if request.search_policy is not None else None,
                         model_selection=dict(request.model_selection or {}),
+                        agent_invocation={"agent_invocation_id": agent_invocation_id},
+                        runtime_assembly=runtime_assembly,
                     )
                 ):
                     yield event
@@ -239,11 +225,11 @@ class QueryRuntime:
     async def generate_title(self, first_user_message: str) -> str:
         return await self.model_runtime.generate_title(first_user_message)
 
-    def _commit_user_message(self, *, session_id: str, content: str, task_id: str):
+    def _commit_user_message(self, *, session_id: str, content: str, turn_id: str):
         decision = build_user_message_commit_decision(
             session_id=session_id,
             content=content,
-            task_id=task_id,
+            task_id=turn_id,
             source="query_runtime.adapter_input",
         )
         if decision.commit_allowed:
@@ -395,23 +381,30 @@ def _permission_mode_provider(*, permission_service: Any | None, settings_servic
     return _current_mode
 
 
-def _task_instance_suffix(task_selection: dict[str, Any]) -> str:
-    selected_task_id = str(task_selection.get("selected_task_id") or "").strip()
-    if selected_task_id:
-        tail = selected_task_id.split(".")[-1].split(":")[-1].strip()
-        if tail:
-            return tail
-    return "general_response"
-
-
 def _task_selection_for_runtime(
     *,
     request_task_selection: dict[str, Any],
     turn_id: str,
+    runtime_mode: str = "",
+    soul_id: str = "",
+    runtime_profile: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    profile_payload = {
+        **dict(request_task_selection.get("runtime_profile") or {}),
+        **dict(runtime_profile or {}),
+    }
+    mode = str(runtime_mode or request_task_selection.get("runtime_mode") or request_task_selection.get("mode") or "").strip()
+    if mode:
+        profile_payload["mode"] = mode
+    requested_soul_id = str(soul_id or request_task_selection.get("soul_id") or profile_payload.get("soul_id") or "").strip()
+    if requested_soul_id:
+        profile_payload["soul_id"] = requested_soul_id
     return {
         **dict(request_task_selection or {}),
         "turn_id": turn_id,
+        **({"runtime_mode": mode} if mode else {}),
+        **({"soul_id": requested_soul_id} if requested_soul_id else {}),
+        **({"runtime_profile": profile_payload} if profile_payload else {}),
     }
 
 
