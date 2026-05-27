@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from runtime.execution_engine import classify_delegation_goal_alignment
-from runtime.execution.agent_delegation_executor import _delegation_request_counts_against_budget
-from runtime.execution.delegation_models import AgentDelegationRequest, AgentDelegationResult
+from harness.loop.agent_execution import classify_delegation_goal_alignment
+from harness.execution.agent_delegation_executor import _delegation_request_counts_against_budget
+from harness.execution.delegation_models import AgentDelegationRequest, AgentDelegationResult
 
 
 def _request(

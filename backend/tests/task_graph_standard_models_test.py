@@ -487,7 +487,7 @@ def test_runtime_spec_merges_explicit_graph_module_node_with_timeline_runtime(tm
     assert graph_module_nodes[0]["role"] == "graph_module"
     assert graph_module_nodes[0]["agent_id"] == ""
     assert graph_module_nodes[0]["runtime_lane"] == ""
-    assert graph_module_nodes[0]["projection_id"] == ""
+    assert "projection_id" not in graph_module_nodes[0]
     assert graph_module_nodes[0]["task_id"] == "task_graph.node.graph.test.explicit_graph_module.graph_module.import"
     assert graph_module_nodes[0]["metadata"]["editor_node"] is True
     assert graph_module_nodes[0]["metadata"]["explicit_graph_module_node"] is True

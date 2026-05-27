@@ -4,7 +4,7 @@ import hashlib
 import json
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from .execution_channel import create_execution_channel
@@ -18,6 +18,8 @@ from .models import (
     TaskOrderDraft,
     TaskOrderRun,
 )
+from task_system.lifecycle.factory import TaskLifecycleCreation
+from task_system.lifecycle.factory import TaskLifecycleFactory
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,8 +31,14 @@ class TaskOrderCreation:
     execution_channel: ExecutionChannel | None = None
     envelope: TaskExecutionEnvelope | None = None
     draft: TaskOrderDraft | None = None
+    lifecycle_creation: TaskLifecycleCreation | None = None
 
     def projection(self) -> dict[str, Any]:
+        lifecycle_projection = (
+            self.lifecycle_creation.projection()
+            if self.lifecycle_creation is not None
+            else {"task_activation_request": None, "task_lifecycle": None}
+        )
         return {
             "conversation_turn": self.conversation_turn.to_dict(),
             "task_intent_decision": self.intent_decision.to_dict(),
@@ -39,6 +47,7 @@ class TaskOrderCreation:
             "execution_channel": self.execution_channel.to_dict() if self.execution_channel is not None else None,
             "task_execution_envelope": self.envelope.to_dict() if self.envelope is not None else None,
             "task_order_draft": self.draft.to_dict() if self.draft is not None else None,
+            **lifecycle_projection,
             "authority": "task_system.task_order_creation_projection",
         }
 
@@ -57,7 +66,7 @@ class TaskOrderFactory:
         objective: str = "",
         source: str = "task_library",
         source_ref: str = "",
-        domain_id: str = "",
+        environment_id: str = "",
         flow_contract_binding: dict[str, Any] | None = None,
         execution_policy: dict[str, Any] | None = None,
         order_intent: dict[str, Any] | None = None,
@@ -68,7 +77,12 @@ class TaskOrderFactory:
         if not task_id:
             raise ValueError("specific task order requires task_id")
         task_title = str(task.get("task_title") or task_id).strip() or task_id
-        resolved_domain_id = str(domain_id or task.get("domain_id") or "").strip()
+        resolved_environment_id = str(
+            environment_id
+            or task.get("environment_id")
+            or dict(task.get("metadata") or {}).get("environment_id")
+            or "env.general_workspace"
+        ).strip()
         explicit_intent = dict(order_intent or {})
         flow_binding = dict(flow_contract_binding or {})
         execution = dict(execution_policy or {})
@@ -76,7 +90,6 @@ class TaskOrderFactory:
         turn_id = str(explicit_intent.get("turn_id") or f"taskorder:{uuid.uuid4().hex[:12]}")
         order_kind = "specific_task"
         order_id = f"order:{order_kind}:{uuid.uuid4().hex[:12]}"
-        order_run_id = f"orderrun:{uuid.uuid4().hex[:12]}"
         decision = TaskIntentDecision(
             decision_id=f"intent:{turn_id}:{uuid.uuid4().hex[:8]}",
             turn_id=turn_id,
@@ -94,7 +107,7 @@ class TaskOrderFactory:
             metadata={
                 "classifier": "structured_task_order_api",
                 "source": source,
-                "domain_id": resolved_domain_id,
+                "environment_id": resolved_environment_id,
             },
         )
         turn = ConversationTurn(
@@ -114,13 +127,11 @@ class TaskOrderFactory:
         task_policy = dict(task.get("task_policy") or {})
         input_contract = {
             "objective": str(objective or explicit_intent.get("objective") or task.get("description") or task_title).strip(),
+            "environment_id": resolved_environment_id,
             "task_record": _safe_projection(task),
-            "task_selection_projection": {
-                "selected_task_id": task_id,
-                "domain_id": resolved_domain_id,
-                "label": task_title,
-                "mode": "specific_task",
-            },
+            "selected_task_id": task_id,
+            "selection_label": task_title,
+            "selection_mode": "specific_task",
             "task_order_intent": _safe_projection(explicit_intent),
         }
         output_contract = {
@@ -182,77 +193,19 @@ class TaskOrderFactory:
             metadata={
                 "shadow_phase": True,
                 "created_by": self.authority,
-                "domain_id": resolved_domain_id,
+                "environment_id": resolved_environment_id,
                 "task_title": task_title,
             },
         )
-        channel = create_execution_channel(
-            order_id=order_id,
-            order_run_id=order_run_id,
-            session_id=session_id,
-            channel_kind="single_agent",
-            diagnostics={
-                "created_by": self.authority,
-                "source": source,
-                "task_id": task_id,
-                "shadow_phase": True,
-            },
-        )
-        run = TaskOrderRun(
-            run_id=order_run_id,
-            order_id=order_id,
-            session_id=session_id,
-            primary_execution_channel_id=channel.channel_id,
-            executor_assignment=executor_policy,
-            status="created",
-            created_at=now,
-            updated_at=now,
-            diagnostics={
-                "created_by": self.authority,
-                "source": source,
-                "task_id": task_id,
-                "shadow_phase": True,
-            },
-        )
-        envelope = TaskExecutionEnvelope(
-            envelope_id=f"taskenv:{uuid.uuid4().hex[:12]}",
-            order_id=order_id,
-            order_run_id=order_run_id,
-            execution_channel_id=channel.channel_id,
-            session_id=session_id,
-            role_contract=order.role_contract,
-            responsibility_boundary={
-                "source": "specific_task_record",
-                "task_id": task_id,
-                "domain_id": resolved_domain_id,
-                "description": str(task.get("description") or "").strip(),
-            },
-            input_contract=order.input_contract,
-            output_contract=order.output_contract,
-            artifact_policy=order.artifact_policy,
-            acceptance_policy=order.acceptance_policy,
-            executor_policy=order.executor_policy,
-            permission_ceiling=dict(task_policy.get("safety_policy") or {}),
-            context_package={
-                "task_record": _safe_projection(task),
-                "flow_contract_binding": _safe_projection(flow_binding),
-            },
-            source_refs={
-                "specific_task_ref": task_id,
-                "task_definition_ref": task_id,
-                "flow_contract_binding_ref": str(flow_binding.get("binding_id") or "").strip(),
-                "task_execution_policy_ref": str(execution.get("policy_id") or "").strip(),
-            },
-            created_at=now,
-        )
-        return TaskOrderCreation(
+        creation = TaskOrderCreation(
             conversation_turn=turn,
             intent_decision=decision,
             order=order,
-            order_run=run,
-            execution_channel=channel,
-            envelope=envelope,
         )
+        return _attach_execution_binding(replace(
+            creation,
+            lifecycle_creation=TaskLifecycleFactory().create_from_task_order_creation(creation),
+        ))
 
     def create_from_conversation_turn(
         self,
@@ -286,7 +239,7 @@ class TaskOrderFactory:
                 missing_fields=tuple(intent_decision.missing_fields),
                 candidate_inputs={
                     "message": str(message or ""),
-                    "task_selection_projection": _safe_projection(selection),
+                    "task_selection": _safe_projection(selection),
                     "task_order_intent": _safe_projection(explicit_intent),
                 },
                 created_at=now,
@@ -307,8 +260,12 @@ class TaskOrderFactory:
 
         order_kind = _candidate_order_kind(selection, explicit_intent)
         selected_task_id = str(selection.get("selected_task_id") or explicit_intent.get("task_id") or "").strip()
+        resolved_environment_id = str(
+            explicit_intent.get("environment_id")
+            or selection.get("environment_id")
+            or "env.general_workspace"
+        ).strip()
         order_id = f"order:{order_kind}:{uuid.uuid4().hex[:12]}"
-        order_run_id = f"orderrun:{uuid.uuid4().hex[:12]}"
         idempotency_key = _idempotency_key(
             conversation_turn=conversation_turn,
             order_kind=order_kind,
@@ -326,7 +283,10 @@ class TaskOrderFactory:
             task_definition_ref=selected_task_id,
             input_contract={
                 "message": str(message or ""),
-                "task_selection_projection": _safe_projection(selection),
+                "environment_id": resolved_environment_id,
+                "task_selection": _safe_projection(selection),
+                "selected_task_id": selected_task_id,
+                "selection_mode": str(selection.get("mode") or ""),
                 "task_order_intent": _safe_projection(explicit_intent),
             },
             output_contract=dict(explicit_intent.get("output_contract") or {}),
@@ -341,51 +301,8 @@ class TaskOrderFactory:
             updated_at=now,
             metadata={
                 "shadow_phase": True,
-                "task_selection_is_projection": True,
+                "environment_id": resolved_environment_id,
             },
-        )
-        channel = create_execution_channel(
-            order_id=order_id,
-            order_run_id=order_run_id,
-            session_id=conversation_turn.session_id,
-            channel_kind="single_agent",
-            diagnostics={"created_by": self.authority, "shadow_phase": True},
-        )
-        run = TaskOrderRun(
-            run_id=order_run_id,
-            order_id=order_id,
-            session_id=conversation_turn.session_id,
-            primary_execution_channel_id=channel.channel_id,
-            executor_assignment=_executor_policy(selection, explicit_intent),
-            status="created",
-            created_at=now,
-            updated_at=now,
-            diagnostics={"created_by": self.authority, "shadow_phase": True},
-        )
-        envelope = TaskExecutionEnvelope(
-            envelope_id=f"taskenv:{uuid.uuid4().hex[:12]}",
-            order_id=order_id,
-            order_run_id=order_run_id,
-            execution_channel_id=channel.channel_id,
-            session_id=conversation_turn.session_id,
-            role_contract=order.role_contract,
-            responsibility_boundary=dict(explicit_intent.get("responsibility_boundary") or {}),
-            input_contract=order.input_contract,
-            output_contract=order.output_contract,
-            artifact_policy=order.artifact_policy,
-            acceptance_policy=order.acceptance_policy,
-            executor_policy=order.executor_policy,
-            permission_ceiling=dict(explicit_intent.get("permission_ceiling") or {}),
-            context_package={
-                "conversation_turn_id": conversation_turn.turn_id,
-                "task_selection_projection": _safe_projection(selection),
-            },
-            source_refs={
-                "conversation_turn_ref": f"conversation.turn:{conversation_turn.turn_id}",
-                "intent_decision_ref": intent_decision.decision_id,
-                "task_definition_ref": selected_task_id,
-            },
-            created_at=now,
         )
         updated_decision = decision_with_created_order(intent_decision, order_id)
         updated_turn = ConversationTurn(
@@ -396,14 +313,15 @@ class TaskOrderFactory:
                 "task_order_ref": order_id,
             }
         )
-        return TaskOrderCreation(
+        creation = TaskOrderCreation(
             conversation_turn=updated_turn,
             intent_decision=updated_decision,
             order=order,
-            order_run=run,
-            execution_channel=channel,
-            envelope=envelope,
         )
+        return _attach_execution_binding(replace(
+            creation,
+            lifecycle_creation=TaskLifecycleFactory().create_from_task_order_creation(creation),
+        ))
 
 
 def _candidate_order_kind(selection: dict[str, Any], explicit_intent: dict[str, Any]) -> str:
@@ -444,6 +362,105 @@ def _executor_policy(selection: dict[str, Any], explicit_intent: dict[str, Any])
             policy[key] = value
     policy.setdefault("executor_type", "agent")
     return policy
+
+
+def _attach_execution_binding(creation: TaskOrderCreation) -> TaskOrderCreation:
+    if creation.order is None:
+        return creation
+    if creation.order_run is not None and creation.execution_channel is not None and creation.envelope is not None:
+        return creation
+    order = creation.order
+    lifecycle = creation.lifecycle_creation.lifecycle if creation.lifecycle_creation is not None else None
+    runtime_assembly_request = (
+        creation.lifecycle_creation.runtime_assembly_request
+        if creation.lifecycle_creation is not None
+        else None
+    )
+    now = time.time()
+    order_run_id = f"orderrun:{uuid.uuid4().hex[:12]}"
+    lifecycle_ref = lifecycle.task_id if lifecycle is not None else ""
+    runtime_assembly_ref = (
+        runtime_assembly_request.request_id
+        if runtime_assembly_request is not None
+        else (lifecycle.runtime_assembly_ref if lifecycle is not None else "")
+    )
+    environment_id = str(
+        dict(order.input_contract or {}).get("environment_id")
+        or (lifecycle.environment_id if lifecycle is not None else "")
+        or ""
+    ).strip()
+    channel = create_execution_channel(
+        order_id=order.order_id,
+        order_run_id=order_run_id,
+        session_id=order.session_id,
+        channel_kind=_execution_channel_kind(order),
+        diagnostics={
+            "created_by": "task_system.task_order_factory.execution_binding",
+            "task_lifecycle_ref": lifecycle_ref,
+            "runtime_assembly_ref": runtime_assembly_ref,
+        },
+    )
+    run = TaskOrderRun(
+        run_id=order_run_id,
+        order_id=order.order_id,
+        session_id=order.session_id,
+        primary_execution_channel_id=channel.channel_id,
+        executor_assignment=dict(order.executor_policy or {}),
+        status="created",
+        created_at=now,
+        updated_at=now,
+        diagnostics={
+            "created_by": "task_system.task_order_factory.execution_binding",
+            "task_lifecycle_ref": lifecycle_ref,
+            "runtime_assembly_ref": runtime_assembly_ref,
+        },
+    )
+    envelope = TaskExecutionEnvelope(
+        envelope_id=f"taskenv:{uuid.uuid4().hex[:12]}",
+        order_id=order.order_id,
+        order_run_id=order_run_id,
+        execution_channel_id=channel.channel_id,
+        session_id=order.session_id,
+        role_contract=dict(order.role_contract or {}),
+        responsibility_boundary={
+            "source": "task_order_execution_binding",
+            "task_id": order.task_id,
+            "environment_id": environment_id,
+            "task_lifecycle_ref": lifecycle_ref,
+            "runtime_assembly_ref": runtime_assembly_ref,
+        },
+        input_contract=dict(order.input_contract or {}),
+        output_contract=dict(order.output_contract or {}),
+        artifact_policy=dict(order.artifact_policy or {}),
+        acceptance_policy=dict(order.acceptance_policy or {}),
+        executor_policy=dict(order.executor_policy or {}),
+        permission_ceiling={},
+        context_package={
+            "environment_id": environment_id,
+            "task_lifecycle_ref": lifecycle_ref,
+            "runtime_assembly_ref": runtime_assembly_ref,
+            "task_runtime_assembly_request": (
+                runtime_assembly_request.to_dict()
+                if runtime_assembly_request is not None
+                else None
+            ),
+        },
+        source_refs={
+            "task_order_ref": order.order_id,
+            "task_definition_ref": order.task_definition_ref,
+            "source_ref": order.source_ref,
+        },
+        created_at=now,
+    )
+    return replace(creation, order_run=run, execution_channel=channel, envelope=envelope)
+
+
+def _execution_channel_kind(order: TaskOrder) -> str:
+    if order.order_kind == "graph_run":
+        return "graph"
+    if order.order_kind == "human_work":
+        return "human"
+    return "single_agent"
 
 
 def _safe_projection(payload: dict[str, Any]) -> dict[str, Any]:

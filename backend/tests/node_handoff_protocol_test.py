@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from runtime.execution.node_handoff_protocol import (
+from harness.execution.node_protocol.node_handoff_protocol import (
     build_node_executor_binding,
     build_standard_node_input_package,
     build_standard_node_result_package,

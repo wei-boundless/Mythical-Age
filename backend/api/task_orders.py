@@ -6,6 +6,7 @@ from api.deps import require_runtime
 from sessions import validate_session_id
 from task_system.registry.flow_registry import TaskFlowRegistry
 from task_system.orders.api_models import TaskOrderCreateRequest
+from task_system.orders.legacy_runtime_adapter import attach_legacy_runtime_read_model
 from task_system.orders.order_factory import TaskOrderFactory
 from task_system.orders.order_registry import TaskOrderRegistry
 
@@ -14,7 +15,7 @@ router = APIRouter()
 
 def _state_index():
     runtime = require_runtime()
-    return runtime.query_runtime.task_run_loop.state_index
+    return runtime.query_runtime.harness_service_host.state_index
 
 
 def _query_runtime():
@@ -49,13 +50,19 @@ async def create_task_order(payload: TaskOrderCreateRequest):
         objective=str(payload.objective or payload.message or task_record.task_title).strip(),
         source=str(payload.source or "task_library").strip() or "task_library",
         source_ref=str(payload.source_ref or f"task_system.specific_task:{task_id}").strip(),
-        domain_id=str(payload.domain_id or task_record.domain_id).strip(),
+        environment_id=str(
+            payload.environment_id
+            or getattr(task_record, "environment_id", "")
+            or task_record.metadata.get("environment_id")
+            or "env.general_workspace"
+        ).strip(),
         flow_contract_binding=flow_contract_binding.to_dict() if flow_contract_binding is not None else None,
         execution_policy=execution_policy.to_dict() if execution_policy is not None else None,
         order_intent=dict(payload.task_order_intent or {}),
         idempotency_key=str(payload.idempotency_key or "").strip(),
     )
-    TaskOrderRegistry(runtime.task_run_loop.state_index).upsert_creation(creation)
+    creation = attach_legacy_runtime_read_model(creation)
+    TaskOrderRegistry(runtime.harness_service_host.state_index).upsert_creation(creation)
     return {
         **creation.projection(),
         "authority": "task_system.task_orders_api",
@@ -121,12 +128,12 @@ async def get_task_order_run_by_task_run(task_run_id: str):
 @router.get("/tasks/order-runs/{run_id}/monitor")
 async def get_task_order_run_monitor(run_id: str):
     runtime = require_runtime()
-    state_index = runtime.query_runtime.task_run_loop.state_index
+    state_index = runtime.query_runtime.harness_service_host.state_index
     run = state_index.get_task_order_run(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="Task order run not found")
     monitor = (
-        runtime.query_runtime.task_run_loop.get_task_run_live_monitor(run.task_run_id)
+        runtime.query_runtime.harness_service_host.get_task_run_live_monitor(run.task_run_id)
         if run.task_run_id
         else None
     )

@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
-
-from runtime.memory.state_index import RuntimeStateIndex
+from typing import Any, Protocol
 
 from .models import (
     ConversationTurn,
@@ -15,14 +13,114 @@ from .models import (
     TaskOrderRun,
 )
 from .order_factory import TaskOrderCreation
+from task_system.lifecycle.registry import TaskLifecycleRegistry
+
+
+class TaskOrderStore(Protocol):
+    def upsert_conversation_turn(self, turn: ConversationTurn) -> None:
+        ...
+
+    def upsert_task_intent_decision(self, decision: TaskIntentDecision) -> None:
+        ...
+
+    def upsert_task_order_draft(self, draft: TaskOrderDraft) -> None:
+        ...
+
+    def upsert_task_order(self, order: TaskOrder) -> None:
+        ...
+
+    def upsert_task_order_run(self, run: TaskOrderRun) -> None:
+        ...
+
+    def upsert_execution_channel(self, channel: ExecutionChannel) -> None:
+        ...
+
+    def upsert_task_execution_envelope(self, envelope: TaskExecutionEnvelope) -> None:
+        ...
+
+    def claim_task_order_run_for_execution(
+        self,
+        *,
+        order_run_id: str,
+        diagnostics: dict[str, Any] | None = None,
+    ) -> tuple[bool, str]:
+        ...
+
+    def get_task_order_run(self, order_run_id: str) -> TaskOrderRun | None:
+        ...
+
+    def get_task_order(self, order_id: str) -> TaskOrder | None:
+        ...
+
+    def get_execution_channel(self, channel_id: str) -> ExecutionChannel | None:
+        ...
+
+    def get_execution_channel_by_order_run(self, order_run_id: str) -> ExecutionChannel | None:
+        ...
+
+    def get_task_execution_envelope_by_order_run(self, order_run_id: str) -> TaskExecutionEnvelope | None:
+        ...
+
+    def get_conversation_turn_by_order(self, order_id: str) -> ConversationTurn | None:
+        ...
+
+    def get_task_intent_decision_by_order(self, order_id: str) -> TaskIntentDecision | None:
+        ...
+
+    def list_turn_intent_decisions(self, turn_id: str) -> list[TaskIntentDecision]:
+        ...
+
+    def list_order_runs(self, order_id: str) -> list[TaskOrderRun]:
+        ...
+
+    def bind_task_order_run_to_task_run(
+        self,
+        *,
+        order_run_id: str,
+        task_run_id: str,
+        execution_channel_id: str = "",
+        coordination_run_id: str = "",
+        agent_run_id: str = "",
+        status: str = "running",
+        diagnostics: dict[str, Any] | None = None,
+    ) -> None:
+        ...
+
+    def update_task_order_run_status(
+        self,
+        *,
+        order_run_id: str,
+        status: str,
+        terminal_reason: str = "",
+        diagnostics: dict[str, Any] | None = None,
+    ) -> None:
+        ...
+
+    def update_task_order_runtime_status(
+        self,
+        *,
+        task_run_id: str,
+        status: str,
+        terminal_reason: str = "",
+        diagnostics: dict[str, Any] | None = None,
+    ) -> None:
+        ...
 
 
 @dataclass(frozen=True, slots=True)
 class TaskOrderRegistry:
-    """Thin registry facade over RuntimeStateIndex task-order buckets."""
+    """Legacy task-order facade over a storage contract.
 
-    state_index: RuntimeStateIndex
+    New lifecycle authority lives in task_system.lifecycle. This facade remains
+    only for current order read-model/runtime-adapter paths.
+    """
+
+    state_index: TaskOrderStore
     authority: str = "task_system.task_order_registry"
+
+    @property
+    def lifecycle_registry(self) -> TaskLifecycleRegistry:
+        return TaskLifecycleRegistry(self.state_index)
 
     def upsert_conversation_turn(self, turn: ConversationTurn) -> None:
         self.state_index.upsert_conversation_turn(turn)
@@ -82,6 +180,11 @@ class TaskOrderRegistry:
             order_run=run,
             execution_channel=channel,
             envelope=envelope,
+            lifecycle_creation=(
+                self.state_index.lifecycle_creation_for_order(order.order_id)
+                if hasattr(self.state_index, "lifecycle_creation_for_order")
+                else None
+            ),
         )
 
     def creation_for_order(self, order_id: str) -> TaskOrderCreation | None:
@@ -103,6 +206,8 @@ class TaskOrderRegistry:
             self.upsert_execution_channel(creation.execution_channel)
         if creation.envelope is not None:
             self.upsert_task_execution_envelope(creation.envelope)
+        if creation.lifecycle_creation is not None:
+            self.lifecycle_registry.upsert_creation(creation.lifecycle_creation)
 
     def bind_runtime(
         self,

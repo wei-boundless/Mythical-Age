@@ -26,7 +26,6 @@ class SoulModeSection:
 class SoulModeAssembly:
     mode: str
     soul_id: str
-    projection_id: str
     work_prompt_id: str
     sections: tuple[SoulModeSection, ...]
     trace: dict[str, str] = field(default_factory=dict)
@@ -36,7 +35,6 @@ class SoulModeAssembly:
         return {
             "mode": self.mode,
             "soul_id": self.soul_id,
-            "projection_id": self.projection_id,
             "work_prompt_id": self.work_prompt_id,
             "sections": [item.to_dict() for item in self.sections],
             "trace": dict(self.trace),
@@ -54,7 +52,6 @@ class SoulModeAssemblyService:
         *,
         mode: str,
         soul_id: str,
-        projection_id: str = "",
         work_prompt_id: str = "",
         task_contract: str = "",
     ) -> SoulModeAssembly:
@@ -66,7 +63,6 @@ class SoulModeAssemblyService:
         if not card:
             raise KeyError(f"Unknown soul: {soul_id}")
 
-        resolved_projection_id = projection_id or str(card.get("default_projection_id") or "")
         resolved_work_prompt_id = work_prompt_id or str(card.get("default_work_prompt_id") or "work_prompt.default")
         sections: list[SoulModeSection] = []
 
@@ -119,16 +115,6 @@ class SoulModeAssemblyService:
                         content=str(story.get("content") or story.get("summary") or ""),
                     )
                 )
-            if resolved_projection_id:
-                sections.append(
-                    SoulModeSection(
-                        section_id="projection",
-                        title="工作投影",
-                        owner_layer="projection",
-                        source_id=resolved_projection_id,
-                        content=f"使用工作投影：{resolved_projection_id}",
-                    )
-                )
 
         if mode == "work_mode":
             if task_contract:
@@ -156,7 +142,6 @@ class SoulModeAssemblyService:
         return SoulModeAssembly(
             mode=mode,
             soul_id=soul_id,
-            projection_id=resolved_projection_id if mode != "work_mode" else "",
             work_prompt_id=resolved_work_prompt_id if mode == "work_mode" else "",
             sections=tuple(section for section in sections if section.content.strip()),
             trace={

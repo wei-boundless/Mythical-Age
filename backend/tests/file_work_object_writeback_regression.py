@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from memory_system import MemoryFacade
-from runtime.execution_engine import project_file_work_context_from_tool_observation
+from harness.loop.agent_execution import project_file_work_context_from_tool_observation
 from query.runtime import QueryRuntime
 
 

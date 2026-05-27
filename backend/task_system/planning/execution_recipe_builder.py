@@ -5,14 +5,14 @@ from typing import Any
 
 from task_system.planning.execution_recipe_models import ExecutionRecipe
 from task_system.planning.execution_shape_resolver import ExecutionShape
-from task_system.planning.understanding_step_compiler import compile_understanding_runtime_steps
-from task_system.tasks.step_models import TaskStepBlueprint
-from runtime.agent_runtime.phases import (
+from task_system.planning.agent_plan_support import (
     AgentPlanRequired,
     build_agent_plan_draft,
     empty_agent_plan_draft,
     review_plan_coverage,
 )
+from task_system.planning.understanding_step_compiler import compile_understanding_runtime_steps
+from task_system.tasks.step_models import TaskStepBlueprint
 
 
 def build_execution_recipe(

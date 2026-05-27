@@ -99,7 +99,7 @@ def test_tool_observation_ledger_classifies_write_and_verification() -> None:
                 "verification_intent": {
                     "stage": "verify_output",
                     "obligation": "verify_command",
-                    "authority": "runtime.agent_runtime.phase_pipeline",
+                    "authority": "harness.loop.agent_phase_pipeline",
                 },
             },
         },

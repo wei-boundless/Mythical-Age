@@ -97,38 +97,8 @@ class SessionMemoryManager:
             max_chars_per_section=max_chars_per_section,
         )
 
-    def _render_state(self, state: DialogueState) -> str:
-        return self.view_builder.render_state(state, mode="model")
-
-    def _render_debug_state(self, state: DialogueState) -> str:
-        return self.view_builder.render_state(state, mode="debug")
-
-    def _parse_sections(self, content: str) -> dict[str, list[str]]:
-        return self.view_builder.parse_sections(content)
-
     def parse_sections(self, content: str) -> dict[str, list[str]]:
-        return self._parse_sections(content)
-
-    def _description_for_header(self, header: str) -> list[str]:
-        return self.view_builder.description_for_header(header)
-
-    def describe_storage(self) -> dict[str, object]:
-        return {
-            "primary_state_path": str(self.state_manager.process_state_path),
-            "state_mirror_path": str(self.state_manager.state_mirror_path),
-            "flow_snapshot_path": str(self.flow_snapshot_manager.snapshot_path),
-            "primary_view_path": str(self.agent_view_path),
-            "debug_view_path": str(self.debug_view_path),
-            "primary_compaction_view_path": str(self.compaction_view_path),
-            "view_mirror_path": str(self.summary_path),
-            "primary_state_exists": self.state_manager.process_state_path.exists(),
-            "state_mirror_exists": self.state_manager.state_mirror_path.exists(),
-            "flow_snapshot_exists": self.flow_snapshot_manager.snapshot_path.exists(),
-            "primary_view_exists": self.agent_view_path.exists(),
-            "debug_view_exists": self.debug_view_path.exists(),
-            "primary_compaction_view_exists": self.compaction_view_path.exists(),
-            "view_mirror_exists": self.summary_path.exists(),
-        }
+        return self.view_builder.parse_sections(content)
 
     def _build_state_from_context_state(
         self,
@@ -483,25 +453,17 @@ class SessionMemoryManager:
             getattr(previous_slots, "committed_dataset_owner_task_id", "")
             or (previous_slots.active_binding_owner_task_id if previous_slots.active_dataset else "")
         )
-        active_pdf = self._coerce_text(active_constraints.get("active_pdf"))
-        active_dataset = self._coerce_text(active_constraints.get("active_dataset"))
+        active_pdf = self._coerce_text(active_constraints.get("active_pdf") or self._read_value(main_context, "active_pdf"))
+        active_dataset = self._coerce_text(active_constraints.get("active_dataset") or self._read_value(main_context, "active_dataset"))
         active_subset_labels = self._coerce_text_list(active_constraints.get("subset_labels"))
         active_subset_filter_column = self._coerce_text(active_constraints.get("subset_filter_column"))
-        active_pdf_mode = self._normalize_pdf_scope(self._coerce_text(active_constraints.get("pdf_mode")))
-        active_pdf_section = self._coerce_text(active_constraints.get("pdf_section"))
-        active_pdf_pages = self._coerce_int_list(active_constraints.get("pdf_focus_pages"))
-        if not active_pdf:
-            active_pdf = self._extract_projection_binding_from_summaries(normalized_task_summaries, "pdf")
-        if not active_pdf_mode:
-            active_pdf_mode = self._normalize_pdf_scope(
-                self._extract_projection_value_from_summaries(normalized_task_summaries, "pdf_mode")
-            )
-        if not active_pdf_section:
-            active_pdf_section = self._extract_projection_value_from_summaries(normalized_task_summaries, "pdf_section")
-        if not active_pdf_pages:
-            active_pdf_pages = self._extract_projection_int_list_from_summaries(normalized_task_summaries, "pdf_pages")
-        if not active_dataset:
-            active_dataset = self._extract_projection_binding_from_summaries(normalized_task_summaries, "dataset")
+        active_pdf_mode = self._normalize_pdf_scope(
+            self._coerce_text(active_constraints.get("active_pdf_mode") or active_constraints.get("pdf_mode"))
+        )
+        active_pdf_section = self._coerce_text(active_constraints.get("active_pdf_section") or active_constraints.get("pdf_section"))
+        active_pdf_pages = self._coerce_int_list(
+            active_constraints.get("active_pdf_pages") or active_constraints.get("pdf_focus_pages")
+        )
         active_binding_identity = self._coerce_text(self._read_value(main_context, "active_binding_identity"))
         if not active_binding_identity:
             active_binding_identity = self._coerce_text(active_constraints.get("active_binding_identity"))
@@ -513,7 +475,6 @@ class SessionMemoryManager:
         active_binding_owner_task_id = self._projection_binding_owner_task_id(
             main_context=main_context,
             normalized_task_summaries=normalized_task_summaries,
-            active_binding_kind=active_binding_kind,
         )
         active_object_handle_id = self._coerce_text(self._read_value(main_context, "active_object_handle_id"))
         active_result_handle_id = self._coerce_text(self._read_value(main_context, "active_result_handle_id"))
@@ -579,58 +540,11 @@ class SessionMemoryManager:
             return "document"
         return ""
 
-    def _can_carry_forward_active_entity(self, active_entity: str) -> bool:
-        entity = self._coerce_text(active_entity)
-        return bool(entity) and entity not in {"pdf_document", "dataset"}
-
-    def _extract_projection_binding_from_summaries(
-        self,
-        normalized_task_summaries: list[dict[str, str | list[str]]],
-        binding_kind: str,
-    ) -> str:
-        prefix = f"{binding_kind}="
-        for summary in reversed(normalized_task_summaries):
-            key_points = summary.get("key_points", [])
-            if not isinstance(key_points, list):
-                continue
-            for item in reversed(key_points):
-                text = self._coerce_text(item)
-                if text.startswith(prefix):
-                    return text[len(prefix):].strip()
-        return ""
-
-    def _extract_projection_value_from_summaries(
-        self,
-        normalized_task_summaries: list[dict[str, str | list[str]]],
-        key: str,
-    ) -> str:
-        prefix = f"{key}="
-        for summary in reversed(normalized_task_summaries):
-            key_points = summary.get("key_points", [])
-            if not isinstance(key_points, list):
-                continue
-            for item in reversed(key_points):
-                text = self._coerce_text(item)
-                if text.startswith(prefix):
-                    return text[len(prefix):].strip()
-        return ""
-
-    def _extract_projection_int_list_from_summaries(
-        self,
-        normalized_task_summaries: list[dict[str, str | list[str]]],
-        key: str,
-    ) -> list[int]:
-        raw = self._extract_projection_value_from_summaries(normalized_task_summaries, key)
-        if not raw:
-            return []
-        return [int(part) for part in raw.split(",") if part.strip().isdigit()]
-
     def _projection_binding_owner_task_id(
         self,
         *,
         main_context: Any,
         normalized_task_summaries: list[dict[str, str | list[str]]],
-        active_binding_kind: str,
     ) -> str:
         explicit_owner = self._coerce_text(self._read_value(main_context, "followup_binding_owner_task_id"))
         if explicit_owner:
@@ -638,13 +552,6 @@ class SessionMemoryManager:
         target_task_id = self._coerce_text(self._read_value(main_context, "followup_target_task_id"))
         if target_task_id:
             return target_task_id
-        expected_prefix = "pdf=" if active_binding_kind == "active_pdf" else "dataset=" if active_binding_kind == "active_dataset" else ""
-        for summary in reversed(normalized_task_summaries):
-            task_id = self._coerce_text(summary.get("task_id"))
-            key_points = summary.get("key_points", [])
-            if task_id and expected_prefix and isinstance(key_points, list):
-                if any(self._coerce_text(item).startswith(expected_prefix) for item in key_points):
-                    return task_id
         for summary in reversed(normalized_task_summaries):
             task_id = self._coerce_text(summary.get("task_id"))
             if task_id:

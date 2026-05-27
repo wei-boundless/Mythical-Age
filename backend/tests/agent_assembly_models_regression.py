@@ -8,9 +8,9 @@ from runtime.agent_assembly import (
     AgentInvocation,
     DirectWorkOrder,
     ExecutionPermit,
+    GraphModuleWorkOrder,
     HumanWorkOrder,
     NodeWorkOrder,
-    SubRuntimeWorkOrder,
     WorkOrder,
     build_agent_assembly_contract,
     build_agent_invocation,
@@ -21,9 +21,9 @@ from runtime.agent_assembly import (
     validate_execution_permit,
     validate_work_order,
 )
-from runtime.coordination_runtime.work_order_builder import build_node_work_order_from_request
-from runtime.execution_permit import build_execution_permit
-from runtime.execution.node_execution_request import NodeExecutionRequest
+from harness.loop.graph_coordination.work_order_builder import build_node_work_order_from_request
+from harness.runtime.execution_policy import build_execution_permit
+from harness.execution.node_protocol.node_execution_request import NodeExecutionRequest
 
 
 def _base_dir() -> Path:
@@ -32,7 +32,7 @@ def _base_dir() -> Path:
     return isolated_backend_root("agent-assembly-")
 
 
-def test_typed_work_orders_cover_human_and_subruntime_executors() -> None:
+def test_typed_work_orders_cover_human_and_graph_module_executors() -> None:
     human = HumanWorkOrder(
         work_order_id="",
         work_kind="human",
@@ -44,22 +44,21 @@ def test_typed_work_orders_cover_human_and_subruntime_executors() -> None:
         agent_id="agent:reviewer",
         agent_profile_id="review_profile",
     )
-    subruntime = SubRuntimeWorkOrder(
+    graph_module = GraphModuleWorkOrder(
         work_order_id="",
-        work_kind="subruntime",
+        work_kind="graph_module",
         task_ref="task.graph",
-        executor_type="subruntime",
+        executor_type="graph_module",
         coordination_run_id="coordrun:test",
         stage_id="graph",
         node_id="graph",
         agent_id="agent:0",
         agent_profile_id="main_interactive_agent",
-        subruntime_kind="graph_module",
     )
 
     assert isinstance(human, HumanWorkOrder)
-    assert isinstance(subruntime, SubRuntimeWorkOrder)
-    assert subruntime.subruntime_kind == "graph_module"
+    assert isinstance(graph_module, GraphModuleWorkOrder)
+    assert graph_module.executor_type == "graph_module"
 
 
 def test_node_execution_request_round_trip_preserves_boundary_fields() -> None:
@@ -102,7 +101,6 @@ def test_work_order_to_assembly_and_permit_close_the_boundary() -> None:
         runtime_lane="readonly_exploration",
         explicit_inputs={"goal": "审查"},
         input_package={"package_id": "input:test"},
-        runtime_assembly={"prompt_manifest_ref": "manifest:test"},
     )
     runtime_profile = AgentRuntimeProfile(
         agent_profile_id="main_interactive_agent",
@@ -328,7 +326,7 @@ def test_agent_invocation_is_single_boundary_for_node_work_order() -> None:
     assert validate_agent_invocation(invocation).passed
 
 
-def test_task_semantics_survive_boundary_projection_without_control_leak() -> None:
+def test_task_semantics_survive_boundary_without_control_leak() -> None:
     payload = {
         "interaction_mode": "professional_mode",
         "mode_policy": {

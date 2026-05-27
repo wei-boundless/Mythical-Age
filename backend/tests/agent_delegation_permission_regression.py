@@ -10,8 +10,8 @@ if str(BACKEND_DIR) not in sys.path:
 
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from orchestration.delegation_catalog import DelegationCatalogBuilder
-from runtime.execution.agent_delegation_executor import AgentDelegationExecutor
-from runtime.execution.delegation_models import AgentDelegationRequest
+from harness.execution.agent_delegation_executor import AgentDelegationExecutor
+from harness.execution.delegation_models import AgentDelegationRequest
 from runtime.shared.models import AgentRun
 
 

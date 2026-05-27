@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
 
-RuntimeShape = Literal["single_agent", "task_graph", "human_gate", "subruntime"]
+RuntimeShape = Literal["single_agent", "task_graph", "human_gate", "graph_module"]
 
 
 @dataclass(frozen=True, slots=True)

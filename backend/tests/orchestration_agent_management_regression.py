@@ -89,6 +89,7 @@ def test_builtin_agents_are_seeded_as_system_builtin_and_have_runtime_profiles(t
     assert profile_by_agent["agent:table_analyst"].can_delegate_to_agents is False
     assert profile_by_agent["agent:web_researcher"].allowed_operations == (
         "op.model_response",
+        "op.search_agent",
         "op.web_search",
         "op.fetch_url",
     )
@@ -97,6 +98,7 @@ def test_builtin_agents_are_seeded_as_system_builtin_and_have_runtime_profiles(t
     assert profile_by_agent["agent:web_researcher"].can_delegate_to_agents is False
     assert profile_by_agent["agent:codebase_searcher"].allowed_operations == (
         "op.model_response",
+        "op.codebase_search",
         "op.search_files",
         "op.search_text",
         "op.read_file",

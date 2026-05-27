@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from runtime.coordination_runtime.runtime import LangGraphCoordinationRuntimeResult
-from runtime.execution.node_execution_request import NodeExecutionRequest
-from runtime.graph_task_runtime.coordination_delivery import _stable_stage_turn_id
+from harness.loop.graph_coordination.engine import GraphCoordinationResult
+from harness.execution.node_protocol.node_execution_request import NodeExecutionRequest
+from harness.loop.coordination_delivery import _stable_stage_turn_id
 
 
 def test_node_execution_request_builds_stable_boundary_payload() -> None:
@@ -90,7 +90,7 @@ def test_human_executor_continuation_payload_does_not_dispatch_agent() -> None:
         human_work_packet={"work_packet_id": "humanwork:test", "title": "代替节点执行：世界观审核"},
     )
 
-    payload = LangGraphCoordinationRuntimeResult(stage_execution_request=request).continuation_payload(session_id="session:test")
+    payload = GraphCoordinationResult(stage_execution_request=request).continuation_payload(session_id="session:test")
 
     assert payload["requires_human_executor"] is True
     assert payload["human_work_packet"]["work_packet_id"] == "humanwork:test"
@@ -112,7 +112,7 @@ def test_agent_executor_continuation_payload_exposes_stage_request_identity() ->
         dispatch_context={"dispatch_event_id": "tlevent:test:001", "clock_seq": 7},
     )
 
-    payload = LangGraphCoordinationRuntimeResult(stage_execution_request=request).continuation_payload(session_id="session:test")
+    payload = GraphCoordinationResult(stage_execution_request=request).continuation_payload(session_id="session:test")
 
     assert payload["next_task_ref"] == "task.test.chapter_draft"
     assert payload["runtime_control"]["stage_execution_request"]["request_id"] == "nodeexec:draft"

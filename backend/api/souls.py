@@ -43,68 +43,6 @@ class SoulFileSaveRequest(BaseModel):
     reason: str = Field(default="frontend_edit")
 
 
-class SoulSkillViewPayload(BaseModel):
-    skill_id: str = Field(..., min_length=1)
-    title: str = Field(..., min_length=1)
-    capability_summary: str = ""
-    use_when: str = ""
-    input_boundary: str = ""
-    output_boundary: str = ""
-    forbidden_uses: str = ""
-    current_task_reason: str = ""
-
-
-class SoulToolViewPayload(BaseModel):
-    tool_id: str = Field(..., min_length=1)
-    title: str = Field(..., min_length=1)
-    capability_summary: str = ""
-    input_schema_summary: str = ""
-    output_schema_summary: str = ""
-    risk_summary: str = ""
-    authorized: bool = False
-    authorization_owner: str = "ResourcePolicy"
-    requires_approval: bool = False
-    available_to_model: bool = False
-    runtime_executable: bool = False
-    denied_reason: str = ""
-    policy_decision: str = "unknown"
-
-
-class SoulProjectionCardRequest(BaseModel):
-    projection_id: str = ""
-    soul_id: str = Field(..., min_length=1)
-    projection_kind: str = "soul_projection"
-    owner_system: str = "soul_system"
-    source_task_graph_refs: list[str] = Field(default_factory=list)
-    projection_nodes: list[dict[str, Any]] = Field(default_factory=list)
-    identity_anchor: str = ""
-    role_type: str = "dialogue"
-    task_mode: str = "general_qa"
-    agent_profile_id: str = "general_agent"
-    projection_name: str = ""
-    posture_tags: list[str] = Field(default_factory=list)
-    expression_density: str = "normal"
-    attention_focus: list[str] = Field(default_factory=list)
-    risk_notes: list[str] = Field(default_factory=list)
-    projection_prompt: str = ""
-    skill_views: list[SoulSkillViewPayload] = Field(default_factory=list)
-    tool_views: list[SoulToolViewPayload] = Field(default_factory=list)
-    usage_summary: str = "可被任务系统选用的灵魂投影资源。"
-    memory_policy_summary: str = "预览模式不授予记忆写回权。"
-    output_contract_summary: str = "预览当前灵魂如何收束 prompt sections。"
-    select_after_create: bool = True
-
-
-class ProjectionInstancePreviewRequest(BaseModel):
-    template_id: str = Field(..., min_length=1)
-    task_id: str = Field(default="task-preview")
-    task_run_id: str = ""
-    agent_id: str = Field(default="agent:3")
-    runtime_lane: str = Field(default="health_issue_read")
-    resource_policy_ref: str = ""
-    context_snapshot_ref: str = ""
-
-
 class CustomSoulSaveRequest(BaseModel):
     soul_id: str = Field(..., min_length=1)
     name: str = Field(..., min_length=1)
@@ -118,7 +56,6 @@ class CustomSoulSaveRequest(BaseModel):
 class SoulModePreviewRequest(BaseModel):
     mode: str = Field(default="work_mode", min_length=1)
     soul_id: str = Field(default="hebo", min_length=1)
-    projection_id: str = ""
     work_prompt_id: str = ""
     task_contract: str = ""
 
@@ -184,11 +121,9 @@ async def switch_soul(payload: SoulSwitchRequest) -> dict[str, Any]:
     facade = SoulFacade(runtime.base_dir)
     try:
         catalog = facade.switch(key)
-        facade.list_projection_cards()
         AgentRegistry(runtime.base_dir).upsert_agent(
             agent_id="agent:0",
             default_soul_id=key,
-            default_projection_id=f"{key}__primary",
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Unknown soul seed") from exc
@@ -244,27 +179,6 @@ async def save_soul_common_contract(prompt_id: str, payload: SoulCommonContractS
     return SoulFacade(runtime.base_dir).build_catalog()
 
 
-@router.get("/soul/projections")
-async def soul_projection_cards() -> dict[str, Any]:
-    runtime = require_runtime()
-    return SoulFacade(runtime.base_dir).list_projection_cards()
-
-
-@router.get("/soul/projection-templates")
-async def soul_projection_templates() -> dict[str, Any]:
-    runtime = require_runtime()
-    return SoulFacade(runtime.base_dir).build_template_catalog()
-
-
-@router.get("/soul/projection-templates/{template_id}")
-async def soul_projection_template_detail(template_id: str) -> dict[str, Any]:
-    runtime = require_runtime()
-    template = SoulFacade(runtime.base_dir).get_template(template_id)
-    if template is None:
-        raise HTTPException(status_code=404, detail="Unknown projection template")
-    return template.to_dict()
-
-
 @router.get("/soul/{soul_id}/activity")
 async def soul_work_log(soul_id: str, limit: int = 20) -> dict[str, Any]:
     runtime = require_runtime()
@@ -304,61 +218,11 @@ async def soul_mode_preview(payload: SoulModePreviewRequest) -> dict[str, Any]:
         return facade.preview_mode(
             mode=payload.mode.strip(),
             soul_id=payload.soul_id.strip().lower(),
-            projection_id=payload.projection_id.strip(),
             work_prompt_id=payload.work_prompt_id.strip(),
             task_contract=payload.task_contract,
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-
-@router.post("/soul/projection-instances/preview")
-async def soul_projection_instance_preview(payload: ProjectionInstancePreviewRequest) -> dict[str, Any]:
-    runtime = require_runtime()
-    try:
-        return SoulFacade(runtime.base_dir).preview_instance(
-            template_id=payload.template_id,
-            task_id=payload.task_id,
-            task_run_id=payload.task_run_id,
-            agent_id=payload.agent_id,
-            runtime_lane=payload.runtime_lane,
-            resource_policy_ref=payload.resource_policy_ref,
-            context_snapshot_ref=payload.context_snapshot_ref,
-        )
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail="Unknown projection template") from exc
-
-
-@router.post("/soul/projections")
-async def create_soul_projection_card(payload: SoulProjectionCardRequest) -> dict[str, Any]:
-    runtime = require_runtime()
-    facade = SoulFacade(runtime.base_dir)
-    request_payload = payload.model_dump()
-    try:
-        return facade.upsert_projection_card(
-            request=request_payload,
-            select_after_create=payload.select_after_create,
-        )
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail="Unknown or disabled soul") from exc
-
-
-@router.post("/soul/projections/{projection_id}/select")
-async def select_soul_projection(projection_id: str) -> dict[str, Any]:
-    runtime = require_runtime()
-    try:
-        return SoulFacade(runtime.base_dir).select_projection_card(projection_id)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail="Unknown projection card") from exc
-
-
-@router.delete("/soul/projections/{projection_id}")
-async def delete_soul_projection(projection_id: str) -> dict[str, Any]:
-    runtime = require_runtime()
-    try:
-        return SoulFacade(runtime.base_dir).delete_projection_card(projection_id)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail="Unknown projection card") from exc
 
 
 @router.post("/soul/custom")
@@ -442,3 +306,12 @@ async def soul_profile(soul_id: str) -> dict[str, Any]:
     if profile is None:
         raise HTTPException(status_code=404, detail="Unknown soul")
     return profile.to_dict()
+
+
+@router.get("/soul/{soul_id}/role-prompt")
+async def soul_role_prompt(soul_id: str) -> dict[str, Any]:
+    runtime = require_runtime()
+    try:
+        return SoulFacade(runtime.base_dir).build_role_prompt(soul_id=soul_id.strip().lower())
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Unknown soul") from exc

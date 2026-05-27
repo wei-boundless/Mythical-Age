@@ -16,7 +16,7 @@ from .models import (
     MemoryAssemblyBinding,
     OutputBoundaryBinding,
     PromptAssemblyContract,
-    SoulAssemblyBinding,
+    RolePromptBinding,
     WorkOrder,
 )
 from .boundary import (
@@ -36,10 +36,7 @@ def build_model_context(assembly: AgentAssemblyContract) -> dict[str, Any]:
         "agent_id": assembly.agent_id,
         "agent_profile_id": assembly.agent_profile_id,
         "runtime_lane": assembly.runtime_lane,
-        "prompt_manifest_ref": assembly.prompt_manifest_ref,
         "model_profile_id": assembly.model_profile_id,
-        "projection_id": assembly.projection_id,
-        "soul_id": assembly.soul_id,
         "memory_binding": assembly.memory_binding.to_dict(),
         "capability_binding": assembly.capability_binding.to_dict(),
         "output_boundary": assembly.output_boundary.to_dict(),
@@ -61,9 +58,6 @@ def build_agent_assembly_contract(
         agent_runtime_profile=agent_runtime_profile,
     )
     runtime_lane = _resolve_runtime_lane(work_order, runtime_profile)
-    projection_id = _resolve_projection_id(work_order, agent_descriptor)
-    soul_id = _resolve_soul_id(work_order, agent_descriptor, projection_id=projection_id)
-    prompt_manifest_ref = _resolve_prompt_manifest_ref(work_order)
     memory_binding = _build_memory_binding(work_order, runtime_profile)
     capability_binding = _build_capability_binding(work_order, runtime_profile, agent_descriptor)
     role_name = _role_name_for_work_order(work_order)
@@ -71,10 +65,8 @@ def build_agent_assembly_contract(
     instruction_text = _instruction_text_for_work_order(work_order, agent_descriptor, runtime_profile)
     runtime_model_requirement = _runtime_model_requirement(work_order)
     role_prompt_source = _runtime_role_prompt_source(work_order) or "fallback"
-    soul_binding = SoulAssemblyBinding(
-        projection_id=projection_id,
-        soul_id=soul_id,
-        prompt_manifest_ref=prompt_manifest_ref,
+    role_prompt_binding = RolePromptBinding(
+        role_prompt_id=_runtime_role_prompt_id(work_order),
         role_name=role_name,
         role_summary=role_summary,
         metadata={
@@ -84,7 +76,7 @@ def build_agent_assembly_contract(
             "role_prompt_source": role_prompt_source,
         },
     )
-    output_boundary = _build_output_boundary(work_order, agent_descriptor, prompt_manifest_ref=prompt_manifest_ref)
+    output_boundary = _build_output_boundary(work_order, agent_descriptor)
     ports = _build_ports(work_order, capability_binding, memory_binding, output_boundary)
     prompt_assembly = PromptAssemblyContract(
         prompt_id=f"prompt:{work_order.work_order_id}",
@@ -97,7 +89,6 @@ def build_agent_assembly_contract(
         metadata={
             "work_kind": work_order.work_kind,
             "executor_type": work_order.executor_type,
-            "prompt_manifest_ref": prompt_manifest_ref,
             "role_prompt_source": role_prompt_source,
             "model_requirement": runtime_model_requirement,
         },
@@ -117,13 +108,10 @@ def build_agent_assembly_contract(
         agent_profile_id=agent_profile_id,
         runtime_lane=runtime_lane,
         model_profile_id=str(getattr(runtime_profile.model_profile, "profile_id", "") or "") if runtime_profile is not None else "",
-        projection_id=projection_id,
-        soul_id=soul_id,
-        prompt_manifest_ref=prompt_manifest_ref,
         prompt_assembly=prompt_assembly,
         memory_binding=memory_binding,
         capability_binding=capability_binding,
-        soul_binding=soul_binding,
+        role_prompt_binding=role_prompt_binding,
         output_boundary=output_boundary,
         ports=ports,
         execution_contract_ref=_execution_contract_ref(work_order),
@@ -147,9 +135,7 @@ def build_agent_assembly_contract(
             "agent_name": getattr(agent_descriptor, "agent_name", ""),
             "agent_category": getattr(agent_descriptor, "agent_category", ""),
             "agent_resolution_source": _agent_resolution_source(work_order, agent_runtime_profile, runtime_profile),
-            "projection_resolution_source": _projection_resolution_source(work_order, agent_descriptor),
             "runtime_lane_source": _runtime_lane_source(work_order, runtime_profile),
-            "prompt_manifest_ref": prompt_manifest_ref,
             "model_requirement": runtime_model_requirement,
             "tool_execution_policy": _runtime_tool_execution_policy(work_order),
             "dynamic_memory_read_policy": _runtime_dynamic_memory_read_policy(work_order),
@@ -176,7 +162,7 @@ def build_agent_invocation(
     base_dir: Path,
     agent_runtime_profile: AgentRuntimeProfile | None = None,
 ) -> AgentInvocation:
-    from runtime.execution_permit import build_execution_permit
+    from harness.runtime.execution_policy import build_execution_permit
 
     assembly = build_agent_assembly_contract(
         work_order,
@@ -245,7 +231,7 @@ def build_execution_permit_for_work_order(
     base_dir: Path,
     agent_runtime_profile: AgentRuntimeProfile | None = None,
 ):
-    from runtime.execution_permit import build_execution_permit
+    from harness.runtime.execution_policy import build_execution_permit
 
     assembly = build_agent_assembly_contract(
         work_order,
@@ -328,37 +314,6 @@ def _resolve_runtime_lane(work_order: WorkOrder, runtime_profile: AgentRuntimePr
         if candidate:
             return candidate
     return "role_interaction"
-
-
-def _resolve_projection_id(work_order: WorkOrder, agent_descriptor: Any | None) -> str:
-    runtime_assembly = dict(work_order.runtime_assembly or {})
-    explicit = str(runtime_assembly.get("projection_id") or runtime_assembly.get("projection_ref") or "").strip()
-    if explicit:
-        return explicit
-    if agent_descriptor is None:
-        return ""
-    return str(getattr(agent_descriptor, "default_projection_id", "") or "").strip()
-
-
-def _resolve_soul_id(work_order: WorkOrder, agent_descriptor: Any | None, *, projection_id: str) -> str:
-    runtime_assembly = dict(work_order.runtime_assembly or {})
-    explicit = str(runtime_assembly.get("soul_id") or "").strip()
-    if explicit:
-        return explicit
-    if projection_id:
-        return str(getattr(agent_descriptor, "default_soul_id", "") or "").strip()
-    return str(getattr(agent_descriptor, "default_soul_id", "") or "").strip()
-
-
-def _resolve_prompt_manifest_ref(work_order: WorkOrder) -> str:
-    runtime_assembly = dict(work_order.runtime_assembly or {})
-    prompt_manifest = dict(runtime_assembly.get("prompt_manifest") or {})
-    return str(
-        runtime_assembly.get("prompt_manifest_ref")
-        or prompt_manifest.get("manifest_id")
-        or runtime_assembly.get("manifest_ref")
-        or ""
-    ).strip()
 
 
 def _build_memory_binding(
@@ -561,6 +516,18 @@ def _runtime_role_prompt_source(work_order: WorkOrder) -> str:
     return ""
 
 
+def _runtime_role_prompt_id(work_order: WorkOrder) -> str:
+    runtime_assembly = dict(work_order.runtime_assembly or {})
+    metadata = dict(runtime_assembly.get("metadata") or {})
+    prompt_bindings = dict(_runtime_contract_bindings(work_order).get("prompt") or {})
+    return str(
+        metadata.get("role_prompt_id")
+        or runtime_assembly.get("role_prompt_id")
+        or prompt_bindings.get("role_prompt_id")
+        or ""
+    ).strip()
+
+
 def _policy_tool_names(policy: dict[str, Any], *keys: str) -> tuple[str, ...]:
     values: list[Any] = []
     for key in keys:
@@ -599,8 +566,6 @@ def _dedupe(values: list[Any] | tuple[Any, ...]) -> list[str]:
 def _build_output_boundary(
     work_order: WorkOrder,
     agent_descriptor: Any | None,
-    *,
-    prompt_manifest_ref: str,
 ) -> OutputBoundaryBinding:
     if work_order.executor_type == "human":
         channel = "human_review"
@@ -612,11 +577,11 @@ def _build_output_boundary(
         canonical_state = "graph_node"
         persist_policy = "graph_commit"
         finalization_policy = "node_result_commit"
-    elif work_order.work_kind == "subruntime":
-        channel = "subruntime_result"
-        canonical_state = "subruntime"
-        persist_policy = "subruntime_commit"
-        finalization_policy = "subruntime_result_commit"
+    elif work_order.work_kind == "graph_module":
+        channel = "graph_module_result"
+        canonical_state = "graph_module"
+        persist_policy = "graph_module_commit"
+        finalization_policy = "graph_module_result_commit"
     else:
         channel = "assistant_message"
         canonical_state = "assistant_message"
@@ -638,7 +603,6 @@ def _build_output_boundary(
         leak_flags=leak_flags,
         metadata={
             "agent_name": getattr(agent_descriptor, "agent_name", ""),
-            "prompt_manifest_ref": prompt_manifest_ref,
         },
     )
 
@@ -719,8 +683,8 @@ def _role_name_for_work_order(work_order: WorkOrder) -> str:
         return "人工审核员"
     if work_order.work_kind == "node":
         return "阶段任务执行者"
-    if work_order.work_kind == "subruntime":
-        return "子任务执行者"
+    if work_order.work_kind == "graph_module":
+        return "图模块执行者"
     return "执行代理"
 
 
@@ -734,8 +698,8 @@ def _role_summary_for_work_order(work_order: WorkOrder, agent_descriptor: Any | 
         return "你负责人工确认和人工结果回填，只处理当前工作单。"
     if work_order.work_kind == "node":
         return f"你负责完成当前阶段任务 {work_order.node_id or work_order.stage_id}，不替代上层流程做取舍。"
-    if work_order.work_kind == "subruntime":
-        return "你负责完成封装子任务，只返回当前子任务要求的结果。"
+    if work_order.work_kind == "graph_module":
+        return "你负责启动并接收当前图模块的结果，只返回图模块对父图承诺的输出。"
     return f"{agent_name or '你'}负责完成当前工作单并交付受限结果。"
 
 
@@ -761,11 +725,11 @@ def _instruction_text_for_work_order(
             "你只负责完成当前阶段职责，交付必须符合当前阶段的验收要求。"
             "你不负责替上层流程重写任务安排。"
         )
-    if work_order.work_kind == "subruntime":
+    if work_order.work_kind == "graph_module":
         return (
-            "你是一名子任务执行者。"
-            "你只负责完成封装子任务并返回清晰结果。"
-            "你不负责暴露内部执行细节。"
+            "你是一名图模块执行者。"
+            "你只负责完成当前导入图模块并返回对父图承诺的结果。"
+            "你不负责暴露导入图内部执行细节，也不替父图改写流程。"
         )
     return (
         f"你是一名{agent_name or '执行代理'}。"
@@ -799,8 +763,8 @@ def _required_outputs_for_work_order(
         required.append("当前阶段结果")
     if work_order.executor_type == "human":
         required.append("人工反馈")
-    if work_order.work_kind == "subruntime":
-        required.append("子任务结果")
+    if work_order.work_kind == "graph_module":
+        required.append("图模块结果")
     return tuple(dict.fromkeys([item for item in required if item]))
 
 
@@ -828,15 +792,6 @@ def _agent_resolution_source(
     if runtime_profile is not None:
         return "runtime_registry"
     return "system_default"
-
-
-def _projection_resolution_source(work_order: WorkOrder, agent_descriptor: Any | None) -> str:
-    runtime_assembly = dict(work_order.runtime_assembly or {})
-    if runtime_assembly.get("projection_id") or runtime_assembly.get("projection_ref"):
-        return "runtime_assembly"
-    if getattr(agent_descriptor, "default_projection_id", ""):
-        return "agent_descriptor_default"
-    return "none"
 
 
 def _runtime_lane_source(work_order: WorkOrder, runtime_profile: AgentRuntimeProfile | None) -> str:

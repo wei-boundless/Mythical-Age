@@ -15,7 +15,7 @@ def _request() -> SimpleNamespace:
     return SimpleNamespace(task_id="task-runtime")
 
 
-def test_runtime_sections_hide_projection_section_outside_role_mode() -> None:
+def test_runtime_sections_never_emit_projection_section() -> None:
     sections = assemble_runtime_prompt_sections(
         base_dir=Path("backend"),
         contract={
@@ -32,7 +32,6 @@ def test_runtime_sections_hide_projection_section_outside_role_mode() -> None:
             "completion_judgment_section": "完成裁决",
             "mode_policy_section": "当前交互模式：professional_mode。",
             "workflow_section": "工作流",
-            "projection_section": "当前表达姿态：task_default。",
             "output_section": "输出边界",
             "metadata": {
                 "prompt_selection_context": {"interaction_mode": "professional_mode"},
@@ -51,42 +50,6 @@ def test_runtime_sections_hide_projection_section_outside_role_mode() -> None:
     assert "task_goal_role_prompt_section" in ids
     assert "domain_playbook_section" not in ids
     assert "mode_policy_section" in ids
-
-
-def test_runtime_sections_keep_projection_section_in_role_mode() -> None:
-    sections = assemble_runtime_prompt_sections(
-        base_dir=Path("backend"),
-        contract={
-            "contract_id": "orchprompt:task-runtime",
-            "task_id": "task-runtime",
-            "task_section": "任务契约",
-            "semantic_task_section": "",
-            "goal_understanding_section": "",
-            "task_goal_role_prompt_section": "",
-            "node_professional_prompt_section": "",
-            "professional_profile_section": "",
-            "agent_plan_section": "",
-            "plan_coverage_section": "",
-            "completion_judgment_section": "",
-            "mode_policy_section": "当前交互模式：role_mode。",
-            "workflow_section": "",
-            "projection_section": "当前表达姿态：chapter_drafting。",
-            "output_section": "输出边界",
-            "metadata": {
-                "prompt_selection_context": {"interaction_mode": "role_mode"},
-                "mode_policy": {"interaction_mode": "role_mode"},
-            },
-        },
-        projection={"task_id": "task-runtime", "identity_anchor": "你是长篇正文执行投影。"},
-        request=_request(),
-        soul_skill_views=(),
-        soul_tool_views=(),
-        use_shared_contract=False,
-    )
-
-    projection_section = next(section for section in sections if section.section_id == "projection_section")
-    assert projection_section.owner_layer == "projection"
-    assert "你是长篇正文执行投影。" in projection_section.content
 
 
 def test_runtime_sections_emit_skill_catalog_and_detail_separately() -> None:
@@ -109,7 +72,6 @@ def test_runtime_sections_emit_skill_catalog_and_detail_separately() -> None:
             "workflow_section": "",
             "skill_catalog_section": "候选 Skills（第一阶段）\n- skill_id: skill.image-prompt-design",
             "skill_detail_section": "已激活 Skills（第二阶段）\n## skill.image-prompt-design",
-            "projection_section": "",
             "output_section": "输出边界",
             "metadata": {
                 "prompt_selection_context": {"interaction_mode": "professional_mode"},
@@ -149,7 +111,6 @@ def test_runtime_sections_ignore_legacy_domain_playbook_even_when_present() -> N
             "completion_judgment_section": "",
             "mode_policy_section": "当前交互模式：professional_mode。",
             "workflow_section": "",
-            "projection_section": "",
             "output_section": "输出边界",
             "metadata": {
                 "prompt_selection_context": {"interaction_mode": "professional_mode"},

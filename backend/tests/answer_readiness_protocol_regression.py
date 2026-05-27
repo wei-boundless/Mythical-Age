@@ -9,7 +9,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from context_system.projection.projection import ContextProjection
 from runtime.memory.observation_aggregator import ObservationAggregator
-from runtime.execution_engine import build_answer_readiness_judge_message
+from harness.loop.agent_execution import build_answer_readiness_judge_message
 
 
 def test_observation_aggregator_builds_evidence_items_without_losing_projection() -> None:

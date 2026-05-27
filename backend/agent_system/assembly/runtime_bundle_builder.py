@@ -3,10 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from capability_system import build_default_operation_registry
 from prompt_library import assemble_runtime_prompt_contract
-from soul import SoulFacade
-from soul.projection_store import get_projection_card
 
 from ..registry.agent_registry import AgentRegistry
 from ..identity import normalize_agent_id
@@ -14,8 +11,6 @@ from ..profiles.runtime_profile_models import AgentRuntimeProfile
 from ..profiles.runtime_profile_registry import AgentRuntimeRegistry
 from .runtime_spec_models import AgentRuntimeSpec, TaskBodyOrchestration
 from ..profiles.body_registry import BodyProfileRegistry
-from permissions.resource_policy_builder import build_resource_policy_candidate
-from orchestration.resource_runtime_view import build_resource_runtime_views
 
 
 def build_orchestration_runtime_bundle(
@@ -35,7 +30,6 @@ def build_orchestration_runtime_bundle(
     task_execution_assembly = dict(task_assembly_bundle.get("task_execution_assembly") or {})
     task_spec = dict(task_assembly_bundle.get("task_spec") or {})
     selected_recipe = dict(task_assembly_bundle.get("selected_recipe") or {})
-    projection_selection = dict(task_assembly_bundle.get("projection_selection") or {})
     task_workflow = dict(task_assembly_bundle.get("_task_workflow_obj") or {})
     binding = dict(task_assembly_bundle.get("binding") or {})
     operation_requirement = dict(task_assembly_bundle.get("operation_requirement") or {})
@@ -101,17 +95,6 @@ def build_orchestration_runtime_bundle(
         output_contract_id=str(task_execution_assembly.get("output_contract_id") or ""),
     )
 
-    projection_requirement = _build_projection_requirement(
-        base_dir=base_dir,
-        task_id=task_id,
-        projection_selection=projection_selection,
-        agent_descriptor=descriptor,
-        task_mode=str(task_execution_assembly.get("task_mode") or ""),
-        task_contract=task_contract,
-        task_execution_assembly=task_execution_assembly,
-        selected_recipe=selected_recipe,
-    )
-    projection_diagnostics = _projection_resolution_diagnostics(projection_requirement)
     prompt_contract = assemble_runtime_prompt_contract(
         base_dir=base_dir,
         task_id=task_id,
@@ -124,7 +107,6 @@ def build_orchestration_runtime_bundle(
         binding=binding,
         registered_task=registered_task,
         skill_runtime_views=skill_runtime_views,
-        projection_requirement=projection_requirement,
         operation_requirement=operation_requirement,
         agent_id=agent_id,
         current_turn_context=current_turn_payload,
@@ -136,27 +118,6 @@ def build_orchestration_runtime_bundle(
         prompt_selection_context=prompt_selection_context,
         prompt_assembly_plan=prompt_assembly_plan,
     )
-    operation_registry = build_default_operation_registry()
-    candidate_policy = build_resource_policy_candidate(
-        _operation_requirement_from_payload(operation_requirement),
-        operation_registry,
-    )
-    resource_views = [item.to_dict() for item in build_resource_runtime_views(candidate_policy, operation_registry)]
-    soul_runtime = SoulFacade(base_dir).build_runtime_view(
-        task_prompt_contract=prompt_contract,
-        projection_requirement=projection_requirement,
-        skill_views=skill_runtime_views,
-        resource_views=resource_views,
-        soul_id=str(projection_requirement.get("soul_id") or getattr(descriptor, "default_soul_id", "") or "runtime"),
-        agent_profile_id=str(getattr(runtime_profile, "agent_profile_id", "") or "runtime_agent"),
-        use_shared_contract=bool(getattr(runtime_profile, "use_shared_contract", True)),
-    )
-    soul_runtime_view = dict(soul_runtime.get("runtime_view") or {})
-    prompt_manifest = dict(soul_runtime.get("prompt_manifest") or {})
-    prompt_manifest_validation = dict(prompt_manifest.get("validation") or {})
-    projection_ref = str(soul_runtime.get("projection_id") or prompt_manifest.get("projection_id") or "")
-    prompt_manifest_ref = str(prompt_manifest.get("manifest_id") or "")
-
     orchestration = TaskBodyOrchestration(
         orchestration_id=f"orchestration:{task_id}",
         task_id=task_id,
@@ -187,22 +148,13 @@ def build_orchestration_runtime_bundle(
         fallback_plan={
             "runtime_executable_default": True,
             "fallback_policy": "fail_closed",
-            "on_projection_gap": "continue_with_minimal_projection",
-            "prompt_manifest_validation_passed": bool(prompt_manifest_validation.get("passed") is True),
         },
-        projection_requirement=projection_requirement,
-        soul_runtime_view=soul_runtime_view,
-        prompt_manifest=prompt_manifest,
-        projection_ref=projection_ref,
-        prompt_manifest_ref=prompt_manifest_ref,
         diagnostics={
             "builder": "orchestration.build_orchestration_runtime_bundle",
-            "projection_provider": "soul.build_soul_runtime_view",
-            "projection_resolution": projection_diagnostics,
+            "soul_runtime_projection_enabled": False,
             "prompt_selection_context": prompt_selection_context,
             "prompt_assembly_plan": prompt_assembly_plan,
             "prompt_flow_trace": prompt_flow_trace,
-            "prompt_manifest_validation": prompt_manifest_validation,
             "memory_view_ref": str(memory_view.get("view_id") or ""),
             "context_policy_ref": _context_policy_ref(context_policy),
             "runtime_lane": runtime_lane_profile.lane_id,
@@ -226,7 +178,6 @@ def build_orchestration_runtime_bundle(
             )
             if item
         ),
-        projection_snapshot_ref=f"stageproj:{task_id}",
         resource_policy_candidate_ref=str(operation_requirement.get("requirement_id") or ""),
         input_contract_ref=str(task_execution_assembly.get("input_contract_id") or task_contract.get("input_contract_id") or ""),
         output_contract_ref=str(task_execution_assembly.get("output_contract_id") or task_contract.get("output_contract_id") or ""),
@@ -240,9 +191,7 @@ def build_orchestration_runtime_bundle(
             "runtime_lane_profile_ref": runtime_lane_profile.profile_id,
             "requested_runtime_lane": requested_runtime_lane,
             "output_boundary_profile_ref": output_boundary_profile.profile_id,
-            "projection_resolution": projection_diagnostics,
-            "prompt_manifest_validation_passed": bool(prompt_manifest_validation.get("passed") is True),
-            "prompt_manifest_validation_issue_count": len(list(prompt_manifest_validation.get("issues") or [])),
+            "soul_runtime_projection_enabled": False,
             "continuation_decision": dict(current_turn_payload.get("continuation_decision") or {}),
         },
     )
@@ -282,97 +231,6 @@ def _requested_runtime_lane(
     if metadata_lane:
         return metadata_lane
     return str(task_execution_assembly.get("runtime_lane") or "").strip()
-
-
-def _build_projection_requirement(
-    *,
-    base_dir: Path,
-    task_id: str,
-    projection_selection: dict[str, Any],
-    agent_descriptor: Any | None,
-    task_mode: str,
-    task_contract: dict[str, Any] | None = None,
-    task_execution_assembly: dict[str, Any] | None = None,
-    selected_recipe: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    contract = dict(task_contract or {})
-    assembly = dict(task_execution_assembly or {})
-    recipe = dict(selected_recipe or {})
-    metadata = {
-        **dict(recipe.get("metadata") or {}),
-        **dict(assembly.get("metadata") or {}),
-    }
-    mode_policy = dict(
-        contract.get("mode_policy")
-        or metadata.get("mode_policy")
-        or {}
-    )
-    semantic_contract = dict(
-        contract.get("task_requirement_contract")
-        or metadata.get("task_requirement_contract")
-        or {}
-    )
-    selected_projection_id = str(projection_selection.get("selected_projection_id") or "").strip()
-    default_projection_id = str(getattr(agent_descriptor, "default_projection_id", "") or "").strip()
-    default_soul_id = str(getattr(agent_descriptor, "default_soul_id", "") or "").strip()
-    selection_source = str(projection_selection.get("selection_source") or "task_binding").strip() or "task_binding"
-    reason = str(projection_selection.get("selection_reason") or "").strip() or "derived from task-side projection selection"
-    resolved_projection_id = selected_projection_id or default_projection_id
-    issue = ""
-    if selected_projection_id:
-        resolution_source = "task_requirement"
-        if default_projection_id and default_projection_id != selected_projection_id:
-            issue = "task_projection_overrides_agent_default"
-    elif default_projection_id:
-        resolution_source = "agent_default"
-    else:
-        resolution_source = "no_projection"
-    projection_card = get_projection_card(base_dir, resolved_projection_id) if resolved_projection_id else None
-    return {
-        "task_id": task_id,
-        "role_type": str((projection_card or {}).get("role_type") or projection_selection.get("role_type") or "task_default"),
-        "posture_tags": list((projection_card or {}).get("posture_tags") or projection_selection.get("posture_tags") or ("concise",)),
-        "expression_density": str((projection_card or {}).get("expression_density") or "normal"),
-        "attention_focus": list((projection_card or {}).get("attention_focus") or ["task_goal", "workflow", "output"]),
-        "projection_id": resolved_projection_id,
-        "selected_projection_id": selected_projection_id,
-        "agent_default_projection_id": default_projection_id,
-        "resolution_source": resolution_source,
-        "issue": issue,
-        "projection_optional": True,
-        "soul_id": str((projection_card or {}).get("soul_id") or default_soul_id),
-        "projection_title": str((projection_card or {}).get("title") or ""),
-        "identity_anchor": str((projection_card or {}).get("identity_anchor") or ""),
-        "projection_prompt": str((projection_card or {}).get("projection_prompt") or ""),
-        "reason": reason,
-        "selection_source": selection_source,
-        "task_mode": task_mode,
-        "interaction_mode": str(mode_policy.get("interaction_mode") or metadata.get("interaction_mode") or ""),
-        "projection_strength": str(mode_policy.get("projection_strength") or metadata.get("projection_strength") or ""),
-        "runtime_lane": str(mode_policy.get("runtime_lane") or metadata.get("runtime_lane_hint") or ""),
-        "professional_profile_id": str(
-            semantic_contract.get("professional_profile_id")
-            or metadata.get("professional_profile_id")
-            or ""
-        ),
-        "semantic_task_type": str(semantic_contract.get("task_goal_type") or metadata.get("semantic_task_type") or ""),
-        "mode_policy_ref": str(mode_policy.get("authority") or ""),
-    }
-
-
-def _projection_resolution_diagnostics(projection_requirement: dict[str, Any]) -> dict[str, Any]:
-    issue = str(projection_requirement.get("issue") or "").strip()
-    return {
-        "authority": "orchestration.projection_resolution",
-        "status": "warning" if issue else "ok",
-        "projection_optional": True,
-        "resolution_source": str(projection_requirement.get("resolution_source") or "no_projection"),
-        "selected_projection_id": str(projection_requirement.get("selected_projection_id") or ""),
-        "agent_default_projection_id": str(projection_requirement.get("agent_default_projection_id") or ""),
-        "resolved_projection_id": str(projection_requirement.get("projection_id") or ""),
-        "issue": issue,
-    }
-
 
 def _prompt_flow_trace(
     *,
@@ -419,20 +277,4 @@ def _context_policy_ref(context_policy_result: dict[str, Any]) -> str:
         or package.get("id")
         or package.get("rebuild_reason")
         or ""
-    )
-
-
-def _operation_requirement_from_payload(payload: dict[str, Any]):
-    from task_system.contracts.capability_requirements import OperationRequirement
-
-    return OperationRequirement(
-        requirement_id=str(payload.get("requirement_id") or ""),
-        task_id=str(payload.get("task_id") or ""),
-        source=str(payload.get("source") or ""),
-        required_operations=tuple(str(item) for item in list(payload.get("required_operations") or []) if str(item)),
-        optional_operations=tuple(str(item) for item in list(payload.get("optional_operations") or []) if str(item)),
-        denied_operations=tuple(str(item) for item in list(payload.get("denied_operations") or []) if str(item)),
-        reason=str(payload.get("reason") or ""),
-        authority=str(payload.get("authority") or "candidate_only"),
-        metadata=dict(payload.get("metadata") or {}),
     )

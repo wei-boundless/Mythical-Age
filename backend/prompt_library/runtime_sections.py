@@ -8,7 +8,7 @@ def assemble_runtime_prompt_sections(
     *,
     base_dir: Path,
     contract: dict[str, Any],
-    projection: dict[str, Any],
+    projection: dict[str, Any] | None = None,
     request: Any,
     soul_skill_views: tuple[Any, ...],
     soul_tool_views: tuple[Any, ...],
@@ -32,11 +32,6 @@ def assemble_runtime_prompt_sections(
     shared_contract = _load_shared_contract(base_dir)
     resource_content = _resource_projection_content(soul_tool_views)
     resource_policy_ref = str(metadata.get("resource_policy_ref") or "")
-    projection_content = _projection_content(
-        contract=contract,
-        projection=projection,
-        interaction_mode=interaction_mode,
-    )
     node_prompt = _node_prompt_source(
         contract=contract,
         metadata=metadata,
@@ -215,17 +210,6 @@ def assemble_runtime_prompt_sections(
             candidate_refs=tuple(str(item).strip() for item in list(metadata.get("activated_skill_ids") or []) if str(item).strip()),
         ),
         PromptSection(
-            section_id="projection_section",
-            title="投影姿态",
-            source_type="projection_requirement",
-            source_id=str(getattr(request, "task_id", "") or contract.get("task_id") or ""),
-            owner_layer="projection",
-            cache_scope="dynamic",
-            visible_to_model=interaction_mode == "role_mode",
-            content=projection_content,
-            source_refs=(str(projection.get("task_id") or getattr(request, "task_id", "")),),
-        ),
-        PromptSection(
             section_id="output_section",
             title="输出边界",
             source_type="task_contract",
@@ -267,19 +251,6 @@ def assemble_runtime_prompt_sections(
             )
         )
     return tuple(section for section in candidate_sections if section.visible_to_model and section.content.strip())
-
-
-def _projection_content(*, contract: dict[str, Any], projection: dict[str, Any], interaction_mode: str) -> str:
-    if str(interaction_mode or "").strip() != "role_mode":
-        return ""
-    projection_lines = [str(contract.get("projection_section") or "").strip()]
-    projection_identity = str(projection.get("identity_anchor") or "").strip()
-    if projection_identity:
-        projection_lines.append(projection_identity)
-    projection_prompt = str(projection.get("projection_prompt") or "").strip()
-    if projection_prompt:
-        projection_lines.append(f"表达参考：{projection_prompt}")
-    return "\n".join(line for line in projection_lines if line)
 
 
 def _load_shared_contract(base_dir: Path) -> dict[str, Any]:

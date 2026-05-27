@@ -162,7 +162,6 @@ class ConversationEntryPolicyUpsertRequest(BaseModel):
     profile_id: str = Field(..., min_length=3, max_length=160)
     title: str = Field(..., min_length=1, max_length=160)
     default_workflow_id: str = Field(default="", max_length=160)
-    default_projection_id: str = Field(default="", max_length=160)
     input_contract_id: str = Field(default="", max_length=160)
     output_contract_id: str = Field(default="", max_length=160)
     conversation_entry_policy: str = Field(default="user_dialogue_to_main_agent", max_length=160)
@@ -1486,7 +1485,6 @@ async def upsert_task_system_entry_policy(profile_id: str, payload: Conversation
             title=payload.title,
             default_agent_id="agent:0",
             default_workflow_id=payload.default_workflow_id,
-            default_projection_id=payload.default_projection_id,
             input_contract_id=payload.input_contract_id,
             output_contract_id=payload.output_contract_id,
             conversation_entry_policy=payload.conversation_entry_policy,

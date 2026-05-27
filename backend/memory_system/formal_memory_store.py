@@ -948,59 +948,6 @@ class FormalMemoryStore:
                     ON formal_memory_read_logs(task_run_id, logical_repository_id, collection_id);
                 """
             )
-            _ensure_scope_columns(conn)
-
-
-def _ensure_scope_columns(conn: sqlite3.Connection) -> None:
-    table_columns = {
-        "formal_repositories": {
-            "logical_repository_id": "TEXT NOT NULL DEFAULT ''",
-            "effective_repository_id": "TEXT NOT NULL DEFAULT ''",
-            "task_run_id": "TEXT NOT NULL DEFAULT ''",
-            "scope_kind": "TEXT NOT NULL DEFAULT 'run_scoped'",
-            "scope_id": "TEXT NOT NULL DEFAULT ''",
-        },
-        "formal_collections": {
-            "logical_repository_id": "TEXT NOT NULL DEFAULT ''",
-            "effective_repository_id": "TEXT NOT NULL DEFAULT ''",
-            "task_run_id": "TEXT NOT NULL DEFAULT ''",
-            "scope_kind": "TEXT NOT NULL DEFAULT 'run_scoped'",
-            "scope_id": "TEXT NOT NULL DEFAULT ''",
-        },
-        "formal_records": {
-            "logical_repository_id": "TEXT NOT NULL DEFAULT ''",
-            "effective_repository_id": "TEXT NOT NULL DEFAULT ''",
-            "task_run_id": "TEXT NOT NULL DEFAULT ''",
-            "scope_kind": "TEXT NOT NULL DEFAULT 'run_scoped'",
-            "scope_id": "TEXT NOT NULL DEFAULT ''",
-        },
-        "formal_record_versions": {
-            "logical_repository_id": "TEXT NOT NULL DEFAULT ''",
-            "effective_repository_id": "TEXT NOT NULL DEFAULT ''",
-            "task_run_id": "TEXT NOT NULL DEFAULT ''",
-            "scope_kind": "TEXT NOT NULL DEFAULT 'run_scoped'",
-            "scope_id": "TEXT NOT NULL DEFAULT ''",
-        },
-        "formal_memory_transactions": {
-            "logical_repository_id": "TEXT NOT NULL DEFAULT ''",
-            "effective_repository_id": "TEXT NOT NULL DEFAULT ''",
-            "task_run_id": "TEXT NOT NULL DEFAULT ''",
-            "scope_kind": "TEXT NOT NULL DEFAULT 'run_scoped'",
-            "scope_id": "TEXT NOT NULL DEFAULT ''",
-        },
-        "formal_memory_read_logs": {
-            "logical_repository_id": "TEXT NOT NULL DEFAULT ''",
-            "effective_repository_id": "TEXT NOT NULL DEFAULT ''",
-            "task_run_id": "TEXT NOT NULL DEFAULT ''",
-            "scope_kind": "TEXT NOT NULL DEFAULT 'run_scoped'",
-            "scope_id": "TEXT NOT NULL DEFAULT ''",
-        },
-    }
-    for table, columns in table_columns.items():
-        existing = {str(row["name"]) for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
-        for column, column_type in columns.items():
-            if column not in existing:
-                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_type}")
 
 
 def _ensure_repository_collection(

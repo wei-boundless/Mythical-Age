@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from task_system.environments import default_task_environment_registry
 from task_system.registry.flow_models import SpecificTaskRecord, TaskExecutionPolicy
 
 from .assembly_policy import (
@@ -30,7 +31,6 @@ def resolve_specific_task_assembly_policy(
         metadata.get("environment_id"),
         task_policy.get("task_environment_id"),
         task_policy.get("environment_id"),
-        legacy_domain_id=getattr(task_record, "domain_id", ""),
     )
     flow_ref = _first_value(
         selection.get("flow_ref"),
@@ -158,11 +158,11 @@ def _first_value(*values: Any) -> str:
     return ""
 
 
-def _resolve_environment_id(*values: Any, legacy_domain_id: Any = "") -> str:
+def _resolve_environment_id(*values: Any) -> str:
     explicit = _first_value(*values)
     if explicit:
-        return _normalize_environment_id(explicit)
-    return _environment_id_from_legacy_domain(legacy_domain_id) or "env.vibe_coding"
+        return _require_known_environment(_normalize_environment_id(explicit))
+    return "env.general_workspace"
 
 
 def _normalize_environment_id(value: Any) -> str:
@@ -178,23 +178,13 @@ def _normalize_environment_id(value: Any) -> str:
     return text
 
 
-def _environment_id_from_legacy_domain(value: Any) -> str:
-    text = str(value or "").strip()
-    if not text:
-        return ""
-    if "writing" in text:
-        return "env.writing"
-    if "research" in text or "web" in text:
-        return "env.web_research"
-    if "data" in text:
-        return "env.data_analysis"
-    if "document" in text or "pdf" in text:
-        return "env.document_processing"
-    if "general" in text:
-        return "env.general_workspace"
-    if "development" in text or "custom_4" in text or "coding" in text:
-        return "env.vibe_coding"
-    return ""
+def _require_known_environment(environment_id: str) -> str:
+    value = str(environment_id or "").strip()
+    if not value:
+        raise ValueError("SpecificTaskAssemblyPolicy requires environment_id")
+    if default_task_environment_registry().get(value) is None:
+        raise ValueError(f"unknown task environment: {value}")
+    return value
 
 
 def _tuple_from_any(value: Any) -> tuple[str, ...]:
@@ -215,6 +205,6 @@ def _runtime_shape(value: str) -> str:
         return "task_graph"
     if normalized in {"human_gate", "human"}:
         return "human_gate"
-    if normalized in {"subruntime", "sub_runtime"}:
-        return "subruntime"
+    if normalized in {"graph_module", "imported_graph"}:
+        return "graph_module"
     return "single_agent"

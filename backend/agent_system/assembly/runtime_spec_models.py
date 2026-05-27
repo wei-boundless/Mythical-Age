@@ -19,11 +19,6 @@ class TaskBodyOrchestration:
     resource_binding_plan: dict[str, Any] = field(default_factory=dict)
     verification_gate_plan: dict[str, Any] = field(default_factory=dict)
     fallback_plan: dict[str, Any] = field(default_factory=dict)
-    projection_requirement: dict[str, Any] = field(default_factory=dict)
-    soul_runtime_view: dict[str, Any] = field(default_factory=dict)
-    prompt_manifest: dict[str, Any] = field(default_factory=dict)
-    projection_ref: str = ""
-    prompt_manifest_ref: str = ""
     diagnostics: dict[str, Any] = field(default_factory=dict)
     authority: str = "orchestration.task_body_orchestration"
 
@@ -50,7 +45,6 @@ class AgentRuntimeSpec:
     task_execution_assembly_ref: str
     task_body_orchestration_ref: str
     context_input_refs: tuple[str, ...] = ()
-    projection_snapshot_ref: str = ""
     resource_policy_candidate_ref: str = ""
     input_contract_ref: str = ""
     output_contract_ref: str = ""

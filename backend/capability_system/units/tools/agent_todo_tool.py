@@ -59,7 +59,7 @@ class AgentTodoTool(BaseTool):
         run_manager: CallbackManagerForToolRun | None = None,
     ) -> str:
         try:
-            from runtime.agent_runtime.agent_todo import build_agent_todo_plan, update_agent_todo_plan
+            from harness.runtime.agent_todo import build_agent_todo_plan, update_agent_todo_plan
 
             normalized_items = _normalize_items(items=items, todos=todos)
             current = self._read_state(session_id=session_id, task_id=task_id)

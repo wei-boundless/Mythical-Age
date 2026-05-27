@@ -4,9 +4,6 @@ from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 import hashlib
-import threading
-import time
-from typing import Callable
 
 from .memory_manager import MemoryManager
 
@@ -36,7 +33,7 @@ class ConsolidationReport:
     duplicate_candidates: list[DuplicateCandidate] = field(default_factory=list)
     merge_candidates: list[MergeCandidate] = field(default_factory=list)
     empty_body_candidates: list[str] = field(default_factory=list)
-    repair_payload: dict[str, object] = field(default_factory=dict)
+    governance_payload: dict[str, object] = field(default_factory=dict)
     durable_memory_dir: str = ""
     report_id: str = ""
 
@@ -51,17 +48,11 @@ class ConsolidationReport:
         return payload
 
 
-@dataclass(slots=True)
-class ConsolidationConfig:
-    min_saved_notes_between_runs: int = 3
-    min_seconds_between_runs: int = 1800
-
-
 class DurableMemoryConsolidator:
     """Rule-based consolidation for durable memory.
 
     Phase 1 goals:
-    - normalize all notes through MemoryManager.repair_store()
+    - govern current-schema notes through MemoryManager.govern_note_store()
     - identify likely duplicate candidates
     - identify suspicious/empty notes
     - rebuild a clean MEMORY.md via MemoryManager
@@ -73,8 +64,8 @@ class DurableMemoryConsolidator:
         self.manager = MemoryManager(self.root_dir)
 
     def run(self) -> ConsolidationReport:
-        self.manager._migrate_flat_layout()
-        repair_payload = self.manager.repair_store()
+        governance_payload = self.manager.govern_note_store()
+        self.manager.ensure_index_consistent()
         notes = self.manager.load_relevant_notes(limit=10_000)
 
         class_counts = Counter(note.memory_class for note in notes)
@@ -97,7 +88,7 @@ class DurableMemoryConsolidator:
             duplicate_candidates=duplicate_candidates,
             merge_candidates=merge_candidates,
             empty_body_candidates=empty_body_candidates,
-            repair_payload=repair_payload,
+            governance_payload=governance_payload,
             durable_memory_dir=str(self.root_dir),
             report_id=report_id,
         )
@@ -252,61 +243,3 @@ class DurableMemoryConsolidator:
         if not joined:
             return "empty"
         return hashlib.sha1(joined.encode("utf-8")).hexdigest()[:12]
-
-
-class ConsolidationScheduler:
-    """Lightweight background scheduler for durable memory consolidation."""
-
-    def __init__(
-        self,
-        root_dir: str | Path,
-        config: ConsolidationConfig | None = None,
-        on_completed: Callable[[ConsolidationReport], None] | None = None,
-    ) -> None:
-        self.root_dir = Path(root_dir)
-        self.config = config or ConsolidationConfig()
-        self.on_completed = on_completed
-        self._lock = threading.Lock()
-        self._saved_since_run = 0
-        self._last_run_at = 0.0
-        self._in_progress = False
-        self._last_report: ConsolidationReport | None = None
-
-    def notify_saved(self, saved_count: int) -> bool:
-        if saved_count <= 0:
-            return False
-
-        with self._lock:
-            self._saved_since_run += saved_count
-            if self._in_progress:
-                return False
-            if self._saved_since_run < self.config.min_saved_notes_between_runs:
-                return False
-            now = time.time()
-            if (now - self._last_run_at) < self.config.min_seconds_between_runs:
-                return False
-            self._in_progress = True
-            self._saved_since_run = 0
-
-        threading.Thread(
-            target=self._run_background,
-            name="durable-memory-consolidation",
-            daemon=True,
-        ).start()
-        return True
-
-    def last_report(self) -> ConsolidationReport | None:
-        with self._lock:
-            return self._last_report
-
-    def _run_background(self) -> None:
-        report: ConsolidationReport | None = None
-        try:
-            report = DurableMemoryConsolidator(self.root_dir).run()
-            if self.on_completed is not None:
-                self.on_completed(report)
-        finally:
-            with self._lock:
-                self._in_progress = False
-                self._last_run_at = time.time()
-                self._last_report = report

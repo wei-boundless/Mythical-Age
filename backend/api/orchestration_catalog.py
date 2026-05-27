@@ -64,7 +64,6 @@ class OrchestrationAgentUpsertRequest(BaseModel):
     enabled: bool = True
     editable: bool = True
     default_soul_id: str = Field(default="", max_length=160)
-    default_projection_id: str = Field(default="", max_length=160)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -526,7 +525,6 @@ async def upsert_orchestration_agent(
             enabled=payload.enabled,
             editable=payload.editable,
             default_soul_id=payload.default_soul_id,
-            default_projection_id=payload.default_projection_id,
             metadata={**payload.metadata, "managed_by": "orchestration_console"},
         )
     except PermissionError as exc:

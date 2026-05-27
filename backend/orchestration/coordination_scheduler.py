@@ -5,10 +5,10 @@ import threading
 import time
 from typing import Any
 
+from harness.runtime import CoordinationStageAgentRunRequest
 from runtime import CoordinationNodeRun, TaskRun
-from runtime.graph_task_runtime import CoordinationStageAgentRunRequest
-from runtime.coordination_runtime.runtime import LangGraphCoordinationRuntimeResult
-from runtime.subruntime import start_graph_module_stage_request
+from harness.loop.graph_coordination.engine import GraphCoordinationResult
+from harness.execution.graph_module_executor import start_graph_module_stage_request
 from request_intent import analyze_memory_intent
 
 from orchestration.coordination_rewind import _stage_id_from_task_run
@@ -36,7 +36,7 @@ async def _execute_stage_request_in_background(
             current_turn_context=current_turn_context,
         )
         return
-    continuation_payload = LangGraphCoordinationRuntimeResult(
+    continuation_payload = GraphCoordinationResult(
         stage_execution_request=stage_execution_request,
         node_work_order=dict(node_work_order or {}),
     ).continuation_payload(
@@ -45,7 +45,7 @@ async def _execute_stage_request_in_background(
     )
     if not continuation_payload:
         return
-    async for _event in runtime.query_runtime.graph_task_runtime.run_coordination_stage_stream(
+    async for _event in runtime.query_runtime.graph_harness.run_coordination_stage_stream(
         CoordinationStageAgentRunRequest(
             session_id=session_id,
             history=runtime.query_runtime.session_manager.load_session_for_agent(
@@ -76,19 +76,19 @@ def _schedule_stage_execution_background(
     node_work_order: dict[str, Any] | None = None,
     current_turn_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    graph_task_runtime = runtime.query_runtime.graph_task_runtime
+    graph_harness = runtime.query_runtime.graph_harness
     identity = _stage_execution_schedule_identity(stage_execution_request)
     schedule_key = str(identity.get("schedule_key") or "")
     with _STAGE_EXECUTION_SCHEDULE_LOCK:
         existing = _matching_stage_execution_task_run(
-            graph_task_runtime=graph_task_runtime,
+            graph_harness=graph_harness,
             session_id=session_id,
             identity=identity,
         )
         if existing is not None:
-            if _stale_running_task_run_reason(graph_task_runtime=graph_task_runtime, task_run=existing):
+            if _stale_running_task_run_reason(graph_harness=graph_harness, task_run=existing):
                 _invalidate_stale_stage_execution_task_run(
-                    graph_task_runtime=graph_task_runtime,
+                    graph_harness=graph_harness,
                     task_run=existing,
                     identity=identity,
                     source=source,
@@ -110,7 +110,7 @@ def _schedule_stage_execution_background(
                     "stage_execution_identity": identity,
                 }
                 _append_stage_execution_schedule_event(
-                    graph_task_runtime=graph_task_runtime,
+                    graph_harness=graph_harness,
                     root_task_run_id=str(stage_execution_request.root_task_run_id or ""),
                     event_type="coordination_stage_background_execution_skipped",
                     payload={**result, "source": source},
@@ -122,7 +122,7 @@ def _schedule_stage_execution_background(
             if _inflight_stage_execution_is_stale(inflight):
                 _STAGE_EXECUTION_INFLIGHT.pop(schedule_key, None)
                 _append_stage_execution_schedule_event(
-                    graph_task_runtime=graph_task_runtime,
+                    graph_harness=graph_harness,
                     root_task_run_id=str(stage_execution_request.root_task_run_id or ""),
                     event_type="coordination_stage_background_execution_invalidated",
                     payload={
@@ -141,7 +141,7 @@ def _schedule_stage_execution_background(
                     "stage_execution_identity": identity,
                 }
                 _append_stage_execution_schedule_event(
-                    graph_task_runtime=graph_task_runtime,
+                    graph_harness=graph_harness,
                     root_task_run_id=str(stage_execution_request.root_task_run_id or ""),
                     event_type="coordination_stage_background_execution_skipped",
                     payload={**result, "source": source},
@@ -173,14 +173,14 @@ def _schedule_stage_execution_background(
         except Exception as exc:
             try:
                 _mark_stage_execution_node_failed(
-                    graph_task_runtime=graph_task_runtime,
+                    graph_harness=graph_harness,
                     stage_execution_request=stage_execution_request,
                     source=source,
                     error=exc,
                 )
             except Exception:
                 pass
-            graph_task_runtime.append_event(
+            graph_harness.append_event(
                 stage_execution_request.root_task_run_id,
                 "coordination_stage_background_execution_failed",
                 payload={
@@ -215,7 +215,7 @@ def _schedule_stage_execution_background(
         "stage_execution_identity": identity,
     }
     _append_stage_execution_schedule_event(
-        graph_task_runtime=graph_task_runtime,
+        graph_harness=graph_harness,
         root_task_run_id=str(stage_execution_request.root_task_run_id or ""),
         event_type="coordination_stage_background_execution_scheduled",
         payload={**result, "source": source},
@@ -226,7 +226,7 @@ def _schedule_stage_execution_background(
 
 def _mark_stage_execution_node_failed(
     *,
-    graph_task_runtime: Any,
+    graph_harness: Any,
     stage_execution_request: Any,
     source: str,
     error: Exception,
@@ -241,7 +241,7 @@ def _mark_stage_execution_node_failed(
     existing = next(
         (
             item
-            for item in graph_task_runtime.list_coordination_node_runs(coordination_run_id)
+            for item in graph_harness.list_coordination_node_runs(coordination_run_id)
             if str(item.node_id or "") == node_id
         ),
         None,
@@ -258,7 +258,7 @@ def _mark_stage_execution_node_failed(
     }
     diagnostics = {
         **(dict(existing.diagnostics) if existing is not None else {}),
-        "coordination_engine": "langgraph_runtime",
+        "coordination_engine": "harness.graph_coordination_engine",
         "stage_id": stage_id,
         "stage_status": "failed",
         "task_ref": str(getattr(stage_execution_request, "task_ref", "") or ""),
@@ -279,16 +279,16 @@ def _mark_stage_execution_node_failed(
         updated_at=now,
         diagnostics=diagnostics,
     )
-    graph_task_runtime.upsert_coordination_node_run(node_run)
+    graph_harness.upsert_coordination_node_run(node_run)
     _append_stage_execution_schedule_event(
-        graph_task_runtime=graph_task_runtime,
+        graph_harness=graph_harness,
         root_task_run_id=root_task_run_id,
         event_type="coordination_node_run_updated" if existing is not None else "coordination_node_run_created",
         payload={"coordination_node_run": node_run.to_dict()},
         identity=_stage_execution_schedule_identity(stage_execution_request),
     )
     _append_stage_execution_schedule_event(
-        graph_task_runtime=graph_task_runtime,
+        graph_harness=graph_harness,
         root_task_run_id=root_task_run_id,
         event_type="coordination_stage_updated",
         payload={"stage": {"stage_id": stage_id, "node_id": node_id, "message_type": "", "status": "failed"}},
@@ -297,7 +297,7 @@ def _mark_stage_execution_node_failed(
 
 
 def _stage_execution_schedule_identity(stage_execution_request: Any) -> dict[str, Any]:
-    from runtime.execution.node_execution_request import build_node_execution_idempotency_key
+    from harness.execution.node_protocol.node_execution_request import build_node_execution_idempotency_key
 
     payload = (
         stage_execution_request.to_dict()
@@ -360,7 +360,7 @@ def _start_graph_module_stage_request(
 
 def _matching_stage_execution_task_run(
     *,
-    graph_task_runtime: Any,
+    graph_harness: Any,
     session_id: str,
     identity: dict[str, Any],
 ) -> TaskRun | None:
@@ -369,7 +369,7 @@ def _matching_stage_execution_task_run(
     request_id = str(identity.get("request_id") or "").strip()
     idempotency_key = str(identity.get("idempotency_key") or "").strip()
     effective_statuses = {"created", "running", "waiting_approval", "blocked", "completed"}
-    candidates = graph_task_runtime.list_session_task_runs(session_id) if session_id else graph_task_runtime.list_task_runs()
+    candidates = graph_harness.list_session_task_runs(session_id) if session_id else graph_harness.list_task_runs()
     matches: list[TaskRun] = []
     for task_run in candidates:
         status = str(task_run.status or "")
@@ -401,7 +401,7 @@ def _matching_stage_execution_task_run(
     return sorted(matches, key=lambda item: float(item.updated_at or item.created_at or 0.0), reverse=True)[0]
 
 
-def _stale_running_task_run_reason(*, graph_task_runtime: Any, task_run: TaskRun) -> str:
+def _stale_running_task_run_reason(*, graph_harness: Any, task_run: TaskRun) -> str:
     if str(task_run.status or "") != "running":
         return ""
     diagnostics = dict(task_run.diagnostics or {})
@@ -411,7 +411,7 @@ def _stale_running_task_run_reason(*, graph_task_runtime: Any, task_run: TaskRun
         return ""
     latest_activity_at = max(float(task_run.updated_at or 0.0), float(task_run.created_at or 0.0))
     try:
-        events = list(graph_task_runtime.list_task_events(task_run.task_run_id))
+        events = list(graph_harness.list_task_events(task_run.task_run_id))
     except Exception:
         events = []
     if events:
@@ -430,12 +430,12 @@ def _stale_running_task_run_reason(*, graph_task_runtime: Any, task_run: TaskRun
 
 def _invalidate_stale_stage_execution_task_run(
     *,
-    graph_task_runtime: Any,
+    graph_harness: Any,
     task_run: TaskRun,
     identity: dict[str, Any],
     source: str,
 ) -> None:
-    reason = _stale_running_task_run_reason(graph_task_runtime=graph_task_runtime, task_run=task_run)
+    reason = _stale_running_task_run_reason(graph_harness=graph_harness, task_run=task_run)
     if not reason:
         return
     now = time.time()
@@ -449,7 +449,7 @@ def _invalidate_stale_stage_execution_task_run(
             "invalidated_at": now,
         },
     }
-    graph_task_runtime.upsert_task_run(
+    graph_harness.upsert_task_run(
         TaskRun(
             task_run_id=task_run.task_run_id,
             session_id=task_run.session_id,
@@ -468,10 +468,10 @@ def _invalidate_stale_stage_execution_task_run(
             diagnostics=diagnostics,
         )
     )
-    for agent_run in graph_task_runtime.list_task_agent_runs(task_run.task_run_id):
+    for agent_run in graph_harness.list_task_agent_runs(task_run.task_run_id):
         if str(agent_run.status or "") not in {"pending", "running"}:
             continue
-        graph_task_runtime.upsert_agent_run(
+        graph_harness.upsert_agent_run(
             type(agent_run)(
                 agent_run_id=agent_run.agent_run_id,
                 task_run_id=agent_run.task_run_id,
@@ -499,7 +499,7 @@ def _invalidate_stale_stage_execution_task_run(
             )
         )
     _append_stage_execution_schedule_event(
-        graph_task_runtime=graph_task_runtime,
+        graph_harness=graph_harness,
         root_task_run_id=str(identity.get("root_task_run_id") or task_run.task_run_id),
         event_type="coordination_stage_background_execution_invalidated",
         payload={
@@ -528,7 +528,7 @@ def _safe_float(value: Any, default: float) -> float:
 
 def _append_stage_execution_schedule_event(
     *,
-    graph_task_runtime: Any,
+    graph_harness: Any,
     root_task_run_id: str,
     event_type: str,
     payload: dict[str, Any],
@@ -537,7 +537,7 @@ def _append_stage_execution_schedule_event(
     if not root_task_run_id:
         return
     try:
-        graph_task_runtime.append_event(
+        graph_harness.append_event(
             root_task_run_id,
             event_type,
             payload=payload,
@@ -550,5 +550,6 @@ def _append_stage_execution_schedule_event(
         )
     except Exception:
         return
+
 
 

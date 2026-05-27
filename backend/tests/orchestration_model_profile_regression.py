@@ -12,7 +12,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from agent_system.models.model_profile_resolver import ModelProfileResolver
-from runtime.agent_runtime.invocation_loop import _chat_model_selection_runtime_defaults
+from harness.runtime.context import chat_model_selection_runtime_defaults
 
 
 class _SettingsService:
@@ -120,7 +120,7 @@ def test_model_profile_resolver_inherits_system_and_applies_requirement() -> Non
 
 
 def test_chat_model_selection_defaults_keep_deepseek_thinking_controls() -> None:
-    defaults = _chat_model_selection_runtime_defaults(
+    defaults = chat_model_selection_runtime_defaults(
         {
             "provider": "deepseek",
             "model": "deepseek-v4-pro",

@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html dir="ltr" lang="en-US" prefix="og: https://ogp.me/ns#">
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <link rel="pingback" href="https://canny.io/blog/xmlrpc.php">
+      <title>What are release notes? Find examples &amp; templates here</title>
+
+		<!-- All in One SEO 4.9.7.2 - aioseo.com -->
+	<meta name="description" content="When you improve your product, tell the world about it! Use release notes for that. But what are release notes? Here&#039;s your guide with examples &amp; templates!" />
+	<meta name="robots" content="max-image-preview:large" />
+	<meta name="author" content="Maria Vasserman"/>
+	<link rel="canonical" href="https://canny.io/blog/release-notes/" />
+	<meta name="generator" content="All in One SEO (AIOSEO) 4.9.7.2" />
+		<meta property="og:locale" content="en_US" />
+		<meta property="og:site_name" content="Canny Blog - How to build a more informed product" />
+		<meta property="og:type" content="article" />
+		<meta property="og:title" content="What are release notes? Find examples &amp; templates here" />
+		<meta property="og:description" content="When you improve your product, tell the world about it! Use release notes for that. But what are release notes? Here&#039;s your guide with examples &amp; templates!" />
+		<meta property="og:url" content="https://canny.io/blog/release-notes/" />
+		<meta property="og:image" content="https://canny.io/blog/wp-content/uploads/2023/08/release-notes.png" />
+		<meta property="og:image:secure_url" content="https://canny.io/blog/wp-content/uploads/2023/08/release-notes.png" />
+		<meta property="og:image:width" content="1520" />
+		<meta property="og:image:height" content="800" />
+		<meta property="article:published_time" content="2023-08-10T10:59:00+00:00" />
+		<meta property="article:modified_time" content="2024-11-02T00:31:51+00:00" />
+		<meta name="twitter:card" content="summary_large_image" />
+		<meta name="twitter:title" content="What are release notes? Find examples &amp; templates here" />
+		<meta name="twitter:description" content="When you improve your product, tell the world about it! Use release notes for that. But what are release notes? Here&#039;s your guide with examples &amp; templates!" />
+		<meta name="twitter:image" content="https://canny.io/blog/wp-content/uploads/2023/08/release-notes.png" />
+		<script type="application/ld+json" class="aioseo-schema">
+			{"@context":"https:\/\/schema.org","@graph":[{"@type":"BlogPosting","@id":"https:\/\/canny.io\/blog\/release-notes\/#blogposting","name":"What are release notes? Find examples & templates here","headline":"Why do you need release notes? (featuring great examples and&nbsp;templates)","author":{"@id":"https:\/\/canny.io\/blog\/author\/maria\/#author"},"publisher":{"@id":"https:\/\/canny.io\/blog\/#organization"},"image":{"@type":"ImageObject","url":"https:\/\/canny.io\/blog\/wp-content\/uploads\/2023\/08\/release-notes.png","width":1520,"height":800,"caption":"Release notes"},"datePublished":"2023-08-10T06:59:00-04:00","dateModified":"2024-11-01T20:31:51-04:00","inLanguage":"en-US","mainEntityOfPage":{"@id":"https:\/\/canny.io\/blog\/release-notes\/#webpage"},"isPartOf":{"@id":"https:\/\/canny.io\/blog\/release-notes\/#webpage"},"articleSection":"Canny Best Practices, Product Management, advice, best practices, changelog, changelog templates, changelogs, feedback management, format, founder, product announcement, product announcements, product announcements entries, product management, product manager, product update, product updates, release note, release notes, saas"},{"@type":"BreadcrumbList","@id":"https:\/\/canny.io\/blog\/release-notes\/#breadcrumblist","itemListElement":[{"@type":"ListItem","@id":"https:\/\/canny.io\/blog#listItem","position":1,"name":"Home","item":"https:\/\/canny.io\/blog","nextItem":{"@type":"ListItem","@id":"https:\/\/canny.io\/blog\/category\/product-management\/#listItem","name":"Product Management"}},{"@type":"ListItem","@id":"https:\/\/canny.io\/blog\/category\/product-management\/#listItem","position":2,"name":"Product Management","item":"https:\/\/canny.io\/blog\/category\/product-management\/","nextItem":{"@type":"ListItem","@id":"https:\/\/canny.io\/blog\/release-notes\/#listItem","name":"Why do you need release notes? (featuring great examples and&nbsp;templates)"},"previousItem":{"@type":"ListItem","@id":"https:\/\/canny.io\/blog#listItem","name":"Home"}},{"@type":"ListItem","@id":"https:\/\/canny.io\/blog\/release-notes\/#listItem","position":3,"name":"Why do you need release notes? (featuring great examples and&nbsp;templates)","previousItem":{"@type":"ListItem","@id":"https:\/\/canny.io\/blog\/category\/product-management\/#listItem","name":"Product Management"}}]},{"@type":"Organization","@id":"https:\/\/canny.io\/blog\/#organization","name":"Canny Blog","description":"How to build a more informed pro

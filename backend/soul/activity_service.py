@@ -8,7 +8,6 @@ from artifact_system.artifact_repository_service import ArtifactRepositoryServic
 from project_layout import ProjectLayout
 
 from .contracts import SoulActivityEvent, SoulWorkLogView
-from .projection_store import load_projection_store
 
 
 class SoulActivityService:
@@ -23,19 +22,16 @@ class SoulActivityService:
     def work_log(self, soul_id: str, *, limit: int = 20) -> SoulWorkLogView:
         normalized_soul_id = str(soul_id or "").strip().lower()
         safe_limit = max(1, min(int(limit or 20), 100))
-        projection_soul_map = self._projection_soul_map()
         events: list[SoulActivityEvent] = []
 
         for task_payload in self._list_task_runs():
-            projection_id = self._projection_id_for_task(task_payload)
-            resolved_soul_id = self._soul_id_for_payload(task_payload, projection_id, projection_soul_map)
+            resolved_soul_id = self._soul_id_for_payload(task_payload)
             if resolved_soul_id != normalized_soul_id:
                 continue
             events.append(
                 self._activity_for_task(
                     soul_id=resolved_soul_id,
                     task_payload=task_payload,
-                    projection_id=projection_id,
                 )
             )
 
@@ -46,7 +42,7 @@ class SoulActivityService:
             events=tuple(events[:safe_limit]),
         )
 
-    def _activity_for_task(self, *, soul_id: str, task_payload: dict[str, Any], projection_id: str) -> SoulActivityEvent:
+    def _activity_for_task(self, *, soul_id: str, task_payload: dict[str, Any]) -> SoulActivityEvent:
         task_run_id = str(task_payload.get("task_run_id") or "")
         artifact_refs = tuple(self._artifact_refs(task_run_id))
         agent_run = self._latest_agent_run(task_run_id)
@@ -61,7 +57,6 @@ class SoulActivityService:
             task_run_id=task_run_id,
             session_id=str(task_payload.get("session_id") or ""),
             task_id=task_id,
-            projection_id=projection_id,
             work_prompt_id=self._first_non_empty(
                 task_payload.get("work_prompt_id"),
                 dict(task_payload.get("diagnostics") or {}).get("work_prompt_id"),
@@ -77,65 +72,14 @@ class SoulActivityService:
             last_activity_at=float(task_payload.get("updated_at") or task_payload.get("created_at") or 0.0),
         )
 
-    def _projection_soul_map(self) -> dict[str, str]:
-        store = load_projection_store(self.base_dir)
-        result: dict[str, str] = {}
-        for card in list(store.get("cards") or []):
-            if not isinstance(card, dict):
-                continue
-            projection_id = str(card.get("projection_id") or "").strip()
-            soul_id = str(card.get("soul_id") or "").strip().lower()
-            if projection_id and soul_id:
-                result[projection_id] = soul_id
-        return result
-
-    def _projection_id_for_task(self, task_payload: dict[str, Any]) -> str:
+    def _soul_id_for_payload(self, task_payload: dict[str, Any]) -> str:
         diagnostics = dict(task_payload.get("diagnostics") or {})
-        candidates = [
-            task_payload.get("projection_id"),
-            task_payload.get("default_projection_id"),
-            diagnostics.get("projection_id"),
-            diagnostics.get("default_projection_id"),
-            diagnostics.get("selected_projection_id"),
-        ]
-        for value in candidates:
-            text = str(value or "").strip()
-            if text:
-                return text
-        return self._projection_id_from_event_log(str(task_payload.get("task_run_id") or ""))
-
-    def _projection_id_from_event_log(self, task_run_id: str) -> str:
-        path = self.runtime_state_dir / "events" / f"{self._safe_id(task_run_id)}.jsonl"
-        if not path.exists():
-            return ""
-        for line in path.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            try:
-                payload = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            projection_id = self._first_projection_id(payload)
-            if projection_id:
-                return projection_id
-        return ""
-
-    def _soul_id_for_payload(
-        self,
-        task_payload: dict[str, Any],
-        projection_id: str,
-        projection_soul_map: dict[str, str],
-    ) -> str:
-        diagnostics = dict(task_payload.get("diagnostics") or {})
-        direct = self._first_non_empty(
+        return self._first_non_empty(
             task_payload.get("soul_id"),
             task_payload.get("default_soul_id"),
             diagnostics.get("soul_id"),
             diagnostics.get("default_soul_id"),
         ).lower()
-        if direct:
-            return direct
-        return projection_soul_map.get(projection_id, "")
 
     def _artifact_refs(self, task_run_id: str) -> list[str]:
         repo_root = self.project_root / "storage" / "artifact_repository"
@@ -193,22 +137,6 @@ class SoulActivityService:
             task_payload.get("task_id"),
             task_payload.get("task_run_id"),
         )
-
-    def _first_projection_id(self, value: Any) -> str:
-        if isinstance(value, dict):
-            direct = str(value.get("projection_id") or value.get("projection_overlay_id") or "").strip()
-            if direct:
-                return direct
-            for child in value.values():
-                found = self._first_projection_id(child)
-                if found:
-                    return found
-        if isinstance(value, list):
-            for child in value:
-                found = self._first_projection_id(child)
-                if found:
-                    return found
-        return ""
 
     @staticmethod
     def _first_non_empty(*values: Any) -> str:

@@ -9,7 +9,7 @@ class TaskOrderCreateRequest(BaseModel):
     session_id: str
     message: str = ""
     task_id: str = ""
-    domain_id: str = ""
+    environment_id: str = ""
     source: str = "task_library"
     source_ref: str = ""
     objective: str = ""

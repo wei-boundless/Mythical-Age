@@ -120,7 +120,7 @@ async def health_system_submit_command(payload: HealthManagementCommandRequest) 
     try:
         return await HealthRegistry(runtime.base_dir).submit_command(
             payload.model_dump(),
-            agent_runtime=runtime.query_runtime.agent_runtime,
+            agent_runtime=runtime.query_runtime.agent_harness,
             model_response_executor=runtime.query_runtime.model_response_executor,
             agent_runtime_chain=runtime.query_runtime.agent_runtime_chain,
             runtime_context_manager=runtime.query_runtime.runtime_context_manager,
@@ -203,7 +203,7 @@ async def health_system_append_conversation_message(
         response = await registry.respond_in_conversation(
             session_id,
             payload.model_dump(),
-            agent_runtime=runtime.query_runtime.agent_runtime,
+            agent_runtime=runtime.query_runtime.agent_harness,
             model_response_executor=runtime.query_runtime.model_response_executor,
             agent_runtime_chain=runtime.query_runtime.agent_runtime_chain,
             runtime_context_manager=runtime.query_runtime.runtime_context_manager,
@@ -242,7 +242,7 @@ async def health_system_create_issue(payload: HealthIssueCreateRequest) -> dict[
                 "source": "health_system.issues_api",
                 "payload": payload.model_dump(),
             },
-            agent_runtime=runtime.query_runtime.agent_runtime,
+            agent_runtime=runtime.query_runtime.agent_harness,
             model_response_executor=runtime.query_runtime.model_response_executor,
             agent_runtime_chain=runtime.query_runtime.agent_runtime_chain,
             runtime_context_manager=runtime.query_runtime.runtime_context_manager,
@@ -293,7 +293,7 @@ async def health_system_agent_run_trace_report(run_id: str) -> dict[str, Any]:
     try:
         return HealthRegistry(runtime.base_dir).build_agent_run_trace_report(
             run_id=run_id,
-            agent_runtime=runtime.query_runtime.agent_runtime,
+            agent_runtime=runtime.query_runtime.agent_harness,
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Unknown health agent run or trace") from exc
@@ -322,7 +322,7 @@ async def health_system_agent_run_start(issue_id: str, payload: HealthAgentRunSt
                 "target_ref": issue_id,
                 "health_action": payload.health_action,
             },
-            agent_runtime=runtime.query_runtime.agent_runtime,
+            agent_runtime=runtime.query_runtime.agent_harness,
             model_response_executor=runtime.query_runtime.model_response_executor,
             agent_runtime_chain=runtime.query_runtime.agent_runtime_chain,
             runtime_context_manager=runtime.query_runtime.runtime_context_manager,

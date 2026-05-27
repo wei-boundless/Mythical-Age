@@ -168,7 +168,7 @@ def build_task_run_final_commit_decision(
     task_spec_ref: str = "",
     template_id: str = "",
     task_result: dict[str, Any] | None = None,
-    source: str = "orchestration.task_run_loop",
+    source: str = "harness.agent_loop",
 ) -> RuntimeCommitGateDecision:
     payload = {
         "task_run_id": str(task_run_id or ""),
@@ -226,7 +226,7 @@ def build_assistant_session_message_commit_decision(
     terminal_reason: str = "",
     timeout_seconds: str = "",
     partial_delta_count: str = "",
-    source: str = "orchestration.task_run_loop",
+    source: str = "harness.agent_loop",
 ) -> RuntimeCommitGateDecision:
     normalized = str(content or "").strip()
     normalized_channel = str(answer_channel or "").strip()

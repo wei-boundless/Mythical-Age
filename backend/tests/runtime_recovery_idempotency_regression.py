@@ -9,7 +9,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from capability_system.operation_registry import OperationDescriptor
 from orchestration import RuntimeActionRequest
-from runtime.execution_engine import prepare_tool_execution
+from harness.loop.agent_execution import prepare_tool_execution
 from runtime.unit_runtime.loop import TaskRunLoop
 
 

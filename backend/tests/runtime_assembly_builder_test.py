@@ -18,7 +18,7 @@ from runtime.contracts.compiler_models import (
     CompiledNodeContract,
     ContractManifest,
 )
-from runtime.execution.node_execution_request import NodeExecutionRequest
+from harness.execution.node_protocol.node_execution_request import NodeExecutionRequest
 from task_system.compiler.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
 from task_system.graphs.task_graph_models import TaskGraphDefinition, TaskGraphEdgeDefinition, TaskGraphNodeDefinition
 
@@ -514,7 +514,7 @@ def test_task_run_loop_rejects_legacy_task_graph_fallback_when_langgraph_support
     )
     runtime_spec = compile_task_graph_definition_runtime_spec(graph=graph)
     loop = TaskRunLoop(tmp_path, backend_dir=Path("backend"))
-    monkeypatch.setattr(loop.langgraph_coordination_runtime, "supports", lambda coordination_run: False)
+    monkeypatch.setattr(loop.graph_coordination_engine, "supports", lambda coordination_run: False)
 
     with pytest.raises(RuntimeError, match="legacy initialization fallback was removed"):
         loop.start_task_graph_run(
@@ -559,8 +559,8 @@ def test_runtime_checkpoint_carries_working_memory_refs(tmp_path: Path) -> None:
 
     assert loaded is not None
     assert loaded.working_memory_refs == ("wm:accepted", "wm:proposed")
-    assert started.task_run.diagnostics["loop_owner"] == "runtime.agent_runtime.lifecycle"
-    assert started.loop_state.diagnostics["loop_owner"] == "runtime.agent_runtime.lifecycle"
+    assert started.task_run.diagnostics["loop_owner"] == "harness.loop.agent_lifecycle"
+    assert started.loop_state.diagnostics["loop_owner"] == "harness.loop.agent_lifecycle"
 
 
 def test_task_run_loop_can_submit_working_memory_candidates(tmp_path: Path) -> None:

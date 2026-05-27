@@ -23,7 +23,7 @@ class RuntimeEventSubscription:
 
 
 class RuntimeEventLog:
-    """JSONL event log for TaskRunLoop traces."""
+    """JSONL event log for Harness traces."""
 
     def __init__(self, root_dir: Path) -> None:
         self.root_dir = Path(root_dir)

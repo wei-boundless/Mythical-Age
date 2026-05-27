@@ -9,13 +9,11 @@ from capability_system.tool_runtime import ToolRuntime
 from capability_system.paths import CapabilitySystemPaths
 from memory_system import MemoryFacade
 from permissions import PermissionService
-from project_layout import ProjectLayout
 from query import QueryRuntime
 from bootstrap.settings import AppSettingsService
 from knowledge_system import RetrievalService
 from sessions import SessionManager
 from runtime import ModelRuntime
-from memory_system.storage.consolidation import ConsolidationConfig, ConsolidationReport, ConsolidationScheduler
 
 
 class AppRuntime:
@@ -30,11 +28,9 @@ class AppRuntime:
         self.permission_service: PermissionService | None = None
         self.model_runtime: ModelRuntime | None = None
         self.query_runtime: QueryRuntime | None = None
-        self.consolidation_scheduler: ConsolidationScheduler | None = None
 
     def initialize(self, base_dir: Path) -> None:
         self.base_dir = base_dir
-        layout = ProjectLayout.from_backend_dir(base_dir)
         CapabilitySystemPaths.from_base_dir(base_dir).ensure()
         self.settings = AppSettingsService(base_dir)
         refresh_snapshot(base_dir)
@@ -47,14 +43,6 @@ class AppRuntime:
         self.permission_service = PermissionService(self.settings, self.tool_runtime)
         self.model_runtime = ModelRuntime(self.settings)
         self.memory_facade.set_model_invoker(self.model_runtime.invoke_messages)
-        self.consolidation_scheduler = ConsolidationScheduler(
-            layout.durable_memory_dir,
-            config=ConsolidationConfig(
-                min_saved_notes_between_runs=3,
-                min_seconds_between_runs=1800,
-            ),
-            on_completed=self._on_durable_memory_consolidated,
-        )
         self.memory_facade.set_durable_memory_saved_callback(self._on_durable_memory_saved)
         self.memory_facade.background_task_manager.register_handler(
             "durable_memory_index_rebuild",
@@ -131,21 +119,6 @@ class AppRuntime:
             runtime.memory_facade.background_task_manager.enqueue(
                 "durable_memory_index_rebuild",
                 payload={"collection": "durable_memory", "saved_count": saved_count},
-                source="bootstrap.app_runtime",
-                lane_id="durable_memory_extraction",
-                coalesce_key="durable_memory",
-            )
-        if runtime.consolidation_scheduler is not None:
-            runtime.consolidation_scheduler.notify_saved(saved_count)
-
-    def _on_durable_memory_consolidated(self, report: ConsolidationReport) -> None:
-        runtime = self.require_ready()
-        if report.status != "ok":
-            return
-        if runtime.memory_facade is not None:
-            runtime.memory_facade.background_task_manager.enqueue(
-                "durable_memory_index_rebuild",
-                payload={"collection": "durable_memory", "reason": "consolidation"},
                 source="bootstrap.app_runtime",
                 lane_id="durable_memory_extraction",
                 coalesce_key="durable_memory",

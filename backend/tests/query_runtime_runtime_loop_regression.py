@@ -14,7 +14,7 @@ from query import QueryRuntime
 from query.models import QueryRequest
 from query.runtime import _task_selection_for_runtime
 from capability_system.tool_runtime import ToolRuntime
-from runtime import AgentRunRequest
+from harness.runtime import AgentRunRequest
 from runtime.agent_assembly import NodeWorkOrder, build_agent_invocation
 from runtime.unit_runtime.finalizer import FinishedTaskRunResult
 from task_system import TaskFlowRegistry
@@ -207,7 +207,7 @@ def test_agent_runtime_emits_stream_delta_once() -> None:
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
-        async for event in runtime.agent_runtime.run_stream(
+        async for event in runtime.agent_harness.run_stream(
             AgentRunRequest(
                 session_id="session-stream-dedup",
                 task_id="taskinst:session-stream-dedup:general",
@@ -257,7 +257,7 @@ def test_agent_runtime_tool_followup_completion_becomes_task_result_completion()
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
-        async for event in runtime.agent_runtime.run_stream(
+        async for event in runtime.agent_harness.run_stream(
             AgentRunRequest(
                 session_id="session-tool-followup-completion",
                 task_id="taskinst:session-tool-followup-completion:general",
@@ -315,7 +315,7 @@ def test_query_runtime_assembles_compressed_context_before_model_history() -> No
     )
 
     captured_history: list[dict[str, object]] = []
-    original_run = runtime.agent_runtime.run_stream
+    original_run = runtime.agent_harness.run_stream
 
     async def _capture(request: AgentRunRequest):
         captured_history.extend(list(request.history or []))
@@ -323,7 +323,7 @@ def test_query_runtime_assembles_compressed_context_before_model_history() -> No
             yield {}
         return
 
-    runtime.agent_runtime.run_stream = _capture  # type: ignore[method-assign]
+    runtime.agent_harness.run_stream = _capture  # type: ignore[method-assign]
 
     async def _collect() -> None:
         async for _event in runtime.astream(
@@ -338,7 +338,7 @@ def test_query_runtime_assembles_compressed_context_before_model_history() -> No
     try:
         asyncio.run(_collect())
     finally:
-        runtime.agent_runtime.run_stream = original_run  # type: ignore[method-assign]
+        runtime.agent_harness.run_stream = original_run  # type: ignore[method-assign]
 
     assert captured_history[0]["role"] == "assistant"
     assert "旧历史已经压缩为项目审查摘要" in str(captured_history[0]["content"])
@@ -477,7 +477,7 @@ def test_removed_health_task_selection_falls_back_to_general_runtime() -> None:
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
-        async for event in runtime.agent_runtime.run_stream(
+        async for event in runtime.agent_harness.run_stream(
             AgentRunRequest(
                 session_id="session-health-task-config",
                 task_id="taskinst:session-health-task-config:health",
@@ -536,7 +536,7 @@ def test_graph_node_assembly_contract_overrides_stale_task_selection_agent() -> 
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
-        async for event in runtime.agent_runtime.run_stream(
+        async for event in runtime.agent_harness.run_stream(
             AgentRunRequest(
                 session_id="session-assembly-authority",
                 task_id="taskinst:session-assembly-authority:triage",
@@ -668,7 +668,7 @@ def test_main_agent_assembly_modes_select_expected_runtime_lanes() -> None:
 def test_query_runtime_enters_agent_runtime_boundary_before_legacy_loop() -> None:
     runtime = _build_stream_runtime()
     captured: list[AgentRunRequest] = []
-    original_run = runtime.agent_runtime.run_stream
+    original_run = runtime.agent_harness.run_stream
 
     async def _capture(request: AgentRunRequest):
         captured.append(request)
@@ -676,7 +676,7 @@ def test_query_runtime_enters_agent_runtime_boundary_before_legacy_loop() -> Non
             yield {}
         return
 
-    runtime.agent_runtime.run_stream = _capture  # type: ignore[method-assign]
+    runtime.agent_harness.run_stream = _capture  # type: ignore[method-assign]
 
     async def _collect() -> None:
         async for _event in runtime.astream(
@@ -691,7 +691,7 @@ def test_query_runtime_enters_agent_runtime_boundary_before_legacy_loop() -> Non
     try:
         asyncio.run(_collect())
     finally:
-        runtime.agent_runtime.run_stream = original_run  # type: ignore[method-assign]
+        runtime.agent_harness.run_stream = original_run  # type: ignore[method-assign]
 
     assert len(captured) == 1
     assert isinstance(captured[0], AgentRunRequest)

@@ -100,7 +100,7 @@ def build_model_response_runtime_admission(
                 operation in {"op.write_file", "op.edit_file"} for operation in allowed_operations
             ),
             "sandbox_policy": _public_sandbox_policy(sandbox_policy),
-            "admission_owner": "TaskRunLoop",
+            "admission_owner": "harness.runtime_admission",
             "authorization_inputs": {
                 "task_operation_requirement": True,
                 "agent_runtime_profile": bool(agent_runtime_profile is not None),
@@ -131,7 +131,7 @@ def build_model_response_runtime_admission(
         runtime_executable=True,
         diagnostics={
             "directive_only_executor": True,
-            "admission_owner": "TaskRunLoop",
+            "admission_owner": "harness.runtime_admission",
             "task_execution_assembly_ref": str(task_execution_assembly.get("assembly_id") or ""),
             "task_body_orchestration_ref": str(task_body_orchestration.get("orchestration_id") or ""),
             "agent_runtime_spec_ref": str(agent_runtime_spec.get("runtime_spec_id") or ""),

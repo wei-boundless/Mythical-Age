@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from runtime.coordination_runtime.checkpoint_adapter import LangGraphCheckpointStoreAdapter
+from harness.loop.graph_coordination.checkpoint_adapter import GraphCoordinationCheckpointStore
 
 
 def test_langgraph_checkpoint_adapter_persists_by_thread_id(tmp_path) -> None:
-    adapter = LangGraphCheckpointStoreAdapter(tmp_path)
+    adapter = GraphCoordinationCheckpointStore(tmp_path)
 
     checkpoint = adapter.put_state(
         thread_id="coordrun:test",

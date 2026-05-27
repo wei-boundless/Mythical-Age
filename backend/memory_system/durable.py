@@ -173,9 +173,6 @@ class DurableMemoryLayer:
         self.read_agent = MemoryReadAgent()
         self._runtime_governed = False
 
-    def set_saved_callback(self, callback: Callable[[int], None]) -> None:
-        return None
-
     def set_message_invoker(self, callback: Callable[[list[dict[str, str]]], Any] | None) -> None:
         self.read_agent.set_message_invoker(callback)
 

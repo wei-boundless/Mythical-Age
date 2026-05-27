@@ -124,14 +124,6 @@ class SessionMemoryViewBuilder:
         }
         return self._render_sections(sections, include_empty_headers=include_debug)
 
-    def compact_view(
-        self,
-        source: str,
-        *,
-        max_chars_per_section: int = 800,
-    ) -> str:
-        return self.render_compaction_view(source, max_chars_per_section=max_chars_per_section)
-
     def render_compaction_view(
         self,
         source: str,

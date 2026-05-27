@@ -223,7 +223,7 @@ def scheduler_support_report(
 
     return {
         "authority": "task_system.scheduler_support_report",
-        "runtime": "langgraph_coordination_runtime",
+        "runtime": "harness.graph_loop",
         "mode": "support_matrix",
         "supported": supported,
         "partial": partial,

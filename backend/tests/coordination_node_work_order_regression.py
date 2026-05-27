@@ -3,15 +3,15 @@ from __future__ import annotations
 from pathlib import Path
 
 from runtime.agent_assembly import (
+    GraphModuleWorkOrder,
     HumanWorkOrder,
     NodeWorkOrder,
-    SubRuntimeWorkOrder,
     build_agent_assembly_contract,
     validate_work_order,
 )
-from runtime.coordination_runtime.runtime import LangGraphCoordinationRuntimeResult
-from runtime.coordination_runtime.work_order_builder import build_node_work_order_from_request
-from runtime.execution.node_execution_request import NodeExecutionRequest
+from harness.loop.graph_coordination.engine import GraphCoordinationResult
+from harness.loop.graph_coordination.work_order_builder import build_node_work_order_from_request
+from harness.execution.node_protocol.node_execution_request import NodeExecutionRequest
 
 
 def test_node_execution_request_builds_shadow_node_work_order() -> None:
@@ -107,7 +107,7 @@ def test_human_continuation_uses_work_order_boundary() -> None:
         human_work_packet={"work_packet_id": "humanwork:review"},
     )
     work_order = build_node_work_order_from_request(request)
-    result = LangGraphCoordinationRuntimeResult(
+    result = GraphCoordinationResult(
         stage_execution_request=request,
         node_work_order=work_order.to_dict(),
     )
@@ -125,9 +125,9 @@ def test_human_continuation_uses_work_order_boundary() -> None:
     assert payload["next_stage_id"] == "manual_review"
 
 
-def test_graph_module_request_is_normalized_to_subruntime_work_order() -> None:
+def test_graph_module_request_builds_graph_module_work_order() -> None:
     handle = {
-        "authority": "runtime.subruntime.graph_module_runtime_handle",
+        "authority": "harness.execution.graph_module_runtime_handle",
         "handle_id": "graphmodrun:test",
         "linked_graph_id": "graph.test.child",
         "graph_module_runtime_plan_id": "graph_module_runtime.child",
@@ -142,16 +142,15 @@ def test_graph_module_request_is_normalized_to_subruntime_work_order() -> None:
         task_ref="task_graph.node.graph.parent.graph_module.child",
         executor_type="graph_module",
         executor_binding={"selected_executor": "graph_module", "graph_module_runtime_handle": handle},
-        runtime_assembly={"authority": "runtime.subruntime.graph_module_runtime_assembly", "graph_module_runtime_handle": handle},
+        runtime_assembly={"authority": "harness.execution.graph_module_runtime_assembly", "graph_module_runtime_handle": handle},
         standard_input_package={"package_id": "nodeinput:graph-module"},
     )
 
     work_order = build_node_work_order_from_request(request)
 
-    assert isinstance(work_order, SubRuntimeWorkOrder)
-    assert work_order.executor_type == "subruntime"
-    assert work_order.work_kind == "subruntime"
-    assert work_order.subruntime_kind == "graph_module"
+    assert isinstance(work_order, GraphModuleWorkOrder)
+    assert work_order.executor_type == "graph_module"
+    assert work_order.work_kind == "graph_module"
     assert work_order.runtime_assembly["graph_module_runtime_handle"]["linked_graph_id"] == "graph.test.child"
     assert validate_work_order(work_order).passed
 

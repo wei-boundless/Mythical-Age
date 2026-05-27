@@ -30,8 +30,6 @@ class SoulRegistryService:
                 "common_contracts",
                 "manifestations",
                 "activity",
-                "projection",
-                "runtime",
             ],
             "resource_catalog_enabled": True,
         }
@@ -45,9 +43,6 @@ class SoulRegistryService:
             key: value.to_dict()
             for key, value in self.registry.profiles(include_disabled=include_disabled).items()
         }
-
-    def projection_profiles(self) -> list[dict[str, Any]]:
-        return [profile.to_dict() for profile in self.registry.profiles().values()]
 
     def get_profile(self, soul_id: str):
         return self.registry.get_profile(str(soul_id or "").strip().lower())

@@ -8,7 +8,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
-from runtime.execution.agent_delegation_executor import AgentDelegationExecutor
+from harness.execution.agent_delegation_executor import AgentDelegationExecutor
 from runtime.shared.context_manager import _render_agent_delegation_guidance_block
 from runtime.shared.models import AgentRun
 from request_intent.request_signals import build_request_signals
@@ -187,7 +187,7 @@ def test_main_agent_prompt_guidance_names_web_researcher() -> None:
     assert "交付复核" in block
 
 
-def test_delegation_runtime_does_not_pick_web_researcher_from_kind_only() -> None:
+def test_delegation_executor_does_not_pick_web_researcher_from_kind_only() -> None:
     executor = AgentDelegationExecutor(BACKEND_DIR)
     parent_run = AgentRun(
         agent_run_id="agrun:taskrun:test:main",
@@ -197,7 +197,7 @@ def test_delegation_runtime_does_not_pick_web_researcher_from_kind_only() -> Non
         status="running",
     )
 
-    from runtime.execution.delegation_models import AgentDelegationRequest
+    from harness.execution.delegation_models import AgentDelegationRequest
 
     request = AgentDelegationRequest(
         request_id="delegation:req:web-kind-only",
@@ -217,7 +217,7 @@ def test_delegation_runtime_does_not_pick_web_researcher_from_kind_only() -> Non
     assert "target_agent_required" in validation["blocked_reasons"]
 
 
-def test_delegation_runtime_does_not_pick_verifier_from_kind_only() -> None:
+def test_delegation_executor_does_not_pick_verifier_from_kind_only() -> None:
     executor = AgentDelegationExecutor(BACKEND_DIR)
     parent_run = AgentRun(
         agent_run_id="agrun:taskrun:test:main",
@@ -227,7 +227,7 @@ def test_delegation_runtime_does_not_pick_verifier_from_kind_only() -> None:
         status="running",
     )
 
-    from runtime.execution.delegation_models import AgentDelegationRequest
+    from harness.execution.delegation_models import AgentDelegationRequest
 
     request = AgentDelegationRequest(
         request_id="delegation:req:verifier-kind-only",

@@ -90,29 +90,6 @@ class SoulToolView:
 
 
 @dataclass(slots=True, frozen=True)
-class SoulProjectionRequest:
-    task_id: str
-    soul_id: str
-    role_type: str
-    task_mode: str
-    agent_profile_id: str
-    identity_anchor: str = ""
-    projection_name: str = ""
-    projection_prompt: str = ""
-    skill_views: tuple[SoulSkillView, ...] = ()
-    tool_views: tuple[SoulToolView, ...] = ()
-    usage_summary: str = "可被任务系统选用的灵魂投影资源。"
-    memory_policy_summary: str = "当前运行阶段不授予记忆写回权。"
-    output_contract_summary: str = "输出当前灵魂运行时视图。"
-
-    def to_dict(self) -> dict[str, Any]:
-        payload = asdict(self)
-        payload["skill_views"] = [item.to_dict() for item in self.skill_views]
-        payload["tool_views"] = [item.to_dict() for item in self.tool_views]
-        return payload
-
-
-@dataclass(slots=True, frozen=True)
 class PromptSection:
     section_id: str
     title: str
@@ -256,7 +233,6 @@ class SoulCard:
     story_id: str = ""
     world_id: str = ""
     manifestation_id: str = ""
-    default_projection_id: str = ""
     default_work_prompt_id: str = ""
     description: str = ""
     source: str = "builtin"
@@ -323,7 +299,6 @@ class SoulActivityEvent:
     task_run_id: str
     session_id: str = ""
     task_id: str = ""
-    projection_id: str = ""
     work_prompt_id: str = ""
     agent_id: str = ""
     agent_run_id: str = ""
@@ -406,57 +381,3 @@ class PromptSectionManifest:
         return payload
 
 
-@dataclass(slots=True, frozen=True)
-class SoulPromptManifest:
-    manifest_id: str
-    task_id: str
-    soul_id: str
-    projection_id: str
-    sections: tuple[PromptSectionManifest, ...]
-    prompt_hash: str
-    validation: Mapping[str, Any] = field(default_factory=dict)
-    metadata: Mapping[str, Any] = field(default_factory=dict)
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "manifest_id": self.manifest_id,
-            "task_id": self.task_id,
-            "soul_id": self.soul_id,
-            "projection_id": self.projection_id,
-            "sections": [section.to_dict() for section in self.sections],
-            "prompt_hash": self.prompt_hash,
-            "validation": dict(self.validation),
-            "metadata": dict(self.metadata),
-        }
-
-
-@dataclass(slots=True, frozen=True)
-class AgentPromptBundle:
-    bundle_id: str
-    agent_id: str
-    agent_profile_id: str
-    task_id: str
-    task_run_id: str
-    soul_id: str
-    projection_id: str
-    sections: tuple[PromptSection, ...]
-    prompt_manifest: SoulPromptManifest
-    cache_plan: Mapping[str, str] = field(default_factory=dict)
-    refs: Mapping[str, str] = field(default_factory=dict)
-    authority: str = "soul.agent_prompt_bundle"
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "bundle_id": self.bundle_id,
-            "agent_id": self.agent_id,
-            "agent_profile_id": self.agent_profile_id,
-            "task_id": self.task_id,
-            "task_run_id": self.task_run_id,
-            "soul_id": self.soul_id,
-            "projection_id": self.projection_id,
-            "sections": [section.to_dict() for section in self.sections],
-            "prompt_manifest": self.prompt_manifest.to_dict(),
-            "cache_plan": dict(self.cache_plan),
-            "refs": dict(self.refs),
-            "authority": self.authority,
-        }

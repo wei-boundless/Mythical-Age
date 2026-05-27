@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from runtime.unit_runtime.artifact_materializer import materialize_task_artifacts
+from harness.loop.artifact_materializer import materialize_task_artifacts
 
 
 def _base_policy(target: str) -> dict:

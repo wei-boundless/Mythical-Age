@@ -20,7 +20,7 @@ _CHECKPOINT_WRITE_LOCK = threading.RLock()
 
 @dataclass(frozen=True, slots=True)
 class RuntimeCheckpoint:
-    """Recovery snapshot for a TaskRunLoop event offset."""
+    """Recovery snapshot for a Harness event offset."""
 
     checkpoint_id: str
     task_run_id: str

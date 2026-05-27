@@ -12,7 +12,7 @@ from runtime.model_gateway.model_response import ModelResponseRuntimeExecutor
 from orchestration.runtime_directive import RuntimeDirective
 from request_intent.request_signals import build_request_signals
 from runtime.context_management.system_retrieval import build_system_retrieval_request_parts
-from runtime.execution_engine.delegation_context import build_delegation_request
+from harness.loop.agent_execution.delegation_context import build_delegation_request
 
 
 def _candidate_context() -> dict:

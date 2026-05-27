@@ -82,7 +82,7 @@ def test_working_memory_status_transition_and_read_log_are_persisted(tmp_path) -
         node_run_id="writer.run.001",
         reader_agent_id="agent:writer",
         selected_item_ids=[item.work_memory_id],
-        request={"requested_kind": "plan_fragment"},
+        request={"requested_kinds": ["plan_fragment"]},
     )
 
     assert accepted.status == "accepted"

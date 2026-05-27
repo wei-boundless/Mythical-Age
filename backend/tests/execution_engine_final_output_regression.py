@@ -8,7 +8,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from runtime.execution_engine import (
+from harness.loop.agent_execution import (
     ModelToolCallAccumulator,
     build_answer_readiness_judge_message,
     translate_executor_event,
@@ -35,7 +35,7 @@ class _EventLog:
 
 
 def test_execution_engine_does_not_export_system_answer_finalizers() -> None:
-    import runtime.execution_engine as execution_engine
+    import harness.loop.agent_execution as execution_engine
 
     assert not hasattr(execution_engine, "select_final_answer_from_context")
     assert not hasattr(execution_engine, "finalize_budget_exhausted_followup")

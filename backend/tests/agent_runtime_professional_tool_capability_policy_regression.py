@@ -7,7 +7,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from runtime.agent_runtime.environment.tool_capability_policy import prepare_runtime_tool_capability_table_for_turn
+from harness.runtime.environment.tool_capability_policy import prepare_runtime_tool_capability_table_for_turn
 
 
 def test_agent_runtime_tool_capability_table_is_environment_and_permit_bound() -> None:

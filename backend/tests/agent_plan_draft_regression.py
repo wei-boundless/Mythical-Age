@@ -10,7 +10,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from prompt_library.assembler import assemble_runtime_prompt_contract
-from runtime.agent_runtime.phases import (
+from harness.runtime.phases import (
     AgentPlanRequired,
     build_agent_plan_draft,
     empty_agent_plan_draft,
@@ -262,7 +262,6 @@ def test_prompt_sections_require_agent_plan_and_explain_hard_gate() -> None:
         binding={},
         registered_task={},
         skill_runtime_views=[],
-        projection_requirement={},
         operation_requirement={"optional_operations": ["op.agent_todo"]},
         agent_id="agent:0",
         current_turn_context={},

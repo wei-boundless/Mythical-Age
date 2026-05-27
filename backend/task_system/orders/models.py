@@ -13,7 +13,7 @@ TaskOrderKind = Literal[
     "graph_node_task",
     "agent_spawn_task",
     "human_work",
-    "subruntime_task",
+    "graph_module_task",
 ]
 TaskOrderStatus = Literal["drafted", "accepted", "running", "completed", "failed", "cancelled"]
 TaskOrderRunStatus = Literal[

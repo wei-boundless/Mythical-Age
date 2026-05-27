@@ -9,7 +9,7 @@ from task_system.compiler.coordination_graph_compiler import compile_task_graph_
 from task_system.registry.flow_registry import TaskFlowRegistry
 from task_system.graphs.task_graph_models import task_graph_from_dict, validate_task_graph
 from runtime.contracts.continuation_policy import derive_stage_contracts_from_graph
-from runtime.coordination_runtime.runtime_payloads import _runtime_spec_from_payload
+from harness.loop.graph_coordination.payloads import _runtime_spec_from_payload
 from runtime.graph_runtime.scheduler import bootstrap_scheduler_state
 
 

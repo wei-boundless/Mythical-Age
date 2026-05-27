@@ -15,7 +15,7 @@ def _latest_unconsumed_stage_task_result(
 ) -> dict[str, Any]:
     if not active_stage_id:
         return {}
-    graph_task_runtime = runtime.query_runtime.graph_task_runtime
+    graph_harness = runtime.query_runtime.graph_harness
     stage_results = dict(state.get("stage_results") or {})
     already_consumed_task_run_id = str(dict(stage_results.get(active_stage_id) or {}).get("task_run_id") or "")
     contracts = dict(state.get("stage_contracts") or {})
@@ -23,7 +23,7 @@ def _latest_unconsumed_stage_task_result(
     active_task_ref = str(contract.get("task_ref") or state.get("active_task_ref") or "").strip()
     expected_task_suffix = active_stage_id
     candidates = []
-    for task_run in graph_task_runtime.list_session_task_runs(session_id):
+    for task_run in graph_harness.list_session_task_runs(session_id):
         if str(task_run.status or "") != "completed":
             continue
         if str(task_run.task_run_id or "") == already_consumed_task_run_id:
@@ -48,7 +48,7 @@ def _latest_unconsumed_stage_task_result(
             for item in list(materialization.get("artifact_refs") or [])
             if str(item).startswith("artifact:")
         ]
-        checkpoint = graph_task_runtime.load_latest_task_checkpoint(task_run.task_run_id)
+        checkpoint = graph_harness.load_latest_task_checkpoint(task_run.task_run_id)
         task_result = dict(getattr(checkpoint, "commit_state", {}) or {}).get("task_result") if checkpoint is not None else {}
         task_result = dict(task_result or {})
         if artifact_refs:
@@ -111,14 +111,14 @@ def _recover_active_stage_completed_checkpoint(
 ) -> dict[str, Any]:
     if not active_stage_id:
         return {}
-    graph_task_runtime = runtime.query_runtime.graph_task_runtime
+    graph_harness = runtime.query_runtime.graph_harness
     stage_results = dict(state.get("stage_results") or {})
     already_consumed_task_run_id = str(dict(stage_results.get(active_stage_id) or {}).get("task_run_id") or "")
     contracts = dict(state.get("stage_contracts") or {})
     contract = dict(contracts.get(active_stage_id) or {})
     active_task_ref = str(contract.get("task_ref") or state.get("active_task_ref") or "").strip()
     candidates = []
-    for task_run in graph_task_runtime.list_session_task_runs(session_id):
+    for task_run in graph_harness.list_session_task_runs(session_id):
         if str(task_run.task_run_id or "") == already_consumed_task_run_id:
             continue
         if str(task_run.status or "") in {"completed", "failed", "aborted"}:
@@ -132,7 +132,7 @@ def _recover_active_stage_completed_checkpoint(
         )
         if not exact_task_match and not stage_suffix_match:
             continue
-        checkpoint = graph_task_runtime.load_latest_task_checkpoint(task_run.task_run_id)
+        checkpoint = graph_harness.load_latest_task_checkpoint(task_run.task_run_id)
         if checkpoint is None:
             continue
         if str(checkpoint.loop_state.status or "") != "completed":
@@ -143,7 +143,7 @@ def _recover_active_stage_completed_checkpoint(
     if not candidates:
         return {}
     _updated_at, task_run = sorted(candidates, key=lambda item: item[0], reverse=True)[0]
-    recovered = graph_task_runtime.recover_completed_checkpoint_task_run(
+    recovered = graph_harness.recover_completed_checkpoint_task_run(
         task_run_id=task_run.task_run_id,
         current_turn_context={
             "coordination_run_id": coordination_run_id,
@@ -160,7 +160,7 @@ def _recover_active_stage_completed_checkpoint(
 
 
 def _read_first_artifact_text(*, runtime: Any, artifact_refs: list[str]) -> str:
-    root_dir = getattr(runtime.query_runtime.graph_task_runtime, "root_dir", None)
+    root_dir = getattr(runtime.query_runtime.graph_harness, "root_dir", None)
     if root_dir is None:
         return ""
     root_path = root_dir if hasattr(root_dir, "exists") else None

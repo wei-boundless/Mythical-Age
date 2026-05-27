@@ -216,23 +216,17 @@ class HumanWorkOrder(WorkOrder):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class SubRuntimeWorkOrder(WorkOrder):
-    work_kind: str = "subruntime"
-    executor_type: str = "subruntime"
-    subruntime_kind: str = ""
+class GraphModuleWorkOrder(WorkOrder):
+    work_kind: str = "graph_module"
+    executor_type: str = "graph_module"
     authority: str = "runtime.agent_assembly.work_order"
 
     def __post_init__(self) -> None:
         WorkOrder.__post_init__(self)
-        if self.work_kind != "subruntime":
-            object.__setattr__(self, "work_kind", "subruntime")
-        if self.executor_type != "subruntime":
-            object.__setattr__(self, "executor_type", "subruntime")
-
-    def to_dict(self) -> dict[str, Any]:
-        payload = WorkOrder.to_dict(self)
-        payload["subruntime_kind"] = self.subruntime_kind
-        return payload
+        if self.work_kind != "graph_module":
+            object.__setattr__(self, "work_kind", "graph_module")
+        if self.executor_type != "graph_module":
+            object.__setattr__(self, "executor_type", "graph_module")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -279,10 +273,8 @@ class CapabilityAssemblyBinding:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class SoulAssemblyBinding:
-    projection_id: str = ""
-    soul_id: str = ""
-    prompt_manifest_ref: str = ""
+class RolePromptBinding:
+    role_prompt_id: str = ""
     role_name: str = ""
     role_summary: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -343,13 +335,10 @@ class AgentAssemblyContract:
     agent_profile_id: str = ""
     runtime_lane: str = ""
     model_profile_id: str = ""
-    projection_id: str = ""
-    soul_id: str = ""
-    prompt_manifest_ref: str = ""
     prompt_assembly: PromptAssemblyContract | None = None
     memory_binding: MemoryAssemblyBinding = field(default_factory=MemoryAssemblyBinding)
     capability_binding: CapabilityAssemblyBinding = field(default_factory=CapabilityAssemblyBinding)
-    soul_binding: SoulAssemblyBinding = field(default_factory=SoulAssemblyBinding)
+    role_prompt_binding: RolePromptBinding = field(default_factory=RolePromptBinding)
     output_boundary: OutputBoundaryBinding = field(default_factory=OutputBoundaryBinding)
     ports: tuple[AssemblyPort, ...] = ()
     execution_contract_ref: str = ""
@@ -411,12 +400,9 @@ class AgentAssemblyContract:
             "agent_profile_id": self.agent_profile_id,
             "runtime_lane": self.runtime_lane,
             "model_profile_id": self.model_profile_id,
-            "projection_id": self.projection_id,
-            "soul_id": self.soul_id,
-            "prompt_manifest_ref": self.prompt_manifest_ref,
             "memory_binding": self.memory_binding.to_dict(),
             "capability_binding": self.capability_binding.to_dict(),
-            "soul_binding": self.soul_binding.to_dict(),
+            "role_prompt_binding": self.role_prompt_binding.to_dict(),
             "output_boundary": self.output_boundary.to_dict(),
             "ports": [port.to_dict() for port in self.ports],
         }
@@ -426,7 +412,7 @@ class AgentAssemblyContract:
         payload["prompt_assembly"] = self.prompt_assembly.to_dict() if self.prompt_assembly is not None else None
         payload["memory_binding"] = self.memory_binding.to_dict()
         payload["capability_binding"] = self.capability_binding.to_dict()
-        payload["soul_binding"] = self.soul_binding.to_dict()
+        payload["role_prompt_binding"] = self.role_prompt_binding.to_dict()
         payload["output_boundary"] = self.output_boundary.to_dict()
         payload["ports"] = [port.to_dict() for port in self.ports]
         payload["current_turn_context"] = dict(self.current_turn_context)
@@ -695,23 +681,23 @@ class NodeResultEnvelope:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class SubRuntimeInvocationContract:
+class GraphModuleInvocationContract:
     invocation_id: str
     kind: str
     work_order_id: str
     assembly_id: str
-    executor_type: str = "subruntime"
+    executor_type: str = "graph_module"
     target_ref: str = ""
     payload: dict[str, Any] = field(default_factory=dict)
     diagnostics: dict[str, Any] = field(default_factory=dict)
-    authority: str = "runtime.agent_assembly.subruntime_invocation"
+    authority: str = "runtime.agent_assembly.graph_module_invocation"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class SubRuntimeResultEnvelope:
+class GraphModuleResultEnvelope:
     result_id: str
     invocation_id: str
     kind: str
@@ -723,7 +709,7 @@ class SubRuntimeResultEnvelope:
     artifact_refs: tuple[str, ...] = ()
     diagnostics: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
-    authority: str = "runtime.agent_assembly.subruntime_result_envelope"
+    authority: str = "runtime.agent_assembly.graph_module_result_envelope"
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)

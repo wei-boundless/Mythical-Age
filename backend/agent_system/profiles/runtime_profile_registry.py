@@ -284,6 +284,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             allowed_runtime_lanes=("web_research_delegate", "readonly_exploration"),
             allowed_operations=(
                 "op.model_response",
+                "op.search_agent",
                 "op.web_search",
                 "op.fetch_url",
             ),
@@ -352,6 +353,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             allowed_runtime_lanes=("readonly_exploration",),
             allowed_operations=(
                 "op.model_response",
+                "op.codebase_search",
                 "op.search_files",
                 "op.search_text",
                 "op.read_file",

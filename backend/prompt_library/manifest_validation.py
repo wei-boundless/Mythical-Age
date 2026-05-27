@@ -7,7 +7,6 @@ _INTERNAL_LEAK_MARKERS = (
     "workflow_id",
     "operation_id",
     "manifest_id",
-    "projection_id",
     "resource_id",
 )
 
@@ -23,10 +22,10 @@ def build_prompt_manifest_validation(
     issues: list[str] = []
 
     if normalized_mode != "role_mode":
-        forbidden = {"projection_section", "role_prompt_section"}
+        forbidden = {"role_prompt_section"}
         leaked = [section_id for section_id in section_ids if section_id in forbidden]
         if leaked:
-            issues.append("forbidden_role_or_projection_sections_outside_role_mode:" + ",".join(leaked))
+            issues.append("forbidden_role_prompt_sections_outside_role_mode:" + ",".join(leaked))
 
     if normalized_mode == "professional_mode":
         required = {"semantic_task_section", "mode_policy_section", "output_section"}

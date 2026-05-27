@@ -68,7 +68,7 @@ def build_runtime_resource_inventory(base_dir: Path | str | None = None) -> Runt
             title="Task Graphs",
             authority_layer="L4_task_graph_resource",
             path=str(layout.tasks_dir / "task_graphs.json"),
-            runtime_consumer="graph_task_runtime.scheduler",
+            runtime_consumer="graph_harness.scheduler",
             can_authorize_side_effects=False,
             notes="Graph resources compile into runtime obligations and state transitions.",
         ),

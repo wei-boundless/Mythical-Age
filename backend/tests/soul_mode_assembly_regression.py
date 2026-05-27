@@ -23,13 +23,12 @@ def test_work_mode_uses_work_prompt_without_world_or_story() -> None:
     assert "work_prompt" in ids
     assert "world" not in ids
     assert "story" not in ids
-    assert preview["projection_id"] == ""
     assert preview["work_prompt_id"] == "work_prompt.default"
     assert preview["trace"]["includes_world"] == "false"
     assert preview["trace"]["includes_story"] == "false"
 
 
-def test_role_mode_includes_world_story_and_projection() -> None:
+def test_role_mode_includes_world_and_story_without_projection() -> None:
     preview = SoulFacade(Path("backend")).preview_mode(
         mode="role_mode",
         soul_id="hebo",
@@ -40,7 +39,7 @@ def test_role_mode_includes_world_story_and_projection() -> None:
     assert "shared_common_contract" in ids
     assert "world" in ids
     assert "story" in ids
-    assert "projection" in ids
+    assert "projection" not in ids
     assert preview["work_prompt_id"] == ""
     assert preview["trace"]["includes_world"] == "true"
     assert preview["trace"]["includes_story"] == "true"
@@ -54,7 +53,7 @@ def test_standard_mode_keeps_story_without_world() -> None:
 
     ids = _section_ids(preview)
     assert "story" in ids
-    assert "projection" in ids
+    assert "projection" not in ids
     assert "world" not in ids
     assert preview["trace"]["includes_world"] == "false"
     assert preview["trace"]["includes_story"] == "true"

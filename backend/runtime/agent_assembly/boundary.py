@@ -27,8 +27,6 @@ MODEL_CONTEXT_KEYS = frozenset(
         "task_id",
         "agent_id",
         "agent_profile_id",
-        "projection_id",
-        "selected_projection_id",
         "runtime_lane",
         "runtime_limits",
         "agent_group_id",
@@ -87,8 +85,6 @@ TASK_SELECTION_KEYS = frozenset(
         "graph_id",
         "agent_id",
         "agent_profile_id",
-        "projection_id",
-        "selected_projection_id",
         "runtime_lane",
         "runtime_limits",
         "agent_group_id",
@@ -185,13 +181,6 @@ def build_model_context_payload(
         or ""
     ).strip()
     runtime_assembly = dict(work_order.get("runtime_assembly") or request.get("runtime_assembly") or {})
-    projection_id = str(
-        assembly.get("projection_id")
-        or work_order.get("projection_id")
-        or runtime_assembly.get("projection_id")
-        or context.get("projection_id")
-        or ""
-    ).strip()
     work_kind = str(work_order.get("work_kind") or request.get("work_kind") or "").strip()
     stage_id = ""
     if work_kind and work_kind != "direct":
@@ -205,8 +194,6 @@ def build_model_context_payload(
         "task_id": task_ref,
         "agent_id": agent_id,
         "agent_profile_id": agent_profile_id,
-        "projection_id": projection_id,
-        "selected_projection_id": projection_id,
         "runtime_lane": runtime_lane,
         "coordination_run_id": str(work_order.get("coordination_run_id") or request.get("coordination_run_id") or ""),
         "continuation_stage_id": stage_id,
@@ -268,10 +255,6 @@ def build_task_selection_payload(
         value = str(assembly.get(key) or work_order.get(key) or request.get(key) or "").strip()
         if value:
             selection[key] = value
-    projection_id = str(assembly.get("projection_id") or work_order.get("projection_id") or "").strip()
-    if projection_id:
-        selection["projection_id"] = projection_id
-        selection["selected_projection_id"] = projection_id
     request_ref = str(control.get("stage_execution_request_ref") or request.get("request_id") or request.get("idempotency_key") or "").strip()
     if request_ref:
         selection["stage_execution_request_ref"] = request_ref

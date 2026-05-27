@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Release notes management - DEV Community</title>
+    
+    <link rel="preload" href="/reactions?article_id=1165645" as="fetch" crossorigin="same-origin">
+    <link rel="canonical" href="https://dev.to/r7kamura/release-notes-management-2ho0" />
+    <meta name="description" content="How do you manage your OSS changelog or release notes?     As for myself, I don&#39;t use CHANGELOG file... Tagged with github, changelog.">
+    <meta name="keywords" content="github, changelog, software, coding, development, engineering, inclusive, community">
+
+    <meta property="og:type" content="article" />
+    <meta property="og:url" content="https://dev.to/r7kamura/release-notes-management-2ho0" />
+    <meta property="og:title" content="Release notes management" />
+    <meta property="og:description" content="How do you manage your OSS changelog or release notes?     As for myself, I don&#39;t use CHANGELOG file..." />
+    <meta property="og:site_name" content="DEV Community" />
+    <meta name="twitter:site" content="@thepracticaldev">
+    <meta name="twitter:creator" content="@r7kamura">
+    <meta name="author-trust" content="0">
+    <meta name="twitter:title" content="Release notes management">
+    <meta name="twitter:description" content="How do you manage your OSS changelog or release notes?     As for myself, I don&#39;t use CHANGELOG file...">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:widgets:new-embed-design" content="on">
+    <meta name="robots" content="max-snippet:-1, max-image-preview:large, max-video-preview:-1">
+      <meta property="og:image" content="https://dev-to-uploads.s3.amazonaws.com/uploads/articles/3otvb2z646ytpt1hl2rv.jpg" />
+      <meta name="twitter:image:src" content="https://dev-to-uploads.s3.amazonaws.com/uploads/articles/3otvb2z646ytpt1hl2rv.jpg">
+
+      <meta name="last-updated" content="2026-05-25 16:07:58 UTC">
+      <meta name="user-signed-in" content="false">
+      <meta name="head-cached-at" content="1779725278">
+      <meta name="environment" content="production">
+      <link rel="stylesheet" href="https://assets.dev.to/assets/minimal-2213124ac5505ccdbf3c4eb62fd70ecda26cb75ed6de931633992a7bac437c81.css" media="all" id="main-minimal-stylesheet" />
+<link rel="stylesheet" href="https://assets.dev.to/assets/views-dabb3ad3d44cb1559ede857918da6c72243a216e6a292a5bb074f64b3063cb2c.css" media="all" id="main-views-stylesheet" />
+<link rel="stylesheet" href="https://assets.dev.to/assets/crayons-d2b52af1d86a9ac9a8bc215ed34ffad7a94af68f4abd1cdcae2a8c1a4385cd23.css" media="all" id="main-crayons-stylesheet" />
+
+      <script src="https://assets.dev.to/assets/base-f99250bd3c7d0fe220ec7cd2b210640787be7285916d9955f892c3533696d3f3.js" defer="defer"></script>
+<script src="https://assets.dev.to/assets/application-0b268684912bef9b0f23defff01cb608bfc5d5e5610287725e7b686139ae32d3.js" defer="defer"></script>
+<script src="https://assets.dev.to/assets/baseInitializers-2f0777a6d67046056f9f42665560ce072de3801292674358ddbad6e135c1891d.js" defer="defer"></script>
+<script src="https://assets.dev.to/assets/baseTracking-90c1c7b9b4f617aa0f900eadaf0ccbdbc2a002f12c1e1ada7da039c823601b14.js" defer="defer"></script>
+<script src="https://assets.dev.to/assets/followButtons-e3595664847e9f43945a9b8a0445b32cda9a149f1f169f78b8fcc7714ccab45a.js" defer="defer"></script>
+
+        <meta name="search-script" content="https://assets.dev.to/assets/Search-b977aea0f2d7a5818b4ebd97f7d4aba8548099f84f5db5761f8fa67be76abc54.js">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+      <link rel="icon" type="image/x-icon" href="https://media2.dev.to/dynamic/image/width=32,height=,fit=scale-down,gravity=auto,format=auto/https%3A%2F%2Fdev-to-uploads.s3.amazonaws.com%2Fuploads%2Farticles%2F8j7kvp660rqzt99zui8e.png" />
+      <link rel="apple-touch-icon" href="https://media2.dev.to/dynamic/image/width=180,height=,fit=scale-down,gravity=auto,format=auto/https%3A%2F%2Fdev-to-uploads.s3.amazonaws.com%2Fuploads%2Farticles%2F8j7kvp660rqzt99zui8e.png">
+      <link rel="apple-touch-icon" sizes="152x152" href="https://media2.dev.to/dynamic/image/width=152,height=,fit=scale-down,gravity=auto,format=auto/https%3A%2F%2Fdev-to-uploads.s3.amazonaws.com%2Fuploads%2Farticles%2F8j7kvp660rqzt99zui8e.png">
+      <link rel="apple-touch-icon" sizes="180x180" href="https://media2.dev.to/dynamic/image/width=180,height=,fit=scale-down,gravity=auto,format=auto/https%3A%2F%2Fdev-to-uploads.s3.amazonaws.com%2Fuploads%2Farticles%2F8j7kvp660rqzt99zui8e.png">
+      <link rel="apple-touch-icon" sizes="167x167" href="https://media2.dev.to/dynamic/image/width=167,height=,fit=scale-down,gravity=auto,format=auto/https%3A%2F%2Fdev-to-uploads.s3.amazonaws.com%2Fuploads%2Farticles%2F8j7kvp660rqzt99zui8e.png">
+      <link href="https://media2.dev.to/dynamic/image/width=192,height=,fit=scale-down,gravity=auto,format=auto/htt

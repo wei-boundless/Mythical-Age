@@ -6,8 +6,8 @@ from types import SimpleNamespace
 
 from runtime.shared.event_log import RuntimeEventLog
 from runtime.agent_assembly import WorkOrder, validate_work_order
-from runtime.coordination_runtime.runtime import (
-    LangGraphCoordinationRuntime,
+from harness.loop.graph_coordination.engine import (
+    GraphCoordinationEngine,
     _active_scope_key_for_scheduler,
     _apply_loop_derived_fields,
     _memory_edge_allows_refs_only_auto_candidate,
@@ -19,13 +19,13 @@ from runtime.coordination_runtime.runtime import (
     _stage_execution_message,
     _stage_quality_retry_target,
 )
-from runtime.coordination_runtime.node_result_committer import build_node_result_acceptance_draft
-from runtime.coordination_runtime.context_packet_resolver import build_revision_packet_from_review
-from runtime.coordination_runtime.context_packet_resolver import resolve_artifact_context_packet
+from harness.loop.graph_coordination.node_result_committer import build_node_result_acceptance_draft
+from harness.loop.graph_coordination.context_packet_resolver import build_revision_packet_from_review
+from harness.loop.graph_coordination.context_packet_resolver import resolve_artifact_context_packet
 from runtime.shared.models import CoordinationRun, TaskRun
-from runtime.execution.node_execution_request import NodeResultReadyEvent
+from harness.execution.node_protocol.node_execution_request import NodeResultReadyEvent
 from runtime.memory.state_index import RuntimeStateIndex
-from runtime.graph_task_runtime.coordination_delivery import _render_standard_input_package_for_model
+from harness.loop.coordination_delivery import _render_standard_input_package_for_model
 from task_system import TaskContractRegistry
 from task_system.registry.flow_models import CoordinationTaskDefinition, SpecificTaskRecord, TaskCommunicationProtocol, TopologyTemplate
 from task_system.graphs.task_graph_models import TaskGraphDefinition, TaskGraphEdgeDefinition, TaskGraphNodeDefinition
@@ -507,7 +507,7 @@ def test_rewind_refresh_uses_live_graph_loop_policy_instead_of_stale_snapshot(tm
     registry = _RefreshGraphRegistry(live_graph)
     state_index = RuntimeStateIndex(tmp_path)
     event_log = RuntimeEventLog(tmp_path)
-    runtime = LangGraphCoordinationRuntime(
+    runtime = GraphCoordinationEngine(
         root_dir=tmp_path,
         state_index=state_index,
         event_log=event_log,
@@ -1542,7 +1542,7 @@ def test_stage_message_expands_current_artifact_handoff(tmp_path) -> None:
     registry = _ArtifactContextRegistry()
     state_index = RuntimeStateIndex(tmp_path)
     event_log = RuntimeEventLog(tmp_path)
-    runtime = LangGraphCoordinationRuntime(
+    runtime = GraphCoordinationEngine(
         root_dir=tmp_path,
         state_index=state_index,
         event_log=event_log,
@@ -1580,11 +1580,11 @@ def test_stage_message_expands_current_artifact_handoff(tmp_path) -> None:
     assert "第1章：主角入泽" in result.stage_execution_request.message
 
 
-def test_langgraph_coordination_runtime_injects_working_memory_context(tmp_path) -> None:
+def test_graph_coordination_engine_injects_working_memory_context(tmp_path) -> None:
     registry = _WorkingMemoryRegistry()
     state_index = RuntimeStateIndex(tmp_path)
     event_log = RuntimeEventLog(tmp_path)
-    runtime = LangGraphCoordinationRuntime(
+    runtime = GraphCoordinationEngine(
         root_dir=tmp_path,
         state_index=state_index,
         event_log=event_log,
@@ -1647,7 +1647,7 @@ def test_formal_memory_write_edge_uses_source_output_key(tmp_path) -> None:
     registry = _FormalMemoryRegistry()
     state_index = RuntimeStateIndex(tmp_path)
     event_log = RuntimeEventLog(tmp_path)
-    runtime = LangGraphCoordinationRuntime(
+    runtime = GraphCoordinationEngine(
         root_dir=tmp_path,
         state_index=state_index,
         event_log=event_log,
@@ -1713,7 +1713,7 @@ def test_formal_memory_write_edge_blocks_missing_source_output_key(tmp_path) -> 
     registry = _FormalMemoryRegistry()
     state_index = RuntimeStateIndex(tmp_path)
     event_log = RuntimeEventLog(tmp_path)
-    runtime = LangGraphCoordinationRuntime(
+    runtime = GraphCoordinationEngine(
         root_dir=tmp_path,
         state_index=state_index,
         event_log=event_log,
@@ -1773,7 +1773,7 @@ def test_formal_memory_commit_edge_uses_candidate_ref_and_verdict(tmp_path) -> N
     registry = _FormalMemoryRegistry()
     state_index = RuntimeStateIndex(tmp_path)
     event_log = RuntimeEventLog(tmp_path)
-    runtime = LangGraphCoordinationRuntime(
+    runtime = GraphCoordinationEngine(
         root_dir=tmp_path,
         state_index=state_index,
         event_log=event_log,
@@ -1857,7 +1857,7 @@ def test_formal_memory_commit_edge_uses_approval_source_candidate_refs(tmp_path)
     registry = _ApprovalSourceFormalMemoryRegistry()
     state_index = RuntimeStateIndex(tmp_path)
     event_log = RuntimeEventLog(tmp_path)
-    runtime = LangGraphCoordinationRuntime(
+    runtime = GraphCoordinationEngine(
         root_dir=tmp_path,
         state_index=state_index,
         event_log=event_log,
@@ -1935,7 +1935,7 @@ def test_formal_memory_read_edge_does_not_fallback_to_working_memory(tmp_path) -
     registry = _FormalMemoryRegistry()
     state_index = RuntimeStateIndex(tmp_path)
     event_log = RuntimeEventLog(tmp_path)
-    runtime = LangGraphCoordinationRuntime(
+    runtime = GraphCoordinationEngine(
         root_dir=tmp_path,
         state_index=state_index,
         event_log=event_log,
@@ -2059,7 +2059,7 @@ def test_formal_memory_missing_required_blocks_stage_dispatch(tmp_path) -> None:
     registry = _FormalMemoryRegistry()
     state_index = RuntimeStateIndex(tmp_path)
     event_log = RuntimeEventLog(tmp_path)
-    runtime = LangGraphCoordinationRuntime(
+    runtime = GraphCoordinationEngine(
         root_dir=tmp_path,
         state_index=state_index,
         event_log=event_log,
@@ -2194,7 +2194,7 @@ def test_required_canonical_memory_invalid_record_blocks_stage_dispatch(tmp_path
     registry = _FormalMemoryRegistry()
     state_index = RuntimeStateIndex(tmp_path)
     event_log = RuntimeEventLog(tmp_path)
-    runtime = LangGraphCoordinationRuntime(
+    runtime = GraphCoordinationEngine(
         root_dir=tmp_path,
         state_index=state_index,
         event_log=event_log,
@@ -2362,11 +2362,11 @@ def test_refs_only_auto_candidate_requires_explicit_memory_edge_contract() -> No
     ) is False
 
 
-def test_langgraph_coordination_runtime_commits_working_memory_decisions(tmp_path) -> None:
+def test_graph_coordination_engine_commits_working_memory_decisions(tmp_path) -> None:
     registry = _WorkingMemoryRegistry()
     state_index = RuntimeStateIndex(tmp_path)
     event_log = RuntimeEventLog(tmp_path)
-    runtime = LangGraphCoordinationRuntime(
+    runtime = GraphCoordinationEngine(
         root_dir=tmp_path,
         state_index=state_index,
         event_log=event_log,
@@ -2422,7 +2422,7 @@ def test_langgraph_coordination_runtime_commits_working_memory_decisions(tmp_pat
     assert sequence_indexes == sorted(sequence_indexes)
 
 
-def test_langgraph_coordination_runtime_advances_by_stage_contract(tmp_path) -> None:
+def test_graph_coordination_engine_advances_by_stage_contract(tmp_path) -> None:
     registry = _Registry()
     state_index = RuntimeStateIndex(tmp_path)
     event_log = RuntimeEventLog(tmp_path)
@@ -2437,7 +2437,7 @@ def test_langgraph_coordination_runtime_advances_by_stage_contract(tmp_path) -> 
         )
     )
     trace = _Trace({"taskrun:project": {"task_result": {"output_refs": ["ref:project_spec"]}}})
-    runtime = LangGraphCoordinationRuntime(
+    runtime = GraphCoordinationEngine(
         root_dir=tmp_path,
         state_index=state_index,
         event_log=event_log,
@@ -2649,7 +2649,7 @@ def _diamond_runtime(tmp_path):
     registry = _DiamondRegistry()
     state_index = RuntimeStateIndex(tmp_path)
     event_log = RuntimeEventLog(tmp_path)
-    runtime = LangGraphCoordinationRuntime(
+    runtime = GraphCoordinationEngine(
         root_dir=tmp_path,
         state_index=state_index,
         event_log=event_log,
@@ -2671,7 +2671,7 @@ def _diamond_runtime(tmp_path):
     return runtime, state_index, coordination_run
 
 
-def test_langgraph_coordination_runtime_routes_ready_nodes_before_join(tmp_path) -> None:
+def test_graph_coordination_engine_routes_ready_nodes_before_join(tmp_path) -> None:
     runtime, state_index, coordination_run = _diamond_runtime(tmp_path)
 
     result_a = runtime.resume_from_task_result(
@@ -2730,7 +2730,7 @@ def test_langgraph_coordination_runtime_routes_ready_nodes_before_join(tmp_path)
     assert len(result_c.stage_execution_request.a2a_payload["message"]["parts"][-1]["data"]["handoff_packets"]) == 2
 
 
-def test_langgraph_coordination_runtime_ignores_stale_dispatch_result(tmp_path) -> None:
+def test_graph_coordination_engine_ignores_stale_dispatch_result(tmp_path) -> None:
     runtime, state_index, coordination_run = _diamond_runtime(tmp_path)
     first = runtime.resume_from_task_result(
         coordination_run=coordination_run,
@@ -2778,7 +2778,7 @@ def test_langgraph_coordination_runtime_ignores_stale_dispatch_result(tmp_path) 
     assert runtime_state["ready_nodes"] == ["c"]
 
 
-def test_langgraph_coordination_runtime_rejects_result_when_stage_request_boundary_is_stale(tmp_path) -> None:
+def test_graph_coordination_engine_rejects_result_when_stage_request_boundary_is_stale(tmp_path) -> None:
     runtime, state_index, coordination_run = _diamond_runtime(tmp_path)
     first = runtime.resume_from_task_result(
         coordination_run=coordination_run,
@@ -2837,7 +2837,7 @@ def test_langgraph_coordination_runtime_rejects_result_when_stage_request_bounda
     assert stale.state["stage_execution_request"]["request_id"] == "nodeexec:old-stage-request"
 
 
-def test_langgraph_coordination_runtime_initialize_redispatches_when_formal_request_is_missing(tmp_path) -> None:
+def test_graph_coordination_engine_initialize_redispatches_when_formal_request_is_missing(tmp_path) -> None:
     runtime, state_index, coordination_run = _diamond_runtime(tmp_path)
     first = runtime.resume_from_task_result(
         coordination_run=coordination_run,
@@ -2878,7 +2878,7 @@ def test_langgraph_coordination_runtime_initialize_redispatches_when_formal_requ
     assert initialized.node_work_order["stage_id"] == "b"
 
 
-def test_langgraph_coordination_runtime_rewinds_stage_and_invalidates_downstream(tmp_path) -> None:
+def test_graph_coordination_engine_rewinds_stage_and_invalidates_downstream(tmp_path) -> None:
     runtime, state_index, coordination_run = _diamond_runtime(tmp_path)
 
     runtime.resume_from_task_result(
@@ -2968,7 +2968,7 @@ def test_langgraph_coordination_runtime_rewinds_stage_and_invalidates_downstream
     assert flow["current_stage_id"] == "b"
 
 
-def test_langgraph_coordination_runtime_rewind_ignores_feedback_edges(tmp_path) -> None:
+def test_graph_coordination_engine_rewind_ignores_feedback_edges(tmp_path) -> None:
     runtime, _, coordination_run = _diamond_runtime(tmp_path)
     runtime.initialize(coordination_run=coordination_run)
     state = runtime.checkpoints.get_state(thread_id="coordrun:diamond")
@@ -3058,11 +3058,11 @@ class _SequencedRegistry:
         return list(self.tasks)
 
 
-def test_langgraph_coordination_runtime_uses_explicit_edges_for_sequence(tmp_path) -> None:
+def test_graph_coordination_engine_uses_explicit_edges_for_sequence(tmp_path) -> None:
     registry = _SequencedRegistry()
     state_index = RuntimeStateIndex(tmp_path)
     event_log = RuntimeEventLog(tmp_path)
-    runtime = LangGraphCoordinationRuntime(
+    runtime = GraphCoordinationEngine(
         root_dir=tmp_path,
         state_index=state_index,
         event_log=event_log,
@@ -3106,7 +3106,7 @@ def test_langgraph_coordination_runtime_uses_explicit_edges_for_sequence(tmp_pat
     assert scheduler_state["diagnostics"]["legacy_timing_gate_enabled"] is False
 
 
-def test_langgraph_coordination_runtime_blocks_when_required_input_missing(tmp_path) -> None:
+def test_graph_coordination_engine_blocks_when_required_input_missing(tmp_path) -> None:
     runtime, _, coordination_run = _diamond_runtime(tmp_path)
 
     result = runtime.resume_from_task_result(
@@ -3129,7 +3129,7 @@ def test_langgraph_coordination_runtime_blocks_when_required_input_missing(tmp_p
     assert result.state["contract_status"]["node_status"]["b"]["missing_required_inputs"] == ["a_ref"]
 
 
-def test_langgraph_coordination_runtime_retries_failed_stage_when_policy_allows(tmp_path) -> None:
+def test_graph_coordination_engine_retries_failed_stage_when_policy_allows(tmp_path) -> None:
     runtime, _, coordination_run = _diamond_runtime(tmp_path)
 
     result = runtime.resume_from_task_result(
@@ -3153,7 +3153,7 @@ def test_langgraph_coordination_runtime_retries_failed_stage_when_policy_allows(
     assert result.state["running_nodes"] == ["a"]
 
 
-def test_langgraph_coordination_runtime_commit_identity_is_authoritative_state(tmp_path) -> None:
+def test_graph_coordination_engine_commit_identity_is_authoritative_state(tmp_path) -> None:
     runtime, _, coordination_run = _diamond_runtime(tmp_path)
     stage_contracts = runtime.task_flow_registry.coordination.metadata["stage_contracts"]
     stage_contracts[0]["artifact_policy"] = {
@@ -3230,7 +3230,7 @@ def test_failed_file_artifact_stage_does_not_satisfy_required_outputs(tmp_path) 
     assert record["validation_result"]["requires_file_artifact_refs"] is True
 
 
-def test_langgraph_coordination_runtime_enters_human_gate_when_policy_requires(tmp_path) -> None:
+def test_graph_coordination_engine_enters_human_gate_when_policy_requires(tmp_path) -> None:
     runtime, state_index, coordination_run = _diamond_runtime(tmp_path)
     stage_contracts = runtime.task_flow_registry.coordination.metadata["stage_contracts"]
     stage_contracts[0]["on_failure"] = "human_gate"
@@ -3260,7 +3260,7 @@ def test_langgraph_coordination_runtime_enters_human_gate_when_policy_requires(t
     assert runtime_state["human_gate"]["status"] == "waiting"
 
 
-def test_langgraph_coordination_runtime_does_not_block_human_gate_when_auto_continue(tmp_path) -> None:
+def test_graph_coordination_engine_does_not_block_human_gate_when_auto_continue(tmp_path) -> None:
     runtime, _, coordination_run = _diamond_runtime(tmp_path)
     runtime.task_flow_registry.coordination.metadata["continuation_policy"] = {"human_gate_mode": "auto_continue"}
     stage_contracts = runtime.task_flow_registry.coordination.metadata["stage_contracts"]
@@ -3289,7 +3289,7 @@ def test_langgraph_coordination_runtime_does_not_block_human_gate_when_auto_cont
     assert result.state["human_gate"] == {}
 
 
-def test_langgraph_coordination_runtime_preserves_node_human_gate_policy_in_contract(tmp_path) -> None:
+def test_graph_coordination_engine_preserves_node_human_gate_policy_in_contract(tmp_path) -> None:
     runtime, _, coordination_run = _diamond_runtime(tmp_path)
     node = runtime.task_flow_registry.coordination.graph_nodes[0]
     node["human_gate_policy"] = {"enabled": True, "mode": "non_blocking", "trigger_verdict": "human_review_required"}
@@ -3305,7 +3305,7 @@ def test_langgraph_coordination_runtime_preserves_node_human_gate_policy_in_cont
     }
 
 
-def test_langgraph_coordination_runtime_human_gate_approve_routes_next(tmp_path) -> None:
+def test_graph_coordination_engine_human_gate_approve_routes_next(tmp_path) -> None:
     runtime, _, coordination_run = _diamond_runtime(tmp_path)
     stage_contracts = runtime.task_flow_registry.coordination.metadata["stage_contracts"]
     stage_contracts[0]["on_failure"] = "human_gate"
@@ -3335,7 +3335,7 @@ def test_langgraph_coordination_runtime_human_gate_approve_routes_next(tmp_path)
     assert result.state["completed_nodes"] == ["a"]
 
 
-def test_langgraph_coordination_runtime_human_gate_retry_routes_same_stage(tmp_path) -> None:
+def test_graph_coordination_engine_human_gate_retry_routes_same_stage(tmp_path) -> None:
     runtime, _, coordination_run = _diamond_runtime(tmp_path)
     stage_contracts = runtime.task_flow_registry.coordination.metadata["stage_contracts"]
     stage_contracts[0]["on_failure"] = "human_gate"
@@ -3364,7 +3364,7 @@ def test_langgraph_coordination_runtime_human_gate_retry_routes_same_stage(tmp_p
     assert result.state["contract_status"]["node_status"]["a"]["status"] == "pending_retry"
 
 
-def test_langgraph_coordination_runtime_human_gate_reject_fails_closed(tmp_path) -> None:
+def test_graph_coordination_engine_human_gate_reject_fails_closed(tmp_path) -> None:
     runtime, _, coordination_run = _diamond_runtime(tmp_path)
     stage_contracts = runtime.task_flow_registry.coordination.metadata["stage_contracts"]
     stage_contracts[0]["on_failure"] = "human_gate"
@@ -3463,7 +3463,7 @@ def test_langgraph_runtime_emits_graph_module_stage_request(tmp_path) -> None:
     registry = _GraphModuleRegistry(importing_graph)
     state_index = RuntimeStateIndex(tmp_path)
     event_log = RuntimeEventLog(tmp_path)
-    runtime = LangGraphCoordinationRuntime(
+    runtime = GraphCoordinationEngine(
         root_dir=tmp_path,
         state_index=state_index,
         event_log=event_log,
@@ -3492,7 +3492,7 @@ def test_langgraph_runtime_emits_graph_module_stage_request(tmp_path) -> None:
     assert request.task_ref == "task_graph.node.graph.test.importing_graph_module_runtime.graph_module.block.child"
     assert request.executor_binding["selected_executor"] == "graph_module"
     handle = request.runtime_assembly["graph_module_runtime_handle"]
-    assert handle["authority"] == "runtime.subruntime.graph_module_runtime_handle"
+    assert handle["authority"] == "harness.execution.graph_module_runtime_handle"
     assert handle["linked_graph_id"] == "graph.test.imported_graph_module_runtime"
     assert handle["graph_module_runtime_plan_id"] == "graph_module_runtime.block.child"
     assert handle["importing_coordination_run_id"] == "coordrun:graph-module"
@@ -3500,13 +3500,11 @@ def test_langgraph_runtime_emits_graph_module_stage_request(tmp_path) -> None:
     assert handle["explicit_inputs"]["user_goal"] == "运行导入模块"
     assert handle["executor_policy"]["auto_start_imported_initial_stage"] is True
     work_order = result.node_work_order
-    assert work_order["work_kind"] == "subruntime"
-    assert work_order["executor_type"] == "subruntime"
-    assert work_order["subruntime_kind"] == "graph_module"
+    assert work_order["work_kind"] == "graph_module"
+    assert work_order["executor_type"] == "graph_module"
     assert work_order["task_ref"] == request.task_ref
     continuation = result.continuation_payload(session_id="session")
-    assert continuation["runtime_control"]["node_work_order"]["subruntime_kind"] == "graph_module"
-    assert continuation["runtime_control"]["node_work_order"]["work_kind"] == "subruntime"
+    assert continuation["runtime_control"]["node_work_order"]["work_kind"] == "graph_module"
     assert continuation["next_stage_id"] == "graph_module.block.child"
     assert "node_work_order" not in continuation["current_turn_context"]
 

@@ -9,16 +9,9 @@ from evidence import EvidenceOrchestrator, PDFWorker, RetrievalWorker, Structure
 from evidence.output_policy import RAGEvidenceOutputPolicy
 from observability import build_debug_trace_event, start_turn_trace
 from context_system import RuntimeContextManager
-from runtime import (
-    AgentRunRequest,
-    AgentRuntime,
-    AgentRuntimeServices,
-    GraphTaskRuntime,
-    ModelResponseRuntimeExecutor,
-    ModelRuntimeError,
-    ToolRuntimeExecutor,
-)
-from runtime.unit_runtime.loop import TaskRunLoop
+from harness import AgentHarness, AgentRuntimeServices, GraphHarness, HarnessServiceHost
+from harness.runtime import AgentRunRequest
+from runtime import ModelResponseRuntimeExecutor, ModelRuntimeError, ToolRuntimeExecutor
 from runtime.shared.history_assembler import assemble_runtime_history
 from agent_system.assembly.runtime_chain import AgentRuntimeChainAssembler
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
@@ -98,7 +91,7 @@ class QueryRuntime:
             tool_registry=getattr(tool_runtime, "registry", None),
         )
         self.runtime_context_manager = RuntimeContextManager(self.build_static_system_prompt_for_session)
-        self.task_run_loop = TaskRunLoop(
+        self.harness_service_host = HarnessServiceHost(
             ProjectLayout.from_backend_dir(base_dir).runtime_state_dir,
             backend_dir=base_dir,
             evidence_orchestrator=self.evidence_orchestrator,
@@ -107,22 +100,22 @@ class QueryRuntime:
                 settings_service=settings_service,
             ),
         )
-        self.agent_runtime = AgentRuntime(
-            services=AgentRuntimeServices.from_runtime_host(self.task_run_loop)
+        self.agent_harness = AgentHarness(
+            services=AgentRuntimeServices.from_runtime_host(self.harness_service_host)
         )
-        self.task_run_loop.agent_runtime = self.agent_runtime
-        self.graph_task_runtime = GraphTaskRuntime(
-            task_run_loop=self.task_run_loop,
-            agent_runtime=self.agent_runtime,
+        self.harness_service_host.agent_runtime = self.agent_harness
+        self.graph_harness = GraphHarness(
+            service_host=self.harness_service_host,
+            agent_harness=self.agent_harness,
         )
-        self.task_order_registry = TaskOrderRegistry(self.task_run_loop.state_index)
+        self.task_order_registry = TaskOrderRegistry(self.harness_service_host.state_index)
         self.task_intent_decision_service = TaskIntentDecisionService()
         self.task_order_factory = TaskOrderFactory()
 
         self.runtime_components = {
             "query_runtime": "adapter_only",
-            "agent_runtime": "active",
-            "graph_task_runtime": "active",
+            "agent_harness": "active",
+            "graph_harness": "active",
             "evidence_orchestrator": "active" if retrieval_enabled else "disabled_missing_retrieval_service",
         }
 
@@ -250,7 +243,7 @@ class QueryRuntime:
                     task_order_creation=task_order_creation,
                     turn_id=turn_id,
                 )
-                async for event in self.agent_runtime.run_stream(
+                async for event in self.agent_harness.run_stream(
                     AgentRunRequest(
                         session_id=request.session_id,
                         task_id=task_id,
@@ -492,8 +485,8 @@ class QueryRuntime:
     ) -> TaskContinuationRecoveryDecision:
         return recover_task_order_continuation(
             message=message,
-            session_orders=self.task_run_loop.state_index.list_session_task_orders(session_id),
-            session_runs=self.task_run_loop.state_index.list_session_task_order_runs(session_id),
+            session_orders=self.harness_service_host.state_index.list_session_task_orders(session_id),
+            session_runs=self.harness_service_host.state_index.list_session_task_order_runs(session_id),
         )
 
     @staticmethod
@@ -765,19 +758,22 @@ def _task_selection_for_runtime(
 ) -> dict[str, Any]:
     order_projection = {}
     if task_order_creation.order is not None:
-        order_projection = dict(
-            dict(task_order_creation.order.input_contract or {}).get("task_selection_projection")
-            or {}
-        )
-    envelope_projection = {}
-    if task_order_creation.envelope is not None:
-        envelope_projection = dict(
-            dict(task_order_creation.envelope.context_package or {}).get("task_selection_projection")
-            or {}
-        )
+        input_contract = dict(task_order_creation.order.input_contract or {})
+        order_projection = {
+            **dict(input_contract.get("task_selection") or {}),
+            **(
+                {"selected_task_id": str(input_contract.get("selected_task_id") or "")}
+                if str(input_contract.get("selected_task_id") or "").strip()
+                else {}
+            ),
+            **(
+                {"mode": str(input_contract.get("selection_mode") or "")}
+                if str(input_contract.get("selection_mode") or "").strip()
+                else {}
+            ),
+        }
     return {
         **order_projection,
-        **envelope_projection,
         **dict(request_task_selection or {}),
         "turn_id": turn_id,
     }

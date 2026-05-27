@@ -8,12 +8,12 @@ from langchain_core.messages import AIMessage
 from evidence.agent_evidence_packet import build_agent_evidence_packet_from_mcp_payload, build_agent_evidence_packet_from_web_payload
 from evidence.mcp_models import MCPRequest
 from agent_system.registry.agent_registry import default_agent_descriptors
-from runtime.execution.agent_delegation_executor import AgentDelegationExecutor
-from runtime.execution.delegation_review import child_system_prompt
-from runtime.execution.child_agent_runtime_executor import ChildAgentRuntimeExecutor, _build_mcp_request
-from runtime.execution.delegation_models import AgentDelegationRequest
-from runtime.search_agent_runtime import SearchAgentRuntime
-from runtime.search_agent_runtime.evidence_builder import build_deepsearch_evidence_packet
+from harness.execution.agent_delegation_executor import AgentDelegationExecutor
+from harness.execution.delegation_review import child_system_prompt
+from harness.execution.child_agent_capability_executor import ChildAgentCapabilityExecutor, _build_mcp_request
+from harness.execution.delegation_models import AgentDelegationRequest
+from capability_system.agent_capabilities.deepsearch import DeepSearchCapability, normalize_runtime_config
+from capability_system.agent_capabilities.deepsearch.evidence_builder import build_deepsearch_evidence_packet
 from runtime.shared.models import AgentRun
 
 
@@ -155,7 +155,7 @@ def test_table_payload_preserves_method_and_data_fact() -> None:
     assert "WH-03" in packet.facts[0].claim
 
 
-class _FakeChildRuntimeExecutor(ChildAgentRuntimeExecutor):
+class _FakeChildCapabilityExecutor(ChildAgentCapabilityExecutor):
     async def _run_mcp(self, *, mcp_route: str, mcp_request: MCPRequest) -> dict[str, object]:
         return {
             "mcp_name": mcp_route,
@@ -217,7 +217,7 @@ class _FakeEvidenceOrchestrator:
         yield {"type": "done", "result": {"ok": True, "answer": "Evidence collected."}}
 
 
-class _FakeWebRuntimeExecutor(ChildAgentRuntimeExecutor):
+class _FakeWebCapabilityExecutor(ChildAgentCapabilityExecutor):
     async def _run_web_search(self, *, query: str, topic: str, time_range: str, max_results: int) -> dict:
         return {
             "ok": True,
@@ -369,8 +369,8 @@ class _SequentialModelDistillerRuntime:
         return AIMessage(content=self.contents[-1])
 
 
-def test_child_agent_runtime_attaches_shadow_evidence_packet() -> None:
-    executor = _FakeChildRuntimeExecutor(root_dir=Path("."))
+def test_child_agent_capability_attaches_shadow_evidence_packet() -> None:
+    executor = _FakeChildCapabilityExecutor(root_dir=Path("."))
     request = AgentDelegationRequest(
         request_id="delegation:req:1",
         task_run_id="taskrun-1",
@@ -396,8 +396,8 @@ def test_child_agent_runtime_attaches_shadow_evidence_packet() -> None:
     assert "Revenue evidence" in diagnostics["visible_packet_summary"]
 
 
-def test_child_agent_runtime_does_not_substitute_specialist_for_unknown_delegation_kind() -> None:
-    executor = _FakeChildRuntimeExecutor(root_dir=Path("."))
+def test_child_agent_capability_does_not_substitute_specialist_for_unknown_delegation_kind() -> None:
+    executor = _FakeChildCapabilityExecutor(root_dir=Path("."))
     request = AgentDelegationRequest(
         request_id="delegation:req:unknown-kind",
         task_run_id="taskrun-1",
@@ -419,8 +419,8 @@ def test_child_agent_runtime_does_not_substitute_specialist_for_unknown_delegati
     assert payload["diagnostics"]["child_execution_mode"] == "profile_authorized_specialist"
 
 
-def test_child_agent_runtime_keeps_orchestrator_evidence_envelope() -> None:
-    executor = ChildAgentRuntimeExecutor(root_dir=Path("."), evidence_orchestrator=_FakeEvidenceOrchestrator())
+def test_child_agent_capability_keeps_orchestrator_evidence_envelope() -> None:
+    executor = ChildAgentCapabilityExecutor(root_dir=Path("."), evidence_orchestrator=_FakeEvidenceOrchestrator())
     request = AgentDelegationRequest(
         request_id="delegation:req:orchestrator",
         task_run_id="taskrun-1",
@@ -548,8 +548,8 @@ def test_deepsearch_evidence_builder_ranks_official_sources_and_extracts_short_f
     assert packet.confidence == "high"
 
 
-def test_child_agent_runtime_runs_web_research_specialist_path() -> None:
-    executor = _FakeWebRuntimeExecutor(root_dir=Path("."))
+def test_child_agent_capability_runs_web_research_specialist_path() -> None:
+    executor = _FakeWebCapabilityExecutor(root_dir=Path("."))
     request = AgentDelegationRequest(
         request_id="delegation:req:web",
         task_run_id="taskrun-1",
@@ -573,14 +573,14 @@ def test_child_agent_runtime_runs_web_research_specialist_path() -> None:
     assert packet["facts"]
 
 
-def test_child_agent_runtime_uses_deepsearch_runtime_config_without_fetch_permission() -> None:
+def test_child_agent_capability_uses_deepsearch_runtime_config_without_fetch_permission() -> None:
     search_provider = _FakeDeepSearchProvider()
     fetch_provider = _FakeFetchProvider()
 
-    def runtime_factory(root_dir: Path) -> SearchAgentRuntime:
-        return SearchAgentRuntime(root_dir, search_provider=search_provider, fetch_provider=fetch_provider)
+    def capability_factory(root_dir: Path) -> DeepSearchCapability:
+        return DeepSearchCapability(root_dir, search_provider=search_provider, fetch_provider=fetch_provider)
 
-    executor = ChildAgentRuntimeExecutor(root_dir=Path("."), search_runtime_factory=runtime_factory)
+    executor = ChildAgentCapabilityExecutor(root_dir=Path("."), search_capability_factory=capability_factory)
     request = AgentDelegationRequest(
         request_id="delegation:req:deepsearch",
         task_run_id="taskrun-1",
@@ -598,7 +598,7 @@ def test_child_agent_runtime_uses_deepsearch_runtime_config_without_fetch_permis
         (),
         {
             "agent_id": "agent:web_researcher",
-            "allowed_operations": ("op.model_response", "op.web_search"),
+            "allowed_operations": ("op.model_response", "op.search_agent", "op.web_search"),
             "blocked_operations": (),
             "metadata": {
                 "runtime_template_id": "builtin.specialist.web_researcher",
@@ -623,16 +623,16 @@ def test_child_agent_runtime_uses_deepsearch_runtime_config_without_fetch_permis
     diagnostics = dict(payload["diagnostics"])
     packet = dict(diagnostics["agent_evidence_packet"])
     assert payload["status"] == "completed"
-    assert diagnostics["child_execution_mode"] == "runtime_configured_search_agent"
-    assert diagnostics["runtime_template_id"] == "runtime.template.deepsearch"
+    assert diagnostics["child_execution_mode"] == "profile_authorized_deepsearch_capability"
+    assert diagnostics["capability_id"] == "capability.deepsearch"
     assert len(search_provider.queries) == 2
     assert fetch_provider.urls == []
     assert packet["domain"] == "web"
     assert packet["facts"]
 
 
-def test_child_agent_runtime_requires_fetch_permission_only_when_fetch_enabled() -> None:
-    executor = ChildAgentRuntimeExecutor(root_dir=Path("."))
+def test_child_agent_capability_requires_fetch_permission_only_when_fetch_enabled() -> None:
+    executor = ChildAgentCapabilityExecutor(root_dir=Path("."))
     request = AgentDelegationRequest(
         request_id="delegation:req:deepsearch-fetch",
         task_run_id="taskrun-1",
@@ -650,7 +650,7 @@ def test_child_agent_runtime_requires_fetch_permission_only_when_fetch_enabled()
         (),
         {
             "agent_id": "agent:web_researcher",
-            "allowed_operations": ("op.model_response", "op.web_search"),
+            "allowed_operations": ("op.model_response", "op.search_agent", "op.web_search"),
             "blocked_operations": (),
             "metadata": {
                 "runtime_config": {
@@ -672,10 +672,10 @@ def test_deepsearch_strategy_adds_next_query_from_evidence_gap() -> None:
     search_provider = _GapThenOfficialProvider()
     fetch_provider = _FakeFetchProvider()
 
-    def runtime_factory(root_dir: Path) -> SearchAgentRuntime:
-        return SearchAgentRuntime(root_dir, search_provider=search_provider, fetch_provider=fetch_provider)
+    def capability_factory(root_dir: Path) -> DeepSearchCapability:
+        return DeepSearchCapability(root_dir, search_provider=search_provider, fetch_provider=fetch_provider)
 
-    executor = ChildAgentRuntimeExecutor(root_dir=Path("."), search_runtime_factory=runtime_factory)
+    executor = ChildAgentCapabilityExecutor(root_dir=Path("."), search_capability_factory=capability_factory)
     request = AgentDelegationRequest(
         request_id="delegation:req:strategy-gap",
         task_run_id="taskrun-1",
@@ -693,7 +693,7 @@ def test_deepsearch_strategy_adds_next_query_from_evidence_gap() -> None:
         (),
         {
             "agent_id": "agent:web_researcher",
-            "allowed_operations": ("op.model_response", "op.web_search"),
+            "allowed_operations": ("op.model_response", "op.search_agent", "op.web_search"),
             "blocked_operations": (),
             "metadata": {
                 "runtime_config": {
@@ -726,10 +726,10 @@ def test_deepsearch_fetch_cleans_html_before_evidence_packet() -> None:
     search_provider = _GapThenOfficialProvider()
     fetch_provider = _HtmlFetchProvider()
 
-    def runtime_factory(root_dir: Path) -> SearchAgentRuntime:
-        return SearchAgentRuntime(root_dir, search_provider=search_provider, fetch_provider=fetch_provider)
+    def capability_factory(root_dir: Path) -> DeepSearchCapability:
+        return DeepSearchCapability(root_dir, search_provider=search_provider, fetch_provider=fetch_provider)
 
-    executor = ChildAgentRuntimeExecutor(root_dir=Path("."), search_runtime_factory=runtime_factory)
+    executor = ChildAgentCapabilityExecutor(root_dir=Path("."), search_capability_factory=capability_factory)
     request = AgentDelegationRequest(
         request_id="delegation:req:clean-html",
         task_run_id="taskrun-1",
@@ -747,7 +747,7 @@ def test_deepsearch_fetch_cleans_html_before_evidence_packet() -> None:
         (),
         {
             "agent_id": "agent:web_researcher",
-            "allowed_operations": ("op.model_response", "op.web_search", "op.fetch_url"),
+            "allowed_operations": ("op.model_response", "op.search_agent", "op.web_search", "op.fetch_url"),
             "blocked_operations": (),
             "metadata": {
                 "runtime_config": {
@@ -783,10 +783,10 @@ def test_deepsearch_persists_large_tool_results_and_keeps_distilled_evidence(tmp
     search_provider = _GapThenOfficialProvider()
     fetch_provider = _LargeFetchProvider()
 
-    def runtime_factory(root_dir: Path) -> SearchAgentRuntime:
-        return SearchAgentRuntime(root_dir, search_provider=search_provider, fetch_provider=fetch_provider)
+    def capability_factory(root_dir: Path) -> DeepSearchCapability:
+        return DeepSearchCapability(root_dir, search_provider=search_provider, fetch_provider=fetch_provider)
 
-    executor = ChildAgentRuntimeExecutor(root_dir=tmp_path, search_runtime_factory=runtime_factory)
+    executor = ChildAgentCapabilityExecutor(root_dir=tmp_path, search_capability_factory=capability_factory)
     request = AgentDelegationRequest(
         request_id="delegation:req:large-result",
         task_run_id="taskrun-1",
@@ -804,7 +804,7 @@ def test_deepsearch_persists_large_tool_results_and_keeps_distilled_evidence(tmp
         (),
         {
             "agent_id": "agent:web_researcher",
-            "allowed_operations": ("op.model_response", "op.web_search", "op.fetch_url"),
+            "allowed_operations": ("op.model_response", "op.search_agent", "op.web_search", "op.fetch_url"),
             "blocked_operations": (),
             "metadata": {
                 "runtime_config": {
@@ -862,7 +862,7 @@ def test_deepsearch_uses_model_backed_distiller_when_model_runtime_available() -
         }
         """
     )
-    executor = ChildAgentRuntimeExecutor(root_dir=Path("."))
+    executor = ChildAgentCapabilityExecutor(root_dir=Path("."))
     request = AgentDelegationRequest(
         request_id="delegation:req:model-distiller",
         task_run_id="taskrun-1",
@@ -880,7 +880,7 @@ def test_deepsearch_uses_model_backed_distiller_when_model_runtime_available() -
         (),
         {
             "agent_id": "agent:web_researcher",
-            "allowed_operations": ("op.model_response", "op.web_search"),
+            "allowed_operations": ("op.model_response", "op.search_agent", "op.web_search"),
             "blocked_operations": (),
             "metadata": {
                 "runtime_config": {
@@ -890,8 +890,7 @@ def test_deepsearch_uses_model_backed_distiller_when_model_runtime_available() -
             },
         },
     )()
-    runtime = SearchAgentRuntime(Path("."), search_provider=search_provider, model_runtime=model_runtime)
-    from runtime.search_agent_runtime import normalize_runtime_config
+    runtime = DeepSearchCapability(Path("."), search_provider=search_provider, model_runtime=model_runtime)
 
     runtime_config = normalize_runtime_config(profile.metadata["runtime_config"])
     payload = asyncio.run(runtime.run(request=request, agent=agent, profile=profile, config=runtime_config.search))
@@ -906,7 +905,7 @@ def test_deepsearch_uses_model_backed_distiller_when_model_runtime_available() -
 def test_deepsearch_model_distiller_falls_back_when_model_fails() -> None:
     search_provider = _FakeDeepSearchProvider()
     model_runtime = _ModelDistillerRuntime(RuntimeError("boom"))
-    runtime = SearchAgentRuntime(Path("."), search_provider=search_provider, model_runtime=model_runtime)
+    runtime = DeepSearchCapability(Path("."), search_provider=search_provider, model_runtime=model_runtime)
     request = AgentDelegationRequest(
         request_id="delegation:req:model-distiller-fallback",
         task_run_id="taskrun-1",
@@ -924,13 +923,11 @@ def test_deepsearch_model_distiller_falls_back_when_model_fails() -> None:
         (),
         {
             "agent_id": "agent:web_researcher",
-            "allowed_operations": ("op.model_response", "op.web_search"),
+            "allowed_operations": ("op.model_response", "op.search_agent", "op.web_search"),
             "blocked_operations": (),
             "metadata": {},
         },
     )()
-    from runtime.search_agent_runtime import normalize_runtime_config
-
     config = normalize_runtime_config({"template_id": "runtime.template.deepsearch", "search": {"allow_fetch_url": False, "max_queries": 1, "max_fetches": 0}}).search
     payload = asyncio.run(runtime.run(request=request, agent=agent, profile=profile, config=config))
 
@@ -977,7 +974,7 @@ def test_deepsearch_adds_followup_queries_from_distilled_unknowns() -> None:
             """,
         ]
     )
-    runtime = SearchAgentRuntime(Path("."), search_provider=search_provider, model_runtime=model_runtime)
+    runtime = DeepSearchCapability(Path("."), search_provider=search_provider, model_runtime=model_runtime)
     request = AgentDelegationRequest(
         request_id="delegation:req:followup-unknowns",
         task_run_id="taskrun-1",
@@ -995,13 +992,11 @@ def test_deepsearch_adds_followup_queries_from_distilled_unknowns() -> None:
         (),
         {
             "agent_id": "agent:web_researcher",
-            "allowed_operations": ("op.model_response", "op.web_search"),
+            "allowed_operations": ("op.model_response", "op.search_agent", "op.web_search"),
             "blocked_operations": (),
             "metadata": {},
         },
     )()
-    from runtime.search_agent_runtime import normalize_runtime_config
-
     config = normalize_runtime_config(
         {
             "template_id": "runtime.template.deepsearch",
@@ -1019,8 +1014,8 @@ def test_deepsearch_adds_followup_queries_from_distilled_unknowns() -> None:
     assert "Follow-up evidence clarifies" in payload["diagnostics"]["agent_evidence_packet"]["facts"][0]["claim"]
 
 
-def test_child_agent_runtime_ignores_legacy_runtime_template_id_for_deepsearch() -> None:
-    executor = _FakeWebRuntimeExecutor(root_dir=Path("."))
+def test_child_agent_capability_ignores_legacy_runtime_template_id_for_deepsearch() -> None:
+    executor = _FakeWebCapabilityExecutor(root_dir=Path("."))
     request = AgentDelegationRequest(
         request_id="delegation:req:legacy-template",
         task_run_id="taskrun-1",

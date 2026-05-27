@@ -1220,6 +1220,7 @@
       ],
       "allowed_operations": [
         "op.model_response",
+        "op.search_agent",
         "op.web_search",
         "op.fetch_url"
       ],
@@ -1385,6 +1386,7 @@
       ],
       "allowed_operations": [
         "op.model_response",
+        "op.codebase_search",
         "op.search_files",
         "op.search_text",
         "op.read_file",

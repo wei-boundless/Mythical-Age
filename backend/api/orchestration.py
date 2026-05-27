@@ -20,7 +20,7 @@ from orchestration.coordination_rewind import (
     _stage_request_matches_active_stage,
 )
 from orchestration.coordination_scheduler import _schedule_stage_execution_background
-from runtime.subruntime.result_packets import (
+from harness.execution.graph_module_result_packets import (
     latest_unconsumed_graph_module_imported_result,
     mark_graph_module_imported_output_packet_committed,
 )
@@ -28,7 +28,7 @@ from runtime.agent_assembly import (
     node_work_order_from_runtime_control,
     stage_execution_request_from_runtime_control,
 )
-from runtime.execution.node_execution_request import NodeExecutionRequest
+from harness.execution.node_protocol.node_execution_request import NodeExecutionRequest
 from task_system.compiler.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
 from task_system import TaskFlowRegistry
 from sessions import InvalidSessionId, validate_session_id
@@ -108,8 +108,8 @@ async def start_task_graph_runtime_loop_run(
         session_id = validate_session_id(session_id or "task_graph_studio")
     except InvalidSessionId as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    graph_task_runtime = runtime.query_runtime.graph_task_runtime
-    start = graph_task_runtime.start_run(
+    graph_harness = runtime.query_runtime.graph_harness
+    start = graph_harness.start_run(
         session_id=session_id,
         task_id=payload.task_id.strip(),
         graph=graph,
@@ -165,7 +165,7 @@ async def start_task_graph_runtime_loop_run(
         "initial_stage_execution_background": initial_stage_execution_background,
         "initial_stage_execution_schedule": initial_stage_execution_schedule,
         "trace": (
-            graph_task_runtime.get_trace(start.task_run.task_run_id)
+            graph_harness.get_trace(start.task_run.task_run_id)
             if payload.include_trace
             else None
         ),
@@ -176,7 +176,7 @@ async def start_task_graph_runtime_loop_run(
 @router.get("/orchestration/coordination-runs/{coordination_run_id}/task-graph-monitor")
 async def get_coordination_run_task_graph_monitor(coordination_run_id: str) -> dict[str, Any]:
     runtime = require_runtime()
-    monitor = runtime.query_runtime.graph_task_runtime.get_coordination_run_monitor(coordination_run_id)
+    monitor = runtime.query_runtime.graph_harness.get_coordination_run_monitor(coordination_run_id)
     if monitor is None:
         raise HTTPException(status_code=404, detail="CoordinationRun task graph monitor not found")
     return monitor
@@ -187,18 +187,18 @@ async def dispatch_coordination_ready_batches(
     coordination_run_id: str,
     payload: CoordinationRunDispatchReadyBatchesRequest,
 ) -> dict[str, Any]:
-    from runtime.execution.node_execution_request import NodeExecutionRequest
+    from harness.execution.node_protocol.node_execution_request import NodeExecutionRequest
 
     runtime = require_runtime()
-    graph_task_runtime = runtime.query_runtime.graph_task_runtime
-    coordination_run = graph_task_runtime.get_coordination_run(coordination_run_id)
+    graph_harness = runtime.query_runtime.graph_harness
+    coordination_run = graph_harness.get_coordination_run(coordination_run_id)
     if coordination_run is None:
         raise HTTPException(status_code=404, detail="CoordinationRun not found")
-    task_run = graph_task_runtime.get_task_run(coordination_run.task_run_id)
+    task_run = graph_harness.get_task_run(coordination_run.task_run_id)
     session_id = str(getattr(task_run, "session_id", "") or "").strip()
     if not session_id:
         raise HTTPException(status_code=409, detail="CoordinationRun root TaskRun has no session_id")
-    result = graph_task_runtime.dispatch_ready_batch_requests(
+    result = graph_harness.dispatch_ready_batch_requests(
         coordination_run=coordination_run,
         max_requests=payload.max_requests,
         include_current_request=payload.include_current_request,
@@ -253,7 +253,7 @@ async def resume_coordination_run(
     payload: CoordinationRunResumeRequest,
 ) -> dict[str, Any]:
     runtime = require_runtime()
-    result = runtime.query_runtime.graph_task_runtime.resume_human_gate(
+    result = runtime.query_runtime.graph_harness.resume_human_gate(
         coordination_run_id=coordination_run_id,
         resume_payload=dict(payload.resume_payload or {}),
     )
@@ -283,17 +283,17 @@ async def continue_coordination_current_stage(
     coordination_run_id: str,
     payload: CoordinationRunContinueRequest,
 ) -> dict[str, Any]:
-    from runtime.execution.node_execution_request import NodeExecutionRequest, NodeResultReadyEvent
+    from harness.execution.node_protocol.node_execution_request import NodeExecutionRequest, NodeResultReadyEvent
 
     runtime = require_runtime()
-    graph_task_runtime = runtime.query_runtime.graph_task_runtime
-    coordination_run = graph_task_runtime.get_coordination_run(coordination_run_id)
+    graph_harness = runtime.query_runtime.graph_harness
+    coordination_run = graph_harness.get_coordination_run(coordination_run_id)
     if coordination_run is None:
         raise HTTPException(status_code=404, detail="CoordinationRun not found")
-    state = graph_task_runtime.get_checkpoint_state(coordination_run_id)
+    state = graph_harness.get_checkpoint_state(coordination_run_id)
     if not state:
         raise HTTPException(status_code=409, detail="CoordinationRun has no LangGraph checkpoint")
-    task_run = graph_task_runtime.get_task_run(coordination_run.task_run_id)
+    task_run = graph_harness.get_task_run(coordination_run.task_run_id)
     session_id = str(getattr(task_run, "session_id", "") or "").strip()
     if not session_id:
         raise HTTPException(status_code=409, detail="CoordinationRun root TaskRun has no session_id")
@@ -326,7 +326,7 @@ async def continue_coordination_current_stage(
     )
     if graph_module_imported_result:
         resume_event = NodeResultReadyEvent(**graph_module_imported_result["event"])
-        result = graph_task_runtime.resume_from_task_result(
+        result = graph_harness.resume_from_task_result(
             coordination_run=coordination_run,
             event=resume_event,
             current_task_result=dict(graph_module_imported_result.get("task_result") or {}),
@@ -334,7 +334,7 @@ async def continue_coordination_current_stage(
             artifact_root=str(graph_module_imported_result.get("artifact_root") or ""),
         )
         consumption = mark_graph_module_imported_output_packet_committed(
-            graph_task_runtime=graph_task_runtime,
+            graph_harness=graph_harness,
             imported_task_run_id=str(graph_module_imported_result.get("task_run_id") or ""),
             packet_ref=str(graph_module_imported_result.get("packet_ref") or ""),
             packet=dict(graph_module_imported_result.get("packet") or {}),
@@ -423,7 +423,7 @@ async def continue_coordination_current_stage(
     )
     if latest_unconsumed_stage_result:
         resume_event = NodeResultReadyEvent(**latest_unconsumed_stage_result["event"])
-        result = graph_task_runtime.resume_from_task_result(
+        result = graph_harness.resume_from_task_result(
             coordination_run=coordination_run,
             event=resume_event,
             current_task_result=dict(latest_unconsumed_stage_result.get("task_result") or {}),
@@ -536,7 +536,7 @@ async def continue_coordination_current_stage(
                 **dict(repaired_state.get("diagnostics") or {}),
                 "continue_current_stage_repaired_pending_active_stage": active_stage_id,
             }
-            graph_task_runtime.put_checkpoint_state(
+            graph_harness.put_checkpoint_state(
                 coordination_run_id=coordination_run_id,
                 state=repaired_state,
                 metadata={"event": "continue_current_stage_repair_pending_active_stage", "stage_id": active_stage_id},
@@ -560,7 +560,7 @@ async def continue_coordination_current_stage(
         agent_run_result_ref=str(current_event.get("agent_run_result_ref") or ""),
         diagnostics=dict(current_event.get("diagnostics") or {}),
     )
-    result = graph_task_runtime.resume_from_task_result(
+    result = graph_harness.resume_from_task_result(
         coordination_run=coordination_run,
         event=resume_event,
         current_task_result=current_task_result,
@@ -602,11 +602,11 @@ async def rewind_coordination_run_from_stage(
     payload: CoordinationRunRewindRequest,
 ) -> dict[str, Any]:
     runtime = require_runtime()
-    graph_task_runtime = runtime.query_runtime.graph_task_runtime
-    coordination_run = graph_task_runtime.get_coordination_run(coordination_run_id)
+    graph_harness = runtime.query_runtime.graph_harness
+    coordination_run = graph_harness.get_coordination_run(coordination_run_id)
     if coordination_run is None:
         raise HTTPException(status_code=404, detail="CoordinationRun not found")
-    previous_state = graph_task_runtime.get_checkpoint_state(coordination_run_id)
+    previous_state = graph_harness.get_checkpoint_state(coordination_run_id)
     if not previous_state:
         raise HTTPException(status_code=409, detail="CoordinationRun has no LangGraph checkpoint")
 
@@ -627,7 +627,7 @@ async def rewind_coordination_run_from_stage(
         stage_ids=invalidated_stage_ids,
     )
     invalidated_task_runs = _mark_invalidated_stage_task_runs(
-        graph_task_runtime=graph_task_runtime,
+        graph_harness=graph_harness,
         coordination_run=coordination_run,
         stage_ids=invalidated_stage_ids,
         reason=payload.reason,
@@ -641,7 +641,7 @@ async def rewind_coordination_run_from_stage(
             reason=payload.reason,
         )
 
-    result = graph_task_runtime.rewind_from_stage(
+    result = graph_harness.rewind_from_stage(
         coordination_run_id=coordination_run_id,
         stage_id=stage_id,
         reason=payload.reason,
@@ -661,17 +661,17 @@ async def rewind_coordination_run_from_stage(
 
     request = result.stage_execution_request
     background_started = False
-    task_run = graph_task_runtime.get_task_run(coordination_run.task_run_id)
+    task_run = graph_harness.get_task_run(coordination_run.task_run_id)
     if task_run is not None and str(task_run.status or "") in {"aborted", "failed", "completed"}:
         _mark_rewound_task_run_running(
-            graph_task_runtime=graph_task_runtime,
+            graph_harness=graph_harness,
             task_run=task_run,
             coordination_run=coordination_run,
             checkpoint_ref=result.checkpoint_ref,
             reason=payload.reason,
             stage_id=stage_id,
         )
-        task_run = graph_task_runtime.get_task_run(coordination_run.task_run_id)
+        task_run = graph_harness.get_task_run(coordination_run.task_run_id)
     session_id = str(getattr(task_run, "session_id", "") or "").strip()
     schedule_result: dict[str, Any] = {}
     if payload.continue_after_rewind and request is not None:

@@ -69,6 +69,13 @@ __all__ = [
     "TaskAgentBinding",
     "AgentTaskConnectionProfile",
     "TaskFlowRegistry",
+    "AgentWorkLifecycleIntent",
+    "TaskActivationRequest",
+    "TaskLifecycle",
+    "TaskRuntimeAssemblyRequest",
+    "TaskRuntimeAssemblyRequestBuilder",
+    "TaskLifecycleFactory",
+    "TaskLifecycleRegistry",
     "TaskWorkflowRegistry",
     "TaskStepBlueprint",
     "StepInputBinding",
@@ -142,6 +149,23 @@ def __getattr__(name: str) -> Any:
         from task_system.registry.flow_registry import TaskFlowRegistry
 
         return TaskFlowRegistry
+    if name in {
+        "AgentWorkLifecycleIntent",
+        "TaskActivationRequest",
+        "TaskLifecycle",
+        "TaskRuntimeAssemblyRequest",
+    }:
+        from task_system import primitives
+
+        return getattr(primitives, name)
+    if name == "TaskRuntimeAssemblyRequestBuilder":
+        from task_system.assembly import TaskRuntimeAssemblyRequestBuilder
+
+        return TaskRuntimeAssemblyRequestBuilder
+    if name in {"TaskLifecycleFactory", "TaskLifecycleRegistry"}:
+        from task_system import lifecycle
+
+        return getattr(lifecycle, name)
     if name in {
         "ContractSpec",
         "ContractField",

@@ -14,7 +14,6 @@ from .contracts import (
     SoulWorld,
     WorkPrompt,
 )
-from .projection_store import load_projection_store
 from .registry import CORE_PATH, BUILTIN_PROFILES, BUILTIN_SOUL_NAMES, SoulRegistry, read_text
 
 
@@ -95,7 +94,6 @@ class SoulCatalogService:
         return items
 
     def _default_cards(self) -> list[dict[str, Any]]:
-        projection_by_soul = self._default_projection_by_soul()
         items: list[dict[str, Any]] = []
         for soul_id, name in BUILTIN_SOUL_NAMES.items():
             profile = BUILTIN_PROFILES[soul_id]
@@ -107,7 +105,6 @@ class SoulCatalogService:
                     "story_id": f"story.{soul_id}.default",
                     "world_id": "world.default",
                     "manifestation_id": f"manifestation.{soul_id}.default",
-                    "default_projection_id": projection_by_soul.get(soul_id, f"{soul_id}__primary"),
                     "default_work_prompt_id": "work_prompt.default",
                     "description": str(profile.get("description") or ""),
                     "source": "builtin",
@@ -167,18 +164,6 @@ class SoulCatalogService:
             }
             for soul_id, name in BUILTIN_SOUL_NAMES.items()
         ]
-
-    def _default_projection_by_soul(self) -> dict[str, str]:
-        result: dict[str, str] = {}
-        store = load_projection_store(self.base_dir)
-        for card in list(store.get("cards") or []):
-            if not isinstance(card, dict):
-                continue
-            soul_id = str(card.get("soul_id") or "").strip().lower()
-            projection_id = str(card.get("projection_id") or "").strip()
-            if soul_id and projection_id and soul_id not in result:
-                result[soul_id] = projection_id
-        return result
 
     @staticmethod
     def _world_from_payload(payload: dict[str, Any]) -> SoulWorld:
@@ -275,7 +260,6 @@ class SoulCatalogService:
             story_id=str(payload.get("story_id") or ""),
             world_id=str(payload.get("world_id") or ""),
             manifestation_id=str(payload.get("manifestation_id") or ""),
-            default_projection_id=str(payload.get("default_projection_id") or ""),
             default_work_prompt_id=str(payload.get("default_work_prompt_id") or ""),
             description=str(payload.get("description") or ""),
             source=str(payload.get("source") or "builtin"),
@@ -290,7 +274,7 @@ def default_mode_profiles() -> list[SoulModeProfile]:
         SoulModeProfile(
             mode="role_mode",
             title="角色模式",
-            section_order=("protected_system_rules", "shared_common_contract", "world", "story", "projection"),
+            section_order=("protected_system_rules", "shared_common_contract", "world", "story"),
             includes_world=True,
             includes_story=True,
             includes_work_prompt=False,
@@ -299,7 +283,7 @@ def default_mode_profiles() -> list[SoulModeProfile]:
         SoulModeProfile(
             mode="standard_mode",
             title="标准模式",
-            section_order=("protected_system_rules", "shared_common_contract", "story", "projection"),
+            section_order=("protected_system_rules", "shared_common_contract", "story"),
             includes_world=False,
             includes_story=True,
             includes_work_prompt=False,

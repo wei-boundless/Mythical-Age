@@ -88,7 +88,6 @@ def compile_agent_dispatch_plan_from_graph_payload(
                 "node_type": str(node.get("node_type") or ""),
                 "input_contract_id": str(node.get("input_contract_id") or node_metadata.get("input_contract_id") or ""),
                 "output_contract_id": str(node.get("output_contract_id") or node.get("node_contract_id") or node_metadata.get("output_contract_id") or node_metadata.get("node_contract_id") or ""),
-                "projection_id": str(node.get("projection_id") or node_metadata.get("projection_id") or ""),
             },
         )
         records.append(record)

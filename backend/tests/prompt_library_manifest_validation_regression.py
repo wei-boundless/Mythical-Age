@@ -10,20 +10,20 @@ if str(ROOT) not in sys.path:
 from prompt_library.manifest_validation import build_prompt_manifest_validation
 
 
-def test_manifest_validation_rejects_projection_section_outside_role_mode() -> None:
+def test_manifest_validation_rejects_role_prompt_section_outside_role_mode() -> None:
     validation = build_prompt_manifest_validation(
         interaction_mode="professional_mode",
         sections=[
             {"section_id": "task_section", "content": "任务契约"},
             {"section_id": "semantic_task_section", "content": "语义任务契约"},
             {"section_id": "mode_policy_section", "content": "模式策略"},
-            {"section_id": "projection_section", "content": "当前表达姿态"},
+            {"section_id": "role_prompt_section", "content": "角色表达锚点"},
             {"section_id": "output_section", "content": "输出边界"},
         ],
     )
 
     assert validation["passed"] is False
-    assert any("forbidden_role_or_projection_sections_outside_role_mode" in item for item in validation["issues"])
+    assert any("forbidden_role_prompt_sections_outside_role_mode" in item for item in validation["issues"])
 
 
 def test_manifest_validation_requires_professional_core_sections() -> None:

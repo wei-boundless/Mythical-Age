@@ -31,7 +31,6 @@ def assemble_runtime_prompt_contract(
     binding: dict[str, Any],
     registered_task: dict[str, Any],
     skill_runtime_views: list[dict[str, Any]],
-    projection_requirement: dict[str, Any],
     operation_requirement: dict[str, Any],
     agent_id: str,
     current_turn_context: dict[str, Any] | None = None,
@@ -145,10 +144,6 @@ def assemble_runtime_prompt_contract(
             model_turn_decision=model_turn_decision,
         ),
         "resource_section": "",
-        "projection_section": _projection_section(
-            projection_requirement,
-            interaction_mode=interaction_mode,
-        ),
         "output_section": _output_section(task_execution_assembly=task_execution_assembly, task_spec=task_spec),
         "guardrail_section": _communication_guardrail_section(task_spec),
         "metadata": {
@@ -529,31 +524,6 @@ def _node_professional_prompt_section(
         return prompt
     metadata = dict((registered_task or {}).get("metadata") or {})
     return str(metadata.get("role_prompt") or metadata.get("prompt") or "").strip()
-
-
-def _projection_section(
-    projection_requirement: dict[str, Any],
-    *,
-    interaction_mode: str = "",
-) -> str:
-    if str(interaction_mode or "").strip() != "role_mode":
-        return ""
-    posture_tags = [str(item).strip() for item in list(projection_requirement.get("posture_tags") or ()) if str(item).strip()]
-    attention_focus = [str(item).strip() for item in list(projection_requirement.get("attention_focus") or ()) if str(item).strip()]
-    projection_strength = str(projection_requirement.get("projection_strength") or "").strip()
-    lines = [
-        f"当前表达姿态：{str(projection_requirement.get('role_type') or 'task_default')}。",
-    ]
-    if projection_strength == "style_only":
-        lines.append("表达姿态只影响语气和协作温度，不能覆盖事实边界。")
-    elif posture_tags:
-        lines.append("表达侧重：" + "、".join(posture_tags) + "。")
-    identity_anchor = str(projection_requirement.get("identity_anchor") or "").strip()
-    if identity_anchor:
-        lines.append(identity_anchor)
-    if attention_focus:
-        lines.append("请把注意力放在：" + "、".join(attention_focus) + "。")
-    return "\n".join(lines)
 
 
 def _output_section(

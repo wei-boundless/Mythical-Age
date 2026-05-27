@@ -20,7 +20,7 @@ from ..shared.models import (
     SupervisionRecord,
     TaskRun,
 )
-from ..execution.delegation_models import (
+from harness.execution.delegation_models import (
     AgentDelegationRequest,
     AgentDelegationResult,
     delegation_request_from_dict,
@@ -43,6 +43,13 @@ from task_system.orders.models import (
     task_order_draft_from_dict,
     task_order_from_dict,
     task_order_run_from_dict,
+)
+from task_system.lifecycle.factory import TaskLifecycleCreation
+from task_system.primitives import (
+    TaskActivationRequest,
+    TaskLifecycle,
+    task_activation_request_from_dict,
+    task_lifecycle_from_dict,
 )
 
 
@@ -271,6 +278,27 @@ class RuntimeStateIndex:
             self._write_index_value("task_execution_envelope_by_order_run", envelope.order_run_id, envelope.envelope_id)
             self._append_index_id("task_execution_envelopes_by_order", envelope.order_id, envelope.envelope_id)
             self._touch_meta(updated_at=float(envelope.created_at or time.time()))
+
+    def upsert_task_activation_request(self, request: TaskActivationRequest) -> None:
+        with _STATE_INDEX_WRITE_LOCK:
+            self._write_record("task_activation_requests", request.activation_id, request.to_dict())
+            self._append_index_id("task_activation_requests_by_session", request.session_id, request.activation_id)
+            if request.source_ref:
+                self._append_index_id("task_activation_requests_by_source_ref", request.source_ref, request.activation_id)
+            if request.dispatch_ref:
+                self._append_index_id("task_activation_requests_by_dispatch_ref", request.dispatch_ref, request.activation_id)
+            self._touch_meta(updated_at=float(request.created_at or time.time()))
+
+    def upsert_task_lifecycle(self, lifecycle: TaskLifecycle) -> None:
+        with _STATE_INDEX_WRITE_LOCK:
+            self._write_record("task_lifecycles", lifecycle.task_id, lifecycle.to_dict())
+            self._append_index_id("task_lifecycles_by_session", lifecycle.session_id, lifecycle.task_id)
+            if lifecycle.activation_id:
+                self._write_index_value("task_lifecycle_by_activation", lifecycle.activation_id, lifecycle.task_id)
+            legacy_order_id = str(dict(lifecycle.legacy_refs or {}).get("task_order_id") or "")
+            if legacy_order_id:
+                self._write_index_value("task_lifecycle_by_order", legacy_order_id, lifecycle.task_id)
+            self._touch_meta(updated_at=float(lifecycle.updated_at or lifecycle.created_at or time.time()))
 
     def bind_task_order_run_to_task_run(
         self,
@@ -675,6 +703,43 @@ class RuntimeStateIndex:
     def get_task_execution_envelope_by_order_run(self, order_run_id: str) -> TaskExecutionEnvelope | None:
         envelope_id = str(self._read_index_value("task_execution_envelope_by_order_run", order_run_id) or "")
         return self.get_task_execution_envelope(envelope_id) if envelope_id else None
+
+    def get_task_activation_request(self, activation_id: str) -> TaskActivationRequest | None:
+        payload = self._read_record("task_activation_requests", activation_id)
+        return task_activation_request_from_dict(payload) if payload else None
+
+    def list_session_task_activation_requests(self, session_id: str) -> list[TaskActivationRequest]:
+        requests = self._read_record_bucket("task_activation_requests")
+        ids = self._read_index_ids("task_activation_requests_by_session", session_id)
+        return [task_activation_request_from_dict(requests[item]) for item in ids if item in requests]
+
+    def get_task_lifecycle(self, task_id: str) -> TaskLifecycle | None:
+        payload = self._read_record("task_lifecycles", task_id)
+        return task_lifecycle_from_dict(payload) if payload else None
+
+    def get_task_lifecycle_by_activation(self, activation_id: str) -> TaskLifecycle | None:
+        task_id = str(self._read_index_value("task_lifecycle_by_activation", activation_id) or "")
+        return self.get_task_lifecycle(task_id) if task_id else None
+
+    def get_task_lifecycle_by_order(self, order_id: str) -> TaskLifecycle | None:
+        task_id = str(self._read_index_value("task_lifecycle_by_order", order_id) or "")
+        return self.get_task_lifecycle(task_id) if task_id else None
+
+    def list_session_task_lifecycles(self, session_id: str) -> list[TaskLifecycle]:
+        lifecycles = self._read_record_bucket("task_lifecycles")
+        ids = self._read_index_ids("task_lifecycles_by_session", session_id)
+        return [task_lifecycle_from_dict(lifecycles[item]) for item in ids if item in lifecycles]
+
+    def lifecycle_creation_for_order(self, order_id: str) -> TaskLifecycleCreation | None:
+        lifecycle = self.get_task_lifecycle_by_order(order_id)
+        if lifecycle is None:
+            return None
+        activation = (
+            self.get_task_activation_request(lifecycle.activation_id)
+            if lifecycle.activation_id
+            else None
+        )
+        return TaskLifecycleCreation(activation_request=activation, lifecycle=lifecycle)
 
     def task_order_projection_for_task_run(self, task_run_id: str) -> dict[str, Any] | None:
         order_run = self.get_task_order_run_by_task_run(task_run_id)
@@ -1260,6 +1325,8 @@ class RuntimeStateIndex:
             "task_order_runs": "run_id",
             "execution_channels": "channel_id",
             "task_execution_envelopes": "envelope_id",
+            "task_activation_requests": "activation_id",
+            "task_lifecycles": "task_id",
             "task_runs": "task_run_id",
             "agent_runs": "agent_run_id",
             "agent_run_results": "agent_run_result_id",
@@ -1288,6 +1355,8 @@ class RuntimeStateIndex:
             "task_order_runs",
             "execution_channels",
             "task_execution_envelopes",
+            "task_activation_requests",
+            "task_lifecycles",
             "task_runs",
             "agent_runs",
             "agent_run_results",
@@ -1318,6 +1387,10 @@ class RuntimeStateIndex:
             "execution_channels_by_order",
             "execution_channels_by_session",
             "task_execution_envelopes_by_order",
+            "task_activation_requests_by_session",
+            "task_activation_requests_by_source_ref",
+            "task_activation_requests_by_dispatch_ref",
+            "task_lifecycles_by_session",
             "sessions",
             "task_agent_runs",
             "task_agent_run_results",
@@ -1343,6 +1416,8 @@ class RuntimeStateIndex:
             "channel_by_order_run",
             "channel_by_task_run",
             "task_execution_envelope_by_order_run",
+            "task_lifecycle_by_activation",
+            "task_lifecycle_by_order",
             "coordination_latest_merge_results",
             "session_latest_task_runs",
             "session_latest_coordination_task_runs",
@@ -1377,6 +1452,14 @@ class RuntimeStateIndex:
             "execution_channels_by_session": {},
             "task_execution_envelopes": {},
             "task_execution_envelopes_by_order": {},
+            "task_activation_requests": {},
+            "task_activation_requests_by_session": {},
+            "task_activation_requests_by_source_ref": {},
+            "task_activation_requests_by_dispatch_ref": {},
+            "task_lifecycles": {},
+            "task_lifecycles_by_session": {},
+            "task_lifecycle_by_activation": {},
+            "task_lifecycle_by_order": {},
             "task_runs": {},
             "sessions": {},
             "agent_runs": {},

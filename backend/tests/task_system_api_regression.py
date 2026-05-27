@@ -8,17 +8,19 @@ from api import orchestration as orchestration_api
 from api import orchestration_catalog as orchestration_catalog_api
 from api import task_system as tasks_api
 from orchestration import coordination_rewind, coordination_scheduler
-from runtime.execution.node_execution_request import NodeExecutionRequest
-from runtime.agent_runtime import AgentRuntime, AgentRuntimeServices
-from runtime.graph_task_runtime import GraphTaskRuntime
-from runtime.subruntime import graph_module_core_artifact_refs, latest_unconsumed_graph_module_imported_result
+from harness.execution.node_protocol.node_execution_request import NodeExecutionRequest
+from harness import AgentHarness, AgentRuntimeServices, GraphHarness
+from harness.execution.graph_module_result_packets import (
+    graph_module_core_artifact_refs,
+    latest_unconsumed_graph_module_imported_result,
+)
 from artifact_system import ArtifactRepositoryService
 from runtime.shared.checkpoint import RuntimeCheckpointStore
 from runtime.shared.execution_record import RuntimeExecutionStore
 from runtime.shared.models import AgentRun, CoordinationRun, RuntimeLoopState, TaskRun
 from runtime.shared.runtime_object_store import RuntimeObjectStore
 from runtime.unit_runtime.finalizer import TaskRunFinalizer
-from runtime.coordination_runtime.trace_adapter import CoordinationTraceAdapter
+from harness.loop.graph_coordination.trace_adapter import CoordinationTraceAdapter
 from runtime.memory.state_index import RuntimeStateIndex
 from runtime.unit_runtime.loop import TaskRunLoop
 from prompt_library import PromptLibraryRegistry
@@ -30,7 +32,7 @@ from tests.support.runtime_stubs import RuntimeBaseDirStub
 _RuntimeStub = RuntimeBaseDirStub
 
 
-def _graph_task_runtime_stub(state_index: RuntimeStateIndex, *, event_log: Any | None = None, **extras: Any) -> SimpleNamespace:
+def _graph_harness_stub(state_index: RuntimeStateIndex, *, event_log: Any | None = None, **extras: Any) -> SimpleNamespace:
     event_log = event_log or SimpleNamespace(append=lambda *args, **kwargs: None, list_events=lambda _task_run_id: [])
     return SimpleNamespace(
         get_task_run=state_index.get_task_run,
@@ -53,14 +55,14 @@ def _graph_task_runtime_stub(state_index: RuntimeStateIndex, *, event_log: Any |
 
 
 def _runtime_with_graph_task_facade(*, base_dir: Path, loop: TaskRunLoop) -> SimpleNamespace:
-    agent_runtime = AgentRuntime(services=AgentRuntimeServices.from_runtime_host(loop))
+    agent_runtime = AgentHarness(services=AgentRuntimeServices.from_runtime_host(loop))
     loop.agent_runtime = agent_runtime
     return SimpleNamespace(
         base_dir=base_dir,
         query_runtime=SimpleNamespace(
             task_run_loop=loop,
             agent_runtime=agent_runtime,
-            graph_task_runtime=GraphTaskRuntime(task_run_loop=loop, agent_runtime=agent_runtime),
+            graph_harness=GraphHarness(task_run_loop=loop, agent_harness=agent_runtime),
         ),
     )
 
@@ -238,8 +240,8 @@ def test_coordination_rewind_invalidates_running_stage_task_runs(tmp_path: Path)
     )
 
     changed = coordination_rewind._mark_invalidated_stage_task_runs(
-        graph_task_runtime=type(
-            "GraphTaskRuntimeStub",
+        graph_harness=type(
+            "GraphHarnessStub",
             (),
             {
                 "get_task_run": state_index.get_task_run,
@@ -298,7 +300,7 @@ def test_stage_execution_scheduler_skips_existing_same_source_task_run(tmp_path:
     )
     state_index.upsert_task_run(existing)
     result = coordination_scheduler._schedule_stage_execution_background(
-        runtime=SimpleNamespace(query_runtime=SimpleNamespace(graph_task_runtime=_graph_task_runtime_stub(state_index))),
+        runtime=SimpleNamespace(query_runtime=SimpleNamespace(graph_harness=_graph_harness_stub(state_index))),
         session_id="session:test",
         source="test",
         stage_execution_request=request,
@@ -349,7 +351,7 @@ def test_stage_execution_scheduler_allows_new_idempotency_key(tmp_path: Path) ->
         )
     )
     assert coordination_scheduler._matching_stage_execution_task_run(
-        graph_task_runtime=_graph_task_runtime_stub(state_index),
+        graph_harness=_graph_harness_stub(state_index),
         session_id="session:test",
         identity=coordination_scheduler._stage_execution_schedule_identity(retry),
     ) is None
@@ -387,7 +389,7 @@ def test_stage_execution_scheduler_ignores_rewind_invalidated_completed_run(tmp_
         )
     )
     assert coordination_scheduler._matching_stage_execution_task_run(
-        graph_task_runtime=_graph_task_runtime_stub(state_index),
+        graph_harness=_graph_harness_stub(state_index),
         session_id="session:test",
         identity=coordination_scheduler._stage_execution_schedule_identity(request),
     ) is None
@@ -439,17 +441,17 @@ def test_stage_execution_scheduler_invalidates_stale_running_task_run(tmp_path: 
         list_events=lambda _task_run_id: [],
         append=lambda _task_run_id, event_type, payload=None, refs=None: events.append((event_type, payload or {})),
     )
-    graph_task_runtime = _graph_task_runtime_stub(state_index, event_log=event_log)
+    graph_harness = _graph_harness_stub(state_index, event_log=event_log)
     identity = coordination_scheduler._stage_execution_schedule_identity(request)
 
     reason = coordination_scheduler._stale_running_task_run_reason(
-        graph_task_runtime=graph_task_runtime,
+        graph_harness=graph_harness,
         task_run=stale,
     )
     assert reason == "running_task_exceeded_runtime_limit_without_trace_progress"
 
     coordination_scheduler._invalidate_stale_stage_execution_task_run(
-        graph_task_runtime=graph_task_runtime,
+        graph_harness=graph_harness,
         task_run=stale,
         identity=identity,
         source="test",
@@ -463,7 +465,7 @@ def test_stage_execution_scheduler_invalidates_stale_running_task_run(tmp_path: 
     agent_run = state_index.list_task_agent_runs(stale.task_run_id)[0]
     assert agent_run.status == "failed"
     assert coordination_scheduler._matching_stage_execution_task_run(
-        graph_task_runtime=graph_task_runtime,
+        graph_harness=graph_harness,
         session_id="session:test",
         identity=identity,
     ) is None
@@ -482,7 +484,7 @@ def test_stage_execution_scheduler_marks_node_failed_when_background_execution_c
         task_ref="task.test.chapter_draft",
     )
     events: list[tuple[str, dict]] = []
-    graph_task_runtime = _graph_task_runtime_stub(
+    graph_harness = _graph_harness_stub(
         state_index,
         event_log=SimpleNamespace(
             append=lambda _task_run_id, event_type, payload=None, refs=None: events.append((event_type, payload or {})),
@@ -491,7 +493,7 @@ def test_stage_execution_scheduler_marks_node_failed_when_background_execution_c
     )
 
     coordination_scheduler._mark_stage_execution_node_failed(
-        graph_task_runtime=graph_task_runtime,
+        graph_harness=graph_harness,
         stage_execution_request=request,
         source="test",
         error=ValueError("runtime lane mismatch"),
@@ -577,7 +579,7 @@ def test_finalizer_suppresses_completed_result_after_task_run_stop(tmp_path: Pat
         execution_store=RuntimeExecutionStore(runtime_dir),
         runtime_objects=RuntimeObjectStore(runtime_dir),
         task_flow_registry=registry,
-        langgraph_coordination_runtime=SimpleNamespace(checkpoints=SimpleNamespace(get_state=lambda *, thread_id: {})),
+        graph_coordination_engine=SimpleNamespace(checkpoints=SimpleNamespace(get_state=lambda *, thread_id: {})),
         artifact_repository=ArtifactRepositoryService(runtime_dir / "artifact_repository", workspace_root=workspace_root),
     )
 
@@ -678,7 +680,7 @@ def test_finalizer_materialized_stage_artifacts_are_coordination_output_refs(tmp
         execution_store=RuntimeExecutionStore(runtime_dir),
         runtime_objects=RuntimeObjectStore(runtime_dir),
         task_flow_registry=registry,
-        langgraph_coordination_runtime=SimpleNamespace(supports=lambda coordination_run: False),
+        graph_coordination_engine=SimpleNamespace(supports=lambda coordination_run: False),
         artifact_repository=ArtifactRepositoryService(runtime_dir / "artifact_repository", workspace_root=workspace_root),
     )
 
@@ -747,7 +749,7 @@ def test_graph_module_stage_scheduler_starts_and_reuses_imported_task_graph_run(
         executor_binding={
             "selected_executor": "graph_module",
             "graph_module_runtime_handle": {
-                "authority": "runtime.subruntime.graph_module_runtime_handle",
+                "authority": "harness.execution.graph_module_runtime_handle",
                 "handle_id": "graphmodrun:test",
                 "importing_graph_id": "graph.test.importing",
                 "importing_coordination_run_id": "coordrun:importing",
@@ -774,9 +776,9 @@ def test_graph_module_stage_scheduler_starts_and_reuses_imported_task_graph_run(
             },
         },
         runtime_assembly={
-            "authority": "runtime.subruntime.graph_module_runtime_assembly",
+            "authority": "harness.execution.graph_module_runtime_assembly",
             "graph_module_runtime_handle": {
-                "authority": "runtime.subruntime.graph_module_runtime_handle",
+                "authority": "harness.execution.graph_module_runtime_handle",
                 "handle_id": "graphmodrun:test",
                 "importing_graph_id": "graph.test.importing",
                 "importing_coordination_run_id": "coordrun:importing",
@@ -834,7 +836,7 @@ def test_graph_module_stage_scheduler_starts_and_reuses_imported_task_graph_run(
     child_initial_inputs = dict(loop.runtime_objects.get_object(initial_inputs_ref)["initial_inputs"])
     assert child_initial_inputs == {"user_goal": "启动导入模块"}
     imported_coordination_run_id = str(imported.diagnostics["imported_coordination_run_id"])
-    child_state = loop.langgraph_coordination_runtime.checkpoints.get_state(thread_id=imported_coordination_run_id)
+    child_state = loop.graph_coordination_engine.checkpoints.get_state(thread_id=imported_coordination_run_id)
     assert child_state["pending_inputs"]["user_goal"] == "启动导入模块"
     for protocol_key in (
         "importing_graph_module_runtime_handle",
@@ -987,7 +989,7 @@ def test_graph_module_imported_completion_commits_output_packet_and_releases_imp
     )
     parent_coordination_run = parent_start.coordination_run
     assert parent_coordination_run is not None
-    parent_state = loop.langgraph_coordination_runtime.checkpoints.get_state(
+    parent_state = loop.graph_coordination_engine.checkpoints.get_state(
         thread_id=parent_coordination_run.coordination_run_id,
     )
     parent_request = NodeExecutionRequest.from_dict(parent_state["stage_execution_request"])
@@ -1007,7 +1009,7 @@ def test_graph_module_imported_completion_commits_output_packet_and_releases_imp
         if dict(task_run.diagnostics or {}).get("graph_module_imported_run") is True
     )
     imported_coordination_run_id = str(imported_run.diagnostics["imported_coordination_run_id"])
-    imported_state = loop.langgraph_coordination_runtime.checkpoints.get_state(thread_id=imported_coordination_run_id)
+    imported_state = loop.graph_coordination_engine.checkpoints.get_state(thread_id=imported_coordination_run_id)
     imported_state["terminal_status"] = "completed"
     imported_state["node_statuses"] = {"child_node": "completed"}
     imported_state["completed_nodes"] = ["child_node"]
@@ -1021,7 +1023,7 @@ def test_graph_module_imported_completion_commits_output_packet_and_releases_imp
         }
     }
     imported_state["final_result_ref"] = "taskresult:child-node"
-    loop.langgraph_coordination_runtime.checkpoints.put_state(
+    loop.graph_coordination_engine.checkpoints.put_state(
         thread_id=imported_coordination_run_id,
         state=imported_state,
         metadata={"event": "test_child_completed"},
@@ -1081,7 +1083,7 @@ def test_graph_module_imported_completion_commits_output_packet_and_releases_imp
     packet = loop.runtime_objects.get_object(payload["packet_ref"])
     assert packet["artifact_refs_by_stage"]["child_node"] == ["artifact:child/final.md"]
     assert packet["core_artifact_refs"] == ["artifact:child/final.md"]
-    parent_state_after = loop.langgraph_coordination_runtime.checkpoints.get_state(
+    parent_state_after = loop.graph_coordination_engine.checkpoints.get_state(
         thread_id=parent_coordination_run.coordination_run_id,
     )
     assert parent_state_after["node_statuses"]["graph_module.block.child"] == "completed"
@@ -1135,7 +1137,7 @@ def test_graph_module_imported_result_waits_until_imported_graph_completed(tmp_p
         },
     )
     state_index.upsert_task_run(child)
-    graph_task_runtime = _graph_task_runtime_stub(
+    graph_harness = _graph_harness_stub(
         state_index,
         put_runtime_object=lambda *args, **kwargs: "rtobj:should:not-write",
         load_latest_task_checkpoint=lambda _task_run_id: None,
@@ -1144,7 +1146,7 @@ def test_graph_module_imported_result_waits_until_imported_graph_completed(tmp_p
         get_coordination_run=lambda _coordination_run_id: None,
         get_runtime_object=lambda _object_ref: {},
     )
-    runtime = SimpleNamespace(query_runtime=SimpleNamespace(graph_task_runtime=graph_task_runtime))
+    runtime = SimpleNamespace(query_runtime=SimpleNamespace(graph_harness=graph_harness))
     result = latest_unconsumed_graph_module_imported_result(
         runtime=runtime,
         session_id="session:test",
@@ -1274,7 +1276,7 @@ def test_graph_module_imported_failure_commits_failure_packet_and_uses_importing
     )
     parent_coordination_run = parent_start.coordination_run
     assert parent_coordination_run is not None
-    parent_state = loop.langgraph_coordination_runtime.checkpoints.get_state(
+    parent_state = loop.graph_coordination_engine.checkpoints.get_state(
         thread_id=parent_coordination_run.coordination_run_id,
     )
     parent_request = NodeExecutionRequest.from_dict(parent_state["stage_execution_request"])
@@ -1294,11 +1296,11 @@ def test_graph_module_imported_failure_commits_failure_packet_and_uses_importing
         if dict(task_run.diagnostics or {}).get("graph_module_imported_run") is True
     )
     imported_coordination_run_id = str(imported_run.diagnostics["imported_coordination_run_id"])
-    child_state = loop.langgraph_coordination_runtime.checkpoints.get_state(thread_id=imported_coordination_run_id)
+    child_state = loop.graph_coordination_engine.checkpoints.get_state(thread_id=imported_coordination_run_id)
     child_state["terminal_status"] = "failed"
     child_state["node_statuses"] = {"child_node": "failed"}
     child_state["failed_nodes"] = ["child_node"]
-    loop.langgraph_coordination_runtime.checkpoints.put_state(
+    loop.graph_coordination_engine.checkpoints.put_state(
         thread_id=imported_coordination_run_id,
         state=child_state,
         metadata={"event": "test_child_failed"},
@@ -1348,7 +1350,7 @@ def test_graph_module_imported_failure_commits_failure_packet_and_uses_importing
     assert payload["mode"] == "resumed_from_graph_module_imported_output_packet"
     assert payload["packet_ref"].startswith("rtobj:graph_module_failure_packets:")
     assert payload["stage_execution_request"] is None
-    parent_state_after = loop.langgraph_coordination_runtime.checkpoints.get_state(
+    parent_state_after = loop.graph_coordination_engine.checkpoints.get_state(
         thread_id=parent_coordination_run.coordination_run_id,
     )
     assert parent_state_after["terminal_status"] == "failed"

@@ -14,8 +14,8 @@ WARNING_STATUSES = {"waiting_approval", "paused"}
 class HealthGovernanceBuilder:
     def __init__(self, runtime: Any) -> None:
         self.runtime = runtime
-        self.task_run_loop = runtime.query_runtime.task_run_loop
-        self.state_index = self.task_run_loop.state_index
+        self.harness_service_host = runtime.query_runtime.harness_service_host
+        self.state_index = self.harness_service_host.state_index
         self.now = time.time()
 
     def build_overview(self, *, limit: int = 80) -> dict[str, Any]:
@@ -73,9 +73,9 @@ class HealthGovernanceBuilder:
         if task_run is None:
             raise KeyError(task_run_id)
         record = self._task_record(task_run)
-        monitor = self.task_run_loop.get_task_run_live_monitor(task_run_id) or {}
-        graph_monitor = self.task_run_loop.get_task_graph_run_monitor(task_run_id) or {}
-        events = [item.to_dict() for item in self.task_run_loop.event_log.list_events(task_run_id)[-160:]]
+        monitor = self.harness_service_host.get_task_run_live_monitor(task_run_id) or {}
+        graph_monitor = self.harness_service_host.get_task_graph_run_monitor(task_run_id) or {}
+        events = [item.to_dict() for item in self.harness_service_host.event_log.list_events(task_run_id)[-160:]]
         risks = self._task_risks(record, monitor=monitor, graph_monitor=graph_monitor)
         return {
             "authority": "health_system.governance.task_detail",
@@ -119,7 +119,7 @@ class HealthGovernanceBuilder:
 
     def _task_record(self, task_run: Any) -> dict[str, Any]:
         task_run_id = str(task_run.task_run_id or "")
-        events = self.task_run_loop.event_log.list_events(task_run_id)
+        events = self.harness_service_host.event_log.list_events(task_run_id)
         event_dicts = [item.to_dict() for item in events]
         order_projection = self.state_index.task_order_projection_for_task_run(task_run_id) or {}
         order = dict(order_projection.get("task_order") or {})
@@ -177,7 +177,7 @@ class HealthGovernanceBuilder:
 
     def _global_monitor(self, *, limit: int) -> dict[str, Any]:
         try:
-            return dict(self.task_run_loop.list_global_live_monitor(limit=limit) or {})
+            return dict(self.harness_service_host.list_global_live_monitor(limit=limit) or {})
         except Exception as exc:
             return {
                 "authority": "runtime_live_monitor.global",

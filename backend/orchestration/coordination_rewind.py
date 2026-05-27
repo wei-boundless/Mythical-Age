@@ -12,7 +12,7 @@ from task_system.runtime_semantics.review_gate_verdict import review_verdict_blo
 
 def _mark_rewound_task_run_running(
     *,
-    graph_task_runtime: Any,
+    graph_harness: Any,
     task_run: TaskRun,
     coordination_run: CoordinationRun,
     checkpoint_ref: str,
@@ -30,7 +30,7 @@ def _mark_rewound_task_run_running(
         "created_at": time.time(),
     }
     diagnostics.pop("stop_request", None)
-    graph_task_runtime.upsert_task_run(
+    graph_harness.upsert_task_run(
         TaskRun(
             task_run_id=task_run.task_run_id,
             session_id=task_run.session_id,
@@ -52,7 +52,7 @@ def _mark_rewound_task_run_running(
     coordination_diagnostics = dict(coordination_run.diagnostics or {})
     coordination_diagnostics.pop("stop_request", None)
     coordination_diagnostics["last_rewind_reactivated_task_run"] = diagnostics["last_rewind_reactivated_task_run"]
-    graph_task_runtime.upsert_coordination_run(
+    graph_harness.upsert_coordination_run(
         CoordinationRun(
             coordination_run_id=coordination_run.coordination_run_id,
             task_run_id=coordination_run.task_run_id,
@@ -75,7 +75,7 @@ def _mark_rewound_task_run_running(
 
 def _mark_invalidated_stage_task_runs(
     *,
-    graph_task_runtime: Any,
+    graph_harness: Any,
     coordination_run: CoordinationRun,
     stage_ids: list[str],
     reason: str,
@@ -83,10 +83,10 @@ def _mark_invalidated_stage_task_runs(
     stage_set = {str(item) for item in list(stage_ids or []) if str(item)}
     if not stage_set:
         return []
-    session_id = str(getattr(graph_task_runtime.get_task_run(coordination_run.task_run_id), "session_id", "") or "")
+    session_id = str(getattr(graph_harness.get_task_run(coordination_run.task_run_id), "session_id", "") or "")
     changed: list[dict[str, Any]] = []
     now = time.time()
-    for task_run in graph_task_runtime.list_task_runs():
+    for task_run in graph_harness.list_task_runs():
         if str(task_run.task_run_id or "") == str(coordination_run.task_run_id or ""):
             continue
         if session_id and str(task_run.session_id or "") != session_id:
@@ -106,7 +106,7 @@ def _mark_invalidated_stage_task_runs(
             "previous_status": previous_status,
             "created_at": now,
         }
-        graph_task_runtime.upsert_task_run(
+        graph_harness.upsert_task_run(
             TaskRun(
                 task_run_id=task_run.task_run_id,
                 session_id=task_run.session_id,
@@ -125,12 +125,12 @@ def _mark_invalidated_stage_task_runs(
                 diagnostics=diagnostics,
             )
         )
-        for agent_run in graph_task_runtime.list_task_agent_runs(task_run.task_run_id):
+        for agent_run in graph_harness.list_task_agent_runs(task_run.task_run_id):
             if str(agent_run.status or "") not in {"pending", "running"}:
                 continue
             agent_diagnostics = dict(agent_run.diagnostics or {})
             agent_diagnostics["invalidated_by_coordination_rewind"] = diagnostics["invalidated_by_coordination_rewind"]
-            graph_task_runtime.upsert_agent_run(
+            graph_harness.upsert_agent_run(
                 AgentRun(
                     agent_run_id=agent_run.agent_run_id,
                     task_run_id=agent_run.task_run_id,

@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from runtime.unit_runtime.loop import TaskRunLoop
-from runtime.execution.node_execution_request import NodeResultReadyEvent
+from harness.execution.node_protocol.node_execution_request import NodeResultReadyEvent
 from runtime.graph_runtime.batch_runtime import (
     bootstrap_batch_lifecycle_runtime_state,
     batch_execution_instance_for_result,
@@ -168,7 +168,7 @@ def test_task_graph_run_injects_batch_range_and_continues_until_batches_done(tmp
     assert first_request["explicit_inputs"]["batch_start_index"] == 1
     assert first_request["explicit_inputs"]["batch_end_index"] == 2
 
-    first_resume = loop.langgraph_coordination_runtime.resume_from_task_result(
+    first_resume = loop.graph_coordination_engine.resume_from_task_result(
         coordination_run=started.coordination_run,
         event=NodeResultReadyEvent(
             event_type="task_result_ready",
@@ -217,7 +217,7 @@ def test_parallel_batch_runtime_bootstraps_multiple_ready_batches_and_execution_
     assert first_inputs["unit_batch_execution_id"].startswith("batchrun:")
     assert first_request["dispatch_context"]["batch_execution_id"] == first_inputs["unit_batch_execution_id"]
 
-    batch_state = started.coordination_run and loop.langgraph_coordination_runtime.checkpoints.get_state(
+    batch_state = started.coordination_run and loop.graph_coordination_engine.checkpoints.get_state(
         thread_id=started.coordination_run.coordination_run_id
     )
     assert batch_state is not None
@@ -247,7 +247,7 @@ def test_langgraph_runtime_dispatches_ready_parallel_batch_requests(tmp_path: Pa
     started = loop.start_task_graph_run(session_id="session:test", graph=graph, runtime_spec=spec)
     assert started.coordination_run is not None
 
-    result = loop.langgraph_coordination_runtime.dispatch_ready_batch_requests(
+    result = loop.graph_coordination_engine.dispatch_ready_batch_requests(
         coordination_run=started.coordination_run,
         max_requests=2,
         include_current_request=True,
@@ -258,7 +258,7 @@ def test_langgraph_runtime_dispatches_ready_parallel_batch_requests(tmp_path: Pa
     assert [item["explicit_inputs"]["unit_batch_id"] for item in requests] == ["item_1_2", "item_3_4"]
     assert requests[0]["request_id"] != requests[1]["request_id"]
     assert requests[0]["explicit_inputs"]["unit_batch_execution_id"] != requests[1]["explicit_inputs"]["unit_batch_execution_id"]
-    state = loop.langgraph_coordination_runtime.checkpoints.get_state(
+    state = loop.graph_coordination_engine.checkpoints.get_state(
         thread_id=started.coordination_run.coordination_run_id
     )
     assert state is not None
@@ -461,7 +461,7 @@ def test_coordination_rewind_resets_failed_batch_and_creates_new_request(tmp_pat
     request = started.loop_state.diagnostics["stage_execution_request"]
 
     for index in range(3):
-        result = loop.langgraph_coordination_runtime.resume_from_task_result(
+        result = loop.graph_coordination_engine.resume_from_task_result(
             coordination_run=coordination_run,
             event=NodeResultReadyEvent(
                 event_type="task_result_ready",
@@ -483,13 +483,13 @@ def test_coordination_rewind_resets_failed_batch_and_creates_new_request(tmp_pat
             assert result.stage_execution_request is not None
             request = result.stage_execution_request.to_dict()
 
-    failed_state = loop.langgraph_coordination_runtime.checkpoints.get_state(
+    failed_state = loop.graph_coordination_engine.checkpoints.get_state(
         thread_id=coordination_run.coordination_run_id
     )
     assert failed_state is not None
     assert "item_1_2" in failed_state["batch_lifecycle_runtime_state"]["failed_batch_ids"]
 
-    rewound = loop.langgraph_coordination_runtime.rewind_from_stage(
+    rewound = loop.graph_coordination_engine.rewind_from_stage(
         coordination_run_id=coordination_run.coordination_run_id,
         stage_id="produce",
         reason="retry_after_prompt_fix",
@@ -516,7 +516,7 @@ def test_coordination_executor_failure_requeues_batch_without_business_repair(tm
     request = started.loop_state.diagnostics["stage_execution_request"]
     first_execution_id = request["explicit_inputs"]["unit_batch_execution_id"]
 
-    result = loop.langgraph_coordination_runtime.resume_from_task_result(
+    result = loop.graph_coordination_engine.resume_from_task_result(
         coordination_run=coordination_run,
         event=NodeResultReadyEvent(
             event_type="task_result_ready",
@@ -563,7 +563,7 @@ def test_coordination_technical_failure_circuit_breaks_to_blocked_checkpoint(tmp
     result = None
     for index in range(3):
         execution_id = request["explicit_inputs"]["unit_batch_execution_id"]
-        result = loop.langgraph_coordination_runtime.resume_from_task_result(
+        result = loop.graph_coordination_engine.resume_from_task_result(
             coordination_run=coordination_run,
             event=NodeResultReadyEvent(
                 event_type="task_result_ready",

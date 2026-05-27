@@ -95,23 +95,6 @@ class MemoryManager:
         self.sync_index()
         return path
 
-    def repair_store(self) -> dict[str, object]:
-        note_paths = self.list_note_paths()
-        notes: list[MemoryNote] = []
-        repaired_files: list[str] = []
-
-        for path in note_paths:
-            note = self._repair_note_file(path)
-            notes.append(note)
-            repaired_files.append(path.name)
-
-        self._rewrite_index(notes)
-        return {
-            "status": "ok",
-            "notes_rewritten": len(notes),
-            "files": repaired_files,
-        }
-
     def delete_note(self, slug: str) -> bool:
         path = self.note_path(slug)
         if not path.exists():
@@ -514,286 +497,17 @@ class MemoryManager:
             newline="\n",
         )
 
-    def _repair_note_file(self, path: Path) -> MemoryNote:
-        raw = repair_mojibake(path.read_text(encoding="utf-8"))
-        frontmatter, body = parse_frontmatter(raw)
-
-        schema_version = normalize_storage_text(frontmatter.get("schema_version", ""))
-        title = normalize_storage_text(frontmatter.get("title", path.stem.replace("-", " ")))
-        summary = normalize_storage_text(frontmatter.get("summary", ""))
-        canonical_statement = normalize_storage_text(frontmatter.get("canonical_statement", ""))
-        memory_type = normalize_storage_text(frontmatter.get("type", "project")) or "project"
-        memory_class = normalize_storage_text(
-            frontmatter.get("memory_class", self._default_memory_class(memory_type))
-        ) or self._default_memory_class(memory_type)
-        tags = self._normalize_list_field(frontmatter.get("tags", ""))
-        retrieval_hints = self._normalize_list_field(frontmatter.get("retrieval_hints", ""))
-        created_at = normalize_storage_text(frontmatter.get("created_at", ""))
-        updated_at = normalize_storage_text(frontmatter.get("updated_at", ""))
-        created_by = normalize_storage_text(frontmatter.get("created_by", ""))
-        source_session_id = normalize_storage_text(frontmatter.get("source_session_id", ""))
-        source_role = normalize_storage_text(frontmatter.get("source_role", ""))
-        source_message_excerpt = normalize_storage_text(frontmatter.get("source_message_excerpt", ""))
-        confidence = normalize_storage_text(frontmatter.get("confidence", ""))
-        status = normalize_storage_text(frontmatter.get("status", ""))
-        last_confirmed_at = normalize_storage_text(frontmatter.get("last_confirmed_at", ""))
-        scope = normalize_storage_text(frontmatter.get("scope", ""))
-        stability = normalize_storage_text(frontmatter.get("stability", ""))
-        source_kind = normalize_storage_text(frontmatter.get("source_kind", ""))
-        eligible_for_injection = normalize_storage_text(frontmatter.get("eligible_for_injection", ""))
-        review_after = normalize_storage_text(frontmatter.get("review_after", ""))
-        supersedes = normalize_storage_text(frontmatter.get("supersedes", ""))
-        invalidation_reason = normalize_storage_text(frontmatter.get("invalidation_reason", ""))
-        body_text = normalize_storage_text(body)
-
-        if not frontmatter:
-            (
-                schema_version,
-                title,
-                summary,
-                canonical_statement,
-                memory_type,
-                memory_class,
-                tags,
-                retrieval_hints,
-                created_at,
-                updated_at,
-                created_by,
-                source_session_id,
-                source_role,
-                source_message_excerpt,
-                confidence,
-                status,
-                last_confirmed_at,
-                scope,
-                stability,
-                source_kind,
-                eligible_for_injection,
-                review_after,
-                supersedes,
-                invalidation_reason,
-                body_text,
-            ) = self._repair_markdown_note(raw, path)
-
-        note = MemoryNote(
-            slug=path.stem,
-            schema_version=schema_version or DEFAULT_DURABLE_SCHEMA_VERSION,
-            title=title or path.stem.replace("-", " "),
-            summary=summary or title or path.stem.replace("-", " "),
-            canonical_statement=canonical_statement or summary or title or path.stem.replace("-", " "),
-            body=body_text or summary or title or path.stem.replace("-", " "),
-            memory_type=self._normalize_memory_type(memory_type),
-            memory_class=self._normalize_memory_class(memory_class, memory_type),
-            tags=tags,
-            retrieval_hints=retrieval_hints,
-            created_at=created_at or updated_at or MemoryNote(slug=path.stem, title="", summary="", body="").created_at,
-            updated_at=updated_at or MemoryNote(slug=path.stem, title="", summary="", body="").updated_at,
-            created_by=created_by or "store-repair",
-            source_session_id=source_session_id,
-            source_role=source_role or "user",
-            source_message_excerpt=source_message_excerpt or summary,
-            confidence=confidence or "medium",
-            status=status or "active",
-            last_confirmed_at=last_confirmed_at,
-            scope=scope or "project",
-            stability=stability or "stable",
-            source_kind=source_kind,
-            eligible_for_injection=eligible_for_injection or "true",
-            review_after=review_after,
-            supersedes=supersedes,
-            invalidation_reason=invalidation_reason,
-        )
-        path.write_text(note.to_markdown(), encoding="utf-8", newline="\n")
-        return note
-
-    def _repair_markdown_note(
-        self,
-        raw: str,
-        path: Path,
-    ) -> tuple[str, str, str, str, str, str, list[str], list[str], str, str, str, str, str, str, str, str, str, str, str, str, str, str, str, str, str]:
-        text = normalize_storage_text(raw)
-        lines = [line.strip() for line in text.splitlines() if line.strip()]
-        schema_version = DEFAULT_DURABLE_SCHEMA_VERSION
-        title = path.stem.replace("-", " ")
-        summary = ""
-        canonical_statement = ""
-        memory_type = "project"
-        memory_class = self._default_memory_class(memory_type)
-        tags: list[str] = []
-        retrieval_hints: list[str] = []
-        created_at = ""
-        updated_at = ""
-        created_by = "store-repair"
-        source_session_id = ""
-        source_role = "user"
-        source_message_excerpt = ""
-        confidence = "medium"
-        status = "active"
-        last_confirmed_at = ""
-        scope = "project"
-        stability = "stable"
-        source_kind = ""
-        eligible_for_injection = "true"
-        review_after = ""
-        supersedes = ""
-        invalidation_reason = ""
-        body_lines: list[str] = []
-        in_metadata_block = False
-
-        for line in lines:
-            lowered = line.lower()
-            metadata_line = line[2:].strip() if line.startswith("- ") else line
-            metadata_lowered = metadata_line.lower()
-            if line.startswith("# "):
-                title = normalize_storage_text(line[2:]) or title
-                continue
-            if lowered.startswith("## metadata"):
-                in_metadata_block = True
-                continue
-            if lowered.startswith("## canonical memory"):
-                in_metadata_block = False
-                continue
-            if metadata_lowered.startswith("title:"):
-                title = normalize_storage_text(metadata_line.split(":", 1)[1])
-                continue
-            if metadata_lowered.startswith("summary:"):
-                summary = normalize_storage_text(metadata_line.split(":", 1)[1])
-                continue
-            if metadata_lowered.startswith("canonical_statement:"):
-                canonical_statement = normalize_storage_text(metadata_line.split(":", 1)[1])
-                continue
-            if metadata_lowered.startswith("type:"):
-                memory_type = normalize_storage_text(metadata_line.split(":", 1)[1]) or "project"
-                memory_class = self._default_memory_class(memory_type)
-                continue
-            if metadata_lowered.startswith("memory class:") or metadata_lowered.startswith("memory_class:"):
-                memory_class = normalize_storage_text(metadata_line.split(":", 1)[1]) or self._default_memory_class(memory_type)
-                continue
-            if metadata_lowered.startswith("tags:"):
-                tags = self._normalize_list_field(metadata_line.split(":", 1)[1])
-                continue
-            if metadata_lowered.startswith("retrieval hints:") or metadata_lowered.startswith("retrieval_hints:"):
-                retrieval_hints = self._normalize_list_field(metadata_line.split(":", 1)[1])
-                continue
-            if metadata_lowered.startswith("updated at:") or metadata_lowered.startswith("updated_at:"):
-                updated_at = normalize_storage_text(metadata_line.split(":", 1)[1])
-                continue
-            if metadata_lowered.startswith("created at:") or metadata_lowered.startswith("created_at:"):
-                created_at = normalize_storage_text(metadata_line.split(":", 1)[1])
-                continue
-            if metadata_lowered.startswith("created by:") or metadata_lowered.startswith("created_by:"):
-                created_by = normalize_storage_text(metadata_line.split(":", 1)[1]) or "store-repair"
-                continue
-            if metadata_lowered.startswith("source session id:") or metadata_lowered.startswith("source_session_id:"):
-                source_session_id = normalize_storage_text(metadata_line.split(":", 1)[1])
-                continue
-            if metadata_lowered.startswith("source role:") or metadata_lowered.startswith("source_role:"):
-                source_role = normalize_storage_text(metadata_line.split(":", 1)[1]) or "user"
-                continue
-            if metadata_lowered.startswith("source message excerpt:") or metadata_lowered.startswith("source_message_excerpt:"):
-                source_message_excerpt = normalize_storage_text(metadata_line.split(":", 1)[1])
-                continue
-            if metadata_lowered.startswith("confidence:"):
-                confidence = normalize_storage_text(metadata_line.split(":", 1)[1]) or "medium"
-                continue
-            if metadata_lowered.startswith("status:"):
-                status = normalize_storage_text(metadata_line.split(":", 1)[1]) or "active"
-                continue
-            if metadata_lowered.startswith("schema:") or metadata_lowered.startswith("schema_version:"):
-                schema_version = normalize_storage_text(metadata_line.split(":", 1)[1]) or DEFAULT_DURABLE_SCHEMA_VERSION
-                continue
-            if metadata_lowered.startswith("last confirmed at:") or metadata_lowered.startswith("last_confirmed_at:"):
-                last_confirmed_at = normalize_storage_text(metadata_line.split(":", 1)[1])
-                continue
-            if metadata_lowered.startswith("scope:"):
-                scope = normalize_storage_text(metadata_line.split(":", 1)[1]) or "project"
-                continue
-            if metadata_lowered.startswith("stability:"):
-                stability = normalize_storage_text(metadata_line.split(":", 1)[1]) or "stable"
-                continue
-            if metadata_lowered.startswith("source kind:") or metadata_lowered.startswith("source_kind:"):
-                source_kind = normalize_storage_text(metadata_line.split(":", 1)[1])
-                continue
-            if metadata_lowered.startswith("eligible for injection:") or metadata_lowered.startswith("eligible_for_injection:"):
-                eligible_for_injection = normalize_storage_text(metadata_line.split(":", 1)[1]) or "true"
-                continue
-            if metadata_lowered.startswith("review after:") or metadata_lowered.startswith("review_after:"):
-                review_after = normalize_storage_text(metadata_line.split(":", 1)[1])
-                continue
-            if metadata_lowered.startswith("supersedes:"):
-                supersedes = normalize_storage_text(metadata_line.split(":", 1)[1])
-                continue
-            if metadata_lowered.startswith("invalidation reason:") or metadata_lowered.startswith("invalidation_reason:"):
-                invalidation_reason = normalize_storage_text(metadata_line.split(":", 1)[1])
-                continue
-            if in_metadata_block and line.startswith("- "):
-                continue
-            body_lines.append(line)
-
-        body = normalize_storage_text("\n".join(body_lines))
-        if not summary:
-            summary = body.splitlines()[0] if body else title
-        if not canonical_statement:
-            canonical_statement = summary
-        if not retrieval_hints:
-            retrieval_hints = list(tags)
-        if not source_message_excerpt:
-            source_message_excerpt = summary
-        return (
-            schema_version,
-            title,
-            summary,
-            canonical_statement,
-            memory_type,
-            memory_class,
-            tags,
-            retrieval_hints,
-            created_at,
-            updated_at,
-            created_by,
-            source_session_id,
-            source_role,
-            source_message_excerpt,
-            confidence,
-            status,
-            last_confirmed_at,
-            scope,
-            stability,
-            source_kind,
-            eligible_for_injection,
-            review_after,
-            supersedes,
-            invalidation_reason,
-            body,
-        )
-
     def _normalize_list_field(self, raw: str) -> list[str]:
         cleaned = normalize_storage_text(raw)
         if cleaned.startswith("[") and cleaned.endswith("]"):
             cleaned = cleaned[1:-1]
         return [normalize_storage_text(item) for item in cleaned.split(",") if normalize_storage_text(item)]
 
-    def _normalize_memory_type(self, value: str) -> str:
-        lowered = normalize_storage_text(value).lower()
-        if lowered == "preference":
-            return "user"
-        if lowered == "workflow":
-            return "project"
-        if lowered in {"user", "feedback", "project", "reference"}:
-            return lowered
-        return "project"
-
     def _default_memory_class(self, memory_type: str) -> str:
         lowered = normalize_storage_text(memory_type).lower()
         if lowered in {"user", "preference"}:
             return "preference"
         return "work"
-
-    def _normalize_memory_class(self, value: str, memory_type: str) -> str:
-        lowered = normalize_storage_text(value).lower()
-        if lowered in {"work", "preference"}:
-            return lowered
-        return self._default_memory_class(memory_type)
 
     def _rewrite_index(self, notes: list[MemoryNote]) -> None:
         lines = ["# Memory Index", ""]
@@ -839,60 +553,7 @@ class MemoryManager:
                 content=repair_mojibake(body.strip()),
             )
 
-        (
-            _schema_version,
-            title,
-            summary,
-            canonical_statement,
-            memory_type,
-            memory_class,
-            _tags,
-            retrieval_hints,
-            _created_at,
-            _updated_at,
-            _created_by,
-            _source_session_id,
-            _source_role,
-            _source_message_excerpt,
-            _confidence,
-            _status,
-            _last_confirmed_at,
-            _scope,
-            _stability,
-            _source_kind,
-            _eligible_for_injection,
-            _review_after,
-            _supersedes,
-            _invalidation_reason,
-            body_text,
-        ) = self._repair_markdown_note(raw, path)
-        return LoadedMemoryNote(
-            filename=path.name,
-            schema_version=_schema_version,
-            title=title,
-            summary=summary,
-            canonical_statement=canonical_statement,
-            memory_type=memory_type,
-            memory_class=memory_class,
-            retrieval_hints=retrieval_hints,
-            created_at=_created_at,
-            updated_at=_updated_at,
-            created_by=_created_by,
-            source_session_id=_source_session_id,
-            source_role=_source_role,
-            source_message_excerpt=_source_message_excerpt,
-            confidence=_confidence,
-            status=_status,
-            last_confirmed_at=_last_confirmed_at,
-            scope=_scope,
-            stability=_stability,
-            source_kind=_source_kind,
-            eligible_for_injection=_eligible_for_injection,
-            review_after=_review_after,
-            supersedes=_supersedes,
-            invalidation_reason=_invalidation_reason,
-            content=body_text,
-        )
+        raise ValueError(f"Durable memory note is missing required frontmatter: {path.name}")
 
     def _truncate_entrypoint(self, content: str, warn: bool = True) -> str:
         trimmed = content.strip()
@@ -933,26 +594,6 @@ class MemoryManager:
             canonical_statement=note.canonical_statement,
             source_message_excerpt=note.source_message_excerpt,
         )
-
-    def _migrate_flat_layout(self) -> None:
-        flat_files = sorted(
-            path for path in self.root_dir.glob("*.md")
-            if path.is_file()
-        )
-        for path in flat_files:
-            if path.name == "MEMORY.md":
-                target = self.layout.index_path
-            elif path.name == "SCHEMA.md":
-                target = self.layout.schema_path
-            else:
-                target = self.layout.notes_dir / path.name
-            if target == path:
-                continue
-            if target.exists():
-                if repair_mojibake(target.read_text(encoding="utf-8")) == repair_mojibake(path.read_text(encoding="utf-8")):
-                    path.unlink()
-                continue
-            path.replace(target)
 
     def _loaded_to_memory_note(self, loaded: LoadedMemoryNote) -> MemoryNote:
         return MemoryNote(

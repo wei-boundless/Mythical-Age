@@ -9,8 +9,8 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from runtime.agent_runtime import build_agent_runtime_config
-from runtime.agent_runtime.phase_pipeline import append_pre_model_phase_events, apply_post_model_phases
+from harness.runtime import build_agent_runtime_config
+from harness.loop.agent_phase_pipeline import append_pre_model_phase_events, apply_post_model_phases
 
 
 @dataclass(slots=True)
@@ -129,8 +129,8 @@ def test_phase_pipeline_emits_only_agent_runtime_phase_events() -> None:
         "agent_runtime_planning_phase_checked",
         "agent_runtime_closeout_phase_checked",
     ]
-    assert pre.runtime_execution_facts["agent_runtime_phase_pipeline"]["authority"] == "runtime.agent_runtime.phase_pipeline"
+    assert pre.runtime_execution_facts["agent_runtime_phase_pipeline"]["authority"] == "harness.loop.agent_phase_pipeline"
     assert len(pre.events) == 1
     assert len(post_events) == 1
-    assert outcome.run_outcome["authority"] == "runtime.agent_runtime.phase_pipeline"
+    assert outcome.run_outcome["authority"] == "harness.loop.agent_phase_pipeline"
     assert outcome.terminal_reason in {"partial_contract_failed", "agent_phase_validation_failed"}

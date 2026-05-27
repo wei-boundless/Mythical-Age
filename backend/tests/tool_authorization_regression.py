@@ -9,8 +9,8 @@ if str(BACKEND_DIR) not in sys.path:
 
 from capability_system import build_default_operation_registry
 from permissions import OperationGate, ResourcePolicy
-from runtime.execution_engine import handle_tool_call_requested_event
-from runtime.execution_permit import tool_instances_for_policy_and_permit
+from harness.loop.agent_execution import handle_tool_call_requested_event
+from harness.runtime.execution_policy import tool_instances_for_policy_and_permit
 from runtime.shared.context_manager import RuntimeContextManager
 from runtime.shared.event_log import RuntimeEventLog
 from runtime.shared.action_request import build_tool_result_observation

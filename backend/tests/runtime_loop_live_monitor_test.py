@@ -9,7 +9,7 @@ from runtime.shared.models import CoordinationNodeRun, CoordinationRun, RuntimeL
 from runtime.memory.state_index import RuntimeStateIndex
 from runtime.memory.trace_reader import RuntimeLoopTraceReader
 from runtime.shared.event_log import RuntimeEventLog
-from runtime.coordination_runtime.checkpoint_adapter import LangGraphCheckpointStoreAdapter
+from harness.loop.graph_coordination.checkpoint_adapter import GraphCoordinationCheckpointStore
 
 
 def test_global_live_monitor_uses_real_runtime_and_hides_old_history(tmp_path, monkeypatch) -> None:
@@ -429,7 +429,7 @@ def test_task_graph_monitor_reads_stream_chunks_from_active_node_task_run(tmp_pa
     state_index = RuntimeStateIndex(tmp_path)
     checkpoints = RuntimeCheckpointStore(tmp_path)
     event_log = RuntimeEventLog(tmp_path)
-    coordination_checkpoints = LangGraphCheckpointStoreAdapter(tmp_path)
+    coordination_checkpoints = GraphCoordinationCheckpointStore(tmp_path)
     reader = RuntimeLoopTraceReader(
         state_index=state_index,
         event_log=event_log,

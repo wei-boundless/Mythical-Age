@@ -306,12 +306,11 @@ class WorkingMemoryService:
         excluded: list[WorkingMemoryItem] = []
         token_used = 0
         max_initial_items = max(1, int(context.read_request.get("max_items") or context.read_policy.get("max_items") or 200))
-        explicit_requested_kinds = context.read_request.get("requested_kinds") or context.read_request.get("requested_kind")
+        explicit_requested_kinds = context.read_request.get("requested_kinds")
         requested_kinds = set(_strings(explicit_requested_kinds or context.read_policy.get("readable_kinds")))
         requested_semantics = set(
             _strings(
                 context.read_request.get("requested_semantics")
-                or context.read_request.get("requested_semantic")
                 or context.read_policy.get("readable_semantics")
             )
         )
@@ -618,7 +617,7 @@ class WorkingMemoryService:
             return tuple(selected)
         if not bool(dynamic_policy.get("allow_temporal_expansion")):
             return tuple(selected)
-        max_neighbors = max(0, int(dynamic_policy.get("max_temporal_neighbors") or dynamic_policy.get("max_temporal_expansion_count") or 0))
+        max_neighbors = max(0, int(dynamic_policy.get("max_temporal_neighbors") or 0))
         if max_neighbors <= 0:
             return tuple(selected)
         base_count = len(selected)
@@ -733,17 +732,17 @@ def _read_denied_reason(
     if readable_scopes and requested_scopes and not requested_scopes.issubset(readable_scopes):
         return "requested_scope_outside_policy"
     readable_kinds = set(_strings(read_policy.get("readable_kinds")))
-    requested_kinds = set(_strings(read_request.get("requested_kinds") or read_request.get("requested_kind")))
+    requested_kinds = set(_strings(read_request.get("requested_kinds")))
     if readable_kinds and requested_kinds and not requested_kinds.issubset(readable_kinds):
         return "requested_kind_outside_policy"
     readable_semantics = set(_strings(read_policy.get("readable_semantics")))
-    requested_semantics = set(_strings(read_request.get("requested_semantics") or read_request.get("requested_semantic")))
+    requested_semantics = set(_strings(read_request.get("requested_semantics")))
     if readable_semantics and requested_semantics and not requested_semantics.issubset(readable_semantics):
         return "requested_semantics_outside_policy"
     if bool(read_request.get("include_temporal_neighbors")) and not bool(dynamic_policy.get("allow_temporal_expansion")):
         return "temporal_expansion_not_allowed"
     if bool(read_request.get("include_temporal_neighbors")):
-        max_neighbors = int(dynamic_policy.get("max_temporal_neighbors") or dynamic_policy.get("max_temporal_expansion_count") or 0)
+        max_neighbors = int(dynamic_policy.get("max_temporal_neighbors") or 0)
         if max_neighbors <= 0:
             return "temporal_expansion_limit_missing"
     return ""

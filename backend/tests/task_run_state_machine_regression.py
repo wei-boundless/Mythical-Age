@@ -11,7 +11,7 @@ from task_system.tasks.run_models import (
 from task_system.planning.execution_recipe_models import ExecutionRecipe
 from task_system.tasks.spec_models import TaskSpec
 from task_system.tasks.step_models import TaskStepBlueprint
-from runtime.agent_runtime.finalization import finalize_runtime_task_run_ledger
+from harness.loop.agent_finalization import finalize_runtime_task_run_ledger
 
 
 def _recipe(*steps: TaskStepBlueprint) -> ExecutionRecipe:

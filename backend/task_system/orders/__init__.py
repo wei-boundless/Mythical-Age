@@ -16,6 +16,7 @@ __all__ = [
     "TaskOrderFactory",
     "TaskOrderRegistry",
     "TaskOrderRun",
+    "attach_legacy_runtime_read_model",
 ]
 
 
@@ -44,4 +45,8 @@ def __getattr__(name: str) -> Any:
         from .order_registry import TaskOrderRegistry
 
         return TaskOrderRegistry
+    if name == "attach_legacy_runtime_read_model":
+        from .legacy_runtime_adapter import attach_legacy_runtime_read_model
+
+        return attach_legacy_runtime_read_model
     raise AttributeError(name)

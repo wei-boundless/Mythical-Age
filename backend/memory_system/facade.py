@@ -60,7 +60,6 @@ class MemoryFacade:
         )
 
     def set_durable_memory_saved_callback(self, callback: Callable[[int], None]) -> None:
-        self.durable_memory.set_saved_callback(callback)
         self.maintenance_coordinator.set_durable_saved_callback(callback)
 
     def enqueue_memory_maintenance_after_commit(

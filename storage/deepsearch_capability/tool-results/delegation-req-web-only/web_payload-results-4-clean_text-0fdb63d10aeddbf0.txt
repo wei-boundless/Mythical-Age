@@ -1,0 +1,1 @@
+Release notes management - DEV Community How do you manage your OSS changelog or release notes? As for myself, I don't use CHANGELOG file... Tagged with github, changelog. <link href="https://media2.dev.to/dynamic/image/width=192,height=,fit=scale-down,gravity=auto,format=auto/htt

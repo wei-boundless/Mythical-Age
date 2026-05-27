@@ -42,23 +42,23 @@ class TaskGraphMonitorEvaluateRequest(BaseModel):
     monitor_policy: dict[str, Any] = Field(default_factory=dict)
 
 
-@router.get("/orchestration/runtime-loop/sessions/{session_id}/task-runs")
-async def list_runtime_loop_task_runs(session_id: str) -> dict[str, Any]:
+@router.get("/orchestration/harness/sessions/{session_id}/task-runs")
+async def list_harness_task_runs(session_id: str) -> dict[str, Any]:
     runtime = require_runtime()
-    return runtime.query_runtime.task_run_loop.list_session_traces(session_id)
+    return runtime.query_runtime.harness_service_host.list_session_traces(session_id)
 
 
-@router.get("/orchestration/runtime-loop/live-monitor")
-async def list_runtime_loop_global_live_monitor(limit: int = 20) -> dict[str, Any]:
+@router.get("/orchestration/harness/live-monitor")
+async def list_harness_global_live_monitor(limit: int = 20) -> dict[str, Any]:
     runtime = require_runtime()
-    return runtime.query_runtime.task_run_loop.list_global_live_monitor(limit=limit)
+    return runtime.query_runtime.harness_service_host.list_global_live_monitor(limit=limit)
 
 
-@router.get("/orchestration/runtime-loop/monitor-events")
-async def stream_runtime_loop_monitor_events(request: Request, limit: int = 40):
+@router.get("/orchestration/harness/monitor-events")
+async def stream_harness_monitor_events(request: Request, limit: int = 40):
     runtime = require_runtime()
-    task_run_loop = runtime.query_runtime.task_run_loop
-    subscription = task_run_loop.event_log.subscribe()
+    harness_service_host = runtime.query_runtime.harness_service_host
+    subscription = harness_service_host.event_log.subscribe()
     requested_limit = max(1, min(int(limit or 40), 100))
 
     async def event_generator():
@@ -66,7 +66,7 @@ async def stream_runtime_loop_monitor_events(request: Request, limit: int = 40):
             yield _sse(
                 "runtime_monitor_snapshot",
                 {
-                    "monitor": task_run_loop.list_global_live_monitor(limit=requested_limit),
+                    "monitor": harness_service_host.list_global_live_monitor(limit=requested_limit),
                     "source": "initial",
                 },
             )
@@ -82,7 +82,7 @@ async def stream_runtime_loop_monitor_events(request: Request, limit: int = 40):
                         },
                     )
                     continue
-                monitor = task_run_loop.list_global_live_monitor(limit=requested_limit)
+                monitor = harness_service_host.list_global_live_monitor(limit=requested_limit)
                 yield _sse(
                     "runtime_monitor_event",
                     {
@@ -93,7 +93,7 @@ async def stream_runtime_loop_monitor_events(request: Request, limit: int = 40):
                     event_id=runtime_event.event_id,
                 )
         finally:
-            task_run_loop.event_log.unsubscribe(subscription)
+            harness_service_host.event_log.unsubscribe(subscription)
 
     return StreamingResponse(
         event_generator(),
@@ -106,20 +106,20 @@ async def stream_runtime_loop_monitor_events(request: Request, limit: int = 40):
     )
 
 
-@router.get("/orchestration/runtime-loop/sessions/{session_id}/live-monitor")
-async def get_runtime_loop_session_live_monitor(session_id: str) -> dict[str, Any]:
+@router.get("/orchestration/harness/sessions/{session_id}/live-monitor")
+async def get_harness_session_live_monitor(session_id: str) -> dict[str, Any]:
     runtime = require_runtime()
-    return runtime.query_runtime.task_run_loop.get_session_live_monitor(session_id)
+    return runtime.query_runtime.harness_service_host.get_session_live_monitor(session_id)
 
 
-@router.get("/orchestration/runtime-loop/task-runs/{task_run_id}")
-async def get_runtime_loop_trace(
+@router.get("/orchestration/harness/task-runs/{task_run_id}")
+async def get_harness_trace(
     task_run_id: str,
     include_payloads: bool = False,
     include_model_messages: bool = False,
 ) -> dict[str, Any]:
     runtime = require_runtime()
-    trace = runtime.query_runtime.task_run_loop.get_trace(
+    trace = runtime.query_runtime.harness_service_host.get_trace(
         task_run_id,
         include_payloads=include_payloads,
         include_model_messages=include_model_messages,
@@ -129,31 +129,31 @@ async def get_runtime_loop_trace(
     return trace
 
 
-@router.get("/orchestration/runtime-loop/task-runs/{task_run_id}/live-monitor")
-async def get_runtime_loop_task_run_live_monitor(task_run_id: str) -> dict[str, Any]:
+@router.get("/orchestration/harness/task-runs/{task_run_id}/live-monitor")
+async def get_harness_task_run_live_monitor(task_run_id: str) -> dict[str, Any]:
     runtime = require_runtime()
-    monitor = runtime.query_runtime.task_run_loop.get_task_run_live_monitor(task_run_id)
+    monitor = runtime.query_runtime.harness_service_host.get_task_run_live_monitor(task_run_id)
     if monitor is None:
         raise HTTPException(status_code=404, detail="TaskRun live monitor not found")
     return monitor
 
 
-@router.get("/orchestration/runtime-loop/task-runs/{task_run_id}/task-graph-monitor")
-async def get_runtime_loop_task_graph_run_monitor(task_run_id: str) -> dict[str, Any]:
+@router.get("/orchestration/harness/task-runs/{task_run_id}/task-graph-monitor")
+async def get_harness_task_graph_run_monitor(task_run_id: str) -> dict[str, Any]:
     runtime = require_runtime()
-    monitor = runtime.query_runtime.task_run_loop.get_task_graph_run_monitor(task_run_id)
+    monitor = runtime.query_runtime.harness_service_host.get_task_graph_run_monitor(task_run_id)
     if monitor is None:
         raise HTTPException(status_code=404, detail="TaskGraph run monitor not found")
     return monitor
 
 
-@router.post("/orchestration/runtime-loop/task-runs/{task_run_id}/task-graph-monitor/evaluate")
-async def evaluate_runtime_loop_task_graph_monitor(
+@router.post("/orchestration/harness/task-runs/{task_run_id}/task-graph-monitor/evaluate")
+async def evaluate_harness_task_graph_monitor(
     task_run_id: str,
     payload: TaskGraphMonitorEvaluateRequest,
 ) -> dict[str, Any]:
     runtime = require_runtime()
-    evaluation = runtime.query_runtime.task_run_loop.evaluate_task_graph_monitor(
+    evaluation = runtime.query_runtime.harness_service_host.evaluate_task_graph_monitor(
         task_run_id,
         monitor_node_id=payload.monitor_node_id.strip(),
         monitor_policy=dict(payload.monitor_policy or {}),
@@ -163,33 +163,33 @@ async def evaluate_runtime_loop_task_graph_monitor(
     return evaluation
 
 
-@router.get("/orchestration/runtime-loop/task-runs/{task_run_id}/monitor-decisions")
-async def list_runtime_loop_task_graph_monitor_decisions(task_run_id: str) -> dict[str, Any]:
+@router.get("/orchestration/harness/task-runs/{task_run_id}/monitor-decisions")
+async def list_harness_task_graph_monitor_decisions(task_run_id: str) -> dict[str, Any]:
     runtime = require_runtime()
-    return runtime.query_runtime.task_run_loop.list_task_graph_monitor_decisions(task_run_id)
+    return runtime.query_runtime.harness_service_host.list_task_graph_monitor_decisions(task_run_id)
 
 
-@router.get("/orchestration/runtime-loop/task-runs/{task_run_id}/artifacts")
-async def get_runtime_loop_task_run_artifacts(task_run_id: str) -> dict[str, Any]:
+@router.get("/orchestration/harness/task-runs/{task_run_id}/artifacts")
+async def get_harness_task_run_artifacts(task_run_id: str) -> dict[str, Any]:
     runtime = require_runtime()
-    return runtime.query_runtime.task_run_loop.get_task_run_artifacts(task_run_id)
+    return runtime.query_runtime.harness_service_host.get_task_run_artifacts(task_run_id)
 
 
-@router.get("/orchestration/runtime-loop/task-runs/{task_run_id}/memory-receipts")
-async def get_runtime_loop_task_run_memory_receipts(task_run_id: str) -> dict[str, Any]:
+@router.get("/orchestration/harness/task-runs/{task_run_id}/memory-receipts")
+async def get_harness_task_run_memory_receipts(task_run_id: str) -> dict[str, Any]:
     runtime = require_runtime()
-    return runtime.query_runtime.task_run_loop.get_task_run_memory_receipts(task_run_id)
+    return runtime.query_runtime.harness_service_host.get_task_run_memory_receipts(task_run_id)
 
 
-@router.post("/orchestration/runtime-loop/task-runs/{task_run_id}/approval")
-async def resolve_runtime_loop_task_run_approval(
+@router.post("/orchestration/harness/task-runs/{task_run_id}/approval")
+async def resolve_harness_task_run_approval(
     task_run_id: str,
     payload: TaskRunApprovalRequest,
 ) -> dict[str, Any]:
     runtime = require_runtime()
     try:
-        task_run = runtime.query_runtime.task_run_loop.state_index.get_task_run(task_run_id)
-        result = await runtime.query_runtime.task_run_loop.resolve_pending_approval(
+        task_run = runtime.query_runtime.harness_service_host.state_index.get_task_run(task_run_id)
+        result = await runtime.query_runtime.harness_service_host.resolve_pending_approval(
             task_run_id,
             decision=payload.decision,
             message=payload.message,
@@ -200,7 +200,7 @@ async def resolve_runtime_loop_task_run_approval(
             session_id = str(getattr(task_run, "session_id", "") or "").strip()
             coordination_run_id = str(dict(task_run.diagnostics or {}).get("coordination_run_ref") or "").strip()
             if project_id and session_id:
-                runtime.query_runtime.task_run_loop.state_index.upsert_supervision_record(
+                runtime.query_runtime.harness_service_host.state_index.upsert_supervision_record(
                     make_supervision_record(
                         project_id=project_id,
                         session_id=session_id,
@@ -229,21 +229,21 @@ async def resolve_runtime_loop_task_run_approval(
 @router.get("/orchestration/projects/{project_id}/runtime-status")
 async def get_project_runtime_status(project_id: str) -> dict[str, Any]:
     runtime = require_runtime()
-    status = runtime.query_runtime.task_run_loop.get_project_runtime_status(project_id)
+    status = runtime.query_runtime.harness_service_host.get_project_runtime_status(project_id)
     if status is None:
         raise HTTPException(status_code=404, detail="Project runtime status not found")
     return status
 
 
-@router.post("/orchestration/runtime-loop/task-runs/{task_run_id}/stop")
+@router.post("/orchestration/harness/task-runs/{task_run_id}/stop")
 async def stop_task_run(
     task_run_id: str,
     payload: TaskRunStopRequest,
 ) -> dict[str, Any]:
     try:
         runtime = require_runtime()
-        task_run_loop = runtime.query_runtime.task_run_loop
-        state_index = task_run_loop.state_index
+        harness_service_host = runtime.query_runtime.harness_service_host
+        state_index = harness_service_host.state_index
         task_run = state_index.get_task_run(task_run_id)
         if task_run is None:
             raise HTTPException(status_code=404, detail="TaskRun not found")
@@ -255,7 +255,7 @@ async def stop_task_run(
             if coordination_run_id
             else None
         )
-        checkpoint = task_run_loop.checkpoints.load_latest(task_run_id)
+        checkpoint = harness_service_host.checkpoints.load_latest(task_run_id)
         if checkpoint is None:
             raise HTTPException(status_code=409, detail="TaskRun has no checkpoint to stop from")
         terminal_reason = "user_aborted" if payload.reason.strip() == "user_aborted" else payload.reason.strip() or "user_aborted"
@@ -272,8 +272,8 @@ async def stop_task_run(
                 },
             },
         )
-        checkpoint_event = task_run_loop._write_checkpoint_event(loop_state, event_offset=checkpoint.event_offset)
-        task_run_event = task_run_loop.event_log.append(
+        checkpoint_event = harness_service_host._write_checkpoint_event(loop_state, event_offset=checkpoint.event_offset)
+        task_run_event = harness_service_host.event_log.append(
             task_run_id,
             "task_run_stopped",
             payload={
@@ -365,3 +365,4 @@ async def stop_task_run(
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"task_run_stop_failed: {exc}") from exc
+

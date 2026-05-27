@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from project_layout import ProjectLayout
-from runtime.agent_runtime import AgentRunRequest
+from harness.runtime import AgentRunRequest
 
 from .command_builder import HealthCommandBuilder
 from .command_service import HealthCommandService

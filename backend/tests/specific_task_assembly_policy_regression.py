@@ -15,7 +15,7 @@ def test_specific_task_assembly_policy_extracts_environment_and_agent_selection(
     record = SpecificTaskRecord(
         task_id="task.frontend.fix",
         task_title="Frontend Fix",
-        domain_id="env.vibe_coding",
+        metadata={"environment_id": "env.vibe_coding"},
         output_contract_id="contract.frontend.patch",
         task_policy={
             "tool_capability_requirements": {
@@ -76,21 +76,13 @@ def test_specific_task_assembly_policy_selection_can_choose_environment_but_not_
     assert "TaskEnvironmentSpec" not in str(payload)
 
 
-def test_specific_task_assembly_policy_maps_legacy_domain_to_environment() -> None:
-    writing = resolve_specific_task_assembly_policy(
+def test_specific_task_assembly_policy_does_not_use_legacy_domain_as_environment() -> None:
+    policy = resolve_specific_task_assembly_policy(
         task_record=SpecificTaskRecord(
             task_id="task.legacy.writing",
             task_title="Legacy Writing",
             domain_id="domain.writing.modular_novel",
         )
     )
-    research = resolve_specific_task_assembly_policy(
-        task_record=SpecificTaskRecord(
-            task_id="task.legacy.research",
-            task_title="Legacy Research",
-            domain_id="domain.research",
-        )
-    )
 
-    assert writing.environment_id == "env.writing"
-    assert research.environment_id == "env.web_research"
+    assert policy.environment_id == "env.general_workspace"

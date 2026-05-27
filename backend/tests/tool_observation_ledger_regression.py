@@ -51,7 +51,7 @@ def test_tool_observation_ledger_classifies_core_tool_side_effects() -> None:
                 "verification_intent": {
                     "stage": "verify_output",
                     "obligation": "verify_command",
-                    "authority": "runtime.agent_runtime.phase_pipeline",
+                    "authority": "harness.loop.agent_phase_pipeline",
                 },
             },
         },
@@ -130,12 +130,12 @@ def test_tool_observation_ledger_records_structured_paths_and_command_receipts()
         tool_name="search_text",
         tool_args={"query": "phase_pipeline"},
         result={
-            "text": "backend/runtime/agent_runtime/phase_pipeline.py:1:1:def apply_post_model_phases:",
+            "text": "backend/harness/loop/agent_phase_pipeline.py:1:1:def apply_post_model_phases:",
             "structured_payload": {
-                "matched_paths": ["backend/runtime/agent_runtime/phase_pipeline.py"],
+                "matched_paths": ["backend/harness/loop/agent_phase_pipeline.py"],
                 "tool_result": {
                     "kind": "text_search",
-                    "matches": [{"path": "backend/runtime/agent_runtime/phase_pipeline.py", "line": 1, "column": 1}],
+                    "matches": [{"path": "backend/harness/loop/agent_phase_pipeline.py", "line": 1, "column": 1}],
                 },
             },
         },
@@ -155,7 +155,7 @@ def test_tool_observation_ledger_records_structured_paths_and_command_receipts()
                 "verification_intent": {
                     "stage": "verify_output",
                     "obligation": "verify_command",
-                    "authority": "runtime.agent_runtime.phase_pipeline",
+                    "authority": "harness.loop.agent_phase_pipeline",
                 },
             },
         },
@@ -176,10 +176,10 @@ def test_tool_observation_ledger_records_structured_paths_and_command_receipts()
         )
     )
 
-    assert ledger.has_read("backend/runtime/agent_runtime/phase_pipeline.py") is True
+    assert ledger.has_read("backend/harness/loop/agent_phase_pipeline.py") is True
     assert ledger.has_verification("pytest") is True
     assert ledger.verification_passed() is True
-    assert ledger.summary()["matched_paths"] == ["backend/runtime/agent_runtime/phase_pipeline.py"]
+    assert ledger.summary()["matched_paths"] == ["backend/harness/loop/agent_phase_pipeline.py"]
 
 
 def test_tool_observation_ledger_extracts_paths_from_wrapped_search_text() -> None:
@@ -187,12 +187,12 @@ def test_tool_observation_ledger_extracts_paths_from_wrapped_search_text() -> No
         tool_name="search_text",
         tool_args={"query": "phase_pipeline"},
         result={
-            "text": "真实工具结果：query=phase_pipeline; 命中 backend/runtime/agent_runtime/phase_pipeline.py",
+            "text": "真实工具结果：query=phase_pipeline; 命中 backend/harness/loop/agent_phase_pipeline.py",
             "structured_payload": {
-                "matched_paths": ["backend/runtime/agent_runtime/phase_pipeline.py"],
+                "matched_paths": ["backend/harness/loop/agent_phase_pipeline.py"],
                 "tool_result": {
                     "kind": "text_search",
-                    "matches": [{"path": "backend/runtime/agent_runtime/phase_pipeline.py", "line": 1, "column": 1}],
+                    "matches": [{"path": "backend/harness/loop/agent_phase_pipeline.py", "line": 1, "column": 1}],
                 },
             },
         },
@@ -206,8 +206,8 @@ def test_tool_observation_ledger_extracts_paths_from_wrapped_search_text() -> No
         )
     )
 
-    assert ledger.summary()["matched_paths"] == ["backend/runtime/agent_runtime/phase_pipeline.py"]
-    assert ledger.has_read("backend/runtime/agent_runtime/phase_pipeline.py") is True
+    assert ledger.summary()["matched_paths"] == ["backend/harness/loop/agent_phase_pipeline.py"]
+    assert ledger.has_read("backend/harness/loop/agent_phase_pipeline.py") is True
 
 
 def test_terminal_parser_error_is_not_a_passing_verification() -> None:
@@ -338,7 +338,7 @@ def test_terminal_phase_verification_intent_satisfies_verify_command_without_key
                 "verification_intent": {
                     "stage": "verify_output",
                     "obligation": "verify_command",
-                    "authority": "runtime.agent_runtime.phase_pipeline",
+                    "authority": "harness.loop.agent_phase_pipeline",
                 },
             },
         },

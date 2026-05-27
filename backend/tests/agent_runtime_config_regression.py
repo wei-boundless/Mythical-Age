@@ -9,8 +9,8 @@ if str(BACKEND_DIR) not in sys.path:
 
 from agent_system.profiles.runtime_profile_models import AgentRuntimeProfile
 from runtime.agent_assembly import DirectWorkOrder, build_agent_invocation
-from runtime.agent_runtime import build_agent_runtime_config, resolve_agent_execution_permit
-from runtime.agent_runtime.policies import (
+from harness.runtime import build_agent_runtime_config, resolve_agent_execution_permit
+from harness.runtime.policies import (
     ControlPolicy,
     ModePolicy,
     PlanningPolicy,
@@ -43,7 +43,7 @@ def test_professional_mode_is_config_preset_not_runtime_kind() -> None:
         "verification",
         "closeout",
     ]
-    assert payload["authority"] == "runtime.agent_runtime.config"
+    assert payload["authority"] == "harness.runtime.agent_config"
 
 
 def test_standard_and_role_modes_keep_lightweight_phase_policy() -> None:

@@ -202,9 +202,6 @@ class MemoryMaintenanceProposal(BaseModel):
     authority: Literal["memory_maintenance_agent.proposal"] = "memory_maintenance_agent.proposal"
 
 
-MemoryMaintenanceResult = MemoryMaintenanceProposal
-
-
 class MemoryMaintenanceRequest(BaseModel):
     run_id: str
     session_id: str
@@ -334,12 +331,8 @@ class MemoryMaintenanceAgent:
     def _proposal_from_payload(self, payload: dict[str, Any]) -> MemoryMaintenanceProposal:
         session_payload = payload.get("session_memory")
         if not isinstance(session_payload, dict):
-            session_payload = payload.get("session_memory_draft")
-        if not isinstance(session_payload, dict):
             raise ValueError("memory maintenance response missing session_memory object")
         durable_payload = payload.get("durable_memory")
-        if not isinstance(durable_payload, dict):
-            durable_payload = payload.get("durable_memory_write_plan")
         if not isinstance(durable_payload, dict):
             durable_payload = {}
         return MemoryMaintenanceProposal(
@@ -365,14 +358,7 @@ class MemoryMaintenanceAgent:
 
     def _extract_json(self, text: str) -> dict[str, Any]:
         stripped = str(text or "").strip()
-        if stripped.startswith("{") and stripped.endswith("}"):
-            payload = json.loads(stripped)
-        else:
-            start = stripped.find("{")
-            end = stripped.rfind("}")
-            if start < 0 or end <= start:
-                raise ValueError("No JSON object found in memory maintenance response")
-            payload = json.loads(stripped[start : end + 1])
+        payload = json.loads(stripped)
         if not isinstance(payload, dict):
             raise ValueError("Memory maintenance response must be a JSON object")
         return payload

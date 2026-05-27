@@ -34,7 +34,6 @@ def test_assembler_only_emits_goal_understanding_section_for_understanding_step(
         binding={},
         registered_task={},
         skill_runtime_views=[],
-        projection_requirement={"interaction_mode": "professional_mode"},
         operation_requirement={},
         agent_id="agent:0",
         current_turn_context={
@@ -80,7 +79,6 @@ def test_assembler_renders_skill_catalog_without_activation_detail() -> None:
                 "canonical_path": "capability_system/units/skills/image-prompt-design/SKILL.md",
             }
         ],
-        projection_requirement={"interaction_mode": "professional_mode"},
         operation_requirement={},
         agent_id="agent:0",
         current_turn_context={
@@ -128,7 +126,6 @@ def test_assembler_expands_selected_skill_body_from_canonical_path() -> None:
                 "canonical_path": "capability_system/units/skills/image-prompt-design/SKILL.md",
             }
         ],
-        projection_requirement={"interaction_mode": "professional_mode"},
         operation_requirement={},
         agent_id="agent:0",
         current_turn_context={

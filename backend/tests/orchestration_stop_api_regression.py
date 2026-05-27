@@ -6,15 +6,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from runtime.unit_runtime.loop import TaskRunLoop
+from harness import HarnessServiceHost
 from runtime.shared.models import RuntimeLoopState, TaskRun
 
 
-def test_task_run_loop_stop_can_write_checkpoint(tmp_path) -> None:
-    loop = TaskRunLoop(root_dir=tmp_path / "runtime_state", backend_dir=Path("backend").resolve())
+def test_harness_service_host_stop_can_write_checkpoint(tmp_path) -> None:
+    host = HarnessServiceHost(root_dir=tmp_path / "runtime_state", backend_dir=Path("backend").resolve())
     task_run_id = "taskrun:test-stop-checkpoint"
     timestamp = time.time()
-    loop.state_index.upsert_task_run(
+    host.state_index.upsert_task_run(
         TaskRun(
             task_run_id=task_run_id,
             session_id="session:test-stop-checkpoint",
@@ -24,7 +24,7 @@ def test_task_run_loop_stop_can_write_checkpoint(tmp_path) -> None:
             updated_at=timestamp,
         )
     )
-    loop.checkpoints.write(
+    host.checkpoints.write(
         RuntimeLoopState(
             task_run_id=task_run_id,
             status="running",
@@ -34,7 +34,7 @@ def test_task_run_loop_stop_can_write_checkpoint(tmp_path) -> None:
         event_offset=0,
     )
 
-    checkpoint = loop.checkpoints.load_latest(task_run_id)
+    checkpoint = host.checkpoints.load_latest(task_run_id)
     assert checkpoint is not None
     loop_state = checkpoint.loop_state.with_status(
         "aborted",
@@ -45,5 +45,5 @@ def test_task_run_loop_stop_can_write_checkpoint(tmp_path) -> None:
             "stop_request": {"reason": "user_aborted", "message": "test"},
         },
     )
-    checkpoint_event = loop._write_checkpoint_event(loop_state, event_offset=checkpoint.event_offset)
+    checkpoint_event = host._write_checkpoint_event(loop_state, event_offset=checkpoint.event_offset)
     assert checkpoint_event.refs["checkpoint_ref"]

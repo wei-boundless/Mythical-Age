@@ -1,0 +1,2 @@
+Client error '415 Unsupported Media Type' for url 'https://www.timelytext.com/release-notes'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/415

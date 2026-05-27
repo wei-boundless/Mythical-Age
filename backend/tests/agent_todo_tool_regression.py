@@ -10,7 +10,7 @@ if str(ROOT) not in sys.path:
 
 from capability_system.tool_definitions import get_tool_definitions
 from capability_system.units.tools.agent_todo_tool import AgentTodoTool
-from runtime.agent_runtime.agent_todo import build_agent_todo_plan, update_agent_todo_plan
+from harness.runtime.agent_todo import build_agent_todo_plan, update_agent_todo_plan
 
 
 def test_agent_todo_plan_allows_one_active_item_and_completion_ready() -> None:

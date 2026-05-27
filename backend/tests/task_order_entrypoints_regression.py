@@ -15,6 +15,7 @@ import api.task_orders as task_orders_api
 from app import app
 from query import QueryRuntime
 from query.models import QueryRequest
+from task_system.orders.legacy_runtime_adapter import attach_legacy_runtime_read_model
 from task_system.registry.flow_registry import TaskFlowRegistry
 from tests.support.runtime_stubs import (
     DefaultPermissionStub,
@@ -40,6 +41,10 @@ def _runtime(prefix: str) -> QueryRuntime:
         permission_service=DefaultPermissionStub(),
         model_runtime=SingleMessageModelRuntimeStub(),
     )
+
+
+def _with_current_runtime_adapter(creation):
+    return attach_legacy_runtime_read_model(creation)
 
 
 def test_chat_discussion_creates_turn_and_decision_without_order() -> None:
@@ -146,7 +151,7 @@ def test_task_orders_api_creates_specific_task_order_from_task_library() -> None
 
 def test_chat_reuses_precreated_task_order_run_instead_of_duplicate_order() -> None:
     runtime = _runtime("task-order-precreated-reuse-")
-    creation = runtime.task_order_factory.create_specific_task_order(
+    creation = _with_current_runtime_adapter(runtime.task_order_factory.create_specific_task_order(
         session_id="session-precreated",
         task_record={
             "task_id": "task.dev.frontend_ui",
@@ -157,7 +162,7 @@ def test_chat_reuses_precreated_task_order_run_instead_of_duplicate_order() -> N
         },
         objective="优化前端 UI",
         source="task_library",
-    )
+    ))
     runtime.task_order_registry.upsert_creation(creation)
     assert creation.order is not None
     assert creation.order_run is not None
@@ -200,7 +205,7 @@ def test_chat_reuses_precreated_task_order_run_instead_of_duplicate_order() -> N
 
 def test_chat_rejects_reusing_consumed_task_order_run() -> None:
     runtime = _runtime("task-order-consumed-reject-")
-    creation = runtime.task_order_factory.create_specific_task_order(
+    creation = _with_current_runtime_adapter(runtime.task_order_factory.create_specific_task_order(
         session_id="session-consumed",
         task_record={
             "task_id": "task.dev.frontend_ui",
@@ -211,7 +216,7 @@ def test_chat_rejects_reusing_consumed_task_order_run() -> None:
         },
         objective="优化前端 UI",
         source="task_library",
-    )
+    ))
     runtime.task_order_registry.upsert_creation(creation)
     assert creation.order is not None
     assert creation.order_run is not None
@@ -285,7 +290,7 @@ def test_chat_rejects_missing_task_order_ref_without_creating_legacy_order() -> 
 
 def test_chat_auto_recovers_single_created_task_order_from_continue_message() -> None:
     runtime = _runtime("task-order-implicit-recovery-")
-    creation = runtime.task_order_factory.create_specific_task_order(
+    creation = _with_current_runtime_adapter(runtime.task_order_factory.create_specific_task_order(
         session_id="session-implicit-recovery",
         task_record={
             "task_id": "task.dev.frontend_ui",
@@ -296,7 +301,7 @@ def test_chat_auto_recovers_single_created_task_order_from_continue_message() ->
         },
         objective="优化前端 UI",
         source="task_library",
-    )
+    ))
     runtime.task_order_registry.upsert_creation(creation)
     assert creation.order is not None
     assert creation.order_run is not None
@@ -326,7 +331,7 @@ def test_chat_auto_recovers_single_created_task_order_from_continue_message() ->
 
 def test_chat_asks_for_clarification_when_multiple_created_task_orders_match_continue() -> None:
     runtime = _runtime("task-order-implicit-ambiguous-")
-    first = runtime.task_order_factory.create_specific_task_order(
+    first = _with_current_runtime_adapter(runtime.task_order_factory.create_specific_task_order(
         session_id="session-implicit-ambiguous",
         task_record={
             "task_id": "task.dev.frontend_ui",
@@ -337,8 +342,8 @@ def test_chat_asks_for_clarification_when_multiple_created_task_orders_match_con
         },
         objective="优化前端 UI",
         source="task_library",
-    )
-    second = runtime.task_order_factory.create_specific_task_order(
+    ))
+    second = _with_current_runtime_adapter(runtime.task_order_factory.create_specific_task_order(
         session_id="session-implicit-ambiguous",
         task_record={
             "task_id": "task.dev.backend_api",
@@ -349,7 +354,7 @@ def test_chat_asks_for_clarification_when_multiple_created_task_orders_match_con
         },
         objective="优化后端 API",
         source="task_library",
-    )
+    ))
     runtime.task_order_registry.upsert_creation(first)
     runtime.task_order_registry.upsert_creation(second)
 
@@ -378,7 +383,7 @@ def test_chat_asks_for_clarification_when_multiple_created_task_orders_match_con
 
 def test_chat_does_not_recover_completed_task_order_from_continue_only_message() -> None:
     runtime = _runtime("task-order-implicit-completed-")
-    creation = runtime.task_order_factory.create_specific_task_order(
+    creation = _with_current_runtime_adapter(runtime.task_order_factory.create_specific_task_order(
         session_id="session-implicit-completed",
         task_record={
             "task_id": "task.dev.frontend_ui",
@@ -389,7 +394,7 @@ def test_chat_does_not_recover_completed_task_order_from_continue_only_message()
         },
         objective="优化前端 UI",
         source="task_library",
-    )
+    ))
     runtime.task_order_registry.upsert_creation(creation)
     assert creation.order is not None
     assert creation.order_run is not None

@@ -9,7 +9,7 @@ from .models import RuntimeLoopState, RuntimeTerminalReason
 
 @dataclass(frozen=True, slots=True)
 class RuntimeLoopLimits:
-    """Hard stop limits for one TaskRunLoop execution."""
+    """Hard stop limits for one Harness loop execution."""
 
     max_turns: int = 8
     max_model_calls: int = 8

@@ -154,11 +154,11 @@ class RuntimeContextManager:
         pending = str(user_message or "")
         context_policy_ref = _context_policy_ref(context_policy_result)
         memory_view_ref = str((memory_runtime_view or {}).get("view_id") or "")
-        projection_ref = str(getattr(stage_projection_snapshot, "projection_ref", "") or "")
-        prompt_manifest_ref = str(getattr(stage_projection_snapshot, "prompt_manifest_ref", "") or "")
+        projection_ref = ""
+        prompt_manifest_ref = ""
         runtime_prompt = _build_runtime_system_prompt(
             base_system_prompt=system_prompt,
-            stage_projection_snapshot=stage_projection_snapshot,
+            stage_projection_snapshot=None,
             context_policy_result=context_policy_result,
             runtime_execution_facts=runtime_execution_facts,
             runtime_assembly=runtime_assembly,
@@ -191,7 +191,7 @@ class RuntimeContextManager:
             system_prompt_chars=len(runtime_prompt),
             token_pressure=token_pressure,
             prompt_source_report=_prompt_source_report(
-                stage_projection_snapshot=stage_projection_snapshot,
+                stage_projection_snapshot=None,
                 context_policy_result=context_policy_result,
                 base_system_prompt_chars=len(system_prompt),
                 runtime_system_prompt_chars=len(runtime_prompt),
@@ -207,7 +207,7 @@ class RuntimeContextManager:
                 "history_compaction": history_compaction,
                 "context_compactor_agent_required": str(token_pressure.get("pressure_level") or "normal") in {"high", "critical"},
                 "tool_result_pairing_checked": False,
-                "stage_projection_consumed": bool(stage_projection_snapshot is not None),
+                "stage_projection_consumed": False,
                 "prompt_manifest_bound": bool(prompt_manifest_ref),
                 "prompt_source_report_built": True,
                 "runtime_prompt_assembly_applied": True,
@@ -322,60 +322,17 @@ def _prompt_source_report(
     base_system_prompt_chars: int,
     runtime_system_prompt_chars: int,
 ) -> dict[str, Any]:
-    prompt_manifest = dict(getattr(stage_projection_snapshot, "prompt_manifest", {}) or {})
-    soul_runtime_view = dict(getattr(stage_projection_snapshot, "soul_runtime_view", {}) or {})
-    task_body_orchestration_ref = str(getattr(stage_projection_snapshot, "task_body_orchestration_ref", "") or "")
-    runtime_spec_ref = str(getattr(stage_projection_snapshot, "runtime_spec_ref", "") or "")
     context_package = dict((context_policy_result or {}).get("package") or {})
-    manifest_sections = []
-    for index, section in enumerate(list(prompt_manifest.get("sections") or ())):
-        item = dict(section or {})
-        manifest_sections.append(
-            {
-                "order": index,
-                "section_id": str(item.get("section_id") or ""),
-                "source_type": str(item.get("source_type") or ""),
-                "source_id": str(item.get("source_id") or ""),
-                "owner_layer": str(item.get("owner_layer") or ""),
-                "cache_scope": str(item.get("cache_scope") or ""),
-                "visible_to_model": bool(item.get("visible_to_model", True)),
-                "chars": int(item.get("chars") or 0),
-            }
-        )
-    model_visible_runtime_sections = _model_visible_projection_sections(stage_projection_snapshot)
-    model_visible_ids = {
-        str(dict(section or {}).get("section_id") or "")
-        for section in model_visible_runtime_sections
-    }
-    runtime_sections = []
-    for index, section in enumerate(list(soul_runtime_view.get("sections") or ())):
-        item = dict(section or {})
-        runtime_sections.append(
-            {
-                "order": index,
-                "section_id": str(item.get("section_id") or ""),
-                "title": str(item.get("title") or ""),
-                "owner_layer": str(item.get("owner_layer") or ""),
-                "cache_scope": str(item.get("cache_scope") or ""),
-                "visible_to_model": str(item.get("section_id") or "") in model_visible_ids,
-                "chars": int(item.get("chars") or len(str(item.get("content") or ""))),
-            }
-        )
     return {
         "assembly_mode": "runtime_prompt_assembly",
         "base_system_prompt_chars": base_system_prompt_chars,
         "runtime_system_prompt_chars": runtime_system_prompt_chars,
-        "projection_ref": str(getattr(stage_projection_snapshot, "projection_ref", "") or ""),
-        "prompt_manifest_ref": str(getattr(stage_projection_snapshot, "prompt_manifest_ref", "") or ""),
-        "prompt_manifest_validation": dict(prompt_manifest.get("validation") or {}),
-        "task_body_orchestration_ref": task_body_orchestration_ref,
-        "runtime_spec_ref": runtime_spec_ref,
-        "manifest_section_count": len(manifest_sections),
-        "runtime_section_count": len(model_visible_runtime_sections),
+        "manifest_section_count": 0,
+        "runtime_section_count": 0,
         "context_selected_sections": list(context_package.get("selected_sections") or ()),
         "context_pressure_level": str(context_package.get("pressure_level") or "normal"),
-        "manifest_sections": manifest_sections,
-        "runtime_sections": runtime_sections,
+        "manifest_sections": [],
+        "runtime_sections": [],
     }
 
 
@@ -392,9 +349,6 @@ def _build_runtime_system_prompt(
     agent_assembly_block = _render_agent_assembly_contract_block(agent_assembly_contract)
     if agent_assembly_block:
         parts.append(agent_assembly_block)
-    projection_block = _render_projection_block(stage_projection_snapshot)
-    if projection_block:
-        parts.append(projection_block)
     context_block = _render_context_policy_block(context_policy_result)
     if context_block:
         parts.append(context_block)
@@ -453,7 +407,7 @@ def _delivery_label(channel: str) -> str:
         "assistant_message": "面向用户的最终回答",
         "graph_node_result": "当前阶段任务结果",
         "human_review": "人工审核反馈",
-        "subruntime_result": "子任务结果",
+        "graph_module_result": "图模块结果",
     }.get(str(channel or "").strip(), "当前任务结果")
 
 
@@ -520,68 +474,6 @@ def _render_agent_delegation_guidance_block(runtime_assembly: dict[str, Any] | N
             "如果子 Agent 明确说明信息不足，请解释缺什么和为什么影响结论；如果已经有足够结果，请直接收口，不要把内部执行步骤暴露给用户。",
         ]
     )
-
-
-def _render_projection_block(stage_projection_snapshot: Any | None) -> str:
-    if stage_projection_snapshot is None:
-        return ""
-    sections = []
-    for section in _model_visible_projection_sections(stage_projection_snapshot):
-        item = dict(section or {})
-        title = str(item.get("title") or item.get("section_id") or "本轮任务要求").strip()
-        content = str(item.get("content") or "").strip()
-        if not content:
-            continue
-        sections.append(f"### {title}\n{content}")
-    if not sections:
-        return ""
-    header = (
-        "## 本轮执行角色\n"
-        "以下内容用于确定本轮任务职责、语气和交付形态。"
-    )
-    return "\n\n".join([header, *sections])
-
-
-def _model_visible_projection_sections(stage_projection_snapshot: Any | None) -> list[dict[str, Any]]:
-    if stage_projection_snapshot is None:
-        return []
-    soul_runtime_view = dict(getattr(stage_projection_snapshot, "soul_runtime_view", {}) or {})
-    sections: list[dict[str, Any]] = []
-    for section in list(soul_runtime_view.get("sections") or ()):
-        item = dict(section or {})
-        if item.get("visible_to_model") is False:
-            continue
-        if _is_control_plane_projection_section(item):
-            continue
-        if not str(item.get("content") or "").strip():
-            continue
-        sections.append(item)
-    return sections
-
-
-def _is_control_plane_projection_section(section: dict[str, Any]) -> bool:
-    section_id = str(section.get("section_id") or "").strip()
-    owner_layer = str(section.get("owner_layer") or "").strip()
-    source_type = str(section.get("source_type") or "").strip()
-    source_id = str(section.get("source_id") or "").strip()
-    source_refs = [str(item or "").strip() for item in list(section.get("source_refs") or ())]
-    metadata = dict(section.get("metadata") or {}) if isinstance(section.get("metadata"), dict) else {}
-    content = str(section.get("content") or "")
-    if section_id in {"resource_section", "guardrail_section"}:
-        return True
-    if owner_layer in {"resource_policy", "control_kernel", "operation_gate", "commit_gate"}:
-        return True
-    if source_type in {"resource_policy", "operation_gate", "control_kernel", "commit_gate"}:
-        return True
-    probe = "\n".join([source_id, *source_refs, content, repr(metadata)]).lower()
-    blocked_markers = (
-        ":preview",
-        "denied:",
-        "do not execute tools",
-        "runtime_executable=false",
-        "runtime_executable: false",
-    )
-    return any(marker in probe for marker in blocked_markers)
 
 
 def _render_context_policy_block(context_policy_result: dict[str, Any] | None) -> str:

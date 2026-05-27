@@ -36,7 +36,6 @@ class CoordinationStageContract:
     title: str = ""
     input_contract_id: str = ""
     output_contract_id: str = ""
-    projection_id: str = ""
     node_type: str = ""
     executor_policy: dict[str, Any] = field(default_factory=dict)
     memory_read_policy: dict[str, Any] = field(default_factory=dict)
@@ -71,7 +70,6 @@ class CoordinationStageContract:
             "title": self.title,
             "input_contract_id": self.input_contract_id,
             "output_contract_id": self.output_contract_id,
-            "projection_id": self.projection_id,
             "node_type": self.node_type,
             "executor_policy": dict(self.executor_policy),
             "memory_read_policy": dict(self.memory_read_policy),
@@ -175,7 +173,6 @@ def parse_stage_contracts(
                 title=str(raw.get("title") or node.get("title") or stage_id).strip(),
                 input_contract_id=str(raw.get("input_contract_id") or node.get("input_contract_id") or "").strip(),
                 output_contract_id=str(raw.get("output_contract_id") or node.get("output_contract_id") or node.get("node_contract_id") or "").strip(),
-                projection_id=str(raw.get("projection_id") or node.get("projection_id") or "").strip(),
                 node_type=str(raw.get("node_type") or node.get("node_type") or "").strip(),
                 executor_policy=dict(raw.get("executor_policy") or node.get("executor_policy") or dict(node.get("metadata") or {}).get("executor_policy") or {}),
                 memory_read_policy=dict(raw.get("memory_read_policy") or node.get("memory_read_policy") or {}),
@@ -283,7 +280,6 @@ def derive_stage_contracts_from_graph(
                 title=str(node.get("title") or node_id).strip(),
                 input_contract_id=str(node.get("input_contract_id") or "").strip(),
                 output_contract_id=str(node.get("output_contract_id") or node.get("node_contract_id") or "").strip(),
-                projection_id=str(node.get("projection_id") or "").strip(),
                 node_type=str(node.get("node_type") or "").strip(),
                 executor_policy=dict(node.get("executor_policy") or dict(node.get("metadata") or {}).get("executor_policy") or {}),
                 memory_read_policy=dict(node.get("memory_read_policy") or {}),

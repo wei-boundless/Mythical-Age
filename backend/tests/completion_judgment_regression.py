@@ -8,7 +8,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from prompt_library.assembler import assemble_runtime_prompt_contract
-from runtime.agent_runtime.phases import build_verification_review, judge_completion
+from harness.runtime.phases import build_verification_review, judge_completion
 
 
 SEMANTIC_CONTRACT = {
@@ -197,7 +197,6 @@ def test_prompt_contract_renders_completion_judgment_section() -> None:
         binding={},
         registered_task={},
         skill_runtime_views=[],
-        projection_requirement={},
         operation_requirement={},
         agent_id="agent:0",
         current_turn_context={},

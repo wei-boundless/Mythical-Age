@@ -130,13 +130,17 @@ def main() -> int:
 
     if args.command in {"durable-memory-maintain", "memory-maintain"}:
         manager = MemoryManager(durable_layout.root_dir)
-        repair_payload = manager.repair_store()
+        governance_payload = manager.govern_note_store()
+        index_payload = manager.ensure_index_consistent()
         rag_payload = registry.rebuild("durable_memory")
         print(
             json.dumps(
                 {
                     "status": "ok",
-                    "durable_memory_store": repair_payload,
+                    "durable_memory_store": {
+                        "governance": governance_payload,
+                        "index": index_payload,
+                    },
                     "durable_memory_collection": rag_payload,
                 },
                 ensure_ascii=False,

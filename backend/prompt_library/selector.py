@@ -49,7 +49,6 @@ _BUILTIN_SECTION_PLAN = (
     ("plan_coverage_section", "builtin:plan_coverage_section", "plan_coverage_review", "计划覆盖审查", "task", 52),
     ("completion_judgment_section", "builtin:completion_judgment_section", "completion_judgment", "完成裁决", "task", 54),
     ("mode_policy_section", "builtin:mode_policy_section", "runtime_interaction_mode_policy", "交互模式策略", "task", 60),
-    ("projection_section", "builtin:projection_section", "projection_requirement", "表达姿态", "projection", 70),
     ("output_section", "builtin:output_section", "runtime_output_boundary", "输出边界", "task", 95),
 )
 
@@ -471,7 +470,7 @@ def _plan_item_from_resource(
         resource_id=resource.resource_id,
         resource_type=resource.resource_type,
         title=resource.title,
-        owner_layer="projection" if resource.resource_type == "role_prompt" else "task",
+        owner_layer="role_prompt" if resource.resource_type == "role_prompt" else "task",
         cache_scope=resource.cache_scope,
         model_visible=resource.model_visible,
         source_ref=resource.source_ref,

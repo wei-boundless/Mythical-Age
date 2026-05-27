@@ -73,7 +73,7 @@ RuntimeEventType = Literal[
     "recovery_replay_decided",
     "tool_call_blocked_by_search_policy",
     "runtime_state_index_degraded",
-    "child_agent_runtime_started",
+    "child_agent_delegation_started",
     "agent_delegation_quality_checked",
     "agent_delegation_parent_observation_created",
     "runtime_sandbox_prepared",
@@ -85,7 +85,7 @@ RuntimeEventType = Literal[
 
 @dataclass(frozen=True, slots=True)
 class RuntimeEvent:
-    """Append-only event emitted by TaskRunLoop."""
+    """Append-only event emitted by Harness loops."""
 
     event_id: str
     task_run_id: str
