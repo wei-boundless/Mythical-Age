@@ -226,7 +226,11 @@ class BackgroundTaskManager:
         self._background_thread.start()
 
     def register_handler(self, task_kind: str, handler: Callable[[dict[str, Any]], Any | Awaitable[Any]]) -> None:
-        self._handlers[str(task_kind or "").strip()] = handler
+        kind = str(task_kind or "").strip() or "default"
+        self._handlers[kind] = handler
+        for record in self.store.list_records(task_kind=kind):
+            if record.status == "queued":
+                self._schedule(record.task_id, record.task_kind, coalesce_key=record.coalesce_key)
 
     def enqueue(
         self,
@@ -255,7 +259,8 @@ class BackgroundTaskManager:
             coalesce_key=key,
         )
         stored = self.store.write(record)
-        self._schedule(stored.task_id, stored.task_kind, coalesce_key=key)
+        if kind in self._handlers:
+            self._schedule(stored.task_id, stored.task_kind, coalesce_key=key)
         return stored
 
     def load(self, task_id: str, task_kind: str) -> BackgroundTaskRecord | None:
@@ -360,9 +365,9 @@ class BackgroundTaskManager:
                 BackgroundTaskRecord(
                     **{
                         **record.to_dict(),
-                        "status": "failed",
+                        "status": "queued",
                         "error": "missing_background_task_handler",
-                        "completed_at": utc_now_iso(),
+                        "completed_at": "",
                     }
                 )
             )

@@ -31,7 +31,6 @@ def resolve_specific_task_assembly_policy(
         metadata.get("environment_id"),
         task_policy.get("task_environment_id"),
         task_policy.get("environment_id"),
-        getattr(task_record, "domain_id", ""),
     )
     flow_ref = _first_value(
         selection.get("flow_ref"),
@@ -168,11 +167,11 @@ def _resolve_environment_id(*values: Any) -> str:
 
 def _normalize_environment_id(value: Any) -> str:
     text = str(value or "").strip()
-    if text in {"writing", "domain.writing", "domain.writing.modular_novel", "domain.writing_modular_novel"}:
+    if text == "writing":
         return "env.writing"
-    if text in {"research", "web_research", "domain.research", "domain.web_research"}:
+    if text in {"research", "web_research"}:
         return "env.web_research"
-    if text in {"coding", "development", "vibe_coding", "domain.development", "domain.custom_4"}:
+    if text in {"coding", "development", "vibe_coding"}:
         return "env.vibe_coding"
     if text.startswith("env."):
         return text

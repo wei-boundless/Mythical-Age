@@ -19,18 +19,19 @@ def test_long_scenarios_have_unique_ids_and_turns() -> None:
 
 def test_long_scenarios_core_assets_exist() -> None:
     root = BACKEND_DIR
+    storage_root = BACKEND_DIR.parent / "storage"
     required_paths = [
-        "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf",
-        "knowledge/E-commerce Data/inventory.xlsx",
-        "knowledge/E-commerce Data/employees.xlsx",
-        "tests/fixtures/sandbox_file_ops/source_brief.md",
-        "tests/fixtures/professional_task_suite/buggy_counter.py",
-        "tests/fixtures/professional_task_suite/failing_sixty_turn_summary.json",
-        "tests/fixtures/professional_task_suite/ops_incident_snapshot.json",
-        "tests/fixtures/professional_task_suite/node_status_filter_contract.json",
+        storage_root / "knowledge" / "AI Knowledge" / "2025年AI治理报告：回归现实主义.pdf",
+        storage_root / "knowledge" / "E-commerce Data" / "inventory.xlsx",
+        storage_root / "knowledge" / "E-commerce Data" / "employees.xlsx",
+        root / "tests" / "fixtures" / "sandbox_file_ops" / "source_brief.md",
+        root / "tests" / "fixtures" / "professional_task_suite" / "buggy_counter.py",
+        root / "tests" / "fixtures" / "professional_task_suite" / "failing_sixty_turn_summary.json",
+        root / "tests" / "fixtures" / "professional_task_suite" / "ops_incident_snapshot.json",
+        root / "tests" / "fixtures" / "professional_task_suite" / "node_status_filter_contract.json",
     ]
-    for relative_path in required_paths:
-        assert (root / relative_path).exists(), relative_path
+    for path in required_paths:
+        assert path.exists(), str(path)
 
 
 def test_long_scenario_sets_point_to_known_ids() -> None:

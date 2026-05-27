@@ -77,7 +77,7 @@ def test_tool_table_consumes_specific_task_assembly_policy() -> None:
         task_record=SpecificTaskRecord(
             task_id="task.frontend.fix",
             task_title="Frontend Fix",
-            domain_id="env.vibe_coding",
+            metadata={"environment_id": "env.vibe_coding"},
             task_policy={
                 "tool_capability_requirements": {
                     "required_operations": ["op.read_file", "op.edit_file"],

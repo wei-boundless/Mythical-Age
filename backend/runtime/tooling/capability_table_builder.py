@@ -92,15 +92,15 @@ def build_tool_capability_table(
     agent_allowed = {registry.normalize_id(item) for item in request.agent_profile_allowed_operations}
     runtime_available = {registry.normalize_id(item) for item in request.runtime_available_operations}
 
-    requested = task_required | task_optional
-    if not requested:
-        requested = env_allowed
-    requested = requested | task_denied
+    dispatch_requested = task_required | task_optional
+    if not dispatch_requested:
+        dispatch_requested = env_allowed
+    audit_requested = dispatch_requested | task_denied | agent_allowed | runtime_available
 
     capabilities: list[ToolCapability] = []
     filtered: list[ToolCapabilityFilterIssue] = []
 
-    for operation_id in sorted(requested):
+    for operation_id in sorted(audit_requested):
         tool = by_operation.get(operation_id)
         tool_name = tool.name if tool is not None else ""
         if operation_id in env_denied:
@@ -120,6 +120,8 @@ def build_tool_capability_table(
             continue
         if tool is None:
             filtered.append(_issue(operation_id, "", "no registered tool for operation", "tool_registry"))
+            continue
+        if operation_id not in dispatch_requested:
             continue
 
         file_gate = _file_gate(operation_id, request.file_access_tables)
