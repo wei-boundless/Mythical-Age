@@ -121,3 +121,5 @@ def _prompt_visible_constraint_parts(active_constraints: dict[str, Any]) -> list
             continue
         parts.append(f"{normalized_key}={value}")
     return parts
+
+

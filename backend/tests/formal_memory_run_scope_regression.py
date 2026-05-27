@@ -153,3 +153,5 @@ def test_formal_memory_project_scope_shares_within_project_only(tmp_path) -> Non
 
     assert same_project["required_records"][0]["canonical_text"] == "同项目共享世界观"
     assert other_project["required_records"] == []
+
+

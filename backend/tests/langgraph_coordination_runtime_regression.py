@@ -51,7 +51,7 @@ def _chapter_loop_derived_fields_for_test() -> list[dict]:
         {"key": "batch_chapter_numbers", "op": "range", "start_key": "batch_start_index", "end_key": "batch_end_index"},
         {"key": "batch_chapter_list", "op": "join", "from_key": "batch_chapter_numbers", "prefix": "第", "suffix": "章", "separator": "、"},
         {"key": "batch_target_words", "op": "multiply", "from_key": "chapter_target_words", "value_key": "chapters_per_round", "value": 5},
-        {"key": "runtime_loop_summary", "op": "format", "template": "当前卷：{volume_label}；当前批次：{batch_label}；本批允许范围：{batch_chapter_list}；全书累计约 {current_words}/{target_words} 字；本卷累计约 {volume_current_words}/{volume_target_words} 字。"},
+        {"key": "graph_loop_summary", "op": "format", "template": "当前卷：{volume_label}；当前批次：{batch_label}；本批允许范围：{batch_chapter_list}；全书累计约 {current_words}/{target_words} 字；本卷累计约 {volume_current_words}/{volume_target_words} 字。"},
     ]
 
 
@@ -67,7 +67,7 @@ def test_loop_derived_fields_recompute_stale_batch_descriptions_without_overridi
             "batch_label": "第1章至第10章",
             "batch_chapter_numbers": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
             "batch_chapter_list": "第1章、第2章、第3章、第4章、第5章、第6章、第7章、第8章、第9章、第10章",
-            "runtime_loop_summary": "当前卷：第1卷；当前批次：第1章至第10章；本批允许范围：第1章、第2章、第3章、第4章、第5章、第6章、第7章、第8章、第9章、第10章。",
+            "graph_loop_summary": "当前卷：第1卷；当前批次：第1章至第10章；本批允许范围：第1章、第2章、第3章、第4章、第5章、第6章、第7章、第8章、第9章、第10章。",
             "chapters_per_round": 5,
             "chapter_target_words": 2000,
             "current_words": 0,
@@ -86,8 +86,8 @@ def test_loop_derived_fields_recompute_stale_batch_descriptions_without_overridi
     assert result["batch_label"] == "第1章至第5章"
     assert result["batch_chapter_numbers"] == [1, 2, 3, 4, 5]
     assert result["batch_chapter_list"] == "第1章、第2章、第3章、第4章、第5章"
-    assert "第1章至第10章" not in result["runtime_loop_summary"]
-    assert "第6章" not in result["runtime_loop_summary"]
+    assert "第1章至第10章" not in result["graph_loop_summary"]
+    assert "第6章" not in result["graph_loop_summary"]
 
 
 def test_rewind_preserved_pending_inputs_drops_checkout_runtime_residue() -> None:
@@ -335,7 +335,7 @@ def test_quality_retry_pending_inputs_normalize_stale_loop_fields() -> None:
             "batch_label": "第1章至第10章",
             "batch_chapter_numbers": [1, 2, 3, 4, 5],
             "batch_chapter_list": "第1章、第2章、第3章、第4章、第5章",
-            "runtime_loop_summary": "当前卷：第1卷；当前批次：第1章至第10章；本批允许范围：第1章、第2章、第3章、第4章、第5章、第6章、第7章、第8章、第9章、第10章。",
+            "graph_loop_summary": "当前卷：第1卷；当前批次：第1章至第10章；本批允许范围：第1章、第2章、第3章、第4章、第5章、第6章、第7章、第8章、第9章、第10章。",
             "chapters_per_round": 5,
             "chapter_target_words": 2000,
             "current_words": 0,
@@ -344,7 +344,7 @@ def test_quality_retry_pending_inputs_normalize_stale_loop_fields() -> None:
             "volume_target_words": 200000,
         },
         "diagnostics": {
-            "runtime_loop_policy": {
+            "graph_loop_policy": {
                 "enabled": True,
                 "derived_fields": _chapter_loop_derived_fields_for_test(),
             }
@@ -379,8 +379,8 @@ def test_quality_retry_pending_inputs_normalize_stale_loop_fields() -> None:
     assert pending_inputs["batch_chapter_numbers"] == [1, 2, 3, 4, 5]
     assert "第1章至第5章" in pending_inputs["chapter_revision_requirements"]
     assert "第1章至第10章" not in pending_inputs["chapter_revision_requirements"]
-    assert "第1章至第10章" not in pending_inputs["runtime_loop_summary"]
-    assert "第6章" not in pending_inputs["runtime_loop_summary"]
+    assert "第1章至第10章" not in pending_inputs["graph_loop_summary"]
+    assert "第6章" not in pending_inputs["graph_loop_summary"]
 
 
 def test_quality_retry_target_accepts_combined_quality_gate_policy() -> None:
@@ -535,7 +535,7 @@ def test_rewind_refresh_uses_live_graph_loop_policy_instead_of_stale_snapshot(tm
     state_index.upsert_coordination_run(coordination_run)
 
     initialized = runtime.initialize(coordination_run=coordination_run)
-    assert initialized.state["diagnostics"]["runtime_loop_policy"]["derived_fields"][6]["value"] == 9
+    assert initialized.state["diagnostics"]["graph_loop_policy"]["derived_fields"][6]["value"] == 9
 
     result = runtime.rewind_from_stage(
         coordination_run_id="coordrun:loop-refresh",
@@ -553,7 +553,7 @@ def test_rewind_refresh_uses_live_graph_loop_policy_instead_of_stale_snapshot(tm
 
     derived = {
         item["key"]: item
-        for item in result.state["diagnostics"]["runtime_loop_policy"]["derived_fields"]
+        for item in result.state["diagnostics"]["graph_loop_policy"]["derived_fields"]
     }
     explicit_inputs = result.state["stage_execution_request"]["explicit_inputs"]
 
@@ -562,7 +562,7 @@ def test_rewind_refresh_uses_live_graph_loop_policy_instead_of_stale_snapshot(tm
     assert explicit_inputs["batch_end_index"] == 5
     assert explicit_inputs["batch_chapter_range"] == "001-005"
     assert explicit_inputs["batch_target_words"] == 10000
-    assert "第1章至第5章" in explicit_inputs["runtime_loop_summary"]
+    assert "第1章至第5章" in explicit_inputs["graph_loop_summary"]
 
 
 def test_stage_execution_message_declares_runtime_batch_boundary_over_stale_project_brief() -> None:
@@ -597,7 +597,7 @@ def test_stage_execution_message_declares_runtime_batch_boundary_over_stale_proj
             "batch_chapter_list": "第1章、第2章、第3章、第4章、第5章",
             "chapters_per_round": 5,
             "batch_target_words": 10000,
-            "runtime_loop_summary": "当前卷：第1卷；当前批次：第1章至第5章；本批允许范围：第1章、第2章、第3章、第4章、第5章。",
+            "graph_loop_summary": "当前卷：第1卷；当前批次：第1章至第5章；本批允许范围：第1章、第2章、第3章、第4章、第5章。",
         },
     )
 
@@ -852,7 +852,7 @@ def _loop_graph_from_derived_fields(derived_fields: list[dict], *, graph_id: str
                 {"stage_id": "chapter_outline", "task_ref": "task.test.chapter_outline", "node_id": "chapter_outline"},
                 {"stage_id": "chapter_draft", "task_ref": "task.test.chapter_draft", "node_id": "chapter_draft"},
             ],
-            "runtime_loop_policy": {
+            "graph_loop_policy": {
                 "enabled": True,
                 "initial_inputs": {
                     "volume_index": 1,
@@ -2517,7 +2517,7 @@ def test_graph_coordination_engine_advances_by_stage_contract(tmp_path) -> None:
     assert updated is not None
     flow = dict(updated.diagnostics.get("coordination_flow") or {})
     assert flow["current_stage_id"] == "novel_bible"
-    assert "langgraph_runtime_state" not in updated.diagnostics
+    assert "graph_coordination_state" not in updated.diagnostics
     runtime_state = runtime.checkpoints.get_state(thread_id="coordrun:test")
     assert dict(runtime_state["diagnostics"])["contract_manifest_ref"].startswith("contract-manifest:coordination:")
     assert "project_scope" in runtime_state["completed_nodes"]
@@ -2771,7 +2771,7 @@ def test_graph_coordination_engine_ignores_stale_dispatch_result(tmp_path) -> No
 
     updated = state_index.get_coordination_run("coordrun:diamond")
     assert updated is not None
-    assert "langgraph_runtime_state" not in updated.diagnostics
+    assert "graph_coordination_state" not in updated.diagnostics
     runtime_state = runtime.checkpoints.get_state(thread_id="coordrun:diamond")
     assert runtime_state["completed_nodes"] == ["a"]
     assert runtime_state["running_nodes"] == ["b"]
@@ -3255,7 +3255,7 @@ def test_graph_coordination_engine_enters_human_gate_when_policy_requires(tmp_pa
     assert result.state["contract_status"]["node_status"]["a"]["status"] == "human_gate"
     updated = state_index.get_coordination_run("coordrun:diamond")
     assert updated is not None
-    assert "langgraph_runtime_state" not in updated.diagnostics
+    assert "graph_coordination_state" not in updated.diagnostics
     runtime_state = runtime.checkpoints.get_state(thread_id="coordrun:diamond")
     assert runtime_state["human_gate"]["status"] == "waiting"
 
@@ -3546,3 +3546,5 @@ class _GraphModuleRegistry:
 
     def list_specific_task_records(self):
         return []
+
+

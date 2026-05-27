@@ -179,3 +179,5 @@ def test_runtime_can_assemble_shadow_work_order_before_cutover(tmp_path: Path) -
     assert assembly.executor_type == "agent"
     assert assembly.agent_id == "agent:0"
     assert assembly.output_boundary.selected_channel == "graph_node_result"
+
+

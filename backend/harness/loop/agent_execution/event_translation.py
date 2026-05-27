@@ -225,3 +225,5 @@ def build_search_policy_blocked_tool_observation(
             "source": "harness.loop.agent_execution.search_policy_guard",
         },
     )
+
+

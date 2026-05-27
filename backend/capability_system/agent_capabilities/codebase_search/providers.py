@@ -139,3 +139,5 @@ def _dedupe_hits(hits: list[TextHit]) -> list[TextHit]:
         seen.add(key)
         result.append(hit)
     return result
+
+

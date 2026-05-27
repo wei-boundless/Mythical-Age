@@ -276,7 +276,7 @@ def _control_packet(
     if action == "resume" and coordination_run_id:
         api = f"/orchestration/coordination-runs/{coordination_run_id}/continue-current-stage"
     elif action == "pause" and task_run_id:
-        api = f"/orchestration/runtime-loop/task-runs/{task_run_id}/stop"
+        api = f"/orchestration/harness/task-runs/{task_run_id}/stop"
     return {
         "action": action,
         "task_run_id": task_run_id,
@@ -394,3 +394,5 @@ def _float(value: Any) -> float:
         return float(value or 0.0)
     except (TypeError, ValueError):
         return 0.0
+
+

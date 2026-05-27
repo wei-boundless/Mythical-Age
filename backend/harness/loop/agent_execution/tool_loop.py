@@ -853,3 +853,5 @@ def append_delegate_tool_result_observation(
             refs=refs,
         ),
     ]
+
+

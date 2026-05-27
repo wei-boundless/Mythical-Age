@@ -110,3 +110,5 @@ def check_external_mcp_tool_permission(
 def _slug(value: str) -> str:
     normalized = "".join(ch if ch.isalnum() else "_" for ch in str(value or "").strip().lower()).strip("_")
     return normalized or "unknown"
+
+

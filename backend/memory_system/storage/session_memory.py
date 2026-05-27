@@ -782,3 +782,5 @@ class SessionMemoryManager:
             self.view_builder.render_compaction_view(default_view),
             encoding="utf-8",
         )
+
+

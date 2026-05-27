@@ -215,3 +215,5 @@ class WorkingMemoryFinalizer:
             event_type="finalized_archived",
         )
         return {**base, "action": "archived", "after_status": updated.status, "after_promotion_state": updated.promotion_state}
+
+

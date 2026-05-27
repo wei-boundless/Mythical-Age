@@ -5,8 +5,8 @@ import { AlertTriangle, CheckCircle2, ClipboardList, Database, FileStack, Loader
 import type {
   ArtifactRepositoryOverview,
   FormalMemoryOverview,
-  RuntimeLoopTaskRunLiveMonitor,
-  RuntimeLoopTaskRunSummary,
+  HarnessTaskRunLiveMonitor,
+  HarnessTaskRunSummary,
   TaskGraphRecord,
 } from "@/lib/api";
 
@@ -32,7 +32,7 @@ function recordFieldText(record: Record<string, unknown> | null | undefined, key
   return fallback;
 }
 
-function getRuntimeTaskRunId(summary: RuntimeLoopTaskRunSummary | null | undefined) {
+function getRuntimeTaskRunId(summary: HarnessTaskRunSummary | null | undefined) {
   return recordFieldText(dictOf(summary?.task_run), ["task_run_id", "id", "run_id"], "");
 }
 
@@ -76,7 +76,7 @@ export function TaskRuntimeLibraryPage({
   artifactOverview: ArtifactRepositoryOverview | null;
   artifactStatusCounts: Record<string, number>;
   formalOverview: FormalMemoryOverview | null;
-  monitorForSelectedRun: RuntimeLoopTaskRunLiveMonitor | null;
+  monitorForSelectedRun: HarnessTaskRunLiveMonitor | null;
   onOpenMonitor: () => void;
   onOpenWorkbench: () => void;
   onRefresh: () => void;
@@ -84,11 +84,11 @@ export function TaskRuntimeLibraryPage({
   runtimeBoundTaskRunId: string;
   runtimeError?: string;
   runtimeLoading: boolean;
-  runtimeRunsForSelectedGraph: RuntimeLoopTaskRunSummary[];
+  runtimeRunsForSelectedGraph: HarnessTaskRunSummary[];
   runtimeTaskRunId: string;
   selectedDomain: RuntimeDomain | null;
   selectedRuntimeRunRecord: Record<string, unknown>;
-  selectedRuntimeSummary: RuntimeLoopTaskRunSummary | null;
+  selectedRuntimeSummary: HarnessTaskRunSummary | null;
   selectedTaskGraph: TaskGraphRecord | null;
   taskGraphDraft: TaskGraphDraftV2;
 }) {

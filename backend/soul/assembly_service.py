@@ -38,3 +38,5 @@ class SoulAssemblyService:
             "content": "\n".join(line for line in lines if line.strip()),
             "authority": "soul.role_prompt",
         }
+
+

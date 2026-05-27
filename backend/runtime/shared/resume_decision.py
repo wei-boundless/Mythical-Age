@@ -107,3 +107,5 @@ def _human_gate_summary(human_gate: dict[str, Any]) -> dict[str, Any]:
         "stage_id": str(human_gate.get("stage_id") or human_gate.get("pending_stage_id") or ""),
         "decision": str(human_gate.get("decision") or human_gate.get("action") or ""),
     }
+
+

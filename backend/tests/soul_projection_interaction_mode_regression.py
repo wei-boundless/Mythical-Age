@@ -81,3 +81,5 @@ def test_prompt_manifest_tracks_task_and_projection_section_sources() -> None:
     assert manifest["validation"]["interaction_mode"] == "professional_mode"
     assert manifest["validation"]["passed"] is True
     assert "projection_section" not in sections
+
+

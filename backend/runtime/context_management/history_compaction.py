@@ -91,3 +91,5 @@ def _fallback_summary(message: dict[str, str], *, index: int, original_bytes: in
         "preview": preview,
     }
     return "Compacted prior context:\n" + json.dumps(payload, ensure_ascii=False, indent=2)
+
+

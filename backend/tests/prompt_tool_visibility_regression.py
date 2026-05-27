@@ -27,3 +27,5 @@ def test_static_prompt_includes_user_visible_receipt_protocol() -> None:
     assert "做了什么、影响范围是什么" in prompt
     assert "taskrun_id" in prompt
     assert "只能进入 debug、diagnostics、运行监控详情" in prompt
+
+

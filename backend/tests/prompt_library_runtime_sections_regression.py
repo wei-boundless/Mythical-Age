@@ -132,3 +132,5 @@ def test_runtime_sections_ignore_legacy_domain_playbook_even_when_present() -> N
     assert "task_domain_binding" not in rendered
     assert "旧域制式" not in rendered
     assert "你是一名前端产品交付负责人。" in by_id["task_goal_role_prompt_section"].content
+
+

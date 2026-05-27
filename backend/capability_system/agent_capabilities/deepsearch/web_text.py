@@ -181,3 +181,5 @@ def _strip_code_noise(value: str) -> str:
     text = re.sub(r"<style\b[^>]*", " ", text, flags=re.IGNORECASE)
     text = re.sub(r"/_astro/[^\s\"'<>]+", " ", text, flags=re.IGNORECASE)
     return text
+
+

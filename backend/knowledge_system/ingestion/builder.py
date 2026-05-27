@@ -94,3 +94,5 @@ class NormalizedDocumentBuilder:
             )
             blocks.append(clean_block(raw_block))
         return document, blocks, object_refs
+
+

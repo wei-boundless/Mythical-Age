@@ -64,3 +64,5 @@ def test_skill_contract_requires_explicit_operation_for_known_routes() -> None:
     )
 
     assert "preferred_route rag requires explicit op.mcp_retrieval in requires_operations" in contract.validation_errors
+
+

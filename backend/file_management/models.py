@@ -232,3 +232,5 @@ def normalize_logical_path(value: str) -> str:
 def stable_content_hash(value: bytes | str) -> str:
     payload = value if isinstance(value, bytes) else str(value or "").encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
+
+

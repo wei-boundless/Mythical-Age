@@ -129,3 +129,5 @@ class CachedEmbeddingModel:
     @staticmethod
     def _normalize_text(text: str) -> str:
         return str(text or "").replace("\n", " ").strip()
+
+

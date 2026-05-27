@@ -101,3 +101,5 @@ def build_runtime_resource_inventory(base_dir: Path | str | None = None) -> Runt
         ),
     )
     return RuntimeResourceInventory(inventory_id="runtime-resource-inventory:default", items=items)
+
+

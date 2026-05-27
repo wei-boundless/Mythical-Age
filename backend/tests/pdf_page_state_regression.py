@@ -79,3 +79,5 @@ def test_pdf_degraded_answer_distinguishes_transition_and_structure_missing() ->
 
     assert "标题过渡页" in transition_answer
     assert "结构化结果缺失" in missing_answer
+
+

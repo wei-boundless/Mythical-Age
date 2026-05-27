@@ -31,3 +31,5 @@ def test_context_compaction_runtime_lane_is_registered_system_only() -> None:
     assert lane.default_operations == ("op.model_response",)
     assert "runtime_trace" in lane.default_context_sections
     assert "builtin.system.context_compactor" in lane.runtime_template_hints
+
+

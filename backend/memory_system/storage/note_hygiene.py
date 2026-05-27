@@ -99,3 +99,5 @@ def is_runtime_noise_note(
         return True
 
     return looks_like_assistant_ack_text(title, summary, canonical_statement, source_message_excerpt)
+
+

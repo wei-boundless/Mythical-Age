@@ -159,3 +159,5 @@ class SoulModeAssemblyService:
     @staticmethod
     def _first(items: list[dict[str, Any]]) -> dict[str, Any]:
         return dict(items[0]) if items else {}
+
+

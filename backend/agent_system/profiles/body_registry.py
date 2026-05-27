@@ -193,3 +193,5 @@ class BodyProfileRegistry:
             finalization_policy="assistant_message_commit",
             metadata={"agent_id": agent_id},
         )
+
+

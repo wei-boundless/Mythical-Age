@@ -34,3 +34,5 @@ def external_echo(message: str) -> dict[str, str]:
 
 if __name__ == "__main__":
     mcp.run(transport="stdio")
+
+

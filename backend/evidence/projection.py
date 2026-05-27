@@ -264,3 +264,5 @@ def _positive_int(value) -> int | None:
     except (TypeError, ValueError):
         return None
     return parsed if parsed > 0 else None
+
+

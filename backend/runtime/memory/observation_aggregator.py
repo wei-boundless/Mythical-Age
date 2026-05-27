@@ -66,3 +66,5 @@ def _truncate_result(value: str, limit: int = 1200) -> str:
     if len(normalized) <= limit:
         return normalized
     return normalized[: limit - 3].rstrip() + "..."
+
+

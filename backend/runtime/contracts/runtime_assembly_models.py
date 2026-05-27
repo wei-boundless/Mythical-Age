@@ -134,3 +134,5 @@ class NodeRuntimeAssembly:
             "metadata": dict(self.metadata),
             "diagnostics": dict(self.diagnostics),
         }
+
+

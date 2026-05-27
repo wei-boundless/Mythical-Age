@@ -702,3 +702,5 @@ async def set_orchestration_plan_mode(payload: OrchestrationModeRequest) -> dict
         "mode": str(config.get("orchestration_plan_mode", "primary") or "primary"),
         "supported_modes": ["primary"],
     }
+
+

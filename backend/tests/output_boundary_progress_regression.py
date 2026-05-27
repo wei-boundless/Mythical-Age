@@ -54,3 +54,5 @@ def test_web_search_json_is_not_misclassified_as_visible_summary() -> None:
 
     assert candidate is not None
     assert candidate.channel == "tool_raw_output"
+
+

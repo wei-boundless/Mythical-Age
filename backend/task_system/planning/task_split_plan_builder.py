@@ -578,3 +578,5 @@ def _int_value(value: Any, fallback: int) -> int:
         return int(value)
     except (TypeError, ValueError):
         return fallback
+
+

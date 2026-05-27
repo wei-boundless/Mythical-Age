@@ -74,3 +74,5 @@ def test_file_access_table_can_be_narrowed_by_task_requirements() -> None:
 
     assert table.is_allowed(repository_id="repo.coding.sandbox_workspace", action="read") is True
     assert table.is_allowed(repository_id="repo.coding.sandbox_workspace", action="write") is False
+
+

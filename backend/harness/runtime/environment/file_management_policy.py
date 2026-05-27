@@ -88,7 +88,6 @@ def _resolve_environment_id(
         dict(task_selection.get("task_environment") or {}).get("environment_id")
         if isinstance(task_selection.get("task_environment"), dict)
         else task_selection.get("task_environment"),
-        dict(task_selection.get("task_order_projection") or {}).get("task_environment_id"),
         recipe_metadata.get("task_environment_id"),
         recipe_metadata.get("environment_id"),
         recipe_metadata.get("environment"),
@@ -243,3 +242,5 @@ def _repositories_from_environment_spec(
         "write": artifact_root,
         "edit": artifact_root,
     }
+
+

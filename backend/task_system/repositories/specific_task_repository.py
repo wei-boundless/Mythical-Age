@@ -161,3 +161,5 @@ def _specific_task_record_from_payload(item: dict[str, object]) -> SpecificTaskR
         task_policy=dict(item.get("task_policy") or {}),
         metadata=dict(item.get("metadata") or {}),
     )
+
+

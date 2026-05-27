@@ -62,7 +62,7 @@ def test_execution_engine_readiness_prompt_keeps_answer_decision_with_model() ->
 
     assert "如果证据已经足够覆盖用户当前问题，请直接收口回答" in content
     assert "不要输出 JSON" in content
-    assert "runtime_loop_control" not in content
+    assert "harness_loop_control" not in content
 
 
 def test_execution_engine_model_tool_call_accumulator_collects_stream_context() -> None:
@@ -112,3 +112,5 @@ def test_execution_engine_translates_model_stream_delta() -> None:
 
     assert [event.event_type for event in events] == ["model_item_received"]
     assert event_log.events[0].payload["delta_preview"] == "partial"
+
+

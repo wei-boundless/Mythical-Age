@@ -15,8 +15,6 @@ CONTENT_EVENTS = {"token", "content_delta", "answer_candidate"}
 PROGRESS_EVENTS = {
     "input_commit_gate",
     "task_intent_decision",
-    "task_order_draft",
-    "task_order_projection",
     "task_continuation_recovery",
     "tool_start",
     "tool_end",
@@ -376,3 +374,5 @@ def _short_session_id(session_id: str) -> str:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+

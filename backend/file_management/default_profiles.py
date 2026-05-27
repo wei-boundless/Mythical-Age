@@ -507,3 +507,5 @@ def general_workspace_profile() -> ManagedFileEnvironmentProfile:
         ),
         default_access_policy={"workspace_write": "denied", "artifact_write": "allowed"},
     )
+
+

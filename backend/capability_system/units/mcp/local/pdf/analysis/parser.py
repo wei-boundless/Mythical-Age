@@ -841,3 +841,5 @@ class PdfTextParser:
             return True
         except Exception:
             return False
+
+

@@ -31,3 +31,5 @@ def test_unit_descriptor_rejects_private_decision_authority() -> None:
         assert "decision authority" in str(exc)
     else:
         raise AssertionError("unit descriptor with decision authority should be rejected")
+
+

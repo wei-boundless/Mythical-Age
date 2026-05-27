@@ -99,3 +99,5 @@ class RuntimeObjectStore:
 
 def _safe_segment(value: str) -> str:
     return "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in str(value or ""))[:180]
+
+

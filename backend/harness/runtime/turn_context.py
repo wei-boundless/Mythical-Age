@@ -41,16 +41,12 @@ async def build_agent_turn_context(
     source: str,
     task_selection: dict[str, Any],
     invocation_model_context: dict[str, Any] | None = None,
-    task_order_binding: dict[str, Any] | None = None,
     model_response_executor: Any | None = None,
 ) -> AgentTurnContextBuildResult:
     runtime_context_override = {
         **dict(invocation_model_context or {}),
         **dict(task_selection or {}),
     }
-    binding = dict(task_order_binding or {})
-    if binding.get("task_order_id"):
-        runtime_context_override["task_order_projection"] = binding
     request_facts = build_request_facts(
         user_message=user_message,
         session_id=session_id,
@@ -109,3 +105,5 @@ async def build_agent_turn_context(
         runtime_start_packet=runtime_start_packet,
         runtime_context_override=runtime_context_override,
     )
+
+

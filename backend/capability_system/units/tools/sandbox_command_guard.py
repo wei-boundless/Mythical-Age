@@ -38,3 +38,5 @@ def validate_sandbox_command_text(value: str, *, kind: str) -> str:
     if ABSOLUTE_WINDOWS_PATH_RE.search(text) or ABSOLUTE_UNIX_PATH_RE.search(text):
         return f"Blocked: {kind} references an absolute path outside the sandbox workspace."
     return ""
+
+

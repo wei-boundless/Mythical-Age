@@ -34,3 +34,5 @@ def mode_allows_tool(definition: ToolDefinition, *, mode: str) -> tuple[bool, st
     if risk_tags & {"destructive"}:
         return False, "policy_accept_edits_blocks_destructive_tool"
     return True, "policy_allow_accept_edits"
+
+

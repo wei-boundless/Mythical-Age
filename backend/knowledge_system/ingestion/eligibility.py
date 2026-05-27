@@ -145,3 +145,5 @@ def build_cleaning_manifest(blocks: list[NormalizedBlock]) -> dict[str, object]:
         "drop_reason_counts": dict(drop_reason_counter),
         "cleaning_flag_counts": dict(cleaning_flag_counter),
     }
+
+

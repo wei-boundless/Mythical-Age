@@ -2,7 +2,7 @@
 
 import { Activity, CheckCircle2, ClipboardCheck, DatabaseZap, RefreshCw, ShieldAlert } from "lucide-react";
 
-import type { RuntimeLoopTaskRunLiveMonitor, RuntimeLoopTaskRunSummary } from "@/lib/api";
+import type { HarnessTaskRunLiveMonitor, HarnessTaskRunSummary } from "@/lib/api";
 
 import { TaskRuntimeManagementPage } from "./TaskSystemPages";
 import { TaskSystemField as Field, TaskSystemToolbarButton as ToolbarButton } from "./TaskSystemWorkbenchUi";
@@ -25,11 +25,11 @@ function numberText(value: unknown) {
   return Number.isFinite(next) ? String(next) : "0";
 }
 
-function taskRunId(summary: RuntimeLoopTaskRunSummary | null | undefined) {
+function taskRunId(summary: HarnessTaskRunSummary | null | undefined) {
   return text(asRecord(summary?.task_run).task_run_id, "");
 }
 
-function agentRuntimePhaseSummary(monitor: RuntimeLoopTaskRunLiveMonitor | null) {
+function agentRuntimePhaseSummary(monitor: HarnessTaskRunLiveMonitor | null) {
   return asRecord(monitor?.agent_runtime_phase_summary);
 }
 
@@ -42,13 +42,13 @@ export function AgentRuntimePhaseMonitorPage({
   runtimeTaskRunId,
   selectedRuntimeSummary,
 }: {
-  monitorForSelectedRun: RuntimeLoopTaskRunLiveMonitor | null;
+  monitorForSelectedRun: HarnessTaskRunLiveMonitor | null;
   onRefresh: () => void;
   onTaskRunIdChange: (taskRunId: string) => void;
   runtimeLoading: boolean;
-  runtimeRunsForSelectedGraph: RuntimeLoopTaskRunSummary[];
+  runtimeRunsForSelectedGraph: HarnessTaskRunSummary[];
   runtimeTaskRunId: string;
-  selectedRuntimeSummary: RuntimeLoopTaskRunSummary | null;
+  selectedRuntimeSummary: HarnessTaskRunSummary | null;
 }) {
   const summary = agentRuntimePhaseSummary(monitorForSelectedRun);
   const planning = asRecord(summary.planning);

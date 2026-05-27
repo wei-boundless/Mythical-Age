@@ -74,3 +74,5 @@ class RunOutcome:
             payload[key] = list(getattr(self, key))
         payload["diagnostics"] = dict(self.diagnostics or {})
         return payload
+
+

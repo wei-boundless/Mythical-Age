@@ -5,9 +5,10 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
-from runtime.shared.checkpoint import RuntimeCheckpoint
+from harness.loop.checkpoint_store import HarnessCheckpoint
+from harness.loop.state import HarnessLoopState
 from runtime.shared.dispatch_plan_compiler import compile_agent_dispatch_plan_from_graph_payload
-from runtime.shared.models import AgentRun, CoordinationRun, RuntimeLoopState, TaskRun
+from runtime.shared.models import AgentRun, CoordinationRun, TaskRun
 from .graph_flow import build_graph_flow_state
 
 
@@ -16,8 +17,8 @@ class AgentRuntimeStartResult:
     task_run: TaskRun
     agent_run: AgentRun
     coordination_run: CoordinationRun | None
-    loop_state: RuntimeLoopState
-    checkpoint: RuntimeCheckpoint
+    loop_state: HarnessLoopState
+    checkpoint: HarnessCheckpoint
     events: tuple[dict[str, Any], ...]
 
     def to_dict(self) -> dict[str, Any]:
@@ -187,7 +188,7 @@ def start_agent_run(
             "step_count": 0,
         },
     )
-    state = RuntimeLoopState(
+    state = HarnessLoopState(
         task_run_id=task_run_id,
         status="running",
         transition="start",
@@ -290,7 +291,7 @@ def start_agent_run(
     )
 
 
-def write_checkpoint_event(runtime_host: Any, state: RuntimeLoopState, *, event_offset: int):
+def write_checkpoint_event(runtime_host: Any, state: HarnessLoopState, *, event_offset: int):
     execution_summary = runtime_host.execution_store.build_summary(state.task_run_id)
     execution_refs = tuple(str(item) for item in list(execution_summary.get("execution_refs") or []))
     execution_state_ref = str(execution_summary.get("latest_execution_id") or "")
@@ -325,7 +326,7 @@ def write_checkpoint_event(runtime_host: Any, state: RuntimeLoopState, *, event_
 
 
 def state_with_task_run_ledger(
-    state: RuntimeLoopState,
+    state: HarnessLoopState,
     ledger: Any | None,
     *,
     transition: str | None = None,
@@ -335,13 +336,13 @@ def state_with_task_run_ledger(
     terminal_reason: str | None = None,
     diagnostics: dict[str, Any] | None = None,
     commit_state: dict[str, Any] | None = None,
-) -> RuntimeLoopState:
+) -> HarnessLoopState:
     from task_system.tasks.run_models import task_run_step_count
 
     merged_diagnostics = dict(state.diagnostics)
     if diagnostics:
         merged_diagnostics.update(diagnostics)
-    return RuntimeLoopState(
+    return HarnessLoopState(
         task_run_id=state.task_run_id,
         status=status or state.status,
         turn_count=state.turn_count,
@@ -409,3 +410,5 @@ def working_memory_diagnostics_from_assembly(assembly: dict[str, Any]) -> dict[s
         for key in keys
         if key in diagnostics
     }
+
+

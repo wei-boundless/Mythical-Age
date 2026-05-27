@@ -168,3 +168,5 @@ def _first_dict(*values: Any) -> dict[str, Any]:
 
 def _string_list(value: Any) -> list[str]:
     return [str(item).strip() for item in list(value or []) if str(item).strip()]
+
+

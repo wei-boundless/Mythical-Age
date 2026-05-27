@@ -53,3 +53,5 @@ def resolve_task_environment(
             )
         )
     return ResolvedTaskEnvironment(spec=spec, file_access_tables=tuple(tables))
+
+

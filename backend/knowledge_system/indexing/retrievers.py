@@ -11,3 +11,5 @@ class RetrievalRequest:
     query_mode: str = "semantic_lookup"
     collections: tuple[str, ...] = field(default_factory=tuple)
     filters: dict[str, Any] = field(default_factory=dict)
+
+

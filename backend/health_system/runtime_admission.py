@@ -153,3 +153,5 @@ def admit_health_command(base_dir: Path, command: HealthManagementCommand) -> He
 def _default_health_action(command_type: str) -> str:
     _ = command_type
     return "issue_triage"
+
+

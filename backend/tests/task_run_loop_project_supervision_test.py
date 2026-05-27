@@ -1,4 +1,4 @@
-from runtime.unit_runtime.finalizer import TaskRunFinalizer
+from harness.loop.task_run_finalizer import TaskRunFinalizer
 
 
 def test_coordination_active_node_id_prefers_stage_id() -> None:
@@ -7,3 +7,5 @@ def test_coordination_active_node_id_prefers_stage_id() -> None:
 
 def test_coordination_active_node_id_falls_back_to_node_id() -> None:
     assert TaskRunFinalizer._coordination_active_node_id({"active_node_id": "world_review"}) == "world_review"
+
+

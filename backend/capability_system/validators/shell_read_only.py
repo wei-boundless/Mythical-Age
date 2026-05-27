@@ -89,3 +89,5 @@ def _validate_git_read_only(args: list[str]) -> tuple[bool, str]:
     if subcommand not in GIT_READ_ONLY_SUBCOMMANDS:
         return False, "git subcommand is not allowlisted read-only"
     return True, "git command passed read-only validator"
+
+

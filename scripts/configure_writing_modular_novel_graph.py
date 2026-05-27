@@ -357,7 +357,7 @@ def _chapter_loop_derived_fields() -> list[dict[str, Any]]:
         {"key": "batch_chapter_numbers", "op": "range", "start_key": "batch_start_index", "end_key": "batch_end_index"},
         {"key": "batch_chapter_list", "op": "join", "from_key": "batch_chapter_numbers", "prefix": "第", "suffix": "章", "separator": "、"},
         {"key": "batch_target_words", "op": "multiply", "from_key": "chapter_target_words", "value_key": "chapters_per_round", "value": CHAPTER_BATCH_SIZE},
-        {"key": "runtime_loop_summary", "op": "format", "template": "当前卷：{volume_label}；当前批次：{batch_label}；本批允许范围：{batch_chapter_list}；本次目标 {target_volumes} 卷；全书累计约 {current_words}/{target_words} 字；本卷累计约 {volume_current_words}/{volume_target_words} 字。"},
+        {"key": "graph_loop_summary", "op": "format", "template": "当前卷：{volume_label}；当前批次：{batch_label}；本批允许范围：{batch_chapter_list}；本次目标 {target_volumes} 卷；全书累计约 {current_words}/{target_words} 字；本卷累计约 {volume_current_words}/{volume_target_words} 字。"},
     ]
 
 
@@ -1327,6 +1327,7 @@ def _upsert_domain(registry: TaskFlowRegistry) -> None:
         metadata={
             "managed_by": MANAGED_BY,
             "architecture": "native_graph_module_composition",
+            "task_environment_id": ENVIRONMENT_ID,
             "environment_id": ENVIRONMENT_ID,
         },
     )
@@ -1347,10 +1348,10 @@ def _upsert_agents(backend_dir: Path) -> None:
             agent_category="custom_agent",
             description=f"{name}。用于模块化长篇写作任务图运行；采用简单文本产出边界，文件、记忆与断点由编排系统托管。",
             enabled=True,
-            default_projection_id="",
             metadata={
                 "managed_by": MANAGED_BY,
                 "domain_id": DOMAIN_ID,
+                "task_environment_id": ENVIRONMENT_ID,
                 "environment_id": ENVIRONMENT_ID,
                 "agent_template_id": f"task_graph.{WRITING_MODULE_ID}.node_agent",
             },
@@ -1717,6 +1718,7 @@ def _upsert_task_asset(
         metadata={
             "managed_by": MANAGED_BY,
             "domain_id": DOMAIN_ID,
+            "task_environment_id": ENVIRONMENT_ID,
             "environment_id": ENVIRONMENT_ID,
             "task_id": task_id,
             "node_id": node_id,
@@ -1740,6 +1742,7 @@ def _upsert_task_asset(
         default_projection_policy="",
         task_policy={
             "safety_policy": {"verification_mode": "artifact_or_trace", "write_mode": "scoped", "safety_class": "S2_bounded"},
+            "task_environment_id": ENVIRONMENT_ID,
             "environment_id": ENVIRONMENT_ID,
             "task_structure": {
                 "execution_chain_type": "coordination_node",
@@ -1752,6 +1755,7 @@ def _upsert_task_asset(
         metadata={
             "managed_by": MANAGED_BY,
             "domain_id": DOMAIN_ID,
+            "task_environment_id": ENVIRONMENT_ID,
             "environment_id": ENVIRONMENT_ID,
             "node_id": node_id,
             "package_template": WRITING_MODULE_ID,
@@ -1790,6 +1794,7 @@ def _upsert_task_asset(
         metadata={
             "managed_by": MANAGED_BY,
             "domain_id": DOMAIN_ID,
+            "task_environment_id": ENVIRONMENT_ID,
             "environment_id": ENVIRONMENT_ID,
             "node_id": node_id,
             "package_template": WRITING_MODULE_ID,
@@ -1842,8 +1847,8 @@ def _upsert_imported_module_graph(
         metadata_extra = {
             "unit_batch_contract": _chapter_unit_batch_contract(),
             "length_budget_contract": _length_budget_contract("volume", VOLUME_TARGET_WORDS, VOLUME_MIN_WORDS, VOLUME_MAX_WORDS, CHAPTERS_PER_VOLUME, "graph.metadata.length_budget_contract"),
-            "runtime_loop_policy": _chapter_runtime_loop_policy(),
-            "loop_frames": list(_chapter_runtime_loop_policy()["frames"]),
+            "graph_loop_policy": _chapter_graph_loop_policy(),
+            "loop_frames": list(_chapter_graph_loop_policy()["frames"]),
         }
     else:
         metadata_extra = {}
@@ -1862,12 +1867,14 @@ def _upsert_imported_module_graph(
         working_memory_policy_profile_id="wmprofile.writing.modular_novel",
         working_memory_policy=_working_memory_policy(),
         runtime_policy=_runtime_policy(),
-        context_policy={"handoff": "contract_payload_and_refs", "raw_dialogue_handoff": "forbidden", "long_text_policy": "artifact_ref_with_authorized_expansion"},
+        context_policy={"task_environment_id": ENVIRONMENT_ID, "environment_id": ENVIRONMENT_ID, "handoff": "contract_payload_and_refs", "raw_dialogue_handoff": "forbidden", "long_text_policy": "artifact_ref_with_authorized_expansion"},
         publish_state="published",
         enabled=True,
         metadata={
             "managed_by": MANAGED_BY,
             "architecture": "native_modular_task_graph_child",
+            "task_environment_id": ENVIRONMENT_ID,
+            "environment_id": ENVIRONMENT_ID,
             "business_communication_modes": ["structured_handoff", "memory_read", "memory_commit", "revision_request"],
             "phase_definitions": _phase_definitions_for_nodes(nodes),
             "subtask_refs": [_node_task_id(node.node_id) for node in nodes],
@@ -3034,12 +3041,13 @@ def _upsert_master_graph(registry: TaskFlowRegistry) -> None:
             "raw_full_text_global_context": "forbidden",
         },
         runtime_policy=_runtime_policy(),
-        context_policy={"handoff": "contract_payload_and_refs", "raw_dialogue_handoff": "forbidden", "long_text_policy": "artifact_ref_with_authorized_expansion"},
+        context_policy={"task_environment_id": ENVIRONMENT_ID, "environment_id": ENVIRONMENT_ID, "handoff": "contract_payload_and_refs", "raw_dialogue_handoff": "forbidden", "long_text_policy": "artifact_ref_with_authorized_expansion"},
         publish_state="published",
         enabled=True,
         metadata={
             "managed_by": MANAGED_BY,
             "architecture": "graph_as_first_class_task_unit",
+            "task_environment_id": ENVIRONMENT_ID,
             "environment_id": ENVIRONMENT_ID,
             "graph_module_composition": True,
             "phase_definitions": [
@@ -3047,10 +3055,10 @@ def _upsert_master_graph(registry: TaskFlowRegistry) -> None:
                 {"phase_id": "phase.master.chapter_cycle", "title": "分卷创作循环", "sequence_index": 20},
                 {"phase_id": "phase.master.finalize", "title": "收尾交付", "sequence_index": 30},
             ],
-            "runtime_loop_policy": {
+            "graph_loop_policy": {
                 "enabled": True,
                 "flow_control": "graph_module_sequence",
-                "initial_inputs": _chapter_initial_runtime_loop_inputs(),
+                "initial_inputs": _chapter_initial_graph_loop_inputs(),
                 "frames": [
                     {"frame_id": "graph_module.design_init", "entry_stage_id": "graph_module.design_init", "exit_stage_id": "graph_module.chapter_cycle"},
                     {"frame_id": "graph_module.chapter_cycle", "entry_stage_id": "graph_module.chapter_cycle", "exit_stage_id": "graph_module.finalize"},
@@ -3147,6 +3155,8 @@ def _timeline_block(block_id: str, title: str, linked_graph_id: str, phase_id: s
 
 def _runtime_policy() -> dict[str, Any]:
     return {
+        "task_environment_id": ENVIRONMENT_ID,
+        "environment_id": ENVIRONMENT_ID,
         "execution_mode": "coordinator_driven",
         "coordinator_agent_id": "agent:0",
         "agent_group_id": AGENT_GROUP_ID,
@@ -3253,7 +3263,7 @@ def _graph_contract_bindings(graph_id: str) -> dict[str, Any]:
         bindings["unit_batch"] = _chapter_unit_batch_contract()
         bindings["runtime"] = {
             **dict(bindings["runtime"]),
-            "loop_policy_ref": "metadata.runtime_loop_policy",
+            "loop_policy_ref": "metadata.graph_loop_policy",
             "split_policy": {"mode": "static_batch", "batch_size": CHAPTER_BATCH_SIZE, "range_label_template": "chapter_{start}_{end}", "source": "graph.contract_bindings.runtime.split_policy"},
             "length_budget": _length_budget_contract("volume", VOLUME_TARGET_WORDS, VOLUME_MIN_WORDS, VOLUME_MAX_WORDS, CHAPTERS_PER_VOLUME, "graph.contract_bindings.runtime.length_budget"),
         }
@@ -3272,16 +3282,16 @@ def _chapter_unit_batch_contract() -> dict[str, Any]:
         "batch_target_words": BATCH_TARGET_WORDS,
         "volume_target_words": VOLUME_TARGET_WORDS,
         "unit_label_zh": "章节",
-        "source": "metadata.runtime_loop_policy.initial_inputs",
+        "source": "metadata.graph_loop_policy.initial_inputs",
     }
 
 
-def _chapter_runtime_loop_policy() -> dict[str, Any]:
+def _chapter_graph_loop_policy() -> dict[str, Any]:
     return {
         "enabled": True,
         "loop_owner": "graph",
         "flow_control": "chapter_batch_and_volume_frames",
-        "initial_inputs": _chapter_initial_runtime_loop_inputs(),
+        "initial_inputs": _chapter_initial_graph_loop_inputs(),
         "derived_fields": _chapter_loop_derived_fields(),
         "summary": "当前卷：{volume_label}；当前批次：{batch_label}；本批允许范围：{batch_chapter_list}；本次目标 {target_volumes} 卷；全书累计约 {current_words}/{target_words} 字；本卷累计约 {volume_current_words}/{volume_target_words} 字。",
         "frames": [
@@ -3291,7 +3301,7 @@ def _chapter_runtime_loop_policy() -> dict[str, Any]:
     }
 
 
-def _chapter_initial_runtime_loop_inputs() -> dict[str, Any]:
+def _chapter_initial_graph_loop_inputs() -> dict[str, Any]:
     return {
         "target_volumes": TARGET_VOLUMES,
         "volume_index": 1,

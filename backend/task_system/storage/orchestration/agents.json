@@ -10,7 +10,6 @@
       "builtin": true,
       "editable": true,
       "default_soul_id": "goumang",
-      "default_projection_id": "goumang__primary",
       "created_at": 1779711382.2773557,
       "updated_at": 1779711382.2773557,
       "metadata": {
@@ -37,7 +36,6 @@
         "enabled",
         "editable",
         "default_soul_id",
-        "default_projection_id",
         "metadata"
       ],
       "governance_status": "system_builtin",
@@ -58,7 +56,6 @@
       "builtin": true,
       "editable": true,
       "default_soul_id": "",
-      "default_projection_id": "",
       "created_at": 1779711382.2773557,
       "updated_at": 1779711382.2773557,
       "metadata": {
@@ -85,7 +82,6 @@
         "enabled",
         "editable",
         "default_soul_id",
-        "default_projection_id",
         "metadata"
       ],
       "governance_status": "system_builtin",
@@ -106,7 +102,6 @@
       "builtin": true,
       "editable": true,
       "default_soul_id": "",
-      "default_projection_id": "",
       "created_at": 1779711382.2773557,
       "updated_at": 1779711382.2773557,
       "metadata": {
@@ -133,7 +128,6 @@
         "enabled",
         "editable",
         "default_soul_id",
-        "default_projection_id",
         "metadata"
       ],
       "governance_status": "system_builtin",
@@ -154,7 +148,6 @@
       "builtin": true,
       "editable": true,
       "default_soul_id": "xuannv",
-      "default_projection_id": "xuannv__primary",
       "created_at": 1779711382.2773557,
       "updated_at": 1779711382.2773557,
       "metadata": {
@@ -181,7 +174,6 @@
         "enabled",
         "editable",
         "default_soul_id",
-        "default_projection_id",
         "metadata"
       ],
       "governance_status": "system_builtin",
@@ -202,7 +194,6 @@
       "builtin": true,
       "editable": true,
       "default_soul_id": "",
-      "default_projection_id": "",
       "created_at": 1779711382.2773557,
       "updated_at": 1779711382.2773557,
       "metadata": {
@@ -229,7 +220,6 @@
         "enabled",
         "editable",
         "default_soul_id",
-        "default_projection_id",
         "metadata"
       ],
       "governance_status": "system_builtin",
@@ -250,7 +240,6 @@
       "builtin": true,
       "editable": true,
       "default_soul_id": "",
-      "default_projection_id": "",
       "created_at": 1779711382.2773557,
       "updated_at": 1779711382.2773557,
       "metadata": {
@@ -277,7 +266,6 @@
         "enabled",
         "editable",
         "default_soul_id",
-        "default_projection_id",
         "metadata"
       ],
       "governance_status": "system_builtin",
@@ -298,7 +286,6 @@
       "builtin": true,
       "editable": true,
       "default_soul_id": "hebo",
-      "default_projection_id": "projection.worker.rag_evidence_analyst",
       "created_at": 1779711382.2773557,
       "updated_at": 1779711382.2773557,
       "metadata": {
@@ -326,7 +313,6 @@
         "enabled",
         "editable",
         "default_soul_id",
-        "default_projection_id",
         "metadata"
       ],
       "governance_status": "system_builtin",
@@ -347,7 +333,6 @@
       "builtin": true,
       "editable": true,
       "default_soul_id": "hebo",
-      "default_projection_id": "projection.worker.pdf_evidence_reader",
       "created_at": 1779711382.2773557,
       "updated_at": 1779711382.2773557,
       "metadata": {
@@ -375,7 +360,6 @@
         "enabled",
         "editable",
         "default_soul_id",
-        "default_projection_id",
         "metadata"
       ],
       "governance_status": "system_builtin",
@@ -396,7 +380,6 @@
       "builtin": true,
       "editable": true,
       "default_soul_id": "hebo",
-      "default_projection_id": "projection.worker.table_evidence_analyst",
       "created_at": 1779711382.2773557,
       "updated_at": 1779711382.2773557,
       "metadata": {
@@ -424,7 +407,6 @@
         "enabled",
         "editable",
         "default_soul_id",
-        "default_projection_id",
         "metadata"
       ],
       "governance_status": "system_builtin",
@@ -445,7 +427,6 @@
       "builtin": true,
       "editable": true,
       "default_soul_id": "hebo",
-      "default_projection_id": "projection.worker.web_evidence_researcher",
       "created_at": 1779711382.2773557,
       "updated_at": 1779711382.2773557,
       "metadata": {
@@ -473,7 +454,6 @@
         "enabled",
         "editable",
         "default_soul_id",
-        "default_projection_id",
         "metadata"
       ],
       "governance_status": "system_builtin",
@@ -494,7 +474,6 @@
       "builtin": true,
       "editable": true,
       "default_soul_id": "hebo",
-      "default_projection_id": "projection.worker.web_evidence_researcher",
       "created_at": 1779711382.2773557,
       "updated_at": 1779711382.2773557,
       "metadata": {
@@ -522,7 +501,6 @@
         "enabled",
         "editable",
         "default_soul_id",
-        "default_projection_id",
         "metadata"
       ],
       "governance_status": "system_builtin",
@@ -543,7 +521,6 @@
       "builtin": true,
       "editable": true,
       "default_soul_id": "hebo",
-      "default_projection_id": "projection.worker.web_evidence_researcher",
       "created_at": 1779711382.2773557,
       "updated_at": 1779711382.2773557,
       "metadata": {
@@ -571,7 +548,6 @@
         "enabled",
         "editable",
         "default_soul_id",
-        "default_projection_id",
         "metadata"
       ],
       "governance_status": "system_builtin",
@@ -592,7 +568,6 @@
       "builtin": true,
       "editable": true,
       "default_soul_id": "xuannv",
-      "default_projection_id": "projection.worker.completion_verifier",
       "created_at": 1779711382.2773557,
       "updated_at": 1779711382.2773557,
       "metadata": {
@@ -620,7 +595,6 @@
         "enabled",
         "editable",
         "default_soul_id",
-        "default_projection_id",
         "metadata"
       ],
       "governance_status": "system_builtin",
@@ -641,7 +615,6 @@
       "builtin": true,
       "editable": true,
       "default_soul_id": "hebo",
-      "default_projection_id": "projection.system.context_compactor",
       "created_at": 1779711382.2773557,
       "updated_at": 1779711382.2773557,
       "metadata": {
@@ -668,7 +641,6 @@
         "enabled",
         "editable",
         "default_soul_id",
-        "default_projection_id",
         "metadata"
       ],
       "governance_status": "system_builtin",

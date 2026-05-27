@@ -98,3 +98,5 @@ def test_file_operation_receipt_can_be_persisted_in_metadata_store(tmp_path: Pat
     assert rows[0]["repository_id"] == "repo.coding.sandbox_workspace"
     assert rows[0]["logical_path"] == "src/app.py"
     assert "toolcall:persist" in rows[0]["access_decision"]
+
+

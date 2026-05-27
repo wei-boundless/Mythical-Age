@@ -65,3 +65,5 @@ def test_index_quality_reports_merge_counts() -> None:
     assert merged["table_row_window_count"] == 1
     assert merged["unit_type_counts"]["content_block"] == 1
     assert merged["unit_type_counts"]["table_row_window"] == 1
+
+

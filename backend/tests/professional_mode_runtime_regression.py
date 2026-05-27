@@ -470,3 +470,5 @@ def test_non_code_professional_profile_does_not_receive_code_execution_contract(
     assert "专业代码任务执行员" not in profile.prompt
     assert "修改后检查差异" not in profile.prompt
     assert "执行了哪些验证命令" not in profile.prompt
+
+

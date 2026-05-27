@@ -664,3 +664,5 @@ def _delegation_kinds_from_profile(profile: Any) -> tuple[str, ...]:
     if single:
         values.append(single)
     return tuple(dict.fromkeys(values))
+
+

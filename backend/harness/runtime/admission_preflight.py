@@ -112,7 +112,7 @@ def prepare_agent_runtime_admission(
                 ),
             },
         )
-        events.append({"type": "runtime_loop_event", "event": model_resolution_event.to_dict()})
+        events.append({"type": "harness_loop_event", "event": model_resolution_event.to_dict()})
 
     task_safety_envelope = dict(
         dict(task_operation.get("operation_requirement") or {}).get("metadata") or {}
@@ -152,3 +152,5 @@ def prepare_agent_runtime_admission(
         runtime_capability_state=runtime_capability_state,
         events=tuple(events),
     )
+
+

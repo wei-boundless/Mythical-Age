@@ -9,8 +9,45 @@ function text(value: unknown, fallback = "") {
   return next || fallback;
 }
 
+function recordOf(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+export function normalizeCenterWorkspaceTaskEnvironmentId(value: unknown) {
+  const raw = text(value);
+  if (!raw) return "";
+  return raw.startsWith("env.") ? raw : "";
+}
+
+export function centerWorkspaceTaskEnvironmentId(graph: TaskGraphRecord | null | undefined) {
+  const metadata = recordOf(graph?.metadata);
+  const runtimePolicy = recordOf(graph?.runtime_policy);
+  const contextPolicy = recordOf(graph?.context_policy);
+  return normalizeCenterWorkspaceTaskEnvironmentId(
+    metadata.task_environment_id
+    ?? metadata.environment_id
+    ?? runtimePolicy.task_environment_id
+    ?? runtimePolicy.environment_id
+    ?? contextPolicy.task_environment_id
+    ?? contextPolicy.environment_id,
+  );
+}
+
+export function centerWorkspaceTaskEnvironmentLabel(environmentId: string) {
+  return environmentId;
+}
+
+export function centerWorkspaceTaskEnvironmentLabelFromOverview(
+  overview: TaskSystemOverview | null | undefined,
+  environmentId: string,
+) {
+  const record = overview?.task_environment_management?.records?.find((item) => item.environment_id === environmentId);
+  return record?.title ? `${record.title} · ${environmentId}` : centerWorkspaceTaskEnvironmentLabel(environmentId);
+}
+
 export function listCenterWorkspaceTaskGraphs(overview: TaskSystemOverview | null | undefined) {
-  return sortTaskGraphsForWorkbench(overview?.task_graph_management?.task_graphs ?? []);
+  return sortTaskGraphsForWorkbench(overview?.task_graph_management?.task_graphs ?? [])
+    .filter((graph) => centerWorkspaceTaskEnvironmentId(graph));
 }
 
 export function resolveCenterWorkspaceSelectedGraphId(overview: TaskSystemOverview | null | undefined, currentGraphId = "") {
@@ -49,7 +86,7 @@ export function centerWorkspaceGraphLabel(graph: TaskGraphRecord) {
 }
 
 export function centerWorkspaceGraphSubtitle(graph: TaskGraphRecord) {
-  const parts = [text(graph.domain_id), text(graph.publish_state, "draft")].filter(Boolean);
+  const parts = [centerWorkspaceTaskEnvironmentId(graph), text(graph.publish_state, "draft")].filter(Boolean);
   return parts.join(" / ");
 }
 

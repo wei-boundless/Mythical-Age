@@ -80,3 +80,5 @@ def _compact_answer_candidate(*, summary: str, evidence_summary: str, limitation
             lines.append(f"- {item}")
     return "\n".join(line for line in lines if line.strip()).strip()
 
+
+

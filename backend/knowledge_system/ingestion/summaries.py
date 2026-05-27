@@ -52,3 +52,5 @@ def summarize_page_blocks(
     if len(joined) <= max_chars:
         return joined
     return joined[: max_chars - 3].rstrip() + "..."
+
+

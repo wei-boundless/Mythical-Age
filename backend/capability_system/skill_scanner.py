@@ -357,3 +357,5 @@ def refresh_snapshot(base_dir: Path) -> Path:
 if __name__ == "__main__":
     path = refresh_snapshot(BACKEND_DIR)
     print(f"refreshed {path}")
+
+

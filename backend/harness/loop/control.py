@@ -4,30 +4,34 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from .models import RuntimeLoopState, RuntimeTerminalReason
+from runtime.shared.models import RuntimeTerminalReason
+
+from .state import HarnessLoopState
 
 
 @dataclass(frozen=True, slots=True)
-class RuntimeLoopLimits:
+class HarnessLoopLimits:
     """Hard stop limits for one Harness loop execution."""
 
     max_turns: int = 8
     max_model_calls: int = 8
     max_runtime_seconds: float | None = 300.0
     max_events: int = 200
-    authority: str = "runtime_limits"
+    authority: str = "harness.loop_limits"
 
     def __post_init__(self) -> None:
-        if self.authority != "runtime_limits":
-            raise ValueError("RuntimeLoopLimits authority must be runtime_limits")
+        if self.authority not in {"harness.loop_limits", "runtime_limits"}:
+            raise ValueError("HarnessLoopLimits authority must be harness.loop_limits")
+        if self.authority == "runtime_limits":
+            object.__setattr__(self, "authority", "harness.loop_limits")
         if self.max_turns < 1:
-            raise ValueError("RuntimeLoopLimits.max_turns must be positive")
+            raise ValueError("HarnessLoopLimits.max_turns must be positive")
         if self.max_model_calls < 1:
-            raise ValueError("RuntimeLoopLimits.max_model_calls must be positive")
+            raise ValueError("HarnessLoopLimits.max_model_calls must be positive")
         if self.max_runtime_seconds is not None and self.max_runtime_seconds <= 0:
-            raise ValueError("RuntimeLoopLimits.max_runtime_seconds must be positive")
+            raise ValueError("HarnessLoopLimits.max_runtime_seconds must be positive")
         if self.max_events < 1:
-            raise ValueError("RuntimeLoopLimits.max_events must be positive")
+            raise ValueError("HarnessLoopLimits.max_events must be positive")
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -37,8 +41,8 @@ class RuntimeLoopLimits:
         cls,
         policy: dict[str, Any] | None,
         *,
-        fallback: "RuntimeLoopLimits | None" = None,
-    ) -> "RuntimeLoopLimits":
+        fallback: "HarnessLoopLimits | None" = None,
+    ) -> "HarnessLoopLimits":
         base = fallback or cls()
         payload = dict(policy or {})
         limit_mode = str(payload.get("limit_mode") or payload.get("runtime_limit_mode") or "").strip()
@@ -68,31 +72,33 @@ class RuntimeLoopLimits:
 
 
 @dataclass(frozen=True, slots=True)
-class RuntimeLoopControlDecision:
+class HarnessLoopControlDecision:
     allowed: bool
     reason: RuntimeTerminalReason = ""
     message: str = ""
     snapshot: dict[str, Any] = field(default_factory=dict)
-    authority: str = "runtime_control"
+    authority: str = "harness.loop_control"
 
     def __post_init__(self) -> None:
-        if self.authority != "runtime_control":
-            raise ValueError("RuntimeLoopControlDecision authority must be runtime_control")
+        if self.authority not in {"harness.loop_control", "runtime_control"}:
+            raise ValueError("HarnessLoopControlDecision authority must be harness.loop_control")
+        if self.authority == "runtime_control":
+            object.__setattr__(self, "authority", "harness.loop_control")
         if not self.allowed and not self.reason:
-            raise ValueError("blocked RuntimeLoopControlDecision requires reason")
+            raise ValueError("blocked HarnessLoopControlDecision requires reason")
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
-def check_runtime_loop_control(
-    state: RuntimeLoopState,
+def check_harness_loop_control(
+    state: HarnessLoopState,
     *,
-    limits: RuntimeLoopLimits,
+    limits: HarnessLoopLimits,
     started_at: float,
     model_call_count: int,
     event_count: int,
-) -> RuntimeLoopControlDecision:
+) -> HarnessLoopControlDecision:
     elapsed_seconds = max(0.0, time.time() - started_at)
     snapshot = {
         "task_run_id": state.task_run_id,
@@ -106,35 +112,37 @@ def check_runtime_loop_control(
         "limits": limits.to_dict(),
     }
     if state.turn_count > limits.max_turns:
-        return RuntimeLoopControlDecision(
+        return HarnessLoopControlDecision(
             allowed=False,
             reason="max_turns",
-            message="RuntimeLoop reached max_turns before the next dispatch.",
+            message="HarnessLoop reached max_turns before the next dispatch.",
             snapshot=snapshot,
         )
     if model_call_count >= limits.max_model_calls:
-        return RuntimeLoopControlDecision(
+        return HarnessLoopControlDecision(
             allowed=False,
             reason="budget_exhausted",
-            message="RuntimeLoop reached max_model_calls before the next dispatch.",
+            message="HarnessLoop reached max_model_calls before the next dispatch.",
             snapshot=snapshot,
         )
     if limits.max_runtime_seconds is not None and elapsed_seconds > limits.max_runtime_seconds:
-        return RuntimeLoopControlDecision(
+        return HarnessLoopControlDecision(
             allowed=False,
             reason="budget_exhausted",
-            message="RuntimeLoop reached max_runtime_seconds before the next dispatch.",
+            message="HarnessLoop reached max_runtime_seconds before the next dispatch.",
             snapshot=snapshot,
         )
     if event_count >= limits.max_events:
-        return RuntimeLoopControlDecision(
+        return HarnessLoopControlDecision(
             allowed=False,
             reason="budget_exhausted",
-            message="RuntimeLoop reached max_events before the next dispatch.",
+            message="HarnessLoop reached max_events before the next dispatch.",
             snapshot=snapshot,
         )
-    return RuntimeLoopControlDecision(
+    return HarnessLoopControlDecision(
         allowed=True,
-        message="RuntimeLoop control limits allow the next dispatch.",
+        message="HarnessLoop control limits allow the next dispatch.",
         snapshot=snapshot,
     )
+
+

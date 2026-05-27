@@ -446,3 +446,5 @@ def test_prompt_selection_context_exposes_model_owned_understanding_inputs() -> 
     assert context.request_facts["explicit_paths"] == ["backend/prompt_library/selector.py"]
     assert context.context_binding["kind"] == "workspace_context"
     assert context.task_requirement_contract["contract_id"] == "semantic-task:test:runtime-task"
+
+

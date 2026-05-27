@@ -387,3 +387,5 @@ def _safe_path_component(value: str) -> str:
     safe = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(value or "").strip()).strip("-")
     return safe[:80] or "stage"
 
+
+

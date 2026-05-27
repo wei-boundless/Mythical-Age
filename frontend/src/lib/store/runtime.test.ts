@@ -10,8 +10,8 @@ const api = vi.hoisted(() => ({
   getCodeEnvironmentWorkspaceTree: vi.fn(),
   getGlobalRuntimeMonitor: vi.fn(),
   getModelProviderConfig: vi.fn(),
-  getOrchestrationRuntimeLoopTaskRunLiveMonitor: vi.fn(),
-  getOrchestrationRuntimeLoopSessionLiveMonitor: vi.fn(),
+  getOrchestrationHarnessTaskRunLiveMonitor: vi.fn(),
+  getOrchestrationHarnessSessionLiveMonitor: vi.fn(),
   getRagMode: vi.fn(),
   getSessionHistory: vi.fn(),
   getSessionTokens: vi.fn(),
@@ -32,15 +32,15 @@ vi.mock("@/lib/api", () => ({
   getCoordinationRunTaskGraphMonitor: vi.fn(),
   getCodeEnvironmentWorkspaceTree: api.getCodeEnvironmentWorkspaceTree,
   getGlobalRuntimeMonitor: api.getGlobalRuntimeMonitor,
-  getRuntimeMonitorEventStreamUrl: vi.fn(() => "http://127.0.0.1:8003/api/orchestration/runtime-loop/monitor-events"),
+  getRuntimeMonitorEventStreamUrl: vi.fn(() => "http://127.0.0.1:8003/api/orchestration/harness/monitor-events"),
   getModelProviderConfig: api.getModelProviderConfig,
   getSoulImageAssetConfig: api.getSoulImageAssetConfig,
   getWorkspaceContext: api.getWorkspaceContext,
   isRequestAbortError: (error: unknown) => error instanceof DOMException && error.name === "AbortError",
   getTaskGraphRunMonitor: api.getTaskGraphRunMonitor,
   getTaskGraphRunMonitorDecisions: vi.fn(),
-  getOrchestrationRuntimeLoopTaskRunLiveMonitor: api.getOrchestrationRuntimeLoopTaskRunLiveMonitor,
-  getOrchestrationRuntimeLoopSessionLiveMonitor: api.getOrchestrationRuntimeLoopSessionLiveMonitor,
+  getOrchestrationHarnessTaskRunLiveMonitor: api.getOrchestrationHarnessTaskRunLiveMonitor,
+  getOrchestrationHarnessSessionLiveMonitor: api.getOrchestrationHarnessSessionLiveMonitor,
   getRagMode: api.getRagMode,
   getSessionHistory: api.getSessionHistory,
   getSessionTokens: api.getSessionTokens,
@@ -48,7 +48,7 @@ vi.mock("@/lib/api", () => ({
   listSkills: api.listSkills,
   loadFile: api.loadFile,
   renameSession: vi.fn(),
-  resolveRuntimeLoopTaskRunApproval: vi.fn(),
+  resolveHarnessTaskRunApproval: vi.fn(),
   resumeOrchestrationTaskGraphRun: vi.fn(),
   saveFile: vi.fn(),
   setRagMode: vi.fn(),
@@ -98,10 +98,10 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         truncated: false,
       },
     });
-    api.getOrchestrationRuntimeLoopSessionLiveMonitor.mockReset();
-    api.getOrchestrationRuntimeLoopSessionLiveMonitor.mockResolvedValue({ monitor: null });
-    api.getOrchestrationRuntimeLoopTaskRunLiveMonitor.mockReset();
-    api.getOrchestrationRuntimeLoopTaskRunLiveMonitor.mockResolvedValue({ monitor: null });
+    api.getOrchestrationHarnessSessionLiveMonitor.mockReset();
+    api.getOrchestrationHarnessSessionLiveMonitor.mockResolvedValue({ monitor: null });
+    api.getOrchestrationHarnessTaskRunLiveMonitor.mockReset();
+    api.getOrchestrationHarnessTaskRunLiveMonitor.mockResolvedValue({ monitor: null });
     api.getSessionHistory.mockReset();
     api.getSessionHistory.mockResolvedValue({ messages: [] });
     api.getSessionTokens.mockReset();
@@ -474,7 +474,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     }]);
     api.getSessionHistory.mockImplementation(() => new Promise(() => undefined));
     api.getSessionTokens.mockImplementation(() => new Promise(() => undefined));
-    api.getOrchestrationRuntimeLoopSessionLiveMonitor.mockImplementation(() => new Promise(() => undefined));
+    api.getOrchestrationHarnessSessionLiveMonitor.mockImplementation(() => new Promise(() => undefined));
     const store = createStore(getDefaultState());
     const runtime = new WorkspaceRuntime(store);
 
@@ -652,7 +652,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     await runtime.actions.sendMessage("为我生成一张睡着的小猫图片");
 
-    expect(api.getOrchestrationRuntimeLoopSessionLiveMonitor).not.toHaveBeenCalled();
+    expect(api.getOrchestrationHarnessSessionLiveMonitor).not.toHaveBeenCalled();
     expect(api.streamChat).toHaveBeenCalledTimes(1);
     expect(api.streamChat.mock.calls[0]?.[0]).toMatchObject({
       message: "为我生成一张睡着的小猫图片",
@@ -713,7 +713,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().sessionActivity.level).toBe("error");
   });
 
-  it("sends existing task order refs as the task execution authority", async () => {
+  it("sends task selection without old task order intent", async () => {
     vi.useRealTimers();
     const store = createStore<StoreState>({
       ...getDefaultState(),
@@ -722,50 +722,22 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         selected_task_id: "task.dev.frontend_ui",
         label: "前端 UI 优化",
         mode: "single_task",
-        task_order_id: "order:specific_task:abc",
-        task_order_run_id: "orderrun:abc",
       },
-      taskOrderProjection: {
-        authority: "task_system.task_orders_api",
-        task_order: {
-          order_id: "order:specific_task:abc",
-          order_kind: "specific_task",
-          task_id: "task.dev.frontend_ui",
-        },
-        task_order_run: {
-          run_id: "orderrun:abc",
-        },
-        execution_channel: {
-          channel_id: "execchan:abc",
-        },
-        task_execution_envelope: {
-          envelope_id: "taskenv:abc",
-        },
-      },
-      selectedTaskOrderId: "order:specific_task:abc",
-      selectedTaskOrderRunId: "orderrun:abc",
     });
     const runtime = new WorkspaceRuntime(store);
 
     await runtime.actions.sendMessage("开始执行。");
 
     expect(api.streamChat).toHaveBeenCalledTimes(1);
-    expect(api.streamChat.mock.calls[0]?.[0]?.task_order_intent).toEqual({
-      action: "execute_task_order_run",
-      order_kind: "specific_task",
-      task_order_id: "order:specific_task:abc",
-      task_order_run_id: "orderrun:abc",
-      execution_channel_id: "execchan:abc",
-      task_execution_envelope_id: "taskenv:abc",
-      task_id: "task.dev.frontend_ui",
-      source: "frontend_task_order_intent",
+    expect(api.streamChat.mock.calls[0]?.[0]?.task_selection).toMatchObject({
+      selected_task_id: "task.dev.frontend_ui",
     });
   });
 
-  it("consumes a task order projection after its run starts", async () => {
+  it("keeps task selection after chat stream start events", async () => {
     vi.useRealTimers();
     api.streamChat.mockImplementation(async (_payload, handlers) => {
-      handlers.onEvent("runtime_loop_started", {
+      handlers.onEvent("harness_run_started", {
         task_run: { task_run_id: "taskrun:abc" },
         agent_run: { agent_run_id: "agentrun:abc" },
       });
@@ -779,28 +751,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         selected_task_id: "task.dev.frontend_ui",
         label: "前端 UI 优化",
         mode: "single_task",
-        task_order_id: "order:specific_task:abc",
-        task_order_run_id: "orderrun:abc",
       },
-      taskOrderProjection: {
-        authority: "task_system.task_orders_api",
-        task_order: {
-          order_id: "order:specific_task:abc",
-          order_kind: "specific_task",
-          task_id: "task.dev.frontend_ui",
-        },
-        task_order_run: {
-          run_id: "orderrun:abc",
-        },
-        execution_channel: {
-          channel_id: "execchan:abc",
-        },
-        task_execution_envelope: {
-          envelope_id: "taskenv:abc",
-        },
-      },
-      selectedTaskOrderId: "order:specific_task:abc",
-      selectedTaskOrderRunId: "orderrun:abc",
     });
     const runtime = new WorkspaceRuntime(store);
 
@@ -808,34 +759,14 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     await runtime.actions.sendMessage("普通后续聊天。");
 
     expect(api.streamChat).toHaveBeenCalledTimes(2);
-    expect(api.streamChat.mock.calls[0]?.[0]?.task_order_intent?.task_order_run_id).toBe("orderrun:abc");
-    expect(api.streamChat.mock.calls[1]?.[0]?.task_order_intent).toBeUndefined();
-    expect(store.getState().taskOrderProjectionConsumed).toBe(true);
-    expect(store.getState().taskSelection).toBeNull();
+    expect(store.getState().taskSelection).toMatchObject({
+      selected_task_id: "task.dev.frontend_ui",
+    });
   });
 
-  it("attaches task order and tool runtime signals to the assistant task flow", () => {
+  it("attaches tool runtime signals to the assistant task flow", () => {
     let transition = startStreamingTurn(getDefaultState(), "执行前端任务");
-    transition = reduceStreamEvent(transition.state, transition.session, "task_order_projection", {
-      authority: "task_system.task_order_projection",
-      task_order: {
-        order_id: "order:specific_task:abc",
-        order_kind: "specific_task",
-        task_id: "task.dev.frontend_ui",
-        objective: "优化会话任务状态展示",
-      },
-      task_order_run: {
-        run_id: "orderrun:abc",
-        created_at: 1,
-      },
-      execution_channel: {
-        channel_id: "execchan:abc",
-      },
-      task_execution_envelope: {
-        envelope_id: "taskenv:abc",
-      },
-    });
-    transition = reduceStreamEvent(transition.state, transition.session, "runtime_loop_event", {
+    transition = reduceStreamEvent(transition.state, transition.session, "harness_loop_event", {
       event: {
         event_id: "rtevt:tool-request",
         task_run_id: "taskrun:abc",
@@ -853,7 +784,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         },
       },
     });
-    transition = reduceStreamEvent(transition.state, transition.session, "runtime_loop_event", {
+    transition = reduceStreamEvent(transition.state, transition.session, "harness_loop_event", {
       event: {
         event_id: "rtevt:tool-result",
         task_run_id: "taskrun:abc",
@@ -874,13 +805,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
 
     const assistant = transition.state.messages.at(-1);
-    expect(assistant?.runtimeProgress?.map((entry) => entry.kind)).toEqual(["task_order", "tool", "tool"]);
-    expect(assistant?.runtimeProgress?.[0]).toMatchObject({
-      statusText: "已绑定",
-      eventType: "task_order_projection",
-    });
-    expect(assistant?.runtimeProgress?.[0].meta?.map((item) => item.label)).toEqual(["类型", "任务"]);
-    expect(assistant?.runtimeProgress?.[2]).toMatchObject({
+    expect(assistant?.runtimeProgress?.map((entry) => entry.kind)).toEqual(["tool", "tool"]);
+    expect(assistant?.runtimeProgress?.[1]).toMatchObject({
       statusText: "已完成",
       toolName: "write_file",
       artifacts: [{ label: "产物", path: "docs/plan.md" }],
@@ -889,7 +815,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
   it("does not attach permission gate checks to the assistant task flow", () => {
     let transition = startStreamingTurn(getDefaultState(), "继续");
-    transition = reduceStreamEvent(transition.state, transition.session, "runtime_loop_event", {
+    transition = reduceStreamEvent(transition.state, transition.session, "harness_loop_event", {
       event: {
         event_id: "rtevt:gate",
         task_run_id: "taskrun:abc",

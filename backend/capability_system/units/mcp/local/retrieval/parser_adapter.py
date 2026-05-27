@@ -543,3 +543,5 @@ class MultimodalParserAdapter:
         except Exception:
             return False
         return True
+
+

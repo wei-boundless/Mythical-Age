@@ -570,3 +570,5 @@ def _derived_failure_policy(node: dict[str, Any]) -> str:
 
 def _issue(code: str, message: str, stage_id: str) -> dict[str, str]:
     return {"code": code, "message": message, "stage_id": stage_id, "severity": "error"}
+
+

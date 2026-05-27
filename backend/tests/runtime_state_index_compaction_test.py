@@ -52,7 +52,7 @@ def test_state_index_compacts_coordination_run_heavy_diagnostics(tmp_path) -> No
                     "nodes": [{"node_id": "a"}],
                     "edges": [{"from_node_id": "a", "to_node_id": "b"}],
                 },
-                "langgraph_runtime_state": {
+                "graph_coordination_state": {
                     "active_stage_id": "a",
                     "running_nodes": ["a"],
                     "completed_nodes": ["root"],
@@ -73,10 +73,12 @@ def test_state_index_compacts_coordination_run_heavy_diagnostics(tmp_path) -> No
     assert "task_graph_definition" not in diagnostics
     assert "task_graph_runtime_spec" not in diagnostics
     assert "coordination_graph_spec" not in diagnostics
-    assert "langgraph_runtime_state" not in diagnostics
+    assert "graph_coordination_state" not in diagnostics
     assert "task_graph_scheduler_state" not in diagnostics
     assert diagnostics["task_graph_definition_ref"].startswith("rtobj:task_graph_definitions:")
     assert diagnostics["task_graph_runtime_spec_ref"].startswith("rtobj:task_graph_runtime_specs:")
     assert diagnostics["coordination_graph_spec_ref"].startswith("rtobj:coordination_graph_specs:")
-    assert diagnostics["langgraph_runtime_state_summary"]["running_nodes"] == ["a"]
-    assert diagnostics["langgraph_runtime_state_summary"]["completed_node_count"] == 1
+    assert diagnostics["graph_coordination_state_summary"]["running_nodes"] == ["a"]
+    assert diagnostics["graph_coordination_state_summary"]["completed_node_count"] == 1
+
+

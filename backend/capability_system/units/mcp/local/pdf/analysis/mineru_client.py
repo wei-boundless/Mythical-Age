@@ -552,3 +552,5 @@ def build_default_mineru_client(settings: Settings | None = None) -> MinerUApiCl
             timeout_seconds=active_settings.mineru_api_timeout_seconds,
         )
     )
+
+

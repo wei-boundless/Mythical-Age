@@ -72,3 +72,5 @@ def test_permission_service_respects_scope_and_direct_route_safety() -> None:
         )
         assert explicit_read.allowed is True
         assert "route_eligibility:explicit_read_only" in explicit_read.checks
+
+

@@ -234,3 +234,5 @@ class WorkingMemoryQuery:
 
     def normalized_limit(self) -> int:
         return max(1, min(int(self.limit or 200), 1000))
+
+

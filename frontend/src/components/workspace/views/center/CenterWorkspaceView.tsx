@@ -9,7 +9,7 @@ import {
   getTaskSystemOverview,
   getTaskSystemTaskGraph,
   getTaskGraphRunMonitor,
-  startTaskGraphRuntimeLoopRun,
+  startTaskGraphHarnessRun,
   type TaskGraphRecord,
   type TaskGraphRunMonitorView,
   type TaskSystemOverview,
@@ -19,6 +19,8 @@ import { useAppStore } from "@/lib/store";
 import {
   buildCenterWorkspaceTaskGraphInitialInputs,
   centerWorkspaceTaskGraphSessionId,
+  centerWorkspaceTaskEnvironmentId,
+  centerWorkspaceTaskEnvironmentLabelFromOverview,
   listCenterWorkspaceTaskGraphs,
   resolveCenterWorkspaceSelectedGraphId,
   type CenterWorkspaceLayer,
@@ -54,8 +56,8 @@ export function CenterWorkspaceView() {
   const graphBodyRef = useRef<HTMLDivElement | null>(null);
 
   const taskGraphs = useMemo(() => listCenterWorkspaceTaskGraphs(overview), [overview]);
-  const taskDomains = useMemo(() => {
-    const ids = taskGraphs.map((graph) => String(graph.domain_id || "default").trim() || "default");
+  const taskEnvironmentIds = useMemo(() => {
+    const ids = taskGraphs.map((graph) => centerWorkspaceTaskEnvironmentId(graph));
     return Array.from(new Set(ids));
   }, [taskGraphs]);
   const selectedGraph = useMemo(() => {
@@ -71,10 +73,10 @@ export function CenterWorkspaceView() {
     if (explicitGraphId) return explicitGraphId;
     return String(taskGraphs[0]?.graph_id || "").trim();
   }, [selectedGraphId, taskGraphs]);
-  const selectedDomainId = String(selectedGraph?.domain_id || taskDomains[0] || "default").trim() || "default";
-  const selectedDomainGraphs = useMemo(
-    () => taskGraphs.filter((graph) => (String(graph.domain_id || "default").trim() || "default") === selectedDomainId),
-    [selectedDomainId, taskGraphs],
+  const selectedTaskEnvironmentId = selectedGraph ? centerWorkspaceTaskEnvironmentId(selectedGraph) : taskEnvironmentIds[0] || "env.general_workspace";
+  const selectedEnvironmentGraphs = useMemo(
+    () => taskGraphs.filter((graph) => centerWorkspaceTaskEnvironmentId(graph) === selectedTaskEnvironmentId),
+    [selectedTaskEnvironmentId, taskGraphs],
   );
   const boundTaskRunId = String(taskGraphMonitorBinding?.task_run_id ?? "").trim();
   const activeMonitor = useMemo(() => {
@@ -261,7 +263,7 @@ export function CenterWorkspaceView() {
     try {
       const initialInputs = buildCenterWorkspaceTaskGraphInitialInputs(message, selectedGraph);
       const sessionId = centerWorkspaceTaskGraphSessionId(currentSessionId);
-      const result = await startTaskGraphRuntimeLoopRun(graphId, {
+      const result = await startTaskGraphHarnessRun(graphId, {
         session_id: sessionId,
         initial_inputs: initialInputs,
         require_published: true,
@@ -334,7 +336,7 @@ export function CenterWorkspaceView() {
                 <section className="center-workspace__structure-summary">
                   <span><GitBranch size={13} /> {selectedGraph.node_count ?? selectedGraph.nodes?.length ?? 0} 节点 / {selectedGraph.edge_count ?? selectedGraph.edges?.length ?? 0} 边</span>
                   <span><Circle size={13} /> {selectedGraph.publish_state} · {selectedGraph.enabled ? "可用" : "停用"}</span>
-                  <span><Workflow size={13} /> {selectedGraph.domain_id || "default"}</span>
+                  <span><Workflow size={13} /> {centerWorkspaceTaskEnvironmentLabelFromOverview(overview, centerWorkspaceTaskEnvironmentId(selectedGraph))}</span>
                 </section>
               ) : null}
 
@@ -412,7 +414,7 @@ export function CenterWorkspaceView() {
                   <div className="center-workspace__monitor-empty">
                     <Network size={20} />
                     <strong>{selectedGraph ? "等待运行输出" : "先选择一个任务"}</strong>
-                    <span>{selectedGraph ? "运行后这里显示各节点的输出、结果引用和产物。" : "先在底部选择任务域和具体任务。"}</span>
+                    <span>{selectedGraph ? "运行后这里显示各节点的输出、结果引用和产物。" : "先在底部选择任务环境和具体任务。"}</span>
                   </div>
                 )}
               </div>
@@ -455,29 +457,29 @@ export function CenterWorkspaceView() {
             <div className="center-workspace__composer-footer">
               <div className="center-workspace__composer-target" aria-label="任务选择">
                 <label>
-                  <span>任务域</span>
+                  <span>任务环境</span>
                   <select
-                    disabled={starting || loadingOverview || !taskDomains.length}
+                    disabled={starting || loadingOverview || !taskEnvironmentIds.length}
                     onChange={(event) => {
-                      const nextDomain = event.target.value;
-                      const nextGraph = taskGraphs.find((graph) => (String(graph.domain_id || "default").trim() || "default") === nextDomain);
+                      const nextEnvironmentId = event.target.value;
+                      const nextGraph = taskGraphs.find((graph) => centerWorkspaceTaskEnvironmentId(graph) === nextEnvironmentId);
                       setSelectedGraphId(nextGraph?.graph_id || "");
                     }}
-                    value={selectedDomainId}
+                    value={selectedTaskEnvironmentId}
                   >
-                    {taskDomains.map((domainId) => (
-                      <option key={domainId} value={domainId}>{domainId}</option>
+                    {taskEnvironmentIds.map((environmentId) => (
+                      <option key={environmentId} value={environmentId}>{centerWorkspaceTaskEnvironmentLabelFromOverview(overview, environmentId)}</option>
                     ))}
                   </select>
                 </label>
                 <label>
                   <span>具体任务</span>
                   <select
-                    disabled={starting || loadingOverview || !selectedDomainGraphs.length}
+                    disabled={starting || loadingOverview || !selectedEnvironmentGraphs.length}
                     onChange={(event) => setSelectedGraphId(event.target.value)}
                     value={selectedGraph?.graph_id || ""}
                   >
-                    {selectedDomainGraphs.map((graph) => (
+                    {selectedEnvironmentGraphs.map((graph) => (
                       <option key={graph.graph_id} value={graph.graph_id}>{graph.title || graph.graph_id}</option>
                     ))}
                   </select>

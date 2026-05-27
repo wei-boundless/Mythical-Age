@@ -4,20 +4,21 @@ import asyncio
 import json
 import threading
 
-from runtime.shared.checkpoint import RuntimeCheckpointStore
-from runtime.shared.models import CoordinationNodeRun, CoordinationRun, RuntimeLoopState, TaskRun
+from harness.loop.checkpoint_store import HarnessCheckpointStore
+from harness.loop.state import HarnessLoopState
+from runtime.shared.models import CoordinationNodeRun, CoordinationRun, TaskRun
 from runtime.memory.state_index import RuntimeStateIndex
-from runtime.memory.trace_reader import RuntimeLoopTraceReader
+from harness.observability import HarnessTraceReader
 from runtime.shared.event_log import RuntimeEventLog
 from harness.loop.graph_coordination.checkpoint_adapter import GraphCoordinationCheckpointStore
 
 
 def test_global_live_monitor_uses_real_runtime_and_hides_old_history(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr("runtime.memory.trace_reader.time.time", lambda: 1000.0)
+    monkeypatch.setattr("harness.observability.time.time", lambda: 1000.0)
     state_index = RuntimeStateIndex(tmp_path)
-    checkpoints = RuntimeCheckpointStore(tmp_path)
+    checkpoints = HarnessCheckpointStore(tmp_path)
     event_log = RuntimeEventLog(tmp_path)
-    reader = RuntimeLoopTraceReader(state_index=state_index, event_log=event_log, checkpoints=checkpoints)
+    reader = HarnessTraceReader(state_index=state_index, event_log=event_log, checkpoints=checkpoints)
 
     live = TaskRun(
         task_run_id="taskrun:test:live",
@@ -65,11 +66,11 @@ def test_global_live_monitor_uses_real_runtime_and_hides_old_history(tmp_path, m
 
 
 def test_global_live_monitor_marks_inactive_running_task_as_stale(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr("runtime.memory.trace_reader.time.time", lambda: 1000.0)
+    monkeypatch.setattr("harness.observability.time.time", lambda: 1000.0)
     state_index = RuntimeStateIndex(tmp_path)
-    checkpoints = RuntimeCheckpointStore(tmp_path)
+    checkpoints = HarnessCheckpointStore(tmp_path)
     event_log = RuntimeEventLog(tmp_path)
-    reader = RuntimeLoopTraceReader(state_index=state_index, event_log=event_log, checkpoints=checkpoints)
+    reader = HarnessTraceReader(state_index=state_index, event_log=event_log, checkpoints=checkpoints)
 
     stale = TaskRun(
         task_run_id="taskrun:test:stale-running",
@@ -94,11 +95,11 @@ def test_global_live_monitor_marks_inactive_running_task_as_stale(tmp_path, monk
 
 
 def test_global_live_monitor_hides_task_graph_child_node_runs(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr("runtime.memory.trace_reader.time.time", lambda: 1000.0)
+    monkeypatch.setattr("harness.observability.time.time", lambda: 1000.0)
     state_index = RuntimeStateIndex(tmp_path)
-    checkpoints = RuntimeCheckpointStore(tmp_path)
+    checkpoints = HarnessCheckpointStore(tmp_path)
     event_log = RuntimeEventLog(tmp_path)
-    reader = RuntimeLoopTraceReader(state_index=state_index, event_log=event_log, checkpoints=checkpoints)
+    reader = HarnessTraceReader(state_index=state_index, event_log=event_log, checkpoints=checkpoints)
 
     root = TaskRun(
         task_run_id="taskrun:test:graph-root",
@@ -224,9 +225,9 @@ def test_runtime_event_log_wakes_async_subscriber_from_background_thread(tmp_pat
 
 def test_trace_reader_builds_live_monitor_from_latest_runtime_state(tmp_path) -> None:
     state_index = RuntimeStateIndex(tmp_path)
-    checkpoints = RuntimeCheckpointStore(tmp_path)
+    checkpoints = HarnessCheckpointStore(tmp_path)
     event_log = RuntimeEventLog(tmp_path)
-    reader = RuntimeLoopTraceReader(state_index=state_index, event_log=event_log, checkpoints=checkpoints)
+    reader = HarnessTraceReader(state_index=state_index, event_log=event_log, checkpoints=checkpoints)
 
     task_run = TaskRun(
         task_run_id="taskrun:test:coordination",
@@ -255,7 +256,7 @@ def test_trace_reader_builds_live_monitor_from_latest_runtime_state(tmp_path) ->
                 ],
                 "ready_nodes": ["world_review"],
             },
-            "langgraph_runtime_state": {
+            "graph_coordination_state": {
                 "ready_nodes": ["world_review"],
                 "running_nodes": ["world_design"],
                 "blocked_nodes": [],
@@ -315,7 +316,7 @@ def test_trace_reader_builds_live_monitor_from_latest_runtime_state(tmp_path) ->
     )
 
     checkpoints.write(
-        RuntimeLoopState(
+        HarnessLoopState(
             task_run_id=task_run.task_run_id,
             status="waiting_approval",
             turn_count=1,
@@ -336,7 +337,7 @@ def test_trace_reader_builds_live_monitor_from_latest_runtime_state(tmp_path) ->
     assert monitor["monitor"] is not None
     assert monitor["monitor"]["has_coordination"] is True
     assert monitor["monitor"]["coordination_run"]["coordination_flow"]["current_stage_id"] == "world_design"
-    assert monitor["monitor"]["coordination_run"]["langgraph_runtime_state"]["running_nodes"] == ["world_design"]
+    assert monitor["monitor"]["coordination_run"]["graph_coordination_state"]["running_nodes"] == ["world_design"]
     assert monitor["monitor"]["coordination_run"]["coordination_graph_spec"]["coordination_task_id"] == "coord.longform.live"
     assert monitor["monitor"]["coordination_run"]["node_runs"][0]["node_id"] == "world_design"
     assert monitor["monitor"]["latest_checkpoint"]["resume_state"]["decision"] == "wait_for_human"
@@ -384,9 +385,9 @@ def test_session_live_view_preserves_coordination_pointer_after_root_task_update
 
 def test_session_live_monitor_prefers_freshest_task_run_over_stale_live_view_pointer(tmp_path) -> None:
     state_index = RuntimeStateIndex(tmp_path)
-    checkpoints = RuntimeCheckpointStore(tmp_path)
+    checkpoints = HarnessCheckpointStore(tmp_path)
     event_log = RuntimeEventLog(tmp_path)
-    reader = RuntimeLoopTraceReader(state_index=state_index, event_log=event_log, checkpoints=checkpoints)
+    reader = HarnessTraceReader(state_index=state_index, event_log=event_log, checkpoints=checkpoints)
 
     stale = TaskRun(
         task_run_id="taskrun:test:stale",
@@ -427,10 +428,10 @@ def test_session_live_monitor_prefers_freshest_task_run_over_stale_live_view_poi
 
 def test_task_graph_monitor_reads_stream_chunks_from_active_node_task_run(tmp_path) -> None:
     state_index = RuntimeStateIndex(tmp_path)
-    checkpoints = RuntimeCheckpointStore(tmp_path)
+    checkpoints = HarnessCheckpointStore(tmp_path)
     event_log = RuntimeEventLog(tmp_path)
     coordination_checkpoints = GraphCoordinationCheckpointStore(tmp_path)
-    reader = RuntimeLoopTraceReader(
+    reader = HarnessTraceReader(
         state_index=state_index,
         event_log=event_log,
         checkpoints=checkpoints,
@@ -529,3 +530,5 @@ def test_task_graph_monitor_reads_stream_chunks_from_active_node_task_run(tmp_pa
     assert monitor["streaming"]["chunk_count"] == 1
     assert monitor["streaming"]["accumulated_chars"] == 4
     assert "正文片段" in monitor["streaming"]["preview_text"]
+
+

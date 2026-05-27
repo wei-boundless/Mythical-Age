@@ -231,3 +231,5 @@ class EvidenceGraphStore:
 
     def clear(self, session_id: str) -> None:
         self._store.pop(str(session_id or "").strip(), None)
+
+

@@ -45,3 +45,5 @@ def _read_field(payload: Any, field_name: str) -> Any:
     if isinstance(payload, Mapping):
         return payload.get(field_name)
     return getattr(payload, field_name, None)
+
+

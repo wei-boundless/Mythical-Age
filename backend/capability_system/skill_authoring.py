@@ -46,3 +46,5 @@ def set_skill_prompt_view(path: Path, prompt_view: dict[str, str]) -> dict[str, 
     meta["prompt"] = next_prompt
     write_skill_frontmatter(path, meta, body)
     return next_prompt
+
+

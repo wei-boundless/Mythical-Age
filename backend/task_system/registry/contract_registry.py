@@ -586,3 +586,5 @@ class TaskContractRegistry:
                 "validation_issue_count": len(issues),
             },
         }
+
+

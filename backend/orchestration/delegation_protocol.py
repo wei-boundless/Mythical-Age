@@ -154,3 +154,5 @@ def _child_role_instruction(source_kind: str, delegation_kind: str = "") -> str:
     if source_kind == "knowledge":
         return "你是一名知识库检索分析员。你只基于本地知识库证据回答，并标明证据是否足够。"
     return "你是一名受限子 Agent。你只完成主 Agent 委派的边界化任务，并把结果回传给主 Agent 收口。"
+
+

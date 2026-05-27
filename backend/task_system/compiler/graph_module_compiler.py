@@ -285,3 +285,5 @@ def _timeline_block_handoff_contract_id(block: dict[str, Any]) -> str:
     bindings = dict(block.get("contract_bindings") or {})
     handoff = dict(bindings.get("handoff") or {})
     return str(handoff.get("handoff_contract_id") or block.get("handoff_contract_id") or "").strip()
+
+

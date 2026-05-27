@@ -15,7 +15,7 @@ from task_system.tasks.run_models import (
 
 from harness.loop.agent_execution.observation_flow import apply_observation_aggregation
 from runtime.memory.observation_aggregator import ObservationAggregator
-from runtime.shared.models import RuntimeLoopState
+from harness.loop.state import HarnessLoopState
 from .agent_lifecycle import AgentRuntimeStartResult
 
 
@@ -26,7 +26,7 @@ class AgentRunFinalizationInput:
     history: list[dict[str, Any]]
     source: str
     start: AgentRuntimeStartResult
-    terminal_state: RuntimeLoopState
+    terminal_state: HarnessLoopState
     runtime_task_ledger: TaskRunLedger | None
     result_refs: list[str]
     final_content: str
@@ -53,7 +53,7 @@ class AgentRunFinalizationInput:
 class AgentRunFinalizationResult:
     done_event: dict[str, Any]
     continuation_payload: dict[str, Any] = field(default_factory=dict)
-    terminal_state: RuntimeLoopState | None = None
+    terminal_state: HarnessLoopState | None = None
     result_refs: list[str] = field(default_factory=list)
 
 
@@ -138,14 +138,14 @@ async def finalize_agent_run(
                 reason=transition["reason"],
                 diagnostics=dict(transition.get("diagnostics") or {}),
             )
-            yield {"type": "runtime_loop_event", "event": step_event.to_dict()}
+            yield {"type": "harness_loop_event", "event": step_event.to_dict()}
         ledger_event = runtime_host._record_task_run_ledger_updated(
             terminal_state.task_run_id,
             ledger=final_task_run_ledger,
             reason="terminal_projection",
             diagnostics={"terminal_reason": terminal_reason},
         )
-        yield {"type": "runtime_loop_event", "event": ledger_event.to_dict()}
+        yield {"type": "harness_loop_event", "event": ledger_event.to_dict()}
         terminal_state = runtime_host._state_with_task_run_ledger(
             terminal_state,
             final_task_run_ledger,
@@ -153,7 +153,7 @@ async def finalize_agent_run(
             diagnostics={"last_step_transition": "terminal_projection"},
         )
         checkpoint_event = runtime_host._write_checkpoint_event(terminal_state, event_offset=ledger_event.offset)
-        yield {"type": "runtime_loop_event", "event": checkpoint_event.to_dict()}
+        yield {"type": "harness_loop_event", "event": checkpoint_event.to_dict()}
     task_result = (
         project_task_result_from_ledger(
             final_task_run_ledger,
@@ -217,7 +217,7 @@ async def finalize_agent_run(
         },
     )
     result_refs.append(f"commit_gate:{assistant_commit.gate_id}")
-    yield {"type": "runtime_loop_event", "event": assistant_commit_event.to_dict()}
+    yield {"type": "harness_loop_event", "event": assistant_commit_event.to_dict()}
     yield {
         "type": "runtime_assistant_session_commit",
         "commit_gate": assistant_commit.to_dict(),
@@ -243,7 +243,7 @@ async def finalize_agent_run(
         },
     )
     result_refs.append(f"commit_gate:{final_commit.gate_id}")
-    yield {"type": "runtime_loop_event", "event": commit_event.to_dict()}
+    yield {"type": "harness_loop_event", "event": commit_event.to_dict()}
     yield {"type": "runtime_task_result_commit", "commit_gate": final_commit.to_dict()}
 
     working_memory_finalization = runtime_host.finalize_working_memory(
@@ -253,7 +253,7 @@ async def finalize_agent_run(
     )
     working_memory_finalization_result = dict(working_memory_finalization.get("result") or {})
     result_refs.append(f"working_memory_finalization:{working_memory_finalization_result.get('archive_report_path') or terminal_state.task_run_id}")
-    yield {"type": "runtime_loop_event", "event": dict(working_memory_finalization.get("event") or {})}
+    yield {"type": "harness_loop_event", "event": dict(working_memory_finalization.get("event") or {})}
     yield {"type": "working_memory_finalized", "result": working_memory_finalization_result}
 
     done_event = {
@@ -284,7 +284,7 @@ async def finalize_agent_run(
             "file_work_context_writeback": bool(final_main_context or final_task_summary_refs),
         },
     }
-    terminal_state = RuntimeLoopState(
+    terminal_state = HarnessLoopState(
         task_run_id=terminal_state.task_run_id,
         status=terminal_state.status,
         turn_count=finalization.turn_count,
@@ -340,9 +340,9 @@ async def finalize_agent_run(
             "task_result": task_result.to_dict() if task_result is not None else {},
         },
     )
-    yield {"type": "runtime_loop_event", "event": terminal_event.to_dict()}
+    yield {"type": "harness_loop_event", "event": terminal_event.to_dict()}
     checkpoint_event = runtime_host._write_checkpoint_event(terminal_state, event_offset=terminal_event.offset)
-    yield {"type": "runtime_loop_event", "event": checkpoint_event.to_dict()}
+    yield {"type": "harness_loop_event", "event": checkpoint_event.to_dict()}
 
     continuation_payload: dict[str, Any] = {}
     try:
@@ -361,7 +361,7 @@ async def finalize_agent_run(
             diagnostics={"final_content_chars": len(final_content)},
         )
         for runtime_event in finished.events:
-            yield {"type": "runtime_loop_event", "event": runtime_event.to_dict()}
+            yield {"type": "harness_loop_event", "event": runtime_event.to_dict()}
         continuation_payload = dict(finished.continuation_payload or {})
     except Exception as exc:
         state_index_diagnostics = {
@@ -383,7 +383,7 @@ async def finalize_agent_run(
                 payload=state_index_diagnostics,
                 refs={"checkpoint_ref": str(checkpoint_event.refs.get("checkpoint_ref") or "")},
             )
-            yield {"type": "runtime_loop_event", "event": degraded_event.to_dict()}
+            yield {"type": "harness_loop_event", "event": degraded_event.to_dict()}
         except Exception:
             pass
     if continuation_payload:
@@ -667,3 +667,5 @@ def finalize_runtime_task_run_ledger(
         diagnostics={"terminal_reason": terminal_reason},
     )
     return finalized, transitions
+
+

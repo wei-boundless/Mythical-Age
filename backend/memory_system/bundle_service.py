@@ -453,3 +453,5 @@ def _confidence_score(confidence: str) -> float:
     if normalized == "medium":
         return 0.6
     return 0.5
+
+

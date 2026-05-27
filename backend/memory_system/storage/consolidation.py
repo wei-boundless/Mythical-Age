@@ -243,3 +243,5 @@ class DurableMemoryConsolidator:
         if not joined:
             return "empty"
         return hashlib.sha1(joined.encode("utf-8")).hexdigest()[:12]
+
+

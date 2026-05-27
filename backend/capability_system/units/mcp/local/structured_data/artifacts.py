@@ -55,3 +55,5 @@ class StructuredDataArtifactBuilder:
             "categorical_columns": categorical_columns,
             "column_stats": column_stats,
         }
+
+

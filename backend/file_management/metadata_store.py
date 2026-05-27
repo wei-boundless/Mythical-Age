@@ -70,3 +70,5 @@ class FileManagementMetadataStore:
         with self.engine.begin() as conn:
             rows = conn.execute(select(managed_file_operation_receipts_table)).mappings().all()
         return [dict(row) for row in rows]
+
+

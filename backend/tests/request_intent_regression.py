@@ -33,3 +33,5 @@ def test_memory_recall_marker_stays_candidate_only() -> None:
     assert "route_hint" not in frame["capability_intent"]
     assert "tool_name" not in frame
     assert "candidate_tools" not in frame
+
+

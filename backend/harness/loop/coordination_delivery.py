@@ -350,3 +350,5 @@ class _ContinuationAgentRuntimeChain:
         while isinstance(chain, _ContinuationAgentRuntimeChain):
             chain = chain._base
         return chain
+
+

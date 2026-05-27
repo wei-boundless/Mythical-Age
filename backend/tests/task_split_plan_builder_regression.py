@@ -222,3 +222,5 @@ def test_parallel_split_plan_carries_concurrency_limit_in_metadata() -> None:
     assert plan.metadata["child_execution_mode"] == "parallel"
     assert plan.metadata["max_parallel_batches"] == 3
     assert all(item.steps[0].depends_on == () for item in plan.batch_lifecycle_plans)
+
+

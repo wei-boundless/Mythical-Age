@@ -294,3 +294,5 @@ def _edge_temporal_support_status(*, field: str, value: str) -> tuple[str, str]:
             return "supported", "dependency_gate=handoff_ack 已由 scheduler 转换为 handoff ack 阻塞。"
         return "partial", "该时序字段会被保留到契约绑定，但运行层只兑现其中一部分门控语义。"
     return "unsupported", "当前调度器未声明支持该边时序字段。"
+
+

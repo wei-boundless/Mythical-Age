@@ -1004,3 +1004,5 @@ def test_task_graph_runtime_spec_includes_model_resolution_summary() -> None:
     assert resolution["provider"]
     assert resolution["credential_configured"] in {True, False}
     assert "api_key" not in str(resolution).lower()
+
+

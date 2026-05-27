@@ -91,7 +91,7 @@ def _forbidden_field_counts(payload: dict[str, Any]) -> dict[str, int]:
         "task_graph_definition": 0,
         "task_graph_runtime_spec": 0,
         "agent_dispatch_plan": 0,
-        "langgraph_runtime_state": 0,
+        "graph_coordination_state": 0,
         "coordination_graph_spec": 0,
         "task_graph_scheduler_state": 0,
     }
@@ -115,3 +115,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+

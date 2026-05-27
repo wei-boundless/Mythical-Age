@@ -101,3 +101,5 @@ def looks_like_mojibake(text: str) -> bool:
 def count_mojibake_markers(text: str) -> int:
     sample = str(text or "")
     return sum(sample.count(marker) for marker in MOJIBAKE_MARKERS)
+
+

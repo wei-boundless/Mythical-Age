@@ -16,7 +16,7 @@ from query.runtime import _task_selection_for_runtime
 from capability_system.tool_runtime import ToolRuntime
 from harness.runtime import AgentRunRequest
 from runtime.agent_assembly import NodeWorkOrder, build_agent_invocation
-from runtime.unit_runtime.finalizer import FinishedTaskRunResult
+from harness.loop.task_run_finalizer import FinishedTaskRunResult
 from task_system import TaskFlowRegistry
 from tests.support.runtime_stubs import (
     DefaultPermissionStub,
@@ -29,8 +29,6 @@ from tests.support.runtime_stubs import (
     StreamingMessageModelRuntimeStub,
     isolated_backend_root,
 )
-from task_system.orders.models import ConversationTurn, TaskIntentDecision, TaskOrder, TaskExecutionEnvelope
-from task_system.orders.order_factory import TaskOrderCreation
 
 
 class _FailingDecisionModelRuntime:
@@ -188,7 +186,7 @@ def test_astream_specific_light_web_game_task_can_write_new_file(tmp_path: Path)
     assert any(
         dict(event.get("event") or {}).get("event_type") == "task_contract_built"
         for event in events
-        if event.get("type") == "runtime_loop_event"
+        if event.get("type") == "harness_loop_event"
     )
 
 
@@ -345,7 +343,7 @@ def test_query_runtime_assembles_compressed_context_before_model_history() -> No
     assert [item["content"] for item in captured_history[1:]] == [f"old-{index}" for index in range(2, 14)]
 
 
-def test_runtime_task_selection_preserves_order_projection_resource_contract() -> None:
+def test_runtime_task_selection_preserves_request_resource_contract() -> None:
     projected_selection = {
         "interaction_mode": "professional_mode",
         "resource_contract": {
@@ -355,35 +353,10 @@ def test_runtime_task_selection_preserves_order_projection_resource_contract() -
         },
         "sandbox_policy": {"enabled": True, "workspace_key": "langchain-mini-clean-agent-smoke"},
     }
-    creation = TaskOrderCreation(
-        conversation_turn=ConversationTurn(turn_id="turn:session:1", session_id="session"),
-        intent_decision=TaskIntentDecision(
-            decision_id="intent:turn:1",
-            turn_id="turn:session:1",
-            decision="executable_task",
-        ),
-        order=TaskOrder(
-            order_id="order:test",
-            session_id="session",
-            order_kind="ad_hoc_task",
-            source="conversation_turn",
-            source_ref="conversation.turn:1",
-            objective="审查代码",
-            input_contract={"task_selection_projection": projected_selection},
-        ),
-        envelope=TaskExecutionEnvelope(
-            envelope_id="taskenv:test",
-            order_id="order:test",
-            order_run_id="orderrun:test",
-            execution_channel_id="channel:test",
-            session_id="session",
-            context_package={"task_selection_projection": projected_selection},
-        ),
-    )
-
     task_selection = _task_selection_for_runtime(
-        request_task_selection={"interaction_mode": "professional_mode"},
-        task_order_creation=creation,
+        request_task_selection={
+            **projected_selection,
+        },
         turn_id="turn:session:1",
     )
 
@@ -392,7 +365,7 @@ def test_runtime_task_selection_preserves_order_projection_resource_contract() -
     assert task_selection["resource_contract"]["source_projects"][0]["path"].endswith("langchain-mini-clean")
 
 
-def test_astream_marks_task_order_failed_when_runtime_blocks_before_start() -> None:
+def test_astream_reports_prestart_failure_without_task_order_chain() -> None:
     runtime = QueryRuntime(
         base_dir=isolated_backend_root("query-runtime-prestart-failure-"),
         settings_service=PrimarySettingsStub(),
@@ -417,26 +390,17 @@ def test_astream_marks_task_order_failed_when_runtime_blocks_before_start() -> N
                     "runtime_lane": "professional_task",
                     "sandbox_policy": {"enabled": True, "workspace_key": "prestart-failure"},
                 },
-                task_order_intent={"action": "run_task"},
             )
         ):
             events.append(event)
         return events
 
     events = asyncio.run(_collect())
-    projection = next(event for event in events if event.get("type") == "task_order_projection")
-    order_run_id = str(dict(projection.get("task_order_run") or {}).get("run_id") or "")
-    run = runtime.task_run_loop.state_index.get_task_order_run(order_run_id)
-
     assert any(
         dict(event.get("event") or {}).get("event_type") == "runtime_blocked_before_assembly"
         for event in events
-        if event.get("type") == "runtime_loop_event"
+        if event.get("type") == "harness_loop_event"
     )
-    assert run is not None
-    assert run.status == "failed"
-    assert run.task_run_id == ""
-    assert "model_turn_decision_unavailable_or_blocked" in run.terminal_reason
     error = next(event for event in events if event.get("type") == "error")
     assert error["code"] == "model_turn_decision_blocked"
 
@@ -460,14 +424,14 @@ def test_astream_blocks_before_assembly_when_action_permit_denies_write() -> Non
     blocked_event = next(
         dict(event.get("event") or {})
         for event in events
-        if event.get("type") == "runtime_loop_event"
+        if event.get("type") == "harness_loop_event"
         and dict(event.get("event") or {}).get("event_type") == "runtime_blocked_before_assembly"
     )
     payload = dict(blocked_event.get("payload") or {})
 
     assert payload["reason"] == "action_permit_denied"
     assert payload["denied_reasons"] == ["write_forbidden_by_boundary"]
-    assert not any(event.get("type") == "runtime_loop_started" for event in events)
+    assert not any(event.get("type") == "harness_run_started" for event in events)
     error = next(event for event in events if event.get("type") == "error")
     assert error["code"] == "action_permit_denied"
 
@@ -496,12 +460,12 @@ def test_removed_health_task_selection_falls_back_to_general_runtime() -> None:
         return events
 
     events = asyncio.run(_collect())
-    started = next(event for event in events if event.get("type") == "runtime_loop_started")
+    started = next(event for event in events if event.get("type") == "harness_run_started")
     task_run = dict(started["task_run"])
     task_contract_event = next(
         dict(event.get("event") or {})
         for event in events
-        if event.get("type") == "runtime_loop_event"
+        if event.get("type") == "harness_loop_event"
         and dict(event.get("event") or {}).get("event_type") == "task_contract_built"
     )
 
@@ -561,12 +525,12 @@ def test_graph_node_assembly_contract_overrides_stale_task_selection_agent() -> 
         return events
 
     events = asyncio.run(_collect())
-    started = next(event for event in events if event.get("type") == "runtime_loop_started")
+    started = next(event for event in events if event.get("type") == "harness_run_started")
     task_run = dict(started["task_run"])
     task_contract_event = next(
         dict(event.get("event") or {})
         for event in events
-        if event.get("type") == "runtime_loop_event"
+        if event.get("type") == "harness_loop_event"
         and dict(event.get("event") or {}).get("event_type") == "task_contract_built"
     )
     payload = dict(task_contract_event["payload"])
@@ -618,12 +582,12 @@ def test_main_agent_assembly_modes_select_expected_runtime_lanes() -> None:
             return events
 
         events = asyncio.run(_collect())
-        started = next(event for event in events if event.get("type") == "runtime_loop_started")
+        started = next(event for event in events if event.get("type") == "harness_run_started")
         task_run = dict(started["task_run"])
         task_contract_event = next(
             dict(event.get("event") or {})
             for event in events
-            if event.get("type") == "runtime_loop_event"
+            if event.get("type") == "harness_loop_event"
             and dict(event.get("event") or {}).get("event_type") == "task_contract_built"
         )
         payload = dict(task_contract_event.get("payload") or {})
@@ -734,15 +698,15 @@ def test_runtime_trace_exposes_worker_spawn_trace_for_light_web_game(tmp_path: P
             )
         ):
             events.append(event)
-        started = next(event for event in events if event["type"] == "runtime_loop_started")
+        started = next(event for event in events if event["type"] == "harness_run_started")
         return events, str(dict(started["task_run"]).get("task_run_id") or "")
 
     events, task_run_id = asyncio.run(_collect())
-    trace = runtime.task_run_loop.get_trace(task_run_id)
+    trace = runtime.harness_service_host.get_trace(task_run_id)
     event_types = [
         dict(event.get("event") or {}).get("event_type")
         for event in events
-        if event.get("type") == "runtime_loop_event"
+        if event.get("type") == "harness_loop_event"
     ]
 
     assert trace is not None
@@ -771,12 +735,12 @@ def test_delegate_mode_does_not_start_system_retrieval_phase() -> None:
     event_types = [
         dict(event.get("event") or {}).get("event_type")
         for event in events
-        if event.get("type") == "runtime_loop_event"
+        if event.get("type") == "harness_loop_event"
     ]
     built_event = next(
         dict(event.get("event") or {})
         for event in events
-        if event.get("type") == "runtime_loop_event"
+        if event.get("type") == "harness_loop_event"
         and dict(event.get("event") or {}).get("event_type") == "task_contract_built"
     )
     payload = dict(built_event.get("payload") or {})
@@ -793,7 +757,7 @@ def test_delegate_mode_does_not_start_system_retrieval_phase() -> None:
     executor_events = [
         dict(event.get("event") or {})
         for event in events
-        if event.get("type") == "runtime_loop_event"
+        if event.get("type") == "harness_loop_event"
         and dict(event.get("event") or {}).get("event_type") == "executor_started"
     ]
     assert not any(
@@ -808,7 +772,7 @@ def test_terminal_state_index_failure_still_yields_done() -> None:
     def _raise_state_index_failure(*_args, **_kwargs):
         raise PermissionError("simulated state_index replace failure")
 
-    runtime.task_run_loop.task_run_finalizer.upsert_finished_task_run = _raise_state_index_failure  # type: ignore[method-assign]
+    runtime.harness_service_host.task_run_finalizer.upsert_finished_task_run = _raise_state_index_failure  # type: ignore[method-assign]
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
@@ -834,7 +798,7 @@ def test_terminal_state_index_failure_still_yields_done() -> None:
 
 def test_agent_runtime_reports_coordination_continuation_without_running_graph_stage() -> None:
     runtime = _build_stream_runtime()
-    original_upsert = runtime.task_run_loop.task_run_finalizer.upsert_finished_task_run
+    original_upsert = runtime.harness_service_host.task_run_finalizer.upsert_finished_task_run
 
     def _upsert_with_continuation(*args, **kwargs):
         finished = original_upsert(*args, **kwargs)
@@ -846,7 +810,7 @@ def test_agent_runtime_reports_coordination_continuation_without_running_graph_s
             },
         )
 
-    runtime.task_run_loop.task_run_finalizer.upsert_finished_task_run = _upsert_with_continuation  # type: ignore[method-assign]
+    runtime.harness_service_host.task_run_finalizer.upsert_finished_task_run = _upsert_with_continuation  # type: ignore[method-assign]
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
@@ -895,3 +859,5 @@ def test_assistant_commit_enqueues_memory_maintenance_without_waiting(tmp_path: 
     assert result["memory_maintenance_status"] == "queued"
     assert result["memory_maintenance_attempted"] is False
     assert result["durable_memory_commit_attempted"] is False
+
+

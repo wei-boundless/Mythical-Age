@@ -117,7 +117,7 @@ class SystemRetrievalStage:
                 },
                 refs={"task_contract_ref": task_contract_ref, "operation_id": operation_id},
             )
-            outcome.events.append({"type": "runtime_loop_event", "event": blocked_event.to_dict()})
+            outcome.events.append({"type": "harness_loop_event", "event": blocked_event.to_dict()})
             return outcome
 
         retrieval_event = self.event_log.append(
@@ -126,7 +126,7 @@ class SystemRetrievalStage:
             payload={"executor_type": "mcp", "runtime_channel": "system_retrieval", "mcp_route": mcp_route},
             refs={"task_contract_ref": task_contract_ref, "operation_id": operation_id},
         )
-        outcome.events.append({"type": "runtime_loop_event", "event": retrieval_event.to_dict()})
+        outcome.events.append({"type": "harness_loop_event", "event": retrieval_event.to_dict()})
 
         mcp_request = MCPRequest(
             request_id=f"mcpreq:{task_id}:{mcp_route}",
@@ -202,7 +202,7 @@ class SystemRetrievalStage:
                     reason=f"{mcp_route}_system_retrieval_completed",
                     refs={"operation_id": operation_id},
                 )
-                outcome.events.append({"type": "runtime_loop_event", "event": step_completed_event.to_dict()})
+                outcome.events.append({"type": "harness_loop_event", "event": step_completed_event.to_dict()})
             outcome.ledger = advance_task_run_ledger(
                 outcome.ledger,
                 started_at=time.time(),
@@ -214,7 +214,7 @@ class SystemRetrievalStage:
                 reason=f"{mcp_route}_system_retrieval_completed",
                 refs={"operation_id": operation_id},
             )
-            outcome.events.append({"type": "runtime_loop_event", "event": ledger_event.to_dict()})
+            outcome.events.append({"type": "harness_loop_event", "event": ledger_event.to_dict()})
             entered_step = current_task_step_run(outcome.ledger)
             if entered_step is not None and entered_step.step_id != current_step.step_id:
                 step_entered_event = self.record_task_run_step_event(
@@ -225,7 +225,7 @@ class SystemRetrievalStage:
                     reason=f"{mcp_route}_system_retrieval_completed",
                     refs={"operation_id": operation_id},
                 )
-                outcome.events.append({"type": "runtime_loop_event", "event": step_entered_event.to_dict()})
+                outcome.events.append({"type": "harness_loop_event", "event": step_entered_event.to_dict()})
             outcome.state = self.state_with_task_run_ledger(
                 outcome.state,
                 outcome.ledger,
@@ -233,7 +233,7 @@ class SystemRetrievalStage:
                 diagnostics={"last_step_transition": f"{mcp_route}_system_retrieval_completed"},
             )
             checkpoint_event = self.write_checkpoint_event(outcome.state, event_offset=ledger_event.offset)
-            outcome.events.append({"type": "runtime_loop_event", "event": checkpoint_event.to_dict()})
+            outcome.events.append({"type": "harness_loop_event", "event": checkpoint_event.to_dict()})
 
         if outcome.main_context:
             outcome.main_context.setdefault("answer_source", answer_source)
@@ -417,3 +417,5 @@ def _selection_is_coordination_task(selection: dict[str, Any]) -> bool:
         or str(selection.get("stage_execution_request_id") or "").strip()
         or dict(selection.get("stage_execution_request") or {})
     )
+
+

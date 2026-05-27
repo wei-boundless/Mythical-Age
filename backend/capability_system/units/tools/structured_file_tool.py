@@ -121,3 +121,5 @@ def _walk(value: Any, path: str, lines: list[str], *, max_items: int) -> None:
         lines.append(f"{path}: {type(value).__name__} = {preview}")
         return
     lines.append(f"{path}: {type(value).__name__}")
+
+

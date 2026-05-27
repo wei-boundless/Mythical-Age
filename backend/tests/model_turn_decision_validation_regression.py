@@ -179,3 +179,5 @@ def test_model_turn_decision_provider_failure_blocks_without_executable_fallback
     assert diagnostics["fallback_understanding_removed"] is True
     assert decision["action_intent"] == "block"
     assert decision["resource_contract"] == {}
+
+

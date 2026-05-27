@@ -1,12 +1,10 @@
 import type {
   GlobalRuntimeMonitor,
   GlobalRuntimeMonitorItem,
-  RuntimeLoopTaskRunLiveMonitor,
-  TaskOrderProjection,
+  HarnessTaskRunLiveMonitor,
 } from "./api";
 
 export type RuntimeWorkKind =
-  | "task_order_run"
   | "task_graph_run"
   | "agent_runtime_run"
   | "chat_turn_runtime";
@@ -15,10 +13,6 @@ export type RuntimeWorkProjection = {
   workId: string;
   workKind: RuntimeWorkKind;
   primaryRunId: string;
-  orderId?: string;
-  orderRunId?: string;
-  channelId?: string;
-  envelopeId?: string;
   graphId?: string;
   title: string;
   status: string;
@@ -53,42 +47,6 @@ function bool(value: unknown) {
 
 function statusFromMonitor(item: GlobalRuntimeMonitorItem) {
   return text(item.status) || text(item.coordination_status) || "unknown";
-}
-
-function workLabelForOrderKind(orderKind: string, fallbackHasCoordination = false) {
-  if (orderKind === "graph_run" || fallbackHasCoordination) return "任务图";
-  return "任务订单";
-}
-
-export function runtimeWorkProjectionFromTaskOrderProjection(
-  projection: TaskOrderProjection | null | undefined,
-  fallback: RuntimeProjectionFallback = {},
-): RuntimeWorkProjection | null {
-  if (!projection) return null;
-  const order = record(projection.task_order);
-  const run = record(projection.task_order_run);
-  const channel = record(projection.execution_channel);
-  const envelope = record(projection.task_execution_envelope);
-  const orderRunId = text(run.run_id);
-  const primaryRunId = text(run.task_run_id) || text(channel.task_run_id) || text(fallback.primaryRunId);
-  if (!orderRunId && !primaryRunId && !text(order.order_id)) return null;
-  const orderKind = text(order.order_kind);
-  const label = workLabelForOrderKind(orderKind, Boolean(fallback.hasCoordination));
-  return {
-    workId: orderRunId || primaryRunId || text(order.order_id),
-    workKind: "task_order_run",
-    primaryRunId,
-    orderId: text(order.order_id),
-    orderRunId,
-    channelId: text(channel.channel_id),
-    envelopeId: text(envelope.envelope_id),
-    graphId: text(fallback.graphId),
-    title: text(order.objective) || text(order.task_id) || text(fallback.title) || "运行任务",
-    status: text(run.status) || text(channel.status) || text(fallback.status) || "unknown",
-    displayTypeLabel: label,
-    latestEventType: fallback.latestEventType,
-    isLive: fallback.isLive,
-  };
 }
 
 function taskGraphProjection(item: GlobalRuntimeMonitorItem): RuntimeWorkProjection {
@@ -132,34 +90,17 @@ function chatTurnRuntimeProjection(item: GlobalRuntimeMonitorItem): RuntimeWorkP
 }
 
 export function runtimeWorkProjectionFromMonitorItem(item: GlobalRuntimeMonitorItem): RuntimeWorkProjection {
-  const orderProjection = runtimeWorkProjectionFromTaskOrderProjection(item.task_order_projection, {
-    primaryRunId: item.task_run_id,
-    title: item.title,
-    status: item.status,
-    latestEventType: item.latest_event_type,
-    isLive: item.is_live,
-    graphId: item.graph_id,
-    hasCoordination: item.has_coordination,
-  });
-  if (orderProjection) return orderProjection;
   if (item.has_coordination || text(item.graph_id)) return taskGraphProjection(item);
   if (text(item.latest_event_type).startsWith("agent_runtime_")) return agentRuntimeProjection(item);
   return chatTurnRuntimeProjection(item);
 }
 
 export function runtimeWorkProjectionFromLiveMonitor(
-  monitor: RuntimeLoopTaskRunLiveMonitor | null | undefined,
+  monitor: HarnessTaskRunLiveMonitor | null | undefined,
 ): RuntimeWorkProjection | null {
   if (!monitor) return null;
   const taskRun = record(monitor.task_run);
   const taskRunId = text(taskRun.task_run_id);
-  const orderProjection = runtimeWorkProjectionFromTaskOrderProjection(monitor.task_order_projection, {
-    primaryRunId: taskRunId,
-    title: text(taskRun.title) || text(taskRun.task_id),
-    status: monitor.status,
-    hasCoordination: monitor.has_coordination,
-  });
-  if (orderProjection) return orderProjection;
   if (monitor.has_coordination) {
     return {
       workId: taskRunId,

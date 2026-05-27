@@ -67,3 +67,5 @@ def test_retrieval_service_passes_plan_filters_to_backend() -> None:
     assert capture.request.filters["modality_any"] == ["table"]
     assert "table_row_window" in capture.request.filters["unit_type_any"]
     assert result.diagnostics["retrieval_plan"]["filters"]["modality_any"] == ["table"]
+
+

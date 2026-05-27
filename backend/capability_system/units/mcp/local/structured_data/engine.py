@@ -412,3 +412,5 @@ class StructuredDataEngine:
         if plan.agg == "min":
             return grouped.min()
         return None
+
+

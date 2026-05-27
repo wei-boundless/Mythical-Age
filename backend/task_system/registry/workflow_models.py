@@ -26,3 +26,5 @@ class TaskWorkflowBinding:
         payload["stop_conditions"] = list(self.stop_conditions)
         payload["required_evidence_refs"] = list(self.required_evidence_refs)
         return payload
+
+

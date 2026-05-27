@@ -302,3 +302,5 @@ def _tool_request_and_directive(
         operation_refs=(operation_id,),
     )
     return action_request, directive
+
+

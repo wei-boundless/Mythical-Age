@@ -5,9 +5,9 @@ from pathlib import Path
 import pytest
 
 from agent_system.profiles.runtime_profile_models import AgentRuntimeProfile
+from harness import HarnessServiceHost
 from runtime import (
     RuntimeContextManager,
-    TaskRunLoop,
     build_node_runtime_assembly,
 )
 from agent_system.assembly.runtime_chain import _memory_request_profile_for_context_assembly
@@ -62,7 +62,6 @@ def _manifest() -> ContractManifest:
                 task_id="task.test.worker",
                 agent_id="agent:test",
                 runtime_lane="readonly_exploration",
-                projection_id="projection.test.node_worker",
                 input_contract_id="contract.test.input",
                 output_contract_id="contract.test.output",
                 contract_refs=("contract.test.input", "contract.test.output"),
@@ -101,12 +100,12 @@ def test_node_runtime_assembly_hides_main_history_and_links_handoff_packet() -> 
 
     assert payload["authority"] == "orchestration.node_runtime_assembly"
     assert payload["node_id"] == "worker"
-    assert payload["projection_id"] == "projection.test.node_worker"
-    assert payload["diagnostics"]["projection_resolution_source"] == "node"
-    assert payload["diagnostics"]["projection_ref"] == "projection.test.node_worker"
+    assert "projection_id" not in payload
+    assert "projection_resolution_source" not in payload["diagnostics"]
+    assert "projection_ref" not in payload["diagnostics"]
     assert payload["diagnostics"]["agent_resolution_source"] == "node"
     assert payload["diagnostics"]["agent_profile_ref"] == "test_profile"
-    assert payload["diagnostics"]["prompt_manifest_ref"] == "contract-manifest:test"
+    assert payload["manifest_ref"] == "contract-manifest:test"
     assert payload["diagnostics"]["task_graph_node_ref"] == "graph.test:worker"
     assert payload["diagnostics"]["full_main_session_history_included"] is False
     assert all(item["section_id"] != "main_session_history" for item in payload["context_sections"])
@@ -352,10 +351,10 @@ def test_stage_execution_request_carries_runtime_assembly() -> None:
 
     assert restored.runtime_assembly["assembly_id"] == assembly.assembly_id
     assert restored.to_dict()["runtime_assembly"]["node_id"] == "worker"
-    assert restored.to_dict()["runtime_assembly"]["projection_id"] == "projection.test.node_worker"
+    assert "projection_id" not in restored.to_dict()["runtime_assembly"]
 
 
-def test_task_run_loop_starts_task_graph_with_real_dispatch_plan(tmp_path: Path) -> None:
+def test_harness_service_host_starts_task_graph_with_real_dispatch_plan(tmp_path: Path) -> None:
     graph = TaskGraphDefinition(
         graph_id="graph.test.task_graph_run",
         title="测试任务图运行",
@@ -391,7 +390,7 @@ def test_task_run_loop_starts_task_graph_with_real_dispatch_plan(tmp_path: Path)
     )
     runtime_spec = compile_task_graph_definition_runtime_spec(graph=graph)
 
-    loop = TaskRunLoop(tmp_path, backend_dir=Path("backend"))
+    loop = HarnessServiceHost(tmp_path, backend_dir=Path("backend"))
     result = loop.start_task_graph_run(
         session_id="session:test",
         graph=graph,
@@ -416,12 +415,12 @@ def test_task_run_loop_starts_task_graph_with_real_dispatch_plan(tmp_path: Path)
     assert trace["coordination_runs"][0]["graph_ref"] == graph.graph_id
     assert checkpoint is not None
     assert checkpoint.loop_state.runtime_lane == "task_graph_coordination"
-    assert checkpoint.loop_state.diagnostics["langgraph_coordination_initialized"] is True
+    assert checkpoint.loop_state.diagnostics["graph_coordination_initialized"] is True
     assert indexed_task_run is not None
     assert indexed_task_run.latest_checkpoint_ref == checkpoint.checkpoint_id
 
 
-def test_task_run_loop_restores_task_graph_initial_inputs_for_same_session_graph(tmp_path: Path) -> None:
+def test_harness_service_host_restores_task_graph_initial_inputs_for_same_session_graph(tmp_path: Path) -> None:
     graph = TaskGraphDefinition(
         graph_id="graph.test.restore_inputs",
         title="恢复初始输入",
@@ -456,7 +455,7 @@ def test_task_run_loop_restores_task_graph_initial_inputs_for_same_session_graph
         ),
     )
     runtime_spec = compile_task_graph_definition_runtime_spec(graph=graph)
-    loop = TaskRunLoop(tmp_path, backend_dir=Path("backend"))
+    loop = HarnessServiceHost(tmp_path, backend_dir=Path("backend"))
 
     first = loop.start_task_graph_run(
         session_id="session:test",
@@ -478,7 +477,7 @@ def test_task_run_loop_restores_task_graph_initial_inputs_for_same_session_graph
     assert restored_payload["initial_inputs"] == {"project_brief": "洪荒时代", "title": "洪荒时代"}
 
 
-def test_task_run_loop_rejects_legacy_task_graph_fallback_when_langgraph_support_missing(tmp_path: Path, monkeypatch) -> None:
+def test_harness_service_host_rejects_legacy_task_graph_fallback_when_langgraph_support_missing(tmp_path: Path, monkeypatch) -> None:
     graph = TaskGraphDefinition(
         graph_id="graph.test.no_legacy_fallback",
         title="禁止旧续推回退",
@@ -513,7 +512,7 @@ def test_task_run_loop_rejects_legacy_task_graph_fallback_when_langgraph_support
         ),
     )
     runtime_spec = compile_task_graph_definition_runtime_spec(graph=graph)
-    loop = TaskRunLoop(tmp_path, backend_dir=Path("backend"))
+    loop = HarnessServiceHost(tmp_path, backend_dir=Path("backend"))
     monkeypatch.setattr(loop.graph_coordination_engine, "supports", lambda coordination_run: False)
 
     with pytest.raises(RuntimeError, match="legacy initialization fallback was removed"):
@@ -542,7 +541,7 @@ def test_stage_execution_request_carries_working_memory_refs() -> None:
 
 
 def test_runtime_checkpoint_carries_working_memory_refs(tmp_path: Path) -> None:
-    loop = TaskRunLoop(tmp_path, backend_dir=Path("backend"))
+    loop = HarnessServiceHost(tmp_path, backend_dir=Path("backend"))
 
     started = loop.start(
         session_id="session:wm-checkpoint",
@@ -563,8 +562,8 @@ def test_runtime_checkpoint_carries_working_memory_refs(tmp_path: Path) -> None:
     assert started.loop_state.diagnostics["loop_owner"] == "harness.loop.agent_lifecycle"
 
 
-def test_task_run_loop_can_submit_working_memory_candidates(tmp_path: Path) -> None:
-    loop = TaskRunLoop(tmp_path, backend_dir=Path("backend"))
+def test_harness_service_host_can_submit_working_memory_candidates(tmp_path: Path) -> None:
+    loop = HarnessServiceHost(tmp_path, backend_dir=Path("backend"))
 
     stored = loop.submit_working_memory_candidates(
         task_run_id="taskrun:test",
@@ -592,8 +591,8 @@ def test_task_run_loop_can_submit_working_memory_candidates(tmp_path: Path) -> N
     assert stored[1].writer_agent_id == "agent:test"
 
 
-def test_task_run_loop_can_finalize_working_memory_without_durable_promotion(tmp_path: Path) -> None:
-    loop = TaskRunLoop(tmp_path, backend_dir=Path("backend"))
+def test_harness_service_host_can_finalize_working_memory_without_durable_promotion(tmp_path: Path) -> None:
+    loop = HarnessServiceHost(tmp_path, backend_dir=Path("backend"))
     stored = loop.submit_working_memory_candidates(
         task_run_id="taskrun:test-finalize",
         node_id="writer",
@@ -627,3 +626,5 @@ def test_task_run_loop_can_finalize_working_memory_without_durable_promotion(tmp
     assert loop.working_memory.get_item(stored[0].work_memory_id).status == "archived"
     assert loop.working_memory.get_item(stored[0].work_memory_id).promotion_state == "promoted_to_artifact_store"
     assert loop.working_memory.get_item(stored[1].work_memory_id).status == "discarded"
+
+

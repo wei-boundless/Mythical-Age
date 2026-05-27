@@ -186,3 +186,5 @@ def test_standard_result_package_preserves_activation_and_permit() -> None:
     assert result.execution_permit_id == "permit:writer:1"
     assert result.outputs["chapter_body"] == "正文"
     assert result.handoff_summary == "正文已完成。"
+
+

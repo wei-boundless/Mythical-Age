@@ -116,3 +116,5 @@ class GitShowTool(_GitTool):
 
     async def _arun(self, revision: str = "HEAD", max_chars: int = 12000, run_manager: AsyncCallbackManagerForToolRun | None = None) -> str:
         return await asyncio.to_thread(self._run, revision, max_chars, None)
+
+

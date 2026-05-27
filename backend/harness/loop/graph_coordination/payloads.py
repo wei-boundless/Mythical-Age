@@ -380,3 +380,5 @@ def _compile_issue_from_payload(payload: dict[str, Any]) -> ContractCompileIssue
         agent_id=str(payload.get("agent_id") or ""),
     )
 
+
+

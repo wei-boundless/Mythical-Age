@@ -27,3 +27,5 @@ def build_round_tool_call_options(*, max_tool_calls: int) -> ToolCallBindingOpti
     if max(1, int(max_tool_calls or 1)) <= 1:
         return ToolCallBindingOptions(parallel_tool_calls=False)
     return None
+
+

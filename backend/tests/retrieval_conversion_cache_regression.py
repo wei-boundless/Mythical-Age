@@ -86,3 +86,5 @@ def test_bootstrap_reuses_cache_only_when_structure_contract_matches(tmp_path: P
     assert loaded is not None
     assert loaded.blocks[0].text == "fresh converted text"
     assert cache.read_conversion_result(doc_id).blocks[0].text == "fresh converted text"
+
+

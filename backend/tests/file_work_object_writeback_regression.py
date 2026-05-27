@@ -350,3 +350,5 @@ class _SessionManager:
 
     def load_session(self, _session_id: str) -> list[dict[str, object]]:
         return list(self.messages)
+
+

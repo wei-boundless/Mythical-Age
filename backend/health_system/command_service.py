@@ -203,3 +203,5 @@ class HealthCommandService:
             diagnostics={"command_type": command.command_type},
         )
         return self.registry._complete_command(command, receipt=receipt)
+
+

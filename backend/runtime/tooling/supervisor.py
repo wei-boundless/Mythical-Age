@@ -210,3 +210,5 @@ def _capability_membership(
     if capability.tool_name != str(tool_name or ""):
         return "tool name does not match ToolCapabilityTable capability"
     return None
+
+

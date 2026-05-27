@@ -642,7 +642,7 @@ class GraphCoordinationEngine:
                     "contract_manifest_issue_count",
                     "stage_contract_issues",
                     "continuation_policy",
-                    "runtime_loop_policy",
+                    "graph_loop_policy",
                 ):
                     if key in refreshed_diagnostics:
                         diagnostics[key] = refreshed_diagnostics[key]
@@ -783,7 +783,7 @@ class GraphCoordinationEngine:
         pending_inputs["force_replay_after"] = time.time()
         pending_inputs["rewind_from_stage"] = target_stage_id
         pending_inputs["rewind_reason"] = reason
-        pending_inputs = _normalize_pending_inputs_with_runtime_loop_policy(
+        pending_inputs = _normalize_pending_inputs_with_graph_loop_policy(
             state=state,
             pending_inputs=pending_inputs,
             preserve_existing_batch_scope=True,
@@ -2058,7 +2058,7 @@ class GraphCoordinationEngine:
                 "missing_required_inputs": [f"upstream:{node}" for node in blocked_nodes],
             }
             return self._record_scheduler_evaluation(state=state, scheduler_update=result, node_statuses=node_statuses)
-        preferred_stage = str(dict(dict(state.get("diagnostics") or {}).get("runtime_loop") or {}).get("preferred_next_stage_id") or "").strip()
+        preferred_stage = str(dict(dict(state.get("diagnostics") or {}).get("graph_loop") or {}).get("preferred_next_stage_id") or "").strip()
         if preferred_stage and preferred_stage in ready:
             ready = [preferred_stage, *[item for item in ready if item != preferred_stage]]
         next_stage = ready[0]
@@ -2097,7 +2097,7 @@ class GraphCoordinationEngine:
             "result_refs": [str(current_event.get("task_result_ref") or "")],
         }
         stage_outputs = _collect_stage_outputs(dict(state.get("stage_results") or {}))
-        inherited_inputs = _normalize_pending_inputs_with_runtime_loop_policy(
+        inherited_inputs = _normalize_pending_inputs_with_graph_loop_policy(
             state=state,
             pending_inputs=dict(state.get("pending_inputs") or {}),
             preserve_existing_batch_scope=True,
@@ -2110,7 +2110,7 @@ class GraphCoordinationEngine:
             inherited_inputs=inherited_inputs,
             artifact_root=str(inherited_inputs.get("artifact_root") or ""),
         )
-        explicit_inputs = _normalize_pending_inputs_with_runtime_loop_policy(
+        explicit_inputs = _normalize_pending_inputs_with_graph_loop_policy(
             state=state,
             pending_inputs=dict(binding.explicit_inputs),
             preserve_existing_batch_scope=True,
@@ -2201,7 +2201,7 @@ class GraphCoordinationEngine:
     def _stage_execute(self, state: CoordinationRuntimeState) -> dict[str, Any]:
         stage_id = str(state.get("active_stage_id") or "").strip()
         contract = dict(dict(state.get("stage_contracts") or {}).get(stage_id) or {})
-        explicit_inputs = _normalize_pending_inputs_with_runtime_loop_policy(
+        explicit_inputs = _normalize_pending_inputs_with_graph_loop_policy(
             state=state,
             pending_inputs=dict(state.get("pending_inputs") or {}),
             preserve_existing_batch_scope=True,
@@ -3485,8 +3485,8 @@ class GraphCoordinationEngine:
                 "continuation_policy": CoordinationContinuationPolicy.from_metadata(
                     coordination_metadata
                 ).to_dict(),
-                "runtime_loop_policy": dict(coordination_metadata.get("runtime_loop_policy") or {}),
-                "runtime_loop": dict(loop_state),
+                "graph_loop_policy": dict(coordination_metadata.get("graph_loop_policy") or {}),
+                "graph_loop": dict(loop_state),
             },
         }
 
@@ -3759,9 +3759,9 @@ def _merge_runtime_nodes(*, compiled_nodes: list[dict[str, Any]], configured_nod
     return merged
 
 
-def _runtime_loop_policy_from_state(state: dict[str, Any]) -> dict[str, Any]:
+def _graph_loop_policy_from_state(state: dict[str, Any]) -> dict[str, Any]:
     diagnostics = dict(state.get("diagnostics") or {})
-    return dict(diagnostics.get("runtime_loop_policy") or {})
+    return dict(diagnostics.get("graph_loop_policy") or {})
 
 
 def _formal_memory_runtime_scope(
@@ -3788,9 +3788,9 @@ def _project_id_from_state(
     for value in (
         pending_inputs.get("project_id"),
         diagnostics.get("project_id"),
-        dict(diagnostics.get("runtime_loop") or {}).get("project_id"),
-        dict(diagnostics.get("runtime_loop_policy") or {}).get("project_id"),
-        dict(dict(diagnostics.get("runtime_loop_policy") or {}).get("initial_inputs") or {}).get("project_id"),
+        dict(diagnostics.get("graph_loop") or {}).get("project_id"),
+        dict(diagnostics.get("graph_loop_policy") or {}).get("project_id"),
+        dict(dict(diagnostics.get("graph_loop_policy") or {}).get("initial_inputs") or {}).get("project_id"),
     ):
         project_id = str(value or "").strip()
         if project_id:
@@ -3808,13 +3808,13 @@ def _project_id_from_state(
     return ""
 
 
-def _normalize_pending_inputs_with_runtime_loop_policy(
+def _normalize_pending_inputs_with_graph_loop_policy(
     *,
     state: dict[str, Any],
     pending_inputs: dict[str, Any],
     preserve_existing_batch_scope: bool = True,
 ) -> dict[str, Any]:
-    policy = _runtime_loop_policy_from_state(state)
+    policy = _graph_loop_policy_from_state(state)
     derived_fields = list(policy.get("derived_fields") or [])
     if not derived_fields:
         return dict(pending_inputs or {})
@@ -3826,14 +3826,14 @@ def _normalize_pending_inputs_with_runtime_loop_policy(
 
 
 def _initial_loop_state(*, metadata: dict[str, Any]) -> dict[str, Any]:
-    policy = dict(metadata.get("runtime_loop_policy") or {})
+    policy = dict(metadata.get("graph_loop_policy") or {})
     if not policy.get("enabled"):
         return {}
     pending_inputs = dict(policy.get("initial_inputs") or {})
     pending_inputs = _apply_loop_derived_fields(pending_inputs, list(policy.get("derived_fields") or []))
     summary = str(policy.get("summary") or "").strip()
     if summary:
-        pending_inputs.setdefault("runtime_loop_summary", _render_runtime_template(summary, pending_inputs))
+        pending_inputs.setdefault("graph_loop_summary", _render_runtime_template(summary, pending_inputs))
     return pending_inputs
 
 
@@ -3903,7 +3903,7 @@ def _loop_after_stage_accept(
             "pending_inputs": pending_inputs,
             "terminal_status": "",
             "diagnostics": {
-                "runtime_loop": {
+                "graph_loop": {
                     "status": "continue",
                     "preferred_next_stage_id": continue_stage_id,
                     "loop_scope_id": str(route_policy.get("loop_scope_id") or contract.get("loop_scope_id") or ""),
@@ -3924,7 +3924,7 @@ def _loop_after_stage_accept(
         "pending_inputs": pending_inputs,
         "terminal_status": "",
         "diagnostics": {
-            "runtime_loop": {
+            "graph_loop": {
                 "status": "exit",
                 "preferred_next_stage_id": exit_stage_id,
                 "loop_scope_id": str(route_policy.get("loop_scope_id") or contract.get("loop_scope_id") or ""),
@@ -4015,7 +4015,7 @@ def _pending_inputs_for_stage_quality_retry(
     current_output_key = str(policy.get("carry_current_output_as") or "").strip()
     if current_output_key:
         pending_inputs[current_output_key] = _first_artifact_ref(event)
-    pending_inputs = _normalize_pending_inputs_with_runtime_loop_policy(
+    pending_inputs = _normalize_pending_inputs_with_graph_loop_policy(
         state=state,
         pending_inputs=pending_inputs,
         preserve_existing_batch_scope=True,
@@ -4043,7 +4043,7 @@ def _pending_inputs_for_stage_quality_retry(
     for key in list(policy.get("clear_input_keys") or []):
         if str(key).strip():
             pending_inputs.pop(str(key).strip(), None)
-    return _normalize_pending_inputs_with_runtime_loop_policy(
+    return _normalize_pending_inputs_with_graph_loop_policy(
         state=state,
         pending_inputs=pending_inputs,
         preserve_existing_batch_scope=True,
@@ -4112,7 +4112,7 @@ def _pending_inputs_for_revision_retry(
     for key in list(policy.get("clear_input_keys") or []):
         if str(key).strip():
             pending_inputs.pop(str(key).strip(), None)
-    return _normalize_pending_inputs_with_runtime_loop_policy(
+    return _normalize_pending_inputs_with_graph_loop_policy(
         state=state,
         pending_inputs=pending_inputs,
         preserve_existing_batch_scope=True,
@@ -4321,7 +4321,7 @@ def _stage_execution_message(
         "请直接完成本节点职责要求的产物，不要写寒暄、等待补充、工作过程说明或系统说明。",
         "请严格依据本节点收到的任务说明、交接包、记忆快照、产物上下文和输出契约工作；不要自行猜测未提供的上游结果。",
     ]
-    loop_summary = str(explicit_inputs.get("runtime_loop_summary") or "").strip()
+    loop_summary = str(explicit_inputs.get("graph_loop_summary") or "").strip()
     if loop_summary:
         lines.append("当前循环上下文：")
         lines.append(loop_summary)
@@ -5606,5 +5606,7 @@ def _active_scope_key_for_scheduler(state: dict[str, Any]) -> str:
         if loop_index > 0:
             scope_path.append(f"iteration[{loop_index}]")
     return _dependency_scope_key_from_inputs(dict(state.get("pending_inputs") or {})) or "/".join(str(item).strip().replace("/", "_") for item in list(scope_path or ["run"]) if str(item).strip()) or "run"
+
+
 
 

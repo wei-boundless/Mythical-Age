@@ -374,3 +374,5 @@ def test_formal_memory_candidate_materialization_reads_artifact_text(tmp_path, m
     assert candidate["canonical_text"] == "# Canon\n\n正式记忆正文。"
     assert candidate["summary"] == "Canon"
     assert candidate["content_requirement"]["canonical_text_required"] is True
+
+

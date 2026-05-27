@@ -129,3 +129,5 @@ def test_graph_harness_chains_coordination_continuation_through_agent_runtime() 
     assert captured_task_ids[0].endswith(":first")
     assert captured_task_ids[1].endswith(":second")
     assert events == []
+
+

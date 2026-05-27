@@ -121,3 +121,5 @@ def test_runtime_tool_capability_table_consumes_specific_task_policy_payload() -
     assert any(issue.operation_id == "op.agent_todo" and issue.source == "task_environment" for issue in table.filtered)
     assert any(issue.operation_id == "op.shell" and issue.source == "task_environment" for issue in table.filtered)
     assert any(trace.source == "specific_task_assembly_policy" and trace.metadata.get("specific_task_assembly_policy_ref") == "taskasm:specific-writing" for trace in table.source_trace)
+
+

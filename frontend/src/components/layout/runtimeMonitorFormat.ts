@@ -50,11 +50,7 @@ export function monitorTimeLabel(item: GlobalRuntimeMonitorItem, nowSeconds?: nu
 }
 
 export function taskTitle(item: GlobalRuntimeMonitorItem) {
-  const order = item.task_order_projection?.task_order;
-  const objective = order && typeof order === "object" && !Array.isArray(order)
-    ? String(order.objective ?? "").trim()
-    : "";
-  return objective || item.project_title || item.title || item.task_id || item.task_run_id;
+  return item.project_title || item.title || item.task_id || item.task_run_id;
 }
 
 export function isWaitingStatus(status: string) {

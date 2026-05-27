@@ -54,3 +54,5 @@ class ContextPolicyResult:
             "authority": self.authority,
             "diagnostics": dict(self.diagnostics),
         }
+
+

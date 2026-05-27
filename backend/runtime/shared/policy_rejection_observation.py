@@ -58,3 +58,5 @@ def build_policy_rejection_observation(
             "execution_receipt": dict(execution_receipt or {}),
         },
     )
+
+

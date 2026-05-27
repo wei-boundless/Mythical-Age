@@ -19,11 +19,11 @@ def test_sse_collector_publishes_events_before_stream_finish() -> None:
         on_event=lambda event, events, _timing: observed.append((str(event["event"]), len(events))),
     )
 
-    collector.consume_line("event: runtime_loop_event")
+    collector.consume_line("event: harness_loop_event")
     collector.consume_line('data: {"event":{"event_type":"task_contract_built"}}')
     collector.consume_line("")
 
-    assert observed == [("runtime_loop_event", 1)]
+    assert observed == [("harness_loop_event", 1)]
     assert collector.events[0]["data"]["event"]["event_type"] == "task_contract_built"
 
     collector.consume_line("event: token")
@@ -34,3 +34,5 @@ def test_sse_collector_publishes_events_before_stream_finish() -> None:
     assert observed[-1] == ("token", 2)
     assert len(events) == 2
     assert timing.event_count == 2
+
+

@@ -140,3 +140,5 @@ def test_workflow_contract_compiler_reports_missing_contract_and_runtime_mismatc
     assert "contract_spec_missing" in issue_codes
     assert "runtime_lane_unknown" in issue_codes
     assert "runtime_lane_not_allowed" in issue_codes
+
+

@@ -968,3 +968,5 @@ def _subtask_refs_from_graph_payload(graph: TaskGraphDefinition) -> list[str]:
         ],
     ]
     return list(dict.fromkeys(value for value in refs if value.startswith("task.")))
+
+

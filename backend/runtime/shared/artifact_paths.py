@@ -173,3 +173,5 @@ def _path_from_write_result(result: str) -> str:
         if marker in text:
             return text.split(marker, 1)[1].strip().splitlines()[0].strip()
     return ""
+
+

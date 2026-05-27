@@ -86,3 +86,5 @@ class TaskGraphRepository:
         graphs.append(graph)
         self.storage.write_object("task_graphs.json", {"task_graphs": [item.to_dict() for item in graphs]})
         return graph
+
+

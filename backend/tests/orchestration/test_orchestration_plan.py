@@ -46,3 +46,5 @@ def test_candidate_envelope_rejects_decision_authority() -> None:
         assert "decision authority" in str(exc)
     else:
         raise AssertionError("candidate with decision authority should be rejected")
+
+

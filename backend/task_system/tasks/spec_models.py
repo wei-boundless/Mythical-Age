@@ -40,3 +40,5 @@ class TaskSpec:
         payload["step_input_bindings"] = [item.to_dict() for item in self.step_input_bindings]
         payload["selected_skill_ids"] = list(self.selected_skill_ids)
         return payload
+
+

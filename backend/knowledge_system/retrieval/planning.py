@@ -129,3 +129,5 @@ class RetrievalPlan:
             "query_variants": [variant.to_dict() for variant in self.query_variants],
             "trace": self.trace.to_dict(),
         }
+
+

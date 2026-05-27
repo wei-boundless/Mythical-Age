@@ -133,3 +133,5 @@ class ComposableGraphView:
             "diagnostics": dict(self.diagnostics),
             "issues": [dict(item) for item in self.issues],
         }
+
+

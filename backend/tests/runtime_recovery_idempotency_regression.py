@@ -10,7 +10,7 @@ if str(BACKEND_DIR) not in sys.path:
 from capability_system.operation_registry import OperationDescriptor
 from orchestration import RuntimeActionRequest
 from harness.loop.agent_execution import prepare_tool_execution
-from runtime.unit_runtime.loop import TaskRunLoop
+from harness import HarnessServiceHost
 
 
 def _action_request(request_id: str) -> RuntimeActionRequest:
@@ -35,7 +35,7 @@ def _action_request(request_id: str) -> RuntimeActionRequest:
 
 
 def test_idempotent_write_reuses_completed_result(tmp_path: Path) -> None:
-    loop = TaskRunLoop(tmp_path / "runtime-idempotent")
+    loop = HarnessServiceHost(tmp_path / "runtime-idempotent")
     descriptor = OperationDescriptor(
         operation_id="op.test_write",
         operation_type="filesystem",
@@ -97,7 +97,7 @@ def test_idempotent_write_reuses_completed_result(tmp_path: Path) -> None:
 
 
 def test_non_replay_safe_write_is_suppressed_on_duplicate_request(tmp_path: Path) -> None:
-    loop = TaskRunLoop(tmp_path / "runtime-nonreplay")
+    loop = HarnessServiceHost(tmp_path / "runtime-nonreplay")
     descriptor = OperationDescriptor(
         operation_id="op.test_write",
         operation_type="filesystem",
@@ -147,3 +147,5 @@ def test_non_replay_safe_write_is_suppressed_on_duplicate_request(tmp_path: Path
         "recovery_replay_decided",
         "replay_guard_triggered",
     ]
+
+

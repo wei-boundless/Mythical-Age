@@ -312,3 +312,5 @@ def build_query_runtime(
         permission_service=permission_service or DefaultPermissionStub(),
         model_runtime=model_runtime or SingleMessageModelRuntimeStub(),
     )
+
+

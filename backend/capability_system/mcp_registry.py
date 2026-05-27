@@ -73,3 +73,5 @@ def default_mcp_entries(operation_registry: OperationRegistry | None = None) -> 
 
 def build_mcp_catalog(operation_registry: OperationRegistry | None = None) -> list[dict[str, Any]]:
     return [entry.to_dict() for entry in default_mcp_entries(operation_registry)]
+
+

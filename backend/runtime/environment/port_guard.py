@@ -35,3 +35,5 @@ def _port_probe(port: int) -> dict[str, Any]:
         sock.settimeout(0.2)
         result = sock.connect_ex(("127.0.0.1", int(port)))
     return {"port": int(port), "listening": result == 0}
+
+

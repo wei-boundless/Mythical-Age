@@ -53,3 +53,5 @@ class CandidateSet:
 
     def to_list(self) -> list[dict[str, Any]]:
         return [item.to_dict() for item in self.candidates]
+
+

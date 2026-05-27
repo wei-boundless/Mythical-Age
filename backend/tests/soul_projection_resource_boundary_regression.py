@@ -111,3 +111,5 @@ def test_soul_runtime_view_carries_projection_identity_anchor_separately() -> No
 
     assert "projection_section" in runtime_sections
     assert "你是长篇正文执行投影，不是灵魂本体。" in runtime_sections["projection_section"]["content"]
+
+

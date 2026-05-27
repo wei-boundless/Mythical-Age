@@ -456,3 +456,5 @@ def _safe_root_fragment(value: str) -> Path:
 
 def _is_inside(path: Path, root: Path) -> bool:
     return path == root or root in path.parents
+
+

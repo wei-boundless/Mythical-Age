@@ -227,3 +227,5 @@ class CapabilitySupplyPackage:
         payload["skill_refs"] = [item.to_dict() for item in self.skill_refs]
         payload["mcp_refs"] = [item.to_dict() for item in self.mcp_refs]
         return payload
+
+

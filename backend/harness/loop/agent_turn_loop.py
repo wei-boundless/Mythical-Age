@@ -11,8 +11,8 @@ from task_system.tasks.run_models import task_run_step_count
 from harness.loop.agent_execution.followup_cycle import build_initial_followup_messages, build_next_followup_messages
 from harness.loop.agent_execution.model_loop import ModelToolCallAccumulator
 from runtime.memory.observation_aggregator import ObservationAggregator
-from runtime.shared.loop_control import check_runtime_loop_control
-from runtime.shared.models import RuntimeLoopState
+from harness.loop.control import check_harness_loop_control
+from harness.loop.state import HarnessLoopState
 from runtime.shared.tool_repetition_guard import ToolRepetitionGuard
 from harness.runtime.context import bundle_items_from_runtime_contract, is_retrieval_task_mode
 from .agent_event_application import ModelTurnApplicationState
@@ -22,7 +22,7 @@ from .agent_model_turn import AgentModelTurnInput, run_agent_model_turn
 @dataclass(slots=True)
 class AgentTurnLoopInput:
     runtime_host: Any
-    state: RuntimeLoopState
+    state: HarnessLoopState
     runtime_task_ledger: Any
     result_refs: list[str]
     initial_final_main_context: dict[str, Any]
@@ -51,7 +51,7 @@ class AgentTurnLoopInput:
 
 @dataclass(slots=True)
 class AgentTurnLoopResult:
-    state: RuntimeLoopState
+    state: HarnessLoopState
     runtime_task_ledger: Any
     result_refs: list[str]
     final_content: str
@@ -108,7 +108,7 @@ async def run_agent_turn_loop(
         payload={"executor_type": "model", "runtime_channel": "agent_runtime"},
         refs={"task_contract_ref": item.task_contract_ref, "directive_ref": item.directive.directive_id},
     )
-    yield {"type": "runtime_loop_event", "event": executor_event.to_dict()}
+    yield {"type": "harness_loop_event", "event": executor_event.to_dict()}
 
     turn_application = ModelTurnApplicationState(
         loop_state=state,
@@ -224,7 +224,7 @@ async def run_agent_turn_loop(
     while followup_messages and terminal_reason == "completed":
         turn_count += 1
         model_call_count += 1
-        loop_state_for_control = RuntimeLoopState(
+        loop_state_for_control = HarnessLoopState(
             task_run_id=state.task_run_id,
             status="running",
             transition="continue_after_tool_result",
@@ -247,7 +247,7 @@ async def run_agent_turn_loop(
             token_pressure=dict(state.token_pressure),
             diagnostics=dict(state.diagnostics),
         )
-        followup_control = check_runtime_loop_control(
+        followup_control = check_harness_loop_control(
             loop_state_for_control,
             limits=item.effective_limits,
             started_at=item.start_task_run.created_at,
@@ -260,18 +260,18 @@ async def run_agent_turn_loop(
             payload={"control": followup_control.to_dict()},
             refs={"task_contract_ref": item.task_contract_ref},
         )
-        yield {"type": "runtime_loop_event", "event": followup_control_event.to_dict()}
-        yield {"type": "runtime_loop_control", "control": followup_control.to_dict()}
+        yield {"type": "harness_loop_event", "event": followup_control_event.to_dict()}
+        yield {"type": "harness_loop_control", "control": followup_control.to_dict()}
         if not followup_control.allowed:
             terminal_reason = followup_control.reason
             if not final_content:
                 final_answer_metadata = {
                     "answer_channel": "orchestration_fail_closed",
-                    "answer_source": "runtime_loop_control",
+                    "answer_source": "harness_loop_control",
                     "answer_canonical_state": "no_agent_final_answer",
                     "answer_persist_policy": "persist_debug_only",
                     "answer_finalization_policy": "none",
-                    "answer_fallback_reason": str(followup_control.reason or "runtime_loop_control"),
+                    "answer_fallback_reason": str(followup_control.reason or "harness_loop_control"),
                 }
             break
 
@@ -285,7 +285,7 @@ async def run_agent_turn_loop(
                 "tool_result_count": len([message for message in followup_messages if isinstance(message, ToolMessage)]),
             },
         )
-        yield {"type": "runtime_loop_event", "event": followup_event.to_dict()}
+        yield {"type": "harness_loop_event", "event": followup_event.to_dict()}
         state = item.runtime_host._state_with_task_run_ledger(
             state,
             runtime_task_ledger,
@@ -399,7 +399,7 @@ async def run_agent_turn_loop(
                 if not final_content:
                     final_answer_metadata = {
                         "answer_channel": "orchestration_fail_closed",
-                        "answer_source": "runtime_loop_control",
+                        "answer_source": "harness_loop_control",
                         "answer_canonical_state": "no_agent_final_answer",
                         "answer_persist_policy": "persist_debug_only",
                         "answer_finalization_policy": "none",
@@ -443,7 +443,7 @@ async def run_agent_turn_loop(
 
 def _turn_loop_result(
     *,
-    state: RuntimeLoopState,
+    state: HarnessLoopState,
     runtime_task_ledger: Any,
     result_refs: list[str],
     final_content: str,
@@ -497,3 +497,5 @@ def _run_outcome_from_answer_metadata(
     if isinstance(completion, dict):
         return dict(completion)
     return dict(fallback or {})
+
+

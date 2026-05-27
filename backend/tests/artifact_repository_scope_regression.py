@@ -159,3 +159,5 @@ def test_artifact_ref_index_falls_back_to_trace_contract_lookup() -> None:
     assert index.latest_output_refs_by_contract(output_contract_id="contract.trace") == [
         "artifact:trace/result.md"
     ]
+
+

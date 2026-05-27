@@ -19,3 +19,5 @@ class AgentContext:
     parent_agent_type: str | None = None
     allowed_tools: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
+
+

@@ -299,3 +299,5 @@ def default_mode_profiles() -> list[SoulModeProfile]:
             description="用于纯执行任务，不进行灵魂扮演。",
         ),
     ]
+
+

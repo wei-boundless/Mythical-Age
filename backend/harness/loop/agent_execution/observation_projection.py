@@ -347,3 +347,5 @@ def _extract_tool_output_field(value: str, labels: tuple[str, ...]) -> str:
     pattern = rf"(?:{label_pattern})\s*[:：]\s*([^\s,，;；]+)"
     match = re.search(pattern, str(value or ""), flags=re.IGNORECASE)
     return match.group(1).strip() if match else ""
+
+

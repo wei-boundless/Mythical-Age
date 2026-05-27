@@ -128,3 +128,5 @@ def strategy_prototype_for_task_goal(task_goal_type: str) -> StrategyPrototype:
     profile = get_task_goal_profile(normalized)
     prototype_id = str(getattr(profile, "strategy_prototype_id", "") or normalized)
     return _PROTOTYPES.get(prototype_id, _PROTOTYPES["generic_professional_task"])
+
+

@@ -28,3 +28,5 @@ def health_agent_unavailable_diagnostics(*, health_action: str = "") -> dict[str
         "blocked_reason": HEALTH_AGENT_CONFIG_BLOCK_REASON,
         "message": "Health agent runtime config was intentionally cleared; rebuild backend/health_system/agent_config.py before enabling agent execution.",
     }
+
+

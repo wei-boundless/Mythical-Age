@@ -42,3 +42,5 @@ def test_timeline_ledger_appends_monotonic_events_by_coordination_run(tmp_path) 
         "node_dispatch_requested",
     ]
     assert snapshot["recent_events"][1]["scope_path"] == ["run", "phase.design"]
+
+

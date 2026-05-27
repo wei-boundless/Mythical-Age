@@ -88,3 +88,5 @@ def build_default_collections(base_dir: Path) -> dict[str, CollectionConfig]:
             file_extensions=(".md", ".txt", ".json", ".csv"),
         )
     return collections
+
+

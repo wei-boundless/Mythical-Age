@@ -15,13 +15,14 @@ from harness.loop.agent_execution.observation_flow import (
     record_tool_observation_projection,
 )
 from runtime.memory.observation_aggregator import ObservationAggregator
-from runtime.shared.models import RuntimeLoopState, TaskRun
+from harness.loop.state import HarnessLoopState
+from runtime.shared.models import TaskRun
 from runtime.shared.tool_repetition_guard import ToolRepetitionGuard
 
 
 @dataclass(slots=True)
 class ModelTurnApplicationState:
-    loop_state: RuntimeLoopState
+    loop_state: HarnessLoopState
     runtime_task_ledger: TaskRunLedger | None
     result_refs: list[str]
     final_content: str
@@ -81,7 +82,7 @@ async def apply_model_turn_event(
                 action_request_ref=str(runtime_event.refs.get("action_request_ref") or runtime_event.event_id),
             )
             for transition_event in transition_events:
-                yield {"type": "runtime_loop_event", "event": transition_event.to_dict()}
+                yield {"type": "harness_loop_event", "event": transition_event.to_dict()}
         elif runtime_effect.event_type == "executor_observation_received":
             async for emitted_event in apply_model_observation_effect(
                 runtime_host,
@@ -146,7 +147,7 @@ async def apply_model_turn_event(
                         ledger_diagnostics={"terminal_reason": "executor_failed"},
                     )
                     for transition_event in transition_events:
-                        yield {"type": "runtime_loop_event", "event": transition_event.to_dict()}
+                        yield {"type": "harness_loop_event", "event": transition_event.to_dict()}
         elif runtime_effect.event_type == "approval_waiting":
             approval_state = dict(runtime_effect.approval_state or {})
             (
@@ -162,15 +163,15 @@ async def apply_model_turn_event(
                 existing_approval_event=runtime_event,
             )
             application.approval_waiting = True
-            yield {"type": "runtime_loop_event", "event": approval_event.to_dict()}
-            yield {"type": "runtime_loop_event", "event": checkpoint_event.to_dict()}
+            yield {"type": "harness_loop_event", "event": approval_event.to_dict()}
+            yield {"type": "harness_loop_event", "event": checkpoint_event.to_dict()}
             yield {
                 "type": "approval_waiting",
                 "approval": approval_state,
                 "task_run_id": application.loop_state.task_run_id,
             }
             return
-        yield {"type": "runtime_loop_event", "event": runtime_event.to_dict()}
+        yield {"type": "harness_loop_event", "event": runtime_event.to_dict()}
 
     raw_effect = classify_raw_model_event(
         event,
@@ -276,7 +277,7 @@ async def apply_model_observation_effect(
             emit_entered_step=emit_entered_step_for_tool_result,
         )
         for transition_event in transition_events:
-            yield {"type": "runtime_loop_event", "event": transition_event.to_dict()}
+            yield {"type": "harness_loop_event", "event": transition_event.to_dict()}
         return
 
     if observation_type != "executor_error":
@@ -329,4 +330,6 @@ async def apply_model_observation_effect(
             result_refs=application.result_refs,
         )
         for transition_event in transition_events:
-            yield {"type": "runtime_loop_event", "event": transition_event.to_dict()}
+            yield {"type": "harness_loop_event", "event": transition_event.to_dict()}
+
+

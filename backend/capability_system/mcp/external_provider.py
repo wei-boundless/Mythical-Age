@@ -143,3 +143,5 @@ class ExternalMCPProvider:
         arguments: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         return self.manager.call_tool_sync(server_id, tool_name, arguments)
+
+

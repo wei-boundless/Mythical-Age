@@ -154,3 +154,5 @@ class PdfAnalysisCatalog:
             if candidate.stem.lower() == stem:
                 return candidate
         return None
+
+

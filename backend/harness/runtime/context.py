@@ -12,8 +12,8 @@ from task_system.tasks.step_models import StepInputBinding, TaskStepBlueprint
 
 from runtime.agent_assembly import DirectWorkOrder, build_agent_invocation, build_model_context_payload
 from harness.execution.node_protocol.node_execution_request import build_node_execution_idempotency_key
-from runtime.shared.loop_control import RuntimeLoopLimits
-from .execution_permit import execution_permit_diagnostics
+from harness.loop.control import HarnessLoopLimits
+from .execution_policy import execution_permit_diagnostics
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,8 +204,8 @@ def task_validation_rule_from_payload(payload: Any) -> TaskValidationRule:
 def runtime_limits_from_task_operation(
     task_operation: dict[str, Any],
     *,
-    fallback: RuntimeLoopLimits,
-) -> RuntimeLoopLimits:
+    fallback: HarnessLoopLimits,
+) -> HarnessLoopLimits:
     task_spec = dict(task_operation.get("task_spec") or {})
     task_assembly = dict(task_operation.get("task_execution_assembly") or {})
     execution_policy = dict(task_operation.get("task_execution_policy") or {})
@@ -219,7 +219,7 @@ def runtime_limits_from_task_operation(
     }
     if not limits:
         return fallback
-    return RuntimeLoopLimits.from_policy(limits, fallback=fallback)
+    return HarnessLoopLimits.from_policy(limits, fallback=fallback)
 
 
 def resolve_runtime_search_sources(
@@ -312,45 +312,6 @@ def stage_execution_request_diagnostics(selection: dict[str, Any]) -> dict[str, 
         "stage_idempotency_key": idempotency_key,
         "stage_dispatch_event_id": str(dict(request.get("dispatch_context") or {}).get("dispatch_event_id") or ""),
         "continuation_stage_id": str(selection.get("continuation_stage_id") or stage_id),
-    }
-
-
-def task_order_runtime_binding_diagnostics(
-    *,
-    task_order_ref: dict[str, Any] | None,
-    task_order_run_ref: dict[str, Any] | None,
-    execution_channel_ref: dict[str, Any] | None,
-    task_execution_envelope_ref: dict[str, Any] | None,
-) -> dict[str, Any]:
-    order = dict(task_order_ref or {})
-    run = dict(task_order_run_ref or {})
-    channel = dict(execution_channel_ref or {})
-    envelope = dict(task_execution_envelope_ref or {})
-    order_id = str(order.get("order_id") or run.get("order_id") or channel.get("order_id") or envelope.get("order_id") or "")
-    run_id = str(run.get("run_id") or channel.get("order_run_id") or envelope.get("order_run_id") or "")
-    channel_id = str(channel.get("channel_id") or run.get("primary_execution_channel_id") or envelope.get("execution_channel_id") or "")
-    envelope_id = str(envelope.get("envelope_id") or "")
-    if not any((order_id, run_id, channel_id, envelope_id)):
-        return {
-            "binding_kind": "unbound_chat_turn_runtime",
-            "task_order_bound": False,
-            "authority": "task_system.task_order_runtime_binding",
-        }
-    return {
-        "projection_kind": "task_order",
-        "task_order_bound": True,
-        "task_order_id": order_id,
-        "task_order_run_id": run_id,
-        "execution_channel_id": channel_id,
-        "task_execution_envelope_id": envelope_id,
-        "task_order_kind": str(order.get("order_kind") or ""),
-        "task_order_source": str(order.get("source") or ""),
-        "task_order_source_ref": str(order.get("source_ref") or ""),
-        "task_order_task_id": str(order.get("task_id") or ""),
-        "task_order_status": str(order.get("status") or ""),
-        "task_order_run_status": str(run.get("status") or ""),
-        "execution_channel_status": str(channel.get("status") or ""),
-        "authority": "task_system.task_order_runtime_binding",
     }
 
 
@@ -645,3 +606,5 @@ def chat_model_selection_runtime_defaults(model_selection: dict[str, Any] | None
     if reasoning_effort in {"high", "max"}:
         defaults["reasoning_effort"] = reasoning_effort
     return defaults
+
+

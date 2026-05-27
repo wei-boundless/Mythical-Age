@@ -36,3 +36,5 @@ class FsspecLocalFileAdapter:
 
     def exists(self, logical_path: str) -> bool:
         return bool(self.fs.exists(str(self.resolve(logical_path))))
+
+

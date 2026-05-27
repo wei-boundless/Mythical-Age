@@ -136,3 +136,5 @@ def _narrow_rule(
     if rule.action in {"write", "edit"} and not writable:
         return FileAccessRule(action=rule.action, behavior="deny", reason="task file requirement removed write grant", source="specific_task.file_requirements")
     return rule
+
+

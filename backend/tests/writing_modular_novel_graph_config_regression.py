@@ -8,7 +8,6 @@ from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from agent_system.assembly.runtime_chain import AgentRuntimeChainAssembler
 from runtime.contracts.compiler import compile_coordination_contract_manifest
 from runtime.contracts.runtime_assembly_builder import build_node_runtime_assembly
-from runtime.shared.stage_projection import StageProjectionCycle
 from api import task_system as tasks_api
 from prompt_library import PromptLibraryRegistry
 from task_system.registry.contract_registry import TaskContractRegistry
@@ -67,16 +66,16 @@ def test_modular_writing_graph_config_compiles_graph_modules_and_chapter_batches
     }.issubset(chapter_node_ids)
     assert {"memory.writing.baseline", "memory.writing.mutable", "memory.writing.manuscript", "memory.writing.artifact_index", "memory.writing.issue_ledger"}.issubset(chapter_node_ids)
 
-    runtime_loop_policy = chapter_graph.metadata["runtime_loop_policy"]
-    assert runtime_loop_policy["enabled"] is True
-    assert runtime_loop_policy["initial_inputs"]["target_volumes"] == 5
-    assert runtime_loop_policy["initial_inputs"]["chapters_per_volume"] == 100
-    assert runtime_loop_policy["initial_inputs"]["chapters_per_round"] == 10
-    assert runtime_loop_policy["initial_inputs"]["chapter_batch_size"] == 10
-    assert runtime_loop_policy["initial_inputs"]["target_chapters"] == 500
-    assert runtime_loop_policy["initial_inputs"]["target_words"] == 1_000_000
-    assert runtime_loop_policy["initial_inputs"]["volume_target_words"] == 200_000
-    assert [frame["frame_id"] for frame in runtime_loop_policy["frames"]] == ["loop.chapter_batch", "loop.volume"]
+    graph_loop_policy = chapter_graph.metadata["graph_loop_policy"]
+    assert graph_loop_policy["enabled"] is True
+    assert graph_loop_policy["initial_inputs"]["target_volumes"] == 5
+    assert graph_loop_policy["initial_inputs"]["chapters_per_volume"] == 100
+    assert graph_loop_policy["initial_inputs"]["chapters_per_round"] == 10
+    assert graph_loop_policy["initial_inputs"]["chapter_batch_size"] == 10
+    assert graph_loop_policy["initial_inputs"]["target_chapters"] == 500
+    assert graph_loop_policy["initial_inputs"]["target_words"] == 1_000_000
+    assert graph_loop_policy["initial_inputs"]["volume_target_words"] == 200_000
+    assert [frame["frame_id"] for frame in graph_loop_policy["frames"]] == ["loop.chapter_batch", "loop.volume"]
 
     chapter_draft = next(node for node in chapter_graph.nodes if node.node_id == "chapter_draft")
     chapter_router = next(node for node in chapter_graph.nodes if node.node_id == "chapter_progress_router")
@@ -595,14 +594,10 @@ def test_modular_writing_world_design_runtime_uses_node_professional_prompt(tmp_
     task_contract = dict(dict(runtime["task_operation"]).get("task_contract") or {})
     semantic_contract = dict(task_contract.get("task_requirement_contract") or {})
     mode_policy = dict(task_contract.get("mode_policy") or {})
-    stage_projection = StageProjectionCycle().build_from_orchestration(
-        task_id="taskinst:test-world-design:world_design",
-        task_body_orchestration=dict(runtime["task_body_orchestration"]),
-        agent_runtime_spec=dict(runtime["agent_runtime_spec"]),
-    )
+    prompt_manifest = dict(dict(runtime["task_body_orchestration"]).get("prompt_manifest") or {})
     sections = [
         dict(item)
-        for item in list(dict(stage_projection.soul_runtime_view).get("sections") or [])
+        for item in list(prompt_manifest.get("sections") or [])
         if isinstance(item, dict)
     ]
     section_text = "\n".join(str(item.get("content") or "") for item in sections)
@@ -987,3 +982,5 @@ def test_modular_writing_design_parallelism_uses_alignment_barrier(tmp_path: Pat
     plot_policy = plot_design.memory_read_policy
     assert plot_policy["required_topics"] == ["world_commit_ref"]
     assert "character_commit_ref" not in plot_policy["topics"]
+
+

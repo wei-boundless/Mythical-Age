@@ -203,3 +203,5 @@ def _safe_path_part(value: str) -> str:
     while "--" in safe:
         safe = safe.replace("--", "-")
     return safe.strip("-")[:120] or "payload"
+
+

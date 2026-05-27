@@ -165,3 +165,5 @@ class StaticSplitPlan:
         payload["issues"] = [item.to_dict() for item in self.issues]
         payload["valid"] = self.valid
         return payload
+
+

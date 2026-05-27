@@ -412,3 +412,5 @@ def _compact(value: str, limit: int) -> str:
 def _packet_id(source_agent_id: str, target_task_id: str, query: str, results: list[dict[str, Any]]) -> str:
     seed = "|".join([source_agent_id, target_task_id, query, *[str(item.get("url") or "") for item in results[:8]]])
     return "packet:web:deepsearch:" + hashlib.sha1(seed.encode("utf-8", errors="replace")).hexdigest()[:16]
+
+

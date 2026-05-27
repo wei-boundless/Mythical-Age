@@ -74,7 +74,7 @@ class ApprovalToken:
 
 @dataclass(frozen=True, slots=True)
 class ApprovalState:
-    """Serializable approval snapshot for future RuntimeCheckpoint storage."""
+    """Serializable approval snapshot for future HarnessCheckpoint storage."""
 
     tokens: tuple[ApprovalToken, ...] = ()
 
@@ -380,3 +380,5 @@ def _approval_fingerprint_matches(token_fingerprint: str, required_fingerprint: 
     if not required:
         return True
     return str(token_fingerprint or "").strip() == required
+
+

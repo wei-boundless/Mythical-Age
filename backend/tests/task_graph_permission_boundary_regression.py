@@ -115,3 +115,5 @@ def test_coordination_task_context_retrieval_requires_explicit_permission() -> N
         task_operation=task_operation,
         allowed_search_sources={"rag"},
     )
+
+

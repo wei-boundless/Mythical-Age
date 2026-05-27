@@ -484,3 +484,5 @@ def _typed_degraded_reason(canonical: PDFCanonicalResult) -> str:
     if "ocr" in reason:
         return "ocr_unstable"
     return "evidence_insufficient_for_synthesis"
+
+

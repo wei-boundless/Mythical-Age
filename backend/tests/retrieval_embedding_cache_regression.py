@@ -40,3 +40,5 @@ def test_cached_embedding_model_only_embeds_missing_texts(tmp_path) -> None:
     cached.get_text_embedding_batch(["alpha", "gamma"])
 
     assert inner.calls == [["alpha"], ["gamma"]]
+
+

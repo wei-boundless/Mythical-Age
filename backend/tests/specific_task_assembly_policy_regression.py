@@ -86,3 +86,5 @@ def test_specific_task_assembly_policy_does_not_use_legacy_domain_as_environment
     )
 
     assert policy.environment_id == "env.general_workspace"
+
+

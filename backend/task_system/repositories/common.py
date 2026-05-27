@@ -113,3 +113,5 @@ def is_system_managed_item(item: dict[str, Any]) -> bool:
     if str(metadata.get("managed_by") or "").strip() == "task_system":
         return True
     return bool(str(metadata.get("task_resource") or "").strip())
+
+

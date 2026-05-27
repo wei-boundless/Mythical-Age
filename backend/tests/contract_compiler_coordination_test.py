@@ -60,7 +60,6 @@ def test_coordination_contract_compiler_builds_node_and_edge_manifest(tmp_path: 
                 "agent_id": "agent:test",
                 "runtime_lane": "coordination_task",
                 "node_contract_id": "contract.test.node_override",
-                "projection_id": "projection.test.node_worker",
             },
         ),
         graph_edges=(
@@ -96,7 +95,7 @@ def test_coordination_contract_compiler_builds_node_and_edge_manifest(tmp_path: 
                 agent_id="agent:test",
                 runtime_lane="coordination_task",
                 node_contract_id="contract.test.node_override",
-                projection_id="projection.test.node_worker",
+                metadata={"projection_id": "projection.test.node_worker"},
             ),
         ),
         edges=(
@@ -144,7 +143,8 @@ def test_coordination_contract_compiler_builds_node_and_edge_manifest(tmp_path: 
         "contract.test.node_output",
         "contract.test.node_override",
     )
-    assert manifest.node_contracts[1].projection_id == "projection.test.node_worker"
+    assert not hasattr(manifest.node_contracts[1], "projection_id")
+    assert "projection_id" not in manifest.node_contracts[1].metadata
     assert {item.contract_id for item in manifest.global_contracts} == {
         "contract.test.node_input",
         "contract.test.node_output",
@@ -524,3 +524,5 @@ def test_coordination_contract_compiler_reports_missing_graph_module_handoff_con
 
     assert manifest.graph_module_handoff_contracts[0].contract_refs == ()
     assert "graph_module_handoff_contract_missing" in {item.code for item in manifest.issues}
+
+

@@ -144,3 +144,5 @@ def _normalize_items(
     if not raw_items and todos:
         raw_items = list(todos or [])
     return [dict(item) for item in raw_items if isinstance(item, dict)]
+
+

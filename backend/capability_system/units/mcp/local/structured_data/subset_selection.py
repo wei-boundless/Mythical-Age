@@ -94,3 +94,5 @@ def _canonicalize_header_token(token: str) -> str:
     if normalized == "缺口":
         return "shortage_qty"
     return ""
+
+

@@ -158,3 +158,5 @@ class StructuredQueryExecutor:
     def _quote_identifier(self, identifier: str) -> str:
         escaped = identifier.replace('"', '""')
         return f'"{escaped}"'
+
+

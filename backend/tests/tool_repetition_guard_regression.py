@@ -17,3 +17,5 @@ def test_tool_repetition_guard_blocks_same_signature_loop() -> None:
     assert guard.record("web_search", {"query": "北京天气"}) is False
     assert guard.record("web_search", {"query": "北京天气"}) is False
     assert guard.record("web_search", {"query": "北京天气"}) is True
+
+

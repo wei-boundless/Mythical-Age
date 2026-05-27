@@ -73,3 +73,5 @@ def test_agent_todo_registered_as_non_destructive_tool() -> None:
     assert todo.is_destructive is False
     assert todo.prompt_exposure_policy == "schema_only"
     assert "progress_tracking" in todo.capability_tags
+
+

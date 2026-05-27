@@ -68,7 +68,7 @@ describe("taskGraphRuntimeView", () => {
       coordination_runs: [
         {
           diagnostics: {
-            langgraph_runtime_state: {
+            graph_coordination_state: {
               task_graph_scheduler_state: nested,
             },
             task_graph_scheduler_state: topLevel,
@@ -96,7 +96,7 @@ describe("taskGraphRuntimeView", () => {
       coordination_runs: [
         {
           diagnostics: {
-            langgraph_runtime_state: {
+            graph_coordination_state: {
               batch_lifecycle_runtime_state: {
                 available: true,
                 authority: "task_system.batch_lifecycle_runtime_state",

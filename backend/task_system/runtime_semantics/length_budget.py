@@ -291,3 +291,5 @@ def _optional_bool(value: Any) -> bool | None:
     if raw in {"false", "0", "no", "n", "disabled", "off"}:
         return False
     return None
+
+

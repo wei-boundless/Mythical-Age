@@ -267,3 +267,5 @@ def _when_to_use(*, agent: Any, metadata: dict[str, Any]) -> str:
     if worker_kind == "completion_verification":
         return "当主 Agent 已有候选回答、产物或执行证据，但需要独立检查是否满足用户目标、是否缺少证据、是否需要返工时使用。"
     return str(getattr(agent, "description", "") or "").strip()
+
+

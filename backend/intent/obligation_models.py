@@ -60,3 +60,5 @@ def execution_obligation_from_payload(payload: dict[str, Any] | None) -> Executi
         )
     except (TypeError, ValueError):
         return None
+
+

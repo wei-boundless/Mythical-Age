@@ -94,3 +94,5 @@ def _non_negative_int(value: Any, default: int) -> int:
     except (TypeError, ValueError):
         return int(default)
     return parsed if parsed >= 0 else int(default)
+
+

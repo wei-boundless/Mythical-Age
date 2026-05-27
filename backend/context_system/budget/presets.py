@@ -82,3 +82,5 @@ def normalize_context_budget_preset_id(preset_id: str | None) -> str:
     value = str(preset_id or DEFAULT_CONTEXT_BUDGET_PRESET).strip().lower()
     known = {preset.preset_id for preset in CONTEXT_BUDGET_PRESETS}
     return value if value in known else DEFAULT_CONTEXT_BUDGET_PRESET
+
+

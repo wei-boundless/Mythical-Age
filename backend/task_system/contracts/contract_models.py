@@ -21,3 +21,5 @@ class TaskContractDescriptor:
         payload["source_refs"] = list(self.source_refs)
         payload["usage_refs"] = list(self.usage_refs)
         return payload
+
+

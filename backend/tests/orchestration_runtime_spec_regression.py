@@ -478,3 +478,5 @@ def test_delegate_preferred_templates_fall_back_to_direct_operation_for_speciali
     assert "op.delegate_to_agent" not in set(requirement["required_operations"])
     assert resolution.get("execution_mode") == "direct_fallback"
 
+
+

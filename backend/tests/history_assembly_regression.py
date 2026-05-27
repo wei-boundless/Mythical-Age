@@ -37,3 +37,5 @@ def test_history_assembly_does_not_create_empty_summary_message() -> None:
 
     assert [item["content"] for item in result.model_history] == ["hello"]
     assert result.diagnostics["compressed_context_included"] is False
+
+

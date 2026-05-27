@@ -13,3 +13,5 @@ def test_strip_leading_markdown_title_removes_document_title() -> None:
     content = "# Soul Seed\n\n## 身份锚点\n\n- 你是河伯。"
 
     assert _strip_leading_markdown_title(content).startswith("## 身份锚点")
+
+

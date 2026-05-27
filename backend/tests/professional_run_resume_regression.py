@@ -77,3 +77,5 @@ def test_runtime_resume_waits_for_human_gate_before_continuing() -> None:
     assert decision.decision == "wait_for_human"
     assert decision.reason == "human_gate_pending"
     assert decision.human_gate_summary["stage_id"] == "stage:a"
+
+

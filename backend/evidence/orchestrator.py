@@ -477,3 +477,5 @@ def _slug(value: str) -> str:
     compact = "".join(ch.lower() if ch.isalnum() else "-" for ch in str(value or "")).strip("-")
     compact = "-".join(item for item in compact.split("-") if item)
     return compact[:48] or "main"
+
+

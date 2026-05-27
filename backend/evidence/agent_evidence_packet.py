@@ -663,3 +663,5 @@ def _stable_packet_id(
     }
     digest = hashlib.sha1(json.dumps(payload, ensure_ascii=True, sort_keys=True).encode("utf-8")).hexdigest()[:16]
     return f"agent_evidence_packet:{digest}"
+
+

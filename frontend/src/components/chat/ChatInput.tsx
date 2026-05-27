@@ -3,7 +3,7 @@
 import { ArrowUp, BrainCircuit, Database, FolderLock, Globe2, Lightbulb, Square } from "lucide-react";
 import { useMemo, useState } from "react";
 
-import type { ModelProviderConfig, SoulImageAssetConfig, TaskOrderProjection } from "@/lib/api";
+import type { ModelProviderConfig, SoulImageAssetConfig } from "@/lib/api";
 import type { MainAgentAssemblyMode, SearchPolicySource, SearchPolicyState, TaskSelectionState } from "@/lib/store/types";
 
 const SEARCH_POLICY_OPTIONS: Array<{
@@ -39,7 +39,6 @@ export function ChatInput({
   searchPolicy,
   selectedChatModelId,
   taskSelection,
-  taskOrderProjection,
 }: {
   disabled: boolean;
   streaming: boolean;
@@ -56,7 +55,6 @@ export function ChatInput({
   searchPolicy: SearchPolicyState;
   selectedChatModelId: string;
   taskSelection: TaskSelectionState | null;
-  taskOrderProjection: TaskOrderProjection | null;
 }) {
   const [value, setValue] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -71,10 +69,6 @@ export function ChatInput({
   const selectionLabel = taskSelection?.label?.trim()
     || taskSelection?.selected_task_id?.trim()
     || "";
-  const order = taskOrderProjection?.task_order ?? null;
-  const run = taskOrderProjection?.task_order_run ?? null;
-  const orderId = order && typeof order === "object" ? String(order.order_id ?? "") : "";
-  const runId = run && typeof run === "object" ? String(run.run_id ?? "") : "";
   const submit = async () => {
     const nextValue = value.trim();
     if (inputDisabled || !nextValue) {
@@ -97,9 +91,8 @@ export function ChatInput({
       {taskSelection ? (
         <div className="chat-task-selection-bar">
           <div className="chat-task-selection-bar__content">
-            <span className="chat-task-selection-bar__eyebrow">{orderId ? "任务订单" : "当前承接"}</span>
+            <span className="chat-task-selection-bar__eyebrow">当前承接</span>
             <strong>特定任务 · {selectionLabel}</strong>
-            {orderId || runId ? <small>{[orderId, runId].filter(Boolean).join(" / ")}</small> : null}
           </div>
         </div>
       ) : null}

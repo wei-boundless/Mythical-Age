@@ -130,3 +130,5 @@ def agent_allowed_by_search_policy(agent_id: str | None, allowed: set[str]) -> b
 
 def tool_allowed_by_search_policy(tool: Any, allowed: set[str]) -> bool:
     return source_allowed_by_search_policy(classify_tool_source(tool), allowed)
+
+

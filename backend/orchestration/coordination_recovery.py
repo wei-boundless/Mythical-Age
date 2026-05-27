@@ -263,3 +263,5 @@ def _recovery_acceptance_contract(*, stage_id: str, contract: dict[str, Any]) ->
         },
     }
 
+
+

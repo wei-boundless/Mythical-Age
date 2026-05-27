@@ -53,3 +53,5 @@ class BundleSpec:
         payload = asdict(self)
         payload["items"] = [item.to_dict() for item in self.items]
         return payload
+
+

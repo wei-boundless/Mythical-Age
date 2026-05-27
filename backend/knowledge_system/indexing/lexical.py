@@ -310,3 +310,5 @@ def required_bm25_term_matches(query: str) -> int:
     if unique_terms <= 5:
         return 2
     return max(2, math.ceil(unique_terms * 0.35))
+
+

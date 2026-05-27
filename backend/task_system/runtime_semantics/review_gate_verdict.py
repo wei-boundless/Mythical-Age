@@ -398,3 +398,5 @@ def _contains_positive_pass(value: str) -> bool:
     if any(token in compact for token in ("通过", "同意", "准入", "允许")):
         return True
     return False
+
+

@@ -145,3 +145,5 @@ def ensure_project_storage(backend_dir: str | Path) -> ProjectLayout:
     layout = ProjectLayout.from_backend_dir(backend_dir)
     layout.ensure_storage_dirs()
     return layout
+
+

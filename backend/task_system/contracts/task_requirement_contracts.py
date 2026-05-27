@@ -221,7 +221,6 @@ def _system_task_domain_binding(
         for payload in (
             current_turn.get(source_key),
             inputs.get(source_key),
-            dict(current_turn.get("task_order_projection") or {}).get(source_key),
         ):
             if isinstance(payload, dict) and payload:
                 binding = dict(payload)
@@ -774,3 +773,5 @@ def _dedupe(values: list[str]) -> list[str]:
         seen.add(item)
         result.append(item)
     return result
+
+

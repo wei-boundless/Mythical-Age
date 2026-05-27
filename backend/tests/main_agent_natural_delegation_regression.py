@@ -246,3 +246,5 @@ def test_delegation_executor_does_not_pick_verifier_from_kind_only() -> None:
     assert normalized.target_agent_id == ""
     assert "target_agent_required" in validation["blocked_reasons"]
 
+
+

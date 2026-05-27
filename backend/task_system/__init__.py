@@ -54,7 +54,6 @@ __all__ = [
     "StaticSplitPlan",
     "build_static_split_plan",
     "build_static_split_plans_for_graph",
-    "TaskExecutionAssembly",
     "TaskSpec",
     "TaskIntentContract",
     "BundleSpec",
@@ -64,32 +63,20 @@ __all__ = [
     "TaskConstraints",
     "TaskContextRef",
     "TaskContract",
+    "TaskContractIssuer",
     "TaskDefinition",
     "TaskFlowDefinition",
     "TaskAgentBinding",
     "AgentTaskConnectionProfile",
     "TaskFlowRegistry",
-    "AgentWorkLifecycleIntent",
-    "TaskActivationRequest",
-    "TaskLifecycle",
-    "TaskRuntimeAssemblyRequest",
-    "TaskRuntimeAssemblyRequestBuilder",
-    "TaskLifecycleFactory",
-    "TaskLifecycleRegistry",
     "TaskWorkflowRegistry",
     "TaskStepBlueprint",
     "StepInputBinding",
     "TaskValidationRule",
-    "ExecutionRecipe",
-    "ExecutionShape",
     "TaskEvent",
     "TaskRecord",
     "TaskResultRef",
-    "TaskResult",
     "TaskSummary",
-    "TaskRunLedger",
-    "TaskStepRun",
-    "build_task_execution_assembly_bundle",
 ]
 
 
@@ -98,6 +85,10 @@ def __getattr__(name: str) -> Any:
         from task_system.contracts.contracts import TaskContract
 
         return TaskContract
+    if name == "TaskContractIssuer":
+        from task_system.assembly import TaskContractIssuer
+
+        return TaskContractIssuer
     if name in {"TaskDefinition"}:
         from task_system.tasks.definitions import TaskDefinition
 
@@ -149,23 +140,6 @@ def __getattr__(name: str) -> Any:
         from task_system.registry.flow_registry import TaskFlowRegistry
 
         return TaskFlowRegistry
-    if name in {
-        "AgentWorkLifecycleIntent",
-        "TaskActivationRequest",
-        "TaskLifecycle",
-        "TaskRuntimeAssemblyRequest",
-    }:
-        from task_system import primitives
-
-        return getattr(primitives, name)
-    if name == "TaskRuntimeAssemblyRequestBuilder":
-        from task_system.assembly import TaskRuntimeAssemblyRequestBuilder
-
-        return TaskRuntimeAssemblyRequestBuilder
-    if name in {"TaskLifecycleFactory", "TaskLifecycleRegistry"}:
-        from task_system import lifecycle
-
-        return getattr(lifecycle, name)
     if name in {
         "ContractSpec",
         "ContractField",
@@ -347,14 +321,6 @@ def __getattr__(name: str) -> Any:
             "TaskSummary": TaskSummary,
         }
         return mapping[name]
-    if name in {"TaskResult", "TaskRunLedger", "TaskStepRun"}:
-        from task_system.tasks.run_models import TaskResult, TaskRunLedger, TaskStepRun
-
-        return {
-            "TaskResult": TaskResult,
-            "TaskRunLedger": TaskRunLedger,
-            "TaskStepRun": TaskStepRun,
-        }[name]
     if name in {"TaskEvent", "TaskRecord"}:
         from task_system.tasks.models import TaskEvent, TaskRecord
 
@@ -367,14 +333,6 @@ def __getattr__(name: str) -> Any:
         from task_system.planning.execution_recipe_models import TaskValidationRule
 
         return TaskValidationRule
-    if name == "ExecutionRecipe":
-        from task_system.planning.execution_recipe_models import ExecutionRecipe
-
-        return ExecutionRecipe
-    if name == "ExecutionShape":
-        from task_system.planning.execution_shape_resolver import ExecutionShape
-
-        return ExecutionShape
     if name == "TaskSpec":
         from task_system.tasks.spec_models import TaskSpec
 
@@ -383,12 +341,6 @@ def __getattr__(name: str) -> Any:
         from task_system.contracts.match_contracts import TaskIntentContract
 
         return TaskIntentContract
-    if name in {"TaskExecutionAssembly"}:
-        from task_system.services.assembly_models import TaskExecutionAssembly
-
-        return {
-            "TaskExecutionAssembly": TaskExecutionAssembly,
-        }[name]
     if name in {"BundleSpec", "BundleItemSpec"}:
         from task_system.services.bundle_models import BundleItemSpec, BundleSpec
 
@@ -396,8 +348,6 @@ def __getattr__(name: str) -> Any:
             "BundleSpec": BundleSpec,
             "BundleItemSpec": BundleItemSpec,
         }[name]
-    if name == "build_task_execution_assembly_bundle":
-        from task_system.services.assembly_builder import build_task_execution_assembly_bundle
-
-        return build_task_execution_assembly_bundle
     raise AttributeError(name)
+
+

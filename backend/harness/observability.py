@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import time
 from typing import TYPE_CHECKING, Any
 
-from runtime.shared.checkpoint import RuntimeCheckpointStore
+from harness.loop.checkpoint_store import HarnessCheckpointStore
 from runtime.shared.event_log import RuntimeEventLog
 from runtime.shared.events import RuntimeEvent
 from harness.loop.graph_coordination.checkpoint_adapter import GraphCoordinationCheckpointStore
@@ -30,7 +30,7 @@ class HarnessTraceReader:
 
     state_index: RuntimeStateIndex
     event_log: RuntimeEventLog
-    checkpoints: RuntimeCheckpointStore
+    checkpoints: HarnessCheckpointStore
     coordination_checkpoints: GraphCoordinationCheckpointStore | None = None
     timeline_ledger: TimelineLedgerStore | None = None
 
@@ -192,7 +192,6 @@ class HarnessTraceReader:
         now = float(now if now is not None else time.time())
         coordination_runs = self.state_index.list_task_coordination_runs(task_run.task_run_id)
         coordination_run = _pick_coordination_run(coordination_runs)
-        task_order_projection = self.state_index.task_order_projection_for_task_run(task_run.task_run_id)
         project_id = str(dict(task_run.diagnostics or {}).get("project_id") or "")
         project_status = self.state_index.get_project_runtime_status(project_id) if project_id else None
         events = self.event_log.list_events(task_run.task_run_id)
@@ -257,7 +256,6 @@ class HarnessTraceReader:
             "project_title": str(dict(task_run.diagnostics or {}).get("project_title") or ""),
             "project_runtime_status": project_status.to_dict() if project_status is not None else None,
             "has_coordination": coordination_run is not None,
-            "task_order_projection": task_order_projection,
         }
 
     def get_task_run_live_monitor(self, task_run_id: str) -> dict[str, Any] | None:
@@ -445,14 +443,14 @@ class HarnessTraceReader:
             coordination_state = (
                 dict(coordination_checkpoint.state)
                 if coordination_checkpoint is not None
-                else dict(diagnostics.get("langgraph_runtime_state_summary") or {})
+                else dict(diagnostics.get("graph_coordination_state_summary") or {})
             )
             if self.timeline_ledger is not None:
                 coordination_state["timeline"] = self.timeline_ledger.snapshot(active_coordination_run_id, limit=80)
             coordination_view = {
                 "coordination_run": _coordination_run_payload_summary(active_coordination_run),
                 "coordination_flow": _coordination_flow_summary(dict(diagnostics.get("coordination_flow") or {})),
-                "langgraph_runtime_state": _langgraph_state_summary(coordination_state),
+                "graph_coordination_state": _graph_coordination_state_summary(coordination_state),
                 "task_graph_scheduler_state": _scheduler_state_summary(
                     dict(
                         coordination_state.get("task_graph_scheduler_state")
@@ -492,10 +490,8 @@ class HarnessTraceReader:
             events=events,
             checkpoint=checkpoint,
         )
-        task_order_projection = self.state_index.task_order_projection_for_task_run(task_run_id)
         return {
             "task_run": task_run,
-            "task_order_projection": task_order_projection,
             "latest_checkpoint": _checkpoint_summary(checkpoint) if checkpoint is not None else None,
             "loop_state": _loop_state_summary(loop_state),
             "coordination_run": coordination_view,
@@ -601,7 +597,6 @@ class HarnessTraceReader:
             "coordination_run_ref": str(dict(task_run.diagnostics or {}).get("coordination_run_ref") or ""),
             "created_at": task_run.created_at,
             "updated_at": task_run.updated_at,
-            "task_order_projection": self.state_index.task_order_projection_for_task_run(task_run.task_run_id),
             "authority": task_run.authority,
         }
 
@@ -612,7 +607,6 @@ class HarnessTraceReader:
         coordination_runs = self.state_index.list_task_coordination_runs(task_run.task_run_id)
         return {
             "task_run": task_run.to_dict(),
-            "task_order_projection": self.state_index.task_order_projection_for_task_run(task_run.task_run_id),
             "agent_run_count": len(agent_runs),
             "coordination_run_count": len(coordination_runs),
             "event_count": len(events),
@@ -657,10 +651,13 @@ def _loop_state_summary(loop_state: dict[str, Any]) -> dict[str, Any]:
         "diagnostics": {
             "task_graph_run": bool(diagnostics.get("task_graph_run") is True),
             "task_graph_id": str(diagnostics.get("task_graph_id") or ""),
-            "langgraph_coordination_initialized": bool(
-                diagnostics.get("langgraph_coordination_initialized") is True
+            "graph_coordination_initialized": bool(
+                diagnostics.get("graph_coordination_initialized") is True
             ),
-            "langgraph_checkpoint_ref": str(diagnostics.get("langgraph_checkpoint_ref") or ""),
+            "graph_coordination_checkpoint_ref": str(
+                diagnostics.get("graph_coordination_checkpoint_ref")
+                or ""
+            ),
             "active_stage_id": str(stage_request.get("stage_id") or ""),
             "pending_approval": bool(str(pending_approval_state.get("status") or "") == "pending"),
         },
@@ -1105,7 +1102,7 @@ def _coordination_flow_summary(flow: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _langgraph_state_summary(state: dict[str, Any]) -> dict[str, Any]:
+def _graph_coordination_state_summary(state: dict[str, Any]) -> dict[str, Any]:
     stage_results = dict(state.get("stage_results") or {})
     batch_lifecycle = _batch_lifecycle_summary(
         dict(
@@ -2063,3 +2060,5 @@ def _message_summaries(value: Any) -> list[dict[str, Any]]:
             }
         )
     return messages
+
+

@@ -541,3 +541,5 @@ def build_debug_trace_event(trace: LangSmithTurnTrace | LocalTurnTrace) -> dict[
         "trace_id": trace.trace_id,
         "trace_url": trace.trace_url,
     }
+
+

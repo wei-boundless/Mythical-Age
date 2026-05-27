@@ -28,29 +28,6 @@ from harness.execution.delegation_models import (
 )
 from agent_system.registry.worker_agent_blueprints import WorkerAgentSpawnRequest, WorkerAgentSpawnResult
 from ..shared.runtime_object_store import RuntimeObjectStore
-from task_system.orders.models import (
-    ConversationTurn,
-    ExecutionChannel,
-    TaskExecutionEnvelope,
-    TaskIntentDecision,
-    TaskOrder,
-    TaskOrderDraft,
-    TaskOrderRun,
-    conversation_turn_from_dict,
-    execution_channel_from_dict,
-    task_execution_envelope_from_dict,
-    task_intent_decision_from_dict,
-    task_order_draft_from_dict,
-    task_order_from_dict,
-    task_order_run_from_dict,
-)
-from task_system.lifecycle.factory import TaskLifecycleCreation
-from task_system.primitives import (
-    TaskActivationRequest,
-    TaskLifecycle,
-    task_activation_request_from_dict,
-    task_lifecycle_from_dict,
-)
 
 
 _STATE_INDEX_WRITE_LOCK = threading.RLock()
@@ -218,286 +195,6 @@ class RuntimeStateIndex:
                 self._write_index_value("task_project_status", status.active_task_run_id, status.project_id)
             self._touch_meta(updated_at=float(status.updated_at or time.time()))
 
-    def upsert_conversation_turn(self, turn: ConversationTurn) -> None:
-        with _STATE_INDEX_WRITE_LOCK:
-            self._write_record("conversation_turns", turn.turn_id, turn.to_dict())
-            self._append_index_id("conversation_turns_by_session", turn.session_id, turn.turn_id)
-            if turn.task_order_ref:
-                self._write_index_value("turn_by_order", turn.task_order_ref, turn.turn_id)
-            self._touch_meta(updated_at=float(turn.created_at or time.time()))
-
-    def upsert_task_intent_decision(self, decision: TaskIntentDecision) -> None:
-        with _STATE_INDEX_WRITE_LOCK:
-            self._write_record("task_intent_decisions", decision.decision_id, decision.to_dict())
-            self._append_index_id("intent_decisions_by_turn", decision.turn_id, decision.decision_id)
-            if decision.created_order_id:
-                self._write_index_value("intent_decision_by_order", decision.created_order_id, decision.decision_id)
-            self._touch_meta(updated_at=float(decision.created_at or time.time()))
-
-    def upsert_task_order_draft(self, draft: TaskOrderDraft) -> None:
-        with _STATE_INDEX_WRITE_LOCK:
-            self._write_record("task_order_drafts", draft.draft_id, draft.to_dict())
-            self._append_index_id("task_order_drafts_by_turn", draft.turn_id, draft.draft_id)
-            self._append_index_id("task_order_drafts_by_session", draft.session_id, draft.draft_id)
-            self._touch_meta(updated_at=float(draft.updated_at or draft.created_at or time.time()))
-
-    def upsert_task_order(self, order: TaskOrder) -> None:
-        with _STATE_INDEX_WRITE_LOCK:
-            self._write_record("task_orders", order.order_id, order.to_dict())
-            self._append_index_id("task_orders_by_session", order.session_id, order.order_id)
-            if order.source_ref.startswith("conversation.turn:"):
-                self._write_index_value("order_by_turn", order.source_ref.split(":", 2)[-1], order.order_id)
-            if order.task_id:
-                self._append_index_id("task_orders_by_task", order.task_id, order.order_id)
-            self._touch_meta(updated_at=float(order.updated_at or order.created_at or time.time()))
-
-    def upsert_task_order_run(self, run: TaskOrderRun) -> None:
-        with _STATE_INDEX_WRITE_LOCK:
-            self._write_record("task_order_runs", run.run_id, run.to_dict())
-            self._append_index_id("task_order_runs_by_order", run.order_id, run.run_id)
-            self._append_index_id("task_order_runs_by_session", run.session_id, run.run_id)
-            if run.task_run_id:
-                self._write_index_value("order_run_by_task_run", run.task_run_id, run.run_id)
-            if run.primary_execution_channel_id:
-                self._write_index_value("channel_by_order_run", run.run_id, run.primary_execution_channel_id)
-            self._touch_meta(updated_at=float(run.updated_at or run.created_at or time.time()))
-
-    def upsert_execution_channel(self, channel: ExecutionChannel) -> None:
-        with _STATE_INDEX_WRITE_LOCK:
-            self._write_record("execution_channels", channel.channel_id, channel.to_dict())
-            self._write_index_value("channel_by_order_run", channel.order_run_id, channel.channel_id)
-            self._append_index_id("execution_channels_by_order", channel.order_id, channel.channel_id)
-            self._append_index_id("execution_channels_by_session", channel.session_id, channel.channel_id)
-            if channel.task_run_id:
-                self._write_index_value("channel_by_task_run", channel.task_run_id, channel.channel_id)
-            self._touch_meta(updated_at=float(channel.updated_at or channel.created_at or time.time()))
-
-    def upsert_task_execution_envelope(self, envelope: TaskExecutionEnvelope) -> None:
-        with _STATE_INDEX_WRITE_LOCK:
-            self._write_record("task_execution_envelopes", envelope.envelope_id, envelope.to_dict())
-            self._write_index_value("task_execution_envelope_by_order_run", envelope.order_run_id, envelope.envelope_id)
-            self._append_index_id("task_execution_envelopes_by_order", envelope.order_id, envelope.envelope_id)
-            self._touch_meta(updated_at=float(envelope.created_at or time.time()))
-
-    def upsert_task_activation_request(self, request: TaskActivationRequest) -> None:
-        with _STATE_INDEX_WRITE_LOCK:
-            self._write_record("task_activation_requests", request.activation_id, request.to_dict())
-            self._append_index_id("task_activation_requests_by_session", request.session_id, request.activation_id)
-            if request.source_ref:
-                self._append_index_id("task_activation_requests_by_source_ref", request.source_ref, request.activation_id)
-            if request.dispatch_ref:
-                self._append_index_id("task_activation_requests_by_dispatch_ref", request.dispatch_ref, request.activation_id)
-            self._touch_meta(updated_at=float(request.created_at or time.time()))
-
-    def upsert_task_lifecycle(self, lifecycle: TaskLifecycle) -> None:
-        with _STATE_INDEX_WRITE_LOCK:
-            self._write_record("task_lifecycles", lifecycle.task_id, lifecycle.to_dict())
-            self._append_index_id("task_lifecycles_by_session", lifecycle.session_id, lifecycle.task_id)
-            if lifecycle.activation_id:
-                self._write_index_value("task_lifecycle_by_activation", lifecycle.activation_id, lifecycle.task_id)
-            legacy_order_id = str(dict(lifecycle.legacy_refs or {}).get("task_order_id") or "")
-            if legacy_order_id:
-                self._write_index_value("task_lifecycle_by_order", legacy_order_id, lifecycle.task_id)
-            self._touch_meta(updated_at=float(lifecycle.updated_at or lifecycle.created_at or time.time()))
-
-    def bind_task_order_run_to_task_run(
-        self,
-        *,
-        order_run_id: str,
-        task_run_id: str,
-        execution_channel_id: str = "",
-        coordination_run_id: str = "",
-        agent_run_id: str = "",
-        status: str = "running",
-        diagnostics: dict[str, Any] | None = None,
-    ) -> None:
-        with _STATE_INDEX_WRITE_LOCK:
-            run_payload = self._read_record("task_order_runs", order_run_id)
-            if not run_payload:
-                return
-            now = time.time()
-            run_status = status or str(run_payload.get("status") or "running")
-            run_payload.update(
-                {
-                    "task_run_id": task_run_id,
-                    "coordination_run_id": coordination_run_id or str(run_payload.get("coordination_run_id") or ""),
-                    "status": run_status,
-                    "updated_at": now,
-                    "diagnostics": {
-                        **dict(run_payload.get("diagnostics") or {}),
-                        **dict(diagnostics or {}),
-                    },
-                }
-            )
-            if execution_channel_id:
-                run_payload["primary_execution_channel_id"] = execution_channel_id
-            self._write_record("task_order_runs", order_run_id, run_payload)
-            if task_run_id:
-                self._write_index_value("order_run_by_task_run", task_run_id, order_run_id)
-            channel_id = execution_channel_id or str(run_payload.get("primary_execution_channel_id") or "")
-            if channel_id:
-                self._write_index_value("channel_by_order_run", order_run_id, channel_id)
-                channel_payload = self._read_record("execution_channels", channel_id)
-                if channel_payload:
-                    channel_payload.update(
-                        {
-                            "task_run_id": task_run_id,
-                            "status": run_status,
-                            "updated_at": now,
-                            "diagnostics": {
-                                **dict(channel_payload.get("diagnostics") or {}),
-                                **({"agent_run_id": agent_run_id} if agent_run_id else {}),
-                                **dict(diagnostics or {}),
-                            },
-                        }
-                    )
-                    self._write_record("execution_channels", channel_id, channel_payload)
-                    if task_run_id:
-                        self._write_index_value("channel_by_task_run", task_run_id, channel_id)
-            self._update_order_status_for_run_payload(run_payload, run_status, now)
-            self._touch_meta(updated_at=now)
-
-    def claim_task_order_run_for_execution(
-        self,
-        *,
-        order_run_id: str,
-        diagnostics: dict[str, Any] | None = None,
-    ) -> tuple[bool, str]:
-        with _STATE_INDEX_WRITE_LOCK:
-            run_payload = self._read_record("task_order_runs", order_run_id)
-            if not run_payload:
-                return False, "missing"
-            current_status = str(run_payload.get("status") or "created")
-            if current_status != "created" or str(run_payload.get("task_run_id") or "").strip():
-                return False, current_status
-            now = time.time()
-            run_payload.update(
-                {
-                    "status": "running",
-                    "updated_at": now,
-                    "diagnostics": {
-                        **dict(run_payload.get("diagnostics") or {}),
-                        "claimed_by": "task_order_run_execution_claim",
-                        **dict(diagnostics or {}),
-                    },
-                }
-            )
-            self._write_record("task_order_runs", order_run_id, run_payload)
-            channel_id = str(run_payload.get("primary_execution_channel_id") or "")
-            if channel_id:
-                channel_payload = self._read_record("execution_channels", channel_id)
-                if channel_payload:
-                    channel_payload.update(
-                        {
-                            "status": "running",
-                            "updated_at": now,
-                            "diagnostics": {
-                                **dict(channel_payload.get("diagnostics") or {}),
-                                "claimed_by": "task_order_run_execution_claim",
-                                **dict(diagnostics or {}),
-                            },
-                        }
-                    )
-                    self._write_record("execution_channels", channel_id, channel_payload)
-            self._update_order_status_for_run_payload(run_payload, "running", now)
-            self._touch_meta(updated_at=now)
-            return True, current_status
-
-    def update_task_order_run_status(
-        self,
-        *,
-        order_run_id: str,
-        status: str,
-        terminal_reason: str = "",
-        diagnostics: dict[str, Any] | None = None,
-    ) -> None:
-        with _STATE_INDEX_WRITE_LOCK:
-            run_payload = self._read_record("task_order_runs", order_run_id)
-            if not run_payload:
-                return
-            now = time.time()
-            next_status = str(status or run_payload.get("status") or "running")
-            run_payload.update(
-                {
-                    "status": next_status,
-                    "updated_at": now,
-                    "terminal_reason": terminal_reason or str(run_payload.get("terminal_reason") or ""),
-                    "diagnostics": {
-                        **dict(run_payload.get("diagnostics") or {}),
-                        **dict(diagnostics or {}),
-                    },
-                }
-            )
-            self._write_record("task_order_runs", order_run_id, run_payload)
-            channel_id = str(run_payload.get("primary_execution_channel_id") or "")
-            if channel_id:
-                channel_payload = self._read_record("execution_channels", channel_id)
-                if channel_payload:
-                    channel_payload.update(
-                        {
-                            "status": next_status,
-                            "updated_at": now,
-                            "terminal_reason": terminal_reason or str(channel_payload.get("terminal_reason") or ""),
-                            "diagnostics": {
-                                **dict(channel_payload.get("diagnostics") or {}),
-                                **dict(diagnostics or {}),
-                            },
-                        }
-                    )
-                    self._write_record("execution_channels", channel_id, channel_payload)
-            self._update_order_status_for_run_payload(run_payload, next_status, now)
-            self._touch_meta(updated_at=now)
-
-    def update_task_order_runtime_status(
-        self,
-        *,
-        task_run_id: str,
-        status: str,
-        terminal_reason: str = "",
-        diagnostics: dict[str, Any] | None = None,
-    ) -> None:
-        order_run = self.get_task_order_run_by_task_run(task_run_id)
-        if order_run is None:
-            return
-        self.update_task_order_run_status(
-            order_run_id=order_run.run_id,
-            status=status,
-            terminal_reason=terminal_reason,
-            diagnostics=diagnostics,
-        )
-
-    def _update_order_status_for_run_payload(
-        self,
-        run_payload: dict[str, Any],
-        run_status: str,
-        updated_at: float,
-    ) -> None:
-        order_id = str(run_payload.get("order_id") or "")
-        if not order_id:
-            return
-        order_payload = self._read_record("task_orders", order_id)
-        if not order_payload:
-            return
-        order_status_by_run = {
-            "created": "accepted",
-            "running": "running",
-            "waiting_approval": "running",
-            "paused": "running",
-            "completed": "completed",
-            "failed": "failed",
-            "cancelled": "cancelled",
-        }
-        next_order_status = order_status_by_run.get(run_status)
-        if not next_order_status:
-            return
-        order_payload.update(
-            {
-                "status": next_order_status,
-                "updated_at": updated_at,
-            }
-        )
-        self._write_record("task_orders", order_id, order_payload)
-
     def get_task_run(self, task_run_id: str) -> TaskRun | None:
         task_run = self._read_record("task_runs", task_run_id)
         if not task_run:
@@ -618,154 +315,6 @@ class RuntimeStateIndex:
         ids = self._read_index_ids("task_agent_delegation_results", task_run_id)
         return [delegation_result_from_dict(results[item]) for item in ids if item in results]
 
-    def get_conversation_turn(self, turn_id: str) -> ConversationTurn | None:
-        payload = self._read_record("conversation_turns", turn_id)
-        return conversation_turn_from_dict(payload) if payload else None
-
-    def list_session_conversation_turns(self, session_id: str) -> list[ConversationTurn]:
-        turns = self._read_record_bucket("conversation_turns")
-        ids = self._read_index_ids("conversation_turns_by_session", session_id)
-        return [conversation_turn_from_dict(turns[item]) for item in ids if item in turns]
-
-    def get_conversation_turn_by_order(self, order_id: str) -> ConversationTurn | None:
-        turn_id = str(self._read_index_value("turn_by_order", order_id) or "")
-        return self.get_conversation_turn(turn_id) if turn_id else None
-
-    def get_task_intent_decision(self, decision_id: str) -> TaskIntentDecision | None:
-        payload = self._read_record("task_intent_decisions", decision_id)
-        return task_intent_decision_from_dict(payload) if payload else None
-
-    def list_turn_intent_decisions(self, turn_id: str) -> list[TaskIntentDecision]:
-        decisions = self._read_record_bucket("task_intent_decisions")
-        ids = self._read_index_ids("intent_decisions_by_turn", turn_id)
-        return [task_intent_decision_from_dict(decisions[item]) for item in ids if item in decisions]
-
-    def get_task_intent_decision_by_order(self, order_id: str) -> TaskIntentDecision | None:
-        decision_id = str(self._read_index_value("intent_decision_by_order", order_id) or "")
-        return self.get_task_intent_decision(decision_id) if decision_id else None
-
-    def get_task_order_draft(self, draft_id: str) -> TaskOrderDraft | None:
-        payload = self._read_record("task_order_drafts", draft_id)
-        return task_order_draft_from_dict(payload) if payload else None
-
-    def list_session_task_order_drafts(self, session_id: str) -> list[TaskOrderDraft]:
-        drafts = self._read_record_bucket("task_order_drafts")
-        ids = self._read_index_ids("task_order_drafts_by_session", session_id)
-        return [task_order_draft_from_dict(drafts[item]) for item in ids if item in drafts]
-
-    def get_task_order(self, order_id: str) -> TaskOrder | None:
-        payload = self._read_record("task_orders", order_id)
-        return task_order_from_dict(payload) if payload else None
-
-    def list_task_orders(self) -> list[TaskOrder]:
-        orders = self._read_record_bucket("task_orders")
-        return [task_order_from_dict(item) for item in orders.values() if isinstance(item, dict)]
-
-    def list_session_task_orders(self, session_id: str) -> list[TaskOrder]:
-        orders = self._read_record_bucket("task_orders")
-        ids = self._read_index_ids("task_orders_by_session", session_id)
-        return [task_order_from_dict(orders[item]) for item in ids if item in orders]
-
-    def get_task_order_run(self, run_id: str) -> TaskOrderRun | None:
-        payload = self._read_record("task_order_runs", run_id)
-        return task_order_run_from_dict(payload) if payload else None
-
-    def get_task_order_run_by_task_run(self, task_run_id: str) -> TaskOrderRun | None:
-        order_run_id = str(self._read_index_value("order_run_by_task_run", task_run_id) or "")
-        return self.get_task_order_run(order_run_id) if order_run_id else None
-
-    def list_order_runs(self, order_id: str) -> list[TaskOrderRun]:
-        runs = self._read_record_bucket("task_order_runs")
-        ids = self._read_index_ids("task_order_runs_by_order", order_id)
-        return [task_order_run_from_dict(runs[item]) for item in ids if item in runs]
-
-    def list_session_task_order_runs(self, session_id: str) -> list[TaskOrderRun]:
-        runs = self._read_record_bucket("task_order_runs")
-        ids = self._read_index_ids("task_order_runs_by_session", session_id)
-        return [task_order_run_from_dict(runs[item]) for item in ids if item in runs]
-
-    def get_execution_channel(self, channel_id: str) -> ExecutionChannel | None:
-        payload = self._read_record("execution_channels", channel_id)
-        return execution_channel_from_dict(payload) if payload else None
-
-    def get_execution_channel_by_order_run(self, order_run_id: str) -> ExecutionChannel | None:
-        channel_id = str(self._read_index_value("channel_by_order_run", order_run_id) or "")
-        return self.get_execution_channel(channel_id) if channel_id else None
-
-    def get_execution_channel_by_task_run(self, task_run_id: str) -> ExecutionChannel | None:
-        channel_id = str(self._read_index_value("channel_by_task_run", task_run_id) or "")
-        return self.get_execution_channel(channel_id) if channel_id else None
-
-    def get_task_execution_envelope(self, envelope_id: str) -> TaskExecutionEnvelope | None:
-        payload = self._read_record("task_execution_envelopes", envelope_id)
-        return task_execution_envelope_from_dict(payload) if payload else None
-
-    def get_task_execution_envelope_by_order_run(self, order_run_id: str) -> TaskExecutionEnvelope | None:
-        envelope_id = str(self._read_index_value("task_execution_envelope_by_order_run", order_run_id) or "")
-        return self.get_task_execution_envelope(envelope_id) if envelope_id else None
-
-    def get_task_activation_request(self, activation_id: str) -> TaskActivationRequest | None:
-        payload = self._read_record("task_activation_requests", activation_id)
-        return task_activation_request_from_dict(payload) if payload else None
-
-    def list_session_task_activation_requests(self, session_id: str) -> list[TaskActivationRequest]:
-        requests = self._read_record_bucket("task_activation_requests")
-        ids = self._read_index_ids("task_activation_requests_by_session", session_id)
-        return [task_activation_request_from_dict(requests[item]) for item in ids if item in requests]
-
-    def get_task_lifecycle(self, task_id: str) -> TaskLifecycle | None:
-        payload = self._read_record("task_lifecycles", task_id)
-        return task_lifecycle_from_dict(payload) if payload else None
-
-    def get_task_lifecycle_by_activation(self, activation_id: str) -> TaskLifecycle | None:
-        task_id = str(self._read_index_value("task_lifecycle_by_activation", activation_id) or "")
-        return self.get_task_lifecycle(task_id) if task_id else None
-
-    def get_task_lifecycle_by_order(self, order_id: str) -> TaskLifecycle | None:
-        task_id = str(self._read_index_value("task_lifecycle_by_order", order_id) or "")
-        return self.get_task_lifecycle(task_id) if task_id else None
-
-    def list_session_task_lifecycles(self, session_id: str) -> list[TaskLifecycle]:
-        lifecycles = self._read_record_bucket("task_lifecycles")
-        ids = self._read_index_ids("task_lifecycles_by_session", session_id)
-        return [task_lifecycle_from_dict(lifecycles[item]) for item in ids if item in lifecycles]
-
-    def lifecycle_creation_for_order(self, order_id: str) -> TaskLifecycleCreation | None:
-        lifecycle = self.get_task_lifecycle_by_order(order_id)
-        if lifecycle is None:
-            return None
-        activation = (
-            self.get_task_activation_request(lifecycle.activation_id)
-            if lifecycle.activation_id
-            else None
-        )
-        return TaskLifecycleCreation(activation_request=activation, lifecycle=lifecycle)
-
-    def task_order_projection_for_task_run(self, task_run_id: str) -> dict[str, Any] | None:
-        order_run = self.get_task_order_run_by_task_run(task_run_id)
-        if order_run is None:
-            return None
-        order = self.get_task_order(order_run.order_id)
-        channel = (
-            self.get_execution_channel(order_run.primary_execution_channel_id)
-            if order_run.primary_execution_channel_id
-            else self.get_execution_channel_by_order_run(order_run.run_id)
-        )
-        envelope = self.get_task_execution_envelope_by_order_run(order_run.run_id)
-        turn_id = str(self._read_index_value("turn_by_order", order_run.order_id) or "")
-        decision_id = str(self._read_index_value("intent_decision_by_order", order_run.order_id) or "")
-        return {
-            "projection_kind": "task_order",
-            "task_order": order.to_dict() if order is not None else None,
-            "task_order_run": order_run.to_dict(),
-            "execution_channel": channel.to_dict() if channel is not None else None,
-            "task_execution_envelope": envelope.to_dict() if envelope is not None else None,
-            "conversation_turn_id": turn_id,
-            "task_intent_decision_id": decision_id,
-            "task_run_id": task_run_id,
-            "authority": "task_system.task_order_projection",
-        }
-
     def read_snapshot(self) -> dict[str, Any]:
         """Return one consistent read snapshot for live-monitor style queries."""
         return self._read()
@@ -863,47 +412,6 @@ class RuntimeStateIndex:
             "coordination_merge_results",
             [item for item in latest_merge_ids.values() if item],
         )
-        order_run_ids = list(
-            dict.fromkeys(
-                str(self._read_index_value("order_run_by_task_run", task_run_id) or "")
-                for task_run_id in preferred_task_run_ids
-            )
-        )
-        order_run_ids = [item for item in order_run_ids if item]
-        session_order_ids = self._read_index_ids("task_orders_by_session", session_id)
-        order_runs = self._read_selected_records(
-            "task_order_runs",
-            list(dict.fromkeys([*order_run_ids, *self._read_index_ids("task_order_runs_by_session", session_id)])),
-        )
-        order_ids = list(
-            dict.fromkeys(
-                [
-                    *session_order_ids,
-                    *[
-                        str(dict(item).get("order_id") or "")
-                        for item in order_runs.values()
-                        if isinstance(item, dict)
-                    ],
-                ]
-            )
-        )
-        order_ids = [item for item in order_ids if item]
-        channel_ids = list(
-            dict.fromkeys(
-                [
-                    str(self._read_index_value("channel_by_task_run", task_run_id) or "")
-                    for task_run_id in preferred_task_run_ids
-                ]
-                + [
-                    str(dict(item).get("primary_execution_channel_id") or "")
-                    for item in order_runs.values()
-                    if isinstance(item, dict)
-                ]
-                + self._read_index_ids("execution_channels_by_session", session_id)
-            )
-        )
-        channel_ids = [item for item in channel_ids if item]
-        turn_ids = self._read_index_ids("conversation_turns_by_session", session_id)
         return {
             "task_runs": task_runs,
             "sessions": {session_id: preferred_task_run_ids},
@@ -922,10 +430,6 @@ class RuntimeStateIndex:
                 "project_runtime_statuses",
                 self._read_index_ids("session_projects", session_id),
             ),
-            "conversation_turns": self._read_selected_records("conversation_turns", turn_ids),
-            "task_orders": self._read_selected_records("task_orders", order_ids),
-            "task_order_runs": order_runs,
-            "execution_channels": self._read_selected_records("execution_channels", channel_ids),
             "monitor_index": {
                 "session_id": session_id,
                 "task_run_count": int(session_view.get("task_run_count") or len(task_run_ids)),
@@ -1000,9 +504,12 @@ class RuntimeStateIndex:
             )
             diagnostics["agent_dispatch_plan_summary"] = _dispatch_plan_summary(dispatch_plan)
             diagnostics.pop("agent_dispatch_plan", None)
-        if runtime_state := dict(diagnostics.get("langgraph_runtime_state") or {}):
-            diagnostics["langgraph_runtime_state_summary"] = _langgraph_runtime_state_summary(runtime_state)
-            diagnostics.pop("langgraph_runtime_state", None)
+        if runtime_state := dict(
+            diagnostics.get("graph_coordination_state")
+            or {}
+        ):
+            diagnostics["graph_coordination_state_summary"] = _graph_coordination_state_summary(runtime_state)
+            diagnostics.pop("graph_coordination_state", None)
         if graph_spec := dict(diagnostics.get("coordination_graph_spec") or {}):
             diagnostics["coordination_graph_spec_ref"] = self.runtime_objects.put_json_once(
                 "coordination_graph_specs",
@@ -1318,15 +825,6 @@ class RuntimeStateIndex:
     @staticmethod
     def _record_identity(bucket: str, payload: dict[str, Any], fallback: str) -> str:
         key_field_by_bucket = {
-            "conversation_turns": "turn_id",
-            "task_intent_decisions": "decision_id",
-            "task_order_drafts": "draft_id",
-            "task_orders": "order_id",
-            "task_order_runs": "run_id",
-            "execution_channels": "channel_id",
-            "task_execution_envelopes": "envelope_id",
-            "task_activation_requests": "activation_id",
-            "task_lifecycles": "task_id",
             "task_runs": "task_run_id",
             "agent_runs": "agent_run_id",
             "agent_run_results": "agent_run_result_id",
@@ -1348,15 +846,6 @@ class RuntimeStateIndex:
     @staticmethod
     def _record_buckets() -> tuple[str, ...]:
         return (
-            "conversation_turns",
-            "task_intent_decisions",
-            "task_order_drafts",
-            "task_orders",
-            "task_order_runs",
-            "execution_channels",
-            "task_execution_envelopes",
-            "task_activation_requests",
-            "task_lifecycles",
             "task_runs",
             "agent_runs",
             "agent_run_results",
@@ -1376,21 +865,6 @@ class RuntimeStateIndex:
     @staticmethod
     def _list_index_buckets() -> tuple[str, ...]:
         return (
-            "conversation_turns_by_session",
-            "intent_decisions_by_turn",
-            "task_order_drafts_by_turn",
-            "task_order_drafts_by_session",
-            "task_orders_by_session",
-            "task_orders_by_task",
-            "task_order_runs_by_order",
-            "task_order_runs_by_session",
-            "execution_channels_by_order",
-            "execution_channels_by_session",
-            "task_execution_envelopes_by_order",
-            "task_activation_requests_by_session",
-            "task_activation_requests_by_source_ref",
-            "task_activation_requests_by_dispatch_ref",
-            "task_lifecycles_by_session",
             "sessions",
             "task_agent_runs",
             "task_agent_run_results",
@@ -1409,15 +883,6 @@ class RuntimeStateIndex:
     @staticmethod
     def _value_index_buckets() -> tuple[str, ...]:
         return (
-            "order_by_turn",
-            "turn_by_order",
-            "intent_decision_by_order",
-            "order_run_by_task_run",
-            "channel_by_order_run",
-            "channel_by_task_run",
-            "task_execution_envelope_by_order_run",
-            "task_lifecycle_by_activation",
-            "task_lifecycle_by_order",
             "coordination_latest_merge_results",
             "session_latest_task_runs",
             "session_latest_coordination_task_runs",
@@ -1434,32 +899,6 @@ class RuntimeStateIndex:
     @staticmethod
     def _empty_snapshot() -> dict[str, Any]:
         return {
-            "conversation_turns": {},
-            "conversation_turns_by_session": {},
-            "task_intent_decisions": {},
-            "intent_decisions_by_turn": {},
-            "task_order_drafts": {},
-            "task_order_drafts_by_turn": {},
-            "task_order_drafts_by_session": {},
-            "task_orders": {},
-            "task_orders_by_session": {},
-            "task_orders_by_task": {},
-            "task_order_runs": {},
-            "task_order_runs_by_order": {},
-            "task_order_runs_by_session": {},
-            "execution_channels": {},
-            "execution_channels_by_order": {},
-            "execution_channels_by_session": {},
-            "task_execution_envelopes": {},
-            "task_execution_envelopes_by_order": {},
-            "task_activation_requests": {},
-            "task_activation_requests_by_session": {},
-            "task_activation_requests_by_source_ref": {},
-            "task_activation_requests_by_dispatch_ref": {},
-            "task_lifecycles": {},
-            "task_lifecycles_by_session": {},
-            "task_lifecycle_by_activation": {},
-            "task_lifecycle_by_order": {},
             "task_runs": {},
             "sessions": {},
             "agent_runs": {},
@@ -1487,13 +926,6 @@ class RuntimeStateIndex:
             "session_projects": {},
             "project_supervision_records": {},
             "task_supervision_records": {},
-            "order_by_turn": {},
-            "turn_by_order": {},
-            "intent_decision_by_order": {},
-            "order_run_by_task_run": {},
-            "channel_by_order_run": {},
-            "channel_by_task_run": {},
-            "task_execution_envelope_by_order_run": {},
             "updated_at": 0.0,
         }
 
@@ -1573,7 +1005,7 @@ def _dispatch_plan_summary(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _langgraph_runtime_state_summary(payload: dict[str, Any]) -> dict[str, Any]:
+def _graph_coordination_state_summary(payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "active_stage_id": str(payload.get("active_stage_id") or ""),
         "active_task_ref": str(payload.get("active_task_ref") or ""),
@@ -1855,3 +1287,5 @@ def _worker_spawn_result_from_payload(payload: dict[str, Any]) -> WorkerAgentSpa
 
 def _safe_index_key(value: str) -> str:
     return "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in str(value or ""))[:180]
+
+

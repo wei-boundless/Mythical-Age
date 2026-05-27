@@ -495,3 +495,5 @@ def _redacted_command(command: Sequence[str]) -> list[str]:
 def _sbx_already_exists(completed: subprocess.CompletedProcess[str]) -> bool:
     text = f"{completed.stdout or ''}\n{completed.stderr or ''}".lower()
     return "already exists" in text or "exists already" in text
+
+

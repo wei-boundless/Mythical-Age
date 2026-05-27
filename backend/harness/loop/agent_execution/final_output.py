@@ -56,3 +56,5 @@ def build_answer_readiness_judge_message(
 
 def clean_text(value: Any) -> str:
     return str(value or "").strip()
+
+

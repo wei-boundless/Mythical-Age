@@ -581,3 +581,5 @@ def _slug(value: str) -> str:
     compact = re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "-", str(value or "").lower()).strip("-")
     return compact[:48] or "main"
 
+
+

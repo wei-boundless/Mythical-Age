@@ -302,3 +302,5 @@ def _run_native_tool(tool, args: dict, *, workspace: Path, sandbox: Path):
         environment_snapshot={"workspace_root": str(workspace), "sandbox_root": str(sandbox)},
     )
     return asyncio.run(tool.call(args, context))
+
+

@@ -418,3 +418,5 @@ def test_protocol_boundary_detects_command_tool_markup() -> None:
     assert result.detected is True
     assert "name=\"command\"" in result.markers
     assert strip_protocol_leak('正常回答\nname="command" pytest -q').strip() == "正常回答"
+
+

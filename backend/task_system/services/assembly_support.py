@@ -1062,3 +1062,5 @@ def _single_bundle_item_ref(bundle_spec: BundleSpec | None) -> str:
         return ""
     return str(bundle_spec.items[0].item_id or "")
 
+
+

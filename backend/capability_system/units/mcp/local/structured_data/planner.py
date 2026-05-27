@@ -609,3 +609,5 @@ class StructuredDataPlanner:
         return any(marker in lowered for marker in complete_markers) or (
             "没有缺口" in lowered and any(marker in lowered for marker in existence_markers)
         )
+
+

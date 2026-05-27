@@ -221,3 +221,5 @@ def _child_operation_resource_decision(
         reason="child operation allowed by target profile and delegation request",
         risk_tags=tuple(descriptor.risk_tags),
     )
+
+

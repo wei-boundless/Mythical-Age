@@ -636,3 +636,5 @@ def _safe_identifier(value: str) -> str:
     sanitized = str(value or "").strip().replace(":", ".").replace("/", ".").replace("\\", ".")
     sanitized = ".".join(part for part in sanitized.split(".") if part)
     return sanitized or "unknown"
+
+

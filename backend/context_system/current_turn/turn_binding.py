@@ -92,3 +92,5 @@ class TurnBinding:
         payload["continuation_candidates"] = [dict(item) for item in self.continuation_candidates]
         payload["context_recall_candidates"] = [dict(item) for item in self.context_recall_candidates]
         return payload
+
+

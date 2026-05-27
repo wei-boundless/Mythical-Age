@@ -147,3 +147,5 @@ def _allows_explicit_read_only_direct_route(definition: ToolDefinition, tool_inp
     if not raw_path or raw_path.startswith("-"):
         return False
     return True
+
+

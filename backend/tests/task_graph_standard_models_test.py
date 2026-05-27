@@ -618,3 +618,5 @@ def test_graph_module_expansion_blocks_self_reference_and_surfaces_issue(tmp_pat
     assert expansion["issues"][0]["code"] == "graph_module_self_reference"
     assert expansion["issues"][0]["node_id"] == "graph_module.block.self"
     assert any(issue["code"] == "graph_module_self_reference" for issue in payload["issues"])
+
+

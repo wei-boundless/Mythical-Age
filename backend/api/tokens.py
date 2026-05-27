@@ -101,3 +101,5 @@ async def file_tokens(payload: FileTokensRequest) -> dict[str, Any]:
         files.append({"path": relative_path, "tokens": count})
 
     return {"files": files, "total_tokens": total}
+
+

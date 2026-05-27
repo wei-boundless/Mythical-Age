@@ -315,8 +315,8 @@ def _build_recovery_handles(
         failing_nodes = _coordination_failing_nodes(scheduler_state)
         active_node_id = _first_nonempty(
             scheduler_state.get("active_node_id"),
-            dict(run_payload.get("langgraph_runtime_state") or {}).get("active_node_id"),
-            dict(diagnostics.get("langgraph_runtime_state") or {}).get("active_node_id"),
+            dict(run_payload.get("graph_coordination_state") or {}).get("active_node_id"),
+            dict(diagnostics.get("graph_coordination_state") or {}).get("active_node_id"),
             coordination_flow.get("current_stage_id"),
         )
         if checkpoint_ref:
@@ -410,7 +410,7 @@ def _coordination_checkpoint_ref(run_payload: dict[str, Any]) -> str:
     return str(
         checkpoint.get("checkpoint_id")
         or run_payload.get("latest_checkpoint_ref")
-        or diagnostics.get("langgraph_checkpoint_ref")
+        or diagnostics.get("graph_coordination_checkpoint_ref")
         or diagnostics.get("coordination_checkpoint_ref")
         or ""
     )
@@ -418,11 +418,15 @@ def _coordination_checkpoint_ref(run_payload: dict[str, Any]) -> str:
 
 def _coordination_scheduler_state(run_payload: dict[str, Any]) -> dict[str, Any]:
     diagnostics = dict(run_payload.get("diagnostics") or {})
-    langgraph_state = dict(run_payload.get("langgraph_runtime_state") or diagnostics.get("langgraph_runtime_state") or {})
+    graph_coordination_state = dict(
+        run_payload.get("graph_coordination_state")
+        or diagnostics.get("graph_coordination_state")
+        or {}
+    )
     return dict(
         run_payload.get("task_graph_scheduler_state")
         or diagnostics.get("task_graph_scheduler_state")
-        or langgraph_state.get("task_graph_scheduler_state")
+        or graph_coordination_state.get("task_graph_scheduler_state")
         or {}
     )
 
@@ -532,3 +536,5 @@ def _tool_name_from_candidate(candidate: EvidenceCandidate) -> str:
     if candidate.event_type != "tool_call_requested":
         return ""
     return str(candidate.metadata.get("tool_name") or "")
+
+

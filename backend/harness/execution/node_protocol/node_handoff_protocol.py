@@ -602,3 +602,5 @@ def _read_artifact_ref_text(ref: str) -> str:
 def _short_hash(payload: Any) -> str:
     raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str, separators=(",", ":"))
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+
+

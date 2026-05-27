@@ -80,3 +80,5 @@ class MCPProvider(Protocol):
         arguments: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         ...
+
+

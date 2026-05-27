@@ -20,3 +20,5 @@ def test_control_kernel_reports_empty_graph_after_wiring_clear() -> None:
     assert result.execution_graph is not None
     assert result.execution_graph.nodes == ()
     assert result.diagnostics["cleared_old_wiring"] is True
+
+

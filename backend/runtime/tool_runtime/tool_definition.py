@@ -41,3 +41,5 @@ class RuntimeToolDefinition(Protocol):
 
     async def call(self, args: dict[str, Any], context: ToolUseContext) -> ToolResultEnvelope:
         ...
+
+

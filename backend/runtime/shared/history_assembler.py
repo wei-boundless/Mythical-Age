@@ -64,3 +64,5 @@ def _normalize_history(history: list[dict[str, Any]]) -> list[dict[str, str]]:
             continue
         normalized.append({"role": role, "content": content})
     return normalized
+
+

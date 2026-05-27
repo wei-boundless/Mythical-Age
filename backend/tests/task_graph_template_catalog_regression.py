@@ -43,3 +43,5 @@ def test_template_catalog_does_not_bake_writing_domain_boundaries_into_foundatio
 
     for forbidden in ("novel", "worldview", "chapter", "洪荒", "世界观", "章节"):
         assert forbidden not in catalog_text
+
+

@@ -206,3 +206,5 @@ def test_prompt_contract_renders_completion_judgment_section() -> None:
     assert "状态=blocked" in prompt["completion_judgment_section"]
     assert "最终回答不能用语气替代证据状态" in prompt["completion_judgment_section"]
     assert prompt["metadata"]["completion_judgment"]["judgment_id"] == "completion-judgment:prompt"
+
+

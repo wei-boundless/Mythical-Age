@@ -64,3 +64,5 @@ def test_manifest_validation_detects_internal_marker_leak() -> None:
 
     assert validation["passed"] is False
     assert any("internal_marker_leak" in item for item in validation["issues"])
+
+

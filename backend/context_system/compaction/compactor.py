@@ -322,3 +322,5 @@ class ContextCompactor:
         level = self._pressure_level(tokens_before, len(working))
         return self.apply_strategy(working, pressure_level=level)
 
+
+

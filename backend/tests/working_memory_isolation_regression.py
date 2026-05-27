@@ -318,3 +318,5 @@ def test_working_memory_read_logging_is_idempotent_for_replayed_stage(tmp_path) 
 
     assert second.read_log_id == first.read_log_id
     assert len(service.list_read_logs("taskrun:test", limit=20)) == 1
+
+

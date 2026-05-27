@@ -610,3 +610,5 @@ def _formal_memory_acknowledgement(payload: dict[str, Any] | None) -> dict[str, 
         "authority": "formal_memory.commit_acknowledgement" if operation == "memory_commit" else "formal_memory.write_acknowledgement",
     }
 
+
+

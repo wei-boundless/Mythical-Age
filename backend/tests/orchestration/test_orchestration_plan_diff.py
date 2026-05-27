@@ -33,3 +33,5 @@ def test_commit_candidate_is_denied_until_commit_gate_exists() -> None:
 
     assert candidate.allowed is False
     assert candidate.reason == "pending_commit_gate"
+
+

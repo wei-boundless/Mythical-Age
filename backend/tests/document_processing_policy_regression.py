@@ -143,3 +143,5 @@ def test_table_row_window_survives_normalized_ingestion(tmp_path: Path) -> None:
     assert table_units
     assert table_units[0].metadata["unit_view"] == "table_row_window"
     assert table_units[0].metadata["row_start"] == 1
+
+

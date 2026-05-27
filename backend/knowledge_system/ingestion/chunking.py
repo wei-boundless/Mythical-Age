@@ -512,3 +512,5 @@ def _unit_metadata(document: NormalizedDocument, block: NormalizedBlock, *, unit
         "index_profiles": list(block.index_profiles),
         "unit_view": unit_view,
     }
+
+

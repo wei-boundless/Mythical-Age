@@ -145,3 +145,5 @@ def delegation_result_from_dict(payload: dict[str, Any]) -> AgentDelegationResul
         created_at=float(payload.get("created_at") or 0.0),
         diagnostics=dict(payload.get("diagnostics") or {}),
     )
+
+

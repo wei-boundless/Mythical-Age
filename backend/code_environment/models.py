@@ -92,3 +92,5 @@ class PiSidecarCommandResponse(BaseModel):
 class PiSidecarLifecycleResponse(BaseModel):
     authority: str = "langchain-agent.code_environment.sidecar"
     status: PiSidecarStatus
+
+

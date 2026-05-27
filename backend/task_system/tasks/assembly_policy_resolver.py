@@ -208,3 +208,5 @@ def _runtime_shape(value: str) -> str:
     if normalized in {"graph_module", "imported_graph"}:
         return "graph_module"
     return "single_agent"
+
+

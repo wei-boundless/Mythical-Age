@@ -277,3 +277,5 @@ def _subset_handle_from_payload(payload: dict[str, Any]) -> SubsetHandle | None:
         locator=dict(payload.get("locator", {}) or {}),
         metadata=metadata,
     )
+
+

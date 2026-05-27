@@ -10,6 +10,7 @@ from .approval_gateway import (
 )
 from .contract_adapter import agent_assembly_contract_from_payload, build_execution_permit_from_payload
 from .permit_builder import build_execution_permit
+from .permit_resolver import execution_permit_diagnostics, resolve_agent_execution_permit
 from .tool_gateway import (
     permit_dispatchable_tool_names,
     permit_visible_tool_names,
@@ -25,10 +26,14 @@ __all__ = [
     "build_execution_permit_from_payload",
     "build_pending_approval_state",
     "execute_approved_tool_from_state",
+    "execution_permit_diagnostics",
     "permit_dispatchable_tool_names",
     "permit_visible_tool_names",
     "resource_policy_from_approval_state",
+    "resolve_agent_execution_permit",
     "runtime_directive_from_approval_state",
     "summarize_tool_args",
     "tool_instances_for_policy_and_permit",
 ]
+
+

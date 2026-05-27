@@ -241,3 +241,5 @@ class _MemoryPolicyAdapter(persist.Adapter):
 
     def save_policy(self, model: casbin.Model) -> bool:
         return False
+
+

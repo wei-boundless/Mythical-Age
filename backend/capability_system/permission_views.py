@@ -72,3 +72,5 @@ def _reasons_for_unit(unit: dict[str, Any]) -> tuple[str, ...]:
     if kind == "mcp":
         return ("mcp_tool_maps_to_operation",) if unit.get("operation_ids") else ("mcp_provider_server",)
     return ("capability_permission_not_checked",)
+
+

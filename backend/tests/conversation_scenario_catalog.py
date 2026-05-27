@@ -445,3 +445,5 @@ def coverage_index() -> dict[str, tuple[str, ...]]:
         for tag in scenario.coverage:
             index.setdefault(tag, []).append(scenario.id)
     return {tag: tuple(ids) for tag, ids in sorted(index.items())}
+
+

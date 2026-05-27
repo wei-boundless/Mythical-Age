@@ -34,3 +34,5 @@ class ToolUseContext:
         payload["environment_snapshot"] = dict(self.environment_snapshot)
         payload["execution_receipt"] = dict(self.execution_receipt)
         return payload
+
+

@@ -178,3 +178,5 @@ def refresh_tool_registry(base_dir: Path) -> Path:
         encoding="utf-8",
     )
     return registry_path
+
+

@@ -18,3 +18,5 @@ async def runtime_lifespan(_: FastAPI):
         yield
     finally:
         await app_runtime.shutdown()
+
+

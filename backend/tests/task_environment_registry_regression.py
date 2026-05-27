@@ -86,3 +86,5 @@ def test_all_default_task_environments_resolve_file_access_tables() -> None:
         resolved = resolve_task_environment(environment_id)
         assert resolved.spec.environment_id == environment_id
         assert resolved.file_access_tables
+
+

@@ -397,3 +397,5 @@ def _resource_projection_content(tool_views: tuple[Any, ...]) -> str:
             f"decision={getattr(item, 'policy_decision', '')}"
         )
     return "\n".join(line for line in lines if line)
+
+

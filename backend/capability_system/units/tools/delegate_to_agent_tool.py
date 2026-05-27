@@ -34,3 +34,5 @@ class DelegateToAgentTool(BaseTool):
 
     def _run(self, **_: Any) -> str:
         return "delegate_to_agent is handled by runtime loop dispatcher."
+
+

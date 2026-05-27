@@ -9,7 +9,8 @@ from artifact_system import ArtifactRepositoryService
 
 from runtime.shared.artifact_paths import successful_write_file_paths, workspace_root_from_runtime_root
 from runtime.shared.artifact_refs import collect_task_result_output_refs, dedupe_refs as dedupe_artifact_refs
-from runtime.shared.checkpoint import RuntimeCheckpoint, RuntimeCheckpointStore
+from harness.loop.checkpoint_store import HarnessCheckpoint, HarnessCheckpointStore
+from harness.loop.state import HarnessLoopState
 from runtime.shared.event_log import RuntimeEventLog
 from runtime.shared.execution_record import RuntimeExecutionStore
 from harness.loop.graph_coordination.engine import GraphCoordinationEngine
@@ -17,7 +18,6 @@ from runtime.shared.models import (
     AgentRun,
     AgentRunResult,
     CoordinationRun,
-    RuntimeLoopState,
     TaskRun,
 )
 from harness.execution.node_protocol.node_execution_request import NodeResultReadyEvent
@@ -87,7 +87,7 @@ class TaskRunFinalizer:
         root_dir: Path,
         state_index: RuntimeStateIndex,
         event_log: RuntimeEventLog,
-        checkpoints: RuntimeCheckpointStore,
+        checkpoints: HarnessCheckpointStore,
         execution_store: RuntimeExecutionStore,
         runtime_objects: RuntimeObjectStore,
         task_flow_registry: TaskFlowRegistry,
@@ -111,7 +111,7 @@ class TaskRunFinalizer:
         start_agent_run: AgentRun,
         start_coordination_run: CoordinationRun | None,
         task_contract_ref: str,
-        terminal_state: RuntimeLoopState,
+        terminal_state: HarnessLoopState,
         checkpoint_event: Any,
         final_content: str,
         task_result: dict[str, Any] | None = None,
@@ -622,7 +622,7 @@ class TaskRunFinalizer:
                     )
                 worker_spawn_summary = {
                     **worker_spawn_summary,
-                    "coordination_runtime": "langgraph_runtime",
+                    "coordination_engine": "harness.graph_coordination_engine",
                     "stage_execution_request": bool(runtime_result.stage_execution_request is not None),
                 }
                 self.state_index.upsert_task_run(
@@ -777,7 +777,7 @@ class TaskRunFinalizer:
         self,
         *,
         task_run: TaskRun,
-        checkpoint: RuntimeCheckpoint,
+        checkpoint: HarnessCheckpoint,
         current_turn_context: dict[str, Any] | None = None,
         user_message: str = "",
     ) -> CompletedCheckpointRecoveryResult:
@@ -1126,7 +1126,10 @@ class TaskRunFinalizer:
         coordination_terminal_reason = ""
         if coordination_run is not None:
             flow = dict(dict(coordination_run.diagnostics or {}).get("coordination_flow") or {})
-            runtime_state = dict(dict(coordination_run.diagnostics or {}).get("langgraph_runtime_state") or {})
+            runtime_state = dict(
+                dict(coordination_run.diagnostics or {}).get("graph_coordination_state")
+                or {}
+            )
             coordination_terminal = str(flow.get("terminal_status") or runtime_state.get("terminal_status") or "").strip()
             if coordination_terminal == "completed":
                 coordination_active_status = "completed"
@@ -1185,7 +1188,7 @@ class TaskRunFinalizer:
 
     def _recover_coordination_run_for_checkpoint(
         self,
-        terminal_state: RuntimeLoopState,
+        terminal_state: HarnessLoopState,
         *,
         current_turn_context: dict[str, Any],
     ) -> CoordinationRun | None:
@@ -1200,7 +1203,7 @@ class TaskRunFinalizer:
 
     def _recover_current_turn_context_for_checkpoint(
         self,
-        terminal_state: RuntimeLoopState,
+        terminal_state: HarnessLoopState,
         *,
         current_turn_context: dict[str, Any],
     ) -> dict[str, Any]:
@@ -1257,7 +1260,7 @@ class TaskRunFinalizer:
     def _recover_task_result_from_checkpoint(
         self,
         *,
-        checkpoint: RuntimeCheckpoint,
+        checkpoint: HarnessCheckpoint,
         task_run: TaskRun,
         final_content: str,
     ) -> dict[str, Any]:
@@ -1308,7 +1311,7 @@ class TaskRunFinalizer:
             return _task_run_ledger_from_payload(ledger_payload)
         return None
 
-    def _write_checkpoint_event(self, state: RuntimeLoopState, *, event_offset: int):
+    def _write_checkpoint_event(self, state: HarnessLoopState, *, event_offset: int):
         execution_summary = self.execution_store.build_summary(state.task_run_id)
         execution_refs = tuple(str(item) for item in list(execution_summary.get("execution_refs") or []))
         execution_state_ref = str(execution_summary.get("latest_execution_id") or "")
@@ -1385,7 +1388,7 @@ def _stage_execution_request_for_finalizer(
 def _task_run_finalization_suppression_reason(
     *,
     existing_task_run: TaskRun | None,
-    terminal_state: RuntimeLoopState,
+    terminal_state: HarnessLoopState,
     events: list[Any],
 ) -> str:
     incoming_status = str(terminal_state.status or "")
@@ -1472,4 +1475,6 @@ def _task_step_run_from_payload(payload: dict[str, Any]):
         executor_ref=str(payload.get("executor_ref") or ""),
         diagnostics=dict(payload.get("diagnostics") or {}),
     )
+
+
 

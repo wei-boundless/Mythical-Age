@@ -189,3 +189,5 @@ def _safe_int(value: Any, default: int = 0) -> int:
 def _short_hash(payload: Any) -> str:
     raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str, separators=(",", ":"))
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+
+

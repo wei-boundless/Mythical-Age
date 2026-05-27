@@ -222,3 +222,5 @@ def test_model_executor_does_not_auto_delegate_for_direct_web_search_lane() -> N
 
     assert all(event["type"] != "tool_call_requested" for event in events)
     assert events[-1]["type"] == "done"
+
+

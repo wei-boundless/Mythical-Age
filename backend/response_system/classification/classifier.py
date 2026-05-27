@@ -552,3 +552,5 @@ def _build_pdf_fallback_message(rejected_candidates: list[OutputCandidate]) -> t
             "pdf_canonical_missing_summary",
         )
     return ("已读取这份 PDF，但当前工具尚未形成可直接展示的摘要。", "pdf_missing_summary")
+
+

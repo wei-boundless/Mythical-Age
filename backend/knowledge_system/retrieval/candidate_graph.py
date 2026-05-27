@@ -178,3 +178,5 @@ def merge_score_breakdown(hits: list[RetrievalHit]) -> dict[str, float]:
     merged["merged_hit_count"] = float(len(hits))
     merged["final"] = max(float(hit.score or 0.0) for hit in hits) if hits else 0.0
     return merged
+
+

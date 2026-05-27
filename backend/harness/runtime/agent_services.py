@@ -120,3 +120,5 @@ class AgentRuntimeServices:
 
     def event_count(self, task_run_id: str) -> int:
         return len(self.event_log.list_events(task_run_id))
+
+

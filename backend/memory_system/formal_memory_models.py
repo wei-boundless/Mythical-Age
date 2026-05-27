@@ -161,3 +161,5 @@ class FormalMemoryReadLog:
         payload = asdict(self)
         payload["selected_version_ids"] = list(self.selected_version_ids)
         return payload
+
+

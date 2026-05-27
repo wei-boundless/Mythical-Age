@@ -220,3 +220,5 @@ class SkillContract:
             "prompt": self.prompt.to_dict(),
             "validation_errors": list(self.validation_errors),
         }
+
+

@@ -15,14 +15,15 @@ from harness.execution.graph_module_result_packets import (
     latest_unconsumed_graph_module_imported_result,
 )
 from artifact_system import ArtifactRepositoryService
-from runtime.shared.checkpoint import RuntimeCheckpointStore
+from harness.loop.checkpoint_store import HarnessCheckpointStore
+from harness.loop.state import HarnessLoopState
 from runtime.shared.execution_record import RuntimeExecutionStore
-from runtime.shared.models import AgentRun, CoordinationRun, RuntimeLoopState, TaskRun
+from runtime.shared.models import AgentRun, CoordinationRun, TaskRun
 from runtime.shared.runtime_object_store import RuntimeObjectStore
-from runtime.unit_runtime.finalizer import TaskRunFinalizer
+from harness.loop.task_run_finalizer import TaskRunFinalizer
 from harness.loop.graph_coordination.trace_adapter import CoordinationTraceAdapter
 from runtime.memory.state_index import RuntimeStateIndex
-from runtime.unit_runtime.loop import TaskRunLoop
+from harness import HarnessServiceHost
 from prompt_library import PromptLibraryRegistry
 from task_system import TaskFlowRegistry, TaskWorkflowRegistry
 from task_system.graphs.task_graph_models import TaskGraphDefinition, TaskGraphNodeDefinition
@@ -54,15 +55,15 @@ def _graph_harness_stub(state_index: RuntimeStateIndex, *, event_log: Any | None
     )
 
 
-def _runtime_with_graph_task_facade(*, base_dir: Path, loop: TaskRunLoop) -> SimpleNamespace:
+def _runtime_with_graph_task_facade(*, base_dir: Path, loop: HarnessServiceHost) -> SimpleNamespace:
     agent_runtime = AgentHarness(services=AgentRuntimeServices.from_runtime_host(loop))
     loop.agent_runtime = agent_runtime
     return SimpleNamespace(
         base_dir=base_dir,
         query_runtime=SimpleNamespace(
-            task_run_loop=loop,
+            harness_service_host=loop,
             agent_runtime=agent_runtime,
-            graph_harness=GraphHarness(task_run_loop=loop, agent_harness=agent_runtime),
+            graph_harness=GraphHarness(service_host=loop, agent_harness=agent_runtime),
         ),
     )
 
@@ -163,7 +164,7 @@ def test_coordination_rewind_api_downstream_scan_ignores_feedback_edges() -> Non
 
 def test_dispatch_ready_batches_api_returns_multiple_standard_requests(tmp_path: Path) -> None:
     graph = _parallel_batch_api_graph()
-    loop = TaskRunLoop(tmp_path, backend_dir=Path("backend"))
+    loop = HarnessServiceHost(tmp_path, backend_dir=Path("backend"))
     runtime = _runtime_with_graph_task_facade(base_dir=Path("backend"), loop=loop)
     start = loop.start_task_graph_run(
         session_id="session:test",
@@ -538,8 +539,8 @@ def test_finalizer_suppresses_completed_result_after_task_run_stop(tmp_path: Pat
         },
     )
     state_index = RuntimeStateIndex(runtime_dir)
-    event_log = TaskRunLoop(runtime_dir, backend_dir=backend_dir).event_log
-    checkpoints = RuntimeCheckpointStore(runtime_dir)
+    event_log = HarnessServiceHost(runtime_dir, backend_dir=backend_dir).event_log
+    checkpoints = HarnessCheckpointStore(runtime_dir)
     task_run = TaskRun(
         task_run_id="taskrun:test:stopped:artifact",
         session_id="session:test",
@@ -588,7 +589,7 @@ def test_finalizer_suppresses_completed_result_after_task_run_stop(tmp_path: Pat
         start_agent_run=agent_run,
         start_coordination_run=None,
         task_contract_ref="task.test.artifact_writer",
-        terminal_state=RuntimeLoopState(
+        terminal_state=HarnessLoopState(
             task_run_id=task_run.task_run_id,
             status="completed",
             terminal_reason="completed",
@@ -621,8 +622,8 @@ def test_finalizer_materialized_stage_artifacts_are_coordination_output_refs(tmp
         runtime_lane="coordination_task",
     )
     state_index = RuntimeStateIndex(runtime_dir)
-    event_log = TaskRunLoop(runtime_dir, backend_dir=backend_dir).event_log
-    checkpoints = RuntimeCheckpointStore(runtime_dir)
+    event_log = HarnessServiceHost(runtime_dir, backend_dir=backend_dir).event_log
+    checkpoints = HarnessCheckpointStore(runtime_dir)
     artifact_policy = {
         "enabled": True,
         "required": True,
@@ -689,7 +690,7 @@ def test_finalizer_materialized_stage_artifacts_are_coordination_output_refs(tmp
         start_agent_run=agent_run,
         start_coordination_run=None,
         task_contract_ref="task.test.stage_writer",
-        terminal_state=RuntimeLoopState(
+        terminal_state=HarnessLoopState(
             task_run_id=task_run.task_run_id,
             status="completed",
             terminal_reason="completed",
@@ -735,7 +736,7 @@ def test_graph_module_stage_scheduler_starts_and_reuses_imported_task_graph_run(
         publish_state="published",
         enabled=True,
     )
-    loop = TaskRunLoop(runtime_dir, backend_dir=backend_dir)
+    loop = HarnessServiceHost(runtime_dir, backend_dir=backend_dir)
     runtime = _runtime_with_graph_task_facade(base_dir=backend_dir, loop=loop)
     request = NodeExecutionRequest(
         request_id="nodeexec:graph-module",
@@ -976,7 +977,7 @@ def test_graph_module_imported_completion_commits_output_packet_and_releases_imp
         publish_state="published",
         enabled=True,
     )
-    loop = TaskRunLoop(runtime_dir, backend_dir=backend_dir)
+    loop = HarnessServiceHost(runtime_dir, backend_dir=backend_dir)
     runtime = _runtime_with_graph_task_facade(base_dir=backend_dir, loop=loop)
     parent_start = loop.start_task_graph_run(
         session_id="session:test",
@@ -1263,7 +1264,7 @@ def test_graph_module_imported_failure_commits_failure_packet_and_uses_importing
         publish_state="published",
         enabled=True,
     )
-    loop = TaskRunLoop(runtime_dir, backend_dir=backend_dir)
+    loop = HarnessServiceHost(runtime_dir, backend_dir=backend_dir)
     runtime = _runtime_with_graph_task_facade(base_dir=backend_dir, loop=loop)
     parent_start = loop.start_task_graph_run(
         session_id="session:test",
@@ -2190,3 +2191,5 @@ def test_task_graph_api_exposes_direct_runtime_spec_in_overview(tmp_path: Path) 
     assert edge["payload_contract_id"] == "contract.story.payload"
     assert runtime_spec["graph_id"] == "graph.test.direct_spec"
     assert runtime_spec["coordinator_agent_id"] == "agent:coordinator"
+
+

@@ -121,9 +121,6 @@ class HealthGovernanceBuilder:
         task_run_id = str(task_run.task_run_id or "")
         events = self.harness_service_host.event_log.list_events(task_run_id)
         event_dicts = [item.to_dict() for item in events]
-        order_projection = self.state_index.task_order_projection_for_task_run(task_run_id) or {}
-        order = dict(order_projection.get("task_order") or {})
-        order_run = dict(order_projection.get("task_order_run") or {})
         agent_runs = self.state_index.list_task_agent_runs(task_run_id)
         worker_requests = self.state_index.list_task_worker_spawn_requests(task_run_id)
         worker_results = self.state_index.list_task_worker_spawn_results(task_run_id)
@@ -143,9 +140,14 @@ class HealthGovernanceBuilder:
         return {
             "task_run_id": task_run_id,
             "session_id": str(task_run.session_id or ""),
-            "task_order_id": str(order.get("order_id") or order_run.get("order_id") or ""),
-            "task_order_run_id": str(order_run.get("run_id") or ""),
-            "title": str(order.get("objective") or task_run.task_id or task_run_id),
+            "task_contract_ref": str(task_run.task_contract_ref or ""),
+            "title": str(
+                dict(task_run.diagnostics or {}).get("title")
+                or dict(task_run.diagnostics or {}).get("task_graph_title")
+                or dict(task_run.diagnostics or {}).get("project_title")
+                or task_run.task_id
+                or task_run_id
+            ),
             "task_id": str(task_run.task_id or ""),
             "agent_id": str(task_run.agent_id or ""),
             "agent_profile_id": str(task_run.agent_profile_id or ""),
@@ -169,8 +171,7 @@ class HealthGovernanceBuilder:
             "monitor_ref": f"runtime_monitor:{task_run_id}",
             "record_refs": {
                 "task_run": task_run_id,
-                "task_order": str(order.get("order_id") or ""),
-                "task_order_run": str(order_run.get("run_id") or ""),
+                "task_contract": str(task_run.task_contract_ref or ""),
                 "session": str(task_run.session_id or ""),
             },
         }
@@ -426,3 +427,5 @@ class HealthGovernanceBuilder:
         if scope == "efficiency":
             return "检查工具等待、循环次数、人工确认和重复执行。"
         return "继续监控并在风险升级时处理。"
+
+

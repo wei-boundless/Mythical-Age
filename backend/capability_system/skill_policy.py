@@ -336,3 +336,5 @@ def _modality_from_source_kind(source_kind: str) -> str:
         "dataset": "table",
         "workspace": "workspace",
     }.get(str(source_kind or "").strip(), "general")
+
+

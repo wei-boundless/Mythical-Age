@@ -131,3 +131,5 @@ def strip_protocol_leak(content: str) -> str:
             continue
         lines.append(line)
     return "\n".join(lines).strip()
+
+

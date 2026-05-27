@@ -30,3 +30,5 @@ class PermissionContext:
         payload["sandbox_policy"] = dict(self.sandbox_policy)
         payload["file_management_policy"] = dict(self.file_management_policy)
         return payload
+
+

@@ -179,3 +179,5 @@ def _tool_name(event: dict[str, Any]) -> str:
     action_request = dict(event.get("payload") or {}).get("action_request") or {}
     action_payload = dict(action_request.get("payload") or {})
     return str(action_payload.get("tool_name") or "")
+
+

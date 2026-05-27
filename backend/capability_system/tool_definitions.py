@@ -729,3 +729,5 @@ def build_tool_registry_payload() -> dict[str, Any]:
         "tool_count": len(definitions),
         "tools": [definition.to_registry_record() for definition in definitions],
     }
+
+

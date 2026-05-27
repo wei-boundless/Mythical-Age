@@ -397,3 +397,5 @@ def test_runtime_execution_block_omits_current_time_for_non_realtime_tasks() -> 
     )
 
     assert "Current Time Facts" not in block
+
+

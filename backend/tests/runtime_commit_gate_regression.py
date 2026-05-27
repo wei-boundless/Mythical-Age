@@ -46,7 +46,7 @@ def test_assistant_commit_allows_visible_progress_without_memory_persistence() -
         task_id="turn-1",
         content="本轮运行时间达到上限，所以先停止继续调用工具。",
         answer_channel="answer_candidate",
-        answer_source="runtime_loop_control",
+        answer_source="harness_loop_control",
         answer_canonical_state="progress_only",
         answer_persist_policy="persist_debug_only",
         answer_fallback_reason="runtime_budget_exhausted",
@@ -55,3 +55,5 @@ def test_assistant_commit_allows_visible_progress_without_memory_persistence() -
     assert decision.commit_allowed is True
     assert decision.status == "allowed"
     assert decision.reason == "assistant_session_message_allowed"
+
+

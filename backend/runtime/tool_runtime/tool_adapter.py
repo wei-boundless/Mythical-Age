@@ -89,3 +89,5 @@ class RuntimeToolAdapter:
             result=result,
             execution_receipt=dict(context.execution_receipt or {}),
         )
+
+

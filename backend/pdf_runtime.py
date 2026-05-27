@@ -19,3 +19,5 @@ def suppress_pypdf_warnings() -> Iterator[None]:
     finally:
         for logger, level in saved:
             logger.setLevel(level)
+
+

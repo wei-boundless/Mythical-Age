@@ -203,3 +203,5 @@ def test_mcp_tool_pool_merges_builtin_and_mcp_tools_stably() -> None:
     assert pdf_entry["entry_kind"] == "local_mcp"
     assert pdf_entry["model_visibility"] == "runtime_delegate_only"
     assert pdf_entry["runtime_exposure"] == "local_mcp_delegate"
+
+

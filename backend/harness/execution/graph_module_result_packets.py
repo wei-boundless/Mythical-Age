@@ -568,3 +568,5 @@ def _hash_payload(payload: Any) -> str:
 
 def _safe_path_component(value: str) -> str:
     return "".join(ch if ch.isalnum() or ch in {"-", "_", "."} else "_" for ch in str(value or ""))[:180]
+
+

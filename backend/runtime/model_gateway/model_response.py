@@ -895,3 +895,5 @@ def _normalize_tool_calls(raw_tool_calls: Any) -> list[dict[str, Any]]:
             }
         )
     return normalized
+
+

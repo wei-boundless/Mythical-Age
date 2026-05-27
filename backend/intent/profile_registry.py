@@ -167,3 +167,5 @@ def _builtin_profiles() -> tuple[IntentDomainProfile, ...]:
             execution_strategy_candidates=("interaction_mode_run",),
         ),
     )
+
+

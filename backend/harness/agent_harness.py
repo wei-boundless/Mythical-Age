@@ -34,3 +34,5 @@ class AgentHarness:
 
     def event_count(self, task_run_id: str) -> int:
         return self._services.event_count(task_run_id)
+
+

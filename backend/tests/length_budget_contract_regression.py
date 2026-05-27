@@ -326,3 +326,5 @@ def test_parse_stage_contract_inherits_topology_node_contract_binding_length_bud
     assert contracts[0].length_budget["configured"] is True
     assert contracts[0].length_budget["budget_scope"] == "batch"
     assert contracts[0].length_budget["target_units"] == 3000
+
+

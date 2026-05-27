@@ -6,12 +6,12 @@ from typing import Any
 from task_system.tasks.run_models import task_run_step_count
 
 from runtime.context_management.system_retrieval import build_context_policy_with_retrieval
-from runtime.shared.models import RuntimeLoopState
+from harness.loop.state import HarnessLoopState
 
 
 @dataclass(frozen=True, slots=True)
 class AgentRuntimeContextPreflightResult:
-    state: RuntimeLoopState
+    state: HarnessLoopState
     context_snapshot: Any
     events: tuple[dict[str, Any], ...]
 
@@ -19,7 +19,7 @@ class AgentRuntimeContextPreflightResult:
 def prepare_agent_runtime_context(
     *,
     runtime_host: Any,
-    state: RuntimeLoopState,
+    state: HarnessLoopState,
     runtime_task_ledger: Any,
     session_id: str,
     task_id: str,
@@ -90,7 +90,7 @@ def prepare_agent_runtime_context(
             "agent_runtime_spec_ref": str(agent_runtime_spec_payload.get("runtime_spec_id") or ""),
         },
     )
-    events.append({"type": "runtime_loop_event", "event": context_event.to_dict()})
+    events.append({"type": "harness_loop_event", "event": context_event.to_dict()})
     invariant_report = runtime_context_manager.check_invariants(context_snapshot)
     invariant_event = runtime_host.event_log.append(
         state.task_run_id,
@@ -101,10 +101,10 @@ def prepare_agent_runtime_context(
             "invariant_report_ref": invariant_report.report_id,
         },
     )
-    events.append({"type": "runtime_loop_event", "event": invariant_event.to_dict()})
+    events.append({"type": "harness_loop_event", "event": invariant_event.to_dict()})
     events.append({"type": "runtime_context_invariant", "report": invariant_report.to_dict()})
 
-    updated_state = RuntimeLoopState(
+    updated_state = HarnessLoopState(
         task_run_id=state.task_run_id,
         status="running",
         transition="start",
@@ -150,9 +150,11 @@ def prepare_agent_runtime_context(
         },
     )
     checkpoint = runtime_host._write_checkpoint_event(updated_state, event_offset=invariant_event.offset)
-    events.append({"type": "runtime_loop_event", "event": checkpoint.to_dict()})
+    events.append({"type": "harness_loop_event", "event": checkpoint.to_dict()})
     return AgentRuntimeContextPreflightResult(
         state=updated_state,
         context_snapshot=context_snapshot,
         events=tuple(events),
     )
+
+

@@ -271,3 +271,5 @@ def test_prompt_sections_require_agent_plan_and_explain_hard_gate() -> None:
     assert "系统脚手架" not in prompt["agent_plan_section"]
     assert "硬门状态=blocked_replan_required" in prompt["plan_coverage_section"]
     assert "不能进入执行步骤" in prompt["plan_coverage_section"]
+
+

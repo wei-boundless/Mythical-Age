@@ -302,3 +302,5 @@ def _same_or_suffix_path(left: str, right: str) -> bool:
     if not left or not right:
         return False
     return left == right or left.endswith(right) or right.endswith(left)
+
+

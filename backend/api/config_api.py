@@ -104,3 +104,5 @@ async def get_runtime_config_console() -> dict[str, object]:
 async def set_runtime_config_group(payload: RuntimeConfigGroupRequest) -> dict[str, object]:
     runtime = require_runtime()
     return runtime.settings.set_runtime_config_group(payload.group_id, dict(payload.values))
+
+

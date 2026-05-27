@@ -70,3 +70,5 @@ class ToolResultEnvelope:
     persistence_policy: str = "persist_canonical"
     allow_unlabeled_answer: bool = False
     metadata: dict[str, Any] = field(default_factory=dict)
+
+

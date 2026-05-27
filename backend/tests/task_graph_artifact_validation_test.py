@@ -53,3 +53,5 @@ def test_task_graph_artifact_policy_accepts_non_empty_materializable_content(tmp
     assert validation["required"] is True
     assert validation["passed"] is True
     assert validation["artifact_targets"] == ["memory/world/world_commit.md"]
+
+

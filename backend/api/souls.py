@@ -315,3 +315,5 @@ async def soul_role_prompt(soul_id: str) -> dict[str, Any]:
         return SoulFacade(runtime.base_dir).build_role_prompt(soul_id=soul_id.strip().lower())
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Unknown soul") from exc
+
+

@@ -210,3 +210,5 @@ def _builtin_profiles() -> tuple[ContinuationDomainProfile, ...]:
             handle_prefixes=("graph.", "coordination:"),
         ),
     )
+
+

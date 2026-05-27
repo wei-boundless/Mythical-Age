@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from runtime.shared.models import RuntimeLoopState
-from runtime.unit_runtime.loop import TaskRunLoop
+from harness.loop.state import HarnessLoopState
+from harness import HarnessServiceHost
 from task_system.planning.execution_recipe_models import ExecutionRecipe
 from task_system.tasks.run_models import build_task_run_ledger, current_task_step_run, start_task_run_step
 from task_system.tasks.spec_models import TaskSpec
@@ -11,7 +11,7 @@ from task_system.tasks.step_models import TaskStepBlueprint
 
 
 def test_tool_result_step_transition_ignores_unmatched_current_step(tmp_path: Path) -> None:
-    loop = TaskRunLoop(tmp_path)
+    loop = HarnessServiceHost(tmp_path)
     ledger = build_task_run_ledger(
         task_run_id="taskrun:test-unmatched-tool-result",
         task_contract_ref="task:test",
@@ -41,7 +41,7 @@ def test_tool_result_step_transition_ignores_unmatched_current_step(tmp_path: Pa
         status="running",
     )
     ledger = start_task_run_step(ledger, step_id="step.answer", started_at=1.0)
-    state = RuntimeLoopState(
+    state = HarnessLoopState(
         task_run_id="taskrun:test-unmatched-tool-result",
         status="running",
         current_step_id="step.answer",
@@ -63,7 +63,7 @@ def test_tool_result_step_transition_ignores_unmatched_current_step(tmp_path: Pa
 
 
 def test_tool_result_step_transition_advances_matching_tool_step(tmp_path: Path) -> None:
-    loop = TaskRunLoop(tmp_path)
+    loop = HarnessServiceHost(tmp_path)
     ledger = build_task_run_ledger(
         task_run_id="taskrun:test-matched-tool-result",
         task_contract_ref="task:test",
@@ -93,7 +93,7 @@ def test_tool_result_step_transition_advances_matching_tool_step(tmp_path: Path)
         status="running",
     )
     ledger = start_task_run_step(ledger, step_id="step.read", started_at=1.0)
-    state = RuntimeLoopState(
+    state = HarnessLoopState(
         task_run_id="taskrun:test-matched-tool-result",
         status="running",
         current_step_id="step.read",
@@ -116,3 +116,5 @@ def test_tool_result_step_transition_advances_matching_tool_step(tmp_path: Path)
         "task_run_ledger_updated",
         "checkpoint_written",
     ]
+
+

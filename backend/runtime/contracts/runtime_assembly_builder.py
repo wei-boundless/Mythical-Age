@@ -639,3 +639,5 @@ def _task_durable_memory_diagnostics(task_durable_context: dict[str, Any] | None
         "task_durable_memory_required_count": int(dict(payload.get("task_durable_memory.required") or {}).get("item_count") or 0),
         "task_durable_memory_preferred_count": int(dict(payload.get("task_durable_memory.preferred") or {}).get("item_count") or 0),
     }
+
+

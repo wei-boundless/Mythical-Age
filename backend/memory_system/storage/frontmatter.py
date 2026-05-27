@@ -30,3 +30,5 @@ def format_frontmatter(values: dict[str, str | Iterable[str]]) -> str:
         lines.append(f"{key}: {rendered}")
     lines.append("---")
     return "\n".join(lines)
+
+

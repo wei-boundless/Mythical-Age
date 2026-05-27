@@ -333,3 +333,5 @@ def _float_or(value: Any, default: float) -> float:
         return float(value)
     except (TypeError, ValueError):
         return float(default)
+
+

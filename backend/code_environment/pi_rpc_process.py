@@ -136,3 +136,5 @@ class PiSidecarManager:
 
 
 PI_SIDECAR_MANAGER = PiSidecarManager()
+
+

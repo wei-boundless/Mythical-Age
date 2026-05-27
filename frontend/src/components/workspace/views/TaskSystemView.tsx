@@ -36,9 +36,9 @@ import {
   taskGraphDraftRevisionKey,
 } from "@/components/workspace/views/task-system/taskGraphEditorSelection";
 import {
-  MODULAR_NOVEL_DOMAIN_ID,
   recommendedTaskGraphId,
   sortTaskGraphsForWorkbench,
+  taskGraphEnvironmentId,
 } from "@/components/workspace/views/task-system/taskGraphSelection";
 import { buildTaskGraphTemplateDraft, type TaskGraphTemplateId } from "@/components/workspace/views/task-system/taskGraphTemplates";
 import {
@@ -59,14 +59,13 @@ import {
   getFormalMemoryOverview,
   getOrchestrationAgents,
   getOrchestrationResourceInventory,
-  getOrchestrationRuntimeLoopTaskRunLiveMonitor,
-  listOrchestrationRuntimeLoopTaskRuns,
+  getOrchestrationHarnessTaskRunLiveMonitor,
+  listOrchestrationHarnessTaskRuns,
   getSoulProjectionCards,
   getTaskSystemTaskGraph,
   getTaskSystemTaskGraphStandardView,
   getTaskSystemNextIds,
   getTaskSystemOverview,
-  createTaskOrder,
   deleteTaskSystemContract,
   upsertTaskSystemContract,
   upsertTaskSystemDomain,
@@ -82,8 +81,8 @@ import {
   type FormalMemoryOverview,
   type OrchestrationAgentRuntimeCatalog,
   type RuntimeResourceInventory,
-  type RuntimeLoopTaskRunLiveMonitor,
-  type RuntimeLoopTaskRunSummary,
+  type HarnessTaskRunLiveMonitor,
+  type HarnessTaskRunSummary,
   type SoulProjectionCard,
   type SoulProjectionCatalog,
   type SpecificTaskRecord,
@@ -167,11 +166,11 @@ function uniqueStrings(values: Array<string | null | undefined>) {
   return Array.from(new Set(values.map((item) => String(item ?? "").trim()).filter(Boolean)));
 }
 
-function getRuntimeTaskRunId(summary: RuntimeLoopTaskRunSummary | null | undefined) {
+function getRuntimeTaskRunId(summary: HarnessTaskRunSummary | null | undefined) {
   return recordFieldText(dictOf(summary?.task_run), ["task_run_id", "id", "run_id"], "");
 }
 
-function runtimeTaskRunGraphId(summary: RuntimeLoopTaskRunSummary | null | undefined) {
+function runtimeTaskRunGraphId(summary: HarnessTaskRunSummary | null | undefined) {
   return recordFieldText(dictOf(summary?.task_run), ["graph_id", "coordination_task_id", "task_graph_id"], "");
 }
 
@@ -283,13 +282,12 @@ function stepsToText(steps: Array<Record<string, unknown>> = []) {
   return steps.map((step) => `${text(step.step_id, "")} | ${text(step.title, "")}`).join("\n");
 }
 
-function emptyEntryPolicy(workflowId = "", projectionId = ""): ConversationEntryPolicy {
+function emptyEntryPolicy(workflowId = ""): ConversationEntryPolicy {
   return {
     profile_id: "general.conversation.default",
     entry_policy_id: "general.conversation.default",
     title: "主会话入口识别",
     default_workflow_id: workflowId,
-    default_projection_id: projectionId,
     input_contract_id: "UserMessage",
     output_contract_id: "AssistantFinalAnswer",
     conversation_entry_policy: "user_dialogue_to_main_agent",
@@ -623,6 +621,35 @@ function taskDomainId(task: SpecificTaskRecord) {
   return String(task.domain_id ?? metadata.domain_id ?? "").trim() || "domain.general";
 }
 
+function normalizeTaskEnvironmentId(value: unknown) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  return raw.startsWith("env.") ? raw : "";
+}
+
+function taskEnvironmentId(task: SpecificTaskRecord) {
+  const metadata = dictOf(task.metadata);
+  const taskPolicy = dictOf(task.task_policy);
+  return normalizeTaskEnvironmentId(
+    metadata.task_environment_id
+    ?? metadata.environment_id
+    ?? taskPolicy.task_environment_id
+    ?? taskPolicy.environment_id,
+  );
+}
+
+function taskEnvironmentTitle(environmentId: string) {
+  const labels: Record<string, string> = {
+    "env.writing": "写作任务环境",
+    "env.vibe_coding": "开发任务环境",
+    "env.web_research": "网页研究环境",
+    "env.data_analysis": "数据分析环境",
+    "env.document_processing": "文档处理环境",
+    "env.general_workspace": "通用工作环境",
+  };
+  return labels[environmentId] ?? environmentId;
+}
+
 type LayerNavItem<T extends string> = {
   value: T;
   label: string;
@@ -637,7 +664,6 @@ export function TaskSystemView() {
     currentSessionId,
     setOrchestrationInspectorTarget,
     setTaskGraphRunInteractionOpen,
-    setTaskOrderProjection,
     setTaskSelection,
     setWorkspaceView,
     taskGraphLiveMonitor,
@@ -654,6 +680,7 @@ export function TaskSystemView() {
   const [selectedDomainId, setSelectedDomainId] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState("");
   const [selectedTaskGraphId, setSelectedTaskGraphId] = useState("");
+  const [editorEnvironmentId, setEditorEnvironmentId] = useState("");
   const [editorDomainId, setEditorDomainId] = useState("");
   const [editorTaskGraphId, setEditorTaskGraphId] = useState("");
   const [taskLayer, setTaskLayer] = useState<TaskLayer>("management");
@@ -680,10 +707,10 @@ export function TaskSystemView() {
   const [activeTaskGraphDetail, setActiveTaskGraphDetail] = useState<TaskGraphRecord | null>(null);
   const [activeTaskGraphDetailError, setActiveTaskGraphDetailError] = useState("");
   const [runtimeTaskRunId, setRuntimeTaskRunId] = useState("");
-  const [runtimeTaskRuns, setRuntimeTaskRuns] = useState<RuntimeLoopTaskRunSummary[]>([]);
+  const [runtimeTaskRuns, setRuntimeTaskRuns] = useState<HarnessTaskRunSummary[]>([]);
   const [runtimeFormalOverview, setRuntimeFormalOverview] = useState<FormalMemoryOverview | null>(null);
   const [runtimeArtifactOverview, setRuntimeArtifactOverview] = useState<ArtifactRepositoryOverview | null>(null);
-  const [runtimeLiveMonitor, setRuntimeLiveMonitor] = useState<RuntimeLoopTaskRunLiveMonitor | null>(null);
+  const [runtimeLiveMonitor, setRuntimeLiveMonitor] = useState<HarnessTaskRunLiveMonitor | null>(null);
   const [runtimeResourceInventory, setRuntimeResourceInventory] = useState<RuntimeResourceInventory | null>(null);
   const [runtimeLoading, setRuntimeLoading] = useState(false);
   const [runtimeError, setRuntimeError] = useState("");
@@ -699,13 +726,12 @@ export function TaskSystemView() {
   const applyOverview = useCallback((overview: TaskSystemOverview) => {
     setConsolePayload(overview);
     const nextDomains = buildDomains(overview);
-    const modularNovelDomain = nextDomains.find((item) => item.domain_id === MODULAR_NOVEL_DOMAIN_ID) ?? null;
     const firstDomainWithTasks = nextDomains.find((item) => item.tasks.length > 0) ?? null;
     const fallbackDomain = firstDomainWithTasks ?? nextDomains[0] ?? null;
     const preferredDomain = nextDomains.find((item) => item.domain_id === selectedDomainIdRef.current) ?? null;
     const selectedDomain = preferredDomain && (preferredDomain.tasks.length > 0 || !firstDomainWithTasks)
       ? preferredDomain
-      : modularNovelDomain ?? fallbackDomain;
+      : fallbackDomain;
     const taskGraphs = sortTaskGraphsForWorkbench(overview.task_graph_management?.task_graphs ?? []);
     setSelectedDomainId(selectedDomain?.domain_id ?? "");
     setSelectedTaskId((current) => current || selectedDomain?.tasks[0]?.task_id || overview.task_management.specific_task_records[0]?.task_id || "");
@@ -844,19 +870,33 @@ export function TaskSystemView() {
   );
   const selectedTaskGraph = taskGraphs.find((item) => item.graph_id === selectedTaskGraphId) ?? taskGraphs[0] ?? null;
   const editorDomain = visibleDomains.find((domain) => domain.domain_id === editorDomainId) ?? visibleDomains[0] ?? null;
-  const editorDomainTasks = useMemo(() => editorDomain?.tasks ?? [], [editorDomain]);
-  const editorDomainFilterId = editorDomain?.domain_id || "";
+  const editorTaskEnvironmentOptions = useMemo(() => {
+    const environmentIds = uniqueStrings(tasks.map((task) => taskEnvironmentId(task)));
+    return environmentIds.map((environmentId) => ({
+      value: environmentId,
+      label: `${taskEnvironmentTitle(environmentId)} · ${environmentId}`,
+    }));
+  }, [tasks]);
+  const activeEditorEnvironmentId = editorEnvironmentId
+    || editorTaskEnvironmentOptions[0]?.value
+    || "";
+  const editorEnvironmentTasks = useMemo(
+    () => tasks.filter((task) => taskEnvironmentId(task) === activeEditorEnvironmentId),
+    [activeEditorEnvironmentId, tasks],
+  );
   const editorContractSpecs = useMemo(() => scopedContractSpecs(contractSpecs, editorDomain), [contractSpecs, editorDomain]);
   const editorTaskGraphs = useMemo(
-    () => editorDomainFilterId ? sortTaskGraphsForWorkbench(allTaskGraphs.filter((item) => String(item.domain_id ?? "").trim() === editorDomainFilterId)) : [],
-    [allTaskGraphs, editorDomainFilterId],
+    () => activeEditorEnvironmentId
+      ? sortTaskGraphsForWorkbench(allTaskGraphs.filter((item) => taskGraphEnvironmentId(item) === activeEditorEnvironmentId))
+      : [],
+    [activeEditorEnvironmentId, allTaskGraphs],
   );
   const editorGraphSelectOptions = useMemo(() => {
     const options = editorTaskGraphs.map((task) => ({ value: task.graph_id, label: `${task.title} · ${task.graph_id}` }));
     const draftGraphId = String(taskGraphDraftV2.graph_id || "").trim();
-    const draftInEditorDomain = draftGraphId
-      && String(taskGraphDraftV2.domain_id || "").trim() === editorDomainFilterId;
-    if (draftInEditorDomain && !options.some((option) => option.value === draftGraphId)) {
+    const draftInEditorEnvironment = draftGraphId
+      && taskGraphEnvironmentId(taskGraphDraftV2) === activeEditorEnvironmentId;
+    if (draftInEditorEnvironment && !options.some((option) => option.value === draftGraphId)) {
       return [
         {
           value: draftGraphId,
@@ -866,7 +906,7 @@ export function TaskSystemView() {
       ];
     }
     return options;
-  }, [editorDomainFilterId, editorTaskGraphs, taskGraphDraftV2.domain_id, taskGraphDraftV2.graph_id, taskGraphDraftV2.title]);
+  }, [activeEditorEnvironmentId, editorTaskGraphs, taskGraphDraftV2]);
   const editorSelectedTaskGraph = editorTaskGraphs.find((item) => item.graph_id === editorTaskGraphId) ?? null;
   const activeTaskGraphSummary = taskLayer === "editor" ? editorSelectedTaskGraph : selectedTaskGraph;
   const activeTaskGraph = activeTaskGraphDetail?.graph_id === activeTaskGraphSummary?.graph_id
@@ -883,8 +923,8 @@ export function TaskSystemView() {
     [editorTaskGraphs],
   );
   const editorDomainTaskOptions = useMemo(
-    () => editorDomainTasks.map((task) => ({ value: task.task_id, label: task.task_title })),
-    [editorDomainTasks],
+    () => editorEnvironmentTasks.map((task) => ({ value: task.task_id, label: task.task_title })),
+    [editorEnvironmentTasks],
   );
   const projectionCards = useMemo(() => projectionCatalog?.cards ?? [], [projectionCatalog]);
   const domainProjectionCards = useMemo(() => projectionCards.filter((card) => {
@@ -959,54 +999,21 @@ export function TaskSystemView() {
   const sendTaskToChat = useCallback(async (task: SpecificTaskRecord | null, domain: DomainRecord | null) => {
     if (!task) return;
     if (!currentSessionId) {
-      setError("当前没有可绑定的主会话，无法创建任务订单。");
+      setError("当前没有可绑定的主会话，无法发送任务选择。");
       return;
     }
-    setSaving("task-order-create");
+    setSaving("task-selection-send");
     setError("");
-    try {
-      const projection = await createTaskOrder({
-        session_id: currentSessionId,
-        task_id: task.task_id,
-        domain_id: domain?.domain_id || "",
-        objective: task.description || task.task_title,
-        source: "task_library",
-        source_ref: `task_system.specific_task:${task.task_id}`,
-        task_selection: {
-          selected_task_id: task.task_id,
-          domain_id: domain?.domain_id || "",
-          label: task.task_title,
-          mode: "specific_task",
-        },
-        task_order_intent: {
-          action: "create_order",
-          order_kind: "specific_task",
-          task_id: task.task_id,
-        },
-      });
-      const order = dictOf(projection.task_order);
-      const run = dictOf(projection.task_order_run);
-      const channel = dictOf(projection.execution_channel);
-      const envelope = dictOf(projection.task_execution_envelope);
-      setTaskOrderProjection(projection);
-      setTaskSelection({
-        selected_task_id: task.task_id,
-        domain_id: domain?.domain_id || "",
-        label: task.task_title,
-        mode: "single_task",
-        task_order_id: String(order.order_id || ""),
-        task_order_run_id: String(run.run_id || ""),
-        execution_channel_id: String(channel.channel_id || ""),
-        task_execution_envelope_id: String(envelope.envelope_id || ""),
-      });
-      setWorkspaceView("chat");
-      setNotice(`已创建任务订单“${task.task_title}”，主会话将承接这次运行。`);
-    } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "任务订单创建失败");
-    } finally {
-      setSaving("");
-    }
-  }, [currentSessionId, setTaskOrderProjection, setTaskSelection, setWorkspaceView]);
+    setTaskSelection({
+      selected_task_id: task.task_id,
+      domain_id: domain?.domain_id || "",
+      label: task.task_title,
+      mode: "single_task",
+    });
+    setWorkspaceView("chat");
+    setNotice(`已选择任务“${task.task_title}”，主会话将按任务配置装配运行环境。`);
+    setSaving("");
+  }, [currentSessionId, setTaskSelection, setWorkspaceView]);
 
   const openOrchestrationControl = useCallback((focus?: {
     agentId?: string;
@@ -1040,7 +1047,7 @@ export function TaskSystemView() {
       sort_order: selectedDomain.sort_order,
       metadata: selectedDomain.metadata ?? {},
     });
-    setEntryDraft(selectedDomain.entry_policy ?? emptyEntryPolicy(workflows[0]?.workflow_id ?? "", ""));
+    setEntryDraft(selectedDomain.entry_policy ?? emptyEntryPolicy(workflows[0]?.workflow_id ?? ""));
   }, [selectedDomain, workflows]);
 
   useEffect(() => {
@@ -1056,7 +1063,7 @@ export function TaskSystemView() {
       sort_order: selectedDomain.sort_order,
       metadata: selectedDomain.metadata ?? {},
     });
-    setEntryDraft(selectedDomain.entry_policy ?? emptyEntryPolicy(workflows[0]?.workflow_id ?? "", ""));
+    setEntryDraft(selectedDomain.entry_policy ?? emptyEntryPolicy(workflows[0]?.workflow_id ?? ""));
   }, [selectedDomain, selectedTaskId, workflows]);
 
   useEffect(() => {
@@ -1471,8 +1478,13 @@ export function TaskSystemView() {
   async function createTaskGraphDraft() {
     const draftDomain = taskLayer === "editor" ? editorDomain : selectedDomain;
     const draftDomainId = draftDomain?.domain_id || taskGraphDraftV2.domain_id || "";
+    const draftEnvironmentId = activeEditorEnvironmentId;
     if (!draftDomainId) {
       setError("请先选择任务域，再创建任务图。");
+      return;
+    }
+    if (!draftEnvironmentId) {
+      setError("请先选择任务环境，再创建任务图。");
       return;
     }
     setSaving("task-graph-create");
@@ -1492,11 +1504,25 @@ export function TaskSystemView() {
           graph_source: "task_graph_editor_v2",
           draft_identity_locked: true,
           domain_id: draftDomainId,
+          task_environment_id: draftEnvironmentId,
+          environment_id: draftEnvironmentId,
+        },
+        runtime_policy: {
+          ...emptyTaskGraphDraftV2().runtime_policy,
+          task_environment_id: draftEnvironmentId,
+          environment_id: draftEnvironmentId,
+        },
+        context_policy: {
+          ...emptyTaskGraphDraftV2().context_policy,
+          task_environment_id: draftEnvironmentId,
+          environment_id: draftEnvironmentId,
         },
       };
       nextDraft.metadata = {
         ...nextDraft.metadata,
         domain_id: draftDomainId,
+        task_environment_id: draftEnvironmentId,
+        environment_id: draftEnvironmentId,
       };
       setEditorDomainId(draftDomainId);
       setEditorTaskGraphId(nextDraft.graph_id);
@@ -1523,6 +1549,12 @@ export function TaskSystemView() {
     const draftDomain = taskLayer === "editor" ? editorDomain : selectedDomain;
     const sourceDraft = taskGraphRecordToDraftV2(sourceTaskGraph);
     const draftDomainId = draftDomain?.domain_id || sourceDraft.domain_id || "";
+    const draftEnvironmentId = taskGraphEnvironmentId(sourceTaskGraph)
+      || activeEditorEnvironmentId;
+    if (!draftEnvironmentId) {
+      setError("当前图没有标准任务环境，不能复制为可运行图任务。");
+      return;
+    }
     setSaving("task-graph-duplicate");
     setError("");
     setNotice("");
@@ -1549,7 +1581,19 @@ export function TaskSystemView() {
           graph_source: "task_graph_editor_v2",
           duplicated_from_graph_id: sourceDraft.graph_id,
           domain_id: draftDomainId,
+          task_environment_id: draftEnvironmentId,
+          environment_id: draftEnvironmentId,
           task_id: undefined,
+        },
+        runtime_policy: {
+          ...sourceDraft.runtime_policy,
+          task_environment_id: draftEnvironmentId,
+          environment_id: draftEnvironmentId,
+        },
+        context_policy: {
+          ...sourceDraft.context_policy,
+          task_environment_id: draftEnvironmentId,
+          environment_id: draftEnvironmentId,
         },
       };
       setEditorDomainId(draftDomainId);
@@ -1696,8 +1740,14 @@ export function TaskSystemView() {
   async function saveTaskGraphStack(nextPublished?: boolean, nextEditorPublishState?: "draft" | "saved" | "preflight_passed" | "published" | "run_bound" | "archived") {
     const draftDomain = taskLayer === "editor" ? editorDomain : selectedDomain;
     const draftDomainId = draftDomain?.domain_id || taskGraphDraftV2.domain_id || "";
+    const draftEnvironmentId = taskGraphEnvironmentId(taskGraphDraftV2)
+      || activeEditorEnvironmentId;
     if (!draftDomainId) {
       setError("请先选择任务域，再保存任务图。");
+      return;
+    }
+    if (!draftEnvironmentId) {
+      setError("请先选择任务环境，再保存任务图。");
       return;
     }
     setSaving("task-graph");
@@ -1727,7 +1777,19 @@ export function TaskSystemView() {
           ...asRecord(taskGraphDraftV2.metadata),
           ...publishCommit.metadata_patch,
           domain_id: draftDomainId,
+          task_environment_id: draftEnvironmentId,
+          environment_id: draftEnvironmentId,
           task_id: undefined,
+        },
+        runtime_policy: {
+          ...taskGraphDraftV2.runtime_policy,
+          task_environment_id: draftEnvironmentId,
+          environment_id: draftEnvironmentId,
+        },
+        context_policy: {
+          ...taskGraphDraftV2.context_policy,
+          task_environment_id: draftEnvironmentId,
+          environment_id: draftEnvironmentId,
         },
       };
       const taskGraphPayload = buildTaskGraphUpsertPayload({
@@ -1881,6 +1943,38 @@ export function TaskSystemView() {
       },
     }));
   };
+  useEffect(() => {
+    if (taskLayer !== "editor" || !activeEditorEnvironmentId) return;
+    setTaskGraphDraftV2((current) => {
+      const metadata = asRecord(current.metadata);
+      if (
+        metadata.task_environment_id === activeEditorEnvironmentId
+        && metadata.environment_id === activeEditorEnvironmentId
+        && current.runtime_policy.task_environment_id === activeEditorEnvironmentId
+        && current.context_policy.task_environment_id === activeEditorEnvironmentId
+      ) {
+        return current;
+      }
+      return {
+        ...current,
+        context_policy: {
+          ...current.context_policy,
+          task_environment_id: activeEditorEnvironmentId,
+          environment_id: activeEditorEnvironmentId,
+        },
+        runtime_policy: {
+          ...current.runtime_policy,
+          task_environment_id: activeEditorEnvironmentId,
+          environment_id: activeEditorEnvironmentId,
+        },
+        metadata: {
+          ...metadata,
+          task_environment_id: activeEditorEnvironmentId,
+          environment_id: activeEditorEnvironmentId,
+        },
+      };
+    });
+  }, [activeEditorEnvironmentId, taskLayer]);
   const updateTaskGraphRuntimePolicy = (patch: Partial<TaskGraphDraftV2["runtime_policy"]>) => {
     setTaskGraphDraftV2((current) => ({
       ...current,
@@ -1901,7 +1995,7 @@ export function TaskSystemView() {
   const selectedGraphEdge = activeGraphEdges.find((edge, index) => graphEdgeId(edge, index) === selectedGraphEdgeId) ?? null;
   const boundTaskGraphTaskIds = new Set(activeGraphNodes.map((node) => graphNodeTaskId(node)).filter(Boolean));
   const graphContextDomain = taskLayer === "editor" ? editorDomain : selectedDomain;
-  const graphContextDomainTasks = taskLayer === "editor" ? editorDomainTasks : selectedDomainTasks;
+  const graphContextDomainTasks = taskLayer === "editor" ? editorEnvironmentTasks : selectedDomainTasks;
   const graphContextDomainId = graphContextDomain?.domain_id || taskGraphDraftV2.domain_id || "";
   const draftGraphSpec = deriveTaskGraphSpec(
     taskGraphDraftV2.graph_id || "",
@@ -1983,7 +2077,7 @@ export function TaskSystemView() {
       return;
     }
     try {
-      const response = await listOrchestrationRuntimeLoopTaskRuns(currentSessionId);
+      const response = await listOrchestrationHarnessTaskRuns(currentSessionId);
       setRuntimeTaskRuns(response.task_runs ?? []);
     } catch (exc) {
       setRuntimeError(exc instanceof Error ? `运行实例列表加载失败：${exc.message}` : "运行实例列表加载失败");
@@ -1997,7 +2091,7 @@ export function TaskSystemView() {
       const [formal, artifacts, monitor] = await Promise.all([
         getFormalMemoryOverview({ task_run_id: taskRunId, limit: 80 }),
         getArtifactRepositoryOverview({ task_run_id: taskRunId, limit: 80 }),
-        taskRunId ? getOrchestrationRuntimeLoopTaskRunLiveMonitor(taskRunId).catch(() => null) : Promise.resolve(null),
+        taskRunId ? getOrchestrationHarnessTaskRunLiveMonitor(taskRunId).catch(() => null) : Promise.resolve(null),
       ]);
       setRuntimeFormalOverview(formal);
       setRuntimeArtifactOverview(artifacts);
@@ -2191,12 +2285,19 @@ export function TaskSystemView() {
   );
   function openTaskGraphEditor(graphId = selectedTaskGraph?.graph_id || "") {
     const nextDomain = selectedDomain ?? editorDomain;
-    const nextDomainId = nextDomain?.domain_id || "";
-    const domainGraphs = sortTaskGraphsForWorkbench(allTaskGraphs.filter((item) => String(item.domain_id ?? "").trim() === nextDomainId));
-    const nextGraph = allTaskGraphs.find((item) => String(item.graph_id ?? "") === graphId)
-      ?? domainGraphs.find((item) => item.graph_id === recommendedTaskGraphId(domainGraphs))
+    const explicitGraph = allTaskGraphs.find((item) => String(item.graph_id ?? "") === graphId) ?? null;
+    const nextEnvironmentId = taskGraphEnvironmentId(explicitGraph as TaskGraphRecord)
+      || taskEnvironmentId(nextDomain?.tasks[0] ?? tasks[0] ?? emptySpecificTaskRecord())
+      || editorTaskEnvironmentOptions[0]?.value
+      || "";
+    const environmentGraphs = nextEnvironmentId
+      ? sortTaskGraphsForWorkbench(allTaskGraphs.filter((item) => taskGraphEnvironmentId(item) === nextEnvironmentId))
+      : [];
+    const nextGraph = explicitGraph
+      ?? environmentGraphs.find((item) => item.graph_id === recommendedTaskGraphId(environmentGraphs))
       ?? null;
     setEditorDomainId(nextDomain?.domain_id || "");
+    setEditorEnvironmentId(nextEnvironmentId);
     setEditorTaskGraphId(nextGraph?.graph_id || "");
     setSelectedTaskGraphId(nextGraph?.graph_id || graphId || "");
     setSelectedGraphNodeId("");
@@ -2218,28 +2319,16 @@ export function TaskSystemView() {
     }
   }
 
-  function selectEditorDomain(domainId: string) {
-    const nextDomain = visibleDomains.find((domain) => domain.domain_id === domainId) ?? null;
-    const nextDomainId = nextDomain?.domain_id || "";
-    const domainGraphs = sortTaskGraphsForWorkbench(allTaskGraphs.filter((item) => String(item.domain_id ?? "").trim() === nextDomainId));
-    const nextGraph = domainGraphs.find((item) => item.graph_id === recommendedTaskGraphId(domainGraphs)) ?? null;
-    setEditorDomainId(nextDomain?.domain_id || "");
-    setEditorTaskGraphId(nextGraph?.graph_id || "");
-    setSelectedGraphNodeId("");
-    setSelectedGraphEdgeId("");
-    setLinkingFromNodeId("");
-  }
-
   const editorWorkspaceSlot = (
     <>
       <div className="task-graph-editor-chrome__controls">
         <TaskGraphChromeSelect
-          emptyLabel={visibleDomains.length ? "选择任务域" : "暂无任务域"}
-          label="任务域"
-          onChange={selectEditorDomain}
-          options={visibleDomains.map((domain) => ({ value: domain.domain_id, label: domain.title }))}
-          placeholder="选择任务域"
-          value={editorDomainId}
+          emptyLabel={editorTaskEnvironmentOptions.length ? "选择任务环境" : "暂无任务环境"}
+          label="任务环境"
+          onChange={setEditorEnvironmentId}
+          options={editorTaskEnvironmentOptions}
+          placeholder="选择任务环境"
+          value={activeEditorEnvironmentId}
         />
         <TaskGraphChromeSelect
           disabled={!editorDomain}
@@ -2259,7 +2348,7 @@ export function TaskSystemView() {
       </div>
       <div className="task-graph-editor-chrome__status task-graph-editor-chrome__status--context">
         <span className={topologyDirty ? "boundary-status boundary-status--warn" : "boundary-status"}>{topologyDirty ? "拓扑未同步" : "拓扑已同步"}</span>
-        <span className="boundary-status">{editorDomain?.title || "未选择任务域"}</span>
+        <span className="boundary-status">{taskEnvironmentTitle(activeEditorEnvironmentId)}</span>
       </div>
       <div className="task-graph-editor-chrome__actions task-graph-editor-chrome__actions--minimal">
         <ToolbarButton onClick={() => selectTaskSystemLayer("graphs")}>返回任务图库</ToolbarButton>
@@ -2299,7 +2388,7 @@ export function TaskSystemView() {
       selectedTaskGraph={editorSelectedTaskGraph}
       selectedTaskGraphId={editorTaskGraphId}
       selectedDomain={editorDomain}
-      selectedDomainTasks={editorDomainTasks}
+      selectedDomainTasks={editorEnvironmentTasks}
       selectedGraphEdge={selectedGraphEdge}
       selectedGraphEdgeId={selectedGraphEdgeId}
       selectedGraphNode={selectedGraphNode}

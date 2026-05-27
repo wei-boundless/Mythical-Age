@@ -62,3 +62,5 @@ def test_professional_profiles_do_not_contain_hard_code_write_suppression() -> N
     assert "你不负责修改代码" not in profile.prompt
     assert "不能擅自修改代码" not in profile.prompt
     assert "必须服从执行义务" in profile.prompt
+
+

@@ -61,3 +61,5 @@ class StructuredDataPlan:
     @property
     def is_grouped(self) -> bool:
         return bool(self.group_by) or self.query_mode == "grouped"
+
+

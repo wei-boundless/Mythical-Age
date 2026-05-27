@@ -60,3 +60,5 @@ class SoulCatalogStore:
         if root not in candidate.parents and candidate != root:
             raise ValueError("Invalid soul catalog path")
         return candidate
+
+

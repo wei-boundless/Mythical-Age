@@ -1,6 +1,6 @@
 import type { TaskGraphRecord } from "@/lib/api";
 
-export const MODULAR_NOVEL_DOMAIN_ID = "domain.writing.modular_novel";
+export const WRITING_TASK_ENVIRONMENT_ID = "env.writing";
 export const MODULAR_NOVEL_MASTER_GRAPH_ID = "graph.writing.modular_novel.master";
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -15,8 +15,33 @@ function text(value: unknown) {
   return String(value ?? "").trim();
 }
 
-function graphMetadata(graph: TaskGraphRecord) {
+type TaskGraphEnvironmentSource = {
+  metadata?: unknown;
+  runtime_policy?: unknown;
+  context_policy?: unknown;
+};
+
+function graphMetadata(graph: TaskGraphEnvironmentSource) {
   return asRecord(graph.metadata);
+}
+
+function graphPolicyRecord(graph: TaskGraphEnvironmentSource, key: "runtime_policy" | "context_policy") {
+  return asRecord(graph[key]);
+}
+
+export function taskGraphEnvironmentId(graph: TaskGraphEnvironmentSource) {
+  const metadata = graphMetadata(graph);
+  const runtimePolicy = graphPolicyRecord(graph, "runtime_policy");
+  const contextPolicy = graphPolicyRecord(graph, "context_policy");
+  const raw = text(
+    metadata.task_environment_id
+    || metadata.environment_id
+    || runtimePolicy.task_environment_id
+    || runtimePolicy.environment_id
+    || contextPolicy.task_environment_id
+    || contextPolicy.environment_id,
+  );
+  return raw.startsWith("env.") ? raw : "";
 }
 
 function timelineBlocks(graph: TaskGraphRecord) {
@@ -57,12 +82,12 @@ export function taskGraphFeatureBadges(graph: TaskGraphRecord): string[] {
 export function taskGraphSelectionScore(graph: TaskGraphRecord) {
   const metadata = graphMetadata(graph);
   const graphId = text(graph.graph_id);
-  const domainId = text(graph.domain_id);
+  const environmentId = taskGraphEnvironmentId(graph);
   const managedBy = text(metadata.managed_by);
   let score = 0;
 
   if (graphId === MODULAR_NOVEL_MASTER_GRAPH_ID) score += 10000;
-  if (domainId === MODULAR_NOVEL_DOMAIN_ID) score += 2200;
+  if (environmentId === WRITING_TASK_ENVIRONMENT_ID) score += 2200;
   if (graphId.includes(".modular_novel.")) score += 1500;
   if (managedBy.includes("modular_novel")) score += 1200;
   if (hasLinkedGraphModules(graph)) score += 900;

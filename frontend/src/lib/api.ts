@@ -198,7 +198,7 @@ export type ConversationEntryPolicy = {
   entry_policy_id?: string;
   title: string;
   default_workflow_id: string;
-  default_projection_id: string;
+  default_projection_id?: string;
   input_contract_id: string;
   output_contract_id: string;
   conversation_entry_policy: string;
@@ -912,6 +912,29 @@ export type TaskAgentConnectionOverview = {
 export type TaskSystemOverview = {
   authority: string;
   summary: Record<string, number>;
+  task_environment_management?: {
+    authority: string;
+    environments: Array<{
+      record: {
+        environment_id: string;
+        title: string;
+        description?: string;
+        enabled?: boolean;
+        environment_kind?: string;
+        metadata?: Record<string, unknown>;
+      };
+      spec: Record<string, unknown>;
+    }>;
+    records: Array<{
+      environment_id: string;
+      title: string;
+      description?: string;
+      enabled?: boolean;
+      environment_kind?: string;
+      metadata?: Record<string, unknown>;
+    }>;
+    summary: Record<string, number>;
+  };
   task_management: {
     entry_policies: ConversationEntryPolicy[];
     task_domains: TaskDomainRecord[];
@@ -950,31 +973,6 @@ export type TaskSystemOverview = {
     };
   };
   diagnostics?: Record<string, unknown>;
-};
-
-export type TaskOrderProjection = {
-  authority: string;
-  projection_kind?: string;
-  conversation_turn?: Record<string, unknown> | null;
-  task_intent_decision?: Record<string, unknown> | null;
-  task_order?: Record<string, unknown> | null;
-  task_order_run?: Record<string, unknown> | null;
-  execution_channel?: Record<string, unknown> | null;
-  task_execution_envelope?: Record<string, unknown> | null;
-  task_order_draft?: Record<string, unknown> | null;
-};
-
-export type TaskOrderCreatePayload = {
-  session_id: string;
-  task_id: string;
-  domain_id?: string;
-  message?: string;
-  objective?: string;
-  source?: string;
-  source_ref?: string;
-  idempotency_key?: string;
-  task_selection?: Record<string, unknown>;
-  task_order_intent?: Record<string, unknown>;
 };
 
 export type CapabilitySystemAgentCatalog = {
@@ -1154,8 +1152,7 @@ export type HealthRiskEvent = {
 export type HealthTaskRecord = {
   task_run_id: string;
   session_id: string;
-  task_order_id: string;
-  task_order_run_id: string;
+  task_contract_ref: string;
   title: string;
   task_id: string;
   agent_id: string;
@@ -1574,7 +1571,7 @@ export type OrchestrationSnapshot = {
   orchestration_diff?: Record<string, unknown>;
 };
 
-export type RuntimeLoopTraceEvent = {
+export type HarnessTraceEvent = {
   event_id: string;
   task_run_id: string;
   event_type: string;
@@ -1585,7 +1582,7 @@ export type RuntimeLoopTraceEvent = {
   payload_summary?: Record<string, unknown>;
 };
 
-export type RuntimeLoopTaskRunSummary = {
+export type HarnessTaskRunSummary = {
   task_run: Record<string, unknown>;
   agent_run_count: number;
   coordination_run_count: number;
@@ -1594,11 +1591,11 @@ export type RuntimeLoopTaskRunSummary = {
   latest_checkpoint: Record<string, unknown> | null;
 };
 
-export type RuntimeLoopSessionTaskRuns = {
+export type HarnessSessionTaskRuns = {
   authority: string;
   session_id: string;
   task_run_count: number;
-  task_runs: RuntimeLoopTaskRunSummary[];
+  task_runs: HarnessTaskRunSummary[];
 };
 
 export type GlobalRuntimeMonitorItem = {
@@ -1627,7 +1624,6 @@ export type GlobalRuntimeMonitorItem = {
   project_title: string;
   project_runtime_status: Record<string, unknown> | null;
   has_coordination: boolean;
-  task_order_projection?: TaskOrderProjection | null;
 };
 
 export type GlobalRuntimeMonitor = {
@@ -1661,12 +1657,12 @@ export type RuntimeMonitorEventPayload = {
   updated_at?: number;
 };
 
-export type RuntimeLoopTaskRunTrace = {
+export type HarnessTaskRunTrace = {
   authority: string;
   task_run: Record<string, unknown>;
   coordination_runs: Array<Record<string, unknown>>;
   event_count: number;
-  events: RuntimeLoopTraceEvent[];
+  events: HarnessTraceEvent[];
   latest_checkpoint: Record<string, unknown> | null;
 };
 
@@ -1675,14 +1671,13 @@ export type OrchestrationRuntimeOptionsPayload = {
   options: OrchestrationAgentRuntimeCatalog["options"];
 };
 
-export type RuntimeLoopTaskRunLiveMonitor = {
+export type HarnessTaskRunLiveMonitor = {
   authority: string;
   task_run: Record<string, unknown>;
   latest_checkpoint: Record<string, unknown> | null;
   loop_state: Record<string, unknown>;
   coordination_run: Record<string, unknown> | null;
   agent_runtime_phase_summary?: Record<string, unknown> | null;
-  task_order_projection?: TaskOrderProjection | null;
   has_coordination: boolean;
   status: string;
   terminal_reason: string;
@@ -1930,7 +1925,7 @@ export function hasTaskGraphLiveRun(liveMonitor: { has_coordination?: boolean } 
   return Boolean(liveMonitor?.has_coordination);
 }
 
-export type RuntimeLoopSessionLiveMonitor = {
+export type HarnessSessionLiveMonitor = {
   authority: string;
   session_id: string;
   task_run_count: number;
@@ -1938,7 +1933,7 @@ export type RuntimeLoopSessionLiveMonitor = {
   latest_coordination_task_run_id?: string;
   latest_coordination_run_id?: string;
   project_runtime_status?: Record<string, unknown> | null;
-  monitor: RuntimeLoopTaskRunLiveMonitor | null;
+  monitor: HarnessTaskRunLiveMonitor | null;
 };
 
 export type ProjectRuntimeStatusView = {
@@ -1967,7 +1962,7 @@ export type TaskGraphRunStartResult = {
   checkpoint: Record<string, unknown>;
   runtime_spec: TaskGraphRuntimeSpec;
   stage_execution_request: Record<string, unknown> | null;
-  trace: RuntimeLoopTaskRunTrace | null;
+  trace: HarnessTaskRunTrace | null;
   events: Array<Record<string, unknown>>;
 };
 
@@ -3359,21 +3354,21 @@ export async function updateOrchestrationAgentRuntimeProfile(
   );
 }
 
-export async function listOrchestrationRuntimeLoopTaskRuns(sessionId: string) {
-  return request<RuntimeLoopSessionTaskRuns>(
-    `/orchestration/runtime-loop/sessions/${encodeURIComponent(sessionId)}/task-runs`
+export async function listOrchestrationHarnessTaskRuns(sessionId: string) {
+  return request<HarnessSessionTaskRuns>(
+    `/orchestration/harness/sessions/${encodeURIComponent(sessionId)}/task-runs`
   );
 }
 
 export async function getGlobalRuntimeMonitor(limit = 30) {
   return request<GlobalRuntimeMonitor>(
-    `/orchestration/runtime-loop/live-monitor?limit=${encodeURIComponent(String(limit))}`
+    `/orchestration/harness/live-monitor?limit=${encodeURIComponent(String(limit))}`
   );
 }
 
-export async function getOrchestrationRuntimeLoopSessionLiveMonitor(sessionId: string) {
-  return request<RuntimeLoopSessionLiveMonitor>(
-    `/orchestration/runtime-loop/sessions/${encodeURIComponent(sessionId)}/live-monitor`
+export async function getOrchestrationHarnessSessionLiveMonitor(sessionId: string) {
+  return request<HarnessSessionLiveMonitor>(
+    `/orchestration/harness/sessions/${encodeURIComponent(sessionId)}/live-monitor`
   );
 }
 
@@ -3381,7 +3376,7 @@ export async function getOrchestrationResourceInventory() {
   return request<RuntimeResourceInventory>("/orchestration/resource-inventory");
 }
 
-export async function getOrchestrationRuntimeLoopTrace(
+export async function getOrchestrationHarnessTrace(
   taskRunId: string,
   options?: {
     includePayloads?: boolean;
@@ -3396,20 +3391,20 @@ export async function getOrchestrationRuntimeLoopTrace(
     params.set("include_model_messages", "true");
   }
   const suffix = params.toString() ? `?${params.toString()}` : "";
-  return request<RuntimeLoopTaskRunTrace>(
-    `/orchestration/runtime-loop/task-runs/${encodeURIComponent(taskRunId)}${suffix}`
+  return request<HarnessTaskRunTrace>(
+    `/orchestration/harness/task-runs/${encodeURIComponent(taskRunId)}${suffix}`
   );
 }
 
-export async function getOrchestrationRuntimeLoopTaskRunLiveMonitor(taskRunId: string) {
-  return request<RuntimeLoopTaskRunLiveMonitor>(
-    `/orchestration/runtime-loop/task-runs/${encodeURIComponent(taskRunId)}/live-monitor`
+export async function getOrchestrationHarnessTaskRunLiveMonitor(taskRunId: string) {
+  return request<HarnessTaskRunLiveMonitor>(
+    `/orchestration/harness/task-runs/${encodeURIComponent(taskRunId)}/live-monitor`
   );
 }
 
 export async function getTaskGraphRunMonitor(taskRunId: string) {
   return request<TaskGraphRunMonitorView>(
-    `/orchestration/runtime-loop/task-runs/${encodeURIComponent(taskRunId)}/task-graph-monitor`
+    `/orchestration/harness/task-runs/${encodeURIComponent(taskRunId)}/task-graph-monitor`
   );
 }
 
@@ -3421,7 +3416,7 @@ export async function evaluateTaskGraphRunMonitor(
   } = {}
 ) {
   return request<TaskGraphMonitorEvaluation>(
-    `/orchestration/runtime-loop/task-runs/${encodeURIComponent(taskRunId)}/task-graph-monitor/evaluate`,
+    `/orchestration/harness/task-runs/${encodeURIComponent(taskRunId)}/task-graph-monitor/evaluate`,
     {
       method: "POST",
       body: JSON.stringify(payload),
@@ -3431,7 +3426,7 @@ export async function evaluateTaskGraphRunMonitor(
 
 export async function getTaskGraphRunMonitorDecisions(taskRunId: string) {
   return request<TaskGraphMonitorDecisionsView>(
-    `/orchestration/runtime-loop/task-runs/${encodeURIComponent(taskRunId)}/monitor-decisions`
+    `/orchestration/harness/task-runs/${encodeURIComponent(taskRunId)}/monitor-decisions`
   );
 }
 
@@ -3441,7 +3436,7 @@ export async function getCoordinationRunTaskGraphMonitor(coordinationRunId: stri
   );
 }
 
-export async function getRuntimeLoopTaskRunArtifacts(taskRunId: string) {
+export async function getHarnessTaskRunArtifacts(taskRunId: string) {
   return request<{
     authority: string;
     task_run_id: string;
@@ -3450,22 +3445,22 @@ export async function getRuntimeLoopTaskRunArtifacts(taskRunId: string) {
     created_files: string[];
     artifact_refs: string[];
   }>(
-    `/orchestration/runtime-loop/task-runs/${encodeURIComponent(taskRunId)}/artifacts`
+    `/orchestration/harness/task-runs/${encodeURIComponent(taskRunId)}/artifacts`
   );
 }
 
-export async function getRuntimeLoopTaskRunMemoryReceipts(taskRunId: string) {
+export async function getHarnessTaskRunMemoryReceipts(taskRunId: string) {
   return request<{
     authority: string;
     task_run_id: string;
     memory_operations: Array<Record<string, unknown>>;
     stage_results: Array<Record<string, unknown>>;
   }>(
-    `/orchestration/runtime-loop/task-runs/${encodeURIComponent(taskRunId)}/memory-receipts`
+    `/orchestration/harness/task-runs/${encodeURIComponent(taskRunId)}/memory-receipts`
   );
 }
 
-export async function resolveRuntimeLoopTaskRunApproval(
+export async function resolveHarnessTaskRunApproval(
   taskRunId: string,
   payload: {
     decision: "approve" | "reject" | string;
@@ -3473,7 +3468,7 @@ export async function resolveRuntimeLoopTaskRunApproval(
   }
 ) {
   return request<RuntimeApprovalResolution>(
-    `/orchestration/runtime-loop/task-runs/${encodeURIComponent(taskRunId)}/approval`,
+    `/orchestration/harness/task-runs/${encodeURIComponent(taskRunId)}/approval`,
     {
       method: "POST",
       body: JSON.stringify(payload),
@@ -3487,7 +3482,7 @@ export async function getProjectRuntimeStatus(projectId: string) {
   );
 }
 
-export async function startTaskGraphRuntimeLoopRun(
+export async function startTaskGraphHarnessRun(
   graphId: string,
   payload: {
     session_id?: string;
@@ -3499,7 +3494,7 @@ export async function startTaskGraphRuntimeLoopRun(
   } = {}
 ) {
   return request<TaskGraphRunStartResult>(
-    `/orchestration/runtime-loop/task-graphs/${encodeURIComponent(graphId)}/start`,
+    `/orchestration/harness/task-graphs/${encodeURIComponent(graphId)}/start`,
     {
       method: "POST",
       body: JSON.stringify(payload),
@@ -3636,7 +3631,7 @@ export async function stopOrchestrationTaskRun(
     checkpoint_ref: string;
     event_ref: string;
   }>(
-    `/orchestration/runtime-loop/task-runs/${encodeURIComponent(taskRunId)}/stop`,
+    `/orchestration/harness/task-runs/${encodeURIComponent(taskRunId)}/stop`,
     {
       method: "POST",
       body: JSON.stringify(payload),
@@ -3911,13 +3906,6 @@ export async function upsertTaskWorkflow(workflowId: string, payload: TaskWorkfl
 
 export async function getTaskSystemOverview() {
   return request<TaskSystemOverview>("/tasks/overview");
-}
-
-export async function createTaskOrder(payload: TaskOrderCreatePayload) {
-  return request<TaskOrderProjection>("/tasks/orders", {
-    method: "POST",
-    body: JSON.stringify(payload)
-  });
 }
 
 export async function getTaskGraphTemplates() {
@@ -4205,7 +4193,6 @@ export async function streamChat(
     ephemeral_system_messages?: string[];
     search_policy?: string[];
     task_selection?: Record<string, unknown>;
-    task_order_intent?: Record<string, unknown>;
     model_selection?: Record<string, unknown>;
     image_generation?: Record<string, unknown>;
   },

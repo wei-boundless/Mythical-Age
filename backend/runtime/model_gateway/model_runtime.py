@@ -865,3 +865,5 @@ def _exception_chain_text(exc: Exception) -> str:
         parts.append(f"{current.__class__.__name__}: {current}")
         current = current.__cause__ or current.__context__
     return " | ".join(parts) or exc.__class__.__name__
+
+

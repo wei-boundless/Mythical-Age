@@ -46,3 +46,5 @@ class ContinuationDecision:
         payload["followup_target_refs"] = list(self.followup_target_refs)
         payload["rejected_candidate_ids"] = list(self.rejected_candidate_ids)
         return payload
+
+

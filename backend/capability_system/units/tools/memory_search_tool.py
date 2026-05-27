@@ -187,3 +187,5 @@ def _preview(text: str, *, limit: int = 1200) -> str:
     if len(normalized) <= limit:
         return normalized
     return normalized[:limit].rstrip() + "..."
+
+

@@ -42,3 +42,5 @@ def test_skill_route_mapping_accepts_full_skill_payload() -> None:
     }
 
     assert skill_operation_ids_from_skill(skill) == ["op.mcp_structured_data"]
+
+

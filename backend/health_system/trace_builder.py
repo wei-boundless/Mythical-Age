@@ -52,3 +52,5 @@ def summarize_health_event(event_type: str, payload: dict[str, Any]) -> str:
     if event_type == "loop_error":
         return str(payload.get("error") or payload.get("content") or "loop error")
     return event_type
+
+

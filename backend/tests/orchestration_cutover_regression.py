@@ -13,7 +13,6 @@ from agent_system.registry.agent_registry import AgentRegistry
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from agent_system.assembly.runtime_chain import AgentRuntimeChainAssembler
 from query import QueryRuntime
-from runtime.shared.stage_projection import StageProjectionCycle
 from task_system import TaskFlowRegistry
 from tests.support.runtime_stubs import (
     DefaultPermissionStub,
@@ -69,12 +68,6 @@ def test_agent_runtime_chain_cutsover_to_formal_orchestration_objects() -> None:
     )
 
     task_operation = payload["task_operation"]
-    stage_projection = StageProjectionCycle().build_from_orchestration(
-        task_id="taskinst:turn:session-chain-cutover:1:general_response",
-        task_body_orchestration=dict(payload["task_body_orchestration"]),
-        agent_runtime_spec=dict(payload["agent_runtime_spec"]),
-    )
-
     assert "task_body_orchestration" in task_operation
     assert "agent_runtime_spec" in task_operation
     assert "task_prompt_contract" not in task_operation
@@ -83,8 +76,6 @@ def test_agent_runtime_chain_cutsover_to_formal_orchestration_objects() -> None:
     assert payload["task_execution_assembly"]["authority"] == "task_system.task_execution_assembly"
     assert payload["task_body_orchestration"]["authority"] == "orchestration.task_body_orchestration"
     assert payload["agent_runtime_spec"]["authority"] == "orchestration.agent_runtime_spec"
-    assert stage_projection.task_body_orchestration_ref == payload["task_body_orchestration"]["orchestration_id"]
-    assert stage_projection.runtime_spec_ref == payload["agent_runtime_spec"]["runtime_spec_id"]
 
 
 def test_query_runtime_uses_turn_id_and_task_instance_id_instead_of_turn_task_id() -> None:
@@ -115,11 +106,11 @@ def test_query_runtime_uses_turn_id_and_task_instance_id_instead_of_turn_task_id
         return events
 
     events = asyncio.run(_collect())
-    started = next(event for event in events if event["type"] == "runtime_loop_started")
+    started = next(event for event in events if event["type"] == "harness_run_started")
     task_built = next(
         dict(event.get("event") or {})
         for event in events
-        if event.get("type") == "runtime_loop_event"
+        if event.get("type") == "harness_loop_event"
         and dict(event.get("event") or {}).get("event_type") == "task_contract_built"
     )
 
@@ -219,16 +210,16 @@ def test_runtime_formalizes_worker_spawn_and_coordination_runtime_objects() -> N
             )
         ):
             events.append(event)
-        started = next(event for event in events if event["type"] == "runtime_loop_started")
+        started = next(event for event in events if event["type"] == "harness_run_started")
         return events, str(dict(started["task_run"]).get("task_run_id") or "")
 
     events, task_run_id = asyncio.run(_collect())
-    trace = runtime.task_run_loop.get_trace(task_run_id, include_payloads=True)
+    trace = runtime.harness_service_host.get_trace(task_run_id, include_payloads=True)
 
     runtime_event_types = [
         dict(event.get("event") or {}).get("event_type")
         for event in events
-        if event.get("type") == "runtime_loop_event"
+        if event.get("type") == "harness_loop_event"
     ]
 
     assert trace is not None
@@ -251,13 +242,19 @@ def test_runtime_formalizes_worker_spawn_and_coordination_runtime_objects() -> N
     assert "op.shell" in spawned_profile.blocked_operations
     assert len(trace["agent_runs"]) >= 2
     assert trace["coordination_runs"]
-    assert trace["coordination_runs"][0]["diagnostics"]["coordination_engine"] == "langgraph_runtime"
+    assert trace["coordination_runs"][0]["diagnostics"]["coordination_engine"] == "harness.graph_coordination_engine"
     assert trace["coordination_runs"][0]["diagnostics"]["coordination_graph_spec"]["valid"] is True
     assert trace["coordination_runs"][0]["node_runs"]
-    assert all(node["diagnostics"]["coordination_engine"] == "langgraph_runtime" for node in trace["coordination_runs"][0]["node_runs"])
+    assert all(
+        node["diagnostics"]["coordination_engine"] == "harness.graph_coordination_engine"
+        for node in trace["coordination_runs"][0]["node_runs"]
+    )
     assert trace["coordination_runs"][0]["handoff_envelopes"]
     assert all(
-        handoff["diagnostics"]["coordination_engine"] == "langgraph"
+        handoff["diagnostics"]["coordination_engine"] in {
+            "harness.graph_coordination_engine",
+            "harness.graph_coordination_traversal",
+        }
         for handoff in trace["coordination_runs"][0]["handoff_envelopes"]
     )
     assert trace["coordination_runs"][0]["latest_merge_result"] is not None
@@ -294,15 +291,15 @@ def test_runtime_does_not_register_removed_story_pipeline() -> None:
             )
         ):
             events.append(event)
-        started = next(event for event in events if event["type"] == "runtime_loop_started")
+        started = next(event for event in events if event["type"] == "harness_run_started")
         return events, str(dict(started["task_run"]).get("task_run_id") or "")
 
     events, task_run_id = asyncio.run(_collect())
-    trace = runtime.task_run_loop.get_trace(task_run_id, include_payloads=True)
+    trace = runtime.harness_service_host.get_trace(task_run_id, include_payloads=True)
     runtime_event_types = [
         dict(event.get("event") or {}).get("event_type")
         for event in events
-        if event.get("type") == "runtime_loop_event"
+        if event.get("type") == "harness_loop_event"
     ]
     trace_event_types = [str(item.get("event_type") or "") for item in list(trace.get("events") or [])] if trace is not None else []
 
@@ -329,4 +326,6 @@ def test_agent_registry_upsert_preserves_agent_metadata_without_task_scope() -> 
     loaded = registry.get_agent("agent:knowledge_searcher")
     assert loaded is not None
     assert loaded.metadata["created_by"] == "regression"
+
+
 

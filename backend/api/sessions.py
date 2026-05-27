@@ -99,3 +99,5 @@ async def generate_title(session_id: str, payload: GenerateTitleRequest) -> dict
     title = await runtime.query_runtime.generate_title(seed or DEFAULT_SESSION_TITLE)
     runtime.session_manager.set_title(session_id, title)
     return {"session_id": session_id, "title": title}
+
+

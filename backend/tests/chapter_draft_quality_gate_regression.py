@@ -314,3 +314,5 @@ def test_chapter_draft_quality_gate_excludes_manifest_sections_from_body_metrics
     assert result["raw_content_metric_total"] > result["content_metric_total"]
     assert result["unit_metric_counts"]["5"] < 1200
     assert any(issue.startswith("insufficient_unit_metric:5:") for issue in result["issues"])
+
+

@@ -10,9 +10,8 @@ from harness.runtime.context import (
     merge_invocation_identity_into_task_selection,
     resolve_runtime_search_sources,
     stage_execution_request_diagnostics,
-    task_order_runtime_binding_diagnostics,
 )
-from harness.runtime.execution_permit import (
+from harness.runtime.execution_policy import (
     execution_permit_diagnostics,
 )
 from .agent_finalization import (
@@ -55,22 +54,6 @@ async def run_agent_invocation_stream(
     search_policy = list(request.search_policy) if request.search_policy is not None else None
     model_selection = dict(request.model_selection or {})
     agent_invocation = dict(request.agent_invocation or {})
-    task_order_ref = dict(request.task_order_ref or {}) if request.task_order_ref is not None else None
-    task_order_run_ref = dict(request.task_order_run_ref or {}) if request.task_order_run_ref is not None else None
-    execution_channel_ref = (
-        dict(request.execution_channel_ref or {}) if request.execution_channel_ref is not None else None
-    )
-    task_execution_envelope_ref = (
-        dict(request.task_execution_envelope_ref or {})
-        if request.task_execution_envelope_ref is not None
-        else None
-    )
-    task_order_binding = task_order_runtime_binding_diagnostics(
-        task_order_ref=task_order_ref,
-        task_order_run_ref=task_order_run_ref,
-        execution_channel_ref=execution_channel_ref,
-        task_execution_envelope_ref=task_execution_envelope_ref,
-    )
     invocation_payload = agent_invocation_payload(
         agent_invocation
         or dict(dict(task_selection or {}).get("agent_invocation") or {})
@@ -112,7 +95,6 @@ async def run_agent_invocation_stream(
         source=source,
         task_selection=runtime_chain_task_selection,
         invocation_model_context=invocation_model_context,
-        task_order_binding=task_order_binding,
         model_response_executor=model_response_executor,
     )
     request_facts = agent_turn_context.request_facts
@@ -141,7 +123,7 @@ async def run_agent_invocation_stream(
                 "runtime_start_packet": runtime_start_packet_payload,
             },
         )
-        yield {"type": "runtime_loop_event", "event": blocked_event.to_dict()}
+        yield {"type": "harness_loop_event", "event": blocked_event.to_dict()}
         yield {
             "type": "error",
             "error": "Action permit denied before runtime assembly.",
@@ -162,7 +144,7 @@ async def run_agent_invocation_stream(
                 "diagnostics": model_turn_diagnostics,
             },
         )
-        yield {"type": "runtime_loop_event", "event": blocked_event.to_dict()}
+        yield {"type": "harness_loop_event", "event": blocked_event.to_dict()}
         yield {
             "type": "error",
             "error": "Model turn decision blocked runtime execution.",
@@ -249,20 +231,6 @@ async def run_agent_invocation_stream(
             "agent_assembly_contract": assembly_contract_diagnostics(assembly_contract),
             "execution_permit": execution_permit_diagnostics(execution_permit),
             "agent_runtime_config": agent_runtime_config.to_dict(),
-            "task_order_binding": dict(task_order_binding),
-            **{
-                key: value
-                for key, value in dict(task_order_binding).items()
-                if key
-                in {
-                    "task_order_id",
-                    "task_order_run_id",
-                    "execution_channel_id",
-                    "task_execution_envelope_id",
-                    "task_order_kind",
-                }
-                and value
-            },
             **stage_execution_request_diagnostics(dict(task_selection or {})),
         },
     )
@@ -446,7 +414,7 @@ async def run_agent_invocation_stream(
         payload={"validation": artifact_validation},
         refs={"task_contract_ref": task_contract_ref},
     )
-    yield {"type": "runtime_loop_event", "event": artifact_validation_event.to_dict()}
+    yield {"type": "harness_loop_event", "event": artifact_validation_event.to_dict()}
     
     partial_terminal_reasons = {
         "partially_completed",
@@ -510,3 +478,5 @@ async def run_agent_invocation_stream(
         raise RuntimeError("AgentRuntime finalization did not produce a terminal result")
     yield finalization_result.done_event
     return
+
+

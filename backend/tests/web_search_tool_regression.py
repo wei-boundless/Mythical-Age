@@ -40,3 +40,5 @@ def test_format_search_summary_for_gold_query_is_human_readable() -> None:
     assert "來源" not in text
     assert "来源：" in text
     assert "finance.yahoo.com" in text
+
+

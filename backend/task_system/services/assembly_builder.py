@@ -1006,3 +1006,5 @@ def _is_stage_execution_turn(current_turn_payload: dict[str, Any]) -> bool:
     if dict(current_turn_payload.get("task_result_ready_event") or {}):
         return True
     return False
+
+

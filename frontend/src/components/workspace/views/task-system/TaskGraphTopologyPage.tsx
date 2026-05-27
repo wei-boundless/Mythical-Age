@@ -302,7 +302,7 @@ export function TaskGraphTopologyPage({
                 <small>{task.task_id}</small>
               </button>
             )) : (
-              <p>当前任务域暂无可引用的具体任务定义。</p>
+              <p>当前任务环境暂无可引用的具体任务定义。</p>
             )}
           </div>
         </section>

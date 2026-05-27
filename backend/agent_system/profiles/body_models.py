@@ -120,3 +120,5 @@ class OutputBoundaryProfile:
         payload = asdict(self)
         payload["allowed_output_contracts"] = list(self.allowed_output_contracts)
         return payload
+
+

@@ -39,8 +39,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "RuntimeActionRequest": ("runtime", "RuntimeActionRequest"),
     "RuntimeActionRequestType": ("runtime", "RuntimeActionRequestType"),
     "RuntimeApprovalContext": ("permissions", "RuntimeApprovalContext"),
-    "RuntimeCheckpoint": ("runtime", "RuntimeCheckpoint"),
-    "RuntimeCheckpointStore": ("runtime", "RuntimeCheckpointStore"),
     "RuntimeCommitGateDecision": (".commit_gate", "RuntimeCommitGateDecision"),
     "RuntimeContextInvariantReport": ("runtime", "RuntimeContextInvariantReport"),
     "RuntimeContextManager": ("runtime", "RuntimeContextManager"),
@@ -52,9 +50,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "RuntimeExecutionStore": ("runtime", "RuntimeExecutionStore"),
     "RuntimeLaneDescriptor": (".runtime_lane_registry", "RuntimeLaneDescriptor"),
     "RuntimeLaneRegistry": (".runtime_lane_registry", "RuntimeLaneRegistry"),
-    "RuntimeLoopControlDecision": ("runtime", "RuntimeLoopControlDecision"),
-    "RuntimeLoopLimits": ("runtime", "RuntimeLoopLimits"),
-    "RuntimeLoopState": ("runtime", "RuntimeLoopState"),
     "RuntimeObservation": ("runtime", "RuntimeObservation"),
     "RuntimeObservationType": ("runtime", "RuntimeObservationType"),
     "RuntimeStateIndex": ("runtime", "RuntimeStateIndex"),
@@ -85,7 +80,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "build_tool_request_runtime_admission": ("runtime", "build_tool_request_runtime_admission"),
     "build_tool_result_observation": ("runtime", "build_tool_result_observation"),
     "build_user_message_commit_decision": (".commit_gate", "build_user_message_commit_decision"),
-    "check_runtime_loop_control": ("runtime", "check_runtime_loop_control"),
     "default_runtime_lane_descriptors": (
         ".runtime_lane_registry",
         "default_runtime_lane_descriptors",
@@ -107,3 +101,5 @@ def __getattr__(name: str):
     value = getattr(import_module(module_name, __name__), attr_name)
     globals()[name] = value
     return value
+
+

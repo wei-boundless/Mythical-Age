@@ -691,3 +691,5 @@ def _slug(value: str) -> str:
     while "__" in slug:
         slug = slug.replace("__", "_")
     return slug or "item"
+
+

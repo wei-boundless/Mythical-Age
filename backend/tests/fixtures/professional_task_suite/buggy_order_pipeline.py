@@ -75,3 +75,5 @@ def test_pipeline_report_handles_realistic_orders():
         "east": {"orders": 2, "quantity": 8, "gross": 45.0},
     }
     assert report["restock_skus"] == ["EX-5", "BX-2"]
+
+

@@ -188,3 +188,5 @@ class MemoryCommitRecord:
         payload["target_refs"] = list(self.target_refs)
         payload["source_candidate_refs"] = list(self.source_candidate_refs)
         return payload
+
+

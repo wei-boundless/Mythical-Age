@@ -268,3 +268,5 @@ def test_chapter_draft_artifact_splits_bracket_sections_without_debug_wrapper(tm
     assert "承接说明" in manifest_text
     assert "公开摘要" in manifest_text
     assert "draft_round_001.md" in result.created_files
+
+

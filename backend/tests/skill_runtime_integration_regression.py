@@ -210,3 +210,5 @@ def test_agent_runtime_chain_expands_skill_only_after_model_selection() -> None:
     assert "候选 Skills（第一阶段）" in runtime_sections["skill_catalog_section"]["content"]
     assert "已激活 Skills（第二阶段）" in runtime_sections["skill_detail_section"]["content"]
     assert "structured-data-analysis" in runtime_sections["skill_detail_section"]["content"]
+
+

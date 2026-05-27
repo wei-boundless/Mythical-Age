@@ -133,3 +133,5 @@ def dulwich_blob_id(content: bytes | str | None) -> str:
 def _receipt_id(*parts: str) -> str:
     raw = "|".join(str(part or "") for part in parts)
     return f"filerec:{hashlib.sha256(raw.encode('utf-8')).hexdigest()[:24]}"
+
+

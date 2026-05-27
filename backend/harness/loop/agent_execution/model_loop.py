@@ -20,3 +20,5 @@ class ModelToolCallAccumulator:
         event_kwargs = dict(event.get("assistant_additional_kwargs") or {})
         if event_kwargs:
             self.assistant_additional_kwargs.update(event_kwargs)
+
+

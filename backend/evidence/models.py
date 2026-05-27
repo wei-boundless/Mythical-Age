@@ -177,3 +177,5 @@ class EvidenceEnvelope:
             source = str(item.source or "").strip()
             lines.append(f"{source}: {text[:220]}" if source else text[:220])
         return "\n".join(lines).strip()
+
+

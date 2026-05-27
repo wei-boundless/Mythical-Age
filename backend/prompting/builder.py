@@ -452,3 +452,5 @@ def _static_context_source(heading: str) -> str:
     if heading in {"共同契约", "用户共同契约", "用户与项目偏好"}:
         return "soul/common_contracts/catalog.json"
     return "memory.static_loader"
+
+

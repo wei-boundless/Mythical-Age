@@ -315,3 +315,5 @@ def _mask_private_binding_values(line: str) -> str:
     text = re.sub(r"(?:active_pdf|pdf)=\S+", "pdf=available", text, flags=re.IGNORECASE)
     text = re.sub(r"(?:active_dataset|dataset)=\S+", "dataset=available", text, flags=re.IGNORECASE)
     return _PRIVATE_BINDING_RE.sub("binding=available", text)
+
+

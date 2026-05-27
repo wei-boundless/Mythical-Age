@@ -149,3 +149,5 @@ def _assignment_from_dict(payload: dict[str, object]) -> TaskAssignment:
         enabled=bool(payload.get("enabled", True)),
         metadata=dict(payload.get("metadata") or {}),
     )
+
+

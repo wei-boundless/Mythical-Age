@@ -39,3 +39,5 @@ class TaskIntentContract:
         payload["task_requirement_contract"] = dict(self.task_requirement_contract or {})
         payload["mode_policy"] = dict(self.mode_policy or {})
         return payload
+
+

@@ -339,3 +339,5 @@ _PROFILES: dict[str, TaskGoalProfile] = {
         material_policy={"stage_prompt_profiles_required": True},
     ),
 }
+
+

@@ -102,7 +102,7 @@ def append_pre_model_phase_events(
         }
     }
     return PreModelPhaseResult(
-        events=({"type": "runtime_loop_event", "event": event.to_dict()},),
+        events=({"type": "harness_loop_event", "event": event.to_dict()},),
         runtime_execution_facts=facts,
     )
 
@@ -237,7 +237,7 @@ def apply_post_model_phases(
             run_outcome=run_outcome,
             final_content=final_content,
         ),
-        [{"type": "runtime_loop_event", "event": event.to_dict()}],
+        [{"type": "harness_loop_event", "event": event.to_dict()}],
     )
 
 
@@ -296,3 +296,5 @@ def _tool_observation_ledger(
             )
         )
     return ledger
+
+

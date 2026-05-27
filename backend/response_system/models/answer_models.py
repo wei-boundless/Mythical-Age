@@ -33,3 +33,5 @@ class AnswerAssemblyPlan(BaseModel):
     style_constraints: StyleConstraints = Field(default_factory=StyleConstraints)
     dedupe_targets: list[str] = Field(default_factory=list)
     source_refs: list[str] = Field(default_factory=list)
+
+

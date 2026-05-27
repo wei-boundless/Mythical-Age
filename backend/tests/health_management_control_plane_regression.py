@@ -276,3 +276,5 @@ def test_health_store_reports_health_and_tolerates_bad_jsonl(tmp_path) -> None:
     assert health["authority"] == "health_system.store_health"
     assert health["bad_jsonl_line_count"] >= 1
     assert health["files"]["issues.jsonl"]["exists"] is True
+
+

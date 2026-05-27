@@ -39,3 +39,5 @@ def test_mcp_catalog_validates_against_operation_registry() -> None:
     )
 
     assert not [issue for issue in issues if issue.code.startswith("mcp_")]
+
+

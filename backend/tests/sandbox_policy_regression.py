@@ -168,7 +168,7 @@ def test_sandbox_policy_mounts_model_resource_contract_source_project(tmp_path: 
     assert (sandbox_root / ".materials/source_projects/source_01/assets/player.svg").exists()
 
 
-def test_sandbox_policy_mounts_order_projection_resource_contract_source_project(tmp_path: Path) -> None:
+def test_sandbox_policy_mounts_task_selection_resource_contract_source_project(tmp_path: Path) -> None:
     repo_root = tmp_path
     backend_root = repo_root / "backend"
     backend_root.mkdir()
@@ -185,17 +185,11 @@ def test_sandbox_policy_mounts_order_projection_resource_contract_source_project
         user_message="审查源项目，输出到 output/vibe-code-smoke",
         selected_recipe_payload={"metadata": {"sandbox_policy": {"enabled": True}}},
         task_selection={
-            "task_order_projection": {
-                "input_contract": {
-                    "task_selection_projection": {
-                        "resource_contract": {
-                            "source_projects": [
-                                {"path": str(source_project), "role": "source", "required": True}
-                            ]
-                        }
-                    }
-                }
-            }
+            "resource_contract": {
+                "source_projects": [
+                    {"path": str(source_project), "role": "source", "required": True}
+                ]
+            },
         },
     )
 
@@ -253,3 +247,5 @@ def test_sandbox_policy_does_not_embed_file_management_policy(tmp_path: Path) ->
     assert policy["enabled"] is True
     assert "file_management" not in policy
     assert "file_management_policy" not in policy
+
+

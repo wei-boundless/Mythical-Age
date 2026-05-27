@@ -265,3 +265,5 @@ def _protocol_version_from_request(request: Any | None) -> str:
 
 def _message_id_from_request(request: Any | None) -> str:
     return str(getattr(request, "message_id", "") or getattr(request, "request_id", "") or "")
+
+

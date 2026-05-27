@@ -58,3 +58,5 @@ def _detect_internal_marker_leaks(sections: list[dict[str, Any]]) -> list[str]:
         if any(marker in str(item.get("content") or "") for item in sections):
             leaked.append(marker)
     return leaked
+
+

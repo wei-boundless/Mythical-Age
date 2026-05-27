@@ -78,3 +78,5 @@ def render_artifact_policy_instructions(
         lines.append("- 若没有可拆分单元，系统会用完整最终产物内容写入目标文件；因此最终产物内容必须就是可验收的完整产物。")
     lines.append("- 调试报告、运行说明、占位文本不算正式交付产物。")
     return "\n".join(lines)
+
+

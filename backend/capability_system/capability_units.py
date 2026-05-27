@@ -214,3 +214,5 @@ def _risk_for_operations(operation_ids: tuple[str, ...] | list[str], operations:
             continue
         risks.extend(str(item) for item in list(operation.get("risk_tags") or []) if str(item).strip())
     return tuple(dict.fromkeys(risks))
+
+

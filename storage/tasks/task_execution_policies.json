@@ -757,34 +757,6 @@
       "task_privilege": "bounded"
     },
     {
-      "policy_id": "taskexecpol:task.writing.modular_novel.node.memory_finalize",
-      "task_id": "task.writing.modular_novel.node.memory_finalize",
-      "execution_mode": "single_agent",
-      "default_agent_id": "agent:writing_modular_memory_steward",
-      "allow_worker_agent_spawn": false,
-      "worker_agent_blueprint_id": "",
-      "worker_agent_naming_rule": "",
-      "notes": "模块化写作任务图使用通用任务图执行能力，不新增写作专用后端入口。",
-      "metadata": {
-        "derived_from": "task_assignment",
-        "participant_agent_ids": [],
-        "runtime_limits": {},
-        "execution_chain_type": "coordination_node",
-        "task_graph_id": "",
-        "graph_id": "",
-        "communication_protocol_id": "",
-        "topology_template_id": "",
-        "agent_group_id": "",
-        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
-        "node_id": "memory_finalize"
-      },
-      "authority": "task_system.task_execution_policy",
-      "execution_chain_type": "coordination_node",
-      "runtime_agent_selection_policy": "orchestration_default",
-      "task_level": "standard",
-      "task_privilege": "bounded"
-    },
-    {
       "policy_id": "taskexecpol:task.000001",
       "task_id": "task.000001",
       "execution_mode": "single_agent",
@@ -806,6 +778,26 @@
       },
       "authority": "task_system.task_execution_policy",
       "execution_chain_type": "coordination_chain",
+      "runtime_agent_selection_policy": "orchestration_default",
+      "task_level": "standard",
+      "task_privilege": "bounded"
+    },
+    {
+      "policy_id": "taskexecpol:task.writing.modular_novel.node.memory_finalize",
+      "task_id": "task.writing.modular_novel.node.memory_finalize",
+      "execution_mode": "single_agent",
+      "default_agent_id": "agent:writing_modular_memory_steward",
+      "allow_worker_agent_spawn": false,
+      "worker_agent_blueprint_id": "",
+      "worker_agent_naming_rule": "",
+      "notes": "模块化写作任务图使用通用任务图执行能力，不新增写作专用后端入口。",
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "execution_chain_type": "coordination_node",
+        "node_id": "memory_finalize"
+      },
+      "authority": "task_system.task_execution_policy",
+      "execution_chain_type": "coordination_node",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
       "task_privilege": "bounded"

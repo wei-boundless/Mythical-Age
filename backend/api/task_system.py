@@ -26,6 +26,7 @@ from task_system import (
 )
 from task_system.compiler.coordination_graph_models import TaskGraphRuntimeSpec
 from task_system.editor.graph_template_catalog import build_task_graph_template_catalog
+from task_system.environments import default_task_environment_registry
 from task_system.registry.flow_models import SpecificTaskRecord
 from task_system.graphs.task_graph_models import validate_task_graph
 
@@ -416,6 +417,10 @@ def _task_system_payload(base_dir) -> dict[str, object]:
     }
     topology_templates = [item.to_dict() for item in registry.list_topology_templates()]
     communication_protocols = [item.to_dict() for item in registry.list_task_communication_protocols()]
+    task_environment_definitions = [
+        item.to_dict()
+        for item in default_task_environment_registry().list()
+    ]
     communication_protocol_by_id = {
         str(item.get("protocol_id") or ""): item
         for item in communication_protocols
@@ -470,6 +475,15 @@ def _task_system_payload(base_dir) -> dict[str, object]:
             "contract_catalog": contract_catalog,
             "task_assignments": task_assignments,
             "workflow_resources": workflow_resources,
+        },
+        "task_environment_management": {
+            "authority": "task_system.task_environment_management",
+            "environments": task_environment_definitions,
+            "records": [item["record"] for item in task_environment_definitions],
+            "summary": {
+                "environment_count": len(task_environment_definitions),
+                "enabled_environment_count": sum(1 for item in task_environment_definitions if item["record"].get("enabled") is True),
+            },
         },
         "contract_management": contract_management,
         "task_graph_management": {
@@ -1797,3 +1811,5 @@ async def upsert_task_system_communication_protocol(
 
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _task_system_payload(runtime.base_dir)
+
+

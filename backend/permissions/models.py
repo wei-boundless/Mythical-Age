@@ -12,3 +12,5 @@ class PermissionDecision:
     mode: str = "default"
     checks: list[str] = field(default_factory=list)
     risk_tags: list[str] = field(default_factory=list)
+
+

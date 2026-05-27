@@ -154,3 +154,5 @@ def _normalize_stage_sequence(
             }
         )
     return stages
+
+

@@ -85,3 +85,5 @@ def _mcp_endpoint(mcp: dict[str, Any]) -> CapabilityEndpoint:
             "diagnostics": dict(mcp.get("diagnostics") or {}),
         },
     )
+
+

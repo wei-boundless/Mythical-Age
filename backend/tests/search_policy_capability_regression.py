@@ -25,7 +25,7 @@ def test_normalized_empty_search_policy_blocks_source_bound_operations() -> None
     assert operation_allowed_by_search_policy("op.model_response", allowed)
 
 
-def test_task_run_loop_filters_main_runtime_tools_by_search_policy(tmp_path) -> None:
+def test_harness_service_host_filters_main_runtime_tools_by_search_policy(tmp_path) -> None:
     tools = build_tool_instances(BACKEND_DIR)
     index = build_tool_authorization_index(get_tool_definitions())
     registry = build_default_operation_registry()
@@ -89,3 +89,5 @@ def test_direct_agent_invocation_ref_does_not_make_turn_coordination_scoped() ->
     )
 
     assert {"rag", "local_files", "web"} <= allowed
+
+

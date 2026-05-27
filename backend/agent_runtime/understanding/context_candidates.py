@@ -86,3 +86,5 @@ def build_context_candidates(
         candidates=tuple(candidates),
         diagnostics={"candidate_only": True, "does_not_decide_current_turn": True},
     )
+
+

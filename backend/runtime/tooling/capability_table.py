@@ -83,3 +83,5 @@ class ToolCapabilityTable:
             "source_trace": [item.to_dict() for item in self.source_trace],
             "authority": self.authority,
         }
+
+

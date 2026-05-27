@@ -112,3 +112,5 @@ def _normalize_agent_refs_in_mapping(payload: dict[str, Any]) -> dict[str, Any]:
             normalize_agent_id_sequence(str(item) for item in list(normalized.get("participant_agent_ids") or []))
         )
     return normalized
+
+

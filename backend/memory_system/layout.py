@@ -40,3 +40,5 @@ class DurableMemoryLayout:
 def durable_memory_layout_from_backend_dir(base_dir: str | Path) -> DurableMemoryLayout:
     layout = ProjectLayout.from_backend_dir(base_dir)
     return DurableMemoryLayout(layout.durable_memory_dir)
+
+

@@ -378,3 +378,5 @@ def strip_task_domain_authority(value: Any) -> Any:
     if isinstance(value, tuple):
         return tuple(strip_task_domain_authority(item) for item in value)
     return value
+
+

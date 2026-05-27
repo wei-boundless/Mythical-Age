@@ -32,3 +32,5 @@ class RetrievalHit:
     retrieval_modes: tuple[str, ...] = ()
     parser_backend: str = ""
     quality_flags: tuple[str, ...] = ()
+
+

@@ -8,12 +8,12 @@ import {
   TaskGraphObjectSelectField,
 } from "./TaskGraphInspectorPrimitives";
 import {
-  buildTaskGraphRuntimeLoopInputPatch,
-  resolvedTaskGraphRuntimeLoopInitialInputs,
-  taskGraphRuntimeLoopFrames,
-  taskGraphRuntimeLoopNumber,
-  taskGraphRuntimeLoopRecord,
-} from "./taskGraphRuntimeLoopConfig";
+  buildTaskGraphLoopInputPatch,
+  resolvedTaskGraphLoopInitialInputs,
+  taskGraphLoopFrames,
+  taskGraphLoopNumber,
+  taskGraphLoopRecord,
+} from "./taskGraphLoopConfig";
 import { TaskSystemField, TaskSystemSelectField } from "./TaskSystemWorkbenchUi";
 import { mergeContractBindingPath } from "./taskGraphContractBindings";
 
@@ -55,23 +55,23 @@ export function TaskGraphRootInspector({
 }) {
   const nodeOptions = activeGraphNodes.map((node) => stringValue(node.node_id)).filter(Boolean);
   const formatNode = (value: string) => nodeTitle(activeGraphNodes.find((node) => stringValue(node.node_id) === value) ?? null, value);
-  const loopInputs = resolvedTaskGraphRuntimeLoopInitialInputs(graphDraft);
-  const loopFrames = taskGraphRuntimeLoopFrames(graphDraft);
-  const unitsPerBatch = taskGraphRuntimeLoopNumber(loopInputs.units_per_batch, 1);
-  const unitsPerGroup = taskGraphRuntimeLoopNumber(loopInputs.units_per_group, 1);
-  const targetGroupCount = taskGraphRuntimeLoopNumber(loopInputs.target_group_count, 1);
-  const unitTargetMeasure = taskGraphRuntimeLoopNumber(loopInputs.unit_target_measure, 0);
-  const groupTargetMeasure = taskGraphRuntimeLoopNumber(loopInputs.group_target_measure, unitsPerGroup * unitTargetMeasure);
-  const targetMeasureUnits = taskGraphRuntimeLoopNumber(loopInputs.target_measure_units, targetGroupCount * groupTargetMeasure);
-  const lengthBudget = taskGraphRuntimeLoopRecord(taskGraphRuntimeLoopRecord(taskGraphRuntimeLoopRecord(graphDraft.contract_bindings).runtime).length_budget);
-  const lengthBudgetRepairPolicy = taskGraphRuntimeLoopRecord(lengthBudget.repair_policy);
-  const lengthBudgetAcceptancePolicy = taskGraphRuntimeLoopRecord(lengthBudget.acceptance_policy);
+  const loopInputs = resolvedTaskGraphLoopInitialInputs(graphDraft);
+  const loopFrames = taskGraphLoopFrames(graphDraft);
+  const unitsPerBatch = taskGraphLoopNumber(loopInputs.units_per_batch, 1);
+  const unitsPerGroup = taskGraphLoopNumber(loopInputs.units_per_group, 1);
+  const targetGroupCount = taskGraphLoopNumber(loopInputs.target_group_count, 1);
+  const unitTargetMeasure = taskGraphLoopNumber(loopInputs.unit_target_measure, 0);
+  const groupTargetMeasure = taskGraphLoopNumber(loopInputs.group_target_measure, unitsPerGroup * unitTargetMeasure);
+  const targetMeasureUnits = taskGraphLoopNumber(loopInputs.target_measure_units, targetGroupCount * groupTargetMeasure);
+  const lengthBudget = taskGraphLoopRecord(taskGraphLoopRecord(taskGraphLoopRecord(graphDraft.contract_bindings).runtime).length_budget);
+  const lengthBudgetRepairPolicy = taskGraphLoopRecord(lengthBudget.repair_policy);
+  const lengthBudgetAcceptancePolicy = taskGraphLoopRecord(lengthBudget.acceptance_policy);
   const lengthBudgetEnabled = lengthBudget.enabled === true
-    || taskGraphRuntimeLoopNumber(lengthBudget.target_units, 0) > 0
-    || taskGraphRuntimeLoopNumber(lengthBudget.min_units, 0) > 0
-    || taskGraphRuntimeLoopNumber(lengthBudget.max_units, 0) > 0;
-  const updateRuntimeLoopInput = (key: string, value: unknown) => {
-    updateTaskGraphDraft(buildTaskGraphRuntimeLoopInputPatch(graphDraft, key, value));
+    || taskGraphLoopNumber(lengthBudget.target_units, 0) > 0
+    || taskGraphLoopNumber(lengthBudget.min_units, 0) > 0
+    || taskGraphLoopNumber(lengthBudget.max_units, 0) > 0;
+  const updateGraphLoopInput = (key: string, value: unknown) => {
+    updateTaskGraphDraft(buildTaskGraphLoopInputPatch(graphDraft, key, value));
   };
   const updateLengthBudget = (path: string[], value: unknown) => {
     updateTaskGraphDraft(mergeContractBindingPath(graphDraft, "runtime", ["length_budget", ...path], value));
@@ -155,7 +155,7 @@ export function TaskGraphRootInspector({
             <TaskSystemField label="目标组数">
               <input
                 min={1}
-                onChange={(event) => updateRuntimeLoopInput("target_group_count", Number(event.target.value || 1))}
+                onChange={(event) => updateGraphLoopInput("target_group_count", Number(event.target.value || 1))}
                 type="number"
                 value={targetGroupCount}
               />
@@ -165,7 +165,7 @@ export function TaskGraphRootInspector({
                 min={1}
                 onChange={(event) => {
                   const value = Number(event.target.value || 1);
-                  updateRuntimeLoopInput("units_per_group", value);
+                  updateGraphLoopInput("units_per_group", value);
                 }}
                 type="number"
                 value={unitsPerGroup}
@@ -174,7 +174,7 @@ export function TaskGraphRootInspector({
             <TaskSystemField label="每批单元">
               <input
                 min={1}
-                onChange={(event) => updateRuntimeLoopInput("units_per_batch", Number(event.target.value || 1))}
+                onChange={(event) => updateGraphLoopInput("units_per_batch", Number(event.target.value || 1))}
                 type="number"
                 value={unitsPerBatch}
               />
@@ -182,7 +182,7 @@ export function TaskGraphRootInspector({
             <TaskSystemField label="单元目标量">
               <input
                 min={0}
-                onChange={(event) => updateRuntimeLoopInput("unit_target_measure", Number(event.target.value || 0))}
+                onChange={(event) => updateGraphLoopInput("unit_target_measure", Number(event.target.value || 0))}
                 type="number"
                 value={unitTargetMeasure}
               />
@@ -190,7 +190,7 @@ export function TaskGraphRootInspector({
             <TaskSystemField label="单组目标量">
               <input
                 min={0}
-                onChange={(event) => updateRuntimeLoopInput("group_target_measure", Number(event.target.value || 0))}
+                onChange={(event) => updateGraphLoopInput("group_target_measure", Number(event.target.value || 0))}
                 type="number"
                 value={groupTargetMeasure}
               />
@@ -198,7 +198,7 @@ export function TaskGraphRootInspector({
             <TaskSystemField label="总目标量">
               <input
                 min={0}
-                onChange={(event) => updateRuntimeLoopInput("target_measure_units", Number(event.target.value || 0))}
+                onChange={(event) => updateGraphLoopInput("target_measure_units", Number(event.target.value || 0))}
                 type="number"
                 value={targetMeasureUnits}
               />

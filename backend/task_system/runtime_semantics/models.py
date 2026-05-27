@@ -119,3 +119,5 @@ class RuntimeSemanticsManifest:
             "diagnostics": [item.to_dict() for item in self.diagnostics],
             "summary": dict(self.summary),
         }
+
+

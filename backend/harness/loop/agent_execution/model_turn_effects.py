@@ -140,3 +140,5 @@ def answer_metadata_from_done_event(
         if isinstance(payload, dict):
             metadata[key] = dict(payload)
     return metadata
+
+

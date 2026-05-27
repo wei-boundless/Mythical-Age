@@ -35,3 +35,5 @@ def test_task_domain_binding_ignores_goal_domain_when_system_domain_exists(tmp_p
     assert payload["diagnostics"]["task_goal_domain_ignored"] == "development"
     assert payload["diagnostics"]["agent_can_select_domain"] is False
     assert payload["diagnostics"]["domain_binding_source_must_be_system"] is True
+
+

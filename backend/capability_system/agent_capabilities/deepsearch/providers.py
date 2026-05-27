@@ -300,3 +300,5 @@ def _storage_root(root_dir: Path) -> Path:
     if (root.parent / "storage").exists():
         return root.parent / "storage"
     return root
+
+

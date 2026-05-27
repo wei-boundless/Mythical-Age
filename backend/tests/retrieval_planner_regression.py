@@ -38,3 +38,5 @@ def test_document_query_uses_hierarchical_policy() -> None:
     assert plan.retrieval_plan.intent.intent_type == "document_lookup"
     assert plan.retrieval_plan.policy.strategy == "hierarchical"
     assert "document_summary" in plan.retrieval_plan.filters.unit_type_any
+
+

@@ -102,3 +102,5 @@ def _ports(values: Any) -> tuple[AssemblyPort, ...]:
 
 def _tuple_str(values: Any) -> tuple[str, ...]:
     return tuple(str(item) for item in list(values or []) if str(item))
+
+

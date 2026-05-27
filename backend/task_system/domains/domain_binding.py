@@ -175,3 +175,5 @@ def _normalize_domain(value: str) -> str:
         "writing_modular_novel": "writing_modular_novel",
     }
     return aliases.get(raw, raw or "general")
+
+

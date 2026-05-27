@@ -623,3 +623,5 @@ def _govern_existing_note(filename: str, *, status: str, eligible_for_injection:
         "header": _header_payload(result["header"]) if result.get("header") else None,
     }
 
+
+

@@ -142,3 +142,5 @@ def _format_retrieval_source_label(result: dict[str, Any]) -> str:
 
 def _normalized_compare_key(text: str) -> str:
     return _NOISY_WHITESPACE_RE.sub("", str(text or "")).lower()
+
+

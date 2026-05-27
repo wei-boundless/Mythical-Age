@@ -13,3 +13,5 @@ def test_expected_count():
         {"id": "c", "status": "ready"},
     ]
     assert count_ready_items(data) == 2
+
+

@@ -90,3 +90,5 @@ def test_workspace_glob_uses_single_project_root(tmp_path: Path) -> None:
     result = globber.invoke({"pattern": "docs/**/*.md", "max_results": 10})
 
     assert result.splitlines() == ["docs/plan.md"]
+
+

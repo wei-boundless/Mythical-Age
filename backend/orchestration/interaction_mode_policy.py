@@ -669,3 +669,5 @@ def _obligation_summary(obligation: dict[str, Any]) -> dict[str, Any]:
         "required_deliverables": list(item.get("required_deliverables") or []),
         "forbidden_actions": list(item.get("forbidden_actions") or []),
     }
+
+

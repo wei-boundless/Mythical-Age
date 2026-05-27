@@ -156,3 +156,5 @@ class GraphCoordinationTraversal:
         terminals = tuple(node_id for node_id in node_ids if node_id not in sources)
         return terminals or ((node_ids[-1],) if node_ids else ())
 
+
+

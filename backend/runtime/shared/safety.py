@@ -121,3 +121,5 @@ def _normalize_relative_path(value: Any) -> str:
     while "//" in text:
         text = text.replace("//", "/")
     return text
+
+

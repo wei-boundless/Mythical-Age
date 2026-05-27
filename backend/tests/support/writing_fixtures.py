@@ -26,3 +26,5 @@ def seed_writing_storage(tmp_path: Path) -> Path:
     shutil.copytree(REPO_ROOT / "storage" / "tasks", storage / "tasks")
     shutil.copytree(REPO_ROOT / "storage" / "orchestration", storage / "orchestration")
     return tmp_path
+
+

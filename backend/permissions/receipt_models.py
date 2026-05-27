@@ -75,3 +75,5 @@ class PermissionReceipt:
 def _receipt_id(*parts: str) -> str:
     raw = "|".join(str(part or "") for part in parts)
     return f"permrec:{hashlib.sha256(raw.encode('utf-8')).hexdigest()[:24]}"
+
+

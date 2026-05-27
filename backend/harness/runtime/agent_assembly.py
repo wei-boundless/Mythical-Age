@@ -11,7 +11,7 @@ from .context import (
     build_direct_agent_invocation_payload,
     runtime_limits_from_task_operation,
 )
-from .execution_permit import resolve_agent_execution_permit
+from .execution_policy import resolve_agent_execution_permit
 
 
 @dataclass(frozen=True, slots=True)
@@ -230,3 +230,5 @@ def build_agent_runtime_assembly(
         execution_mode=str(task_execution_policy_payload.get("execution_mode") or "single_agent"),
         effective_limits=runtime_limits_from_task_operation(task_operation, fallback=runtime_host.limits),
     )
+
+

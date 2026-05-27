@@ -360,3 +360,5 @@ def _normalize_followup_constraints(constraints: dict[str, Any]) -> dict[str, An
     if semantic_hints:
         normalized["semantic_hints"] = semantic_hints
     return normalized
+
+

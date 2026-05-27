@@ -344,3 +344,5 @@ def _observation_ref(observation: dict[str, Any]) -> str:
         or observation.get("ref")
         or ""
     ).strip()
+
+

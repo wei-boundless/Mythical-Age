@@ -29,3 +29,5 @@ class FileEnvironmentRegistry:
 
 def default_file_environment_registry() -> FileEnvironmentRegistry:
     return FileEnvironmentRegistry.with_defaults()
+
+

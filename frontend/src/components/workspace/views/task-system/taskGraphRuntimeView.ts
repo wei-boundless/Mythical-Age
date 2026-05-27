@@ -1,4 +1,4 @@
-import { latestTaskGraphRunFromTrace, type RuntimeLoopTaskRunTrace, type TaskGraphRuntimeSpec } from "../../../../lib/api";
+import { latestTaskGraphRunFromTrace, type HarnessTaskRunTrace, type TaskGraphRuntimeSpec } from "../../../../lib/api";
 
 export type TaskGraphSchedulerSummary = {
   available: boolean;
@@ -65,20 +65,20 @@ export function schedulerStateFromRuntimeSpec(runtimeSpec: TaskGraphRuntimeSpec 
   return asRecord(asRecord(runtimeSpec?.diagnostics).scheduler_support);
 }
 
-export function schedulerStateFromTrace(trace: RuntimeLoopTaskRunTrace | { coordination_runs?: Array<Record<string, unknown>> } | null | undefined) {
+export function schedulerStateFromTrace(trace: HarnessTaskRunTrace | { coordination_runs?: Array<Record<string, unknown>> } | null | undefined) {
   const taskGraphRun = latestTaskGraphRunFromTrace(trace);
   const diagnostics = asRecord(taskGraphRun?.diagnostics);
-  const runtimeState = asRecord(diagnostics.langgraph_runtime_state);
+  const runtimeState = asRecord(diagnostics.graph_coordination_state);
   return {
     ...asRecord(runtimeState.task_graph_scheduler_state),
     ...asRecord(diagnostics.task_graph_scheduler_state),
   };
 }
 
-export function batchLifecycleFromTrace(trace: RuntimeLoopTaskRunTrace | { coordination_runs?: Array<Record<string, unknown>> } | null | undefined) {
+export function batchLifecycleFromTrace(trace: HarnessTaskRunTrace | { coordination_runs?: Array<Record<string, unknown>> } | null | undefined) {
   const taskGraphRun = latestTaskGraphRunFromTrace(trace);
   const diagnostics = asRecord(taskGraphRun?.diagnostics);
-  const runtimeState = asRecord(diagnostics.langgraph_runtime_state);
+  const runtimeState = asRecord(diagnostics.graph_coordination_state);
   const runtimeBatch = asRecord(runtimeState.batch_lifecycle_runtime_state);
   const diagnosticsBatch = asRecord(diagnostics.batch_lifecycle_runtime_state);
   return Object.keys(diagnosticsBatch).length ? diagnosticsBatch : runtimeBatch;

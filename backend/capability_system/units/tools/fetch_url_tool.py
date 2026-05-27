@@ -55,3 +55,5 @@ class FetchURLTool(BaseTool):
         except Exception as exc:
             return f"Fetch failed: {exc}"
         return self._format_response(response)
+
+

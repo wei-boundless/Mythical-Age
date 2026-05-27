@@ -165,3 +165,5 @@ def stream_event_type_from_mcp_status(status: str | None) -> str:
     if normalized in {"degraded", "error"}:
         return "task.failed"
     return "task.updated"
+
+

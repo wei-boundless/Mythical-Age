@@ -10,7 +10,7 @@ from task_system.registry.flow_models import CoordinationTaskDefinition, Specifi
 from task_system.registry.workflow_models import TaskWorkflowBinding
 from orchestration.runtime_lane_registry import DEFAULT_RUNTIME_LANE_REGISTRY
 
-from ..execution.node_execution_a2a_payload import DEFAULT_A2A_MESSAGE_TYPE
+DEFAULT_A2A_MESSAGE_TYPE = "message/send"
 from .compiler_models import (
     CompiledAcceptanceContract,
     CompiledEdgeHandoffContract,
@@ -715,3 +715,5 @@ def _validate_agent_profile(
                 node_id=node_id,
             )
         )
+
+

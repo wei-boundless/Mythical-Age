@@ -73,3 +73,5 @@ def _assistant_message_from_tool_calls(tool_call_accumulator: Any) -> AIMessage:
         ),
         additional_kwargs=dict(getattr(tool_call_accumulator, "assistant_additional_kwargs", {}) or {}),
     )
+
+

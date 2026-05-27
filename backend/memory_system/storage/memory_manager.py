@@ -738,3 +738,5 @@ class MemoryManager:
         if not normalized:
             return ""
         return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+

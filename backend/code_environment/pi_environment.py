@@ -194,3 +194,5 @@ def _command_version(command: list[str], diagnostics: list[PiEnvironmentDiagnost
         )
         return ""
     return completed.stdout.strip()
+
+

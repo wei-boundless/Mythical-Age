@@ -403,3 +403,5 @@ def _safe_id(value: str, *, limit: int = 160) -> str:
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
     head_limit = max(1, limit - len(digest) - 1)
     return f"{safe[:head_limit].rstrip('_')}_{digest}"
+
+

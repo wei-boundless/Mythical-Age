@@ -74,3 +74,5 @@ def _score(path: str, evidence_kind: str, line: str, snippet: str) -> tuple[floa
 def _symbol_from_snippet(value: str) -> str:
     match = re.search(r"\b(?:class|def|async def|function|interface)\s+([A-Za-z_][A-Za-z0-9_]*)", value)
     return match.group(1) if match else ""
+
+

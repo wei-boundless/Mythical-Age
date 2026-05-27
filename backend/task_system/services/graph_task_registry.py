@@ -276,3 +276,5 @@ def _normalize_agent_refs_in_mapping(payload: dict[str, Any]) -> dict[str, Any]:
     next_payload.pop("projection_id", None)
     next_payload.pop("projection_overlay_id", None)
     return next_payload
+
+

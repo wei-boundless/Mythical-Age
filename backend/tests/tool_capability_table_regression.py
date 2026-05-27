@@ -110,3 +110,5 @@ def test_tool_table_consumes_specific_task_assembly_policy() -> None:
     assert "browser_control" not in table.dispatchable_tools
     assert any(issue.operation_id == "op.browser_control" and issue.source == "specific_task" for issue in table.filtered)
     assert any(trace.source == "specific_task_assembly_policy" and trace.detail == assembly_policy.policy_id for trace in table.source_trace)
+
+

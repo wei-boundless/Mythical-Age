@@ -175,3 +175,5 @@ def _todo_item_from_payload(*, index: int, payload: dict[str, Any]) -> AgentTodo
         ),
         notes=str(item.get("notes") or "").strip(),
     )
+
+

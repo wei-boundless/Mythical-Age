@@ -16,3 +16,5 @@ def __getattr__(name: str) -> Any:
     if name == "AppSettingsService":
         return getattr(import_module("bootstrap.settings"), name)
     raise AttributeError(name)
+
+

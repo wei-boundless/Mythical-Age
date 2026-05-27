@@ -28,3 +28,5 @@ def test_agent_runtime_tool_capability_table_is_environment_and_permit_bound() -
     filtered_operations = {(issue.operation_id, issue.source) for issue in table.filtered}
     assert ("op.shell", "task_environment") in filtered_operations
     assert ("op.browser_control", "task_environment") in filtered_operations
+
+

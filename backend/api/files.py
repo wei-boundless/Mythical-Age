@@ -123,3 +123,5 @@ async def save_file(payload: SaveFileRequest) -> dict[str, Any]:
 async def list_skills() -> list[dict[str, Any]]:
     runtime = require_runtime()
     return [skill.__dict__ for skill in scan_skills(runtime.base_dir)]
+
+

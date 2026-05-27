@@ -361,3 +361,5 @@ class DurableMemoryGovernanceService:
 def _safe_stamp(value: str) -> str:
     return "".join(char for char in str(value or "") if char.isdigit())[:14] or "record"
 
+
+

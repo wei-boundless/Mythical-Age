@@ -134,3 +134,5 @@ def test_phase_pipeline_emits_only_agent_runtime_phase_events() -> None:
     assert len(post_events) == 1
     assert outcome.run_outcome["authority"] == "harness.loop.agent_phase_pipeline"
     assert outcome.terminal_reason in {"partial_contract_failed", "agent_phase_validation_failed"}
+
+

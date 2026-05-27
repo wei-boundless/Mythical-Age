@@ -26,3 +26,5 @@ class AgentGroup:
         payload = asdict(self)
         payload["member_agent_ids"] = list(self.member_agent_ids)
         return payload
+
+

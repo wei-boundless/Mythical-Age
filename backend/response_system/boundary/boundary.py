@@ -439,3 +439,5 @@ class AssistantOutputBoundary:
             }
             receipts.append(receipt)
         return receipts
+
+

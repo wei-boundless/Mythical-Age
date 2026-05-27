@@ -62,3 +62,5 @@ def _default_stringify_output(output: Any) -> str:
     if isinstance(normalized, str):
         return sanitize_visible_assistant_content(normalized).strip()
     return sanitize_visible_assistant_content(str(normalized)).strip()
+
+

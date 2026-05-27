@@ -22,7 +22,6 @@ class QueryRequest:
     explicit_subtasks: list[dict[str, Any]] = field(default_factory=list)
     search_policy: list[str] | None = None
     task_selection: dict[str, Any] = field(default_factory=dict)
-    task_order_intent: dict[str, Any] = field(default_factory=dict)
     model_selection: dict[str, Any] = field(default_factory=dict)
     image_generation: dict[str, Any] = field(default_factory=dict)
 
@@ -31,3 +30,5 @@ class QueryRequest:
 class QueryResult:
     content: str
     segments: list[dict[str, Any]] = field(default_factory=list)
+
+

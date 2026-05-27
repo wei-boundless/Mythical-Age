@@ -330,3 +330,5 @@ class StructuredDataCatalog:
     def _extract_tokens(cls, text: str) -> list[str]:
         parts = re.findall(r"[\u4e00-\u9fff]{2,}|[a-z0-9]{2,}", text)
         return [part.strip() for part in parts if part.strip()]
+
+

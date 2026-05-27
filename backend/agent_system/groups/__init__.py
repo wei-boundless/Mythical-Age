@@ -69,3 +69,5 @@ class AgentRuntimeSpec:
         payload = asdict(self)
         payload["context_input_refs"] = list(self.context_input_refs)
         return payload
+
+

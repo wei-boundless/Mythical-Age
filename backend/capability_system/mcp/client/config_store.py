@@ -100,3 +100,5 @@ def validate_server_config(config: ExternalMCPServerConfig) -> None:
         raise ValueError("stdio MCP server requires command")
     if transport == "streamable_http" and not config.url:
         raise ValueError("streamable_http MCP server requires url")
+
+

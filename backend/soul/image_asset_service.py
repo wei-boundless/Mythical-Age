@@ -180,3 +180,5 @@ class SoulImageAssetService:
     def _model() -> str:
         override = dict(runtime_config.load().get("soul_image_assets") or {})
         return str(override.get("model") or os.getenv("SOUL_IMAGE_MODEL") or "gpt-image-2").strip()
+
+

@@ -210,3 +210,5 @@ def _workspace_root_for_mcp(backend_dir: Path) -> Path:
     if resolved.name == "backend" and resolved.parent.exists():
         return resolved.parent.resolve()
     return resolved
+
+

@@ -100,3 +100,5 @@ def load_static_context(base_dir: Path) -> StaticContextBundle:
             )
         )
     return StaticContextBundle(sections=entries)
+
+

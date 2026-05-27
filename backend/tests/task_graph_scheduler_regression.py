@@ -754,3 +754,5 @@ def test_scheduler_excludes_resource_nodes_from_execution_queue() -> None:
     assert state.ready_node_ids == ()
     assert "memory.writing.mutable" not in state.blocked_node_ids
     assert state.diagnostics["resource_node_ids_excluded_from_schedule"] == ["memory.writing.mutable"]
+
+

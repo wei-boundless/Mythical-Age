@@ -73,3 +73,5 @@ class AgentRuntimeConfig:
             "diagnostics": dict(self.diagnostics),
             "authority": "harness.runtime.agent_config",
         }
+
+

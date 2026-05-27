@@ -127,3 +127,5 @@ class ExternalMCPSnapshot:
             "prompts": [prompt.to_dict() for prompt in self.prompts],
             "diagnostics": dict(self.diagnostics),
         }
+
+

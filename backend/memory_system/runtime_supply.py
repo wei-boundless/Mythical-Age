@@ -472,3 +472,5 @@ def _safe_limit(value: Any, *, default: int) -> int:
         return max(1, min(int(value or default), 1000))
     except (TypeError, ValueError):
         return default
+
+

@@ -7,7 +7,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from harness import HarnessServiceHost
-from runtime.shared.models import RuntimeLoopState, TaskRun
+from harness.loop.state import HarnessLoopState
+from runtime.shared.models import TaskRun
 
 
 def test_harness_service_host_stop_can_write_checkpoint(tmp_path) -> None:
@@ -25,7 +26,7 @@ def test_harness_service_host_stop_can_write_checkpoint(tmp_path) -> None:
         )
     )
     host.checkpoints.write(
-        RuntimeLoopState(
+        HarnessLoopState(
             task_run_id=task_run_id,
             status="running",
             transition="loop_iteration",
@@ -47,3 +48,5 @@ def test_harness_service_host_stop_can_write_checkpoint(tmp_path) -> None:
     )
     checkpoint_event = host._write_checkpoint_event(loop_state, event_offset=checkpoint.event_offset)
     assert checkpoint_event.refs["checkpoint_ref"]
+
+

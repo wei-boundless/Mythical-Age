@@ -209,3 +209,5 @@ def prompt_resource_from_dict(payload: dict[str, Any]) -> PromptResource:
         metadata=dict(payload.get("metadata") or {}),
         authority=str(payload.get("authority") or "prompt_library.prompt_resource"),
     )
+
+

@@ -138,3 +138,5 @@ def build_embedding_model(settings: Settings | None = None) -> CompatibleOpenAIE
         dimensions=settings.embedding_dimensions,
         embed_batch_size=64,
     )
+
+

@@ -1215,3 +1215,5 @@ def _safe_identifier(value: str) -> str:
     text = _string(value, "item")
     safe = "".join(ch if ch.isalnum() or ch in {"-", "_", "."} else "_" for ch in text)
     return safe[:160] or "item"
+
+

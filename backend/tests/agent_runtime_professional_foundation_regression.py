@@ -146,3 +146,5 @@ def test_resume_decision_uses_checkpoint_without_overriding_current_obligation()
     assert decision.decision == "continue"
     assert decision.resume_from_checkpoint_ref == "rtchk:taskrun:test:9"
     assert decision.current_obligation["required_writes"]
+
+

@@ -98,3 +98,5 @@ def test_skill_scope_is_checked_by_invocation_validation() -> None:
         assert decision.allowed is False
         assert decision.should_block is True
         assert decision.reason == "tool_not_allowed_by_skill_contract"
+
+

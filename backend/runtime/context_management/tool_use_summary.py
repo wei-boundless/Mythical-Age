@@ -231,3 +231,5 @@ def _compact(value: str, limit: int) -> str:
     if len(text) <= limit:
         return text
     return text[: max(0, limit - 3)] + "..."
+
+

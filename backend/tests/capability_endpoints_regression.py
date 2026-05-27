@@ -20,3 +20,5 @@ def test_capability_endpoints_only_include_mcp_endpoints() -> None:
     assert by_id["endpoint:mcp:pdf"]["kind"] == "mcp_endpoint"
     assert by_id["endpoint:mcp:pdf"]["invocation_mode"] == "orchestrator_only"
     assert by_id["endpoint:mcp:pdf"]["model_visibility"] == "not_direct_model_tool"
+
+

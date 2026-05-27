@@ -86,6 +86,15 @@ export function buildTaskGraphUpsertPayload({
   publish_state,
 }: BuildTaskGraphUpsertPayloadInput): TaskGraphRecord {
   const metadata = asRecord(taskGraphDraft.metadata);
+  const taskEnvironmentId = String(
+    metadata.task_environment_id
+    ?? metadata.environment_id
+    ?? taskGraphDraft.runtime_policy.task_environment_id
+    ?? taskGraphDraft.runtime_policy.environment_id
+    ?? taskGraphDraft.context_policy.task_environment_id
+    ?? taskGraphDraft.context_policy.environment_id
+    ?? "",
+  ).trim();
   const coordinatorAgentId = String(taskGraphDraft.runtime_policy.coordinator_agent_id ?? "agent:0").trim() || "agent:0";
   const explicitParticipants = stringListOf(taskGraphDraft.runtime_policy.participant_agent_ids);
   const draftNodes = taskGraphDraft.nodes.map(normalizeNodeContractBindings);
@@ -96,6 +105,8 @@ export function buildTaskGraphUpsertPayload({
   const workingMemoryProfileId = String(taskGraphDraft.working_memory_policy_profile_id ?? "").trim();
   const runtime_policy = compactRecord({
     ...asRecord(taskGraphDraft.runtime_policy),
+    task_environment_id: taskEnvironmentId || undefined,
+    environment_id: taskEnvironmentId || undefined,
     coordinator_agent_id: coordinatorAgentId,
     participant_agent_ids,
     agent_group_id: String(taskGraphDraft.runtime_policy.agent_group_id ?? ""),
@@ -109,6 +120,8 @@ export function buildTaskGraphUpsertPayload({
   };
   const context_policy = compactRecord({
     ...asRecord(taskGraphDraft.context_policy),
+    task_environment_id: taskEnvironmentId || undefined,
+    environment_id: taskEnvironmentId || undefined,
     shared_context_policy: String(taskGraphDraft.context_policy.shared_context_policy ?? "explicit_refs_only"),
     memory_sharing_policy: String(taskGraphDraft.context_policy.memory_sharing_policy ?? "isolated_by_default"),
   });
@@ -138,6 +151,8 @@ export function buildTaskGraphUpsertPayload({
       ...metadata,
       protocol_id: taskGraphDraft.default_protocol_id || String(metadata.protocol_id ?? ""),
       topology_template_id: String(metadata.topology_template_id ?? ""),
+      task_environment_id: taskEnvironmentId || undefined,
+      environment_id: taskEnvironmentId || undefined,
       domain_id,
       ...(task_id ? { task_id } : {}),
       handoff_policy: String(taskGraphDraft.context_policy.handoff_policy ?? metadata.handoff_policy ?? ""),

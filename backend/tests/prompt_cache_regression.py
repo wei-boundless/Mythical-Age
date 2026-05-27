@@ -116,3 +116,5 @@ def test_system_prompt_keeps_static_prefix_first_and_marks_dynamic_sections_unca
     assert sections["static_context_1"]["cache"]["status"] == "miss"
     assert sections["session_context"]["cache"]["status"] == "bypassed"
     assert sections["turn_relevant_memory"]["cache"]["status"] == "bypassed"
+
+

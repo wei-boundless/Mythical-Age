@@ -55,7 +55,7 @@ class AgentCliClient:
     def get_session_monitor(self, session_id: str) -> dict[str, Any]:
         payload = self._json_request(
             "GET",
-            f"/orchestration/runtime-loop/sessions/{_quote_path(session_id)}/live-monitor",
+            f"/orchestration/harness/sessions/{_quote_path(session_id)}/live-monitor",
         )
         if not isinstance(payload, dict):
             raise AgentCliClientError("Backend returned an invalid monitor payload.")
@@ -77,7 +77,6 @@ class AgentCliClient:
             "stream": True,
             "ephemeral_system_messages": [],
             "task_selection": {},
-            "task_order_intent": {},
             "model_selection": {},
             "image_generation": {},
         }
@@ -158,3 +157,5 @@ def _quote_path(value: str) -> str:
     from urllib.parse import quote
 
     return quote(value, safe="")
+
+

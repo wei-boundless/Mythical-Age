@@ -118,7 +118,7 @@ describe("streamChat", () => {
         'event: output_boundary\ndata: {"output":{"visible_text":"你好，我是四岳。","selected_channel":"answer_candidate","selected_source":"model_response"}}\n\n'
       ),
       new TextEncoder().encode(
-        'event: runtime_loop_event\ndata: {"event":{"event_id":"rtevt:1","task_run_id":"taskrun:1","event_type":"agent_runtime_planning_phase_checked","payload":{"plan_coverage_review":{"passed":false}}}}\n\n'
+        'event: harness_loop_event\ndata: {"event":{"event_id":"rtevt:1","task_run_id":"taskrun:1","event_type":"agent_runtime_planning_phase_checked","payload":{"plan_coverage_review":{"passed":false}}}}\n\n'
       ),
       new TextEncoder().encode('event: done\ndata: {"content":"完成"}\n\n'),
     ];
@@ -144,7 +144,7 @@ describe("streamChat", () => {
     const result = await pending;
     expect(result).toEqual({ terminalEvent: "done" });
     expect(cancel).toHaveBeenCalledTimes(1);
-    expect(events.map((item) => item.event)).toEqual(["output_boundary", "runtime_loop_event", "done"]);
+    expect(events.map((item) => item.event)).toEqual(["output_boundary", "harness_loop_event", "done"]);
   });
 
   it("rejects when the stream closes without a terminal event", async () => {

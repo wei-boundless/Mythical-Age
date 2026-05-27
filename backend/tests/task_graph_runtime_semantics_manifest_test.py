@@ -110,3 +110,5 @@ def test_runtime_semantics_errors_become_runtime_spec_issues() -> None:
 
     assert "runtime_semantics_semantic_edge_missing_target" in issue_codes
     assert spec.valid is False
+
+

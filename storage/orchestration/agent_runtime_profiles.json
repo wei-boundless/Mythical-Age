@@ -1859,7 +1859,6 @@
       ],
       "allowed_context_sections": [
         "task",
-        "projection",
         "runtime_contracts",
         "artifact_refs",
         "memory_runtime_view"
@@ -1893,6 +1892,7 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
+        "environment_id": "env.writing",
         "source_task_graph_refs": [
           "graph.writing.modular_novel.master",
           "graph.writing.modular_novel.design_init",
@@ -2011,7 +2011,6 @@
       ],
       "allowed_context_sections": [
         "task",
-        "projection",
         "runtime_contracts",
         "artifact_refs",
         "memory_runtime_view"
@@ -2045,6 +2044,7 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
+        "environment_id": "env.writing",
         "source_task_graph_refs": [
           "graph.writing.modular_novel.master",
           "graph.writing.modular_novel.design_init",
@@ -2162,7 +2162,6 @@
       ],
       "allowed_context_sections": [
         "task",
-        "projection",
         "runtime_contracts",
         "artifact_refs",
         "memory_runtime_view"
@@ -2196,6 +2195,7 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
+        "environment_id": "env.writing",
         "source_task_graph_refs": [
           "graph.writing.modular_novel.master",
           "graph.writing.modular_novel.design_init",
@@ -2314,7 +2314,6 @@
       ],
       "allowed_context_sections": [
         "task",
-        "projection",
         "runtime_contracts",
         "artifact_refs",
         "memory_runtime_view"
@@ -2348,6 +2347,7 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
+        "environment_id": "env.writing",
         "source_task_graph_refs": [
           "graph.writing.modular_novel.master",
           "graph.writing.modular_novel.design_init",
@@ -2465,7 +2465,6 @@
       ],
       "allowed_context_sections": [
         "task",
-        "projection",
         "runtime_contracts",
         "artifact_refs",
         "memory_runtime_view",
@@ -2500,6 +2499,7 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
+        "environment_id": "env.writing",
         "source_task_graph_refs": [
           "graph.writing.modular_novel.master",
           "graph.writing.modular_novel.design_init",

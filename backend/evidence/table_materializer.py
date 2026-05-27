@@ -198,3 +198,5 @@ def _safe_token(value: str) -> str:
 def _stable_id(prefix: str, value: str) -> str:
     digest = hashlib.sha1(str(value or "").encode("utf-8")).hexdigest()[:16]
     return f"{prefix}:{digest}"
+
+

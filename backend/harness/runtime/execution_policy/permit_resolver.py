@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from harness.runtime.execution_policy.contract_adapter import build_execution_permit_from_payload
+from .contract_adapter import build_execution_permit_from_payload
 
 
 def resolve_agent_execution_permit(
@@ -14,7 +14,7 @@ def resolve_agent_execution_permit(
     agent_profile_id: str = "",
     agent_runtime_config: Any | None = None,
 ) -> dict[str, Any]:
-    """Resolve the system execution permit for one AgentRuntime invocation."""
+    """Resolve the system execution permit for one agent invocation."""
 
     permit = build_execution_permit_from_payload(dict(assembly_contract or {}))
     if not permit:
@@ -84,7 +84,7 @@ def resolve_agent_execution_permit(
         "operation_policy_adopted": bool(operation_policy),
         "operation_policy": operation_policy,
         "agent_runtime_enabled_phases": _enabled_phases_from_config(agent_runtime_config),
-        "authority": "harness.runtime.agent_execution_permit",
+        "authority": "harness.runtime.execution_policy",
         "task_id": task_id,
         "agent_id": agent_id,
         "agent_profile_id": agent_profile_id,
@@ -181,3 +181,5 @@ def _dedupe_refs(values: list[Any] | tuple[Any, ...]) -> list[str]:
         seen.add(item)
         result.append(item)
     return result
+
+

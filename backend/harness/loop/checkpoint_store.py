@@ -3,29 +3,31 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import time
 import threading
+import time
 import uuid
-from types import SimpleNamespace
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
-from .models import AgentRun, CoordinationRun, RuntimeLoopState
-from .resume_decision import decide_runtime_resume
+from runtime.shared.models import AgentRun, CoordinationRun
+from runtime.shared.resume_decision import decide_runtime_resume
+
+from .state import HarnessLoopState
 
 
 _CHECKPOINT_WRITE_LOCK = threading.RLock()
 
 
 @dataclass(frozen=True, slots=True)
-class RuntimeCheckpoint:
+class HarnessCheckpoint:
     """Recovery snapshot for a Harness event offset."""
 
     checkpoint_id: str
     task_run_id: str
     event_offset: int
-    loop_state: RuntimeLoopState
+    loop_state: HarnessLoopState
     context_snapshot_ref: str = ""
     prompt_manifest_ref: str = ""
     execution_refs: tuple[str, ...] = ()
@@ -40,17 +42,19 @@ class RuntimeCheckpoint:
     resume_state: dict[str, Any] = field(default_factory=dict)
     created_at: float = 0.0
     checksum: str = ""
-    authority: str = "orchestration.runtime_checkpoint"
+    authority: str = "harness.checkpoint"
 
     def __post_init__(self) -> None:
-        if self.authority != "orchestration.runtime_checkpoint":
-            raise ValueError("RuntimeCheckpoint authority must be orchestration.runtime_checkpoint")
+        if self.authority not in {"harness.checkpoint", "orchestration.runtime_checkpoint"}:
+            raise ValueError("HarnessCheckpoint authority must be harness.checkpoint")
+        if self.authority == "orchestration.runtime_checkpoint":
+            object.__setattr__(self, "authority", "harness.checkpoint")
         if not self.checkpoint_id:
-            raise ValueError("RuntimeCheckpoint requires checkpoint_id")
+            raise ValueError("HarnessCheckpoint requires checkpoint_id")
         if not self.task_run_id:
-            raise ValueError("RuntimeCheckpoint requires task_run_id")
+            raise ValueError("HarnessCheckpoint requires task_run_id")
         if self.event_offset < 0:
-            raise ValueError("RuntimeCheckpoint event_offset must be non-negative")
+            raise ValueError("HarnessCheckpoint event_offset must be non-negative")
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -58,7 +62,7 @@ class RuntimeCheckpoint:
         return payload
 
 
-class RuntimeCheckpointStore:
+class HarnessCheckpointStore:
     def __init__(self, root_dir: Path) -> None:
         self.root_dir = Path(root_dir)
         self.checkpoint_dir = self.root_dir / "checkpoints"
@@ -66,7 +70,7 @@ class RuntimeCheckpointStore:
 
     def write(
         self,
-        state: RuntimeLoopState,
+        state: HarnessLoopState,
         *,
         event_offset: int,
         execution_refs: tuple[str, ...] = (),
@@ -75,7 +79,7 @@ class RuntimeCheckpointStore:
         execution_summary: dict[str, Any] | None = None,
         agent_runs: tuple[AgentRun, ...] = (),
         coordination_runs: tuple[CoordinationRun, ...] = (),
-    ) -> RuntimeCheckpoint:
+    ) -> HarnessCheckpoint:
         created_at = time.time()
         checkpoint_id = f"rtchk:{state.task_run_id}:{event_offset}"
         checkpoint_probe = SimpleNamespace(
@@ -97,7 +101,7 @@ class RuntimeCheckpointStore:
             for item in (working_memory_refs or tuple(state.diagnostics.get("working_memory_refs") or ()))
             if str(item).strip()
         )
-        checkpoint = RuntimeCheckpoint(
+        checkpoint = HarnessCheckpoint(
             checkpoint_id=checkpoint_id,
             task_run_id=state.task_run_id,
             event_offset=event_offset,
@@ -131,44 +135,13 @@ class RuntimeCheckpointStore:
         self._atomic_write(self._checkpoint_path(state.task_run_id), checkpoint.to_dict())
         return checkpoint
 
-    def load_latest(self, task_run_id: str) -> RuntimeCheckpoint | None:
+    def load_latest(self, task_run_id: str) -> HarnessCheckpoint | None:
         path = self._checkpoint_path(task_run_id)
         if not path.exists():
             return None
         payload = json.loads(path.read_text(encoding="utf-8"))
-        state_payload = dict(payload.get("loop_state") or {})
-        state = RuntimeLoopState(
-            task_run_id=str(state_payload.get("task_run_id") or task_run_id),
-            status=state_payload.get("status", "created"),
-            turn_count=int(state_payload.get("turn_count") or 0),
-            step_count=int(state_payload.get("step_count") or 0),
-            current_step_id=str(state_payload.get("current_step_id") or ""),
-            agent_id=str(state_payload.get("agent_id") or "agent:0"),
-            agent_profile_id=str(state_payload.get("agent_profile_id") or "main_interactive_agent"),
-            runtime_lane=str(state_payload.get("runtime_lane") or "standard_task"),
-            task_agent_binding_ref=str(state_payload.get("task_agent_binding_ref") or ""),
-            task_template_id=str(state_payload.get("task_template_id") or ""),
-            task_spec_ref=str(state_payload.get("task_spec_ref") or ""),
-            task_result_ref=str(state_payload.get("task_result_ref") or ""),
-            skill_workflow_ref=str(state_payload.get("skill_workflow_ref") or ""),
-            health_issue_ref=str(state_payload.get("health_issue_ref") or ""),
-            transition=state_payload.get("transition", "start"),
-            terminal_reason=state_payload.get("terminal_reason", ""),
-            messages_ref=str(state_payload.get("messages_ref") or ""),
-            context_snapshot_ref=str(state_payload.get("context_snapshot_ref") or ""),
-            memory_state_ref=str(state_payload.get("memory_state_ref") or ""),
-            projection_ref=str(state_payload.get("projection_ref") or ""),
-            prompt_manifest_ref=str(state_payload.get("prompt_manifest_ref") or ""),
-            pending_action_requests=tuple(state_payload.get("pending_action_requests") or ()),
-            pending_approval_state=dict(state_payload.get("pending_approval_state") or {}),
-            denial_tracking_state=dict(state_payload.get("denial_tracking_state") or {}),
-            token_pressure=dict(state_payload.get("token_pressure") or {}),
-            compaction_state=dict(state_payload.get("compaction_state") or {}),
-            result_refs=tuple(state_payload.get("result_refs") or ()),
-            commit_state=dict(state_payload.get("commit_state") or {}),
-            diagnostics=dict(state_payload.get("diagnostics") or {}),
-        )
-        return RuntimeCheckpoint(
+        state = HarnessLoopState.from_dict(dict(payload.get("loop_state") or {}), task_run_id=task_run_id)
+        return HarnessCheckpoint(
             checkpoint_id=str(payload.get("checkpoint_id") or ""),
             task_run_id=str(payload.get("task_run_id") or task_run_id),
             event_offset=int(payload.get("event_offset") or 0),
@@ -187,6 +160,7 @@ class RuntimeCheckpointStore:
             resume_state=dict(payload.get("resume_state") or {}),
             created_at=float(payload.get("created_at") or 0.0),
             checksum=str(payload.get("checksum") or ""),
+            authority=str(payload.get("authority") or "harness.checkpoint"),
         )
 
     def _checkpoint_path(self, task_run_id: str) -> Path:
@@ -273,3 +247,5 @@ def _runtime_objects_summary(
         "running_agent_run_count": sum(1 for item in agent_runs if item.status == "running"),
         "running_coordination_run_count": sum(1 for item in coordination_runs if item.status == "running"),
     }
+
+

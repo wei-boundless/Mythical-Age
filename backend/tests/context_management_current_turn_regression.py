@@ -201,3 +201,5 @@ def test_context_resolver_binds_ordinal_followup_to_previous_bundle_item() -> No
     assert context.resolved_bindings[0].metadata["task_kind"] == "structured_data"
     assert context.bundle_items[0].recipe_id == ""
     assert context.followup_target_refs == ("bundle:2:inventory",)
+
+

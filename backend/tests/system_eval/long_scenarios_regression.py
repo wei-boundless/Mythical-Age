@@ -140,3 +140,5 @@ def test_long_runner_requires_completion_envelope_for_professional_turn() -> Non
     turn = scenarios["professional-iterative-game-delivery"].turns[0]
 
     assert _turn_is_professional_task(turn=turn, inferred={"task_contract": {}}) is True
+
+

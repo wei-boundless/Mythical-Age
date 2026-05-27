@@ -49,3 +49,5 @@ def test_background_task_manager_coalesces_repeated_tasks(tmp_path: Path) -> Non
 
     assert second.task_id == first.task_id
     assert manager.load(first.task_id, first.task_kind) is not None
+
+

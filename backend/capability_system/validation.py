@@ -268,3 +268,5 @@ def _is_high_risk_tool(tool: dict[str, Any]) -> bool:
         or not bool(tool.get("is_read_only", True))
         or tags & {"shell", "destructive", "write", "local_write"}
     )
+
+

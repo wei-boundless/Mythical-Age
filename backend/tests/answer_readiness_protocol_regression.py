@@ -56,3 +56,5 @@ def test_answer_readiness_message_asks_model_to_judge_before_more_tools() -> Non
     assert "请直接收口回答" in message
     assert "不要为了确认已经足够的信息而重复查询同类工具" in message
     assert "现货黄金报价" in message
+
+

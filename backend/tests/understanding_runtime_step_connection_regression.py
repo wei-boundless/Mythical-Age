@@ -277,3 +277,5 @@ def test_role_mode_uses_lightweight_understanding_steps_without_professional_dom
     assert recipe["metadata"]["interaction_mode"] == "role_mode"
     assert ids == ["turn_intake", "context_resolution", "prompt_assembly", "finalization"]
     assert not any(item.startswith("step_execution.") for item in ids)
+
+

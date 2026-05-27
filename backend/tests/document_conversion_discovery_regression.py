@@ -37,3 +37,5 @@ def test_discover_source_files_prefixes_same_name_files_from_distinct_roots(tmp_
         "session_b/summary.md",
     ]
     assert len({item.version_digest for item in records}) == 2
+
+

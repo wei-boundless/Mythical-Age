@@ -84,3 +84,5 @@ def _view_from_decision(decision: ResourceDecision, registry: OperationRegistry,
             "safety_validator_ref": descriptor.safety_validator_ref,
         },
     )
+
+

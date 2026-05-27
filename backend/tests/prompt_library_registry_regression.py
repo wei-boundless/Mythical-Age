@@ -112,3 +112,5 @@ def test_prompt_library_syncs_workflow_prompt_as_stage_role_without_projection_b
     assert resource.node_id == "world_review"
     assert resource.source_ref == "storage/tasks/task_workflows.json#workflow.test.node.world_review.prompt"
     assert "你是一名世界观审核员" in resource.content
+
+

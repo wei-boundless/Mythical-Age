@@ -3,15 +3,15 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from harness.loop.checkpoint_store import HarnessCheckpointStore
+from harness.loop.state import HarnessLoopState
 from runtime.shared.action_request import RuntimeActionRequest
-from runtime.shared.checkpoint import RuntimeCheckpointStore
 from runtime.shared.execution_record import RuntimeExecutionStore
-from runtime.shared.models import RuntimeLoopState
 
 
 def test_runtime_checkpoint_write_retries_windows_permission_error(tmp_path: Path, monkeypatch) -> None:
-    store = RuntimeCheckpointStore(tmp_path)
-    state = RuntimeLoopState(task_run_id="taskrun:checkpoint-lock", status="completed")
+    store = HarnessCheckpointStore(tmp_path)
+    state = HarnessLoopState(task_run_id="taskrun:checkpoint-lock", status="completed")
     original_replace = os.replace
     calls = {"count": 0}
 
@@ -33,8 +33,8 @@ def test_runtime_checkpoint_write_retries_windows_permission_error(tmp_path: Pat
 
 
 def test_runtime_checkpoint_persists_resume_state(tmp_path: Path) -> None:
-    store = RuntimeCheckpointStore(tmp_path)
-    state = RuntimeLoopState(
+    store = HarnessCheckpointStore(tmp_path)
+    state = HarnessLoopState(
         task_run_id="taskrun:checkpoint-resume",
         status="waiting_approval",
         terminal_reason="waiting_approval",
@@ -51,13 +51,13 @@ def test_runtime_checkpoint_persists_resume_state(tmp_path: Path) -> None:
 
 
 def test_runtime_checkpoint_uses_bounded_storage_path_for_long_task_run_id(tmp_path: Path) -> None:
-    store = RuntimeCheckpointStore(tmp_path)
+    store = HarnessCheckpointStore(tmp_path)
     task_run_id = (
         "taskrun:writing-modular-novel-honghuang-20260525-060137-full-brief-domain-names:"
         "taskinst:turn:writing-modular-novel-honghuang-20260525-060137-full-brief-domain-names:"
         "324b00664488:project_brief:project_brief:8f64c4c7"
     )
-    state = RuntimeLoopState(
+    state = HarnessLoopState(
         task_run_id=task_run_id,
         status="running",
         agent_id="agent:writer",
@@ -108,3 +108,5 @@ def test_runtime_execution_store_uses_bounded_storage_path_for_long_task_run_id(
     assert [item.execution_id for item in loaded] == [record.execution_id]
     assert len(filenames) == 1
     assert len(filenames[0]) < 200
+
+

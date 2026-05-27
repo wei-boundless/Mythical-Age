@@ -181,7 +181,6 @@ def _resource_contract_from_runtime_payload(
 ) -> dict[str, Any]:
     ordered_candidates = (
         task_selection.get("resource_contract"),
-        _task_order_projection_selection(task_selection).get("resource_contract"),
         dict(task_selection.get("model_turn_decision") or {}).get("resource_contract"),
         dict(dict(task_contract.get("task_requirement_contract") or {}).get("diagnostics") or {})
         .get("task_goal_spec", {})
@@ -197,22 +196,6 @@ def _resource_contract_from_runtime_payload(
         if isinstance(candidate, dict) and candidate:
             return _sanitize_resource_contract(candidate)
     return {}
-
-
-def _task_order_projection_selection(task_selection: dict[str, Any]) -> dict[str, Any]:
-    projection = dict(task_selection.get("task_order_projection") or {})
-    input_selection = dict(
-        dict(projection.get("input_contract") or {}).get("task_selection_projection")
-        or {}
-    )
-    envelope_selection = dict(
-        dict(
-            dict(projection.get("task_execution_envelope") or {}).get("context_package")
-            or {}
-        ).get("task_selection_projection")
-        or {}
-    )
-    return {**input_selection, **envelope_selection}
 
 
 def _sanitize_resource_contract(candidate: dict[str, Any]) -> dict[str, Any]:
@@ -473,3 +456,5 @@ def _is_sandbox_continuation_message(message: str, *, previous_scope: str) -> bo
     if scope_tail and scope_tail in text:
         return True
     return any(token in text for token in ("game.js", "index.html", "readme", "assets", "产物", "项目", "工程"))
+
+

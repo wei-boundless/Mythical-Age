@@ -357,3 +357,5 @@ class ContractSpec:
             "enabled": self.enabled,
             "metadata": dict(self.metadata),
         }
+
+

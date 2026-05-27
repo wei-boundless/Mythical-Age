@@ -104,3 +104,5 @@ class TaskCommunicationProtocolRepository:
             {"communication_protocols": [item.to_dict() for item in protocols]},
         )
         return targets
+
+

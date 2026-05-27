@@ -629,3 +629,5 @@ class AppSettingsService:
         for alias in ("rerank_mode", "rerank_local_model", "rerank_api_provider", "rerank_api_model", "rerank_api_base_url"):
             normalized.pop(alias, None)
         return normalized
+
+

@@ -161,3 +161,5 @@ def _json_stable(value: Any) -> Any:
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
     return repr(value)
+
+

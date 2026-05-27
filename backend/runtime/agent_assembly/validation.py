@@ -115,3 +115,5 @@ def validate_agent_invocation(invocation: AgentInvocation) -> AssemblyValidation
 
 def _issue(code: str, message: str, *, field_name: str = "", **context: Any) -> AssemblyValidationIssue:
     return AssemblyValidationIssue(code=code, message=message, field_name=field_name, context=dict(context))
+
+

@@ -259,3 +259,5 @@ def _default_search_exclude_args(enabled: bool) -> list[str]:
     for excluded in DEFAULT_SEARCH_EXCLUDED_PATHS:
         args.extend(["--glob", f"!{excluded}/**"])
     return args
+
+

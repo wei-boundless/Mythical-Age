@@ -63,7 +63,7 @@ def prepare_agent_runtime_environment(
                 "task_contract_ref": str(task_contract.get("task_id") or task_id),
             },
         )
-        events.append({"type": "runtime_loop_event", "event": sandbox_event.to_dict()})
+        events.append({"type": "harness_loop_event", "event": sandbox_event.to_dict()})
     if file_management_policy.get("enabled") is True:
         file_management_event = runtime_host.event_log.append(
             task_run_id,
@@ -79,7 +79,7 @@ def prepare_agent_runtime_environment(
                 "file_profile_ref": str(file_management_policy.get("profile_id") or ""),
             },
         )
-        events.append({"type": "runtime_loop_event", "event": file_management_event.to_dict()})
+        events.append({"type": "harness_loop_event", "event": file_management_event.to_dict()})
     search_policy_event = runtime_host.event_log.append(
         task_run_id,
         "search_policy_resolved",
@@ -90,9 +90,11 @@ def prepare_agent_runtime_environment(
             "file_management_policy": file_management_policy,
         },
     )
-    events.append({"type": "runtime_loop_event", "event": search_policy_event.to_dict()})
+    events.append({"type": "harness_loop_event", "event": search_policy_event.to_dict()})
     return RuntimeEnvironmentPreflightResult(
         sandbox_policy=sandbox_policy,
         file_management_policy=file_management_policy,
         events=tuple(events),
     )
+
+

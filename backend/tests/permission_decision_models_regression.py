@@ -71,3 +71,5 @@ def test_permission_receipt_identity_contains_decision_fingerprint() -> None:
     assert identity["approval_fingerprint"] == "approval:write:abc"
     assert identity["risk_level"] == "high"
     assert receipt.metadata["decision_authority"] == "permissions.permission_decision"
+
+

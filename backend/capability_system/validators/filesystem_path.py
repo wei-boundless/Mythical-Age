@@ -68,3 +68,5 @@ def _validate_single_path(raw_path: str, *, workspace_root: Path | None) -> tupl
     except ValueError:
         return False, "filesystem path is outside workspace_root"
     return True, "filesystem path passed workspace validator"
+
+

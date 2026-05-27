@@ -515,3 +515,5 @@ def general_workspace_environment() -> TaskEnvironmentDefinition:
         ),
     )
     return TaskEnvironmentDefinition(record=record, spec=spec)
+
+

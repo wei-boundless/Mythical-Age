@@ -5,10 +5,9 @@ import type {
   RetrievalResult,
   RuntimeMonitorEventPayload,
   SoulImageAssetConfig,
-  TaskOrderProjection,
   TaskGraphMonitorDecision,
   TaskGraphRunMonitorView,
-  RuntimeLoopTaskRunLiveMonitor,
+  HarnessTaskRunLiveMonitor,
   SessionSummary,
   ToolCall,
   WorkspaceContext,
@@ -184,10 +183,6 @@ export type TaskSelectionState = {
   intent_decision?: Record<string, unknown>;
   agent_invocation?: Record<string, unknown>;
   agent_invocation_id?: string;
-  task_order_id?: string;
-  task_order_run_id?: string;
-  execution_channel_id?: string;
-  task_execution_envelope_id?: string;
 };
 
 export type TaskGraphMonitorBinding = {
@@ -234,11 +229,11 @@ export type StoreState = {
   memoryInspectorTarget: MemoryInspectorTarget | null;
   orchestrationSnapshot: OrchestrationSnapshot | null;
   taskGraphMonitorBinding: TaskGraphMonitorBinding | null;
-  taskGraphLiveMonitor: RuntimeLoopTaskRunLiveMonitor | null;
+  taskGraphLiveMonitor: HarnessTaskRunLiveMonitor | null;
   taskGraphRunMonitor: TaskGraphRunMonitorView | null;
   globalRuntimeMonitor: GlobalRuntimeMonitor | null;
   globalRuntimeMonitorSelectedTaskRunId: string;
-  globalRuntimeMonitorSelectedLiveMonitor: RuntimeLoopTaskRunLiveMonitor | null;
+  globalRuntimeMonitorSelectedLiveMonitor: HarnessTaskRunLiveMonitor | null;
   globalRuntimeMonitorSelectedGraphMonitor: TaskGraphRunMonitorView | null;
   globalRuntimeMonitorLoading: boolean;
   globalRuntimeMonitorError: string;
@@ -253,10 +248,6 @@ export type StoreState = {
   taskGraphRunInteractionOpen: boolean;
   orchestrationInspectorTarget: OrchestrationInspectorTarget | null;
   taskSelection: TaskSelectionState | null;
-  taskOrderProjection: TaskOrderProjection | null;
-  selectedTaskOrderId: string;
-  selectedTaskOrderRunId: string;
-  taskOrderProjectionConsumed: boolean;
 };
 
 export type StoreActions = {
@@ -294,7 +285,6 @@ export type StoreActions = {
   resumeTaskGraphRun: (taskGraphRunId: string, payload?: Record<string, unknown>) => Promise<void>;
   resolveRuntimeApproval: (taskRunId: string, decision: "approve" | "reject", message?: string) => Promise<void>;
   setTaskSelection: (selection: TaskSelectionState | null) => void;
-  setTaskOrderProjection: (projection: TaskOrderProjection | null) => void;
   selectGlobalRuntimeMonitorTaskRun: (taskRunId: string) => void;
   refreshGlobalRuntimeMonitor: () => Promise<void>;
 };

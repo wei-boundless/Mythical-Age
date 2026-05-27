@@ -471,3 +471,5 @@ def _contains_any(text: str, markers: tuple[str, ...] | list[str]) -> bool:
 
 def _lower_markers(markers: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(marker.lower() for marker in markers)
+
+

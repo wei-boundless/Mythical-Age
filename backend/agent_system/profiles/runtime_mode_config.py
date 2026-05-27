@@ -162,3 +162,5 @@ def mode_config_catalog(metadata: Any | None = None) -> list[dict[str, Any]]:
     ordered = [mode for mode in RUNTIME_MODE_ORDER if mode in catalog]
     ordered.extend(mode for mode in catalog if mode not in ordered)
     return [catalog[mode].to_dict() for mode in ordered]
+
+

@@ -72,3 +72,5 @@ def _expand_to_symbol_start(lines: list[str], line_index: int, *, fallback: int)
         if re.match(r"^\s*(class|def|async def|function|export\s+(class|function|const|interface)|interface)\b", lines[index]):
             return index
     return fallback
+
+

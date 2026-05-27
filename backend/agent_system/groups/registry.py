@@ -185,3 +185,5 @@ class AgentGroupRegistry:
                 next_groups.append(group)
         if changed:
             _write_json(self.path, {"groups": [item.to_dict() for item in next_groups]})
+
+

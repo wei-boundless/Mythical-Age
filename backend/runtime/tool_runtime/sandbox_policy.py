@@ -26,3 +26,5 @@ def sandbox_policy_from_payload(payload: dict[str, Any] | None) -> SandboxPolicy
         write_scopes=tuple(str(value).strip() for value in list(item.get("write_scopes") or []) if str(value).strip()),
         artifact_root=str(item.get("artifact_root") or "").strip(),
     )
+
+

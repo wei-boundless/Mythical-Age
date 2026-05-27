@@ -148,3 +148,5 @@ class GlobPathsTool(_WorkspacePathMixin, BaseTool):
 
     async def _arun(self, pattern: str, max_results: int = 80, run_manager: AsyncCallbackManagerForToolRun | None = None) -> str:
         return await asyncio.to_thread(self._run, pattern, max_results, None)
+
+

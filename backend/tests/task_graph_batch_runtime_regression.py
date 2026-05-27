@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from runtime.unit_runtime.loop import TaskRunLoop
+from harness import HarnessServiceHost
 from harness.execution.node_protocol.node_execution_request import NodeResultReadyEvent
 from runtime.graph_runtime.batch_runtime import (
     bootstrap_batch_lifecycle_runtime_state,
@@ -158,7 +158,7 @@ def test_batch_runtime_state_repairs_same_batch_before_failing() -> None:
 def test_task_graph_run_injects_batch_range_and_continues_until_batches_done(tmp_path: Path) -> None:
     graph = _batch_graph()
     spec = compile_task_graph_definition_runtime_spec(graph=graph)
-    loop = TaskRunLoop(tmp_path, backend_dir=Path("backend"))
+    loop = HarnessServiceHost(tmp_path, backend_dir=Path("backend"))
     started = loop.start_task_graph_run(session_id="session:test", graph=graph, runtime_spec=spec)
 
     assert started.coordination_run is not None
@@ -208,7 +208,7 @@ def test_parallel_batch_runtime_bootstraps_multiple_ready_batches_and_execution_
     assert state["execution_mode_by_plan"]
     assert set(state["ready_batch_ids"]) == {"item_1_2", "item_3_4", "item_5_6"}
 
-    loop = TaskRunLoop(tmp_path, backend_dir=Path("backend"))
+    loop = HarnessServiceHost(tmp_path, backend_dir=Path("backend"))
     started = loop.start_task_graph_run(session_id="session:test", graph=graph, runtime_spec=spec)
 
     first_request = started.loop_state.diagnostics["stage_execution_request"]
@@ -243,7 +243,7 @@ def test_parallel_batch_runtime_bootstraps_multiple_ready_batches_and_execution_
 def test_langgraph_runtime_dispatches_ready_parallel_batch_requests(tmp_path: Path) -> None:
     graph = _parallel_batch_graph()
     spec = compile_task_graph_definition_runtime_spec(graph=graph)
-    loop = TaskRunLoop(tmp_path, backend_dir=Path("backend"))
+    loop = HarnessServiceHost(tmp_path, backend_dir=Path("backend"))
     started = loop.start_task_graph_run(session_id="session:test", graph=graph, runtime_spec=spec)
     assert started.coordination_run is not None
 
@@ -454,7 +454,7 @@ def test_batch_runtime_rewind_resets_failed_batches_to_dispatchable_work() -> No
 def test_coordination_rewind_resets_failed_batch_and_creates_new_request(tmp_path: Path) -> None:
     graph = _batch_graph()
     spec = compile_task_graph_definition_runtime_spec(graph=graph)
-    loop = TaskRunLoop(tmp_path, backend_dir=Path("backend"))
+    loop = HarnessServiceHost(tmp_path, backend_dir=Path("backend"))
     started = loop.start_task_graph_run(session_id="session:test", graph=graph, runtime_spec=spec)
     assert started.coordination_run is not None
     coordination_run = started.coordination_run
@@ -509,7 +509,7 @@ def test_coordination_rewind_resets_failed_batch_and_creates_new_request(tmp_pat
 def test_coordination_executor_failure_requeues_batch_without_business_repair(tmp_path: Path) -> None:
     graph = _batch_graph()
     spec = compile_task_graph_definition_runtime_spec(graph=graph)
-    loop = TaskRunLoop(tmp_path, backend_dir=Path("backend"))
+    loop = HarnessServiceHost(tmp_path, backend_dir=Path("backend"))
     started = loop.start_task_graph_run(session_id="session:test", graph=graph, runtime_spec=spec)
     assert started.coordination_run is not None
     coordination_run = started.coordination_run
@@ -554,7 +554,7 @@ def test_coordination_executor_failure_requeues_batch_without_business_repair(tm
 def test_coordination_technical_failure_circuit_breaks_to_blocked_checkpoint(tmp_path: Path) -> None:
     graph = _batch_graph()
     spec = compile_task_graph_definition_runtime_spec(graph=graph)
-    loop = TaskRunLoop(tmp_path, backend_dir=Path("backend"))
+    loop = HarnessServiceHost(tmp_path, backend_dir=Path("backend"))
     started = loop.start_task_graph_run(session_id="session:test", graph=graph, runtime_spec=spec)
     assert started.coordination_run is not None
     coordination_run = started.coordination_run
@@ -598,3 +598,5 @@ def test_coordination_technical_failure_circuit_breaks_to_blocked_checkpoint(tmp
     assert batch["status"] == "technical_blocked"
     assert batch["repair_round"] == 0
     assert batch_state["failed_batch_ids"] == []
+
+

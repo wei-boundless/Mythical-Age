@@ -366,3 +366,5 @@ def test_direct_invocation_does_not_export_graph_continuation_stage() -> None:
     assert invocation["work_order"]["work_kind"] == "direct"
     assert "continuation_stage_id" not in invocation["model_context"]
     assert "continuation_stage_id" not in invocation["task_selection"]
+
+

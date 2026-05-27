@@ -74,8 +74,8 @@ class TaskGraphRunStartRequest(BaseModel):
     execute_initial_stage: bool = True
 
 
-@router.post("/orchestration/runtime-loop/task-graphs/{graph_id}/start")
-async def start_task_graph_runtime_loop_run(
+@router.post("/orchestration/harness/task-graphs/{graph_id}/start")
+async def start_task_graph_harness_run(
     graph_id: str,
     payload: TaskGraphRunStartRequest,
 ) -> dict[str, Any]:
@@ -116,7 +116,7 @@ async def start_task_graph_runtime_loop_run(
         runtime_spec=runtime_spec,
         initial_inputs=dict(payload.initial_inputs or {}),
         diagnostics={
-            "source": "runtime.task_graph_start_api",
+            "source": "harness.task_graph_start_api",
             "require_published": payload.require_published,
         },
     )
@@ -132,7 +132,7 @@ async def start_task_graph_runtime_loop_run(
             initial_stage_execution_schedule = _schedule_stage_execution_background(
                 runtime=runtime,
                 session_id=session_id,
-                source="runtime.task_graph_start_api",
+                source="harness.task_graph_start_api",
                 stage_execution_request=request,
                 node_work_order=node_work_order,
                 current_turn_context={
@@ -205,7 +205,7 @@ async def dispatch_coordination_ready_batches(
         checkpoint_reason="dispatch_ready_batches_api",
     )
     if result.diagnostics.get("reason") == "missing_checkpoint":
-        raise HTTPException(status_code=409, detail="CoordinationRun has no LangGraph checkpoint")
+        raise HTTPException(status_code=409, detail="CoordinationRun has no graph coordination checkpoint")
     requests = [dict(item) for item in list(result.diagnostics.get("stage_execution_requests") or []) if isinstance(item, dict)]
     schedule_results: list[dict[str, Any]] = []
     if payload.execute_background:
@@ -260,7 +260,7 @@ async def resume_coordination_run(
     if result.diagnostics.get("reason") == "missing_coordination_run":
         raise HTTPException(status_code=404, detail="CoordinationRun not found")
     if result.diagnostics.get("reason") == "missing_checkpoint":
-        raise HTTPException(status_code=409, detail="CoordinationRun has no LangGraph checkpoint")
+        raise HTTPException(status_code=409, detail="CoordinationRun has no graph coordination checkpoint")
     return {
         "authority": "orchestration.coordination_run_resume",
         "coordination_run_id": coordination_run_id,
@@ -292,7 +292,7 @@ async def continue_coordination_current_stage(
         raise HTTPException(status_code=404, detail="CoordinationRun not found")
     state = graph_harness.get_checkpoint_state(coordination_run_id)
     if not state:
-        raise HTTPException(status_code=409, detail="CoordinationRun has no LangGraph checkpoint")
+        raise HTTPException(status_code=409, detail="CoordinationRun has no graph coordination checkpoint")
     task_run = graph_harness.get_task_run(coordination_run.task_run_id)
     session_id = str(getattr(task_run, "session_id", "") or "").strip()
     if not session_id:
@@ -608,7 +608,7 @@ async def rewind_coordination_run_from_stage(
         raise HTTPException(status_code=404, detail="CoordinationRun not found")
     previous_state = graph_harness.get_checkpoint_state(coordination_run_id)
     if not previous_state:
-        raise HTTPException(status_code=409, detail="CoordinationRun has no LangGraph checkpoint")
+        raise HTTPException(status_code=409, detail="CoordinationRun has no graph coordination checkpoint")
 
     stage_id = payload.stage_id.strip()
     invalidated_stage_ids = _coordination_downstream_stage_ids(
@@ -655,7 +655,7 @@ async def rewind_coordination_run_from_stage(
     if result.diagnostics.get("reason") == "missing_coordination_run":
         raise HTTPException(status_code=404, detail="CoordinationRun not found")
     if result.diagnostics.get("reason") == "missing_checkpoint":
-        raise HTTPException(status_code=409, detail="CoordinationRun has no LangGraph checkpoint")
+        raise HTTPException(status_code=409, detail="CoordinationRun has no graph coordination checkpoint")
     if result.diagnostics.get("reason") == "stage_not_in_order":
         raise HTTPException(status_code=409, detail="Stage is not part of this CoordinationRun")
 
@@ -711,4 +711,6 @@ async def rewind_coordination_run_from_stage(
         "stage_execution_schedule": schedule_result,
         "diagnostics": dict(result.diagnostics),
     }
+
+
 

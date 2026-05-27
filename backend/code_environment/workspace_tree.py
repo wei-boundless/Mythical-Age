@@ -296,3 +296,5 @@ def _relative_path(path: Path, root: Path) -> str:
     if path == root:
         return ""
     return path.relative_to(root).as_posix()
+
+

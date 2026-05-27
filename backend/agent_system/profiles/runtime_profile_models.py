@@ -49,3 +49,5 @@ class AgentRuntimeProfile:
         payload["runtime_template_id"] = self.runtime_template_id
         payload["runtime_mode_catalog"] = mode_config_catalog()
         return payload
+
+

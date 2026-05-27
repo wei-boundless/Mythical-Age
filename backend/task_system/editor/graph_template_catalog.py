@@ -348,3 +348,5 @@ def build_task_graph_template_catalog() -> dict[str, Any]:
             "foundation_layers": ["structure", "roles", "memory", "artifacts", "validation"],
         },
     }
+
+

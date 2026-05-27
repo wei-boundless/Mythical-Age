@@ -185,3 +185,5 @@ class RAGIndexRegistry:
             parser_backend=str(getattr(hit, "parser_backend", "") or ""),
             quality_flags=tuple(getattr(hit, "quality_flags", ()) or ()),
         )
+
+

@@ -25,7 +25,6 @@ class ChatRequest(BaseModel):
     explicit_subtasks: list[dict[str, Any]] = Field(default_factory=list)
     search_policy: list[str] | None = None
     task_selection: dict[str, Any] = Field(default_factory=dict)
-    task_order_intent: dict[str, Any] = Field(default_factory=dict)
     model_selection: dict[str, Any] = Field(default_factory=dict)
     image_generation: dict[str, Any] = Field(default_factory=dict)
 
@@ -55,7 +54,6 @@ async def chat(payload: ChatRequest):
         explicit_subtasks=list(payload.explicit_subtasks or []),
         search_policy=list(payload.search_policy) if payload.search_policy is not None else None,
         task_selection=dict(payload.task_selection or {}),
-        task_order_intent=dict(payload.task_order_intent or {}),
         model_selection=dict(payload.model_selection or {}),
         image_generation=dict(payload.image_generation or {}),
     )
@@ -117,3 +115,5 @@ async def chat(payload: ChatRequest):
         },
         status_code=500,
     )
+
+

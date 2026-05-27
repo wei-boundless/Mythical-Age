@@ -174,3 +174,5 @@ def _general_profile_from_dict(item: dict[str, object]) -> GeneralTaskProfile:
         enabled=bool(item.get("enabled", True)),
         metadata=dict(item.get("metadata") or {}),
     )
+
+

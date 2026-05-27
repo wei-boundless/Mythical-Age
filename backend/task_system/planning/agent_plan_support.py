@@ -490,3 +490,5 @@ def _with_plan_diagnostics(plan: AgentPlanDraft, extra: dict[str, Any]) -> Agent
         limitations=plan.limitations,
         diagnostics={**dict(plan.diagnostics or {}), **dict(extra or {})},
     )
+
+

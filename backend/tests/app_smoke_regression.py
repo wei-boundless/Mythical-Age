@@ -260,3 +260,5 @@ def test_removed_agent_control_plane_routes_stay_absent() -> None:
     with TestClient(app) as client:
         response = client.get("/api/agents/catalog")
         assert response.status_code == 404
+
+

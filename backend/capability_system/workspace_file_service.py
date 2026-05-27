@@ -199,3 +199,5 @@ def _glob_matches(relative_path: str, pattern: str) -> bool:
     if "/**/" in pattern:
         variants.add(pattern.replace("/**/", "/"))
     return any(fnmatch.fnmatch(relative_path, variant) for variant in variants)
+
+

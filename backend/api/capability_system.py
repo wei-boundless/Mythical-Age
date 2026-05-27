@@ -346,3 +346,5 @@ async def update_capability_tool(tool_name: str, payload: ToolMetadataRequest) -
     }
     _save_capability_config(config)
     return build_capability_catalog_payload()
+
+

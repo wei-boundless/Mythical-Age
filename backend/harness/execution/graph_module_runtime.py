@@ -182,3 +182,5 @@ def _first_non_empty(*values: Any) -> str:
 def _short_hash(value: Any) -> str:
     text = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str, separators=(",", ":"))
     return hashlib.sha1(text.encode("utf-8")).hexdigest()[:16]
+
+

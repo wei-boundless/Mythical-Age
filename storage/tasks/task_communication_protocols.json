@@ -62,7 +62,8 @@
       "enabled": true,
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
-        "domain_id": "domain.writing.modular_novel"
+        "domain_id": "domain.writing.modular_novel",
+        "environment_id": "env.writing"
       },
       "authority": "task_system.task_communication_protocol"
     }

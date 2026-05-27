@@ -718,3 +718,5 @@ class GraphModuleResultEnvelope:
         payload["diagnostics"] = dict(self.diagnostics)
         payload["metadata"] = dict(self.metadata)
         return payload
+
+

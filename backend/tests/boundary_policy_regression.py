@@ -76,3 +76,5 @@ def test_action_permit_honors_model_turn_structured_write_forbid() -> None:
     assert "write_file" in boundary["forbidden_actions"]
     assert permit["allowed"] is False
     assert permit["denied_reasons"] == ["write_forbidden_by_model_turn_decision"]
+
+

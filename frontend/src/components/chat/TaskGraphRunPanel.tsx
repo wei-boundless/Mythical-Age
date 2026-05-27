@@ -17,7 +17,7 @@ import {
   hasTaskGraphLiveRun,
   taskGraphRunIdFromLiveMonitor,
   taskGraphRunFromLiveMonitor,
-  type RuntimeLoopTaskRunLiveMonitor,
+  type HarnessTaskRunLiveMonitor,
 } from "@/lib/api";
 
 type CoordinationNode = CoordinationTopologyNode & {
@@ -456,11 +456,11 @@ function buildContractRuntimeFromLiveState(
   };
 }
 
-function buildModelFromLiveMonitor(liveMonitor: RuntimeLoopTaskRunLiveMonitor): CoordinationModel {
+function buildModelFromLiveMonitor(liveMonitor: HarnessTaskRunLiveMonitor): CoordinationModel {
   const coordinationRun = asRecord(taskGraphRunFromLiveMonitor(liveMonitor));
   const coordinationSummary = asRecord(coordinationRun.coordination_run);
   const flowState = asRecord(coordinationRun.coordination_flow);
-  const runtimeState = asRecord(coordinationRun.langgraph_runtime_state);
+  const runtimeState = asRecord(coordinationRun.graph_coordination_state);
   const graphSpec = asRecord(coordinationRun.coordination_graph_spec);
   const rawNodes = asArray(graphSpec.nodes).map((item) => asRecord(item));
   const rawEdges = asArray(graphSpec.edges).map((item) => asRecord(item));
@@ -680,7 +680,7 @@ export function TaskGraphRunPanel({
   liveMonitor,
   onResumeTaskGraphRun,
 }: {
-  liveMonitor?: RuntimeLoopTaskRunLiveMonitor | null;
+  liveMonitor?: HarnessTaskRunLiveMonitor | null;
   onResumeTaskGraphRun?: (taskGraphRunId: string, payload?: Record<string, unknown>) => Promise<void>;
 }) {
   const model = useMemo(

@@ -84,3 +84,5 @@ def test_pdf_parser_chooses_better_local_page_text(tmp_path: Path) -> None:
     parser._count_pages_with_pdfplumber = lambda _path: 1  # type: ignore[method-assign]
 
     assert parser.extract_pages(pdf_path) == [(1, "这是更完整的正文，包含模型治理和应用治理。")]
+
+

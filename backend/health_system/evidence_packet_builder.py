@@ -73,3 +73,5 @@ def _count_items(values: list[str]) -> dict[str, int]:
             continue
         counts[value] = counts.get(value, 0) + 1
     return dict(sorted(counts.items()))
+
+

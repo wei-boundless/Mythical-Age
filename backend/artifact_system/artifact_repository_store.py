@@ -386,3 +386,5 @@ def _ensure_columns(conn: sqlite3.Connection, table_name: str, columns: dict[str
         if column_name in existing:
             continue
         conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_spec}")
+
+

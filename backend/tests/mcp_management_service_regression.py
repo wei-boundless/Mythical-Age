@@ -88,3 +88,5 @@ def test_local_mcp_permission_preview_fails_closed_without_resource_policy() -> 
     assert preview["authorized"] is False
     assert preview["operation_id"] == "op.mcp_pdf"
     assert preview["gate"]["pipeline_stage"] == "adopted_resource_policy_exists"
+
+

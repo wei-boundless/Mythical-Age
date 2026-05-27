@@ -63,3 +63,5 @@ def get_health_issue_by_id(base_dir: Path, issue_id: str) -> HealthIssue | None:
             metadata=dict(payload.get("metadata") or {}),
         )
     return None
+
+

@@ -284,3 +284,5 @@ class RAGQueryRouter:
             score += 0.02
 
         entry["score"] = score
+
+

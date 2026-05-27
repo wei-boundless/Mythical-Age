@@ -277,3 +277,5 @@ class WebSearchTool(BaseTool):
             max_results,
             None,
         )
+
+

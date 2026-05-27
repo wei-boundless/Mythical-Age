@@ -30,33 +30,20 @@ function item(patch: Partial<GlobalRuntimeMonitorItem>): GlobalRuntimeMonitorIte
 }
 
 describe("runtimeWorkProjection", () => {
-  it("shows task order runs as first-class runtime work", () => {
+  it("shows task graph runs as first-class runtime work", () => {
     const monitorItem = item({
-      task_order_projection: {
-        authority: "task_system.task_order_projection",
-        task_order: {
-          order_id: "order:1",
-          order_kind: "specific_task",
-          objective: "实现五关 roguelike",
-        },
-        task_order_run: {
-          run_id: "orderrun:1",
-          task_run_id: "taskrun:1",
-          status: "running",
-        },
-        execution_channel: {
-          channel_id: "execchan:1",
-        },
-      },
+      has_coordination: true,
+      graph_id: "graph:main",
+      title: "实现五关 roguelike",
     });
 
     const projection = runtimeWorkProjectionFromMonitorItem(monitorItem);
 
     expect(projection).toMatchObject({
-      workKind: "task_order_run",
-      workId: "orderrun:1",
+      workKind: "task_graph_run",
+      workId: "taskrun:1",
       primaryRunId: "taskrun:1",
-      displayTypeLabel: "任务订单",
+      displayTypeLabel: "任务图",
       title: "实现五关 roguelike",
     });
   });
@@ -90,7 +77,6 @@ describe("runtimeWorkProjection", () => {
       loop_state: {},
       agent_runtime_phase_summary: null,
       latest_checkpoint: null,
-      task_order_projection: null,
       updated_at: 1,
     })).toBeNull();
   });

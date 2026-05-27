@@ -28,8 +28,6 @@ export function ChatPanel() {
     searchPolicy,
     toggleSearchPolicySource,
     taskSelection,
-    taskOrderProjection,
-    taskOrderProjectionConsumed,
   } = useAppStore();
   const endRef = useRef<HTMLDivElement | null>(null);
   const currentSessionStreaming = Boolean(currentSessionId && activeStreamSessionIds.includes(currentSessionId));
@@ -98,7 +96,6 @@ export function ChatPanel() {
           deepSeekThinkingEnabled={deepSeekThinkingEnabled}
           onToggleDeepSeekThinking={setDeepSeekThinkingEnabled}
           taskSelection={taskSelection?.mode === "coordination" ? null : taskSelection}
-          taskOrderProjection={taskOrderProjectionConsumed ? null : taskOrderProjection}
         />
       </div>
     </section>

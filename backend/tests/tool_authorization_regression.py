@@ -15,8 +15,9 @@ from runtime.shared.context_manager import RuntimeContextManager
 from runtime.shared.event_log import RuntimeEventLog
 from runtime.shared.action_request import build_tool_result_observation
 from runtime.shared.execution_record import OperationExecutionRecord, RuntimeExecutionStore, build_execution_receipt
-from runtime.shared.models import RuntimeLoopState, TaskRun
-from runtime.unit_runtime.loop import TaskRunLoop
+from harness.loop.state import HarnessLoopState
+from runtime.shared.models import TaskRun
+from harness import HarnessServiceHost
 from capability_system.tool_authorization import build_authorized_tool_set, build_tool_authorization_index, resolve_tool_operation_id
 from capability_system.tool_definitions import build_tool_instances, get_tool_definitions
 
@@ -139,7 +140,7 @@ def test_authorized_tool_set_filters_by_explicit_operation_and_main_runtime_visi
     assert any(item["tool_name"] == "terminal" and item["reason"] == "not_main_runtime_visible" for item in authorized.filtered_out)
 
 
-def test_task_run_loop_tool_filter_uses_tool_definition_operation_id() -> None:
+def test_harness_service_host_tool_filter_uses_tool_definition_operation_id() -> None:
     instances = build_tool_instances(Path.cwd())
     index = build_tool_authorization_index(get_tool_definitions())
     registry = build_default_operation_registry()
@@ -162,7 +163,7 @@ def test_task_run_loop_tool_filter_uses_tool_definition_operation_id() -> None:
     assert visible == []
 
 
-def test_task_run_loop_tool_filter_uses_execution_permit_as_task_authority() -> None:
+def test_harness_service_host_tool_filter_uses_execution_permit_as_task_authority() -> None:
     instances = build_tool_instances(Path.cwd())
     index = build_tool_authorization_index(get_tool_definitions())
     registry = build_default_operation_registry()
@@ -256,8 +257,8 @@ def test_permit_explicit_visible_hidden_tool_can_be_model_visible() -> None:
     assert names == {"terminal"}
 
 
-def test_task_run_loop_reads_permission_mode_from_provider(tmp_path: Path) -> None:
-    loop = TaskRunLoop(tmp_path / "runtime-loop", permission_mode_provider=lambda: "headless")
+def test_harness_service_host_reads_permission_mode_from_provider(tmp_path: Path) -> None:
+    loop = HarnessServiceHost(tmp_path / "runtime-loop", permission_mode_provider=lambda: "headless")
 
     assert loop._current_permission_mode() == "headless"
 
@@ -502,8 +503,8 @@ def test_search_policy_blocked_tool_call_gets_tool_result(tmp_path: Path) -> Non
     assert observation_payload["result_envelope"]["status"] == "error"
 
 
-def test_task_run_loop_records_waiting_approval_checkpoint(tmp_path: Path) -> None:
-    loop = TaskRunLoop(tmp_path / "runtime-approval")
+def test_harness_service_host_records_waiting_approval_checkpoint(tmp_path: Path) -> None:
+    loop = HarnessServiceHost(tmp_path / "runtime-approval")
     task_run = TaskRun(
         task_run_id="taskrun:approval-wait",
         session_id="session-approval",
@@ -525,7 +526,7 @@ def test_task_run_loop_records_waiting_approval_checkpoint(tmp_path: Path) -> No
             "tool_name": "write_file",
             "tool_args": {"path": "docs/a.md", "content": "hello"},
         },
-        current_state=RuntimeLoopState(task_run_id=task_run.task_run_id, status="running"),
+        current_state=HarnessLoopState(task_run_id=task_run.task_run_id, status="running"),
         current_task_run=task_run,
     )
     stored = loop.state_index.get_task_run(task_run.task_run_id)
@@ -542,8 +543,8 @@ def test_task_run_loop_records_waiting_approval_checkpoint(tmp_path: Path) -> No
     assert checkpoint.loop_state.pending_approval_state["operation_id"] == "op.write_file"
 
 
-def test_task_run_loop_rejects_pending_approval_without_executing_tool(tmp_path: Path) -> None:
-    loop = TaskRunLoop(tmp_path / "runtime-approval-reject")
+def test_harness_service_host_rejects_pending_approval_without_executing_tool(tmp_path: Path) -> None:
+    loop = HarnessServiceHost(tmp_path / "runtime-approval-reject")
     task_run = TaskRun(
         task_run_id="taskrun:approval-reject",
         session_id="session-approval",
@@ -581,7 +582,7 @@ def test_task_run_loop_rejects_pending_approval_without_executing_tool(tmp_path:
                 "runtime_executable": True,
             },
         },
-        current_state=RuntimeLoopState(task_run_id=task_run.task_run_id, status="running"),
+        current_state=HarnessLoopState(task_run_id=task_run.task_run_id, status="running"),
         current_task_run=task_run,
     )
 
@@ -606,8 +607,8 @@ def test_task_run_loop_rejects_pending_approval_without_executing_tool(tmp_path:
     assert loop.execution_store.list_task_run_records(task_run.task_run_id) == []
 
 
-def test_task_run_loop_approves_pending_approval_with_bound_token_and_gate(tmp_path: Path) -> None:
-    loop = TaskRunLoop(tmp_path / "runtime-approval-approve")
+def test_harness_service_host_approves_pending_approval_with_bound_token_and_gate(tmp_path: Path) -> None:
+    loop = HarnessServiceHost(tmp_path / "runtime-approval-approve")
     task_run = TaskRun(
         task_run_id="taskrun:approval-approve",
         session_id="session-approval",
@@ -645,7 +646,7 @@ def test_task_run_loop_approves_pending_approval_with_bound_token_and_gate(tmp_p
                 "runtime_executable": True,
             },
         },
-        current_state=RuntimeLoopState(task_run_id=task_run.task_run_id, status="running"),
+        current_state=HarnessLoopState(task_run_id=task_run.task_run_id, status="running"),
         current_task_run=task_run,
     )
 
@@ -695,3 +696,5 @@ def test_task_run_loop_approves_pending_approval_with_bound_token_and_gate(tmp_p
     token = checkpoint.loop_state.pending_approval_state["approval_token"]
     assert token["operation_id"] == "op.write_file"
     assert token["directive_ref"] == "runtime-directive:approval:write"
+
+

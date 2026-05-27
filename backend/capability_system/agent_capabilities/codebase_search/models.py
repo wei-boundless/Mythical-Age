@@ -133,3 +133,5 @@ def _clamp_int(value: Any, minimum: int, maximum: int, fallback: int) -> int:
     except (TypeError, ValueError):
         parsed = int(fallback)
     return max(minimum, min(maximum, parsed))
+
+

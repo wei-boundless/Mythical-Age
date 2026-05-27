@@ -93,3 +93,5 @@ def test_soul_work_log_does_not_guess_unmapped_projection(tmp_path: Path) -> Non
     view = SoulActivityService(base_dir).work_log("hebo").to_dict()
 
     assert view["event_count"] == 0
+
+

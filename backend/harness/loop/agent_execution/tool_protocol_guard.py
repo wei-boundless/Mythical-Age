@@ -87,3 +87,5 @@ def tool_result_event_count_for_action_request(events: list[Any], action_request
         if str(getattr(event, "event_type", "") or "") == "tool_result_received"
         and str(dict(getattr(event, "refs", {}) or {}).get("action_request_ref") or "") == target
     )
+
+

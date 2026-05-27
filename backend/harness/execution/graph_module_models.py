@@ -37,3 +37,5 @@ class GraphModuleResultPacketCandidate:
         payload["explicit_inputs"] = dict(self.explicit_inputs)
         payload["event"] = dict(self.event)
         return payload
+
+

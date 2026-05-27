@@ -80,3 +80,5 @@ def test_backend_coalesce_uses_candidate_graph_metadata() -> None:
 
     assert len(merged) == 1
     assert merged[0].metadata["retrieval_stage"] == "candidate_graph"
+
+

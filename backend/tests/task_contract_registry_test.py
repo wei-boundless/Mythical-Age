@@ -163,3 +163,5 @@ def test_task_system_contract_upsert_returns_http_400_for_invalid_spec(tmp_path:
         tasks_api.require_runtime = original  # type: ignore[assignment]
 
     assert exc.value.status_code == 400
+
+

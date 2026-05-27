@@ -191,3 +191,5 @@ def get_local_mcp_unit_for_capability(capability_kind: str | None) -> LocalMCPUn
 
 def get_local_mcp_unit_for_source_kind(source_kind: str | None) -> LocalMCPUnitRecord | None:
     return build_local_mcp_source_kind_map().get(str(source_kind or "").strip())
+
+

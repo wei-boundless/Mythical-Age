@@ -34,10 +34,21 @@ def test_legacy_runtime_control_packages_are_removed() -> None:
         "runtime/subruntime",
         "runtime/search_agent_runtime",
         "runtime/codebase_search_runtime",
+        "runtime/unit_runtime",
+        "runtime/execution",
+        "runtime/execution_engine",
+        "runtime/execution_permit",
+        "runtime/coordination_runtime",
     ]
 
     assert [path for path in removed_paths if (BACKEND_DIR / path).exists()] == []
 
 
+def test_legacy_runtime_loop_api_module_is_removed() -> None:
+    assert not (BACKEND_DIR / "api" / "orchestration_runtime_loop.py").exists()
+
+
 def test_test_support_does_not_reuse_core_harness_module_name() -> None:
     assert not (BACKEND_DIR / "tests" / "harness").exists()
+
+

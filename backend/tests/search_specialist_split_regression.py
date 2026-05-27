@@ -232,3 +232,5 @@ def test_web_research_agent_blocks_non_web_source_by_permission() -> None:
     assert payload["status"] == "failed"
     assert "deepsearch_required_operation_missing" in payload["limitations"]
     assert "op.search_files" in payload["limitations"]
+
+

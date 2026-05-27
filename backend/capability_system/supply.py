@@ -200,3 +200,5 @@ def _normalize_operation_scope(
         if value:
             normalized.add(value)
     return normalized
+
+

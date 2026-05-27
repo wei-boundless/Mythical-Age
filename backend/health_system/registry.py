@@ -750,3 +750,5 @@ def _build_health_runtime_user_message(
 def _safe_health_runtime_id(value: str) -> str:
     safe = "".join(char if char.isalnum() or char in {"-", "_", "."} else "-" for char in str(value or "").strip())
     return safe.strip("-") or f"health-agent-session-{int(time.time() * 1000)}"
+
+

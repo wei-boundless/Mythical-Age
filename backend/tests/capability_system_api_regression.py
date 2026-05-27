@@ -407,3 +407,5 @@ def test_resource_policy_candidate_api_is_read_only_and_fail_closed() -> None:
     assert decisions["op.edit_file"]["reason"] == "approval unavailable in headless context"
     assert views["op.read_file"]["available_to_model"] is True
     assert views["op.read_file"]["runtime_executable"] is False
+
+

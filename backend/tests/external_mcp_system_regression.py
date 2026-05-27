@@ -103,3 +103,5 @@ def test_external_mcp_api_catalog_and_tool_call() -> None:
             assert payload["status"] in {"ok", "error"}
     finally:
         _clear_external_demo(backend_dir)
+
+

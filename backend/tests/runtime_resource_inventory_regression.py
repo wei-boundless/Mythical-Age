@@ -35,3 +35,5 @@ def test_runtime_resource_inventory_paths_are_resolved_from_backend_layout(tmp_p
     assert str(items["resource.task_graphs"].path).startswith(str(tmp_path))
     assert str(items["resource.orchestration_agents"].path).startswith(str(tmp_path))
     assert str(items["resource.runtime_checkpoint"].path).startswith(str(tmp_path))
+
+

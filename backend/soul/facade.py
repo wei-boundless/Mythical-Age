@@ -48,3 +48,5 @@ class SoulFacade:
 
     def preview_mode(self, **payload: Any) -> dict[str, Any]:
         return self.mode_assembly_service.preview(**payload).to_dict()
+
+

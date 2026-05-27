@@ -473,3 +473,5 @@ def build_reranker(settings: Settings) -> DictReranker:
 
     logger.warning("Unknown rerank provider=%s; falling back to heuristic reranker.", provider)
     return HeuristicReranker()
+
+

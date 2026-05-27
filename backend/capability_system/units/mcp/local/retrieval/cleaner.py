@@ -192,3 +192,5 @@ class ParsedContentCleaner:
     def _looks_like_table_rule(self, line: str) -> bool:
         compact = line.replace(" ", "")
         return bool(re.fullmatch(r"[-|:]+", compact))
+
+

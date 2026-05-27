@@ -12,12 +12,11 @@ from api.memory import router as memory_router
 from api.mcp_system import router as mcp_system_router
 from api.orchestration import router as orchestration_router
 from api.orchestration_catalog import router as orchestration_catalog_router
-from api.orchestration_runtime_loop import router as orchestration_runtime_loop_router
+from api.orchestration_harness import router as orchestration_harness_router
 from api.capability_system import router as capability_system_router
 from api.sessions import router as sessions_router
 from api.souls import router as souls_router
 from api.task_system import router as task_system_router
-from api.task_orders import router as task_orders_router
 from api.tokens import router as tokens_router
 from api.code_environment import router as code_environment_router
 from bootstrap.lifespan import runtime_lifespan
@@ -49,11 +48,10 @@ app.include_router(mcp_system_router, prefix="/api", tags=["mcp-system"])
 app.include_router(tokens_router, prefix="/api", tags=["tokens"])
 app.include_router(config_router, prefix="/api", tags=["config"])
 app.include_router(task_system_router, prefix="/api", tags=["tasks"])
-app.include_router(task_orders_router, prefix="/api", tags=["task-orders"])
 app.include_router(health_system_router, prefix="/api", tags=["health-system"])
 app.include_router(orchestration_catalog_router, prefix="/api", tags=["orchestration-catalog"])
 app.include_router(orchestration_router, prefix="/api", tags=["orchestration"])
-app.include_router(orchestration_runtime_loop_router, prefix="/api", tags=["orchestration-runtime-loop"])
+app.include_router(orchestration_harness_router, prefix="/api", tags=["orchestration-harness"])
 app.include_router(capability_system_router, prefix="/api", tags=["capability-system"])
 app.include_router(souls_router, prefix="/api", tags=["souls"])
 app.include_router(code_environment_router, prefix="/api", tags=["code-environment"])
@@ -67,3 +65,5 @@ async def invalid_session_id_handler(_: Request, __: InvalidSessionId) -> JSONRe
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+

@@ -1,5 +1,7 @@
-"""Task-system runtime assembly request services."""
+"""Task-system contract issuing services."""
 
-from .builder import TaskRuntimeAssemblyRequestBuilder
+from .contract_issuer import TaskContractIssuer
 
-__all__ = ["TaskRuntimeAssemblyRequestBuilder"]
+__all__ = ["TaskContractIssuer"]
+
+

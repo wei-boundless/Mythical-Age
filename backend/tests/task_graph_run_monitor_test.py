@@ -422,3 +422,5 @@ def test_monitor_exposes_batch_technical_blocker_without_stage_last_error() -> N
     assert view["runtime"]["failure"]["technical_failure_count"] == 3
     assert view["blocker"]["kind"] == "technical_blocked"
     assert view["blocker"]["terminal_reason"] == "technical_blocked"
+
+

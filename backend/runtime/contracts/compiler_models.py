@@ -221,3 +221,5 @@ class ContractManifest:
             "metadata": dict(self.metadata),
             "valid": self.valid,
         }
+
+

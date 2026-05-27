@@ -20,3 +20,5 @@ def infer_quality_flags(
     if parser_backend != "docling":
         flags.append("fallback_parser")
     return tuple(dict.fromkeys(flags))
+
+

@@ -565,3 +565,5 @@ def default_operation_descriptors() -> list[OperationDescriptor]:
 
 def build_default_operation_registry() -> OperationRegistry:
     return OperationRegistry(default_operation_descriptors())
+
+

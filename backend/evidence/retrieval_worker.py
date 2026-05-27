@@ -105,3 +105,5 @@ def _binding_candidates_from_envelope(envelope: EvidenceEnvelope) -> list[Bindin
             )
         )
     return candidates
+
+

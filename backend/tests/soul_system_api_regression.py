@@ -71,3 +71,5 @@ def test_main_agent_defaults_follow_active_soul_without_projection(tmp_path: Pat
     assert main_agent is not None
     assert main_agent.default_soul_id == "siyue"
     assert "default_projection_id" not in main_agent.to_dict()
+
+

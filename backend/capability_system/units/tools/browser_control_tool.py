@@ -240,3 +240,5 @@ class BrowserControlTool(BaseTool):
         if text.strip():
             return page.get_by_text(text.strip(), exact=False).first.inner_text(timeout=3000)[:5000]
         return page.locator("body").inner_text(timeout=3000)[:5000]
+
+

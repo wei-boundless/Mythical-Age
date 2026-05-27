@@ -116,3 +116,5 @@ class PDFCanonicalResult:
             error=str(payload.get("error", "") or ""),
             metadata=dict(payload.get("metadata") or {}),
         )
+
+

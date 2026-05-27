@@ -114,3 +114,5 @@ def build_mcp_tool_catalog(*, include_agent_internal: bool = True) -> dict[str, 
         "server_name": DEFAULT_LOCAL_SERVER_NAME,
         "tools": views,
     }
+
+

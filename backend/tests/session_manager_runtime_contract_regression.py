@@ -72,3 +72,5 @@ def test_session_manager_agent_history_can_include_compressed_context(tmp_path: 
         {"role": "user", "content": "继续"},
     ]
 
+
+

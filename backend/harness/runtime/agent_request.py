@@ -25,7 +25,5 @@ class AgentRunRequest:
     search_policy: list[str] | None = None
     model_selection: dict[str, Any] | None = None
     agent_invocation: dict[str, Any] | None = None
-    task_order_ref: dict[str, Any] | None = None
-    task_order_run_ref: dict[str, Any] | None = None
-    execution_channel_ref: dict[str, Any] | None = None
-    task_execution_envelope_ref: dict[str, Any] | None = None
+
+

@@ -104,7 +104,7 @@ def _node_semantics(node: TaskGraphNodeDefinition) -> NodeRuntimeSemantics:
             "phase_id": str(node.phase_id or "").strip(),
             "sequence_index": int(node.sequence_index or 0),
             "timeline_group_id": str(node.timeline_group_id or "").strip(),
-            "authority": "task_system.lifecycle_coordinate_legacy_projection",
+            "authority": "task_system.graph_node_coordinate",
         },
         evidence=tuple(evidence),
     )
@@ -398,3 +398,5 @@ def _legacy_field_payloads(*, graph: TaskGraphDefinition, diagnostics: list[Runt
             "edge_temporal_semantics_legacy_projection",
         }
     ]
+
+

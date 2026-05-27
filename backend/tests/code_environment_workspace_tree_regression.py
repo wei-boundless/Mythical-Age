@@ -49,3 +49,5 @@ def test_workspace_tree_marks_budget_truncation(tmp_path: Path) -> None:
 
     assert response.total_entries == 20
     assert response.truncated is True
+
+

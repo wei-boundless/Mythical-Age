@@ -117,3 +117,5 @@ class SoulRegistryService:
             raise KeyError(normalized)
         shutil.rmtree(soul_dir)
         return self.build_catalog()
+
+

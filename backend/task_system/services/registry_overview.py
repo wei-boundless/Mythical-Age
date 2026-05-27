@@ -417,3 +417,5 @@ def _removed_template_protocol_matrix() -> dict[str, Any]:
         "template_protocol_removed": True,
         "replacement": "TaskGraph + runtime.recipe",
     }
+
+

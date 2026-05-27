@@ -6,14 +6,14 @@ import { CheckCircle2, MessageSquareShare, PlayCircle, RefreshCw, Save, Send, Tr
 import {
   buildTaskSystemTaskGraphExecutionPackage,
   compileTaskSystemTaskGraphContractManifest,
-  getOrchestrationRuntimeLoopTrace,
+  getOrchestrationHarnessTrace,
   taskGraphRunIdOf,
   taskGraphRunsFromTrace,
   latestTaskGraphRunFromTrace,
   resumeOrchestrationTaskGraphRun,
-  startTaskGraphRuntimeLoopRun,
+  startTaskGraphHarnessRun,
   stopOrchestrationTaskRun,
-  type RuntimeLoopTaskRunTrace,
+  type HarnessTaskRunTrace,
   type TaskGraphRuntimeSpec,
   type TaskGraphStandardView,
   type ContractManifest,
@@ -127,7 +127,7 @@ export function TaskGraphPublishRunPage({
   const [localRuntimeSpecError, setLocalRuntimeSpecError] = useState("");
   const [runtimeSpecLoading, setRuntimeSpecLoading] = useState(false);
   const [taskRunId, setTaskRunId] = useState("");
-  const [runTrace, setRunTrace] = useState<RuntimeLoopTaskRunTrace | null>(null);
+  const [runTrace, setRunTrace] = useState<HarnessTaskRunTrace | null>(null);
   const [runTraceError, setRunTraceError] = useState("");
   const [runTraceLoading, setRunTraceLoading] = useState(false);
   const [runStartLoading, setRunStartLoading] = useState(false);
@@ -203,7 +203,7 @@ export function TaskGraphPublishRunPage({
     setRunTraceLoading(true);
     setRunTraceError("");
     try {
-      setRunTrace(await getOrchestrationRuntimeLoopTrace(taskRunId.trim(), { includePayloads: false, includeModelMessages: false }));
+      setRunTrace(await getOrchestrationHarnessTrace(taskRunId.trim(), { includePayloads: false, includeModelMessages: false }));
     } catch (error) {
       setRunTrace(null);
       setRunTraceError(error instanceof Error ? error.message : "运行追踪读取失败");
@@ -217,7 +217,7 @@ export function TaskGraphPublishRunPage({
     setRunStartLoading(true);
     setRunTraceError("");
     try {
-      const result = await startTaskGraphRuntimeLoopRun(graphId, {
+      const result = await startTaskGraphHarnessRun(graphId, {
         session_id: runSessionId.trim() || "session:task_graph_studio",
         include_trace: true,
         require_published: true,
@@ -498,7 +498,7 @@ export function TaskGraphPublishRunPage({
         ) : (
           <div className={runTraceError ? "task-graph-note task-graph-note--danger" : "task-graph-note"}>
             <strong>{runTraceError ? "运行追踪不可用" : "尚未读取运行追踪"}</strong>
-            <span>{runTraceError || "输入已有 TaskRun ID 后，可以读取真实 runtime-loop trace 和 checkpoint。"}</span>
+            <span>{runTraceError || "输入已有 TaskRun ID 后，可以读取真实 harness trace 和 checkpoint。"}</span>
           </div>
         )}
       </section>

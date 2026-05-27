@@ -656,3 +656,5 @@ def test_worker_agent_blueprints_include_role_templates():
         "worker.verification",
         "worker.execution",
         "worker.review"}.issubset(blueprint_ids)
+
+

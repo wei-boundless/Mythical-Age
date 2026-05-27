@@ -368,3 +368,5 @@ def _directory_satisfied_by_path(directory: str, candidate: str) -> bool:
     if not target or not observed:
         return False
     return observed == target or observed.startswith(target + "/") or observed.endswith("/" + target) or ("/" + target + "/") in ("/" + observed + "/")
+
+

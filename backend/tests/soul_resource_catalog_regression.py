@@ -34,3 +34,5 @@ def test_legacy_soul_catalog_exposes_resource_catalog_without_dropping_old_field
     assert catalog["management"]["resource_catalog_enabled"] is True
     assert "system_contracts" in catalog["management"]["planes"]
     assert "work_prompts" in catalog["management"]["planes"]
+
+

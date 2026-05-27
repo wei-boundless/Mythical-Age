@@ -170,3 +170,5 @@ def test_model_profile_resolver_does_not_let_agent_base_url_override_provider_en
     assert resolved.provider == "openai"
     assert resolved.base_url == "https://api.openai.com/v1"
     assert "agent_runtime_profile.model_profile.base_url" not in public["source_chain"]
+
+

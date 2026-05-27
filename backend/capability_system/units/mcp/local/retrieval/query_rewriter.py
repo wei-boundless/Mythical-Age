@@ -309,3 +309,5 @@ class QueryRewriter:
         if query_type in {"memory", "table", "pdf_page"}:
             return normalized
         return f"{normalized}\nRetrieval hints: {' | '.join(keywords)}"
+
+

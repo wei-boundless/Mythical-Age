@@ -141,3 +141,5 @@ def test_assembler_expands_selected_skill_body_from_canonical_path() -> None:
     assert "skill.image-prompt-design" in contract["skill_detail_section"]
     assert "角色立绘" in contract["skill_detail_section"]
     assert contract["metadata"]["activated_skill_ids"] == ["skill.image-prompt-design"]
+
+

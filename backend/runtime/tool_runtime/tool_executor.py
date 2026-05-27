@@ -597,3 +597,5 @@ def _approval_fingerprint_from_policy(policy: dict[str, Any], *, fallback_policy
     if fallback_policy:
         return _approval_fingerprint_from_policy(dict(fallback_policy or {}))
     return ""
+
+

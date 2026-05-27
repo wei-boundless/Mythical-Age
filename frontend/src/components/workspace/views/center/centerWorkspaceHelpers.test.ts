@@ -16,7 +16,6 @@ describe("center workspace helpers", () => {
         {
           graph_id: "graph.low",
           title: "低优先级图",
-          domain_id: "domain.demo",
           graph_kind: "coordination",
           entry_node_id: "a",
           output_node_id: "b",
@@ -24,11 +23,14 @@ describe("center workspace helpers", () => {
           edges: [],
           publish_state: "published",
           enabled: true,
+          metadata: {
+            task_environment_id: "env.general_workspace",
+            environment_id: "env.general_workspace",
+          },
         },
         {
           graph_id: "graph.recommended",
           title: "推荐图",
-          domain_id: "domain.writing.modular_novel",
           graph_kind: "coordination",
           entry_node_id: "a",
           output_node_id: "b",
@@ -36,6 +38,10 @@ describe("center workspace helpers", () => {
           edges: [],
           publish_state: "published",
           enabled: true,
+          metadata: {
+            task_environment_id: "env.writing",
+            environment_id: "env.writing",
+          },
         },
       ],
     },
@@ -71,5 +77,27 @@ describe("center workspace helpers", () => {
   it("returns sorted graphs for the launch list", () => {
     const graphs = listCenterWorkspaceTaskGraphs(overview);
     expect(graphs[0]?.graph_id).toBe("graph.recommended");
+  });
+
+  it("does not keep graphs without a standard task environment", () => {
+    const graphs = listCenterWorkspaceTaskGraphs({
+      task_graph_management: {
+        task_graphs: [
+          {
+            graph_id: "graph.legacy-domain-only",
+            title: "旧图",
+            domain_id: "domain.writing.modular_novel",
+            graph_kind: "coordination",
+            entry_node_id: "a",
+            output_node_id: "b",
+            nodes: [],
+            edges: [],
+            publish_state: "published",
+            enabled: true,
+          },
+        ],
+      },
+    } as unknown as TaskSystemOverview);
+    expect(graphs).toEqual([]);
   });
 });

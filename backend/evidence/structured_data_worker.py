@@ -309,3 +309,5 @@ def _semantic_hints_from_request(request: MCPRequest) -> dict[str, Any]:
         semantic_hints["subset_filter_column"] = subset_filter_column
         semantic_hints["subset_allowed_values"] = subset_labels
     return semantic_hints
+
+

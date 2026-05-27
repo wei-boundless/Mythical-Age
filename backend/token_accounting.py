@@ -26,3 +26,5 @@ def count_text_tokens(text: str) -> int:
         return len(encoder.encode(value))
     compact = _WHITESPACE_RE.sub(" ", value).strip()
     return max(1, len(compact) // 4) if compact else 0
+
+

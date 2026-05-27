@@ -1,4 +1,3 @@
-import type { TaskOrderProjection } from "./api";
 import type { RuntimeProgressEntry, SessionActivityLevel, UserReceiptArtifact } from "./store/types";
 
 export type RuntimeVisibilityProjection = {
@@ -7,7 +6,6 @@ export type RuntimeVisibilityProjection = {
   activityDetail?: string;
   level?: SessionActivityLevel;
   progressEntry?: RuntimeProgressEntry;
-  taskOrderProjection?: TaskOrderProjection | null;
   terminalEvent?: "done" | "error" | "stopped";
 };
 
@@ -213,20 +211,6 @@ function entry(
     startedAt: options.startedAt,
     completedAt: options.completedAt,
     artifacts: options.artifacts?.slice(0, 6),
-  };
-}
-
-function projectionFromTaskOrderStream(data: Record<string, unknown>): TaskOrderProjection {
-  return {
-    authority: text(data.authority) || "task_system.task_order_creation_projection",
-    projection_kind: text(data.projection_kind),
-    conversation_turn: record(data.conversation_turn),
-    task_intent_decision: record(data.task_intent_decision),
-    task_order: record(data.task_order),
-    task_order_run: record(data.task_order_run),
-    execution_channel: record(data.execution_channel),
-    task_execution_envelope: record(data.task_execution_envelope),
-    task_order_draft: record(data.task_order_draft),
   };
 }
 
@@ -453,7 +437,7 @@ function loopTerminalProjection(eventType: string, payload: Record<string, unkno
   };
 }
 
-export function projectRuntimeLoopEvent(data: Record<string, unknown>): RuntimeVisibilityProjection {
+export function projectHarnessLoopEvent(data: Record<string, unknown>): RuntimeVisibilityProjection {
   const meta = runtimeEvent(data);
   const eventType = meta.eventType;
   const payload = meta.payload;
@@ -541,37 +525,8 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
       }),
     };
   }
-  if (event === "task_order_projection") {
-    const projection = projectionFromTaskOrderStream(data);
-    const order = record(projection.task_order);
-    const run = record(projection.task_order_run);
-    const body = [
-      text(order.objective),
-      text(order.order_kind) ? `类型：${text(order.order_kind)}` : "",
-      text(order.task_id) ? `任务：${text(order.task_id)}` : "",
-      text(run.run_id) ? `运行：${shortId(run.run_id)}` : "",
-    ].filter(Boolean).join("\n");
-    return {
-      stageStatus: "已绑定任务订单",
-      activityTitle: "已绑定任务订单",
-      activityDetail: text(order.objective) || text(run.run_id),
-      level: "running",
-      taskOrderProjection: projection,
-      progressEntry: entry("task_order_projection", "已绑定任务订单", {
-        body,
-        kind: "task_order",
-        statusText: "已绑定",
-        eventId: text(run.run_id) || text(order.order_id),
-        createdAt: numberValue(run.updated_at ?? run.created_at),
-        meta: compactMeta([
-          metaItem("类型", order.order_kind),
-          metaItem("任务", order.task_id, { shorten: true }),
-        ]),
-      }),
-    };
-  }
-  if (event === "runtime_loop_event") {
-    return projectRuntimeLoopEvent(data);
+  if (event === "harness_loop_event") {
+    return projectHarnessLoopEvent(data);
   }
   if (event === "done") {
     const partialTimeout = text(data.completion_state) === "partial_timeout";

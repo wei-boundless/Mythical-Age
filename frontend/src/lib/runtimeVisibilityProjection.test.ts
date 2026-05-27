@@ -3,39 +3,8 @@ import { describe, expect, it } from "vitest";
 import { projectRuntimeStreamEvent } from "./runtimeVisibilityProjection";
 
 describe("runtimeVisibilityProjection", () => {
-  it("projects task order binding as the task flow anchor", () => {
-    const projection = projectRuntimeStreamEvent("task_order_projection", {
-      authority: "task_system.task_order_projection",
-      task_order: {
-        order_id: "order:specific_task:abcdef123456",
-        order_kind: "specific_task",
-        task_id: "task.dev.frontend_ui",
-        objective: "优化会话任务状态展示",
-      },
-      task_order_run: {
-        run_id: "orderrun:abcdef123456",
-        created_at: 10,
-      },
-      execution_channel: {
-        channel_id: "execchan:abcdef123456",
-      },
-      task_execution_envelope: {
-        envelope_id: "taskenv:abcdef123456",
-      },
-    });
-
-    expect(projection.taskOrderProjection?.task_order?.order_id).toBe("order:specific_task:abcdef123456");
-    expect(projection.progressEntry).toMatchObject({
-      kind: "task_order",
-      statusText: "已绑定",
-      title: "已绑定任务订单",
-      level: "running",
-    });
-    expect(projection.progressEntry?.meta?.map((item) => item.label)).toEqual(["类型", "任务"]);
-  });
-
   it("keeps permission gate diagnostics out of the user-visible task flow", () => {
-    const projection = projectRuntimeStreamEvent("runtime_loop_event", {
+    const projection = projectRuntimeStreamEvent("harness_loop_event", {
       event: {
         event_id: "rtevt:gate",
         task_run_id: "taskrun:1",
@@ -57,7 +26,7 @@ describe("runtimeVisibilityProjection", () => {
   });
 
   it("projects runtime loop tool request and result as tool flow entries", () => {
-    const requested = projectRuntimeStreamEvent("runtime_loop_event", {
+    const requested = projectRuntimeStreamEvent("harness_loop_event", {
       event: {
         event_id: "rtevt:tool-request",
         task_run_id: "taskrun:1",
@@ -75,7 +44,7 @@ describe("runtimeVisibilityProjection", () => {
         },
       },
     });
-    const returned = projectRuntimeStreamEvent("runtime_loop_event", {
+    const returned = projectRuntimeStreamEvent("harness_loop_event", {
       event: {
         event_id: "rtevt:tool-result",
         task_run_id: "taskrun:1",
@@ -135,7 +104,7 @@ describe("runtimeVisibilityProjection", () => {
   });
 
   it("projects terminal commands as Codex-style running activity", () => {
-    const projection = projectRuntimeStreamEvent("runtime_loop_event", {
+    const projection = projectRuntimeStreamEvent("harness_loop_event", {
       event: {
         event_id: "rtevt:terminal",
         task_run_id: "taskrun:1",

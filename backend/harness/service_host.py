@@ -31,14 +31,15 @@ from task_system.tasks.run_models import (
     next_pending_step_run,
     step_supports_operation,
 )
-from runtime.shared.checkpoint import RuntimeCheckpointStore
+from harness.loop.checkpoint_store import HarnessCheckpointStore
+from harness.loop.control import HarnessLoopLimits
+from harness.loop.state import HarnessLoopState
 from runtime.shared.context_manager import RuntimeContextManager
 from runtime.shared.execution_record import (
     OperationExecutionRecord,
     RuntimeExecutionStore,
 )
 from runtime.shared.event_log import RuntimeEventLog
-from runtime.shared.loop_control import RuntimeLoopLimits
 from harness.loop.graph_coordination.checkpoint_adapter import GraphCoordinationCheckpointStore
 from runtime.shared.runtime_object_store import RuntimeObjectStore
 from runtime.shared.artifact_paths import (
@@ -88,7 +89,6 @@ from runtime.shared.models import (
     AgentRun,
     CoordinationRun,
     ProjectProgressLedger,
-    RuntimeLoopState,
     TaskRun,
 )
 from harness.loop.task_run_finalizer import (
@@ -125,7 +125,7 @@ class HarnessServiceHost:
         *,
         backend_dir: Path | None = None,
         operation_gate: OperationGate | None = None,
-        limits: RuntimeLoopLimits | None = None,
+        limits: HarnessLoopLimits | None = None,
         evidence_orchestrator: Any | None = None,
         permission_mode_provider: Callable[[], str] | None = None,
     ) -> None:
@@ -135,7 +135,7 @@ class HarnessServiceHost:
         else:
             self.backend_dir = Path(backend_dir)
         self.event_log = RuntimeEventLog(self.root_dir)
-        self.checkpoints = RuntimeCheckpointStore(self.root_dir)
+        self.checkpoints = HarnessCheckpointStore(self.root_dir)
         self.execution_store = RuntimeExecutionStore(self.root_dir)
         from runtime.memory.state_index import RuntimeStateIndex
 
@@ -153,7 +153,7 @@ class HarnessServiceHost:
         self.evidence_orchestrator = evidence_orchestrator
         self.operation_gate = operation_gate or OperationGate(build_default_operation_registry())
         self.permission_mode_provider = permission_mode_provider
-        self.limits = limits or RuntimeLoopLimits()
+        self.limits = limits or HarnessLoopLimits()
         self.tool_authorization_index = self._build_tool_authorization_index()
         self.execution_engine = RuntimeExecutionEngine(
             event_log=self.event_log,
@@ -351,7 +351,7 @@ class HarnessServiceHost:
             )
             final_status = "blocked"
             terminal_reason = "blocked_by_gate"
-        resolved_state = RuntimeLoopState(
+        resolved_state = HarnessLoopState(
             task_run_id=checkpoint.loop_state.task_run_id,
             status=final_status,  # type: ignore[arg-type]
             turn_count=checkpoint.loop_state.turn_count,
@@ -623,7 +623,7 @@ class HarnessServiceHost:
         initial_inputs: dict[str, Any] | None = None,
         diagnostics: dict[str, Any] | None = None,
     ) -> AgentRuntimeStartResult:
-        """Create a durable runtime-loop run from a first-class TaskGraphDefinition."""
+        """Create a durable harness run from a first-class TaskGraphDefinition."""
         source_initial_inputs = dict(initial_inputs or {})
         if not source_initial_inputs:
             restored_initial_inputs = self._restore_task_graph_initial_inputs(
@@ -715,7 +715,7 @@ class HarnessServiceHost:
             return start
         if not self.graph_coordination_engine.supports(start.coordination_run):
             raise RuntimeError(
-                "TaskGraph coordination run is missing LangGraph stage contracts; legacy initialization fallback was removed."
+                "TaskGraph coordination run is missing graph coordination stage contracts; legacy initialization fallback was removed."
             )
         initialized = self.graph_coordination_engine.initialize(
             coordination_run=start.coordination_run,
@@ -732,7 +732,7 @@ class HarnessServiceHost:
             self.state_index.get_coordination_run(start.coordination_run.coordination_run_id)
             or start.coordination_run
         )
-        state = RuntimeLoopState(
+        state = HarnessLoopState(
             **{
                 **start.loop_state.to_dict(),
                 "diagnostics": {
@@ -1052,13 +1052,13 @@ class HarnessServiceHost:
                 )
             )
 
-    def _write_checkpoint_event(self, state: RuntimeLoopState, *, event_offset: int):
+    def _write_checkpoint_event(self, state: HarnessLoopState, *, event_offset: int):
         return write_checkpoint_event(self, state, event_offset=event_offset)
 
     def _apply_tool_result_step_transition(
         self,
         *,
-        state: RuntimeLoopState,
+        state: HarnessLoopState,
         runtime_task_ledger: TaskRunLedger | None,
         result_refs: list[str],
         operation_id: str,
@@ -1067,7 +1067,7 @@ class HarnessServiceHost:
         reason: str,
         diagnostics: dict[str, Any] | None = None,
         emit_entered_step: bool = True,
-    ) -> tuple[RuntimeLoopState, TaskRunLedger | None, list[Any]]:
+    ) -> tuple[HarnessLoopState, TaskRunLedger | None, list[Any]]:
         if runtime_task_ledger is None:
             return state, runtime_task_ledger, []
         current_step = current_task_step_run(runtime_task_ledger)
@@ -1143,12 +1143,12 @@ class HarnessServiceHost:
     def _apply_tool_call_step_transition(
         self,
         *,
-        state: RuntimeLoopState,
+        state: HarnessLoopState,
         runtime_task_ledger: TaskRunLedger | None,
         result_refs: list[str],
         operation_id: str,
         action_request_ref: str,
-    ) -> tuple[RuntimeLoopState, TaskRunLedger | None, list[Any]]:
+    ) -> tuple[HarnessLoopState, TaskRunLedger | None, list[Any]]:
         if runtime_task_ledger is None:
             return state, runtime_task_ledger, []
         current_step = current_task_step_run(runtime_task_ledger)
@@ -1226,7 +1226,7 @@ class HarnessServiceHost:
     def _apply_failed_step_transition(
         self,
         *,
-        state: RuntimeLoopState,
+        state: HarnessLoopState,
         runtime_task_ledger: TaskRunLedger | None,
         reason: str,
         failure_reason: str,
@@ -1239,7 +1239,7 @@ class HarnessServiceHost:
         step_result_ref: str = "",
         executor_ref: str = "",
         allowed_executor_types: set[str] | None = None,
-    ) -> tuple[RuntimeLoopState, TaskRunLedger | None, list[Any]]:
+    ) -> tuple[HarnessLoopState, TaskRunLedger | None, list[Any]]:
         if runtime_task_ledger is None:
             return state, runtime_task_ledger, []
         current_step = current_task_step_run(runtime_task_ledger)
@@ -1308,7 +1308,7 @@ class HarnessServiceHost:
         communication_protocol_payload: dict[str, Any],
         task_graph_payload: dict[str, Any] | None = None,
         task_execution_policy_payload: dict[str, Any] | None = None,
-        effective_limits: RuntimeLoopLimits | None = None,
+        effective_limits: HarnessLoopLimits | None = None,
         task_spec_payload: dict[str, Any] | None = None,
     ) -> tuple[Any, ...]:
         events: list[Any] = []
@@ -1844,7 +1844,7 @@ class HarnessServiceHost:
                 ack_state="pending" if bool(edge.get("ack_required", True) is not False) else "not_required",
                 created_at=time.time(),
                 diagnostics={
-                    "coordination_engine": "graph_coordination_engine",
+                    "coordination_engine": "harness.graph_coordination_engine",
                     "source_node_id": source_node_id,
                     "target_node_id": target_node_id,
                     "edge_id": edge_id,
@@ -1960,18 +1960,18 @@ class HarnessServiceHost:
         *,
         task_run_id: str,
         approval_state: dict[str, Any],
-        current_state: RuntimeLoopState | None = None,
+        current_state: HarnessLoopState | None = None,
         current_task_run: TaskRun | None = None,
         event_offset: int | None = None,
         existing_approval_event: Any | None = None,
-    ) -> tuple[RuntimeLoopState, Any, Any, TaskRun | None]:
+    ) -> tuple[HarnessLoopState, Any, Any, TaskRun | None]:
         base_state = current_state
         if base_state is None:
             checkpoint = self.checkpoints.load_latest(task_run_id)
             base_state = checkpoint.loop_state if checkpoint is not None else None
         if base_state is None:
-            base_state = RuntimeLoopState(task_run_id=task_run_id, status="running")
-        waiting_state = RuntimeLoopState(
+            base_state = HarnessLoopState(task_run_id=task_run_id, status="running")
+        waiting_state = HarnessLoopState(
             task_run_id=base_state.task_run_id,
             status="waiting_approval",
             turn_count=base_state.turn_count,
@@ -2034,7 +2034,7 @@ class HarnessServiceHost:
 
     def _state_with_task_run_ledger(
         self,
-        state: RuntimeLoopState,
+        state: HarnessLoopState,
         ledger: TaskRunLedger | None,
         *,
         transition: str | None = None,
@@ -2044,7 +2044,7 @@ class HarnessServiceHost:
         terminal_reason: str | None = None,
         diagnostics: dict[str, Any] | None = None,
         commit_state: dict[str, Any] | None = None,
-    ) -> RuntimeLoopState:
+    ) -> HarnessLoopState:
         return state_with_task_run_ledger(
             state,
             ledger,
@@ -2248,6 +2248,8 @@ def _runtime_loop_short_hash(value: Any) -> str:
 
     text = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str, separators=(",", ":"))
     return hashlib.sha1(text.encode("utf-8")).hexdigest()[:16]
+
+
 
 
 

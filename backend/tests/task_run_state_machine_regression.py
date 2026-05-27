@@ -174,3 +174,5 @@ def test_failure_marks_running_step_failed() -> None:
     assert finalized.status == "failed"
     assert current_task_step_run(finalized).status == "failed"
     assert transitions and transitions[0]["event_type"] == "step_failed"
+
+

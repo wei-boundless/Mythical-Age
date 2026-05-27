@@ -73,3 +73,5 @@ def test_retrieval_service_includes_evidence_pack_diagnostics() -> None:
     assert pack["evidence_items"][0]["text"] == "表格证据"
     assert pack["evidence_items"][0]["retrieval_reason"] == "candidate_graph:table_window"
     assert pack["trace"]["evidence_count"] == 1
+
+

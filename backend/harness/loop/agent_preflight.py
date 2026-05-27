@@ -12,8 +12,8 @@ from task_system.tasks.run_models import (
 )
 
 from runtime.context_management.system_retrieval import SystemRetrievalStage
-from runtime.shared.loop_control import check_runtime_loop_control
-from runtime.shared.models import RuntimeLoopState
+from harness.loop.control import check_harness_loop_control
+from harness.loop.state import HarnessLoopState
 from harness.runtime.admission_preflight import prepare_agent_runtime_admission
 from harness.runtime.context import (
     agent_invocation_diagnostics,
@@ -25,7 +25,7 @@ from harness.runtime.context import (
 )
 from harness.runtime.context_preflight import prepare_agent_runtime_context
 from harness.runtime.environment_preflight import prepare_agent_runtime_environment
-from harness.runtime.execution_permit import execution_permit_diagnostics
+from harness.runtime.execution_policy import execution_permit_diagnostics
 from .agent_phase_pipeline import append_pre_model_phase_events
 from harness.runtime.runtime_policy import (
     artifact_policy_from_task_execution_assembly,
@@ -82,7 +82,7 @@ class AgentRuntimePreflightInput:
 
 @dataclass(slots=True)
 class AgentRuntimePreflightResult:
-    state: RuntimeLoopState
+    state: HarnessLoopState
     runtime_task_ledger: Any
     result_refs: list[str]
     final_main_context: dict[str, Any]
@@ -132,7 +132,7 @@ async def run_agent_runtime_preflight(
     for environment_event in environment_preflight.events:
         yield environment_event
     yield {
-        "type": "runtime_loop_started",
+        "type": "harness_run_started",
         "task_run": start.task_run.to_dict(),
         "agent_run": start.agent_run.to_dict(),
         "coordination_run": start.coordination_run.to_dict() if start.coordination_run is not None else None,
@@ -140,7 +140,7 @@ async def run_agent_runtime_preflight(
         "events": [dict(event) for event in start.events],
     }
     for event in start.events:
-        yield {"type": "runtime_loop_event", "event": dict(event)}
+        yield {"type": "harness_loop_event", "event": dict(event)}
 
     task_contract_ref = str(item.task_contract.get("task_id") or item.task_id)
     runtime_task_ledger = build_initial_task_run_ledger(
@@ -223,7 +223,7 @@ async def run_agent_runtime_preflight(
             "task_run_ledger_ref": runtime_task_ledger.ledger_id if runtime_task_ledger is not None else "",
         },
     )
-    yield {"type": "runtime_loop_event", "event": task_event.to_dict()}
+    yield {"type": "harness_loop_event", "event": task_event.to_dict()}
     runtime_object_events = runtime_host._sync_runtime_objects_after_task_contract(
         start_result=start,
         event_offset=task_event.offset,
@@ -237,14 +237,14 @@ async def run_agent_runtime_preflight(
         task_spec_payload=item.task_spec_payload,
     )
     for runtime_event in runtime_object_events:
-        yield {"type": "runtime_loop_event", "event": runtime_event.to_dict()}
+        yield {"type": "harness_loop_event", "event": runtime_event.to_dict()}
     latest_streamed_offset = max(
         [task_event.offset, *[int(getattr(event, "offset", -1)) for event in runtime_object_events]],
         default=task_event.offset,
     )
     for logged_event in runtime_host.event_log.list_events(state.task_run_id):
         if logged_event.offset > latest_streamed_offset:
-            yield {"type": "runtime_loop_event", "event": logged_event.to_dict()}
+            yield {"type": "harness_loop_event", "event": logged_event.to_dict()}
             latest_streamed_offset = max(latest_streamed_offset, logged_event.offset)
 
     current_worker_spawn_results = runtime_host.state_index.list_task_worker_spawn_results(state.task_run_id)
@@ -283,14 +283,14 @@ async def run_agent_runtime_preflight(
                 reason="task_contract_built",
                 refs={"task_contract_ref": task_contract_ref},
             )
-            yield {"type": "runtime_loop_event", "event": step_event.to_dict()}
+            yield {"type": "harness_loop_event", "event": step_event.to_dict()}
             ledger_event = runtime_host._record_task_run_ledger_updated(
                 state.task_run_id,
                 ledger=runtime_task_ledger,
                 reason="task_contract_built",
                 refs={"task_contract_ref": task_contract_ref},
             )
-            yield {"type": "runtime_loop_event", "event": ledger_event.to_dict()}
+            yield {"type": "harness_loop_event", "event": ledger_event.to_dict()}
 
     current_turn_context = dict(item.task_operation.get("current_turn_context") or {})
     model_stream_policy = model_stream_policy_from_task_execution_assembly(
@@ -320,7 +320,7 @@ async def run_agent_runtime_preflight(
             },
             refs={"task_contract_ref": task_contract_ref},
         )
-        yield {"type": "runtime_loop_event", "event": current_turn_event.to_dict()}
+        yield {"type": "harness_loop_event", "event": current_turn_event.to_dict()}
         for trace_event in intent_continuation_trace_events(current_turn_context):
             trace_record = runtime_host.event_log.append(
                 state.task_run_id,
@@ -328,7 +328,7 @@ async def run_agent_runtime_preflight(
                 payload=dict(trace_event.get("payload") or {}),
                 refs={"task_contract_ref": task_contract_ref},
             )
-            yield {"type": "runtime_loop_event", "event": trace_record.to_dict()}
+            yield {"type": "harness_loop_event", "event": trace_record.to_dict()}
 
     query_understanding = dict(item.task_operation.get("query_understanding") or {})
     retrieval_results: list[dict[str, Any]] | None = None
@@ -381,7 +381,7 @@ async def run_agent_runtime_preflight(
         },
         refs={"memory_runtime_view_ref": str(item.memory_view.get("view_id") or "")},
     )
-    yield {"type": "runtime_loop_event", "event": memory_event.to_dict()}
+    yield {"type": "harness_loop_event", "event": memory_event.to_dict()}
     admission_preflight = prepare_agent_runtime_admission(
         runtime_host=runtime_host,
         task_run_id=state.task_run_id,
@@ -456,7 +456,7 @@ async def run_agent_runtime_preflight(
     for context_event in context_preflight.events:
         yield context_event
 
-    control_decision = check_runtime_loop_control(
+    control_decision = check_harness_loop_control(
         state,
         limits=item.effective_limits,
         started_at=start.task_run.created_at,
@@ -469,31 +469,31 @@ async def run_agent_runtime_preflight(
         payload={"control": control_decision.to_dict()},
         refs={"task_contract_ref": task_contract_ref},
     )
-    yield {"type": "runtime_loop_event", "event": control_event.to_dict()}
-    yield {"type": "runtime_loop_control", "control": control_decision.to_dict()}
+    yield {"type": "harness_loop_event", "event": control_event.to_dict()}
+    yield {"type": "harness_loop_control", "control": control_decision.to_dict()}
     if not control_decision.allowed:
         yield {
             "type": "error",
             "error": control_decision.reason,
             "content": control_decision.message or "RuntimeLoop 控制策略终止了本轮任务。",
             "answer_channel": "orchestration_fail_closed",
-            "answer_source": "runtime_loop_control",
+            "answer_source": "harness_loop_control",
         }
         if runtime_task_ledger is not None and current_task_step_run(runtime_task_ledger) is not None:
             state, runtime_task_ledger, transition_events = runtime_host._apply_failed_step_transition(
                 state=state,
                 runtime_task_ledger=runtime_task_ledger,
-                reason="runtime_loop_control",
+                reason="harness_loop_control",
                 failure_reason=control_decision.reason,
                 ledger_diagnostics={"terminal_reason": control_decision.reason},
             )
             for transition_event in transition_events:
-                yield {"type": "runtime_loop_event", "event": transition_event.to_dict()}
+                yield {"type": "harness_loop_event", "event": transition_event.to_dict()}
         terminal_state = state.with_status(
             "failed",
             transition="stop_after_final_output",
             terminal_reason=control_decision.reason,
-            diagnostics={"runtime_loop_control": control_decision.to_dict()},
+            diagnostics={"harness_loop_control": control_decision.to_dict()},
         )
         terminal_event = runtime_host.event_log.append(
             terminal_state.task_run_id,
@@ -501,12 +501,12 @@ async def run_agent_runtime_preflight(
             payload={
                 "terminal_reason": terminal_state.terminal_reason,
                 "status": terminal_state.status,
-                "runtime_loop_control": control_decision.to_dict(),
+                "harness_loop_control": control_decision.to_dict(),
             },
         )
-        yield {"type": "runtime_loop_event", "event": terminal_event.to_dict()}
+        yield {"type": "harness_loop_event", "event": terminal_event.to_dict()}
         checkpoint_event = runtime_host._write_checkpoint_event(terminal_state, event_offset=terminal_event.offset)
-        yield {"type": "runtime_loop_event", "event": checkpoint_event.to_dict()}
+        yield {"type": "harness_loop_event", "event": checkpoint_event.to_dict()}
         finished = runtime_host.task_run_finalizer.upsert_finished_task_run(
             start_task_run=start.task_run,
             start_agent_run=start.agent_run,
@@ -515,10 +515,10 @@ async def run_agent_runtime_preflight(
             terminal_state=terminal_state,
             checkpoint_event=checkpoint_event,
             final_content="",
-            diagnostics={"runtime_loop_control_reason": control_decision.reason},
+            diagnostics={"harness_loop_control_reason": control_decision.reason},
         )
         for runtime_event in finished.events:
-            yield {"type": "runtime_loop_event", "event": runtime_event.to_dict()}
+            yield {"type": "harness_loop_event", "event": runtime_event.to_dict()}
         yield AgentRuntimePreflightResult(
             state=terminal_state,
             runtime_task_ledger=runtime_task_ledger,
@@ -564,7 +564,7 @@ async def run_agent_runtime_preflight(
             "resource_policy_ref": resource_policy.policy_id,
         },
     )
-    yield {"type": "runtime_loop_event", "event": directive_event.to_dict()}
+    yield {"type": "harness_loop_event", "event": directive_event.to_dict()}
     yield {
         "type": "runtime_directive",
         "directive": directive.to_dict(),
@@ -601,7 +601,7 @@ async def run_agent_runtime_preflight(
             "directive_ref": directive.directive_id,
         },
     )
-    yield {"type": "runtime_loop_event", "event": gate_event.to_dict()}
+    yield {"type": "harness_loop_event", "event": gate_event.to_dict()}
     yield {"type": "operation_gate", "gate": gate_result.to_dict()}
     if not gate_result.allowed:
         yield {
@@ -622,7 +622,7 @@ async def run_agent_runtime_preflight(
                 ledger_diagnostics={"terminal_reason": "blocked_by_gate"},
             )
             for transition_event in transition_events:
-                yield {"type": "runtime_loop_event", "event": transition_event.to_dict()}
+                yield {"type": "harness_loop_event", "event": transition_event.to_dict()}
         terminal_state = state.with_status(
             "blocked",
             transition="stop_after_final_output",
@@ -638,9 +638,9 @@ async def run_agent_runtime_preflight(
                 "operation_gate_reason": gate_result.reason,
             },
         )
-        yield {"type": "runtime_loop_event", "event": terminal_event.to_dict()}
+        yield {"type": "harness_loop_event", "event": terminal_event.to_dict()}
         checkpoint_event = runtime_host._write_checkpoint_event(terminal_state, event_offset=terminal_event.offset)
-        yield {"type": "runtime_loop_event", "event": checkpoint_event.to_dict()}
+        yield {"type": "harness_loop_event", "event": checkpoint_event.to_dict()}
         finished = runtime_host.task_run_finalizer.upsert_finished_task_run(
             start_task_run=start.task_run,
             start_agent_run=start.agent_run,
@@ -652,7 +652,7 @@ async def run_agent_runtime_preflight(
             diagnostics={"operation_gate_reason": gate_result.reason},
         )
         for runtime_event in finished.events:
-            yield {"type": "runtime_loop_event", "event": runtime_event.to_dict()}
+            yield {"type": "harness_loop_event", "event": runtime_event.to_dict()}
         yield AgentRuntimePreflightResult(
             state=terminal_state,
             runtime_task_ledger=runtime_task_ledger,
@@ -692,3 +692,5 @@ async def run_agent_runtime_preflight(
         resolved_model_spec=resolved_model_spec,
         context_snapshot=context_snapshot,
     )
+
+
