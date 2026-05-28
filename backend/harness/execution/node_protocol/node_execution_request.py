@@ -17,7 +17,7 @@ class NodeExecutionRequest:
     task_ref: str
     agent_id: str = ""
     agent_profile_id: str = ""
-    runtime_lane: str = ""
+    execution_runtime_kind: str = "graph_node"
     executor_type: str = "agent"
     executor_binding: dict[str, Any] = field(default_factory=dict)
     explicit_inputs: dict[str, Any] = field(default_factory=dict)
@@ -109,7 +109,7 @@ class NodeExecutionRequest:
             task_ref=str(payload.get("task_ref") or payload.get("next_task_ref") or ""),
             agent_id=str(payload.get("agent_id") or ""),
             agent_profile_id=str(payload.get("agent_profile_id") or ""),
-            runtime_lane=str(payload.get("runtime_lane") or ""),
+            execution_runtime_kind=str(payload.get("execution_runtime_kind") or "graph_node"),
             executor_type=str(payload.get("executor_type") or dict(payload.get("executor_binding") or {}).get("selected_executor") or "agent"),
             executor_binding=dict(payload.get("executor_binding") or {}),
             explicit_inputs=dict(payload.get("explicit_inputs") or {}),

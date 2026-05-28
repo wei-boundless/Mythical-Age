@@ -462,7 +462,7 @@ def _model_resolution_for_node(
     resolved = model_resolver.resolve_model_spec(
         agent_runtime_profile=profile,
         model_requirement=model_requirement,
-        runtime_lane=runtime_lane,
+        graph_runtime_defaults={"runtime_lane": runtime_lane} if runtime_lane else None,
     )
     return resolved.to_public_dict()
 

@@ -666,7 +666,7 @@ def _compile_runtime_contracts(
             CompiledRuntimeContract(
                 agent_id=profile.agent_id,
                 agent_profile_id=profile.agent_profile_id,
-                allowed_runtime_lanes=profile.allowed_runtime_lanes,
+                allowed_runtime_lanes=_profile_allowed_runtime_lanes(profile),
                 allowed_operations=profile.allowed_operations,
                 allowed_memory_scopes=profile.allowed_memory_scopes,
                 validation_state="invalid" if profile_issue_count else "valid",
@@ -704,7 +704,8 @@ def _validate_agent_profile(
                 node_id=node_id,
             )
         )
-    if runtime_lane and profile.allowed_runtime_lanes and runtime_lane not in profile.allowed_runtime_lanes:
+    allowed_runtime_lanes = _profile_allowed_runtime_lanes(profile)
+    if runtime_lane and allowed_runtime_lanes and runtime_lane not in allowed_runtime_lanes:
         issues.append(
             ContractCompileIssue(
                 code="runtime_lane_not_allowed",
@@ -715,4 +716,14 @@ def _validate_agent_profile(
             )
         )
 
+
+def _profile_allowed_runtime_lanes(profile: AgentRuntimeProfile) -> tuple[str, ...]:
+    explicit = tuple(str(item).strip() for item in tuple(getattr(profile, "allowed_runtime_lanes", ()) or ()) if str(item).strip())
+    if explicit:
+        return explicit
+    metadata = dict(getattr(profile, "metadata", {}) or {})
+    metadata_lanes = tuple(str(item).strip() for item in list(metadata.get("allowed_runtime_lanes") or []) if str(item).strip())
+    if metadata_lanes:
+        return metadata_lanes
+    return ()
 

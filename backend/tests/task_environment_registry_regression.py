@@ -9,9 +9,14 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from task_system.environments import build_task_environment_catalog, default_task_environment_registry, resolve_task_environment
+from task_system.environments import (
+    TaskEnvironmentConfigError,
+    build_task_environment_catalog,
+    default_task_environment_registry,
+    resolve_task_environment,
+    task_environment_registry_from_backend_dir,
+)
 from agent_system.profiles.runtime_profile_registry import default_agent_runtime_profiles
-from capability_system.skill_registry import SkillRegistry
 from capability_system.tool_authorization import build_tool_authorization_index
 from capability_system.tool_definitions import build_tool_instances, get_tool_definitions
 from harness.runtime import RuntimeCompiler, assemble_runtime
@@ -37,22 +42,18 @@ def test_default_task_environments_are_grouped_scene_platforms() -> None:
     assert "op.image_generate" in development.sandbox_policy.side_effect_operations
     assert development.resource_space.storage_namespace == "development/sandbox"
     assert development.environment_prompts
-    assert "skill.browser-operation" in development.skill_space.default_skill_refs
-    assert "skill.visual-asset-generation" in development.skill_space.optional_skill_refs
     development_prompt = "\n".join(item.content for item in development.environment_prompts)
     assert "优先使用 search_text、search_files、glob_paths、read_file、list_dir" in development_prompt
     assert "sandbox overlay" in development_prompt
     assert "old_text not found" in development_prompt
 
     assert "file_profile.writing_manuscript" in writing.file_management.file_profile_refs
-    assert "skill.image-prompt-design" in writing.skill_space.default_skill_refs
     assert writing.resource_space.storage_namespace == "creation/writing"
     assert writing.file_management.constraints["official_work_canonical_write"] == "ask"
     assert writing.artifact_policy.artifact_root == "repo.writing.artifact_repository"
 
-    assert general.runtime_policy.graph_allowed is False
-    assert "skill.rag-skill" in general.skill_space.default_skill_refs
     assert general.sandbox_policy.shell_policy == "denied"
+    assert general.execution_policy.shell_execution_policy == "denied"
 
 
 def test_task_definitions_do_not_declare_skill_authority() -> None:
@@ -226,65 +227,9 @@ def test_task_environment_catalog_is_single_normalized_resource_surface() -> Non
     assert management["summary"]["environment_count"] == 6
     assert "resource_space" in development
     assert "memory_space" in development
-    assert "skill_space" in development
     assert "file_access_tables" in development
     assert development["storage_space"]["task_library_root"] == "storage/task_environments/development/sandbox/task_library"
-    assert "skill.browser-operation" in development["skill_space"]["default_skill_refs"]
     assert writing_item["task_library"]["task_ids"] == ["task.test.writing"]
-
-
-def test_default_environment_skill_refs_exist_in_skill_registry() -> None:
-    registry = default_task_environment_registry()
-    skill_registry = SkillRegistry(BACKEND_DIR)
-
-    for definition in registry.list():
-        skill_refs = [
-            *list(definition.spec.skill_space.default_skill_refs),
-            *list(definition.spec.skill_space.optional_skill_refs),
-            *list(definition.spec.skill_space.denied_skill_refs),
-        ]
-        for skill_ref in skill_refs:
-            skill_name = str(skill_ref).removeprefix("skill.")
-            assert skill_registry.get_by_name(skill_name) is not None, f"{definition.record.environment_id}: {skill_ref}"
-
-
-def test_environment_skill_space_does_not_grant_tools() -> None:
-    definitions = get_tool_definitions()
-    index = build_tool_authorization_index(definitions)
-    profile = SimpleNamespace(
-        agent_profile_id="skill-space-readonly-agent",
-        enabled_runtime_modes=("professional",),
-        default_runtime_mode="professional",
-        allowed_operations=("op.model_response",),
-        blocked_operations=(),
-        can_delegate_to_agents=False,
-        max_delegate_calls_per_turn=0,
-        allowed_delegate_agent_ids=(),
-        metadata={},
-    )
-
-    assembly = assemble_runtime(
-        backend_dir=BACKEND_DIR,
-        session_id="session-skill-space-no-tool",
-        turn_id="turn-skill-space-no-tool",
-        agent_invocation_id="agent-invocation-skill-space-no-tool",
-        request_task_selection={"runtime_mode": "professional", "task_environment_id": "env.development.sandbox"},
-        model_selection={},
-        agent_runtime_profile=profile,
-        tool_instances=build_tool_instances(BACKEND_DIR),
-        definitions_by_name=index.definitions_by_name,
-    ).to_dict()
-
-    tool_names = {str(item.get("tool_name") or "") for item in list(assembly.get("available_tools") or [])}
-    skill_space = dict(dict(assembly.get("task_environment") or {}).get("skill_space") or {})
-    candidates = {str(item.get("skill_id") or ""): dict(item) for item in list(assembly.get("skill_candidates") or [])}
-
-    assert "skill.visual-asset-generation" in list(skill_space.get("optional_skill_refs") or [])
-    assert candidates["skill.visual-asset-generation"]["availability"] == "unavailable"
-    assert candidates["skill.visual-asset-generation"]["missing_operations"] == ["op.image_generate"]
-    assert "image_generate" not in tool_names
-    assert "browser_control" not in tool_names
-    assert "terminal" not in tool_names
 
 
 def test_environment_does_not_filter_agent_allowed_tools() -> None:
@@ -330,7 +275,7 @@ def test_environment_does_not_filter_agent_allowed_tools() -> None:
     assert decisions["op.web_search"]["final_decision"] == "allow"
 
 
-def test_runtime_compiler_puts_skill_candidates_in_stable_payload() -> None:
+def test_runtime_compiler_stable_payload_keeps_environment_and_operation_projection_only() -> None:
     profile = next(item for item in default_agent_runtime_profiles() if item.agent_profile_id == "main_interactive_agent")
     definitions = get_tool_definitions()
     index = build_tool_authorization_index(definitions)
@@ -345,6 +290,7 @@ def test_runtime_compiler_puts_skill_candidates_in_stable_payload() -> None:
         tool_instances=build_tool_instances(BACKEND_DIR),
         definitions_by_name=index.definitions_by_name,
     )
+    assembly_payload = assembly.to_dict()
 
     packet = RuntimeCompiler().compile_task_execution_packet(
         session_id="session-skill-packet",
@@ -364,10 +310,12 @@ def test_runtime_compiler_puts_skill_candidates_in_stable_payload() -> None:
     ).packet
     stable_message = packet.model_messages[1]["content"]
     stable_payload = json.loads(stable_message.split("\n", 1)[1])
-    candidate_ids = {str(item.get("skill_id") or "") for item in list(stable_payload.get("skill_candidates") or [])}
 
-    assert "skill.browser-operation" in candidate_ids
-    assert stable_payload["runtime_context"]["skill_candidate_count"] == len(stable_payload["skill_candidates"])
+    assert "skill_candidates" not in stable_payload
+    assert "skill_candidate_count" not in stable_payload["runtime_context"]
+    assert "skill_candidates" not in assembly_payload
+    assert "filtered_skills" not in assembly_payload
+    assert "skill_space" not in stable_payload["task_environment"]
     assert stable_payload["operation_authorization"]["authority"] == "harness.runtime.operation_authorization_projection"
     assert stable_payload["runtime_context"]["allowed_operation_count"] == len(stable_payload["operation_authorization"]["allowed_operations"])
 
@@ -405,3 +353,271 @@ def test_all_default_task_environments_resolve_file_access_tables() -> None:
         resolved = resolve_task_environment(environment_id)
         assert resolved.spec.environment_id == environment_id
         assert resolved.file_access_tables
+
+
+def test_configured_task_environment_loads_from_backend_storage(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    config_dir = backend_dir / "task_system" / "storage" / "task_environments"
+    config_dir.mkdir(parents=True)
+    (config_dir / "environments.json").write_text(
+        json.dumps(
+            {
+                "groups": [
+                    {
+                        "group_id": "environment_group.custom_lab",
+                        "title": "Custom Lab",
+                        "description": "Custom bounded runtime resources.",
+                    }
+                ],
+                "environments": [
+                    {
+                        "record": {
+                            "environment_id": "env.custom.lab",
+                            "title": "Custom Lab",
+                            "group_id": "environment_group.custom_lab",
+                            "environment_kind": "custom",
+                        },
+                        "spec": {
+                            "spec_id": "envspec.custom.lab.v1",
+                            "environment_id": "env.custom.lab",
+                            "environment_prompts": [
+                                {
+                                    "prompt_id": "environment.custom.lab.v1",
+                                    "content": "你处在自定义实验环境中。只能在环境声明的 artifact/storage 边界内写入。",
+                                }
+                            ],
+                            "sandbox_policy": {
+                                "enabled": False,
+                                "sandbox_mode": "none",
+                                "workspace_access": "read_mostly",
+                                "write_policy": "artifact_only",
+                                "shell_policy": "denied",
+                            },
+                            "file_management": {
+                                "file_profile_refs": ["file_profile.general_workspace"],
+                                "required_repository_kinds": ["conversation_artifacts"],
+                                "canonical_write_policy": "artifact_only",
+                            },
+                            "resource_space": {
+                                "storage_namespace": "custom/lab",
+                                "workspace_policy": "read_mostly",
+                                "artifact_root_policy": "conversation_artifacts",
+                            },
+                            "execution_policy": {
+                                "real_workspace_access": "read_only",
+                                "write_scope_policy": "artifact_only",
+                                "shell_execution_policy": "denied",
+                                "browser_execution_policy": "denied",
+                                "network_execution_policy": "denied",
+                            },
+                        },
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    registry = task_environment_registry_from_backend_dir(backend_dir)
+    catalog = build_task_environment_catalog(registry=registry)
+    payload = catalog.runtime_environment_payload("env.custom.lab")
+
+    assert registry.require("env.custom.lab").record.title == "Custom Lab"
+    assert payload["storage_space"]["environment_storage_root"] == "storage/task_environments/custom/lab"
+    assert payload["environment_prompts"][0]["content"].startswith("你处在自定义实验环境中")
+    assert payload["environment_boundary"]["prompt_refs"] == ["environment.custom.lab.v1"]
+    assert payload["environment_boundary"]["boundary_contract"]["environment_prompts_source"] == "task_environment_config"
+    assert payload["environment_boundary"]["boundary_contract"]["tool_authority"] == "agent_profile_only"
+    assert payload["environment_boundary"]["boundary_contract"]["skill_authority"] == "agent_profile_only"
+    assert payload["file_access_tables"]
+    assert "skill_space" not in payload
+
+
+def test_configured_task_environment_rejects_agent_owned_fields(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    config_dir = backend_dir / "task_system" / "storage" / "task_environments"
+    config_dir.mkdir(parents=True)
+    (config_dir / "environments.json").write_text(
+        json.dumps(
+            {
+                "environments": [
+                    {
+                        "environment_id": "env.bad.skills",
+                        "title": "Bad Skills",
+                        "group_id": "environment_group.general",
+                        "skill_space": {"default_skill_refs": ["skill.rag-skill"]},
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    try:
+        task_environment_registry_from_backend_dir(backend_dir)
+    except TaskEnvironmentConfigError as exc:
+        assert "skill_space" in str(exc)
+    else:
+        raise AssertionError("task environment config must reject agent-owned skill fields")
+
+
+def test_runtime_assembly_can_select_configured_task_environment(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    config_dir = backend_dir / "task_system" / "storage" / "task_environments"
+    config_dir.mkdir(parents=True)
+    (config_dir / "environments.json").write_text(
+        json.dumps(
+            {
+                "environments": [
+                    {
+                        "record": {
+                            "environment_id": "env.custom.runtime",
+                            "title": "Custom Runtime",
+                            "group_id": "environment_group.general",
+                            "environment_kind": "custom",
+                        },
+                        "spec": {
+                            "spec_id": "envspec.custom.runtime.v1",
+                            "environment_id": "env.custom.runtime",
+                            "environment_prompts": [
+                                {
+                                    "prompt_id": "environment.custom.runtime.v1",
+                                    "content": "你处在自定义 runtime 环境中。环境只声明边界，不授予工具。",
+                                }
+                            ],
+                            "file_management": {
+                                "file_profile_refs": ["file_profile.general_workspace"],
+                                "required_repository_kinds": ["conversation_artifacts"],
+                            },
+                            "resource_space": {"storage_namespace": "custom/runtime"},
+                            "execution_policy": {
+                                "shell_execution_policy": "denied",
+                                "browser_execution_policy": "denied",
+                                "network_execution_policy": "denied",
+                            },
+                        },
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    profile = SimpleNamespace(
+        agent_profile_id="custom-env-agent",
+        enabled_runtime_modes=("professional",),
+        default_runtime_mode="professional",
+        allowed_operations=("op.model_response",),
+        blocked_operations=(),
+        can_delegate_to_agents=False,
+        max_delegate_calls_per_turn=0,
+        allowed_delegate_agent_ids=(),
+        metadata={},
+    )
+    definitions = get_tool_definitions()
+    index = build_tool_authorization_index(definitions)
+
+    assembly = assemble_runtime(
+        backend_dir=backend_dir,
+        session_id="session-custom-env",
+        turn_id="turn-custom-env",
+        agent_invocation_id="agent-invocation-custom-env",
+        request_task_selection={"runtime_mode": "professional", "task_environment_id": "env.custom.runtime"},
+        model_selection={},
+        agent_runtime_profile=profile,
+        tool_instances=build_tool_instances(BACKEND_DIR),
+        definitions_by_name=index.definitions_by_name,
+    ).to_dict()
+
+    environment = dict(assembly.get("task_environment") or {})
+    tool_names = {str(item.get("tool_name") or "") for item in list(assembly.get("available_tools") or [])}
+
+    assert environment["environment_id"] == "env.custom.runtime"
+    assert environment["storage_space"]["storage_namespace"] == "custom/runtime"
+    assert environment["environment_boundary"]["boundary_contract"]["environment_prompts_source"] == "task_environment_config"
+    assert "skill_space" not in environment
+    assert tool_names == set()
+
+
+def test_runtime_packet_includes_environment_prompt_boundary_from_configured_environment(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    config_dir = backend_dir / "task_system" / "storage" / "task_environments"
+    config_dir.mkdir(parents=True)
+    (config_dir / "environments.json").write_text(
+        json.dumps(
+            {
+                "environments": [
+                    {
+                        "record": {
+                            "environment_id": "env.custom.prompted",
+                            "title": "Prompted Runtime",
+                            "group_id": "environment_group.general",
+                            "environment_kind": "custom",
+                        },
+                        "spec": {
+                            "spec_id": "envspec.custom.prompted.v1",
+                            "environment_id": "env.custom.prompted",
+                            "environment_prompts": [
+                                {
+                                    "prompt_id": "environment.custom.prompted.v1",
+                                    "content": "你处在自定义提示环境中。这里的环境 prompt 来自任务环境配置。",
+                                }
+                            ],
+                            "file_management": {"file_profile_refs": ["file_profile.general_workspace"]},
+                            "resource_space": {"storage_namespace": "custom/prompted"},
+                        },
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    profile = SimpleNamespace(
+        agent_profile_id="custom-prompted-agent",
+        enabled_runtime_modes=("professional",),
+        default_runtime_mode="professional",
+        allowed_operations=("op.model_response",),
+        blocked_operations=(),
+        can_delegate_to_agents=False,
+        max_delegate_calls_per_turn=0,
+        allowed_delegate_agent_ids=(),
+        metadata={},
+    )
+    definitions = get_tool_definitions()
+    index = build_tool_authorization_index(definitions)
+    assembly = assemble_runtime(
+        backend_dir=backend_dir,
+        session_id="session-custom-prompted",
+        turn_id="turn-custom-prompted",
+        agent_invocation_id="agent-invocation-custom-prompted",
+        request_task_selection={"runtime_mode": "professional", "task_environment_id": "env.custom.prompted"},
+        model_selection={},
+        agent_runtime_profile=profile,
+        tool_instances=build_tool_instances(BACKEND_DIR),
+        definitions_by_name=index.definitions_by_name,
+    )
+
+    packet = RuntimeCompiler().compile_task_execution_packet(
+        session_id="session-custom-prompted",
+        task_run={
+            "task_run_id": "taskrun:custom-prompted",
+            "session_id": "session-custom-prompted",
+            "task_id": "task:custom-prompted",
+            "agent_profile_id": "custom-prompted-agent",
+        },
+        contract={"user_visible_goal": "验证环境 prompt", "completion_criteria": ["环境 prompt 已装配"]},
+        observations=[],
+        execution_state={},
+        agent_profile_ref="custom-prompted-agent",
+        available_tools=assembly.available_tools,
+        runtime_assembly=assembly,
+        invocation_index=1,
+    ).packet
+    stable_payload = json.loads(packet.model_messages[1]["content"].split("\n", 1)[1])
+
+    assert "你处在自定义提示环境中" in packet.system_instructions
+    assert stable_payload["task_environment"]["environment_boundary"]["prompt_refs"] == ["environment.custom.prompted.v1"]
+    assert stable_payload["runtime_context"]["environment_boundary"]["environment_prompts_source"] == "task_environment_config"

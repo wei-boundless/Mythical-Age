@@ -46,8 +46,8 @@ def test_query_runtime_exposes_graph_harness_facade() -> None:
     assert isinstance(runtime.graph_harness, GraphHarness)
     assert runtime.runtime_components["agent_harness"] == "active"
     assert runtime.runtime_components["graph_harness"] == "active"
-    assert not hasattr(runtime.graph_harness, "coordination_runtime")
     assert not hasattr(runtime.graph_harness.graph_loop, "_engine")
+    assert hasattr(runtime.graph_harness, "get_graph_run_monitor")
 
 
 def test_graph_harness_starts_published_config_and_creates_node_work_order() -> None:
@@ -103,12 +103,17 @@ def test_graph_harness_starts_published_config_and_creates_node_work_order() -> 
     )
 
     assert start.task_run.status == "running"
-    assert start.coordination_run.graph_ref == graph.graph_id
+    assert start.graph_run.graph_id == graph.graph_id
     assert start.loop_state.config_id == graph_config.config_id
-    assert start.node_work_order["node_id"] == "draft"
-    assert start.node_work_order["work_kind"] == "node"
-    assert "内容起草员" in start.node_work_order["message"]
-    assert runtime.graph_harness.get_checkpoint_state(start.coordination_run.coordination_run_id)["graph_id"] == graph.graph_id
+    assert start.node_work_orders[0].node_id == "draft"
+    assert start.node_work_orders[0].work_kind == "agent"
+    assert start.node_work_orders[0].graph_run_id == start.graph_run.graph_run_id
+    assert "内容起草员" in start.node_work_orders[0].message
+    assert runtime.graph_harness.get_checkpoint_state(start.graph_run.graph_run_id)["graph_id"] == graph.graph_id
+    monitor = runtime.graph_harness.get_graph_run_monitor(start.graph_run.graph_run_id, graph_config=graph_config)
+    assert monitor is not None
+    assert monitor["graph_run_id"] == start.graph_run.graph_run_id
+    assert monitor["graph_loop_state"]["graph_id"] == graph.graph_id
 
 
 def test_graph_loop_accepts_node_result_and_advances_to_next_node() -> None:
@@ -142,10 +147,10 @@ def test_graph_loop_accepts_node_result_and_advances_to_next_node() -> None:
 
     advance = runtime.graph_harness.accept_node_result(
         graph_config=graph_config,
-        graph_run_id=start.coordination_run.coordination_run_id,
+        graph_run_id=start.graph_run.graph_run_id,
         result=NodeResultEnvelope(
             result_id="nresult:test:draft",
-            graph_run_id=start.coordination_run.coordination_run_id,
+            graph_run_id=start.graph_run.graph_run_id,
             task_run_id=start.task_run.task_run_id,
             node_id="draft",
             work_order_id=str(first_order["work_order_id"]),
@@ -157,4 +162,3 @@ def test_graph_loop_accepts_node_result_and_advances_to_next_node() -> None:
     assert advance.node_work_orders
     assert advance.node_work_orders[0].node_id == "review"
     assert advance.graph_result is None
-

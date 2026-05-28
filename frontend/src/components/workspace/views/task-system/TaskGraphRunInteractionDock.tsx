@@ -114,7 +114,7 @@ export function TaskGraphRunInteractionDock({
   const decisionOptions = useMemo(() => arrayValue(request.decision_options), [request]);
   const needsAttention = Boolean(decision && decision.action !== "no_action");
   const taskRunId = String(binding?.task_run_id ?? "").trim();
-  const coordinationRunId = String(binding?.coordination_run_id || monitor?.coordination_run_id || decision?.coordination_run_id || "").trim();
+  const graphRunId = String(binding?.graph_run_id || monitor?.graph_run_id || "").trim();
   const boundLabel = binding?.title || binding?.graph_id || (taskRunId ? compactId(taskRunId) : "未绑定 TaskRun");
   const activeNodeId = String(monitor?.runtime?.active_node_id || decision?.observed?.active_node_id || "");
   const runtimeStatus = String(monitor?.runtime?.status || decision?.observed?.runtime_status || (taskRunId ? "watching" : "idle"));
@@ -445,11 +445,11 @@ export function TaskGraphRunInteractionDock({
           <RefreshCw size={14} />
           执行监测
         </button>
-        <button disabled={!coordinationRunId || actionLoading} onClick={onContinue} type="button">
+        <button disabled={!graphRunId || actionLoading} onClick={onContinue} type="button">
           <PlayCircle size={14} />
           续跑
         </button>
-        <button disabled={!coordinationRunId || actionLoading} onClick={onRefreshContinue} type="button">
+        <button disabled={!graphRunId || actionLoading} onClick={onRefreshContinue} type="button">
           <RotateCcw size={14} />
           刷新快照续跑
         </button>

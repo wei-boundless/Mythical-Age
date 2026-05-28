@@ -5,20 +5,26 @@ from .models import (
     GRAPH_HARNESS_CONFIG_SCHEMA_VERSION,
     GraphHarnessConfig,
     GraphLoopState,
+    GraphNodeWorkOrder,
+    GraphRun,
     GraphResultEnvelope,
     GraphRuntimeEnvelope,
     NodeResultEnvelope,
     graph_harness_config_from_dict,
 )
+from .scheduler_view import SchedulerView, build_scheduler_view
 
 __all__ = [
     "GRAPH_HARNESS_CONFIG_AUTHORITY",
     "GRAPH_HARNESS_CONFIG_SCHEMA_VERSION",
     "GraphHarnessConfig",
     "GraphLoopState",
+    "GraphNodeWorkOrder",
+    "GraphRun",
     "GraphResultEnvelope",
     "GraphRuntimeEnvelope",
     "NodeResultEnvelope",
+    "SchedulerView",
+    "build_scheduler_view",
     "graph_harness_config_from_dict",
 ]
-

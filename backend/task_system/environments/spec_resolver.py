@@ -21,12 +21,14 @@ class ResolvedTaskEnvironment:
     authority: str = "task_system.resolved_task_environment"
 
     def to_dict(self) -> dict:
+        boundary = _environment_boundary_payload(self)
         return {
             "spec": self.spec.to_dict(),
             "group": self.group.to_dict() if self.group is not None else {},
             "environment_prompts": [item.to_dict() for item in self.spec.environment_prompts],
+            "environment_boundary": boundary,
             "sandbox_policy": self.spec.sandbox_policy.to_dict(),
-            "storage_space": _storage_space_payload(self.spec),
+            "storage_space": boundary["storage_space"],
             "file_access_tables": [table.to_dict() for table in self.file_access_tables],
             "authority": self.authority,
         }
@@ -77,6 +79,39 @@ def _storage_space_payload(spec: TaskEnvironmentSpec) -> dict:
         "artifact_storage_policy": resource.artifact_storage_policy,
         "cache_storage_policy": resource.cache_storage_policy,
         "authority": "task_system.environment_storage_space",
+    }
+
+
+def _environment_boundary_payload(resolved: ResolvedTaskEnvironment) -> dict:
+    spec = resolved.spec
+    storage_space = _storage_space_payload(spec)
+    file_access_tables = [table.to_dict() for table in resolved.file_access_tables]
+    return {
+        "environment_id": spec.environment_id,
+        "group_id": resolved.group.group_id if resolved.group is not None else "",
+        "prompt_refs": [item.prompt_id for item in spec.environment_prompts],
+        "prompt_count": len(spec.environment_prompts),
+        "storage_space": storage_space,
+        "sandbox_policy": spec.sandbox_policy.to_dict(),
+        "file_management": spec.file_management.to_dict(),
+        "file_access_table_ids": [
+            str(item.get("table_id") or "")
+            for item in file_access_tables
+            if str(item.get("table_id") or "").strip()
+        ],
+        "artifact_policy": spec.artifact_policy.to_dict(),
+        "execution_policy": spec.execution_policy.to_dict(),
+        "risk_policy": spec.risk_policy.to_dict(),
+        "boundary_contract": {
+            "environment_prompts_source": "task_environment_config",
+            "tool_authority": "agent_profile_only",
+            "skill_authority": "agent_profile_only",
+            "mode_authority": "runtime_profile_only",
+            "file_boundary_authority": "file_access_table",
+            "storage_boundary_authority": "task_environment",
+            "sandbox_boundary_authority": "task_environment",
+        },
+        "authority": "task_system.resolved_environment_boundary",
     }
 
 

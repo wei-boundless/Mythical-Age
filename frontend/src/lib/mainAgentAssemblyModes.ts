@@ -8,7 +8,6 @@ type MainAgentAssemblyProfile = {
   agent_id: string;
   agent_profile_id: string;
   interaction_mode: string;
-  runtime_lane: string;
   runtime_assembly_hint: Record<string, unknown>;
   mode_policy: Record<string, unknown>;
   stream_policy: Record<string, unknown>;
@@ -32,7 +31,6 @@ const MODE_OWNED_RUNTIME_HINT_KEYS = new Set([
 
 const MODE_OWNED_POLICY_KEYS = new Set([
   "interaction_mode",
-  "runtime_lane",
   "recipe_id",
   "projection_strength",
   "mode_reason",
@@ -54,16 +52,14 @@ export const MAIN_AGENT_ASSEMBLY_MODES: Record<MainAgentAssemblyMode, MainAgentA
     agent_id: MAIN_AGENT_ID,
     agent_profile_id: MAIN_AGENT_PROFILE_ID,
     interaction_mode: "role_mode",
-    runtime_lane: "role_interaction",
     runtime_assembly_hint: {
       interaction_mode: "role_mode",
-      runtime_mode: "role_interaction",
+      runtime_mode: "role",
       projection_strength: "primary",
     },
     stream_policy: INTERACTIVE_STREAM_POLICY,
     mode_policy: {
       interaction_mode: "role_mode",
-      runtime_lane: "role_interaction",
       recipe_id: "runtime.recipe.role_interaction",
       projection_strength: "primary",
       mode_reason: "frontend_main_agent_profile",
@@ -77,16 +73,14 @@ export const MAIN_AGENT_ASSEMBLY_MODES: Record<MainAgentAssemblyMode, MainAgentA
     agent_id: MAIN_AGENT_ID,
     agent_profile_id: MAIN_AGENT_PROFILE_ID,
     interaction_mode: "standard_mode",
-    runtime_lane: "standard_task",
     runtime_assembly_hint: {
       interaction_mode: "standard_mode",
-      runtime_mode: "standard_task",
+      runtime_mode: "standard",
       projection_strength: "companion",
     },
     stream_policy: INTERACTIVE_STREAM_POLICY,
     mode_policy: {
       interaction_mode: "standard_mode",
-      runtime_lane: "standard_task",
       recipe_id: "runtime.recipe.standard_task",
       projection_strength: "companion",
       mode_reason: "frontend_main_agent_profile",
@@ -100,16 +94,14 @@ export const MAIN_AGENT_ASSEMBLY_MODES: Record<MainAgentAssemblyMode, MainAgentA
     agent_id: MAIN_AGENT_ID,
     agent_profile_id: MAIN_AGENT_PROFILE_ID,
     interaction_mode: "professional_mode",
-    runtime_lane: "professional_task",
     runtime_assembly_hint: {
       interaction_mode: "professional_mode",
-      runtime_mode: "professional_task",
+      runtime_mode: "professional",
       projection_strength: "style_only",
     },
     stream_policy: INTERACTIVE_STREAM_POLICY,
     mode_policy: {
       interaction_mode: "professional_mode",
-      runtime_lane: "professional_task",
       recipe_id: "runtime.recipe.professional_task",
       projection_strength: "style_only",
       mode_reason: "frontend_main_agent_profile",
@@ -138,7 +130,7 @@ export function buildMainAgentTaskSelection(
     agent_profile_id: profile.agent_profile_id,
     interaction_mode: profile.interaction_mode,
     runtime_interaction_mode: profile.interaction_mode,
-    runtime_lane: profile.runtime_lane,
+    runtime_mode: profile.mode,
     runtime_assembly_hint: {
       ...omitModeOwnedKeys(current.runtime_assembly_hint, MODE_OWNED_RUNTIME_HINT_KEYS),
       ...profile.runtime_assembly_hint,

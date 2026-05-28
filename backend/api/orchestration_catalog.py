@@ -16,7 +16,6 @@ from capability_system import build_capability_catalog, build_default_operation_
 from orchestration import ControlKernel, TaskContract, build_base_unit_catalog
 from orchestration.delegation_catalog import DelegationCatalogBuilder
 from orchestration.resource_inventory import build_runtime_resource_inventory
-from orchestration.runtime_lane_registry import DEFAULT_RUNTIME_LANE_REGISTRY, runtime_lane_option_payloads
 from agent_system.profiles.runtime_mode_config import mode_config_catalog
 from task_system import TaskFlowRegistry
 
@@ -38,7 +37,6 @@ class AgentRuntimeProfileRequest(BaseModel):
     agent_profile_id: str = Field(default="", max_length=160)
     enabled_runtime_modes: list[str] = Field(default_factory=list)
     default_runtime_mode: str = Field(default="", max_length=80)
-    allowed_runtime_lanes: list[str] = Field(default_factory=list)
     allowed_operations: list[str] = Field(default_factory=list)
     blocked_operations: list[str] = Field(default_factory=list)
     allowed_memory_scopes: list[str] = Field(default_factory=list)
@@ -390,17 +388,13 @@ def _empty_orchestration_runtime_options() -> dict[str, Any]:
     return {
         "operations": [],
         "task_graphs": [],
-        "runtime_lanes": [],
         "runtime_modes": [],
-        "runtime_lane_registry": {},
-        "runtime_lane_diagnostics": {"authority": "orchestration.runtime_lane_registry"},
         "memory_scopes": [],
         "context_sections": [],
         "approval_policies": [],
         "trace_policies": [],
         "operation_options": [],
         "task_graph_options": [],
-        "runtime_lane_options": [],
         "memory_scope_options": [],
         "context_section_options": [],
         "approval_policy_options": [],
@@ -418,31 +412,6 @@ async def orchestration_runtime_options() -> dict[str, Any]:
     profiles = registry.list_profiles()
     operations = build_default_operation_registry().list_operations()
     task_graph_refs, task_graph_options = _build_task_graph_options(task_registry)
-    profile_runtime_lanes = {
-        lane
-        for profile in profiles
-        for lane in profile.allowed_runtime_lanes
-        if lane
-    }
-    task_graph_runtime_lanes = {
-        lane
-        for graph in task_registry.list_task_graphs()
-        for node in graph.nodes
-        for lane in [_record_field_text(node, "runtime_lane")]
-        if lane
-    }
-    registered_runtime_lanes = {item.lane_id for item in DEFAULT_RUNTIME_LANE_REGISTRY.list_lanes()}
-    runtime_lanes = [item["value"] for item in runtime_lane_option_payloads(include_non_requestable=False)]
-    runtime_lane_diagnostics = {
-        "authority": "orchestration.runtime_lane_registry",
-        "profile_unregistered_lanes": sorted(profile_runtime_lanes - registered_runtime_lanes),
-        "task_graph_unregistered_lanes": sorted(task_graph_runtime_lanes - registered_runtime_lanes),
-        "task_graph_non_requestable_lanes": sorted(
-            lane
-            for lane in task_graph_runtime_lanes
-            if (descriptor := DEFAULT_RUNTIME_LANE_REGISTRY.get(lane)) is not None and not descriptor.requestable
-        ),
-    }
     memory_scopes = _build_runtime_profile_option_values(
         profiles,
         field="allowed_memory_scopes",
@@ -460,17 +429,13 @@ async def orchestration_runtime_options() -> dict[str, Any]:
         "options": {
             "operations": [item.to_dict() for item in operations],
             "task_graphs": task_graph_refs,
-            "runtime_lanes": runtime_lanes,
             "runtime_modes": mode_config_catalog(),
-            "runtime_lane_registry": DEFAULT_RUNTIME_LANE_REGISTRY.catalog_payload(),
-            "runtime_lane_diagnostics": runtime_lane_diagnostics,
             "memory_scopes": memory_scopes,
             "context_sections": context_sections,
             "approval_policies": approval_policies,
             "trace_policies": trace_policies,
             "operation_options": [_operation_option(item) for item in operations],
             "task_graph_options": task_graph_options,
-            "runtime_lane_options": runtime_lane_option_payloads(include_non_requestable=False),
             "memory_scope_options": [_memory_scope_option(item) for item in memory_scopes],
             "context_section_options": [_option(item) for item in context_sections],
             "approval_policy_options": [_option(item) for item in approval_policies],
@@ -605,7 +570,6 @@ async def orchestration_body_preview(payload: OrchestrationPreviewRequest) -> di
         "agent_body_profile": dict(task_operation.get("agent_body_profile") or {}),
         "prompt_structure_profile": dict(task_operation.get("prompt_structure_profile") or {}),
         "memory_scope_profile": dict(task_operation.get("memory_scope_profile") or {}),
-        "runtime_lane_profile": dict(task_operation.get("runtime_lane_profile") or {}),
         "output_boundary_profile": dict(task_operation.get("output_boundary_profile") or {}),
         "memory_runtime_view": dict(chain.get("memory_runtime_view") or {}),
         "context_policy_result": dict(chain.get("context_policy_result") or {}),
@@ -648,7 +612,6 @@ async def upsert_orchestration_agent_runtime_profile(
             agent_profile_id=payload.agent_profile_id,
             enabled_runtime_modes=tuple(payload.enabled_runtime_modes),
             default_runtime_mode=payload.default_runtime_mode,
-            allowed_runtime_lanes=tuple(payload.allowed_runtime_lanes),
             allowed_operations=tuple(payload.allowed_operations),
             blocked_operations=tuple(payload.blocked_operations),
             allowed_memory_scopes=tuple(payload.allowed_memory_scopes),

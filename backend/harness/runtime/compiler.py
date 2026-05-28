@@ -42,7 +42,6 @@ class RuntimeCompiler:
         mode_policy = {
             "mode": str(profile_payload.get("mode") or "standard"),
             "interaction_mode": str(profile_payload.get("interaction_mode") or "standard_mode"),
-            "runtime_lane": str(profile_payload.get("runtime_lane") or "standard_task"),
             "planning_policy": dict(profile_payload.get("planning_policy") or {}),
             "task_lifecycle_policy": dict(profile_payload.get("task_lifecycle_policy") or {}),
             "soul_prompt_policy": dict(profile_payload.get("soul_prompt_policy") or {}),
@@ -97,7 +96,6 @@ class RuntimeCompiler:
             "schema": schema,
             "task_environment": environment_payload,
             "available_tools": [dict(item) for item in tool_payloads],
-            "skill_candidates": [dict(item) for item in list(assembly_payload.get("skill_candidates") or []) if isinstance(item, dict)],
             "operation_authorization": dict(assembly_payload.get("operation_authorization") or {}),
             "runtime_context": _runtime_context_payload(assembly_payload),
         }
@@ -151,7 +149,6 @@ class RuntimeCompiler:
         mode_policy = {
             "mode": str(profile_payload.get("mode") or "professional"),
             "interaction_mode": str(profile_payload.get("interaction_mode") or "task_execution"),
-            "runtime_lane": str(profile_payload.get("runtime_lane") or "single_agent_task"),
             "planning_policy": dict(profile_payload.get("planning_policy") or {}),
             "task_lifecycle_policy": dict(profile_payload.get("task_lifecycle_policy") or {}),
             "self_review_policy": dict(profile_payload.get("self_review_policy") or {}),
@@ -230,7 +227,6 @@ class RuntimeCompiler:
             "task_contract": dict(contract),
             "task_environment": environment_payload,
             "available_tools": [dict(item) for item in tool_payloads],
-            "skill_candidates": [dict(item) for item in list(assembly_payload.get("skill_candidates") or []) if isinstance(item, dict)],
             "operation_authorization": dict(assembly_payload.get("operation_authorization") or {}),
             "runtime_context": _runtime_context_payload(assembly_payload),
         }
@@ -336,7 +332,6 @@ class RuntimeCompiler:
         mode_policy = {
             "mode": str(profile_payload.get("mode") or "standard"),
             "interaction_mode": str(profile_payload.get("interaction_mode") or "standard_mode"),
-            "runtime_lane": str(profile_payload.get("runtime_lane") or "standard_task"),
             "planning_policy": dict(profile_payload.get("planning_policy") or {}),
             "task_lifecycle_policy": dict(profile_payload.get("task_lifecycle_policy") or {}),
             "soul_prompt_policy": dict(profile_payload.get("soul_prompt_policy") or {}),
@@ -391,7 +386,6 @@ class RuntimeCompiler:
             "schema": schema,
             "task_environment": environment_payload,
             "available_tools": [dict(item) for item in tool_payloads],
-            "skill_candidates": [dict(item) for item in list(assembly_payload.get("skill_candidates") or []) if isinstance(item, dict)],
             "operation_authorization": dict(assembly_payload.get("operation_authorization") or {}),
             "runtime_context": _runtime_context_payload(assembly_payload),
         }
@@ -587,13 +581,30 @@ def _runtime_context_payload(assembly_payload: dict[str, Any]) -> dict[str, Any]
         "agent_profile_ref": str(assembly_payload.get("agent_profile_ref") or ""),
         "mode": str(profile.get("mode") or ""),
         "interaction_mode": str(profile.get("interaction_mode") or ""),
-        "runtime_lane": str(profile.get("runtime_lane") or ""),
         "task_lifecycle_policy": dict(profile.get("task_lifecycle_policy") or {}),
         "planning_policy": dict(profile.get("planning_policy") or {}),
         "self_review_policy": dict(profile.get("self_review_policy") or {}),
         "permission_policy": dict(profile.get("permission_policy") or {}),
         "task_environment_id": str(environment.get("environment_id") or ""),
         "storage_space": dict(environment.get("storage_space") or {}),
-        "skill_candidate_count": len(list(assembly_payload.get("skill_candidates") or [])),
+        "environment_boundary": {
+            "authority": str(dict(environment.get("environment_boundary") or {}).get("authority") or ""),
+            "environment_prompts_source": str(
+                dict(dict(environment.get("environment_boundary") or {}).get("boundary_contract") or {}).get(
+                    "environment_prompts_source"
+                )
+                or ""
+            ),
+            "tool_authority": str(
+                dict(dict(environment.get("environment_boundary") or {}).get("boundary_contract") or {}).get("tool_authority")
+                or ""
+            ),
+            "file_boundary_authority": str(
+                dict(dict(environment.get("environment_boundary") or {}).get("boundary_contract") or {}).get(
+                    "file_boundary_authority"
+                )
+                or ""
+            ),
+        },
         "allowed_operation_count": len(list(dict(assembly_payload.get("operation_authorization") or {}).get("allowed_operations") or [])),
     }

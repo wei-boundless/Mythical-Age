@@ -82,18 +82,6 @@ def build_orchestration_runtime_bundle(
         runtime_profile=runtime_profile,
         memory_request_profile=memory_request_profile,
     )
-    requested_runtime_lane = _requested_runtime_lane(
-        binding=binding,
-        registered_task=registered_task,
-        task_execution_assembly=task_execution_assembly,
-        current_turn_context=current_turn_payload,
-    )
-    runtime_lane_profile = profile_registry.build_runtime_lane_profile(
-        agent_id=agent_id,
-        runtime_profile=runtime_profile,
-        task_mode=str(task_execution_assembly.get("task_mode") or ""),
-        requested_runtime_lane=requested_runtime_lane,
-    )
     output_boundary_profile = profile_registry.build_output_boundary_profile(
         agent_id=agent_id,
         runtime_profile=runtime_profile,
@@ -145,7 +133,6 @@ def build_orchestration_runtime_bundle(
         body_profile_ref=body_profile.body_profile_id,
         prompt_structure_profile_ref=prompt_profile.profile_id,
         memory_scope_profile_ref=memory_scope_profile.profile_id,
-        runtime_lane_profile_ref=runtime_lane_profile.profile_id,
         output_boundary_profile_ref=output_boundary_profile.profile_id,
         stage_plan={
             "stage_owner": "orchestration",
@@ -178,8 +165,6 @@ def build_orchestration_runtime_bundle(
             "prompt_manifest_ref": str(prompt_manifest.get("manifest_id") or ""),
             "memory_view_ref": str(memory_view.get("view_id") or ""),
             "context_policy_ref": _context_policy_ref(context_policy),
-            "runtime_lane": runtime_lane_profile.lane_id,
-            "requested_runtime_lane": requested_runtime_lane,
             "continuation_decision": dict(current_turn_payload.get("continuation_decision") or {}),
         },
     )
@@ -202,15 +187,12 @@ def build_orchestration_runtime_bundle(
         resource_policy_candidate_ref=str(operation_requirement.get("requirement_id") or ""),
         input_contract_ref=str(task_execution_assembly.get("input_contract_id") or task_contract.get("input_contract_id") or ""),
         output_contract_ref=str(task_execution_assembly.get("output_contract_id") or task_contract.get("output_contract_id") or ""),
-        runtime_lane=runtime_lane_profile.lane_id,
         runtime_executable=True,
         diagnostics={
             "builder": "orchestration.build_orchestration_runtime_bundle",
             "body_profile_ref": body_profile.body_profile_id,
             "prompt_structure_profile_ref": prompt_profile.profile_id,
             "memory_scope_profile_ref": memory_scope_profile.profile_id,
-            "runtime_lane_profile_ref": runtime_lane_profile.profile_id,
-            "requested_runtime_lane": requested_runtime_lane,
             "output_boundary_profile_ref": output_boundary_profile.profile_id,
             "soul_runtime_projection_enabled": False,
             "continuation_decision": dict(current_turn_payload.get("continuation_decision") or {}),
@@ -220,7 +202,6 @@ def build_orchestration_runtime_bundle(
         "agent_body_profile": body_profile.to_dict(),
         "prompt_structure_profile": prompt_profile.to_dict(),
         "memory_scope_profile": memory_scope_profile.to_dict(),
-        "runtime_lane_profile": runtime_lane_profile.to_dict(),
         "output_boundary_profile": output_boundary_profile.to_dict(),
         "task_body_orchestration": orchestration.to_dict(),
         "agent_runtime_spec": runtime_spec.to_dict(),
@@ -280,31 +261,6 @@ def _prompt_manifest_from_contract(
 def _attribute_view(payload: dict[str, Any]) -> Any:
     return SimpleNamespace(**dict(payload or {}))
 
-
-def _requested_runtime_lane(
-    *,
-    binding: dict[str, Any],
-    registered_task: dict[str, Any],
-    task_execution_assembly: dict[str, Any],
-    current_turn_context: dict[str, Any] | None = None,
-) -> str:
-    turn_context = dict(current_turn_context or {})
-    explicit_lane = str(turn_context.get("runtime_lane") or "").strip()
-    if explicit_lane:
-        return explicit_lane
-    binding_lane = str(binding.get("runtime_lane") or "").strip()
-    if binding_lane:
-        return binding_lane
-    task_policy = dict(registered_task.get("task_policy") or {})
-    task_structure = dict(task_policy.get("task_structure") or {})
-    policy_lane = str(task_structure.get("runtime_lane_hint") or "").strip()
-    if policy_lane:
-        return policy_lane
-    metadata = dict(task_execution_assembly.get("metadata") or {})
-    metadata_lane = str(metadata.get("runtime_lane_hint") or metadata.get("default_runtime_lane") or "").strip()
-    if metadata_lane:
-        return metadata_lane
-    return str(task_execution_assembly.get("runtime_lane") or "").strip()
 
 def _prompt_flow_trace(
     *,

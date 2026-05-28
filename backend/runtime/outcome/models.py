@@ -13,7 +13,7 @@ class RunOutcome:
     outcome_id: str
     task_run_id: str
     task_id: str
-    runtime_lane: str
+    execution_runtime_kind: str
     source: str
     status: RunOutcomeStatus
     completed: bool

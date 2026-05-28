@@ -167,7 +167,164 @@ def test_task_graph_start_api_returns_node_work_order_for_published_config(tmp_p
         orchestration_api.require_runtime = original  # type: ignore[assignment]
 
     assert payload["graph_id"] == graph.graph_id
+    assert payload["graph_run_id"]
     assert payload["graph_harness_config_id"]
-    assert payload["node_work_order"]["node_id"] == "produce"
-    assert payload["stage_execution_request"] is None
+    assert payload["node_work_orders"][0]["node_id"] == "produce"
+    assert payload["node_work_orders"][0]["work_kind"] == "agent"
+    assert payload["graph_run"]["graph_id"] == graph.graph_id
+    assert "coordination_run" not in payload
+    assert "coordination_run_id" not in payload
+    assert "stage_execution_request" not in payload
     assert payload["checkpoint"]["state"]["graph_id"] == graph.graph_id
+
+
+def test_graph_harness_api_accepts_node_result_and_returns_next_work_order(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    graph = TaskGraphDefinition(
+        graph_id="graph.test.api_result_accept",
+        title="API Result Accept Graph",
+        graph_kind="multi_agent",
+        publish_state="published",
+        enabled=True,
+        entry_node_id="first",
+        output_node_id="second",
+        runtime_policy={"coordinator_agent_id": "agent:0"},
+        nodes=(
+            TaskGraphNodeDefinition(
+                node_id="first",
+                node_type="agent",
+                title="第一节点",
+                task_id="task.test.first",
+                agent_id="agent:0",
+                metadata={
+                    "prompt_contract": {
+                        "role_prompt": "你是一名第一节点执行员。",
+                        "task_instruction": "请完成第一节点任务。",
+                    }
+                },
+            ),
+            TaskGraphNodeDefinition(
+                node_id="second",
+                node_type="agent",
+                title="第二节点",
+                task_id="task.test.second",
+                agent_id="agent:0",
+            ),
+        ),
+        edges=(
+            {
+                "edge_id": "edge.first.second",
+                "source_node_id": "first",
+                "target_node_id": "second",
+                "edge_type": "structured_handoff",
+            },
+        ),
+    )
+    registry = TaskFlowRegistry(backend_dir)
+    registry.upsert_task_graph(
+        graph_id=graph.graph_id,
+        title=graph.title,
+        graph_kind=graph.graph_kind,
+        entry_node_id=graph.entry_node_id,
+        output_node_id=graph.output_node_id,
+        nodes=tuple(node.to_dict() for node in graph.nodes),
+        edges=tuple(dict(edge) for edge in graph.edges),
+        runtime_policy=graph.runtime_policy,
+        publish_state="published",
+        enabled=True,
+    )
+    graph_config = publish_graph_harness_config_for_graph(base_dir=backend_dir, graph_id=graph.graph_id)
+    runtime = _runtime_with_graph_harness(base_dir=backend_dir, runtime_root=tmp_path / "runtime_state")
+
+    original = orchestration_api.require_runtime
+    orchestration_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    try:
+        started = asyncio.run(
+            orchestration_api.start_task_graph_harness_run(
+                graph.graph_id,
+                orchestration_api.TaskGraphRunStartRequest(
+                    session_id="session-test",
+                    dispatch_ready=True,
+                ),
+            )
+        )
+        first_order = dict(started["node_work_orders"][0])
+        accepted = asyncio.run(
+            orchestration_api.accept_graph_node_result(
+                str(started["graph_run_id"]),
+                orchestration_api.GraphNodeResultRequest(
+                    graph_harness_config_id=graph_config.config_id,
+                    result={
+                        "result_id": "nresult:api:first",
+                        "task_run_id": str(started["task_run_id"]),
+                        "node_id": "first",
+                        "work_order_id": str(first_order["work_order_id"]),
+                        "outputs": {"first": "ok"},
+                    },
+                ),
+            )
+        )
+    finally:
+        orchestration_api.require_runtime = original  # type: ignore[assignment]
+
+    assert accepted["accepted_result"]["node_id"] == "first"
+    assert accepted["node_work_orders"][0]["node_id"] == "second"
+    assert accepted["graph_loop_state"]["completed_node_ids"] == ["first"]
+    assert "stage_execution_request" not in accepted
+
+
+def test_graph_harness_dispatch_ready_api_checkpoints_active_work_orders(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    graph = _graph()
+    registry = TaskFlowRegistry(backend_dir)
+    registry.upsert_task_graph(
+        graph_id=graph.graph_id,
+        title=graph.title,
+        graph_kind=graph.graph_kind,
+        entry_node_id=graph.entry_node_id,
+        output_node_id=graph.output_node_id,
+        nodes=tuple(node.to_dict() for node in graph.nodes),
+        runtime_policy=graph.runtime_policy,
+        publish_state="published",
+        enabled=True,
+    )
+    graph_config = publish_graph_harness_config_for_graph(base_dir=backend_dir, graph_id=graph.graph_id)
+    runtime = _runtime_with_graph_harness(base_dir=backend_dir, runtime_root=tmp_path / "runtime_state")
+
+    original = orchestration_api.require_runtime
+    orchestration_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    try:
+        started = asyncio.run(
+            orchestration_api.start_task_graph_harness_run(
+                graph.graph_id,
+                orchestration_api.TaskGraphRunStartRequest(
+                    session_id="session-test",
+                    dispatch_ready=False,
+                ),
+            )
+        )
+        first_dispatch = asyncio.run(
+            orchestration_api.dispatch_graph_run_ready_nodes(
+                str(started["graph_run_id"]),
+                orchestration_api.GraphRunDispatchReadyRequest(
+                    graph_harness_config_id=graph_config.config_id,
+                    max_requests=1,
+                ),
+            )
+        )
+        second_dispatch = asyncio.run(
+            orchestration_api.dispatch_graph_run_ready_nodes(
+                str(started["graph_run_id"]),
+                orchestration_api.GraphRunDispatchReadyRequest(
+                    graph_harness_config_id=graph_config.config_id,
+                    max_requests=1,
+                ),
+            )
+        )
+    finally:
+        orchestration_api.require_runtime = original  # type: ignore[assignment]
+
+    assert first_dispatch["work_order_count"] == 1
+    assert first_dispatch["graph_loop_state"]["running_node_ids"] == ["produce"]
+    assert second_dispatch["work_order_count"] == 0
+    assert second_dispatch["graph_loop_state"]["running_node_ids"] == ["produce"]

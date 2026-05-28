@@ -10,20 +10,15 @@ from ..registry.agent_registry import AgentRegistry
 from ..identity import agent_id_aliases, normalize_agent_id, normalize_agent_id_sequence
 from .runtime_profile_models import AgentRuntimeProfile
 from ..models.model_profile_models import contains_raw_secret, parse_agent_model_profile
-from orchestration.runtime_lane_registry import normalize_runtime_lane_sequence
 from .runtime_mode_config import (
     DEFAULT_RUNTIME_MODE,
     CUSTOM_MODE,
     PROFESSIONAL_MODE,
     ROLE_MODE,
     STANDARD_MODE,
-    modes_for_runtime_lanes_or_custom,
     normalize_default_runtime_mode,
     normalize_runtime_modes,
-    runtime_lanes_for_modes,
 )
-
-_REMOVED_RUNTIME_LANES = {"full_interactive", "task_dispatch", "final_integration"}
 
 
 def _storage_root(base_dir: Path) -> Path:
@@ -69,12 +64,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             agent_id="agent:0",
             enabled_runtime_modes=(ROLE_MODE, STANDARD_MODE, PROFESSIONAL_MODE, CUSTOM_MODE),
             default_runtime_mode=STANDARD_MODE,
-            allowed_runtime_lanes=(
-                "game_delivery",
-                "role_interaction",
-                "standard_task",
-                "professional_task",
-            ),
             allowed_operations=(
                 "op.model_response",
                 "op.read_file",
@@ -134,7 +123,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
         AgentRuntimeProfile(
             agent_profile_id="memory_system_agent",
             agent_id="agent:1",
-            allowed_runtime_lanes=("memory_trace_read", "session_memory_maintenance", "durable_memory_extraction", "memory_candidate_review"),
             allowed_operations=("op.model_response", "op.memory_read", "op.memory_write_candidate"),
             blocked_operations=("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.agent_bounded", "op.delegate_to_agent", "op.web_search"),
             allowed_memory_scopes=("conversation_readonly", "state_readonly", "long_term_candidate", "session_memory_write_candidate", "durable_memory_write_candidate"),
@@ -147,7 +135,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
         AgentRuntimeProfile(
             agent_profile_id="config_system_agent",
             agent_id="agent:2",
-            allowed_runtime_lanes=("config_trace_read",),
             allowed_operations=("op.model_response", "op.read_file", "op.search_text"),
             blocked_operations=("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.memory_write_candidate", "op.agent_bounded"),
             allowed_memory_scopes=("state_readonly",),
@@ -160,7 +147,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
         AgentRuntimeProfile(
             agent_profile_id="task_management_agent",
             agent_id="agent:4",
-            allowed_runtime_lanes=("task_trace_read",),
             allowed_operations=("op.model_response", "op.read_file", "op.search_text"),
             blocked_operations=("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.memory_write_candidate", "op.agent_bounded"),
             allowed_memory_scopes=("state_readonly",),
@@ -173,7 +159,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
         AgentRuntimeProfile(
             agent_profile_id="capability_system_agent",
             agent_id="agent:5",
-            allowed_runtime_lanes=("capability_trace_read",),
             allowed_operations=("op.model_response", "op.read_file", "op.search_text"),
             blocked_operations=("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.memory_write_candidate", "op.agent_bounded"),
             allowed_memory_scopes=("state_readonly",),
@@ -186,7 +171,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
         AgentRuntimeProfile(
             agent_profile_id="context_compactor_agent",
             agent_id="agent:context_compactor",
-            allowed_runtime_lanes=("context_compaction", "runtime_trace_read"),
             allowed_operations=("op.model_response",),
             blocked_operations=(
                 "op.web_search",
@@ -233,7 +217,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
         AgentRuntimeProfile(
             agent_profile_id="knowledge_search_agent",
             agent_id="agent:knowledge_searcher",
-            allowed_runtime_lanes=("retrieval_delegate", "readonly_exploration"),
             allowed_operations=("op.model_response", "op.mcp_retrieval"),
             blocked_operations=(
                 "op.web_search",
@@ -265,7 +248,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
         AgentRuntimeProfile(
             agent_profile_id="pdf_analysis_agent",
             agent_id="agent:pdf_reader",
-            allowed_runtime_lanes=("pdf_delegate", "readonly_exploration"),
             allowed_operations=("op.model_response", "op.mcp_pdf", "op.read_file"),
             blocked_operations=("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.memory_write_candidate", "op.delegate_to_agent"),
             allowed_memory_scopes=("conversation_readonly", "state_readonly"),
@@ -279,7 +261,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
         AgentRuntimeProfile(
             agent_profile_id="structured_data_analysis_agent",
             agent_id="agent:table_analyst",
-            allowed_runtime_lanes=("structured_data_delegate", "readonly_exploration"),
             allowed_operations=("op.model_response", "op.mcp_structured_data", "op.read_structured_file", "op.read_file"),
             blocked_operations=("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.memory_write_candidate", "op.delegate_to_agent"),
             allowed_memory_scopes=("conversation_readonly", "state_readonly"),
@@ -293,7 +274,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
         AgentRuntimeProfile(
             agent_profile_id="web_research_agent",
             agent_id="agent:web_researcher",
-            allowed_runtime_lanes=("web_research_delegate", "readonly_exploration"),
             allowed_operations=(
                 "op.model_response",
                 "op.search_agent",
@@ -362,7 +342,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
         AgentRuntimeProfile(
             agent_profile_id="codebase_search_agent",
             agent_id="agent:codebase_searcher",
-            allowed_runtime_lanes=("readonly_exploration",),
             allowed_operations=(
                 "op.model_response",
                 "op.codebase_search",
@@ -419,7 +398,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
         AgentRuntimeProfile(
             agent_profile_id="memory_search_agent",
             agent_id="agent:memory_searcher",
-            allowed_runtime_lanes=("readonly_exploration", "memory_trace_read"),
             allowed_operations=("op.model_response", "op.memory_read"),
             blocked_operations=(
                 "op.web_search",
@@ -461,7 +439,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
         AgentRuntimeProfile(
             agent_profile_id="completion_verifier_agent",
             agent_id="agent:verifier",
-            allowed_runtime_lanes=("verification_delegate", "runtime_trace_read", "readonly_exploration"),
             allowed_operations=("op.model_response", "op.read_file", "op.search_files", "op.search_text", "op.git_diff", "op.git_status"),
             blocked_operations=("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.memory_write_candidate", "op.delegate_to_agent"),
             allowed_memory_scopes=("conversation_readonly", "state_readonly"),
@@ -492,7 +469,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
 def _profile_from_dict(payload: dict[str, Any]) -> AgentRuntimeProfile:
     normalized_agent_id = normalize_agent_id(str(payload.get("agent_id") or ""))
     metadata = dict(payload.get("metadata") or {})
-    allow_unregistered_lanes = bool(metadata.get("allow_unregistered_runtime_lanes", False))
     raw_enabled_modes = [
         str(item or "").strip()
         for item in list(payload.get("enabled_runtime_modes") or metadata.get("enabled_runtime_modes") or [])
@@ -502,19 +478,9 @@ def _profile_from_dict(payload: dict[str, Any]) -> AgentRuntimeProfile:
         raw_enabled_modes,
         fallback=(),
     )
-    if not explicit_modes:
-        lanes = _active_runtime_lanes(payload.get("allowed_runtime_lanes"))
-        explicit_modes = modes_for_runtime_lanes_or_custom(lanes)
     default_runtime_mode = normalize_default_runtime_mode(
         payload.get("default_runtime_mode") or metadata.get("default_runtime_mode") or DEFAULT_RUNTIME_MODE,
         explicit_modes,
-    )
-    mode_lanes = runtime_lanes_for_modes(explicit_modes)
-    raw_runtime_lanes = _active_runtime_lanes(payload.get("allowed_runtime_lanes")) if CUSTOM_MODE in explicit_modes else []
-    allowed_runtime_lanes = normalize_runtime_lane_sequence(
-        [*mode_lanes, *raw_runtime_lanes],
-        allow_unregistered=allow_unregistered_lanes,
-        allow_system_only=True,
     )
     allowed_operations = tuple(str(item) for item in list(payload.get("allowed_operations") or []) if str(item))
     blocked_operations = _without_allowed_operations(
@@ -526,7 +492,6 @@ def _profile_from_dict(payload: dict[str, Any]) -> AgentRuntimeProfile:
         agent_id=normalized_agent_id,
         enabled_runtime_modes=explicit_modes,
         default_runtime_mode=default_runtime_mode,
-        allowed_runtime_lanes=allowed_runtime_lanes,
         allowed_operations=allowed_operations,
         blocked_operations=blocked_operations,
         allowed_memory_scopes=tuple(_normalize_memory_scopes(normalized_agent_id, payload.get("allowed_memory_scopes"))),
@@ -610,7 +575,6 @@ class AgentRuntimeRegistry:
         agent_profile_id: str = "",
         enabled_runtime_modes: tuple[str, ...] = (),
         default_runtime_mode: str = "",
-        allowed_runtime_lanes: tuple[str, ...] = (),
         allowed_operations: tuple[str, ...] = (),
         blocked_operations: tuple[str, ...] = (),
         allowed_memory_scopes: tuple[str, ...] = (),
@@ -643,27 +607,17 @@ class AgentRuntimeRegistry:
         )
         if requested_runtime_modes and not normalized_modes:
             raise ValueError("enabled_runtime_modes must include at least one supported runtime mode")
-        if not normalized_modes and allowed_runtime_lanes:
-            normalized_modes = modes_for_runtime_lanes_or_custom(allowed_runtime_lanes)
         normalized_default_mode = normalize_default_runtime_mode(
             default_runtime_mode or metadata_payload.get("default_runtime_mode") or (current.default_runtime_mode if current else DEFAULT_RUNTIME_MODE),
             normalized_modes,
         )
         metadata_payload.pop("enabled_runtime_modes", None)
         metadata_payload.pop("default_runtime_mode", None)
-        mode_runtime_lanes = runtime_lanes_for_modes(normalized_modes)
-        manual_runtime_lanes = allowed_runtime_lanes if CUSTOM_MODE in normalized_modes else ()
-        normalized_runtime_lanes = normalize_runtime_lane_sequence(
-            (*mode_runtime_lanes, *manual_runtime_lanes),
-            allow_unregistered=bool(metadata_payload.get("allow_unregistered_runtime_lanes", False)),
-            allow_system_only=True,
-        )
         profile = AgentRuntimeProfile(
             agent_profile_id=str(agent_profile_id or (current.agent_profile_id if current else f"{target.removeprefix('agent:').replace(':', '_')}_runtime")).strip(),
             agent_id=target,
             enabled_runtime_modes=normalized_modes,
             default_runtime_mode=normalized_default_mode,
-            allowed_runtime_lanes=normalized_runtime_lanes,
             allowed_operations=tuple(str(item).strip() for item in allowed_operations if str(item).strip()),
             blocked_operations=tuple(str(item).strip() for item in blocked_operations if str(item).strip()),
             allowed_memory_scopes=tuple(_normalize_memory_scopes(target, allowed_memory_scopes)),
@@ -791,8 +745,6 @@ def _migrate_profile_payload(payload: dict[str, Any]) -> dict[str, Any]:
         raw_enabled_modes,
         fallback=(),
     )
-    if not enabled_runtime_modes:
-        enabled_runtime_modes = modes_for_runtime_lanes_or_custom(payload.get("allowed_runtime_lanes"))
     next_payload["enabled_runtime_modes"] = list(enabled_runtime_modes)
     next_payload["default_runtime_mode"] = normalize_default_runtime_mode(
         payload.get("default_runtime_mode") or metadata.pop("default_runtime_mode", None) or DEFAULT_RUNTIME_MODE,
@@ -801,20 +753,6 @@ def _migrate_profile_payload(payload: dict[str, Any]) -> dict[str, Any]:
     runtime_template_id = _infer_runtime_template_id(next_payload["agent_id"], {**next_payload, "metadata": metadata})
     if runtime_template_id:
         metadata["runtime_template_id"] = runtime_template_id
-    next_payload["allowed_runtime_lanes"] = list(
-        normalize_runtime_lane_sequence(
-            [
-                *runtime_lanes_for_modes(enabled_runtime_modes),
-                *(
-                    _active_runtime_lanes(payload.get("allowed_runtime_lanes"))
-                    if CUSTOM_MODE in enabled_runtime_modes
-                    else []
-                ),
-            ],
-            allow_unregistered=bool(metadata.get("allow_unregistered_runtime_lanes", False)),
-            allow_system_only=True,
-        )
-    )
     next_payload["metadata"] = metadata
     next_payload["model_profile"] = parse_agent_model_profile(
         payload.get("model_profile") or metadata.pop("model_profile", {})
@@ -823,15 +761,6 @@ def _migrate_profile_payload(payload: dict[str, Any]) -> dict[str, Any]:
     next_payload.pop("allowed_delegate_agent_categories", None)
     next_payload.pop("output_contracts", None)
     return next_payload
-
-
-def _active_runtime_lanes(lanes: Any) -> list[str]:
-    result: list[str] = []
-    for item in list(lanes or []):
-        lane = str(item or "").strip()
-        if lane and lane not in _REMOVED_RUNTIME_LANES:
-            result.append(lane)
-    return result
 
 
 def _enforce_system_builtin_profile_payload(
@@ -858,7 +787,6 @@ def _enforce_system_builtin_profile_payload(
     enforced["agent_id"] = agent_id
     for key in (
         "enabled_runtime_modes",
-        "allowed_runtime_lanes",
         "allowed_operations",
         "blocked_operations",
         "allowed_memory_scopes",

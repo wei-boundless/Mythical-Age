@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from task_system.environments import default_task_environment_registry
+from task_system.environments import TaskEnvironmentRegistry, default_task_environment_registry
 from task_system.registry.flow_models import SpecificTaskRecord, TaskExecutionPolicy
 
 from .assembly_policy import (
@@ -19,6 +19,7 @@ def resolve_specific_task_assembly_policy(
     task_record: SpecificTaskRecord,
     execution_policy: TaskExecutionPolicy | None = None,
     task_selection: dict[str, Any] | None = None,
+    environment_registry: TaskEnvironmentRegistry | None = None,
 ) -> SpecificTaskAssemblyPolicy:
     selection = dict(task_selection or {})
     task_policy = dict(getattr(task_record, "task_policy", {}) or {})
@@ -31,6 +32,7 @@ def resolve_specific_task_assembly_policy(
         metadata.get("environment_id"),
         task_policy.get("task_environment_id"),
         task_policy.get("environment_id"),
+        environment_registry=environment_registry,
     )
     flow_ref = _first_value(
         selection.get("flow_ref"),
@@ -158,18 +160,18 @@ def _first_value(*values: Any) -> str:
     return ""
 
 
-def _resolve_environment_id(*values: Any) -> str:
+def _resolve_environment_id(*values: Any, environment_registry: TaskEnvironmentRegistry | None = None) -> str:
     explicit = _first_value(*values)
     if explicit:
-        return _require_known_environment(explicit)
+        return _require_known_environment(explicit, environment_registry=environment_registry)
     return "env.general.workspace"
 
 
-def _require_known_environment(environment_id: str) -> str:
+def _require_known_environment(environment_id: str, *, environment_registry: TaskEnvironmentRegistry | None = None) -> str:
     value = str(environment_id or "").strip()
     if not value:
         raise ValueError("SpecificTaskAssemblyPolicy requires environment_id")
-    registry = default_task_environment_registry()
+    registry = environment_registry or default_task_environment_registry()
     if registry.get(value) is None:
         raise ValueError(f"unknown task environment: {value}")
     return value

@@ -102,6 +102,52 @@ class GraphRuntimeEnvelope:
 
 
 @dataclass(frozen=True, slots=True)
+class GraphRun:
+    graph_run_id: str
+    task_run_id: str
+    session_id: str
+    graph_id: str
+    config_id: str
+    config_hash: str
+    status: str = "running"
+    created_at: float = 0.0
+    updated_at: float = 0.0
+    terminal_reason: str = ""
+    diagnostics: dict[str, Any] = field(default_factory=dict)
+    authority: str = "harness.graph_run"
+
+    def __post_init__(self) -> None:
+        if self.authority != "harness.graph_run":
+            raise ValueError("GraphRun authority must be harness.graph_run")
+        if not self.graph_run_id:
+            raise ValueError("GraphRun requires graph_run_id")
+        if not self.task_run_id:
+            raise ValueError("GraphRun requires task_run_id")
+        if not self.config_id:
+            raise ValueError("GraphRun requires config_id")
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "GraphRun":
+        return cls(
+            graph_run_id=str(payload.get("graph_run_id") or ""),
+            task_run_id=str(payload.get("task_run_id") or ""),
+            session_id=str(payload.get("session_id") or ""),
+            graph_id=str(payload.get("graph_id") or ""),
+            config_id=str(payload.get("config_id") or ""),
+            config_hash=str(payload.get("config_hash") or ""),
+            status=str(payload.get("status") or "running"),
+            created_at=float(payload.get("created_at") or 0.0),
+            updated_at=float(payload.get("updated_at") or 0.0),
+            terminal_reason=str(payload.get("terminal_reason") or ""),
+            diagnostics=dict(payload.get("diagnostics") or {}),
+            authority=str(payload.get("authority") or "harness.graph_run"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class GraphLoopState:
     state_id: str
     graph_run_id: str
@@ -158,6 +204,94 @@ class GraphLoopState:
             terminal_reason=str(payload.get("terminal_reason") or ""),
             diagnostics=dict(payload.get("diagnostics") or {}),
             authority=str(payload.get("authority") or "harness.graph_loop_state"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class GraphNodeWorkOrder:
+    work_order_id: str
+    work_kind: str
+    graph_run_id: str
+    task_run_id: str
+    node_id: str
+    config_id: str
+    config_hash: str
+    task_ref: str
+    executor_type: str = "agent"
+    agent_id: str = ""
+    agent_profile_id: str = ""
+    runtime_lane: str = ""
+    message: str = ""
+    explicit_inputs: dict[str, Any] = field(default_factory=dict)
+    input_package: dict[str, Any] = field(default_factory=dict)
+    graph_state: dict[str, Any] = field(default_factory=dict)
+    context_refs: dict[str, Any] = field(default_factory=dict)
+    memory_view_request: dict[str, Any] = field(default_factory=dict)
+    artifact_view_request: dict[str, Any] = field(default_factory=dict)
+    file_view_request: dict[str, Any] = field(default_factory=dict)
+    permission_scope: dict[str, Any] = field(default_factory=dict)
+    tool_scope: dict[str, Any] = field(default_factory=dict)
+    expected_result_contract: dict[str, Any] = field(default_factory=dict)
+    async_policy: dict[str, Any] = field(default_factory=dict)
+    retry_policy: dict[str, Any] = field(default_factory=dict)
+    timeout_policy: dict[str, Any] = field(default_factory=dict)
+    dispatch_context: dict[str, Any] = field(default_factory=dict)
+    idempotency_key: str = ""
+    authority: str = "harness.graph_node_work_order"
+
+    def __post_init__(self) -> None:
+        if self.authority != "harness.graph_node_work_order":
+            raise ValueError("GraphNodeWorkOrder authority must be harness.graph_node_work_order")
+        if not self.work_order_id:
+            raise ValueError("GraphNodeWorkOrder requires work_order_id")
+        if self.work_kind not in {"agent", "tool", "human_gate", "graph_module"}:
+            raise ValueError("GraphNodeWorkOrder work_kind is not supported")
+        if not self.graph_run_id:
+            raise ValueError("GraphNodeWorkOrder requires graph_run_id")
+        if not self.task_run_id:
+            raise ValueError("GraphNodeWorkOrder requires task_run_id")
+        if not self.node_id:
+            raise ValueError("GraphNodeWorkOrder requires node_id")
+        if not self.task_ref:
+            raise ValueError("GraphNodeWorkOrder requires task_ref")
+        if not self.idempotency_key:
+            object.__setattr__(self, "idempotency_key", f"{self.graph_run_id}:{self.node_id}:{stable_hash(self.explicit_inputs)}")
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "GraphNodeWorkOrder":
+        return cls(
+            work_order_id=str(payload.get("work_order_id") or ""),
+            work_kind=str(payload.get("work_kind") or "agent"),
+            graph_run_id=str(payload.get("graph_run_id") or ""),
+            task_run_id=str(payload.get("task_run_id") or ""),
+            node_id=str(payload.get("node_id") or ""),
+            config_id=str(payload.get("config_id") or ""),
+            config_hash=str(payload.get("config_hash") or ""),
+            task_ref=str(payload.get("task_ref") or ""),
+            executor_type=str(payload.get("executor_type") or "agent"),
+            agent_id=str(payload.get("agent_id") or ""),
+            agent_profile_id=str(payload.get("agent_profile_id") or ""),
+            runtime_lane=str(payload.get("runtime_lane") or ""),
+            message=str(payload.get("message") or ""),
+            explicit_inputs=dict(payload.get("explicit_inputs") or {}),
+            input_package=dict(payload.get("input_package") or {}),
+            graph_state=dict(payload.get("graph_state") or {}),
+            context_refs=dict(payload.get("context_refs") or {}),
+            memory_view_request=dict(payload.get("memory_view_request") or {}),
+            artifact_view_request=dict(payload.get("artifact_view_request") or {}),
+            file_view_request=dict(payload.get("file_view_request") or {}),
+            permission_scope=dict(payload.get("permission_scope") or {}),
+            tool_scope=dict(payload.get("tool_scope") or {}),
+            expected_result_contract=dict(payload.get("expected_result_contract") or {}),
+            async_policy=dict(payload.get("async_policy") or {}),
+            retry_policy=dict(payload.get("retry_policy") or {}),
+            timeout_policy=dict(payload.get("timeout_policy") or {}),
+            dispatch_context=dict(payload.get("dispatch_context") or {}),
+            idempotency_key=str(payload.get("idempotency_key") or ""),
+            authority=str(payload.get("authority") or "harness.graph_node_work_order"),
         )
 
 
@@ -270,4 +404,3 @@ def stable_hash(payload: Any) -> str:
 def safe_id(value: str, *, limit: int = 120) -> str:
     safe = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in str(value or "")).strip("_")
     return (safe or "graph")[:limit]
-

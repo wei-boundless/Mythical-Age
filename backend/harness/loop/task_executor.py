@@ -50,7 +50,7 @@ def is_task_run_executor_claimed(task_run: Any) -> bool:
 def recover_interrupted_task_executors(runtime_host: Any) -> dict[str, Any]:
     recovered: list[str] = []
     for task_run in runtime_host.state_index.list_task_runs():
-        if str(task_run.runtime_lane or "") != "single_agent_task":
+        if str(getattr(task_run, "execution_runtime_kind", "") or "") != "single_agent_task":
             continue
         if not is_task_run_executor_claimed(task_run):
             continue
@@ -104,8 +104,8 @@ async def execute_task_run(
     task_run = runtime_host.state_index.get_task_run(task_run_id)
     if task_run is None:
         return _not_found(task_run_id)
-    if str(task_run.runtime_lane or "") != "single_agent_task":
-        return _conflict(task_run_id, "not_single_agent_task")
+    if str(getattr(task_run, "execution_runtime_kind", "") or "") != "single_agent_task":
+        return _conflict(task_run_id, "not_single_agent_task_run")
     if not is_task_run_executable(task_run) and not is_task_run_executor_claimed(task_run):
         return _conflict(task_run_id, f"task_run_not_executable:{task_run.status}")
 
@@ -1185,7 +1185,7 @@ def _ensure_executor_agent_run(runtime_host: Any, *, task_run: Any) -> Any:
         agent_id="agent:0",
         agent_profile_id=task_run.agent_profile_id,
         status="running",
-        runtime_lane="single_agent_task",
+        execution_runtime_kind="single_agent_task",
         created_at=now,
         updated_at=now,
     )

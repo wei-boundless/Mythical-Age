@@ -1,12 +1,11 @@
 "use client";
 
 import {
-  continueOrchestrationCurrentStage,
+  dispatchGraphRunReadyNodes,
   evaluateTaskGraphRunMonitor,
   loadFile,
   createSession,
   deleteSession,
-  getCoordinationRunTaskGraphMonitor,
   getGlobalRuntimeMonitor,
   getCodeEnvironmentWorkspaceTree,
   getRuntimeMonitorEventStreamUrl,
@@ -23,8 +22,6 @@ import {
   isRequestAbortError,
   listSessions,
   listSkills,
-  resumeOrchestrationTaskGraphRun,
-  rewindOrchestrationFromStage,
   renameSession,
   resolveHarnessTaskRunApproval,
   saveFile,
@@ -32,7 +29,6 @@ import {
   stopOrchestrationTaskRun,
   streamChat,
   switchSoulSystemSeed,
-  taskGraphRunIdFromLiveMonitor,
   truncateSessionMessages
 } from "@/lib/api";
 import { buildMainAgentTaskSelection } from "@/lib/mainAgentAssemblyModes";
@@ -1286,7 +1282,8 @@ export class WorkspaceRuntime {
     }
     return {
       task_run_id: taskRunId,
-      coordination_run_id: String(binding.coordination_run_id ?? "").trim() || undefined,
+      graph_run_id: String(binding.graph_run_id ?? "").trim() || undefined,
+      graph_harness_config_id: String(binding.graph_harness_config_id ?? "").trim() || undefined,
       graph_id: String(binding.graph_id ?? "").trim() || undefined,
       session_id: String(binding.session_id ?? "").trim() || undefined,
       project_id: String(binding.project_id ?? "").trim() || undefined,
@@ -1437,33 +1434,21 @@ export class WorkspaceRuntime {
   private async continueBoundTaskGraphRun() {
     const state = this.store.getState();
     const binding = state.taskGraphMonitorBinding;
-    const coordinationRunId = String(
-      binding?.coordination_run_id
-      || state.taskGraphBoundRunMonitor?.coordination_run_id
-      || ""
-    ).trim();
+    const graphRunId = String(binding?.graph_run_id || state.taskGraphBoundRunMonitor?.graph_run_id || "").trim();
+    const graphHarnessConfigId = String(binding?.graph_harness_config_id || "").trim();
     const taskRunId = String(binding?.task_run_id || state.taskGraphBoundRunMonitor?.task_run_id || "").trim();
-    if (!coordinationRunId) {
-      this.store.setState((prev) => ({ ...prev, taskGraphMonitorError: "当前没有可续跑的 CoordinationRun。" }));
+    if (!graphRunId || !graphHarnessConfigId) {
+      this.store.setState((prev) => ({ ...prev, taskGraphMonitorError: "当前没有可派发的 GraphRun。" }));
       return;
     }
     this.store.setState((prev) => ({ ...prev, taskGraphMonitorActionLoading: true, taskGraphMonitorError: "" }));
     try {
-      await continueOrchestrationCurrentStage(coordinationRunId, {
-        source: "task_graph_run_manual_continue",
-        current_turn_context: {
-          operator_action: "manual_continue_current_stage",
-          task_run_id: taskRunId,
-        },
+      await dispatchGraphRunReadyNodes(graphRunId, {
+        graph_harness_config_id: graphHarnessConfigId,
+        max_requests: 1,
       });
       if (taskRunId) {
         const monitor = await getTaskGraphRunMonitor(taskRunId);
-        this.store.setState((prev) => ({
-          ...prev,
-          taskGraphBoundRunMonitor: monitor,
-        }));
-      } else {
-        const monitor = await getCoordinationRunTaskGraphMonitor(coordinationRunId);
         this.store.setState((prev) => ({
           ...prev,
           taskGraphBoundRunMonitor: monitor,
@@ -1480,69 +1465,10 @@ export class WorkspaceRuntime {
   }
 
   private async refreshAndContinueBoundTaskGraphRun() {
-    const state = this.store.getState();
-    const binding = state.taskGraphMonitorBinding;
-    const monitor = state.taskGraphBoundRunMonitor;
-    const coordinationRunId = String(
-      binding?.coordination_run_id
-      || monitor?.coordination_run_id
-      || ""
-    ).trim();
-    const taskRunId = String(binding?.task_run_id || monitor?.task_run_id || "").trim();
-    const currentRequest = monitor?.current_stage_execution_request && typeof monitor.current_stage_execution_request === "object"
-      ? monitor.current_stage_execution_request
-      : {};
-    const stageId = String(
-      currentRequest.stage_id
-      || monitor?.runtime?.active_node_id
-      || ""
-    ).trim();
-    const artifactRoot = String(monitor?.supervision?.latest_artifact_root || "").trim();
-    if (!coordinationRunId) {
-      this.store.setState((prev) => ({ ...prev, taskGraphMonitorError: "当前没有可刷新快照的 CoordinationRun。" }));
-      return;
-    }
-    if (!stageId) {
-      this.store.setState((prev) => ({ ...prev, taskGraphMonitorError: "当前运行缺少活跃节点，无法刷新快照续跑。" }));
-      return;
-    }
-    this.store.setState((prev) => ({ ...prev, taskGraphMonitorActionLoading: true, taskGraphMonitorError: "" }));
-    try {
-      await rewindOrchestrationFromStage(coordinationRunId, {
-        stage_id: stageId,
-        reason: "refresh_running_graph_snapshot",
-        source: "task_graph_run_refresh_snapshot_continue",
-        artifact_root: artifactRoot,
-        include_downstream: true,
-        move_artifacts: false,
-        continue_after_rewind: true,
-        current_turn_context: {
-          operator_action: "refresh_running_graph_snapshot_continue",
-          task_run_id: taskRunId,
-          artifact_root: artifactRoot,
-        },
-      });
-      if (taskRunId) {
-        const nextMonitor = await getTaskGraphRunMonitor(taskRunId);
-        this.store.setState((prev) => ({
-          ...prev,
-          taskGraphBoundRunMonitor: nextMonitor,
-        }));
-      } else {
-        const nextMonitor = await getCoordinationRunTaskGraphMonitor(coordinationRunId);
-        this.store.setState((prev) => ({
-          ...prev,
-          taskGraphBoundRunMonitor: nextMonitor,
-        }));
-      }
-    } catch (error) {
-      this.store.setState((prev) => ({
-        ...prev,
-        taskGraphMonitorError: error instanceof Error ? error.message : "刷新快照续跑失败",
-      }));
-    } finally {
-      this.store.setState((prev) => ({ ...prev, taskGraphMonitorActionLoading: false }));
-    }
+    this.store.setState((prev) => ({
+      ...prev,
+      taskGraphMonitorError: "新 GraphHarness 尚未提供 rewind/refresh 控制命令。请使用派发 ready 节点或等待节点结果回交。",
+    }));
   }
 
   private async submitTaskGraphMonitorDecision(
@@ -1553,42 +1479,31 @@ export class WorkspaceRuntime {
     const state = this.store.getState();
     const binding = state.taskGraphMonitorBinding;
     const monitorDecision = state.taskGraphMonitorDecision;
-    const coordinationRunId = String(
-      monitorDecision?.coordination_run_id
-      || binding?.coordination_run_id
-      || state.taskGraphBoundRunMonitor?.coordination_run_id
-      || ""
-    ).trim();
+    const graphRunId = String(binding?.graph_run_id || state.taskGraphBoundRunMonitor?.graph_run_id || "").trim();
+    const graphHarnessConfigId = String(binding?.graph_harness_config_id || "").trim();
     const taskRunId = String(binding?.task_run_id || monitorDecision?.task_run_id || "").trim();
-    if (!coordinationRunId) {
-      this.store.setState((prev) => ({ ...prev, taskGraphMonitorError: "当前没有可处理运行交互的 CoordinationRun。" }));
+    if (!graphRunId || !graphHarnessConfigId) {
+      this.store.setState((prev) => ({ ...prev, taskGraphMonitorError: "当前没有可处理运行交互的 GraphRun。" }));
       return;
     }
     this.store.setState((prev) => ({ ...prev, taskGraphMonitorActionLoading: true, taskGraphMonitorError: "" }));
     try {
       if (controlAction === "continue_current_stage" || decision === "continue_current_stage" || decision === "retry_current_stage") {
-        await continueOrchestrationCurrentStage(coordinationRunId, {
-          source: "task_graph_monitor_global_dock",
-          current_turn_context: {
-            decision,
-            monitor_decision_id: monitorDecision?.decision_id,
-            ...(resumePayload ?? {}),
-          },
+        await dispatchGraphRunReadyNodes(graphRunId, {
+          graph_harness_config_id: graphHarnessConfigId,
+          max_requests: Number(resumePayload?.max_requests ?? 1),
         });
       } else if (controlAction === "stop_task_run" || decision === "pause") {
         await stopOrchestrationTaskRun(taskRunId, {
           reason: String(resumePayload?.reason || "monitor_pause_requested"),
           message: "TaskGraph 运行交互浮窗暂停运行",
-          coordination_run_id: coordinationRunId,
         });
       } else if (controlAction === "acknowledge" || decision === "acknowledge") {
         this.store.setState((prev) => ({ ...prev, taskGraphRunInteractionOpen: false }));
       } else {
-        await resumeOrchestrationTaskGraphRun(coordinationRunId, {
-          decision,
-          source: "task_graph_monitor_global_dock",
-          monitor_decision_id: monitorDecision?.decision_id,
-          ...(resumePayload ?? {}),
+        await dispatchGraphRunReadyNodes(graphRunId, {
+          graph_harness_config_id: graphHarnessConfigId,
+          max_requests: Number(resumePayload?.max_requests ?? 1),
         });
       }
       if (taskRunId) {
@@ -1679,7 +1594,18 @@ export class WorkspaceRuntime {
     if (!runId) {
       return;
     }
-    await resumeOrchestrationTaskGraphRun(runId, payload ?? {});
+    const graphHarnessConfigId = String(
+      payload?.graph_harness_config_id
+      || this.store.getState().taskGraphMonitorBinding?.graph_harness_config_id
+      || ""
+    ).trim();
+    if (!graphHarnessConfigId) {
+      throw new Error("新 GraphHarness 派发需要 graph_harness_config_id。");
+    }
+    await dispatchGraphRunReadyNodes(runId, {
+      graph_harness_config_id: graphHarnessConfigId,
+      max_requests: Number(payload?.max_requests ?? 1),
+    });
     const sessionId = this.store.getState().currentSessionId;
     if (sessionId) {
       await this.hydrateLatestOrchestrationSnapshot(sessionId);
@@ -1722,16 +1648,10 @@ export class WorkspaceRuntime {
       const hasActiveGraphRun = Boolean(activeMonitor.has_coordination) && hasActiveHarnessRun;
       const hasPendingApproval = liveStatus === "waiting_approval" || String((activeMonitor.loop_state as Record<string, unknown> | undefined)?.terminal_reason ?? "") === "waiting_approval";
       const taskRunId = String(activeTaskRun.task_run_id ?? activeMonitor.task_run_id ?? liveMonitor.active_task_run_id ?? "").trim();
-      const coordinationRunId = String(
-        liveMonitor.latest_coordination_run_id
-        ?? taskGraphRunIdFromLiveMonitor(activeMonitor)
-        ?? ""
-      ).trim();
-      this.updateSessionActivityFromLiveMonitor(liveStatus, taskRunId, coordinationRunId);
+      const graphRunId = String(activeMonitor.graph_run_id ?? activeTaskRun.graph_run_id ?? "").trim();
+      this.updateSessionActivityFromLiveMonitor(liveStatus, taskRunId, graphRunId);
       let taskGraphRunMonitor = this.store.getState().taskGraphRunMonitor;
-      if (coordinationRunId) {
-        taskGraphRunMonitor = await getCoordinationRunTaskGraphMonitor(coordinationRunId);
-      } else if (taskRunId && activeMonitor.has_coordination) {
+      if (taskRunId && activeMonitor.has_coordination) {
         taskGraphRunMonitor = await getTaskGraphRunMonitor(taskRunId).catch(() => null);
       } else {
         taskGraphRunMonitor = null;
@@ -2180,7 +2100,8 @@ export class WorkspaceRuntime {
     const taskGraphBinding = work.workKind === "task_graph_run"
       ? this.normalizeTaskGraphMonitorBinding({
         task_run_id: selected.task_run_id,
-        coordination_run_id: selected.coordination_run_id,
+        graph_run_id: selected.graph_run_id,
+        graph_harness_config_id: selected.graph_harness_config_id,
         graph_id: selected.graph_id,
         session_id: selected.session_id,
         title: work.title,

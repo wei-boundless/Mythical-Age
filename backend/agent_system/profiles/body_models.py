@@ -10,7 +10,6 @@ class AgentBodyProfile:
     agent_id: str
     default_prompt_structure_profile_id: str
     default_memory_scope_profile_id: str
-    default_runtime_lane_profile_id: str
     default_output_boundary_profile_id: str
     default_operation_policy_mode: str = "fail_closed"
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -74,29 +73,6 @@ class MemoryScopeProfile:
         payload = asdict(self)
         payload["allowed_memory_layers"] = list(self.allowed_memory_layers)
         return payload
-
-
-@dataclass(frozen=True, slots=True)
-class RuntimeLaneProfile:
-    profile_id: str
-    lane_id: str
-    execution_style: str
-    tool_followup_policy: str
-    checkpoint_policy: str
-    resume_policy: str
-    metadata: dict[str, Any] = field(default_factory=dict)
-    authority: str = "orchestration.runtime_lane_profile"
-
-    def __post_init__(self) -> None:
-        if self.authority != "orchestration.runtime_lane_profile":
-            raise ValueError("RuntimeLaneProfile authority must be orchestration.runtime_lane_profile")
-        if not self.profile_id:
-            raise ValueError("RuntimeLaneProfile requires profile_id")
-        if not self.lane_id:
-            raise ValueError("RuntimeLaneProfile requires lane_id")
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
 
 
 @dataclass(frozen=True, slots=True)

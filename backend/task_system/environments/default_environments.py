@@ -9,7 +9,6 @@ from .models import (
     ResourceSpace,
     RiskPolicy,
     SandboxPolicy,
-    SkillSpace,
     TaskEnvironmentDefinition,
     TaskEnvironmentGroup,
     TaskEnvironmentRecord,
@@ -137,10 +136,6 @@ def development_sandbox_environment() -> TaskEnvironmentDefinition:
             artifact_root="runtime_output",
             publish_policy="verification_required",
         ),
-        skill_space=SkillSpace(
-            default_skill_refs=("skill.browser-operation",),
-            optional_skill_refs=("skill.visual-asset-generation", "skill.image-prompt-design", "skill.structured-data-analysis"),
-        ),
     )
     return TaskEnvironmentDefinition(record=record, spec=spec)
 
@@ -195,10 +190,6 @@ def development_readonly_environment() -> TaskEnvironmentDefinition:
             shell_execution_policy="denied",
             browser_execution_policy="denied",
             network_execution_policy="task_decided",
-        ),
-        skill_space=SkillSpace(
-            default_skill_refs=("skill.rag-skill",),
-            optional_skill_refs=("skill.structured-data-analysis",),
         ),
     )
     return TaskEnvironmentDefinition(record=record, spec=spec)
@@ -270,10 +261,6 @@ def creation_writing_environment() -> TaskEnvironmentDefinition:
             artifact_root="repo.writing.artifact_repository",
             publish_policy="review_commit_required",
         ),
-        skill_space=SkillSpace(
-            default_skill_refs=("skill.image-prompt-design",),
-            optional_skill_refs=("skill.visual-asset-generation", "skill.rag-skill"),
-        ),
     )
     return TaskEnvironmentDefinition(record=record, spec=spec)
 
@@ -328,10 +315,6 @@ def research_web_environment() -> TaskEnvironmentDefinition:
             shell_execution_policy="denied",
             browser_execution_policy="task_decided",
             network_execution_policy="allowed",
-        ),
-        skill_space=SkillSpace(
-            default_skill_refs=("skill.rag-skill",),
-            optional_skill_refs=("skill.browser-operation",),
         ),
     )
     return TaskEnvironmentDefinition(record=record, spec=spec)
@@ -388,10 +371,6 @@ def document_processing_environment() -> TaskEnvironmentDefinition:
             browser_execution_policy="denied",
             network_execution_policy="denied",
         ),
-        skill_space=SkillSpace(
-            default_skill_refs=("skill.pdf-analysis",),
-            optional_skill_refs=("skill.structured-data-analysis",),
-        ),
     )
     return TaskEnvironmentDefinition(record=record, spec=spec)
 
@@ -443,10 +422,6 @@ def general_workspace_environment() -> TaskEnvironmentDefinition:
         memory_space=MemorySpace(
             environment_memory_refs=("conversation_context",),
             retrieval_index_refs=("conversation_index",),
-        ),
-        skill_space=SkillSpace(
-            default_skill_refs=("skill.rag-skill",),
-            optional_skill_refs=(),
         ),
         execution_policy=ExecutionPolicy(
             sandbox_required=False,

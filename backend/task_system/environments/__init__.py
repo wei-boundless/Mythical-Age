@@ -7,13 +7,13 @@ from .models import (
     ResourceSpace,
     RiskPolicy,
     SandboxPolicy,
-    SkillSpace,
     TaskEnvironmentDefinition,
     TaskEnvironmentGroup,
     TaskEnvironmentRecord,
     TaskEnvironmentSpec,
 )
-from .registry import TaskEnvironmentRegistry, default_task_environment_registry
+from .registry import TaskEnvironmentRegistry, default_task_environment_registry, task_environment_registry_from_backend_dir
+from .repository import TaskEnvironmentConfigError, TaskEnvironmentRepository, load_configured_task_environments
 from .spec_resolver import ResolvedTaskEnvironment, resolve_task_environment
 from .catalog import TaskEnvironmentCatalog, TaskEnvironmentCatalogItem, build_task_environment_catalog
 
@@ -27,7 +27,6 @@ __all__ = [
     "ResourceSpace",
     "RiskPolicy",
     "SandboxPolicy",
-    "SkillSpace",
     "TaskEnvironmentDefinition",
     "TaskEnvironmentGroup",
     "TaskEnvironmentRecord",
@@ -35,9 +34,13 @@ __all__ = [
     "TaskEnvironmentSpec",
     "TaskEnvironmentCatalog",
     "TaskEnvironmentCatalogItem",
+    "TaskEnvironmentConfigError",
+    "TaskEnvironmentRepository",
     "build_task_environment_catalog",
     "default_task_environment_registry",
+    "load_configured_task_environments",
     "resolve_task_environment",
+    "task_environment_registry_from_backend_dir",
 ]
 
 

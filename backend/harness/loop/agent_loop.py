@@ -1206,14 +1206,14 @@ def _start_turn_runtime(
         session_id=session_id,
         task_id=task_id or turn_id,
         agent_profile_id=agent_profile_ref or "main_interactive_agent",
-        runtime_lane="single_agent_turn",
+        execution_runtime_kind="single_agent_turn",
         status="running",
         created_at=now,
         updated_at=now,
         diagnostics={
             "turn_id": turn_id,
             "source": source,
-            "runtime_kind": "single_agent_turn",
+            "execution_runtime_kind": "single_agent_turn",
         },
     )
     agent_run = AgentRun(
@@ -1222,7 +1222,7 @@ def _start_turn_runtime(
         agent_id="agent:0",
         agent_profile_id=agent_profile_ref or "main_interactive_agent",
         status="running",
-        runtime_lane="single_agent_turn",
+        execution_runtime_kind="single_agent_turn",
         created_at=now,
         updated_at=now,
         diagnostics={"turn_id": turn_id, "source": source},

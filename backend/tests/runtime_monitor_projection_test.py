@@ -34,7 +34,7 @@ def task_run(**patch):
         "task_run_id": "taskrun:turn:session-a:1:abc",
         "session_id": "session-a",
         "task_id": "task:turn:session-a:1",
-        "runtime_lane": "single_agent_task",
+        "execution_runtime_kind": "single_agent_task",
         "status": "running",
         "terminal_reason": "",
         "created_at": 100.0,
@@ -213,7 +213,7 @@ def test_main_chat_taskinst_task_run_remains_monitorable():
         task_run_id="taskrun:turn:session-a:1:formal-task",
         task_id="taskinst:turn:session-a:1:formal-task",
         task_contract_ref="rtobj:task_run_contract:formal-task",
-        runtime_lane="single_agent_task",
+        execution_runtime_kind="single_agent_task",
         diagnostics={
             "turn_id": "turn:session-a:1",
             "contract": {

@@ -25,11 +25,10 @@ const api = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/api", () => ({
-  continueOrchestrationCurrentStage: vi.fn(),
   createSession: api.createSession,
   deleteSession: vi.fn(),
+  dispatchGraphRunReadyNodes: vi.fn(),
   evaluateTaskGraphRunMonitor: vi.fn(),
-  getCoordinationRunTaskGraphMonitor: vi.fn(),
   getCodeEnvironmentWorkspaceTree: api.getCodeEnvironmentWorkspaceTree,
   getGlobalRuntimeMonitor: api.getGlobalRuntimeMonitor,
   getRuntimeMonitorEventStreamUrl: vi.fn(() => "http://127.0.0.1:8003/api/orchestration/harness/monitor-events"),
@@ -49,13 +48,11 @@ vi.mock("@/lib/api", () => ({
   loadFile: api.loadFile,
   renameSession: vi.fn(),
   resolveHarnessTaskRunApproval: vi.fn(),
-  resumeOrchestrationTaskGraphRun: vi.fn(),
   saveFile: vi.fn(),
   setRagMode: vi.fn(),
   stopOrchestrationTaskRun: vi.fn(),
   streamChat: api.streamChat,
   switchSoulSystemSeed: vi.fn(),
-  taskGraphRunIdFromLiveMonitor: vi.fn(),
   truncateSessionMessages: vi.fn(),
 }));
 
@@ -89,6 +86,8 @@ function itemForMonitor(patch: Record<string, unknown>) {
     latest_event_at: 2,
     event_count: 1,
     coordination_run_id: "",
+    graph_run_id: "",
+    graph_harness_config_id: "",
     coordination_status: "",
     graph_id: "",
     active_node_id: "",
@@ -313,6 +312,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         title: "长篇小说",
         latest_event_type: "coordination_started",
         coordination_run_id: "coordrun:master",
+        graph_run_id: "grun:master",
+        graph_harness_config_id: "ghcfg:master",
         graph_id: "graph.writing.master",
         active_node_id: "world_review",
         project_id: "project",
@@ -328,7 +329,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().globalRuntimeMonitorSelectedTaskRunId).toBe("taskrun:master");
     expect(store.getState().taskGraphMonitorBinding).toMatchObject({
       task_run_id: "taskrun:master",
-      coordination_run_id: "coordrun:master",
+      graph_run_id: "grun:master",
+      graph_harness_config_id: "ghcfg:master",
       graph_id: "graph.writing.master",
       session_id: "session",
       title: "长篇小说",

@@ -152,8 +152,8 @@ async def execute_harness_task_run(
     task_run = runtime_host.state_index.get_task_run(task_run_id)
     if task_run is None:
         raise HTTPException(status_code=404, detail="TaskRun not found")
-    if str(task_run.runtime_lane or "") != "single_agent_task":
-        raise HTTPException(status_code=409, detail="not_single_agent_task")
+    if str(getattr(task_run, "execution_runtime_kind", "") or "") != "single_agent_task":
+        raise HTTPException(status_code=409, detail="not_single_agent_task_run")
     if is_task_run_executor_claimed(task_run):
         raise HTTPException(status_code=409, detail="task_run_executor_already_running")
     if not is_task_run_executable(task_run):

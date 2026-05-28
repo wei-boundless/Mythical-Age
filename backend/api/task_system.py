@@ -27,7 +27,7 @@ from task_system import (
 from task_system.compiler.graph_harness_config_publisher import publish_graph_harness_config_for_graph
 from task_system.compiler.coordination_graph_models import TaskGraphRuntimeSpec
 from task_system.editor.graph_template_catalog import build_task_graph_template_catalog
-from task_system.environments import build_task_environment_catalog
+from task_system.environments import build_task_environment_catalog, task_environment_registry_from_backend_dir
 from task_system.registry.flow_models import SpecificTaskRecord
 from task_system.graphs.task_graph_models import validate_task_graph
 
@@ -418,6 +418,7 @@ def _task_system_payload(base_dir) -> dict[str, object]:
     topology_templates = [item.to_dict() for item in registry.list_topology_templates()]
     communication_protocols = [item.to_dict() for item in registry.list_task_communication_protocols()]
     task_environment_management = build_task_environment_catalog(
+        registry=task_environment_registry_from_backend_dir(base_dir),
         specific_task_records=specific_task_records,
     ).management_payload()
     communication_protocol_by_id = {

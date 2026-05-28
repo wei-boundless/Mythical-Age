@@ -23,7 +23,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "PromptStructureProfile": (".profiles.body_models", "PromptStructureProfile"),
     "ProvisionedWorkerAgent": (".registry.worker_agent_factory", "ProvisionedWorkerAgent"),
     "ResolvedModelSpec": (".models.model_profile_models", "ResolvedModelSpec"),
-    "RuntimeLaneProfile": (".profiles.body_models", "RuntimeLaneProfile"),
     "TaskBodyOrchestration": (".assembly.runtime_spec_models", "TaskBodyOrchestration"),
     "WorkerAgentBlueprint": (".registry.worker_agent_blueprints", "WorkerAgentBlueprint"),
     "WorkerAgentFactory": (".registry.worker_agent_factory", "WorkerAgentFactory"),

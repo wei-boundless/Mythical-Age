@@ -12,12 +12,10 @@ from agent_system.profiles.runtime_mode_config import (
     runtime_mode_catalog,
 )
 from capability_system.tool_authorization import build_authorized_tool_set
-from capability_system.skill_registry import SkillRegistry
 from soul.assembly_service import SoulAssemblyService
-from task_system.environments import build_task_environment_catalog, default_task_environment_registry
+from task_system.environments import build_task_environment_catalog, task_environment_registry_from_backend_dir
 
 from .operation_projection import project_operation_authorization
-from .skill_projection import project_runtime_skill_candidates
 
 
 RuntimeMode = Literal["role", "standard", "professional", "custom"]
@@ -27,7 +25,6 @@ RuntimeMode = Literal["role", "standard", "professional", "custom"]
 class RuntimeAssemblyProfile:
     mode: RuntimeMode
     interaction_mode: str
-    runtime_lane: str
     prompt_pack_refs: tuple[str, ...] = ()
     allowed_operations: tuple[str, ...] = ()
     interaction_policy: dict[str, Any] = field(default_factory=dict)
@@ -67,8 +64,6 @@ class RuntimeAssembly:
     available_tools: tuple[dict[str, Any], ...] = ()
     tool_names: tuple[str, ...] = ()
     filtered_tools: tuple[dict[str, str], ...] = ()
-    skill_candidates: tuple[dict[str, Any], ...] = ()
-    filtered_skills: tuple[dict[str, str], ...] = ()
     operation_authorization: dict[str, Any] = field(default_factory=dict)
     soul_role_prompt: dict[str, Any] = field(default_factory=dict)
     rejected_capabilities: tuple[dict[str, str], ...] = ()
@@ -81,8 +76,6 @@ class RuntimeAssembly:
         payload["available_tools"] = [dict(item) for item in self.available_tools]
         payload["tool_names"] = list(self.tool_names)
         payload["filtered_tools"] = [dict(item) for item in self.filtered_tools]
-        payload["skill_candidates"] = [dict(item) for item in self.skill_candidates]
-        payload["filtered_skills"] = [dict(item) for item in self.filtered_skills]
         payload["operation_authorization"] = dict(self.operation_authorization)
         payload["rejected_capabilities"] = [dict(item) for item in self.rejected_capabilities]
         return payload
@@ -109,6 +102,7 @@ def assemble_runtime(
         explicit_allowed_operations=_string_tuple(selection.get("allowed_operations")),
     )
     task_environment, environment_diagnostics = _resolve_runtime_task_environment(
+        backend_dir=backend_dir,
         selection=selection,
         mode=profile.mode,
     )
@@ -124,20 +118,12 @@ def assemble_runtime(
         tool_instances=list(tool_instances or []),
         definitions_by_name=definitions_by_name,
         allowed_operations=allowed_operations,
-        runtime_lane="main_runtime",
         include_hidden=bool(profile.tool_policy.get("include_hidden_tools") is True),
     )
     visible_tool_names, visibility_filtered = _filter_tool_names_by_profile(
         profile=profile,
         tool_names=tuple(tool_set.tool_names),
         definitions_by_name=definitions_by_name,
-    )
-    skill_candidates, filtered_skills = project_runtime_skill_candidates(
-        skill_registry=SkillRegistry(backend_dir),
-        environment_payload=task_environment,
-        task_selection=selection,
-        agent_runtime_profile=agent_runtime_profile,
-        authorized_operations=allowed_operations,
     )
     soul_role_prompt, rejected = _assemble_soul_role_prompt(
         backend_dir=backend_dir,
@@ -169,8 +155,6 @@ def assemble_runtime(
                 *visibility_filtered,
             ]
         ),
-        skill_candidates=tuple(item.to_dict() for item in skill_candidates),
-        filtered_skills=filtered_skills,
         operation_authorization=operation_projection.to_dict(),
         soul_role_prompt=soul_role_prompt,
         rejected_capabilities=tuple(rejected),
@@ -203,7 +187,6 @@ def build_runtime_assembly_profile(
         selection=dict(selection or {}),
     )
     interaction_mode = str(mode_policy.get("interaction_mode") or getattr(mode_config, "interaction_mode", "") or f"{normalized}_mode")
-    runtime_lane = str(mode_policy.get("runtime_lane") or getattr(mode_config, "runtime_lane", "") or "")
     base_operations = _profile_operations(agent_runtime_profile)
     tool_policy = dict(mode_policy.get("tool_exposure_policy") or {})
     explicit_tool_policy = _merge_dicts(
@@ -225,7 +208,6 @@ def build_runtime_assembly_profile(
     return RuntimeAssemblyProfile(
         mode=normalized if normalized in {ROLE_MODE, STANDARD_MODE, PROFESSIONAL_MODE, CUSTOM_MODE} else "custom",
         interaction_mode=interaction_mode,
-        runtime_lane=runtime_lane,
         prompt_pack_refs=_string_tuple(mode_policy.get("prompt_pack_refs")),
         allowed_operations=base_operations,
         interaction_policy=dict(mode_policy.get("interaction_policy") or {}),
@@ -292,7 +274,6 @@ def _resolved_mode_runtime_policy(
         {
             "mode": mode,
             "interaction_mode": preset.get("interaction_mode") or f"{mode}_mode",
-            "runtime_lane": preset.get("runtime_lane") or "",
             "interaction_policy": dict(preset.get("interaction_policy") or {}),
             "planning_policy": dict(preset.get("planning_policy") or {}),
             "task_lifecycle_policy": dict(preset.get("task_lifecycle_policy") or {}),
@@ -312,10 +293,11 @@ def _resolved_mode_runtime_policy(
 
 def _resolve_runtime_task_environment(
     *,
+    backend_dir: Path,
     selection: dict[str, Any],
     mode: str,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    registry = default_task_environment_registry()
+    registry = task_environment_registry_from_backend_dir(backend_dir)
     explicit = _first_string(
         selection.get("task_environment_id"),
         selection.get("environment_id"),

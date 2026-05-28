@@ -1417,7 +1417,7 @@ def _worker_spawn_request_from_payload(payload: dict[str, Any]) -> WorkerAgentSp
         parent_agent_run_ref=str(payload.get("parent_agent_run_ref") or ""),
         blueprint_id=str(payload.get("blueprint_id") or ""),
         requested_agent_name=str(payload.get("requested_agent_name") or ""),
-        runtime_lane=str(payload.get("runtime_lane") or ""),
+        execution_runtime_kind=str(payload.get("execution_runtime_kind") or ""),
         context_scope=str(payload.get("context_scope") or ""),
         requested_by_agent_id=str(payload.get("requested_by_agent_id") or ""),
         spawn_reason=str(payload.get("spawn_reason") or ""),

@@ -13,7 +13,6 @@ class TaskBodyOrchestration:
     body_profile_ref: str
     prompt_structure_profile_ref: str
     memory_scope_profile_ref: str
-    runtime_lane_profile_ref: str
     output_boundary_profile_ref: str
     stage_plan: dict[str, Any] = field(default_factory=dict)
     resource_binding_plan: dict[str, Any] = field(default_factory=dict)
@@ -48,7 +47,6 @@ class AgentRuntimeSpec:
     resource_policy_candidate_ref: str = ""
     input_contract_ref: str = ""
     output_contract_ref: str = ""
-    runtime_lane: str = "standard_task"
     runtime_executable: bool = True
     diagnostics: dict[str, Any] = field(default_factory=dict)
     authority: str = "orchestration.agent_runtime_spec"

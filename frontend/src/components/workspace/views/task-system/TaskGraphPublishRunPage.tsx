@@ -10,7 +10,7 @@ import {
   taskGraphRunIdOf,
   taskGraphRunsFromTrace,
   latestTaskGraphRunFromTrace,
-  resumeOrchestrationTaskGraphRun,
+  dispatchGraphRunReadyNodes,
   startTaskGraphHarnessRun,
   stopOrchestrationTaskRun,
   type HarnessTaskRunTrace,
@@ -220,14 +220,15 @@ export function TaskGraphPublishRunPage({
       const result = await startTaskGraphHarnessRun(graphId, {
         session_id: runSessionId.trim() || "session:task_graph_studio",
         include_trace: true,
+        dispatch_ready: true,
       });
       setTaskRunId(result.task_run_id);
-      setLocalRuntimeSpec(result.runtime_spec);
       setLocalContractManifest(await compileTaskSystemTaskGraphContractManifest(graphId));
       setRunTrace(result.trace);
       bindTaskGraphMonitorRun({
         task_run_id: result.task_run_id,
-        coordination_run_id: result.coordination_run_id,
+        graph_run_id: result.graph_run_id,
+        graph_harness_config_id: result.graph_harness_config_id,
         graph_id: graphId,
         session_id: runSessionId.trim() || "session:task_graph_studio",
         title: graphId,
@@ -242,16 +243,23 @@ export function TaskGraphPublishRunPage({
   }
 
   async function resumeLatestTaskGraphRun() {
-    const latestTaskGraphRun = latestTaskGraphRunFromTrace(runTrace);
-    const taskGraphRunId = taskGraphRunIdOf(latestTaskGraphRun);
+    const taskGraphRunId = String(taskGraphMonitorBinding?.graph_run_id || taskGraphRunIdOf(latestTaskGraphRunFromTrace(runTrace))).trim();
+    const graphHarnessConfigId = String(taskGraphMonitorBinding?.graph_harness_config_id || "").trim();
     if (!taskGraphRunId) {
       setRunTraceError("当前 trace 没有可续跑的任务图运行。");
+      return;
+    }
+    if (!graphHarnessConfigId) {
+      setRunTraceError("当前运行缺少 graph_harness_config_id，无法派发 ready 节点。");
       return;
     }
     setResumeLoading(true);
     setRunTraceError("");
     try {
-      await resumeOrchestrationTaskGraphRun(taskGraphRunId, { source: "task_graph_studio", task_graph_id: graphId });
+      await dispatchGraphRunReadyNodes(taskGraphRunId, {
+        graph_harness_config_id: graphHarnessConfigId,
+        max_requests: 1,
+      });
       await loadRunTrace();
     } catch (error) {
       setRunTraceError(error instanceof Error ? error.message : "续跑失败");
@@ -271,7 +279,6 @@ export function TaskGraphPublishRunPage({
       await stopOrchestrationTaskRun(taskRunId.trim(), {
         reason: "user_aborted",
         message: "图工作台手动停止运行",
-        coordination_run_id: taskGraphRunIdOf(latestTaskGraphRunFromTrace(runTrace)),
       });
       await loadRunTrace();
     } catch (error) {
@@ -289,7 +296,7 @@ export function TaskGraphPublishRunPage({
     setRunTraceError("");
     bindTaskGraphMonitorRun({
       task_run_id: taskRunId.trim(),
-      coordination_run_id: taskGraphRunIdOf(latestTaskGraphRunFromTrace(runTrace)),
+      graph_run_id: taskGraphRunIdOf(latestTaskGraphRunFromTrace(runTrace)),
       graph_id: graphId,
       session_id: runSessionId.trim() || undefined,
       title: graphId,

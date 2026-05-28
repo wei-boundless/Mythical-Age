@@ -116,7 +116,6 @@ def build_current_turn_capability_plan(
         tool_instances=tool_instances,
         definitions_by_name=definitions_by_name,
         allowed_operations=set(allowed_operations),
-        runtime_lane="main_runtime",
         include_hidden=include_hidden,
     )
     authorized_by_name = {

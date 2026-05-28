@@ -13,11 +13,8 @@ import {
 import type { OrchestrationCapabilityItem } from "@/lib/api";
 import {
   BUILTIN_RUNTIME_MODES,
-  deriveAllowedRuntimeLanes,
-  manualRuntimeLanes,
   normalizeDefaultRuntimeMode,
   normalizeRuntimeModes,
-  runtimeLanesForModes,
   runtimeModeCatalogFrom,
   type RuntimeModeConfig,
 } from "@/lib/runtimeModeConfig";
@@ -29,7 +26,6 @@ type RuntimeDraftLike = {
   lifecycle_policy?: string;
   enabled_runtime_modes?: string[];
   default_runtime_mode?: string;
-  allowed_runtime_lanes?: string[];
   allowed_operations?: string[];
   blocked_operations?: string[];
   allowed_memory_scopes?: string[];
@@ -329,9 +325,9 @@ function runtimeModeLabel(mode: RuntimeModeConfig) {
   return mode.label || mode.mode;
 }
 
-function runtimeModeSummary(mode: RuntimeModeConfig) {
-  if (mode.mode === "custom") return "手工 lane";
-  return runtimeLanesForModes([mode.mode], BUILTIN_RUNTIME_MODES).join(" / ") || mode.runtime_lane || "-";
+function runtimeModeConfigSummary(mode: RuntimeModeConfig) {
+  if (mode.mode === "custom") return "自定义行为配置";
+  return mode.interaction_mode || mode.recipe_id || "-";
 }
 
 function runtimeModeDefaultLabel(mode: RuntimeModeConfig, defaultMode: string) {
@@ -491,10 +487,8 @@ export function OrchestrationRuntimePermissionWorkbench({
   tracePolicies,
   approvalPolicyOptions,
   tracePolicyOptions,
-  runtimeLaneOptions,
-  runtimeLaneOptionItems,
   displayId,
-  runtimeLanesSummary,
+  runtimeModeSummary,
   capabilityItems,
   operationOptions,
   operationOptionItems,
@@ -509,10 +503,8 @@ export function OrchestrationRuntimePermissionWorkbench({
   tracePolicies: string[];
   approvalPolicyOptions: OrchestrationOption[];
   tracePolicyOptions: OrchestrationOption[];
-  runtimeLaneOptions: string[];
-  runtimeLaneOptionItems: OrchestrationOption[];
   displayId: (value: unknown, fallback?: string) => string;
-  runtimeLanesSummary: string;
+  runtimeModeSummary: string;
   capabilityItems: OrchestrationCapabilityItem[];
   operationOptions: string[];
   operationOptionItems: OrchestrationOption[];
@@ -528,17 +520,14 @@ export function OrchestrationRuntimePermissionWorkbench({
   const enabledModes = normalizeRuntimeModes(runtimeDraft.enabled_runtime_modes, runtimeModeCatalog);
   const defaultMode = normalizeDefaultRuntimeMode(runtimeDraft.default_runtime_mode, enabledModes);
   const enabledModeSet = useMemo(() => new Set(enabledModes), [enabledModes]);
-  const manualLanes = manualRuntimeLanes(runtimeDraft.allowed_runtime_lanes, enabledModes);
   const [pendingModeChange, setPendingModeChange] = useState<PendingRuntimeModeChange>(null);
 
   function applyModes(nextModes: string[], nextDefaultMode = defaultMode) {
     const normalizedModes = normalizeRuntimeModes(nextModes, runtimeModeCatalog);
     const normalizedDefault = normalizeDefaultRuntimeMode(nextDefaultMode, normalizedModes);
-    const nextAllowedRuntimeLanes = deriveAllowedRuntimeLanes(normalizedModes, manualLanes);
     patchRuntimeDraft({
       enabled_runtime_modes: normalizedModes,
       default_runtime_mode: normalizedDefault,
-      allowed_runtime_lanes: nextAllowedRuntimeLanes,
     });
   }
 
@@ -575,7 +564,7 @@ export function OrchestrationRuntimePermissionWorkbench({
         </header>
         <div className="orchestration-identity-note">
           <span>权限事实源：AgentRuntimeProfile。</span>
-          <strong>运行场景只定义准入场景，最终工具执行仍由当前回合 ResourcePolicy 与 OperationGate 决定。</strong>
+          <strong>工具可见性只来自 Agent 的 operation 权限；环境和模式不授予额外工具权限。</strong>
         </div>
         <div className="boundary-form">
           <OrchestrationField label="运行档案标识">
@@ -611,7 +600,7 @@ export function OrchestrationRuntimePermissionWorkbench({
                     type="button"
                   >
                     <span>{runtimeModeLabel(mode)}</span>
-                    <strong>{runtimeModeSummary(mode)}</strong>
+                    <strong>{runtimeModeConfigSummary(mode)}</strong>
                   </button>
                   <button
                     className={defaultMode === mode.mode ? "orchestration-runtime-mode-default orchestration-runtime-mode-default--active" : "orchestration-runtime-mode-default"}
@@ -637,28 +626,12 @@ export function OrchestrationRuntimePermissionWorkbench({
             </div>
           ) : null}
         </div>
-        {enabledModeSet.has("custom") ? (
-          <OrchestrationOptionSelection
-            displayId={displayId}
-            fallbackOptions={runtimeLaneOptions}
-            label="自定义运行 lane"
-            onChange={(values) => {
-              const nextManualLanes = dedupe(values);
-              patchRuntimeDraft({
-                allowed_runtime_lanes: deriveAllowedRuntimeLanes(enabledModes, nextManualLanes),
-              });
-            }}
-            options={runtimeLaneOptionItems}
-            selectedValues={manualLanes}
-            emptyText="自定义模式尚未选择手工 lane"
-          />
-        ) : null}
       </div>
       <aside className="boundary-card">
         <header><strong>运行权限摘要</strong></header>
         <div className="boundary-kv">
           <p><span>运行模式</span><strong>{displayModeSummary(enabledModes, runtimeModeCatalog)}</strong></p>
-          <p><span>运行场景权限</span><strong>{runtimeLanesSummary}</strong></p>
+          <p><span>模式摘要</span><strong>{runtimeModeSummary}</strong></p>
           <p><span>允许操作</span><strong>{allowedOpsCount}</strong></p>
           <p><span>阻断操作</span><strong>{blockedOpsCount}</strong></p>
           <p><span>冲突</span><strong>{overlapSummary}</strong></p>
@@ -1521,7 +1494,7 @@ export function OrchestrationAssemblyOverviewWorkbench({
 }) {
   const cards = [
     { label: "Agent 身份", value: agentDraft.agent_name || agentDraft.agent_id || "未配置", ready: Boolean(agentDraft.agent_id && agentDraft.agent_name), layer: "identity" as const },
-    { label: "运行场景", value: runtimeSummary, ready: Boolean((runtimeDraft.allowed_runtime_lanes ?? []).length), layer: "runtime_permissions" as const },
+    { label: "运行模式", value: runtimeSummary, ready: Boolean((runtimeDraft.enabled_runtime_modes ?? []).length), layer: "runtime_permissions" as const },
     { label: "运行操作", value: operationSummary, ready: Boolean((runtimeDraft.allowed_operations ?? []).length), layer: "runtime_permissions" as const },
     { label: "模型运行", value: modelSummary, ready: true, layer: "model_runtime" as const },
     { label: "记忆边界", value: memorySummary, ready: Boolean((runtimeDraft.allowed_memory_scopes ?? []).length), layer: "context_memory" as const },
@@ -1552,7 +1525,7 @@ export function OrchestrationAssemblyOverviewWorkbench({
           <p><span>身份</span><strong>AgentRegistry / AgentDescriptor</strong></p>
           <p><span>运行权限</span><strong>AgentRuntimeProfile</strong></p>
           <p><span>模型运行</span><strong>AgentRuntimeProfile.model_profile</strong></p>
-          <p><span>场景目录</span><strong>RuntimeLaneRegistry</strong></p>
+          <p><span>任务环境</span><strong>TaskEnvironmentRegistry</strong></p>
           <p><span>最终执行</span><strong>ResourcePolicy / OperationGate</strong></p>
         </div>
       </aside>
@@ -1563,22 +1536,14 @@ export function OrchestrationAssemblyOverviewWorkbench({
 export function OrchestrationDiagnosticsWorkbench({
   eligibilityChecks,
   overlapOps,
-  runtimeLaneDiagnostics,
   capabilityItemsCount,
   runtimeDraft,
 }: {
   eligibilityChecks: Array<{ label: string; value: string; ready: boolean }>;
   overlapOps: string[];
-  runtimeLaneDiagnostics?: Record<string, unknown>;
   capabilityItemsCount: number;
   runtimeDraft?: RuntimeDraftLike;
 }) {
-  const profileUnregistered = Array.isArray(runtimeLaneDiagnostics?.profile_unregistered_lanes)
-    ? runtimeLaneDiagnostics?.profile_unregistered_lanes as string[]
-    : [];
-  const taskGraphUnregistered = Array.isArray(runtimeLaneDiagnostics?.task_graph_unregistered_lanes)
-    ? runtimeLaneDiagnostics?.task_graph_unregistered_lanes as string[]
-    : [];
   const modelProfile = runtimeDraft?.model_profile ?? {};
   const modelHasRawSecret = Object.keys(modelProfile).some((key) => key.toLowerCase().includes("api_key") || key.toLowerCase().includes("secret"));
   const modelMode = modelProfile.provider || modelProfile.model ? "Agent 覆盖" : "继承默认";
@@ -1600,14 +1565,6 @@ export function OrchestrationDiagnosticsWorkbench({
         {overlapOps.length ? <div className="boundary-notice boundary-notice--error"><AlertTriangle size={16} />允许和阻断操作冲突：{overlapOps.join(" / ")}</div> : null}
         {modelHasRawSecret ? <div className="boundary-notice boundary-notice--error"><AlertTriangle size={16} />模型档案不能保存 API Key 或 secret；请使用 credential_ref。</div> : null}
       </div>
-      <aside className="boundary-card">
-        <header><strong>运行场景注册诊断</strong></header>
-        <div className="boundary-kv">
-          <p><span>Profile 未注册场景</span><strong>{profileUnregistered.length ? profileUnregistered.join(" / ") : "无"}</strong></p>
-          <p><span>TaskGraph 未注册场景</span><strong>{taskGraphUnregistered.length ? taskGraphUnregistered.join(" / ") : "无"}</strong></p>
-          <p><span>权威源</span><strong>{String(runtimeLaneDiagnostics?.authority || "orchestration.runtime_lane_registry")}</strong></p>
-        </div>
-      </aside>
     </section>
   );
 }

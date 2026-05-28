@@ -13,7 +13,6 @@ class AgentRuntimeProfile:
     agent_id: str
     enabled_runtime_modes: tuple[str, ...] = ()
     default_runtime_mode: str = ""
-    allowed_runtime_lanes: tuple[str, ...] = ()
     allowed_operations: tuple[str, ...] = ()
     blocked_operations: tuple[str, ...] = ()
     allowed_memory_scopes: tuple[str, ...] = ()
@@ -37,7 +36,6 @@ class AgentRuntimeProfile:
         payload = asdict(self)
         for key in (
             "enabled_runtime_modes",
-            "allowed_runtime_lanes",
             "allowed_operations",
             "blocked_operations",
             "allowed_memory_scopes",

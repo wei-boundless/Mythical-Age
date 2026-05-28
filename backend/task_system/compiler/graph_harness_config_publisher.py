@@ -12,6 +12,37 @@ from task_system.registry.contract_registry import TaskContractRegistry
 from task_system.registry.flow_registry import TaskFlowRegistry
 
 
+RESOURCE_NODE_TYPES = {
+    "memory",
+    "memory_resource",
+    "memory_repository",
+    "memory_collection",
+    "artifact_repository",
+    "thread_ledger",
+    "progress_ledger",
+    "issue_ledger",
+    "runtime_state_store",
+    "working_memory_store",
+}
+
+EXECUTABLE_MEMORY_NODE_TYPES = {"memory_commit", "memory_finalize"}
+MEMORY_EDGE_TYPES = {"memory_read", "memory_write", "memory_write_candidate", "memory_commit", "memory_handoff"}
+ARTIFACT_EDGE_TYPES = {"artifact_read", "artifact_write", "artifact_context", "artifact_commit"}
+REVISION_EDGE_TYPES = {"revision_request", "review_feedback", "repair_feedback", "conditional_feedback", "repair_route"}
+DEPENDENCY_EDGE_TYPES = {
+    "handoff",
+    "structured_handoff",
+    "control",
+    "gate",
+    "gate_pass",
+    "barrier",
+    "temporal_dependency",
+    "temporal_after",
+    "phase_dependency",
+    "sequence_dependency",
+}
+
+
 def publish_graph_harness_config_for_graph(
     *,
     base_dir: Path,
@@ -84,8 +115,46 @@ def build_graph_harness_config_from_runtime_spec(
     graph_runtime_policy = dict(getattr(graph, "runtime_policy", {}) or {})
     graph_context_policy = dict(getattr(graph, "context_policy", {}) or {})
     linked_configs = dict(linked_module_config_ids or {})
-    nodes = tuple(_node_config(node, graph_id=str(graph.graph_id or "")) for node in runtime_payload.get("nodes") or [])
-    edges = tuple(_edge_config(edge) for edge in runtime_payload.get("edges") or [])
+    runtime_nodes_by_id = {
+        str(node.get("node_id") or ""): _node_config(node, graph_id=str(graph.graph_id or ""))
+        for node in runtime_payload.get("nodes") or []
+        if str(node.get("node_id") or "")
+    }
+    graph_node_ids = {str(getattr(node, "node_id", "") or "") for node in tuple(getattr(graph, "nodes", ()) or ())}
+    nodes = tuple(
+        _graph_node_config(node, graph_id=str(graph.graph_id or ""), runtime_node=runtime_nodes_by_id.get(str(getattr(node, "node_id", "") or "")))
+        for node in tuple(getattr(graph, "nodes", ()) or ())
+    )
+    nodes = tuple(
+        [
+            *nodes,
+            *[
+                dict(node)
+                for node_id, node in runtime_nodes_by_id.items()
+                if node_id and node_id not in graph_node_ids
+            ],
+        ]
+    )
+    runtime_edges_by_id = {
+        str(edge.get("edge_id") or ""): _edge_config(edge)
+        for edge in runtime_payload.get("edges") or []
+        if str(edge.get("edge_id") or "")
+    }
+    graph_edge_ids = {str(getattr(edge, "edge_id", "") or "") for edge in tuple(getattr(graph, "edges", ()) or ())}
+    edges = tuple(
+        _graph_edge_config(edge, runtime_edge=runtime_edges_by_id.get(str(getattr(edge, "edge_id", "") or "")))
+        for edge in tuple(getattr(graph, "edges", ()) or ())
+    )
+    edges = tuple(
+        [
+            *edges,
+            *[
+                dict(edge)
+                for edge_id, edge in runtime_edges_by_id.items()
+                if edge_id and edge_id not in graph_edge_ids
+            ],
+        ]
+    )
     modules = tuple(
         _module_config(plan, linked_config_ids=linked_configs)
         for plan in list(runtime_payload.get("graph_module_runtime_plans") or runtime_payload.get("graph_modules") or [])
@@ -166,6 +235,8 @@ def build_graph_harness_config_from_runtime_spec(
             "runtime_spec_summary": {
                 "node_count": len(runtime_payload.get("nodes") or []),
                 "edge_count": len(runtime_payload.get("edges") or []),
+                "full_graph_node_count": len(nodes),
+                "full_graph_edge_count": len(edges),
                 "graph_module_count": len(runtime_payload.get("graph_module_runtime_plans") or []),
                 "issue_count": len(runtime_payload.get("issues") or []),
             },
@@ -213,6 +284,7 @@ def _node_config(node: dict[str, Any], *, graph_id: str) -> dict[str, Any]:
         "node_id": node_id,
         "title": str(node.get("title") or node_id),
         "node_type": node_type,
+        "node_class": "resource" if _is_resource_node_type(node_type=node_type, node_id=node_id) else "executable",
         "task_ref": task_ref,
         "agent_id": str(node.get("agent_id") or ""),
         "agent_profile_id": str(metadata.get("agent_profile_id") or metadata.get("agent_profile_ref") or ""),
@@ -257,13 +329,39 @@ def _node_config(node: dict[str, Any], *, graph_id: str) -> dict[str, Any]:
     }
 
 
+def _graph_node_config(node: Any, *, graph_id: str, runtime_node: dict[str, Any] | None = None) -> dict[str, Any]:
+    raw = node.to_dict() if hasattr(node, "to_dict") else dict(node or {})
+    base = _node_config(raw, graph_id=graph_id)
+    runtime = dict(runtime_node or {})
+    if not runtime:
+        return base
+    merged = {
+        **base,
+        "agent_id": base.get("agent_id") or runtime.get("agent_id") or "",
+        "agent_profile_id": base.get("agent_profile_id") or runtime.get("agent_profile_id") or "",
+        "runtime_lane": base.get("runtime_lane") or runtime.get("runtime_lane") or "",
+        "metadata": {
+            **dict(runtime.get("metadata") or {}),
+            **dict(base.get("metadata") or {}),
+        },
+    }
+    for key in ("executor", "execution", "contracts", "prompt", "context", "memory", "artifacts", "stream", "gates", "retry", "permissions", "tools"):
+        current = dict(base.get(key) or {})
+        derived = dict(runtime.get(key) or {})
+        merged[key] = {**derived, **current}
+    return merged
+
+
 def _edge_config(edge: dict[str, Any]) -> dict[str, Any]:
     metadata = dict(edge.get("metadata") or {})
+    edge_type = str(edge.get("mode") or edge.get("edge_type") or "handoff")
     return {
         "edge_id": str(edge.get("edge_id") or ""),
         "source_node_id": str(edge.get("source_node_id") or ""),
         "target_node_id": str(edge.get("target_node_id") or ""),
-        "edge_type": str(edge.get("mode") or edge.get("edge_type") or "handoff"),
+        "edge_type": edge_type,
+        "semantic_role": _semantic_role_for_edge(edge_type=edge_type, metadata=metadata),
+        "scheduler_role": _scheduler_role_for_edge(edge_type=edge_type, metadata=metadata),
         "wait_policy": str(edge.get("wait_policy") or ""),
         "ack_policy": str(edge.get("ack_policy") or "explicit_ack"),
         "ack_required": bool(edge.get("ack_required", True)),
@@ -276,6 +374,21 @@ def _edge_config(edge: dict[str, Any]) -> dict[str, Any]:
         "temporal_policy": dict(metadata.get("temporal_policy") or {}),
         "revision_policy": dict(metadata.get("revision_policy") or {}),
         "metadata": metadata,
+    }
+
+
+def _graph_edge_config(edge: Any, *, runtime_edge: dict[str, Any] | None = None) -> dict[str, Any]:
+    raw = edge.to_dict() if hasattr(edge, "to_dict") else dict(edge or {})
+    base = _edge_config(raw)
+    runtime = dict(runtime_edge or {})
+    if not runtime:
+        return base
+    return {
+        **base,
+        "metadata": {
+            **dict(runtime.get("metadata") or {}),
+            **dict(base.get("metadata") or {}),
+        },
     }
 
 
@@ -324,6 +437,9 @@ def _publish_linked_graph_module_configs(
 
 def _executor_type_for_node(node: dict[str, Any]) -> str:
     node_type = str(node.get("node_type") or "").strip()
+    node_id = str(node.get("node_id") or "").strip()
+    if _is_resource_node_type(node_type=node_type, node_id=node_id):
+        return "resource"
     metadata = dict(node.get("metadata") or {})
     executor_policy = dict(node.get("executor_policy") or metadata.get("executor_policy") or {})
     raw = str(executor_policy.get("default_executor") or executor_policy.get("executor") or "").strip()
@@ -336,6 +452,54 @@ def _executor_type_for_node(node: dict[str, Any]) -> str:
     if node_type == "tool":
         return "tool"
     return "agent"
+
+
+def _is_resource_node_type(*, node_type: str, node_id: str = "") -> bool:
+    normalized = str(node_type or "").strip()
+    normalized_id = str(node_id or "").strip()
+    return (
+        normalized in RESOURCE_NODE_TYPES
+        or normalized.endswith("_repository")
+        or normalized.endswith("_ledger")
+        or (
+            normalized_id.startswith(("memory.", "artifact.", "thread.", "progress.", "issue."))
+            and normalized not in EXECUTABLE_MEMORY_NODE_TYPES
+        )
+    )
+
+
+def _semantic_role_for_edge(*, edge_type: str, metadata: dict[str, Any]) -> str:
+    explicit = str(metadata.get("semantic_role") or "").strip()
+    if explicit:
+        return explicit
+    normalized = str(edge_type or "").strip()
+    if normalized in MEMORY_EDGE_TYPES:
+        return "memory"
+    if normalized in ARTIFACT_EDGE_TYPES:
+        return "artifact"
+    if normalized in REVISION_EDGE_TYPES:
+        return "revision"
+    if normalized in DEPENDENCY_EDGE_TYPES:
+        return "control"
+    return "extension"
+
+
+def _scheduler_role_for_edge(*, edge_type: str, metadata: dict[str, Any]) -> str:
+    explicit = str(metadata.get("scheduler_role") or "").strip()
+    if explicit:
+        return explicit
+    normalized = str(edge_type or "").strip()
+    if normalized in DEPENDENCY_EDGE_TYPES:
+        return "dependency"
+    if normalized in REVISION_EDGE_TYPES:
+        return "conditional_dependency"
+    if normalized == "memory_read" or normalized in {"artifact_read", "artifact_context"}:
+        return "context"
+    if normalized in {"memory_commit", "memory_write", "memory_write_candidate", "artifact_write", "artifact_commit"}:
+        return "commit"
+    if normalized == "memory_handoff":
+        return "context"
+    return "none"
 
 
 def _policy_dict(value: Any, *, string_key: str = "mode") -> dict[str, Any]:

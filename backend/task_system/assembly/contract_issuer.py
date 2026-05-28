@@ -3,10 +3,15 @@ from __future__ import annotations
 import time
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from task_system.contracts.contracts import TaskContract
-from task_system.environments import default_task_environment_registry
+from task_system.environments import (
+    TaskEnvironmentRegistry,
+    default_task_environment_registry,
+    task_environment_registry_from_backend_dir,
+)
 from task_system.registry.flow_models import SpecificTaskRecord, TaskExecutionPolicy
 from task_system.tasks import resolve_specific_task_assembly_policy
 
@@ -16,6 +21,8 @@ class TaskContractIssuer:
     """Issues fixed task contracts from configured SpecificTask records."""
 
     authority: str = "task_system.task_contract_issuer"
+    backend_dir: Path | None = None
+    environment_registry: TaskEnvironmentRegistry | None = None
 
     def issue_specific_task_contract(
         self,
@@ -33,6 +40,9 @@ class TaskContractIssuer:
         record = _specific_task_record(task_record)
         execution = _task_execution_policy(execution_policy)
         startup = dict(startup_parameters or {})
+        environment_registry = self.environment_registry or (
+            task_environment_registry_from_backend_dir(self.backend_dir) if self.backend_dir is not None else default_task_environment_registry()
+        )
         task_selection = {
             **startup,
             **({"environment_id": environment_id} if environment_id else {}),
@@ -41,8 +51,9 @@ class TaskContractIssuer:
             task_record=record,
             execution_policy=execution,
             task_selection=task_selection,
+            environment_registry=environment_registry,
         )
-        environment = default_task_environment_registry().require(policy.environment_id)
+        environment = environment_registry.require(policy.environment_id)
         flow_binding = dict(flow_contract_binding or {})
         task_policy = dict(record.task_policy or {})
         metadata = dict(record.metadata or {})

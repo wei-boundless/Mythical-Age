@@ -65,7 +65,6 @@ function monitorView(): TaskGraphRunMonitorView {
       { operation: "read", node_id: "outline", status: "completed", refs: ["wm:world"] },
     ],
     stage_results: [],
-    current_stage_execution_request: {},
     health: { valid: true, issues: [] },
   };
 }

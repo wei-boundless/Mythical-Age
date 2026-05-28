@@ -56,21 +56,6 @@ class EnvironmentPrompt:
 
 
 @dataclass(frozen=True, slots=True)
-class SkillSpace:
-    default_skill_refs: tuple[str, ...] = ()
-    optional_skill_refs: tuple[str, ...] = ()
-    denied_skill_refs: tuple[str, ...] = ()
-    prompt_visibility: str = "model_visible_candidates"
-    selection_policy: str = "agent_decides"
-    activation_policy: str = "task_or_agent_selected"
-    required_operation_policy: str = "declare_only"
-    authority: str = "task_environment.skill_space"
-
-    def to_dict(self) -> dict[str, Any]:
-        return _tuple_payload(asdict(self))
-
-
-@dataclass(frozen=True, slots=True)
 class SandboxPolicy:
     enabled: bool = False
     sandbox_mode: str = "none"
@@ -178,7 +163,6 @@ class ArtifactPolicy:
 
 
 @dataclass(frozen=True, slots=True)
-@dataclass(frozen=True, slots=True)
 class TaskEnvironmentSpec:
     spec_id: str
     environment_id: str
@@ -190,7 +174,6 @@ class TaskEnvironmentSpec:
     execution_policy: ExecutionPolicy = field(default_factory=ExecutionPolicy)
     risk_policy: RiskPolicy = field(default_factory=RiskPolicy)
     artifact_policy: ArtifactPolicy = field(default_factory=ArtifactPolicy)
-    skill_space: SkillSpace = field(default_factory=SkillSpace)
     observability_policy: dict[str, Any] = field(default_factory=dict)
     lifecycle_policy: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -208,7 +191,6 @@ class TaskEnvironmentSpec:
             "execution_policy": self.execution_policy.to_dict(),
             "risk_policy": self.risk_policy.to_dict(),
             "artifact_policy": self.artifact_policy.to_dict(),
-            "skill_space": self.skill_space.to_dict(),
             "observability_policy": dict(self.observability_policy),
             "lifecycle_policy": dict(self.lifecycle_policy),
             "metadata": dict(self.metadata),

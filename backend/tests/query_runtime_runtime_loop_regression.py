@@ -125,7 +125,7 @@ def test_global_live_monitor_groups_running_completed_and_failed_runs(monkeypatc
         status="running",
         created_at=100.0,
         updated_at=200.0,
-        runtime_lane="single_agent_turn",
+        execution_runtime_kind="single_agent_turn",
     ))
     host.state_index.upsert_task_run(TaskRun(
         task_run_id="turnrun:failed",
@@ -134,7 +134,7 @@ def test_global_live_monitor_groups_running_completed_and_failed_runs(monkeypatc
         status="failed",
         created_at=800.0,
         updated_at=900.0,
-        runtime_lane="single_agent_turn",
+        execution_runtime_kind="single_agent_turn",
         terminal_reason="internal_error",
     ))
     host.state_index.upsert_task_run(TaskRun(
@@ -144,7 +144,7 @@ def test_global_live_monitor_groups_running_completed_and_failed_runs(monkeypatc
         status="waiting_executor",
         created_at=300.0,
         updated_at=400.0,
-        runtime_lane="single_agent_task",
+        execution_runtime_kind="single_agent_task",
         terminal_reason="task_executor_rebuild_pending",
     ))
     host.state_index.upsert_task_run(TaskRun(
@@ -154,7 +154,7 @@ def test_global_live_monitor_groups_running_completed_and_failed_runs(monkeypatc
         status="waiting_executor",
         created_at=940.0,
         updated_at=980.0,
-        runtime_lane="single_agent_task",
+        execution_runtime_kind="single_agent_task",
         terminal_reason="waiting_executor",
     ))
     host.state_index.upsert_task_run(TaskRun(
@@ -164,7 +164,7 @@ def test_global_live_monitor_groups_running_completed_and_failed_runs(monkeypatc
         status="waiting_approval",
         created_at=300.0,
         updated_at=400.0,
-        runtime_lane="single_agent_task",
+        execution_runtime_kind="single_agent_task",
         terminal_reason="waiting_approval",
     ))
 
@@ -210,7 +210,7 @@ def test_global_live_monitor_exposes_step_summary_and_recent_terminal_status(mon
         status="completed",
         created_at=600.0,
         updated_at=990.0,
-        runtime_lane="single_agent_task",
+        execution_runtime_kind="single_agent_task",
         terminal_reason="completed",
         diagnostics={"artifact_refs": [{"path": "storage/task/result.md"}]},
     )
@@ -512,7 +512,7 @@ def test_running_task_run_is_not_externally_executable_unless_executor_claimed()
         task_run_id="taskrun:plain-running",
         session_id="session-executor-lease",
         task_id="task:plain-running",
-        runtime_lane="single_agent_task",
+        execution_runtime_kind="single_agent_task",
         status="running",
         diagnostics={},
     )
@@ -544,7 +544,7 @@ def test_runtime_start_recovers_interrupted_task_executor_lease() -> None:
             task_run_id="taskrun:interrupted-executor",
             session_id="session-interrupted-executor",
             task_id="task:interrupted-executor",
-            runtime_lane="single_agent_task",
+            execution_runtime_kind="single_agent_task",
             status="running",
             diagnostics={"executor_status": "scheduled", "latest_step": "task_executor_scheduled"},
         )
@@ -864,7 +864,6 @@ def test_custom_mode_uses_explicit_runtime_policy_and_environment() -> None:
                 runtime_profile={
                     "runtime_mode_policy": {
                         "interaction_mode": "custom_review_mode",
-                        "runtime_lane": "custom_review_lane",
                         "default_environment_id": "env.development.readonly",
                         "planning_policy": {"plan_mode": "disabled"},
                         "task_lifecycle_policy": {"request_task_run": False},
@@ -886,7 +885,6 @@ def test_custom_mode_uses_explicit_runtime_policy_and_environment() -> None:
 
     assert profile["mode"] == "custom"
     assert profile["interaction_mode"] == "custom_review_mode"
-    assert profile["runtime_lane"] == "custom_review_lane"
     assert dict(profile.get("task_lifecycle_policy") or {}).get("request_task_run") is False
     assert dict(profile.get("self_review_policy") or {}).get("before_final") == "strict_review"
     assert dict(assembly.get("task_environment") or {}).get("environment_id") == "env.development.readonly"

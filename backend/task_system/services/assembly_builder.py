@@ -33,7 +33,7 @@ from task_system.planning.execution_shape_resolver import resolve_execution_shap
 from task_system.registry.flow_registry import TaskFlowRegistry
 from task_system.contracts.runtime_contracts import SkillRuntimeView, skill_runtime_views_from_registry
 from task_system.registry.workflow_registry import TaskWorkflowRegistry
-from task_system.environments import resolve_task_environment
+from task_system.environments import resolve_task_environment, task_environment_registry_from_backend_dir
 
 
 def build_task_execution_assembly_bundle(
@@ -57,6 +57,7 @@ def build_task_execution_assembly_bundle(
     )
     current_turn_payload = dict(current_turn_context or {})
     flow_registry = TaskFlowRegistry(registry_base_dir)
+    task_environment_registry = task_environment_registry_from_backend_dir(registry_base_dir)
     workflow_registry = TaskWorkflowRegistry(registry_base_dir)
     skill_registry = SkillRegistry(registry_base_dir)
     registered_task = _resolve_registered_task(
@@ -94,6 +95,7 @@ def build_task_execution_assembly_bundle(
             task_record=specific_task_record,
             execution_policy=execution_policy,
             task_selection=current_turn_payload,
+            environment_registry=task_environment_registry,
         )
         if specific_task_record is not None
         else None
@@ -418,7 +420,10 @@ def build_task_execution_assembly_bundle(
         "task_execution_assembly": assembly.to_dict(),
         "specific_task_record": specific_task_record.to_dict() if specific_task_record is not None else {},
         "specific_task_assembly_policy": specific_task_policy.to_dict() if specific_task_policy is not None else {},
-        "task_environment": _task_environment_payload(specific_task_policy),
+        "task_environment": _task_environment_payload(
+            specific_task_policy,
+            environment_registry=task_environment_registry,
+        ),
         "task_flow_contract_binding": flow_contract_binding.to_dict() if flow_contract_binding is not None else {},
         "task_execution_policy": execution_policy.to_dict() if execution_policy is not None else {},
         "task_memory_request_profile": memory_request_profile_payload,
@@ -826,11 +831,15 @@ def _resolve_task_operation_policy(
     }
 
 
-def _task_environment_payload(specific_task_policy: SpecificTaskAssemblyPolicy | None) -> dict[str, Any]:
+def _task_environment_payload(
+    specific_task_policy: SpecificTaskAssemblyPolicy | None,
+    *,
+    environment_registry: Any | None = None,
+) -> dict[str, Any]:
     if specific_task_policy is None:
         return {}
     try:
-        resolved = resolve_task_environment(specific_task_policy.environment_id)
+        resolved = resolve_task_environment(specific_task_policy.environment_id, registry=environment_registry)
         environment_payload = resolved.to_dict()
     except KeyError:
         environment_payload = {}

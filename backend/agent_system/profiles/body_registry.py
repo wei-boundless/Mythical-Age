@@ -7,13 +7,11 @@ from ..registry.agent_registry import AgentRegistry
 
 from .runtime_profile_models import AgentRuntimeProfile
 from .runtime_profile_registry import AgentRuntimeRegistry
-from orchestration.runtime_lane_registry import DEFAULT_RUNTIME_LANE_REGISTRY
 from .body_models import (
     AgentBodyProfile,
     MemoryScopeProfile,
     OutputBoundaryProfile,
     PromptStructureProfile,
-    RuntimeLaneProfile,
 )
 
 
@@ -31,7 +29,6 @@ class BodyProfileRegistry:
     ) -> AgentBodyProfile:
         prompt_profile_id = f"promptstruct:{agent_id}:single_agent"
         memory_profile_id = f"memscope:{agent_id}:default"
-        lane_profile_id = f"lane:{agent_id}:default"
         output_profile_id = f"output:{agent_id}:default"
         descriptor = self.agent_registry.get_agent(agent_id)
         return AgentBodyProfile(
@@ -39,7 +36,6 @@ class BodyProfileRegistry:
             agent_id=agent_id,
             default_prompt_structure_profile_id=prompt_profile_id,
             default_memory_scope_profile_id=memory_profile_id,
-            default_runtime_lane_profile_id=lane_profile_id,
             default_output_boundary_profile_id=output_profile_id,
             default_operation_policy_mode="fail_closed",
             metadata={
@@ -111,65 +107,6 @@ class BodyProfileRegistry:
                 "memory_priority": str(memory_request_profile.get("memory_priority") or "normal"),
                 "requested_topics": list(memory_request_profile.get("requested_topics") or ()),
                 "allow_long_term_memory": bool(memory_request_profile.get("allow_long_term_memory", False)),
-            },
-        )
-
-    def build_runtime_lane_profile(
-        self,
-        *,
-        agent_id: str,
-        runtime_profile: AgentRuntimeProfile | None,
-        task_mode: str,
-        requested_runtime_lane: str = "",
-    ) -> RuntimeLaneProfile:
-        allowed_lanes = [
-            str(item).strip()
-            for item in getattr(runtime_profile, "allowed_runtime_lanes", ())
-            if str(item).strip()
-        ]
-        requested_lane = str(requested_runtime_lane or "").strip()
-        lane_source = "agent_default"
-        lane_issue = ""
-        permission_state = "allowed"
-        lane_descriptor = DEFAULT_RUNTIME_LANE_REGISTRY.get(requested_lane) if requested_lane else None
-        if requested_lane and (not allowed_lanes or requested_lane in allowed_lanes):
-            if lane_descriptor is None:
-                lane_id = allowed_lanes[0] if allowed_lanes else "role_interaction"
-                lane_source = "task_binding"
-                lane_issue = "runtime_lane_unknown"
-                permission_state = "denied"
-            elif not lane_descriptor.requestable:
-                lane_id = allowed_lanes[0] if allowed_lanes else "role_interaction"
-                lane_source = "task_binding"
-                lane_issue = "runtime_lane_not_requestable"
-                permission_state = "denied"
-            else:
-                lane_id = requested_lane
-                lane_source = "task_binding"
-        else:
-            lane_id = allowed_lanes[0] if allowed_lanes else "role_interaction"
-            if requested_lane:
-                lane_issue = "runtime_lane_not_allowed"
-                permission_state = "denied"
-        _ = task_mode
-        effective_descriptor = DEFAULT_RUNTIME_LANE_REGISTRY.get(lane_id)
-        return RuntimeLaneProfile(
-            profile_id=f"lane:{agent_id}:default",
-            lane_id=lane_id,
-            execution_style="single_agent_loop",
-            tool_followup_policy="continue_until_terminal",
-            checkpoint_policy="event_checkpoint_spine",
-            resume_policy="checkpoint_replay",
-            metadata={
-                "agent_id": agent_id,
-                "requested_runtime_lane": requested_lane,
-                "lane_source": lane_source,
-                "lane_issue": lane_issue,
-                "permission_state": permission_state,
-                "lane_title": effective_descriptor.title if effective_descriptor else lane_id,
-                "lane_category": effective_descriptor.category if effective_descriptor else "未注册运行场景",
-                "lane_requestable": bool(effective_descriptor.requestable) if effective_descriptor else False,
-                "lane_system_only": bool(effective_descriptor.system_only) if effective_descriptor else False,
             },
         )
 

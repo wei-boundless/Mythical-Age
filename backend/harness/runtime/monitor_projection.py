@@ -77,7 +77,7 @@ class TaskRunMonitorProjector:
             "task_run_id": str(getattr(task_run, "task_run_id", "") or ""),
             "session_id": str(getattr(task_run, "session_id", "") or ""),
             "task_id": str(getattr(task_run, "task_id", "") or ""),
-            "runtime_lane": str(getattr(task_run, "runtime_lane", "") or ""),
+            "execution_runtime_kind": str(getattr(task_run, "execution_runtime_kind", "") or ""),
             "title": title,
             "status": status,
             "terminal_reason": str(getattr(task_run, "terminal_reason", "") or ""),
@@ -206,14 +206,14 @@ class TaskRunMonitorProjector:
         task_run_id = str(getattr(task_run, "task_run_id", "") or "")
         session_id = str(getattr(task_run, "session_id", "") or "")
         task_id = str(getattr(task_run, "task_id", "") or "")
-        runtime_lane = str(getattr(task_run, "runtime_lane", "") or "")
+        execution_runtime_kind = str(getattr(task_run, "execution_runtime_kind", "") or "")
         graph_id = str(diagnostics.get("graph_id") or diagnostics.get("task_graph_id") or "")
         coordination_run_id = str(diagnostics.get("coordination_run_id") or "")
         if coordination_run_id or graph_id:
             kind = "task_graph_run"
         elif _is_chat_scoped(task_run_id=task_run_id, task_id=task_id):
             kind = "chat_turn_runtime"
-        elif runtime_lane == "single_agent_task":
+        elif execution_runtime_kind == "single_agent_task":
             kind = "agent_runtime_run"
         else:
             kind = "chat_turn_runtime"
@@ -283,7 +283,7 @@ class TaskRunMonitorProjector:
             return "会话任务等待处理"
         if lifecycle == "stale":
             return "运行状态需诊断"
-        if str(getattr(task_run, "runtime_lane", "") or "") == "single_agent_task":
+        if str(getattr(task_run, "execution_runtime_kind", "") or "") == "single_agent_task":
             return "Agent 运行"
         return "会话任务运行中"
 

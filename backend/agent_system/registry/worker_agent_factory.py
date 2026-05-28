@@ -21,7 +21,6 @@ def default_worker_agent_blueprints() -> tuple[WorkerAgentBlueprint, ...]:
             blueprint_id="worker.dev.prototype",
             agent_name_template="开发工作Agent {n}",
             description="通用开发工作子 Agent，用于领取局部实现、检查和素材整理类任务。",
-            default_runtime_lanes=("game_delivery",),
             allowed_operations=(
                 "op.model_response",
                 "op.read_file",
@@ -41,7 +40,6 @@ def default_worker_agent_blueprints() -> tuple[WorkerAgentBlueprint, ...]:
             blueprint_id="worker.explorer",
             agent_name_template="探索 Agent {n}",
             description="只读探索子 Agent，用于代码、资料和上下文摸底，不写入项目文件。",
-            default_runtime_lanes=("readonly_exploration", "runtime_trace_read"),
             allowed_operations=(
                 "op.model_response",
                 "op.read_file",
@@ -65,7 +63,6 @@ def default_worker_agent_blueprints() -> tuple[WorkerAgentBlueprint, ...]:
             blueprint_id="worker.planner",
             agent_name_template="规划 Agent {n}",
             description="只读规划子 Agent，用于拆解方案、评估风险和形成实施计划。",
-            default_runtime_lanes=("readonly_exploration", "professional_task"),
             allowed_operations=("op.model_response", "op.read_file", "op.search_files", "op.search_text", "op.git_status", "op.git_diff"),
             blocked_operations=("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.memory_write_candidate"),
             allowed_memory_scopes=("conversation_readonly", "state_readonly"),
@@ -78,7 +75,6 @@ def default_worker_agent_blueprints() -> tuple[WorkerAgentBlueprint, ...]:
             blueprint_id="worker.verification",
             agent_name_template="验证 Agent {n}",
             description="验证子 Agent，用于复核实现、运行检查和输出可复现证据。",
-            default_runtime_lanes=("runtime_trace_read",),
             allowed_operations=("op.model_response", "op.read_file", "op.search_text", "op.shell"),
             blocked_operations=("op.write_file", "op.edit_file", "op.python_repl", "op.memory_write_candidate"),
             allowed_memory_scopes=("issue_local_readonly", "state_readonly"),
@@ -91,7 +87,6 @@ def default_worker_agent_blueprints() -> tuple[WorkerAgentBlueprint, ...]:
             blueprint_id="worker.execution",
             agent_name_template="执行 Agent {n}",
             description="执行子 Agent，用于领取有明确边界的实现、写入或修复任务。",
-            default_runtime_lanes=("professional_task", "game_delivery"),
             allowed_operations=(
                 "op.model_response",
                 "op.read_file",
@@ -112,7 +107,6 @@ def default_worker_agent_blueprints() -> tuple[WorkerAgentBlueprint, ...]:
             blueprint_id="worker.code.executor",
             agent_name_template="代码执行 Agent {n}",
             description="代码执行子 Agent，用于领取边界清楚的代码修改、测试修复和前端实现任务。",
-            default_runtime_lanes=("professional_task",),
             allowed_operations=(
                 "op.model_response",
                 "op.agent_todo",
@@ -142,7 +136,6 @@ def default_worker_agent_blueprints() -> tuple[WorkerAgentBlueprint, ...]:
             blueprint_id="worker.review",
             agent_name_template="审查 Agent {n}",
             description="审查子 Agent，用于代码审查、产物验收和风险汇总。",
-            default_runtime_lanes=("readonly_exploration", "runtime_trace_read"),
             allowed_operations=("op.model_response", "op.read_file", "op.search_files", "op.search_text", "op.git_diff", "op.git_show"),
             blocked_operations=("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.memory_write_candidate"),
             allowed_memory_scopes=("conversation_readonly", "state_readonly"),
@@ -201,7 +194,6 @@ class WorkerAgentFactory:
         runtime_profile = self.agent_runtime_registry.upsert_profile(
             agent_id=agent.agent_id,
             agent_profile_id=f"{agent.agent_id.removeprefix('agent:').replace(':', '_')}_runtime",
-            allowed_runtime_lanes=blueprint.default_runtime_lanes or (request.runtime_lane,),
             allowed_operations=blueprint.allowed_operations,
             blocked_operations=blueprint.blocked_operations,
             allowed_memory_scopes=blueprint.allowed_memory_scopes,

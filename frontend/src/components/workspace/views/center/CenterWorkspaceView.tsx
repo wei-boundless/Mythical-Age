@@ -268,13 +268,14 @@ export function CenterWorkspaceView() {
         session_id: sessionId,
         initial_inputs: initialInputs,
         include_trace: true,
-        execute_initial_stage: true,
+        dispatch_ready: true,
       });
       const monitor = await getTaskGraphRunMonitor(result.task_run_id).catch(() => null);
       setRunMonitor(monitor);
       bindTaskGraphMonitorRun({
         task_run_id: result.task_run_id,
-        coordination_run_id: result.coordination_run_id,
+        graph_run_id: result.graph_run_id,
+        graph_harness_config_id: result.graph_harness_config_id,
         graph_id: graphId,
         session_id: sessionId,
         title: selectedGraph?.title || graphId,

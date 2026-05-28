@@ -106,7 +106,7 @@ function agentRuntimeProjection(item: GlobalRuntimeMonitorItem): RuntimeWorkProj
     primaryRunId: text(item.task_run_id),
     title: publicText(item.title) || "Agent 运行",
     status: statusFromMonitor(item),
-    displayTypeLabel: text(item.runtime_lane) === "single_agent_task" ? "长任务" : "Agent 运行",
+    displayTypeLabel: "Agent 运行",
     latestEventType: text(item.latest_event_type),
     latestStepSummary: text(item.latest_step_summary),
     isLive: bool(item.is_live) || item.resource_class === "dynamic",
@@ -132,10 +132,8 @@ export function runtimeWorkProjectionFromMonitorItem(item: GlobalRuntimeMonitorI
   if (route === "task_graph_run") return taskGraphProjection(item);
   if (route === "agent_runtime_run") return agentRuntimeProjection(item);
   if (route === "chat_turn_runtime") return chatTurnRuntimeProjection(item);
-  // Legacy fallback for persisted payloads that predate backend route authority.
   if (item.has_coordination || text(item.graph_id)) return taskGraphProjection(item);
   if (isChatScopedRun(item)) return chatTurnRuntimeProjection(item);
-  if (text(item.runtime_lane) === "single_agent_task") return agentRuntimeProjection(item);
   if (text(item.latest_event_type).startsWith("agent_runtime_")) return agentRuntimeProjection(item);
   return chatTurnRuntimeProjection(item);
 }

@@ -4,15 +4,15 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from runtime.shared.models import CoordinationRun, TaskRun
+from runtime.shared.models import TaskRun
 
-from .models import GraphHarnessConfig, GraphRuntimeEnvelope, safe_id
+from .models import GraphHarnessConfig, GraphRun, GraphRuntimeEnvelope, safe_id
 
 
 @dataclass(frozen=True, slots=True)
 class GraphRuntimeStart:
     task_run: TaskRun
-    coordination_run: CoordinationRun
+    graph_run: GraphRun
     envelope: GraphRuntimeEnvelope
     events: tuple[dict[str, Any], ...] = ()
 
@@ -53,7 +53,6 @@ class GraphRuntime:
             owner_agent_seat_id="graph",
             agent_id=str(dict(graph_config.agents or {}).get("coordinator_agent_id") or "agent:0"),
             agent_profile_id=str(dict(graph_config.agents or {}).get("coordinator_agent_profile_id") or "task_graph_coordinator"),
-            runtime_lane=str(dict(graph_config.agents or {}).get("runtime_lane") or "task_graph"),
             status="running",
             created_at=now,
             updated_at=now,
@@ -66,24 +65,20 @@ class GraphRuntime:
                 **dict(diagnostics or {}),
             },
         )
-        coordination_run = CoordinationRun(
-            coordination_run_id=graph_run_id,
+        graph_run = GraphRun(
+            graph_run_id=graph_run_id,
             task_run_id=task_run_id,
-            coordinator_agent_id=str(dict(graph_config.agents or {}).get("coordinator_agent_id") or "agent:0"),
-            graph_ref=graph_config.graph_id,
-            topology_template_id="",
-            communication_protocol_id=str(dict(graph_config.control or {}).get("communication_protocol_id") or ""),
-            handoff_policy=str(dict(graph_config.control or {}).get("handoff_policy") or ""),
-            failure_policy=str(dict(dict(graph_config.control or {}).get("failure_policy") or {}).get("mode") or ""),
-            merge_policy=str(dict(graph_config.control or {}).get("merge_policy") or ""),
+            session_id=session_id,
+            graph_id=graph_config.graph_id,
+            config_id=graph_config.config_id,
+            config_hash=graph_config.content_hash,
             status="running",
             created_at=now,
             updated_at=now,
             diagnostics={
-                "graph_run_id": graph_run_id,
-                "graph_harness_config_id": graph_config.config_id,
-                "graph_harness_config_hash": graph_config.content_hash,
                 "task_environment_id": graph_config.task_environment_id,
+                "root_task_ref": graph_config.root_task_ref,
+                **dict(diagnostics or {}),
             },
         )
         envelope = GraphRuntimeEnvelope(
@@ -103,12 +98,13 @@ class GraphRuntime:
             created_at=now,
         )
         self._services.state_index.upsert_task_run(task_run)
-        self._services.state_index.upsert_coordination_run(coordination_run)
+        self._services.runtime_objects.put_object("graph_run", safe_id(graph_run_id), graph_run.to_dict())
         start_event = self._services.event_log.append(
             task_run.task_run_id,
-            "coordination_run_created",
+            "graph_run_created",
             payload={
                 "graph_run_id": graph_run_id,
+                "graph_run": graph_run.to_dict(),
                 "graph_runtime_envelope": envelope.to_dict(),
             },
             refs={
@@ -118,8 +114,7 @@ class GraphRuntime:
         )
         return GraphRuntimeStart(
             task_run=task_run,
-            coordination_run=coordination_run,
+            graph_run=graph_run,
             envelope=envelope,
             events=(start_event.to_dict(),),
         )
-

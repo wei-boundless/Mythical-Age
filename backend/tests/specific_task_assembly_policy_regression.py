@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import json
 from pathlib import Path
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -9,6 +10,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from task_system.registry.flow_models import SpecificTaskRecord, TaskExecutionPolicy
 from task_system.tasks import resolve_specific_task_assembly_policy
+from task_system.environments import task_environment_registry_from_backend_dir
 
 
 def test_specific_task_assembly_policy_extracts_environment_and_agent_selection() -> None:
@@ -86,5 +88,41 @@ def test_specific_task_assembly_policy_does_not_use_legacy_domain_as_environment
     )
 
     assert policy.environment_id == "env.general.workspace"
+
+
+def test_specific_task_assembly_policy_accepts_configured_environment(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    config_dir = backend_dir / "task_system" / "storage" / "task_environments"
+    config_dir.mkdir(parents=True)
+    (config_dir / "environments.json").write_text(
+        json.dumps(
+            {
+                "environments": [
+                    {
+                        "environment_id": "env.custom.specific",
+                        "title": "Specific Custom",
+                        "group_id": "environment_group.general",
+                        "spec_id": "envspec.custom.specific.v1",
+                        "file_management": {"file_profile_refs": ["file_profile.general_workspace"]},
+                        "resource_space": {"storage_namespace": "custom/specific"},
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    registry = task_environment_registry_from_backend_dir(backend_dir)
+
+    policy = resolve_specific_task_assembly_policy(
+        task_record=SpecificTaskRecord(
+            task_id="task.custom.specific",
+            task_title="Custom Specific",
+            metadata={"environment_id": "env.custom.specific"},
+        ),
+        environment_registry=registry,
+    )
+
+    assert policy.environment_id == "env.custom.specific"
 
 

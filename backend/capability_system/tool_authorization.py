@@ -58,7 +58,6 @@ def build_authorized_tool_set(
     tool_instances: list[Any] | tuple[Any, ...] | None,
     definitions_by_name: dict[str, Any],
     allowed_operations: set[str],
-    runtime_lane: str = "main_runtime",
     include_hidden: bool = False,
 ) -> AuthorizedToolSet:
     if not allowed_operations:
@@ -80,9 +79,6 @@ def build_authorized_tool_set(
             continue
         if operation_id not in allowed_operations:
             filtered_out.append({"tool_name": tool_name, "operation_id": operation_id, "reason": "operation_not_allowed"})
-            continue
-        if runtime_lane == "main_runtime" and definition.runtime_visibility != "main_runtime" and not include_hidden:
-            filtered_out.append({"tool_name": tool_name, "operation_id": operation_id, "reason": "not_main_runtime_visible"})
             continue
         if not include_hidden and definition.prompt_exposure_policy != "schema_only":
             filtered_out.append({"tool_name": tool_name, "operation_id": operation_id, "reason": "not_prompt_schema_visible"})

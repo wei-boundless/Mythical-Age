@@ -50,10 +50,9 @@ import { taskSystemDisplayLabel } from "@/components/workspace/views/task-system
 import { useConfirmDialog } from "@/components/layout/ConfirmDialogProvider";
 import { useAppStore } from "@/lib/store";
 import {
-  deriveAllowedRuntimeLanes,
-  manualRuntimeLanes,
   normalizeDefaultRuntimeMode,
-  normalizeRuntimeModesWithLanes,
+  normalizeRuntimeModes,
+  runtimeModeCatalogFrom,
 } from "@/lib/runtimeModeConfig";
 
 type AgentCategory = "main_agent" | "builtin_agent" | "custom_agent";
@@ -94,7 +93,6 @@ const EMPTY_AGENT_DRAFT: AgentDraft = {
 const EMPTY_RUNTIME_DRAFT: RuntimeDraft = {
   agent_profile_id: "",
   agent_id: "",
-  allowed_runtime_lanes: [],
   enabled_runtime_modes: ["custom"],
   default_runtime_mode: "custom",
   allowed_operations: ["op.model_response"],
@@ -303,13 +301,11 @@ function runtimeDraftFrom(agentId: string, profile?: Partial<OrchestrationAgentR
   const merged = { ...EMPTY_RUNTIME_DRAFT, ...(profile ?? {}), agent_id: agentId };
   const profileId = String(merged.agent_profile_id || `${agentId.replace(/[:]/g, "_")}_runtime`);
   const allowedOps = uniqueList(merged.allowed_operations).length ? uniqueList(merged.allowed_operations) : ["op.model_response"];
-  const enabledModes = normalizeRuntimeModesWithLanes((merged as Record<string, unknown>).enabled_runtime_modes, merged.allowed_runtime_lanes);
+  const enabledModes = normalizeRuntimeModes((merged as Record<string, unknown>).enabled_runtime_modes, runtimeModeCatalogFrom(merged.runtime_mode_catalog), "custom");
   const defaultMode = normalizeDefaultRuntimeMode((merged as Record<string, unknown>).default_runtime_mode, enabledModes);
-  const allowedRuntimeLanes = deriveAllowedRuntimeLanes(enabledModes, merged.allowed_runtime_lanes);
   return {
     ...merged,
     agent_profile_id: profileId,
-    allowed_runtime_lanes: allowedRuntimeLanes,
     enabled_runtime_modes: enabledModes,
     default_runtime_mode: defaultMode,
     allowed_operations: allowedOps,
@@ -330,12 +326,10 @@ function runtimeDraftFrom(agentId: string, profile?: Partial<OrchestrationAgentR
 }
 
 function runtimePayloadFromDraft(draft: RuntimeDraft) {
-  const enabledModes = normalizeRuntimeModesWithLanes((draft as Record<string, unknown>).enabled_runtime_modes, draft.allowed_runtime_lanes);
+  const enabledModes = normalizeRuntimeModes((draft as Record<string, unknown>).enabled_runtime_modes, runtimeModeCatalogFrom(draft.runtime_mode_catalog), "custom");
   const defaultMode = normalizeDefaultRuntimeMode((draft as Record<string, unknown>).default_runtime_mode, enabledModes);
-  const allowedRuntimeLanes = deriveAllowedRuntimeLanes(enabledModes, draft.allowed_runtime_lanes);
   return {
     agent_profile_id: draft.agent_profile_id,
-    allowed_runtime_lanes: allowedRuntimeLanes,
     enabled_runtime_modes: enabledModes,
     default_runtime_mode: defaultMode,
     allowed_operations: Array.from(new Set(["op.model_response", ...uniqueList(draft.allowed_operations)])),
@@ -539,7 +533,6 @@ export function OrchestrationView() {
     [catalog],
   );
   const operationOptionItems = useMemo(() => catalog?.options.operation_options ?? [], [catalog]);
-  const runtimeLaneOptionItems = useMemo(() => catalog?.options.runtime_lane_options ?? [], [catalog]);
   const memoryScopeOptionItems = useMemo(() => catalog?.options.memory_scope_options ?? [], [catalog]);
   const contextSectionOptionItems = useMemo(() => catalog?.options.context_section_options ?? [], [catalog]);
   const approvalPolicyOptions = useMemo(() => catalog?.options.approval_policy_options ?? [], [catalog]);
@@ -547,7 +540,6 @@ export function OrchestrationView() {
   const runtimeOptionLabels = useMemo(
     () => new Map([
       ...optionLabelMap(operationOptionItems),
-      ...optionLabelMap(runtimeLaneOptionItems),
       ...optionLabelMap(memoryScopeOptionItems),
       ...optionLabelMap(contextSectionOptionItems),
       ...optionLabelMap(approvalPolicyOptions),
@@ -558,7 +550,6 @@ export function OrchestrationView() {
       contextSectionOptionItems,
       memoryScopeOptionItems,
       operationOptionItems,
-      runtimeLaneOptionItems,
       tracePolicyOptions,
     ],
   );
@@ -699,14 +690,13 @@ export function OrchestrationView() {
         })),
     [agentDraft.agent_id, agents],
   );
-  const runtimeLanesSummary = displayOptionList(uniqueList(runtimeDraft.allowed_runtime_lanes), runtimeOptionLabels);
+  const runtimeModeSummary = displayOptionList(uniqueList(runtimeDraft.enabled_runtime_modes), runtimeOptionLabels);
   const memorySummary = displayOptionList(uniqueList(runtimeDraft.allowed_memory_scopes), runtimeOptionLabels);
   const contextSummary = displayOptionList(uniqueList(runtimeDraft.allowed_context_sections), runtimeOptionLabels);
   const operationSummary = `${allowedOps.length} 允许 / ${blockedOps.length} 阻断`;
   const collaborationSummary = runtimeDraft.can_delegate_to_agents
     ? `${uniqueList(runtimeDraft.allowed_delegate_agent_ids).length || "不限"} 个目标`
     : "未开放委派";
-  const runtimeLaneDiagnostics = (catalog?.options as { runtime_lane_diagnostics?: Record<string, unknown> } | undefined)?.runtime_lane_diagnostics;
   const selectedGroupCoordinator = selectedGroup
     ? agents.find((agent) => String(agent.agent_id ?? "") === selectedGroup.coordinator_agent_id)
     : null;
@@ -1087,9 +1077,7 @@ export function OrchestrationView() {
                   displayId={displayId}
                   patchRuntimeDraft={(patch) => setRuntimeDraft((current) => ({ ...current, ...patch }))}
                   runtimeDraft={runtimeDraft}
-                  runtimeLaneOptionItems={runtimeLaneOptionItems}
-                  runtimeLaneOptions={catalog?.options.runtime_lanes ?? []}
-                  runtimeLanesSummary={runtimeLanesSummary}
+                  runtimeModeSummary={runtimeModeSummary}
                   tracePolicyOptions={tracePolicyOptions}
                   tracePolicies={catalog?.options.trace_policies ?? ["runtime_event_log"]}
                   operationOptionItems={operationOptionItems}
@@ -1154,7 +1142,7 @@ export function OrchestrationView() {
                   operationSummary={operationSummary}
                   runtimeDraft={runtimeDraft}
                   modelSummary={modelSummary}
-                  runtimeSummary={runtimeLanesSummary}
+                  runtimeSummary={runtimeModeSummary}
                 />
               ) : null}
 
@@ -1164,7 +1152,6 @@ export function OrchestrationView() {
                   eligibilityChecks={eligibilityChecks}
                   overlapOps={overlapOps}
                   runtimeDraft={runtimeDraft}
-                  runtimeLaneDiagnostics={runtimeLaneDiagnostics}
                 />
               ) : null}
             </>

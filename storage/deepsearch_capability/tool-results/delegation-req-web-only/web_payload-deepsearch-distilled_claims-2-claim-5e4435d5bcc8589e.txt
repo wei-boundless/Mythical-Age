@@ -1,1 +1,0 @@
-What Are Release Notes? Definition and How to Write - TimelyText. ## What release notes are and how they work Release notes are a focused record of changes in a specific product version.

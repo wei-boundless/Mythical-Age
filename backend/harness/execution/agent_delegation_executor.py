@@ -220,7 +220,7 @@ class AgentDelegationExecutor:
                 role=child_agent_run.role,
                 spawn_mode=child_agent_run.spawn_mode,
                 context_scope=child_agent_run.context_scope,
-                runtime_lane=child_agent_run.runtime_lane,
+                execution_runtime_kind=child_agent_run.execution_runtime_kind,
                 parent_agent_run_ref=child_agent_run.parent_agent_run_ref,
                 coordination_run_ref="",
                 status=agent_run_result.status,
@@ -436,7 +436,7 @@ class AgentDelegationExecutor:
             role="delegated_worker",
             spawn_mode="delegation",
             context_scope="delegation_scoped",
-            runtime_lane=(profile.allowed_runtime_lanes[0] if profile is not None and profile.allowed_runtime_lanes else "delegation"),
+            execution_runtime_kind="delegation",
             parent_agent_run_ref=parent_agent_run.agent_run_id,
             status="running",
             created_at=time.time(),
@@ -493,18 +493,9 @@ class AgentDelegationExecutor:
         if settings_service is not None:
             runtime_profile_payload = dict(context.get("runtime_profile") or {})
             runtime_profile = self.runtime_registry.get_profile(str(runtime_profile_payload.get("agent_id") or request.target_agent_id))
-            runtime_lane = (
-                str(runtime_profile_payload.get("runtime_lane") or "").strip()
-                or (
-                    str(runtime_profile.allowed_runtime_lanes[0])
-                    if runtime_profile is not None and runtime_profile.allowed_runtime_lanes
-                    else ""
-                )
-            )
             resolved_model_spec = ModelProfileResolver(settings_service).resolve_model_spec(
                 agent_runtime_profile=runtime_profile,
                 model_requirement=dict(dict(request.input_payload or {}).get("model_requirement") or {}),
-                runtime_lane=runtime_lane,
             )
             model_resolution = resolved_model_spec.to_public_dict()
         try:

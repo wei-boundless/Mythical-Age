@@ -200,7 +200,7 @@ def attach_graph_module_imported_run_identity(
             owner_agent_seat_id=current.owner_agent_seat_id,
             agent_id=current.agent_id,
             agent_profile_id=current.agent_profile_id,
-            runtime_lane=current.runtime_lane,
+            execution_runtime_kind=current.execution_runtime_kind,
             status=current.status,
             created_at=current.created_at,
             updated_at=time.time(),

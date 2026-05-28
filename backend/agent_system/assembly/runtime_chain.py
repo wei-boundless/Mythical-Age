@@ -235,7 +235,6 @@ class AgentRuntimeChainAssembler:
                 "agent_body_profile": dict(orchestration_bundle.get("agent_body_profile") or {}),
                 "prompt_structure_profile": dict(orchestration_bundle.get("prompt_structure_profile") or {}),
                 "memory_scope_profile": dict(orchestration_bundle.get("memory_scope_profile") or {}),
-                "runtime_lane_profile": dict(orchestration_bundle.get("runtime_lane_profile") or {}),
                 "output_boundary_profile": dict(orchestration_bundle.get("output_boundary_profile") or {}),
             }
         )
@@ -494,8 +493,6 @@ def _align_understanding_with_explicit_task_selection(
     record_task_mode = str(
         record_metadata.get("task_mode")
         or record_structure.get("task_mode")
-        or record_structure.get("runtime_lane_hint")
-        or getattr(record, "runtime_lane", "")
         or "task_runtime"
     ).strip()
     signals = dict(query_understanding.turn_signals or {})

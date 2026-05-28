@@ -55,7 +55,6 @@ class ModelProfileResolver:
         *,
         agent_runtime_profile: AgentRuntimeProfile | None = None,
         model_requirement: dict[str, Any] | ModelRequirement | None = None,
-        runtime_lane: str = "",
         graph_runtime_defaults: dict[str, Any] | None = None,
     ) -> ResolvedModelSpec:
         settings = self.settings_service.static
@@ -170,7 +169,6 @@ class ModelProfileResolver:
             "agent_id": getattr(agent_runtime_profile, "agent_id", "") if agent_runtime_profile is not None else "",
             "agent_profile_id": getattr(agent_runtime_profile, "agent_profile_id", "") if agent_runtime_profile is not None else "",
             "model_profile_id": agent_model_profile.profile_id,
-            "runtime_lane": runtime_lane,
             "credential_ref": credential_ref,
             "credential_configured": bool(api_key) or provider == "ollama",
             "requirement": requirement.to_dict(),

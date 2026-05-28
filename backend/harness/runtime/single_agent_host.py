@@ -155,7 +155,7 @@ class SingleAgentRuntimeHost:
             "session_id": task_run.session_id,
             "task_id": task_run.task_id,
             "status": task_run.status,
-            "runtime_lane": task_run.runtime_lane,
+            "execution_runtime_kind": task_run.execution_runtime_kind,
             "created_at": task_run.created_at,
             "updated_at": task_run.updated_at,
             "terminal_reason": task_run.terminal_reason,

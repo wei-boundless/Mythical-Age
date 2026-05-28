@@ -1,10 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  deriveAllowedRuntimeLanes,
-  manualRuntimeLanes,
   normalizeDefaultRuntimeMode,
-  normalizeRuntimeModesWithLanes,
+  normalizeRuntimeModes,
   runtimeModeCatalogFrom,
 } from "./runtimeModeConfig";
 
@@ -19,28 +17,12 @@ describe("runtime mode config", () => {
     expect(catalog.find((mode) => mode.mode === "role")?.label).toBe("角色模式覆盖");
   });
 
-  it("only preserves manual runtime lanes when custom mode is enabled", () => {
-    expect(deriveAllowedRuntimeLanes(["role"], ["readonly_exploration"])).toEqual(["role_interaction"]);
-    expect(deriveAllowedRuntimeLanes(["role", "custom"], ["readonly_exploration"])).toEqual([
-      "role_interaction",
-      "readonly_exploration",
-    ]);
-    expect(manualRuntimeLanes(["role_interaction", "readonly_exploration"], ["role"])).toEqual([]);
-    expect(manualRuntimeLanes(["role_interaction", "readonly_exploration"], ["role", "custom"])).toEqual([
-      "readonly_exploration",
-    ]);
-  });
+  it("normalizes runtime modes without deriving old runtime lanes", () => {
+    const catalog = runtimeModeCatalogFrom([]);
 
-  it("derives system modes from lanes and falls back to custom for manual lanes", () => {
-    expect(normalizeRuntimeModesWithLanes([], ["role_interaction", "professional_task"])).toEqual([
-      "role",
-      "professional",
-    ]);
-    expect(normalizeRuntimeModesWithLanes([], ["role_interaction", "readonly_exploration"])).toEqual([
-      "role",
-      "custom",
-    ]);
-    expect(normalizeRuntimeModesWithLanes([], ["readonly_exploration"])).toEqual(["custom"]);
+    expect(normalizeRuntimeModes(["role", "professional"], catalog)).toEqual(["role", "professional"]);
+    expect(normalizeRuntimeModes(["readonly_exploration"], catalog)).toEqual(["custom"]);
+    expect(normalizeRuntimeModes([], catalog)).toEqual(["custom"]);
   });
 
   it("keeps custom mode from taking the executable default", () => {

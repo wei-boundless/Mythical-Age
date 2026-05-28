@@ -1016,7 +1016,6 @@ export type OrchestrationAgentRuntimeProfile = {
   agent_id: string;
   enabled_runtime_modes?: string[];
   default_runtime_mode?: string;
-  allowed_runtime_lanes: string[];
   allowed_operations: string[];
   blocked_operations: string[];
   allowed_memory_scopes: string[];
@@ -1653,6 +1652,8 @@ export type GlobalRuntimeMonitorItem = {
   session_id: string;
   task_id: string;
   runtime_lane?: string;
+  graph_run_id?: string;
+  graph_harness_config_id?: string;
   title: string;
   status: string;
   terminal_reason: string;
@@ -1773,6 +1774,8 @@ export type HarnessTaskRunLiveMonitor = {
   latest_checkpoint: Record<string, unknown> | null;
   loop_state: Record<string, unknown>;
   coordination_run: Record<string, unknown> | null;
+  graph_run_id?: string;
+  graph_harness_config_id?: string;
   agent_runtime_phase_summary?: Record<string, unknown> | null;
   has_coordination: boolean;
   status: string;
@@ -1873,6 +1876,7 @@ export type TaskGraphRunMonitorView = {
   source: string;
   session_id: string;
   task_run_id: string;
+  graph_run_id?: string;
   coordination_run_id: string;
   graph: {
     graph_id: string;
@@ -1946,8 +1950,6 @@ export type TaskGraphRunMonitorView = {
   artifacts: Array<Record<string, unknown>>;
   memory_operations: Array<Record<string, unknown>>;
   stage_results: Array<Record<string, unknown>>;
-  current_node_execution_request?: Record<string, unknown>;
-  current_stage_execution_request: Record<string, unknown>;
   current_node_execution_boundary?: Record<string, unknown>;
   current_dispatch_context?: Record<string, unknown>;
   current_context_packets?: {
@@ -2053,14 +2055,39 @@ export type SessionTruncateResponse = {
 export type TaskGraphRunStartResult = {
   authority: string;
   graph_id: string;
+  graph_run_id: string;
+  graph_harness_config_id: string;
   task_run_id: string;
-  coordination_run_id: string;
   task_run: Record<string, unknown>;
-  coordination_run: Record<string, unknown> | null;
+  graph_run: Record<string, unknown>;
   checkpoint: Record<string, unknown>;
-  runtime_spec: TaskGraphRuntimeSpec;
-  stage_execution_request: Record<string, unknown> | null;
+  graph_loop_state: Record<string, unknown>;
+  graph_harness_config: Record<string, unknown>;
+  node_work_orders: Array<Record<string, unknown>>;
   trace: HarnessTaskRunTrace | null;
+  events: Array<Record<string, unknown>>;
+};
+
+export type GraphRunDispatchReadyResult = {
+  authority: string;
+  graph_run_id: string;
+  graph_harness_config_id: string;
+  graph_loop_state: Record<string, unknown>;
+  checkpoint: Record<string, unknown>;
+  node_work_orders: Array<Record<string, unknown>>;
+  work_order_count: number;
+  events: Array<Record<string, unknown>>;
+};
+
+export type GraphNodeResultAcceptResult = {
+  authority: string;
+  graph_run_id: string;
+  graph_harness_config_id: string;
+  accepted_result: Record<string, unknown> | null;
+  graph_result: Record<string, unknown> | null;
+  graph_loop_state: Record<string, unknown>;
+  checkpoint: Record<string, unknown>;
+  node_work_orders: Array<Record<string, unknown>>;
   events: Array<Record<string, unknown>>;
 };
 
@@ -3528,12 +3555,6 @@ export async function getTaskGraphRunMonitorDecisions(taskRunId: string) {
   );
 }
 
-export async function getCoordinationRunTaskGraphMonitor(coordinationRunId: string) {
-  return request<TaskGraphRunMonitorView>(
-    `/orchestration/coordination-runs/${encodeURIComponent(coordinationRunId)}/task-graph-monitor`
-  );
-}
-
 export async function getHarnessTaskRunArtifacts(taskRunId: string) {
   return request<{
     authority: string;
@@ -3587,7 +3608,7 @@ export async function startTaskGraphHarnessRun(
     task_id?: string;
     initial_inputs?: Record<string, unknown>;
     include_trace?: boolean;
-    execute_initial_stage?: boolean;
+    dispatch_ready?: boolean;
   } = {}
 ) {
   return request<TaskGraphRunStartResult>(
@@ -3599,80 +3620,22 @@ export async function startTaskGraphHarnessRun(
   );
 }
 
-export async function resumeOrchestrationTaskGraphRun(
-  taskGraphRunId: string,
-  resumePayload: Record<string, unknown>
-) {
-  return request<{
-    authority: string;
-    coordination_run_id: string;
-    checkpoint_ref: string;
-    diagnostics: Record<string, unknown>;
-    stage_execution_request: Record<string, unknown> | null;
-    events: Array<Record<string, unknown>>;
-  }>(
-    `/orchestration/coordination-runs/${encodeURIComponent(taskGraphRunId)}/resume`,
-    {
-      method: "POST",
-      body: JSON.stringify({ resume_payload: resumePayload }),
-    }
+export async function getGraphRunMonitor(graphRunId: string, graphHarnessConfigId = "") {
+  const query = graphHarnessConfigId ? `?graph_harness_config_id=${encodeURIComponent(graphHarnessConfigId)}` : "";
+  return request<Record<string, unknown>>(
+    `/orchestration/harness/graph-runs/${encodeURIComponent(graphRunId)}/monitor${query}`
   );
 }
 
-export async function continueOrchestrationCurrentStage(
-  coordinationRunId: string,
+export async function dispatchGraphRunReadyNodes(
+  graphRunId: string,
   payload: {
-    source?: string;
-    current_turn_context?: Record<string, unknown>;
-  } = {}
-) {
-  return request<{
-    authority: string;
-    coordination_run_id: string;
-    task_run_id: string;
-    session_id: string;
-    stage_execution_request: Record<string, unknown> | null;
-    background_started: boolean;
-    mode: string;
-  }>(
-    `/orchestration/coordination-runs/${encodeURIComponent(coordinationRunId)}/continue-current-stage`,
-    {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }
-  );
-}
-
-export async function rewindOrchestrationFromStage(
-  coordinationRunId: string,
-  payload: {
-    stage_id: string;
-    reason?: string;
-    source?: string;
-    artifact_root?: string;
-    include_downstream?: boolean;
-    move_artifacts?: boolean;
-    continue_after_rewind?: boolean;
-    current_turn_context?: Record<string, unknown>;
+    graph_harness_config_id: string;
+    max_requests?: number;
   }
 ) {
-  return request<{
-    authority: string;
-    coordination_run_id: string;
-    task_run_id: string;
-    session_id: string;
-    stage_id: string;
-    reason: string;
-    invalidated_stage_ids: string[];
-    invalidated_task_runs: Array<Record<string, unknown>>;
-    invalidated_artifact_refs: Array<Record<string, unknown>>;
-    moved_artifacts: Array<Record<string, unknown>>;
-    checkpoint_ref: string;
-    stage_execution_request: Record<string, unknown> | null;
-    background_started: boolean;
-    diagnostics: Record<string, unknown>;
-  }>(
-    `/orchestration/coordination-runs/${encodeURIComponent(coordinationRunId)}/rewind-from-stage`,
+  return request<GraphRunDispatchReadyResult>(
+    `/orchestration/harness/graph-runs/${encodeURIComponent(graphRunId)}/dispatch-ready`,
     {
       method: "POST",
       body: JSON.stringify(payload),
@@ -3680,31 +3643,15 @@ export async function rewindOrchestrationFromStage(
   );
 }
 
-export async function dispatchCoordinationReadyBatches(
-  coordinationRunId: string,
+export async function acceptGraphNodeResult(
+  graphRunId: string,
   payload: {
-    source?: string;
-    current_turn_context?: Record<string, unknown>;
-    max_requests?: number;
-    include_current_request?: boolean;
-    execute_background?: boolean;
-  } = {}
+    graph_harness_config_id: string;
+    result: Record<string, unknown>;
+  }
 ) {
-  return request<{
-    authority: string;
-    coordination_run_id: string;
-    task_run_id: string;
-    session_id: string;
-    checkpoint_ref: string;
-    stage_execution_requests: Array<Record<string, unknown>>;
-    request_count: number;
-    execute_background: boolean;
-    background_started_count: number;
-    stage_execution_schedules: Array<Record<string, unknown>>;
-    batch_dispatcher: Record<string, unknown>;
-    events: Array<Record<string, unknown>>;
-  }>(
-    `/orchestration/coordination-runs/${encodeURIComponent(coordinationRunId)}/dispatch-ready-batches`,
+  return request<GraphNodeResultAcceptResult>(
+    `/orchestration/harness/graph-runs/${encodeURIComponent(graphRunId)}/node-results`,
     {
       method: "POST",
       body: JSON.stringify(payload),
