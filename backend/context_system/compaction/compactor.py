@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Literal
+from dataclasses import dataclass, field
+import re
+from typing import Any, Literal
 
 from memory_system.storage.models import Message
 from memory_system.storage.session_memory import SessionMemoryManager
+from runtime.prompt_accounting import CanonicalPromptSerializer, CompressionBudgetPlanner
 from token_accounting import count_text_tokens
 
 
@@ -23,6 +25,39 @@ class CompactResult:
     did_full_compact: bool = False
     replaced_message_count: int = 0
     preserved_recent_count: int = 0
+    diagnostics: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class SemanticCompactionRequest:
+    request_id: str
+    pressure_level: Literal["microcompact", "full_compact"]
+    summary_target_tokens: int
+    messages: tuple[Message, ...]
+    recent_messages: tuple[Message, ...]
+    dropped_message_count: int
+    instructions: str
+    diagnostics: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "request_id": self.request_id,
+            "pressure_level": self.pressure_level,
+            "summary_target_tokens": self.summary_target_tokens,
+            "messages": [self._message_to_dict(message) for message in self.messages],
+            "recent_messages": [self._message_to_dict(message) for message in self.recent_messages],
+            "dropped_message_count": self.dropped_message_count,
+            "instructions": self.instructions,
+            "diagnostics": dict(self.diagnostics),
+            "authority": "context_system.semantic_compaction_request",
+        }
+
+    def _message_to_dict(self, message: Message) -> dict[str, Any]:
+        return {
+            "role": message.role,
+            "content": message.content,
+            "meta": dict(message.meta or {}),
+        }
 
 
 class ContextCompactor:
@@ -39,6 +74,9 @@ class ContextCompactor:
         full_compact_ratio: float = 0.94,
         bulky_message_token_threshold: int = 220,
         full_compact_recent_messages: int = 6,
+        prompt_serializer: CanonicalPromptSerializer | None = None,
+        compression_budget_planner: CompressionBudgetPlanner | None = None,
+        semantic_compactor: Any | None = None,
     ) -> None:
         if keep_recent_messages >= max_messages:
             raise ValueError("keep_recent_messages must be smaller than max_messages")
@@ -53,6 +91,9 @@ class ContextCompactor:
         self.microcompact_tokens = max(self.warning_tokens + 1, int(effective_history_token_budget * microcompact_ratio))
         self.full_compact_tokens = max(self.microcompact_tokens + 1, int(effective_history_token_budget * full_compact_ratio))
         self.bulky_message_token_threshold = bulky_message_token_threshold
+        self.prompt_serializer = prompt_serializer or CanonicalPromptSerializer()
+        self.compression_budget_planner = compression_budget_planner or CompressionBudgetPlanner()
+        self.semantic_compactor = semantic_compactor
 
     def count_tokens(self, text: str) -> int:
         return self._count_tokens(text)
@@ -161,6 +202,40 @@ class ContextCompactor:
                 compacted.append(message)
         return compacted, replaced
 
+    def build_semantic_compaction_request(
+        self,
+        messages: list[Message],
+        *,
+        pressure_level: Literal["microcompact", "full_compact"],
+        request_id: str = "context_compaction:preview",
+        reserved_output_tokens: int = 0,
+    ) -> SemanticCompactionRequest:
+        diagnostics = self._prompt_accounting_diagnostics(
+            list(messages),
+            request_id=request_id,
+            session_id="",
+            task_run_id="",
+            reserved_output_tokens=reserved_output_tokens,
+        )
+        decision = dict(diagnostics.get("compression_budget_decision") or {})
+        recent = tuple(self._select_recent_core_messages(list(messages), self.full_compact_recent_messages))
+        protected_recent_ids = {id(message) for message in recent}
+        semantic_messages = tuple(
+            message
+            for message in list(messages)
+            if id(message) not in protected_recent_ids and not self._is_compaction_noise(message)
+        )
+        return SemanticCompactionRequest(
+            request_id=request_id,
+            pressure_level=pressure_level,
+            summary_target_tokens=int(decision.get("summary_target_tokens") or 0),
+            messages=semantic_messages,
+            recent_messages=recent,
+            dropped_message_count=max(0, len(messages) - len(semantic_messages) - len(recent)),
+            instructions=self._semantic_compaction_instructions(),
+            diagnostics=diagnostics,
+        )
+
     def _build_full_compact_messages(
         self,
         messages: list[Message],
@@ -168,6 +243,8 @@ class ContextCompactor:
         max_chars_per_section: int,
         recent_count: int,
         summary_content: str | None = None,
+        summary_target_tokens: int = 0,
+        compaction_source: str = "deterministic_session_memory",
     ) -> tuple[list[Message], Message]:
         recent = self._select_recent_core_messages(messages, recent_count)
         session_summary = (
@@ -175,14 +252,20 @@ class ContextCompactor:
             if summary_content is not None
             else self.session_memory_manager.compact_view(max_chars_per_section=max_chars_per_section).strip()
         )
+        session_summary = self._trim_summary_to_token_target(session_summary, summary_target_tokens)
         summary_message = Message(
             role="system",
             content=(
-                "Conversation history was compacted because runtime context pressure became high. "
-                "Treat the following session-memory summary as the authoritative working context.\n\n"
+                "Conversation history was compacted into a checkpoint because runtime context pressure became high. "
+                "Use this handoff summary as the recovery point, then rely on the recent real messages that follow it. "
+                "Do not infer that omitted raw tool output is still available in this prompt.\n\n"
                 f"{session_summary}"
             ),
-            meta={"kind": "compact_summary"},
+            meta={
+                "kind": "compact_summary",
+                "compaction_source": compaction_source,
+                "summary_target_tokens": summary_target_tokens,
+            },
         )
         return [summary_message, *recent], summary_message
 
@@ -193,9 +276,21 @@ class ContextCompactor:
         pressure_level: Literal["normal", "warning", "microcompact", "full_compact"],
         summary_content: str | None = None,
         summary_source_content: str | None = None,
+        request_id: str = "context_compaction:preview",
+        session_id: str = "",
+        task_run_id: str = "",
+        reserved_output_tokens: int = 0,
+        semantic_summary_content: str | None = None,
     ) -> CompactResult:
         working = list(messages)
         tokens_before = self._conversation_tokens(working)
+        prompt_diagnostics = self._prompt_accounting_diagnostics(
+            working,
+            request_id=request_id,
+            session_id=session_id,
+            task_run_id=task_run_id,
+            reserved_output_tokens=reserved_output_tokens,
+        )
 
         if pressure_level in {"normal", "warning"}:
             return CompactResult(
@@ -208,11 +303,13 @@ class ContextCompactor:
                 original_message_count=len(messages),
                 compacted_message_count=len(working),
                 preserved_recent_count=min(len(working), self.keep_recent_messages),
+                diagnostics=prompt_diagnostics,
             )
 
         micro_messages, replaced = self._apply_microcompact(working)
         tokens_after_micro = self._conversation_tokens(micro_messages)
         post_micro_level = self._pressure_level(tokens_after_micro, len(micro_messages))
+        budget_decision = dict(prompt_diagnostics.get("compression_budget_decision") or {})
         if pressure_level == "microcompact" or post_micro_level in {"normal", "warning", "microcompact"}:
             return CompactResult(
                 did_compact=replaced > 0,
@@ -227,6 +324,11 @@ class ContextCompactor:
                 did_full_compact=False,
                 replaced_message_count=replaced,
                 preserved_recent_count=min(len(micro_messages), self.keep_recent_messages),
+                diagnostics={
+                    **prompt_diagnostics,
+                    "estimated_tokens_after_microcompact": tokens_after_micro,
+                    "semantic_compactor_required": False,
+                },
             )
 
         summary_message: Message | None = None
@@ -234,9 +336,11 @@ class ContextCompactor:
         tokens_after = tokens_after_micro
         recent_count = self.full_compact_recent_messages
         max_chars_per_section = 420
-        resolved_summary_content = summary_content
+        summary_target_tokens = int(budget_decision.get("summary_target_tokens") or 0)
+        resolved_summary_content = semantic_summary_content or summary_content
+        compaction_source = "semantic_compactor" if semantic_summary_content else "deterministic_session_memory"
         while True:
-            if summary_source_content is not None:
+            if semantic_summary_content is None and summary_source_content is not None:
                 resolved_summary_content = self.session_memory_manager.compact_view(
                     content=summary_source_content,
                     max_chars_per_section=max_chars_per_section,
@@ -246,6 +350,8 @@ class ContextCompactor:
                 max_chars_per_section=max_chars_per_section,
                 recent_count=recent_count,
                 summary_content=resolved_summary_content,
+                summary_target_tokens=summary_target_tokens,
+                compaction_source=compaction_source,
             )
             tokens_after = self._conversation_tokens(compacted)
             if tokens_after <= self.effective_history_token_budget:
@@ -255,7 +361,7 @@ class ContextCompactor:
                 continue
             if max_chars_per_section > 240:
                 max_chars_per_section = 240
-                if summary_source_content is None and summary_content is None:
+                if semantic_summary_content is None and summary_source_content is None and summary_content is None:
                     resolved_summary_content = self.session_memory_manager.compact_view(
                         max_chars_per_section=max_chars_per_section,
                     ).strip()
@@ -277,6 +383,8 @@ class ContextCompactor:
                 max_chars_per_section=160,
                 recent_count=min(2, len(micro_messages)),
                 summary_content=fallback_summary,
+                summary_target_tokens=min(summary_target_tokens, 160) if summary_target_tokens else 160,
+                compaction_source=compaction_source,
             )
             tokens_after = self._conversation_tokens(compacted)
 
@@ -294,6 +402,19 @@ class ContextCompactor:
             did_full_compact=True,
             replaced_message_count=replaced,
             preserved_recent_count=min(len(micro_messages), recent_count),
+            diagnostics={
+                **prompt_diagnostics,
+                "estimated_tokens_after_microcompact": tokens_after_micro,
+                "summary_source_tokens": self._count_tokens(summary_source_content or ""),
+                "semantic_compactor_required": semantic_summary_content is None,
+                "semantic_compaction_request": self.build_semantic_compaction_request(
+                    working,
+                    pressure_level="full_compact",
+                    request_id=request_id,
+                    reserved_output_tokens=reserved_output_tokens,
+                ).to_dict(),
+                "compaction_source": compaction_source,
+            },
         )
 
     def _select_recent_core_messages(self, messages: list[Message], recent_count: int) -> list[Message]:
@@ -316,11 +437,110 @@ class ContextCompactor:
         recent.reverse()
         return recent
 
+    def _is_compaction_noise(self, message: Message) -> bool:
+        meta = dict(message.meta or {})
+        if str(meta.get("kind") or "") in {"compact_summary", "microcompact_stub"}:
+            return True
+        content = str(message.content or "").strip()
+        lowered = content.lower()
+        return any(
+            marker in lowered
+            for marker in (
+                "runtime context package",
+                "runtime execution facts",
+                "operationgate",
+                "resourcepolicy",
+                "当前 agent 工作契约",
+            )
+        )
+
+    def _semantic_compaction_instructions(self) -> str:
+        return "\n".join(
+            [
+                "你是一名上下文压缩员。",
+                "你只负责把已有运行历史整理成后续模型可以继续工作的恢复点。",
+                "你不能引入新事实，不能搜索，不能修改文件，不能替主 Agent 继续执行任务。",
+                "你需要保留用户目标、当前约束、已验证事实、产物引用、未解决问题、最近纠错和下一步恢复提示。",
+                "你需要丢弃重复寒暄、旧工具原文、大段 JSON/表格原文、过期状态和已被后续消息否定的信息。",
+                "输出必须是可直接放入 system checkpoint 的中文摘要，不要暴露内部字段名或运行 id。",
+            ]
+        )
+
+    def _trim_summary_to_token_target(self, summary: str, target_tokens: int) -> str:
+        normalized = str(summary or "").strip()
+        if not normalized or target_tokens <= 0:
+            return normalized
+        if self._count_tokens(normalized) <= target_tokens:
+            return normalized
+        lines = [line.strip() for line in normalized.splitlines() if line.strip()]
+        kept: list[str] = []
+        for line in lines:
+            candidate = "\n".join([*kept, line]).strip()
+            if kept and self._count_tokens(candidate) > target_tokens:
+                break
+            kept.append(line)
+        trimmed = "\n".join(kept).strip()
+        if trimmed:
+            return trimmed
+        char_limit = max(200, target_tokens * 4)
+        return normalized[:char_limit].rstrip()
+
     def maybe_compact(self, messages: list[Message]) -> CompactResult:
         working = list(messages)
         tokens_before = self._conversation_tokens(working)
         level = self._pressure_level(tokens_before, len(working))
         return self.apply_strategy(working, pressure_level=level)
+
+    def _prompt_accounting_diagnostics(
+        self,
+        messages: list[Message],
+        *,
+        request_id: str,
+        session_id: str,
+        task_run_id: str,
+        reserved_output_tokens: int,
+    ) -> dict[str, Any]:
+        segment_map = self.prompt_serializer.build_segment_map(
+            request_id=request_id,
+            messages=[self._message_payload(message) for message in messages],
+            session_id=session_id,
+            task_run_id=task_run_id,
+            metadata={"source": "context_compaction"},
+        )
+        decision = self.compression_budget_planner.plan(
+            segment_map.segments,
+            context_window_tokens=self.effective_history_token_budget + max(0, int(reserved_output_tokens or 0)),
+            reserved_output_tokens=max(0, int(reserved_output_tokens or 0)),
+        )
+        return {
+            "prompt_segment_map": {
+                "request_id": segment_map.request_id,
+                "canonical_hash": segment_map.canonical_hash,
+                "predicted_prompt_tokens": segment_map.predicted_prompt_tokens,
+                "segment_count": len(segment_map.segments),
+            },
+            "segment_token_map": [
+                {
+                    "segment_id": segment.segment_id,
+                    "kind": segment.kind,
+                    "role": segment.role,
+                    "ordinal": segment.ordinal,
+                    "predicted_tokens": segment.predicted_tokens,
+                    "cache_role": segment.cache_role,
+                    "compression_role": segment.compression_role,
+                    "content_hash": segment.content_hash,
+                }
+                for segment in segment_map.segments
+            ],
+            "compression_budget_decision": decision.to_dict(),
+        }
+
+    def _message_payload(self, message: Message) -> dict[str, Any]:
+        return {
+            "role": message.role,
+            "content": message.content,
+            "source": str(dict(message.meta or {}).get("source") or "session_history"),
+        }
 
 
 

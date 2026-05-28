@@ -105,6 +105,14 @@ class RuntimeEventLog:
             )
         return events
 
+    def delete_events(self, task_run_id: str) -> bool:
+        path = self._event_path(task_run_id)
+        if not path.exists():
+            return False
+        with self._write_lock:
+            path.unlink(missing_ok=True)
+        return True
+
     def next_offset(self, task_run_id: str) -> int:
         path = self._event_path(task_run_id)
         if not path.exists():

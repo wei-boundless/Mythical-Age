@@ -64,7 +64,7 @@ def test_client_stream_chat_posts_to_chat_api_and_yields_events() -> None:
             ]
         )
 
-    client = AgentCliClient(api_base="http://127.0.0.1:8003/api", timeout=12, opener=opener)
+    client = AgentCliClient(api_base="http://127.0.0.1:8003/api", timeout=12, stream_timeout=34, opener=opener)
 
     events = list(client.stream_chat(session_id="session-1", message="hi"))
 
@@ -72,13 +72,28 @@ def test_client_stream_chat_posts_to_chat_api_and_yields_events() -> None:
     assert captured["method"] == "POST"
     assert '"stream": true' in str(captured["body"])
     assert '"session_id": "session-1"' in str(captured["body"])
-    assert captured["timeout"] == 12
+    assert captured["timeout"] == 34
     assert [event.event for event in events] == ["content_delta", "done"]
+
+
+def test_client_stream_chat_uses_no_socket_timeout_by_default() -> None:
+    captured: dict[str, object] = {}
+
+    def opener(request, timeout):
+        captured["timeout"] = timeout
+        return _Response([b'event: done\ndata: {"content": ""}\n\n'])
+
+    client = AgentCliClient(opener=opener)
+
+    events = list(client.stream_chat(session_id="session-1", message="hi"))
+
+    assert captured["timeout"] is None
+    assert [event.event for event in events] == ["done"]
 
 
 def test_client_stream_chat_rejects_missing_terminal_event() -> None:
     def opener(_request, timeout):
-        assert timeout > 0
+        assert timeout is None
         return _Response([b'event: token\ndata: {"content": "partial"}\n\n'])
 
     client = AgentCliClient(opener=opener)
@@ -164,6 +179,55 @@ def test_send_command_forwards_runtime_mode_and_soul_id(tmp_path: Path) -> None:
 
     assert code == 0
     assert client.calls == [("session-cli", "hello", {"runtime_mode": "role", "soul_id": "hebo"})]
+
+
+def test_task_run_watch_exits_on_waiting_executor() -> None:
+    class FakeClient:
+        def __init__(self) -> None:
+            self.monitor_calls = 0
+
+        def execute_task_run(self, task_run_id: str, *, max_steps: int = 12):
+            assert task_run_id == "taskrun:test"
+            assert max_steps == 1
+            return {"ok": True}
+
+        def get_task_run_monitor(self, task_run_id: str):
+            self.monitor_calls += 1
+            return {
+                "status": "waiting_executor",
+                "event_count": 3,
+                "terminal_reason": "waiting_executor",
+                "latest_event": {
+                    "event_type": "step_summary_recorded",
+                    "payload": {
+                        "step": "task_executor_waiting_next_run",
+                        "summary": "本轮执行步数预算已用尽，任务未失败，已等待下一次执行器续跑。",
+                    },
+                },
+            }
+
+        def get_task_run_trace(self, task_run_id: str, *, include_payloads: bool = False):
+            return {
+                "task_run": {
+                    "status": "waiting_executor",
+                    "terminal_reason": "waiting_executor",
+                    "diagnostics": {
+                        "recoverable_error": {
+                            "user_message": "本轮执行步数预算已用尽，任务保持可续跑状态。"
+                        }
+                    },
+                }
+            }
+
+    client = FakeClient()
+    args = build_parser().parse_args(["task-run", "execute", "taskrun:test", "--max-steps", "1"])
+    stdout = io.StringIO()
+
+    code = run_command(args, client=client, store=CliStateStore(), stdout=stdout, stderr=io.StringIO())  # type: ignore[arg-type]
+
+    assert code == 0
+    assert client.monitor_calls == 1
+    assert "任务保持可续跑状态" in stdout.getvalue()
 
 
 def test_interactive_mode_sends_plain_text_and_exits(tmp_path: Path) -> None:

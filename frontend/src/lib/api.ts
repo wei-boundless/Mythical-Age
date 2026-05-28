@@ -1189,6 +1189,13 @@ export type HealthTaskRecord = {
   event_count: number;
   error_count: number;
   token_total: number;
+  token_source?: "provider_usage" | "local_prediction" | "trace_estimate" | "none" | string;
+  exact_token_total?: number;
+  predicted_token_total?: number;
+  trace_estimate_token_total?: number;
+  cached_tokens?: number;
+  cache_savings_tokens?: number;
+  token_record_count?: number;
   risk_level: "normal" | "warning" | "high" | "critical" | string;
   latest_risk_event: string;
   supervision_count: number;
@@ -1237,6 +1244,19 @@ export type HealthSystemOverview = {
   problem_nodes?: HealthProblemNode[];
   commands?: HealthManagementCommand[];
   reports?: HealthReport[];
+};
+
+export type HealthTaskRecordPruneResult = {
+  authority: string;
+  bucket: string;
+  requested_task_run_ids: string[];
+  candidate_count: number;
+  deleted_task_run_ids: string[];
+  deleted_event_log_task_run_ids: string[];
+  deleted_counts: Record<string, number>;
+  skipped: Array<Record<string, unknown>>;
+  monitor: GlobalRuntimeMonitor | Record<string, unknown>;
+  updated_at: number;
 };
 
 export type ContextBudgetPreset = {
@@ -4126,6 +4146,16 @@ export async function getHealthSystemTaskDetail(taskRunId: string) {
     recent_events: Array<Record<string, unknown>>;
     updated_at: number;
   }>(`/health-system/tasks/${encodeURIComponent(taskRunId)}`);
+}
+
+export async function pruneHealthSystemTaskRecords(payload: {
+  bucket?: "static" | "completed" | "failed" | "diagnostics" | string;
+  task_run_ids?: string[];
+}) {
+  return request<HealthTaskRecordPruneResult>("/health-system/task-records/prune", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 export async function getHealthSystemRisks(limit = 100) {

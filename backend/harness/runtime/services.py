@@ -16,6 +16,7 @@ class AgentRuntimeServices:
     root_dir: Path
     backend_dir: Path
     event_log: Any
+    prompt_accounting_ledger: Any
     state_index: Any
     runtime_objects: Any
     execution_store: Any
@@ -23,13 +24,15 @@ class AgentRuntimeServices:
     tool_authorization_index: Any
     current_permission_mode: Any
     get_trace_callback: Any
+    execute_task_run_callback: Any | None = None
 
     @classmethod
-    def from_runtime_host(cls, host: Any) -> "AgentRuntimeServices":
+    def from_runtime_host(cls, host: Any, *, execute_task_run_callback: Any | None = None) -> "AgentRuntimeServices":
         return cls(
             root_dir=Path(host.root_dir),
             backend_dir=Path(host.backend_dir),
             event_log=host.event_log,
+            prompt_accounting_ledger=getattr(host, "prompt_accounting_ledger", None),
             state_index=host.state_index,
             runtime_objects=host.runtime_objects,
             execution_store=host.execution_store,
@@ -37,6 +40,7 @@ class AgentRuntimeServices:
             tool_authorization_index=host.tool_authorization_index,
             current_permission_mode=host._current_permission_mode,
             get_trace_callback=host.get_trace,
+            execute_task_run_callback=execute_task_run_callback,
         )
 
     def _current_permission_mode(self) -> str:
@@ -50,3 +54,24 @@ class AgentRuntimeServices:
 
     def event_count(self, task_run_id: str) -> int:
         return len(self.event_log.list_events(task_run_id))
+
+
+@dataclass(frozen=True, slots=True)
+class TaskExecutorServices:
+    """Narrow service table for a TaskRun executor invocation.
+
+    The task executor is part of the harness, not the API adapter. It receives
+    the exact runtime services it needs instead of reaching back into
+    QueryRuntime.
+    """
+
+    runtime_host: Any
+    backend_dir: Path
+    model_runtime: Any
+    tool_runtime_executor: Any | None
+    tool_instances: tuple[Any, ...]
+    agent_runtime_profile: Any | None
+    backend_config: dict[str, Any]
+
+    def all_tool_instances(self) -> list[Any]:
+        return list(self.tool_instances)

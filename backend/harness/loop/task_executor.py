@@ -25,7 +25,7 @@ from runtime.memory.tool_observation_ledger import build_tool_observation_record
 
 from orchestration.runtime_directive import RuntimeDirective
 from project_layout import ProjectLayout
-from harness.runtime import RuntimeCompiler, assemble_runtime, build_execution_context
+from harness.runtime import RuntimeCompiler, TaskExecutorServices, assemble_runtime, build_execution_context
 
 from .admission import admit_model_action
 from .agent_loop import _call_model_invoker, _compact_text, _model_action_timeout_seconds, _parse_json_object
@@ -35,20 +35,20 @@ from .task_lifecycle import TaskLifecycleRecord, finish_task_lifecycle
 
 _MAX_TASK_EXECUTION_STEPS = 12
 _MAX_MODEL_PROTOCOL_REPAIR_ATTEMPTS = 3
+_TASK_MODEL_ACTION_WAIT_STATUS_INTERVAL_SECONDS = 15.0
 
 
 def is_task_run_executable(task_run: Any) -> bool:
-    return str(task_run.status or "") in {"waiting_executor", "running", "blocked"} or _is_recoverable_protocol_terminal(task_run)
+    return str(task_run.status or "") == "waiting_executor" or _is_recoverable_protocol_terminal(task_run)
 
 
 async def execute_task_run(
-    runtime: Any,
+    services: TaskExecutorServices,
     task_run_id: str,
     *,
     max_steps: int = _MAX_TASK_EXECUTION_STEPS,
 ) -> dict[str, Any]:
-    query_runtime = getattr(runtime, "query_runtime", runtime)
-    runtime_host = query_runtime.single_agent_runtime_host
+    runtime_host = services.runtime_host
     task_run = runtime_host.state_index.get_task_run(task_run_id)
     if task_run is None:
         return _not_found(task_run_id)
@@ -67,18 +67,18 @@ async def execute_task_run(
         )
         return {"ok": False, "task_run": failed_task.to_dict(), "event": event, "error": "task_contract_missing"}
 
-    agent_profile = query_runtime.agent_runtime_registry.get_profile("agent:0")
+    agent_profile = services.agent_runtime_profile
     diagnostics = dict(task_run.diagnostics or {})
     turn_id = str(diagnostics.get("turn_id") or task_run.task_id or task_run.task_run_id)
     runtime_assembly = assemble_runtime(
-        backend_dir=query_runtime.base_dir,
+        backend_dir=services.backend_dir,
         session_id=task_run.session_id,
         turn_id=turn_id,
         agent_invocation_id=f"aginvoke:{task_run.task_run_id}:executor",
         request_task_selection=_task_selection_from_task_run(task_run),
         model_selection={},
         agent_runtime_profile=agent_profile,
-        tool_instances=query_runtime._all_tool_instances(),
+        tool_instances=services.all_tool_instances(),
         definitions_by_name=dict(runtime_host.tool_authorization_index.definitions_by_name or {}),
     )
     runtime_available_tools = _runtime_available_tools(runtime_assembly.to_dict())
@@ -86,7 +86,7 @@ async def execute_task_run(
     runtime_fingerprint = _current_runtime_fingerprint(
         runtime_assembly.to_dict(),
         runtime_host=runtime_host,
-        query_runtime=query_runtime,
+        backend_config=services.backend_config,
     )
     runtime_host.event_log.append(
         task_run.task_run_id,
@@ -153,12 +153,23 @@ async def execute_task_run(
             summary="系统已为当前任务步骤装配 runtime packet，并交给 agent 判断下一步。",
             refs={"runtime_invocation_packet_ref": compilation.packet.packet_id},
         )
+        _record_task_step_summary(
+            runtime_host,
+            task_run_id=current_task.task_run_id,
+            step=f"task_model_action_invocation_started:{step_index}",
+            status="running",
+            summary="任务 runtime packet 已送入模型，系统正在等待 agent 返回任务动作。",
+            refs={"runtime_invocation_packet_ref": compilation.packet.packet_id},
+        )
         try:
-            action_request, protocol = await _invoke_task_model_action(
-                model_runtime=query_runtime.model_runtime,
-                packet=compilation.packet,
+            action_request, protocol = await _await_task_model_action_with_status(
+                runtime_host,
                 task_run_id=current_task.task_run_id,
-                invocation_index=step_index,
+                session_id=current_task.session_id,
+                packet_ref=compilation.packet.packet_id,
+                step_index=step_index,
+                model_runtime=services.model_runtime,
+                packet=compilation.packet,
             )
         except Exception as exc:
             return _pause_executor_for_model_recovery(
@@ -273,7 +284,7 @@ async def execute_task_run(
         if action_request.action_type == "tool_call":
             observation = await _execute_task_tool_call(
                 runtime_host,
-                query_runtime=query_runtime,
+                services=services,
                 task_run=current_task,
                 packet_ref=compilation.packet.packet_id,
                 action_request=action_request,
@@ -390,12 +401,11 @@ async def execute_task_run(
                 payload={"action_request": action_request.to_dict()},
             )
 
-    return _finish_executor_failure(
+    return _pause_executor_for_step_budget(
         runtime_host,
         task_run=current_task,
         agent_run=agent_run,
-        terminal_reason="task_execution_step_budget_exceeded",
-        payload={"max_steps": max_steps},
+        max_steps=max_steps,
     )
 
 
@@ -404,6 +414,7 @@ async def _invoke_task_model_action(
     model_runtime: Any,
     packet: Any,
     task_run_id: str,
+    session_id: str,
     invocation_index: int,
 ) -> tuple[ModelActionRequest | None, dict[str, Any]]:
     invoker = getattr(model_runtime, "invoke_messages", None)
@@ -411,7 +422,20 @@ async def _invoke_task_model_action(
         return None, {"status": "invalid", "validation_errors": ["model_runtime_unavailable"]}
     timeout_seconds = _model_action_timeout_seconds(model_runtime, model_selection={})
     response = await asyncio.wait_for(
-        _call_model_invoker(invoker, list(packet.model_messages), model_selection={}),
+        _call_model_invoker(
+            invoker,
+            list(packet.model_messages),
+            model_selection={},
+            accounting_context={
+                "request_id": f"modelreq:{packet.packet_id}:{invocation_index}",
+                "session_id": session_id,
+                "task_run_id": task_run_id,
+                "turn_id": task_run_id,
+                "packet_ref": str(packet.packet_id or ""),
+                "invocation_index": invocation_index,
+                "source": "harness.loop.task_executor.model_action",
+            },
+        ),
         timeout=timeout_seconds,
     )
     payload = _parse_json_object(getattr(response, "content", response))
@@ -419,10 +443,49 @@ async def _invoke_task_model_action(
     return model_action_request_from_payload(payload, turn_id=task_run_id)
 
 
+async def _await_task_model_action_with_status(
+    runtime_host: Any,
+    *,
+    task_run_id: str,
+    session_id: str,
+    packet_ref: str,
+    step_index: int,
+    model_runtime: Any,
+    packet: Any,
+) -> tuple[ModelActionRequest | None, dict[str, Any]]:
+    task = asyncio.create_task(
+        _invoke_task_model_action(
+            model_runtime=model_runtime,
+            packet=packet,
+            task_run_id=task_run_id,
+            session_id=session_id,
+            invocation_index=step_index,
+        )
+    )
+    wait_round = 0
+    while not task.done():
+        done, _pending = await asyncio.wait(
+            {task},
+            timeout=_TASK_MODEL_ACTION_WAIT_STATUS_INTERVAL_SECONDS,
+        )
+        if done:
+            break
+        wait_round += 1
+        _record_task_step_summary(
+            runtime_host,
+            task_run_id=task_run_id,
+            step=f"task_model_action_waiting:{step_index}",
+            status="running",
+            summary=f"任务模型调用仍在进行中，系统继续等待 agent 动作返回。等待轮次：{wait_round}。",
+            refs={"runtime_invocation_packet_ref": packet_ref},
+        )
+    return await task
+
+
 async def _execute_task_tool_call(
     runtime_host: Any,
     *,
-    query_runtime: Any,
+    services: TaskExecutorServices,
     task_run: Any,
     packet_ref: str,
     action_request: ModelActionRequest,
@@ -503,7 +566,7 @@ async def _execute_task_tool_call(
         observation["payload"]["runtime_fingerprint"] = _current_runtime_fingerprint(
             runtime_assembly,
             runtime_host=runtime_host,
-            query_runtime=query_runtime,
+            backend_config=services.backend_config,
         )
         return observation
     execution_context = build_execution_context(
@@ -539,7 +602,16 @@ async def _execute_task_tool_call(
         ),
         diagnostics={"execution_context": execution_context.to_dict(), "operation_gate": gate_result.to_dict()},
     )
-    result = await query_runtime.tool_runtime_executor.run(
+    if services.tool_runtime_executor is None:
+        return _executor_error_observation(
+            task_run_id=task_run.task_run_id,
+            request_ref=action_request.request_id,
+            directive_ref=directive.directive_id,
+            tool_name=tool_name,
+            tool_args=tool_args,
+            error="tool_runtime_executor_unavailable",
+        )
+    result = await services.tool_runtime_executor.run(
         task_run_id=task_run.task_run_id,
         action_request=runtime_action,
         directive=directive,
@@ -556,7 +628,7 @@ async def _execute_task_tool_call(
         observation["payload"]["runtime_fingerprint"] = _current_runtime_fingerprint(
             runtime_assembly,
             runtime_host=runtime_host,
-            query_runtime=query_runtime,
+            backend_config=services.backend_config,
         )
     return observation
 
@@ -718,6 +790,17 @@ def _verify_completion(
     artifact_refs: list[dict[str, Any]],
 ) -> dict[str, Any]:
     required_artifacts = [dict(item) for item in list(contract.get("required_artifacts") or []) if isinstance(item, dict)]
+    artifact_refs = _dedupe_artifacts(
+        [
+            *artifact_refs,
+            *_discover_sandbox_artifact_refs(
+                runtime_host=runtime_host,
+                runtime_assembly=runtime_assembly,
+                task_run_id=task_run_id,
+                contract=contract,
+            ),
+        ]
+    )
     verified_artifacts = _verified_artifacts(
         runtime_host=runtime_host,
         runtime_assembly=runtime_assembly,
@@ -859,7 +942,7 @@ def _is_recoverable_protocol_terminal(task_run: Any) -> bool:
     terminal_reason = str(getattr(task_run, "terminal_reason", "") or "")
     return (
         str(getattr(task_run, "status", "") or "") in {"failed", "blocked"}
-        and terminal_reason in {"model_action_invalid", "model_action_protocol_repair_required"}
+        and terminal_reason in {"model_action_invalid", "model_action_protocol_repair_required", "task_execution_step_budget_exceeded"}
         and bool(recoverable.get("retryable", True))
     )
 
@@ -926,6 +1009,51 @@ def _pause_executor_for_model_recovery(
         refs={"observation_ref": observation["observation_id"]},
     )
     return {"ok": False, "task_run": paused_task.to_dict(), "observation": observation, "error": "model_call_recovery_required"}
+
+
+def _pause_executor_for_step_budget(runtime_host: Any, *, task_run: Any, agent_run: Any, max_steps: int) -> dict[str, Any]:
+    now = time.time()
+    payload = {
+        "error_code": "task_execution_step_budget_exhausted",
+        "retryable": True,
+        "max_steps": int(max_steps or _MAX_TASK_EXECUTION_STEPS),
+        "user_message": "本轮执行步数预算已用尽，任务保持可续跑状态。",
+    }
+    paused_task = replace(
+        task_run,
+        status="waiting_executor",
+        updated_at=now,
+        terminal_reason="waiting_executor",
+        diagnostics={
+            **_strip_terminal_diagnostics(dict(task_run.diagnostics or {})),
+            "executor_status": "waiting_executor",
+            "recoverable_error": payload,
+            "recovery_action": "rerun_task_executor",
+        },
+    )
+    runtime_host.state_index.upsert_task_run(paused_task)
+    runtime_host.state_index.upsert_agent_run(
+        replace(
+            agent_run,
+            status="blocked",
+            updated_at=now,
+            diagnostics={**dict(agent_run.diagnostics or {}), "terminal_reason": "task_execution_step_budget_exhausted", "recoverable_error": payload},
+        )
+    )
+    runtime_host.event_log.append(
+        task_run.task_run_id,
+        "task_executor_step_budget_exhausted",
+        payload={"task_run": paused_task.to_dict(), "max_steps": int(max_steps or _MAX_TASK_EXECUTION_STEPS)},
+        refs={"task_run_ref": task_run.task_run_id},
+    )
+    _record_task_step_summary(
+        runtime_host,
+        task_run_id=task_run.task_run_id,
+        step="task_executor_waiting_next_run",
+        status="waiting_executor",
+        summary="本轮执行步数预算已用尽，任务未失败，已等待下一次执行器续跑。",
+    )
+    return {"ok": False, "task_run": paused_task.to_dict(), "error": "task_execution_step_budget_exhausted", "retryable": True}
 
 
 def _model_error_payload(error: Exception) -> dict[str, Any]:
@@ -1086,6 +1214,20 @@ def _classify_record_freshness(
             "reason": "completion_evidence_missing",
         }
     if status not in {"failed", "denied", "canceled", "error"}:
+        if not previous_fingerprint and current_fingerprint:
+            return {
+                "visibility": "historical",
+                "reuse_as_fact": False,
+                "reuse_as_repair_context": False,
+                "reason": "missing_runtime_fingerprint",
+            }
+        if previous_fingerprint and current_fingerprint and not _fingerprints_compatible(previous_fingerprint, current_fingerprint):
+            return {
+                "visibility": "historical",
+                "reuse_as_fact": False,
+                "reuse_as_repair_context": False,
+                "reason": "superseded_by_runtime_change",
+            }
         return {
             "visibility": "active",
             "reuse_as_fact": True,
@@ -1184,10 +1326,10 @@ def _packet_observations_from_records(records: list[dict[str, Any]]) -> list[dic
     return packet[-24:]
 
 
-def _current_runtime_fingerprint(runtime_assembly: dict[str, Any], *, runtime_host: Any, query_runtime: Any) -> dict[str, Any]:
+def _current_runtime_fingerprint(runtime_assembly: dict[str, Any], *, runtime_host: Any, backend_config: dict[str, Any]) -> dict[str, Any]:
     profile = dict(runtime_assembly.get("profile") or {})
     environment = dict(runtime_assembly.get("task_environment") or {})
-    config = _safe_backend_config(query_runtime)
+    config = _safe_backend_config(backend_config)
     return {
         "runtime_assembly_id": str(runtime_assembly.get("assembly_id") or ""),
         "agent_profile_id": str(runtime_assembly.get("agent_profile_ref") or ""),
@@ -1424,8 +1566,8 @@ def _stable_hash(value: Any) -> str:
     return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")).hexdigest()
 
 
-def _safe_backend_config(query_runtime: Any) -> dict[str, Any]:
-    config = dict(getattr(query_runtime, "config", {}) or {})
+def _safe_backend_config(backend_config: dict[str, Any]) -> dict[str, Any]:
+    config = dict(backend_config or {})
     image = dict(config.get("image_generation") or config.get("images") or config.get("soul_image_assets") or {})
     return {
         "image_generation": {
@@ -1437,7 +1579,7 @@ def _safe_backend_config(query_runtime: Any) -> dict[str, Any]:
 
 
 def _tool_config_fingerprint(config: dict[str, Any]) -> dict[str, Any]:
-    return dict(config.get("image_generation") or {})
+    return dict(config.get("image_generation") or config.get("images") or config.get("soul_image_assets") or {})
 
 
 def _strip_terminal_diagnostics(diagnostics: dict[str, Any]) -> dict[str, Any]:
@@ -1624,6 +1766,83 @@ def _verified_artifacts(
     return _dedupe_artifacts(verified)
 
 
+def _discover_sandbox_artifact_refs(
+    *,
+    runtime_host: Any,
+    runtime_assembly: dict[str, Any],
+    task_run_id: str,
+    contract: dict[str, Any],
+) -> list[dict[str, Any]]:
+    sandbox_policy = _task_sandbox_policy(runtime_assembly, runtime_host=runtime_host, task_run_id=task_run_id)
+    sandbox_root = Path(str(sandbox_policy.get("sandbox_root") or "")).resolve()
+    if not sandbox_root.exists() or not sandbox_root.is_dir():
+        return []
+    roots = _publish_scan_roots(sandbox_policy)
+    refs: list[dict[str, Any]] = []
+    for root in roots:
+        scan_root = (sandbox_root / root).resolve()
+        if not _is_inside(scan_root, sandbox_root) or not scan_root.exists():
+            continue
+        candidates = [scan_root] if scan_root.is_file() else [path for path in scan_root.rglob("*") if path.is_file()]
+        for path in candidates:
+            try:
+                logical_path = path.resolve().relative_to(sandbox_root).as_posix()
+            except ValueError:
+                continue
+            if not _discovered_artifact_matches_contract(logical_path, contract):
+                continue
+            refs.append(
+                {
+                    "path": logical_path,
+                    "kind": _artifact_kind_for_path(path),
+                    "source": "sandbox_closeout_discovery",
+                    "absolute_path": str(path.resolve()),
+                    "sandbox_path": logical_path,
+                }
+            )
+    return _dedupe_artifacts(refs)
+
+
+def _discovered_artifact_matches_contract(logical_path: str, contract: dict[str, Any]) -> bool:
+    normalized = _normalize_contract_path(logical_path)
+    if not normalized:
+        return False
+    basename = Path(normalized).name
+    if not basename:
+        return False
+    explicit_paths = {_normalize_contract_path(item) for item in _explicit_contract_paths(contract)}
+    if normalized in explicit_paths:
+        return True
+    artifact_texts: list[str] = []
+    for item in list(contract.get("required_artifacts") or []):
+        if not isinstance(item, dict):
+            continue
+        artifact_texts.extend(str(item.get(key) or "") for key in ("user_visible_name", "description", "path", "output_path", "artifact_path", "target_path"))
+    for item in list(contract.get("completion_criteria") or []):
+        artifact_texts.append(json.dumps(item, ensure_ascii=False) if isinstance(item, dict) else str(item or ""))
+    contract_text = "\n".join(artifact_texts).replace("\\", "/")
+    return basename in contract_text or normalized in contract_text
+
+
+def _publish_scan_roots(sandbox_policy: dict[str, Any]) -> tuple[str, ...]:
+    roots = [
+        str(sandbox_policy.get("artifact_root") or ""),
+        *[str(item or "") for item in list(sandbox_policy.get("write_scopes") or [])],
+    ]
+    return tuple(_dedupe_strings([_normalize_contract_path(root) for root in roots]))
+
+
+def _artifact_kind_for_path(path: Path) -> str:
+    suffix = path.suffix.lower()
+    if suffix in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
+        return "image"
+    if suffix in {".html", ".htm"}:
+        return "html_document"
+    if suffix in {".md", ".markdown"}:
+        return "markdown_document"
+    return "file"
+
+
 def _publish_or_resolve_artifact_ref(
     ref: dict[str, Any],
     *,
@@ -1633,21 +1852,21 @@ def _publish_or_resolve_artifact_ref(
     publish_roots: tuple[str, ...] = (),
 ) -> Path | None:
     logical_path = str(ref.get("path") or ref.get("published_path") or ref.get("src") or "").replace("\\", "/").strip().strip("/")
+    sandbox_source = _sandbox_artifact_source(ref, sandbox_root=sandbox_root)
+    if sandbox_source is not None and sandbox_source.exists() and sandbox_source.is_file():
+        if not logical_path or not _logical_path_publish_allowed(logical_path, artifact_root, publish_roots):
+            return None
+        publish_target = (project_root / logical_path).resolve()
+        if not _is_inside(publish_target, project_root):
+            return None
+        publish_target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(sandbox_source, publish_target)
+        return publish_target
     if logical_path:
         project_candidate = (project_root / logical_path).resolve()
         if _is_inside(project_candidate, project_root) and project_candidate.exists() and project_candidate.is_file():
             return project_candidate
-    sandbox_source = _sandbox_artifact_source(ref, sandbox_root=sandbox_root)
-    if sandbox_source is None or not sandbox_source.exists() or not sandbox_source.is_file():
-        return None
-    if not logical_path or not _logical_path_publish_allowed(logical_path, artifact_root, publish_roots):
-        return None
-    publish_target = (project_root / logical_path).resolve()
-    if not _is_inside(publish_target, project_root):
-        return None
-    publish_target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(sandbox_source, publish_target)
-    return publish_target
+    return None
 
 
 def _sandbox_artifact_source(ref: dict[str, Any], *, sandbox_root: Path) -> Path | None:

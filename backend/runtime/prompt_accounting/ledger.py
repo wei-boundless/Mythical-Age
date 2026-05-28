@@ -1,0 +1,242 @@
+from __future__ import annotations
+
+import json
+import threading
+from json import JSONDecodeError
+from pathlib import Path
+from typing import Any
+
+from .models import ModelTokenUsageRecord, PromptCacheRecord, PromptSegment, PromptSegmentMap
+
+
+class PromptAccountingLedger:
+    """Durable prompt/token/cache fact ledger for runtime consumers."""
+
+    def __init__(self, root_dir: Path) -> None:
+        self.root_dir = Path(root_dir)
+        self.ledger_dir = self.root_dir / "prompt_accounting"
+        self.ledger_dir.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.RLock()
+
+    def record_segment_map(self, segment_map: PromptSegmentMap) -> None:
+        self._append_jsonl("segment_maps.jsonl", segment_map.to_dict())
+        for segment in segment_map.segments:
+            self.record_segment(segment)
+
+    def record_segment(self, segment: PromptSegment) -> None:
+        self._append_jsonl("segments.jsonl", segment.to_dict())
+
+    def record_token_usage(self, record: ModelTokenUsageRecord) -> None:
+        self._append_jsonl("token_usage.jsonl", record.to_dict())
+
+    def record_prompt_cache(self, record: PromptCacheRecord) -> None:
+        self._append_jsonl("prompt_cache.jsonl", record.to_dict())
+
+    def list_segments(self, *, task_run_id: str = "", session_id: str = "") -> list[PromptSegment]:
+        rows = self._read_jsonl("segments.jsonl")
+        result: list[PromptSegment] = []
+        for row in rows:
+            if task_run_id and str(row.get("task_run_id") or "") != task_run_id:
+                continue
+            if session_id and str(row.get("session_id") or "") != session_id:
+                continue
+            result.append(_segment_from_dict(row))
+        return result
+
+    def list_segment_maps(self, *, task_run_id: str = "", session_id: str = "") -> list[dict[str, Any]]:
+        rows = self._read_jsonl("segment_maps.jsonl")
+        result: list[dict[str, Any]] = []
+        for row in rows:
+            if task_run_id and str(row.get("task_run_id") or "") != task_run_id:
+                continue
+            if session_id and str(row.get("session_id") or "") != session_id:
+                continue
+            result.append(row)
+        return sorted(result, key=lambda item: float(item.get("created_at") or 0.0))
+
+    def list_token_usage(self, *, task_run_id: str = "", session_id: str = "") -> list[ModelTokenUsageRecord]:
+        records: dict[str, ModelTokenUsageRecord] = {}
+        for row in self._read_jsonl("token_usage.jsonl"):
+            if task_run_id and str(row.get("task_run_id") or "") != task_run_id:
+                continue
+            if session_id and str(row.get("session_id") or "") != session_id:
+                continue
+            record = ModelTokenUsageRecord.from_dict(row)
+            key = record.usage_id or f"{record.request_id}:{record.source}:{record.created_at}"
+            previous = records.get(key)
+            if previous is None or record.created_at >= previous.created_at:
+                records[key] = record
+        return sorted(records.values(), key=lambda item: item.created_at)
+
+    def list_prompt_cache(self, *, task_run_id: str = "", session_id: str = "") -> list[PromptCacheRecord]:
+        records: dict[str, PromptCacheRecord] = {}
+        for row in self._read_jsonl("prompt_cache.jsonl"):
+            if task_run_id and str(row.get("task_run_id") or "") != task_run_id:
+                continue
+            if session_id and str(row.get("session_id") or "") != session_id:
+                continue
+            record = PromptCacheRecord.from_dict(row)
+            key = record.cache_record_id or f"{record.request_id}:{record.created_at}"
+            previous = records.get(key)
+            if previous is None or record.created_at >= previous.created_at:
+                records[key] = record
+        return sorted(records.values(), key=lambda item: item.created_at)
+
+    def summarize_task(self, task_run_id: str) -> dict[str, Any]:
+        return summarize_usage_records(
+            self.list_token_usage(task_run_id=task_run_id),
+            cache_records=self.list_prompt_cache(task_run_id=task_run_id),
+        )
+
+    def summarize_session(self, session_id: str) -> dict[str, Any]:
+        return summarize_usage_records(
+            self.list_token_usage(session_id=session_id),
+            cache_records=self.list_prompt_cache(session_id=session_id),
+        )
+
+    def summarize_all(self) -> dict[str, Any]:
+        return summarize_usage_records(
+            self.list_token_usage(),
+            cache_records=self.list_prompt_cache(),
+        )
+
+    def prune_task_runs(self, task_run_ids: set[str] | list[str] | tuple[str, ...]) -> dict[str, Any]:
+        targets = {str(item).strip() for item in task_run_ids if str(item).strip()}
+        if not targets:
+            return {
+                "authority": "runtime.prompt_accounting.ledger.prune_task_runs",
+                "deleted_counts": {},
+                "requested_task_run_ids": [],
+            }
+        deleted_counts = {
+            "segment_maps": self._rewrite_without_tasks("segment_maps.jsonl", targets),
+            "segments": self._rewrite_without_tasks("segments.jsonl", targets),
+            "token_usage": self._rewrite_without_tasks("token_usage.jsonl", targets),
+            "prompt_cache": self._rewrite_without_tasks("prompt_cache.jsonl", targets),
+        }
+        return {
+            "authority": "runtime.prompt_accounting.ledger.prune_task_runs",
+            "requested_task_run_ids": sorted(targets),
+            "deleted_counts": {key: value for key, value in deleted_counts.items() if value},
+        }
+
+    def _append_jsonl(self, filename: str, payload: dict[str, Any]) -> None:
+        path = self.ledger_dir / filename
+        with self._lock:
+            with path.open("a", encoding="utf-8", newline="\n") as handle:
+                handle.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
+
+    def _read_jsonl(self, filename: str) -> list[dict[str, Any]]:
+        path = self.ledger_dir / filename
+        if not path.exists():
+            return []
+        rows: list[dict[str, Any]] = []
+        with self._lock:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                payload = json.loads(stripped)
+            except JSONDecodeError:
+                continue
+            if isinstance(payload, dict):
+                rows.append(payload)
+        return rows
+
+    def _rewrite_without_tasks(self, filename: str, task_run_ids: set[str]) -> int:
+        path = self.ledger_dir / filename
+        if not path.exists():
+            return 0
+        rows = self._read_jsonl(filename)
+        kept: list[dict[str, Any]] = []
+        deleted = 0
+        for row in rows:
+            if str(row.get("task_run_id") or "") in task_run_ids:
+                deleted += 1
+                continue
+            kept.append(row)
+        with self._lock:
+            with path.open("w", encoding="utf-8", newline="\n") as handle:
+                for row in kept:
+                    handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+        return deleted
+
+
+def summarize_usage_records(
+    records: list[ModelTokenUsageRecord],
+    *,
+    cache_records: list[PromptCacheRecord] | None = None,
+) -> dict[str, Any]:
+    totals = {
+        "exact_total_tokens": 0,
+        "predicted_total_tokens": 0,
+        "trace_estimate_total_tokens": 0,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "reasoning_tokens": 0,
+        "cached_tokens": 0,
+        "cache_creation_tokens": 0,
+        "cache_read_tokens": 0,
+        "cache_savings_tokens": 0,
+        "provider_usage_record_count": 0,
+        "local_prediction_record_count": 0,
+        "trace_estimate_record_count": 0,
+        "record_count": 0,
+    }
+    by_request: dict[str, dict[str, ModelTokenUsageRecord]] = {}
+    for record in records:
+        by_request.setdefault(record.request_id or record.usage_id, {})[record.source] = record
+        totals["record_count"] += 1
+        if record.source == "provider_usage":
+            totals["provider_usage_record_count"] += 1
+            totals["exact_total_tokens"] += int(record.total_tokens or 0)
+            totals["prompt_tokens"] += int(record.prompt_tokens or 0)
+            totals["completion_tokens"] += int(record.completion_tokens or 0)
+            totals["reasoning_tokens"] += int(record.reasoning_tokens or 0)
+            totals["cached_tokens"] += int(record.cached_tokens or 0)
+            totals["cache_creation_tokens"] += int(record.cache_creation_tokens or 0)
+            totals["cache_read_tokens"] += int(record.cache_read_tokens or 0)
+        elif record.source == "local_prediction":
+            totals["local_prediction_record_count"] += 1
+            totals["predicted_total_tokens"] += int(record.total_tokens or 0)
+        elif record.source == "trace_estimate":
+            totals["trace_estimate_record_count"] += 1
+            totals["trace_estimate_total_tokens"] += int(record.total_tokens or 0)
+    effective = 0
+    for source_map in by_request.values():
+        selected = (
+            source_map.get("provider_usage")
+            or source_map.get("local_prediction")
+            or source_map.get("trace_estimate")
+        )
+        if selected is not None:
+            effective += int(selected.total_tokens or 0)
+    for cache_record in list(cache_records or []):
+        totals["cache_savings_tokens"] += int(cache_record.cache_savings_tokens or 0)
+    totals["effective_total_tokens"] = effective
+    totals["total_tokens"] = effective
+    totals["billing_truth_available"] = totals["provider_usage_record_count"] > 0
+    return totals
+
+
+def _segment_from_dict(payload: dict[str, Any]) -> PromptSegment:
+    return PromptSegment(
+        segment_id=str(payload.get("segment_id") or ""),
+        request_id=str(payload.get("request_id") or ""),
+        task_run_id=str(payload.get("task_run_id") or ""),
+        session_id=str(payload.get("session_id") or ""),
+        kind=str(payload.get("kind") or "volatile_turn"),
+        ordinal=int(payload.get("ordinal") or 0),
+        role=str(payload.get("role") or ""),
+        content_hash=str(payload.get("content_hash") or ""),
+        byte_length=int(payload.get("byte_length") or 0),
+        predicted_tokens=int(payload.get("predicted_tokens") or 0),
+        cache_role=payload.get("cache_role", "volatile"),
+        compression_role=payload.get("compression_role", "summarize"),
+        source=str(payload.get("source") or ""),
+        created_at=float(payload.get("created_at") or 0.0),
+        metadata=dict(payload.get("metadata") or {}),
+        authority=str(payload.get("authority") or "runtime.prompt_accounting.prompt_segment"),
+    )

@@ -65,6 +65,7 @@ class ModelResponseRuntimeExecutor:
         stream_policy = dict(model_stream_policy or {})
         stream_enabled = bool(stream_policy.get("enabled") is True)
         emit_content_delta = bool(stream_policy.get("emit_content_delta") is not False)
+        accounting_context = _accounting_context_from_directive(directive, stream_policy=stream_policy)
         response_timeout_seconds = _model_response_timeout_seconds(
             self.model_runtime,
             model_spec=model_spec,
@@ -90,6 +91,7 @@ class ModelResponseRuntimeExecutor:
                         tools,
                         model_spec=effective_model_spec,
                         tool_call_options=tool_call_options,
+                        accounting_context=accounting_context,
                     ),
                     timeout_seconds=response_timeout_seconds,
                 ):
@@ -115,6 +117,7 @@ class ModelResponseRuntimeExecutor:
                         self.model_runtime.astream_messages,
                         model_messages,
                         model_spec=effective_model_spec,
+                        accounting_context=accounting_context,
                     ),
                     timeout_seconds=response_timeout_seconds,
                 ):
@@ -141,6 +144,7 @@ class ModelResponseRuntimeExecutor:
                         tools,
                         model_spec=effective_model_spec,
                         tool_call_options=tool_call_options,
+                        accounting_context=accounting_context,
                     ),
                     timeout_seconds=response_timeout_seconds,
                     policy=stream_policy,
@@ -151,6 +155,7 @@ class ModelResponseRuntimeExecutor:
                         invoker,
                         model_messages,
                         model_spec=effective_model_spec,
+                        accounting_context=accounting_context,
                     ),
                     timeout_seconds=response_timeout_seconds,
                     policy=stream_policy,
@@ -204,6 +209,7 @@ class ModelResponseRuntimeExecutor:
                             tools=tools,
                             model_spec=effective_model_spec,
                             tool_call_options=tool_call_options,
+                            accounting_context={**accounting_context, "source": "runtime_directive.model_response.stream_recovery"},
                         ),
                         timeout_seconds=fallback_timeout_seconds,
                         policy=stream_policy,
@@ -492,6 +498,41 @@ def _model_only_finalization(directive: RuntimeDirective) -> bool:
     )
 
 
+def _accounting_context_from_directive(
+    directive: RuntimeDirective,
+    *,
+    stream_policy: dict[str, Any],
+) -> dict[str, Any]:
+    diagnostics = dict(getattr(directive, "diagnostics", {}) or {})
+    session_id = str(
+        diagnostics.get("session_id")
+        or diagnostics.get("conversation_session_id")
+        or dict(diagnostics.get("task_run") or {}).get("session_id")
+        or ""
+    )
+    task_run_id = str(
+        diagnostics.get("task_run_id")
+        or diagnostics.get("root_task_run_id")
+        or diagnostics.get("observed_task_run_id")
+        or directive.task_id
+        or ""
+    )
+    request_id = str(
+        diagnostics.get("model_request_id")
+        or diagnostics.get("runtime_invocation_packet_ref")
+        or diagnostics.get("packet_ref")
+        or f"modelreq:{directive.directive_id}"
+    )
+    return {
+        "request_id": request_id,
+        "session_id": session_id,
+        "task_run_id": task_run_id,
+        "turn_id": str(diagnostics.get("turn_id") or ""),
+        "packet_ref": str(diagnostics.get("runtime_invocation_packet_ref") or diagnostics.get("packet_ref") or ""),
+        "source": str(stream_policy.get("source") or "runtime_directive.model_response"),
+    }
+
+
 def _seed_boundary_with_prior_tool_receipts(
     output_boundary: AssistantOutputBoundary,
     model_messages: list[Any],
@@ -552,6 +593,7 @@ async def _invoke_non_stream_after_stream_error(
     tools: list[Any],
     model_spec: Any | None = None,
     tool_call_options: Any | None = None,
+    accounting_context: dict[str, Any] | None = None,
 ) -> Any:
     if tools and callable(tool_invoker):
         return await _call_invoker_with_optional_model_spec(
@@ -560,8 +602,14 @@ async def _invoke_non_stream_after_stream_error(
             tools,
             model_spec=model_spec,
             tool_call_options=tool_call_options,
+            accounting_context=accounting_context,
         )
-    return await _call_invoker_with_optional_model_spec(invoker, model_messages, model_spec=model_spec)
+    return await _call_invoker_with_optional_model_spec(
+        invoker,
+        model_messages,
+        model_spec=model_spec,
+        accounting_context=accounting_context,
+    )
 
 
 async def _await_model_invocation(
@@ -631,11 +679,22 @@ async def _call_invoker_with_optional_model_spec(
     *args: Any,
     model_spec: Any | None = None,
     tool_call_options: Any | None = None,
+    accounting_context: dict[str, Any] | None = None,
 ) -> Any:
     try:
-        return await invoker(*args, model_spec=model_spec, tool_call_options=tool_call_options)
+        return await invoker(
+            *args,
+            model_spec=model_spec,
+            tool_call_options=tool_call_options,
+            accounting_context=accounting_context,
+        )
     except TypeError as exc:
-        if "model_spec" not in str(exc) and "tool_call_options" not in str(exc):
+        if "model_spec" not in str(exc) and "tool_call_options" not in str(exc) and "accounting_context" not in str(exc):
+            raise
+    try:
+        return await invoker(*args, model_spec=model_spec, accounting_context=accounting_context)
+    except TypeError as exc:
+        if "model_spec" not in str(exc) and "accounting_context" not in str(exc):
             raise
     try:
         return await invoker(*args, model_spec=model_spec)
@@ -831,11 +890,22 @@ def _call_streamer_with_optional_model_spec(
     *args: Any,
     model_spec: Any | None = None,
     tool_call_options: Any | None = None,
+    accounting_context: dict[str, Any] | None = None,
 ):
     try:
-        return streamer(*args, model_spec=model_spec, tool_call_options=tool_call_options)
+        return streamer(
+            *args,
+            model_spec=model_spec,
+            tool_call_options=tool_call_options,
+            accounting_context=accounting_context,
+        )
     except TypeError as exc:
-        if "model_spec" not in str(exc) and "tool_call_options" not in str(exc):
+        if "model_spec" not in str(exc) and "tool_call_options" not in str(exc) and "accounting_context" not in str(exc):
+            raise
+    try:
+        return streamer(*args, model_spec=model_spec, accounting_context=accounting_context)
+    except TypeError as exc:
+        if "model_spec" not in str(exc) and "accounting_context" not in str(exc):
             raise
     try:
         return streamer(*args, model_spec=model_spec)

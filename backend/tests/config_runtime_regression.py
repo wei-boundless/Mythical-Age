@@ -16,8 +16,13 @@ import config
 def _isolated_runtime_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     runtime_path = tmp_path / "config.json"
     runtime_path.write_text("{}", encoding="utf-8")
+    isolated_manager = config.RuntimeConfigManager(runtime_path)
     monkeypatch.setattr(config, "_runtime_config_path", lambda: runtime_path)
+    monkeypatch.setattr(config, "runtime_config", isolated_manager)
     monkeypatch.setattr(config, "_load_env_file", lambda: BACKEND_DIR)
+    loaded_soul_module = sys.modules.get("soul.image_asset_service")
+    if loaded_soul_module is not None:
+        monkeypatch.setattr(loaded_soul_module, "runtime_config", isolated_manager)
     config.get_settings.cache_clear()
     yield
     config.get_settings.cache_clear()
@@ -87,11 +92,9 @@ def test_soul_image_asset_generation_reports_non_json_response(monkeypatch: pyte
     from soul.image_asset_service import SoulImageAssetError, SoulImageAssetService
 
     service = SoulImageAssetService(BACKEND_DIR)
-    service.set_config(
-        base_url="https://images.example.test/v1",
-        model="gpt-image-2",
-        api_key="image-key",
-    )
+    monkeypatch.setenv("SOUL_IMAGE_API_BASE_URL", "https://images.example.test/v1")
+    monkeypatch.setenv("SOUL_IMAGE_MODEL", "image-2")
+    monkeypatch.setenv("SOUL_IMAGE_API_KEY", "image-key")
 
     class _Response:
         status_code = 200
@@ -125,6 +128,224 @@ def test_soul_image_asset_generation_reports_non_json_response(monkeypatch: pyte
 
     assert "non-JSON response" in str(exc_info.value)
     assert "text/html" in str(exc_info.value)
+
+
+def test_soul_image_asset_generation_falls_back_on_model_endpoint_incompatibility(monkeypatch: pytest.MonkeyPatch) -> None:
+    import base64
+    import asyncio
+    import io
+    import json
+
+    from PIL import Image
+    from soul.image_asset_service import SoulImageAssetService
+
+    service = SoulImageAssetService(BACKEND_DIR)
+    monkeypatch.setenv("SOUL_IMAGE_API_BASE_URL", "https://images.example.test/v1")
+    monkeypatch.setenv("SOUL_IMAGE_MODEL", "image-2")
+    monkeypatch.setenv("SOUL_IMAGE_API_KEY", "image-key")
+    monkeypatch.setenv("SOUL_IMAGE_FALLBACK_MODELS", "image-2-compatible")
+    png_buffer = io.BytesIO()
+    Image.new("RGBA", (1024, 1024), (20, 30, 40, 255)).save(png_buffer, format="PNG")
+    png = png_buffer.getvalue()
+    calls: list[dict[str, object]] = []
+
+    class _Response:
+        def __init__(self, status_code: int, payload: dict[str, object]) -> None:
+            self.status_code = status_code
+            self._payload = payload
+            self.text = json.dumps(payload)
+            self.headers = {"content-type": "application/json"}
+
+        def json(self):
+            return self._payload
+
+    class _Client:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, _endpoint, headers=None, json=None):
+            calls.append(dict(json or {}))
+            if json.get("model") == "image-2":
+                return _Response(
+                    400,
+                    {"error": {"message": "Tool choice 'image_generation' not found in 'tools' parameter.", "type": "invalid_request_error"}},
+                )
+            return _Response(200, {"data": [{"b64_json": base64.b64encode(png).decode("ascii")}], "created": 1})
+
+    monkeypatch.setattr("soul.image_asset_service.httpx.AsyncClient", _Client)
+
+    generated = asyncio.run(service.generate(prompt="test image", target_id="fallback-test", asset_kind="chat", overwrite=True))
+
+    assert generated["bytes"] == len(png)
+    assert [call["model"] for call in calls[:2]] == ["image-2"] * 2
+    assert calls[2]["model"] == "image-2-compatible"
+
+
+def test_soul_image_asset_generation_resizes_small_requested_size_locally(monkeypatch: pytest.MonkeyPatch) -> None:
+    import asyncio
+    import base64
+    import io
+    import json
+
+    from PIL import Image
+    from soul.image_asset_service import SoulImageAssetService
+
+    service = SoulImageAssetService(BACKEND_DIR)
+    monkeypatch.setenv("SOUL_IMAGE_API_BASE_URL", "https://images.example.test/v1")
+    monkeypatch.setenv("SOUL_IMAGE_MODEL", "gpt-image-2")
+    monkeypatch.setenv("SOUL_IMAGE_API_KEY", "image-key")
+    source = io.BytesIO()
+    Image.new("RGBA", (1024, 1024), (10, 20, 30, 255)).save(source, format="PNG")
+    calls: list[dict[str, object]] = []
+
+    class _Response:
+        status_code = 200
+        text = "{}"
+        headers = {"content-type": "application/json"}
+
+        def json(self):
+            return {"data": [{"b64_json": base64.b64encode(source.getvalue()).decode("ascii")}], "created": 1}
+
+    class _Client:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, _endpoint, headers=None, json=None):
+            calls.append(dict(json or {}))
+            return _Response()
+
+    monkeypatch.setattr("soul.image_asset_service.httpx.AsyncClient", _Client)
+
+    generated = asyncio.run(
+        service.generate(
+            prompt="small sprite",
+            target_id="resize-small-test",
+            asset_kind="chat",
+            size="128x128",
+            overwrite=True,
+        )
+    )
+
+    assert calls[0]["size"] == "1024x1024"
+    assert generated["requested_size"] == "128x128"
+    assert generated["provider_size"] == "1024x1024"
+    assert generated["final_size"] == "128x128"
+    with Image.open(generated["file_path"]) as image:
+        assert image.size == (128, 128)
+
+
+def test_soul_image_asset_generation_uses_output_size_for_local_resize(monkeypatch: pytest.MonkeyPatch) -> None:
+    import asyncio
+    import base64
+    import io
+
+    from PIL import Image
+    from soul.image_asset_service import SoulImageAssetService
+
+    service = SoulImageAssetService(BACKEND_DIR)
+    monkeypatch.setenv("SOUL_IMAGE_API_BASE_URL", "https://images.example.test/v1")
+    monkeypatch.setenv("SOUL_IMAGE_MODEL", "gpt-image-2")
+    monkeypatch.setenv("SOUL_IMAGE_API_KEY", "image-key")
+    monkeypatch.setenv("SOUL_IMAGE_CONCURRENCY", "1")
+    source = io.BytesIO()
+    Image.new("RGBA", (1024, 1024), (40, 50, 60, 255)).save(source, format="PNG")
+    calls: list[dict[str, object]] = []
+
+    class _Response:
+        status_code = 200
+        text = "{}"
+        headers = {"content-type": "application/json"}
+
+        def json(self):
+            return {"data": [{"b64_json": base64.b64encode(source.getvalue()).decode("ascii")}], "created": 1}
+
+    class _Client:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, _endpoint, headers=None, json=None):
+            calls.append(dict(json or {}))
+            return _Response()
+
+    monkeypatch.setattr("soul.image_asset_service.httpx.AsyncClient", _Client)
+
+    generated = asyncio.run(
+        service.generate(
+            prompt="small sprite",
+            target_id="output-size-test",
+            asset_kind="chat",
+            size="1024x1024",
+            output_size="128x128",
+            overwrite=True,
+        )
+    )
+
+    assert calls[0]["size"] == "1024x1024"
+    assert generated["requested_size"] == "128x128"
+    assert generated["provider_size"] == "1024x1024"
+    assert generated["final_size"] == "128x128"
+
+
+def test_soul_image_asset_generation_reports_structured_attempts_after_failures(monkeypatch: pytest.MonkeyPatch) -> None:
+    import asyncio
+    import pytest
+
+    from soul.image_asset_service import SoulImageAssetError, SoulImageAssetService
+
+    service = SoulImageAssetService(BACKEND_DIR)
+    monkeypatch.setenv("SOUL_IMAGE_API_BASE_URL", "https://images.example.test/v1")
+    monkeypatch.setenv("SOUL_IMAGE_MODEL", "image-2")
+    monkeypatch.setenv("SOUL_IMAGE_API_KEY", "image-key")
+
+    class _Response:
+        status_code = 504
+        text = "<html>timeout</html>"
+        headers = {"content-type": "text/html"}
+
+        def json(self):
+            raise json.JSONDecodeError("bad", self.text, 0)
+
+    class _Client:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, *args, **kwargs):
+            return _Response()
+
+    monkeypatch.setattr("soul.image_asset_service.httpx.AsyncClient", _Client)
+
+    with pytest.raises(SoulImageAssetError) as exc_info:
+        asyncio.run(service.generate(prompt="test image", target_id="failure-test", asset_kind="chat", overwrite=True))
+
+    error = exc_info.value.to_dict()
+    assert error["code"] == "all_image_generation_attempts_failed"
+    assert error["retryable"] is True
+    assert error["attempts"]
+    assert error["attempts"][0]["code"] == "image_provider_transient_error"
 
 
 def test_runtime_config_console_includes_soul_image_asset_group() -> None:

@@ -152,4 +152,54 @@ describe("runtimeVisibilityProjection", () => {
     });
     expect(projection.progressEntry?.meta?.find((item) => item.label === "目标")?.value).toBe("npm test -- --run src/lib/runtimeVisibilityProjection.test.ts");
   });
+
+  it("projects formal task lifecycle events into main-chat progress", () => {
+    const started = projectRuntimeStreamEvent("harness_run_started", {
+      task_run: {
+        task_run_id: "taskrun:turn:session-1:1:abc",
+        status: "running",
+      },
+      event: {
+        event_id: "rtevt:start",
+        task_run_id: "taskrun:turn:session-1:1:abc",
+        created_at: 30,
+        payload: {
+          contract: {
+            user_visible_goal: "重构主会话监控",
+          },
+        },
+      },
+    });
+    const waiting = projectRuntimeStreamEvent("agent_turn_terminal", {
+      event: {
+        event_id: "rtevt:terminal",
+        task_run_id: "turnrun:session-1:1",
+        created_at: 31,
+        payload: {
+          status: "task_executor_scheduled",
+          terminal_reason: "task_executor_scheduled",
+          task_run: {
+            task_run_id: "taskrun:turn:session-1:1:abc",
+            status: "running",
+          },
+        },
+      },
+    });
+
+    expect(started.progressEntry).toMatchObject({
+      kind: "task_order",
+      title: "正式任务已创建",
+      taskRunId: "taskrun:turn:session-1:1:abc",
+      body: "重构主会话监控",
+    });
+    expect(waiting).toMatchObject({
+      stageStatus: "任务已转入后台执行",
+      level: "waiting",
+    });
+    expect(waiting.progressEntry).toMatchObject({
+      kind: "terminal",
+      statusText: "等待",
+      taskRunId: "taskrun:turn:session-1:1:abc",
+    });
+  });
 });

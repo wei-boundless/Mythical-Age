@@ -124,7 +124,9 @@ describe("runtimeWorkProjection", () => {
       status: "blocked",
       latest_event_type: "agent_turn_blocked",
       is_live: false,
-      bucket: "running",
+      bucket: "diagnostics",
+      lifecycle: "action_required",
+      resource_class: "static",
     });
     const failedRun = item({ task_run_id: "taskrun:failed", status: "failed", is_live: false, bucket: "failed" });
     const completedRun = item({ task_run_id: "taskrun:completed", status: "completed", is_live: false, bucket: "completed" });
@@ -133,16 +135,16 @@ describe("runtimeWorkProjection", () => {
       authority: "test",
       summary: { total: 0, running: 0, waiting: 0, completed: 0, failed: 0 },
       buckets: {
-        running: [blockedTurn],
+        running: [],
         completed: [completedRun],
         failed: [failedRun],
-        diagnostics: [],
+        diagnostics: [blockedTurn],
       },
       task_runs: [blockedTurn, failedRun, completedRun],
       updated_at: 1,
     });
 
-    expect(visible.map((entry) => entry.task_run_id)).toEqual(["turnrun:blocked", "taskrun:completed", "taskrun:failed"]);
+    expect(visible.map((entry) => entry.task_run_id)).toEqual(["taskrun:completed", "taskrun:failed", "turnrun:blocked"]);
   });
 
   it("projects single agent task runs as long tasks with latest step summary", () => {

@@ -9,11 +9,10 @@ import tomllib
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
-from capability_system.tool_definitions import ToolDefinition as CapabilityToolDefinition
 from capability_system.units.tools.sandbox_command_guard import validate_sandbox_command_text
 from capability_system.workspace_file_service import (
     DEFAULT_EXCLUDED_DIRS,
@@ -34,6 +33,9 @@ from runtime.tool_runtime.docker_sandbox_backend import DockerSandboxBackend
 from runtime.tool_runtime.tool_definition import ToolPermissionResult, ToolValidationResult
 from runtime.tool_runtime.tool_result_envelope import ToolResultEnvelope
 from runtime.tool_runtime.tool_use_context import ToolUseContext
+
+if TYPE_CHECKING:
+    from capability_system.tool_definitions import ToolDefinition as CapabilityToolDefinition
 
 
 NATIVE_RUNTIME_TOOL_NAMES = {

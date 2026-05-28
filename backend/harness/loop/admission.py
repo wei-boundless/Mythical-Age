@@ -122,7 +122,7 @@ def admit_model_action(
             permission_delta={
                 "tool_name": tool_name,
                 "operation_id": operation_id,
-                "read_only": True,
+                "read_only": bool(getattr(definition, "is_read_only", False)),
                 "gate": gate_result.to_dict() if hasattr(gate_result, "to_dict") else None,
             },
             )

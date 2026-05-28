@@ -57,11 +57,13 @@ class ContextController:
             messages,
             pressure_level=package.pressure_level,
             summary_source_content=preview_content,
+            request_id=f"context_compaction:{rebuild_reason}",
+            reserved_output_tokens=package.budget.reserved_output,
         )
         package.compaction_strategy = compact_result.strategy
-        package.token_accounting["estimated_tokens_after"] = compact_result.estimated_tokens_after
-        package.token_accounting["compacted_message_count"] = compact_result.compacted_message_count
-        package.token_accounting["replaced_message_count"] = compact_result.replaced_message_count
+        package.token_accounting.update(
+            self._compaction_token_accounting(compact_result)
+        )
         if compact_result.did_full_compact:
             package.dropped_sections = self._dedupe(
                 [*package.dropped_sections, "warm_snapshots"]
@@ -483,6 +485,22 @@ class ContextController:
             "relevant_durable_tokens": section_tokens.get("relevant_durable_context", 0),
             "durable_tokens": section_tokens.get("exact_durable_context", 0)
             + section_tokens.get("relevant_durable_context", 0),
+        }
+
+    def _compaction_token_accounting(self, compact_result: Any) -> dict[str, int]:
+        diagnostics = dict(getattr(compact_result, "diagnostics", {}) or {})
+        segment_map = dict(diagnostics.get("prompt_segment_map") or {})
+        budget_decision = dict(diagnostics.get("compression_budget_decision") or {})
+        return {
+            "estimated_tokens_after": int(getattr(compact_result, "estimated_tokens_after", 0) or 0),
+            "compacted_message_count": int(getattr(compact_result, "compacted_message_count", 0) or 0),
+            "replaced_message_count": int(getattr(compact_result, "replaced_message_count", 0) or 0),
+            "prompt_segment_predicted_tokens": int(segment_map.get("predicted_prompt_tokens") or 0),
+            "prompt_segment_count": int(segment_map.get("segment_count") or 0),
+            "compression_hard_required_tokens": int(budget_decision.get("hard_required_tokens") or 0),
+            "compression_compressible_tokens": int(budget_decision.get("compressible_tokens") or 0),
+            "compression_compressible_budget": int(budget_decision.get("compressible_budget") or 0),
+            "compression_over_budget_tokens": int(budget_decision.get("over_budget_tokens") or 0),
         }
 
     def _shorten(self, text: str, limit: int) -> str:

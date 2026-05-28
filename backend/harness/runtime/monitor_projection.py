@@ -191,7 +191,7 @@ class TaskRunMonitorProjector:
             return "completed"
         if lifecycle == "failed":
             return "failed"
-        if lifecycle == "stale":
+        if lifecycle in {"stale", "action_required"}:
             return "diagnostics"
         return "running"
 

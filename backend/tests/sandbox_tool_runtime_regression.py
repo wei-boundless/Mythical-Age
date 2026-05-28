@@ -119,6 +119,36 @@ def test_sandbox_keeps_image_generate_bound_to_backend_config_root(tmp_path: Pat
     assert observed_roots == [workspace.resolve()]
 
 
+def test_sandbox_search_uses_overlay_view_after_read_copies_workspace_file(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    sandbox_root = tmp_path / "sandbox" / "workspace"
+    (workspace / "docs" / "experiments" / "roguelike_long_task").mkdir(parents=True)
+    (workspace / "docs" / "experiments" / "roguelike_long_task" / "index.html").write_text("<canvas></canvas>", encoding="utf-8")
+    (sandbox_root / "docs" / "experiments" / "roguelike_long_task" / "assets").mkdir(parents=True)
+    (sandbox_root / "docs" / "experiments" / "roguelike_long_task" / "assets" / "test.txt").write_text("sandbox only", encoding="utf-8")
+
+    read_result = _run_tool(
+        workspace=workspace,
+        sandbox_root=sandbox_root,
+        tool_name="read_file",
+        tool_args={"path": "docs/experiments/roguelike_long_task/index.html"},
+        operation_id="op.read_file",
+    )
+    result = _run_tool(
+        workspace=workspace,
+        sandbox_root=sandbox_root,
+        tool_name="glob_paths",
+        tool_args={"pattern": "**/*roguelike*/**/*"},
+        operation_id="op.glob_paths",
+    )
+
+    payload = result["observation"].payload
+    assert read_result["error"] == ""
+    assert result["error"] == ""
+    assert "docs/experiments/roguelike_long_task/index.html" in payload["result"]
+    assert "docs/experiments/roguelike_long_task/assets/test.txt" in payload["result"]
+
+
 def test_tool_runtime_executor_returns_recoverable_invocation_validation_feedback_before_tool_invocation(tmp_path: Path) -> None:
     workspace = tmp_path / "project"
     workspace.mkdir(parents=True)

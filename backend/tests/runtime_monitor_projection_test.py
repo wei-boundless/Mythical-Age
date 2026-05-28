@@ -84,16 +84,34 @@ def test_stale_waiting_executor_moves_to_diagnostics_not_running():
     assert item["stale"] is True
 
 
-def test_waiting_approval_stays_running_and_marks_action_required():
+def test_waiting_approval_moves_to_diagnostics_and_freezes_duration():
     projector = TaskRunMonitorProjector(EventLogStub(), freshness_seconds=60.0)
     run = task_run(status="waiting_approval", updated_at=120.0)
 
-    item = projector.project_task_run(run, now=300.0)
+    first = projector.project_task_run(run, now=300.0)
+    second = projector.project_task_run(run, now=600.0)
 
-    assert item["bucket"] == "running"
-    assert item["lifecycle"] == "action_required"
-    assert item["resource_class"] == "dynamic"
-    assert item["action_required"] is True
+    assert first["bucket"] == "diagnostics"
+    assert first["lifecycle"] == "action_required"
+    assert first["resource_class"] == "static"
+    assert first["action_required"] is True
+    assert first["duration_seconds"] == 20.0
+    assert second["duration_seconds"] == 20.0
+
+
+def test_blocked_moves_to_diagnostics_and_freezes_duration():
+    projector = TaskRunMonitorProjector(EventLogStub(), freshness_seconds=60.0)
+    run = task_run(status="blocked", updated_at=125.0)
+
+    first = projector.project_task_run(run, now=300.0)
+    second = projector.project_task_run(run, now=600.0)
+
+    assert first["bucket"] == "diagnostics"
+    assert first["lifecycle"] == "action_required"
+    assert first["resource_class"] == "static"
+    assert first["action_required"] is True
+    assert first["duration_seconds"] == 25.0
+    assert second["duration_seconds"] == 25.0
 
 
 def test_internal_titles_are_not_exposed_and_route_is_authoritative():

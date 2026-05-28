@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from capability_system.tool_definitions import ToolDefinition as CapabilityToolDefinition
 from runtime.tool_runtime.tool_definition import ToolPermissionResult, ToolValidationResult
 from runtime.tool_runtime.tool_result_envelope import ToolResultEnvelope, build_tool_result_envelope
 from runtime.tool_runtime.tool_use_context import ToolUseContext
+
+if TYPE_CHECKING:
+    from capability_system.tool_definitions import ToolDefinition as CapabilityToolDefinition
 
 
 @dataclass(slots=True)

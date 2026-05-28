@@ -5,6 +5,8 @@ import hashlib
 import inspect
 import logging
 import os
+import time
+import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -19,6 +21,13 @@ except ImportError:  # pragma: no cover - optional dependency at runtime
 
 from bootstrap.settings import AppSettingsService
 from config import LLM_PROVIDER_DEFAULTS
+from runtime.prompt_accounting import (
+    CanonicalPromptSerializer,
+    ModelTokenUsageRecord,
+    PromptAccountingLedger,
+    PromptCachePlanner,
+    extract_provider_usage,
+)
 from runtime.tool_runtime.tool_call_policy import ToolCallBindingOptions
 
 if TYPE_CHECKING:
@@ -145,9 +154,17 @@ class RuntimeConversationAgent:
 
 
 class ModelRuntime:
-    def __init__(self, settings_service: AppSettingsService) -> None:
+    def __init__(
+        self,
+        settings_service: AppSettingsService,
+        *,
+        prompt_accounting_ledger: PromptAccountingLedger | None = None,
+    ) -> None:
         self.settings_service = settings_service
         self._chat_model_pool: dict[str, Any] = {}
+        self.prompt_accounting_ledger = prompt_accounting_ledger
+        self._prompt_serializer = CanonicalPromptSerializer()
+        self._prompt_cache_planner = PromptCachePlanner()
 
     @property
     def request_timeout_seconds(self) -> float:
@@ -205,17 +222,36 @@ class ModelRuntime:
             agent_definition=agent_definition,
         )
 
-    async def invoke_messages(self, messages: list[dict[str, str]], *, model_spec: ModelSpec | "ResolvedModelSpec" | None = None) -> Any:
+    def attach_prompt_accounting_ledger(self, ledger: PromptAccountingLedger | None) -> None:
+        self.prompt_accounting_ledger = ledger
+
+    async def invoke_messages(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        model_spec: ModelSpec | "ResolvedModelSpec" | None = None,
+        accounting_context: dict[str, Any] | None = None,
+    ) -> Any:
         last_error: ModelRuntimeError | None = None
         candidates = self._candidate_specs(model_spec=model_spec)
         for spec_index, spec in enumerate(candidates):
             for attempt in range(1, self._max_retries_for_spec(spec) + 2):
                 model = self._get_chat_model_for_spec(spec)
+                accounting = self._begin_prompt_accounting(
+                    messages,
+                    tools=None,
+                    spec=spec,
+                    accounting_context=accounting_context,
+                    attempt=attempt,
+                    call_kind="invoke_messages",
+                )
                 try:
-                    return await asyncio.wait_for(
+                    response = await asyncio.wait_for(
                         model.ainvoke(messages),
                         timeout=self._model_call_timeout_seconds_for_spec(spec),
                     )
+                    self._finish_prompt_accounting(accounting, response=response)
+                    return response
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:
@@ -253,22 +289,33 @@ class ModelRuntime:
         *,
         model_spec: ModelSpec | "ResolvedModelSpec" | None = None,
         tool_call_options: ToolCallBindingOptions | dict[str, Any] | None = None,
+        accounting_context: dict[str, Any] | None = None,
     ) -> Any:
         last_error: ModelRuntimeError | None = None
         candidates = self._candidate_specs(model_spec=model_spec)
         for spec_index, spec in enumerate(candidates):
             for attempt in range(1, self._max_retries_for_spec(spec) + 2):
                 model = self._get_chat_model_for_spec(spec)
+                accounting = self._begin_prompt_accounting(
+                    messages,
+                    tools=tools,
+                    spec=spec,
+                    accounting_context=accounting_context,
+                    attempt=attempt,
+                    call_kind="invoke_messages_with_tools",
+                )
                 try:
                     bound_model = (
                         _bind_tools_with_options(model, tools, tool_call_options=tool_call_options, spec=spec)
                         if tools
                         else model
                     )
-                    return await asyncio.wait_for(
+                    response = await asyncio.wait_for(
                         bound_model.ainvoke(messages),
                         timeout=self._model_call_timeout_seconds_for_spec(spec),
                     )
+                    self._finish_prompt_accounting(accounting, response=response)
+                    return response
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:
@@ -299,18 +346,38 @@ class ModelRuntime:
             raise last_error
         raise RuntimeError("No model candidates available")
 
-    async def astream_messages(self, messages: list[Any], *, model_spec: ModelSpec | "ResolvedModelSpec" | None = None):
+    async def astream_messages(
+        self,
+        messages: list[Any],
+        *,
+        model_spec: ModelSpec | "ResolvedModelSpec" | None = None,
+        accounting_context: dict[str, Any] | None = None,
+    ):
         last_error: ModelRuntimeError | None = None
         candidates = self._candidate_specs(model_spec=model_spec)
         for spec_index, spec in enumerate(candidates):
             for attempt in range(1, self._max_retries_for_spec(spec) + 2):
                 emitted = False
                 model = self._get_chat_model_for_spec(spec)
+                accounting = self._begin_prompt_accounting(
+                    messages,
+                    tools=None,
+                    spec=spec,
+                    accounting_context=accounting_context,
+                    attempt=attempt,
+                    call_kind="astream_messages",
+                )
+                aggregated_chunk = None
                 try:
                     stream = model.astream(messages)
                     async for chunk in self._iterate_with_timeout(stream, spec=spec):
                         emitted = True
+                        try:
+                            aggregated_chunk = chunk if aggregated_chunk is None else aggregated_chunk + chunk
+                        except Exception:
+                            aggregated_chunk = chunk
                         yield chunk
+                    self._finish_prompt_accounting(accounting, response=aggregated_chunk)
                     return
                 except asyncio.CancelledError:
                     raise
@@ -351,6 +418,7 @@ class ModelRuntime:
         *,
         model_spec: ModelSpec | "ResolvedModelSpec" | None = None,
         tool_call_options: ToolCallBindingOptions | dict[str, Any] | None = None,
+        accounting_context: dict[str, Any] | None = None,
     ):
         last_error: ModelRuntimeError | None = None
         candidates = self._candidate_specs(model_spec=model_spec)
@@ -358,6 +426,15 @@ class ModelRuntime:
             for attempt in range(1, self._max_retries_for_spec(spec) + 2):
                 emitted = False
                 model = self._get_chat_model_for_spec(spec)
+                accounting = self._begin_prompt_accounting(
+                    messages,
+                    tools=tools,
+                    spec=spec,
+                    accounting_context=accounting_context,
+                    attempt=attempt,
+                    call_kind="astream_messages_with_tools",
+                )
+                aggregated_chunk = None
                 try:
                     bound_model = (
                         _bind_tools_with_options(model, tools, tool_call_options=tool_call_options, spec=spec)
@@ -367,7 +444,12 @@ class ModelRuntime:
                     stream = bound_model.astream(messages)
                     async for chunk in self._iterate_with_timeout(stream, spec=spec):
                         emitted = True
+                        try:
+                            aggregated_chunk = chunk if aggregated_chunk is None else aggregated_chunk + chunk
+                        except Exception:
+                            aggregated_chunk = chunk
                         yield chunk
+                    self._finish_prompt_accounting(accounting, response=aggregated_chunk)
                     return
                 except asyncio.CancelledError:
                     raise
@@ -410,6 +492,7 @@ class ModelRuntime:
         payload: dict[str, Any],
         stream_mode: list[str],
         model_spec: ModelSpec | "ResolvedModelSpec" | None = None,
+        accounting_context: dict[str, Any] | None = None,
     ):
         last_error: ModelRuntimeError | None = None
         candidates = self._candidate_specs(model_spec=model_spec)
@@ -417,6 +500,19 @@ class ModelRuntime:
             for attempt in range(1, self._max_retries_for_spec(spec) + 2):
                 emitted = False
                 model = self._get_chat_model_for_spec(spec)
+                accounting_messages = [
+                    {"role": "system", "content": system_prompt},
+                    *list(dict(payload or {}).get("messages") or []),
+                ]
+                accounting = self._begin_prompt_accounting(
+                    accounting_messages,
+                    tools=tools,
+                    spec=spec,
+                    accounting_context=accounting_context,
+                    attempt=attempt,
+                    call_kind="astream_conversation",
+                )
+                last_item = None
                 agent = self._create_raw_agent(
                     system_prompt=system_prompt,
                     tools=tools,
@@ -427,7 +523,9 @@ class ModelRuntime:
                     stream = agent.astream(payload, stream_mode=stream_mode)
                     async for item in self._iterate_with_timeout(stream, spec=spec):
                         emitted = True
+                        last_item = item
                         yield item
+                    self._finish_prompt_accounting(accounting, response=last_item)
                     return
                 except asyncio.CancelledError:
                     raise
@@ -471,7 +569,8 @@ class ModelRuntime:
                 [
                     {"role": "system", "content": prompt},
                     {"role": "user", "content": first_user_message},
-                ]
+                ],
+                accounting_context={"source": "model_runtime.generate_title"},
             )
             title = stringify_content(getattr(response, "content", "")).strip()
             return title[:10] or "新会话"
@@ -482,8 +581,12 @@ class ModelRuntime:
 
     async def summarize_history(self, messages: list[dict[str, Any]]) -> str:
         prompt = (
-            "请将以下对话压缩成中文摘要，控制在 500 字以内。"
-            "重点保留用户目标、已完成步骤、重要结论和未解决事项。"
+            "你是一名上下文压缩员。"
+            "你只负责把已有运行历史整理成后续模型可以继续工作的恢复点。"
+            "你不能引入新事实，不能搜索，不能修改文件，不能替主 Agent 继续执行任务。"
+            "请输出中文 handoff summary，保留用户目标、当前约束、已验证事实、产物引用、未解决问题、最近纠错和下一步恢复提示。"
+            "丢弃重复寒暄、旧工具原文、大段 JSON/表格原文、过期状态和已被后续消息否定的信息。"
+            "控制在 900 字以内，不要解释压缩过程。"
         )
         transcript_lines: list[str] = []
         for item in messages:
@@ -498,7 +601,8 @@ class ModelRuntime:
                 [
                     {"role": "system", "content": prompt},
                     {"role": "user", "content": transcript},
-                ]
+                ],
+                accounting_context={"source": "model_runtime.summarize_history"},
             )
             summary = stringify_content(getattr(response, "content", "")).strip()
             return summary[:500]
@@ -739,6 +843,109 @@ class ModelRuntime:
             allowed = set(LLM_PROVIDER_DEFAULTS.get(normalized_provider, {}).get("credential_envs") or ())
             return os.getenv(env_name) if env_name in allowed else None
         return None
+
+    def _begin_prompt_accounting(
+        self,
+        messages: list[Any],
+        *,
+        tools: list[Any] | None,
+        spec: ModelSpec,
+        accounting_context: dict[str, Any] | None,
+        attempt: int,
+        call_kind: str,
+    ) -> dict[str, Any]:
+        ledger = self.prompt_accounting_ledger
+        if ledger is None:
+            return {}
+        context = dict(accounting_context or {})
+        request_id = str(context.get("request_id") or "").strip()
+        if not request_id:
+            request_id = f"modelreq:{uuid.uuid4().hex}"
+        if attempt > 1:
+            request_id = f"{request_id}:attempt:{attempt}"
+        task_run_id = str(context.get("task_run_id") or "")
+        session_id = str(context.get("session_id") or "")
+        created_at = time.time()
+        metadata = {
+            "source": str(context.get("source") or call_kind),
+            "call_kind": call_kind,
+            "attempt": attempt,
+            "packet_ref": str(context.get("packet_ref") or ""),
+            "turn_id": str(context.get("turn_id") or ""),
+            "invocation_index": context.get("invocation_index"),
+        }
+        try:
+            segment_map = self._prompt_serializer.build_segment_map(
+                request_id=request_id,
+                messages=list(messages or []),
+                tools=list(tools or []),
+                provider=spec.provider,
+                model=spec.model,
+                task_run_id=task_run_id,
+                session_id=session_id,
+                created_at=created_at,
+                metadata=metadata,
+            )
+            ledger.record_segment_map(segment_map)
+            prediction = ModelTokenUsageRecord(
+                usage_id=f"tokuse:{request_id}:local_prediction",
+                request_id=request_id,
+                task_run_id=task_run_id,
+                session_id=session_id,
+                provider=spec.provider,
+                model=spec.model,
+                source="local_prediction",
+                prompt_tokens=segment_map.predicted_prompt_tokens,
+                total_tokens=segment_map.predicted_prompt_tokens,
+                created_at=created_at,
+                diagnostics={
+                    "segment_count": len(segment_map.segments),
+                    "canonical_hash": segment_map.canonical_hash,
+                    **metadata,
+                },
+            )
+            ledger.record_token_usage(prediction)
+            cache_record = self._prompt_cache_planner.plan(
+                segment_map,
+                provider=spec.provider,
+                model=spec.model,
+                created_at=created_at,
+            )
+            ledger.record_prompt_cache(cache_record)
+            return {
+                "request_id": request_id,
+                "task_run_id": task_run_id,
+                "session_id": session_id,
+                "provider": spec.provider,
+                "model": spec.model,
+                "cache_record": cache_record,
+            }
+        except Exception:
+            logger.debug("Failed to record prompt accounting prediction", exc_info=True)
+            return {}
+
+    def _finish_prompt_accounting(self, accounting: dict[str, Any], *, response: Any) -> None:
+        ledger = self.prompt_accounting_ledger
+        request_id = str(dict(accounting or {}).get("request_id") or "")
+        if ledger is None or not request_id:
+            return
+        try:
+            provider_usage = extract_provider_usage(
+                response,
+                request_id=request_id,
+                provider=str(accounting.get("provider") or ""),
+                model=str(accounting.get("model") or ""),
+                task_run_id=str(accounting.get("task_run_id") or ""),
+                session_id=str(accounting.get("session_id") or ""),
+            )
+            if provider_usage is None:
+                return
+            ledger.record_token_usage(provider_usage)
+            cache_record = accounting.get("cache_record")
+            if cache_record is not None:
+                ledger.record_prompt_cache(self._prompt_cache_planner.with_provider_usage(cache_record, provider_usage))
+        except Exception:
+            logger.debug("Failed to record provider token usage", exc_info=True)
 
     def _max_output_tokens_for_spec(self, spec: ModelSpec) -> int:
         if spec.max_output_tokens is not None:

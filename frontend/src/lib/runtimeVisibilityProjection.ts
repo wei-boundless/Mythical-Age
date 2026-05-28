@@ -501,6 +501,32 @@ export function projectHarnessLoopEvent(data: Record<string, unknown>): RuntimeV
 }
 
 export function projectRuntimeStreamEvent(event: string, data: Record<string, unknown>): RuntimeVisibilityProjection {
+  if (event === "harness_run_started") {
+    const taskRun = record(data.task_run);
+    const runtimeEvent = record(data.event);
+    const payload = record(runtimeEvent.payload);
+    const contract = record(payload.contract);
+    const goal = text(contract.user_visible_goal ?? contract.task_run_goal ?? taskRun.goal ?? taskRun.title);
+    return {
+      stageStatus: "正式任务已创建",
+      activityTitle: "正式任务已创建",
+      activityDetail: goal || text(taskRun.status) || "任务已进入运行队列",
+      level: "running",
+      progressEntry: entry("harness_run_started", "正式任务已创建", {
+        body: goal || "任务已进入运行队列",
+        level: "running",
+        kind: "task_order",
+        statusText: text(taskRun.status) || "running",
+        taskRunId: text(taskRun.task_run_id) || text(runtimeEvent.task_run_id),
+        eventId: text(runtimeEvent.event_id),
+        createdAt: numberValue(runtimeEvent.created_at ?? taskRun.created_at) ?? Date.now(),
+        meta: compactMeta([
+          metaItem("TaskRun", taskRun.task_run_id, { shorten: true }),
+          goal ? metaItem("目标", goal) : null,
+        ]),
+      }),
+    };
+  }
   if (event === "runtime_step_summary") {
     const step = text(data.step);
     if (INTERNAL_RUNTIME_STEPS.has(step)) {
@@ -590,9 +616,15 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
     const payload = record(runtimeEvent.payload);
     const status = text(payload.status);
     const reason = text(payload.terminal_reason);
-    const waiting = status === "task_lifecycle_waiting_executor" || reason === "waiting_executor";
+    const taskRun = record(payload.task_run);
+    const taskRunStatus = text(taskRun.status);
+    const waiting = status === "task_lifecycle_waiting_executor"
+      || status === "task_executor_scheduled"
+      || reason === "waiting_executor"
+      || reason === "task_executor_scheduled"
+      || taskRunStatus === "waiting_executor";
     const failed = text(runtimeEvent.event_type) === "agent_turn_failed" || status === "failed";
-    const title = waiting ? "任务等待执行器接管" : failed ? "Agent 运行失败" : "Agent 本轮完成";
+    const title = waiting ? "任务已转入后台执行" : failed ? "Agent 运行失败" : "Agent 本轮完成";
     return {
       stageStatus: title,
       activityTitle: title,
@@ -603,6 +635,7 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
         level: waiting ? "waiting" : failed ? "error" : "success",
         kind: "terminal",
         statusText: waiting ? "等待" : failed ? "失败" : "完成",
+        taskRunId: text(taskRun.task_run_id) || text(runtimeEvent.task_run_id),
         eventId: text(runtimeEvent.event_id),
         createdAt: numberValue(runtimeEvent.created_at) ?? Date.now(),
         completedAt: numberValue(runtimeEvent.created_at) ?? Date.now(),

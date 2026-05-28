@@ -65,6 +65,7 @@ class SoulImageAssetGenerateRequest(BaseModel):
     asset_kind: str = Field(default="world", min_length=1)
     prompt: str = Field(..., min_length=1)
     size: str = Field(default="1024x1024")
+    output_size: str = Field(default="")
     overwrite: bool = False
 
 
@@ -204,6 +205,7 @@ async def generate_soul_image_asset(payload: SoulImageAssetGenerateRequest) -> d
             target_id=payload.target_id,
             asset_kind=payload.asset_kind,
             size=payload.size,
+            output_size=payload.output_size,
             overwrite=payload.overwrite,
         )
     except SoulImageAssetError as exc:

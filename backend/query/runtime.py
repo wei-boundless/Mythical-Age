@@ -10,7 +10,7 @@ from evidence.output_policy import RAGEvidenceOutputPolicy
 from observability import build_debug_trace_event, start_turn_trace
 from capability_system.tool_authorization import build_tool_authorization_index
 from harness import AgentHarness
-from harness.runtime import AgentRuntimeServices, SingleAgentRuntimeHost, assemble_runtime
+from harness.runtime import AgentRuntimeServices, SingleAgentRuntimeHost, TaskExecutorServices, assemble_runtime
 from runtime import ModelResponseRuntimeExecutor, ModelRuntimeError, ToolRuntimeExecutor
 from runtime.shared.history_assembler import assemble_runtime_history
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
@@ -87,8 +87,14 @@ class QueryRuntime:
                 list(getattr(tool_runtime, "definitions", []) or [])
             ),
         )
+        attach_prompt_accounting = getattr(self.model_runtime, "attach_prompt_accounting_ledger", None)
+        if callable(attach_prompt_accounting):
+            attach_prompt_accounting(self.single_agent_runtime_host.prompt_accounting_ledger)
         self.agent_harness = AgentHarness(
-            services=AgentRuntimeServices.from_runtime_host(self.single_agent_runtime_host)
+            services=AgentRuntimeServices.from_runtime_host(
+                self.single_agent_runtime_host,
+                execute_task_run_callback=self.execute_task_run,
+            )
         )
         self.runtime_components = {
             "query_runtime": "adapter_only",
@@ -227,7 +233,18 @@ class QueryRuntime:
         return await self.model_runtime.generate_title(first_user_message)
 
     async def execute_task_run(self, task_run_id: str, *, max_steps: int = 12) -> dict[str, Any]:
-        return await execute_task_run(self, task_run_id, max_steps=max_steps)
+        return await execute_task_run(self._task_executor_services(), task_run_id, max_steps=max_steps)
+
+    def _task_executor_services(self) -> TaskExecutorServices:
+        return TaskExecutorServices(
+            runtime_host=self.single_agent_runtime_host,
+            backend_dir=self.base_dir,
+            model_runtime=self.model_runtime,
+            tool_runtime_executor=self.tool_runtime_executor,
+            tool_instances=tuple(self._all_tool_instances()),
+            agent_runtime_profile=self.agent_runtime_registry.get_profile("agent:0"),
+            backend_config=dict(getattr(self, "config", {}) or {}),
+        )
 
     def _commit_user_message(self, *, session_id: str, content: str, turn_id: str):
         decision = build_user_message_commit_decision(

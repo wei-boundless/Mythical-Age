@@ -121,7 +121,7 @@ def test_tool_operation_resolution_does_not_use_operation_alias_collision() -> N
     assert resolve_tool_operation_id("index_multimodal_file", definitions_by_name=index.definitions_by_name) == ""
 
 
-def test_authorized_tool_set_filters_by_explicit_operation_and_main_runtime_visibility() -> None:
+def test_authorized_tool_set_exposes_terminal_when_shell_operation_is_allowed() -> None:
     definitions = get_tool_definitions()
     index = build_tool_authorization_index(definitions)
     instances = build_tool_instances(Path.cwd())
@@ -135,9 +135,9 @@ def test_authorized_tool_set_filters_by_explicit_operation_and_main_runtime_visi
     assert "read_file" in authorized.tool_names
     assert "list_dir" in authorized.tool_names
     assert "pdf_analysis" not in authorized.tool_names
-    assert "terminal" not in authorized.tool_names
+    assert "terminal" in authorized.tool_names
     assert "op.read_file" in authorized.operation_ids
-    assert any(item["tool_name"] == "terminal" and item["reason"] == "not_main_runtime_visible" for item in authorized.filtered_out)
+    assert "op.shell" in authorized.operation_ids
 
 
 def test_harness_service_host_tool_filter_uses_tool_definition_operation_id() -> None:

@@ -6,568 +6,498 @@
 <title>Roguelike Dungeon Tower</title>
 <style>
   body { margin: 0; background: #111; display: flex; justify-content: center; align-items: center; height: 100vh; font-family: monospace; }
-  canvas { border: 1px solid #333; }
+  canvas { border: 1px solid #333; image-rendering: pixelated; }
   #ui-overlay { position: absolute; top: 10px; left: 10px; color: white; font-size: 14px; pointer-events: none; display: none; }
-  .upgrade-panel { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: flex; flex-direction: column; gap: 8px; background: rgba(0,0,0,0.8); padding: 20px; border: 2px solid gold; border-radius: 8px; color: white; pointer-events: auto; display: none; }
-  .upgrade-btn { padding: 8px 16px; background: #333; color: white; border: 1px solid gold; cursor: pointer; font-family: monospace; }
-  .upgrade-btn:hover { background: #555; }
+  .upgrade-panel { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #222; border: 2px solid #0cf; padding: 20px; color: white; display: none; flex-direction: column; gap: 10px; z-index: 10; }
+  .upgrade-panel button { background: #333; color: #0cf; border: 1px solid #0cf; padding: 8px 16px; cursor: pointer; font-family: monospace; }
+  .upgrade-panel button:hover { background: #0cf; color: #000; }
+  #error-overlay { position: absolute; top: 10px; left: 10px; color: red; font-size: 16px; pointer-events: none; display: none; }
 </style>
 </head>
 <body>
 <canvas id="gameCanvas" width="800" height="600"></canvas>
-<div id="ui-overlay">
-  <div id="health-bar">HP: <span id="hp-value">100</span>/<span id="max-hp">100</span></div>
-  <div id="exp-bar">EXP: <span id="exp-value">0</span>/<span id="exp-next">50</span></div>
-  <div id="level-display">Level: <span id="level-num">1</span></div>
-  <div id="floor-display">Floor: <span id="floor-num">1</span>/5</div>
+<div id="ui-overlay"></div>
+<div id="error-overlay">⚠ Image load failed. Please refresh.</div>
+<div id="upgradePanel" class="upgrade-panel">
+  <h3>Choose an Upgrade</h3>
+  <button onclick="selectUpgrade('hp')">+20 Max HP</button>
+  <button onclick="selectUpgrade('atk')">+5 Attack</button>
+  <button onclick="selectUpgrade('spd')">+1 Speed</button>
 </div>
-<div id="upgrade-panel" class="upgrade-panel">
-  <h2>Level Up! Choose an upgrade</h2>
-  <button id="upgrade-btn1" class="upgrade-btn"></button>
-  <button id="upgrade-btn2" class="upgrade-btn"></button>
-  <button id="upgrade-btn3" class="upgrade-btn"></button>
-</div>
+
 <script>
-// ========== GAME ENGINE ==========
+// ==================== GLOBAL STATE ====================
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
-const W = 800, H = 600;
+const W = canvas.width, H = canvas.height;
+const TILE = 32;
 
-const GAME_STATE = { MENU: 0, PLAYING: 1, UPGRADE: 2, GAMEOVER: 3, VICTORY: 4 };
-let gameState = GAME_STATE.MENU;
-let currentFloor = 1;
-let player;
-let rooms = [];
-let currentRoomIndex = 0;
+// Asset images
+const ASSETS = {
+  player: { src: 'assets/player.png', img: null },
+  skeleton_warrior: { src: 'assets/skeleton_warrior.png', img: null },
+  skeleton_archer: { src: 'assets/skeleton_archer.png', img: null },
+  shadow_assassin: { src: 'assets/shadow_assassin.png', img: null },
+  boss: { src: 'assets/boss.png', img: null },
+  tile_floor: { src: 'assets/tile_floor.png', img: null },
+};
+
+let assetsLoaded = false;
+let loadFailed = false;
+
+let player = null;
 let enemies = [];
-let projectiles = [];
-let keys = {};
-let score = 0;
-let killCount = 0;
-let startTime = 0;
+let rooms = [];
+let currentFloor = 1;
+let floorScale = 1.0;
+let levelUpChoices = [];
+let gameOver = false;
+let gameOverMessage = '';
+let upgradePending = false;
 
-// Input handling
-document.addEventListener('keydown', e => { keys[e.key] = true; e.preventDefault(); });
-document.addEventListener('keyup', e => { keys[e.key] = false; e.preventDefault(); });
+// Add overlay references
+const uiOverlay = document.getElementById('ui-overlay');
+const errorOverlay = document.getElementById('error-overlay');
+const upgradePanel = document.getElementById('upgradePanel');
 
-canvas.addEventListener('click', (e) => {
-  const rect = canvas.getBoundingClientRect();
-  const mx = e.clientX - rect.left;
-  const my = e.clientY - rect.top;
-  if (gameState === GAME_STATE.MENU) {
-    if (mx > 300 && mx < 500 && my > 280 && my < 320) startGame();
-  } else if (gameState === GAME_STATE.GAMEOVER || gameState === GAME_STATE.VICTORY) {
-    if (mx > 300 && mx < 500 && my > 400 && my < 440) restartGame();
-  }
-});
+// ==================== LOAD ASSETS ====================
+function loadAssets() {
+  const promises = Object.entries(ASSETS).map(([key, asset]) => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        asset.img = img;
+        console.log(`✅ Loaded: ${asset.src}`);
+        resolve();
+      };
+      img.onerror = () => {
+        console.error(`❌ Failed to load: ${asset.src}`);
+        reject(new Error(`Failed to load ${asset.src}`));
+      };
+      img.src = asset.src;
+    });
+  });
 
-// Entity classes
+  return Promise.all(promises).then(() => {
+    assetsLoaded = true;
+    console.log('All assets loaded successfully.');
+  }).catch(err => {
+    console.error(err.message);
+    loadFailed = true;
+    errorOverlay.style.display = 'block';
+  });
+}
+
+// ==================== ENTITY CLASSES ====================
 class Entity {
-  constructor(x, y, w, h, hp, atk, color) {
-    this.x = x; this.y = y; this.w = w; this.h = h;
-    this.hp = hp; this.maxHp = hp; this.atk = atk;
-    this.color = color;
-    this.vx = 0; this.vy = 0;
-    this.isEnemy = false;
-    this.isPlayer = false;
+  constructor(x, y, w, h, hp, atk, imageKey) {
+    this.x = x;
+    this.y = y;
+    this.w = w;
+    this.h = h;
+    this.hp = hp;
+    this.maxHp = hp;
+    this.atk = atk;
+    this.imageKey = imageKey;
+    this.image = ASSETS[imageKey] ? ASSETS[imageKey].img : null;
   }
-  collides(other) {
-    return this.x < other.x + other.w && this.x + this.w > other.x &&
-           this.y < other.y + other.h && this.y + this.h > other.y;
-  }
+
   draw(ctx) {
-    ctx.fillStyle = this.color;
-    ctx.fillRect(this.x, this.y, this.w, this.h);
+    if (this.image && ctx) {
+      ctx.drawImage(this.image, this.x, this.y, this.w, this.h);
+    } else {
+      // Error fallback: magenta rect to indicate missing image (not a stealth fallback)
+      ctx.fillStyle = '#ff00ff';
+      ctx.fillRect(this.x, this.y, this.w, this.h);
+    }
+  }
+
+  drawHpBar(ctx) {
+    const barW = this.w;
+    const barH = 4;
+    const ratio = Math.max(0, this.hp / this.maxHp);
+    ctx.fillStyle = 'red';
+    ctx.fillRect(this.x, this.y - 6, barW, barH);
+    ctx.fillStyle = 'lime';
+    ctx.fillRect(this.x, this.y - 6, barW * ratio, barH);
   }
 }
 
 class Player extends Entity {
   constructor(x, y) {
-    super(x, y, 24, 24, 100, 10, '#4caf50');
+    super(x, y, TILE, TILE, 100, 10, 'player');
     this.isPlayer = true;
     this.speed = 3;
-    this.exp = 0;
     this.level = 1;
+    this.exp = 0;
     this.expToNext = 50;
-    this.attackCooldown = 0;
-    this.maxAttackCooldown = 30;
-    this.upgrades = [];
-    this.lifesteal = 0;
-    this.chainLightning = 0;
-    this.shield = 0;
-    this.playerImg = new Image();
-    this.playerImgLoaded = false;
-    // Create a fallback player bitmap using a data URI so a real bitmap is always visible.
-    const playerCanvas = document.createElement('canvas');
-    playerCanvas.width = 24; playerCanvas.height = 24;
-    const pctx = playerCanvas.getContext('2d');
-    // Draw a simple top-down adventurer
-    pctx.fillStyle = '#4caf50';
-    pctx.fillRect(4, 8, 16, 12); // body
-    pctx.fillStyle = '#ffcc80';
-    pctx.beginPath(); pctx.arc(12, 6, 4, 0, Math.PI*2); pctx.fill(); // head
-    pctx.fillStyle = '#cccccc';
-    pctx.fillRect(2, 10, 4, 2); // sword
-    this.playerImg.src = playerCanvas.toDataURL('image/png');
-    this.playerImg.onload = () => { this.playerImgLoaded = true; };
-    this.playerImg.onerror = () => { this.playerImgLoaded = false; };
   }
-  update() {
-    let dx = 0, dy = 0;
-    if (keys['w'] || keys['W'] || keys['ArrowUp']) dy -= 1;
-    if (keys['s'] || keys['S'] || keys['ArrowDown']) dy += 1;
-    if (keys['a'] || keys['A'] || keys['ArrowLeft']) dx -= 1;
-    if (keys['d'] || keys['D'] || keys['ArrowRight']) dx += 1;
-    const len = Math.sqrt(dx*dx + dy*dy);
-    if (len > 0) { dx /= len; dy /= len; }
-    let newX = this.x + dx * this.speed;
-    let newY = this.y + dy * this.speed;
-    // wall collision
-    if (!checkRoomCollision(newX, this.y, this.w, this.h)) newX = this.x;
-    if (!checkRoomCollision(this.x, newY, this.w, this.h)) newY = this.y;
-    this.x = newX; this.y = newY;
 
-    if (this.attackCooldown > 0) this.attackCooldown--;
-    if ((keys[' '] || keys['Space']) && this.attackCooldown <= 0) {
-      this.attack();
-      this.attackCooldown = this.maxAttackCooldown;
-    }
+  move(dx, dy) {
+    this.x += dx * this.speed;
+    this.y += dy * this.speed;
+    // keep inside rooms
+    this.x = Math.max(0, this.x);
+    this.y = Math.max(0, this.y);
+    this.x = Math.min(W - this.w, this.x);
+    this.y = Math.min(H - this.h, this.y);
   }
-  attack() {
-    // Melee attack: rectangle in front of player
-    const atkRect = { x: this.x + this.w, y: this.y, w: 30, h: this.h };
-    enemies.forEach((enemy, idx) => {
-      if (this.collidesLogical(atkRect, enemy) && enemy.hp > 0) {
-        let dmg = this.atk;
-        if (Math.random() < 0.1) dmg = Math.floor(dmg * 1.5); // crit
-        enemy.hp -= dmg;
-        if (enemy.hp <= 0) {
-          this.gainExp(enemy.expValue);
-          killCount++;
-          if (this.lifesteal > 0) this.hp = Math.min(this.maxHp, this.hp + Math.floor(this.lifesteal * this.maxHp));
-          if (this.chainLightning > 0 && Math.random() < this.chainLightning) {
-            // simple chain: damage nearest other enemy
-            enemies.forEach(e => { if (e !== enemy && e.hp > 0) e.hp -= Math.floor(dmg * 0.5); });
-          }
-          enemies.splice(idx, 1);
-        }
-      }
-    });
-  }
-  collidesLogical(rect, other) {
-    return rect.x < other.x + other.w && rect.x + rect.w > other.x &&
-           rect.y < other.y + other.h && rect.y + rect.h > other.y;
-  }
+
   gainExp(amount) {
     this.exp += amount;
-    while (this.exp >= this.expToNext) {
-      this.exp -= this.expToNext;
+    if (this.exp >= this.expToNext) {
       this.level++;
+      this.exp -= this.expToNext;
       this.expToNext = Math.floor(this.expToNext * 1.5);
-      gameState = GAME_STATE.UPGRADE;
-      showUpgradeChoices();
-    }
-  }
-  takeDamage(dmg) {
-    if (this.shield > 0) {
-      if (this.shield >= dmg) { this.shield -= dmg; return; }
-      else { dmg -= this.shield; this.shield = 0; }
-    }
-    this.hp -= dmg;
-    if (this.hp <= 0) {
-      this.hp = 0;
-      gameState = GAME_STATE.GAMEOVER;
+      this.maxHp += 10;
+      this.hp = this.maxHp;
+      this.atk += 2;
+      showUpgradePanel();
     }
   }
 }
 
 class Enemy extends Entity {
   constructor(x, y, type, floorScale) {
-    let w, h, hp, atk, color, expValue;
+    let w, h, hp, atk, imageKey;
     switch(type) {
-      case 'skeleton': w=24; h=24; hp=30; atk=5; color='#ff4444'; expValue=20; break;
-      case 'archer': w=24; h=24; hp=20; atk=8; color='#ff8800'; expValue=30; break;
-      case 'assassin': w=24; h=24; hp=40; atk=12; color='#aa00aa'; expValue=50; break;
-      default: w=24; h=24; hp=30; atk=5; color='red'; expValue=20;
+      case 'warrior':
+        w = TILE; h = TILE; hp = 60; atk = 8; imageKey = 'skeleton_warrior'; break;
+      case 'archer':
+        w = TILE; h = TILE; hp = 40; atk = 12; imageKey = 'skeleton_archer'; break;
+      case 'assassin':
+        w = TILE; h = TILE; hp = 50; atk = 15; imageKey = 'shadow_assassin'; break;
+      default:
+        w = TILE; h = TILE; hp = 30; atk = 5; imageKey = 'skeleton_warrior';
     }
-    super(x, y, w, h, hp * floorScale, atk * floorScale, color);
+    super(x, y, w, h, hp * floorScale, atk * floorScale, imageKey);
     this.isEnemy = true;
     this.type = type;
-    this.expValue = expValue;
     this.state = 'patrol';
     this.patrolTarget = { x: x + Math.random()*100-50, y: y + Math.random()*100-50 };
     this.attackTimer = 0;
     this.maxAttackTimer = type === 'archer' ? 60 : 40;
-    this.speed = type === 'assassin' ? 2.5 : 1.2;
-    this.detectRange = type === 'archer' ? 150 : 120;
-    this.attackRange = type === 'archer' ? 130 : 30;
+    this.speed = type === 'assassin' ? 2 : 1;
   }
-  update() {
-    if (this.hp <= 0) return;
-    const dist = Math.hypot(player.x - this.x, player.y - this.y);
-    if (dist < this.detectRange) this.state = 'chase';
-    else this.state = 'patrol';
 
-    if (this.state === 'chase') {
-      if (dist < this.attackRange) {
-        this.state = 'attack';
-        if (this.attackTimer <= 0) {
-          this.attack();
-          this.attackTimer = this.maxAttackTimer;
-        }
-      } else {
-        const dx = (player.x - this.x) / dist;
-        const dy = (player.y - this.y) / dist;
-        let newX = this.x + dx * this.speed;
-        let newY = this.y + dy * this.speed;
-        if (checkRoomCollision(newX, this.y, this.w, this.h)) this.x = newX;
-        else this.x = this.x;
-        if (checkRoomCollision(this.x, newY, this.w, this.h)) this.y = newY;
-      }
-    } else if (this.state === 'patrol') {
-      const dx = this.patrolTarget.x - this.x;
-      const dy = this.patrolTarget.y - this.y;
-      const len = Math.hypot(dx, dy);
-      if (len < 2) this.patrolTarget = { x: this.x + Math.random()*100-50, y: this.y + Math.random()*100-50 };
-      else {
-        let newX = this.x + (dx/len) * this.speed * 0.5;
-        let newY = this.y + (dy/len) * this.speed * 0.5;
-        if (checkRoomCollision(newX, this.y, this.w, this.h)) this.x = newX;
-        if (checkRoomCollision(this.x, newY, this.w, this.h)) this.y = newY;
-      }
-    }
-    if (this.attackTimer > 0) this.attackTimer--;
-  }
-  attack() {
-    if (this.type === 'archer') {
-      projectiles.push(new Projectile(this.x, this.y + this.h/2, player.x, player.y, this.atk, '#ffaa00'));
+  update() {
+    if (gameOver) return;
+    this.attackTimer++;
+    const dx = player.x - this.x;
+    const dy = player.y - this.y;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    if (dist < 200) {
+      this.state = 'chase';
     } else {
-      if (this.collides(player)) player.takeDamage(this.atk);
+      this.state = 'patrol';
     }
+    if (this.state === 'chase') {
+      const normX = dx / dist;
+      const normY = dy / dist;
+      this.x += normX * this.speed;
+      this.y += normY * this.speed;
+      if (dist < 24 && this.attackTimer >= this.maxAttackTimer) {
+        player.hp -= this.atk;
+        this.attackTimer = 0;
+        if (player.hp <= 0) {
+          player.hp = 0;
+          gameOver = true;
+          gameOverMessage = 'You died! Press R to restart.';
+        }
+      }
+    } else {
+      const pdx = this.patrolTarget.x - this.x;
+      const pdy = this.patrolTarget.y - this.y;
+      const pdist = Math.sqrt(pdx*pdx + pdy*pdy);
+      if (pdist < 5) {
+        this.patrolTarget = { x: this.x + Math.random()*100-50, y: this.y + Math.random()*100-50 };
+      } else {
+        this.x += pdx / pdist * this.speed;
+        this.y += pdy / pdist * this.speed;
+      }
+    }
+    this.x = Math.max(0, Math.min(W - this.w, this.x));
+    this.y = Math.max(0, Math.min(H - this.h, this.y));
+  }
+
+  draw(ctx) {
+    super.draw(ctx);
+    this.drawHpBar(ctx);
   }
 }
 
 class Boss extends Entity {
-  constructor(x, y, floor) {
-    super(x, y, 48, 48, 100 * floor, 15 * floor, '#ff00ff');
+  constructor(x, y, floorScale) {
+    super(x, y, TILE*2, TILE*2, 200 * floorScale, 20 * floorScale, 'boss');
     this.isEnemy = true;
-    this.expValue = 100;
-    this.floor = floor;
-    this.state = 'chase';
-    this.speed = 1.5;
-    this.phase = 1;
+    this.type = 'boss';
     this.attackTimer = 0;
-    this.maxAttackTimer = 30;
-    this.specialTimer = 0;
-    this.maxSpecialTimer = 120;
+    this.maxAttackTimer = 80;
+    this.phase = 0;
   }
-  update() {
-    if (this.hp <= 0) return;
-    if (this.hp < this.maxHp * 0.5) this.phase = 2;
-    const dist = Math.hypot(player.x - this.x, player.y - this.y);
-    const dx = (player.x - this.x) / dist;
-    const dy = (player.y - this.y) / dist;
-    let newX = this.x + dx * this.speed;
-    let newY = this.y + dy * this.speed;
-    if (checkRoomCollision(newX, this.y, this.w, this.h)) this.x = newX;
-    if (checkRoomCollision(this.x, newY, this.w, this.h)) this.y = newY;
 
-    if (this.attackTimer <= 0 && this.collides(player)) {
-      player.takeDamage(this.atk);
-      this.attackTimer = this.maxAttackTimer;
-    }
-    if (this.specialTimer <= 0) {
-      if (this.phase === 2 && this.floor === 3) {
-        // flame lord area attack
-        for (let i=0; i<8; i++) {
-          const angle = (i/8)*Math.PI*2;
-          projectiles.push(new Projectile(this.x+this.w/2, this.y+this.h/2, this.x+Math.cos(angle)*200, this.y+Math.sin(angle)*200, this.atk, 'orange'));
-        }
-      } else {
-        projectiles.push(new Projectile(this.x+this.w/2, this.y+this.h/2, player.x, player.y, this.atk, 'yellow'));
+  update() {
+    if (gameOver) return;
+    this.attackTimer++;
+    const dx = player.x - this.x;
+    const dy = player.y - this.y;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    const normX = dx / (dist || 1);
+    const normY = dy / (dist || 1);
+    this.x += normX * 1.5;
+    this.y += normY * 1.5;
+    if (dist < 40 && this.attackTimer >= this.maxAttackTimer) {
+      player.hp -= this.atk;
+      this.attackTimer = 0;
+      if (player.hp <= 0) {
+        gameOver = true;
+        gameOverMessage = 'Slain by the Boss! Press R to restart.';
       }
-      this.specialTimer = this.maxSpecialTimer;
     }
-    if (this.attackTimer > 0) this.attackTimer--;
-    if (this.specialTimer > 0) this.specialTimer--;
-  }
-}
-
-class Projectile extends Entity {
-  constructor(x, y, targetX, targetY, dmg, color) {
-    super(x, y, 8, 8, 1, dmg, color);
-    const angle = Math.atan2(targetY - y, targetX - x);
-    this.speed = 4;
-    this.vx = Math.cos(angle) * this.speed;
-    this.vy = Math.sin(angle) * this.speed;
-    this.lifetime = 120;
-    this.hurtsPlayer = true;
-  }
-  update() {
-    this.x += this.vx;
-    this.y += this.vy;
-    this.lifetime--;
-    if (this.lifetime <= 0) return;
-    if (this.hurtsPlayer && this.collides(player)) {
-      player.takeDamage(this.atk);
-      this.lifetime = 0;
+    if (this.hp < this.maxHp * 0.5 && this.phase === 0) {
+      this.phase = 1;
+      this.atk *= 1.3;
     }
+    this.x = Math.max(0, Math.min(W - this.w, this.x));
+    this.y = Math.max(0, Math.min(H - this.h, this.y));
+  }
+
+  draw(ctx) {
+    super.draw(ctx);
+    this.drawHpBar(ctx);
   }
 }
 
-function checkRoomCollision(x, y, w, h) {
-  const room = rooms[currentRoomIndex];
-  return x >= room.x + 2 && x + w <= room.x + room.w - 2 &&
-         y >= room.y + 2 && y + h <= room.y + room.h - 2;
-}
-
-// Room generation
+// ==================== MAP GENERATION ====================
 function generateDungeon(floor) {
   rooms = [];
-  const numRooms = 5 + Math.floor(Math.random() * 4);
-  const roomW = 200, roomH = 150;
-  let prevRoom = null;
-  for (let i = 0; i < numRooms; i++) {
-    let x, y;
-    if (i === 0) { x = 50; y = H/2 - roomH/2; }
-    else {
-      const side = Math.floor(Math.random() * 4);
-      switch(side) {
-        case 0: x = prevRoom.x + prevRoom.w + 20; y = prevRoom.y; break;
-        case 1: x = prevRoom.x - roomW - 20; y = prevRoom.y; break;
-        case 2: x = prevRoom.x; y = prevRoom.y - roomH - 20; break;
-        default: x = prevRoom.x; y = prevRoom.y + prevRoom.h + 20;
-      }
-      if (x < 10) x = 10; if (y < 10) y = 10;
-      if (x + roomW > W - 10) x = W - roomW - 10;
-      if (y + roomH > H - 10) y = H - roomH - 10;
-    }
-    const room = { x, y, w: roomW, h: roomH, cleared: false, isBoss: i === numRooms-1, isStart: i===0 };
-    rooms.push(room);
-    prevRoom = room;
-  }
-  currentRoomIndex = 0;
-  spawnEnemies(floor);
-}
-
-function spawnEnemies(floor) {
   enemies = [];
-  projectiles = [];
-  rooms.forEach((room, idx) => {
-    if (room.isStart) return;
-    if (room.isBoss) {
-      const boss = new Boss(room.x + room.w/2 - 24, room.y + room.h/2 - 24, floor);
-      enemies.push(boss);
-    } else {
-      const count = 1 + Math.floor(Math.random() * 3);
-      for (let i=0; i<count; i++) {
-        const type = ['skeleton', 'archer', 'assassin'][Math.floor(Math.random() * 3)];
-        const ex = room.x + 30 + Math.random()*(room.w - 60);
-        const ey = room.y + 30 + Math.random()*(room.h - 60);
-        enemies.push(new Enemy(ex, ey, type, 1 + (floor-1)*0.5));
-      }
+  const numRooms = 5 + Math.floor(floor / 2);
+  for (let i = 0; i < numRooms; i++) {
+    const rw = 6 + Math.floor(Math.random() * 5);
+    const rh = 5 + Math.floor(Math.random() * 4);
+    const rx = Math.floor(Math.random() * (W / TILE - rw - 2)) * TILE + TILE;
+    const ry = Math.floor(Math.random() * (H / TILE - rh - 2)) * TILE + TILE;
+    rooms.push({ x: rx, y: ry, w: rw * TILE, h: rh * TILE });
+    const numEnemies = 1 + Math.floor(Math.random() * 2);
+    for (let j = 0; j < numEnemies; j++) {
+      const ex = rx + TILE + Math.random() * (rw - 2) * TILE;
+      const ey = ry + TILE + Math.random() * (rh - 2) * TILE;
+      const types = ['warrior', 'archer', 'assassin'];
+      const type = types[Math.floor(Math.random() * types.length)];
+      enemies.push(new Enemy(ex, ey, type, floorScale));
     }
-  });
-}
-
-function showUpgradeChoices() {
-  const panel = document.getElementById('upgrade-panel');
-  panel.style.display = 'flex';
-  const upgrades = [
-    { text: '+5 Attack', effect: (p) => p.atk += 5 },
-    { text: '+20 Max HP', effect: (p) => { p.maxHp += 20; p.hp = Math.min(p.maxHp, p.hp + 20); } },
-    { text: '+10% Move Speed', effect: (p) => p.speed *= 1.1 },
-    { text: 'Lifesteal (10% on kill)', effect: (p) => p.lifesteal = 0.1 },
-    { text: 'Chain Lightning (20%)', effect: (p) => p.chainLightning = 0.2 },
-    { text: 'Shield (20 HP per floor)', effect: (p) => p.shield += 20 }
-  ];
-  const selected = [];
-  while (selected.length < 3) {
-    const idx = Math.floor(Math.random() * upgrades.length);
-    if (!selected.includes(idx)) selected.push(idx);
   }
-  document.getElementById('upgrade-btn1').textContent = upgrades[selected[0]].text;
-  document.getElementById('upgrade-btn2').textContent = upgrades[selected[1]].text;
-  document.getElementById('upgrade-btn3').textContent = upgrades[selected[2]].text;
-  document.getElementById('upgrade-btn1').onclick = () => { upgrades[selected[0]].effect(player); closeUpgrade(); };
-  document.getElementById('upgrade-btn2').onclick = () => { upgrades[selected[1]].effect(player); closeUpgrade(); };
-  document.getElementById('upgrade-btn3').onclick = () => { upgrades[selected[2]].effect(player); closeUpgrade(); };
+  // Place player in first room
+  const startRoom = rooms[0];
+  player.x = startRoom.x + startRoom.w / 2;
+  player.y = startRoom.y + startRoom.h / 2;
+  // Boss on floors multiple of 5
+  if (floor % 5 === 0 && rooms.length > 1) {
+    const bossRoom = rooms[rooms.length-1];
+    const bx = bossRoom.x + bossRoom.w / 2 - TILE;
+    const by = bossRoom.y + bossRoom.h / 2 - TILE;
+    enemies.push(new Boss(bx, by, floorScale));
+  }
 }
 
-function closeUpgrade() {
-  document.getElementById('upgrade-panel').style.display = 'none';
-  gameState = GAME_STATE.PLAYING;
+// ==================== GAME LOOP ====================
+function update() {
+  if (gameOver || upgradePending) return;
+  enemies.forEach(e => e.update());
+  // Check if all enemies dead -> next floor
+  const alive = enemies.filter(e => e.hp > 0);
+  if (alive.length === 0) {
+    currentFloor++;
+    floorScale = 1 + currentFloor * 0.2;
+    generateDungeon(currentFloor);
+    player.hp = player.maxHp; // heal on floor clear
+    uiOverlay.style.display = 'none';
+  }
 }
 
-function startGame() {
-  player = new Player(100, H/2);
-  currentFloor = 1;
-  killCount = 0;
-  startTime = Date.now();
-  generateDungeon(currentFloor);
-  player.x = rooms[0].x + 30; player.y = rooms[0].y + 50;
-  gameState = GAME_STATE.PLAYING;
-  document.getElementById('ui-overlay').style.display = 'block';
-}
+function render() {
+  // Clear
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fillRect(0, 0, W, H);
 
-function restartGame() {
-  startGame();
-}
+  if (loadFailed) {
+    ctx.fillStyle = 'red';
+    ctx.font = '20px monospace';
+    ctx.fillText('⚠ Image load failed.', 250, 300);
+    return;
+  }
 
-function gameLoop() {
-  if (gameState === GAME_STATE.PLAYING || gameState === GAME_STATE.UPGRADE) {
-    if (gameState === GAME_STATE.PLAYING) {
-      player.update();
-      enemies.forEach(e => e.update());
-      enemies = enemies.filter(e => e.hp > 0);
-      projectiles.forEach(p => p.update());
-      projectiles = projectiles.filter(p => p.lifetime > 0);
-      // check room cleared
-      const room = rooms[currentRoomIndex];
-      const roomEnemies = enemies.filter(e => e.x >= room.x && e.x <= room.x+room.w && e.y >= room.y && e.y <= room.y+room.h);
-      if (roomEnemies.length === 0 && !room.cleared) {
-        room.cleared = true;
-        if (room.isBoss) {
-          if (currentFloor < 5) {
-            currentFloor++;
-            generateDungeon(currentFloor);
-            player.x = rooms[0].x + 30; player.y = rooms[0].y + 50;
-            player.shield = 0; // reset shield per floor
-            player.hp = Math.min(player.maxHp, player.hp + 20); // heal a bit
-          } else {
-            gameState = GAME_STATE.VICTORY;
+  if (!assetsLoaded) {
+    ctx.fillStyle = 'white';
+    ctx.font = '20px monospace';
+    ctx.fillText('Loading assets...', 300, 300);
+    return;
+  }
+
+  // Draw floor tiles inside rooms
+  if (ASSETS.tile_floor.img) {
+    rooms.forEach(room => {
+      for (let tx = room.x; tx < room.x + room.w; tx += TILE) {
+        for (let ty = room.y; ty < room.y + room.h; ty += TILE) {
+          if (tx + TILE <= W && ty + TILE <= H) {
+            ctx.drawImage(ASSETS.tile_floor.img, tx, ty, TILE, TILE);
           }
         }
       }
-      // move to next room if near door
-      const doorX = room.x + room.w/2;
-      const doorY = room.y + room.h/2;
-      if (Math.hypot(player.x - doorX, player.y - doorY) < 30 && room.cleared && !room.isBoss && currentRoomIndex < rooms.length-1) {
-        currentRoomIndex++;
-        player.x = rooms[currentRoomIndex].x + 30;
-        player.y = rooms[currentRoomIndex].y + 50;
-      }
-      updateHUD();
-    }
+    });
+  } else {
+    // tile image missing - indicate error
+    ctx.fillStyle = '#ff00ff';
+    rooms.forEach(room => ctx.fillRect(room.x, room.y, room.w, room.h));
   }
+
+  // Draw player
+  if (player && player.image) {
+    player.draw(ctx);
+  } else if (player) {
+    ctx.fillStyle = '#ff00ff';
+    ctx.fillRect(player.x, player.y, player.w, player.h);
+    ctx.fillStyle = 'red';
+    ctx.font = '12px monospace';
+    ctx.fillText('Player img missing', player.x, player.y - 10);
+  }
+
+  // Draw enemies
+  enemies.forEach(e => {
+    if (e.hp <= 0) return;
+    e.draw(ctx);
+  });
+
+  // Draw UI / HUD
+  ctx.fillStyle = 'white';
+  ctx.font = '14px monospace';
+  ctx.fillText(`Floor ${currentFloor}`, 10, 20);
+  ctx.fillText(`HP: ${Math.ceil(player.hp)}/${player.maxHp}`, 10, 40);
+  ctx.fillText(`ATK: ${player.atk}`, 10, 60);
+  ctx.fillText(`EXP: ${player.exp}/${player.expToNextNext || player.expToNext}`, 10, 80);
+  // Actually expToNext was used earlier
+  ctx.clearRect(0, 70, 200, 20);
+  ctx.fillText(`EXP: ${player.exp}/${player.expToNext}`, 10, 80);
+
+  // HP bar player
+  const barW = 200;
+  const ratio = player.hp / player.maxHp;
+  ctx.fillStyle = 'red';
+  ctx.fillRect(W - barW - 10, 10, barW, 12);
+  ctx.fillStyle = 'lime';
+  ctx.fillRect(W - barW - 10, 10, barW * ratio, 12);
+  ctx.strokeStyle = 'white';
+  ctx.strokeRect(W - barW - 10, 10, barW, 12);
+
+  if (gameOver) {
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#ff3333';
+    ctx.font = '28px monospace';
+    ctx.fillText(gameOverMessage, 200, 300);
+  }
+
+  if (upgradePending) {
+    ctx.fillStyle = 'cyan';
+    ctx.font = '18px monospace';
+    ctx.fillText('Choose an upgrade above!', 250, 320);
+  }
+}
+
+function gameLoop() {
+  update();
   render();
   requestAnimationFrame(gameLoop);
 }
 
-function updateHUD() {
-  document.getElementById('hp-value').textContent = player.hp;
-  document.getElementById('max-hp').textContent = player.maxHp;
-  document.getElementById('exp-value').textContent = player.exp;
-  document.getElementById('exp-next').textContent = player.expToNext;
-  document.getElementById('level-num').textContent = player.level;
-  document.getElementById('floor-num').textContent = currentFloor;
+// ==================== INPUT ====================
+const keys = {};
+document.addEventListener('keydown', e => {
+  keys[e.key] = true;
+  if (e.key === 'r' && gameOver) {
+    restartGame();
+  }
+});
+document.addEventListener('keyup', e => keys[e.key] = false);
+
+function processInput() {
+  if (gameOver || upgradePending) return;
+  let dx = 0, dy = 0;
+  if (keys['ArrowUp'] || keys['w']) dy -= 1;
+  if (keys['ArrowDown'] || keys['s']) dy += 1;
+  if (keys['ArrowLeft'] || keys['a']) dx -= 1;
+  if (keys['ArrowRight'] || keys['d']) dx += 1;
+  if (dx !== 0 || dy !== 0) {
+    player.move(dx, dy);
+  }
+  // Attack
+  if (keys[' '] && !player.attackCooldown) {
+    enemies.forEach(e => {
+      const dist = Math.hypot(e.x - player.x, e.y - player.y);
+      if (dist < 48) {
+        e.hp -= player.atk;
+        if (e.hp > 0) {
+          // knockback
+          e.x += (e.x - player.x) * 0.3;
+          e.y += (e.y - player.y) * 0.3;
+        } else {
+          player.gainExp(e.expValue || 20);
+        }
+      }
+    });
+    player.attackCooldown = true;
+    setTimeout(() => player.attackCooldown = false, 300);
+  }
+  requestAnimationFrame(processInput);
 }
 
-function render() {
-  ctx.clearRect(0, 0, W, H);
-  // background
-  ctx.fillStyle = '#222';
-  ctx.fillRect(0, 0, W, H);
-
-  if (gameState === GAME_STATE.MENU) {
-    ctx.fillStyle = 'white';
-    ctx.font = '32px monospace';
-    ctx.fillText('Roguelike Dungeon Tower', 200, 150);
-    ctx.font = '20px monospace';
-    ctx.fillText('Click Start to Begin', 280, 250);
-    ctx.fillStyle = '#4caf50';
-    ctx.fillRect(300, 280, 200, 40);
-    ctx.fillStyle = 'black';
-    ctx.fillText('Start', 370, 308);
-    return;
-  }
-
-  // draw rooms
-  rooms.forEach((room, idx) => {
-    ctx.fillStyle = room.isStart ? '#1a1a2e' : (room.isBoss ? '#3e0000' : '#1a2e1a');
-    ctx.fillRect(room.x, room.y, room.w, room.h);
-    ctx.strokeStyle = '#555';
-    ctx.strokeRect(room.x, room.y, room.w, room.h);
-    if (idx === currentRoomIndex) {
-      ctx.strokeStyle = 'gold';
-      ctx.strokeRect(room.x, room.y, room.w, room.h);
-    }
-    // door markers
-    if (room.cleared && !room.isBoss) {
-      ctx.fillStyle = 'white';
-      ctx.fillRect(room.x + room.w/2 - 10, room.y + room.h/2 - 10, 20, 20);
-    }
-  });
-
-  // draw enemies
-  enemies.forEach(e => {
-    if (e instanceof Boss) {
-      ctx.fillStyle = e.color;
-      ctx.fillRect(e.x, e.y, e.w, e.h);
-      ctx.fillStyle = 'white';
-      ctx.font = '10px monospace';
-      ctx.fillText('BOSS', e.x, e.y-5);
-    } else {
-      ctx.fillStyle = e.color;
-      ctx.fillRect(e.x, e.y, e.w, e.h);
-    }
-  });
-
-  // draw projectiles
-  projectiles.forEach(p => {
-    ctx.fillStyle = p.color;
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, 4, 0, Math.PI*2);
-    ctx.fill();
-  });
-
-  // draw player
-  if (player.playerImgLoaded) {
-    ctx.drawImage(player.playerImg, player.x-2, player.y-2, 28, 28);
-  } else {
-    ctx.fillStyle = '#4caf50';
-    ctx.fillRect(player.x, player.y, player.w, player.h);
-  }
-  // shield indicator
-  if (player.shield > 0) {
-    ctx.strokeStyle = 'cyan';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(player.x-2, player.y-2, player.w+4, player.h+4);
-  }
-
-  if (gameState === GAME_STATE.GAMEOVER) {
-    ctx.fillStyle = 'rgba(0,0,0,0.7)';
-    ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = 'red';
-    ctx.font = '36px monospace';
-    ctx.fillText('Game Over', 300, 200);
-    ctx.fillStyle = 'white';
-    ctx.font = '18px monospace';
-    ctx.fillText(`Kills: ${killCount}  Floor: ${currentFloor}`, 300, 250);
-    ctx.fillText(`Time: ${((Date.now()-startTime)/1000).toFixed(0)}s`, 300, 280);
-    ctx.fillStyle = '#4caf50';
-    ctx.fillRect(300, 400, 200, 40);
-    ctx.fillStyle = 'black';
-    ctx.fillText('Try Again', 350, 428);
-  } else if (gameState === GAME_STATE.VICTORY) {
-    ctx.fillStyle = 'rgba(0,0,0,0.7)';
-    ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = 'gold';
-    ctx.font = '36px monospace';
-    ctx.fillText('Victory! Dark Lord Defeated!', 150, 200);
-    ctx.fillStyle = 'white';
-    ctx.font = '18px monospace';
-    ctx.fillText(`Kills: ${killCount}  Time: ${((Date.now()-startTime)/1000).toFixed(0)}s`, 280, 250);
-    ctx.fillStyle = '#4caf50';
-    ctx.fillRect(300, 400, 200, 40);
-    ctx.fillStyle = 'black';
-    ctx.fillText('Play Again', 350, 428);
-  }
+// ==================== UPGRADE SYSTEM ====================
+function showUpgradePanel() {
+  upgradePending = true;
+  upgradePanel.style.display = 'flex';
 }
 
-// Start
-startGame();
-gameLoop();
+function selectUpgrade(type) {
+  if (type === 'hp') {
+    player.maxHp += 20;
+    player.hp = player.maxHp;
+  } else if (type === 'atk') {
+    player.atk += 5;
+  } else if (type === 'spd') {
+    player.speed += 1;
+  }
+  upgradePending = false;
+  upgradePanel.style.display = 'none';
+}
+
+// Expose to global for onclick
+window.selectUpgrade = selectUpgrade;
+
+// ==================== RESTART ====================
+function restartGame() {
+  player = new Player(W/2, H/2);
+  currentFloor = 1;
+  floorScale = 1;
+  gameOver = false;
+  gameOverMessage = '';
+  upgradePending = false;
+  upgradePanel.style.display = 'none';
+  generateDungeon(currentFloor);
+  player.expToNext = 50;
+  player.exp = 0;
+  player.level = 1;
+}
+
+// ==================== INIT ====================
+loadAssets().then(() => {
+  player = new Player(W/2, H/2);
+  generateDungeon(currentFloor);
+  gameLoop();
+  processInput();
+});
+
+// Fallback: if script runs before load? No
 </script>
 </body>
 </html>

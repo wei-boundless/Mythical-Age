@@ -5,10 +5,13 @@ import {
   AlertTriangle,
   BarChart3,
   Cpu,
+  Database,
+  Gauge,
   HeartPulse,
   Loader2,
   RefreshCw,
   ShieldAlert,
+  Trash2,
   TimerReset,
   WalletCards,
 } from "lucide-react";
@@ -17,17 +20,19 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   getHealthSystemOverview,
   getHealthSystemTaskDetail,
+  pruneHealthSystemTaskRecords,
   type HealthRiskEvent,
   type HealthSystemOverview,
   type HealthTaskRecord,
 } from "@/lib/api";
 
-type HealthPage = "overview" | "tasks" | "system" | "cost";
+type HealthPage = "overview" | "tasks" | "maintenance" | "system" | "cost";
 type TokenChartMode = "daily" | "six_hour";
 
 const pages: Array<{ key: HealthPage; title: string; subtitle: string; icon: typeof HeartPulse }> = [
   { key: "overview", title: "总览", subtitle: "风险、成本、效率", icon: HeartPulse },
   { key: "tasks", title: "任务健康", subtitle: "任务记录与风险", icon: Activity },
+  { key: "maintenance", title: "记录维护", subtitle: "清理历史记录", icon: Trash2 },
   { key: "system", title: "系统风险", subtitle: "监控与运行环境", icon: ShieldAlert },
   { key: "cost", title: "运行成本", subtitle: "Token 与效率", icon: WalletCards },
 ];
@@ -60,6 +65,17 @@ function tokenLabel(value: unknown) {
   return String(Math.round(tokens));
 }
 
+function tokenSourceLabel(value: unknown) {
+  const source = String(value || "");
+  const map: Record<string, string> = {
+    provider_usage: "provider usage 精确记录",
+    local_prediction: "请求前本地预测",
+    trace_estimate: "旧任务轨迹估算",
+    none: "暂无记录",
+  };
+  return map[source] || source || "暂无记录";
+}
+
 function tokenBuckets(value: unknown) {
   return Array.isArray(value)
     ? value.map((item) => item as Record<string, unknown>)
@@ -70,6 +86,24 @@ function compactNumber(value: number) {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
   if (value >= 1_000) return `${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}k`;
   return String(Math.round(value));
+}
+
+function percentLabel(value: number) {
+  if (!Number.isFinite(value)) return "0%";
+  return `${Math.round(Math.max(0, Math.min(1, value)) * 100)}%`;
+}
+
+function signedTokenLabel(value: number) {
+  const sign = value > 0 ? "+" : value < 0 ? "-" : "";
+  return `${sign}${tokenLabel(Math.abs(value))}`;
+}
+
+function tokenSourceClass(value: unknown) {
+  const source = String(value || "");
+  if (source === "provider_usage") return "health-token-source health-token-source--exact";
+  if (source === "local_prediction") return "health-token-source health-token-source--predicted";
+  if (source === "trace_estimate") return "health-token-source health-token-source--trace";
+  return "health-token-source";
 }
 
 function statusLabel(status: string) {
@@ -119,8 +153,54 @@ function byRisk(a: HealthTaskRecord, b: HealthTaskRecord) {
     || numberValue(b.updated_at) - numberValue(a.updated_at);
 }
 
+function publicTitle(value: unknown) {
+  const candidate = String(value ?? "").trim();
+  if (!candidate) return "";
+  const lowered = candidate.toLowerCase();
+  if (
+    lowered.startsWith("task:")
+    || lowered.startsWith("taskrun:")
+    || lowered.startsWith("turn:")
+    || lowered.startsWith("turnrun:")
+    || lowered.startsWith("session:")
+    || lowered.startsWith("taskinst:")
+    || lowered.startsWith("coordrun:")
+  ) {
+    return "";
+  }
+  return candidate;
+}
+
+function runOrdinal(value: unknown) {
+  const text = String(value ?? "");
+  const match = text.match(/:([0-9]+)(?::[^:]*)?$/);
+  return match ? ` #${match[1]}` : "";
+}
+
+function taskDisplayTitle(task: Pick<HealthTaskRecord, "title" | "task_id" | "task_run_id" | "status"> | Record<string, unknown> | null) {
+  if (!task) return "未选择任务";
+  const rawTitle = "title" in task ? task.title : undefined;
+  const rawTaskId = "task_id" in task ? task.task_id : undefined;
+  const rawRunId = "task_run_id" in task ? task.task_run_id : undefined;
+  const title = publicTitle(rawTitle) || publicTitle(rawTaskId);
+  if (title) return title;
+  const status = String(("status" in task ? task.status : "") || "");
+  if (status === "failed") return `会话任务失败${runOrdinal(rawRunId)}`;
+  if (status === "completed" || status === "success") return `会话任务完成${runOrdinal(rawRunId)}`;
+  if (status === "blocked" || status === "waiting_approval") return `会话任务等待处理${runOrdinal(rawRunId)}`;
+  return `会话任务${runOrdinal(rawRunId)}`;
+}
+
+function taskSecondaryLabel(row: Record<string, unknown>) {
+  const source = String(row.token_source || "");
+  if (source) return tokenSourceLabel(source);
+  const agent = publicTitle(row.agent_id);
+  if (agent) return agent;
+  return "运行记录";
+}
+
 function taskTitle(task: HealthTaskRecord | null) {
-  return task?.title || task?.task_id || task?.task_run_id || "未选择任务";
+  return taskDisplayTitle(task);
 }
 
 function costConclusion(overview: HealthSystemOverview) {
@@ -147,6 +227,8 @@ export function HealthSystemView() {
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState("");
+  const [maintenanceBusy, setMaintenanceBusy] = useState("");
+  const [maintenanceMessage, setMaintenanceMessage] = useState("");
 
   const loadOverview = useCallback(async () => {
     setLoading(true);
@@ -216,6 +298,60 @@ export function HealthSystemView() {
   const tokenLineArea = tokenLinePoints.length
     ? `0,92 ${tokenLinePolyline} 100,92`
     : "";
+  const tokenSummary = tokenUsage?.summary ?? {};
+  const exactTokenTotal = numberValue(tokenSummary.exact_total_tokens ?? tokenSummary.total_tokens);
+  const predictedTokenTotal = numberValue(tokenSummary.predicted_total_tokens);
+  const traceTokenTotal = numberValue(tokenSummary.trace_estimate_total_tokens);
+  const cacheSavingsTotal = numberValue(tokenSummary.cache_savings_tokens);
+  const cachedTokenTotal = numberValue(tokenSummary.cached_tokens);
+  const providerUsageTaskCount = numberValue(tokenSummary.provider_usage_task_count);
+  const predictionOnlyTaskCount = numberValue(tokenSummary.prediction_only_task_count);
+  const traceEstimateTaskCount = numberValue(tokenSummary.trace_estimate_task_count);
+  const tokenRecordCount = Math.max(0, numberValue(tokenSummary.record_count));
+  const missingTokenTaskCount = Math.max(0, tokenRecordCount - providerUsageTaskCount - predictionOnlyTaskCount - traceEstimateTaskCount);
+  const providerCoverage = tokenRecordCount ? providerUsageTaskCount / tokenRecordCount : 0;
+  const providerCoverageCaption = tokenRecordCount
+    ? `${providerUsageTaskCount} / ${tokenRecordCount} 个任务已有 provider usage`
+    : "暂无可核算任务";
+  const predictionDelta = exactTokenTotal > 0 ? predictedTokenTotal - exactTokenTotal : 0;
+  const predictionDeltaRatio = exactTokenTotal > 0 ? Math.abs(predictionDelta) / exactTokenTotal : 0;
+  const cacheSavingsRatio = exactTokenTotal + cacheSavingsTotal > 0
+    ? cacheSavingsTotal / (exactTokenTotal + cacheSavingsTotal)
+    : 0;
+  const sourceStructureTotal = Math.max(1, providerUsageTaskCount + predictionOnlyTaskCount + traceEstimateTaskCount + missingTokenTaskCount);
+  const tokenInsight = providerCoverage >= 0.8
+    ? "账本真值覆盖充分，可以直接用精确消耗判断成本。"
+    : providerCoverage > 0
+      ? "部分任务已有 provider usage，仍有任务只停留在预测或旧轨迹估算。"
+      : "当前主要依赖预测或旧轨迹估算，精确账单真值还不足。";
+
+  const maintenanceSummary = useMemo(() => {
+    const monitor = overview?.monitor as Record<string, any> | undefined;
+    const buckets = monitor?.buckets ?? {};
+    const completed = Array.isArray(buckets.completed) ? buckets.completed.length : 0;
+    const failed = Array.isArray(buckets.failed) ? buckets.failed.length : 0;
+    const diagnostics = Array.isArray(buckets.diagnostics) ? buckets.diagnostics.length : 0;
+    return { completed, failed, diagnostics, staticTotal: completed + failed + diagnostics };
+  }, [overview]);
+
+  async function pruneRecords(bucket: "static" | "completed" | "failed" | "diagnostics", taskRunIds: string[] = []) {
+    setMaintenanceBusy(taskRunIds.length ? taskRunIds[0] : bucket);
+    setMaintenanceMessage("");
+    setError("");
+    try {
+      const result = await pruneHealthSystemTaskRecords({
+        bucket,
+        task_run_ids: taskRunIds,
+      });
+      setMaintenanceMessage(`已清理 ${result.deleted_task_run_ids.length} 条记录，跳过 ${result.skipped.length} 条运行中记录。`);
+      setSelectedTaskId((current) => result.deleted_task_run_ids.includes(current) ? "" : current);
+      await loadOverview();
+    } catch (pruneError) {
+      setError(pruneError instanceof Error ? pruneError.message : "任务记录清理失败");
+    } finally {
+      setMaintenanceBusy("");
+    }
+  }
 
   return (
     <div className="workspace-view health-system-view health-governance-view">
@@ -295,13 +431,68 @@ export function HealthSystemView() {
                   type="button"
                 >
                   <span className={riskClass(task.risk_level)}>{riskLabel(task.risk_level)}</span>
-                  <strong>{task.title}</strong>
+                  <strong title={task.task_run_id}>{taskDisplayTitle(task)}</strong>
                   <small>{statusLabel(task.status)} · {durationLabel(task.duration_seconds)} · {tokenLabel(task.token_total)} tokens</small>
                 </button>
               ))}
             </div>
           </div>
           <TaskDetail task={selectedTask} detail={taskDetail} loading={detailLoading} />
+        </section>
+      ) : null}
+
+      {overview && activePage === "maintenance" ? (
+        <section className="health-maintenance-layout">
+          <article className="health-system-card health-maintenance-panel">
+            <PanelHead title="运行记录维护" subtitle="只清理静态历史，不影响运行中任务" />
+            <div className="health-overview-metrics">
+              <Metric label="可清理" value={maintenanceSummary.staticTotal} />
+              <Metric label="已完成" value={maintenanceSummary.completed} />
+              <Metric label="失败" value={maintenanceSummary.failed} danger={maintenanceSummary.failed > 0} />
+              <Metric label="诊断" value={maintenanceSummary.diagnostics} danger={maintenanceSummary.diagnostics > 0} />
+            </div>
+            {maintenanceMessage ? <div className="boundary-notice"><Trash2 size={16} />{maintenanceMessage}</div> : null}
+            <div className="health-maintenance-actions">
+              <button disabled={Boolean(maintenanceBusy) || maintenanceSummary.staticTotal === 0} onClick={() => void pruneRecords("static")} type="button">
+                {maintenanceBusy === "static" ? <Loader2 size={15} className="spin" /> : <Trash2 size={15} />}
+                清理全部静态历史
+              </button>
+              <button disabled={Boolean(maintenanceBusy) || maintenanceSummary.completed === 0} onClick={() => void pruneRecords("completed")} type="button">
+                清理已完成
+              </button>
+              <button disabled={Boolean(maintenanceBusy) || maintenanceSummary.failed === 0} onClick={() => void pruneRecords("failed")} type="button">
+                清理失败
+              </button>
+              <button disabled={Boolean(maintenanceBusy) || maintenanceSummary.diagnostics === 0} onClick={() => void pruneRecords("diagnostics")} type="button">
+                清理诊断
+              </button>
+            </div>
+            <p className="health-copy">清理会删除 TaskRun 索引、关联 Agent/协调/工具派生记录和事件日志。后端会跳过动态运行中的任务，避免误删仍在执行的记录。</p>
+          </article>
+
+          <article className="health-list-panel">
+            <PanelHead title="可清理记录" subtitle={`${maintenanceSummary.staticTotal} 条`} />
+            <div className="health-task-list">
+              {tasks.filter((task) => ["completed", "failed", "aborted", "cancelled", "blocked", "waiting_approval"].includes(task.status)).map((task) => (
+                <div className="health-task-row health-task-row--managed" key={task.task_run_id}>
+                  <span className={riskClass(task.risk_level)}>{riskLabel(task.risk_level)}</span>
+                  <strong title={task.task_run_id}>{taskDisplayTitle(task)}</strong>
+                  <small>{statusLabel(task.status)} · {durationLabel(task.duration_seconds)} · {task.latest_event_type || "-"}</small>
+                  <button disabled={Boolean(maintenanceBusy)} onClick={() => void pruneRecords("static", [task.task_run_id])} type="button">
+                    {maintenanceBusy === task.task_run_id ? <Loader2 size={13} className="spin" /> : <Trash2 size={13} />}
+                    清理
+                  </button>
+                </div>
+              ))}
+              {!maintenanceSummary.staticTotal ? (
+                <div className="runtime-monitor-empty">
+                  <TimerReset size={18} />
+                  <strong>暂无可清理记录</strong>
+                  <span>运行中的任务不会出现在清理列表。</span>
+                </div>
+              ) : null}
+            </div>
+          </article>
         </section>
       ) : null}
 
@@ -318,26 +509,79 @@ export function HealthSystemView() {
       ) : null}
 
       {overview && activePage === "cost" ? (
-        <section className="health-overview health-cost-view">
-          <section className="health-cost-hero">
-            <div>
-              <span>当前成本结论</span>
+        <section className="health-token-workbench">
+          <section className="health-token-ledger-hero">
+            <div className="health-token-ledger-hero__main">
+              <span>PromptAccounting Ledger</span>
               <strong>{costConclusion(overview)}</strong>
-              <p>{String(overview.token_usage.note || "读取任务记录、会话历史和运行监控，合并观察 token 消耗、耗时、错误和效率评分。")}</p>
+              <p>{tokenInsight}</p>
+              <small>{String(overview.token_usage.note || "provider usage 是精确消耗，local prediction 是请求前预算，trace estimate 只用于旧任务迁移回退。")}</small>
             </div>
-            <div className="health-overview-metrics">
-              <Metric label="Token 总量" value={tokenLabel(overview.token_usage.summary.total_tokens)} />
-              <Metric label="高压会话" value={overview.token_usage.summary.high_pressure_session_count} danger={numberValue(overview.token_usage.summary.high_pressure_session_count) > 0} />
-              <Metric label="慢任务" value={overview.efficiency.summary.slow_task_count} danger={numberValue(overview.efficiency.summary.slow_task_count) > 0} />
-              <Metric label="平均效率" value={overview.efficiency.summary.average_efficiency_score} />
+            <div className="health-token-ledger-hero__score">
+              <Database size={18} />
+              <span>真值覆盖率</span>
+              <strong>{percentLabel(providerCoverage)}</strong>
+              <p>{providerCoverageCaption}</p>
+              <div className="health-token-ledger-hero__breakdown" aria-label="Token 口径任务数量">
+                <span>精确 {providerUsageTaskCount}</span>
+                <span>仅预测 {predictionOnlyTaskCount}</span>
+                <span>旧估算 {traceEstimateTaskCount}</span>
+              </div>
             </div>
+          </section>
+
+          <section className="health-token-ledger-strip" aria-label="Token 账本核心指标">
+            <TokenStatCard
+              accent="exact"
+              label="精确消耗"
+              value={tokenLabel(exactTokenTotal)}
+              detail="Provider usage"
+            />
+            <TokenStatCard
+              accent="predicted"
+              label="预测消耗"
+              value={tokenLabel(predictedTokenTotal)}
+              detail={exactTokenTotal ? `偏差 ${signedTokenLabel(predictionDelta)} / ${percentLabel(predictionDeltaRatio)} · 仅预测 ${predictionOnlyTaskCount} 个` : `仅预测 ${predictionOnlyTaskCount} 个任务`}
+            />
+            <TokenStatCard
+              accent="cache"
+              label="缓存节省"
+              value={tokenLabel(cacheSavingsTotal)}
+              detail={`${percentLabel(cacheSavingsRatio)} 节省率 · ${tokenLabel(cachedTokenTotal)} cached`}
+            />
+            <TokenStatCard
+              accent={traceEstimateTaskCount > 0 ? "trace" : "neutral"}
+              label="旧估算"
+              value={tokenLabel(traceTokenTotal)}
+              detail={`${traceEstimateTaskCount} 个 trace fallback`}
+            />
+          </section>
+
+          <section className="health-token-structure">
+            <div>
+              <span>账本口径覆盖</span>
+              <strong>按任务数量展示精确、预测、旧估算与无记录</strong>
+            </div>
+            <div className="health-token-structure__bar" aria-label="Token 账本口径覆盖">
+              <i className="health-token-structure__exact" style={{ width: `${Math.max(0, (providerUsageTaskCount / sourceStructureTotal) * 100)}%` }} />
+              <i className="health-token-structure__predicted" style={{ width: `${Math.max(0, (predictionOnlyTaskCount / sourceStructureTotal) * 100)}%` }} />
+              <i className="health-token-structure__trace" style={{ width: `${Math.max(0, (traceEstimateTaskCount / sourceStructureTotal) * 100)}%` }} />
+              <i className="health-token-structure__missing" style={{ width: `${Math.max(0, (missingTokenTaskCount / sourceStructureTotal) * 100)}%` }} />
+            </div>
+            <div className="health-token-structure__legend">
+              <span><b className="health-token-structure__exact" />精确 {providerUsageTaskCount} 个</span>
+              <span><b className="health-token-structure__predicted" />仅预测 {predictionOnlyTaskCount} 个</span>
+              <span><b className="health-token-structure__trace" />旧估算 {traceEstimateTaskCount} 个</span>
+              <span><b className="health-token-structure__missing" />无记录 {missingTokenTaskCount} 个</span>
+            </div>
+            <p>宽度按任务数量计算，避免把预测、精确账单和缓存节省误加为同一笔成本。</p>
           </section>
 
           <section className="health-cost-grid">
             <section className="health-token-chart-panel">
               <div className="health-panel-head">
                 <div>
-                  <span>Token 消耗折线图</span>
+                  <span>Token Trend</span>
                   <h3>{tokenChartTitle}</h3>
                 </div>
                 <Activity size={16} />
@@ -395,12 +639,15 @@ export function HealthSystemView() {
                 <div className="health-token-table" role="table" aria-label="Token 消耗数据明细">
                   <div className="health-token-table__head" role="row">
                     <span role="columnheader">{tokenChartBucketLabel}</span>
-                    <span role="columnheader">消耗</span>
-                    <span role="columnheader">记录</span>
+                    <span role="columnheader">有效消耗</span>
+                  <span role="columnheader">精确 / 预测 / 旧估算 / 缓存</span>
                   </div>
                   {activeTokenBuckets.map((bucket) => {
                     const tokens = numberValue(bucket.tokens);
-                    const records = numberValue(bucket.records ?? bucket.sessions);
+                    const exactTokens = numberValue(bucket.exact_tokens);
+                    const predictedTokens = numberValue(bucket.predicted_tokens);
+                    const traceTokens = numberValue(bucket.trace_estimate_tokens);
+                    const cacheTokens = numberValue(bucket.cache_savings_tokens);
                     return (
                       <div className="health-token-table__row" key={String(bucket.bucket)} role="row">
                         <span>{String(bucket.bucket)}</span>
@@ -408,7 +655,7 @@ export function HealthSystemView() {
                           <i style={{ width: `${Math.max(3, (tokens / maxActiveTokenBucket) * 100)}%` }} />
                           <strong>{tokens.toLocaleString()}</strong>
                         </div>
-                        <em>{records}</em>
+                        <em>{tokenLabel(exactTokens)} / {tokenLabel(predictedTokens)} / {tokenLabel(traceTokens)} / {tokenLabel(cacheTokens)}</em>
                       </div>
                     );
                   })}
@@ -426,7 +673,7 @@ export function HealthSystemView() {
                 title="低效率任务"
                 rows={efficiencyTasks.slice(0, 8)}
                 columns={[
-                  ["任务", "title"],
+                  ["任务", "title", (_value, row) => taskDisplayTitle(row)],
                   ["耗时", "duration_seconds", durationLabel],
                   ["评分", "efficiency_score"],
                 ]}
@@ -434,22 +681,13 @@ export function HealthSystemView() {
             </article>
           </section>
 
-          <section className="health-system-grid">
-            <SimpleTable
-              title="高消耗任务明细"
-              rows={tokenTasks}
-              columns={[
-                ["任务", "title"],
-                ["会话", "session_id"],
-                ["Token", "token_total", tokenLabel],
-                ["风险", "risk_level", riskLabelValue],
-              ]}
-            />
+          <section className="health-token-ledger-grid">
+            <TokenTaskLedger rows={tokenTasks} />
             <SimpleTable
               title="效率异常任务明细"
               rows={efficiencyTasks}
               columns={[
-                ["任务", "title"],
+                ["任务", "title", (_value, row) => taskDisplayTitle(row)],
                 ["状态", "status", statusLabelValue],
                 ["耗时", "duration_seconds", durationLabel],
                 ["评分", "efficiency_score"],
@@ -478,6 +716,26 @@ function Metric({ label, value, danger = false }: { label: string; value: unknow
     <article className={danger ? "health-metric health-metric--danger" : "health-metric"}>
       <span>{label}</span>
       <strong>{String(value ?? 0)}</strong>
+    </article>
+  );
+}
+
+function TokenStatCard({
+  label,
+  value,
+  detail,
+  accent,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  accent: "exact" | "predicted" | "cache" | "trace" | "neutral";
+}) {
+  return (
+    <article className={`health-token-stat health-token-stat--${accent}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <p>{detail}</p>
     </article>
   );
 }
@@ -527,6 +785,52 @@ function RecommendationList({ items }: { items: Array<{ title: string; summary: 
   );
 }
 
+function TokenTaskLedger({ rows }: { rows: Array<Record<string, unknown>> }) {
+  const maxEffectiveTokens = Math.max(1, ...rows.map((row) => numberValue(row.token_total)));
+  return (
+    <article className="health-list-panel health-token-task-ledger">
+      <PanelHead title="高消耗任务账本" subtitle={`${rows.length} 条`} />
+      <div className="health-token-task-ledger__rows">
+        {rows.length ? rows.map((row, index) => {
+          const exact = numberValue(row.exact_token_total);
+          const predicted = numberValue(row.predicted_token_total);
+          const trace = numberValue(row.trace_estimate_token_total);
+          const cache = numberValue(row.cache_savings_tokens);
+          const effective = numberValue(row.token_total);
+          return (
+            <section className="health-token-task-row" key={`${String(row.task_run_id || index)}`}>
+              <div className="health-token-task-row__head">
+                <div>
+                  <strong title={String(row.task_run_id || "")}>{taskDisplayTitle(row)}</strong>
+                  <span>{taskSecondaryLabel(row)} · {String(row.session_id || "-")}</span>
+                </div>
+                <em className={tokenSourceClass(row.token_source)}>{tokenSourceLabel(row.token_source)}</em>
+              </div>
+              <div className="health-token-task-row__meter" aria-label="任务有效 token 消耗">
+                <i style={{ width: `${Math.max(4, (effective / maxEffectiveTokens) * 100)}%` }} />
+                <strong>{tokenLabel(effective)}</strong>
+              </div>
+              <div className="health-token-task-row__numbers">
+                <span>精确 <b>{tokenLabel(exact)}</b></span>
+                <span>预测 <b>{tokenLabel(predicted)}</b></span>
+                <span>旧估算 <b>{tokenLabel(trace)}</b></span>
+                <span>缓存 <b>{tokenLabel(cache)}</b></span>
+                <span>风险 <b>{riskLabelValue(row.risk_level)}</b></span>
+              </div>
+            </section>
+          );
+        }) : (
+          <div className="runtime-monitor-empty">
+            <Gauge size={18} />
+            <strong>暂无 token 账本记录</strong>
+            <span>模型调用产生 PromptAccounting 记录后会显示在这里。</span>
+          </div>
+        )}
+      </div>
+    </article>
+  );
+}
+
 function TaskDetail({ task, detail, loading }: { task: HealthTaskRecord | null; detail: Record<string, unknown> | null; loading: boolean }) {
   const risks = (detail?.risks ?? []) as HealthRiskEvent[];
   const events = (detail?.recent_events ?? []) as Array<Record<string, unknown>>;
@@ -540,12 +844,14 @@ function TaskDetail({ task, detail, loading }: { task: HealthTaskRecord | null; 
             <Metric label="状态" value={statusLabel(task.status)} />
             <Metric label="风险" value={riskLabel(task.risk_level)} danger={["critical", "high"].includes(task.risk_level)} />
             <Metric label="耗时" value={durationLabel(task.duration_seconds)} />
-            <Metric label="Token" value={tokenLabel(task.token_total)} />
+            <Metric label="精确 Token" value={tokenLabel(task.exact_token_total ?? 0)} />
+            <Metric label="预测 Token" value={tokenLabel(task.predicted_token_total ?? 0)} />
+            <Metric label="缓存节省" value={tokenLabel(task.cache_savings_tokens ?? 0)} />
           </div>
           <section className="health-semantic-box">
             <span>任务记录</span>
             <p>Agent {task.agent_id || "-"} · 工具 {task.tool_call_count} 次 · 事件 {task.event_count} 条 · 错误 {task.error_count} 个</p>
-            <p>最近事件：{task.latest_event_type || "-"} · 更新时间：{timeLabel(task.updated_at)}</p>
+            <p>Token 口径：{tokenSourceLabel(task.token_source)} · 最近事件：{task.latest_event_type || "-"} · 更新时间：{timeLabel(task.updated_at)}</p>
           </section>
           <RiskList title="任务风险" risks={risks} />
           <details className="task-graph-runtime-spec-details">

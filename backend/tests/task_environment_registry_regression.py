@@ -8,6 +8,10 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from task_system.environments import default_task_environment_registry, resolve_task_environment
+from agent_system.profiles.runtime_profile_registry import default_agent_runtime_profiles
+from capability_system.tool_authorization import build_tool_authorization_index
+from capability_system.tool_definitions import build_tool_instances, get_tool_definitions
+from harness.runtime import assemble_runtime
 
 
 def test_default_task_environments_are_grouped_scene_platforms() -> None:
@@ -28,6 +32,7 @@ def test_default_task_environments_are_grouped_scene_platforms() -> None:
 
     assert development.sandbox_policy.enabled is True
     assert development.sandbox_policy.shell_policy == "sandboxed"
+    assert "op.image_generate" in development.sandbox_policy.side_effect_operations
     assert development.resource_space.storage_namespace == "development/sandbox"
     assert development.environment_prompts
 
@@ -38,6 +43,30 @@ def test_default_task_environments_are_grouped_scene_platforms() -> None:
 
     assert general.runtime_policy.graph_allowed is False
     assert general.sandbox_policy.shell_policy == "denied"
+
+
+def test_professional_development_runtime_exposes_shell_and_image_generation_tools() -> None:
+    profile = next(item for item in default_agent_runtime_profiles() if item.agent_profile_id == "main_interactive_agent")
+    definitions = get_tool_definitions()
+    index = build_tool_authorization_index(definitions)
+
+    assembly = assemble_runtime(
+        backend_dir=BACKEND_DIR,
+        session_id="session-test",
+        turn_id="turn-test",
+        agent_invocation_id="agent-invocation-test",
+        request_task_selection={"runtime_mode": "professional", "task_environment_id": "env.development.sandbox"},
+        model_selection={},
+        agent_runtime_profile=profile,
+        tool_instances=build_tool_instances(BACKEND_DIR),
+        definitions_by_name=index.definitions_by_name,
+    ).to_dict()
+
+    tool_names = {str(item.get("tool_name") or "") for item in list(assembly.get("available_tools") or [])}
+    sandbox_policy = dict(dict(assembly.get("task_environment") or {}).get("sandbox_policy") or {})
+    assert "terminal" in tool_names
+    assert "image_generate" in tool_names
+    assert "op.image_generate" in list(sandbox_policy.get("side_effect_operations") or [])
 
 
 def test_legacy_environment_ids_resolve_to_new_scene_platform_ids() -> None:
@@ -96,4 +125,3 @@ def test_all_default_task_environments_resolve_file_access_tables() -> None:
         resolved = resolve_task_environment(environment_id)
         assert resolved.spec.environment_id == environment_id
         assert resolved.file_access_tables
-

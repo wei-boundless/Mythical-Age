@@ -17,7 +17,8 @@ class ImageGenerationInput(BaseModel):
     prompt: str = Field(..., description="Precise visual prompt for the image model.")
     target_id: str = Field(default="", description="Optional stable asset id. Leave blank to auto-generate.")
     asset_kind: str = Field(default="chat", description="Asset kind used in the saved filename.")
-    size: str = Field(default="1024x1024", description="Image size, for example 1024x1024.")
+    size: str = Field(default="1024x1024", description="Provider generation size. Use 1024x1024 unless the provider explicitly supports another size.")
+    output_size: str = Field(default="", description="Optional final PNG size for local resizing, for example 128x128. This is not sent to the image provider.")
     overwrite: bool = Field(default=True, description="Overwrite an existing generated asset with the same id.")
 
 
@@ -41,10 +42,11 @@ class ImageGenerationTool(BaseTool):
         target_id: str = "",
         asset_kind: str = "chat",
         size: str = "1024x1024",
+        output_size: str = "",
         overwrite: bool = True,
         run_manager: CallbackManagerForToolRun | None = None,
     ) -> str:
-        return asyncio.run(self._arun(prompt, target_id, asset_kind, size, overwrite, None))
+        return asyncio.run(self._arun(prompt, target_id, asset_kind, size, output_size, overwrite, None))
 
     async def _arun(
         self,
@@ -52,6 +54,7 @@ class ImageGenerationTool(BaseTool):
         target_id: str = "",
         asset_kind: str = "chat",
         size: str = "1024x1024",
+        output_size: str = "",
         overwrite: bool = True,
         run_manager: AsyncCallbackManagerForToolRun | None = None,
     ) -> str:
@@ -65,10 +68,18 @@ class ImageGenerationTool(BaseTool):
                 target_id=safe_target,
                 asset_kind=str(asset_kind or "chat").strip() or "chat",
                 size=str(size or "1024x1024").strip() or "1024x1024",
+                output_size=str(output_size or "").strip(),
                 overwrite=bool(overwrite),
             )
         except SoulImageAssetError as exc:
-            return json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False)
+            return json.dumps(
+                {
+                    "ok": False,
+                    "error": str(exc),
+                    "structured_error": exc.to_dict(),
+                },
+                ensure_ascii=False,
+            )
         return json.dumps(
             {
                 "ok": True,
@@ -77,6 +88,8 @@ class ImageGenerationTool(BaseTool):
                     "file_path": generated.get("file_path"),
                     "bytes": generated.get("bytes"),
                     "revised_prompt": generated.get("revised_prompt") or "",
+                    "provider_size": generated.get("provider_size") or "",
+                    "final_size": generated.get("final_size") or "",
                 },
             },
             ensure_ascii=False,

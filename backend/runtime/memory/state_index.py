@@ -449,6 +449,181 @@ class RuntimeStateIndex:
             self._write_snapshot_payload(payload)
             self._touch_meta(updated_at=float(payload.get("updated_at") or time.time()))
 
+    def prune_task_runs(self, task_run_ids: set[str]) -> dict[str, Any]:
+        targets = {str(item).strip() for item in task_run_ids if str(item).strip()}
+        if not targets:
+            return {
+                "authority": "orchestration.runtime_state_index.prune_task_runs",
+                "requested_task_run_ids": [],
+                "deleted_task_run_ids": [],
+                "deleted_counts": {},
+            }
+        with _STATE_INDEX_WRITE_LOCK:
+            snapshot = self._read()
+            existing = targets.intersection(set(dict(snapshot.get("task_runs") or {}).keys()))
+            if not existing:
+                return {
+                    "authority": "orchestration.runtime_state_index.prune_task_runs",
+                    "requested_task_run_ids": sorted(targets),
+                    "deleted_task_run_ids": [],
+                    "deleted_counts": {},
+                }
+            pruned, counts = self._snapshot_without_task_runs(snapshot, existing)
+            pruned["updated_at"] = time.time()
+            self.replace_snapshot(pruned)
+            return {
+                "authority": "orchestration.runtime_state_index.prune_task_runs",
+                "requested_task_run_ids": sorted(targets),
+                "deleted_task_run_ids": sorted(existing),
+                "deleted_counts": counts,
+            }
+
+    def _snapshot_without_task_runs(self, snapshot: dict[str, Any], task_run_ids: set[str]) -> tuple[dict[str, Any], dict[str, int]]:
+        pruned = self._empty_snapshot()
+        counts: dict[str, int] = {}
+        coordination_run_ids = {
+            str(item.get("coordination_run_id") or "")
+            for item in dict(snapshot.get("coordination_runs") or {}).values()
+            if isinstance(item, dict) and str(item.get("task_run_id") or "") in task_run_ids
+        }
+        coordination_run_ids.discard("")
+        task_record_buckets = {
+            "task_runs",
+            "agent_runs",
+            "agent_run_results",
+            "coordination_runs",
+            "coordination_node_runs",
+            "handoff_envelopes",
+            "coordination_merge_results",
+            "worker_spawn_requests",
+            "worker_spawn_results",
+            "agent_delegation_requests",
+            "agent_delegation_results",
+            "supervision_records",
+        }
+        for bucket in self._record_buckets():
+            source = dict(snapshot.get(bucket) or {})
+            kept: dict[str, Any] = {}
+            for key, value in source.items():
+                if not isinstance(value, dict):
+                    continue
+                task_run_id = str(value.get("task_run_id") or value.get("observed_task_run_id") or "")
+                coordination_run_id = str(value.get("coordination_run_id") or value.get("observed_coordination_run_id") or "")
+                should_delete = bucket in task_record_buckets and (
+                    task_run_id in task_run_ids
+                    or coordination_run_id in coordination_run_ids
+                )
+                if should_delete:
+                    counts[bucket] = counts.get(bucket, 0) + 1
+                    continue
+                kept[str(key)] = value
+            pruned[bucket] = kept
+        self._rebuild_indexes(pruned)
+        return pruned, counts
+
+    def _rebuild_indexes(self, snapshot: dict[str, Any]) -> None:
+        for bucket in self._list_index_buckets():
+            snapshot[bucket] = {}
+        for bucket in self._value_index_buckets():
+            snapshot[bucket] = {}
+        for task_run in dict(snapshot.get("task_runs") or {}).values():
+            if not isinstance(task_run, dict):
+                continue
+            task_run_id = str(task_run.get("task_run_id") or "")
+            session_id = str(task_run.get("session_id") or "")
+            if task_run_id and session_id:
+                self._snapshot_append_index(snapshot, "sessions", session_id, task_run_id)
+                self._snapshot_maybe_latest_task(snapshot, "session_latest_task_runs", session_id, task_run_id, float(task_run.get("updated_at") or 0.0), "task_runs")
+        for agent_run in dict(snapshot.get("agent_runs") or {}).values():
+            if isinstance(agent_run, dict):
+                self._snapshot_append_index(snapshot, "task_agent_runs", str(agent_run.get("task_run_id") or ""), str(agent_run.get("agent_run_id") or ""))
+        for result in dict(snapshot.get("agent_run_results") or {}).values():
+            if isinstance(result, dict):
+                self._snapshot_append_index(snapshot, "task_agent_run_results", str(result.get("task_run_id") or ""), str(result.get("agent_run_result_id") or ""))
+        for coordination_run in dict(snapshot.get("coordination_runs") or {}).values():
+            if not isinstance(coordination_run, dict):
+                continue
+            task_run_id = str(coordination_run.get("task_run_id") or "")
+            coordination_run_id = str(coordination_run.get("coordination_run_id") or "")
+            updated_at = float(coordination_run.get("updated_at") or 0.0)
+            self._snapshot_append_index(snapshot, "task_coordination_runs", task_run_id, coordination_run_id)
+            self._snapshot_maybe_latest_task(snapshot, "task_latest_coordination_runs", task_run_id, coordination_run_id, updated_at, "coordination_runs")
+            task_run = dict(snapshot.get("task_runs") or {}).get(task_run_id) or {}
+            session_id = str(task_run.get("session_id") or "")
+            if session_id:
+                self._snapshot_maybe_latest_task(snapshot, "session_latest_coordination_task_runs", session_id, task_run_id, updated_at, "task_runs")
+        for node_run in dict(snapshot.get("coordination_node_runs") or {}).values():
+            if isinstance(node_run, dict):
+                self._snapshot_append_index(snapshot, "coordination_node_run_index", str(node_run.get("coordination_run_id") or ""), str(node_run.get("node_run_id") or ""))
+        for handoff in dict(snapshot.get("handoff_envelopes") or {}).values():
+            if isinstance(handoff, dict):
+                self._snapshot_append_index(snapshot, "coordination_handoffs", str(handoff.get("coordination_run_id") or ""), str(handoff.get("handoff_id") or ""))
+        for merge_result in dict(snapshot.get("coordination_merge_results") or {}).values():
+            if isinstance(merge_result, dict):
+                self._snapshot_maybe_latest_task(
+                    snapshot,
+                    "coordination_latest_merge_results",
+                    str(merge_result.get("coordination_run_id") or ""),
+                    str(merge_result.get("merge_result_id") or ""),
+                    float(merge_result.get("created_at") or 0.0),
+                    "coordination_merge_results",
+                )
+        for request in dict(snapshot.get("worker_spawn_requests") or {}).values():
+            if isinstance(request, dict):
+                self._snapshot_append_index(snapshot, "task_worker_spawn_requests", str(request.get("task_run_id") or ""), str(request.get("spawn_request_id") or ""))
+        for result in dict(snapshot.get("worker_spawn_results") or {}).values():
+            if isinstance(result, dict):
+                self._snapshot_append_index(snapshot, "task_worker_spawn_results", str(result.get("task_run_id") or ""), str(result.get("spawn_result_id") or ""))
+        for request in dict(snapshot.get("agent_delegation_requests") or {}).values():
+            if isinstance(request, dict):
+                self._snapshot_append_index(snapshot, "task_agent_delegation_requests", str(request.get("task_run_id") or ""), str(request.get("request_id") or ""))
+        for result in dict(snapshot.get("agent_delegation_results") or {}).values():
+            if isinstance(result, dict):
+                self._snapshot_append_index(snapshot, "task_agent_delegation_results", str(result.get("task_run_id") or ""), str(result.get("result_id") or ""))
+        for ledger in dict(snapshot.get("project_progress_ledgers") or {}).values():
+            if isinstance(ledger, dict):
+                self._snapshot_append_index(snapshot, "session_projects", str(ledger.get("session_id") or ""), str(ledger.get("project_id") or ""))
+                self._snapshot_set_value(snapshot, "graph_project_index", str(ledger.get("graph_id") or ""), str(ledger.get("project_id") or ""))
+        for record in dict(snapshot.get("supervision_records") or {}).values():
+            if isinstance(record, dict):
+                self._snapshot_append_index(snapshot, "project_supervision_records", str(record.get("project_id") or ""), str(record.get("supervision_record_id") or ""))
+                self._snapshot_append_index(snapshot, "task_supervision_records", str(record.get("observed_task_run_id") or ""), str(record.get("supervision_record_id") or ""))
+        for status in dict(snapshot.get("project_runtime_statuses") or {}).values():
+            if isinstance(status, dict):
+                self._snapshot_set_value(snapshot, "session_active_project_status", str(status.get("session_id") or ""), str(status.get("project_id") or ""))
+                self._snapshot_set_value(snapshot, "task_project_status", str(status.get("active_task_run_id") or ""), str(status.get("project_id") or ""))
+
+    @staticmethod
+    def _snapshot_append_index(snapshot: dict[str, Any], bucket: str, index_id: str, value: str) -> None:
+        if not index_id or not value:
+            return
+        items = list(dict(snapshot.get(bucket) or {}).get(index_id) or [])
+        if value not in items:
+            items.append(value)
+        snapshot.setdefault(bucket, {})[index_id] = items
+
+    @staticmethod
+    def _snapshot_set_value(snapshot: dict[str, Any], bucket: str, index_id: str, value: str) -> None:
+        if index_id and value:
+            snapshot.setdefault(bucket, {})[index_id] = value
+
+    def _snapshot_maybe_latest_task(
+        self,
+        snapshot: dict[str, Any],
+        bucket: str,
+        index_id: str,
+        record_id: str,
+        updated_at: float,
+        record_bucket: str,
+    ) -> None:
+        if not index_id or not record_id:
+            return
+        current_id = str(dict(snapshot.get(bucket) or {}).get(index_id) or "")
+        current = dict(snapshot.get(record_bucket) or {}).get(current_id) or {}
+        current_updated = float(current.get("updated_at") or current.get("created_at") or 0.0)
+        if not current_id or updated_at >= current_updated:
+            snapshot.setdefault(bucket, {})[index_id] = record_id
+
     def _compact_task_run_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
         compacted = dict(payload)
         diagnostics = dict(compacted.get("diagnostics") or {})
@@ -520,6 +695,12 @@ class RuntimeStateIndex:
             for key, value in dict(payload.get(bucket) or {}).items():
                 if isinstance(value, list):
                     self._write_index_value(bucket, str(key), list(value))
+        for bucket in self._value_index_buckets():
+            if bucket == "coordination_latest_merge_results":
+                continue
+            for key, value in dict(payload.get(bucket) or {}).items():
+                if value:
+                    self._write_index_value(bucket, str(key), str(value))
         for key, value in dict(payload.get("coordination_latest_merge_results") or {}).items():
             if value:
                 self._write_index_value("coordination_latest_merge_results", str(key), str(value))

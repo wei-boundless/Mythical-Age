@@ -274,7 +274,7 @@ class ToolRuntimeExecutor:
                 dispatch_diagnostics["sandbox"] = sandbox_context.to_dict()
             current_record = execution_store.mark_dispatched(current_record, diagnostics=dispatch_diagnostics)
         workspace_root = Path(getattr(self.tool_runtime, "base_dir", ".")).resolve()
-        execution_root = self.sandbox_backend.execution_root(sandbox_context) if sandbox_context else workspace_root
+        execution_root = self.sandbox_backend.tool_workspace_root(sandbox_context) if sandbox_context else workspace_root
         policy_payload = dict(sandbox_policy or {})
         file_policy_payload = dict(file_management_policy or {})
         tool_context = ToolUseContext(

@@ -1054,6 +1054,72 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
   });
 
+  it("attaches formal task lifecycle signals to the assistant task flow", () => {
+    let transition = startStreamingTurn(getDefaultState(), "开始正式任务");
+    transition = reduceStreamEvent(transition.state, transition.session, "harness_run_started", {
+      task_run: {
+        task_run_id: "taskrun:abc",
+        status: "running",
+      },
+      event: {
+        event_id: "rtevt:start",
+        task_run_id: "taskrun:abc",
+        created_at: 1,
+        payload: {
+          contract: {
+            user_visible_goal: "实现主会话监控",
+          },
+        },
+      },
+    });
+    transition = reduceStreamEvent(transition.state, transition.session, "task_run_lifecycle_event", {
+      event: {
+        event_id: "rtevt:todo",
+        task_run_id: "taskrun:abc",
+        event_type: "agent_todo_initialized",
+        created_at: 2,
+        payload: {
+          task_run: {
+            task_run_id: "taskrun:abc",
+            status: "running",
+          },
+          observation: {
+            summary: "待办已建立",
+            source: "agent_todo",
+          },
+        },
+      },
+    });
+    transition = reduceStreamEvent(transition.state, transition.session, "agent_turn_terminal", {
+      event: {
+        event_id: "rtevt:terminal",
+        task_run_id: "turnrun:abc",
+        created_at: 3,
+        payload: {
+          status: "task_executor_scheduled",
+          terminal_reason: "task_executor_scheduled",
+          task_run: {
+            task_run_id: "taskrun:abc",
+            status: "running",
+          },
+        },
+      },
+    });
+
+    const assistant = transition.state.messages.at(-1);
+    expect(assistant?.runtimeProgress?.map((entry) => entry.title)).toEqual([
+      "正式任务已创建",
+      "任务待办已建立",
+      "任务已转入后台执行",
+    ]);
+    expect(assistant?.runtimeProgress?.at(-1)).toMatchObject({
+      level: "waiting",
+      statusText: "等待",
+      taskRunId: "taskrun:abc",
+    });
+    expect(assistant?.stageStatus).toBe("任务已转入后台执行");
+  });
+
   it("attaches tool runtime signals to the assistant task flow", () => {
     let transition = startStreamingTurn(getDefaultState(), "执行前端任务");
     transition = reduceStreamEvent(transition.state, transition.session, "harness_loop_event", {

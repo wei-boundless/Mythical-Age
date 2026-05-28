@@ -90,7 +90,7 @@ def development_sandbox_environment() -> TaskEnvironmentDefinition:
             browser_policy="sandboxed",
             network_policy="task_decided",
             side_effect_policy="sandbox_boundary",
-            side_effect_operations=("op.write_file", "op.edit_file", "op.shell", "op.browser_control"),
+            side_effect_operations=("op.write_file", "op.edit_file", "op.shell", "op.browser_control", "op.image_generate"),
         ),
         file_management=FileManagementBinding(
             file_profile_refs=("file_profile.vibe_coding_project",),

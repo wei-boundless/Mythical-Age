@@ -27,6 +27,8 @@ from .task_lifecycle import (
 
 
 _MAX_TURN_ACTIONS = 6
+_MODEL_ACTION_WAIT_STATUS_INTERVAL_SECONDS = 15.0
+_MAX_TURN_PROTOCOL_REPAIR_ATTEMPTS = 3
 
 
 async def run_agent_invocation_stream(
@@ -149,14 +151,70 @@ async def run_agent_invocation_stream(
             refs={"runtime_invocation_packet_ref": compilation.packet.packet_id},
         )
 
+        yield _record_step_summary(
+            runtime_host,
+            task_run_id=turn_task_run.task_run_id,
+            turn_id=turn_id,
+            step=f"model_action_invocation_started:{action_index}",
+            status="running",
+            summary="runtime packet 已送入模型，系统正在等待 agent 返回下一步动作。",
+            refs={"runtime_invocation_packet_ref": compilation.packet.packet_id},
+        )
+        model_action_task: asyncio.Task | None = None
         try:
-            action_request, diagnostics = await _invoke_model_action(
-                model_response_executor=request.model_response_executor,
-                packet=compilation.packet,
-                turn_id=turn_id,
-                invocation_index=action_index,
-                model_selection=dict(request.model_selection or {}),
+            model_action_task = asyncio.create_task(
+                _invoke_model_action(
+                    model_response_executor=request.model_response_executor,
+                    packet=compilation.packet,
+                    session_id=request.session_id,
+                    task_run_id=turn_task_run.task_run_id,
+                    turn_id=turn_id,
+                    invocation_index=action_index,
+                    model_selection=dict(request.model_selection or {}),
+                )
             )
+            wait_round = 0
+            while not model_action_task.done():
+                done, _pending = await asyncio.wait(
+                    {model_action_task},
+                    timeout=_MODEL_ACTION_WAIT_STATUS_INTERVAL_SECONDS,
+                )
+                if done:
+                    break
+                wait_round += 1
+                yield _record_step_summary(
+                    runtime_host,
+                    task_run_id=turn_task_run.task_run_id,
+                    turn_id=turn_id,
+                    step=f"model_action_waiting:{action_index}",
+                    status="running",
+                    summary=f"模型调用仍在进行中，系统继续等待 agent 动作返回。等待轮次：{wait_round}。",
+                    refs={"runtime_invocation_packet_ref": compilation.packet.packet_id},
+                )
+            action_request, diagnostics = await model_action_task
+        except (asyncio.CancelledError, GeneratorExit):
+            if model_action_task is not None and not model_action_task.done():
+                model_action_task.cancel()
+            _record_step_summary(
+                runtime_host,
+                task_run_id=turn_task_run.task_run_id,
+                turn_id=turn_id,
+                step=f"model_action_invocation_cancelled:{action_index}",
+                status="aborted",
+                summary="客户端或上游流已断开，系统已终止本轮模型等待并关闭 turn 运行记录。",
+                refs={"runtime_invocation_packet_ref": compilation.packet.packet_id},
+            )
+            _record_turn_terminal(
+                runtime_host,
+                turn_task_run=turn_task_run,
+                turn_agent_run=turn_agent_run,
+                turn_id=turn_id,
+                event_type="agent_turn_aborted",
+                status="aborted",
+                terminal_reason="stream_cancelled",
+                payload={"runtime_invocation_packet_ref": compilation.packet.packet_id},
+            )
+            raise
         except Exception as exc:
             content = "模型调用失败，运行时已按 fail-closed 停止。"
             await _commit_assistant_message(
@@ -183,30 +241,75 @@ async def run_agent_invocation_stream(
             )
             return
         if action_request is None:
-            content = "本轮动作请求未通过协议校验，运行时已按 fail-closed 停止。"
-            await _commit_assistant_message(
-                request.assistant_message_committer,
-                content=content,
+            observation = _build_model_protocol_error_observation(
+                packet_ref=compilation.packet.packet_id,
                 turn_id=turn_id,
-                answer_source="harness.loop.single_agent.protocol_error",
+                invocation_index=action_index,
+                diagnostics=diagnostics,
             )
-            terminal_event = _record_turn_terminal(
+            observations.append(observation)
+            runtime_host.runtime_objects.put_object("observation", observation["observation_id"], observation)
+            observation_event = runtime_host.event_log.append(
+                turn_task_run.task_run_id,
+                "model_action_protocol_observation_recorded",
+                payload={"observation": observation, "diagnostics": diagnostics},
+                refs={
+                    "turn_ref": turn_id,
+                    "observation_ref": observation["observation_id"],
+                    "runtime_invocation_packet_ref": compilation.packet.packet_id,
+                },
+            )
+            yield {"type": "bounded_observation", "event": observation_event.to_dict()}
+            yield _record_step_summary(
                 runtime_host,
-                turn_task_run=turn_task_run,
-                turn_agent_run=turn_agent_run,
+                task_run_id=turn_task_run.task_run_id,
                 turn_id=turn_id,
-                event_type="agent_turn_failed",
-                status="failed",
-                terminal_reason="model_action_invalid",
-                payload={"diagnostics": diagnostics},
+                step=f"model_action_protocol_repair_required:{action_index}",
+                status="running",
+                summary="agent 返回的动作请求未通过协议校验；系统已把校验错误作为观察回灌，要求 agent 修正后继续。",
+                refs={
+                    "observation_ref": observation["observation_id"],
+                    "runtime_invocation_packet_ref": compilation.packet.packet_id,
+                },
             )
-            yield {"type": "agent_turn_terminal", "event": terminal_event}
-            yield error_event(
-                content=content,
-                code="model_action_invalid",
-                reason="model_action_invalid",
+            if _turn_protocol_repair_count(observations) >= _MAX_TURN_PROTOCOL_REPAIR_ATTEMPTS:
+                content = "本轮动作请求多次未通过协议校验，运行时已按 fail-closed 停止。"
+                await _commit_assistant_message(
+                    request.assistant_message_committer,
+                    content=content,
+                    turn_id=turn_id,
+                    answer_source="harness.loop.single_agent.protocol_error",
+                )
+                terminal_event = _record_turn_terminal(
+                    runtime_host,
+                    turn_task_run=turn_task_run,
+                    turn_agent_run=turn_agent_run,
+                    turn_id=turn_id,
+                    event_type="agent_turn_failed",
+                    status="failed",
+                    terminal_reason="model_action_invalid",
+                    payload={"diagnostics": diagnostics},
+                )
+                yield {"type": "agent_turn_terminal", "event": terminal_event}
+                yield error_event(
+                    content=content,
+                    code="model_action_invalid",
+                    reason="model_action_invalid",
+                )
+                return
+            compilation = compiler.compile_observation_followup_packet(
+                session_id=request.session_id,
+                turn_id=turn_id,
+                agent_invocation_id=agent_invocation_id,
+                user_message=request.user_message,
+                history=request.history,
+                observations=observations,
+                agent_profile_ref=agent_profile_ref,
+                model_selection=request.model_selection,
+                available_tools=available_tools,
+                runtime_assembly=runtime_assembly,
             )
-            return
+            continue
         if action_request.request_id in seen_action_request_ids:
             content = "模型重复提交了同一个动作请求，运行时已停止以避免重复执行。"
             await _commit_assistant_message(
@@ -648,6 +751,8 @@ async def _invoke_model_action(
     *,
     model_response_executor: Any,
     packet: Any,
+    session_id: str,
+    task_run_id: str,
     turn_id: str,
     invocation_index: int,
     model_selection: dict[str, Any],
@@ -665,6 +770,15 @@ async def _invoke_model_action(
             invoker,
             list(packet.model_messages),
             model_selection=model_selection,
+            accounting_context={
+                "request_id": f"modelreq:{packet.packet_id}:{invocation_index}",
+                "session_id": session_id,
+                "task_run_id": task_run_id,
+                "turn_id": turn_id,
+                "packet_ref": str(packet.packet_id or ""),
+                "invocation_index": invocation_index,
+                "source": "harness.loop.agent_turn.model_action",
+            },
         ),
         timeout=timeout_seconds,
     )
@@ -678,12 +792,27 @@ async def _call_model_invoker(
     messages: list[Any],
     *,
     model_selection: dict[str, Any],
+    accounting_context: dict[str, Any] | None = None,
 ) -> Any:
     if model_selection:
+        try:
+            return await _await_if_needed(
+                invoker(messages, model_spec=model_selection, accounting_context=accounting_context)
+            )
+        except TypeError as exc:
+            if "model_spec" not in str(exc) and "accounting_context" not in str(exc):
+                raise
         try:
             return await _await_if_needed(invoker(messages, model_spec=model_selection))
         except TypeError as exc:
             if "model_spec" not in str(exc):
+                raise
+            return await _await_if_needed(invoker(messages))
+    if accounting_context:
+        try:
+            return await _await_if_needed(invoker(messages, accounting_context=accounting_context))
+        except TypeError as exc:
+            if "accounting_context" not in str(exc):
                 raise
     return await _await_if_needed(invoker(messages))
 
@@ -928,8 +1057,33 @@ def _record_turn_terminal(
 
 
 def _schedule_task_executor(runtime_host: Any, task_run_id: str) -> None:
-    query_runtime = getattr(runtime_host, "query_runtime", None)
-    if query_runtime is None:
+    execute_task_run = getattr(runtime_host, "execute_task_run_callback", None)
+    if not callable(execute_task_run):
+        _mark_task_executor_schedule_failed(
+            runtime_host,
+            task_run_id=task_run_id,
+            error="task_executor_callback_unavailable",
+        )
+        return
+    current_task_run = runtime_host.state_index.get_task_run(task_run_id)
+    if current_task_run is None:
+        _mark_task_executor_schedule_failed(
+            runtime_host,
+            task_run_id=task_run_id,
+            error="task_run_not_found",
+        )
+        return
+    if str(current_task_run.status or "") != "waiting_executor":
+        runtime_host.event_log.append(
+            task_run_id,
+            "task_run_executor_schedule_rejected",
+            payload={
+                "task_run_id": task_run_id,
+                "reason": "task_run_not_waiting_executor",
+                "status": str(current_task_run.status or ""),
+            },
+            refs={"task_run_ref": task_run_id},
+        )
         return
     runtime_host.event_log.append(
         task_run_id,
@@ -940,16 +1094,84 @@ def _schedule_task_executor(runtime_host: Any, task_run_id: str) -> None:
 
     async def _runner() -> None:
         try:
-            await query_runtime.execute_task_run(task_run_id)
+            while True:
+                result = execute_task_run(task_run_id)
+                if hasattr(result, "__await__"):
+                    result = await result
+                payload = dict(result or {}) if isinstance(result, dict) else {}
+                if not _task_executor_should_continue(runtime_host, task_run_id=task_run_id, result=payload):
+                    return
+                runtime_host.event_log.append(
+                    task_run_id,
+                    "task_run_executor_rescheduled",
+                    payload={
+                        "task_run_id": task_run_id,
+                        "reason": str(payload.get("error") or "waiting_executor"),
+                    },
+                    refs={"task_run_ref": task_run_id},
+                )
+                _record_step_summary(
+                    runtime_host,
+                    task_run_id=task_run_id,
+                    turn_id=task_run_id,
+                    step="task_executor_auto_continue_scheduled",
+                    status="running",
+                    summary="任务执行器已确认本轮预算耗尽且任务可续跑，系统正在自动开启下一轮执行。",
+                    refs={"task_run_ref": task_run_id},
+                )
+                await asyncio.sleep(0)
         except Exception as exc:
-            runtime_host.event_log.append(
-                task_run_id,
-                "task_run_executor_schedule_failed",
-                payload={"task_run_id": task_run_id, "error": str(exc)},
-                refs={"task_run_ref": task_run_id},
+            _mark_task_executor_schedule_failed(
+                runtime_host,
+                task_run_id=task_run_id,
+                error=str(exc) or exc.__class__.__name__,
             )
 
     asyncio.create_task(_runner())
+
+
+def _task_executor_should_continue(runtime_host: Any, *, task_run_id: str, result: dict[str, Any]) -> bool:
+    if str(result.get("error") or "") != "task_execution_step_budget_exhausted":
+        return False
+    if not bool(result.get("retryable")):
+        return False
+    task_run = runtime_host.state_index.get_task_run(task_run_id)
+    if task_run is None:
+        return False
+    return str(task_run.status or "") == "waiting_executor"
+
+
+def _mark_task_executor_schedule_failed(runtime_host: Any, *, task_run_id: str, error: str) -> None:
+    event = runtime_host.event_log.append(
+        task_run_id,
+        "task_run_executor_schedule_failed",
+        payload={"task_run_id": task_run_id, "error": error},
+        refs={"task_run_ref": task_run_id},
+    )
+    current_task_run = runtime_host.state_index.get_task_run(task_run_id)
+    if current_task_run is not None:
+        runtime_host.state_index.upsert_task_run(
+            replace(
+                current_task_run,
+                status="blocked",
+                updated_at=event.created_at,
+                latest_event_offset=event.offset,
+                terminal_reason="task_executor_schedule_failed",
+                diagnostics={
+                    **dict(current_task_run.diagnostics or {}),
+                    "executor_status": "blocked",
+                    "latest_step": "task_executor_schedule_failed",
+                    "latest_step_status": "blocked",
+                    "latest_step_summary": f"任务执行器调度失败：{error}",
+                    "recoverable_error": {
+                        "error_code": "task_executor_schedule_failed",
+                        "retryable": True,
+                        "detail": error,
+                    },
+                    "recovery_action": "rerun_task_executor",
+                },
+            )
+        )
 
 
 def _start_turn_runtime(
@@ -1086,9 +1308,54 @@ def _build_task_contract_error_observation(
     ).to_dict()
 
 
+def _build_model_protocol_error_observation(
+    *,
+    packet_ref: str,
+    turn_id: str,
+    invocation_index: int,
+    diagnostics: dict[str, Any],
+) -> dict[str, Any]:
+    errors = [str(item) for item in list(dict(diagnostics or {}).get("validation_errors") or []) if str(item)]
+    return build_observation_record(
+        source="system:model_action_protocol_validator",
+        packet_ref=packet_ref,
+        action_request_ref=f"model-action-invalid:{turn_id}:{invocation_index}",
+        execution_context_ref="",
+        summary="agent 动作请求未通过协议校验，需要只输出合法 JSON 动作对象后继续。",
+        payload={
+            "error_code": "model_action_invalid",
+            "validation_errors": errors,
+            "required_shape": {
+                "authority": "harness.loop.model_action_request",
+                "action_type": "respond|ask_user|tool_call|request_task_run|block",
+                "tool_call": {"tool_name": "工具名", "args": {}},
+                "task_contract_seed": {
+                    "user_visible_goal": "开启正式任务时必填",
+                    "task_run_goal": "开启正式任务时必填",
+                    "completion_criteria": "真实验收标准",
+                },
+            },
+            "repair_instruction": "不要输出 Markdown 或解释文字；只输出一个 JSON 对象，并选择一个合法 action_type。",
+            "turn_id": turn_id,
+        },
+        error="model_action_invalid:" + ";".join(errors),
+    ).to_dict()
+
+
+def _turn_protocol_repair_count(observations: list[dict[str, Any]]) -> int:
+    count = 0
+    for observation in observations:
+        payload = dict(observation.get("payload") or {})
+        if str(payload.get("error_code") or "") == "model_action_invalid":
+            count += 1
+    return count
+
+
 def _turn_task_terminal_state(*, status: str, event_type: str) -> tuple[str, str]:
     if status in {"completed", "task_executor_scheduled"}:
         return "completed", "completed"
+    if status in {"aborted", "cancelled"} or event_type == "agent_turn_aborted":
+        return "aborted", "stream_cancelled"
     if status == "waiting_approval":
         return "waiting_approval", "waiting_approval"
     if status in {"blocked", "clarification_required"} or event_type == "agent_turn_blocked":

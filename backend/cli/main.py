@@ -358,22 +358,26 @@ def _watch_task_run(task_run_id: str, *, client: AgentCliClient, stdout: TextIO)
                 print(f"[{status}] {latest.get('event_type') or 'monitor'}", file=stdout)
             seen_event_count = event_count
             seen_step = step
-        if status in {"completed", "failed", "blocked"}:
+        if status in {"completed", "failed", "blocked", "waiting_executor"}:
             trace = client.get_task_run_trace(task_run_id, include_payloads=False)
             final_task = dict(trace.get("task_run") or {})
             diagnostics = dict(final_task.get("diagnostics") or {})
             artifact_refs = diagnostics.get("artifact_refs") or []
             final_answer = str(diagnostics.get("final_answer") or "")
             terminal_reason = str(final_task.get("terminal_reason") or monitor.get("terminal_reason") or "")
+            recoverable_error = dict(diagnostics.get("recoverable_error") or {})
             if artifact_refs:
                 print("artifacts:", file=stdout)
                 for item in list(artifact_refs):
                     print(f"- {item}", file=stdout)
             if final_answer:
                 print(final_answer, file=stdout)
+            elif status == "waiting_executor":
+                message = str(recoverable_error.get("user_message") or terminal_reason or "waiting_executor")
+                print(message, file=stdout)
             elif terminal_reason:
                 print(terminal_reason, file=stdout)
-            return 0 if status == "completed" else 1
+            return 0 if status in {"completed", "waiting_executor"} else 1
         time.sleep(2.0)
 
 

@@ -27,11 +27,13 @@ class AgentCliClient:
         self,
         *,
         api_base: str = DEFAULT_API_BASE,
-        timeout: float = 60.0,
+        timeout: float | None = 60.0,
+        stream_timeout: float | None = None,
         opener: UrlOpen = urlopen,
     ) -> None:
         self.api_base = api_base.rstrip("/")
         self.timeout = timeout
+        self.stream_timeout = stream_timeout
         self._opener = opener
 
     def list_sessions(self) -> list[dict[str, Any]]:
@@ -113,7 +115,10 @@ class AgentCliClient:
             body.update(extra_payload)
         request = self._request("POST", "/chat", body)
         try:
-            response = self._opener(request, timeout=self.timeout)
+            if self.stream_timeout is None:
+                response = self._opener(request, timeout=None)
+            else:
+                response = self._opener(request, timeout=self.stream_timeout)
         except HTTPError as exc:
             raise AgentCliClientError(_read_http_error(exc)) from exc
         except URLError as exc:

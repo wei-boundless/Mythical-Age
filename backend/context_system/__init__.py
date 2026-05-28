@@ -28,6 +28,7 @@ __all__ = [
     "RuntimeContextSnapshot",
     "SealedContextLedgerEntry",
     "SealedContextReceipt",
+    "SemanticCompactionRequest",
     "TaskSummaryRef",
     "build_context_package_result",
     "get_context_budget_preset",
@@ -62,6 +63,7 @@ _EXPORTS = {
     "RuntimeContextSnapshot": ("runtime.shared.context_manager", "RuntimeContextSnapshot"),
     "SealedContextLedgerEntry": ("context_system.models.context_models", "SealedContextLedgerEntry"),
     "SealedContextReceipt": ("context_system.models.context_models", "SealedContextReceipt"),
+    "SemanticCompactionRequest": ("context_system.compaction.compactor", "SemanticCompactionRequest"),
     "TaskSummaryRef": ("context_system.policy.runtime_models", "TaskSummaryRef"),
     "build_context_package_result": ("context_system.policy.package_builder", "build_context_package_result"),
     "get_context_budget_preset": ("context_system.budget.presets", "get_context_budget_preset"),
@@ -78,7 +80,7 @@ if TYPE_CHECKING:
         list_context_budget_presets,
         normalize_context_budget_preset_id,
     )
-    from context_system.compaction.compactor import CompactResult, ContextCompactor
+    from context_system.compaction.compactor import CompactResult, ContextCompactor, SemanticCompactionRequest
     from context_system.current_turn.turn_binding import BundleItem, TurnBinding, ResolvedBinding
     from context_system.models.context_models import (
         ContextBudget,

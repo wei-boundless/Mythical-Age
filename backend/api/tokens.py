@@ -6,16 +6,17 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
-from token_accounting import count_text_tokens
+from runtime.prompt_accounting import TokenCounterRegistry
 
 router = APIRouter()
+TOKEN_COUNTER = TokenCounterRegistry()
 
 class FileTokensRequest(BaseModel):
     paths: list[str] = Field(default_factory=list)
 
 
 def _count_tokens(text: str) -> int:
-    return count_text_tokens(text)
+    return TOKEN_COUNTER.count_text(text, provider="local", model="session_token_api").tokens
 
 
 @router.get("/tokens/session/{session_id}")

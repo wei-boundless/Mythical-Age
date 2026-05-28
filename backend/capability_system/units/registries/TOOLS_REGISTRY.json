@@ -902,6 +902,7 @@
           "target_id",
           "asset_kind",
           "size",
+          "output_size",
           "overwrite"
         ],
         "owner_scope": "none",
@@ -1428,8 +1429,8 @@
       ],
       "safe_for_auto_route": false,
       "schema_identity": "local.tools/terminal",
-      "runtime_visibility": "agent_internal",
-      "prompt_exposure_policy": "hidden",
+      "runtime_visibility": "main_runtime",
+      "prompt_exposure_policy": "schema_only",
       "resource_exposure_policy": "none",
       "is_read_only": false,
       "is_destructive": true,

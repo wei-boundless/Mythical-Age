@@ -14,6 +14,8 @@ from bootstrap.settings import AppSettingsService
 from knowledge_system import RetrievalService
 from sessions import SessionManager
 from runtime import ModelRuntime
+from runtime.prompt_accounting import PromptAccountingLedger
+from project_layout import ProjectLayout
 
 
 class AppRuntime:
@@ -41,7 +43,10 @@ class AppRuntime:
         self.memory_facade = MemoryFacade(base_dir, context_budget_provider=self.settings.context_budget_settings)
         self.retrieval_service = RetrievalService(base_dir)
         self.permission_service = PermissionService(self.settings, self.tool_runtime)
-        self.model_runtime = ModelRuntime(self.settings)
+        self.model_runtime = ModelRuntime(
+            self.settings,
+            prompt_accounting_ledger=PromptAccountingLedger(ProjectLayout.from_backend_dir(base_dir).runtime_state_dir),
+        )
         self.memory_facade.set_model_invoker(self.model_runtime.invoke_messages)
         self.memory_facade.set_durable_memory_saved_callback(self._on_durable_memory_saved)
         self.memory_facade.background_task_manager.register_handler(

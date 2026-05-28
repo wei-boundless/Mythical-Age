@@ -49,6 +49,11 @@ class HealthManagementCommandRequest(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
+class HealthTaskRecordPruneRequest(BaseModel):
+    bucket: str = Field(default="static", max_length=40)
+    task_run_ids: list[str] = Field(default_factory=list)
+
+
 class HealthAgentConversationSessionCreateRequest(BaseModel):
     active_issue_ref: str = Field(default="")
     active_run_ref: str = Field(default="")
@@ -81,6 +86,18 @@ async def health_system_task_detail(task_run_id: str) -> dict[str, Any]:
         return HealthGovernanceBuilder(runtime).build_task_detail(task_run_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Unknown task run") from exc
+
+
+@router.post("/health-system/task-records/prune")
+async def health_system_prune_task_records(payload: HealthTaskRecordPruneRequest) -> dict[str, Any]:
+    runtime = require_runtime()
+    try:
+        return HealthGovernanceBuilder(runtime).prune_task_records(
+            bucket=payload.bucket,
+            task_run_ids=payload.task_run_ids,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/health-system/risks")

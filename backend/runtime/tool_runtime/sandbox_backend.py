@@ -7,6 +7,16 @@ from typing import Any
 
 
 DEFAULT_SIDE_EFFECT_TOOL_NAMES = {"write_file", "edit_file", "terminal", "python_repl"}
+REAL_WORKSPACE_READ_TOOL_NAMES = {
+    "read_file",
+    "read_structured_file",
+    "stat_path",
+    "path_exists",
+    "glob_paths",
+    "search_files",
+    "search_text",
+    "list_dir",
+}
 DEFAULT_OVERLAY_TOOL_NAMES = {
     "read_file",
     "read_structured_file",
@@ -110,6 +120,13 @@ class LocalOverlaySandboxBackend:
         shutil.copy2(source, target)
 
     def execution_root(self, context: SandboxToolContext) -> Path:
+        return context.sandbox_root
+
+    def tool_workspace_root(self, context: SandboxToolContext) -> Path:
+        if context.mode == "workspace_overlay":
+            return context.sandbox_root
+        if context.tool_name in REAL_WORKSPACE_READ_TOOL_NAMES and context.workspace_root is not None:
+            return context.workspace_root
         return context.sandbox_root
 
 

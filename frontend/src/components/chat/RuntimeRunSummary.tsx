@@ -1,10 +1,11 @@
 "use client";
 
-import { ChevronRight, SquareTerminal } from "lucide-react";
+import { ChevronRight, CircleDashed, SquareTerminal } from "lucide-react";
+import { useEffect, useState } from "react";
 
 import type { RuntimeProgressEntry } from "@/lib/store/types";
 
-const MAX_COMMAND_ROWS = 4;
+const MAX_ACTIVITY_ROWS = 6;
 
 function cleanText(value: string | undefined) {
   return String(value ?? "")
@@ -18,54 +19,81 @@ function truncate(value: string | undefined, limit = 150) {
   return normalized.length > limit ? `${normalized.slice(0, limit - 1)}...` : normalized;
 }
 
-function isCommandEntry(entry: RuntimeProgressEntry) {
-  return entry.kind === "tool";
+function isVisibleEntry(entry: RuntimeProgressEntry) {
+  return [
+    "task_order",
+    "task_draft",
+    "stage",
+    "tool",
+    "verification",
+    "permission",
+    "terminal",
+  ].includes(entry.kind || "");
 }
 
-function commandLabel(entry: RuntimeProgressEntry) {
+function entryLabel(entry: RuntimeProgressEntry) {
   return truncate(
     entry.meta?.find((item) => item.label === "目标")?.value
     || entry.body
     || entry.toolName
     || entry.title,
     180,
-  ) || entry.toolName || "command";
+  ) || entry.toolName || entry.title;
 }
 
-function commandStatus(entry: RuntimeProgressEntry) {
-  if (entry.level === "error") return "failed";
-  if (entry.level === "success" || entry.completedAt) return "done";
+function entryStatus(entry: RuntimeProgressEntry) {
+  if (entry.level === "error") return "失败";
+  if (entry.level === "success" || entry.completedAt) return entry.statusText ? cleanText(entry.statusText) : "完成";
+  if (entry.level === "waiting") return entry.statusText ? cleanText(entry.statusText) : "等待";
   if (entry.statusText) return cleanText(entry.statusText);
-  return "running";
+  return "运行中";
+}
+
+function summaryText(entries: RuntimeProgressEntry[]) {
+  const failed = entries.some((entry) => entry.level === "error");
+  const waiting = entries.some((entry) => entry.level === "waiting");
+  const taskEntries = entries.filter((entry) => entry.kind && entry.kind !== "tool");
+  const toolCount = entries.filter((entry) => entry.kind === "tool").length;
+  if (failed) return "任务运行 · 失败";
+  if (waiting) return "任务运行 · 等待";
+  if (taskEntries.length) return toolCount ? `任务运行 · ${toolCount} 个工具` : "任务运行";
+  return toolCount ? `运行 ${toolCount} 个工具` : "任务运行";
 }
 
 export function RuntimeRunSummary({ entries }: { entries: RuntimeProgressEntry[] }) {
-  const commands = entries.filter(isCommandEntry);
-  if (!commands.length) return null;
+  const activities = entries.filter(isVisibleEntry);
+  const recentActivities = activities.slice(-MAX_ACTIVITY_ROWS);
+  const hasTaskActivity = activities.some((entry) => entry.kind && entry.kind !== "tool");
+  const Icon = hasTaskActivity ? CircleDashed : SquareTerminal;
+  const [isOpen, setIsOpen] = useState(hasTaskActivity);
 
-  const recentCommands = commands.slice(-MAX_COMMAND_ROWS);
-  const failed = commands.some((entry) => entry.level === "error");
-  const completed = commands.filter((entry) => entry.level === "success" || entry.completedAt).length;
-  const summary = failed
-    ? `Ran ${commands.length} ${commands.length === 1 ? "command" : "commands"} · failed`
-    : completed === commands.length
-      ? `Ran ${commands.length} ${commands.length === 1 ? "command" : "commands"}`
-      : `Running ${commands.length} ${commands.length === 1 ? "command" : "commands"}`;
+  useEffect(() => {
+    if (hasTaskActivity) {
+      setIsOpen(true);
+    }
+  }, [hasTaskActivity]);
+
+  if (!activities.length) return null;
 
   return (
-    <details className="runtime-run-summary" aria-label="Command activity">
+    <details
+      className="runtime-run-summary"
+      aria-label="Runtime activity"
+      onToggle={(event) => setIsOpen(event.currentTarget.open)}
+      open={isOpen}
+    >
       <summary className="runtime-run-summary__header">
         <span className="runtime-run-summary__summary">
-          <SquareTerminal size={13} />
-          <span>{summary}</span>
+          <Icon size={13} />
+          <span>{summaryText(activities)}</span>
         </span>
         <ChevronRight size={13} className="runtime-run-summary__chevron" />
       </summary>
-      <div className="runtime-run-summary__commands">
-        {recentCommands.map((entry) => (
-          <div className="runtime-run-summary__command" key={entry.id}>
-            <span>{commandLabel(entry)}</span>
-            <em>{commandStatus(entry)}</em>
+      <div className="runtime-run-summary__items">
+        {recentActivities.map((entry) => (
+          <div className="runtime-run-summary__item" data-level={entry.level} key={entry.id}>
+            <span>{entryLabel(entry)}</span>
+            <em>{entryStatus(entry)}</em>
           </div>
         ))}
       </div>

@@ -143,7 +143,7 @@ def start_task_lifecycle(
         task_contract_ref=contract_ref,
         agent_profile_id=agent_profile_ref or "main_interactive_agent",
         runtime_lane="single_agent_task",
-        status="running",
+        status="waiting_executor",
         created_at=now,
         updated_at=now,
         diagnostics={
@@ -157,7 +157,7 @@ def start_task_lifecycle(
         task_run_id=task_run_id,
         agent_id="agent:0",
         agent_profile_id=agent_profile_ref or "main_interactive_agent",
-        status="running",
+        status="waiting_executor",
         runtime_lane="single_agent_task",
         created_at=now,
         updated_at=now,
@@ -166,7 +166,7 @@ def start_task_lifecycle(
     lifecycle = TaskLifecycleRecord(
         task_run_id=task_run_id,
         contract_ref=contract_ref,
-        status="running",
+        status="waiting_executor",
         created_at=now,
         updated_at=now,
     )

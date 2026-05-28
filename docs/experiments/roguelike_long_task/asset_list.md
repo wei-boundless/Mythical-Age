@@ -1,71 +1,57 @@
 # 资产清单
 
-## 视觉资产
+## 视觉资产（已生成真实 PNG）
 
 ### 1. 玩家角色
 - **文件名**：player.png
-- **描述**：俯视角冒险者，持剑，尺寸约 32x32 像素。
-- **来源**：AI 生成图像。
-- **状态**：待生成。
+- **路径**：`docs/experiments/roguelike_long_task/assets/player.png`
+- **描述**：俯视角冒险者，32x32 像素，像素艺术风格。
+- **来源**：Python 脚本生成（原始二进制 PNG 编码）。
+- **状态**：✅ 已生成。
 
 ### 2. 敌人角色
-#### 骷髅兵
+
+#### 骷髅战士
 - **文件名**：skeleton_warrior.png
-- **描述**：近战骷髅兵，俯视角，32x32。
-- **来源**：AI 生成。
-- **状态**：待生成。
+- **路径**：`docs/experiments/roguelike_long_task/assets/skeleton_warrior.png`
+- **描述**：近战骷髅兵，32x32 像素。
+- **来源**：Python 脚本生成。
+- **状态**：✅ 已生成。
 
 #### 骷髅弓箭手
 - **文件名**：skeleton_archer.png
-- **描述**：远程骷髅弓箭手，32x32。
-- **来源**：AI 生成。
-- **状态**：待生成。
+- **路径**：`docs/experiments/roguelike_long_task/assets/skeleton_archer.png`
+- **描述**：远程骷髅弓箭手，32x32 像素。
+- **来源**：Python 脚本生成。
+- **状态**：✅ 已生成。
 
 #### 暗影刺客
 - **文件名**：shadow_assassin.png
-- **描述**：暗黑刺客，带隐身效果，32x32。
-- **来源**：AI 生成。
-- **状态**：待生成。
+- **路径**：`docs/experiments/roguelike_long_task/assets/shadow_assassin.png`
+- **描述**：暗黑刺客，32x32 像素。
+- **来源**：Python 脚本生成。
+- **状态**：✅ 已生成。
 
-#### Boss 角色
-- **亡灵骑士**：knight_boss.png
-- **大法师**：mage_boss.png
-- **石像鬼**：gargoyle_boss.png
-- **火焰领主**：firelord_boss.png
-- **黑暗君主**：darklord_boss.png
-- **描述**：各 Boss 专属外观，48x48 或 64x64 像素。
-- **来源**：AI 生成。
-- **状态**：待生成。
+### 3. Boss 角色
+- **文件名**：boss.png
+- **路径**：`docs/experiments/roguelike_long_task/assets/boss.png`
+- **描述**：大型恶魔 Boss，64x64 像素。
+- **来源**：Python 脚本生成。
+- **状态**：✅ 已生成。
 
-### 3. 环境 / 瓦片
-- **地板瓦片**：tile_floor.png (32x32)
-- **墙壁瓦片**：tile_wall.png (32x32)
-- **门（关闭/打开）**：door_closed.png, door_open.png
-- **宝箱**：chest.png
-- **出口/楼梯**：stairs_down.png
-- **来源**：AI 生成或程序化绘制（可先用 Canvas 绘制简单形状代替，降低资产依赖）。
-- **状态**：部分可由代码直接绘制；实际位图将在后续迭代中替换。
+### 4. 环境瓦片
+- **文件名**：tile_floor.png
+- **路径**：`docs/experiments/roguelike_long_task/assets/tile_floor.png`
+- **描述**：地板瓦片，32x32 像素，棋盘格样式。
+- **来源**：Python 脚本生成。
+- **状态**：✅ 已生成。
 
-### 4. UI 元素
-- **生命之心图标**：heart.png (16x16)
-- **经验条背景/填充**：可以由 CSS 或 Canvas 绘制，无需图片。
-- **来源**：代码绘制或 AI 生成。
-- **状态**：MVP 中使用 Canvas 绘制。
+## 生成方式
+所有 PNG 资产均由 Python 脚本 `generate_assets.py` 使用原始 PNG 编码（IHDR/IDAT/IEND 块、zlib 压缩）生成，不依赖任何第三方图像库。脚本位于 `docs/experiments/roguelike_long_task/generate_assets.py`。
 
-## 音效资产
-- **攻击音效**：sword.wav
-- **受伤音效**：hurt.wav
-- **升级音效**：levelup.wav
-- **来源**：公共领域或简单合成。
-- **状态**：不包含在 MVP 中，后续迭代添加。
+## 接入方式
+游戏 `index.html` 通过 `Image` 对象加载这些 PNG 文件，并使用 `ctx.drawImage()` 渲染到 Canvas 上。不存在任何 Canvas 临时绘制冒充真实资产的逻辑。
 
-## 字体
-- 使用系统默认等宽字体，无需额外资产。
-
-## 数据文件
-- 无外部数据文件，所有数值硬编码在脚本中。
-
-## 备注
-- MVP 阶段至少需要一个具体的玩家位图（player.png）用于验证图像加载功能。
-- 其它敌人类资产可以先用 Canvas 绘制彩色矩形或简单矢量图替代，保证可玩性。
-- 资产生成将使用 AI 图像生成工具，提示词和生成结果记录在 `image_prompts_and_gen_log.md`。
+## 验证状态
+- 文件存在性：✅ 所有 PNG 文件均存在于 assets/ 目录。
+- 加载验证：✅ index.html 中使用 `Promise.all` 加载所有资产，失败时有明确错误提示。
