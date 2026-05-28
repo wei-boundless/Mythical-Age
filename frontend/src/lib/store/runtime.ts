@@ -52,7 +52,7 @@ import { isVisibleRuntimeMonitorItem, runtimeWorkProjectionFromMonitorItem, visi
 import type { ChatMode, ChatModelSelection, MainAgentAssemblyMode, SearchPolicySource, StoreActions, StoreState, TaskGraphMonitorBinding, TaskSelectionState, WorkspaceView } from "./types";
 import { toUiMessages } from "./utils";
 
-const TASK_GRAPH_MONITOR_BINDING_STORAGE_KEY = "task-graph-monitor-binding";
+const LEGACY_TASK_GRAPH_MONITOR_BINDING_STORAGE_KEY = "task-graph-monitor-binding";
 
 export class WorkspaceRuntime {
   private initializePromise: Promise<void> | null = null;
@@ -193,10 +193,17 @@ export class WorkspaceRuntime {
       selectGlobalRuntimeMonitorTaskRun: (taskRunId) => {
         this.selectGlobalRuntimeMonitorTaskRun(taskRunId);
       },
+      openGlobalRuntimeMonitorTaskRun: (taskRunId) => {
+        this.openGlobalRuntimeMonitorTaskRun(taskRunId);
+      },
+      clearTaskSystemRuntimeNavigationTarget: () => {
+        this.clearTaskSystemRuntimeNavigationTarget();
+      },
       refreshGlobalRuntimeMonitor: async () => {
         await this.refreshGlobalRuntimeMonitor();
       }
     };
+    this.clearLegacyTaskGraphMonitorBinding();
   }
 
   startGlobalRuntimeMonitor() {
@@ -265,7 +272,6 @@ export class WorkspaceRuntime {
     void this.loadWorkspaceMetadata().catch(() => undefined);
     void this.refreshWorkspaceTree().catch(() => undefined);
     void this.loadInspectorMemoryFile().catch(() => undefined);
-    this.restoreTaskGraphMonitorBinding();
   }
 
   private async loadWorkspaceMetadata() {
@@ -306,6 +312,17 @@ export class WorkspaceRuntime {
       inspectorContent: file.content,
       inspectorDirty: false
     }));
+  }
+
+  private clearLegacyTaskGraphMonitorBinding() {
+    if (typeof window === "undefined") {
+      return;
+    }
+    try {
+      window.localStorage.removeItem(LEGACY_TASK_GRAPH_MONITOR_BINDING_STORAGE_KEY);
+    } catch {
+      // Old monitor persistence is not authoritative state.
+    }
   }
 
   dispose() {
@@ -716,7 +733,8 @@ export class WorkspaceRuntime {
           session_id: sessionId,
           ephemeral_system_messages: ephemeralSystemMessages,
           search_policy: searchPolicy,
-          task_selection: buildMainAgentTaskSelection(state.taskSelection, state.mainAgentAssemblyMode),
+          runtime_mode: state.mainAgentAssemblyMode,
+          task_selection: undefined,
           model_selection: this.chatModelSelectionPayload(state),
           image_generation: imageGeneration
             ? {
@@ -1286,13 +1304,11 @@ export class WorkspaceRuntime {
       taskGraphMonitorError: "",
       taskGraphRunInteractionOpen: prev.taskGraphRunInteractionOpen || Boolean(prev.taskGraphMonitorDecision?.action && prev.taskGraphMonitorDecision.action !== "no_action"),
     }));
-    this.persistTaskGraphMonitorBinding(normalized);
     this.startTaskGraphMonitorPolling(normalized.task_run_id);
   }
 
   private clearTaskGraphMonitorRun() {
     this.stopTaskGraphMonitorPolling();
-    this.persistTaskGraphMonitorBinding(null);
     this.store.setState((prev) => ({
       ...prev,
       taskGraphMonitorBinding: null,
@@ -1313,53 +1329,6 @@ export class WorkspaceRuntime {
     }
     if (!open && !binding?.task_run_id) {
       this.stopTaskGraphMonitorPolling();
-    }
-  }
-
-  private restoreTaskGraphMonitorBinding() {
-    if (typeof window === "undefined") {
-      return;
-    }
-    try {
-      const raw = window.localStorage.getItem(TASK_GRAPH_MONITOR_BINDING_STORAGE_KEY);
-      if (!raw) {
-        return;
-      }
-      const parsed = JSON.parse(raw) as Partial<TaskGraphMonitorBinding>;
-      const normalized = this.normalizeTaskGraphMonitorBinding({
-        task_run_id: String(parsed.task_run_id ?? ""),
-        coordination_run_id: parsed.coordination_run_id,
-        graph_id: parsed.graph_id,
-        session_id: parsed.session_id,
-        project_id: parsed.project_id,
-        title: parsed.title,
-        bound_at: parsed.bound_at,
-      });
-      if (!normalized) {
-        return;
-      }
-      this.store.setState((prev) => ({
-        ...prev,
-        taskGraphMonitorBinding: normalized,
-      }));
-      this.startTaskGraphMonitorPolling(normalized.task_run_id);
-    } catch {
-      // Binding persistence is convenience state only.
-    }
-  }
-
-  private persistTaskGraphMonitorBinding(binding: TaskGraphMonitorBinding | null) {
-    if (typeof window === "undefined") {
-      return;
-    }
-    try {
-      if (!binding) {
-        window.localStorage.removeItem(TASK_GRAPH_MONITOR_BINDING_STORAGE_KEY);
-        return;
-      }
-      window.localStorage.setItem(TASK_GRAPH_MONITOR_BINDING_STORAGE_KEY, JSON.stringify(binding));
-    } catch {
-      // Losing local persistence must not break runtime monitoring in memory.
     }
   }
 
@@ -1738,42 +1707,64 @@ export class WorkspaceRuntime {
     }
     try {
       const liveMonitor = await getOrchestrationHarnessSessionLiveMonitor(targetSessionId);
-      if (!liveMonitor.monitor) {
+      const activeMonitor = this.activeHarnessSessionMonitor(liveMonitor);
+      if (!activeMonitor) {
         if (this.store.getState().currentSessionId === targetSessionId && this.orchestrationHydrateRequest === requestId) {
           this.store.setState((prev) => ({ ...prev, taskGraphLiveMonitor: null, taskGraphRunMonitor: null }));
         }
         return false;
       }
-      const liveStatus = String(liveMonitor.monitor.status ?? liveMonitor.monitor.task_run?.status ?? "").trim();
-      const hasActiveGraphRun = Boolean(liveMonitor.monitor.has_coordination) && ["created", "running", "waiting_approval", "blocked"].includes(liveStatus);
-      const hasPendingApproval = liveStatus === "waiting_approval" || String((liveMonitor.monitor.loop_state as Record<string, unknown> | undefined)?.terminal_reason ?? "") === "waiting_approval";
-      const taskRunId = String(liveMonitor.monitor.task_run?.task_run_id ?? "").trim();
+      const activeTaskRun = this.harnessMonitorTaskRun(activeMonitor);
+      const liveStatus = String(activeMonitor.status ?? activeTaskRun.status ?? "").trim();
+      const hasActiveHarnessRun = ["created", "running", "waiting_executor", "waiting_approval", "blocked"].includes(liveStatus);
+      const hasActiveGraphRun = Boolean(activeMonitor.has_coordination) && hasActiveHarnessRun;
+      const hasPendingApproval = liveStatus === "waiting_approval" || String((activeMonitor.loop_state as Record<string, unknown> | undefined)?.terminal_reason ?? "") === "waiting_approval";
+      const taskRunId = String(activeTaskRun.task_run_id ?? activeMonitor.task_run_id ?? liveMonitor.active_task_run_id ?? "").trim();
       const coordinationRunId = String(
         liveMonitor.latest_coordination_run_id
-        ?? taskGraphRunIdFromLiveMonitor(liveMonitor.monitor)
+        ?? taskGraphRunIdFromLiveMonitor(activeMonitor)
         ?? ""
       ).trim();
-      if (liveMonitor.monitor.has_coordination || coordinationRunId) {
-        this.updateSessionActivityFromLiveMonitor(liveStatus, taskRunId, coordinationRunId);
-      }
+      this.updateSessionActivityFromLiveMonitor(liveStatus, taskRunId, coordinationRunId);
       let taskGraphRunMonitor = this.store.getState().taskGraphRunMonitor;
       if (coordinationRunId) {
         taskGraphRunMonitor = await getCoordinationRunTaskGraphMonitor(coordinationRunId);
-      } else if (taskRunId) {
-        taskGraphRunMonitor = await getTaskGraphRunMonitor(taskRunId);
+      } else if (taskRunId && activeMonitor.has_coordination) {
+        taskGraphRunMonitor = await getTaskGraphRunMonitor(taskRunId).catch(() => null);
+      } else {
+        taskGraphRunMonitor = null;
       }
       if (this.store.getState().currentSessionId === targetSessionId && this.orchestrationHydrateRequest === requestId) {
         this.store.setState((prev) => ({
           ...prev,
-          taskGraphLiveMonitor: liveMonitor.monitor,
+          taskGraphLiveMonitor: activeMonitor,
           taskGraphRunMonitor,
         }));
       }
-      return hasActiveGraphRun || hasPendingApproval;
+      return hasActiveHarnessRun || hasActiveGraphRun || hasPendingApproval;
     } catch {
       // Keep current snapshot on transient harness query failures.
       return false;
     }
+  }
+
+  private activeHarnessSessionMonitor(liveMonitor: Awaited<ReturnType<typeof getOrchestrationHarnessSessionLiveMonitor>>) {
+    const direct = liveMonitor.monitor ?? null;
+    if (direct) {
+      return direct;
+    }
+    const activeTaskRunId = String(liveMonitor.active_task_run_id ?? "").trim();
+    const taskRuns = Array.isArray(liveMonitor.task_runs) ? liveMonitor.task_runs : [];
+    return taskRuns.find((item) => String(item.task_run_id ?? item.task_run?.task_run_id ?? "").trim() === activeTaskRunId)
+      ?? taskRuns[0]
+      ?? null;
+  }
+
+  private harnessMonitorTaskRun(monitor: NonNullable<Awaited<ReturnType<typeof getOrchestrationHarnessSessionLiveMonitor>>["monitor"]>) {
+    const nested = monitor.task_run && typeof monitor.task_run === "object" && !Array.isArray(monitor.task_run)
+      ? monitor.task_run as Record<string, unknown>
+      : {};
+    return Object.keys(nested).length ? nested : monitor as unknown as Record<string, unknown>;
   }
 
   private setTaskSelection(selection: TaskSelectionState | null) {
@@ -2121,6 +2112,70 @@ export class WorkspaceRuntime {
     }
   }
 
+  private openGlobalRuntimeMonitorTaskRun(taskRunId: string) {
+    const normalized = taskRunId.trim();
+    const visibleRuns = visibleRuntimeMonitorItems(this.store.getState().globalRuntimeMonitor);
+    const selected = visibleRuns.find((item) => item.task_run_id === normalized);
+    if (!selected) {
+      this.selectGlobalRuntimeMonitorTaskRun(normalized);
+      return;
+    }
+    const work = runtimeWorkProjectionFromMonitorItem(selected);
+    if (work.workKind === "chat_turn_runtime") {
+      const sessionId = String(selected.session_id ?? "").trim();
+      if (sessionId) {
+        this.applySelectedSessionShell(sessionId);
+        void this.refreshSessionDetails(sessionId).catch(() => undefined);
+        void this.hydrateLatestOrchestrationSnapshot(sessionId).catch(() => false);
+      }
+      this.store.setState((prev) => ({
+        ...prev,
+        activeWorkspaceView: "chat",
+        globalRuntimeMonitorSelectedTaskRunId: normalized,
+        globalRuntimeMonitorSelectedLiveMonitor: null,
+        globalRuntimeMonitorSelectedGraphMonitor: null,
+      }));
+      this.queueSelectedGlobalRuntimeMonitorDetailRefresh(normalized);
+      return;
+    }
+    const taskGraphBinding = work.workKind === "task_graph_run"
+      ? this.normalizeTaskGraphMonitorBinding({
+        task_run_id: selected.task_run_id,
+        coordination_run_id: selected.coordination_run_id,
+        graph_id: selected.graph_id,
+        session_id: selected.session_id,
+        title: work.title,
+      })
+      : null;
+
+    this.store.setState((prev) => ({
+      ...prev,
+      activeWorkspaceView: "task-system",
+      globalRuntimeMonitorSelectedTaskRunId: normalized,
+      globalRuntimeMonitorSelectedLiveMonitor: null,
+      globalRuntimeMonitorSelectedGraphMonitor: null,
+      taskGraphMonitorBinding: taskGraphBinding ?? prev.taskGraphMonitorBinding,
+      taskGraphRunInteractionOpen: false,
+      taskSystemRuntimeNavigationTarget: {
+        task_run_id: normalized,
+        layer: work.workKind === "agent_runtime_run" ? "agent-runtime-phase" : "runtime",
+        graph_id: work.graphId,
+        requested_at: Date.now(),
+      },
+    }));
+    if (taskGraphBinding) {
+      this.startTaskGraphMonitorPolling(normalized);
+    }
+    this.queueSelectedGlobalRuntimeMonitorDetailRefresh(normalized);
+  }
+
+  private clearTaskSystemRuntimeNavigationTarget() {
+    this.store.setState((prev) => ({
+      ...prev,
+      taskSystemRuntimeNavigationTarget: null,
+    }));
+  }
+
   private async loadGlobalRuntimeMonitorTaskRunDetail(taskRunId: string) {
     const normalized = taskRunId.trim();
     if (!normalized) {
@@ -2182,18 +2237,18 @@ export class WorkspaceRuntime {
     if (!normalizedStatus) {
       return;
     }
-    if (normalizedStatus === "waiting_approval" || normalizedStatus === "blocked") {
+    if (normalizedStatus === "waiting_executor" || normalizedStatus === "waiting_approval" || normalizedStatus === "blocked") {
       this.store.setState((prev) => ({
         ...prev,
         sessionActivity: {
           level: "waiting",
-          title: normalizedStatus === "waiting_approval" ? "等待审批" : "运行受阻",
-          detail: normalizedStatus === "waiting_approval" ? "需要确认后继续执行" : "任务图运行需要处理",
+          title: normalizedStatus === "waiting_executor" ? "等待执行器接管" : normalizedStatus === "waiting_approval" ? "等待审批" : "运行受阻",
+          detail: normalizedStatus === "waiting_executor" ? "正式任务已建立，等待任务执行器推进步骤" : normalizedStatus === "waiting_approval" ? "需要确认后继续执行" : "任务运行需要处理",
           event: "runtime_live_monitor",
           receipt: {
             level: "waiting",
-            title: normalizedStatus === "waiting_approval" ? "等待审批" : "运行受阻",
-            body: normalizedStatus === "waiting_approval" ? "需要确认后继续执行。" : "任务图运行需要处理。",
+            title: normalizedStatus === "waiting_executor" ? "等待执行器接管" : normalizedStatus === "waiting_approval" ? "等待审批" : "运行受阻",
+            body: normalizedStatus === "waiting_executor" ? "正式任务已建立，等待任务执行器推进步骤。" : normalizedStatus === "waiting_approval" ? "需要确认后继续执行。" : "任务运行需要处理。",
             debug: {
               event: "runtime_live_monitor",
               taskRunId: taskRunId || "",
@@ -2205,18 +2260,18 @@ export class WorkspaceRuntime {
       }));
       return;
     }
-    if (normalizedStatus === "running" || normalizedStatus === "created") {
+      if (normalizedStatus === "running" || normalizedStatus === "created") {
       this.store.setState((prev) => ({
         ...prev,
         sessionActivity: {
           level: "running",
           title: "任务运行中",
-          detail: "正在同步任务图运行状态",
+          detail: "正在同步任务运行状态",
           event: "runtime_live_monitor",
           receipt: {
             level: "running",
             title: "任务运行中",
-            body: "正在同步任务图运行状态。",
+            body: "正在同步任务运行状态。",
             debug: {
               event: "runtime_live_monitor",
               taskRunId: taskRunId || "",
@@ -2257,12 +2312,12 @@ export class WorkspaceRuntime {
         sessionActivity: {
           level: "error",
           title: "任务失败",
-          detail: "任务图运行返回失败状态，请查看运行监控",
+          detail: "任务运行返回失败状态，请查看运行监控",
           event: "runtime_live_monitor",
           receipt: {
             level: "error",
             title: "任务失败",
-            body: "任务图运行返回失败状态，请查看运行监控。",
+            body: "任务运行返回失败状态，请查看运行监控。",
             debug: {
               event: "runtime_live_monitor",
               taskRunId: taskRunId || "",

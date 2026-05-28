@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef } from "react";
 
 import { ChatInput } from "@/components/chat/ChatInput";
 import { ChatMessage } from "@/components/chat/ChatMessage";
+import { ChatSearchPolicyControls } from "@/components/chat/ChatSearchPolicyControls";
 import { SessionActivityBar } from "@/components/chat/SessionActivityBar";
 import { useAppStore } from "@/lib/store";
 
@@ -79,7 +80,13 @@ export function ChatPanel() {
       </div>
 
       <div className="chat-panel-footer min-w-0">
-        <SessionActivityBar activity={sessionActivity} active={currentSessionStreaming} />
+        <div className="chat-panel-status-row">
+          <SessionActivityBar activity={sessionActivity} active={currentSessionStreaming} />
+          <ChatSearchPolicyControls
+            onToggleSearchPolicy={toggleSearchPolicySource}
+            searchPolicy={searchPolicy}
+          />
+        </div>
         <ChatInput
           disabled={workspaceInitializing || currentSessionStreaming}
           streaming={currentSessionStreaming}
@@ -89,9 +96,7 @@ export function ChatPanel() {
           modelProviderConfig={modelProviderConfig}
           soulImageAssetConfig={soulImageAssetConfig}
           onSelectMainAgentAssemblyMode={setMainAgentAssemblyMode}
-          onToggleSearchPolicy={toggleSearchPolicySource}
           onSelectChatModel={setSelectedChatModel}
-          searchPolicy={searchPolicy}
           selectedChatModelId={selectedChatModelId}
           deepSeekThinkingEnabled={deepSeekThinkingEnabled}
           onToggleDeepSeekThinking={setDeepSeekThinkingEnabled}

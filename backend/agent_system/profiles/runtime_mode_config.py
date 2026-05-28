@@ -22,6 +22,16 @@ class AgentRuntimeModeConfig:
     projection_strength: str
     runtime_lanes: tuple[str, ...] = ()
     execution_strategy: str = ""
+    default_environment_id: str = ""
+    interaction_policy: dict[str, Any] | None = None
+    planning_policy: dict[str, Any] | None = None
+    task_lifecycle_policy: dict[str, Any] | None = None
+    tool_exposure_policy: dict[str, Any] | None = None
+    context_policy: dict[str, Any] | None = None
+    memory_policy: dict[str, Any] | None = None
+    self_review_policy: dict[str, Any] | None = None
+    step_summary_policy: dict[str, Any] | None = None
+    approval_policy: dict[str, Any] | None = None
     builtin: bool = True
     editable: bool = False
     description: str = ""
@@ -43,6 +53,20 @@ MODE_CONFIGS: dict[str, AgentRuntimeModeConfig] = {
         runtime_lane="role_interaction",
         recipe_id="runtime.recipe.role_interaction",
         projection_strength="primary",
+        default_environment_id="env.general.workspace",
+        interaction_policy={
+            "style": "role_conversation",
+            "task_orientation": "conversation_first",
+            "user_clarification": "allowed",
+        },
+        planning_policy={"plan_mode": "disabled", "specified_plan_allowed": False},
+        task_lifecycle_policy={"request_task_run": False, "requires_completion_evidence": False},
+        tool_exposure_policy={},
+        context_policy={"history_scope": "conversation", "task_context": "disabled"},
+        memory_policy={"read_scope": "conversation_readonly", "write_scope": "none"},
+        self_review_policy={"enabled": False, "before_final": "basic_consistency"},
+        step_summary_policy={"enabled": True, "detail": "compact"},
+        approval_policy={"permission_scope": "role_conversation_readonly"},
     ),
     STANDARD_MODE: AgentRuntimeModeConfig(
         mode=STANDARD_MODE,
@@ -51,6 +75,20 @@ MODE_CONFIGS: dict[str, AgentRuntimeModeConfig] = {
         runtime_lane="standard_task",
         recipe_id="runtime.recipe.standard_task",
         projection_strength="companion",
+        default_environment_id="env.general.workspace",
+        interaction_policy={
+            "style": "general_agent",
+            "task_orientation": "agent_decides_next_action",
+            "user_clarification": "allowed",
+        },
+        planning_policy={"plan_mode": "disabled", "specified_plan_allowed": False},
+        task_lifecycle_policy={"request_task_run": True, "requires_completion_evidence": True},
+        tool_exposure_policy={},
+        context_policy={"history_scope": "conversation_and_task", "task_context": "available"},
+        memory_policy={"read_scope": "agent_profile", "write_scope": "candidate_only"},
+        self_review_policy={"enabled": True, "before_final": "check_answer_or_task_state"},
+        step_summary_policy={"enabled": True, "detail": "compact"},
+        approval_policy={"permission_scope": "standard_agent_profile_ceiling"},
     ),
     PROFESSIONAL_MODE: AgentRuntimeModeConfig(
         mode=PROFESSIONAL_MODE,
@@ -60,6 +98,24 @@ MODE_CONFIGS: dict[str, AgentRuntimeModeConfig] = {
         recipe_id="runtime.recipe.professional_task",
         projection_strength="style_only",
         execution_strategy="interaction_mode_run",
+        default_environment_id="env.development.sandbox",
+        interaction_policy={
+            "style": "professional_agent",
+            "task_orientation": "complete_real_work",
+            "user_clarification": "only_when_blocked",
+        },
+        planning_policy={"plan_mode": "available", "specified_plan_allowed": True, "todo_required_when_task_run": True},
+        task_lifecycle_policy={"request_task_run": True, "requires_completion_evidence": True, "artifact_evidence_required": True},
+        tool_exposure_policy={},
+        context_policy={"history_scope": "conversation_task_and_recovery", "task_context": "required_for_task_run"},
+        memory_policy={"read_scope": "agent_profile", "write_scope": "candidate_with_receipt"},
+        self_review_policy={
+            "enabled": True,
+            "checkpoints": ("before_tool", "after_tool", "before_final"),
+            "failure_recovery": "replan_or_report_blocker",
+        },
+        step_summary_policy={"enabled": True, "detail": "stepwise"},
+        approval_policy={"permission_scope": "professional_agent_profile_ceiling"},
     ),
     CUSTOM_MODE: AgentRuntimeModeConfig(
         mode=CUSTOM_MODE,

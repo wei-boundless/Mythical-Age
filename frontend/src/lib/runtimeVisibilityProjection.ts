@@ -9,6 +9,14 @@ export type RuntimeVisibilityProjection = {
   terminalEvent?: "done" | "error" | "stopped";
 };
 
+const INTERNAL_RUNTIME_STEPS = new Set([
+  "turn_started",
+  "runtime_packet_compiled",
+  "model_action_received",
+  "action_admission_checked",
+  "bounded_observation_recorded",
+]);
+
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -493,6 +501,114 @@ export function projectHarnessLoopEvent(data: Record<string, unknown>): RuntimeV
 }
 
 export function projectRuntimeStreamEvent(event: string, data: Record<string, unknown>): RuntimeVisibilityProjection {
+  if (event === "runtime_step_summary") {
+    const step = text(data.step);
+    if (INTERNAL_RUNTIME_STEPS.has(step)) {
+      return {};
+    }
+    const status = text(data.status);
+    const summary = text(data.summary);
+    const level: SessionActivityLevel = status === "completed" ? "success" : status === "failed" ? "error" : status === "waiting" ? "waiting" : "running";
+    return {
+      stageStatus: summary || step || "运行步骤",
+      activityTitle: summary || step || "运行步骤",
+      activityDetail: summary,
+      level,
+      progressEntry: entry("runtime_step_summary", summary || step || "运行步骤", {
+        body: summary,
+        level,
+        kind: "stage",
+        statusText: status || "进行中",
+        eventId: text(record(data.event).event_id),
+        createdAt: numberValue(record(data.event).created_at) ?? Date.now(),
+      }),
+    };
+  }
+  if (event === "task_run_lifecycle_started") {
+    const runtimeEvent = record(data.event);
+    const payload = record(runtimeEvent.payload);
+    const taskRun = record(payload.task_run);
+    const contract = record(payload.contract);
+    const goal = text(contract.user_visible_goal ?? contract.task_run_goal);
+    return {
+      stageStatus: "正式任务已开启",
+      activityTitle: "正式任务已开启",
+      activityDetail: goal,
+      level: "running",
+      progressEntry: entry("task_run_lifecycle_started", "正式任务已开启", {
+        body: goal,
+        level: "running",
+        kind: "task_order",
+        statusText: text(taskRun.status) || "running",
+        taskRunId: text(taskRun.task_run_id),
+        eventId: text(runtimeEvent.event_id),
+        createdAt: numberValue(runtimeEvent.created_at) ?? Date.now(),
+        meta: compactMeta([
+          metaItem("TaskRun", taskRun.task_run_id, { shorten: true }),
+          metaItem("目标", goal),
+        ]),
+      }),
+    };
+  }
+  if (event === "task_run_lifecycle_event") {
+    const runtimeEvent = record(data.event);
+    const eventType = text(runtimeEvent.event_type);
+    const payload = record(runtimeEvent.payload);
+    const taskRun = record(payload.task_run);
+    const observation = record(payload.observation);
+    const source = text(observation.source);
+    const status = text(taskRun.status);
+    const waiting = eventType === "task_run_lifecycle_waiting_executor" || status === "waiting_executor";
+    const title = eventType === "agent_todo_initialized"
+      ? "任务待办已建立"
+      : waiting
+        ? "等待执行器接管"
+        : "任务生命周期更新";
+    const body = short(text(observation.summary) || text(payload.reason) || status || eventType);
+    return {
+      stageStatus: title,
+      activityTitle: title,
+      activityDetail: body,
+      level: waiting ? "waiting" : "running",
+      progressEntry: entry(eventType || "task_run_lifecycle_event", title, {
+        body,
+        level: waiting ? "waiting" : "running",
+        kind: eventType === "agent_todo_initialized" ? "stage" : "terminal",
+        statusText: waiting ? "等待" : status || "进行中",
+        taskRunId: text(taskRun.task_run_id) || text(runtimeEvent.task_run_id),
+        eventId: text(runtimeEvent.event_id),
+        createdAt: numberValue(runtimeEvent.created_at) ?? Date.now(),
+        meta: compactMeta([
+          metaItem("来源", source),
+          metaItem("状态", status),
+        ]),
+      }),
+    };
+  }
+  if (event === "agent_turn_terminal") {
+    const runtimeEvent = record(data.event);
+    const payload = record(runtimeEvent.payload);
+    const status = text(payload.status);
+    const reason = text(payload.terminal_reason);
+    const waiting = status === "task_lifecycle_waiting_executor" || reason === "waiting_executor";
+    const failed = text(runtimeEvent.event_type) === "agent_turn_failed" || status === "failed";
+    const title = waiting ? "任务等待执行器接管" : failed ? "Agent 运行失败" : "Agent 本轮完成";
+    return {
+      stageStatus: title,
+      activityTitle: title,
+      activityDetail: reason || status,
+      level: waiting ? "waiting" : failed ? "error" : "success",
+      progressEntry: entry("agent_turn_terminal", title, {
+        body: reason || status,
+        level: waiting ? "waiting" : failed ? "error" : "success",
+        kind: "terminal",
+        statusText: waiting ? "等待" : failed ? "失败" : "完成",
+        eventId: text(runtimeEvent.event_id),
+        createdAt: numberValue(runtimeEvent.created_at) ?? Date.now(),
+        completedAt: numberValue(runtimeEvent.created_at) ?? Date.now(),
+      }),
+    };
+  }
   if (event === "task_intent_decision") {
     const decision = record(data.decision);
     const draft = text(decision.decision) === "task_order_draft";

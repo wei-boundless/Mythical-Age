@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import inspect
 import logging
+import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -17,6 +18,7 @@ except ImportError:  # pragma: no cover - optional dependency at runtime
     ChatDeepSeek = None
 
 from bootstrap.settings import AppSettingsService
+from config import LLM_PROVIDER_DEFAULTS
 from runtime.tool_runtime.tool_call_policy import ToolCallBindingOptions
 
 if TYPE_CHECKING:
@@ -665,9 +667,30 @@ class ModelRuntime:
                 return
             yield item
 
-    def _model_spec_from_override(self, override: ModelSpec | "ResolvedModelSpec") -> ModelSpec:
+    def _model_spec_from_override(self, override: ModelSpec | "ResolvedModelSpec" | dict[str, Any]) -> ModelSpec:
         if isinstance(override, ModelSpec):
             return override
+        if isinstance(override, dict):
+            provider = str(override.get("provider") or "").strip()
+            credential_ref = str(override.get("credential_ref") or "").strip()
+            api_key = override.get("api_key")
+            if not api_key:
+                api_key = self._api_key_from_credential_ref(credential_ref=credential_ref, provider=provider)
+            return ModelSpec(
+                provider=provider,
+                model=str(override.get("model") or "").strip(),
+                api_key=str(api_key).strip() if api_key else None,
+                base_url=str(override.get("base_url") or "").strip(),
+                max_output_tokens=_optional_int(override.get("max_output_tokens")),
+                timeout_seconds=_optional_float(override.get("timeout_seconds")),
+                long_output_timeout_seconds=_optional_float(override.get("long_output_timeout_seconds")),
+                max_retries=_optional_int(override.get("max_retries")),
+                temperature=_optional_float(override.get("temperature")),
+                thinking_mode=str(override.get("thinking_mode") or "").strip() or None,
+                reasoning_effort=str(override.get("reasoning_effort") or "").strip() or None,
+                stream_policy=dict(override.get("stream_policy") or {}),
+                diagnostics=dict(override.get("diagnostics") or {}),
+            )
         return ModelSpec(
             provider=str(getattr(override, "provider", "") or "").strip(),
             model=str(getattr(override, "model", "") or "").strip(),
@@ -683,6 +706,39 @@ class ModelRuntime:
             stream_policy=dict(getattr(override, "stream_policy", {}) or {}),
             diagnostics=dict(getattr(override, "diagnostics", {}) or {}),
         )
+
+    def _api_key_from_credential_ref(self, *, credential_ref: str, provider: str) -> str | None:
+        settings = self.settings_service.static
+        normalized_provider = str(provider or "").strip().lower()
+        ref = str(credential_ref or "").strip()
+        if not normalized_provider:
+            return None
+        if ref in {"", f"provider:{normalized_provider}:primary"}:
+            if str(getattr(settings, "llm_provider", "") or "").strip().lower() == normalized_provider:
+                return getattr(settings, "llm_api_key", None)
+            return _first_configured_env_for_provider(normalized_provider)
+        if ref == f"provider:{normalized_provider}:fallback":
+            if str(getattr(settings, "llm_fallback_provider", "") or "").strip().lower() == normalized_provider:
+                return getattr(settings, "llm_fallback_api_key", None)
+            return _first_configured_env_for_provider(normalized_provider)
+        if ref == "system:llm:primary":
+            return getattr(settings, "llm_api_key", None)
+        if ref == "system:llm:fallback":
+            return getattr(settings, "llm_fallback_api_key", None)
+        if ref.startswith("provider:"):
+            parts = ref.split(":")
+            ref_provider = str(parts[1] if len(parts) >= 2 else normalized_provider).strip().lower()
+            ref_slot = str(parts[2] if len(parts) >= 3 else "primary").strip().lower()
+            if ref_slot == "fallback" and str(getattr(settings, "llm_fallback_provider", "") or "").strip().lower() == ref_provider:
+                return getattr(settings, "llm_fallback_api_key", None)
+            if str(getattr(settings, "llm_provider", "") or "").strip().lower() == ref_provider:
+                return getattr(settings, "llm_api_key", None)
+            return _first_configured_env_for_provider(ref_provider)
+        if ref.startswith("env:"):
+            env_name = ref.removeprefix("env:").strip()
+            allowed = set(LLM_PROVIDER_DEFAULTS.get(normalized_provider, {}).get("credential_envs") or ())
+            return os.getenv(env_name) if env_name in allowed else None
+        return None
 
     def _max_output_tokens_for_spec(self, spec: ModelSpec) -> int:
         if spec.max_output_tokens is not None:
@@ -853,6 +909,32 @@ def _normalize_tool_call_options(
                 else None
             ),
         )
+    return None
+
+
+def _optional_int(value: Any) -> int | None:
+    if value in {None, ""}:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _optional_float(value: Any) -> float | None:
+    if value in {None, ""}:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _first_configured_env_for_provider(provider: str) -> str | None:
+    for env_name in LLM_PROVIDER_DEFAULTS.get(provider, {}).get("credential_envs") or ():
+        value = os.getenv(str(env_name))
+        if value and value.strip():
+            return value.strip()
     return None
 
 

@@ -23,6 +23,7 @@ from prompting import build_static_prompt
 from query.models import QueryRequest
 from query.system_routes import run_direct_system_route
 from harness.runtime import AgentRunRequest
+from harness.loop.task_executor import execute_task_run
 
 logger = logging.getLogger(__name__)
 
@@ -224,6 +225,9 @@ class QueryRuntime:
 
     async def generate_title(self, first_user_message: str) -> str:
         return await self.model_runtime.generate_title(first_user_message)
+
+    async def execute_task_run(self, task_run_id: str, *, max_steps: int = 12) -> dict[str, Any]:
+        return await execute_task_run(self, task_run_id, max_steps=max_steps)
 
     def _commit_user_message(self, *, session_id: str, content: str, turn_id: str):
         decision = build_user_message_commit_decision(

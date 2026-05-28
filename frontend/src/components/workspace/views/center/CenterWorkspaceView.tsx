@@ -111,6 +111,7 @@ export function CenterWorkspaceView() {
     && !selectedGraphDetail
     && ((selectedGraph.node_count ?? 0) > 0 || (selectedGraph.edge_count ?? 0) > 0)
   );
+  const hasTopology = Boolean(activeMonitor || graphDefinitionNodes.length);
   const topologyNodes = useMemo<CoordinationTopologyNode[]>(() => {
     const sourceNodes = activeMonitor?.topology?.nodes?.length
       ? activeMonitor.topology.nodes
@@ -350,7 +351,7 @@ export function CenterWorkspaceView() {
                     <strong>正在读取任务结构</strong>
                     <span>任务图详情加载后会显示当前拓扑。</span>
                   </div>
-                ) : selectedGraph ? (
+                ) : hasTopology ? (
                   <div className="center-workspace__topology-canvas">
                     <CoordinationTopologyGraph
                       currentNodeId={activeNodeId}

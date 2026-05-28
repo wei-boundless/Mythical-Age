@@ -13,6 +13,9 @@ except Exception:  # pragma: no cover - runtime fallback for partial imports
     get_task_goal_profile = None  # type: ignore[assignment]
 
 
+_BITMAP_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+
+
 @dataclass(frozen=True, slots=True)
 class DeliverableValidationResult:
     passed: bool
@@ -486,7 +489,7 @@ def _has_asset_evidence(facts: list[dict[str, Any]]) -> bool:
             ],
         ]
     )
-    return any(Path(path).suffix.lower() in {".png", ".jpg", ".jpeg", ".webp", ".svg", ".gif"} for path in paths)
+    return any(Path(path).suffix.lower() in _BITMAP_IMAGE_SUFFIXES for path in paths)
 
 
 def _asset_reference_integrity(
@@ -526,7 +529,7 @@ def _asset_refs_from_facts(facts: list[dict[str, Any]]) -> list[str]:
             if not isinstance(ref, dict):
                 continue
             path = str(ref.get("path") or "").replace("\\", "/").strip("/")
-            if path and Path(path).suffix.lower() in {".png", ".jpg", ".jpeg", ".webp", ".svg", ".gif"}:
+            if path and Path(path).suffix.lower() in _BITMAP_IMAGE_SUFFIXES:
                 refs.append(path)
     return _dedupe(refs)
 

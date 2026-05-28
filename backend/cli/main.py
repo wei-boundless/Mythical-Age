@@ -4,6 +4,7 @@ import argparse
 import json
 import shlex
 import sys
+import time
 from typing import Any, Iterable, TextIO
 
 from .client import AgentCliClient, AgentCliClientError
@@ -14,8 +15,15 @@ from .state import CliStateStore, DEFAULT_API_BASE
 CONTENT_EVENTS = {"token", "content_delta", "answer_candidate"}
 PROGRESS_EVENTS = {
     "input_commit_gate",
-    "task_intent_decision",
-    "task_continuation_recovery",
+    "runtime_assembly_compiled",
+    "runtime_assembly_bound",
+    "runtime_invocation_packet",
+    "model_action_request",
+    "model_action_admission",
+    "runtime_step_summary",
+    "task_run_lifecycle_started",
+    "task_run_lifecycle_event",
+    "agent_turn_terminal",
     "tool_start",
     "tool_end",
     "debug_trace",
@@ -43,9 +51,20 @@ def build_parser() -> argparse.ArgumentParser:
     send_parser = subparsers.add_parser("send", help="Send a streamed message")
     send_parser.add_argument("message", nargs="+")
     send_parser.add_argument("--session", default="")
+    send_parser.add_argument("--runtime-mode", choices=["role", "standard", "professional"], default="")
+    send_parser.add_argument("--soul-id", default="")
 
     monitor_parser = subparsers.add_parser("monitor", help="Show session live monitor")
     monitor_parser.add_argument("--session", default="")
+
+    task_run_parser = subparsers.add_parser("task-run", help="Execute or inspect TaskRuns")
+    task_run_subparsers = task_run_parser.add_subparsers(dest="task_run_command", required=True)
+    execute_parser = task_run_subparsers.add_parser("execute", help="Execute a waiting single-agent TaskRun")
+    execute_parser.add_argument("task_run_id")
+    execute_parser.add_argument("--max-steps", type=int, default=12)
+    execute_parser.add_argument("--no-watch", action="store_true", help="Only schedule execution and print the accepted payload")
+    watch_parser = task_run_subparsers.add_parser("watch", help="Watch a TaskRun until it reaches a terminal state")
+    watch_parser.add_argument("task_run_id")
 
     config_parser = subparsers.add_parser("config", help="Show CLI config")
     config_parser.add_argument("config_command", choices=["show"])
@@ -86,6 +105,8 @@ def run_command(
             return _run_send(args, client=client, store=store, stdout=stdout, stderr=stderr)
         if args.command == "monitor":
             return _run_monitor(args, client=client, store=store, stdout=stdout)
+        if args.command == "task-run":
+            return _run_task_run_command(args, client=client, stdout=stdout)
         if args.command == "config":
             _print_json({"api_base": client.api_base, "selected_session_id": store.load().selected_session_id}, stdout)
             return 0
@@ -249,7 +270,20 @@ def _run_send(
 ) -> int:
     session_id = _resolve_session_id(args.session, store)
     message = " ".join(args.message).strip()
-    _send_message_text(message, client=client, store=store, stdout=stdout, stderr=stderr, verbose=bool(args.verbose), session_id=session_id)
+    extra_payload = _runtime_extra_payload(
+        runtime_mode=str(getattr(args, "runtime_mode", "") or ""),
+        soul_id=str(getattr(args, "soul_id", "") or ""),
+    )
+    _send_message_text(
+        message,
+        client=client,
+        store=store,
+        stdout=stdout,
+        stderr=stderr,
+        verbose=bool(args.verbose),
+        session_id=session_id,
+        extra_payload=extra_payload,
+    )
     return 0
 
 
@@ -262,10 +296,11 @@ def _send_message_text(
     stderr: TextIO,
     verbose: bool,
     session_id: str = "",
+    extra_payload: dict[str, Any] | None = None,
 ) -> None:
     resolved_session_id = session_id or _resolve_session_id("", store)
     terminal = ""
-    for event in client.stream_chat(session_id=resolved_session_id, message=message):
+    for event in client.stream_chat(session_id=resolved_session_id, message=message, extra_payload=extra_payload):
         terminal = _render_stream_event(event, stdout=stdout, stderr=stderr, verbose=verbose) or terminal
     if terminal == "error":
         raise AgentCliClientError("Backend returned an error event.")
@@ -282,6 +317,64 @@ def _run_monitor(
     monitor = client.get_session_monitor(session_id)
     _print_json(monitor, stdout)
     return 0
+
+
+def _run_task_run_command(
+    args: argparse.Namespace,
+    *,
+    client: AgentCliClient,
+    stdout: TextIO,
+) -> int:
+    if args.task_run_command == "execute":
+        result = client.execute_task_run(
+            args.task_run_id,
+            max_steps=max(1, int(args.max_steps or 12)),
+        )
+        if bool(getattr(args, "no_watch", False)):
+            _print_json(result, stdout)
+            return 0 if result.get("ok") else 1
+        print(f"scheduled {args.task_run_id}", file=stdout)
+        return _watch_task_run(args.task_run_id, client=client, stdout=stdout)
+    if args.task_run_command == "watch":
+        return _watch_task_run(args.task_run_id, client=client, stdout=stdout)
+    return 2
+
+
+def _watch_task_run(task_run_id: str, *, client: AgentCliClient, stdout: TextIO) -> int:
+    seen_event_count = -1
+    seen_step = ""
+    while True:
+        monitor = client.get_task_run_monitor(task_run_id)
+        event_count = int(monitor.get("event_count") or 0)
+        status = str(monitor.get("status") or "")
+        latest = dict(monitor.get("latest_event") or {})
+        payload = dict(latest.get("payload") or {})
+        step = str(payload.get("step") or "")
+        summary = str(payload.get("summary") or "")
+        if event_count != seen_event_count or step != seen_step:
+            if step or summary:
+                print(f"[{status}] {step or latest.get('event_type')}: {summary}", file=stdout)
+            else:
+                print(f"[{status}] {latest.get('event_type') or 'monitor'}", file=stdout)
+            seen_event_count = event_count
+            seen_step = step
+        if status in {"completed", "failed", "blocked"}:
+            trace = client.get_task_run_trace(task_run_id, include_payloads=False)
+            final_task = dict(trace.get("task_run") or {})
+            diagnostics = dict(final_task.get("diagnostics") or {})
+            artifact_refs = diagnostics.get("artifact_refs") or []
+            final_answer = str(diagnostics.get("final_answer") or "")
+            terminal_reason = str(final_task.get("terminal_reason") or monitor.get("terminal_reason") or "")
+            if artifact_refs:
+                print("artifacts:", file=stdout)
+                for item in list(artifact_refs):
+                    print(f"- {item}", file=stdout)
+            if final_answer:
+                print(final_answer, file=stdout)
+            elif terminal_reason:
+                print(terminal_reason, file=stdout)
+            return 0 if status == "completed" else 1
+        time.sleep(2.0)
 
 
 def _render_stream_event(
@@ -360,6 +453,17 @@ def _path_or_none(value: str):
     from pathlib import Path
 
     return Path(value)
+
+
+def _runtime_extra_payload(*, runtime_mode: str, soul_id: str) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    mode = str(runtime_mode or "").strip()
+    requested_soul = str(soul_id or "").strip()
+    if mode:
+        payload["runtime_mode"] = mode
+    if requested_soul:
+        payload["soul_id"] = requested_soul
+    return payload
 
 
 def _is_tty(stream: TextIO) -> bool:

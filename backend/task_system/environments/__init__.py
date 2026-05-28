@@ -1,37 +1,37 @@
 from .models import (
     ArtifactPolicy,
     ExecutionPolicy,
+    EnvironmentPrompt,
     FileManagementBinding,
     MemorySpace,
-    PromptSpace,
     ResourceSpace,
     RiskPolicy,
     RuntimePolicy,
-    SkillSpace,
+    SandboxPolicy,
     TaskEnvironmentDefinition,
+    TaskEnvironmentGroup,
     TaskEnvironmentRecord,
     TaskEnvironmentSpec,
-    ToolSpace,
 )
 from .registry import TaskEnvironmentRegistry, default_task_environment_registry
 from .spec_resolver import ResolvedTaskEnvironment, resolve_task_environment
 
 __all__ = [
     "ArtifactPolicy",
+    "EnvironmentPrompt",
     "ExecutionPolicy",
     "FileManagementBinding",
     "MemorySpace",
-    "PromptSpace",
     "ResolvedTaskEnvironment",
     "ResourceSpace",
     "RiskPolicy",
     "RuntimePolicy",
-    "SkillSpace",
+    "SandboxPolicy",
     "TaskEnvironmentDefinition",
+    "TaskEnvironmentGroup",
     "TaskEnvironmentRecord",
     "TaskEnvironmentRegistry",
     "TaskEnvironmentSpec",
-    "ToolSpace",
     "default_task_environment_registry",
     "resolve_task_environment",
 ]

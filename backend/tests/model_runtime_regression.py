@@ -839,3 +839,30 @@ def test_model_runtime_per_call_override_bypasses_fallback_candidates() -> None:
     ]
 
 
+def test_model_runtime_resolves_frontend_model_selection_dict_credential_ref() -> None:
+    runtime = _runtime()
+    runtime.settings_service.static.llm_provider = "deepseek"
+    runtime.settings_service.static.llm_model = "deepseek-v4-pro"
+    runtime.settings_service.static.llm_api_key = "deepseek-key"
+    runtime.settings_service.static.llm_base_url = "https://api.deepseek.com/v1"
+
+    specs = runtime._candidate_specs(
+        model_spec={
+            "selection_id": "system-default",
+            "provider": "deepseek",
+            "model": "deepseek-v4-pro",
+            "base_url": "https://api.deepseek.com/v1",
+            "credential_ref": "provider:deepseek:primary",
+            "thinking_mode": "enabled",
+            "reasoning_effort": "max",
+        }
+    )
+
+    assert len(specs) == 1
+    assert specs[0].provider == "deepseek"
+    assert specs[0].model == "deepseek-v4-pro"
+    assert specs[0].api_key == "deepseek-key"
+    assert specs[0].thinking_mode == "enabled"
+    assert specs[0].reasoning_effort == "max"
+
+

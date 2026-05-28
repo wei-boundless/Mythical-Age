@@ -31,6 +31,17 @@ type StreamTransition = {
 const MAX_MESSAGE_PROGRESS_ENTRIES = 12;
 const MAX_PROGRESS_BODY_CHARS = 360;
 const MAX_PROGRESS_ARTIFACTS = 6;
+const INTERNAL_STREAM_EVENTS = new Set([
+  "runtime_assembly_compiled",
+  "runtime_invocation_packet",
+]);
+const INTERNAL_RUNTIME_STEP_SUMMARIES = new Set([
+  "turn_started",
+  "runtime_packet_compiled",
+  "model_action_received",
+  "action_admission_checked",
+  "bounded_observation_recorded",
+]);
 
 const ORCHESTRATION_NODES: Array<{ id: string; label: string; description: string }> = [
   { id: "input", label: "用户输入", description: "接收本轮用户请求，并绑定当前会话。" },
@@ -66,6 +77,12 @@ const ORCHESTRATION_EDGES: Array<{ id: string; from: string; to: string; label: 
 ];
 
 function stageStatusForEvent(event: string, data: Record<string, unknown>) {
+  if (INTERNAL_STREAM_EVENTS.has(event)) {
+    return "";
+  }
+  if (event === "runtime_step_summary" && INTERNAL_RUNTIME_STEP_SUMMARIES.has(String(data.step ?? "").trim())) {
+    return "";
+  }
   if (event === "debug") {
     return "";
   }
@@ -334,22 +351,6 @@ function makeOrchestrationSnapshot(state: StoreState, userContent: string): Orch
     summary: node.id === "input" ? userContent.trim() : "",
     source_event: node.id === "input" ? "user_message" : ""
   }));
-  const taskSelection = state.taskSelection?.mode === "coordination" ? null : state.taskSelection ?? null;
-  const initialEvents = taskSelection
-    ? [{
-        index: 1,
-        event: "task_selection_bound",
-        node_id: "input",
-        summary: taskSelection.coordination_task_id
-          ? `已绑定协调任务 ${String(taskSelection.coordination_task_id)}`
-          : `已绑定特定任务 ${String(taskSelection.selected_task_id ?? "")}`,
-        data: {
-          task_selection: taskSelection,
-          coordination_task_id: taskSelection.coordination_task_id ?? "",
-          selected_task_id: taskSelection.selected_task_id ?? "",
-        }
-      }]
-    : [];
   return {
     source: "live-session",
     session_id: state.currentSessionId ?? "",
@@ -360,7 +361,7 @@ function makeOrchestrationSnapshot(state: StoreState, userContent: string): Orch
     problem_node_id: "",
     nodes,
     edges: deriveOrchestrationEdges(nodes),
-    events: initialEvents
+    events: []
   };
 }
 

@@ -10,7 +10,7 @@ from runtime.shared.models import AgentRun, TaskRun
 from .model_action_protocol import ModelActionRequest
 
 
-TaskLifecycleStatus = Literal["created", "admitted", "running", "waiting_executor", "completed", "failed", "blocked"]
+TaskLifecycleStatus = Literal["created", "admitted", "running", "waiting_executor", "waiting_approval", "completed", "failed", "blocked"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -237,25 +237,55 @@ def finish_task_lifecycle(
     return updated_task, updated_lifecycle, event.to_dict()
 
 
-def wait_task_lifecycle_executor(
+def task_launch_supervision_policy(runtime_assembly: Any) -> dict[str, Any]:
+    payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
+    profile = dict(payload.get("profile") or {})
+    lifecycle = dict(profile.get("task_lifecycle_policy") or {})
+    supervision = lifecycle.get("task_launch_supervision", lifecycle.get("launch_supervision"))
+    if isinstance(supervision, dict):
+        return _normalize_task_launch_supervision_policy(supervision, default_enabled=True)
+    if supervision is True:
+        return _normalize_task_launch_supervision_policy({}, default_enabled=True)
+    return _normalize_task_launch_supervision_policy({}, default_enabled=False)
+
+
+def requires_task_launch_supervision(policy: dict[str, Any]) -> bool:
+    return bool(policy.get("enabled", False))
+
+
+def wait_task_launch_supervision(
     runtime_host: Any,
     *,
     task_run: TaskRun,
     lifecycle: TaskLifecycleRecord,
-    reason: str,
+    gate_policy: dict[str, Any],
 ) -> tuple[TaskRun, TaskLifecycleRecord, dict[str, Any]]:
     now = time.time()
+    gate_state = {
+        "status": "pending",
+        "gate_type": str(gate_policy.get("gate_type") or "task_launch_supervision"),
+        "mode": "supervision",
+        "task_run_id": task_run.task_run_id,
+        "created_at": now,
+        "user_prompt": str(gate_policy.get("user_prompt") or "任务已准备启动。你可以提出建议，或直接通过。"),
+        "allow_direct_pass": bool(gate_policy.get("allow_direct_pass", True)),
+        "authority": "agent_runtime_profile.task_launch_supervision",
+    }
     updated_task = replace(
         task_run,
-        status="waiting_executor",
+        status="waiting_approval",
         updated_at=now,
-        terminal_reason="waiting_executor",
+        terminal_reason="task_launch_supervision",
+        diagnostics={
+            **dict(task_run.diagnostics or {}),
+            "pending_launch_gate": gate_state,
+        },
     )
     updated_lifecycle = replace(
         lifecycle,
-        status="waiting_executor",
+        status="waiting_approval",
         updated_at=now,
-        terminal_reason=reason,
+        terminal_reason="task_launch_supervision",
     )
     runtime_host.state_index.upsert_task_run(updated_task)
     lifecycle_ref = runtime_host.runtime_objects.put_object(
@@ -265,15 +295,31 @@ def wait_task_lifecycle_executor(
     )
     event = runtime_host.event_log.append(
         task_run.task_run_id,
-        "task_run_lifecycle_waiting_executor",
+        "task_launch_supervision_waiting",
         payload={
             "task_run": updated_task.to_dict(),
             "lifecycle": updated_lifecycle.to_dict(),
-            "reason": reason,
+            "gate": gate_state,
         },
         refs={"task_lifecycle_ref": lifecycle_ref},
     )
     return updated_task, updated_lifecycle, event.to_dict()
+
+
+def _normalize_task_launch_supervision_policy(policy: dict[str, Any], *, default_enabled: bool) -> dict[str, Any]:
+    enabled = bool(policy.get("enabled", default_enabled))
+    return {
+        **dict(policy or {}),
+        "enabled": enabled,
+        "mode": "supervision" if enabled else "auto",
+        "gate_type": str(policy.get("gate_type") or "task_launch_supervision"),
+        "allow_direct_pass": bool(policy.get("allow_direct_pass", True)),
+        "user_prompt": str(
+            policy.get("user_prompt")
+            or "任务已准备启动。你可以提出建议，或直接通过。"
+        ),
+        "authority": "agent_runtime_profile.task_lifecycle_policy",
+    }
 
 
 def _first_text(*values: Any) -> str:

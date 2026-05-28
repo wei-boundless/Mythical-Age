@@ -121,10 +121,10 @@ def test_send_command_uses_selected_session_and_stream_client(tmp_path: Path) ->
         api_base = "http://127.0.0.1:8003/api"
 
         def __init__(self) -> None:
-            self.calls: list[tuple[str, str]] = []
+            self.calls: list[tuple[str, str, dict[str, object] | None]] = []
 
         def stream_chat(self, *, session_id: str, message: str, extra_payload=None):
-            self.calls.append((session_id, message))
+            self.calls.append((session_id, message, extra_payload))
             yield SimpleNamespace(event="content_delta", data={"content": "ok"})
             yield SimpleNamespace(event="done", data={"content": ""})
 
@@ -136,8 +136,34 @@ def test_send_command_uses_selected_session_and_stream_client(tmp_path: Path) ->
     code = run_command(args, client=client, store=store, stdout=stdout, stderr=stderr)  # type: ignore[arg-type]
 
     assert code == 0
-    assert client.calls == [("session-cli", "hello cli")]
+    assert client.calls == [("session-cli", "hello cli", {})]
     assert stdout.getvalue() == "ok\n"
+
+
+def test_send_command_forwards_runtime_mode_and_soul_id(tmp_path: Path) -> None:
+    state_path = tmp_path / "state.json"
+    store = CliStateStore(state_path)
+    store.update(api_base="http://127.0.0.1:8003/api", selected_session_id="session-cli")
+
+    class FakeClient:
+        api_base = "http://127.0.0.1:8003/api"
+
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str, dict[str, object] | None]] = []
+
+        def stream_chat(self, *, session_id: str, message: str, extra_payload=None):
+            self.calls.append((session_id, message, extra_payload))
+            yield SimpleNamespace(event="done", data={"content": ""})
+
+    client = FakeClient()
+    args = build_parser().parse_args(["send", "--runtime-mode", "role", "--soul-id", "hebo", "hello"])
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+
+    code = run_command(args, client=client, store=store, stdout=stdout, stderr=stderr)  # type: ignore[arg-type]
+
+    assert code == 0
+    assert client.calls == [("session-cli", "hello", {"runtime_mode": "role", "soul_id": "hebo"})]
 
 
 def test_interactive_mode_sends_plain_text_and_exits(tmp_path: Path) -> None:
@@ -149,10 +175,10 @@ def test_interactive_mode_sends_plain_text_and_exits(tmp_path: Path) -> None:
         api_base = "http://127.0.0.1:8003/api"
 
         def __init__(self) -> None:
-            self.calls: list[tuple[str, str]] = []
+            self.calls: list[tuple[str, str, dict[str, object] | None]] = []
 
         def stream_chat(self, *, session_id: str, message: str, extra_payload=None):
-            self.calls.append((session_id, message))
+            self.calls.append((session_id, message, extra_payload))
             yield SimpleNamespace(event="content_delta", data={"content": "收到"})
             yield SimpleNamespace(event="done", data={"content": ""})
 
@@ -170,7 +196,7 @@ def test_interactive_mode_sends_plain_text_and_exits(tmp_path: Path) -> None:
     )
 
     assert code == 0
-    assert client.calls == [("session-cli", "你好")]
+    assert client.calls == [("session-cli", "你好", None)]
     assert "Backend CLI session: session-cli" in stdout.getvalue()
     assert "收到" in stdout.getvalue()
     assert "bye" in stdout.getvalue()

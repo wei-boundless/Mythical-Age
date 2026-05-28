@@ -4,29 +4,24 @@ import {
   ChevronDown,
   ChevronRight,
   CircleDot,
-  Code2,
   File,
-  FileCode2,
   Folder,
   FolderOpen,
-  Globe2,
   MessageSquare,
   PanelRightClose,
   PanelRightOpen,
-  MonitorDot,
   Plus,
   RefreshCw,
   Save,
   Trash2,
 } from "lucide-react";
-import { useEffect, useMemo, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { useEffect, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 
 import { TaskMonitorDock } from "@/components/layout/TaskMonitorDock";
-import { CodeEnvironmentView } from "@/components/workspace/views/CodeEnvironmentView";
 import type { CodeEnvironmentTreeNode } from "@/lib/api";
 import { useAppStore } from "@/lib/store";
 
-type RightPanel = "monitor" | "coding" | "browser" | "details";
+type CenterPanel = "chat" | "file";
 
 const LEFT_WIDTH_KEY = "agentWorkbench.leftWidth";
 const RIGHT_WIDTH_KEY = "agentWorkbench.rightWidth";
@@ -108,17 +103,35 @@ function ResizeHandle({
   );
 }
 
-function WorkbenchProjectTreeNode({ node }: { node: CodeEnvironmentTreeNode }) {
+function WorkbenchProjectTreeNode({
+  activePath,
+  node,
+  onOpenFile,
+}: {
+  activePath: string;
+  node: CodeEnvironmentTreeNode;
+  onOpenFile: (path: string) => void;
+}) {
   const directory = node.kind === "directory";
   const [expanded, setExpanded] = useState(false);
   const hasChildren = directory && node.children.length > 0;
+  const selected = !directory && node.path === activePath;
   return (
     <li>
       <button
         aria-expanded={hasChildren ? expanded : undefined}
-        className={directory ? "workbench-project-tree-row workbench-project-tree-row--directory" : "workbench-project-tree-row"}
+        aria-current={selected ? "true" : undefined}
+        className={[
+          "workbench-project-tree-row",
+          directory ? "workbench-project-tree-row--directory" : "",
+          selected ? "workbench-project-tree-row--active" : "",
+        ].filter(Boolean).join(" ")}
         onClick={() => {
-          if (hasChildren) setExpanded((value) => !value);
+          if (directory) {
+            if (hasChildren) setExpanded((value) => !value);
+            return;
+          }
+          if (node.path) onOpenFile(node.path);
         }}
         style={{ "--tree-depth": node.depth } as CSSProperties}
         title={node.path || node.name}
@@ -132,7 +145,12 @@ function WorkbenchProjectTreeNode({ node }: { node: CodeEnvironmentTreeNode }) {
       {hasChildren && expanded ? (
         <ul>
           {node.children.map((child) => (
-            <WorkbenchProjectTreeNode key={`${child.kind}:${child.path}`} node={child} />
+            <WorkbenchProjectTreeNode
+              activePath={activePath}
+              key={`${child.kind}:${child.path}`}
+              node={child}
+              onOpenFile={onOpenFile}
+            />
           ))}
         </ul>
       ) : null}
@@ -140,10 +158,11 @@ function WorkbenchProjectTreeNode({ node }: { node: CodeEnvironmentTreeNode }) {
   );
 }
 
-function WorkspaceManagerPanel() {
+function WorkspaceManagerPanel({ onOpenFile }: { onOpenFile: (path: string) => void }) {
   const {
     currentSessionId,
     inspectorDirty,
+    inspectorPath,
     sessions,
     createNewSession,
     refreshWorkspaceTree,
@@ -205,7 +224,12 @@ function WorkspaceManagerPanel() {
             {projectTreeNodes.length ? (
               <ul className="workbench-project-tree">
                 {projectTreeNodes.map((node) => (
-                  <WorkbenchProjectTreeNode key={`${node.kind}:${node.path}`} node={node} />
+                  <WorkbenchProjectTreeNode
+                    activePath={inspectorPath}
+                    key={`${node.kind}:${node.path}`}
+                    node={node}
+                    onOpenFile={onOpenFile}
+                  />
                 ))}
               </ul>
             ) : null}
@@ -250,9 +274,13 @@ function WorkspaceManagerPanel() {
 }
 
 function MainToolbar({
+  centerPanel,
+  onReturnToChat,
   onToggleRightPanel,
   rightPanelCollapsed,
 }: {
+  centerPanel: CenterPanel;
+  onReturnToChat: () => void;
   onToggleRightPanel: () => void;
   rightPanelCollapsed: boolean;
 }) {
@@ -264,7 +292,7 @@ function MainToolbar({
     saveInspector,
     sessionActivity,
   } = useAppStore();
-  const title = "会话";
+  const title = centerPanel === "file" ? "文件" : "会话";
   const streaming = Boolean(currentSessionId && activeStreamSessionIds.includes(currentSessionId));
   const activityLabel = streaming
     ? sessionActivity.title || sessionActivity.detail || sessionActivity.event || "执行中"
@@ -283,6 +311,9 @@ function MainToolbar({
         <span>{activityLabel}</span>
       </div>
       <div className="workbench-toolbar-actions">
+        {centerPanel === "file" ? (
+          <button onClick={onReturnToChat} type="button">返回会话</button>
+        ) : null}
         <button
           aria-label={rightPanelCollapsed ? "打开辅助栏" : "收起辅助栏"}
           className="workbench-toolbar-icon-button"
@@ -298,93 +329,53 @@ function MainToolbar({
   );
 }
 
-function BrowserPanel() {
-  const [draft, setDraft] = useState("http://localhost:3000/");
-  const [url, setUrl] = useState("http://localhost:3000/");
-  const normalizedUrl = useMemo(() => {
-    const value = draft.trim();
-    if (!value) return "";
-    if (/^https?:\/\//i.test(value)) return value;
-    return `https://${value}`;
-  }, [draft]);
-
-  return (
-    <section className="workbench-browser-panel" aria-label="网页预览">
-      <form
-        className="workbench-browser-bar"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (normalizedUrl) setUrl(normalizedUrl);
-        }}
-      >
-        <Globe2 size={15} />
-        <input onChange={(event) => setDraft(event.target.value)} value={draft} />
-        <button type="submit">打开</button>
-      </form>
-      <iframe className="workbench-browser-frame" src={url} title="网页预览" />
-    </section>
-  );
-}
-
-function FileInspectorPanel() {
+function CenterFilePage({ onReturnToChat }: { onReturnToChat: () => void }) {
   const { inspectorContent, inspectorDirty, inspectorPath, saveInspector, updateInspectorContent } = useAppStore();
+  const [editing, setEditing] = useState(false);
   return (
-    <section className="workbench-file-inspector" aria-label="文件编辑器">
+    <section className="workbench-file-page" aria-label="文件查看">
       <header>
         <div>
           <strong>{compactFileName(inspectorPath)}</strong>
           <span>{inspectorPath}</span>
         </div>
-        <button disabled={!inspectorDirty} onClick={() => void saveInspector()} type="button">保存</button>
+        <div className="workbench-file-page__actions">
+          <button onClick={onReturnToChat} type="button">返回会话</button>
+          {editing ? (
+            <button disabled={!inspectorDirty} onClick={() => void saveInspector().then(() => setEditing(false))} type="button">保存</button>
+          ) : (
+            <button onClick={() => setEditing(true)} type="button">编辑</button>
+          )}
+        </div>
       </header>
-      <textarea value={inspectorContent} onChange={(event) => updateInspectorContent(event.target.value)} spellCheck={false} />
+      {editing ? (
+        <textarea value={inspectorContent} onChange={(event) => updateInspectorContent(event.target.value)} spellCheck={false} />
+      ) : (
+        <pre>{inspectorContent || "文件为空。"}</pre>
+      )}
     </section>
   );
 }
 
-function RightToolPanel({
-  activePanel,
-  onPanelChange,
-}: {
-  activePanel: RightPanel;
-  onPanelChange: (panel: RightPanel) => void;
-}) {
+function RightToolPanel() {
   return (
     <aside className="workbench-right-panel" aria-label="辅助面板">
       <header className="workbench-panel-head workbench-panel-head--right">
         <div>
-          <strong>辅助</strong>
-          <span>监控 / 网页 / 文件</span>
+          <strong>监控</strong>
         </div>
       </header>
-      <div className="workbench-right-tabs" aria-label="右栏工具">
-        <button className={activePanel === "monitor" ? "is-active" : ""} onClick={() => onPanelChange("monitor")} type="button">
-          <MonitorDot size={14} />监控
-        </button>
-        <button className={activePanel === "coding" ? "is-active" : ""} onClick={() => onPanelChange("coding")} type="button">
-          <Code2 size={14} />Coding
-        </button>
-        <button className={activePanel === "browser" ? "is-active" : ""} onClick={() => onPanelChange("browser")} type="button">
-          <Globe2 size={14} />网页
-        </button>
-        <button className={activePanel === "details" ? "is-active" : ""} onClick={() => onPanelChange("details")} type="button">
-          <FileCode2 size={14} />文件
-        </button>
-      </div>
       <div className="workbench-right-body">
-        {activePanel === "monitor" ? <TaskMonitorDock embedded /> : null}
-        {activePanel === "coding" ? <CodeEnvironmentView embedded /> : null}
-        {activePanel === "browser" ? <BrowserPanel /> : null}
-        {activePanel === "details" ? <FileInspectorPanel /> : null}
+        <TaskMonitorDock embedded />
       </div>
     </aside>
   );
 }
 
 export function WorkbenchShell({ children }: { children: ReactNode }) {
-  const { inspectorWidth, setInspectorWidth, setSidebarWidth, sidebarWidth } = useAppStore();
-  const [rightPanel, setRightPanel] = useState<RightPanel>("monitor");
+  const { inspectorWidth, loadInspectorFile, setInspectorWidth, setSidebarWidth, sidebarWidth } = useAppStore();
   const [rightCollapsed, setRightCollapsed] = useState(false);
+  const [centerPanel, setCenterPanel] = useState<CenterPanel>("chat");
   usePersistedWorkbenchWidths();
 
   const effectiveLeftWidth = clamp(sidebarWidth, 220, 420);
@@ -397,22 +388,28 @@ export function WorkbenchShell({ children }: { children: ReactNode }) {
         gridTemplateColumns: `${effectiveLeftWidth}px 8px minmax(0, 1fr) ${rightCollapsed ? "0px 0px" : `8px ${effectiveRightWidth}px`}`,
       }}
     >
-      <WorkspaceManagerPanel />
+      <WorkspaceManagerPanel
+        onOpenFile={(path) => {
+          void loadInspectorFile(path).then(() => setCenterPanel("file"));
+        }}
+      />
       <ResizeHandle label="调整左栏宽度" onResize={(delta) => setSidebarWidth(clamp(sidebarWidth + delta, 220, 420))} side="left" />
       <section className="workbench-center" aria-label="主工作区">
-        <MainToolbar onToggleRightPanel={() => setRightCollapsed((value) => !value)} rightPanelCollapsed={rightCollapsed} />
+        <MainToolbar
+          centerPanel={centerPanel}
+          onReturnToChat={() => setCenterPanel("chat")}
+          onToggleRightPanel={() => setRightCollapsed((value) => !value)}
+          rightPanelCollapsed={rightCollapsed}
+        />
         <div className="workbench-center-content">
-          {children}
+          {centerPanel === "file" ? <CenterFilePage onReturnToChat={() => setCenterPanel("chat")} /> : children}
         </div>
       </section>
       {rightCollapsed ? null : (
         <ResizeHandle label="调整右栏宽度" onResize={(delta) => setInspectorWidth(clamp(inspectorWidth + delta, 300, 560))} side="right" />
       )}
       {rightCollapsed ? null : (
-        <RightToolPanel
-          activePanel={rightPanel}
-          onPanelChange={setRightPanel}
-        />
+        <RightToolPanel />
       )}
     </main>
   );

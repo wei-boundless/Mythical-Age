@@ -1,17 +1,18 @@
 from __future__ import annotations
 
 from pathlib import Path
+import time
 from typing import Any, Callable
 
 from capability_system import build_default_operation_registry
 from capability_system.tool_authorization import ToolAuthorizationIndex, build_tool_authorization_index
 from permissions import OperationGate
 from project_layout import ProjectLayout
+from harness.runtime.monitor_projection import TaskRunMonitorProjector
 from runtime.memory.state_index import RuntimeStateIndex
 from runtime.shared.event_log import RuntimeEventLog
 from runtime.shared.execution_record import RuntimeExecutionStore
 from runtime.shared.runtime_object_store import RuntimeObjectStore
-
 
 class SingleAgentRuntimeHost:
     """Minimal service host for the rebuilt single-agent mainline.
@@ -40,6 +41,7 @@ class SingleAgentRuntimeHost:
         self.tool_authorization_index = tool_authorization_index or build_tool_authorization_index(
             tuple(tool_definitions or ())
         )
+        self.monitor_projector = TaskRunMonitorProjector(self.event_log)
 
     def _current_permission_mode(self) -> str:
         provider = self.permission_mode_provider
@@ -66,23 +68,8 @@ class SingleAgentRuntimeHost:
         }
 
     def list_global_live_monitor(self, limit: int = 20) -> dict[str, Any]:
-        requested_limit = max(1, min(int(limit or 20), 100))
-        task_runs = sorted(
-            self.state_index.list_task_runs(),
-            key=lambda item: item.updated_at,
-            reverse=True,
-        )[:requested_limit]
-        return {
-            "authority": "single_agent_runtime_host.global_live_monitor",
-            "summary": {
-                "total": len(task_runs),
-                "running": sum(1 for item in task_runs if item.status == "running"),
-                "waiting": sum(1 for item in task_runs if item.status in {"waiting_executor", "waiting_approval", "blocked"}),
-                "completed": sum(1 for item in task_runs if item.status == "completed"),
-                "failed": sum(1 for item in task_runs if item.status in {"failed", "aborted"}),
-            },
-            "task_runs": [self._task_run_live_summary(item) for item in task_runs],
-        }
+        now = time.time()
+        return self.monitor_projector.build_global_monitor(self.state_index.list_task_runs(), now=now, limit=limit)
 
     def get_session_live_monitor(self, session_id: str) -> dict[str, Any]:
         task_runs = sorted(
@@ -90,20 +77,14 @@ class SingleAgentRuntimeHost:
             key=lambda item: item.updated_at,
             reverse=True,
         )
-        active = [item for item in task_runs if item.status in {"created", "running", "waiting_executor", "waiting_approval", "blocked"}]
-        latest = active[0] if active else (task_runs[0] if task_runs else None)
-        return {
-            "session_id": session_id,
-            "active_task_run_id": latest.task_run_id if latest is not None else "",
-            "task_runs": [self._task_run_live_summary(item) for item in task_runs[:20]],
-            "authority": "single_agent_runtime_host.session_live_monitor",
-        }
+        now = time.time()
+        return self.monitor_projector.build_session_monitor(session_id, task_runs, now=now)
 
     def get_task_run_live_monitor(self, task_run_id: str) -> dict[str, Any] | None:
         task_run = self.state_index.get_task_run(task_run_id)
         if task_run is None:
             return None
-        return self._task_run_live_summary(task_run)
+        return self.monitor_projector.project_task_run(task_run, now=time.time())
 
     def get_trace(
         self,
@@ -132,10 +113,18 @@ class SingleAgentRuntimeHost:
         }
 
     def get_task_run_artifacts(self, task_run_id: str) -> dict[str, Any]:
+        task_run = self.state_index.get_task_run(task_run_id)
+        raw_refs: list[Any] = []
+        if task_run is not None:
+            raw_refs.extend(list(dict(task_run.diagnostics or {}).get("artifact_refs") or []))
+        for result in self.state_index.list_task_agent_run_results(task_run_id):
+            raw_refs.extend(list(result.artifact_refs or ()))
+            raw_refs.extend(list(dict(result.diagnostics or {}).get("artifact_refs") or []))
+        artifacts = _existing_artifact_refs(raw_refs, project_root=ProjectLayout.from_backend_dir(self.backend_dir).project_root)
         return {
             "task_run_id": task_run_id,
-            "artifact_refs": [],
-            "created_files": [],
+            "artifact_refs": artifacts,
+            "created_files": [item["path"] for item in artifacts],
             "authority": "single_agent_runtime_host.task_run_artifacts",
         }
 
@@ -171,18 +160,6 @@ class SingleAgentRuntimeHost:
             "latest_event_offset": task_run.latest_event_offset,
         }
 
-    def _task_run_live_summary(self, task_run: Any) -> dict[str, Any]:
-        events = self.event_log.list_events(task_run.task_run_id)
-        latest_event = events[-1].to_dict() if events else {}
-        return {
-            **self._task_run_summary(task_run),
-            "is_live": task_run.status in {"created", "running", "waiting_executor", "waiting_approval", "blocked"},
-            "event_count": len(events),
-            "latest_event": latest_event,
-            "authority": "single_agent_runtime_host.task_run_live_summary",
-        }
-
-
 def _redact_payload(payload: dict[str, Any], *, include_model_messages: bool) -> dict[str, Any]:
     if include_model_messages:
         return payload
@@ -194,3 +171,27 @@ def _redact_payload(payload: dict[str, Any], *, include_model_messages: bool) ->
     if isinstance(packet, dict) and "model_messages" in packet:
         redacted["packet"] = {**packet, "model_messages": "[redacted]"}
     return redacted
+
+
+def _existing_artifact_refs(values: list[Any], *, project_root: Path) -> list[dict[str, Any]]:
+    root = Path(project_root).resolve()
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for value in values:
+        ref = dict(value) if isinstance(value, dict) else {"path": str(value or "")}
+        path_text = str(ref.get("absolute_path") or ref.get("path") or ref.get("src") or "").strip()
+        if not path_text:
+            continue
+        candidate = Path(path_text)
+        resolved = candidate.resolve() if candidate.is_absolute() else (root / path_text).resolve()
+        if not _inside(resolved, root) or not resolved.exists() or not resolved.is_file():
+            continue
+        rel = resolved.relative_to(root).as_posix()
+        if rel in seen:
+            continue
+        seen.add(rel)
+        result.append({**ref, "path": rel, "absolute_path": str(resolved), "exists": True, "size_bytes": resolved.stat().st_size})
+    return result
+
+def _inside(path: Path, root: Path) -> bool:
+    return path == root or root in path.parents

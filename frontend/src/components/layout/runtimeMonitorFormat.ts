@@ -1,9 +1,10 @@
 import type { GlobalRuntimeMonitorItem } from "@/lib/api";
 
-const WAITING_STATUSES = new Set(["waiting_approval", "blocked"]);
+const WAITING_STATUSES = new Set(["waiting_executor", "waiting_approval", "blocked"]);
 
 export function statusLabel(status: string) {
   if (status === "running" || status === "created") return "进行中";
+  if (status === "waiting_executor") return "等待执行器";
   if (status === "waiting_approval") return "等待审批";
   if (status === "blocked") return "受阻";
   if (status === "completed" || status === "success") return "已完成";
@@ -13,8 +14,7 @@ export function statusLabel(status: string) {
 }
 
 export function monitorStatusLabel(item: GlobalRuntimeMonitorItem) {
-  if (item.display_bucket === "stale") return "停滞";
-  if (item.display_bucket === "recent" && (item.status === "completed" || item.status === "success")) return "刚完成";
+  if (item.bucket === "diagnostics" || item.lifecycle === "stale" || item.stale) return "需诊断";
   return statusLabel(item.status);
 }
 
@@ -36,23 +36,52 @@ export function formatTime(timestamp: number) {
 export function monitorTimeLabel(item: GlobalRuntimeMonitorItem, nowSeconds?: number) {
   const now = Number.isFinite(nowSeconds) ? Number(nowSeconds) : 0;
   const createdAt = Number(item.created_at || 0);
+  const startedAt = Number(item.started_at || createdAt || 0);
   const lastActivityAt = Number(item.last_activity_at || item.latest_event_at || item.updated_at || 0);
-  const fallbackRuntime = Number(item.runtime_seconds ?? item.elapsed_seconds ?? 0);
-  const liveDuration = now && createdAt ? Math.max(fallbackRuntime, now - createdAt) : fallbackRuntime;
+  const fallbackRuntime = Number(item.duration_seconds ?? item.runtime_seconds ?? item.elapsed_seconds ?? 0);
+  const dynamic = item.resource_class === "dynamic" || Boolean(item.is_live);
+  const live = dynamic && (item.bucket === "running" || item.display_bucket === "running" || item.display_bucket === "live" || item.is_live);
+  const liveDuration = live && now && startedAt ? Math.max(fallbackRuntime, now - startedAt) : fallbackRuntime;
   const staleAge = now && lastActivityAt
     ? Math.max(Number(item.last_activity_age_seconds ?? 0), now - lastActivityAt)
     : Number(item.last_activity_age_seconds ?? 0);
   const duration = formatDuration(liveDuration);
-  if (item.display_bucket === "live" || item.is_live) return `运行 ${duration}`;
-  if (item.display_bucket === "stale") return `停滞 ${formatDuration(staleAge)}`;
-  if (item.display_bucket === "recent") return `耗时 ${duration}`;
-  return `结束 ${formatTime(item.last_activity_at || item.updated_at)}`;
+  if (live) return `运行 ${duration}`;
+  if (item.bucket === "diagnostics" || item.lifecycle === "stale" || item.stale) return `停滞 ${formatDuration(staleAge)}`;
+  if (item.bucket === "completed" || item.bucket === "failed" || item.display_bucket === "completed" || item.display_bucket === "failed" || item.display_bucket === "recent") return `耗时 ${duration}`;
+  return `结束 ${formatTime(Number(item.last_activity_at || item.updated_at || 0))}`;
 }
 
 export function taskTitle(item: GlobalRuntimeMonitorItem) {
-  return item.project_title || item.title || item.task_id || item.task_run_id;
+  return publicTitle(item.project_title) || publicTitle(item.title) || fallbackTitle(item);
 }
 
 export function isWaitingStatus(status: string) {
   return WAITING_STATUSES.has(status);
+}
+
+function publicTitle(value: unknown) {
+  const candidate = String(value ?? "").trim();
+  if (!candidate) return "";
+  const lowered = candidate.toLowerCase();
+  if (
+    lowered.startsWith("task:")
+    || lowered.startsWith("taskrun:")
+    || lowered.startsWith("turn:")
+    || lowered.startsWith("turnrun:")
+    || lowered.startsWith("session:")
+    || lowered.startsWith("taskinst:")
+    || lowered.startsWith("coordrun:")
+  ) {
+    return "";
+  }
+  return candidate;
+}
+
+function fallbackTitle(item: GlobalRuntimeMonitorItem) {
+  if (item.bucket === "completed" || item.display_bucket === "completed" || item.status === "completed" || item.status === "success") return "会话任务已完成";
+  if (item.bucket === "failed" || item.display_bucket === "failed" || item.status === "failed" || item.status === "aborted" || item.status === "cancelled") return "会话任务失败";
+  if (item.bucket === "diagnostics" || item.lifecycle === "stale" || item.stale) return "运行状态需诊断";
+  if (item.status === "waiting_executor" || item.status === "waiting_approval") return "会话任务等待处理";
+  return "会话任务运行中";
 }

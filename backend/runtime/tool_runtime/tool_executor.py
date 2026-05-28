@@ -52,10 +52,12 @@ class ToolRuntimeExecutor:
         runtime_tool = build_native_runtime_tool(capability_definition=definition)
         if runtime_tool is None:
             sandbox_context = self.sandbox_backend.context_for_tool(tool_name=tool_name, sandbox_policy=sandbox_policy)
-            tool = (
-                definition.build(self.sandbox_backend.execution_root(sandbox_context))
-                if sandbox_context
-                else self.tool_runtime.get_instance(tool_name)
+            tool = _capability_tool_instance(
+                tool_runtime=self.tool_runtime,
+                sandbox_backend=self.sandbox_backend,
+                definition=definition,
+                tool_name=tool_name,
+                sandbox_context=sandbox_context,
             )
             if tool is None:
                 return {"allowed": True}
@@ -231,10 +233,12 @@ class ToolRuntimeExecutor:
                     "execution_record": current_record,
                     "error": error,
                 }
-            tool = (
-                definition.build(self.sandbox_backend.execution_root(sandbox_context))
-                if sandbox_context
-                else self.tool_runtime.get_instance(tool_name)
+            tool = _capability_tool_instance(
+                tool_runtime=self.tool_runtime,
+                sandbox_backend=self.sandbox_backend,
+                definition=definition,
+                tool_name=tool_name,
+                sandbox_context=sandbox_context,
             )
             if tool is not None:
                 runtime_tool = RuntimeToolAdapter.from_capability_definition(
@@ -578,6 +582,25 @@ def _required_inputs_from_definition(definition: Any) -> list[str]:
     else:
         values = list(getattr(contract, "required_inputs", ()) or [])
     return [str(item).strip() for item in values if str(item).strip()]
+
+
+def _capability_tool_instance(
+    *,
+    tool_runtime: Any,
+    sandbox_backend: LocalOverlaySandboxBackend,
+    definition: Any,
+    tool_name: str,
+    sandbox_context: Any | None,
+) -> Any | None:
+    if not sandbox_context:
+        return tool_runtime.get_instance(tool_name)
+    if _uses_system_backend_root(tool_name):
+        return tool_runtime.get_instance(tool_name) or definition.build(Path(getattr(tool_runtime, "base_dir", ".")).resolve())
+    return definition.build(sandbox_backend.execution_root(sandbox_context))
+
+
+def _uses_system_backend_root(tool_name: str) -> bool:
+    return str(tool_name or "").strip() in {"image_generate"}
 
 
 def _agent_run_id_from_policy(policy: dict[str, Any], task_run_id: str) -> str:

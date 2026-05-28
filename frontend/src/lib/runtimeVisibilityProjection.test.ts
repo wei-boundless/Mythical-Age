@@ -3,6 +3,22 @@ import { describe, expect, it } from "vitest";
 import { projectRuntimeStreamEvent } from "./runtimeVisibilityProjection";
 
 describe("runtimeVisibilityProjection", () => {
+  it("filters internal runtime step summaries out of user-visible progress", () => {
+    for (const step of [
+      "turn_started",
+      "runtime_packet_compiled",
+      "model_action_received",
+      "action_admission_checked",
+      "bounded_observation_recorded",
+    ]) {
+      expect(projectRuntimeStreamEvent("runtime_step_summary", {
+        step,
+        status: "running",
+        summary: `internal ${step}`,
+      })).toEqual({});
+    }
+  });
+
   it("keeps permission gate diagnostics out of the user-visible task flow", () => {
     const projection = projectRuntimeStreamEvent("harness_loop_event", {
       event: {

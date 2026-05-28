@@ -61,6 +61,35 @@ class AgentCliClient:
             raise AgentCliClientError("Backend returned an invalid monitor payload.")
         return dict(payload)
 
+    def get_task_run_monitor(self, task_run_id: str) -> dict[str, Any]:
+        payload = self._json_request(
+            "GET",
+            f"/orchestration/harness/task-runs/{_quote_path(task_run_id)}/live-monitor",
+        )
+        if not isinstance(payload, dict):
+            raise AgentCliClientError("Backend returned an invalid TaskRun monitor payload.")
+        return dict(payload)
+
+    def get_task_run_trace(self, task_run_id: str, *, include_payloads: bool = False) -> dict[str, Any]:
+        suffix = "?include_payloads=true" if include_payloads else ""
+        payload = self._json_request(
+            "GET",
+            f"/orchestration/harness/task-runs/{_quote_path(task_run_id)}{suffix}",
+        )
+        if not isinstance(payload, dict):
+            raise AgentCliClientError("Backend returned an invalid TaskRun trace payload.")
+        return dict(payload)
+
+    def execute_task_run(self, task_run_id: str, *, max_steps: int = 12) -> dict[str, Any]:
+        payload = self._json_request(
+            "POST",
+            f"/orchestration/harness/task-runs/{_quote_path(task_run_id)}/execute",
+            {"max_steps": max_steps},
+        )
+        if not isinstance(payload, dict):
+            raise AgentCliClientError("Backend returned an invalid task execution payload.")
+        return dict(payload)
+
     def get_config(self) -> dict[str, Any]:
         return {"api_base": self.api_base}
 

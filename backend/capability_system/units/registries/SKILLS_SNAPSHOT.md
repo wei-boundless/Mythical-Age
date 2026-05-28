@@ -149,4 +149,8 @@
 - 如果字段名不直观，要把计算口径翻译成业务语言再给出。
 - 如果用户只要一个答案，就别把完整表格铺满；保留最相关的几项和可核对的口径即可。</output_rule>
   </skill>
+  <skill name="视觉资产生成">
+    <description>在任务合同或用户请求需要真实图片交付物时，指导 agent 调用 image_generate 生成可验收的视觉资产，并把工具返回的真实路径作为交付证据。</description>
+    <output_rule>Directly answer the user-facing task. Do not describe internal tool calls, routing policy, or protocol.</output_rule>
+  </skill>
 </skills>

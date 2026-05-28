@@ -84,8 +84,6 @@ def build_tool_capability_table(
     tools = list(tool_definitions or get_tool_definitions())
     by_operation = {registry.normalize_id(tool.operation_id): tool for tool in tools}
 
-    env_allowed = {registry.normalize_id(item) for item in request.environment.tool_space.allowed_operation_market}
-    env_denied = {registry.normalize_id(item) for item in request.environment.tool_space.denied_operation_refs}
     task_required = {registry.normalize_id(item) for item in request.task_required_operations}
     task_optional = {registry.normalize_id(item) for item in request.task_optional_operations}
     task_denied = {registry.normalize_id(item) for item in request.task_denied_operations}
@@ -103,12 +101,6 @@ def build_tool_capability_table(
     for operation_id in sorted(audit_requested):
         tool = by_operation.get(operation_id)
         tool_name = tool.name if tool is not None else ""
-        if operation_id in env_denied:
-            filtered.append(_issue(operation_id, tool_name, "filtered by task environment deny list", "task_environment"))
-            continue
-        if env_allowed and operation_id not in env_allowed:
-            filtered.append(_issue(operation_id, tool_name, "not in task environment tool market", "task_environment"))
-            continue
         if operation_id in task_denied:
             filtered.append(_issue(operation_id, tool_name, "filtered by specific task deny list", "specific_task"))
             continue

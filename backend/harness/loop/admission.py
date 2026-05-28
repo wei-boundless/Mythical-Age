@@ -47,6 +47,7 @@ def admit_model_action(
     permission_mode: str = "default",
     directive_ref: str = "",
     workspace_root: Any | None = None,
+    side_effect_tools_allowed: bool = False,
 ) -> AdmissionDecision:
     if action_request.action_type == "tool_call":
         tool_name = str(action_request.tool_call.get("tool_name") or action_request.tool_call.get("name") or "").strip()
@@ -74,7 +75,7 @@ def admit_model_action(
                 system_reason="tool_not_available",
                 resource_errors=(f"tool_not_available:{tool_name}",),
             )
-        if not bool(getattr(definition, "is_read_only", False)):
+        if not bool(getattr(definition, "is_read_only", False)) and not side_effect_tools_allowed:
             return AdmissionDecision(
                 admission_id=f"admission:{action_request.request_id}",
                 action_request_ref=action_request.request_id,
@@ -125,15 +126,6 @@ def admit_model_action(
                 "gate": gate_result.to_dict() if hasattr(gate_result, "to_dict") else None,
             },
             )
-    if action_request.action_type == "request_task_run" and not action_request.task_contract_seed:
-        return AdmissionDecision(
-            admission_id=f"admission:{action_request.request_id}",
-            action_request_ref=action_request.request_id,
-            decision="needs_contract",
-            user_visible_reason="需要先补充正式任务合同，才能开启长任务。",
-            system_reason="task_contract_seed_missing",
-            contract_errors=("task_contract_seed_missing",),
-        )
     if action_request.action_type == "request_task_run":
         task_lifecycle_policy = dict(dict(runtime_profile or {}).get("task_lifecycle_policy") or {})
         if task_lifecycle_policy.get("request_task_run") is False:

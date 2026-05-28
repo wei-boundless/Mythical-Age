@@ -1,6 +1,6 @@
 {
   "version": 3,
-  "skill_count": 6,
+  "skill_count": 7,
   "skills": [
     {
       "schema_version": 3,
@@ -795,6 +795,115 @@
         "delegation_protocol": "当主 Agent 委派给你时，应明确传入：\n\n- `delegation_kind=table_analysis`\n- `query`：当前用户真正要求的计算或汇总问题\n- `path` 或 `active_dataset`：目标数据集路径或句柄\n- 筛选、分组、排序、Top N、字段口径等约束\n- 如果是 follow-up，传入 `active_result_handle_id`、`active_subset_handle_id`、`followup_target_refs`\n- 如果用户说“这些人 / 这前五名 / 不要扩展回全表”，必须传入 `followup_constraint_policy=result_subset_only_do_not_expand_to_full_object`\n- `expected_output_contract`：要求回传 `summary`、`answer_candidate`、`evidence_refs`、`limitations`、`confidence`\n\n适合的主 Agent 指令风格：\n\n\n\n如果主 Agent 给你的输入里同时出现 PDF、报告页码或知识库检索要求，你应先判断是否被错派。核心问题是文档页级阅读时，应提示改派 `pdf-analysis`；核心问题是资料事实确认时，应提示改派 `rag-skill`。",
         "return_protocol": "你返回给主 Agent 的结果应包括：\n\n- `summary`：一句话说明计算结论。\n- `answer_candidate`：可直接收口的中文答案草稿。\n- `evidence_refs`：相关行、聚合结果、字段或结果句柄。\n- `limitations`：字段缺失、口径不明、数据不完整、只能基于子集等限制。\n- `consumed_handles`：实际使用的数据集、结果子集或结果句柄。\n- `produced_handles`：新生成的分析结果、聚合表或摘要句柄。",
         "output_rule": "- 先给结果，再补充筛选条件、分组逻辑或关键数字。\n- 如果问题有歧义，要指出歧义点，例如时间范围、字段口径、排序依据。\n- 对 Top N、极值、汇总类问题，尽量让结果可比、可核对。\n- 如果数据不完整、字段不明确或绑定数据集不对，要明确说明。\n- 组织结果时优先用“结论 / 口径 / 结果表 / 注意事项”四段式。\n- 如果字段名不直观，要把计算口径翻译成业务语言再给出。\n- 如果用户只要一个答案，就别把完整表格铺满；保留最相关的几项和可核对的口径即可。"
+      },
+      "validation_errors": []
+    },
+    {
+      "schema_version": 3,
+      "name": "visual-asset-generation",
+      "title": "视觉资产生成",
+      "description": "在任务合同或用户请求需要真实图片交付物时，指导 agent 调用 image_generate 生成可验收的视觉资产，并把工具返回的真实路径作为交付证据。",
+      "path": "capability_system/units/skills/visual-asset-generation/SKILL.md",
+      "supported_modalities": [
+        "image",
+        "visual",
+        "text"
+      ],
+      "supported_task_kinds": [
+        "image_generation",
+        "visual_asset",
+        "concept_art",
+        "character_asset",
+        "scene_asset"
+      ],
+      "supported_source_kinds": [
+        "user_prompt",
+        "task_contract"
+      ],
+      "capability_tags": [
+        "image_generation",
+        "artifact_delivery",
+        "visual_asset",
+        "creative_production"
+      ],
+      "preferred_route": "tool",
+      "forbidden_routes": [],
+      "routing_hints": [
+        "生成美术资源",
+        "生成视觉资产",
+        "概念图",
+        "场景图",
+        "角色立绘",
+        "封面图"
+      ],
+      "examples": [],
+      "activation_policy": "model_visible",
+      "context_mode": "inline",
+      "route_authority": "candidate_only",
+      "reference_paths": [],
+      "requires_operations": [
+        "op.image_generate"
+      ],
+      "requires_capabilities": [
+        "image_generate"
+      ],
+      "runtime": {
+        "name": "visual-asset-generation",
+        "title": "视觉资产生成",
+        "description": "在任务合同或用户请求需要真实图片交付物时，指导 agent 调用 image_generate 生成可验收的视觉资产，并把工具返回的真实路径作为交付证据。",
+        "path": "capability_system/units/skills/visual-asset-generation/SKILL.md",
+        "supported_modalities": [
+          "image",
+          "visual",
+          "text"
+        ],
+        "supported_task_kinds": [
+          "image_generation",
+          "visual_asset",
+          "concept_art",
+          "character_asset",
+          "scene_asset"
+        ],
+        "supported_source_kinds": [
+          "user_prompt",
+          "task_contract"
+        ],
+        "capability_tags": [
+          "image_generation",
+          "artifact_delivery",
+          "visual_asset",
+          "creative_production"
+        ],
+        "preferred_route": "tool",
+        "forbidden_routes": [],
+        "routing_hints": [
+          "生成美术资源",
+          "生成视觉资产",
+          "概念图",
+          "场景图",
+          "角色立绘",
+          "封面图"
+        ],
+        "examples": [],
+        "activation_policy": "model_visible",
+        "context_mode": "inline",
+        "route_authority": "candidate_only",
+        "reference_paths": [],
+        "requires_operations": [
+          "op.image_generate"
+        ],
+        "requires_capabilities": [
+          "image_generate"
+        ]
+      },
+      "prompt": {
+        "name": "visual-asset-generation",
+        "title": "视觉资产生成",
+        "capability": "在任务合同或用户请求需要真实图片交付物时，指导 agent 调用 image_generate 生成可验收的视觉资产，并把工具返回的真实路径作为交付证据。",
+        "use_when": "",
+        "delegation_protocol": "",
+        "return_protocol": "",
+        "output_rule": "Directly answer the user-facing task. Do not describe internal tool calls, routing policy, or protocol."
       },
       "validation_errors": []
     }

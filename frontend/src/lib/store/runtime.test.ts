@@ -224,6 +224,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
           project_title: "",
           project_runtime_status: null,
           has_coordination: false,
+          is_live: true,
         },
         {
           task_run_id: "taskrun:module",
@@ -246,6 +247,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
           project_title: "洪荒时代",
           project_runtime_status: null,
           has_coordination: true,
+          is_live: true,
         },
         {
           task_run_id: "taskrun:master",
@@ -268,6 +270,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
           project_title: "洪荒时代",
           project_runtime_status: null,
           has_coordination: true,
+          is_live: true,
         },
       ],
       updated_at: 1,
@@ -280,6 +283,125 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     runtimeHarness.selectGlobalRuntimeMonitorTaskRun("taskrun:module");
 
     expect(store.getState().globalRuntimeMonitorSelectedTaskRunId).toBe("");
+  });
+
+  it("opens a global monitor TaskGraph run in the task-system runtime page", () => {
+    const store = createStore(getDefaultState());
+    const runtime = new WorkspaceRuntime(store);
+    const runtimeHarness = runtime as unknown as {
+      applyGlobalRuntimeMonitorSnapshot: (monitor: {
+        authority: string;
+        summary: {
+          total: number;
+          running: number;
+          waiting: number;
+          completed: number;
+          failed: number;
+        };
+        task_runs: Array<Record<string, unknown>>;
+        updated_at: number;
+      }) => void;
+    };
+
+    runtimeHarness.applyGlobalRuntimeMonitorSnapshot({
+      authority: "runtime_live_monitor.global",
+      summary: { total: 1, running: 1, waiting: 0, completed: 0, failed: 0 },
+      task_runs: [{
+        task_run_id: "taskrun:master",
+        session_id: "session",
+        task_id: "graph.writing.master",
+        title: "长篇小说",
+        status: "running",
+        terminal_reason: "",
+        created_at: 1,
+        updated_at: 1,
+        elapsed_seconds: 1,
+        latest_event_type: "coordination_started",
+        latest_event_at: 1,
+        event_count: 1,
+        coordination_run_id: "coordrun:master",
+        coordination_status: "running",
+        graph_id: "graph.writing.master",
+        active_node_id: "world_review",
+        project_id: "project",
+        project_title: "长篇小说",
+        project_runtime_status: null,
+        has_coordination: true,
+        is_live: true,
+      }],
+      updated_at: 1,
+    });
+
+    runtime.actions.openGlobalRuntimeMonitorTaskRun("taskrun:master");
+
+    expect(store.getState().activeWorkspaceView).toBe("task-system");
+    expect(store.getState().globalRuntimeMonitorSelectedTaskRunId).toBe("taskrun:master");
+    expect(store.getState().taskGraphMonitorBinding).toMatchObject({
+      task_run_id: "taskrun:master",
+      coordination_run_id: "coordrun:master",
+      graph_id: "graph.writing.master",
+      session_id: "session",
+      title: "长篇小说",
+    });
+    expect(store.getState().taskGraphRunInteractionOpen).toBe(false);
+    expect(store.getState().taskSystemRuntimeNavigationTarget).toMatchObject({
+      task_run_id: "taskrun:master",
+      layer: "runtime",
+      graph_id: "graph.writing.master",
+    });
+  });
+
+  it("opens a global monitor chat-turn run in its conversation page", () => {
+    const store = createStore(getDefaultState());
+    const runtime = new WorkspaceRuntime(store);
+    const runtimeHarness = runtime as unknown as {
+      applyGlobalRuntimeMonitorSnapshot: (monitor: {
+        authority: string;
+        summary: {
+          total: number;
+          running: number;
+          waiting: number;
+          completed: number;
+          failed: number;
+        };
+        task_runs: Array<Record<string, unknown>>;
+        updated_at: number;
+      }) => void;
+    };
+
+    api.getSessionHistory.mockResolvedValue({ messages: [] });
+    api.getSessionTokens.mockResolvedValue(null);
+    api.getOrchestrationHarnessSessionLiveMonitor.mockResolvedValue(null);
+
+    runtimeHarness.applyGlobalRuntimeMonitorSnapshot({
+      authority: "runtime_live_monitor.global",
+      summary: { total: 1, running: 0, waiting: 1, completed: 0, failed: 0 },
+      task_runs: [{
+        task_run_id: "taskrun:turn:session-a:1:abc",
+        session_id: "session-a",
+        task_id: "task:turn:session-a:1",
+        title: "会话运行",
+        runtime_lane: "single_agent_task",
+        status: "waiting_executor",
+        terminal_reason: "waiting_executor",
+        created_at: 1,
+        updated_at: 1,
+        elapsed_seconds: 1,
+        latest_event_type: "task_run_lifecycle_waiting_executor",
+        latest_event_at: 1,
+        event_count: 1,
+        has_coordination: false,
+        is_live: true,
+      }],
+      updated_at: 1,
+    });
+
+    runtime.actions.openGlobalRuntimeMonitorTaskRun("taskrun:turn:session-a:1:abc");
+
+    expect(store.getState().activeWorkspaceView).toBe("chat");
+    expect(store.getState().currentSessionId).toBe("session-a");
+    expect(store.getState().globalRuntimeMonitorSelectedTaskRunId).toBe("taskrun:turn:session-a:1:abc");
+    expect(store.getState().taskSystemRuntimeNavigationTarget).toBeNull();
   });
 
   it("closes a broken global monitor stream and reconnects after fallback polling", async () => {
@@ -796,7 +918,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().sessionActivity.level).toBe("error");
   });
 
-  it("sends task selection without old task order intent", async () => {
+  it("does not leak a selected task into ordinary main-chat turns", async () => {
     vi.useRealTimers();
     const store = createStore<StoreState>({
       ...getDefaultState(),
@@ -809,12 +931,11 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
     const runtime = new WorkspaceRuntime(store);
 
-    await runtime.actions.sendMessage("开始执行。");
+    await runtime.actions.sendMessage("你好");
 
     expect(api.streamChat).toHaveBeenCalledTimes(1);
-    expect(api.streamChat.mock.calls[0]?.[0]?.task_selection).toMatchObject({
-      selected_task_id: "task.dev.frontend_ui",
-    });
+    expect(api.streamChat.mock.calls[0]?.[0]?.task_selection).toBeUndefined();
+    expect(api.streamChat.mock.calls[0]?.[0]?.runtime_mode).toBe("role");
   });
 
   it("keeps task selection after chat stream start events", async () => {
@@ -842,6 +963,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     await runtime.actions.sendMessage("普通后续聊天。");
 
     expect(api.streamChat).toHaveBeenCalledTimes(2);
+    expect(api.streamChat.mock.calls[0]?.[0]?.task_selection).toBeUndefined();
+    expect(api.streamChat.mock.calls[1]?.[0]?.task_selection).toBeUndefined();
     expect(store.getState().taskSelection).toMatchObject({
       selected_task_id: "task.dev.frontend_ui",
     });
@@ -917,6 +1040,27 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     const assistant = transition.state.messages.at(-1);
     expect(assistant?.stageStatus).toBe("准备执行");
+    expect(assistant?.runtimeProgress).toEqual([]);
+  });
+
+  it("does not expose internal runtime loop bookkeeping as chat progress", () => {
+    let transition = startStreamingTurn(getDefaultState(), "你好");
+    for (const step of [
+      "turn_started",
+      "runtime_packet_compiled",
+      "model_action_received",
+      "action_admission_checked",
+      "bounded_observation_recorded",
+    ]) {
+      transition = reduceStreamEvent(transition.state, transition.session, "runtime_step_summary", {
+        step,
+        status: "running",
+        summary: `internal ${step}`,
+      });
+    }
+
+    const assistant = transition.state.messages.at(-1);
+    expect(assistant?.stageStatus).toBe("接收请求");
     expect(assistant?.runtimeProgress).toEqual([]);
   });
 

@@ -6,8 +6,10 @@ import inspect
 import time
 from collections.abc import AsyncIterator
 from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
+from capability_system.units.tools.agent_todo_tool import AgentTodoTool
 from harness.runtime import AgentRunRequest, RuntimeCompiler, build_execution_context
 from runtime.shared.models import AgentRun, TaskRun
 
@@ -17,8 +19,10 @@ from .observations import build_observation_record
 from .presentation import error_event, final_answer_event
 from .task_lifecycle import (
     contract_from_action_request,
+    requires_task_launch_supervision,
     start_task_lifecycle,
-    wait_task_lifecycle_executor,
+    task_launch_supervision_policy,
+    wait_task_launch_supervision,
 )
 
 
@@ -46,8 +50,9 @@ async def run_agent_invocation_stream(
         or getattr(request.agent_runtime_profile, "agent_profile_id", "")
         or "main_interactive_agent"
     )
-    available_tools = _runtime_available_tools(runtime_assembly_payload)
-    allowed_tool_names = _runtime_allowed_tool_names(runtime_assembly_payload, available_tools)
+    runtime_available_tools = _runtime_available_tools(runtime_assembly_payload)
+    available_tools = _turn_direct_tools(runtime_available_tools)
+    allowed_tool_names = _runtime_allowed_tool_names(available_tools)
     observations: list[dict[str, Any]] = []
     seen_action_request_ids: set[str] = set()
     turn_task_run, turn_agent_run, start_event = _start_turn_runtime(
@@ -438,30 +443,49 @@ async def run_agent_invocation_stream(
                 packet_ref=compilation.packet.packet_id,
             )
             if contract is None:
-                content = "正式任务合同不完整，无法开启长任务生命周期。"
-                await _commit_assistant_message(
-                    request.assistant_message_committer,
-                    content=content,
-                    turn_id=turn_id,
-                    answer_source="harness.loop.single_agent.task_contract_invalid",
+                observation = _build_task_contract_error_observation(
+                    packet_ref=compilation.packet.packet_id,
+                    action_request=action_request,
+                    contract_errors=contract_errors,
                 )
-                terminal_event = _record_turn_terminal(
+                observations.append(observation)
+                runtime_host.runtime_objects.put_object("observation", observation["observation_id"], observation)
+                observation_event = runtime_host.event_log.append(
+                    turn_task_run.task_run_id,
+                    "task_contract_observation_recorded",
+                    payload={"observation": observation},
+                    refs={
+                        "turn_ref": turn_id,
+                        "action_request_ref": action_request.request_id,
+                        "observation_ref": observation["observation_id"],
+                    },
+                )
+                yield {"type": "bounded_observation", "event": observation_event.to_dict()}
+                yield _record_step_summary(
                     runtime_host,
-                    turn_task_run=turn_task_run,
-                    turn_agent_run=turn_agent_run,
+                    task_run_id=turn_task_run.task_run_id,
                     turn_id=turn_id,
-                    event_type="agent_turn_failed",
-                    status="failed",
-                    terminal_reason="task_contract_invalid",
-                    payload={"contract_errors": list(contract_errors), "action_request": action_request.to_dict()},
+                    step="task_contract_repair_required",
+                    status="running",
+                    summary="系统发现正式任务合同不完整，已把精确错误作为观察回灌给 agent 修复。",
+                    refs={
+                        "action_request_ref": action_request.request_id,
+                        "observation_ref": observation["observation_id"],
+                    },
                 )
-                yield {"type": "agent_turn_terminal", "event": terminal_event}
-                yield error_event(
-                    content=content,
-                    code="task_contract_invalid",
-                    reason=";".join(contract_errors) or "task_contract_invalid",
+                compilation = compiler.compile_observation_followup_packet(
+                    session_id=request.session_id,
+                    turn_id=turn_id,
+                    agent_invocation_id=agent_invocation_id,
+                    user_message=request.user_message,
+                    history=request.history,
+                    observations=observations,
+                    agent_profile_ref=agent_profile_ref,
+                    model_selection=request.model_selection,
+                    available_tools=available_tools,
+                    runtime_assembly=runtime_assembly,
                 )
-                return
+                continue
             task_run, _agent_run, lifecycle, events = start_task_lifecycle(
                 runtime_host,
                 session_id=request.session_id,
@@ -486,6 +510,7 @@ async def run_agent_invocation_stream(
                 },
             )
             todo_observation = await _initialize_agent_todo(
+                runtime_host=runtime_host,
                 request=request,
                 session_id=request.session_id,
                 task_run_id=task_run.task_run_id,
@@ -499,31 +524,75 @@ async def run_agent_invocation_stream(
                     refs={"task_run_ref": task_run.task_run_id},
                 )
                 yield {"type": "task_run_lifecycle_event", "event": todo_event.to_dict()}
-            waiting_task, _waiting_lifecycle, wait_event = wait_task_lifecycle_executor(
-                runtime_host,
-                task_run=task_run,
-                lifecycle=lifecycle,
-                reason="task_executor_rebuild_pending",
-            )
-            yield {"type": "task_run_lifecycle_event", "event": wait_event}
+            launch_gate_policy = task_launch_supervision_policy(runtime_assembly)
+            if requires_task_launch_supervision(launch_gate_policy):
+                gated_task, _gated_lifecycle, gate_event = wait_task_launch_supervision(
+                    runtime_host,
+                    task_run=task_run,
+                    lifecycle=lifecycle,
+                    gate_policy=launch_gate_policy,
+                )
+                yield {"type": "task_run_lifecycle_event", "event": gate_event}
+                yield _record_step_summary(
+                    runtime_host,
+                    task_run_id=turn_task_run.task_run_id,
+                    turn_id=turn_id,
+                    step="task_launch_supervision_waiting",
+                    status="completed",
+                    summary="正式任务已建立，正在等待用户建议或直接通过后启动执行器。",
+                    refs={"task_run_ref": gated_task.task_run_id},
+                )
+                content = str(launch_gate_policy.get("user_prompt") or "任务已准备启动。你可以提出建议，或直接通过。")
+                await _commit_assistant_message(
+                    request.assistant_message_committer,
+                    content=content,
+                    turn_id=turn_id,
+                    answer_source="harness.loop.single_agent.task_launch_supervision",
+                )
+                terminal_event = _record_turn_terminal(
+                    runtime_host,
+                    turn_task_run=turn_task_run,
+                    turn_agent_run=turn_agent_run,
+                    turn_id=turn_id,
+                    event_type="agent_turn_completed",
+                    status="waiting_approval",
+                    terminal_reason="task_launch_supervision",
+                    payload={
+                        "action_request": action_request.to_dict(),
+                        "task_run": gated_task.to_dict(),
+                        "launch_supervision": launch_gate_policy,
+                    },
+                )
+                yield {"type": "agent_turn_terminal", "event": terminal_event}
+                yield final_answer_event(
+                    content=content,
+                    answer_source="harness.loop.single_agent.task_launch_supervision",
+                    terminal_reason="task_launch_supervision",
+                    extra={
+                        "agent_turn": {"turn_id": turn_id, "status": "waiting_approval"},
+                        "task_run": {"task_run_id": gated_task.task_run_id, "status": gated_task.status},
+                    },
+                )
+                return
+
+            _schedule_task_executor(runtime_host, task_run.task_run_id)
             yield _record_step_summary(
                 runtime_host,
                 task_run_id=turn_task_run.task_run_id,
                 turn_id=turn_id,
-                step="task_lifecycle_waiting_executor",
+                step="task_executor_scheduled",
                 status="completed",
-                summary="正式任务已建立并进入等待执行器接管状态；本轮不会伪报完成。",
-                refs={"task_run_ref": waiting_task.task_run_id},
+                summary="正式任务已建立，系统已调度任务执行器接管后续步骤。",
+                refs={"task_run_ref": task_run.task_run_id},
             )
             content = (
-                "我已经把这件事转入正式任务并建立了待办。当前任务执行器尚未接管步骤推进，"
-                "所以现在停在等待执行状态，不会把未完成的工作报告为完成。"
+                "我已经把这件事转入正式任务并建立了待办，任务执行器已接管后续步骤。"
             )
             await _commit_assistant_message(
                 request.assistant_message_committer,
                 content=content,
                 turn_id=turn_id,
-                answer_source="harness.loop.single_agent.task_lifecycle",
+                answer_source="harness.loop.single_agent.task_executor_schedule",
             )
             terminal_event = _record_turn_terminal(
                 runtime_host,
@@ -531,21 +600,21 @@ async def run_agent_invocation_stream(
                 turn_agent_run=turn_agent_run,
                 turn_id=turn_id,
                 event_type="agent_turn_completed",
-                status="task_lifecycle_waiting_executor",
-                terminal_reason="waiting_executor",
+                status="task_executor_scheduled",
+                terminal_reason="task_executor_scheduled",
                 payload={
                     "action_request": action_request.to_dict(),
-                    "task_run": waiting_task.to_dict(),
+                    "task_run": task_run.to_dict(),
                 },
             )
             yield {"type": "agent_turn_terminal", "event": terminal_event}
             yield final_answer_event(
                 content=content,
-                answer_source="harness.loop.single_agent.task_lifecycle",
-                terminal_reason="waiting_executor",
+                answer_source="harness.loop.single_agent.task_executor_schedule",
+                terminal_reason="task_executor_scheduled",
                 extra={
-                    "agent_turn": {"turn_id": turn_id, "status": "task_lifecycle_waiting_executor"},
-                    "task_run": {"task_run_id": waiting_task.task_run_id, "status": waiting_task.status},
+                    "agent_turn": {"turn_id": turn_id, "status": "task_executor_scheduled"},
+                    "task_run": {"task_run_id": task_run.task_run_id, "status": task_run.status},
                 },
             )
             return
@@ -752,14 +821,17 @@ async def _run_bounded_tool_observation(
 
 async def _initialize_agent_todo(
     *,
+    runtime_host: Any,
     request: AgentRunRequest,
     session_id: str,
     task_run_id: str,
     contract: dict[str, Any],
 ) -> dict[str, Any]:
     tool = _find_tool_instance(request.tool_instances, "agent_todo")
+    source = "tool:agent_todo"
     if tool is None:
-        return {}
+        tool = AgentTodoTool(Path(runtime_host.root_dir))
+        source = "system:agent_todo"
     args = {
         "operation": "replace",
         "session_id": session_id,
@@ -782,10 +854,10 @@ async def _initialize_agent_todo(
     }
     try:
         result = await _call_tool(tool, args)
-        return {"source": "tool:agent_todo", "summary": _compact_text(result), "payload": {"result": str(result or "")}}
+        return {"source": source, "summary": _compact_text(result), "payload": {"result": str(result or "")}}
     except Exception as exc:
         return {
-            "source": "tool:agent_todo",
+            "source": source,
             "summary": "任务待办初始化失败。",
             "payload": {"error": str(exc)},
             "error": str(exc),
@@ -853,6 +925,31 @@ def _record_turn_terminal(
         )
     )
     return event.to_dict()
+
+
+def _schedule_task_executor(runtime_host: Any, task_run_id: str) -> None:
+    query_runtime = getattr(runtime_host, "query_runtime", None)
+    if query_runtime is None:
+        return
+    runtime_host.event_log.append(
+        task_run_id,
+        "task_run_executor_scheduled",
+        payload={"task_run_id": task_run_id, "scheduler": "agent_loop"},
+        refs={"task_run_ref": task_run_id},
+    )
+
+    async def _runner() -> None:
+        try:
+            await query_runtime.execute_task_run(task_run_id)
+        except Exception as exc:
+            runtime_host.event_log.append(
+                task_run_id,
+                "task_run_executor_schedule_failed",
+                payload={"task_run_id": task_run_id, "error": str(exc)},
+                refs={"task_run_ref": task_run_id},
+            )
+
+    asyncio.create_task(_runner())
 
 
 def _start_turn_runtime(
@@ -958,8 +1055,39 @@ def _record_step_summary(
     }
 
 
+def _build_task_contract_error_observation(
+    *,
+    packet_ref: str,
+    action_request: ModelActionRequest,
+    contract_errors: list[str],
+) -> dict[str, Any]:
+    errors = [str(item) for item in list(contract_errors or []) if str(item)]
+    return build_observation_record(
+        source="system:task_contract_validator",
+        packet_ref=packet_ref,
+        action_request_ref=action_request.request_id,
+        execution_context_ref="",
+        summary="正式任务合同未通过校验，需要修正后重新提交 request_task_run。",
+        payload={
+            "error_code": "task_contract_invalid",
+            "contract_errors": errors,
+            "required_shape": {
+                "task_contract_seed": {
+                    "user_visible_goal": "必填",
+                    "task_run_goal": "必填",
+                    "completion_criteria": "至少一条，除非 required_artifacts 或 required_verifications 已提供",
+                    "required_artifacts": "真实交付物要求列表",
+                    "required_verifications": "验收或验证要求列表",
+                }
+            },
+            "rejected_action_request": action_request.to_dict(),
+        },
+        error="task_contract_invalid:" + ";".join(errors),
+    ).to_dict()
+
+
 def _turn_task_terminal_state(*, status: str, event_type: str) -> tuple[str, str]:
-    if status in {"completed", "task_lifecycle_waiting_executor"}:
+    if status in {"completed", "task_executor_scheduled"}:
         return "completed", "completed"
     if status == "waiting_approval":
         return "waiting_approval", "waiting_approval"
@@ -968,37 +1096,42 @@ def _turn_task_terminal_state(*, status: str, event_type: str) -> tuple[str, str
     return "failed", "internal_error"
 
 
-def _model_visible_readonly_tools(runtime_host: Any, tool_instances: list[Any] | None) -> list[dict[str, Any]]:
-    instance_names = {
-        str(getattr(tool, "name", "") or "").strip()
-        for tool in list(tool_instances or [])
-        if str(getattr(tool, "name", "") or "").strip()
+def _runtime_assembly_payload(runtime_assembly: Any) -> dict[str, Any]:
+    if hasattr(runtime_assembly, "to_dict"):
+        payload = runtime_assembly.to_dict()
+        return dict(payload) if isinstance(payload, dict) else {}
+    return dict(runtime_assembly or {}) if isinstance(runtime_assembly, dict) else {}
+
+
+def _runtime_available_tools(runtime_assembly_payload: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        dict(item)
+        for item in list(runtime_assembly_payload.get("available_tools") or [])
+        if isinstance(item, dict) and str(item.get("tool_name") or "").strip()
+    ]
+
+
+def _turn_direct_tools(available_tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        dict(item)
+        for item in available_tools
+        if _tool_can_run_directly_in_turn(item)
+    ]
+
+
+def _tool_can_run_directly_in_turn(tool: dict[str, Any]) -> bool:
+    if bool(tool.get("read_only") is True):
+        return True
+    operation_id = str(tool.get("operation_id") or "").strip()
+    return operation_id in {"op.delegate_to_agent"}
+
+
+def _runtime_allowed_tool_names(available_tools: list[dict[str, Any]]) -> set[str]:
+    return {
+        str(item.get("tool_name") or "").strip()
+        for item in available_tools
+        if str(item.get("tool_name") or "").strip()
     }
-    definitions_by_name = getattr(runtime_host.tool_authorization_index, "definitions_by_name", {})
-    visible: list[dict[str, Any]] = []
-    for tool_name in sorted(instance_names):
-        definition = dict(definitions_by_name or {}).get(tool_name)
-        if definition is None:
-            continue
-        if str(getattr(definition, "runtime_visibility", "") or "main_runtime") != "main_runtime":
-            continue
-        if str(getattr(definition, "prompt_exposure_policy", "") or "") != "schema_only":
-            continue
-        if not bool(getattr(definition, "is_read_only", False)):
-            continue
-        contract = getattr(definition, "contract", None)
-        visible.append(
-            {
-                "tool_name": tool_name,
-                "operation_id": str(getattr(definition, "operation_id", "") or ""),
-                "display_name": str(getattr(definition, "display_name", "") or tool_name),
-                "required_inputs": list(getattr(contract, "required_inputs", []) or []),
-                "optional_inputs": list(getattr(contract, "optional_inputs", []) or []),
-                "owner_scope": str(getattr(contract, "owner_scope", "") or "none"),
-                "read_only": True,
-            }
-        )
-    return visible
 
 
 async def _call_tool(tool: Any, args: dict[str, Any]) -> Any:

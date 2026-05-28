@@ -5,6 +5,7 @@ from typing import Any, Literal
 
 
 EnvironmentKind = Literal[
+    "development",
     "writing",
     "vibe_coding",
     "web_research",
@@ -18,10 +19,23 @@ PolicyMode = Literal["allowed", "denied", "ask", "task_decided", "sandboxed"]
 
 
 @dataclass(frozen=True, slots=True)
+class TaskEnvironmentGroup:
+    group_id: str
+    title: str
+    description: str = ""
+    enabled: bool = True
+    authority: str = "task_system.task_environment_group"
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
 class TaskEnvironmentRecord:
     environment_id: str
     title: str
     description: str = ""
+    group_id: str = "environment_group.general"
     enabled: bool = True
     owner: str = "system"
     environment_kind: EnvironmentKind = "custom"
@@ -34,43 +48,29 @@ class TaskEnvironmentRecord:
 
 
 @dataclass(frozen=True, slots=True)
-class PromptSpace:
-    allowed_prompt_libraries: tuple[str, ...] = ()
-    allowed_prompt_packs: tuple[str, ...] = ()
-    default_prompt_pack_refs: tuple[str, ...] = ()
-    flow_prompt_pack_refs: tuple[str, ...] = ()
-    reviewer_prompt_pack_refs: tuple[str, ...] = ()
-    prompt_selection_policy: str = "specific_task_selects"
-    prompt_version_policy: str = "pinned_or_latest_stable"
+class EnvironmentPrompt:
+    prompt_id: str
+    content: str
+    version: str = "v1"
+    prompt_kind: str = "environment"
+    cache_scope: str = "static_environment"
 
     def to_dict(self) -> dict[str, Any]:
-        return _tuple_payload(asdict(self))
+        return asdict(self)
 
 
 @dataclass(frozen=True, slots=True)
-class SkillSpace:
-    allowed_skill_refs: tuple[str, ...] = ()
-    denied_skill_refs: tuple[str, ...] = ()
-    skill_pack_refs: tuple[str, ...] = ()
-    skill_loading_policy: str = "specific_task_selects"
-    skill_version_policy: str = "pinned_or_latest_stable"
-    skill_context_policy: str = "role_task_boundary_only"
-
-    def to_dict(self) -> dict[str, Any]:
-        return _tuple_payload(asdict(self))
-
-
-@dataclass(frozen=True, slots=True)
-class ToolSpace:
-    allowed_operation_market: tuple[str, ...] = ()
-    denied_operation_refs: tuple[str, ...] = ()
-    allowed_tool_market: tuple[str, ...] = ()
-    denied_tool_refs: tuple[str, ...] = ()
-    allowed_mcp_routes: tuple[str, ...] = ()
-    browser_policy: PolicyMode = "denied"
+class SandboxPolicy:
+    enabled: bool = False
+    sandbox_mode: str = "none"
+    workspace_access: str = "none"
+    write_policy: str = "none"
     shell_policy: PolicyMode = "denied"
+    browser_policy: PolicyMode = "denied"
     network_policy: PolicyMode = "denied"
-    tool_discovery_policy: str = "static_market"
+    side_effect_policy: str = "environment_boundary"
+    sandbox_root_policy: str = "runtime_allocated"
+    side_effect_operations: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return _tuple_payload(asdict(self))
@@ -93,6 +93,11 @@ class FileManagementBinding:
 @dataclass(frozen=True, slots=True)
 class ResourceSpace:
     workspace_policy: str = "none"
+    storage_namespace: str = ""
+    storage_root_policy: str = "environment_scoped"
+    runtime_state_root_policy: str = "environment_scoped_runtime_state"
+    artifact_storage_policy: str = "environment_scoped_artifacts"
+    cache_storage_policy: str = "environment_scoped_cache"
     material_mount_policy: str = "none"
     project_file_policy: str = "none"
     managed_file_environment_policy: str = "file_management_required"
@@ -178,9 +183,8 @@ class RuntimePolicy:
 class TaskEnvironmentSpec:
     spec_id: str
     environment_id: str
-    prompt_space: PromptSpace = field(default_factory=PromptSpace)
-    skill_space: SkillSpace = field(default_factory=SkillSpace)
-    tool_space: ToolSpace = field(default_factory=ToolSpace)
+    environment_prompts: tuple[EnvironmentPrompt, ...] = ()
+    sandbox_policy: SandboxPolicy = field(default_factory=SandboxPolicy)
     file_management: FileManagementBinding = field(default_factory=FileManagementBinding)
     resource_space: ResourceSpace = field(default_factory=ResourceSpace)
     memory_space: MemorySpace = field(default_factory=MemorySpace)
@@ -197,9 +201,8 @@ class TaskEnvironmentSpec:
         return {
             "spec_id": self.spec_id,
             "environment_id": self.environment_id,
-            "prompt_space": self.prompt_space.to_dict(),
-            "skill_space": self.skill_space.to_dict(),
-            "tool_space": self.tool_space.to_dict(),
+            "environment_prompts": [item.to_dict() for item in self.environment_prompts],
+            "sandbox_policy": self.sandbox_policy.to_dict(),
             "file_management": self.file_management.to_dict(),
             "resource_space": self.resource_space.to_dict(),
             "memory_space": self.memory_space.to_dict(),

@@ -111,7 +111,7 @@ class SingleMessageModelRuntimeStub:
         self.agent_turn_action_request = dict(agent_turn_action_request or {})
 
     async def invoke_messages(self, messages, **_kwargs):
-        if _is_agent_turn_action_request(messages):
+        if _is_model_action_request(messages):
             request = self.agent_turn_action_request or _default_agent_turn_action_request(messages)
             return SimpleNamespace(content=json.dumps(request, ensure_ascii=False))
         return SimpleNamespace(content=self.content)
@@ -196,13 +196,13 @@ def agent_turn_context(
     return result
 
 
-def _is_agent_turn_action_request(messages: Any) -> bool:
+def _is_model_action_request(messages: Any) -> bool:
     try:
         first = list(messages or [])[0]
     except Exception:
         return False
     content = str(dict(first).get("content") if isinstance(first, dict) else getattr(first, "content", "") or "")
-    return "当前 turn 的主 agent" in content and "agent_runtime.agent_turn_action_request" in str(messages)
+    return "当前 turn 的主 agent" in content and "harness.loop.model_action_request" in str(messages)
 
 
 def _default_agent_turn_action_request(messages: Any) -> dict[str, object]:
@@ -213,8 +213,8 @@ def _default_agent_turn_action_request(messages: Any) -> dict[str, object]:
     except Exception:
         user_message = "test"
     return {
-        "authority": "agent_runtime.agent_turn_action_request",
-        "request_id": "agent-turn-action:stub:respond",
+        "authority": "harness.loop.model_action_request",
+        "request_id": "model-action:stub:respond",
         "turn_id": "",
         "action_type": "respond",
         "final_answer": user_message or "test outcome",

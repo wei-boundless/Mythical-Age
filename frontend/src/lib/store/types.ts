@@ -195,6 +195,13 @@ export type TaskGraphMonitorBinding = {
   bound_at: number;
 };
 
+export type TaskSystemRuntimeNavigationTarget = {
+  task_run_id: string;
+  layer: "runtime" | "agent-runtime-phase";
+  graph_id?: string;
+  requested_at: number;
+};
+
 export type StoreState = {
   activeWorkspaceView: WorkspaceView;
   workspaceContext: WorkspaceContext | null;
@@ -249,6 +256,7 @@ export type StoreState = {
   taskGraphRunInteractionOpen: boolean;
   orchestrationInspectorTarget: OrchestrationInspectorTarget | null;
   taskSelection: TaskSelectionState | null;
+  taskSystemRuntimeNavigationTarget: TaskSystemRuntimeNavigationTarget | null;
 };
 
 export type StoreActions = {
@@ -287,6 +295,8 @@ export type StoreActions = {
   resolveRuntimeApproval: (taskRunId: string, decision: "approve" | "reject", message?: string) => Promise<void>;
   setTaskSelection: (selection: TaskSelectionState | null) => void;
   selectGlobalRuntimeMonitorTaskRun: (taskRunId: string) => void;
+  openGlobalRuntimeMonitorTaskRun: (taskRunId: string) => void;
+  clearTaskSystemRuntimeNavigationTarget: () => void;
   refreshGlobalRuntimeMonitor: () => Promise<void>;
 };
 

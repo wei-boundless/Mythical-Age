@@ -5,7 +5,7 @@ import json
 import time
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -37,6 +37,10 @@ class TaskRunApprovalRequest(BaseModel):
 class TaskGraphMonitorEvaluateRequest(BaseModel):
     monitor_node_id: str = Field(default="", max_length=180)
     monitor_policy: dict[str, Any] = Field(default_factory=dict)
+
+
+class TaskRunExecuteRequest(BaseModel):
+    max_steps: int = Field(default=12, ge=1, le=50)
 
 
 @router.get("/orchestration/harness/sessions/{session_id}/task-runs")
@@ -133,6 +137,43 @@ async def get_harness_task_run_live_monitor(task_run_id: str) -> dict[str, Any]:
     if monitor is None:
         raise HTTPException(status_code=404, detail="TaskRun live monitor not found")
     return monitor
+
+
+@router.post("/orchestration/harness/task-runs/{task_run_id}/execute")
+async def execute_harness_task_run(
+    task_run_id: str,
+    background_tasks: BackgroundTasks,
+    payload: TaskRunExecuteRequest | None = None,
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    runtime_host = runtime.query_runtime.single_agent_runtime_host
+    task_run = runtime_host.state_index.get_task_run(task_run_id)
+    if task_run is None:
+        raise HTTPException(status_code=404, detail="TaskRun not found")
+    if str(task_run.runtime_lane or "") != "single_agent_task":
+        raise HTTPException(status_code=409, detail="not_single_agent_task")
+    if str(task_run.status or "") in {"completed", "failed"}:
+        raise HTTPException(status_code=409, detail=f"task_run_not_executable:{task_run.status}")
+    runtime_host.event_log.append(
+        task_run_id,
+        "task_run_executor_scheduled",
+        payload={"task_run_id": task_run_id, "max_steps": payload.max_steps if payload is not None else 12},
+        refs={"task_run_ref": task_run_id},
+    )
+    background_tasks.add_task(
+        runtime.query_runtime.execute_task_run,
+        task_run_id,
+        max_steps=(payload.max_steps if payload is not None else 12),
+    )
+    return {
+        "ok": True,
+        "accepted": True,
+        "background_started": True,
+        "task_run_id": task_run_id,
+        "status": task_run.status,
+        "monitor_url": f"/api/orchestration/harness/task-runs/{task_run_id}/live-monitor",
+        "trace_url": f"/api/orchestration/harness/task-runs/{task_run_id}",
+    }
 
 
 @router.get("/orchestration/harness/task-runs/{task_run_id}/task-graph-monitor")

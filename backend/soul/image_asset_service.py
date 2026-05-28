@@ -169,16 +169,16 @@ class SoulImageAssetService:
     @staticmethod
     def _base_url() -> str:
         override = dict(runtime_config.load().get("soul_image_assets") or {})
-        return str(override.get("base_url") or os.getenv("SOUL_IMAGE_API_BASE_URL") or "").strip()
+        return str(os.getenv("SOUL_IMAGE_API_BASE_URL") or override.get("base_url") or "").strip()
 
     @staticmethod
     def _api_key() -> str:
         override = dict(runtime_config.load().get("soul_image_assets") or {})
-        return str(override.get("api_key") or os.getenv("SOUL_IMAGE_API_KEY") or "").strip()
+        return str(os.getenv("SOUL_IMAGE_API_KEY") or override.get("api_key") or "").strip()
 
     @staticmethod
     def _model() -> str:
         override = dict(runtime_config.load().get("soul_image_assets") or {})
-        return str(override.get("model") or os.getenv("SOUL_IMAGE_MODEL") or "gpt-image-2").strip()
+        return str(os.getenv("SOUL_IMAGE_MODEL") or override.get("model") or "gpt-image-2").strip()
 
 

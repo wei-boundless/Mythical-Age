@@ -914,21 +914,40 @@ export type TaskSystemOverview = {
   summary: Record<string, number>;
   task_environment_management?: {
     authority: string;
+    groups?: Array<{
+      group_id: string;
+      title: string;
+      description?: string;
+      enabled?: boolean;
+    }>;
     environments: Array<{
       record: {
         environment_id: string;
         title: string;
         description?: string;
+        group_id?: string;
         enabled?: boolean;
         environment_kind?: string;
         metadata?: Record<string, unknown>;
       };
       spec: Record<string, unknown>;
+      group?: Record<string, unknown>;
+      environment_prompts?: Array<Record<string, unknown>>;
+      sandbox_policy?: Record<string, unknown>;
+      storage_space?: Record<string, unknown>;
+      task_library?: {
+        environment_id: string;
+        task_ids: string[];
+        task_count: number;
+        task_library_root?: string;
+        authority?: string;
+      };
     }>;
     records: Array<{
       environment_id: string;
       title: string;
       description?: string;
+      group_id?: string;
       enabled?: boolean;
       environment_kind?: string;
       metadata?: Record<string, unknown>;
@@ -1602,17 +1621,35 @@ export type GlobalRuntimeMonitorItem = {
   task_run_id: string;
   session_id: string;
   task_id: string;
+  runtime_lane?: string;
   title: string;
   status: string;
   terminal_reason: string;
-  created_at: number;
-  updated_at: number;
+  created_at?: number;
+  updated_at?: number;
+  started_at?: number;
+  ended_at?: number | null;
+  duration_seconds?: number;
   elapsed_seconds: number;
   runtime_seconds?: number;
+  runtime_end_at?: number;
+  lifecycle?: "running" | "waiting" | "action_required" | "completed" | "failed" | "stale" | string;
+  bucket?: "running" | "completed" | "failed" | "diagnostics" | string;
+  resource_class?: "dynamic" | "static" | string;
   last_activity_at?: number;
   last_activity_age_seconds?: number;
+  action_required?: boolean;
+  terminal?: boolean;
+  stale?: boolean;
   is_live?: boolean;
-  display_bucket?: "live" | "stale" | "recent" | "history" | string;
+  display_bucket?: "running" | "completed" | "failed" | "live" | "stale" | "recent" | "history" | string;
+  summary?: string;
+  latest_step?: Record<string, unknown>;
+  latest_step_summary?: string;
+  latest_step_name?: string;
+  latest_step_status?: string;
+  artifact_count?: number;
+  artifact_refs?: Array<Record<string, unknown>>;
   latest_event_type: string;
   latest_event_at: number;
   event_count: number;
@@ -1624,6 +1661,13 @@ export type GlobalRuntimeMonitorItem = {
   project_title: string;
   project_runtime_status: Record<string, unknown> | null;
   has_coordination: boolean;
+  route?: {
+    kind?: "chat_turn_runtime" | "agent_runtime_run" | "task_graph_run" | string;
+    session_id?: string;
+    task_run_id?: string;
+    graph_id?: string;
+    coordination_run_id?: string;
+  };
 };
 
 export type GlobalRuntimeMonitor = {
@@ -1632,11 +1676,22 @@ export type GlobalRuntimeMonitor = {
     total: number;
     running: number;
     waiting: number;
+    blocked?: number;
     completed: number;
     failed: number;
+    diagnostics?: number;
+    action_required?: number;
     stale?: number;
     recent?: number;
   };
+  buckets?: {
+    running?: GlobalRuntimeMonitorItem[];
+    completed?: GlobalRuntimeMonitorItem[];
+    failed?: GlobalRuntimeMonitorItem[];
+    diagnostics?: GlobalRuntimeMonitorItem[];
+  };
+  bucket_limit?: number;
+  revision?: string;
   task_runs: GlobalRuntimeMonitorItem[];
   updated_at: number;
 };
@@ -1674,6 +1729,19 @@ export type OrchestrationRuntimeOptionsPayload = {
 export type HarnessTaskRunLiveMonitor = {
   authority: string;
   task_run: Record<string, unknown>;
+  task_run_id?: string;
+  session_id?: string;
+  task_id?: string;
+  runtime_lane?: string;
+  is_live?: boolean;
+  event_count?: number;
+  latest_event?: Record<string, unknown>;
+  latest_step?: Record<string, unknown>;
+  latest_step_summary?: string;
+  latest_step_name?: string;
+  latest_step_status?: string;
+  artifact_count?: number;
+  artifact_refs?: Array<Record<string, unknown>>;
   latest_checkpoint: Record<string, unknown> | null;
   loop_state: Record<string, unknown>;
   coordination_run: Record<string, unknown> | null;
@@ -1928,6 +1996,8 @@ export function hasTaskGraphLiveRun(liveMonitor: { has_coordination?: boolean } 
 export type HarnessSessionLiveMonitor = {
   authority: string;
   session_id: string;
+  active_task_run_id?: string;
+  task_runs?: HarnessTaskRunLiveMonitor[];
   task_run_count: number;
   latest_task_run_id: string;
   latest_coordination_task_run_id?: string;
@@ -4190,6 +4260,7 @@ export async function streamChat(
     session_id: string;
     ephemeral_system_messages?: string[];
     search_policy?: string[];
+    runtime_mode?: string;
     task_selection?: Record<string, unknown>;
     model_selection?: Record<string, unknown>;
     image_generation?: Record<string, unknown>;

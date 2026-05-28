@@ -59,21 +59,26 @@ def test_model_provider_payload_exposes_deepseek_thinking_defaults(monkeypatch: 
     assert payload["reasoning_effort"] == "max"
 
 
-def test_soul_image_asset_config_uses_runtime_override() -> None:
+def test_soul_image_asset_config_uses_env_before_runtime_override(monkeypatch: pytest.MonkeyPatch) -> None:
     from soul.image_asset_service import SoulImageAssetService
 
     service = SoulImageAssetService(BACKEND_DIR)
 
-    payload = service.set_config(
+    service.set_config(
         base_url="https://images.example.test/v1",
         model="gpt-image-2",
         api_key="image-key",
     )
+    monkeypatch.setenv("SOUL_IMAGE_API_BASE_URL", "https://www.aimapi.cloud/v1")
+    monkeypatch.setenv("SOUL_IMAGE_API_KEY", "env-image-key")
+    monkeypatch.setenv("SOUL_IMAGE_MODEL", "env-image-model")
 
-    assert payload["base_url"] == "https://images.example.test/v1"
-    assert payload["model"] == "gpt-image-2"
+    payload = service.config_summary()
+
+    assert payload["base_url"] == "https://www.aimapi.cloud/v1"
+    assert payload["model"] == "env-image-model"
     assert payload["api_key_present"] is True
-    assert "image-key" not in str(payload)
+    assert "env-image-key" not in str(payload)
 
 
 def test_soul_image_asset_generation_reports_non_json_response(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -136,9 +141,13 @@ def test_runtime_config_console_includes_soul_image_asset_group() -> None:
     assert "api_key" not in str(field_map["api_key"].get("value", ""))
 
 
-def test_runtime_config_console_saves_soul_image_asset_group() -> None:
+def test_runtime_config_console_saves_soul_image_asset_group_as_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
     from bootstrap.settings import AppSettingsService
     from soul.image_asset_service import SoulImageAssetService
+
+    monkeypatch.setenv("SOUL_IMAGE_API_BASE_URL", "https://env-image.example.test/v1")
+    monkeypatch.setenv("SOUL_IMAGE_API_KEY", "env-image-key")
+    monkeypatch.setenv("SOUL_IMAGE_MODEL", "env-image-model")
 
     service = AppSettingsService(BACKEND_DIR)
     payload = service.set_runtime_config_group(
@@ -153,10 +162,13 @@ def test_runtime_config_console_saves_soul_image_asset_group() -> None:
     field_map = {field["key"]: field for field in image_group["fields"]}
 
     summary = SoulImageAssetService(BACKEND_DIR).config_summary()
-    assert summary["base_url"] == "https://images.example.test/v1"
+    saved = dict(config.runtime_config.load().get("soul_image_assets") or {})
+    assert saved["base_url"] == "https://images.example.test/v1"
+    assert summary["base_url"] == "https://env-image.example.test/v1"
     assert summary["api_key_present"] is True
     assert field_map["api_key"]["configured"] is True
     assert "image-key" not in str(payload)
+    assert "env-image-key" not in str(payload)
 
 
 def test_settings_resolve_cross_provider_llm_fallback(monkeypatch: pytest.MonkeyPatch) -> None:

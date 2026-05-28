@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Roguelike Dungeon Tower</title>
+<style>
+  body { margin: 0; background: #111; display: flex; justify-content: center; align-items: center; height: 100vh; font-family: monospace; }
+  canvas { border: 1px solid #333; }
+  #ui-overlay { position: absolute; top: 10px; left: 10px; color: white; font-size: 14px; pointer-events: none; display: none; }
+  .upgrade-panel { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: flex; flex-direction: column; gap: 8px; background: rgba(0,0,0,0.8); padding: 20px; border: 2px solid gold; border-radius: 8px; color: white; pointer-events: auto; display: none; }
+  .upgrade-btn { padding: 8px 16px; background: #333; color: white; border: 1px solid gold; cursor: pointer; font-family: monospace; }
+  .upgrade-btn:hover { background: #555; }
+</style>
+</head>
+<body>
+<canvas id="gameCanvas" width="800" height="600"></canvas>
+<div id="ui-overlay">
+  <div id="health-bar">HP: <span id="hp-value">100</span>/<span id="max-hp">100</span></div>
+  <div id="exp-bar">EXP: <span id="exp-value">0</span>/<span id="exp-next">50</span></div>
+  <div id="level-display">Level: <span id="level-num">1</span></div>
+  <div id="floor-display">Floor: <span id="floor-num">1</span>/5</div>
+</div>
+<div id="upgrade-panel" class="upgrade-panel">
+  <h2>Level Up! Choose an upgrade</h2>
+  <button id="upgrade-btn1" class="upgrade-btn"></button>
+  <button id="upgrade-btn2" class="upgrade-btn"></button>
+  <button id="upgrade-btn3" class="upgrade-btn"></button>
+</div>
+<script>
+// ========== GAME ENGINE ==========
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const W = 800, H = 600;
+
+const GAME_STATE = { MENU: 0, PLAYING: 1, UPGRADE: 2, GAMEOVER: 3, VICTORY: 4 };
+let gameState = GAME_STATE.MENU;
+let currentFloor = 1;
+let player;
+let rooms = [];
+let currentRoomIndex = 0;
+let enemies = [];
+let projectiles = [];
+let keys = {};
+let score = 0;
+let killCount = 0;
+let startTime = 0;
+
+// Input handling
+document.addEventListener('keydown', e => { keys[e.key] = true; e.preventDefault(); });
+document.addEventListener('keyup', e => { keys[e.key] = false; e.preventDefault(); });
+
+canvas.addEventListener('click', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  if (gameState === GAME_STATE.MENU) {
+    if (mx > 300 && mx < 500 && my > 280 && my < 320) startGame();
+  } else if (gameState === GAME_STATE.GAMEOVER || gameState === GAME_STATE.VICTORY) {
+    if (mx > 300 && mx < 500 && my > 400 && my < 440) restartGame();
+  }
+});
+
+// Entity classes
+class Entity {
+  constructor(x, y, w, h, hp, atk, color) {
+    this.x = x; this.y = y; this.w = w; this.h = h;
+    this.hp = hp; this.maxHp = hp; this.atk = atk;
+    this.color = color;
+    this.vx = 0; this.vy = 0;
+    this.isEnemy = false;
+    this.isPlayer = false;
+  }
+  collides(other) {
+    return this.x < other.x + other.w && this.x + this.w > other.x &&
+           this.y < other.y + other.h && this.y + this.h > other.y;
+  }
+  draw(ctx) {
+    ctx.fillStyle = this.color;
+    ctx.fillRect(this.x, this.y, this.w, this.h);
+  }
+}
+
+class Player extends Entity {
+  constructor(x, y) {
+    super(x, y, 24, 24, 100, 10, '#4caf50');
+    this.isPlayer = true;
+    this.speed = 3;
+    this.exp = 0;
+    this.level = 1;
+    this.expToNext = 50;
+    this.attackCooldown = 0;
+    this.maxAttackCooldown = 30;
+    this.upgrades = [];
+    this.lifesteal = 0;
+    this.chainLightning = 0;
+    this.shield = 0;
+    this.playerImg = new Image();
+    this.playerImgLoaded = false;
+    // Create a fallback player bitmap using a data URI so a real bitmap is always visible.
+    const playerCanvas = document.createElement('canvas');
+    playerCanvas.width = 24; playerCanvas.height = 24;
+    const pctx = playerCanvas.getContext('2d');
+    // Draw a simple top-down adventurer
+    pctx.fillStyle = '#4caf50';
+    pctx.fillRect(4, 8, 16, 12); // body
+    pctx.fillStyle = '#ffcc80';
+    pctx.beginPath(); pctx.arc(12, 6, 4, 0, Math.PI*2); pctx.fill(); // head
+    pctx.fillStyle = '#cccccc';
+    pctx.fillRect(2, 10, 4, 2); // sword
+    this.playerImg.src = playerCanvas.toDataURL('image/png');
+    this.playerImg.onload = () => { this.playerImgLoaded = true; };
+    this.playerImg.onerror = () => { this.playerImgLoaded = false; };
+  }
+  update() {
+    let dx = 0, dy = 0;
+    if (keys['w'] || keys['W'] || keys['ArrowUp']) dy -= 1;
+    if (keys['s'] || keys['S'] || keys['ArrowDown']) dy += 1;
+    if (keys['a'] || keys['A'] || keys['ArrowLeft']) dx -= 1;
+    if (keys['d'] || keys['D'] || keys['ArrowRight']) dx += 1;
+    const len = Math.sqrt(dx*dx + dy*dy);
+    if (len > 0) { dx /= len; dy /= len; }
+    let newX = this.x + dx * this.speed;
+    let newY = this.y + dy * this.speed;
+    // wall collision
+    if (!checkRoomCollision(newX, this.y, this.w, this.h)) newX = this.x;
+    if (!checkRoomCollision(this.x, newY, this.w, this.h)) newY = this.y;
+    this.x = newX; this.y = newY;
+
+    if (this.attackCooldown > 0) this.attackCooldown--;
+    if ((keys[' '] || keys['Space']) && this.attackCooldown <= 0) {
+      this.attack();
+      this.attackCooldown = this.maxAttackCooldown;
+    }
+  }
+  attack() {
+    // Melee attack: rectangle in front of player
+    const atkRect = { x: this.x + this.w, y: this.y, w: 30, h: this.h };
+    enemies.forEach((enemy, idx) => {
+      if (this.collidesLogical(atkRect, enemy) && enemy.hp > 0) {
+        let dmg = this.atk;
+        if (Math.random() < 0.1) dmg = Math.floor(dmg * 1.5); // crit
+        enemy.hp -= dmg;
+        if (enemy.hp <= 0) {
+          this.gainExp(enemy.expValue);
+          killCount++;
+          if (this.lifesteal > 0) this.hp = Math.min(this.maxHp, this.hp + Math.floor(this.lifesteal * this.maxHp));
+          if (this.chainLightning > 0 && Math.random() < this.chainLightning) {
+            // simple chain: damage nearest other enemy
+            enemies.forEach(e => { if (e !== enemy && e.hp > 0) e.hp -= Math.floor(dmg * 0.5); });
+          }
+          enemies.splice(idx, 1);
+        }
+      }
+    });
+  }
+  collidesLogical(rect, other) {
+    return rect.x < other.x + other.w && rect.x + rect.w > other.x &&
+           rect.y < other.y + other.h && rect.y + rect.h > other.y;
+  }
+  gainExp(amount) {
+    this.exp += amount;
+    while (this.exp >= this.expToNext) {
+      this.exp -= this.expToNext;
+      this.level++;
+      this.expToNext = Math.floor(this.expToNext * 1.5);
+      gameState = GAME_STATE.UPGRADE;
+      showUpgradeChoices();
+    }
+  }
+  takeDamage(dmg) {
+    if (this.shield > 0) {
+      if (this.shield >= dmg) { this.shield -= dmg; return; }
+      else { dmg -= this.shield; this.shield = 0; }
+    }
+    this.hp -= dmg;
+    if (this.hp <= 0) {
+      this.hp = 0;
+      gameState = GAME_STATE.GAMEOVER;
+    }
+  }
+}
+
+class Enemy extends Entity {
+  constructor(x, y, type, floorScale) {
+    let w, h, hp, atk, color, expValue;
+    switch(type) {
+      case 'skeleton': w=24; h=24; hp=30; atk=5; color='#ff4444'; expValue=20; break;
+      case 'archer': w=24; h=24; hp=20; atk=8; color='#ff8800'; expValue=30; break;
+      case 'assassin': w=24; h=24; hp=40; atk=12; color='#aa00aa'; expValue=50; break;
+      default: w=24; h=24; hp=30; atk=5; color='red'; expValue=20;
+    }
+    super(x, y, w, h, hp * floorScale, atk * floorScale, color);
+    this.isEnemy = true;
+    this.type = type;
+    this.expValue = expValue;
+    this.state = 'patrol';
+    this.patrolTarget = { x: x + Math.random()*100-50, y: y + Math.random()*100-50 };
+    this.attackTimer = 0;
+    this.maxAttackTimer = type === 'archer' ? 60 : 40;
+    this.speed = type === 'assassin' ? 2.5 : 1.2;
+    this.detectRange = type === 'archer' ? 150 : 120;
+    this.attackRange = type === 'archer' ? 130 : 30;
+  }
+  update() {
+    if (this.hp <= 0) return;
+    const dist = Math.hypot(player.x - this.x, player.y - this.y);
+    if (dist < this.detectRange) this.state = 'chase';
+    else this.state = 'patrol';
+
+    if (this.state === 'chase') {
+      if (dist < this.attackRange) {
+        this.state = 'attack';
+        if (this.attackTimer <= 0) {
+          this.attack();
+          this.attackTimer = this.maxAttackTimer;
+        }
+      } else {
+        const dx = (player.x - this.x) / dist;
+        const dy = (player.y - this.y) / dist;
+        let newX = this.x + dx * this.speed;
+        let newY = this.y + dy * this.speed;
+        if (checkRoomCollision(newX, this.y, this.w, this.h)) this.x = newX;
+        else this.x = this.x;
+        if (checkRoomCollision(this.x, newY, this.w, this.h)) this.y = newY;
+      }
+    } else if (this.state === 'patrol') {
+      const dx = this.patrolTarget.x - this.x;
+      const dy = this.patrolTarget.y - this.y;
+      const len = Math.hypot(dx, dy);
+      if (len < 2) this.patrolTarget = { x: this.x + Math.random()*100-50, y: this.y + Math.random()*100-50 };
+      else {
+        let newX = this.x + (dx/len) * this.speed * 0.5;
+        let newY = this.y + (dy/len) * this.speed * 0.5;
+        if (checkRoomCollision(newX, this.y, this.w, this.h)) this.x = newX;
+        if (checkRoomCollision(this.x, newY, this.w, this.h)) this.y = newY;
+      }
+    }
+    if (this.attackTimer > 0) this.attackTimer--;
+  }
+  attack() {
+    if (this.type === 'archer') {
+      projectiles.push(new Projectile(this.x, this.y + this.h/2, player.x, player.y, this.atk, '#ffaa00'));
+    } else {
+      if (this.collides(player)) player.takeDamage(this.atk);
+    }
+  }
+}
+
+class Boss extends Entity {
+  constructor(x, y, floor) {
+    super(x, y, 48, 48, 100 * floor, 15 * floor, '#ff00ff');
+    this.isEnemy = true;
+    this.expValue = 100;
+    this.floor = floor;
+    this.state = 'chase';
+    this.speed = 1.5;
+    this.phase = 1;
+    this.attackTimer = 0;
+    this.maxAttackTimer = 30;
+    this.specialTimer = 0;
+    this.maxSpecialTimer = 120;
+  }
+  update() {
+    if (this.hp <= 0) return;
+    if (this.hp < this.maxHp * 0.5) this.phase = 2;
+    const dist = Math.hypot(player.x - this.x, player.y - this.y);
+    const dx = (player.x - this.x) / dist;
+    const dy = (player.y - this.y) / dist;
+    let newX = this.x + dx * this.speed;
+    let newY = this.y + dy * this.speed;
+    if (checkRoomCollision(newX, this.y, this.w, this.h)) this.x = newX;
+    if (checkRoomCollision(this.x, newY, this.w, this.h)) this.y = newY;
+
+    if (this.attackTimer <= 0 && this.collides(player)) {
+      player.takeDamage(this.atk);
+      this.attackTimer = this.maxAttackTimer;
+    }
+    if (this.specialTimer <= 0) {
+      if (this.phase === 2 && this.floor === 3) {
+        // flame lord area attack
+        for (let i=0; i<8; i++) {
+          const angle = (i/8)*Math.PI*2;
+          projectiles.push(new Projectile(this.x+this.w/2, this.y+this.h/2, this.x+Math.cos(angle)*200, this.y+Math.sin(angle)*200, this.atk, 'orange'));
+        }
+      } else {
+        projectiles.push(new Projectile(this.x+this.w/2, this.y+this.h/2, player.x, player.y, this.atk, 'yellow'));
+      }
+      this.specialTimer = this.maxSpecialTimer;
+    }
+    if (this.attackTimer > 0) this.attackTimer--;
+    if (this.specialTimer > 0) this.specialTimer--;
+  }
+}
+
+class Projectile extends Entity {
+  constructor(x, y, targetX, targetY, dmg, color) {
+    super(x, y, 8, 8, 1, dmg, color);
+    const angle = Math.atan2(targetY - y, targetX - x);
+    this.speed = 4;
+    this.vx = Math.cos(angle) * this.speed;
+    this.vy = Math.sin(angle) * this.speed;
+    this.lifetime = 120;
+    this.hurtsPlayer = true;
+  }
+  update() {
+    this.x += this.vx;
+    this.y += this.vy;
+    this.lifetime--;
+    if (this.lifetime <= 0) return;
+    if (this.hurtsPlayer && this.collides(player)) {
+      player.takeDamage(this.atk);
+      this.lifetime = 0;
+    }
+  }
+}
+
+function checkRoomCollision(x, y, w, h) {
+  const room = rooms[currentRoomIndex];
+  return x >= room.x + 2 && x + w <= room.x + room.w - 2 &&
+         y >= room.y + 2 && y + h <= room.y + room.h - 2;
+}
+
+// Room generation
+function generateDungeon(floor) {
+  rooms = [];
+  const numRooms = 5 + Math.floor(Math.random() * 4);
+  const roomW = 200, roomH = 150;
+  let prevRoom = null;
+  for (let i = 0; i < numRooms; i++) {
+    let x, y;
+    if (i === 0) { x = 50; y = H/2 - roomH/2; }
+    else {
+      const side = Math.floor(Math.random() * 4);
+      switch(side) {
+        case 0: x = prevRoom.x + prevRoom.w + 20; y = prevRoom.y; break;
+        case 1: x = prevRoom.x - roomW - 20; y = prevRoom.y; break;
+        case 2: x = prevRoom.x; y = prevRoom.y - roomH - 20; break;
+        default: x = prevRoom.x; y = prevRoom.y + prevRoom.h + 20;
+      }
+      if (x < 10) x = 10; if (y < 10) y = 10;
+      if (x + roomW > W - 10) x = W - roomW - 10;
+      if (y + roomH > H - 10) y = H - roomH - 10;
+    }
+    const room = { x, y, w: roomW, h: roomH, cleared: false, isBoss: i === numRooms-1, isStart: i===0 };
+    rooms.push(room);
+    prevRoom = room;
+  }
+  currentRoomIndex = 0;
+  spawnEnemies(floor);
+}
+
+function spawnEnemies(floor) {
+  enemies = [];
+  projectiles = [];
+  rooms.forEach((room, idx) => {
+    if (room.isStart) return;
+    if (room.isBoss) {
+      const boss = new Boss(room.x + room.w/2 - 24, room.y + room.h/2 - 24, floor);
+      enemies.push(boss);
+    } else {
+      const count = 1 + Math.floor(Math.random() * 3);
+      for (let i=0; i<count; i++) {
+        const type = ['skeleton', 'archer', 'assassin'][Math.floor(Math.random() * 3)];
+        const ex = room.x + 30 + Math.random()*(room.w - 60);
+        const ey = room.y + 30 + Math.random()*(room.h - 60);
+        enemies.push(new Enemy(ex, ey, type, 1 + (floor-1)*0.5));
+      }
+    }
+  });
+}
+
+function showUpgradeChoices() {
+  const panel = document.getElementById('upgrade-panel');
+  panel.style.display = 'flex';
+  const upgrades = [
+    { text: '+5 Attack', effect: (p) => p.atk += 5 },
+    { text: '+20 Max HP', effect: (p) => { p.maxHp += 20; p.hp = Math.min(p.maxHp, p.hp + 20); } },
+    { text: '+10% Move Speed', effect: (p) => p.speed *= 1.1 },
+    { text: 'Lifesteal (10% on kill)', effect: (p) => p.lifesteal = 0.1 },
+    { text: 'Chain Lightning (20%)', effect: (p) => p.chainLightning = 0.2 },
+    { text: 'Shield (20 HP per floor)', effect: (p) => p.shield += 20 }
+  ];
+  const selected = [];
+  while (selected.length < 3) {
+    const idx = Math.floor(Math.random() * upgrades.length);
+    if (!selected.includes(idx)) selected.push(idx);
+  }
+  document.getElementById('upgrade-btn1').textContent = upgrades[selected[0]].text;
+  document.getElementById('upgrade-btn2').textContent = upgrades[selected[1]].text;
+  document.getElementById('upgrade-btn3').textContent = upgrades[selected[2]].text;
+  document.getElementById('upgrade-btn1').onclick = () => { upgrades[selected[0]].effect(player); closeUpgrade(); };
+  document.getElementById('upgrade-btn2').onclick = () => { upgrades[selected[1]].effect(player); closeUpgrade(); };
+  document.getElementById('upgrade-btn3').onclick = () => { upgrades[selected[2]].effect(player); closeUpgrade(); };
+}
+
+function closeUpgrade() {
+  document.getElementById('upgrade-panel').style.display = 'none';
+  gameState = GAME_STATE.PLAYING;
+}
+
+function startGame() {
+  player = new Player(100, H/2);
+  currentFloor = 1;
+  killCount = 0;
+  startTime = Date.now();
+  generateDungeon(currentFloor);
+  player.x = rooms[0].x + 30; player.y = rooms[0].y + 50;
+  gameState = GAME_STATE.PLAYING;
+  document.getElementById('ui-overlay').style.display = 'block';
+}
+
+function restartGame() {
+  startGame();
+}
+
+function gameLoop() {
+  if (gameState === GAME_STATE.PLAYING || gameState === GAME_STATE.UPGRADE) {
+    if (gameState === GAME_STATE.PLAYING) {
+      player.update();
+      enemies.forEach(e => e.update());
+      enemies = enemies.filter(e => e.hp > 0);
+      projectiles.forEach(p => p.update());
+      projectiles = projectiles.filter(p => p.lifetime > 0);
+      // check room cleared
+      const room = rooms[currentRoomIndex];
+      const roomEnemies = enemies.filter(e => e.x >= room.x && e.x <= room.x+room.w && e.y >= room.y && e.y <= room.y+room.h);
+      if (roomEnemies.length === 0 && !room.cleared) {
+        room.cleared = true;
+        if (room.isBoss) {
+          if (currentFloor < 5) {
+            currentFloor++;
+            generateDungeon(currentFloor);
+            player.x = rooms[0].x + 30; player.y = rooms[0].y + 50;
+            player.shield = 0; // reset shield per floor
+            player.hp = Math.min(player.maxHp, player.hp + 20); // heal a bit
+          } else {
+            gameState = GAME_STATE.VICTORY;
+          }
+        }
+      }
+      // move to next room if near door
+      const doorX = room.x + room.w/2;
+      const doorY = room.y + room.h/2;
+      if (Math.hypot(player.x - doorX, player.y - doorY) < 30 && room.cleared && !room.isBoss && currentRoomIndex < rooms.length-1) {
+        currentRoomIndex++;
+        player.x = rooms[currentRoomIndex].x + 30;
+        player.y = rooms[currentRoomIndex].y + 50;
+      }
+      updateHUD();
+    }
+  }
+  render();
+  requestAnimationFrame(gameLoop);
+}
+
+function updateHUD() {
+  document.getElementById('hp-value').textContent = player.hp;
+  document.getElementById('max-hp').textContent = player.maxHp;
+  document.getElementById('exp-value').textContent = player.exp;
+  document.getElementById('exp-next').textContent = player.expToNext;
+  document.getElementById('level-num').textContent = player.level;
+  document.getElementById('floor-num').textContent = currentFloor;
+}
+
+function render() {
+  ctx.clearRect(0, 0, W, H);
+  // background
+  ctx.fillStyle = '#222';
+  ctx.fillRect(0, 0, W, H);
+
+  if (gameState === GAME_STATE.MENU) {
+    ctx.fillStyle = 'white';
+    ctx.font = '32px monospace';
+    ctx.fillText('Roguelike Dungeon Tower', 200, 150);
+    ctx.font = '20px monospace';
+    ctx.fillText('Click Start to Begin', 280, 250);
+    ctx.fillStyle = '#4caf50';
+    ctx.fillRect(300, 280, 200, 40);
+    ctx.fillStyle = 'black';
+    ctx.fillText('Start', 370, 308);
+    return;
+  }
+
+  // draw rooms
+  rooms.forEach((room, idx) => {
+    ctx.fillStyle = room.isStart ? '#1a1a2e' : (room.isBoss ? '#3e0000' : '#1a2e1a');
+    ctx.fillRect(room.x, room.y, room.w, room.h);
+    ctx.strokeStyle = '#555';
+    ctx.strokeRect(room.x, room.y, room.w, room.h);
+    if (idx === currentRoomIndex) {
+      ctx.strokeStyle = 'gold';
+      ctx.strokeRect(room.x, room.y, room.w, room.h);
+    }
+    // door markers
+    if (room.cleared && !room.isBoss) {
+      ctx.fillStyle = 'white';
+      ctx.fillRect(room.x + room.w/2 - 10, room.y + room.h/2 - 10, 20, 20);
+    }
+  });
+
+  // draw enemies
+  enemies.forEach(e => {
+    if (e instanceof Boss) {
+      ctx.fillStyle = e.color;
+      ctx.fillRect(e.x, e.y, e.w, e.h);
+      ctx.fillStyle = 'white';
+      ctx.font = '10px monospace';
+      ctx.fillText('BOSS', e.x, e.y-5);
+    } else {
+      ctx.fillStyle = e.color;
+      ctx.fillRect(e.x, e.y, e.w, e.h);
+    }
+  });
+
+  // draw projectiles
+  projectiles.forEach(p => {
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 4, 0, Math.PI*2);
+    ctx.fill();
+  });
+
+  // draw player
+  if (player.playerImgLoaded) {
+    ctx.drawImage(player.playerImg, player.x-2, player.y-2, 28, 28);
+  } else {
+    ctx.fillStyle = '#4caf50';
+    ctx.fillRect(player.x, player.y, player.w, player.h);
+  }
+  // shield indicator
+  if (player.shield > 0) {
+    ctx.strokeStyle = 'cyan';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(player.x-2, player.y-2, player.w+4, player.h+4);
+  }
+
+  if (gameState === GAME_STATE.GAMEOVER) {
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = 'red';
+    ctx.font = '36px monospace';
+    ctx.fillText('Game Over', 300, 200);
+    ctx.fillStyle = 'white';
+    ctx.font = '18px monospace';
+    ctx.fillText(`Kills: ${killCount}  Floor: ${currentFloor}`, 300, 250);
+    ctx.fillText(`Time: ${((Date.now()-startTime)/1000).toFixed(0)}s`, 300, 280);
+    ctx.fillStyle = '#4caf50';
+    ctx.fillRect(300, 400, 200, 40);
+    ctx.fillStyle = 'black';
+    ctx.fillText('Try Again', 350, 428);
+  } else if (gameState === GAME_STATE.VICTORY) {
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = 'gold';
+    ctx.font = '36px monospace';
+    ctx.fillText('Victory! Dark Lord Defeated!', 150, 200);
+    ctx.fillStyle = 'white';
+    ctx.font = '18px monospace';
+    ctx.fillText(`Kills: ${killCount}  Time: ${((Date.now()-startTime)/1000).toFixed(0)}s`, 280, 250);
+    ctx.fillStyle = '#4caf50';
+    ctx.fillRect(300, 400, 200, 40);
+    ctx.fillStyle = 'black';
+    ctx.fillText('Play Again', 350, 428);
+  }
+}
+
+// Start
+startGame();
+gameLoop();
+</script>
+</body>
+</html>

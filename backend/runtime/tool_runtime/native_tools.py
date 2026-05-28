@@ -339,7 +339,7 @@ class NativeWriteFileTool(_NativeToolBase):
             rel = self._files(context).relative_path(file_path)
         except Exception as exc:
             return self._envelope(tool_args=args, status="error", text=f"Write failed: {exc}", execution_receipt=context.execution_receipt)
-        artifact = {"path": rel, "kind": "file", "source": self.name}
+        artifact = _artifact_ref_for_file(context=context, path=file_path, logical_path=rel, kind="file", source=self.name)
         return self._envelope(
             tool_args=args,
             status="ok",
@@ -444,7 +444,7 @@ class NativeEditFileTool(_NativeToolBase):
             rel = self._files(context).relative_path(file_path)
         except Exception as exc:
             return self._envelope(tool_args=args, status="error", text=f"Edit failed: {exc}", execution_receipt=context.execution_receipt)
-        artifact = {"path": rel, "kind": "file", "source": self.name}
+        artifact = _artifact_ref_for_file(context=context, path=file_path, logical_path=rel, kind="file", source=self.name)
         return self._envelope(
             tool_args=args,
             status="ok",
@@ -1211,5 +1211,27 @@ def _file_sha256(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _artifact_ref_for_file(
+    *,
+    context: ToolUseContext,
+    path: Path,
+    logical_path: str,
+    kind: str,
+    source: str,
+) -> dict[str, Any]:
+    artifact = {
+        "path": str(logical_path or ""),
+        "kind": kind,
+        "source": source,
+        "absolute_path": str(Path(path).resolve()),
+    }
+    if context.sandbox_root is not None:
+        try:
+            artifact["sandbox_path"] = Path(path).resolve().relative_to(context.sandbox_root.resolve()).as_posix()
+        except ValueError:
+            artifact["sandbox_path"] = str(logical_path or "")
+    return artifact
 
 

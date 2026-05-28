@@ -639,15 +639,35 @@ function taskEnvironmentId(task: SpecificTaskRecord) {
 }
 
 function taskEnvironmentTitle(environmentId: string) {
+  return environmentRecordTitle(environmentId) || environmentId;
+}
+
+function environmentRecordTitle(environmentId: string, overview?: TaskSystemOverview | null) {
+  const record = overview?.task_environment_management?.records?.find((item) => item.environment_id === environmentId);
+  if (record?.title) return record.title;
   const labels: Record<string, string> = {
-    "env.writing": "写作任务环境",
-    "env.vibe_coding": "开发任务环境",
-    "env.web_research": "网页研究环境",
-    "env.data_analysis": "数据分析环境",
-    "env.document_processing": "文档处理环境",
-    "env.general_workspace": "通用工作环境",
+    "env.creation.writing": "Creative Writing",
+    "env.development.sandbox": "Development Sandbox",
+    "env.development.readonly": "Development Readonly",
+    "env.research.web": "Web Research",
+    "env.document.processing": "Document Processing",
+    "env.general.workspace": "General Workspace",
+    "env.writing": "Creative Writing",
+    "env.vibe_coding": "Development Sandbox",
+    "env.web_research": "Web Research",
+    "env.document_processing": "Document Processing",
+    "env.general_workspace": "General Workspace",
   };
-  return labels[environmentId] ?? environmentId;
+  return labels[environmentId] ?? "";
+}
+
+function taskEnvironmentItem(environmentId: string, overview?: TaskSystemOverview | null) {
+  return overview?.task_environment_management?.environments?.find((item) => item.record.environment_id === environmentId) ?? null;
+}
+
+function taskEnvironmentStorageLabel(environmentId: string, overview?: TaskSystemOverview | null) {
+  const storage = taskEnvironmentItem(environmentId, overview)?.storage_space ?? {};
+  return String(storage.environment_storage_root ?? storage.task_library_root ?? "").trim();
 }
 
 type LayerNavItem<T extends string> = {
@@ -661,6 +681,7 @@ export function TaskSystemView() {
   const confirm = useConfirmDialog();
   const {
     activeWorkspaceView,
+    clearTaskSystemRuntimeNavigationTarget,
     currentSessionId,
     setOrchestrationInspectorTarget,
     setTaskGraphRunInteractionOpen,
@@ -668,6 +689,7 @@ export function TaskSystemView() {
     setWorkspaceView,
     taskGraphLiveMonitor,
     taskGraphMonitorBinding,
+    taskSystemRuntimeNavigationTarget,
   } = useAppStore();
   const [consolePayload, setConsolePayload] = useState<TaskSystemOverview | null>(null);
   const [projectionCatalog, setProjectionCatalog] = useState<SoulProjectionCatalog | null>(null);
@@ -871,12 +893,20 @@ export function TaskSystemView() {
   const selectedTaskGraph = taskGraphs.find((item) => item.graph_id === selectedTaskGraphId) ?? taskGraphs[0] ?? null;
   const editorDomain = visibleDomains.find((domain) => domain.domain_id === editorDomainId) ?? visibleDomains[0] ?? null;
   const editorTaskEnvironmentOptions = useMemo(() => {
-    const environmentIds = uniqueStrings(tasks.map((task) => taskEnvironmentId(task)));
-    return environmentIds.map((environmentId) => ({
-      value: environmentId,
-      label: `${taskEnvironmentTitle(environmentId)} · ${environmentId}`,
-    }));
-  }, [tasks]);
+    const environmentIds = uniqueStrings([
+      ...(consolePayload?.task_environment_management?.records ?? []).map((item) => item.environment_id),
+      ...tasks.map((task) => taskEnvironmentId(task)),
+    ]);
+    return environmentIds.map((environmentId) => {
+      const item = taskEnvironmentItem(environmentId, consolePayload);
+      const taskCount = item?.task_library?.task_count ?? tasks.filter((task) => taskEnvironmentId(task) === environmentId).length;
+      const storage = taskEnvironmentStorageLabel(environmentId, consolePayload);
+      return {
+        value: environmentId,
+        label: `${environmentRecordTitle(environmentId, consolePayload) || environmentId}${taskCount ? ` · ${taskCount} 个任务` : ""}${storage ? ` · ${storage}` : ""}`,
+      };
+    });
+  }, [consolePayload, tasks]);
   const activeEditorEnvironmentId = editorEnvironmentId
     || editorTaskEnvironmentOptions[0]?.value
     || "";
@@ -1004,14 +1034,9 @@ export function TaskSystemView() {
     }
     setSaving("task-selection-send");
     setError("");
-    setTaskSelection({
-      selected_task_id: task.task_id,
-      domain_id: domain?.domain_id || "",
-      label: task.task_title,
-      mode: "single_task",
-    });
+    setTaskSelection(null);
     setWorkspaceView("chat");
-    setNotice(`已选择任务“${task.task_title}”，主会话将按任务配置装配运行环境。`);
+    setNotice(`已返回主会话。任务“${task.task_title}”不会作为隐式上下文注入普通聊天。`);
     setSaving("");
   }, [currentSessionId, setTaskSelection, setWorkspaceView]);
 
@@ -1071,6 +1096,25 @@ export function TaskSystemView() {
       setSelectedTaskGraphId(recommendedTaskGraphId(taskGraphs));
     }
   }, [taskGraphs, selectedTaskGraphId]);
+
+  useEffect(() => {
+    if (!taskSystemRuntimeNavigationTarget) return;
+    setTaskLayer("management");
+    setTaskSystemLayer(taskSystemRuntimeNavigationTarget.layer);
+    setRuntimeTaskRunId(taskSystemRuntimeNavigationTarget.task_run_id);
+    runtimeDefaultedRef.current = true;
+
+    const targetGraphId = String(taskSystemRuntimeNavigationTarget.graph_id ?? "").trim();
+    if (targetGraphId) {
+      const targetGraph = allTaskGraphs.find((item) => String(item.graph_id ?? "").trim() === targetGraphId);
+      if (targetGraph?.domain_id) {
+        setSelectedDomainId(String(targetGraph.domain_id));
+      }
+      setSelectedTaskGraphId(targetGraphId);
+    }
+
+    clearTaskSystemRuntimeNavigationTarget();
+  }, [allTaskGraphs, clearTaskSystemRuntimeNavigationTarget, taskSystemRuntimeNavigationTarget]);
 
   useEffect(() => {
     if (!editorTaskGraphs.some((item) => item.graph_id === editorTaskGraphId)) {
@@ -2348,7 +2392,10 @@ export function TaskSystemView() {
       </div>
       <div className="task-graph-editor-chrome__status task-graph-editor-chrome__status--context">
         <span className={topologyDirty ? "boundary-status boundary-status--warn" : "boundary-status"}>{topologyDirty ? "拓扑未同步" : "拓扑已同步"}</span>
-        <span className="boundary-status">{taskEnvironmentTitle(activeEditorEnvironmentId)}</span>
+        <span className="boundary-status">{environmentRecordTitle(activeEditorEnvironmentId, consolePayload) || taskEnvironmentTitle(activeEditorEnvironmentId)}</span>
+        {taskEnvironmentStorageLabel(activeEditorEnvironmentId, consolePayload) ? (
+          <span className="boundary-status">{taskEnvironmentStorageLabel(activeEditorEnvironmentId, consolePayload)}</span>
+        ) : null}
       </div>
       <div className="task-graph-editor-chrome__actions task-graph-editor-chrome__actions--minimal">
         <ToolbarButton onClick={() => selectTaskSystemLayer("graphs")}>返回任务图库</ToolbarButton>

@@ -42,7 +42,6 @@ from task_system.repositories import (
 from task_system.services.graph_task_registry import TaskGraphRegistryService
 from task_system.services.registry_overview import TaskRegistryOverviewBuilder
 from task_system.registry.workflow_registry import TaskWorkflowRegistry
-from harness.runtime_legacy.graph_config import GraphHarnessConfig
 
 
 CONTRACT_TITLE_MAP: dict[str, str] = {
@@ -949,16 +948,16 @@ class TaskFlowRegistry:
         self._invalidate_cache()
         return graph
 
-    def list_graph_harness_configs(self) -> list[GraphHarnessConfig]:
+    def list_graph_harness_configs(self) -> list[Any]:
         return self.graph_harness_config_repository.list()
 
-    def get_graph_harness_config(self, config_id: str) -> GraphHarnessConfig | None:
+    def get_graph_harness_config(self, config_id: str) -> Any | None:
         return self.graph_harness_config_repository.get(config_id)
 
-    def get_published_graph_harness_config(self, graph_id: str) -> GraphHarnessConfig | None:
+    def get_published_graph_harness_config(self, graph_id: str) -> Any | None:
         return self.graph_harness_config_repository.get_published_for_graph(graph_id)
 
-    def upsert_graph_harness_config(self, config: GraphHarnessConfig, *, publish: bool = True) -> GraphHarnessConfig:
+    def upsert_graph_harness_config(self, config: Any, *, publish: bool = True) -> Any:
         stored = self.graph_harness_config_repository.upsert(config, publish=publish)
         self._invalidate_cache()
         return stored

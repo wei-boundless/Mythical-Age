@@ -1,20 +1,10 @@
 "use client";
 
-import { ArrowUp, BrainCircuit, Database, FolderLock, Globe2, Lightbulb, Square } from "lucide-react";
+import { ArrowUp, BrainCircuit, Lightbulb, Square } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import type { ModelProviderConfig, SoulImageAssetConfig } from "@/lib/api";
-import type { MainAgentAssemblyMode, SearchPolicySource, SearchPolicyState, TaskSelectionState } from "@/lib/store/types";
-
-const SEARCH_POLICY_OPTIONS: Array<{
-  id: SearchPolicySource;
-  label: string;
-  title: string;
-}> = [
-  { id: "rag", label: "知识库", title: "启用知识库" },
-  { id: "local_files", label: "本地", title: "启用本地权限" },
-  { id: "web", label: "联网", title: "启用联网权限" }
-];
+import type { MainAgentAssemblyMode, TaskSelectionState } from "@/lib/store/types";
 
 const MAIN_AGENT_MODE_ORDER: MainAgentAssemblyMode[] = ["role", "standard", "professional"];
 const MAIN_AGENT_MODE_LABELS: Record<MainAgentAssemblyMode, string> = {
@@ -33,10 +23,8 @@ export function ChatInput({
   onSelectChatModel,
   onSelectMainAgentAssemblyMode,
   onToggleDeepSeekThinking,
-  onToggleSearchPolicy,
   deepSeekThinkingEnabled,
   mainAgentAssemblyMode,
-  searchPolicy,
   selectedChatModelId,
   taskSelection,
 }: {
@@ -49,10 +37,8 @@ export function ChatInput({
   onSelectChatModel: (selectionId: string) => void;
   onSelectMainAgentAssemblyMode: (mode: MainAgentAssemblyMode) => void;
   onToggleDeepSeekThinking: (enabled: boolean) => void;
-  onToggleSearchPolicy: (source: SearchPolicySource) => void;
   deepSeekThinkingEnabled: boolean;
   mainAgentAssemblyMode: MainAgentAssemblyMode;
-  searchPolicy: SearchPolicyState;
   selectedChatModelId: string;
   taskSelection: TaskSelectionState | null;
 }) {
@@ -97,26 +83,6 @@ export function ChatInput({
         </div>
       ) : null}
       <div className="chat-input-panel__composer">
-        <div className="chat-control-cluster chat-control-cluster--scope">
-          <div className="chat-search-policy chat-search-policy--compact" aria-label="本轮能力权限">
-            {SEARCH_POLICY_OPTIONS.map((option) => {
-              const enabled = searchPolicy[option.id];
-              return (
-                <button
-                  aria-pressed={enabled}
-                  className={enabled ? "chat-search-policy__item chat-search-policy__item--active" : "chat-search-policy__item"}
-                  key={option.id}
-                  onClick={() => onToggleSearchPolicy(option.id)}
-                  title={option.title}
-                  type="button"
-                >
-                  {searchPolicyIcon(option.id)}
-                  <span>{option.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
         <textarea
           className="chat-input-panel__textarea"
           disabled={inputDisabled}
@@ -168,7 +134,6 @@ export function ChatInput({
             ) : null}
           </div>
           <div className="chat-control-cluster chat-control-cluster--mode">
-            <span className="chat-control-cluster__name">模式</span>
             <label className="chat-mode-select">
               <select
                 aria-label="选择主 Agent 模式"
@@ -176,13 +141,11 @@ export function ChatInput({
                 onChange={(event) => onSelectMainAgentAssemblyMode(event.target.value as MainAgentAssemblyMode)}
                 value={mainAgentAssemblyMode}
               >
-                {MAIN_AGENT_MODE_ORDER.map((mode) => {
-                  return (
-                    <option key={mode} value={mode}>
-                      {MAIN_AGENT_MODE_LABELS[mode]}
-                    </option>
-                  );
-                })}
+                {MAIN_AGENT_MODE_ORDER.map((mode) => (
+                  <option key={mode} value={mode}>
+                    {MAIN_AGENT_MODE_LABELS[mode]}
+                  </option>
+                ))}
               </select>
             </label>
           </div>
@@ -261,10 +224,4 @@ function resolveActiveChatModel(selectionId: string, config: ModelProviderConfig
   const normalizedProvider = provider.trim().toLowerCase();
   const model = modelParts.join("::").trim();
   return normalizedProvider && model ? { provider: normalizedProvider, model } : null;
-}
-
-function searchPolicyIcon(source: SearchPolicySource) {
-  if (source === "rag") return <Database size={13} />;
-  if (source === "local_files") return <FolderLock size={13} />;
-  return <Globe2 size={13} />;
 }

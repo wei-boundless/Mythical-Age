@@ -89,6 +89,36 @@ def test_sandbox_python_repl_blocks_absolute_workspace_escape(tmp_path: Path) ->
     assert "Blocked:" in result["observation"].payload["result"]
 
 
+def test_sandbox_keeps_image_generate_bound_to_backend_config_root(tmp_path: Path, monkeypatch) -> None:
+    workspace = tmp_path / "project"
+    sandbox_root = tmp_path / "sandbox" / "workspace"
+    workspace.mkdir(parents=True)
+    sandbox_root.mkdir(parents=True)
+    (workspace / ".env").write_text("SOUL_IMAGE_API_KEY=workspace-key\n", encoding="utf-8")
+    (sandbox_root / ".env").write_text("SOUL_IMAGE_API_KEY=sandbox-key\n", encoding="utf-8")
+
+    from capability_system.units.tools.image_generation_tool import ImageGenerationTool
+
+    observed_roots: list[Path] = []
+
+    async def _fake_arun(self, *args, **kwargs):
+        observed_roots.append(Path(self._root_dir).resolve())
+        return "{\"ok\": true}"
+
+    monkeypatch.setattr(ImageGenerationTool, "_arun", _fake_arun)
+
+    result = _run_tool(
+        workspace=workspace,
+        sandbox_root=sandbox_root,
+        tool_name="image_generate",
+        tool_args={"prompt": "test image"},
+        operation_id="op.image_generate",
+    )
+
+    assert result["error"] == ""
+    assert observed_roots == [workspace.resolve()]
+
+
 def test_tool_runtime_executor_returns_recoverable_invocation_validation_feedback_before_tool_invocation(tmp_path: Path) -> None:
     workspace = tmp_path / "project"
     workspace.mkdir(parents=True)

@@ -4,7 +4,7 @@ import { Activity, AlertTriangle, CheckCircle2, ChevronRight, Clock3, Minimize2,
 import { useEffect, useMemo, useState } from "react";
 
 import { useAppStore } from "@/lib/store";
-import { runtimeWorkProjectionFromMonitorItem, summarizeRuntimeMonitorItems, visibleRuntimeMonitorItems } from "@/lib/runtimeWorkProjection";
+import { monitorBucketItems, runtimeWorkProjectionFromMonitorItem, summarizeRuntimeMonitorItems } from "@/lib/runtimeWorkProjection";
 import {
   isWaitingStatus,
   formatTime,
@@ -23,25 +23,29 @@ function statusIcon(status: string) {
 
 export function TaskMonitorDock({ embedded = false }: { embedded?: boolean }) {
   const {
-    bindTaskGraphMonitorRun,
     globalRuntimeMonitor,
     globalRuntimeMonitorError,
     globalRuntimeMonitorLoading,
     globalRuntimeMonitorSelectedTaskRunId,
     globalRuntimeMonitorStreamStatus,
+    openGlobalRuntimeMonitorTaskRun,
     refreshGlobalRuntimeMonitor,
-    selectGlobalRuntimeMonitorTaskRun,
-    setTaskGraphRunInteractionOpen,
   } = useAppStore();
   const [collapsed, setCollapsed] = useState(false);
-  const runs = useMemo(() => visibleRuntimeMonitorItems(globalRuntimeMonitor), [globalRuntimeMonitor]);
-  const summary = useMemo(() => summarizeRuntimeMonitorItems(runs), [runs]);
+  const [activeBucket, setActiveBucket] = useState<"running" | "completed" | "failed" | "diagnostics">("running");
+  const runningRuns = useMemo(() => monitorBucketItems(globalRuntimeMonitor, "running"), [globalRuntimeMonitor]);
+  const completedRuns = useMemo(() => monitorBucketItems(globalRuntimeMonitor, "completed"), [globalRuntimeMonitor]);
+  const failedRuns = useMemo(() => monitorBucketItems(globalRuntimeMonitor, "failed"), [globalRuntimeMonitor]);
+  const diagnosticsRuns = useMemo(() => monitorBucketItems(globalRuntimeMonitor, "diagnostics"), [globalRuntimeMonitor]);
+  const runs = activeBucket === "running" ? runningRuns : activeBucket === "completed" ? completedRuns : activeBucket === "failed" ? failedRuns : diagnosticsRuns;
+  const allRuns = useMemo(() => [...runningRuns, ...completedRuns, ...failedRuns, ...diagnosticsRuns], [completedRuns, diagnosticsRuns, failedRuns, runningRuns]);
+  const summary = useMemo(() => summarizeRuntimeMonitorItems(allRuns), [allRuns]);
   const selectedRun = useMemo(
-    () => runs.find((item) => item.task_run_id === globalRuntimeMonitorSelectedTaskRunId) ?? runs[0] ?? null,
-    [globalRuntimeMonitorSelectedTaskRunId, runs]
+    () => allRuns.find((item) => item.task_run_id === globalRuntimeMonitorSelectedTaskRunId) ?? runs[0] ?? null,
+    [allRuns, globalRuntimeMonitorSelectedTaskRunId, runs]
   );
-  const hasActiveSignal = runs.some((item) => item.is_live || item.display_bucket === "live");
-  const hasSignal = runs.length > 0;
+  const hasActiveSignal = runningRuns.some((item) => item.resource_class === "dynamic" || item.is_live || item.action_required);
+  const hasSignal = allRuns.length > 0;
   const nowSeconds = useRuntimeNowTicker(hasActiveSignal);
   const streamLabel = globalRuntimeMonitorStreamStatus === "connected"
     ? "事件流"
@@ -69,11 +73,11 @@ export function TaskMonitorDock({ embedded = false }: { embedded?: boolean }) {
     if (globalRuntimeMonitorLoading && !globalRuntimeMonitor) return "同步中";
     if (summary.waiting) return "等待处理";
     if (summary.running) return `${summary.running} 运行中`;
-    if (summary.stale) return `${summary.stale} 个停滞`;
-    if (summary.recent) return `${summary.recent} 个刚结束`;
-    if (summary.total) return `${summary.total} 个运行`;
+    if (summary.failed) return `${summary.failed} 失败`;
+    if (summary.diagnostics) return `${summary.diagnostics} 需诊断`;
+    if (summary.completed) return `${summary.completed} 完成`;
     return "待命";
-  }, [globalRuntimeMonitor, globalRuntimeMonitorLoading, summary.recent, summary.running, summary.stale, summary.total, summary.waiting]);
+  }, [globalRuntimeMonitor, globalRuntimeMonitorLoading, summary.completed, summary.diagnostics, summary.failed, summary.running, summary.waiting]);
 
   return (
     <aside
@@ -133,10 +137,18 @@ export function TaskMonitorDock({ embedded = false }: { embedded?: boolean }) {
           </section>
 
           <section className="runtime-monitor-metrics" aria-label="任务运行统计">
-            <article><strong>{summary.running}</strong><span>进行中</span></article>
-            <article><strong>{summary.waiting}</strong><span>等待</span></article>
-            <article><strong>{summary.completed}</strong><span>完成</span></article>
-            <article><strong>{summary.total}</strong><span>总数</span></article>
+            <button className={activeBucket === "running" ? "is-active" : ""} onClick={() => setActiveBucket("running")} type="button">
+              <strong>{runningRuns.length}</strong><span>运行中</span>
+            </button>
+            <button className={activeBucket === "completed" ? "is-active" : ""} onClick={() => setActiveBucket("completed")} type="button">
+              <strong>{completedRuns.length}</strong><span>已完成</span>
+            </button>
+            <button className={activeBucket === "failed" ? "is-active" : ""} onClick={() => setActiveBucket("failed")} type="button">
+              <strong>{failedRuns.length}</strong><span>失败</span>
+            </button>
+            <button className={activeBucket === "diagnostics" ? "is-active" : ""} onClick={() => setActiveBucket("diagnostics")} type="button">
+              <strong>{diagnosticsRuns.length}</strong><span>诊断</span>
+            </button>
           </section>
 
           {globalRuntimeMonitorError ? (
@@ -154,21 +166,7 @@ export function TaskMonitorDock({ embedded = false }: { embedded?: boolean }) {
                 <button
                   className={active ? "runtime-monitor-row runtime-monitor-row--active" : "runtime-monitor-row"}
                   key={item.task_run_id}
-                  onClick={() => {
-                    selectGlobalRuntimeMonitorTaskRun(item.task_run_id);
-                    if (work.displayTypeLabel === "任务图" || item.has_coordination || item.graph_id) {
-                      bindTaskGraphMonitorRun({
-                        task_run_id: item.task_run_id,
-                        coordination_run_id: item.coordination_run_id,
-                        graph_id: item.graph_id,
-                        project_id: item.project_id,
-                        session_id: item.session_id,
-                        title: work.title || taskTitle(item),
-                      });
-                      setTaskGraphRunInteractionOpen(true);
-                      return;
-                    }
-                  }}
+                  onClick={() => openGlobalRuntimeMonitorTaskRun(item.task_run_id)}
                   type="button"
                 >
                   <span className={`runtime-monitor-row__status runtime-monitor-row__status--${item.status}`}>
@@ -176,7 +174,7 @@ export function TaskMonitorDock({ embedded = false }: { embedded?: boolean }) {
                   </span>
                   <span className="runtime-monitor-row__main">
                     <strong>{work.title || taskTitle(item)}</strong>
-                    <small>{work.displayTypeLabel}</small>
+                    <small>{work.latestStepSummary || work.latestEventType || work.displayTypeLabel}</small>
                   </span>
                   <span className="runtime-monitor-row__meta">
                     <strong>{monitorStatusLabel(item)}</strong>
@@ -187,8 +185,8 @@ export function TaskMonitorDock({ embedded = false }: { embedded?: boolean }) {
             }) : (
               <div className="runtime-monitor-empty">
                 <Clock3 size={18} />
-                <strong>当前没有运行任务</strong>
-                <span>任务订单、专业任务和任务图运行会在这里显示。</span>
+                <strong>{activeBucket === "running" ? "当前没有运行任务" : activeBucket === "completed" ? "暂无完成任务" : activeBucket === "failed" ? "暂无失败任务" : "暂无诊断任务"}</strong>
+                <span>任务会按状态自动归入这里。</span>
               </div>
             )}
           </section>
