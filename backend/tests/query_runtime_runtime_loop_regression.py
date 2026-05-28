@@ -818,7 +818,7 @@ def test_professional_mode_exposes_plan_policy_without_soul_prompt() -> None:
     assert dict(assembly.get("soul_role_prompt") or {}) == {}
 
 
-def test_specific_task_runtime_policy_can_override_builtin_mode_preset() -> None:
+def test_runtime_mode_policy_can_override_builtin_mode_preset() -> None:
     runtime = build_query_runtime()
 
     async def _collect() -> list[dict[str, object]]:
@@ -829,7 +829,7 @@ def test_specific_task_runtime_policy_can_override_builtin_mode_preset() -> None
                 message="按特定任务配置运行。",
                 runtime_mode="professional",
                 task_selection={
-                    "specific_task_runtime_policy": {
+                    "runtime_mode_policy": {
                         "default_environment_id": "env.creation.writing",
                         "planning_policy": {"plan_mode": "disabled", "specified_plan_allowed": False},
                         "task_lifecycle_policy": {"request_task_run": True, "requires_completion_evidence": True},

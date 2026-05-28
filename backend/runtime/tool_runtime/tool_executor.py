@@ -7,7 +7,7 @@ from typing import Any
 from capability_system.tool_contracts import ToolInvocationValidationDecision, ToolInvocationValidator
 from runtime.environment import RuntimeEnvironment
 from runtime.tool_runtime.tool_result_envelope import build_tool_result_envelope
-from runtime.tool_runtime.sandbox_backend import LocalOverlaySandboxBackend
+from runtime.tool_runtime.sandbox_backend import DEFAULT_SIDE_EFFECT_TOOL_NAMES, LocalOverlaySandboxBackend
 from runtime.tool_runtime.native_tools import build_native_runtime_tool
 from runtime.tool_runtime.tool_adapter import RuntimeToolAdapter
 from runtime.tool_runtime.tool_use_context import ToolUseContext
@@ -67,6 +67,25 @@ class ToolRuntimeExecutor:
             )
         else:
             sandbox_context = self.sandbox_backend.context_for_tool(tool_name=tool_name, sandbox_policy=sandbox_policy)
+        sandbox_guard_error = _sandbox_context_guard_error(tool_name=tool_name, sandbox_policy=sandbox_policy, sandbox_context=sandbox_context)
+        if sandbox_guard_error:
+            return {
+                "allowed": False,
+                "observation": build_policy_rejection_observation(
+                    task_run_id=task_run_id,
+                    request_ref=action_request.request_id,
+                    directive_ref=directive.directive_id,
+                    tool_name=tool_name,
+                    tool_call_id=tool_call_id,
+                    tool_args=tool_args,
+                    policy="sandbox_boundary",
+                    reason=sandbox_guard_error,
+                    repair_instruction="The active task environment requires sandboxed side effects. Reassemble the runtime with a sandbox context before retrying.",
+                    execution_receipt={},
+                    diagnostics={"sandbox_policy_enabled": True, "tool_name": tool_name},
+                ),
+                "error": sandbox_guard_error,
+            }
         workspace_root = Path(getattr(self.tool_runtime, "base_dir", ".")).resolve()
         policy_payload = dict(sandbox_policy or {})
         file_policy_payload = dict(file_management_policy or {})
@@ -184,6 +203,31 @@ class ToolRuntimeExecutor:
             }
         runtime_tool = build_native_runtime_tool(capability_definition=definition)
         sandbox_context = self.sandbox_backend.context_for_tool(tool_name=tool_name, sandbox_policy=sandbox_policy)
+        sandbox_guard_error = _sandbox_context_guard_error(tool_name=tool_name, sandbox_policy=sandbox_policy, sandbox_context=sandbox_context)
+        if sandbox_guard_error:
+            if execution_store is not None:
+                current_record = execution_store.mark_failed(
+                    current_record,
+                    error=sandbox_guard_error,
+                    diagnostics={"sandbox_boundary": {"sandbox_policy_enabled": True, "tool_name": tool_name}},
+                )
+            return {
+                "observation": build_policy_rejection_observation(
+                    task_run_id=task_run_id,
+                    request_ref=action_request.request_id,
+                    directive_ref=directive.directive_id,
+                    tool_name=tool_name,
+                    tool_call_id=tool_call_id,
+                    tool_args=tool_args,
+                    policy="sandbox_boundary",
+                    reason=sandbox_guard_error,
+                    repair_instruction="The active task environment requires sandboxed side effects. Reassemble the runtime with a sandbox context before retrying.",
+                    execution_receipt=build_execution_receipt(current_record, error=sandbox_guard_error).to_dict(),
+                    diagnostics={"sandbox_policy_enabled": True, "tool_name": tool_name},
+                ),
+                "execution_record": current_record,
+                "recoverable_error": sandbox_guard_error,
+            }
         if sandbox_context:
             self.sandbox_backend.prepare_tool_call(
                 tool_name=tool_name,
@@ -496,6 +540,26 @@ def _evaluate_dispatch_guard(
         directive_operation_refs=directive_operation_refs,
         execution_record_operation_id=execution_record_operation_id,
         mismatches=mismatches,
+    )
+
+
+def _sandbox_context_guard_error(
+    *,
+    tool_name: str,
+    sandbox_policy: dict[str, Any] | None,
+    sandbox_context: Any | None,
+) -> str:
+    policy = dict(sandbox_policy or {})
+    if policy.get("enabled") is not True:
+        return ""
+    effective_tool = str(tool_name or "").strip()
+    if effective_tool not in DEFAULT_SIDE_EFFECT_TOOL_NAMES:
+        return ""
+    if sandbox_context is not None:
+        return ""
+    return (
+        "sandbox_context_required_for_side_effect_tool: "
+        f"{effective_tool} cannot run without the active task environment sandbox context."
     )
 
 

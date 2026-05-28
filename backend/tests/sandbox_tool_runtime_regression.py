@@ -170,6 +170,48 @@ def test_sandbox_terminal_materializes_contract_directory_before_command(tmp_pat
     assert (sandbox_root / "docs" / "experiments" / "roguelike_long_task" / "assets" / "player.png").exists()
 
 
+def test_sandbox_terminal_fails_closed_when_sandbox_context_missing(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    sandbox_root = tmp_path / "sandbox" / "workspace"
+    workspace.mkdir(parents=True)
+
+    result = _run_tool(
+        workspace=workspace,
+        sandbox_root=sandbox_root,
+        tool_name="terminal",
+        tool_args={"command": "New-Item -ItemType File real-workspace-write.txt"},
+        operation_id="op.shell",
+        sandbox_policy_extra={"overlay_tools": ["read_file"]},
+    )
+
+    assert result["execution_record"].status == "failed"
+    assert "recoverable_error" in result
+    assert "sandbox_context_required_for_side_effect_tool" in result["recoverable_error"]
+    assert not (workspace / "real-workspace-write.txt").exists()
+    assert result["observation"].payload["structured_payload"]["policy"] == "sandbox_boundary"
+
+
+def test_sandbox_python_repl_fails_closed_when_sandbox_context_missing(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    sandbox_root = tmp_path / "sandbox" / "workspace"
+    workspace.mkdir(parents=True)
+
+    result = _run_tool(
+        workspace=workspace,
+        sandbox_root=sandbox_root,
+        tool_name="python_repl",
+        tool_args={"code": "from pathlib import Path\nPath('real-workspace-write.txt').write_text('bad')"},
+        operation_id="op.python_repl",
+        sandbox_policy_extra={"overlay_tools": ["read_file"]},
+    )
+
+    assert result["execution_record"].status == "failed"
+    assert "recoverable_error" in result
+    assert "sandbox_context_required_for_side_effect_tool" in result["recoverable_error"]
+    assert not (workspace / "real-workspace-write.txt").exists()
+    assert result["observation"].payload["structured_payload"]["policy"] == "sandbox_boundary"
+
+
 def test_agent_todo_is_bound_to_runtime_task_scope_even_when_model_sends_defaults(tmp_path: Path) -> None:
     workspace = tmp_path / "project"
     sandbox_root = tmp_path / "sandbox" / "workspace"

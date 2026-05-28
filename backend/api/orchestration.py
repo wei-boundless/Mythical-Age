@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
-from harness.graph.models import NodeResultEnvelope
+from harness.graph.models import GraphNodeWorkOrder, NodeResultEnvelope
 from sessions import InvalidSessionId, validate_session_id
 from task_system import TaskFlowRegistry
 
@@ -29,6 +29,13 @@ class GraphNodeResultRequest(BaseModel):
 class GraphRunDispatchReadyRequest(BaseModel):
     graph_harness_config_id: str = Field(..., min_length=1, max_length=240)
     max_requests: int = Field(default=1, ge=1, le=32)
+
+
+class GraphWorkOrderExecuteRequest(BaseModel):
+    graph_harness_config_id: str = Field(..., min_length=1, max_length=240)
+    work_order: dict[str, Any] = Field(default_factory=dict)
+    max_steps: int = Field(default=12, ge=1, le=50)
+    accept_result: bool = True
 
 
 @router.post("/orchestration/harness/task-graphs/{graph_id}/start")
@@ -156,6 +163,33 @@ async def accept_graph_node_result(
         "node_work_orders": [item.to_dict() for item in advance.node_work_orders],
         "events": [dict(item) for item in advance.events],
     }
+
+
+@router.post("/orchestration/harness/graph-runs/{graph_run_id}/work-orders/execute")
+async def execute_graph_work_order(
+    graph_run_id: str,
+    payload: GraphWorkOrderExecuteRequest,
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    graph_config = TaskFlowRegistry(runtime.base_dir).get_graph_harness_config(payload.graph_harness_config_id)
+    if graph_config is None:
+        raise HTTPException(status_code=404, detail="GraphHarnessConfig not found")
+    work_order_payload = {
+        **dict(payload.work_order or {}),
+        "graph_run_id": str(dict(payload.work_order or {}).get("graph_run_id") or graph_run_id),
+    }
+    try:
+        work_order = GraphNodeWorkOrder.from_dict(work_order_payload)
+        if work_order.graph_run_id != graph_run_id:
+            raise ValueError("GraphNodeWorkOrder graph_run_id does not match route graph_run_id")
+        return await runtime.query_runtime.graph_harness.execute_work_order(
+            graph_config=graph_config,
+            work_order=work_order,
+            max_steps=payload.max_steps,
+            accept_result=payload.accept_result,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 def _validated_session_id(value: str) -> str:

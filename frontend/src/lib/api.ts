@@ -885,6 +885,35 @@ export type SpecificTaskRecordUpsertPayload = SpecificTaskRecord;
 export type TaskFlowContractBindingUpsertPayload = TaskFlowContractBinding;
 export type TaskExecutionPolicyUpsertPayload = TaskExecutionPolicy;
 export type ContractSpecUpsertPayload = ContractSpec;
+export type TaskEnvironmentGroupUpsertPayload = {
+  group_id: string;
+  title: string;
+  description?: string;
+  enabled?: boolean;
+};
+export type TaskEnvironmentUpsertPayload = {
+  record?: Record<string, unknown>;
+  spec?: Record<string, unknown>;
+  environment_id?: string;
+  title?: string;
+  description?: string;
+  group_id?: string;
+  environment_kind?: string;
+  enabled?: boolean;
+  owner?: string;
+  default_visibility?: string;
+  environment_prompts?: Array<Record<string, unknown>>;
+  sandbox_policy?: Record<string, unknown>;
+  file_management?: Record<string, unknown>;
+  resource_space?: Record<string, unknown>;
+  memory_space?: Record<string, unknown>;
+  execution_policy?: Record<string, unknown>;
+  risk_policy?: Record<string, unknown>;
+  artifact_policy?: Record<string, unknown>;
+  observability_policy?: Record<string, unknown>;
+  lifecycle_policy?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+};
 
 export type TaskGraphUpsertPayload = TaskGraphRecord;
 export type TaskGraphStandardViewUpsertPayload = {
@@ -933,6 +962,7 @@ export type TaskSystemOverview = {
       spec: Record<string, unknown>;
       group?: Record<string, unknown>;
       environment_prompts?: Array<Record<string, unknown>>;
+      environment_boundary?: Record<string, unknown>;
       sandbox_policy?: Record<string, unknown>;
       storage_space?: Record<string, unknown>;
       resource_space?: Record<string, unknown>;
@@ -940,10 +970,8 @@ export type TaskSystemOverview = {
       file_access_tables?: Array<Record<string, unknown>>;
       memory_space?: Record<string, unknown>;
       artifact_policy?: Record<string, unknown>;
-      skill_space?: Record<string, unknown>;
       execution_policy?: Record<string, unknown>;
       risk_policy?: Record<string, unknown>;
-      runtime_policy?: Record<string, unknown>;
       observability_policy?: Record<string, unknown>;
       lifecycle_policy?: Record<string, unknown>;
       task_library?: {
@@ -2083,6 +2111,22 @@ export type GraphNodeResultAcceptResult = {
   authority: string;
   graph_run_id: string;
   graph_harness_config_id: string;
+  accepted_result: Record<string, unknown> | null;
+  graph_result: Record<string, unknown> | null;
+  graph_loop_state: Record<string, unknown>;
+  checkpoint: Record<string, unknown>;
+  node_work_orders: Array<Record<string, unknown>>;
+  events: Array<Record<string, unknown>>;
+};
+
+export type GraphWorkOrderExecuteResult = {
+  authority: string;
+  graph_run_id: string;
+  graph_harness_config_id: string;
+  work_order: Record<string, unknown>;
+  node_result: Record<string, unknown>;
+  node_executor_task_run: Record<string, unknown> | null;
+  executor_result: Record<string, unknown>;
   accepted_result: Record<string, unknown> | null;
   graph_result: Record<string, unknown> | null;
   graph_loop_state: Record<string, unknown>;
@@ -3659,6 +3703,24 @@ export async function acceptGraphNodeResult(
   );
 }
 
+export async function executeGraphWorkOrder(
+  graphRunId: string,
+  payload: {
+    graph_harness_config_id: string;
+    work_order: Record<string, unknown>;
+    max_steps?: number;
+    accept_result?: boolean;
+  }
+) {
+  return request<GraphWorkOrderExecuteResult>(
+    `/orchestration/harness/graph-runs/${encodeURIComponent(graphRunId)}/work-orders/execute`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
 export async function stopOrchestrationTaskRun(
   taskRunId: string,
   payload: {
@@ -4071,6 +4133,26 @@ export async function upsertTaskSystemExecutionPolicy(taskId: string, payload: T
   return request<TaskSystemOverview>(`/tasks/execution-policies/${encodeURIComponent(taskId)}`, {
     method: "PUT",
     body: JSON.stringify(payload)
+  });
+}
+
+export async function upsertTaskSystemEnvironmentGroup(groupId: string, payload: TaskEnvironmentGroupUpsertPayload) {
+  return request<TaskSystemOverview>(`/tasks/environment-groups/${encodeURIComponent(groupId)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function upsertTaskSystemEnvironment(environmentId: string, payload: TaskEnvironmentUpsertPayload) {
+  return request<TaskSystemOverview>(`/tasks/environments/${encodeURIComponent(environmentId)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function deleteTaskSystemEnvironment(environmentId: string) {
+  return request<TaskSystemOverview>(`/tasks/environments/${encodeURIComponent(environmentId)}`, {
+    method: "DELETE"
   });
 }
 

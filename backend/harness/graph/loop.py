@@ -174,6 +174,11 @@ class GraphLoop:
         envelope = result if isinstance(result, NodeResultEnvelope) else NodeResultEnvelope.from_dict(dict(result or {}))
         if envelope.graph_run_id != state.graph_run_id:
             raise ValueError("NodeResultEnvelope graph_run_id does not match GraphLoopState")
+        active_work_order_id = str(dict(state.active_work_orders or {}).get(envelope.node_id) or "")
+        if not active_work_order_id:
+            raise ValueError("NodeResultEnvelope node is not active in GraphLoopState")
+        if envelope.work_order_id != active_work_order_id:
+            raise ValueError("NodeResultEnvelope work_order_id does not match active GraphNodeWorkOrder")
         node_states = {key: dict(value) for key, value in state.node_states.items()}
         current_node = dict(node_states.get(envelope.node_id) or {})
         current_node["status"] = "completed" if envelope.status == "completed" else "failed"
@@ -442,7 +447,6 @@ def _work_order_for_node(*, graph_config: GraphHarnessConfig, state: GraphLoopSt
         node_id=node_id,
         agent_id=str(node.get("agent_id") or ""),
         agent_profile_id=str(node.get("agent_profile_id") or ""),
-        runtime_lane=str(node.get("runtime_lane") or ""),
         message=message,
         explicit_inputs={},
         input_package={
@@ -480,8 +484,6 @@ def _work_order_for_node(*, graph_config: GraphHarnessConfig, state: GraphLoopSt
 
 def _graph_work_kind(executor_type: str) -> str:
     normalized = str(executor_type or "agent").strip()
-    if normalized == "graph_module":
-        return "graph_module"
     if normalized in {"human", "human_gate", "review_gate"}:
         return "human_gate"
     if normalized == "tool":

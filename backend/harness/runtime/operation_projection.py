@@ -9,12 +9,11 @@ class OperationAuthorizationDecision:
     operation_id: str
     agent_allowed: bool
     agent_blocked: bool
-    environment_allowed: bool
     task_requested: bool
     final_decision: str
     reason: str
-    channel: str = ""
-    environment_policy: str = ""
+    constraint_channel: str = ""
+    environment_constraint: str = ""
     authority: str = "harness.runtime.operation_authorization"
 
     def to_dict(self) -> dict[str, Any]:
@@ -22,12 +21,11 @@ class OperationAuthorizationDecision:
             "operation_id": self.operation_id,
             "agent_allowed": self.agent_allowed,
             "agent_blocked": self.agent_blocked,
-            "environment_allowed": self.environment_allowed,
             "task_requested": self.task_requested,
             "final_decision": self.final_decision,
             "reason": self.reason,
-            "channel": self.channel,
-            "environment_policy": self.environment_policy,
+            "constraint_channel": self.constraint_channel,
+            "environment_constraint": self.environment_constraint,
             "authority": self.authority,
         }
 
@@ -72,7 +70,7 @@ def project_operation_authorization(
             continue
         allowed_by_agent = operation_id in agent_allowed
         blocked_by_agent = operation_id in agent_blocked
-        environment_allowed, channel, environment_policy, _environment_reason = _environment_decision(
+        constraint_channel, environment_constraint = _environment_constraint(
             operation_id,
             environment_payload=environment_payload,
         )
@@ -90,12 +88,11 @@ def project_operation_authorization(
                 operation_id=operation_id,
                 agent_allowed=allowed_by_agent,
                 agent_blocked=blocked_by_agent,
-                environment_allowed=environment_allowed,
                 task_requested=operation_id in task_requested,
                 final_decision=final_decision,
                 reason=reason,
-                channel=channel,
-                environment_policy=environment_policy,
+                constraint_channel=constraint_channel,
+                environment_constraint=environment_constraint,
             )
         )
     allowed = tuple(item.operation_id for item in decisions if item.final_decision == "allow")
@@ -107,27 +104,27 @@ def project_operation_authorization(
     )
 
 
-def _environment_decision(
+def _environment_constraint(
     operation_id: str,
     *,
     environment_payload: dict[str, Any],
-) -> tuple[bool, str, str, str]:
+) -> tuple[str, str]:
     execution_policy = dict(environment_payload.get("execution_policy") or {})
     sandbox_policy = dict(environment_payload.get("sandbox_policy") or {})
     channel = _operation_channel(operation_id)
     if channel == "shell":
         policy = str(execution_policy.get("shell_execution_policy") or sandbox_policy.get("shell_policy") or "denied")
-        return True, channel, policy, ""
+        return channel, policy
     if channel == "browser":
         policy = str(execution_policy.get("browser_execution_policy") or sandbox_policy.get("browser_policy") or "denied")
-        return True, channel, policy, ""
+        return channel, policy
     if channel == "network":
         policy = str(execution_policy.get("network_execution_policy") or sandbox_policy.get("network_policy") or "denied")
-        return True, channel, policy, ""
+        return channel, policy
     if channel == "file_write":
         write_scope = str(execution_policy.get("write_scope_policy") or sandbox_policy.get("write_policy") or "none")
-        return True, channel, write_scope, ""
-    return True, channel, "not_restricted", ""
+        return channel, write_scope
+    return channel, "not_restricted"
 
 
 def _operation_channel(operation_id: str) -> str:

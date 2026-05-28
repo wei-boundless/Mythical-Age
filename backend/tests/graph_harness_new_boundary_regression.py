@@ -19,6 +19,9 @@ def test_new_graph_harness_does_not_use_old_stage_request_protocol() -> None:
         "TaskGraphRuntimeSpec",
         "compile_task_graph_definition_runtime_spec",
         "TaskFlowRegistry",
+        "graph_module",
+        "linked_config_id",
+        "modules",
     )
     offenders: dict[str, list[str]] = {}
     for path in NEW_GRAPH_FILES:

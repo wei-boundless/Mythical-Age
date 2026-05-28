@@ -10,12 +10,6 @@
         "custom"
       ],
       "default_runtime_mode": "standard",
-      "allowed_runtime_lanes": [
-        "role_interaction",
-        "standard_task",
-        "professional_task",
-        "game_delivery"
-      ],
       "allowed_operations": [
         "op.model_response",
         "op.read_file",
@@ -104,12 +98,8 @@
           "mode": "role",
           "label": "角色模式",
           "interaction_mode": "role_mode",
-          "runtime_lane": "role_interaction",
           "recipe_id": "runtime.recipe.role_interaction",
           "projection_strength": "primary",
-          "runtime_lanes": [
-            "role_interaction"
-          ],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": {
@@ -153,12 +143,8 @@
           "mode": "standard",
           "label": "标准模式",
           "interaction_mode": "standard_mode",
-          "runtime_lane": "standard_task",
           "recipe_id": "runtime.recipe.standard_task",
           "projection_strength": "companion",
-          "runtime_lanes": [
-            "standard_task"
-          ],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": {
@@ -202,12 +188,8 @@
           "mode": "professional",
           "label": "专家模式",
           "interaction_mode": "professional_mode",
-          "runtime_lane": "professional_task",
           "recipe_id": "runtime.recipe.professional_task",
           "projection_strength": "style_only",
-          "runtime_lanes": [
-            "professional_task"
-          ],
           "execution_strategy": "interaction_mode_run",
           "default_environment_id": "",
           "interaction_policy": {
@@ -258,10 +240,8 @@
           "mode": "custom",
           "label": "自定义模式",
           "interaction_mode": "custom_mode",
-          "runtime_lane": "",
           "recipe_id": "runtime.recipe.custom",
           "projection_strength": "manual",
-          "runtime_lanes": [],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": null,
@@ -286,12 +266,6 @@
         "custom"
       ],
       "default_runtime_mode": "custom",
-      "allowed_runtime_lanes": [
-        "memory_trace_read",
-        "session_memory_maintenance",
-        "durable_memory_extraction",
-        "memory_candidate_review"
-      ],
       "allowed_operations": [
         "op.model_response",
         "op.memory_read",
@@ -357,12 +331,8 @@
           "mode": "role",
           "label": "角色模式",
           "interaction_mode": "role_mode",
-          "runtime_lane": "role_interaction",
           "recipe_id": "runtime.recipe.role_interaction",
           "projection_strength": "primary",
-          "runtime_lanes": [
-            "role_interaction"
-          ],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": {
@@ -406,12 +376,8 @@
           "mode": "standard",
           "label": "标准模式",
           "interaction_mode": "standard_mode",
-          "runtime_lane": "standard_task",
           "recipe_id": "runtime.recipe.standard_task",
           "projection_strength": "companion",
-          "runtime_lanes": [
-            "standard_task"
-          ],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": {
@@ -455,12 +421,8 @@
           "mode": "professional",
           "label": "专家模式",
           "interaction_mode": "professional_mode",
-          "runtime_lane": "professional_task",
           "recipe_id": "runtime.recipe.professional_task",
           "projection_strength": "style_only",
-          "runtime_lanes": [
-            "professional_task"
-          ],
           "execution_strategy": "interaction_mode_run",
           "default_environment_id": "",
           "interaction_policy": {
@@ -511,10 +473,8 @@
           "mode": "custom",
           "label": "自定义模式",
           "interaction_mode": "custom_mode",
-          "runtime_lane": "",
           "recipe_id": "runtime.recipe.custom",
           "projection_strength": "manual",
-          "runtime_lanes": [],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": null,
@@ -539,9 +499,6 @@
         "custom"
       ],
       "default_runtime_mode": "custom",
-      "allowed_runtime_lanes": [
-        "config_trace_read"
-      ],
       "allowed_operations": [
         "op.model_response",
         "op.read_file",
@@ -600,12 +557,8 @@
           "mode": "role",
           "label": "角色模式",
           "interaction_mode": "role_mode",
-          "runtime_lane": "role_interaction",
           "recipe_id": "runtime.recipe.role_interaction",
           "projection_strength": "primary",
-          "runtime_lanes": [
-            "role_interaction"
-          ],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": {
@@ -649,12 +602,8 @@
           "mode": "standard",
           "label": "标准模式",
           "interaction_mode": "standard_mode",
-          "runtime_lane": "standard_task",
           "recipe_id": "runtime.recipe.standard_task",
           "projection_strength": "companion",
-          "runtime_lanes": [
-            "standard_task"
-          ],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": {
@@ -698,12 +647,8 @@
           "mode": "professional",
           "label": "专家模式",
           "interaction_mode": "professional_mode",
-          "runtime_lane": "professional_task",
           "recipe_id": "runtime.recipe.professional_task",
           "projection_strength": "style_only",
-          "runtime_lanes": [
-            "professional_task"
-          ],
           "execution_strategy": "interaction_mode_run",
           "default_environment_id": "",
           "interaction_policy": {
@@ -754,10 +699,8 @@
           "mode": "custom",
           "label": "自定义模式",
           "interaction_mode": "custom_mode",
-          "runtime_lane": "",
           "recipe_id": "runtime.recipe.custom",
           "projection_strength": "manual",
-          "runtime_lanes": [],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": null,
@@ -782,9 +725,6 @@
         "custom"
       ],
       "default_runtime_mode": "custom",
-      "allowed_runtime_lanes": [
-        "task_trace_read"
-      ],
       "allowed_operations": [
         "op.model_response",
         "op.read_file",
@@ -843,12 +783,8 @@
           "mode": "role",
           "label": "角色模式",
           "interaction_mode": "role_mode",
-          "runtime_lane": "role_interaction",
           "recipe_id": "runtime.recipe.role_interaction",
           "projection_strength": "primary",
-          "runtime_lanes": [
-            "role_interaction"
-          ],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": {
@@ -892,12 +828,8 @@
           "mode": "standard",
           "label": "标准模式",
           "interaction_mode": "standard_mode",
-          "runtime_lane": "standard_task",
           "recipe_id": "runtime.recipe.standard_task",
           "projection_strength": "companion",
-          "runtime_lanes": [
-            "standard_task"
-          ],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": {
@@ -941,12 +873,8 @@
           "mode": "professional",
           "label": "专家模式",
           "interaction_mode": "professional_mode",
-          "runtime_lane": "professional_task",
           "recipe_id": "runtime.recipe.professional_task",
           "projection_strength": "style_only",
-          "runtime_lanes": [
-            "professional_task"
-          ],
           "execution_strategy": "interaction_mode_run",
           "default_environment_id": "",
           "interaction_policy": {
@@ -997,10 +925,8 @@
           "mode": "custom",
           "label": "自定义模式",
           "interaction_mode": "custom_mode",
-          "runtime_lane": "",
           "recipe_id": "runtime.recipe.custom",
           "projection_strength": "manual",
-          "runtime_lanes": [],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": null,
@@ -1025,9 +951,6 @@
         "custom"
       ],
       "default_runtime_mode": "custom",
-      "allowed_runtime_lanes": [
-        "capability_trace_read"
-      ],
       "allowed_operations": [
         "op.model_response",
         "op.read_file",
@@ -1086,12 +1009,8 @@
           "mode": "role",
           "label": "角色模式",
           "interaction_mode": "role_mode",
-          "runtime_lane": "role_interaction",
           "recipe_id": "runtime.recipe.role_interaction",
           "projection_strength": "primary",
-          "runtime_lanes": [
-            "role_interaction"
-          ],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": {
@@ -1135,12 +1054,8 @@
           "mode": "standard",
           "label": "标准模式",
           "interaction_mode": "standard_mode",
-          "runtime_lane": "standard_task",
           "recipe_id": "runtime.recipe.standard_task",
           "projection_strength": "companion",
-          "runtime_lanes": [
-            "standard_task"
-          ],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": {
@@ -1184,12 +1099,8 @@
           "mode": "professional",
           "label": "专家模式",
           "interaction_mode": "professional_mode",
-          "runtime_lane": "professional_task",
           "recipe_id": "runtime.recipe.professional_task",
           "projection_strength": "style_only",
-          "runtime_lanes": [
-            "professional_task"
-          ],
           "execution_strategy": "interaction_mode_run",
           "default_environment_id": "",
           "interaction_policy": {
@@ -1240,10 +1151,8 @@
           "mode": "custom",
           "label": "自定义模式",
           "interaction_mode": "custom_mode",
-          "runtime_lane": "",
           "recipe_id": "runtime.recipe.custom",
           "projection_strength": "manual",
-          "runtime_lanes": [],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": null,
@@ -1268,10 +1177,6 @@
         "custom"
       ],
       "default_runtime_mode": "custom",
-      "allowed_runtime_lanes": [
-        "context_compaction",
-        "runtime_trace_read"
-      ],
       "allowed_operations": [
         "op.model_response"
       ],
@@ -1356,12 +1261,8 @@
           "mode": "role",
           "label": "角色模式",
           "interaction_mode": "role_mode",
-          "runtime_lane": "role_interaction",
           "recipe_id": "runtime.recipe.role_interaction",
           "projection_strength": "primary",
-          "runtime_lanes": [
-            "role_interaction"
-          ],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": {
@@ -1405,12 +1306,8 @@
           "mode": "standard",
           "label": "标准模式",
           "interaction_mode": "standard_mode",
-          "runtime_lane": "standard_task",
           "recipe_id": "runtime.recipe.standard_task",
           "projection_strength": "companion",
-          "runtime_lanes": [
-            "standard_task"
-          ],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": {
@@ -1454,12 +1351,8 @@
           "mode": "professional",
           "label": "专家模式",
           "interaction_mode": "professional_mode",
-          "runtime_lane": "professional_task",
           "recipe_id": "runtime.recipe.professional_task",
           "projection_strength": "style_only",
-          "runtime_lanes": [
-            "professional_task"
-          ],
           "execution_strategy": "interaction_mode_run",
           "default_environment_id": "",
           "interaction_policy": {
@@ -1510,10 +1403,8 @@
           "mode": "custom",
           "label": "自定义模式",
           "interaction_mode": "custom_mode",
-          "runtime_lane": "",
           "recipe_id": "runtime.recipe.custom",
           "projection_strength": "manual",
-          "runtime_lanes": [],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": null,
@@ -1534,14 +1425,8 @@
     {
       "agent_profile_id": "knowledge_search_agent",
       "agent_id": "agent:knowledge_searcher",
-      "enabled_runtime_modes": [
-        "custom"
-      ],
-      "default_runtime_mode": "custom",
-      "allowed_runtime_lanes": [
-        "retrieval_delegate",
-        "readonly_exploration"
-      ],
+      "enabled_runtime_modes": [],
+      "default_runtime_mode": "",
       "allowed_operations": [
         "op.model_response",
         "op.mcp_retrieval"
@@ -1611,12 +1496,8 @@
           "mode": "role",
           "label": "角色模式",
           "interaction_mode": "role_mode",
-          "runtime_lane": "role_interaction",
           "recipe_id": "runtime.recipe.role_interaction",
           "projection_strength": "primary",
-          "runtime_lanes": [
-            "role_interaction"
-          ],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": {
@@ -1660,12 +1541,8 @@
           "mode": "standard",
           "label": "标准模式",
           "interaction_mode": "standard_mode",
-          "runtime_lane": "standard_task",
           "recipe_id": "runtime.recipe.standard_task",
           "projection_strength": "companion",
-          "runtime_lanes": [
-            "standard_task"
-          ],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": {
@@ -1709,12 +1586,8 @@
           "mode": "professional",
           "label": "专家模式",
           "interaction_mode": "professional_mode",
-          "runtime_lane": "professional_task",
           "recipe_id": "runtime.recipe.professional_task",
           "projection_strength": "style_only",
-          "runtime_lanes": [
-            "professional_task"
-          ],
           "execution_strategy": "interaction_mode_run",
           "default_environment_id": "",
           "interaction_policy": {
@@ -1765,10 +1638,8 @@
           "mode": "custom",
           "label": "自定义模式",
           "interaction_mode": "custom_mode",
-          "runtime_lane": "",
           "recipe_id": "runtime.recipe.custom",
           "projection_strength": "manual",
-          "runtime_lanes": [],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": null,
@@ -1793,10 +1664,6 @@
         "custom"
       ],
       "default_runtime_mode": "custom",
-      "allowed_runtime_lanes": [
-        "pdf_delegate",
-        "readonly_exploration"
-      ],
       "allowed_operations": [
         "op.model_response",
         "op.mcp_pdf",
@@ -1858,12 +1725,8 @@
           "mode": "role",
           "label": "角色模式",
           "interaction_mode": "role_mode",
-          "runtime_lane": "role_interaction",
           "recipe_id": "runtime.recipe.role_interaction",
           "projection_strength": "primary",
-          "runtime_lanes": [
-            "role_interaction"
-          ],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": {
@@ -1907,12 +1770,8 @@
           "mode": "standard",
           "label": "标准模式",
           "interaction_mode": "standard_mode",
-          "runtime_lane": "standard_task",
           "recipe_id": "runtime.recipe.standard_task",
           "projection_strength": "companion",
-          "runtime_lanes": [
-            "standard_task"
-          ],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": {
@@ -1956,12 +1815,8 @@
           "mode": "professional",
           "label": "专家模式",
           "interaction_mode": "professional_mode",
-          "runtime_lane": "professional_task",
           "recipe_id": "runtime.recipe.professional_task",
           "projection_strength": "style_only",
-          "runtime_lanes": [
-            "professional_task"
-          ],
           "execution_strategy": "interaction_mode_run",
           "default_environment_id": "",
           "interaction_policy": {
@@ -2012,10 +1867,8 @@
           "mode": "custom",
           "label": "自定义模式",
           "interaction_mode": "custom_mode",
-          "runtime_lane": "",
           "recipe_id": "runtime.recipe.custom",
           "projection_strength": "manual",
-          "runtime_lanes": [],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": null,
@@ -2040,10 +1893,6 @@
         "custom"
       ],
       "default_runtime_mode": "custom",
-      "allowed_runtime_lanes": [
-        "structured_data_delegate",
-        "readonly_exploration"
-      ],
       "allowed_operations": [
         "op.model_response",
         "op.mcp_structured_data",
@@ -2106,12 +1955,8 @@
           "mode": "role",
           "label": "角色模式",
           "interaction_mode": "role_mode",
-          "runtime_lane": "role_interaction",
           "recipe_id": "runtime.recipe.role_interaction",
           "projection_strength": "primary",
-          "runtime_lanes": [
-            "role_interaction"
-          ],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": {
@@ -2155,12 +2000,8 @@
           "mode": "standard",
           "label": "标准模式",
           "interaction_mode": "standard_mode",
-          "runtime_lane": "standard_task",
           "recipe_id": "runtime.recipe.standard_task",
           "projection_strength": "companion",
-          "runtime_lanes": [
-            "standard_task"
-          ],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": {
@@ -2204,12 +2045,8 @@
           "mode": "professional",
           "label": "专家模式",
           "interaction_mode": "professional_mode",
-          "runtime_lane": "professional_task",
           "recipe_id": "runtime.recipe.professional_task",
           "projection_strength": "style_only",
-          "runtime_lanes": [
-            "professional_task"
-          ],
           "execution_strategy": "interaction_mode_run",
           "default_environment_id": "",
           "interaction_policy": {
@@ -2260,10 +2097,8 @@
           "mode": "custom",
           "label": "自定义模式",
           "interaction_mode": "custom_mode",
-          "runtime_lane": "",
           "recipe_id": "runtime.recipe.custom",
           "projection_strength": "manual",
-          "runtime_lanes": [],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": null,
@@ -2284,14 +2119,8 @@
     {
       "agent_profile_id": "web_research_agent",
       "agent_id": "agent:web_researcher",
-      "enabled_runtime_modes": [
-        "custom"
-      ],
-      "default_runtime_mode": "custom",
-      "allowed_runtime_lanes": [
-        "web_research_delegate",
-        "readonly_exploration"
-      ],
+      "enabled_runtime_modes": [],
+      "default_runtime_mode": "",
       "allowed_operations": [
         "op.model_response",
         "op.search_agent",
@@ -2392,12 +2221,8 @@
           "mode": "role",
           "label": "角色模式",
           "interaction_mode": "role_mode",
-          "runtime_lane": "role_interaction",
           "recipe_id": "runtime.recipe.role_interaction",
           "projection_strength": "primary",
-          "runtime_lanes": [
-            "role_interaction"
-          ],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": {
@@ -2441,12 +2266,8 @@
           "mode": "standard",
           "label": "标准模式",
           "interaction_mode": "standard_mode",
-          "runtime_lane": "standard_task",
           "recipe_id": "runtime.recipe.standard_task",
           "projection_strength": "companion",
-          "runtime_lanes": [
-            "standard_task"
-          ],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": {
@@ -2490,12 +2311,8 @@
           "mode": "professional",
           "label": "专家模式",
           "interaction_mode": "professional_mode",
-          "runtime_lane": "professional_task",
           "recipe_id": "runtime.recipe.professional_task",
           "projection_strength": "style_only",
-          "runtime_lanes": [
-            "professional_task"
-          ],
           "execution_strategy": "interaction_mode_run",
           "default_environment_id": "",
           "interaction_policy": {
@@ -2546,10 +2363,8 @@
           "mode": "custom",
           "label": "自定义模式",
           "interaction_mode": "custom_mode",
-          "runtime_lane": "",
           "recipe_id": "runtime.recipe.custom",
           "projection_strength": "manual",
-          "runtime_lanes": [],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": null,
@@ -2570,13 +2385,8 @@
     {
       "agent_profile_id": "codebase_search_agent",
       "agent_id": "agent:codebase_searcher",
-      "enabled_runtime_modes": [
-        "custom"
-      ],
-      "default_runtime_mode": "custom",
-      "allowed_runtime_lanes": [
-        "readonly_exploration"
-      ],
+      "enabled_runtime_modes": [],
+      "default_runtime_mode": "",
       "allowed_operations": [
         "op.model_response",
         "op.codebase_search",
@@ -2668,12 +2478,8 @@
           "mode": "role",
           "label": "角色模式",
           "interaction_mode": "role_mode",
-          "runtime_lane": "role_interaction",
           "recipe_id": "runtime.recipe.role_interaction",
           "projection_strength": "primary",
-          "runtime_lanes": [
-            "role_interaction"
-          ],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": {
@@ -2717,12 +2523,8 @@
           "mode": "standard",
           "label": "标准模式",
           "interaction_mode": "standard_mode",
-          "runtime_lane": "standard_task",
           "recipe_id": "runtime.recipe.standard_task",
           "projection_strength": "companion",
-          "runtime_lanes": [
-            "standard_task"
-          ],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": {
@@ -2766,12 +2568,8 @@
           "mode": "professional",
           "label": "专家模式",
           "interaction_mode": "professional_mode",
-          "runtime_lane": "professional_task",
           "recipe_id": "runtime.recipe.professional_task",
           "projection_strength": "style_only",
-          "runtime_lanes": [
-            "professional_task"
-          ],
           "execution_strategy": "interaction_mode_run",
           "default_environment_id": "",
           "interaction_policy": {
@@ -2822,10 +2620,8 @@
           "mode": "custom",
           "label": "自定义模式",
           "interaction_mode": "custom_mode",
-          "runtime_lane": "",
           "recipe_id": "runtime.recipe.custom",
           "projection_strength": "manual",
-          "runtime_lanes": [],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": null,
@@ -2846,14 +2642,8 @@
     {
       "agent_profile_id": "memory_search_agent",
       "agent_id": "agent:memory_searcher",
-      "enabled_runtime_modes": [
-        "custom"
-      ],
-      "default_runtime_mode": "custom",
-      "allowed_runtime_lanes": [
-        "readonly_exploration",
-        "memory_trace_read"
-      ],
+      "enabled_runtime_modes": [],
+      "default_runtime_mode": "",
       "allowed_operations": [
         "op.model_response",
         "op.memory_read"
@@ -2936,12 +2726,8 @@
           "mode": "role",
           "label": "角色模式",
           "interaction_mode": "role_mode",
-          "runtime_lane": "role_interaction",
           "recipe_id": "runtime.recipe.role_interaction",
           "projection_strength": "primary",
-          "runtime_lanes": [
-            "role_interaction"
-          ],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": {
@@ -2985,12 +2771,8 @@
           "mode": "standard",
           "label": "标准模式",
           "interaction_mode": "standard_mode",
-          "runtime_lane": "standard_task",
           "recipe_id": "runtime.recipe.standard_task",
           "projection_strength": "companion",
-          "runtime_lanes": [
-            "standard_task"
-          ],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": {
@@ -3034,12 +2816,8 @@
           "mode": "professional",
           "label": "专家模式",
           "interaction_mode": "professional_mode",
-          "runtime_lane": "professional_task",
           "recipe_id": "runtime.recipe.professional_task",
           "projection_strength": "style_only",
-          "runtime_lanes": [
-            "professional_task"
-          ],
           "execution_strategy": "interaction_mode_run",
           "default_environment_id": "",
           "interaction_policy": {
@@ -3090,10 +2868,8 @@
           "mode": "custom",
           "label": "自定义模式",
           "interaction_mode": "custom_mode",
-          "runtime_lane": "",
           "recipe_id": "runtime.recipe.custom",
           "projection_strength": "manual",
-          "runtime_lanes": [],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": null,
@@ -3118,11 +2894,6 @@
         "custom"
       ],
       "default_runtime_mode": "custom",
-      "allowed_runtime_lanes": [
-        "verification_delegate",
-        "runtime_trace_read",
-        "readonly_exploration"
-      ],
       "allowed_operations": [
         "op.model_response",
         "op.read_file",
@@ -3198,12 +2969,8 @@
           "mode": "role",
           "label": "角色模式",
           "interaction_mode": "role_mode",
-          "runtime_lane": "role_interaction",
           "recipe_id": "runtime.recipe.role_interaction",
           "projection_strength": "primary",
-          "runtime_lanes": [
-            "role_interaction"
-          ],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": {
@@ -3247,12 +3014,8 @@
           "mode": "standard",
           "label": "标准模式",
           "interaction_mode": "standard_mode",
-          "runtime_lane": "standard_task",
           "recipe_id": "runtime.recipe.standard_task",
           "projection_strength": "companion",
-          "runtime_lanes": [
-            "standard_task"
-          ],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": {
@@ -3296,12 +3059,8 @@
           "mode": "professional",
           "label": "专家模式",
           "interaction_mode": "professional_mode",
-          "runtime_lane": "professional_task",
           "recipe_id": "runtime.recipe.professional_task",
           "projection_strength": "style_only",
-          "runtime_lanes": [
-            "professional_task"
-          ],
           "execution_strategy": "interaction_mode_run",
           "default_environment_id": "",
           "interaction_policy": {
@@ -3352,10 +3111,8 @@
           "mode": "custom",
           "label": "自定义模式",
           "interaction_mode": "custom_mode",
-          "runtime_lane": "",
           "recipe_id": "runtime.recipe.custom",
           "projection_strength": "manual",
-          "runtime_lanes": [],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": null,
@@ -3381,10 +3138,6 @@
         "custom"
       ],
       "default_runtime_mode": "standard",
-      "allowed_runtime_lanes": [
-        "standard_task",
-        "coordination_task"
-      ],
       "allowed_operations": [
         "op.model_response",
         "op.memory_read",
@@ -3469,12 +3222,8 @@
           "mode": "role",
           "label": "角色模式",
           "interaction_mode": "role_mode",
-          "runtime_lane": "role_interaction",
           "recipe_id": "runtime.recipe.role_interaction",
           "projection_strength": "primary",
-          "runtime_lanes": [
-            "role_interaction"
-          ],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": {
@@ -3518,12 +3267,8 @@
           "mode": "standard",
           "label": "标准模式",
           "interaction_mode": "standard_mode",
-          "runtime_lane": "standard_task",
           "recipe_id": "runtime.recipe.standard_task",
           "projection_strength": "companion",
-          "runtime_lanes": [
-            "standard_task"
-          ],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": {
@@ -3567,12 +3312,8 @@
           "mode": "professional",
           "label": "专家模式",
           "interaction_mode": "professional_mode",
-          "runtime_lane": "professional_task",
           "recipe_id": "runtime.recipe.professional_task",
           "projection_strength": "style_only",
-          "runtime_lanes": [
-            "professional_task"
-          ],
           "execution_strategy": "interaction_mode_run",
           "default_environment_id": "",
           "interaction_policy": {
@@ -3623,10 +3364,8 @@
           "mode": "custom",
           "label": "自定义模式",
           "interaction_mode": "custom_mode",
-          "runtime_lane": "",
           "recipe_id": "runtime.recipe.custom",
           "projection_strength": "manual",
-          "runtime_lanes": [],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": null,
@@ -3652,10 +3391,6 @@
         "custom"
       ],
       "default_runtime_mode": "standard",
-      "allowed_runtime_lanes": [
-        "standard_task",
-        "coordination_task"
-      ],
       "allowed_operations": [
         "op.model_response",
         "op.memory_read",
@@ -3740,12 +3475,8 @@
           "mode": "role",
           "label": "角色模式",
           "interaction_mode": "role_mode",
-          "runtime_lane": "role_interaction",
           "recipe_id": "runtime.recipe.role_interaction",
           "projection_strength": "primary",
-          "runtime_lanes": [
-            "role_interaction"
-          ],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": {
@@ -3789,12 +3520,8 @@
           "mode": "standard",
           "label": "标准模式",
           "interaction_mode": "standard_mode",
-          "runtime_lane": "standard_task",
           "recipe_id": "runtime.recipe.standard_task",
           "projection_strength": "companion",
-          "runtime_lanes": [
-            "standard_task"
-          ],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": {
@@ -3838,12 +3565,8 @@
           "mode": "professional",
           "label": "专家模式",
           "interaction_mode": "professional_mode",
-          "runtime_lane": "professional_task",
           "recipe_id": "runtime.recipe.professional_task",
           "projection_strength": "style_only",
-          "runtime_lanes": [
-            "professional_task"
-          ],
           "execution_strategy": "interaction_mode_run",
           "default_environment_id": "",
           "interaction_policy": {
@@ -3894,10 +3617,8 @@
           "mode": "custom",
           "label": "自定义模式",
           "interaction_mode": "custom_mode",
-          "runtime_lane": "",
           "recipe_id": "runtime.recipe.custom",
           "projection_strength": "manual",
-          "runtime_lanes": [],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": null,
@@ -3923,10 +3644,6 @@
         "custom"
       ],
       "default_runtime_mode": "standard",
-      "allowed_runtime_lanes": [
-        "standard_task",
-        "coordination_task"
-      ],
       "allowed_operations": [
         "op.model_response",
         "op.memory_read"
@@ -4010,12 +3727,8 @@
           "mode": "role",
           "label": "角色模式",
           "interaction_mode": "role_mode",
-          "runtime_lane": "role_interaction",
           "recipe_id": "runtime.recipe.role_interaction",
           "projection_strength": "primary",
-          "runtime_lanes": [
-            "role_interaction"
-          ],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": {
@@ -4059,12 +3772,8 @@
           "mode": "standard",
           "label": "标准模式",
           "interaction_mode": "standard_mode",
-          "runtime_lane": "standard_task",
           "recipe_id": "runtime.recipe.standard_task",
           "projection_strength": "companion",
-          "runtime_lanes": [
-            "standard_task"
-          ],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": {
@@ -4108,12 +3817,8 @@
           "mode": "professional",
           "label": "专家模式",
           "interaction_mode": "professional_mode",
-          "runtime_lane": "professional_task",
           "recipe_id": "runtime.recipe.professional_task",
           "projection_strength": "style_only",
-          "runtime_lanes": [
-            "professional_task"
-          ],
           "execution_strategy": "interaction_mode_run",
           "default_environment_id": "",
           "interaction_policy": {
@@ -4164,10 +3869,8 @@
           "mode": "custom",
           "label": "自定义模式",
           "interaction_mode": "custom_mode",
-          "runtime_lane": "",
           "recipe_id": "runtime.recipe.custom",
           "projection_strength": "manual",
-          "runtime_lanes": [],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": null,
@@ -4193,11 +3896,6 @@
         "custom"
       ],
       "default_runtime_mode": "standard",
-      "allowed_runtime_lanes": [
-        "standard_task",
-        "coordination_task",
-        "system_memory"
-      ],
       "allowed_operations": [
         "op.model_response",
         "op.memory_read"
@@ -4281,12 +3979,8 @@
           "mode": "role",
           "label": "角色模式",
           "interaction_mode": "role_mode",
-          "runtime_lane": "role_interaction",
           "recipe_id": "runtime.recipe.role_interaction",
           "projection_strength": "primary",
-          "runtime_lanes": [
-            "role_interaction"
-          ],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": {
@@ -4330,12 +4024,8 @@
           "mode": "standard",
           "label": "标准模式",
           "interaction_mode": "standard_mode",
-          "runtime_lane": "standard_task",
           "recipe_id": "runtime.recipe.standard_task",
           "projection_strength": "companion",
-          "runtime_lanes": [
-            "standard_task"
-          ],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": {
@@ -4379,12 +4069,8 @@
           "mode": "professional",
           "label": "专家模式",
           "interaction_mode": "professional_mode",
-          "runtime_lane": "professional_task",
           "recipe_id": "runtime.recipe.professional_task",
           "projection_strength": "style_only",
-          "runtime_lanes": [
-            "professional_task"
-          ],
           "execution_strategy": "interaction_mode_run",
           "default_environment_id": "",
           "interaction_policy": {
@@ -4435,10 +4121,8 @@
           "mode": "custom",
           "label": "自定义模式",
           "interaction_mode": "custom_mode",
-          "runtime_lane": "",
           "recipe_id": "runtime.recipe.custom",
           "projection_strength": "manual",
-          "runtime_lanes": [],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": null,
@@ -4464,10 +4148,6 @@
         "custom"
       ],
       "default_runtime_mode": "standard",
-      "allowed_runtime_lanes": [
-        "standard_task",
-        "task_graph_monitor"
-      ],
       "allowed_operations": [
         "op.model_response",
         "op.memory_read"
@@ -4552,12 +4232,8 @@
           "mode": "role",
           "label": "角色模式",
           "interaction_mode": "role_mode",
-          "runtime_lane": "role_interaction",
           "recipe_id": "runtime.recipe.role_interaction",
           "projection_strength": "primary",
-          "runtime_lanes": [
-            "role_interaction"
-          ],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": {
@@ -4601,12 +4277,8 @@
           "mode": "standard",
           "label": "标准模式",
           "interaction_mode": "standard_mode",
-          "runtime_lane": "standard_task",
           "recipe_id": "runtime.recipe.standard_task",
           "projection_strength": "companion",
-          "runtime_lanes": [
-            "standard_task"
-          ],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": {
@@ -4650,12 +4322,8 @@
           "mode": "professional",
           "label": "专家模式",
           "interaction_mode": "professional_mode",
-          "runtime_lane": "professional_task",
           "recipe_id": "runtime.recipe.professional_task",
           "projection_strength": "style_only",
-          "runtime_lanes": [
-            "professional_task"
-          ],
           "execution_strategy": "interaction_mode_run",
           "default_environment_id": "",
           "interaction_policy": {
@@ -4706,10 +4374,8 @@
           "mode": "custom",
           "label": "自定义模式",
           "interaction_mode": "custom_mode",
-          "runtime_lane": "",
           "recipe_id": "runtime.recipe.custom",
           "projection_strength": "manual",
-          "runtime_lanes": [],
           "execution_strategy": "",
           "default_environment_id": "",
           "interaction_policy": null,

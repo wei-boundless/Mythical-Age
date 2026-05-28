@@ -25,22 +25,6 @@ from .models import (
 
 DEFAULT_ENVIRONMENT_CONFIG_PATH = Path("task_system/storage/task_environments/environments.json")
 
-_FORBIDDEN_ENVIRONMENT_KEYS = {
-    "tools",
-    "tool_names",
-    "allowed_tools",
-    "denied_tools",
-    "skills",
-    "skill_space",
-    "skill_candidates",
-    "runtime_mode",
-    "mode",
-    "agent_profile",
-    "agent_profile_id",
-    "memory_assembly",
-}
-
-
 class TaskEnvironmentConfigError(ValueError):
     pass
 
@@ -54,19 +38,79 @@ class TaskEnvironmentRepository:
         return self.backend_dir / DEFAULT_ENVIRONMENT_CONFIG_PATH
 
     def load(self) -> tuple[tuple[TaskEnvironmentGroup, ...], tuple[TaskEnvironmentDefinition, ...]]:
-        path = self.config_path
-        if not path.exists():
-            return (), ()
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(payload, dict):
-            raise TaskEnvironmentConfigError("task environment config root must be an object")
-        _reject_forbidden_keys(payload, path="$")
+        payload = self._read_payload()
         groups = tuple(_group_from_payload(item) for item in _list_payload(payload.get("groups"), path="$.groups"))
         environments = tuple(
             _definition_from_payload(item)
             for item in _list_payload(payload.get("environments"), path="$.environments")
         )
         return groups, environments
+
+    def upsert_group(self, group: TaskEnvironmentGroup | dict[str, Any]) -> dict[str, Any]:
+        payload = self._read_payload()
+        group_model = group if isinstance(group, TaskEnvironmentGroup) else _group_from_payload(group)
+        groups = [
+            item
+            for item in _list_payload(payload.get("groups"), path="$.groups")
+            if str(dict(item).get("group_id") or "") != group_model.group_id
+        ]
+        groups.append(group_model.to_dict())
+        payload["groups"] = sorted(groups, key=lambda item: str(dict(item).get("group_id") or ""))
+        self._write_payload(payload)
+        return payload
+
+    def upsert_environment(self, environment: TaskEnvironmentDefinition | dict[str, Any]) -> dict[str, Any]:
+        payload = self._read_payload()
+        definition = environment if isinstance(environment, TaskEnvironmentDefinition) else _definition_from_payload(environment)
+        groups = tuple(_group_from_payload(item) for item in _list_payload(payload.get("groups"), path="$.groups"))
+        group_ids = {group.group_id for group in groups}
+        if definition.record.group_id not in group_ids and not _is_default_group_id(definition.record.group_id):
+            raise TaskEnvironmentConfigError(f"unknown task environment group: {definition.record.group_id}")
+        environments = [
+            item
+            for item in _list_payload(payload.get("environments"), path="$.environments")
+            if str(_environment_id_from_payload(item) or "") != definition.record.environment_id
+        ]
+        environments.append(definition.to_dict())
+        payload["environments"] = sorted(environments, key=lambda item: str(_environment_id_from_payload(item) or ""))
+        self._write_payload(payload)
+        return payload
+
+    def delete_environment(self, environment_id: str) -> dict[str, Any]:
+        target = str(environment_id or "").strip()
+        if not target:
+            raise TaskEnvironmentConfigError("environment_id is required")
+        payload = self._read_payload()
+        environments = _list_payload(payload.get("environments"), path="$.environments")
+        next_environments = [
+            item
+            for item in environments
+            if str(_environment_id_from_payload(item) or "") != target
+        ]
+        if len(next_environments) == len(environments):
+            raise KeyError(f"configured task environment not found: {target}")
+        payload["environments"] = next_environments
+        self._write_payload(payload)
+        return payload
+
+    def _read_payload(self) -> dict[str, Any]:
+        path = self.config_path
+        if not path.exists():
+            return {"groups": [], "environments": []}
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise TaskEnvironmentConfigError("task environment config root must be an object")
+        payload.setdefault("groups", [])
+        payload.setdefault("environments", [])
+        return payload
+
+    def _write_payload(self, payload: dict[str, Any]) -> None:
+        path = self.config_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
 
 
 def load_configured_task_environments(
@@ -78,9 +122,9 @@ def load_configured_task_environments(
 def _definition_from_payload(payload: Any) -> TaskEnvironmentDefinition:
     if not isinstance(payload, dict):
         raise TaskEnvironmentConfigError("environment item must be an object")
-    _reject_forbidden_keys(payload, path="environment")
     record_payload = dict(payload.get("record") or {})
     spec_payload = dict(payload.get("spec") or {})
+    _reject_unknown_flat_environment_keys(payload, has_nested_payload=bool(record_payload or spec_payload))
     if not record_payload:
         record_payload = {
             key: payload.get(key)
@@ -117,8 +161,6 @@ def _definition_from_payload(payload: Any) -> TaskEnvironmentDefinition:
             )
             if key in payload
         }
-    _reject_forbidden_keys(record_payload, path="environment.record")
-    _reject_forbidden_keys(spec_payload, path="environment.spec")
     record = _dataclass_from_payload(TaskEnvironmentRecord, record_payload, path="environment.record")
     spec_payload.setdefault("environment_id", record.environment_id)
     spec_payload.setdefault("spec_id", f"envspec.{record.environment_id}.configured")
@@ -175,7 +217,6 @@ def _definition_from_payload(payload: Any) -> TaskEnvironmentDefinition:
 def _group_from_payload(payload: Any) -> TaskEnvironmentGroup:
     if not isinstance(payload, dict):
         raise TaskEnvironmentConfigError("environment group item must be an object")
-    _reject_forbidden_keys(payload, path="environment.group")
     return _dataclass_from_payload(TaskEnvironmentGroup, payload, path="environment.group")
 
 
@@ -212,19 +253,56 @@ def _validate_definition(definition: TaskEnvironmentDefinition) -> None:
         file_registry.require_profile(str(profile_ref))
 
 
-def _reject_forbidden_keys(payload: dict[str, Any], *, path: str) -> None:
-    found = sorted(set(payload) & _FORBIDDEN_ENVIRONMENT_KEYS)
-    if found:
-        raise TaskEnvironmentConfigError(
-            f"{path} contains agent/runtime assembly keys that task environments may not own: {', '.join(found)}"
-        )
-    for key, value in payload.items():
-        if isinstance(value, dict):
-            _reject_forbidden_keys(value, path=f"{path}.{key}")
-        elif isinstance(value, list):
-            for index, item in enumerate(value):
-                if isinstance(item, dict):
-                    _reject_forbidden_keys(item, path=f"{path}.{key}[{index}]")
+def _environment_id_from_payload(payload: Any) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    record = payload.get("record") if isinstance(payload.get("record"), dict) else {}
+    spec = payload.get("spec") if isinstance(payload.get("spec"), dict) else {}
+    return str(
+        dict(record).get("environment_id")
+        or dict(spec).get("environment_id")
+        or payload.get("environment_id")
+        or ""
+    ).strip()
+
+
+def _is_default_group_id(group_id: str) -> bool:
+    return str(group_id or "").strip() in {
+        "environment_group.development",
+        "environment_group.creation",
+        "environment_group.general",
+    }
+
+
+def _reject_unknown_flat_environment_keys(payload: dict[str, Any], *, has_nested_payload: bool) -> None:
+    if has_nested_payload:
+        allowed = {"record", "spec"}
+    else:
+        allowed = {
+            "environment_id",
+            "title",
+            "description",
+            "group_id",
+            "enabled",
+            "owner",
+            "environment_kind",
+            "default_visibility",
+            "metadata",
+            "spec_id",
+            "environment_prompts",
+            "sandbox_policy",
+            "file_management",
+            "resource_space",
+            "memory_space",
+            "execution_policy",
+            "risk_policy",
+            "artifact_policy",
+            "observability_policy",
+            "lifecycle_policy",
+        }
+    unknown = sorted(set(payload) - allowed)
+    if unknown:
+        raise TaskEnvironmentConfigError(f"environment has unknown keys: {', '.join(unknown)}")
 
 
 def _list_payload(value: Any, *, path: str) -> list[Any]:

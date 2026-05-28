@@ -27,7 +27,12 @@ from task_system import (
 from task_system.compiler.graph_harness_config_publisher import publish_graph_harness_config_for_graph
 from task_system.compiler.coordination_graph_models import TaskGraphRuntimeSpec
 from task_system.editor.graph_template_catalog import build_task_graph_template_catalog
-from task_system.environments import build_task_environment_catalog, task_environment_registry_from_backend_dir
+from task_system.environments import (
+    TaskEnvironmentConfigError,
+    TaskEnvironmentRepository,
+    build_task_environment_catalog,
+    task_environment_registry_from_backend_dir,
+)
 from task_system.registry.flow_models import SpecificTaskRecord
 from task_system.graphs.task_graph_models import validate_task_graph
 
@@ -216,6 +221,37 @@ class TaskExecutionPolicyUpsertRequest(BaseModel):
     worker_agent_blueprint_id: str = Field(default="", max_length=160)
     worker_agent_naming_rule: str = Field(default="", max_length=160)
     notes: str = Field(default="", max_length=1000)
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
+class TaskEnvironmentGroupUpsertRequest(BaseModel):
+    group_id: str = Field(..., min_length=3, max_length=160)
+    title: str = Field(..., min_length=1, max_length=160)
+    description: str = Field(default="", max_length=1000)
+    enabled: bool = True
+    authority: str = Field(default="task_system.task_environment_group", max_length=160)
+
+
+class TaskEnvironmentUpsertRequest(BaseModel):
+    record: dict[str, object] = Field(default_factory=dict)
+    spec: dict[str, object] = Field(default_factory=dict)
+    environment_id: str = Field(default="", max_length=160)
+    title: str = Field(default="", max_length=160)
+    description: str = Field(default="", max_length=1000)
+    group_id: str = Field(default="environment_group.general", max_length=160)
+    environment_kind: str = Field(default="custom", max_length=80)
+    enabled: bool = True
+    owner: str = Field(default="system", max_length=80)
+    default_visibility: str = Field(default="system", max_length=80)
+    environment_prompts: list[dict[str, object]] = Field(default_factory=list)
+    sandbox_policy: dict[str, object] = Field(default_factory=dict)
+    file_management: dict[str, object] = Field(default_factory=dict)
+    resource_space: dict[str, object] = Field(default_factory=dict)
+    execution_policy: dict[str, object] = Field(default_factory=dict)
+    risk_policy: dict[str, object] = Field(default_factory=dict)
+    artifact_policy: dict[str, object] = Field(default_factory=dict)
+    observability_policy: dict[str, object] = Field(default_factory=dict)
+    lifecycle_policy: dict[str, object] = Field(default_factory=dict)
     metadata: dict[str, object] = Field(default_factory=dict)
 
 
@@ -1667,6 +1703,81 @@ async def upsert_task_system_execution_policy(
     except ValueError as exc:
         from fastapi import HTTPException
 
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _task_system_payload(runtime.base_dir)
+
+
+@router.put("/tasks/environment-groups/{group_id}")
+async def upsert_task_system_environment_group(
+    group_id: str,
+    payload: TaskEnvironmentGroupUpsertRequest,
+) -> dict[str, object]:
+    runtime = require_runtime()
+    if payload.group_id != group_id:
+        payload = payload.model_copy(update={"group_id": group_id})
+    try:
+        TaskEnvironmentRepository(runtime.base_dir).upsert_group(payload.model_dump())
+    except TaskEnvironmentConfigError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _task_system_payload(runtime.base_dir)
+
+
+@router.put("/tasks/environments/{environment_id}")
+async def upsert_task_system_environment(
+    environment_id: str,
+    payload: TaskEnvironmentUpsertRequest,
+) -> dict[str, object]:
+    runtime = require_runtime()
+    raw = payload.model_dump()
+    if raw.get("record") or raw.get("spec"):
+        record = dict(raw.get("record") or {})
+        spec = dict(raw.get("spec") or {})
+        record.setdefault("environment_id", environment_id)
+        spec.setdefault("environment_id", environment_id)
+        environment_payload = {"record": record, "spec": spec}
+    else:
+        environment_payload = {
+            "record": {
+                "environment_id": environment_id,
+                "title": raw.get("title") or environment_id,
+                "description": raw.get("description") or "",
+                "group_id": raw.get("group_id") or "environment_group.general",
+                "enabled": bool(raw.get("enabled", True)),
+                "owner": raw.get("owner") or "system",
+                "environment_kind": raw.get("environment_kind") or "custom",
+                "default_visibility": raw.get("default_visibility") or "system",
+                "metadata": dict(raw.get("metadata") or {}),
+            },
+            "spec": {
+                "spec_id": f"envspec.{environment_id}.configured",
+                "environment_id": environment_id,
+                "environment_prompts": list(raw.get("environment_prompts") or []),
+                "sandbox_policy": dict(raw.get("sandbox_policy") or {}),
+                "file_management": dict(raw.get("file_management") or {}),
+                "resource_space": dict(raw.get("resource_space") or {}),
+                "execution_policy": dict(raw.get("execution_policy") or {}),
+                "risk_policy": dict(raw.get("risk_policy") or {}),
+                "artifact_policy": dict(raw.get("artifact_policy") or {}),
+                "observability_policy": dict(raw.get("observability_policy") or {}),
+                "lifecycle_policy": dict(raw.get("lifecycle_policy") or {}),
+                "metadata": dict(raw.get("metadata") or {}),
+            },
+        }
+    try:
+        TaskEnvironmentRepository(runtime.base_dir).upsert_environment(environment_payload)
+    except (TaskEnvironmentConfigError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _task_system_payload(runtime.base_dir)
+
+
+@router.delete("/tasks/environments/{environment_id}")
+async def delete_task_system_environment(environment_id: str) -> dict[str, object]:
+    runtime = require_runtime()
+    try:
+        TaskEnvironmentRepository(runtime.base_dir).delete_environment(environment_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except TaskEnvironmentConfigError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _task_system_payload(runtime.base_dir)
 

@@ -4,8 +4,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from .graph.loop import GraphLoop, GraphLoopAdvance, GraphLoopStart
-from .graph.models import GraphHarnessConfig, NodeResultEnvelope
+from .graph.models import GraphHarnessConfig, GraphNodeWorkOrder, NodeResultEnvelope
 from .graph.runtime import GraphRuntime, GraphRuntimeStart
+from .graph.work_order_executor import GraphNodeWorkOrderExecutor
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +40,7 @@ class GraphHarness:
         self._agent_harness = agent_harness
         self._runtime = GraphRuntime(services=services)
         self._loop = GraphLoop(services=services)
+        self._work_order_executor = GraphNodeWorkOrderExecutor(services=services)
 
     @property
     def graph_loop(self) -> GraphLoop:
@@ -93,6 +95,42 @@ class GraphHarness:
             result=result,
         )
 
+    async def execute_work_order(
+        self,
+        *,
+        graph_config: GraphHarnessConfig,
+        work_order: GraphNodeWorkOrder | dict[str, Any],
+        max_steps: int = 12,
+        accept_result: bool = True,
+    ) -> dict[str, Any]:
+        execution = await self._work_order_executor.execute(
+            graph_config=graph_config,
+            work_order=work_order,
+            max_steps=max_steps,
+        )
+        advance = None
+        if accept_result and _result_should_advance_loop(execution.node_result):
+            advance = self.accept_node_result(
+                graph_config=graph_config,
+                graph_run_id=execution.work_order.graph_run_id,
+                result=execution.node_result,
+            )
+        return {
+            "authority": "harness.graph_work_order_execution",
+            "graph_run_id": execution.work_order.graph_run_id,
+            "graph_harness_config_id": graph_config.config_id,
+            "work_order": execution.work_order.to_dict(),
+            "node_result": execution.node_result.to_dict(),
+            "node_executor_task_run": execution.task_run.to_dict() if hasattr(execution.task_run, "to_dict") else execution.task_run,
+            "executor_result": dict(execution.executor_result or {}),
+            "accepted_result": advance.accepted_result.to_dict() if advance is not None and advance.accepted_result is not None else None,
+            "graph_result": advance.graph_result.to_dict() if advance is not None and advance.graph_result is not None else None,
+            "graph_loop_state": advance.loop_state.to_dict() if advance is not None else {},
+            "checkpoint": dict(advance.checkpoint) if advance is not None else {},
+            "node_work_orders": [item.to_dict() for item in advance.node_work_orders] if advance is not None else [],
+            "events": [*list(execution.events), *([dict(item) for item in advance.events] if advance is not None else [])],
+        }
+
     def get_checkpoint_state(self, graph_run_id: str) -> dict[str, Any]:
         state = self._loop.get_state(graph_run_id)
         return state.to_dict() if state is not None else {}
@@ -137,3 +175,10 @@ class GraphHarness:
 
 def _safe_ref_id(value: str) -> str:
     return "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in str(value or ""))[:180]
+
+
+def _result_should_advance_loop(result: NodeResultEnvelope) -> bool:
+    diagnostics = dict(result.diagnostics or {})
+    if str(diagnostics.get("authority") or "") == "harness.graph.work_order_executor.unsupported":
+        return False
+    return result.status in {"completed", "failed"}

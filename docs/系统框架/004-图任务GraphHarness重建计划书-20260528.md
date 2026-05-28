@@ -211,7 +211,6 @@ class GraphNodeConfig:
         "human_gate",
         "review_gate",
         "tool",
-        "graph_module",
         "barrier",
         "input",
         "output",
@@ -351,7 +350,7 @@ monitor 根据展示需要改 GraphLoopState
 ```python
 class NodeWorkOrder:
     work_order_id: str
-    work_kind: Literal["node", "human", "tool", "graph_module"]
+    work_kind: Literal["node", "human", "tool"]
     graph_run_id: str
     task_run_id: str
     node_id: str
@@ -471,20 +470,18 @@ graph_run_id
 
 如果 config 缺失或 hash 不一致，fail closed。禁止 fallback 到 live graph。
 
-### 6.5 子图链路
+### 6.5 父子块 / graph_module 归一化链路
 
-`graph_module` 是节点 executor 类型，不是单独 runtime。
+`graph_module` 不是节点 executor 类型，也不是单独 runtime。它是编辑期结构块和发布期组合输入。
 
 ```text
-GraphLoop sees node_type=graph_module
--> NodeWorkOrder(work_kind="graph_module")
--> GraphHarness starts child graph run using linked_config_id
--> child GraphResultEnvelope
--> parent NodeResultEnvelope
--> parent GraphLoop advance
+Graph editor parent/child blocks or graph_module refs
+-> publisher expands / inlines / normalizes
+-> GraphHarnessConfig(nodes, edges, loop_frames, scopes, source_refs)
+-> GraphLoop advances by node/edge temporal semantics
 ```
 
-子图不能从 graph_id 现场编译。必须绑定已发布 `linked_config_id`。
+运行期禁止通过 `linked_config_id` 启动 child GraphHarness。父子块耦合必须已经映射为节点、边、loop frame、resource scope、permission scope 和 contract。
 
 ## 7. 文件级实施计划
 
@@ -728,7 +725,7 @@ TaskGraphStandardView 展示 GraphHarnessConfig preview
 | `coordination_run` 命名 | 表达旧多 agent 协调，不等于图任务通用运行 | 内部迁移到 graph_run 语义 |
 | `GraphCoordinationEngine` | 过厚，拥有编译、调度、恢复、结果提交多重权力 | 不恢复，按 GraphRuntime/GraphLoop 重写 |
 | `runtime/graph_runtime` | 名字像 runtime，实为 scheduler/monitor/batch 辅助 | 纯函数迁入 harness/graph 或改名 |
-| graph module 独立 runtime | 模糊子图和 runtime 边界 | 改为 GraphLoop 的 executor 类型 |
+| graph module 独立 runtime | 模糊父子块和运行期执行边界 | 改为发布期归一化 / source_refs，不进入 GraphLoop executor |
 | metadata fallback | 运行期第二解释权 | 删除 |
 | monitor decision 修改控制状态 | 观察层越权 | monitor 只投影 |
 
@@ -825,7 +822,7 @@ GraphRuntime 只装配启动 envelope
 GraphLoop 只推进 GraphLoopState
 节点执行只通过 NodeWorkOrder
 agent 节点只通过 AgentHarness / AgentLoop
-子图只通过 linked_config_id 启动 child GraphHarness
+父子块 / graph_module 只在发布期归一化，不在运行期启动 child GraphHarness
 monitor 只投影 config + state + events
 运行期没有任何 graph rebuild / fallback compile
 生产目录没有旧 GraphCoordinationEngine 入口
@@ -844,4 +841,3 @@ monitor 只投影 config + state + events
 不保留 stage_execution_request 和 NodeWorkOrder 双轨
 不先改编辑器再猜 harness 字段
 ```
-

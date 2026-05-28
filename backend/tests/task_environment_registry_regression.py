@@ -11,6 +11,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from task_system.environments import (
     TaskEnvironmentConfigError,
+    TaskEnvironmentRepository,
     build_task_environment_catalog,
     default_task_environment_registry,
     resolve_task_environment,
@@ -106,7 +107,7 @@ def test_professional_development_runtime_exposes_shell_and_image_generation_too
         for item in list(operation_auth.get("decisions") or [])
     }
     assert decisions["op.shell"]["final_decision"] == "allow"
-    assert decisions["op.shell"]["environment_policy"] == "sandboxed"
+    assert decisions["op.shell"]["environment_constraint"] == "sandboxed"
 
 
 def test_runtime_mode_does_not_bind_task_environment_without_explicit_selection() -> None:
@@ -273,6 +274,7 @@ def test_environment_does_not_filter_agent_allowed_tools() -> None:
     assert decisions["op.browser_control"]["reason"] == "agent_allowed"
     assert decisions["op.write_file"]["reason"] == "agent_allowed"
     assert decisions["op.web_search"]["final_decision"] == "allow"
+    assert decisions["op.shell"]["environment_constraint"] == "denied"
 
 
 def test_runtime_compiler_stable_payload_keeps_environment_and_operation_projection_only() -> None:
@@ -300,7 +302,7 @@ def test_runtime_compiler_stable_payload_keeps_environment_and_operation_project
             "task_id": "task:skill-packet",
             "agent_profile_id": "main_interactive_agent",
         },
-        contract={"user_visible_goal": "验证 skill candidates", "completion_criteria": ["packet 包含 skill candidates"]},
+        contract={"user_visible_goal": "验证环境资源面", "completion_criteria": ["packet 只包含环境资源边界和运行时授权投影"]},
         observations=[],
         execution_state={},
         agent_profile_ref="main_interactive_agent",
@@ -311,11 +313,10 @@ def test_runtime_compiler_stable_payload_keeps_environment_and_operation_project
     stable_message = packet.model_messages[1]["content"]
     stable_payload = json.loads(stable_message.split("\n", 1)[1])
 
-    assert "skill_candidates" not in stable_payload
-    assert "skill_candidate_count" not in stable_payload["runtime_context"]
-    assert "skill_candidates" not in assembly_payload
-    assert "filtered_skills" not in assembly_payload
-    assert "skill_space" not in stable_payload["task_environment"]
+    assert "task_environment" in stable_payload
+    assert "storage_space" in stable_payload["task_environment"]
+    assert "environment_boundary" in stable_payload["task_environment"]
+    assert "operation_authorization" in stable_payload
     assert stable_payload["operation_authorization"]["authority"] == "harness.runtime.operation_authorization_projection"
     assert stable_payload["runtime_context"]["allowed_operation_count"] == len(stable_payload["operation_authorization"]["allowed_operations"])
 
@@ -431,10 +432,10 @@ def test_configured_task_environment_loads_from_backend_storage(tmp_path: Path) 
     assert payload["environment_boundary"]["boundary_contract"]["tool_authority"] == "agent_profile_only"
     assert payload["environment_boundary"]["boundary_contract"]["skill_authority"] == "agent_profile_only"
     assert payload["file_access_tables"]
-    assert "skill_space" not in payload
+    assert payload["resource_space"]["storage_namespace"] == "custom/lab"
 
 
-def test_configured_task_environment_rejects_agent_owned_fields(tmp_path: Path) -> None:
+def test_configured_task_environment_rejects_unknown_flat_fields(tmp_path: Path) -> None:
     backend_dir = tmp_path / "backend"
     config_dir = backend_dir / "task_system" / "storage" / "task_environments"
     config_dir.mkdir(parents=True)
@@ -443,10 +444,10 @@ def test_configured_task_environment_rejects_agent_owned_fields(tmp_path: Path) 
             {
                 "environments": [
                     {
-                        "environment_id": "env.bad.skills",
-                        "title": "Bad Skills",
+                        "environment_id": "env.bad.unknown",
+                        "title": "Bad Unknown",
                         "group_id": "environment_group.general",
-                        "skill_space": {"default_skill_refs": ["skill.rag-skill"]},
+                        "unexpected_field": {"value": True},
                     }
                 ]
             },
@@ -458,9 +459,44 @@ def test_configured_task_environment_rejects_agent_owned_fields(tmp_path: Path) 
     try:
         task_environment_registry_from_backend_dir(backend_dir)
     except TaskEnvironmentConfigError as exc:
-        assert "skill_space" in str(exc)
+        assert "unexpected_field" in str(exc)
     else:
-        raise AssertionError("task environment config must reject agent-owned skill fields")
+        raise AssertionError("task environment config must reject fields outside the environment schema")
+
+
+def test_task_environment_repository_persists_upsert_and_delete(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    repository = TaskEnvironmentRepository(backend_dir)
+
+    repository.upsert_group(
+        {
+            "group_id": "environment_group.custom_repo",
+            "title": "Custom Repo",
+            "description": "Repository managed environments.",
+        }
+    )
+    repository.upsert_environment(
+        {
+            "environment_id": "env.custom.repo",
+            "title": "Repo Environment",
+            "group_id": "environment_group.custom_repo",
+            "environment_prompts": [
+                {
+                    "prompt_id": "environment.custom.repo.v1",
+                    "content": "你处在仓库持久化测试环境中。",
+                }
+            ],
+            "file_management": {"file_profile_refs": ["file_profile.general_workspace"]},
+            "resource_space": {"storage_namespace": "custom/repo"},
+        }
+    )
+
+    registry = task_environment_registry_from_backend_dir(backend_dir)
+    assert registry.require("env.custom.repo").record.title == "Repo Environment"
+
+    repository.delete_environment("env.custom.repo")
+    registry_after_delete = task_environment_registry_from_backend_dir(backend_dir)
+    assert registry_after_delete.get("env.custom.repo") is None
 
 
 def test_runtime_assembly_can_select_configured_task_environment(tmp_path: Path) -> None:
@@ -537,7 +573,7 @@ def test_runtime_assembly_can_select_configured_task_environment(tmp_path: Path)
     assert environment["environment_id"] == "env.custom.runtime"
     assert environment["storage_space"]["storage_namespace"] == "custom/runtime"
     assert environment["environment_boundary"]["boundary_contract"]["environment_prompts_source"] == "task_environment_config"
-    assert "skill_space" not in environment
+    assert environment["environment_boundary"]["boundary_contract"]["tool_authority"] == "agent_profile_only"
     assert tool_names == set()
 
 

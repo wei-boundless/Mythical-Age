@@ -268,7 +268,6 @@ def _resolved_mode_runtime_policy(
         runtime_profile.get("mode_policy"),
         selection.get("runtime_mode_policy"),
         selection.get("mode_policy"),
-        selection.get("specific_task_runtime_policy"),
     )
     return _deep_merge_dicts(
         {
@@ -331,7 +330,6 @@ def _default_environment_id_for_mode(mode: str, *, selection: dict[str, Any]) ->
         dict(selection.get("runtime_profile") or {}).get("mode_policy"),
         selection.get("runtime_mode_policy"),
         selection.get("mode_policy"),
-        selection.get("specific_task_runtime_policy"),
     )
     explicit_default = str(mode_policy.get("default_environment_id") or "").strip()
     if explicit_default:
@@ -365,15 +363,6 @@ def _profile_operations(agent_runtime_profile: Any | None) -> tuple[str, ...]:
     if operations:
         return operations
     return ("op.model_response",)
-
-
-def _standard_operations(operations: tuple[str, ...]) -> tuple[str, ...]:
-    blocked = {"op.python_repl"}
-    return tuple(item for item in operations if item not in blocked)
-
-
-def _intersect_operations(operations: tuple[str, ...], allowed: set[str]) -> tuple[str, ...]:
-    return tuple(item for item in operations if item in allowed)
 
 
 def _subagent_policy(*, agent_runtime_profile: Any | None, mode_policy: dict[str, Any], mode: str) -> dict[str, Any]:

@@ -1426,7 +1426,6 @@ def _upsert_agents(backend_dir: Path) -> None:
             agent_profile_id=str(getattr(current, "agent_profile_id", "") or f"{agent_id.removeprefix('agent:')}_runtime"),
             enabled_runtime_modes=(STANDARD_MODE, CUSTOM_MODE),
             default_runtime_mode=STANDARD_MODE,
-            allowed_runtime_lanes=lanes,
             allowed_operations=tuple(dict.fromkeys(("op.model_response", "op.memory_read", *extra_ops))),
             blocked_operations=(
                 "op.read_file",
@@ -1469,7 +1468,6 @@ def _upsert_agents(backend_dir: Path) -> None:
                 "agent_side_memory_read_allowed": True,
                 "agent_side_memory_read_tool": "memory_search",
                 "generic_length_metric_tool_enabled": bool(extra_ops),
-                "allow_unregistered_runtime_lanes": True,
             },
         )
 
@@ -1715,7 +1713,7 @@ def _upsert_task_asset(
         output_contract_id=output_contract_id,
         default_agent_id=agent_id,
         default_workflow_id=workflow_id,
-        default_runtime_lane="coordination_task",
+        default_runtime_lane="",
         default_memory_scope="writing_modular_novel",
         enabled=True,
         metadata={
@@ -1737,7 +1735,7 @@ def _upsert_task_asset(
         domain_id=DOMAIN_ID,
         description=f"{title}。由模块化写作任务图原生配置生成。",
         enabled=True,
-        runtime_lane="coordination_task",
+        runtime_lane="",
         input_contract_id=input_contract_id,
         output_contract_id=output_contract_id,
         default_flow_contract_id=flow_id,
@@ -1773,7 +1771,7 @@ def _upsert_task_asset(
         task_kind="specific_task",
         domain_id=DOMAIN_ID,
         flow_id=flow_id,
-        runtime_lane="coordination_task",
+        runtime_lane="",
         default_agent_id=agent_id,
         workflow_id=workflow_id,
         workflow_file_ref=f"workflow:{workflow_id}",
@@ -1782,7 +1780,6 @@ def _upsert_task_asset(
         safety_policy={"verification_mode": "artifact_or_trace", "write_mode": "scoped", "safety_class": "S2_bounded"},
         task_structure={
             "execution_chain_type": "coordination_node",
-            "runtime_lane_hint": "coordination_task",
             "memory_scope_hint": "writing_modular_novel",
             "node_id": node_id,
             "runtime_interaction_mode": "role_mode",
@@ -1924,7 +1921,6 @@ def _node_payload(node: NodeSpec) -> dict[str, Any]:
         "agent_id": agent_id,
         "agent_group_id": AGENT_GROUP_ID,
         "work_posture": node.role,
-        "runtime_lane": "coordination_task",
         "interaction_mode": "role_mode",
         "runtime_interaction_mode": "role_mode",
         "phase_id": node.phase_id,
@@ -2001,7 +1997,6 @@ def _repository_node_payload(spec: dict[str, Any]) -> dict[str, Any]:
         "node_id": spec["node_id"],
         "node_type": spec["node_type"],
         "title": spec["title"],
-        "runtime_lane": "coordination_task",
         "execution_mode": "sync",
         "wait_policy": "wait_all_upstream_completed",
         "join_policy": "all_success",

@@ -18,6 +18,24 @@ from task_system.graphs.task_graph_models import TaskGraphDefinition, TaskGraphN
 from task_system.repositories import GraphHarnessConfigRepository
 
 
+class TaskExecutionModelRuntimeStub:
+    async def invoke_messages(self, messages, **_kwargs):
+        import json
+
+        return SimpleNamespace(
+            content=json.dumps(
+                {
+                    "authority": "harness.loop.model_action_request",
+                    "request_id": "model-action:api-graph-node:complete",
+                    "action_type": "respond",
+                    "final_answer": "API 图节点执行完成。",
+                    "diagnostics": {"verification": "api graph work order execution"},
+                },
+                ensure_ascii=False,
+            )
+        )
+
+
 def _graph() -> TaskGraphDefinition:
     return TaskGraphDefinition(
         graph_id="graph.test.api_new_harness",
@@ -61,6 +79,33 @@ def _runtime_with_graph_harness(*, base_dir: Path, runtime_root: Path) -> Simple
         query_runtime=SimpleNamespace(
             agent_harness=agent_harness,
             graph_harness=graph_harness,
+        ),
+    )
+
+
+def _query_runtime_with_graph_executor(*, base_dir: Path):
+    from tests.support.runtime_stubs import (
+        DefaultPermissionStub,
+        EmptySkillRegistryStub,
+        EmptyToolRuntimeStub,
+        InMemorySessionManagerStub,
+        PrimarySettingsStub,
+        QueryRuntimeMemoryFacadeStub,
+    )
+    from query import QueryRuntime
+
+    return SimpleNamespace(
+        base_dir=base_dir,
+        query_runtime=QueryRuntime(
+            base_dir=base_dir,
+            settings_service=PrimarySettingsStub(),
+            session_manager=InMemorySessionManagerStub(),
+            memory_facade=QueryRuntimeMemoryFacadeStub(),
+            retrieval_service=SimpleNamespace(),
+            tool_runtime=EmptyToolRuntimeStub(),
+            skill_registry=EmptySkillRegistryStub(),
+            permission_service=DefaultPermissionStub(),
+            model_runtime=TaskExecutionModelRuntimeStub(),
         ),
     )
 
@@ -328,3 +373,54 @@ def test_graph_harness_dispatch_ready_api_checkpoints_active_work_orders(tmp_pat
     assert first_dispatch["graph_loop_state"]["running_node_ids"] == ["produce"]
     assert second_dispatch["work_order_count"] == 0
     assert second_dispatch["graph_loop_state"]["running_node_ids"] == ["produce"]
+
+
+def test_graph_harness_api_executes_work_order_and_accepts_result(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    graph = _graph()
+    registry = TaskFlowRegistry(backend_dir)
+    registry.upsert_task_graph(
+        graph_id=graph.graph_id,
+        title=graph.title,
+        graph_kind=graph.graph_kind,
+        entry_node_id=graph.entry_node_id,
+        output_node_id=graph.output_node_id,
+        nodes=tuple(node.to_dict() for node in graph.nodes),
+        runtime_policy=graph.runtime_policy,
+        publish_state="published",
+        enabled=True,
+    )
+    graph_config = publish_graph_harness_config_for_graph(base_dir=backend_dir, graph_id=graph.graph_id)
+    runtime = _query_runtime_with_graph_executor(base_dir=backend_dir)
+
+    original = orchestration_api.require_runtime
+    orchestration_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    try:
+        started = asyncio.run(
+            orchestration_api.start_task_graph_harness_run(
+                graph.graph_id,
+                orchestration_api.TaskGraphRunStartRequest(
+                    session_id="session-test",
+                    dispatch_ready=True,
+                ),
+            )
+        )
+        executed = asyncio.run(
+            orchestration_api.execute_graph_work_order(
+                str(started["graph_run_id"]),
+                orchestration_api.GraphWorkOrderExecuteRequest(
+                    graph_harness_config_id=graph_config.config_id,
+                    work_order=dict(started["node_work_orders"][0]),
+                    max_steps=1,
+                ),
+            )
+        )
+    finally:
+        orchestration_api.require_runtime = original  # type: ignore[assignment]
+
+    assert executed["node_result"]["status"] == "completed"
+    assert executed["accepted_result"]["node_id"] == "produce"
+    assert executed["graph_loop_state"]["status"] == "completed"
+    assert executed["graph_result"]["status"] == "completed"
+    assert "coordination_run_id" not in str(executed)
+    assert "stage_execution_request" not in str(executed)

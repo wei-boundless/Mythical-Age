@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -25,9 +25,28 @@ class AgentRuntimeServices:
     current_permission_mode: Any
     get_trace_callback: Any
     execute_task_run_callback: Any | None = None
+    execute_graph_agent_work_order_callback: Any | None = None
+    get_graph_harness_config_callback: Any | None = None
+    model_runtime: Any | None = None
+    tool_runtime_executor: Any | None = None
+    tool_instances: tuple[Any, ...] = ()
+    agent_runtime_profile_resolver: Any | None = None
+    backend_config: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_runtime_host(cls, host: Any, *, execute_task_run_callback: Any | None = None) -> "AgentRuntimeServices":
+    def from_runtime_host(
+        cls,
+        host: Any,
+        *,
+        execute_task_run_callback: Any | None = None,
+        execute_graph_agent_work_order_callback: Any | None = None,
+        get_graph_harness_config_callback: Any | None = None,
+        model_runtime: Any | None = None,
+        tool_runtime_executor: Any | None = None,
+        tool_instances: list[Any] | tuple[Any, ...] | None = None,
+        agent_runtime_profile_resolver: Any | None = None,
+        backend_config: dict[str, Any] | None = None,
+    ) -> "AgentRuntimeServices":
         return cls(
             root_dir=Path(host.root_dir),
             backend_dir=Path(host.backend_dir),
@@ -41,6 +60,13 @@ class AgentRuntimeServices:
             current_permission_mode=host._current_permission_mode,
             get_trace_callback=host.get_trace,
             execute_task_run_callback=execute_task_run_callback,
+            execute_graph_agent_work_order_callback=execute_graph_agent_work_order_callback,
+            get_graph_harness_config_callback=get_graph_harness_config_callback,
+            model_runtime=model_runtime,
+            tool_runtime_executor=tool_runtime_executor,
+            tool_instances=tuple(tool_instances or ()),
+            agent_runtime_profile_resolver=agent_runtime_profile_resolver,
+            backend_config=dict(backend_config or {}),
         )
 
     def _current_permission_mode(self) -> str:

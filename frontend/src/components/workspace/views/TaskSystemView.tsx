@@ -54,6 +54,7 @@ import {
 } from "@/components/workspace/views/task-system/TaskSystemWorkbenchUi";
 import {
   deleteTaskSystemDomain,
+  deleteTaskSystemEnvironment,
   deleteTaskSystemSpecificRecord,
   getArtifactRepositoryOverview,
   getFormalMemoryOverview,
@@ -69,6 +70,8 @@ import {
   deleteTaskSystemContract,
   upsertTaskSystemContract,
   upsertTaskSystemDomain,
+  upsertTaskSystemEnvironment,
+  upsertTaskSystemEnvironmentGroup,
   upsertTaskSystemEntryPolicy,
   upsertTaskSystemExecutionPolicy,
   upsertTaskSystemFlowContractBinding,
@@ -89,6 +92,8 @@ import {
   type TaskContractDescriptor,
   type TaskDomainRecord,
   type TaskExecutionPolicy,
+  type TaskEnvironmentGroupUpsertPayload,
+  type TaskEnvironmentUpsertPayload,
   type TaskFlowContractBinding,
   type TaskGraphEdgeRecord,
   type TaskGraphNodeRecord,
@@ -102,7 +107,7 @@ import { useConfirmDialog } from "@/components/layout/ConfirmDialogProvider";
 import { useAppStore } from "@/lib/store";
 
 type TaskLayer = "management" | "editor";
-type TaskSystemLayer = "domains" | "tasks" | "graphs" | "contracts" | "resource-authority" | "agent-runtime-phase" | "orchestration" | "runtime";
+type TaskSystemLayer = "domains" | "tasks" | "graphs" | "environments" | "contracts" | "resource-authority" | "agent-runtime-phase" | "orchestration" | "runtime";
 type TaskConfigPanel = "definition";
 type ContractPanel = "library" | "templates";
 
@@ -133,6 +138,28 @@ type ArtifactPolicyDraft = {
   required_files_text: string;
   optional_files_text: string;
 };
+
+type EnvironmentDraft = {
+  environment_id: string;
+  title: string;
+  description: string;
+  group_id: string;
+  environment_kind: string;
+  enabled: boolean;
+  prompt_id: string;
+  prompt_content: string;
+  storage_namespace: string;
+  file_profile_refs_text: string;
+  required_repository_kinds_text: string;
+  sandbox_policy_text: string;
+  execution_policy_text: string;
+  artifact_policy_text: string;
+  risk_policy_text: string;
+  metadata_text: string;
+};
+
+type TaskEnvironmentManagement = NonNullable<TaskSystemOverview["task_environment_management"]>;
+type TaskEnvironmentItem = TaskEnvironmentManagement["environments"][number];
 
 function text(value: unknown, fallback = "-") {
   if (value === null || value === undefined || value === "") return fallback;
@@ -399,6 +426,271 @@ function emptyExecutionPolicy(taskId = ""): TaskExecutionPolicy {
     notes: "",
     metadata: { managed_by: "task_domain_console" },
   };
+}
+
+function defaultEnvironmentDraft(): EnvironmentDraft {
+  return {
+    environment_id: "env.custom.workspace",
+    title: "自定义任务环境",
+    description: "",
+    group_id: "environment_group.general",
+    environment_kind: "custom",
+    enabled: true,
+    prompt_id: "environment.custom.workspace.v1",
+    prompt_content: "你处在自定义任务环境中。这个环境只声明系统资源边界、存储区域、文件访问边界和执行约束。",
+    storage_namespace: "custom/workspace",
+    file_profile_refs_text: "file_profile.general_workspace",
+    required_repository_kinds_text: "conversation_artifacts",
+    sandbox_policy_text: JSON.stringify({
+      enabled: false,
+      sandbox_mode: "none",
+      workspace_access: "read_mostly",
+      write_policy: "artifact_only",
+      shell_policy: "denied",
+      browser_policy: "denied",
+      network_policy: "denied",
+    }, null, 2),
+    execution_policy_text: JSON.stringify({
+      real_workspace_access: "read_only",
+      write_scope_policy: "artifact_only",
+      shell_execution_policy: "denied",
+      browser_execution_policy: "denied",
+      network_execution_policy: "denied",
+    }, null, 2),
+    artifact_policy_text: JSON.stringify({
+      artifact_root: "file_management_projection",
+      naming_policy: "contract_scoped",
+      publish_policy: "commit_gate",
+    }, null, 2),
+    risk_policy_text: JSON.stringify({
+      default_permission_mode: "environment_boundary",
+      approval_required_risk_levels: [],
+      auto_denied_risk_levels: ["destructive_unbounded"],
+    }, null, 2),
+    metadata_text: "{}",
+  };
+}
+
+function environmentDraftFromItem(item: TaskEnvironmentItem | null | undefined): EnvironmentDraft {
+  if (!item) return defaultEnvironmentDraft();
+  const record = item.record ?? {};
+  const spec = dictOf(item.spec);
+  const resourceSpace = dictOf(item.resource_space ?? spec.resource_space);
+  const fileManagement = dictOf(item.file_management ?? spec.file_management);
+  const prompts = Array.isArray(item.environment_prompts) ? item.environment_prompts : [];
+  const firstPrompt = dictOf(prompts[0]);
+  return {
+    environment_id: String(record.environment_id || ""),
+    title: String(record.title || ""),
+    description: String(record.description || ""),
+    group_id: String(record.group_id || "environment_group.general"),
+    environment_kind: String(record.environment_kind || "custom"),
+    enabled: record.enabled !== false,
+    prompt_id: String(firstPrompt.prompt_id || `environment.${String(record.environment_id || "custom").replace(/^env\./, "")}.v1`),
+    prompt_content: String(firstPrompt.content || ""),
+    storage_namespace: String(resourceSpace.storage_namespace || ""),
+    file_profile_refs_text: listText(fileManagement.file_profile_refs),
+    required_repository_kinds_text: listText(fileManagement.required_repository_kinds),
+    sandbox_policy_text: JSON.stringify(item.sandbox_policy ?? spec.sandbox_policy ?? {}, null, 2),
+    execution_policy_text: JSON.stringify(item.execution_policy ?? spec.execution_policy ?? {}, null, 2),
+    artifact_policy_text: JSON.stringify(item.artifact_policy ?? spec.artifact_policy ?? {}, null, 2),
+    risk_policy_text: JSON.stringify(item.risk_policy ?? spec.risk_policy ?? {}, null, 2),
+    metadata_text: JSON.stringify(record.metadata ?? {}, null, 2),
+  };
+}
+
+function environmentPayloadFromDraft(draft: EnvironmentDraft): TaskEnvironmentUpsertPayload {
+  const environmentId = draft.environment_id.trim();
+  return {
+    environment_id: environmentId,
+    title: draft.title.trim() || environmentId,
+    description: draft.description.trim(),
+    group_id: draft.group_id.trim() || "environment_group.general",
+    environment_kind: draft.environment_kind.trim() || "custom",
+    enabled: draft.enabled,
+    environment_prompts: draft.prompt_content.trim()
+      ? [{
+          prompt_id: draft.prompt_id.trim() || `environment.${environmentId.replace(/^env\./, "")}.v1`,
+          content: draft.prompt_content.trim(),
+          version: "v1",
+          prompt_kind: "environment",
+          cache_scope: "static_environment",
+        }]
+      : [],
+    file_management: {
+      file_profile_refs: splitList(draft.file_profile_refs_text),
+      required_repository_kinds: splitList(draft.required_repository_kinds_text),
+      canonical_write_policy: "commit_gate_required",
+    },
+    resource_space: {
+      storage_namespace: draft.storage_namespace.trim() || environmentId.replace(/\./g, "/"),
+      storage_root_policy: "environment_scoped",
+      runtime_state_root_policy: "environment_scoped_runtime_state",
+      artifact_storage_policy: "environment_scoped_artifacts",
+      cache_storage_policy: "environment_scoped_cache",
+    },
+    sandbox_policy: parseJsonObject(draft.sandbox_policy_text, "沙盒策略"),
+    execution_policy: parseJsonObject(draft.execution_policy_text, "执行策略"),
+    artifact_policy: parseJsonObject(draft.artifact_policy_text, "产物策略"),
+    risk_policy: parseJsonObject(draft.risk_policy_text, "风险策略"),
+    metadata: parseJsonObject(draft.metadata_text, "环境元数据"),
+  };
+}
+
+function environmentGroupPayload(groupId: string, overview: TaskSystemOverview | null): TaskEnvironmentGroupUpsertPayload {
+  const group = overview?.task_environment_management?.groups?.find((item) => item.group_id === groupId);
+  return {
+    group_id: groupId,
+    title: group?.title || groupId.replace(/^environment_group\./, ""),
+    description: group?.description || "",
+    enabled: group?.enabled !== false,
+  };
+}
+
+function TaskEnvironmentLibraryPage({
+  draft,
+  environmentItems,
+  groupOptions,
+  onCreate,
+  onDelete,
+  onSave,
+  onSelectEnvironment,
+  onSetDraft,
+  saving,
+  selectedEnvironmentId,
+}: {
+  draft: EnvironmentDraft;
+  environmentItems: TaskEnvironmentItem[];
+  groupOptions: Array<{ value: string; label: string }>;
+  onCreate: () => void;
+  onDelete: () => void;
+  onSave: () => void;
+  onSelectEnvironment: (environmentId: string) => void;
+  onSetDraft: (draft: EnvironmentDraft) => void;
+  saving: string;
+  selectedEnvironmentId: string;
+}) {
+  const selectedBoundary = dictOf(environmentItems.find((item) => item.record.environment_id === selectedEnvironmentId)?.environment_boundary);
+  const boundaryContract = dictOf(selectedBoundary.boundary_contract);
+  const patch = (next: Partial<EnvironmentDraft>) => onSetDraft({ ...draft, ...next });
+  return (
+    <section className="task-library-page task-environment-library-page">
+      <header className="task-library-page__head">
+        <div>
+          <span>Task Environment</span>
+          <h3>任务环境</h3>
+          <p>配置环境 prompt、存储空间、文件边界、沙盒边界和执行约束。</p>
+        </div>
+        <div className="boundary-actions">
+          <ToolbarButton onClick={onCreate}><Plus size={15} />新环境</ToolbarButton>
+          <ToolbarButton disabled={saving === "task-environment"} onClick={onSave} variant="primary">保存环境</ToolbarButton>
+          <ToolbarButton disabled={!selectedEnvironmentId || saving === "task-environment-delete"} onClick={onDelete}>删除配置</ToolbarButton>
+        </div>
+      </header>
+
+      <div className="task-library-layout task-library-layout--split">
+        <aside className="task-library-list" aria-label="任务环境列表">
+          {environmentItems.map((item) => {
+            const environmentId = item.record.environment_id;
+            const active = environmentId === selectedEnvironmentId;
+            const storage = dictOf(item.storage_space);
+            return (
+              <button
+                className={active ? "task-library-list__item task-library-list__item--active" : "task-library-list__item"}
+                key={environmentId}
+                onClick={() => onSelectEnvironment(environmentId)}
+                type="button"
+              >
+                <strong>{item.record.title || environmentId}</strong>
+                <span>{environmentId}</span>
+                <small>{String(storage.environment_storage_root || storage.task_library_root || "未配置存储")}</small>
+              </button>
+            );
+          })}
+        </aside>
+
+        <main className="task-library-detail">
+          <div className="boundary-form-grid">
+            <label className="boundary-field">
+              <span>环境标识</span>
+              <input value={draft.environment_id} onChange={(event) => patch({ environment_id: event.target.value })} />
+            </label>
+            <label className="boundary-field">
+              <span>名称</span>
+              <input value={draft.title} onChange={(event) => patch({ title: event.target.value })} />
+            </label>
+            <label className="boundary-field">
+              <span>分组</span>
+              <select value={draft.group_id} onChange={(event) => patch({ group_id: event.target.value })}>
+                {groupOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+              </select>
+            </label>
+            <label className="boundary-field">
+              <span>类型</span>
+              <select value={draft.environment_kind} onChange={(event) => patch({ environment_kind: event.target.value })}>
+                {["custom", "general", "development", "creation"].map((item) => <option key={item} value={item}>{item}</option>)}
+              </select>
+            </label>
+            <label className="boundary-field boundary-field--wide">
+              <span>描述</span>
+              <input value={draft.description} onChange={(event) => patch({ description: event.target.value })} />
+            </label>
+            <label className="boundary-field">
+              <span>Prompt ID</span>
+              <input value={draft.prompt_id} onChange={(event) => patch({ prompt_id: event.target.value })} />
+            </label>
+            <label className="boundary-field">
+              <span>Storage Namespace</span>
+              <input value={draft.storage_namespace} onChange={(event) => patch({ storage_namespace: event.target.value })} />
+            </label>
+            <label className="boundary-field boundary-field--wide">
+              <span>环境 Prompt</span>
+              <textarea rows={6} value={draft.prompt_content} onChange={(event) => patch({ prompt_content: event.target.value })} />
+            </label>
+            <label className="boundary-field">
+              <span>File Profiles</span>
+              <textarea rows={4} value={draft.file_profile_refs_text} onChange={(event) => patch({ file_profile_refs_text: event.target.value })} />
+            </label>
+            <label className="boundary-field">
+              <span>Repository Kinds</span>
+              <textarea rows={4} value={draft.required_repository_kinds_text} onChange={(event) => patch({ required_repository_kinds_text: event.target.value })} />
+            </label>
+            <label className="boundary-field">
+              <span>Sandbox Policy JSON</span>
+              <textarea rows={8} value={draft.sandbox_policy_text} onChange={(event) => patch({ sandbox_policy_text: event.target.value })} />
+            </label>
+            <label className="boundary-field">
+              <span>Execution Policy JSON</span>
+              <textarea rows={8} value={draft.execution_policy_text} onChange={(event) => patch({ execution_policy_text: event.target.value })} />
+            </label>
+            <label className="boundary-field">
+              <span>Artifact Policy JSON</span>
+              <textarea rows={7} value={draft.artifact_policy_text} onChange={(event) => patch({ artifact_policy_text: event.target.value })} />
+            </label>
+            <label className="boundary-field">
+              <span>Risk Policy JSON</span>
+              <textarea rows={7} value={draft.risk_policy_text} onChange={(event) => patch({ risk_policy_text: event.target.value })} />
+            </label>
+          </div>
+
+          <div className="task-library-summary-grid">
+            <div>
+              <span>Prompt 来源</span>
+              <strong>{String(boundaryContract.environment_prompts_source || "task_environment_config")}</strong>
+            </div>
+            <div>
+              <span>工具权威</span>
+              <strong>{String(boundaryContract.tool_authority || "agent_profile_only")}</strong>
+            </div>
+            <div>
+              <span>文件边界</span>
+              <strong>{String(boundaryContract.file_boundary_authority || "file_access_table")}</strong>
+            </div>
+          </div>
+        </main>
+      </div>
+    </section>
+  );
 }
 
 function domainTitle(family: string) {
@@ -698,6 +990,7 @@ export function TaskSystemView() {
   const [selectedTaskId, setSelectedTaskId] = useState("");
   const [selectedTaskGraphId, setSelectedTaskGraphId] = useState("");
   const [editorEnvironmentId, setEditorEnvironmentId] = useState("");
+  const [selectedEnvironmentId, setSelectedEnvironmentId] = useState("");
   const [editorDomainId, setEditorDomainId] = useState("");
   const [editorTaskGraphId, setEditorTaskGraphId] = useState("");
   const [taskLayer, setTaskLayer] = useState<TaskLayer>("management");
@@ -715,6 +1008,7 @@ export function TaskSystemView() {
   const [workflowDraft, setWorkflowDraft] = useState<WorkflowDraft>(emptyWorkflow());
   const [flowDraft, setFlowDraft] = useState<TaskFlowContractBinding>(emptyFlowBinding());
   const [executionDraft, setExecutionDraft] = useState<TaskExecutionPolicy>(emptyExecutionPolicy());
+  const [environmentDraft, setEnvironmentDraft] = useState<EnvironmentDraft>(() => defaultEnvironmentDraft());
   const [taskPolicyText, setTaskPolicyText] = useState("{}");
   const [artifactPolicyDraft, setArtifactPolicyDraft] = useState<ArtifactPolicyDraft>(defaultArtifactPolicyDraft());
   const [taskGraphDraftV2, setTaskGraphDraftV2] = useState<TaskGraphDraftV2>(() => emptyTaskGraphDraftV2());
@@ -755,6 +1049,10 @@ export function TaskSystemView() {
     setEditorDomainId((current) => current || selectedDomain?.domain_id || "");
     setSelectedTaskGraphId((current) => recommendedTaskGraphId(taskGraphs, current));
     setEditorTaskGraphId((current) => current && taskGraphs.some((graph) => graph.graph_id === current) ? current : "");
+    const environmentRecords = overview.task_environment_management?.records ?? [];
+    setSelectedEnvironmentId((current) => current && environmentRecords.some((item) => item.environment_id === current)
+      ? current
+      : environmentRecords[0]?.environment_id || "");
   }, []);
 
   const loadProjectionCatalog = useCallback(async () => {
@@ -902,6 +1200,23 @@ export function TaskSystemView() {
       };
     });
   }, [consolePayload, tasks]);
+  const environmentItems = useMemo(
+    () => consolePayload?.task_environment_management?.environments ?? [],
+    [consolePayload],
+  );
+  const selectedEnvironmentItem = useMemo(
+    () => environmentItems.find((item) => item.record.environment_id === selectedEnvironmentId)
+      ?? environmentItems[0]
+      ?? null,
+    [environmentItems, selectedEnvironmentId],
+  );
+  const environmentGroupOptions = useMemo(
+    () => consolePayload?.task_environment_management?.groups?.map((item) => ({
+      value: item.group_id,
+      label: `${item.title || item.group_id} · ${item.group_id}`,
+    })) ?? [],
+    [consolePayload],
+  );
   const activeEditorEnvironmentId = editorEnvironmentId
     || editorTaskEnvironmentOptions[0]?.value
     || "";
@@ -1776,6 +2091,75 @@ export function TaskSystemView() {
     }
   }
 
+  function createEnvironmentDraft() {
+    const index = environmentItems.length + 1;
+    const environmentId = `env.custom.workspace_${String(index).padStart(2, "0")}`;
+    setSelectedEnvironmentId("");
+    setEnvironmentDraft({
+      ...defaultEnvironmentDraft(),
+      environment_id: environmentId,
+      prompt_id: `environment.custom.workspace_${String(index).padStart(2, "0")}.v1`,
+      storage_namespace: `custom/workspace_${String(index).padStart(2, "0")}`,
+    });
+    setTaskSystemLayer("environments");
+    setNotice("已创建任务环境草稿。");
+  }
+
+  async function saveEnvironmentDraft() {
+    const environmentId = environmentDraft.environment_id.trim();
+    if (!environmentId.startsWith("env.")) {
+      setError("任务环境标识必须以 env. 开头。");
+      return;
+    }
+    setSaving("task-environment");
+    setError("");
+    setNotice("");
+    try {
+      if (!environmentGroupOptions.some((item) => item.value === environmentDraft.group_id)) {
+        await upsertTaskSystemEnvironmentGroup(
+          environmentDraft.group_id,
+          environmentGroupPayload(environmentDraft.group_id, consolePayload),
+        );
+      }
+      const payload = await upsertTaskSystemEnvironment(environmentId, environmentPayloadFromDraft(environmentDraft));
+      setConsolePayload(payload);
+      setSelectedEnvironmentId(environmentId);
+      setEditorEnvironmentId((current) => current || environmentId);
+      setNotice("任务环境已保存并可被 runtime 装配。");
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "保存任务环境失败");
+    } finally {
+      setSaving("");
+    }
+  }
+
+  async function removeSelectedEnvironment() {
+    const environmentId = selectedEnvironmentItem?.record.environment_id || environmentDraft.environment_id;
+    if (!environmentId) return;
+    const approved = await confirm({
+      title: `删除任务环境「${environmentRecordTitle(environmentId, consolePayload) || environmentId}」`,
+      body: "只会删除配置文件中的自定义环境。内置默认环境不会被删除。",
+      confirmLabel: "删除环境",
+      tone: "warning",
+    });
+    if (!approved) return;
+    setSaving("task-environment-delete");
+    setError("");
+    setNotice("");
+    try {
+      const payload = await deleteTaskSystemEnvironment(environmentId);
+      setConsolePayload(payload);
+      const nextId = payload.task_environment_management?.records?.[0]?.environment_id || "";
+      setSelectedEnvironmentId(nextId);
+      setEnvironmentDraft(environmentDraftFromItem(taskEnvironmentItem(nextId, payload)));
+      setNotice("任务环境配置已删除。");
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "删除任务环境失败");
+    } finally {
+      setSaving("");
+    }
+  }
+
   async function saveTaskGraphStack(nextPublished?: boolean, nextEditorPublishState?: "draft" | "saved" | "preflight_passed" | "published" | "run_bound" | "archived") {
     const draftDomain = taskLayer === "editor" ? editorDomain : selectedDomain;
     const draftDomainId = draftDomain?.domain_id || taskGraphDraftV2.domain_id || "";
@@ -2014,6 +2398,10 @@ export function TaskSystemView() {
       };
     });
   }, [activeEditorEnvironmentId, taskLayer]);
+  useEffect(() => {
+    if (taskSystemLayer !== "environments") return;
+    setEnvironmentDraft(environmentDraftFromItem(selectedEnvironmentItem));
+  }, [selectedEnvironmentItem, taskSystemLayer]);
   const updateTaskGraphRuntimePolicy = (patch: Partial<TaskGraphDraftV2["runtime_policy"]>) => {
     setTaskGraphDraftV2((current) => ({
       ...current,
@@ -2215,6 +2603,12 @@ export function TaskSystemView() {
       detail: "多 Agent 流程",
     },
     {
+      value: "environments",
+      label: "任务环境",
+      meta: selectedEnvironmentItem?.record.title || `${environmentItems.length} 个环境`,
+      detail: "系统资源边界",
+    },
+    {
       value: "contracts",
       label: "契约库",
       meta: `${domainContractSpecs.length} 个契约`,
@@ -2245,7 +2639,7 @@ export function TaskSystemView() {
       detail: "监控与产物",
     },
   ];
-  const primaryTaskSystemLayerItems = taskSystemLayerItems.filter((item) => ["domains", "tasks", "graphs"].includes(item.value));
+  const primaryTaskSystemLayerItems = taskSystemLayerItems.filter((item) => ["domains", "tasks", "graphs", "environments"].includes(item.value));
   const supportingTaskSystemLayerItems = taskSystemLayerItems.filter((item) => ["contracts", "resource-authority", "agent-runtime-phase", "orchestration", "runtime"].includes(item.value));
   const taskConfigPanelItems: Array<LayerNavItem<TaskConfigPanel>> = [
     {
@@ -2577,6 +2971,24 @@ export function TaskSystemView() {
               standardViewError={taskGraphStandardViewError}
               taskGraphDraft={taskGraphDraftV2}
               taskGraphs={taskGraphs}
+            />
+          ) : null}
+
+          {taskSystemLayer === "environments" ? (
+            <TaskEnvironmentLibraryPage
+              draft={environmentDraft}
+              environmentItems={environmentItems}
+              groupOptions={environmentGroupOptions}
+              onCreate={createEnvironmentDraft}
+              onDelete={() => void removeSelectedEnvironment()}
+              onSave={() => void saveEnvironmentDraft()}
+              onSelectEnvironment={(environmentId) => {
+                setSelectedEnvironmentId(environmentId);
+                setEnvironmentDraft(environmentDraftFromItem(taskEnvironmentItem(environmentId, consolePayload)));
+              }}
+              onSetDraft={setEnvironmentDraft}
+              saving={saving}
+              selectedEnvironmentId={selectedEnvironmentItem?.record.environment_id || ""}
             />
           ) : null}
 

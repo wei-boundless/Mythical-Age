@@ -34,7 +34,7 @@ class GraphHarnessConfig:
     tools: dict[str, Any] = field(default_factory=dict)
     agents: dict[str, Any] = field(default_factory=dict)
     contracts: dict[str, Any] = field(default_factory=dict)
-    modules: tuple[dict[str, Any], ...] = ()
+    composition_sources: tuple[dict[str, Any], ...] = ()
     diagnostics: dict[str, Any] = field(default_factory=dict)
     authority_map: dict[str, Any] = field(default_factory=dict)
     source_refs: dict[str, Any] = field(default_factory=dict)
@@ -50,6 +50,7 @@ class GraphHarnessConfig:
             raise ValueError("GraphHarnessConfig requires graph_id")
         if self.status not in {"published", "archived"}:
             raise ValueError("GraphHarnessConfig status must be published or archived")
+        _validate_node_executors(self.nodes)
 
     def content_payload(self) -> dict[str, Any]:
         payload = self.to_dict()
@@ -75,7 +76,7 @@ class GraphHarnessConfig:
         payload["nodes"] = [dict(item) for item in self.nodes]
         payload["edges"] = [dict(item) for item in self.edges]
         payload["loop_frames"] = [dict(item) for item in self.loop_frames]
-        payload["modules"] = [dict(item) for item in self.modules]
+        payload["composition_sources"] = [dict(item) for item in self.composition_sources]
         return payload
 
 
@@ -220,7 +221,6 @@ class GraphNodeWorkOrder:
     executor_type: str = "agent"
     agent_id: str = ""
     agent_profile_id: str = ""
-    runtime_lane: str = ""
     message: str = ""
     explicit_inputs: dict[str, Any] = field(default_factory=dict)
     input_package: dict[str, Any] = field(default_factory=dict)
@@ -244,7 +244,7 @@ class GraphNodeWorkOrder:
             raise ValueError("GraphNodeWorkOrder authority must be harness.graph_node_work_order")
         if not self.work_order_id:
             raise ValueError("GraphNodeWorkOrder requires work_order_id")
-        if self.work_kind not in {"agent", "tool", "human_gate", "graph_module"}:
+        if self.work_kind not in {"agent", "tool", "human_gate"}:
             raise ValueError("GraphNodeWorkOrder work_kind is not supported")
         if not self.graph_run_id:
             raise ValueError("GraphNodeWorkOrder requires graph_run_id")
@@ -274,7 +274,6 @@ class GraphNodeWorkOrder:
             executor_type=str(payload.get("executor_type") or "agent"),
             agent_id=str(payload.get("agent_id") or ""),
             agent_profile_id=str(payload.get("agent_profile_id") or ""),
-            runtime_lane=str(payload.get("runtime_lane") or ""),
             message=str(payload.get("message") or ""),
             explicit_inputs=dict(payload.get("explicit_inputs") or {}),
             input_package=dict(payload.get("input_package") or {}),
@@ -389,11 +388,21 @@ def graph_harness_config_from_dict(payload: dict[str, Any]) -> GraphHarnessConfi
         tools=dict(payload.get("tools") or {}),
         agents=dict(payload.get("agents") or {}),
         contracts=dict(payload.get("contracts") or {}),
-        modules=tuple(dict(item) for item in list(payload.get("modules") or []) if isinstance(item, dict)),
+        composition_sources=tuple(dict(item) for item in list(payload.get("composition_sources") or []) if isinstance(item, dict)),
         diagnostics=dict(payload.get("diagnostics") or {}),
         authority_map=dict(payload.get("authority_map") or {}),
         source_refs=dict(payload.get("source_refs") or {}),
     )
+
+
+def _validate_node_executors(nodes: tuple[dict[str, Any], ...]) -> None:
+    supported = {"agent", "resource", "human", "human_gate", "review_gate", "tool"}
+    for node in nodes:
+        node_id = str(dict(node).get("node_id") or "").strip()
+        executor = dict(dict(node).get("executor") or {})
+        executor_type = str(executor.get("executor_type") or "agent").strip() or "agent"
+        if executor_type not in supported:
+            raise ValueError(f"GraphHarnessConfig node executor_type is not supported: {node_id}")
 
 
 def stable_hash(payload: Any) -> str:
