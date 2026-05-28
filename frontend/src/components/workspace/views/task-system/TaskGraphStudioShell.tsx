@@ -34,6 +34,11 @@ const LAYER_CONTEXT: Record<TaskGraphStudioLayerId, { title: string; summary: st
     summary: "把节点身份、输入包、输出契约和 Prompt 使用方式配成同一个执行视图。",
     checkpoints: ["身份投影", "输入包", "输出交接"],
   },
+  timeline: {
+    title: "阶段与循环",
+    summary: "维护阶段、时序坐标、循环、审核返修和批次推进配置。",
+    checkpoints: ["阶段", "循环", "返修"],
+  },
   memory: {
     title: "资源流",
     summary: "用仓库节点、collection、读写边、selector 和提交条件控制节点上下文。",
@@ -48,6 +53,11 @@ const LAYER_CONTEXT: Record<TaskGraphStudioLayerId, { title: string; summary: st
     title: "质量边界",
     summary: "管理输入输出契约、载荷契约、质量门和失败策略。",
     checkpoints: ["输入输出", "审核门", "失败策略"],
+  },
+  publish: {
+    title: "发布运行",
+    summary: "完成预检、发布 GraphHarnessConfig、启动 GraphRun 并绑定监控。",
+    checkpoints: ["预检", "发布", "运行"],
   },
 };
 

@@ -8,6 +8,7 @@ import {
   getOrchestrationHarnessTrace,
   dispatchGraphRunReadyNodes,
   startTaskGraphHarnessRun,
+  taskGraphRunsFromTrace,
   type HarnessTaskRunTrace,
   type TaskGraphContractPreview,
   type TaskGraphStandardView,
@@ -19,7 +20,13 @@ import { isTaskGraphPublishedState, taskGraphPublishStateLabel, type TaskGraphPu
 import { focusForPreflightIssue, focusTargetLabel } from "./taskGraphEditorFocus";
 import { buildTaskGraphPreflightReport } from "./taskGraphPreflight";
 import type { TaskGraphPreflightIssue } from "./taskGraphPreflight";
-import { buildTaskGraphLoopSummary } from "./taskGraphRuntimeView";
+import {
+  batchLifecycleFromTrace,
+  buildTaskGraphBatchLifecycleSummary,
+  buildTaskGraphLoopSummary,
+  buildTaskGraphSchedulerSummary,
+  schedulerStateFromTrace,
+} from "./taskGraphRuntimeView";
 
 function repairActionLabel(issue: TaskGraphPreflightIssue) {
   if (issue.source === "frontend.preflight.prompt_semantics") return "补全职责字段";
@@ -120,6 +127,11 @@ export function TaskGraphPublishRunPage({
   const latestRunStatus = String(runTrace?.task_run?.status ?? "").trim();
   const runStatusLabel = latestRunStatus || (publishState === "run_bound" ? "bound" : published ? "ready" : "draft");
   const loopSummary = buildTaskGraphLoopSummary(taskGraphBoundRunMonitor?.graph_loop_state);
+  const taskGraphRuns = taskGraphRunsFromTrace(runTrace);
+  const schedulerSummary = buildTaskGraphSchedulerSummary(schedulerStateFromTrace(runTrace));
+  const batchLifecycleSummary = buildTaskGraphBatchLifecycleSummary(batchLifecycleFromTrace(runTrace));
+  const boundBatchLifecycleSummary = buildTaskGraphBatchLifecycleSummary(taskGraphBoundRunMonitor?.graph_loop_state?.batch_lifecycle);
+  const stopLoading = false;
   const preflightReport = buildTaskGraphPreflightReport({
     dirty,
     editorIssueCount,
@@ -137,6 +149,9 @@ export function TaskGraphPublishRunPage({
       return groups;
     }, new Map<string, TaskGraphPreflightIssue[]>()),
   );
+  async function stopLatestRun() {
+    setRunTraceError("停止运行入口暂未接入新 GraphRun 链路。");
+  }
   async function compileGraphContract() {
     if (!graphId) return;
     if (dirty || standardViewStale) {
@@ -465,9 +480,6 @@ export function TaskGraphPublishRunPage({
           <TaskSystemToolbarButton disabled={!taskGraphMonitorBinding || taskGraphMonitorLoading} onClick={() => void continueBoundTaskGraphRun()}>
             <PlayCircle size={15} />续跑当前阶段
           </TaskSystemToolbarButton>
-          <TaskSystemToolbarButton disabled={!taskGraphMonitorBinding || taskGraphMonitorLoading} onClick={() => void refreshAndContinueBoundTaskGraphRun()}>
-            <RefreshCw size={15} />刷新快照续跑
-          </TaskSystemToolbarButton>
           <TaskSystemToolbarButton disabled={!taskGraphMonitorBinding} onClick={() => setTaskGraphRunInteractionOpen(true)}>
             <MessageSquareShare size={15} />打开交互窗口
           </TaskSystemToolbarButton>
@@ -486,14 +498,14 @@ export function TaskGraphPublishRunPage({
         {taskGraphBoundRunMonitor ? (
           <div className="task-graph-runtime-spec-panel">
             <div className="task-graph-mini-kv">
-              <p><span>状态</span><strong>{taskGraphBoundRunMonitor.runtime?.status || "unknown"}</strong></p>
-              <p><span>当前节点</span><strong>{taskGraphBoundRunMonitor.runtime?.active_node_id || "-"}</strong></p>
-              <p><span>Activation</span><strong>{boundTemporal?.active_activation_id || "-"}</strong></p>
-              <p><span>执行许可</span><strong>{boundTemporal?.active_execution_permit_id || "-"}</strong></p>
-              <p><span>边界</span><strong>{boundTemporal?.boundary_valid ? "有效" : "未闭合"}</strong></p>
-              <p><span>时序违规</span><strong>{boundTemporalViolations.length}</strong></p>
-              <p><span>事件</span><strong>{taskGraphBoundRunMonitor.runtime?.event_count ?? 0}</strong></p>
-              <p><span>流式</span><strong>{taskGraphBoundRunMonitor.streaming?.enabled ? `${taskGraphBoundRunMonitor.streaming.chunk_count} 片 / ${taskGraphBoundRunMonitor.streaming.accumulated_chars} 字` : "未启用"}</strong></p>
+              <p><span>GraphRun</span><strong>{taskGraphBoundRunMonitor.graph_run_id || "-"}</strong></p>
+              <p><span>状态</span><strong>{loopSummary.status || "unknown"}</strong></p>
+              <p><span>Ready</span><strong>{loopSummary.ready_node_ids.length}</strong></p>
+              <p><span>Active</span><strong>{loopSummary.active_node_ids.length}</strong></p>
+              <p><span>Completed</span><strong>{loopSummary.completed_node_ids.length}</strong></p>
+              <p><span>Failed</span><strong>{loopSummary.failed_node_ids.length}</strong></p>
+              <p><span>事件</span><strong>{taskGraphBoundRunMonitor.event_count ?? loopSummary.event_count}</strong></p>
+              <p><span>WorkOrder</span><strong>{taskGraphBoundRunMonitor.active_node_work_order_count ?? loopSummary.active_node_work_order_count}</strong></p>
               <p><span>批次</span><strong>{boundBatchLifecycleSummary.available ? `${boundBatchLifecycleSummary.summary.committed_batch_count ?? 0}/${boundBatchLifecycleSummary.summary.batch_count ?? 0}` : "未配置"}</strong></p>
               <p><span>Merge</span><strong>{boundBatchLifecycleSummary.available ? String(boundBatchLifecycleSummary.summary.merge_ready_count ?? 0) : "-"}</strong></p>
               <p><span>实例</span><strong>{boundBatchLifecycleSummary.available ? String(boundBatchLifecycleSummary.summary.execution_instance_count ?? boundBatchLifecycleSummary.execution_instances.length) : "-"}</strong></p>
@@ -518,65 +530,12 @@ export function TaskGraphPublishRunPage({
                 })}
               </div>
             ) : null}
-            {boundTemporalViolations.length ? (
-              <div className="task-graph-preflight-list">
-                {boundTemporalViolations.slice(0, 4).map((issue, index) => (
-                  <article className="task-graph-preflight-row" key={`${issue.code}:${issue.target_id}:${index}`}>
-                    <span className={`task-graph-preflight-row__severity task-graph-preflight-row__severity--${issue.severity || "error"}`}>
-                      {issue.severity || "error"}
-                    </span>
-                    <div>
-                      <strong>{issue.code || "temporal_violation"}</strong>
-                      <span>{issue.message || "节点运行不在当前显式依赖和执行许可窗口内。"}</span>
-                    </div>
-                    <em>{issue.target_id || boundTemporal?.active_node_id || "runtime"}</em>
-                    <small>monitor.temporal</small>
-                  </article>
-                ))}
-              </div>
-            ) : null}
           </div>
         ) : null}
-        {taskGraphMonitorDecision ? (
-          <div className="task-graph-runtime-spec-panel">
-            <div className="task-graph-mini-kv">
-              <p><span>Action</span><strong>{taskGraphMonitorDecision.action}</strong></p>
-              <p><span>Reason</span><strong>{taskGraphMonitorDecision.reason}</strong></p>
-              <p><span>Severity</span><strong>{taskGraphMonitorDecision.severity}</strong></p>
-              <p><span>Monitor</span><strong>{taskGraphMonitorDecision.monitor_node_id || "runtime_monitor"}</strong></p>
-            </div>
-            <div className={taskGraphMonitorDecision.action === "no_action" ? "task-graph-note" : "task-graph-note task-graph-note--danger"}>
-              <strong>{taskGraphMonitorDecision.summary}</strong>
-              <span>需要处理时会在常驻浮窗内展示统一运行交互请求。</span>
-            </div>
-            <details className="task-graph-runtime-spec-details">
-              <summary>Monitor Decision</summary>
-              <pre>{JSON.stringify(taskGraphMonitorDecision, null, 2)}</pre>
-            </details>
-          </div>
-        ) : (
-          <div className="task-graph-note">
-            <strong>尚未执行监测评估</strong>
-            <span>{taskGraphMonitorError || "点击“执行一次监测”会读取后端 task_graph.run_monitor 快照，并写入 SupervisionRecord。"}</span>
-          </div>
-        )}
-        {taskGraphMonitorDecisions.length ? (
-          <div className="task-graph-preflight-list">
-            {taskGraphMonitorDecisions.slice(-5).reverse().map((decision) => (
-              <article className="task-graph-preflight-row" key={decision.decision_id}>
-                <span className={`task-graph-preflight-row__severity task-graph-preflight-row__severity--${decision.severity || "info"}`}>
-                  {decision.severity || "info"}
-                </span>
-                <div>
-                  <strong>{decision.action} / {decision.reason}</strong>
-                  <span>{decision.summary}</span>
-                </div>
-                <em>{decision.monitor_node_id || "runtime_monitor"}</em>
-                <small>{new Date(Number(decision.created_at || 0) * 1000).toLocaleTimeString()}</small>
-              </article>
-            ))}
-          </div>
-        ) : null}
+        <div className={taskGraphMonitorError ? "task-graph-note task-graph-note--danger" : "task-graph-note"}>
+          <strong>{taskGraphMonitorError ? "监控刷新失败" : "GraphRun 监控已接入基础快照"}</strong>
+          <span>{taskGraphMonitorError || "当前页面先展示新 GraphRun 的 loop state 与 active work orders；完整监督决策面板后续重做。"}</span>
+        </div>
       </section>
 
       <section className="boundary-card">

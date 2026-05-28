@@ -40,6 +40,22 @@ export type TaskGraphBatchLifecycleSummary = {
   merge_states: Array<Record<string, unknown>>;
 };
 
+export type TaskGraphLoopSummary = {
+  available: boolean;
+  graph_run_id: string;
+  status: string;
+  ready_node_ids: string[];
+  active_node_ids: string[];
+  completed_node_ids: string[];
+  failed_node_ids: string[];
+  blocked_node_ids: string[];
+  node_work_order_count: number;
+  active_node_work_order_count: number;
+  event_count: number;
+  node_count: number;
+  edge_count: number;
+};
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
@@ -107,6 +123,40 @@ export function buildTaskGraphBatchLifecycleSummary(rawState: unknown): TaskGrap
     batches: asRecordArray(state.batches ?? state.batch_states),
     execution_instances: asRecordArray(state.execution_instances ?? state.batch_execution_instances),
     merge_states: asRecordArray(state.merge_states),
+  };
+}
+
+export function buildTaskGraphLoopSummary(rawState: unknown): TaskGraphLoopSummary {
+  const state = asRecord(rawState);
+  const nodeStates = asRecord(state.node_states);
+  const nodes = asRecordArray(state.nodes);
+  const edges = asRecordArray(state.edges);
+  const workOrders = asRecordArray(state.node_work_orders ?? state.work_orders);
+  const activeWorkOrders = asRecordArray(state.active_node_work_orders ?? state.active_work_orders);
+  const nodeEntries = Object.entries(nodeStates);
+  const nodeIdsByStatus = (status: string) => nodeEntries
+    .filter(([, value]) => String(asRecord(value).status ?? "") === status)
+    .map(([nodeId]) => nodeId);
+  return {
+    available: Object.keys(state).length > 0,
+    graph_run_id: String(state.graph_run_id ?? state.run_id ?? ""),
+    status: String(state.status ?? state.terminal_status ?? ""),
+    ready_node_ids: asStringArray(state.ready_node_ids),
+    active_node_ids: asStringArray(state.active_node_ids ?? state.running_node_ids),
+    completed_node_ids: asStringArray(state.completed_node_ids).length
+      ? asStringArray(state.completed_node_ids)
+      : nodeIdsByStatus("completed"),
+    failed_node_ids: asStringArray(state.failed_node_ids).length
+      ? asStringArray(state.failed_node_ids)
+      : nodeIdsByStatus("failed"),
+    blocked_node_ids: asStringArray(state.blocked_node_ids).length
+      ? asStringArray(state.blocked_node_ids)
+      : nodeIdsByStatus("blocked"),
+    node_work_order_count: Number(state.node_work_order_count ?? workOrders.length) || workOrders.length,
+    active_node_work_order_count: Number(state.active_node_work_order_count ?? activeWorkOrders.length) || activeWorkOrders.length,
+    event_count: Number(state.event_count ?? 0) || 0,
+    node_count: Number(state.node_count ?? nodes.length ?? nodeEntries.length) || nodes.length || nodeEntries.length,
+    edge_count: Number(state.edge_count ?? edges.length) || edges.length,
   };
 }
 

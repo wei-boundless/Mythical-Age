@@ -7,6 +7,7 @@ import {
   FileCheck2,
   GitBranch,
   Network,
+  PlayCircle,
   Route,
   ShieldAlert,
 } from "lucide-react";
@@ -20,7 +21,8 @@ export type TaskGraphStudioLayerId =
   | "timeline"
   | "memory"
   | "risk"
-  | "contracts";
+  | "contracts"
+  | "publish";
 
 export type TaskGraphStudioLayer = {
   id: TaskGraphStudioLayerId;
@@ -104,6 +106,15 @@ export const TASK_GRAPH_STUDIO_LAYERS: TaskGraphStudioLayer[] = [
     metric: "质量",
     state: "draft",
     icon: FileCheck2,
+  },
+  {
+    id: "publish",
+    title: "发布运行",
+    description: "预检、发布、启动、监控",
+    category: "validation",
+    metric: "运行",
+    state: "draft",
+    icon: PlayCircle,
   },
 ];
 
