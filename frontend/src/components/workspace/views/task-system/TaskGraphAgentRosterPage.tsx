@@ -82,10 +82,9 @@ export function TaskGraphAgentRosterPage({
   const formatProfileSummary = (agentId: string) => {
     const profile = runtimeProfileForAgent(agentId);
     const profileId = String(profile.agent_profile_id ?? "").trim();
-    const lanes = Array.isArray(profile.allowed_runtime_lanes) ? profile.allowed_runtime_lanes.length : 0;
     const operations = Array.isArray(profile.allowed_operations) ? profile.allowed_operations.length : 0;
     if (!profileId) return "未绑定运行档案";
-    return `${profileId} / ${lanes} 个运行场景 / ${operations} 个操作`;
+    return `${profileId} / ${operations} 个操作`;
   };
 
   return (

@@ -1,4 +1,4 @@
-import { latestTaskGraphRunFromTrace, type HarnessTaskRunTrace, type TaskGraphRuntimeSpec } from "../../../../lib/api";
+import { latestTaskGraphRunFromTrace, type HarnessTaskRunTrace } from "../../../../lib/api";
 
 export type TaskGraphSchedulerSummary = {
   available: boolean;
@@ -59,10 +59,6 @@ function asNumberRecord(value: unknown): Record<string, number> {
       .map(([key, item]) => [key, Number(item)])
       .filter(([, item]) => Number.isFinite(item)),
   );
-}
-
-export function schedulerStateFromRuntimeSpec(runtimeSpec: TaskGraphRuntimeSpec | { diagnostics?: Record<string, unknown> } | null | undefined) {
-  return asRecord(asRecord(runtimeSpec?.diagnostics).scheduler_support);
 }
 
 export function schedulerStateFromTrace(trace: HarnessTaskRunTrace | { coordination_runs?: Array<Record<string, unknown>> } | null | undefined) {

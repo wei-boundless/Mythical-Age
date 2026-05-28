@@ -219,7 +219,6 @@ function normalizeNodeContractBindings(node: TaskGraphNodeRecord): TaskGraphNode
   });
   bindings = mergeSection(bindings, "runtime", {
     length_budget: asRecord(currentRuntime.length_budget),
-    runtime_lane: String(node.runtime_lane ?? "").trim() || undefined,
     execution_mode: String(node.execution_mode ?? "").trim() || undefined,
     wait_policy: String(node.wait_policy ?? "").trim() || undefined,
     join_policy: String(node.join_policy ?? "").trim() || undefined,

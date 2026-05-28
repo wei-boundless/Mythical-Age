@@ -31,7 +31,6 @@ class CoordinationStageContract:
     on_failure: str = "fail_closed"
     retry_policy: dict[str, Any] = field(default_factory=dict)
     agent_id: str = ""
-    runtime_lane: str = ""
     role: str = ""
     title: str = ""
     input_contract_id: str = ""
@@ -65,7 +64,6 @@ class CoordinationStageContract:
             "on_failure": self.on_failure,
             "retry_policy": dict(self.retry_policy),
             "agent_id": self.agent_id,
-            "runtime_lane": self.runtime_lane,
             "role": self.role,
             "title": self.title,
             "input_contract_id": self.input_contract_id,
@@ -168,7 +166,6 @@ def parse_stage_contracts(
                 on_failure=str(raw.get("on_failure") or "fail_closed").strip(),
                 retry_policy=dict(raw.get("retry_policy") or {}),
                 agent_id=str(raw.get("agent_id") or node.get("agent_id") or "").strip(),
-                runtime_lane=str(raw.get("runtime_lane") or node.get("runtime_lane") or node.get("lane") or "").strip(),
                 role=str(raw.get("role") or node.get("role") or "").strip(),
                 title=str(raw.get("title") or node.get("title") or stage_id).strip(),
                 input_contract_id=str(raw.get("input_contract_id") or node.get("input_contract_id") or "").strip(),
@@ -275,7 +272,6 @@ def derive_stage_contracts_from_graph(
                 on_failure=_derived_failure_policy(node),
                 retry_policy=dict(node.get("retry_policy") or dict(node.get("loop_policy") or {})),
                 agent_id=str(node.get("agent_id") or "").strip(),
-                runtime_lane=str(node.get("runtime_lane") or node.get("lane") or "").strip(),
                 role=str(node.get("role") or node.get("work_posture") or "").strip(),
                 title=str(node.get("title") or node_id).strip(),
                 input_contract_id=str(node.get("input_contract_id") or "").strip(),

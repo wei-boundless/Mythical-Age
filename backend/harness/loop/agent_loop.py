@@ -540,6 +540,94 @@ async def run_agent_invocation_stream(
             )
             continue
 
+        if action_request.action_type == "request_registered_engagement":
+            from task_system.engagement import EngagementService
+
+            engagement_payload = dict(action_request.engagement_request or {})
+            plan_id = str(engagement_payload.get("plan_id") or "").strip()
+            startup_parameters = dict(engagement_payload.get("startup_parameters") or {})
+            result = EngagementService(runtime_host.backend_dir).start(
+                runtime_host=runtime_host,
+                plan_id=plan_id,
+                session_id=request.session_id,
+                startup_parameters=startup_parameters,
+                requested_by="agent",
+                source_ref=action_request.request_id,
+                turn_id=turn_id,
+            )
+            engagement_event = runtime_host.event_log.append(
+                turn_task_run.task_run_id,
+                "registered_engagement_requested",
+                payload={"result": result, "action_request": action_request.to_dict()},
+                refs={"turn_ref": turn_id, "action_request_ref": action_request.request_id},
+            )
+            yield {"type": "registered_engagement", "event": engagement_event.to_dict()}
+            if result.get("decision") == "started":
+                task_run = dict(result.get("task_run") or {})
+                yield _record_step_summary(
+                    runtime_host,
+                    task_run_id=turn_task_run.task_run_id,
+                    turn_id=turn_id,
+                    step="registered_engagement_started",
+                    status="completed",
+                    summary="系统已按已注册任务承接计划开启正式任务生命周期。",
+                    refs={
+                        "action_request_ref": action_request.request_id,
+                        "task_run_ref": str(task_run.get("task_run_id") or ""),
+                        "engagement_run_ref": str(dict(result.get("engagement_run") or {}).get("engagement_run_id") or ""),
+                    },
+                )
+                task_run_id = str(task_run.get("task_run_id") or "")
+                if task_run_id:
+                    _schedule_task_executor(runtime_host, task_run_id)
+                content = "已按已注册任务计划启动执行，任务执行器会继续推进并记录状态。"
+                await _commit_assistant_message(
+                    request.assistant_message_committer,
+                    content=content,
+                    turn_id=turn_id,
+                    answer_source="harness.loop.single_agent.registered_engagement",
+                )
+                terminal_event = _record_turn_terminal(
+                    runtime_host,
+                    turn_task_run=turn_task_run,
+                    turn_agent_run=turn_agent_run,
+                    turn_id=turn_id,
+                    event_type="agent_turn_completed",
+                    status="task_executor_scheduled",
+                    terminal_reason="registered_engagement_started",
+                    payload={"action_request": action_request.to_dict(), "engagement": result},
+                )
+                yield {"type": "agent_turn_terminal", "event": terminal_event}
+                yield final_answer_event(
+                    content=content,
+                    answer_source="harness.loop.single_agent.registered_engagement",
+                    terminal_reason="registered_engagement_started",
+                    extra={"agent_turn": {"turn_id": turn_id, "status": "task_executor_scheduled"}},
+                )
+                return
+            observation = {
+                "observation_id": f"observation:{turn_id}:engagement:{len(observations) + 1}",
+                "observation_kind": "registered_engagement_admission",
+                "status": "failed",
+                "content": result,
+                "authority": "harness.loop.registered_engagement_observation",
+            }
+            observations.append(observation)
+            runtime_host.runtime_objects.put_object("observation", observation["observation_id"], observation)
+            compilation = compiler.compile_observation_followup_packet(
+                session_id=request.session_id,
+                turn_id=turn_id,
+                agent_invocation_id=agent_invocation_id,
+                user_message=request.user_message,
+                history=request.history,
+                observations=observations,
+                agent_profile_ref=agent_profile_ref,
+                model_selection=request.model_selection,
+                available_tools=available_tools,
+                runtime_assembly=runtime_assembly,
+            )
+            continue
+
         if action_request.action_type == "request_task_run":
             contract, contract_errors = contract_from_action_request(
                 action_request,
@@ -1343,7 +1431,7 @@ def _build_model_protocol_error_observation(
             "validation_errors": errors,
             "required_shape": {
                 "authority": "harness.loop.model_action_request",
-                "action_type": "respond|ask_user|tool_call|request_task_run|block",
+                "action_type": "respond|ask_user|tool_call|request_task_run|request_registered_engagement|block",
                 "tool_call": {"tool_name": "工具名", "args": {}},
                 "task_contract_seed": {
                     "user_visible_goal": "开启正式任务时必填",

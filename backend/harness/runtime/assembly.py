@@ -59,6 +59,9 @@ class RuntimeAssembly:
     agent_profile_ref: str = ""
     model_selection: dict[str, Any] = field(default_factory=dict)
     task_selection: dict[str, Any] = field(default_factory=dict)
+    engagement_contract: dict[str, Any] = field(default_factory=dict)
+    execution_strategy: dict[str, Any] = field(default_factory=dict)
+    engagement_run_ref: str = ""
     task_environment: dict[str, Any] = field(default_factory=dict)
     work_role_prompt: str = ""
     available_tools: tuple[dict[str, Any], ...] = ()
@@ -77,6 +80,8 @@ class RuntimeAssembly:
         payload["tool_names"] = list(self.tool_names)
         payload["filtered_tools"] = [dict(item) for item in self.filtered_tools]
         payload["operation_authorization"] = dict(self.operation_authorization)
+        payload["engagement_contract"] = dict(self.engagement_contract)
+        payload["execution_strategy"] = dict(self.execution_strategy)
         payload["rejected_capabilities"] = [dict(item) for item in self.rejected_capabilities]
         return payload
 
@@ -94,6 +99,7 @@ def assemble_runtime(
     definitions_by_name: dict[str, Any],
 ) -> RuntimeAssembly:
     selection = dict(request_task_selection or {})
+    engagement_contract = dict(selection.get("engagement_contract") or {})
     requested_mode = _requested_mode(selection)
     profile = build_runtime_assembly_profile(
         requested_mode,
@@ -144,6 +150,9 @@ def assemble_runtime(
         agent_profile_ref=str(getattr(agent_runtime_profile, "agent_profile_id", "") or "main_interactive_agent"),
         model_selection=dict(model_selection or {}),
         task_selection=selection,
+        engagement_contract=engagement_contract,
+        execution_strategy=dict(engagement_contract.get("execution_strategy") or selection.get("execution_strategy") or {}),
+        engagement_run_ref=str(selection.get("engagement_run_ref") or ""),
         task_environment=task_environment,
         work_role_prompt=_work_role_prompt(agent_runtime_profile),
         available_tools=available_tools,
@@ -163,6 +172,8 @@ def assemble_runtime(
             "resolved_mode": profile.mode,
             "agent_profile_ref": str(getattr(agent_runtime_profile, "agent_profile_id", "") or ""),
             "task_environment": environment_diagnostics,
+            "engagement_contract_ref": str(engagement_contract.get("contract_id") or selection.get("engagement_contract_ref") or ""),
+            "engagement_plan_ref": str(engagement_contract.get("plan_id") or selection.get("engagement_plan_ref") or ""),
             "operation_authorization": {
                 "allowed_operation_count": len(operation_projection.allowed_operations),
                 "denied_operation_count": len(operation_projection.denied_operations),

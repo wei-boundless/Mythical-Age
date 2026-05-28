@@ -330,7 +330,6 @@ def _runtime_node_from_task_graph_node(
         model_requirement = {}
     model_resolution = _model_resolution_for_node(
         agent_id=agent_id,
-        runtime_lane=str(raw_node.runtime_lane or "").strip(),
         model_requirement=model_requirement,
         model_resolver=model_resolver,
         runtime_registry=runtime_registry,
@@ -341,7 +340,6 @@ def _runtime_node_from_task_graph_node(
         node_type=node_type,
         role=("graph_module" if is_graph_module else str(raw_node.work_posture or node_metadata.get("role") or ("coordinator" if agent_id == coordinator_agent_id else "participant")).strip()),
         agent_id=agent_id,
-        runtime_lane="" if is_graph_module else str(raw_node.runtime_lane or "").strip(),
         task_id="" if is_graph_module else str(raw_node.task_id or "").strip(),
         executor_policy=dict(getattr(raw_node, "executor_policy", {}) or node_metadata.get("executor_policy") or {}),
         execution_mode=execution_mode,
@@ -451,7 +449,6 @@ def _graph_model_requirement(graph: TaskGraphDefinition) -> dict[str, Any]:
 def _model_resolution_for_node(
     *,
     agent_id: str,
-    runtime_lane: str,
     model_requirement: dict[str, Any],
     model_resolver: ModelProfileResolver | None,
     runtime_registry: AgentRuntimeRegistry | None,
@@ -462,7 +459,6 @@ def _model_resolution_for_node(
     resolved = model_resolver.resolve_model_spec(
         agent_runtime_profile=profile,
         model_requirement=model_requirement,
-        graph_runtime_defaults={"runtime_lane": runtime_lane} if runtime_lane else None,
     )
     return resolved.to_public_dict()
 
@@ -621,7 +617,6 @@ def _normalize_nodes(
                 node_type=str(raw.get("node_type") or ("subtask" if task_id else "agent_role")).strip(),
                 role=str(raw.get("role") or ("coordinator" if agent_id == coordination_task.coordinator_agent_id else "participant")).strip(),
                 agent_id=agent_id or coordination_task.coordinator_agent_id,
-                runtime_lane=str(raw.get("lane") or raw.get("runtime_lane") or "").strip(),
                 task_id=task_id,
                 execution_mode=str(raw.get("execution_mode") or "sync").strip() or "sync",
                 wait_policy=str(raw.get("wait_policy") or "wait_all_upstream_completed").strip() or "wait_all_upstream_completed",
@@ -642,7 +637,7 @@ def _normalize_nodes(
                     key: value
                     for key, value in raw.items()
                     if key not in {
-                        "node_id", "id", "title", "label", "node_type", "role", "agent_id", "lane", "runtime_lane",
+                        "node_id", "id", "title", "label", "node_type", "role", "agent_id",
                         "task_id", "subtask_ref",
                         "execution_mode", "wait_policy", "join_policy", "dispatch_group", "phase_id", "sequence_index",
                         "timeline_group_id", "blocks_phase_exit", "context_visibility_policy", "memory_read_policy",

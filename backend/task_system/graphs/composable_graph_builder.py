@@ -302,7 +302,6 @@ def _unit_from_node(node: TaskGraphNodeDefinition) -> ComposableUnit:
             "execution_mode": node.execution_mode,
             "wait_policy": node.wait_policy,
             "join_policy": node.join_policy,
-            "runtime_lane": node.runtime_lane,
         },
         phase_id=node.phase_id,
         sequence_index=int(node.sequence_index or 0),

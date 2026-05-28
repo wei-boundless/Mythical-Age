@@ -39,7 +39,6 @@ class WorkOrder:
     node_id: str = ""
     agent_id: str = ""
     agent_profile_id: str = ""
-    runtime_lane: str = ""
     message: str = ""
     explicit_inputs: dict[str, Any] = field(default_factory=dict)
     input_package: dict[str, Any] = field(default_factory=dict)
@@ -98,7 +97,6 @@ class WorkOrder:
             "node_id": self.node_id,
             "agent_id": self.agent_id,
             "agent_profile_id": self.agent_profile_id,
-            "runtime_lane": self.runtime_lane,
             "explicit_inputs": dict(self.explicit_inputs),
             "input_package": dict(self.input_package),
             "executor_binding": dict(self.executor_binding),
@@ -152,7 +150,6 @@ class WorkOrder:
             node_id=str(payload.get("node_id") or payload.get("stage_id") or ""),
             agent_id=str(payload.get("agent_id") or ""),
             agent_profile_id=str(payload.get("agent_profile_id") or ""),
-            runtime_lane=str(payload.get("runtime_lane") or ""),
             message=str(payload.get("message") or ""),
             explicit_inputs=_dict_payload(payload.get("explicit_inputs")),
             input_package=_dict_payload(payload.get("input_package") or payload.get("standard_input_package")),
@@ -333,7 +330,6 @@ class AgentAssemblyContract:
     node_id: str = ""
     agent_id: str = ""
     agent_profile_id: str = ""
-    runtime_lane: str = ""
     model_profile_id: str = ""
     prompt_assembly: PromptAssemblyContract | None = None
     memory_binding: MemoryAssemblyBinding = field(default_factory=MemoryAssemblyBinding)
@@ -398,7 +394,6 @@ class AgentAssemblyContract:
             "node_id": self.node_id,
             "agent_id": self.agent_id,
             "agent_profile_id": self.agent_profile_id,
-            "runtime_lane": self.runtime_lane,
             "model_profile_id": self.model_profile_id,
             "memory_binding": self.memory_binding.to_dict(),
             "capability_binding": self.capability_binding.to_dict(),
@@ -506,7 +501,6 @@ class AgentInvocation:
     executor_type: str = "agent"
     agent_id: str = ""
     agent_profile_id: str = ""
-    runtime_lane: str = ""
     work_order: dict[str, Any] = field(default_factory=dict)
     assembly_contract: dict[str, Any] = field(default_factory=dict)
     execution_permit: dict[str, Any] = field(default_factory=dict)
@@ -541,7 +535,6 @@ class AgentInvocation:
             "executor_type": self.executor_type,
             "agent_id": self.agent_id,
             "agent_profile_id": self.agent_profile_id,
-            "runtime_lane": self.runtime_lane,
         }
 
     def to_dict(self) -> dict[str, Any]:

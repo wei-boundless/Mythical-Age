@@ -9,9 +9,8 @@ from harness import AgentHarness, AgentRuntimeServices, GraphHarness
 from harness.runtime import SingleAgentRuntimeHost
 from project_layout import ProjectLayout
 from task_system import TaskFlowRegistry
-from task_system.compiler.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
 from task_system.compiler.graph_harness_config_publisher import (
-    build_graph_harness_config_from_runtime_spec,
+    build_graph_harness_config_from_graph,
     publish_graph_harness_config_for_graph,
 )
 from task_system.graphs.task_graph_models import TaskGraphDefinition, TaskGraphNodeDefinition
@@ -113,9 +112,8 @@ def _query_runtime_with_graph_executor(*, base_dir: Path):
 def test_graph_harness_config_publication_requires_explicit_graph_binding(tmp_path: Path) -> None:
     graph = _graph()
     repository = GraphHarnessConfigRepository(tmp_path)
-    config = build_graph_harness_config_from_runtime_spec(
+    config = build_graph_harness_config_from_graph(
         graph=graph,
-        runtime_spec=compile_task_graph_definition_runtime_spec(graph=graph),
         contract_manifest={"manifest_id": f"contract-manifest:{graph.graph_id}", "valid": True},
     )
 
@@ -147,9 +145,8 @@ def test_task_graph_start_api_requires_published_config_binding(tmp_path: Path) 
     )
     stored_graph = registry.get_task_graph(graph.graph_id)
     assert stored_graph is not None
-    config = build_graph_harness_config_from_runtime_spec(
+    config = build_graph_harness_config_from_graph(
         graph=stored_graph,
-        runtime_spec=compile_task_graph_definition_runtime_spec(graph=stored_graph),
         contract_manifest={"manifest_id": f"contract-manifest:{graph.graph_id}", "valid": True},
     )
     registry.upsert_graph_harness_config(config, publish=False)
@@ -424,3 +421,47 @@ def test_graph_harness_api_executes_work_order_and_accepts_result(tmp_path: Path
     assert executed["graph_result"]["status"] == "completed"
     assert "coordination_run_id" not in str(executed)
     assert "stage_execution_request" not in str(executed)
+
+
+def test_graph_run_monitor_returns_recoverable_active_work_orders(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    graph = _graph()
+    registry = TaskFlowRegistry(backend_dir)
+    registry.upsert_task_graph(
+        graph_id=graph.graph_id,
+        title=graph.title,
+        graph_kind=graph.graph_kind,
+        entry_node_id=graph.entry_node_id,
+        output_node_id=graph.output_node_id,
+        nodes=tuple(node.to_dict() for node in graph.nodes),
+        runtime_policy=graph.runtime_policy,
+        publish_state="published",
+        enabled=True,
+    )
+    graph_config = publish_graph_harness_config_for_graph(base_dir=backend_dir, graph_id=graph.graph_id)
+    runtime = _runtime_with_graph_harness(base_dir=backend_dir, runtime_root=tmp_path / "runtime_state")
+
+    original = orchestration_api.require_runtime
+    orchestration_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    try:
+        started = asyncio.run(
+            orchestration_api.start_task_graph_harness_run(
+                graph.graph_id,
+                orchestration_api.TaskGraphRunStartRequest(
+                    session_id="session-test",
+                    dispatch_ready=True,
+                ),
+            )
+        )
+        monitor = asyncio.run(
+            orchestration_api.get_graph_run_monitor(
+                str(started["graph_run_id"]),
+                graph_harness_config_id=graph_config.config_id,
+            )
+        )
+    finally:
+        orchestration_api.require_runtime = original  # type: ignore[assignment]
+
+    assert monitor["active_node_work_order_count"] == 1
+    assert monitor["active_node_work_orders"][0]["work_order_id"] == started["node_work_orders"][0]["work_order_id"]
+    assert monitor["active_node_work_orders"][0]["node_id"] == "produce"

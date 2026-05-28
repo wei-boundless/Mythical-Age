@@ -27,7 +27,6 @@ MODEL_CONTEXT_KEYS = frozenset(
         "task_id",
         "agent_id",
         "agent_profile_id",
-        "runtime_lane",
         "runtime_limits",
         "agent_group_id",
         "artifact_root",
@@ -83,7 +82,6 @@ TASK_SELECTION_KEYS = frozenset(
         "graph_id",
         "agent_id",
         "agent_profile_id",
-        "runtime_lane",
         "runtime_limits",
         "agent_group_id",
         "artifact_root",
@@ -171,13 +169,6 @@ def build_model_context_payload(
         or context.get("agent_profile_id")
         or ""
     ).strip()
-    runtime_lane = str(
-        assembly.get("runtime_lane")
-        or work_order.get("runtime_lane")
-        or request.get("runtime_lane")
-        or context.get("runtime_lane")
-        or ""
-    ).strip()
     runtime_assembly = dict(work_order.get("runtime_assembly") or request.get("runtime_assembly") or {})
     work_kind = str(work_order.get("work_kind") or request.get("work_kind") or "").strip()
     stage_id = ""
@@ -192,7 +183,6 @@ def build_model_context_payload(
         "task_id": task_ref,
         "agent_id": agent_id,
         "agent_profile_id": agent_profile_id,
-        "runtime_lane": runtime_lane,
         "coordination_run_id": str(work_order.get("coordination_run_id") or request.get("coordination_run_id") or ""),
         "continuation_stage_id": stage_id,
         "work_order_id": str(work_order.get("work_order_id") or request.get("request_id") or ""),
@@ -249,7 +239,7 @@ def build_task_selection_payload(
         selection["graph_id"] = graph_ref
         selection["task_graph_id"] = graph_ref
         selection["selected_graph_id"] = graph_ref
-    for key in ("agent_id", "agent_profile_id", "runtime_lane", "work_order_id", "assembly_id", "executor_type"):
+    for key in ("agent_id", "agent_profile_id", "work_order_id", "assembly_id", "executor_type"):
         value = str(assembly.get(key) or work_order.get(key) or request.get(key) or "").strip()
         if value:
             selection[key] = value
@@ -297,7 +287,6 @@ def runtime_control_ref_summary(runtime_control: dict[str, Any] | None) -> dict[
         "stage_id": str(work_order.get("stage_id") or request.get("stage_id") or request.get("node_id") or ""),
         "agent_id": str(assembly.get("agent_id") or work_order.get("agent_id") or request.get("agent_id") or ""),
         "agent_profile_id": str(assembly.get("agent_profile_id") or work_order.get("agent_profile_id") or request.get("agent_profile_id") or ""),
-        "runtime_lane": str(assembly.get("runtime_lane") or work_order.get("runtime_lane") or request.get("runtime_lane") or ""),
         "executor_type": str(assembly.get("executor_type") or work_order.get("executor_type") or request.get("executor_type") or ""),
         "graph_module_runtime_handle_id": str(graph_handle.get("handle_id") or ""),
     }

@@ -8,7 +8,6 @@ from task_system.registry.contract_registry import TaskContractRegistry
 from task_system.compiler.coordination_graph_models import TaskGraphRuntimeSpec
 from task_system.registry.flow_models import CoordinationTaskDefinition, SpecificTaskRecord, TaskCommunicationProtocol
 from task_system.registry.workflow_models import TaskWorkflowBinding
-from orchestration.runtime_lane_registry import DEFAULT_RUNTIME_LANE_REGISTRY
 
 DEFAULT_A2A_MESSAGE_TYPE = "message/send"
 from .compiler_models import (
@@ -31,7 +30,6 @@ def compile_workflow_contract_manifest(
     workflow: TaskWorkflowBinding,
     agent_profile: AgentRuntimeProfile | None = None,
     agent_id: str = "",
-    runtime_lane: str = "",
 ) -> ContractManifest:
     issues: list[ContractCompileIssue] = []
     global_contracts: dict[str, CompiledGlobalContract] = {}
@@ -89,7 +87,6 @@ def compile_workflow_contract_manifest(
                 node_type="workflow_step",
                 task_id=task.task_id,
                 agent_id=agent_id or str(task.metadata.get("agent_id") or ""),
-                runtime_lane=runtime_lane,
                 input_contract_id=input_contract_id if index == 1 else "",
                 output_contract_id=step_contract_id,
                 contract_refs=tuple(ref for ref in (input_contract_id if index == 1 else "", step_contract_id) if ref),
@@ -99,7 +96,6 @@ def compile_workflow_contract_manifest(
 
     runtime_contracts = _compile_runtime_contracts(
         agent_profiles=tuple(item for item in (agent_profile,) if item is not None),
-        runtime_lane=runtime_lane,
         issues=issues,
     )
 
@@ -270,7 +266,6 @@ def compile_coordination_contract_manifest(
                 node_type=node.node_type,
                 task_id=node.task_id,
                 agent_id=node.agent_id,
-                runtime_lane=node.runtime_lane,
                 input_contract_id=input_contract_id,
                 output_contract_id=output_contract_id,
                 contract_refs=tuple(ref for ref in (input_contract_id, output_contract_id, *explicit_node_contract_refs) if ref),
@@ -314,7 +309,6 @@ def compile_coordination_contract_manifest(
         elif profile is not None and task is not None:
             _validate_agent_profile(
                 profile=profile,
-                runtime_lane=node.runtime_lane,
                 issues=issues,
                 node_id=node.node_id,
             )
@@ -412,7 +406,6 @@ def compile_coordination_contract_manifest(
 
     runtime_contracts = _compile_runtime_contracts(
         agent_profiles=agent_profiles,
-        runtime_lane="",
         issues=issues,
     )
 
@@ -651,14 +644,12 @@ def _collect_contract(
 def _compile_runtime_contracts(
     *,
     agent_profiles: tuple[AgentRuntimeProfile, ...],
-    runtime_lane: str,
     issues: list[ContractCompileIssue],
 ) -> list[CompiledRuntimeContract]:
     compiled: list[CompiledRuntimeContract] = []
     for profile in agent_profiles:
         _validate_agent_profile(
             profile=profile,
-            runtime_lane=runtime_lane,
             issues=issues,
         )
         profile_issue_count = sum(1 for item in issues if item.agent_id == profile.agent_id and item.severity == "error")
@@ -666,7 +657,6 @@ def _compile_runtime_contracts(
             CompiledRuntimeContract(
                 agent_id=profile.agent_id,
                 agent_profile_id=profile.agent_profile_id,
-                allowed_runtime_lanes=_profile_allowed_runtime_lanes(profile),
                 allowed_operations=profile.allowed_operations,
                 allowed_memory_scopes=profile.allowed_memory_scopes,
                 validation_state="invalid" if profile_issue_count else "valid",
@@ -679,51 +669,17 @@ def _compile_runtime_contracts(
 def _validate_agent_profile(
     *,
     profile: AgentRuntimeProfile,
-    runtime_lane: str,
     issues: list[ContractCompileIssue],
     node_id: str = "",
 ) -> None:
-    lane_descriptor = DEFAULT_RUNTIME_LANE_REGISTRY.get(runtime_lane) if runtime_lane else None
-    if runtime_lane and lane_descriptor is None:
+    _ = node_id
+    if not profile.enabled_runtime_modes:
         issues.append(
             ContractCompileIssue(
-                code="runtime_lane_unknown",
-                message=f"运行场景权限未注册：{runtime_lane}",
-                severity="error",
+                code="runtime_modes_missing",
+                message="Agent runtime profile 缺少 enabled_runtime_modes，无法确认可装配运行模式。",
+                severity="warning",
                 agent_id=profile.agent_id,
                 node_id=node_id,
             )
         )
-    elif runtime_lane and lane_descriptor is not None and not lane_descriptor.requestable:
-        issues.append(
-            ContractCompileIssue(
-                code="runtime_lane_not_requestable",
-                message=f"运行场景权限不可由任务显式请求：{runtime_lane}",
-                severity="error",
-                agent_id=profile.agent_id,
-                node_id=node_id,
-            )
-        )
-    allowed_runtime_lanes = _profile_allowed_runtime_lanes(profile)
-    if runtime_lane and allowed_runtime_lanes and runtime_lane not in allowed_runtime_lanes:
-        issues.append(
-            ContractCompileIssue(
-                code="runtime_lane_not_allowed",
-                message=f"Agent runtime profile 不允许 runtime lane：{runtime_lane}",
-                severity="error",
-                agent_id=profile.agent_id,
-                node_id=node_id,
-            )
-        )
-
-
-def _profile_allowed_runtime_lanes(profile: AgentRuntimeProfile) -> tuple[str, ...]:
-    explicit = tuple(str(item).strip() for item in tuple(getattr(profile, "allowed_runtime_lanes", ()) or ()) if str(item).strip())
-    if explicit:
-        return explicit
-    metadata = dict(getattr(profile, "metadata", {}) or {})
-    metadata_lanes = tuple(str(item).strip() for item in list(metadata.get("allowed_runtime_lanes") or []) if str(item).strip())
-    if metadata_lanes:
-        return metadata_lanes
-    return ()
-

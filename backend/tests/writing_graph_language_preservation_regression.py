@@ -8,8 +8,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from harness.graph.scheduler_view import build_scheduler_view
-from task_system.compiler.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
-from task_system.compiler.graph_harness_config_publisher import build_graph_harness_config_from_runtime_spec
+from task_system.compiler.graph_harness_config_publisher import build_graph_harness_config_from_graph
 from task_system.graphs.task_graph_models import (
     TaskGraphDefinition,
     TaskGraphEdgeDefinition,
@@ -107,10 +106,8 @@ def _writing_like_graph() -> TaskGraphDefinition:
 
 def _graph_harness_config():
     graph = _writing_like_graph()
-    runtime_spec = compile_task_graph_definition_runtime_spec(graph=graph)
-    return build_graph_harness_config_from_runtime_spec(
+    return build_graph_harness_config_from_graph(
         graph=graph,
-        runtime_spec=runtime_spec,
         contract_manifest={"manifest_id": "contract-manifest:test", "valid": True},
     )
 

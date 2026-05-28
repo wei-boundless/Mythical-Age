@@ -82,7 +82,8 @@ class RuntimeCompiler:
             "如果可以直接回答，action_type=respond，并填写 final_answer。\n"
             "如果缺少必要信息，action_type=ask_user，并填写 user_question。\n"
             "如果只需要一次只读观察，action_type=tool_call，并填写 tool_call。tool_call 必须包含 tool_name 和 args。\n"
-            "如果必须进入正式任务生命周期，action_type=request_task_run，并严格按 schema.task_contract_seed 填写任务合同；"
+            "如果要调用系统中已注册的任务承接计划，action_type=request_registered_engagement，并填写 engagement_request.plan_id 与 startup_parameters。"
+            "如果必须进入新的正式任务生命周期，action_type=request_task_run，并严格按 schema.task_contract_seed 填写任务合同；"
             "合同必须包含 user_visible_goal、task_run_goal，并且至少包含 completion_criteria、required_artifacts、required_verifications 之一。\n"
             "如果请求越界或不能执行，action_type=block，并填写 blocking_reason。\n"
             + _mode_instruction(mode_policy)
@@ -121,7 +122,7 @@ class RuntimeCompiler:
             agent_role_prompt="你是当前 turn 的主 agent，负责决定下一步动作。",
             prompt_pack_refs=(*prompt_pack_refs, "runtime.prompt.turn_action.v1") if prompt_pack_refs else ("runtime.prompt.turn_action.v1",),
             available_tools=tool_payloads,
-            available_modes=("respond", "ask_user", "tool_call", "request_task_run", "block"),
+            available_modes=("respond", "ask_user", "tool_call", "request_task_run", "request_registered_engagement", "block"),
             output_contract={"schema": schema, "format": "json_object"},
             hidden_control_refs={"agent_invocation_id": agent_invocation_id, "runtime_assembly_id": str(assembly_payload.get("assembly_id") or "")},
         )
@@ -371,6 +372,7 @@ class RuntimeCompiler:
             "如果 observation 带有 error，必须把它当作真实失败处理：可以改用其他只读观察、请求正式任务、询问用户或阻止，不能声称该观察成功。\n"
             "如果观察足够，action_type=respond，并填写 final_answer。\n"
             "如果还需要一次只读观察，action_type=tool_call，并填写 tool_call。\n"
+            "如果发现任务应由已注册承接计划处理，action_type=request_registered_engagement，并填写 engagement_request.plan_id 与 startup_parameters。"
             "如果发现任务需要写入、命令、长期跟进或真实交付物，action_type=request_task_run，并严格按 schema.task_contract_seed 填写任务合同；"
             "合同必须包含 user_visible_goal、task_run_goal，并且至少包含 completion_criteria、required_artifacts、required_verifications 之一。\n"
             "如果观察结果指出 task_contract_invalid，你需要修正合同字段后重新提交 request_task_run，而不是直接放弃。\n"
@@ -412,7 +414,7 @@ class RuntimeCompiler:
             agent_role_prompt="你是当前 turn 的主 agent，负责基于观察继续行动。",
             prompt_pack_refs=(*prompt_pack_refs, "runtime.prompt.tool_observation_followup.v1") if prompt_pack_refs else ("runtime.prompt.tool_observation_followup.v1",),
             available_tools=tool_payloads,
-            available_modes=("respond", "ask_user", "tool_call", "request_task_run", "block"),
+            available_modes=("respond", "ask_user", "tool_call", "request_task_run", "request_registered_engagement", "block"),
             observation_refs=tuple(str(item.get("observation_id") or "") for item in observations if item.get("observation_id")),
             output_contract={"schema": schema, "format": "json_object"},
             hidden_control_refs={"agent_invocation_id": agent_invocation_id, "runtime_assembly_id": str(assembly_payload.get("assembly_id") or "")},
@@ -424,7 +426,7 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
     del turn_id
     return {
         "authority": "harness.loop.model_action_request",
-        "action_type": "respond|ask_user|tool_call|request_task_run|block",
+        "action_type": "respond|ask_user|tool_call|request_task_run|request_registered_engagement|block",
         "final_answer": "",
         "user_question": "",
         "blocking_reason": "",
@@ -459,6 +461,10 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
             "required_verifications": []
         },
         "permission_request": {},
+        "engagement_request": {
+            "plan_id": "",
+            "startup_parameters": {}
+        },
         "diagnostics": {},
     }
 

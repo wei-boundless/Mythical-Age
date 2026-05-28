@@ -2,7 +2,7 @@
 
 import { Boxes, CheckCircle2, FileWarning, GitBranch, Loader2, Network, RefreshCw } from "lucide-react";
 
-import type { TaskGraphExecutionPackage } from "@/lib/api";
+import type { TaskGraphContractPreview } from "@/lib/api";
 
 import { focusTargetLabel, type TaskGraphEditorFocus } from "./taskGraphEditorFocus";
 import type { TaskGraphStudioLayerId } from "./TaskGraphLayerNav";
@@ -27,7 +27,7 @@ function traceRuntimeLabel(item: Record<string, unknown>) {
     recordValue(runtimeRef, "node_id")
       ?? recordValue(runtimeRef, "edge_id")
       ?? recordValue(runtimeRef, "runtime_node_id")
-      ?? recordValue(runtimeRef, "runtime_spec_graph_id")
+      ?? recordValue(runtimeRef, "graph_harness_config_id")
       ?? "-",
   );
   const manifestId = String(
@@ -51,8 +51,8 @@ function targetIdsFromFocus(focus: TaskGraphEditorFocus) {
   ].map((item) => String(item ?? "").trim()).filter(Boolean);
 }
 
-function findTraceForFocus(executionPackage: TaskGraphExecutionPackage | null, focus: TaskGraphEditorFocus) {
-  const traces = executionPackage?.object_trace_index ?? [];
+function findTraceForFocus(preview: TaskGraphContractPreview | null, focus: TaskGraphEditorFocus) {
+  const traces = preview?.object_trace_index ?? [];
   const ids = targetIdsFromFocus(focus);
   if (!ids.length) {
     return traces.find((item) => traceObjectType(item) === "graph") ?? traces[0] ?? null;
@@ -65,7 +65,7 @@ export function TaskGraphExecutionDock({
   dirty,
   editorFocus,
   error,
-  executionPackage,
+  graphContract,
   graphId,
   loading,
   onCompile,
@@ -74,20 +74,21 @@ export function TaskGraphExecutionDock({
   dirty: boolean;
   editorFocus: TaskGraphEditorFocus;
   error?: string;
-  executionPackage: TaskGraphExecutionPackage | null;
+  graphContract: TaskGraphContractPreview | null;
   graphId: string;
   loading: boolean;
   onCompile: () => void;
 }) {
-  const trace = findTraceForFocus(executionPackage, editorFocus);
-  const graphModuleCount = executionPackage?.graph_modules.length ?? 0;
-  const splitPlanCount = Number(executionPackage?.summary?.split_plan_count ?? executionPackage?.split_plans?.length ?? 0);
-  const splitLifecycleCount = Number(executionPackage?.summary?.split_batch_lifecycle_plan_count ?? 0);
-  const assemblyCount = executionPackage?.node_runtime_assemblies.length ?? 0;
-  const traceCount = executionPackage?.object_trace_index?.length ?? 0;
-  const issueCount = executionPackage?.issues.length ?? 0;
-  const ready = executionPackage?.valid === true;
-  const blocked = Boolean(error || executionPackage?.valid === false);
+  const trace = findTraceForFocus(graphContract, editorFocus);
+  const scheduler = graphContract?.scheduler_view;
+  const compositionCount = Number(graphContract?.summary?.composition_source_count ?? graphContract?.composition_sources?.length ?? 0);
+  const splitPlanCount = Number(graphContract?.summary?.split_plan_count ?? graphContract?.split_plans?.length ?? 0);
+  const dependencyCount = Number(graphContract?.summary?.dependency_edge_count ?? scheduler?.dependency_edges.length ?? 0);
+  const executableCount = Number(graphContract?.summary?.executable_node_count ?? scheduler?.executable_node_ids.length ?? 0);
+  const traceCount = graphContract?.object_trace_index?.length ?? 0;
+  const issueCount = graphContract?.issues.length ?? 0;
+  const ready = graphContract?.valid === true;
+  const blocked = Boolean(error || graphContract?.valid === false);
   const statusClass = ready
     ? "task-graph-execution-dock__state task-graph-execution-dock__state--ok"
     : blocked
@@ -95,21 +96,21 @@ export function TaskGraphExecutionDock({
       : "task-graph-execution-dock__state";
 
   return (
-    <section className="task-graph-execution-dock" aria-label="执行包追踪">
+    <section className="task-graph-execution-dock" aria-label="图契约追踪">
       <div className="task-graph-execution-dock__identity">
         <GitBranch aria-hidden="true" size={15} />
         <div>
-          <span>执行包追踪</span>
-          <strong>{executionPackage?.package_id || graphId || "未选择任务图"}</strong>
-          <small>{error || (dirty ? "图已修改，请保存后重新编译执行包。" : `当前层 ${activeLayer} / ${focusTargetLabel(editorFocus)}`)}</small>
+          <span>图契约追踪</span>
+          <strong>{graphContract?.contract_id || graphId || "未选择任务图"}</strong>
+          <small>{error || (dirty ? "图已修改，请保存后重新编译图契约。" : `当前层 ${activeLayer} / ${focusTargetLabel(editorFocus)}`)}</small>
         </div>
       </div>
       <div className="task-graph-execution-dock__metrics">
-        <span className={statusClass}>{ready ? <CheckCircle2 size={14} /> : <FileWarning size={14} />}{ready ? "执行包通过" : blocked ? "执行包待修复" : "未编译"}</span>
-        <span><Boxes size={14} />Assembly {assemblyCount}</span>
-        <span><Network size={14} />图模块 {graphModuleCount}</span>
+        <span className={statusClass}>{ready ? <CheckCircle2 size={14} /> : <FileWarning size={14} />}{ready ? "契约可运行" : blocked ? "契约待修复" : "未编译"}</span>
+        <span><Boxes size={14} />Executable {executableCount}</span>
+        <span><Network size={14} />Dependency {dependencyCount}</span>
+        <span>Composition {compositionCount}</span>
         <span>Split {splitPlanCount}</span>
-        <span>Lifecycle {splitLifecycleCount}</span>
         <span>Trace {traceCount}</span>
         <span>Issues {issueCount}</span>
       </div>
@@ -124,13 +125,13 @@ export function TaskGraphExecutionDock({
           <>
             <span>object trace</span>
             <strong>尚无当前对象追溯</strong>
-            <small>编译执行包后可从图对象追到 runtime / manifest / scheduler。</small>
+            <small>编译图契约后可从图对象追到 GraphHarnessConfig / scheduler。</small>
           </>
         )}
       </div>
       <button className="task-graph-execution-dock__compile" disabled={loading || !graphId} onClick={onCompile} type="button">
         {loading ? <Loader2 aria-hidden="true" size={15} /> : <RefreshCw aria-hidden="true" size={15} />}
-        <span>{loading ? "编译中" : "编译执行包"}</span>
+        <span>{loading ? "编译中" : "编译图契约"}</span>
       </button>
     </section>
   );

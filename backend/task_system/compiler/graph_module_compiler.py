@@ -184,7 +184,6 @@ def _merge_explicit_graph_module_node(
         node_type="graph_module",
         role="graph_module",
         agent_id="",
-        runtime_lane="",
         task_id=graph_module_runtime.task_id,
         executor_policy={
             **dict(explicit.executor_policy or {}),

@@ -11,7 +11,7 @@ import { AgentRuntimePhaseMonitorPage } from "@/components/workspace/views/task-
 import { ResourceAuthorityMapPage } from "@/components/workspace/views/task-system/ResourceAuthorityMapPage";
 import { TaskSystemShell } from "@/components/workspace/views/task-system/TaskSystemShell";
 import { TaskContractLibraryPage } from "@/components/workspace/views/task-system/library/TaskContractLibraryPage";
-import { TaskDefinitionLibraryPage } from "@/components/workspace/views/task-system/library/TaskDefinitionLibraryPage";
+import { EngagementPlanLibraryPage } from "@/components/workspace/views/task-system/library/EngagementPlanLibraryPage";
 import { TaskDomainLibraryPage } from "@/components/workspace/views/task-system/library/TaskDomainLibraryPage";
 import { TaskGraphLibraryPage } from "@/components/workspace/views/task-system/library/TaskGraphLibraryPage";
 import { TaskOrchestrationResourceLibraryPage } from "@/components/workspace/views/task-system/library/TaskOrchestrationResourceLibraryPage";
@@ -50,12 +50,10 @@ import {
 import {
   TaskGraphChromeSelect,
   TaskSystemToolbarButton as ToolbarButton,
-  taskSystemDisplayLabel,
 } from "@/components/workspace/views/task-system/TaskSystemWorkbenchUi";
 import {
   deleteTaskSystemDomain,
   deleteTaskSystemEnvironment,
-  deleteTaskSystemSpecificRecord,
   getArtifactRepositoryOverview,
   getFormalMemoryOverview,
   getOrchestrationAgents,
@@ -67,17 +65,18 @@ import {
   getTaskSystemTaskGraphStandardView,
   getTaskSystemNextIds,
   getTaskSystemOverview,
+  getTaskSystemEngagementRuns,
   deleteTaskSystemContract,
   upsertTaskSystemContract,
   upsertTaskSystemDomain,
   upsertTaskSystemEnvironment,
   upsertTaskSystemEnvironmentGroup,
+  deleteTaskSystemEngagementPlan,
   upsertTaskSystemEntryPolicy,
-  upsertTaskSystemExecutionPolicy,
-  upsertTaskSystemFlowContractBinding,
-  upsertTaskSystemSpecificRecord,
+  upsertTaskSystemEngagementPlan,
+  startTaskSystemEngagementPlan,
+  syncTaskSystemEngagementRunCloseout,
   upsertTaskSystemTaskGraph,
-  upsertTaskWorkflow,
   type ConversationEntryPolicy,
   type ContractSpec,
   type ArtifactRepositoryOverview,
@@ -88,17 +87,17 @@ import {
   type HarnessTaskRunSummary,
   type SoulProjectionCard,
   type SoulProjectionCatalog,
+  type RegisteredEngagementPlan,
+  type EngagementEventRecord,
+  type EngagementRunRecord,
   type SpecificTaskRecord,
-  type TaskContractDescriptor,
   type TaskDomainRecord,
-  type TaskExecutionPolicy,
   type TaskEnvironmentGroupUpsertPayload,
   type TaskEnvironmentUpsertPayload,
-  type TaskFlowContractBinding,
   type TaskGraphEdgeRecord,
   type TaskGraphNodeRecord,
   type TaskGraphRecord,
-  type TaskGraphRuntimeSpec,
+  type TaskGraphDraftTopologySpec,
   type TaskGraphStandardView,
   type TaskSystemOverview,
   type TaskWorkflowRecord,
@@ -108,15 +107,8 @@ import { useAppStore } from "@/lib/store";
 
 type TaskLayer = "management" | "editor";
 type TaskSystemLayer = "domains" | "tasks" | "graphs" | "environments" | "contracts" | "resource-authority" | "agent-runtime-phase" | "orchestration" | "runtime";
-type TaskConfigPanel = "definition";
+type EngagementPlanPanel = "contract";
 type ContractPanel = "library" | "templates";
-
-type WorkflowDraft = TaskWorkflowRecord & {
-  visible_skill_ids_text: string;
-  steps_text: string;
-  stop_conditions_text: string;
-  required_evidence_refs_text: string;
-};
 
 type DomainRecord = {
   domain_id: string;
@@ -128,15 +120,6 @@ type DomainRecord = {
   metadata?: Record<string, unknown>;
   tasks: SpecificTaskRecord[];
   entry_policy: ConversationEntryPolicy | null;
-};
-
-type ArtifactPolicyDraft = {
-  enabled: boolean;
-  artifact_root: string;
-  subdir_template: string;
-  materializer: string;
-  required_files_text: string;
-  optional_files_text: string;
 };
 
 type EnvironmentDraft = {
@@ -218,69 +201,6 @@ function parseJsonObject(value: string, label: string) {
   return parsed as Record<string, unknown>;
 }
 
-function defaultArtifactPolicyDraft(): ArtifactPolicyDraft {
-  return {
-    enabled: false,
-    artifact_root: "",
-    subdir_template: "{task_slug}/{run_slug}",
-    materializer: "markdown_section_split",
-    required_files_text: "",
-    optional_files_text: "",
-  };
-}
-
-function artifactPolicyDraftFrom(policy: Record<string, unknown>): ArtifactPolicyDraft {
-  const artifactPolicy = dictOf(policy.artifact_policy);
-  const artifacts = Array.isArray(artifactPolicy.artifacts) ? artifactPolicy.artifacts.filter((item) => item && typeof item === "object") as Array<Record<string, unknown>> : [];
-  return {
-    enabled: artifactPolicy.enabled === true,
-    artifact_root: String(artifactPolicy.artifact_root || artifactPolicy.default_artifact_root || ""),
-    subdir_template: String(artifactPolicy.subdir_template || ""),
-    materializer: String(artifactPolicy.materializer || "markdown_section_split"),
-    required_files_text: artifacts.filter((item) => item.required !== false).map((item) => String(item.path || "")).filter(Boolean).join("\n"),
-    optional_files_text: artifacts.filter((item) => item.required === false).map((item) => String(item.path || "")).filter(Boolean).join("\n"),
-  };
-}
-
-function artifactSpecsFromDraft(draft: ArtifactPolicyDraft) {
-  const sectionHints: Record<string, string[]> = {
-    "01_project_bible.md": ["项目总纲", "Project Brief"],
-    "02_world_bible.md": ["世界规则", "World Rules"],
-    "03_character_bible.md": ["主角设定", "人物设定", "角色设定", "Protagonist"],
-    "04_volume_plan.md": ["分卷规划", "Volume Plan"],
-    "chapters/chapter_001_plan.md": ["第一章规划", "Chapter 1 Plan"],
-    "chapters/chapter_001_draft.md": ["第一章正文", "正文初稿", "Chapter 1 Draft"],
-  };
-  const required = splitList(draft.required_files_text).map((path) => ({
-    path,
-    required: true,
-    section_keys: sectionHints[path] ?? [],
-    fallback_to_full_content: path === "01_project_bible.md",
-  }));
-  const optional = splitList(draft.optional_files_text).map((path) => ({
-    path,
-    required: false,
-    section_keys: sectionHints[path] ?? [],
-  }));
-  return [...required, ...optional];
-}
-
-function mergeArtifactPolicy(taskPolicyText: string, draft: ArtifactPolicyDraft) {
-  const policy = parseJsonObject(taskPolicyText, "任务策略");
-  const artifactPolicy = {
-    ...dictOf(policy.artifact_policy),
-    enabled: draft.enabled,
-    artifact_root: draft.artifact_root.trim(),
-    subdir_template: draft.subdir_template.trim(),
-    materializer: draft.materializer.trim() || "markdown_section_split",
-    artifacts: artifactSpecsFromDraft(draft),
-  };
-  return {
-    ...policy,
-    artifact_policy: artifactPolicy,
-  };
-}
-
 function parseJsonList(value: string, label: string) {
   const parsed = JSON.parse(value || "[]");
   if (!Array.isArray(parsed)) {
@@ -296,17 +216,6 @@ function jsonError(value: string, label: string, kind: "object" | "array") {
   } catch (error) {
     return error instanceof Error ? error.message : `${label} 解析失败`;
   }
-}
-
-function stepsFromText(value: string) {
-  return splitList(value).map((line, index) => {
-    const [stepId, title] = line.split("|").map((part) => part.trim());
-    return { step_id: stepId || `step_${index + 1}`, title: title || stepId || `步骤 ${index + 1}` };
-  });
-}
-
-function stepsToText(steps: Array<Record<string, unknown>> = []) {
-  return steps.map((step) => `${text(step.step_id, "")} | ${text(step.title, "")}`).join("\n");
 }
 
 function emptyEntryPolicy(workflowId = ""): ConversationEntryPolicy {
@@ -363,68 +272,65 @@ function emptySpecificTaskRecord(workflowId = "", flowId = ""): SpecificTaskReco
   };
 }
 
-function emptyWorkflow(taskMode = "bounded_patch"): WorkflowDraft {
+function emptyEngagementPlan(environmentId = "env.general.workspace"): RegisteredEngagementPlan {
   return {
-    workflow_id: "workflow.dev.bounded_patch",
-    title: "默认执行流程",
-    task_mode: taskMode,
-    visible_skill_ids: [],
-    steps: [],
-    input_boundary: "",
-    output_boundary: "",
-    stop_conditions: [],
-    required_evidence_refs: [],
-    output_contract_id: "AssistantFinalAnswer",
-    prompt: "",
-    enabled: true,
-    metadata: { managed_by: "task_domain_console" },
-    visible_skill_ids_text: "",
-    steps_text: "",
-    stop_conditions_text: "",
-    required_evidence_refs_text: "",
+    plan_id: "engage.custom.plan",
+    title: "自定义承接计划",
+    description: "",
+    version: "1.0.0",
+    status: "draft",
+    task_environment_id: environmentId,
+    assignee: { kind: "agent", agent_id: "agent:0", participant_agent_ids: [] },
+    runtime_profile: { runtime_mode: "professional", runtime_mode_policy: {} },
+    execution_strategy: { kind: "single_agent_task_run", startup_policy: {}, lifecycle_policy: {} },
+    input_contract: {},
+    output_contract: {},
+    prompt_contract: { user_visible_goal: "" },
+    resource_requirements: {},
+    capability_requirements: {},
+    memory_requirements: {},
+    acceptance_policy: {},
+    recovery_policy: {},
+    created_at: "",
+    updated_at: "",
+    supersedes_plan_id: "",
+    metadata: {},
   };
 }
 
-function workflowDraftFrom(workflow?: TaskWorkflowRecord | null, taskMode = "bounded_patch"): WorkflowDraft {
-  const base = workflow ?? emptyWorkflow(taskMode);
+function engagementPlanJsonPayload(plan: RegisteredEngagementPlan) {
   return {
-    ...base,
-    visible_skill_ids: base.visible_skill_ids ?? [],
-    steps: base.steps ?? [],
-    stop_conditions: base.stop_conditions ?? [],
-    required_evidence_refs: base.required_evidence_refs ?? [],
-    metadata: base.metadata ?? {},
-    visible_skill_ids_text: listText(base.visible_skill_ids ?? []),
-    steps_text: stepsToText(base.steps ?? []),
-    stop_conditions_text: listText(base.stop_conditions ?? []),
-    required_evidence_refs_text: listText(base.required_evidence_refs ?? []),
+    assignee: plan.assignee ?? {},
+    input_contract: plan.input_contract ?? {},
+    output_contract: plan.output_contract ?? {},
+    prompt_contract: plan.prompt_contract ?? {},
+    resource_requirements: plan.resource_requirements ?? {},
+    capability_requirements: plan.capability_requirements ?? {},
+    memory_requirements: plan.memory_requirements ?? {},
+    acceptance_policy: plan.acceptance_policy ?? {},
+    recovery_policy: plan.recovery_policy ?? {},
+    metadata: plan.metadata ?? {},
   };
 }
 
-function emptyFlowBinding(taskId = "", flowId = ""): TaskFlowContractBinding {
-  return {
-    task_id: taskId,
-    flow_contract_id: flowId,
-    override_policy: "task_default",
-    verification_gate_profile: "",
-    fallback_policy: "fail_closed",
-    metadata: { managed_by: "task_domain_console" },
-  };
+function engagementPlanJsonText(plan: RegisteredEngagementPlan) {
+  return JSON.stringify(engagementPlanJsonPayload(plan), null, 2);
 }
 
-function emptyExecutionPolicy(taskId = ""): TaskExecutionPolicy {
+function mergeEngagementPlanJson(plan: RegisteredEngagementPlan, jsonText: string): RegisteredEngagementPlan {
+  const payload = parseJsonObject(jsonText, "承接计划契约 JSON");
   return {
-    task_id: taskId,
-    execution_chain_type: "single_agent_chain",
-    runtime_agent_selection_policy: "orchestration_default",
-    default_agent_id: "agent:0",
-    task_level: "standard",
-    task_privilege: "bounded",
-    allow_worker_agent_spawn: false,
-    worker_agent_blueprint_id: "",
-    worker_agent_naming_rule: "",
-    notes: "",
-    metadata: { managed_by: "task_domain_console" },
+    ...plan,
+    assignee: dictOf(payload.assignee) as RegisteredEngagementPlan["assignee"],
+    input_contract: dictOf(payload.input_contract),
+    output_contract: dictOf(payload.output_contract),
+    prompt_contract: dictOf(payload.prompt_contract),
+    resource_requirements: dictOf(payload.resource_requirements),
+    capability_requirements: dictOf(payload.capability_requirements),
+    memory_requirements: dictOf(payload.memory_requirements),
+    acceptance_policy: dictOf(payload.acceptance_policy),
+    recovery_policy: dictOf(payload.recovery_policy),
+    metadata: dictOf(payload.metadata),
   };
 }
 
@@ -704,86 +610,9 @@ function domainTitle(family: string) {
   return labels[family] ?? `${family || "未分类"} 任务域`;
 }
 
-function displayId(value: unknown, fallback = "未配置") {
-  const raw = String(value ?? "").trim();
-  if (!raw) return fallback;
-  const registeredLabel = taskSystemDisplayLabel(raw, fallback);
-  if (registeredLabel !== raw) return registeredLabel;
-  const labels: Record<string, string> = {
-    "single_agent_chain": "单 Agent 链",
-    "coordination_chain": "任务图协作",
-    "orchestration_default": "编排默认选择",
-    "task_default": "任务默认",
-    "workflow_compatible_or_task_default": "流程兼容优先",
-    "standard": "标准级",
-    "bounded": "受限准入",
-    "main_agent": "主 Agent",
-    "builtin_agent": "内置 Agent",
-    "custom_agent": "自定义 Agent",
-    "development": "开发任务域",
-    "writing": "写作任务域",
-    "health": "健康任务域",
-    "general": "通用入口域",
-    "capability": "能力调用域",
-    "bounded_patch": "受限补丁",
-    "light_web_game": "轻量网页小游戏",
-    "arcade_game_bundle": "复合小游戏包",
-    "AssistantFinalAnswer": "最终回答",
-    "LightWebGameResult": "网页游戏产物",
-    "UserMessage": "用户消息",
-    "WorkspaceTaskInput": "工作区任务输入",
-    "explicit_ack": "显式确认",
-    "fail_closed": "失败即关闭",
-    "raise_to_coordinator": "上报协调者",
-    "explicit_join": "显式汇合",
-    "coordinator_terminal": "协调者终止",
-    "filtered_handoff": "过滤交接",
-    "coordinator_review": "协调者审查",
-    "coordinator_final_merge": "协调者最终合并",
-    "explicit_refs_only": "仅显式引用",
-    "isolated_by_default": "默认隔离",
-    "normal": "普通优先级",
-  };
-  if (labels[raw]) return `${labels[raw]} · ${raw}`;
-  const prefixLabels: Array<[string, string]> = [
-    ["task.writing.", "写作任务"],
-    ["task.dev.", "开发任务"],
-    ["task.health.", "健康任务"],
-    ["coord.writing.", "写作任务图"],
-    ["coord.dev.", "开发任务图"],
-    ["workflow.writing.", "写作执行流程"],
-    ["workflow.dev.", "开发执行流程"],
-    ["topology.writing.", "写作拓扑"],
-    ["topology.dev.", "开发拓扑"],
-    ["protocol.writing.", "写作协议"],
-    ["protocol.dev.", "开发协议"],
-    ["flow.writing.", "写作流程契约"],
-    ["flow.dev.", "开发流程契约"],
-    ["template.writing.", "写作模板"],
-    ["domain.", "任务域"],
-    ["agent:", "Agent"],
-    ["group.", "Agent 组"],
-    ["op.", "操作准入"],
-  ];
-  const matched = prefixLabels.find(([prefix]) => raw.startsWith(prefix));
-  return matched ? `${matched[1]} · ${raw}` : raw;
-}
-
-const PROJECTION_SELECTION_MODE_CHOICES = ["task_default"];
-const FLOW_OVERRIDE_POLICY_CHOICES = ["task_default"];
-const FLOW_FALLBACK_POLICY_CHOICES = ["fail_closed"];
-const RUNTIME_SELECTION_POLICY_CHOICES = ["orchestration_default"];
-const COMMON_CONTRACT_CHOICES = ["UserMessage", "WorkspaceTaskInput", "AssistantFinalAnswer", "LightWebGameResult"];
 const COORDINATION_MODE_CHOICES = ["review_merge", "pipeline", "parallel_review"];
 const CONFLICT_POLICY_CHOICES = ["coordinator_review", "majority_vote"];
 const MERGE_POLICY_CHOICES = ["coordinator_final_merge", "ordered_append", "section_merge"];
-
-function contractLabel(value: string, specs: ContractSpec[] = [], legacyContracts: TaskContractDescriptor[] = []) {
-  const spec = specs.find((item) => item.contract_id === value);
-  if (spec) return `${contractSpecTitle(spec)} · ${value}`;
-  const contract = legacyContracts.find((item) => item.contract_id === value);
-  return contract?.title || displayId(value);
-}
 
 function contractBelongsToDomain(spec: ContractSpec, domain: DomainRecord | null) {
   if (!domain) return true;
@@ -804,7 +633,7 @@ function deriveTaskGraphSpec(
   domainId: string,
   nodes: Array<Record<string, unknown>>,
   edges: Array<Record<string, unknown>>,
-): TaskGraphRuntimeSpec {
+): TaskGraphDraftTopologySpec {
   const nodeIds = nodes
     .map((node, index) => String(node.node_id ?? node.id ?? `node_${index + 1}`).trim())
     .filter(Boolean);
@@ -979,6 +808,8 @@ export function TaskSystemView() {
     taskSystemRuntimeNavigationTarget,
   } = useAppStore();
   const [consolePayload, setConsolePayload] = useState<TaskSystemOverview | null>(null);
+  const [engagementRuns, setEngagementRuns] = useState<EngagementRunRecord[]>([]);
+  const [engagementEvents, setEngagementEvents] = useState<EngagementEventRecord[]>([]);
   const [projectionCatalog, setProjectionCatalog] = useState<SoulProjectionCatalog | null>(null);
   const [orchestrationAgentCatalog, setOrchestrationAgentCatalog] = useState<OrchestrationAgentRuntimeCatalog | null>(null);
   const [loading, setLoading] = useState(true);
@@ -998,19 +829,16 @@ export function TaskSystemView() {
   const [editingDomainName, setEditingDomainName] = useState(false);
   const [taskGraphEditorSelection, setTaskGraphEditorSelection] = useState(() => emptyTaskGraphEditorSelection());
   const [linkingFromNodeId, setLinkingFromNodeId] = useState("");
-  const [taskConfigPanel, setTaskConfigPanel] = useState<TaskConfigPanel>("definition");
+  const [engagementPlanPanel] = useState<EngagementPlanPanel>("contract");
   const [contractPanel, setContractPanel] = useState<ContractPanel>("library");
   const loadInFlightRef = useRef<Promise<void> | null>(null);
 
   const [entryDraft, setEntryDraft] = useState<ConversationEntryPolicy>(emptyEntryPolicy());
   const [domainDraft, setDomainDraft] = useState<TaskDomainRecord>(emptyTaskDomain());
-  const [taskDraft, setTaskDraft] = useState<SpecificTaskRecord>(emptySpecificTaskRecord());
-  const [workflowDraft, setWorkflowDraft] = useState<WorkflowDraft>(emptyWorkflow());
-  const [flowDraft, setFlowDraft] = useState<TaskFlowContractBinding>(emptyFlowBinding());
-  const [executionDraft, setExecutionDraft] = useState<TaskExecutionPolicy>(emptyExecutionPolicy());
+  const [selectedEngagementPlanId, setSelectedEngagementPlanId] = useState("");
+  const [engagementPlanDraft, setEngagementPlanDraft] = useState<RegisteredEngagementPlan>(() => emptyEngagementPlan());
+  const [engagementPlanJsonTextState, setEngagementPlanJsonTextState] = useState(engagementPlanJsonText(emptyEngagementPlan()));
   const [environmentDraft, setEnvironmentDraft] = useState<EnvironmentDraft>(() => defaultEnvironmentDraft());
-  const [taskPolicyText, setTaskPolicyText] = useState("{}");
-  const [artifactPolicyDraft, setArtifactPolicyDraft] = useState<ArtifactPolicyDraft>(defaultArtifactPolicyDraft());
   const [taskGraphDraftV2, setTaskGraphDraftV2] = useState<TaskGraphDraftV2>(() => emptyTaskGraphDraftV2());
   const [taskGraphStandardViewState, setTaskGraphStandardViewState] = useState(() => emptyTaskGraphStandardViewState());
   const [taskGraphStandardViewLoading, setTaskGraphStandardViewLoading] = useState(false);
@@ -1044,8 +872,12 @@ export function TaskSystemView() {
       ? preferredDomain
       : fallbackDomain;
     const taskGraphs = sortTaskGraphsForWorkbench(overview.task_graph_management?.task_graphs ?? []);
+    const engagementPlans = overview.task_management.engagement_plans ?? [];
     setSelectedDomainId(selectedDomain?.domain_id ?? "");
     setSelectedTaskId((current) => current || selectedDomain?.tasks[0]?.task_id || overview.task_management.specific_task_records[0]?.task_id || "");
+    setSelectedEngagementPlanId((current) => current && engagementPlans.some((plan) => plan.plan_id === current)
+      ? current
+      : engagementPlans[0]?.plan_id || "");
     setEditorDomainId((current) => current || selectedDomain?.domain_id || "");
     setSelectedTaskGraphId((current) => recommendedTaskGraphId(taskGraphs, current));
     setEditorTaskGraphId((current) => current && taskGraphs.some((graph) => graph.graph_id === current) ? current : "");
@@ -1091,6 +923,17 @@ export function TaskSystemView() {
     return run;
   }, []);
 
+  const loadEngagementRuns = useCallback(async () => {
+    try {
+      const payload = await getTaskSystemEngagementRuns();
+      setEngagementRuns(payload.engagement_runs ?? []);
+      setEngagementEvents(payload.engagement_events ?? []);
+    } catch {
+      setEngagementRuns((current) => current);
+      setEngagementEvents((current) => current);
+    }
+  }, []);
+
   const load = useCallback(async () => {
     if (loadInFlightRef.current) {
       return loadInFlightRef.current;
@@ -1101,6 +944,7 @@ export function TaskSystemView() {
       try {
         const overview = await getTaskSystemOverview();
         applyOverview(overview);
+        void loadEngagementRuns();
         void loadProjectionCatalog();
         void loadOrchestrationAgentCatalog();
       } catch (exc) {
@@ -1112,7 +956,7 @@ export function TaskSystemView() {
     })();
     loadInFlightRef.current = run;
     return run;
-  }, [applyOverview, loadOrchestrationAgentCatalog, loadProjectionCatalog]);
+  }, [applyOverview, loadEngagementRuns, loadOrchestrationAgentCatalog, loadProjectionCatalog]);
 
   useEffect(() => {
     if (activeWorkspaceView !== "task-system") return;
@@ -1121,16 +965,7 @@ export function TaskSystemView() {
 
   const domains = useMemo(() => buildDomains(consolePayload), [consolePayload]);
   const visibleDomains = useMemo(() => {
-    const draftTaskMissing = taskDraft.task_id
-      && taskDomainId(taskDraft)
-      && !domains.some((domain) => domain.tasks.some((task) => task.task_id === taskDraft.task_id));
-    const nextDomains = domains.map((domain) => {
-      if (!draftTaskMissing || domain.domain_id !== taskDomainId(taskDraft)) return domain;
-      return {
-        ...domain,
-        tasks: [...domain.tasks, taskDraft],
-      };
-    });
+    const nextDomains = domains;
     const hasSelectedDomain = nextDomains.some((item) => item.domain_id === selectedDomainId);
     if (!selectedDomainId || hasSelectedDomain || !domainDraft.domain_id) {
       return nextDomains;
@@ -1139,31 +974,32 @@ export function TaskSystemView() {
       ...nextDomains,
       {
         domain_id: domainDraft.domain_id,
-        task_modes: draftTaskMissing && taskDomainId(taskDraft) === domainDraft.domain_id ? uniqueStrings([taskDraft.task_mode]) : [],
+        task_modes: [],
         title: domainDraft.title,
         description: domainDraft.description,
         enabled: domainDraft.enabled,
         sort_order: domainDraft.sort_order,
         metadata: domainDraft.metadata ?? {},
-        tasks: draftTaskMissing && taskDomainId(taskDraft) === domainDraft.domain_id ? [taskDraft] : [],
+        tasks: [],
         entry_policy: null,
       },
     ].sort((a, b) => a.sort_order - b.sort_order || a.title.localeCompare(b.title));
-  }, [domainDraft, domains, selectedDomainId, taskDraft]);
+  }, [domainDraft, domains, selectedDomainId]);
   const selectedDomain = visibleDomains.find((item) => item.domain_id === selectedDomainId) ?? visibleDomains[0] ?? null;
   const tasks = useMemo(() => consolePayload?.task_management.specific_task_records ?? [], [consolePayload]);
+  const engagementPlans = useMemo(() => consolePayload?.task_management.engagement_plans ?? [], [consolePayload]);
+  const selectedEngagementPlan = engagementPlans.find((item) => item.plan_id === selectedEngagementPlanId) ?? engagementPlans[0] ?? null;
+  const selectedEngagementPlanRuns = useMemo(
+    () => engagementRuns.filter((run) => run.plan_id === selectedEngagementPlan?.plan_id),
+    [engagementRuns, selectedEngagementPlan?.plan_id],
+  );
   const workflows = useMemo(() => consolePayload?.task_management.workflow_resources ?? [], [consolePayload]);
-  const taskFlowDefinitions = useMemo(() => consolePayload?.task_management.task_flow_definitions ?? [], [consolePayload]);
   const contractCatalog = useMemo(() => consolePayload?.task_management.contract_catalog ?? [], [consolePayload]);
   const contractManagement = useMemo(() => consolePayload?.contract_management ?? null, [consolePayload]);
   const contractSpecs = useMemo(() => contractManagement?.contract_specs ?? [], [contractManagement]);
   const selectedDomainTasks = useMemo(() => selectedDomain?.tasks ?? [], [selectedDomain]);
   const selectedTask = selectedDomainTasks.find((item) => item.task_id === selectedTaskId) ?? selectedDomainTasks[0] ?? null;
-  const selectedTaskDomain = selectedDomain;
   const domainContractSpecs = useMemo(() => scopedContractSpecs(contractSpecs, selectedDomain), [contractSpecs, selectedDomain]);
-  const flowBinding = (consolePayload?.task_management.flow_contract_bindings ?? []).find((item) => item.task_id === selectedTask?.task_id);
-  const executionPolicy = (consolePayload?.task_management.execution_policies ?? []).find((item) => item.task_id === selectedTask?.task_id);
-  const selectedWorkflow = workflows.find((item) => item.workflow_id === selectedTask?.default_workflow_id);
   const allTaskGraphs = useMemo(
     () => sortTaskGraphsForWorkbench(consolePayload?.task_graph_management?.task_graphs ?? []),
     [consolePayload],
@@ -1200,6 +1036,12 @@ export function TaskSystemView() {
       };
     });
   }, [consolePayload, tasks]);
+  const engagementEnvironmentOptions = useMemo(() => (
+    (consolePayload?.task_environment_management?.records ?? []).map((item) => ({
+      value: item.environment_id,
+      label: item.title ? `${item.title} · ${item.environment_id}` : item.environment_id,
+    }))
+  ), [consolePayload]);
   const environmentItems = useMemo(
     () => consolePayload?.task_environment_management?.environments ?? [],
     [consolePayload],
@@ -1254,10 +1096,6 @@ export function TaskSystemView() {
     : activeTaskGraphSummary;
   const activeTaskGraphHasFullTopology = Boolean((activeTaskGraphDetail?.nodes?.length || activeTaskGraphDetail?.edges?.length) && activeTaskGraphDetail.graph_id === activeTaskGraphSummary?.graph_id);
   const workflowOptions = useMemo(() => uniqueStrings(workflows.map((item) => item.workflow_id)), [workflows]);
-  const commonContractOptions = useMemo(
-    () => uniqueStrings([...COMMON_CONTRACT_CHOICES, ...contractCatalog.map((item) => item.contract_id), ...domainContractSpecs.map((item) => item.contract_id)]),
-    [contractCatalog, domainContractSpecs],
-  );
   const editorAgentGroupOptions = useMemo(
     () => uniqueStrings(editorTaskGraphs.map((item) => String(item.runtime_policy?.agent_group_id ?? item.metadata?.agent_group_id ?? ""))),
     [editorTaskGraphs],
@@ -1336,20 +1174,6 @@ export function TaskSystemView() {
     }
     void refreshTaskGraphStandardView();
   }, [activeTaskGraphId, activeWorkspaceView, refreshTaskGraphStandardView]);
-  const sendTaskToChat = useCallback(async (task: SpecificTaskRecord | null, domain: DomainRecord | null) => {
-    if (!task) return;
-    if (!currentSessionId) {
-      setError("当前没有可绑定的主会话，无法发送任务选择。");
-      return;
-    }
-    setSaving("task-selection-send");
-    setError("");
-    setTaskSelection(null);
-    setWorkspaceView("chat");
-    setNotice(`已返回主会话。任务“${task.task_title}”不会作为隐式上下文注入普通聊天。`);
-    setSaving("");
-  }, [currentSessionId, setTaskSelection, setWorkspaceView]);
-
   const openOrchestrationControl = useCallback((focus?: {
     agentId?: string;
     agentProfileId?: string;
@@ -1436,14 +1260,24 @@ export function TaskSystemView() {
   }, [editorTaskGraphId, editorTaskGraphs, taskGraphDraftV2.graph_id]);
 
   useEffect(() => {
-    if (!selectedTask) return;
-    setTaskDraft({ ...selectedTask, metadata: selectedTask.metadata ?? {}, task_policy: selectedTask.task_policy ?? {} });
-    setTaskPolicyText(JSON.stringify(selectedTask.task_policy ?? {}, null, 2));
-    setArtifactPolicyDraft(artifactPolicyDraftFrom(selectedTask.task_policy ?? {}));
-    setWorkflowDraft(workflowDraftFrom(selectedWorkflow, selectedTask.task_mode));
-    setFlowDraft(flowBinding ?? emptyFlowBinding(selectedTask.task_id, selectedTask.default_flow_contract_id));
-    setExecutionDraft(executionPolicy ?? emptyExecutionPolicy(selectedTask.task_id));
-  }, [selectedTask, selectedWorkflow, flowBinding, executionPolicy]);
+    if (!selectedEngagementPlan) return;
+    setEngagementPlanDraft({
+      ...selectedEngagementPlan,
+      assignee: selectedEngagementPlan.assignee ?? { kind: "agent", agent_id: "agent:0", participant_agent_ids: [] },
+      runtime_profile: selectedEngagementPlan.runtime_profile ?? { runtime_mode: "professional", runtime_mode_policy: {} },
+      execution_strategy: selectedEngagementPlan.execution_strategy ?? { kind: "single_agent_task_run", startup_policy: {}, lifecycle_policy: {} },
+      input_contract: selectedEngagementPlan.input_contract ?? {},
+      output_contract: selectedEngagementPlan.output_contract ?? {},
+      prompt_contract: selectedEngagementPlan.prompt_contract ?? {},
+      resource_requirements: selectedEngagementPlan.resource_requirements ?? {},
+      capability_requirements: selectedEngagementPlan.capability_requirements ?? {},
+      memory_requirements: selectedEngagementPlan.memory_requirements ?? {},
+      acceptance_policy: selectedEngagementPlan.acceptance_policy ?? {},
+      recovery_policy: selectedEngagementPlan.recovery_policy ?? {},
+      metadata: selectedEngagementPlan.metadata ?? {},
+    });
+    setEngagementPlanJsonTextState(engagementPlanJsonText(selectedEngagementPlan));
+  }, [selectedEngagementPlan]);
 
   useEffect(() => {
     if (!activeTaskGraph) {
@@ -1468,41 +1302,6 @@ export function TaskSystemView() {
     setSelectedGraphEdgeId("");
     setLinkingFromNodeId("");
   }, [activeTaskGraph, activeTaskGraphHasFullTopology, editorTaskGraphId, taskGraphDraftV2.graph_id, taskLayer]);
-
-  async function createTaskDraft() {
-    setSaving("task-create");
-    setError("");
-    setNotice("");
-    try {
-      const ids = await getTaskSystemNextIds();
-      const nextTask = emptySpecificTaskRecord(ids.workflow_id, ids.flow_id);
-      const selectedDomainId = selectedDomain?.domain_id || "domain.general";
-      nextTask.task_id = ids.task_id;
-      nextTask.domain_id = selectedDomainId;
-      nextTask.task_mode = nextTask.task_mode || "specific_task";
-      nextTask.task_title = `${ids.display_numbers.task} 特定任务`;
-      nextTask.default_flow_contract_id = ids.flow_id;
-      nextTask.default_workflow_id = ids.workflow_id;
-      nextTask.metadata = {
-        ...(nextTask.metadata ?? {}),
-        domain_id: selectedDomainId,
-      };
-      setSelectedTaskId(nextTask.task_id);
-      setTaskLayer("management");
-      setTaskConfigPanel("definition");
-      setTaskDraft(nextTask);
-      setTaskPolicyText(JSON.stringify(nextTask.task_policy, null, 2));
-      setArtifactPolicyDraft(artifactPolicyDraftFrom(nextTask.task_policy));
-      setWorkflowDraft({ ...emptyWorkflow(nextTask.task_mode), workflow_id: ids.workflow_id, title: `${ids.display_numbers.workflow} Workflow` });
-      setFlowDraft(emptyFlowBinding(nextTask.task_id, ids.flow_id));
-      setExecutionDraft(emptyExecutionPolicy(nextTask.task_id));
-      setNotice("已生成任务草稿，请补充任务名称与装配配置后保存。");
-    } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "生成任务草稿失败");
-    } finally {
-      setSaving("");
-    }
-  }
 
   function createDomainDraft() {
     const index = visibleDomains.length + 1;
@@ -2033,59 +1832,104 @@ export function TaskSystemView() {
     }
   }
 
-  async function deleteTaskRecord(task: SpecificTaskRecord) {
-    const confirmed = await confirm({
-      title: `删除特定任务「${task.task_title}」`,
-      body: "这会同时删除该任务的单任务装配配置。",
-      confirmLabel: "删除任务",
-    });
-    if (!confirmed) return;
-    setSaving("task-delete");
+  function createEngagementPlanDraft() {
+    const index = engagementPlans.length + 1;
+    const environmentId = selectedEnvironmentItem?.record.environment_id || engagementEnvironmentOptions[0]?.value || "env.general.workspace";
+    const plan = {
+      ...emptyEngagementPlan(environmentId),
+      plan_id: `engage.custom.plan_${String(index).padStart(2, "0")}`,
+      title: `承接计划 ${String(index).padStart(2, "0")}`,
+    };
+    setSelectedEngagementPlanId(plan.plan_id);
+    setEngagementPlanDraft(plan);
+    setEngagementPlanJsonTextState(engagementPlanJsonText(plan));
+    setTaskSystemLayer("tasks");
+    setNotice("已创建承接计划草稿。");
+  }
+
+  async function saveEngagementPlanDraft() {
+    const planId = engagementPlanDraft.plan_id.trim();
+    if (!planId.startsWith("engage.")) {
+      setError("承接计划 ID 必须以 engage. 开头。");
+      return;
+    }
+    const jsonErrorMessage = jsonError(engagementPlanJsonTextState, "承接计划契约 JSON", "object");
+    if (jsonErrorMessage) {
+      setError(jsonErrorMessage);
+      return;
+    }
+    setSaving("engagement-plan-save");
     setError("");
     setNotice("");
     try {
-      const payload = await deleteTaskSystemSpecificRecord(task.task_id);
-      const nextDomains = buildDomains(payload);
-      const nextDomain = nextDomains.find((item) => item.domain_id === selectedDomainId) ?? nextDomains[0];
+      const payload = await upsertTaskSystemEngagementPlan(planId, mergeEngagementPlanJson(engagementPlanDraft, engagementPlanJsonTextState));
       setConsolePayload(payload);
-      setSelectedDomainId(nextDomain?.domain_id || "");
-      setSelectedTaskId(nextDomain?.tasks[0]?.task_id || "");
-      setNotice("特定任务及其装配配置已删除。");
+      setSelectedEngagementPlanId(planId);
+      setNotice("承接计划已保存。");
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "删除特定任务失败");
+      setError(exc instanceof Error ? exc.message : "保存承接计划失败");
     } finally {
       setSaving("");
     }
   }
 
-  async function saveTaskStack() {
-    const policyError = jsonError(taskPolicyText, "任务策略", "object");
-    if (policyError) {
-      setError(policyError);
-      return;
-    }
-    setSaving("task-stack");
+  async function deleteEngagementPlanDraft() {
+    if (!selectedEngagementPlan) return;
+    const confirmed = await confirm({
+      title: `删除承接计划「${selectedEngagementPlan.title}」`,
+      body: "这会删除该计划的启动契约，不会删除已经产生的运行记录。",
+      confirmLabel: "删除计划",
+    });
+    if (!confirmed) return;
+    setSaving("engagement-plan-delete");
     setError("");
     setNotice("");
     try {
-      const taskPayload = { ...taskDraft, task_policy: mergeArtifactPolicy(taskPolicyText, artifactPolicyDraft) };
-      await upsertTaskWorkflow(workflowDraft.workflow_id, {
-        ...workflowDraft,
-        visible_skill_ids: splitList(workflowDraft.visible_skill_ids_text),
-        steps: stepsFromText(workflowDraft.steps_text),
-        stop_conditions: splitList(workflowDraft.stop_conditions_text),
-        required_evidence_refs: splitList(workflowDraft.required_evidence_refs_text),
-      });
-      await upsertTaskSystemSpecificRecord(taskPayload.task_id, taskPayload);
-      await upsertTaskSystemFlowContractBinding(taskPayload.task_id, flowDraft);
-      const payload = await upsertTaskSystemExecutionPolicy(taskPayload.task_id, {
-        ...executionDraft,
-      });
+      const payload = await deleteTaskSystemEngagementPlan(selectedEngagementPlan.plan_id);
+      const nextPlans = payload.task_management.engagement_plans ?? [];
       setConsolePayload(payload);
-      setSelectedTaskId(taskPayload.task_id);
-      setNotice("任务定义与单任务装配已保存。");
+      setSelectedEngagementPlanId(nextPlans[0]?.plan_id || "");
+      setNotice("承接计划已删除。");
     } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "保存任务装配失败");
+      setError(exc instanceof Error ? exc.message : "删除承接计划失败");
+    } finally {
+      setSaving("");
+    }
+  }
+
+  async function startEngagementPlanDraft() {
+    if (!selectedEngagementPlan) return;
+    setSaving("engagement-plan-start");
+    setError("");
+    setNotice("");
+    try {
+      const result = await startTaskSystemEngagementPlan(selectedEngagementPlan.plan_id, {
+        session_id: currentSessionId || "session:engagement",
+        startup_parameters: {},
+      });
+      const taskRun = result.task_run as { task_run_id?: string } | undefined;
+      if (taskRun?.task_run_id) {
+        setRuntimeTaskRunId(taskRun.task_run_id);
+      }
+      await loadEngagementRuns();
+      setNotice(result.decision === "started" ? "承接计划已启动。" : `承接计划返回：${result.decision}`);
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "启动承接计划失败");
+    } finally {
+      setSaving("");
+    }
+  }
+
+  async function syncEngagementRunCloseout(engagementRunId: string) {
+    setSaving(`engagement-run-sync:${engagementRunId}`);
+    setError("");
+    setNotice("");
+    try {
+      const result = await syncTaskSystemEngagementRunCloseout(engagementRunId);
+      await loadEngagementRuns();
+      setNotice(result.changed ? "承接运行已同步验收结果。" : `承接运行无需同步：${result.reason || "未变化"}`);
+    } catch (exc) {
+      setError(exc instanceof Error ? exc.message : "同步承接运行失败");
     } finally {
       setSaving("");
     }
@@ -2298,7 +2142,6 @@ export function TaskSystemView() {
     }
   }
 
-  const taskPolicyError = jsonError(taskPolicyText, "任务策略", "object");
   const activeGraphNodes = taskGraphDraftV2.nodes ?? [];
   const activeGraphEdges = taskGraphDraftV2.edges ?? [];
   const taskGraphDraftRevision = taskGraphDraftRevisionKey({
@@ -2430,7 +2273,7 @@ export function TaskSystemView() {
     activeGraphNodes,
     activeGraphEdges,
   );
-  const editorGraphSpec: TaskGraphRuntimeSpec = {
+  const editorGraphSpec: TaskGraphDraftTopologySpec = {
     ...draftGraphSpec,
   };
   editorGraphSpec.valid = editorGraphSpec.issues.length === 0 && draftGraphSpec.valid;
@@ -2449,30 +2292,6 @@ export function TaskSystemView() {
   const editorValid = editorGraphSpec.valid;
   const editorPublished = taskGraphDraftV2.publish_state === "published" || taskGraphDraftV2.publish_state === "run_bound";
   const topologyDirty = false;
-  const eligibilityRows = [
-    { label: "任务范围", value: selectedTaskDomain?.title || domainTitle(taskDomainId(taskDraft).replace(/^domain\./, "")) },
-    { label: "运行准入", value: `${displayId(executionDraft.task_level)} / ${displayId(executionDraft.task_privilege)}` },
-    { label: "输出契约", value: contractLabel(taskDraft.output_contract_id || workflowDraft.output_contract_id || "", domainContractSpecs, contractCatalog) },
-  ];
-  const selectedTaskGraphReferences = useMemo(() => {
-    const taskId = String(selectedTask?.task_id ?? "").trim();
-    if (!taskId) return [];
-    return allTaskGraphs
-      .map((graph) => {
-        const nodeRefs = (graph.nodes ?? [])
-          .map((node, index) => {
-            const nodeRecord = asRecord(node);
-            return {
-              nodeId: String(node.node_id ?? nodeRecord.id ?? `node_${index + 1}`),
-              title: String(nodeRecord.title ?? nodeRecord.label ?? node.node_id ?? `节点 ${index + 1}`),
-              taskId: graphNodeTaskId(node),
-            };
-          })
-          .filter((item) => item.taskId === taskId);
-        return { graph, nodeRefs };
-      })
-      .filter((item) => item.nodeRefs.length > 0);
-  }, [allTaskGraphs, selectedTask?.task_id]);
   const runtimeBoundTaskRunId = String(taskGraphMonitorBinding?.task_run_id ?? "").trim();
   const runtimeRunsForSelectedGraph = useMemo(() => {
     const graphId = String(selectedTaskGraph?.graph_id ?? "").trim();
@@ -2592,9 +2411,9 @@ export function TaskSystemView() {
     },
     {
       value: "tasks",
-      label: "任务定义",
-      meta: selectedTask?.task_title || `${selectedDomainTasks.length} 个任务`,
-      detail: "可执行任务",
+      label: "承接计划",
+      meta: selectedEngagementPlan?.title || `${engagementPlans.length} 个计划`,
+      detail: "启动契约",
     },
     {
       value: "graphs",
@@ -2641,15 +2460,14 @@ export function TaskSystemView() {
   ];
   const primaryTaskSystemLayerItems = taskSystemLayerItems.filter((item) => ["domains", "tasks", "graphs", "environments"].includes(item.value));
   const supportingTaskSystemLayerItems = taskSystemLayerItems.filter((item) => ["contracts", "resource-authority", "agent-runtime-phase", "orchestration", "runtime"].includes(item.value));
-  const taskConfigPanelItems: Array<LayerNavItem<TaskConfigPanel>> = [
+  const engagementPlanPanelItems: Array<LayerNavItem<EngagementPlanPanel>> = [
     {
-      value: "definition",
-      label: "基础定义",
-      meta: selectedTask ? (taskDraft.task_title || selectedTask.task_title) : "未选择任务",
-      detail: "任务身份、输入输出、Workflow、投影与执行策略",
+      value: engagementPlanPanel,
+      label: "契约配置",
+      meta: selectedEngagementPlan ? engagementPlanDraft.plan_id : "未选择计划",
+      detail: "环境、模式、策略与输入输出契约",
     },
   ];
-  const taskDetailPanelItems = taskConfigPanelItems;
   const contractPanelItems: Array<LayerNavItem<ContractPanel>> = [
     {
       value: "library",
@@ -2747,9 +2565,6 @@ export function TaskSystemView() {
   function selectTaskSystemLayer(layer: TaskSystemLayer) {
     setTaskSystemLayer(layer);
     setTaskLayer("management");
-    if (layer === "tasks") {
-      setTaskConfigPanel("definition");
-    }
   }
 
   const editorWorkspaceSlot = (
@@ -2905,35 +2720,26 @@ export function TaskSystemView() {
           ) : null}
 
           {taskSystemLayer === "tasks" ? (
-            <TaskDefinitionLibraryPage
-              artifactPolicyDraft={artifactPolicyDraft}
-              commonContractOptions={commonContractOptions}
-              contractCatalog={contractCatalog}
-              domainContractSpecs={domainContractSpecs}
-              eligibilityRows={eligibilityRows}
-              onCreateTask={() => void createTaskDraft()}
-              onDeleteTask={() => selectedTask ? void deleteTaskRecord(selectedTask) : undefined}
-              onOpenTaskGraph={openTaskGraphEditor}
-              onSaveTask={() => void saveTaskStack()}
-              onSelectTask={setSelectedTaskId}
-              onSendTaskToChat={() => selectedTask ? void sendTaskToChat(selectedTask, selectedTaskDomain) : undefined}
-              onSetArtifactPolicyDraft={setArtifactPolicyDraft}
-              onSetTaskConfigPanel={setTaskConfigPanel}
-              onSetTaskDraft={setTaskDraft}
-              onSetTaskPolicyText={setTaskPolicyText}
+            <EngagementPlanLibraryPage
+              engagementPlanDraft={engagementPlanDraft}
+              engagementPlanJsonError={jsonError(engagementPlanJsonTextState, "承接计划契约 JSON", "object")}
+              engagementPlanJsonText={engagementPlanJsonTextState}
+              engagementPlans={engagementPlans}
+              environmentOptions={engagementEnvironmentOptions}
+              onCreatePlan={createEngagementPlanDraft}
+              onDeletePlan={() => void deleteEngagementPlanDraft()}
+              onSavePlan={() => void saveEngagementPlanDraft()}
+              onSelectPlan={setSelectedEngagementPlanId}
+              onSetEngagementPlanDraft={setEngagementPlanDraft}
+              onSetEngagementPlanJsonText={setEngagementPlanJsonTextState}
+              onStartPlan={() => void startEngagementPlanDraft()}
+              onSyncRunCloseout={(engagementRunId) => void syncEngagementRunCloseout(engagementRunId)}
+              planRuns={selectedEngagementPlanRuns}
+              runEvents={engagementEvents}
               saving={saving}
-              selectedDomain={selectedDomain}
-              selectedTask={selectedTask}
-              selectedTaskGraphReferences={selectedTaskGraphReferences}
-              selectedTaskId={selectedTaskId}
-              taskConfigPanel={taskConfigPanel}
-              taskDetailPanelItems={taskDetailPanelItems}
-              taskDraft={taskDraft}
-              taskFlowDefinitions={taskFlowDefinitions}
-              taskPolicyError={taskPolicyError}
-              taskPolicyText={taskPolicyText}
-              tasks={selectedDomainTasks}
-              workflowOptions={workflowOptions}
+              selectedEngagementPlan={selectedEngagementPlan}
+              selectedEngagementPlanId={selectedEngagementPlanId}
+              taskDetailPanelItems={engagementPlanPanelItems}
             />
           ) : null}
 

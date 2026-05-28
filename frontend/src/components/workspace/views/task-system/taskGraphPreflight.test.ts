@@ -36,14 +36,14 @@ describe("TaskGraph preflight", () => {
     expect(report.issues.map((issue) => issue.title)).toContain("交接边未绑定载荷契约");
   });
 
-  it("merges backend runtime spec issues into the same report", () => {
+  it("merges backend graph contract issues into the same report", () => {
     const report = buildTaskGraphPreflightReport({
       dirty: false,
       editorIssueCount: 0,
       editorValid: true,
       nodes: [{ node_id: "draft", agent_id: "agent:writer" }],
       edges: [],
-      runtimeSpec: {
+      graphContract: {
         valid: false,
         issues: [
           {
@@ -57,7 +57,7 @@ describe("TaskGraph preflight", () => {
     });
 
     expect(report.valid).toBe(false);
-    expect(report.issues.some((issue) => issue.source === "backend.runtime_spec")).toBe(true);
+    expect(report.issues.some((issue) => issue.source === "backend.graph_contract")).toBe(true);
   });
 
   it("merges backend composable graph issues into the publish preflight report", () => {
@@ -156,7 +156,7 @@ describe("TaskGraph preflight", () => {
       editorValid: true,
       nodes: [{ node_id: "review", agent_id: "agent:reviewer" }],
       edges: [],
-      runtimeSpec: {
+      graphContract: {
         valid: true,
         issues: [
           {

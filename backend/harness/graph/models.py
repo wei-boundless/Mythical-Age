@@ -165,7 +165,9 @@ class GraphLoopState:
     completed_node_ids: tuple[str, ...] = ()
     failed_node_ids: tuple[str, ...] = ()
     blocked_node_ids: tuple[str, ...] = ()
+    initial_inputs: dict[str, Any] = field(default_factory=dict)
     active_work_orders: dict[str, str] = field(default_factory=dict)
+    work_order_index: dict[str, dict[str, Any]] = field(default_factory=dict)
     result_index: dict[str, dict[str, Any]] = field(default_factory=dict)
     event_cursor: int = -1
     terminal_reason: str = ""
@@ -199,7 +201,9 @@ class GraphLoopState:
             completed_node_ids=tuple(str(item) for item in list(payload.get("completed_node_ids") or []) if str(item)),
             failed_node_ids=tuple(str(item) for item in list(payload.get("failed_node_ids") or []) if str(item)),
             blocked_node_ids=tuple(str(item) for item in list(payload.get("blocked_node_ids") or []) if str(item)),
+            initial_inputs=dict(payload.get("initial_inputs") or {}),
             active_work_orders={str(key): str(value) for key, value in dict(payload.get("active_work_orders") or {}).items()},
+            work_order_index={str(key): dict(value) for key, value in dict(payload.get("work_order_index") or {}).items()},
             result_index={str(key): dict(value) for key, value in dict(payload.get("result_index") or {}).items()},
             event_cursor=int(payload.get("event_cursor") or -1),
             terminal_reason=str(payload.get("terminal_reason") or ""),

@@ -224,6 +224,78 @@ export type SpecificTaskRecord = {
   metadata?: Record<string, unknown>;
 };
 
+export type EngagementAssignee = {
+  kind: "agent" | "workflow" | "human" | "system" | string;
+  agent_id?: string;
+  agent_profile_id?: string;
+  workflow_id?: string;
+  participant_agent_ids?: string[];
+};
+
+export type EngagementRuntimeProfile = {
+  runtime_mode: "role" | "standard" | "professional" | "custom" | string;
+  runtime_mode_policy?: Record<string, unknown>;
+};
+
+export type EngagementExecutionStrategy = {
+  kind: "turn_contract" | "turn_execution" | "single_agent_task_run" | "workflow_run" | "human_gate" | string;
+  startup_policy?: Record<string, unknown>;
+  lifecycle_policy?: Record<string, unknown>;
+};
+
+export type RegisteredEngagementPlan = {
+  plan_id: string;
+  title: string;
+  description: string;
+  version: string;
+  status: "draft" | "active" | "deprecated" | "disabled" | "archived" | string;
+  task_environment_id: string;
+  assignee: EngagementAssignee;
+  runtime_profile: EngagementRuntimeProfile;
+  execution_strategy: EngagementExecutionStrategy;
+  input_contract: Record<string, unknown>;
+  output_contract: Record<string, unknown>;
+  prompt_contract: Record<string, unknown>;
+  resource_requirements: Record<string, unknown>;
+  capability_requirements: Record<string, unknown>;
+  memory_requirements: Record<string, unknown>;
+  acceptance_policy: Record<string, unknown>;
+  recovery_policy: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  supersedes_plan_id: string;
+  metadata?: Record<string, unknown>;
+  authority?: string;
+};
+
+export type EngagementRunRecord = {
+  engagement_run_id: string;
+  request_id: string;
+  contract_id: string;
+  plan_id: string;
+  plan_version: string;
+  strategy_kind: string;
+  status: string;
+  task_run_id: string;
+  turn_result_ref: string;
+  workflow_run_id: string;
+  human_gate_id: string;
+  artifact_refs: Array<Record<string, unknown>>;
+  verification_refs: Array<Record<string, unknown>>;
+  closeout: Record<string, unknown>;
+  authority?: string;
+};
+
+export type EngagementEventRecord = {
+  engagement_run_id: string;
+  event_type: string;
+  summary: string;
+  payload_ref?: string;
+  user_visible?: boolean;
+  created_at?: string;
+  authority?: string;
+};
+
 export type TaskDomainRecord = {
   domain_id: string;
   title: string;
@@ -368,7 +440,6 @@ export type ContractSpec = {
   failure_policy: FailurePolicy;
   human_gate_policy: HumanGatePolicy;
   allowed_agent_kinds: string[];
-  allowed_runtime_lanes: string[];
   version: string;
   enabled: boolean;
   metadata?: Record<string, unknown>;
@@ -448,9 +519,8 @@ export type RuntimeAssembly = {
   diagnostics: Record<string, unknown>;
 };
 
-export type TaskGraphRuntimeSpec = {
+export type TaskGraphDraftTopologySpec = {
   graph_id: string;
-  coordination_task_id?: string;
   domain_id: string;
   coordinator_agent_id: string;
   agent_group_id?: string;
@@ -473,21 +543,54 @@ export type TaskGraphRuntimeSpec = {
   diagnostics?: Record<string, unknown>;
 };
 
-export type TaskGraphExecutionPackage = {
+export type GraphHarnessConfigPayload = {
   authority: string;
-  package_id: string;
+  config_id: string;
+  graph_id: string;
+  graph_title: string;
+  publish_version: string;
+  status: string;
+  content_hash: string;
+  task_environment_id?: string;
+  root_task_ref?: string;
+  control: Record<string, unknown>;
+  nodes: Array<Record<string, unknown>>;
+  edges: Array<Record<string, unknown>>;
+  loop_frames?: Array<Record<string, unknown>>;
+  resources?: Record<string, unknown>;
+  memory?: Record<string, unknown>;
+  artifacts?: Record<string, unknown>;
+  permissions?: Record<string, unknown>;
+  tools?: Record<string, unknown>;
+  agents?: Record<string, unknown>;
+  contracts?: Record<string, unknown>;
+  composition_sources?: Array<Record<string, unknown>>;
+  diagnostics?: Record<string, unknown>;
+  authority_map?: Record<string, unknown>;
+  source_refs?: Record<string, unknown>;
+};
+
+export type GraphSchedulerViewPayload = {
+  authority: string;
+  config_id: string;
+  config_hash: string;
+  dependency_edges: Array<Record<string, unknown>>;
+  executable_node_ids: string[];
+  start_node_ids: string[];
+  terminal_node_ids: string[];
+  diagnostics: Record<string, unknown>;
+};
+
+export type TaskGraphContractPreview = {
+  authority: string;
+  contract_id: string;
   graph_id: string;
   title: string;
   valid: boolean;
-  standard_view: TaskGraphStandardView;
-  contract_manifest: ContractManifest;
-  runtime_spec: TaskGraphRuntimeSpec;
-  node_runtime_assemblies: RuntimeAssembly[];
-  scheduler_state: Record<string, unknown>;
-  graph_modules: Array<Record<string, unknown>>;
-  graph_module_execution_plans?: Array<Record<string, unknown>>;
+  graph_harness_config: GraphHarnessConfigPayload;
+  scheduler_view: GraphSchedulerViewPayload;
+  composition_sources?: Array<Record<string, unknown>>;
   split_plans?: Array<Record<string, unknown>>;
-  split_merge_issues?: Array<Record<string, unknown>>;
   object_trace_index?: Array<Record<string, unknown>>;
   issues: Array<Record<string, unknown>>;
   summary: Record<string, number | string | boolean>;
@@ -881,7 +984,48 @@ export type TaskConnectionDiagnosticIssue = {
 
 export type ConversationEntryPolicyUpsertPayload = ConversationEntryPolicy;
 export type TaskDomainUpsertPayload = TaskDomainRecord;
-export type SpecificTaskRecordUpsertPayload = SpecificTaskRecord;
+export type EngagementPlanUpsertPayload = RegisteredEngagementPlan;
+export type EngagementPlanListResponse = {
+  authority: string;
+  engagement_plans: RegisteredEngagementPlan[];
+  summary: Record<string, number>;
+};
+export type EngagementPlanDetailResponse = {
+  authority: string;
+  engagement_plan: RegisteredEngagementPlan;
+};
+export type EngagementStartPayload = {
+  session_id?: string;
+  startup_parameters?: Record<string, unknown>;
+};
+export type EngagementStartResult = {
+  authority: string;
+  decision: string;
+  engagement_contract_ref?: string;
+  engagement_contract?: Record<string, unknown>;
+  admission?: Record<string, unknown>;
+  task_run?: Record<string, unknown>;
+  errors?: string[];
+};
+export type EngagementRunListResponse = {
+  authority: string;
+  engagement_runs: EngagementRunRecord[];
+  engagement_events: EngagementEventRecord[];
+  summary: Record<string, number>;
+};
+export type EngagementRunDetailResponse = {
+  authority: string;
+  engagement_run: EngagementRunRecord;
+  engagement_events: EngagementEventRecord[];
+};
+export type EngagementRunCloseoutSyncResult = {
+  authority?: string;
+  changed: boolean;
+  reason?: string;
+  task_run_status?: string;
+  engagement_run: EngagementRunRecord;
+  closeout?: Record<string, unknown>;
+};
 export type TaskFlowContractBindingUpsertPayload = TaskFlowContractBinding;
 export type TaskExecutionPolicyUpsertPayload = TaskExecutionPolicy;
 export type ContractSpecUpsertPayload = ContractSpec;
@@ -976,6 +1120,7 @@ export type TaskSystemOverview = {
       lifecycle_policy?: Record<string, unknown>;
       task_library?: {
         environment_id: string;
+        engagement_plan_ids?: string[];
         task_ids: string[];
         task_count: number;
         task_library_root?: string;
@@ -996,6 +1141,7 @@ export type TaskSystemOverview = {
   task_management: {
     entry_policies: ConversationEntryPolicy[];
     task_domains: TaskDomainRecord[];
+    engagement_plans: RegisteredEngagementPlan[];
     specific_task_records: SpecificTaskRecord[];
     task_flow_definitions: TaskSystemFlowUpsertPayload[];
     workflow_resources: TaskWorkflowRecord[];
@@ -1017,7 +1163,7 @@ export type TaskSystemOverview = {
   };
   task_graph_management?: {
     task_graphs: TaskGraphRecord[];
-    task_graph_specs?: TaskGraphRuntimeSpec[];
+    task_graph_specs?: TaskGraphDraftTopologySpec[];
     topology_templates?: TopologyTemplate[];
     communication_protocols?: TaskCommunicationProtocol[];
     a2a?: {
@@ -4037,21 +4183,9 @@ export async function compileTaskSystemWorkflowContractManifest(workflowId: stri
   );
 }
 
-export async function compileTaskSystemTaskGraphContractManifest(graphId: string) {
-  return request<ContractManifest>(
-    `/tasks/contract-manifests/task-graphs/${encodeURIComponent(graphId)}`
-  );
-}
-
-export async function compileTaskSystemTaskGraphRuntimeSpec(graphId: string) {
-  return request<TaskGraphRuntimeSpec>(
-    `/tasks/runtime-specs/task-graphs/${encodeURIComponent(graphId)}`
-  );
-}
-
-export async function buildTaskSystemTaskGraphExecutionPackage(graphId: string) {
-  return request<TaskGraphExecutionPackage>(
-    `/tasks/execution-packages/task-graphs/${encodeURIComponent(graphId)}`
+export async function compileTaskSystemTaskGraphContract(graphId: string) {
+  return request<TaskGraphContractPreview>(
+    `/tasks/task-graph-contracts/task-graphs/${encodeURIComponent(graphId)}/compile`
   );
 }
 
@@ -4079,12 +4213,6 @@ export async function buildTaskSystemWorkflowRuntimeAssembly(workflowId: string,
   );
 }
 
-export async function buildTaskSystemTaskGraphNodeRuntimeAssembly(graphId: string, nodeId: string) {
-  return request<RuntimeAssembly>(
-    `/tasks/runtime-assemblies/task-graphs/${encodeURIComponent(graphId)}/nodes/${encodeURIComponent(nodeId)}`
-  );
-}
-
 export async function getTaskSystemNextIds() {
   return request<TaskSystemNextIds>("/tasks/next-ids");
 }
@@ -4109,16 +4237,45 @@ export async function deleteTaskSystemDomain(domainId: string) {
   });
 }
 
-export async function upsertTaskSystemSpecificRecord(taskId: string, payload: SpecificTaskRecordUpsertPayload) {
-  return request<TaskSystemOverview>(`/tasks/specific-records/${encodeURIComponent(taskId)}`, {
+export async function getTaskSystemEngagementPlans() {
+  return request<EngagementPlanListResponse>("/tasks/engagement-plans");
+}
+
+export async function getTaskSystemEngagementPlan(planId: string) {
+  return request<EngagementPlanDetailResponse>(`/tasks/engagement-plans/${encodeURIComponent(planId)}`);
+}
+
+export async function upsertTaskSystemEngagementPlan(planId: string, payload: EngagementPlanUpsertPayload) {
+  return request<TaskSystemOverview>(`/tasks/engagement-plans/${encodeURIComponent(planId)}`, {
     method: "PUT",
     body: JSON.stringify(payload)
   });
 }
 
-export async function deleteTaskSystemSpecificRecord(taskId: string) {
-  return request<TaskSystemOverview>(`/tasks/specific-records/${encodeURIComponent(taskId)}`, {
+export async function deleteTaskSystemEngagementPlan(planId: string) {
+  return request<TaskSystemOverview>(`/tasks/engagement-plans/${encodeURIComponent(planId)}`, {
     method: "DELETE"
+  });
+}
+
+export async function startTaskSystemEngagementPlan(planId: string, payload: EngagementStartPayload = {}) {
+  return request<EngagementStartResult>(`/tasks/engagement-plans/${encodeURIComponent(planId)}/start`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function getTaskSystemEngagementRuns() {
+  return request<EngagementRunListResponse>("/tasks/engagement-runs");
+}
+
+export async function getTaskSystemEngagementRun(engagementRunId: string) {
+  return request<EngagementRunDetailResponse>(`/tasks/engagement-runs/${encodeURIComponent(engagementRunId)}`);
+}
+
+export async function syncTaskSystemEngagementRunCloseout(engagementRunId: string) {
+  return request<EngagementRunCloseoutSyncResult>(`/tasks/engagement-runs/${encodeURIComponent(engagementRunId)}/sync-closeout`, {
+    method: "POST"
   });
 }
 

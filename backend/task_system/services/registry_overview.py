@@ -28,7 +28,6 @@ class TaskRegistryOverviewBuilder:
         if profile is None:
             failures.append("runtime_profile_missing")
         else:
-            _validate_contains(failures, diagnostics, "runtime_lane", flow.default_runtime_lane, profile.allowed_runtime_lanes)
             _validate_contains(failures, diagnostics, "memory_scope", flow.default_memory_scope, profile.allowed_memory_scopes)
         self._validate_workflow_ref(failures, diagnostics, flow.default_workflow_id)
         return TaskAgentBinding(
@@ -37,7 +36,6 @@ class TaskRegistryOverviewBuilder:
             flow_id=flow.flow_id,
             agent_id=flow.default_agent_id,
             agent_profile_id=profile.agent_profile_id if profile is not None else "",
-            runtime_lane=flow.default_runtime_lane,
             workflow_id=flow.default_workflow_id,
             memory_scope=flow.default_memory_scope,
             output_contract_id=flow.output_contract_id,
@@ -55,7 +53,6 @@ class TaskRegistryOverviewBuilder:
                     "agent_id": item.agent_id,
                     "agent_profile_id": item.agent_profile_id,
                     "task_ref": item.task_id,
-                    "runtime_lane": item.runtime_lane,
                     "workflow": item.workflow_id,
                     "memory_scope": item.memory_scope,
                     "output_contract": item.output_contract_id,
@@ -113,7 +110,6 @@ class TaskRegistryOverviewBuilder:
                     topology_refs=topology_refs,
                     default_flow_ref=default_flow.flow_id if default_flow is not None else "",
                     default_workflow_ref=default_binding.workflow_id if default_binding is not None else "",
-                    default_runtime_lane_hint=default_binding.runtime_lane if default_binding is not None else "",
                     validation_state=validation_state,
                     blocked_reasons=blocked_reasons,
                     diagnostics={

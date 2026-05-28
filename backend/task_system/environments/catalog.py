@@ -87,19 +87,19 @@ class TaskEnvironmentCatalog:
 def build_task_environment_catalog(
     *,
     registry: TaskEnvironmentRegistry | None = None,
-    specific_task_records: list[dict[str, object]] | tuple[dict[str, object], ...] = (),
+    engagement_plans: list[dict[str, object]] | tuple[dict[str, object], ...] = (),
 ) -> TaskEnvironmentCatalog:
     active_registry = registry or default_task_environment_registry()
-    records = [dict(item) for item in list(specific_task_records or [])]
+    plans = [dict(item) for item in list(engagement_plans or [])]
     items: list[TaskEnvironmentCatalogItem] = []
     for definition in active_registry.list():
         environment_id = str(definition.record.environment_id or "")
         resolved = resolve_task_environment(environment_id, registry=active_registry)
         storage_space = dict(resolved.to_dict().get("storage_space") or {})
-        task_ids = [
-            str(item.get("task_id") or "")
-            for item in records
-            if _specific_task_environment_id(item, registry=active_registry) == environment_id
+        plan_ids = [
+            str(item.get("plan_id") or "")
+            for item in plans
+            if _engagement_plan_environment_id(item, registry=active_registry) == environment_id
         ]
         items.append(
             TaskEnvironmentCatalogItem(
@@ -107,8 +107,9 @@ def build_task_environment_catalog(
                 resolved=resolved,
                 task_library={
                     "environment_id": environment_id,
-                    "task_ids": task_ids,
-                    "task_count": len(task_ids),
+                    "engagement_plan_ids": plan_ids,
+                    "task_ids": plan_ids,
+                    "task_count": len(plan_ids),
                     "task_library_root": str(storage_space.get("task_library_root") or ""),
                     "authority": "task_system.environment_task_library",
                 },
@@ -127,16 +128,8 @@ def build_task_environment_catalog(
     )
 
 
-def _specific_task_environment_id(task: dict[str, object], *, registry: TaskEnvironmentRegistry) -> str:
-    metadata = task.get("metadata") if isinstance(task.get("metadata"), dict) else {}
-    task_policy = task.get("task_policy") if isinstance(task.get("task_policy"), dict) else {}
-    raw = str(
-        metadata.get("task_environment_id")
-        or metadata.get("environment_id")
-        or task_policy.get("task_environment_id")
-        or task_policy.get("environment_id")
-        or ""
-    ).strip()
+def _engagement_plan_environment_id(plan: dict[str, object], *, registry: TaskEnvironmentRegistry) -> str:
+    raw = str(plan.get("task_environment_id") or "").strip()
     if not raw:
         return ""
     registry.require(raw)

@@ -4,11 +4,9 @@ import type { LucideIcon } from "lucide-react";
 import {
   Boxes,
   BrainCircuit,
-  CheckCircle2,
   FileCheck2,
   GitBranch,
   Network,
-  PlayCircle,
   Route,
   ShieldAlert,
 } from "lucide-react";
@@ -22,8 +20,7 @@ export type TaskGraphStudioLayerId =
   | "timeline"
   | "memory"
   | "risk"
-  | "contracts"
-  | "publish";
+  | "contracts";
 
 export type TaskGraphStudioLayer = {
   id: TaskGraphStudioLayerId;
@@ -82,15 +79,6 @@ export const TASK_GRAPH_STUDIO_LAYERS: TaskGraphStudioLayer[] = [
     icon: Route,
   },
   {
-    id: "timeline",
-    title: "生命周期诊断",
-    description: "阶段、循环、坐标，只作观察与迁移",
-    category: "validation",
-    metric: "诊断",
-    state: "draft",
-    icon: PlayCircle,
-  },
-  {
     id: "memory",
     title: "资源流",
     description: "仓库、读写边、Snapshot",
@@ -116,15 +104,6 @@ export const TASK_GRAPH_STUDIO_LAYERS: TaskGraphStudioLayer[] = [
     metric: "质量",
     state: "draft",
     icon: FileCheck2,
-  },
-  {
-    id: "publish",
-    title: "预检与运行",
-    description: "保存、预检、发布、监控",
-    category: "validation",
-    metric: "闭环",
-    state: "draft",
-    icon: CheckCircle2,
   },
 ];
 

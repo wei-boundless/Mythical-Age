@@ -300,7 +300,6 @@ class ContractSpec:
     failure_policy: FailurePolicy = field(default_factory=FailurePolicy)
     human_gate_policy: HumanGatePolicy = field(default_factory=HumanGatePolicy)
     allowed_agent_kinds: tuple[str, ...] = ()
-    allowed_runtime_lanes: tuple[str, ...] = ()
     version: str = "1.0.0"
     enabled: bool = True
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -329,7 +328,6 @@ class ContractSpec:
             failure_policy=FailurePolicy.from_dict(payload.get("failure_policy")),
             human_gate_policy=HumanGatePolicy.from_dict(payload.get("human_gate_policy")),
             allowed_agent_kinds=_tuple_of_strings(payload.get("allowed_agent_kinds")),
-            allowed_runtime_lanes=_tuple_of_strings(payload.get("allowed_runtime_lanes")),
             version=str(payload.get("version") or "1.0.0").strip() or "1.0.0",
             enabled=bool(payload.get("enabled", True)),
             metadata=dict(payload.get("metadata") or {}),
@@ -352,7 +350,6 @@ class ContractSpec:
             "failure_policy": self.failure_policy.to_dict(),
             "human_gate_policy": self.human_gate_policy.to_dict(),
             "allowed_agent_kinds": list(self.allowed_agent_kinds),
-            "allowed_runtime_lanes": list(self.allowed_runtime_lanes),
             "version": self.version,
             "enabled": self.enabled,
             "metadata": dict(self.metadata),

@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
 
-ModelActionType = Literal["respond", "ask_user", "tool_call", "request_task_run", "block"]
+ModelActionType = Literal["respond", "ask_user", "tool_call", "request_task_run", "request_registered_engagement", "block"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -19,6 +19,7 @@ class ModelActionRequest:
     task_contract_seed: dict[str, Any] = field(default_factory=dict)
     completion_contract: dict[str, Any] = field(default_factory=dict)
     permission_request: dict[str, Any] = field(default_factory=dict)
+    engagement_request: dict[str, Any] = field(default_factory=dict)
     diagnostics: dict[str, Any] = field(default_factory=dict)
     authority: str = "harness.loop.model_action_request"
 
@@ -32,6 +33,7 @@ class ModelActionRequest:
         payload["tool_call"] = dict(self.tool_call or {})
         payload["completion_contract"] = dict(self.completion_contract or {})
         payload["permission_request"] = dict(self.permission_request or {})
+        payload["engagement_request"] = dict(self.engagement_request or {})
         payload["diagnostics"] = dict(self.diagnostics or {})
         return payload
 
@@ -47,7 +49,7 @@ def model_action_request_from_payload(
     if authority != "harness.loop.model_action_request":
         errors.append("invalid_authority")
     action_type = str(raw.get("action_type") or "").strip()
-    if action_type not in {"respond", "ask_user", "tool_call", "request_task_run", "block"}:
+    if action_type not in {"respond", "ask_user", "tool_call", "request_task_run", "request_registered_engagement", "block"}:
         errors.append(f"action_type_unsupported:{action_type}")
     raw_turn_id = str(raw.get("turn_id") or turn_id).strip()
     if raw_turn_id != str(turn_id or "").strip():
@@ -56,6 +58,7 @@ def model_action_request_from_payload(
     task_contract_seed = raw.get("task_contract_seed") or {}
     completion_contract = raw.get("completion_contract") or {}
     permission_request = raw.get("permission_request") or {}
+    engagement_request = raw.get("engagement_request") or {}
     if not isinstance(tool_call, dict):
         errors.append("tool_call_must_be_object")
         tool_call = {}
@@ -68,6 +71,9 @@ def model_action_request_from_payload(
     if not isinstance(permission_request, dict):
         errors.append("permission_request_must_be_object")
         permission_request = {}
+    if not isinstance(engagement_request, dict):
+        errors.append("engagement_request_must_be_object")
+        engagement_request = {}
     final_answer = str(raw.get("final_answer") or "").strip()
     user_question = str(raw.get("user_question") or "").strip()
     blocking_reason = str(raw.get("blocking_reason") or "").strip()
@@ -86,6 +92,10 @@ def model_action_request_from_payload(
             errors.append("tool_args_must_be_object")
     if action_type == "request_task_run" and not task_contract_seed:
         errors.append("task_contract_seed_required_for_request_task_run")
+    if action_type == "request_registered_engagement":
+        plan_id = str(engagement_request.get("plan_id") or raw.get("plan_id") or "").strip()
+        if not plan_id:
+            errors.append("plan_id_required_for_request_registered_engagement")
     if errors:
         return None, {
             "status": "invalid",
@@ -103,6 +113,7 @@ def model_action_request_from_payload(
         task_contract_seed=dict(task_contract_seed),
         completion_contract=dict(completion_contract),
         permission_request=dict(permission_request),
+        engagement_request=dict(engagement_request),
         diagnostics=dict(raw.get("diagnostics") or {}),
     ), {
         "status": "accepted",

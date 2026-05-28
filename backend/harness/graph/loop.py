@@ -68,6 +68,7 @@ class GraphLoop:
             node_states=node_states,
             edge_states=edge_states,
             ready_node_ids=tuple(ready_node_ids),
+            initial_inputs=dict(envelope.initial_inputs or {}),
             diagnostics={
                 "graph_harness_config_id": graph_config.config_id,
                 "graph_harness_config_hash": graph_config.content_hash,
@@ -185,6 +186,7 @@ class GraphLoop:
         current_node["result_ref"] = envelope.result_id
         current_node["updated_at"] = envelope.created_at or time.time()
         node_states[envelope.node_id] = current_node
+        edge_states = _edge_states_after_node_result(graph_config=graph_config, state=state, result=envelope)
         result_index = {key: dict(value) for key, value in state.result_index.items()}
         result_index[envelope.node_id] = envelope.to_dict()
         active_work_orders = dict(state.active_work_orders)
@@ -192,6 +194,7 @@ class GraphLoop:
         next_state = _replace_state(
             state,
             node_states=node_states,
+            edge_states=edge_states,
             result_index=result_index,
             active_work_orders=active_work_orders,
         )
@@ -404,6 +407,7 @@ def _blocked_nodes(*, graph_config: GraphHarnessConfig, node_states: dict[str, d
 def _state_with_work_orders(state: GraphLoopState, work_orders: tuple[GraphNodeWorkOrder, ...]) -> GraphLoopState:
     node_states = {key: dict(value) for key, value in state.node_states.items()}
     active = dict(state.active_work_orders)
+    work_order_index = {key: dict(value) for key, value in state.work_order_index.items()}
     for order in work_orders:
         node_id = order.node_id
         payload = dict(node_states.get(node_id) or {})
@@ -412,10 +416,12 @@ def _state_with_work_orders(state: GraphLoopState, work_orders: tuple[GraphNodeW
         payload["updated_at"] = time.time()
         node_states[node_id] = payload
         active[node_id] = order.work_order_id
+        work_order_index[order.work_order_id] = order.to_dict()
     return _replace_state(
         state,
         node_states=node_states,
         active_work_orders=active,
+        work_order_index=work_order_index,
         ready_node_ids=tuple(item for item in state.ready_node_ids if item not in active),
         running_node_ids=tuple(dict.fromkeys([*state.running_node_ids, *(item.node_id for item in work_orders)])),
     )
@@ -435,6 +441,8 @@ def _work_order_for_node(*, graph_config: GraphHarnessConfig, state: GraphLoopSt
     message = "\n".join(item for item in prompt_parts if item).strip()
     if not message:
         message = f"请根据你的角色职责完成当前节点任务：{str(node.get('title') or node_id)}。"
+    upstream_packets = _handoff_packets_for_node(graph_config=graph_config, state=state, node_id=node_id)
+    upstream_results = _upstream_results_for_node(graph_config=graph_config, state=state, node_id=node_id)
     return GraphNodeWorkOrder(
         work_order_id=f"gwork:{safe_id(state.graph_run_id)}:{safe_id(node_id)}:{int(time.time() * 1000)}",
         work_kind=work_kind,
@@ -448,12 +456,17 @@ def _work_order_for_node(*, graph_config: GraphHarnessConfig, state: GraphLoopSt
         agent_id=str(node.get("agent_id") or ""),
         agent_profile_id=str(node.get("agent_profile_id") or ""),
         message=message,
-        explicit_inputs={},
+        explicit_inputs=dict(state.initial_inputs or {}) if node_id in _start_node_ids(graph_config) else {},
         input_package={
+            "package_id": f"gin:{safe_id(state.graph_run_id)}:{safe_id(node_id)}:{safe_id(stable_packet_key(upstream_packets, upstream_results))}",
+            "authority": "harness.graph_node_input_package",
             "node_id": node_id,
             "title": str(node.get("title") or node_id),
             "prompt": prompt,
             "contracts": dict(node.get("contracts") or {}),
+            "initial_inputs": dict(state.initial_inputs or {}) if node_id in _start_node_ids(graph_config) else {},
+            "upstream_results": upstream_results,
+            "handoff_packets": upstream_packets,
         },
         graph_state={
             "graph_run_id": state.graph_run_id,
@@ -461,6 +474,8 @@ def _work_order_for_node(*, graph_config: GraphHarnessConfig, state: GraphLoopSt
             "config_id": graph_config.config_id,
             "completed_node_ids": list(state.completed_node_ids),
             "failed_node_ids": list(state.failed_node_ids),
+            "upstream_node_ids": list(_upstream_node_ids(graph_config, node_id)),
+            "available_result_node_ids": sorted(state.result_index.keys()),
             "authority": "harness.graph_loop.node_work_order_graph_state",
         },
         context_refs=dict(node.get("context") or {}),
@@ -478,6 +493,8 @@ def _work_order_for_node(*, graph_config: GraphHarnessConfig, state: GraphLoopSt
             "config_id": graph_config.config_id,
             "dispatch_event_id": f"dispatch:{state.graph_run_id}:{node_id}:{int(time.time() * 1000)}",
             "executor": executor,
+            "handoff_packet_count": len(upstream_packets),
+            "upstream_result_count": len(upstream_results),
         },
     )
 
@@ -523,6 +540,112 @@ def _upstream_node_ids(graph_config: GraphHarnessConfig, node_id: str) -> tuple[
         for edge in build_scheduler_view(graph_config).dependency_edges
         if str(edge.get("target_node_id") or "") == node_id and str(edge.get("source_node_id") or "")
     )
+
+
+def _incoming_dependency_edges(graph_config: GraphHarnessConfig, node_id: str) -> tuple[dict[str, Any], ...]:
+    target = str(node_id or "")
+    return tuple(
+        dict(edge)
+        for edge in build_scheduler_view(graph_config).dependency_edges
+        if str(edge.get("target_node_id") or "") == target
+    )
+
+
+def _outgoing_dependency_edges(graph_config: GraphHarnessConfig, node_id: str) -> tuple[dict[str, Any], ...]:
+    source = str(node_id or "")
+    return tuple(
+        dict(edge)
+        for edge in build_scheduler_view(graph_config).dependency_edges
+        if str(edge.get("source_node_id") or "") == source
+    )
+
+
+def _upstream_results_for_node(*, graph_config: GraphHarnessConfig, state: GraphLoopState, node_id: str) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    for upstream_id in _upstream_node_ids(graph_config, node_id):
+        result = dict(state.result_index.get(upstream_id) or {})
+        if result:
+            results.append(
+                {
+                    "source_node_id": upstream_id,
+                    "result_id": str(result.get("result_id") or ""),
+                    "status": str(result.get("status") or ""),
+                    "outputs": dict(result.get("outputs") or {}),
+                    "decisions": dict(result.get("decisions") or {}),
+                    "artifact_refs": list(result.get("artifact_refs") or []),
+                    "handoff_summary": str(result.get("handoff_summary") or ""),
+                }
+            )
+    return results
+
+
+def _handoff_packets_for_node(*, graph_config: GraphHarnessConfig, state: GraphLoopState, node_id: str) -> list[dict[str, Any]]:
+    packets: list[dict[str, Any]] = []
+    for edge in _incoming_dependency_edges(graph_config, node_id):
+        source_node_id = str(edge.get("source_node_id") or "")
+        result = dict(state.result_index.get(source_node_id) or {})
+        if not result:
+            continue
+        packets.append(
+            {
+                "packet_id": f"ghandoff:{safe_id(state.graph_run_id)}:{safe_id(str(edge.get('edge_id') or source_node_id + '.' + node_id))}",
+                "authority": "harness.graph_edge_handoff_packet",
+                "graph_run_id": state.graph_run_id,
+                "config_id": state.config_id,
+                "edge_id": str(edge.get("edge_id") or ""),
+                "edge_type": str(edge.get("edge_type") or ""),
+                "semantic_role": str(edge.get("semantic_role") or ""),
+                "source_node_id": source_node_id,
+                "target_node_id": node_id,
+                "source_result_id": str(result.get("result_id") or ""),
+                "source_status": str(result.get("status") or ""),
+                "payload_contract_id": str(edge.get("payload_contract_id") or ""),
+                "payload": {
+                    "outputs": dict(result.get("outputs") or {}),
+                    "decisions": dict(result.get("decisions") or {}),
+                    "artifact_refs": list(result.get("artifact_refs") or []),
+                    "memory_candidates": list(result.get("memory_candidates") or []),
+                    "handoff_summary": str(result.get("handoff_summary") or ""),
+                },
+                "delivery_policy": str(edge.get("result_delivery_policy") or "contract_payload_and_refs"),
+                "ack_required": bool(edge.get("ack_required", True)),
+            }
+        )
+    return packets
+
+
+def _edge_states_after_node_result(
+    *,
+    graph_config: GraphHarnessConfig,
+    state: GraphLoopState,
+    result: NodeResultEnvelope,
+) -> dict[str, dict[str, Any]]:
+    edge_states = {key: dict(value) for key, value in state.edge_states.items()}
+    now = time.time()
+    for edge in _outgoing_dependency_edges(graph_config, result.node_id):
+        edge_id = str(edge.get("edge_id") or "")
+        if not edge_id:
+            continue
+        edge_state = dict(edge_states.get(edge_id) or {})
+        edge_state.update(
+            {
+                "edge_id": edge_id,
+                "source_node_id": result.node_id,
+                "target_node_id": str(edge.get("target_node_id") or ""),
+                "status": "ready" if result.status == "completed" else "source_failed",
+                "source_result_ref": result.result_id,
+                "handoff_packet_id": f"ghandoff:{safe_id(state.graph_run_id)}:{safe_id(edge_id)}",
+                "updated_at": now,
+            }
+        )
+        edge_states[edge_id] = edge_state
+    return edge_states
+
+
+def stable_packet_key(*values: Any) -> str:
+    from .models import stable_hash
+
+    return stable_hash(values)[:12]
 
 
 def _graph_result(

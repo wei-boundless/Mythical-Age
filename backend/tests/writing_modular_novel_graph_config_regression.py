@@ -289,6 +289,30 @@ def test_modular_writing_graph_config_compiles_graph_modules_and_chapter_batches
         for item in workflows.values()
     )
 
+    flow_by_id = {item.flow_id: item for item in registry.list_flows()}
+    assignment_by_id = {item.task_id: item for item in registry.list_task_assignments()}
+    record_by_id = {item.task_id: item for item in registry.list_specific_task_records()}
+    for graph in (design_graph, chapter_graph, graphs["graph.writing.modular_novel.finalize"]):
+        for node in graph.nodes:
+            if not str(node.task_id or "").startswith("task.writing.modular_novel.node."):
+                continue
+            task_id = node.task_id
+            workflow_id = task_id.replace("task.", "workflow.", 1)
+            flow_id = task_id.replace("task.", "flow.", 1)
+            schema = node.contract_bindings["schema"]
+            execution = node.contract_bindings["execution"]
+            assert schema["input_contract_id"] == node.input_contract_id
+            assert schema["output_contract_id"] == node.output_contract_id
+            assert execution["node_contract_id"] == node.output_contract_id
+            assert node.contract_bindings["governance"]["contract_source"] == "node.contract_bindings"
+            assert node.contract_bindings["artifact"]["artifact_targets"]
+            assert workflows[workflow_id].metadata["contract_bindings"]["schema"] == schema
+            assert flow_by_id[flow_id].metadata["contract_bindings"]["schema"] == schema
+            assert record_by_id[task_id].metadata["contract_bindings"]["schema"] == schema
+            assert record_by_id[task_id].task_policy["contract_bindings"]["schema"] == schema
+            assert assignment_by_id[task_id].metadata["contract_bindings"]["schema"] == schema
+            assert assignment_by_id[task_id].task_structure["contract_bindings"]["schema"] == schema
+
     master_graph = graphs["graph.writing.modular_novel.master"]
     assert "model_requirement" not in master_graph.contract_bindings.get("runtime", {})
     assert "subtask_refs" not in master_graph.metadata
@@ -479,7 +503,9 @@ def test_modular_writing_profiles_use_text_artifact_runtime_boundary(tmp_path: P
         assert metadata["file_and_memory_side_effects_owned_by"] == "orchestration_runtime"
         assert profile.default_runtime_mode == "standard"
         assert "custom" in profile.enabled_runtime_modes
-        assert "coordination_task" in profile.allowed_runtime_lanes
+        assert not hasattr(profile, "allowed_runtime_lanes")
+        assert "allowed_runtime_lanes" not in profile.to_dict()
+        assert "allowed_runtime_lanes" not in profile.metadata
         assert "op.read_file" not in profile.allowed_operations
         assert "op.search_text" not in profile.allowed_operations
         assert "op.search_files" not in profile.allowed_operations
@@ -567,7 +593,6 @@ def test_modular_writing_world_design_runtime_uses_node_professional_prompt(tmp_
         "agent_id": "agent:writing_modular_creator",
         "coordination_run_id": "coordrun:test-world-design",
         "continuation_stage_id": "world_design",
-        "runtime_lane": "coordination_task",
     }
 
     from tests.support.runtime_stubs import model_turn_context

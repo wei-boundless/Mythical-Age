@@ -100,7 +100,6 @@ class NodeRuntimeAssembly:
     agent_id: str
     graph_ref: str = ""
     agent_profile_id: str = ""
-    runtime_lane: str = ""
     context_sections: tuple[RuntimeContextSection, ...] = ()
     input_contract_refs: tuple[str, ...] = ()
     output_contracts: tuple[RuntimeOutputContract, ...] = ()
@@ -123,7 +122,6 @@ class NodeRuntimeAssembly:
             "task_ref": self.task_ref,
             "agent_id": self.agent_id,
             "agent_profile_id": self.agent_profile_id,
-            "runtime_lane": self.runtime_lane,
             "context_sections": [item.to_dict() for item in self.context_sections],
             "input_contract_refs": list(self.input_contract_refs),
             "output_contracts": [item.to_dict() for item in self.output_contracts],

@@ -1,4 +1,4 @@
-import type { TaskGraphStandardView } from "@/lib/api";
+import type { TaskGraphContractPreview, TaskGraphStandardView } from "@/lib/api";
 
 import { buildTimelinePreflightIssues } from "./taskGraphTimeline";
 import { buildTaskGraphCognitionModel } from "./taskGraphCognitionView";
@@ -34,11 +34,7 @@ export type BuildTaskGraphPreflightReportInput = {
   editorValid: boolean;
   editorIssueCount: number;
   metadata?: Record<string, unknown>;
-  runtimeSpec?: {
-    valid?: boolean;
-    issues?: Array<Record<string, unknown>>;
-    diagnostics?: Record<string, unknown>;
-  } | null;
+  graphContract?: TaskGraphContractPreview | null;
   standardView?: Pick<TaskGraphStandardView, "issues" | "units" | "interfaces" | "port_edges" | "graph_module_runtime" | "graph_module_expansions" | "memory_protocol"> | null;
 };
 
@@ -173,7 +169,7 @@ export function buildTaskGraphPreflightReport({
   editorValid,
   editorIssueCount,
   metadata,
-  runtimeSpec,
+  graphContract,
   standardView,
 }: BuildTaskGraphPreflightReportInput): TaskGraphPreflightReport {
   const issues: TaskGraphPreflightIssue[] = [];
@@ -710,18 +706,18 @@ export function buildTaskGraphPreflightReport({
     });
   });
 
-  (runtimeSpec?.issues ?? []).forEach((issue, index) => {
+  (graphContract?.issues ?? []).forEach((issue, index) => {
     const severity = stringValue(issue.severity) === "warning" ? "warning" : stringValue(issue.severity) === "info" ? "info" : "error";
     const code = stringValue(issue.code);
     const isSchedulerSupportIssue = code.startsWith("scheduler_policy_");
     pushIssue(issues, {
-      issue_id: `runtime:${code || index}:${stringValue(issue.edge_id ?? issue.node_id)}`,
+      issue_id: `graph_contract:${code || index}:${stringValue(issue.edge_id ?? issue.node_id)}`,
       severity,
       scope: stringValue(issue.edge_id) ? "edge" : stringValue(issue.node_id) ? "node" : isSchedulerSupportIssue ? "graph" : "runtime",
       target_id: stringValue(issue.edge_id ?? issue.node_id),
-      title: code || "运行规范问题",
-      detail: stringValue(issue.message) || "后端 runtime spec 返回了未命名问题。",
-      source: isSchedulerSupportIssue ? "backend.scheduler_support" : "backend.runtime_spec",
+      title: code || "图契约问题",
+      detail: stringValue(issue.message) || "后端图契约编译返回了未命名问题。",
+      source: isSchedulerSupportIssue ? "backend.scheduler_support" : "backend.graph_contract",
     });
   });
 

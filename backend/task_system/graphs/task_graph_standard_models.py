@@ -3,11 +3,13 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from harness.graph.scheduler_view import build_scheduler_view
 from task_system.graphs.composable_graph_builder import build_composable_graph_view
 from task_system.graphs.composable_graph_models import ComposableUnit, GraphModuleRuntimePlan, UnitInterface, UnitPortEdge
-from task_system.compiler.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
+from task_system.compiler.graph_harness_config_publisher import build_graph_harness_config_from_graph
+from task_system.compiler.layered_graph_normalizer import normalize_task_graph_layers
 from task_system.runtime_semantics.length_budget import compiled_length_budget_preview, compile_length_budget
-from task_system.registry.flow_models import SpecificTaskRecord, TaskCommunicationProtocol
+from task_system.runtime_semantics import compile_runtime_semantics_manifest
 from task_system.graphs.task_graph_models import TaskGraphDefinition, task_graph_from_dict
 
 
@@ -207,43 +209,26 @@ class TaskGraphStandardView:
 def build_task_graph_standard_view(
     *,
     graph: TaskGraphDefinition,
-    specific_tasks: tuple[SpecificTaskRecord, ...] = (),
-    communication_protocol: TaskCommunicationProtocol | None = None,
     graph_lookup: Any | None = None,
 ) -> TaskGraphStandardView:
-    runtime_spec = compile_task_graph_definition_runtime_spec(
-        graph=graph,
-        specific_tasks=specific_tasks,
-        communication_protocol=communication_protocol,
-    )
     length_budget = compile_length_budget(
         explicit=dict(dict(graph.contract_bindings or {}).get("runtime") or {}).get("length_budget"),
         inherited=dict(dict(graph.metadata or {}).get("length_budget") or {}),
         source_chain=("graph.contract_bindings.runtime.length_budget", "graph.metadata.length_budget"),
         source_ref=graph.graph_id,
     )
-    layered = dict(runtime_spec.diagnostics.get("layered_graph") or {})
-    composable = build_composable_graph_view(graph=graph, layered_graph=layered)
-    runtime_graph_modules = tuple(
-        GraphModuleRuntimePlan(
-            plan_id=str(item.get("plan_id") or ""),
-            importing_graph_id=str(item.get("importing_graph_id") or graph.graph_id),
-            unit_id=str(item.get("unit_id") or f"unit.node.{str(item.get('runtime_node_id') or '').replace(':', '.')}"),
-            linked_graph_id=str(item.get("linked_graph_id") or ""),
-            version_ref=str(item.get("version_ref") or ""),
-            handoff_contract_id=str(item.get("handoff_contract_id") or ""),
-            input_port_id=str(item.get("input_port_id") or "input.default") or "input.default",
-            output_port_id=str(item.get("output_port_id") or "output.default") or "output.default",
-            isolation_policy=str(item.get("isolation_policy") or "isolated_per_graph_module_run") or "isolated_per_graph_module_run",
-            visibility_policy=str(item.get("visibility_policy") or "committed_only") or "committed_only",
-            detach_policy=str(item.get("detach_policy") or "preserve_version_anchor") or "preserve_version_anchor",
-            metadata={**dict(item.get("metadata") or {}), "runtime_node_id": str(item.get("runtime_node_id") or "")},
-        )
-        for item in [plan.to_dict() for plan in getattr(runtime_spec, "graph_module_runtime_plans", ()) or ()]
+    layered = normalize_task_graph_layers(graph)
+    graph_config = build_graph_harness_config_from_graph(
+        graph=graph,
+        publish_version="standard-view",
+        graph_lookup=graph_lookup,
     )
+    scheduler_view = build_scheduler_view(graph_config)
+    runtime_semantics = compile_runtime_semantics_manifest(graph).to_dict()
+    composable = build_composable_graph_view(graph=graph, layered_graph=layered)
     graph_module_expansions = _graph_module_expansions(
         current_graph=graph,
-        graph_module_runtime=runtime_graph_modules,
+        graph_module_runtime=composable.graph_module_runtime,
         graph_lookup=graph_lookup,
     )
     resource_nodes = [dict(item) for item in list(layered.get("resource_nodes") or []) if isinstance(item, dict)]
@@ -290,8 +275,8 @@ def build_task_graph_standard_view(
             if isinstance(item, dict)
         ),
         phases=_phase_specs(graph),
-        scheduler=dict(runtime_spec.diagnostics.get("scheduler_support") or {}),
-        runtime_semantics=dict(runtime_spec.diagnostics.get("runtime_semantics") or {}),
+        scheduler=_scheduler_view_payload(scheduler_view),
+        runtime_semantics=runtime_semantics,
     )
     runtime_isolation = TaskGraphRuntimeIsolationSpec(
         task_run_scope_policy=str(dict(graph.runtime_policy or {}).get("task_run_scope_policy") or "isolated_per_task_run"),
@@ -332,9 +317,10 @@ def build_task_graph_standard_view(
     issues = tuple(
         _issue_from_payload(item)
         for item in [
-            *[dict(issue) for issue in list(runtime_spec.issues or []) if isinstance(issue, dict)],
+            *[dict(issue) for issue in list(graph.to_dict().get("issues") or []) if isinstance(issue, dict)],
             *[dict(issue) for issue in list(layered.get("issues") or []) if isinstance(issue, dict)],
             *[dict(issue) for issue in list(composable.issues or []) if isinstance(issue, dict)],
+            *[dict(issue) for issue in list(dict(graph_config.diagnostics or {}).get("issues") or []) if isinstance(issue, dict)],
             *graph_module_expansion_issue_payloads,
         ]
     )
@@ -365,11 +351,13 @@ def build_task_graph_standard_view(
         memory_matrix=dict(layered.get("memory_matrix") or {}),
         memory_protocol=dict(layered.get("memory_protocol") or {}),
         diagnostics={
-            "runtime_spec": runtime_spec.to_dict(),
             "length_budget": length_budget.to_dict(),
             "length_budget_preview": compiled_length_budget_preview(length_budget),
             "layered_graph": layered,
             "composable_graph": composable.to_dict(),
+            "graph_harness_config": _graph_harness_config_summary(graph_config.to_dict()),
+            "scheduler_view": _scheduler_view_payload(scheduler_view),
+            "runtime_semantics": runtime_semantics,
             "graph_module_expansion_count": len(graph_module_expansions),
             "graph_module_expansion_issue_count": sum(len(item.issues) for item in graph_module_expansions),
         },
@@ -440,7 +428,6 @@ def _node_spec_from_graph_node(node: Any, *, resource_nodes: list[dict[str, Any]
             "context_visibility_policy": dict(node.context_visibility_policy or {}),
         },
         runtime={
-            "runtime_lane": node.runtime_lane,
             "execution_mode": node.execution_mode,
             "wait_policy": node.wait_policy,
             "join_policy": node.join_policy,
@@ -573,6 +560,41 @@ def _issue_from_payload(payload: dict[str, Any]) -> TaskGraphStandardIssue:
         unit_id=str(payload.get("unit_id") or ""),
         source=str(payload.get("authority") or payload.get("source") or ""),
     )
+
+
+def _scheduler_view_payload(scheduler_view: Any) -> dict[str, Any]:
+    return {
+        "authority": "harness.graph.scheduler_view",
+        "config_id": scheduler_view.config_id,
+        "config_hash": scheduler_view.config_hash,
+        "dependency_edges": [dict(item) for item in scheduler_view.dependency_edges],
+        "executable_node_ids": list(scheduler_view.executable_node_ids),
+        "start_node_ids": list(scheduler_view.start_node_ids),
+        "terminal_node_ids": list(scheduler_view.terminal_node_ids),
+        "diagnostics": dict(scheduler_view.diagnostics),
+    }
+
+
+def _graph_harness_config_summary(payload: dict[str, Any]) -> dict[str, Any]:
+    nodes = [dict(item) for item in list(payload.get("nodes") or []) if isinstance(item, dict)]
+    edges = [dict(item) for item in list(payload.get("edges") or []) if isinstance(item, dict)]
+    diagnostics = dict(payload.get("diagnostics") or {})
+    return {
+        "authority": str(payload.get("authority") or "harness.graph_harness_config"),
+        "config_schema_version": str(payload.get("config_schema_version") or ""),
+        "config_id": str(payload.get("config_id") or ""),
+        "content_hash": str(payload.get("content_hash") or ""),
+        "graph_id": str(payload.get("graph_id") or ""),
+        "publish_version": str(payload.get("publish_version") or ""),
+        "task_environment_id": str(payload.get("task_environment_id") or ""),
+        "node_count": len(nodes),
+        "edge_count": len(edges),
+        "composition_source_count": len(list(payload.get("composition_sources") or [])),
+        "issue_count": len(list(diagnostics.get("issues") or [])),
+        "control": dict(payload.get("control") or {}),
+        "authority_map": dict(payload.get("authority_map") or {}),
+        "source_refs": dict(payload.get("source_refs") or {}),
+    }
 
 
 def _graph_module_expansions(
@@ -802,7 +824,6 @@ def _graph_node_payload_from_standard_node(payload: dict[str, Any]) -> dict[str,
         "output_contract_id": str(contracts.get("output_contract_id") or "").strip(),
         "contract_bindings": dict(contracts.get("contract_bindings") or payload.get("contract_bindings") or {}),
         "context_visibility_policy": dict(context.get("context_visibility_policy") or {}),
-        "runtime_lane": str(runtime.get("runtime_lane") or "").strip(),
         "execution_mode": str(runtime.get("execution_mode") or "sync").strip() or "sync",
         "wait_policy": str(runtime.get("wait_policy") or "wait_all_upstream_completed").strip() or "wait_all_upstream_completed",
         "join_policy": str(runtime.get("join_policy") or "all_success").strip() or "all_success",

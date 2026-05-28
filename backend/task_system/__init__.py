@@ -41,8 +41,6 @@ __all__ = [
     "build_composable_graph_view",
     "build_task_graph_standard_view",
     "apply_task_graph_standard_view_update",
-    "TaskGraphRuntimeSpec",
-    "compile_task_graph_definition_runtime_spec",
     "BatchAcceptancePolicy",
     "BatchLifecyclePlan",
     "BatchLifecycleStep",
@@ -240,16 +238,6 @@ def __getattr__(name: str) -> Any:
             "build_task_graph_standard_view": build_task_graph_standard_view,
             "apply_task_graph_standard_view_update": apply_task_graph_standard_view_update,
         }[name]
-    if name == "TaskGraphRuntimeSpec":
-        from task_system.compiler.coordination_graph_models import (
-            TaskGraphRuntimeSpec,
-        )
-
-        return TaskGraphRuntimeSpec
-    if name == "compile_task_graph_definition_runtime_spec":
-        from task_system.compiler.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
-
-        return compile_task_graph_definition_runtime_spec
     if name in {
         "BatchAcceptancePolicy",
         "BatchLifecyclePlan",

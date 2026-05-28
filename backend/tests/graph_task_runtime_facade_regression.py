@@ -129,11 +129,15 @@ def test_graph_harness_starts_published_config_and_creates_node_work_order() -> 
     assert start.node_work_orders[0].work_kind == "agent"
     assert start.node_work_orders[0].graph_run_id == start.graph_run.graph_run_id
     assert "内容起草员" in start.node_work_orders[0].message
+    assert start.node_work_orders[0].input_package["initial_inputs"] == {"goal": "smoke"}
+    assert start.loop_state.work_order_index[start.node_work_orders[0].work_order_id]["node_id"] == "draft"
     assert runtime.graph_harness.get_checkpoint_state(start.graph_run.graph_run_id)["graph_id"] == graph.graph_id
     monitor = runtime.graph_harness.get_graph_run_monitor(start.graph_run.graph_run_id, graph_config=graph_config)
     assert monitor is not None
     assert monitor["graph_run_id"] == start.graph_run.graph_run_id
     assert monitor["graph_loop_state"]["graph_id"] == graph.graph_id
+    assert monitor["active_node_work_order_count"] == 1
+    assert monitor["active_node_work_orders"][0]["work_order_id"] == start.node_work_orders[0].work_order_id
 
 
 def test_graph_loop_accepts_node_result_and_advances_to_next_node() -> None:
@@ -181,6 +185,12 @@ def test_graph_loop_accepts_node_result_and_advances_to_next_node() -> None:
     assert "draft" in advance.loop_state.completed_node_ids
     assert advance.node_work_orders
     assert advance.node_work_orders[0].node_id == "review"
+    assert advance.node_work_orders[0].input_package["upstream_results"][0]["source_node_id"] == "draft"
+    assert advance.node_work_orders[0].input_package["upstream_results"][0]["outputs"] == {"draft": "ok"}
+    assert advance.node_work_orders[0].input_package["handoff_packets"][0]["edge_id"] == "edge.draft.review"
+    assert advance.node_work_orders[0].input_package["handoff_packets"][0]["payload"]["outputs"] == {"draft": "ok"}
+    assert advance.loop_state.edge_states["edge.draft.review"]["status"] == "ready"
+    assert advance.loop_state.work_order_index[advance.node_work_orders[0].work_order_id]["node_id"] == "review"
     assert advance.graph_result is None
 
 
@@ -342,7 +352,7 @@ def test_graph_module_is_expanded_before_graph_harness_runtime() -> None:
     assert ("graph_module.child::child_review", "finalize") in edge_pairs
     assert "graph_module" not in executor_types
     assert not hasattr(graph_config, "modules")
-    assert graph_config.composition_sources[0]["runtime_node_id"] == "graph_module.child"
+    assert graph_config.composition_sources[0]["composition_node_id"] == "graph_module.child"
     assert graph_config.control["start_node_ids"] == ["prepare"]
     assert graph_config.control["terminal_node_ids"] == ["finalize"]
 

@@ -54,18 +54,18 @@ describe("taskGraphEffectivePolicy", () => {
     }).source).toBe("system_default");
   });
 
-  it("reads nested metadata values for node runtime defaults", () => {
+  it("reads nested metadata values for node execution defaults", () => {
     const result = resolveTaskGraphEffectivePolicy({
-      key: "runtime_lane",
+      key: "execution_mode",
       node: {
         metadata: {
-          runtime_lane: "coordination_task",
+          execution_mode: "background",
         },
       },
       systemDefault: "未配置",
     });
 
-    expect(result.value).toBe("coordination_task");
+    expect(result.value).toBe("background");
     expect(result.source).toBe("node_explicit");
   });
 });

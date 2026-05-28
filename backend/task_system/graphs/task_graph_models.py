@@ -87,7 +87,6 @@ class TaskGraphNodeDefinition:
     input_contract_id: str = ""
     output_contract_id: str = ""
     contract_bindings: dict[str, Any] = field(default_factory=dict)
-    runtime_lane: str = ""
     context_visibility_policy: dict[str, Any] = field(default_factory=dict)
     executor_policy: dict[str, Any] = field(default_factory=dict)
     failure_policy: dict[str, Any] = field(default_factory=dict)
@@ -226,7 +225,6 @@ def task_graph_node_from_dict(payload: dict[str, Any]) -> TaskGraphNodeDefinitio
     node_contract_id = str(explicit_execution_bindings.get("node_contract_id") or legacy_node_contract_id or "").strip()
     input_contract_id = str(explicit_schema_bindings.get("input_contract_id") or legacy_input_contract_id or "").strip()
     output_contract_id = str(explicit_schema_bindings.get("output_contract_id") or legacy_output_contract_id or "").strip()
-    runtime_lane = str(payload.get("runtime_lane") or "").strip()
     executor_policy = dict(payload.get("executor_policy") or {})
     memory_read_policy = dict(payload.get("memory_read_policy") or {})
     memory_writeback_policy = dict(payload.get("memory_writeback_policy") or {})
@@ -283,7 +281,6 @@ def task_graph_node_from_dict(payload: dict[str, Any]) -> TaskGraphNodeDefinitio
             memory_read_policy=memory_read_policy,
             memory_writeback_policy=memory_writeback_policy,
             dynamic_memory_read_policy=dynamic_memory_read_policy,
-            runtime_lane=runtime_lane,
             execution_mode=execution_mode,
             wait_policy=wait_policy,
             join_policy=join_policy,
@@ -293,7 +290,6 @@ def task_graph_node_from_dict(payload: dict[str, Any]) -> TaskGraphNodeDefinitio
             resource_lifecycle_policy=resource_lifecycle_policy,
             metadata=metadata,
         ),
-        runtime_lane=runtime_lane,
         context_visibility_policy=dict(payload.get("context_visibility_policy") or {}),
         executor_policy=executor_policy,
         failure_policy=failure_policy,
@@ -588,7 +584,6 @@ def normalize_node_contract_bindings(
     memory_read_policy: dict[str, Any] | None = None,
     memory_writeback_policy: dict[str, Any] | None = None,
     dynamic_memory_read_policy: dict[str, Any] | None = None,
-    runtime_lane: str = "",
     execution_mode: str = "",
     wait_policy: str = "",
     join_policy: str = "",
@@ -628,7 +623,6 @@ def normalize_node_contract_bindings(
         derived["memory"] = memory
     runtime: dict[str, Any] = {}
     for key, value in (
-        ("runtime_lane", runtime_lane),
         ("execution_mode", execution_mode),
         ("wait_policy", wait_policy),
         ("join_policy", join_policy),
@@ -741,6 +735,8 @@ def _contract_bindings_payload(value: Any) -> dict[str, Any]:
     payload = {str(key).strip(): value for key, value in value.items() if str(key).strip()}
     runtime = payload.get("runtime")
     runtime_payload = dict(runtime) if isinstance(runtime, dict) else {}
+    runtime_payload.pop("runtime_lane", None)
+    runtime_payload.pop("runtime_lane_hint", None)
     if isinstance(runtime, dict) and isinstance(runtime.get("model_requirement"), dict):
         runtime_payload["model_requirement"] = _normalize_model_requirement_payload(runtime.get("model_requirement"))
     if isinstance(runtime, dict) and isinstance(runtime.get("length_budget"), dict):

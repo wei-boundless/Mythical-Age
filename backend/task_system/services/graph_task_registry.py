@@ -47,9 +47,8 @@ class TaskGraphRegistryService:
             participant_agent_ids=participant_agent_ids,
             subtask_refs=subtask_refs,
         )
-        runtime_nodes, runtime_edges = _runtime_graph_view_nodes_and_edges(graph)
-        graph_nodes = runtime_nodes or stored_nodes or fallback_nodes
-        graph_edges = runtime_edges or tuple(edge.to_dict() for edge in graph.edges) or fallback_edges
+        graph_nodes = stored_nodes or fallback_nodes
+        graph_edges = tuple(edge.to_dict() for edge in graph.edges) or fallback_edges
         subtask_refs = tuple(dict.fromkeys([*subtask_refs, *_subtask_refs_from_graph_nodes(graph_nodes)]))
         communication_modes = tuple(
             str(value).strip()
@@ -247,20 +246,6 @@ def _subtask_refs_from_graph_nodes(nodes: tuple[dict[str, Any], ...]) -> tuple[s
             and str(node.get("task_id") or node.get("subtask_ref") or "").strip().startswith("task.")
         )
     )
-
-
-def _runtime_graph_view_nodes_and_edges(graph: TaskGraphDefinition) -> tuple[tuple[dict[str, Any], ...], tuple[dict[str, Any], ...]]:
-    try:
-        from task_system.compiler.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
-
-        runtime_spec = compile_task_graph_definition_runtime_spec(graph=graph)
-    except Exception:
-        return (), ()
-    if not getattr(runtime_spec, "graph_module_runtime_plans", ()):
-        return (), ()
-    nodes = tuple(node.to_dict() for node in runtime_spec.nodes)
-    edges = tuple({**edge.to_dict(), "edge_type": edge.mode} for edge in runtime_spec.edges)
-    return nodes, edges
 
 
 def _normalize_agent_refs_in_mapping(payload: dict[str, Any]) -> dict[str, Any]:

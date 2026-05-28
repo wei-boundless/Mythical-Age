@@ -948,6 +948,7 @@ def _finish_executor_success(
         status="completed",
         summary="任务合同已满足，执行器已完成收尾并记录真实交付物证据。",
     )
+    _sync_engagement_closeout(runtime_host, finished_task.task_run_id)
     return {
         "ok": True,
         "task_run": finished_task.to_dict(),
@@ -1000,18 +1001,42 @@ def _finish_executor_terminal(runtime_host: Any, *, task_run: Any, agent_run: An
         status=status,
         summary=f"任务执行器已停止：{terminal_reason}。",
     )
+    _sync_engagement_closeout(runtime_host, finished_task.task_run_id)
     return {"ok": False, "task_run": finished_task.to_dict(), "lifecycle": finished_lifecycle.to_dict(), "event": event, "error": terminal_reason}
 
 
 def _finish_without_executor(runtime_host: Any, *, task_run: Any, status: str, terminal_reason: str) -> tuple[Any, TaskLifecycleRecord, dict[str, Any]]:
     lifecycle = _load_lifecycle(runtime_host, task_run)
-    return finish_task_lifecycle(
+    finished = finish_task_lifecycle(
         runtime_host,
         task_run=task_run,
         lifecycle=lifecycle,
         status=status,  # type: ignore[arg-type]
         terminal_reason=terminal_reason,
     )
+    _sync_engagement_closeout(runtime_host, finished[0].task_run_id)
+    return finished
+
+
+def _sync_engagement_closeout(runtime_host: Any, task_run_id: str) -> None:
+    backend_dir = getattr(runtime_host, "backend_dir", None)
+    if backend_dir is None:
+        return
+    try:
+        from task_system.engagement import sync_engagement_runs_for_terminal_task
+
+        sync_engagement_runs_for_terminal_task(
+            backend_dir=backend_dir,
+            runtime_host=runtime_host,
+            task_run_id=task_run_id,
+        )
+    except Exception as exc:
+        if hasattr(runtime_host, "event_log"):
+            runtime_host.event_log.append(
+                task_run_id,
+                "engagement_closeout_sync_failed",
+                payload={"error": str(exc), "authority": "task_system.engagement_closeout"},
+            )
 
 
 def _is_recoverable_protocol_terminal(task_run: Any) -> bool:

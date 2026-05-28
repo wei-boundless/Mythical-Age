@@ -104,7 +104,6 @@ def build_node_runtime_assembly(
         task_ref=node.task_id,
         agent_id=agent_id,
         agent_profile_id=agent_profile_id,
-        runtime_lane=node.runtime_lane,
         context_sections=visible_sections,
         input_contract_refs=tuple(ref for ref in (node.input_contract_id,) if ref),
         output_contracts=_runtime_output_contracts(manifest, only_contract_ids=set(node.contract_refs)),

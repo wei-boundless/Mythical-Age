@@ -36,7 +36,6 @@ def build_model_context(assembly: AgentAssemblyContract) -> dict[str, Any]:
         "executor_type": assembly.executor_type,
         "agent_id": assembly.agent_id,
         "agent_profile_id": assembly.agent_profile_id,
-        "runtime_lane": assembly.runtime_lane,
         "model_profile_id": assembly.model_profile_id,
         "memory_binding": assembly.memory_binding.to_dict(),
         "capability_binding": assembly.capability_binding.to_dict(),
@@ -58,7 +57,6 @@ def build_agent_assembly_contract(
         base_dir=base_dir,
         agent_runtime_profile=agent_runtime_profile,
     )
-    runtime_lane = _resolve_runtime_lane(work_order, runtime_profile)
     memory_binding = _build_memory_binding(work_order, runtime_profile)
     capability_binding = _build_capability_binding(work_order, runtime_profile, agent_descriptor)
     role_name = _role_name_for_work_order(work_order)
@@ -107,7 +105,6 @@ def build_agent_assembly_contract(
         node_id=work_order.node_id,
         agent_id=agent_id,
         agent_profile_id=agent_profile_id,
-        runtime_lane=runtime_lane,
         model_profile_id=str(getattr(runtime_profile.model_profile, "profile_id", "") or "") if runtime_profile is not None else "",
         prompt_assembly=prompt_assembly,
         memory_binding=memory_binding,
@@ -136,7 +133,6 @@ def build_agent_assembly_contract(
             "agent_name": getattr(agent_descriptor, "agent_name", ""),
             "agent_category": getattr(agent_descriptor, "agent_category", ""),
             "agent_resolution_source": _agent_resolution_source(work_order, agent_runtime_profile, runtime_profile),
-            "runtime_lane_source": _runtime_lane_source(work_order, runtime_profile),
             "model_requirement": runtime_model_requirement,
             "tool_execution_policy": _runtime_tool_execution_policy(work_order),
             "dynamic_memory_read_policy": _runtime_dynamic_memory_read_policy(work_order),
@@ -146,7 +142,6 @@ def build_agent_assembly_contract(
             "executor_type": work_order.executor_type,
             "agent_id": agent_id,
             "agent_profile_id": agent_profile_id,
-            "runtime_lane": runtime_lane,
             "runtime_profile_id": getattr(runtime_profile, "agent_profile_id", ""),
             "model_requirement": runtime_model_requirement,
             "prompt_role_source": role_prompt_source,
@@ -205,7 +200,6 @@ def build_agent_invocation(
         executor_type=work_order.executor_type,
         agent_id=assembly.agent_id,
         agent_profile_id=assembly.agent_profile_id,
-        runtime_lane=assembly.runtime_lane,
         work_order=work_order_payload,
         assembly_contract=assembly_payload,
         execution_permit=permit_payload,
@@ -298,19 +292,6 @@ def _find_runtime_profile_by_profile_id(
     if not target:
         return None
     return next((item for item in runtime_registry.list_profiles() if item.agent_profile_id == target), None)
-
-
-def _resolve_runtime_lane(work_order: WorkOrder, runtime_profile: AgentRuntimeProfile | None) -> str:
-    candidates = [
-        str(work_order.runtime_lane or "").strip(),
-        *[str(item).strip() for item in list(getattr(runtime_profile, "allowed_runtime_lanes", ()) or ()) if str(item).strip()],
-    ]
-    if work_order.executor_type == "human":
-        return str(work_order.runtime_lane or "human_review").strip()
-    for candidate in candidates:
-        if candidate:
-            return candidate
-    return "role_interaction"
 
 
 def _build_memory_binding(
@@ -789,13 +770,4 @@ def _agent_resolution_source(
     if runtime_profile is not None:
         return "runtime_registry"
     return "system_default"
-
-
-def _runtime_lane_source(work_order: WorkOrder, runtime_profile: AgentRuntimeProfile | None) -> str:
-    if work_order.runtime_lane:
-        return "work_order"
-    if runtime_profile is not None and runtime_profile.allowed_runtime_lanes:
-        return "runtime_profile"
-    return "default"
-
 

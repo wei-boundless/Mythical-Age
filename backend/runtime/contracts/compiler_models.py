@@ -58,7 +58,6 @@ class CompiledNodeContract:
     node_type: str
     task_id: str = ""
     agent_id: str = ""
-    runtime_lane: str = ""
     input_contract_id: str = ""
     output_contract_id: str = ""
     contract_refs: tuple[str, ...] = ()
@@ -149,7 +148,6 @@ class CompiledGraphModuleHandoffContract:
 class CompiledRuntimeContract:
     agent_id: str
     agent_profile_id: str
-    allowed_runtime_lanes: tuple[str, ...] = ()
     allowed_operations: tuple[str, ...] = ()
     allowed_memory_scopes: tuple[str, ...] = ()
     validation_state: str = "unchecked"
@@ -157,7 +155,6 @@ class CompiledRuntimeContract:
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
-        payload["allowed_runtime_lanes"] = list(self.allowed_runtime_lanes)
         payload["allowed_operations"] = list(self.allowed_operations)
         payload["allowed_memory_scopes"] = list(self.allowed_memory_scopes)
         return payload

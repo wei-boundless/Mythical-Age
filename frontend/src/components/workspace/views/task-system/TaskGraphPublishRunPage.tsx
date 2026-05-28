@@ -4,8 +4,7 @@ import { useState } from "react";
 import { CheckCircle2, MessageSquareShare, PlayCircle, RefreshCw, Save, Send, TriangleAlert } from "lucide-react";
 
 import {
-  buildTaskSystemTaskGraphExecutionPackage,
-  compileTaskSystemTaskGraphContractManifest,
+  compileTaskSystemTaskGraphContract,
   getOrchestrationHarnessTrace,
   taskGraphRunIdOf,
   taskGraphRunsFromTrace,
@@ -14,13 +13,11 @@ import {
   startTaskGraphHarnessRun,
   stopOrchestrationTaskRun,
   type HarnessTaskRunTrace,
-  type TaskGraphRuntimeSpec,
+  type TaskGraphContractPreview,
   type TaskGraphStandardView,
-  type ContractManifest,
-  type TaskGraphExecutionPackage,
 } from "@/lib/api";
 import { useAppStore } from "@/lib/store";
-import { TaskGraphExecutionPackagePanel } from "./TaskGraphExecutionPackagePanel";
+import { TaskGraphContractPreviewPanel } from "./TaskGraphContractPreviewPanel";
 import { TaskSystemToolbarButton } from "./TaskSystemWorkbenchUi";
 import { isTaskGraphPublishedState, taskGraphPublishStateLabel, type TaskGraphPublishStateV2 } from "./taskGraphDraftV2";
 import { focusForPreflightIssue, focusTargetLabel } from "./taskGraphEditorFocus";
@@ -78,12 +75,10 @@ export function TaskGraphPublishRunPage({
   onRepairIssue,
   publishState,
   saving,
-  sharedContractManifest,
-  sharedExecutionPackage,
-  sharedRuntimeSpec,
-  sharedRuntimeSpecError,
-  onSharedExecutionPackageChange,
-  onSharedRuntimeSpecErrorChange,
+  sharedGraphContract,
+  sharedGraphContractError,
+  onSharedGraphContractChange,
+  onSharedGraphContractErrorChange,
 }: {
   dirty: boolean;
   edges: Array<Record<string, unknown>>;
@@ -101,12 +96,10 @@ export function TaskGraphPublishRunPage({
   onRepairIssue?: (issue: TaskGraphPreflightIssue) => void;
   publishState: TaskGraphPublishStateV2;
   saving: string;
-  sharedContractManifest?: ContractManifest | null;
-  sharedExecutionPackage?: TaskGraphExecutionPackage | null;
-  sharedRuntimeSpec?: TaskGraphRuntimeSpec | null;
-  sharedRuntimeSpecError?: string;
-  onSharedExecutionPackageChange?: (value: TaskGraphExecutionPackage | null) => void;
-  onSharedRuntimeSpecErrorChange?: (value: string) => void;
+  sharedGraphContract?: TaskGraphContractPreview | null;
+  sharedGraphContractError?: string;
+  onSharedGraphContractChange?: (value: TaskGraphContractPreview | null) => void;
+  onSharedGraphContractErrorChange?: (value: string) => void;
 }) {
   const {
     bindTaskGraphMonitorRun,
@@ -121,11 +114,9 @@ export function TaskGraphPublishRunPage({
     taskGraphMonitorError,
     taskGraphMonitorLoading,
   } = useAppStore();
-  const [localRuntimeSpec, setLocalRuntimeSpec] = useState<TaskGraphRuntimeSpec | null>(null);
-  const [localContractManifest, setLocalContractManifest] = useState<ContractManifest | null>(null);
-  const [localExecutionPackage, setLocalExecutionPackage] = useState<TaskGraphExecutionPackage | null>(null);
-  const [localRuntimeSpecError, setLocalRuntimeSpecError] = useState("");
-  const [runtimeSpecLoading, setRuntimeSpecLoading] = useState(false);
+  const [localGraphContract, setLocalGraphContract] = useState<TaskGraphContractPreview | null>(null);
+  const [localGraphContractError, setLocalGraphContractError] = useState("");
+  const [graphContractLoading, setGraphContractLoading] = useState(false);
   const [taskRunId, setTaskRunId] = useState("");
   const [runTrace, setRunTrace] = useState<HarnessTaskRunTrace | null>(null);
   const [runTraceError, setRunTraceError] = useState("");
@@ -135,10 +126,8 @@ export function TaskGraphPublishRunPage({
   const [resumeLoading, setResumeLoading] = useState(false);
   const [stopLoading, setStopLoading] = useState(false);
   const published = isTaskGraphPublishedState(publishState);
-  const runtimeSpec = sharedRuntimeSpec ?? localRuntimeSpec;
-  const contractManifest = sharedContractManifest ?? localContractManifest;
-  const executionPackage = sharedExecutionPackage ?? localExecutionPackage;
-  const runtimeSpecError = sharedRuntimeSpecError ?? localRuntimeSpecError;
+  const graphContract = sharedGraphContract ?? localGraphContract;
+  const graphContractError = sharedGraphContractError ?? localGraphContractError;
   const latestRunStatus = String(runTrace?.task_run?.status ?? "").trim();
   const taskGraphRuns = taskGraphRunsFromTrace(runTrace);
   const runStatusLabel = latestRunStatus || (publishState === "run_bound" ? "bound" : published ? "ready" : "draft");
@@ -151,7 +140,7 @@ export function TaskGraphPublishRunPage({
     metadata,
     nodes,
     edges,
-    runtimeSpec,
+    graphContract,
     standardView,
   });
   const preflightGroups = Array.from(
@@ -164,37 +153,31 @@ export function TaskGraphPublishRunPage({
   const boundTemporal = taskGraphBoundRunMonitor?.temporal;
   const boundTemporalViolations = boundTemporal?.violations ?? [];
   const boundBatchLifecycleSummary = buildTaskGraphBatchLifecycleSummary(taskGraphBoundRunMonitor?.batch_lifecycle);
-  async function compileRuntimeSpec() {
+  async function compileGraphContract() {
     if (!graphId) return;
     if (dirty || standardViewStale) {
-      const message = "当前草稿或标准视图已过期，请先保存并刷新标准视图后再编译执行包。";
-      setLocalExecutionPackage(null);
-      setLocalRuntimeSpec(null);
-      setLocalContractManifest(null);
-      setLocalRuntimeSpecError(message);
-      onSharedExecutionPackageChange?.(null);
-      onSharedRuntimeSpecErrorChange?.(message);
+      const message = "当前草稿或标准视图已过期，请先保存并刷新标准视图后再编译图契约。";
+      setLocalGraphContract(null);
+      setLocalGraphContractError(message);
+      onSharedGraphContractChange?.(null);
+      onSharedGraphContractErrorChange?.(message);
       return;
     }
-    setRuntimeSpecLoading(true);
-    setLocalRuntimeSpecError("");
-    onSharedRuntimeSpecErrorChange?.("");
+    setGraphContractLoading(true);
+    setLocalGraphContractError("");
+    onSharedGraphContractErrorChange?.("");
     try {
-      const nextPackage = await buildTaskSystemTaskGraphExecutionPackage(graphId);
-      setLocalExecutionPackage(nextPackage);
-      setLocalRuntimeSpec(nextPackage.runtime_spec);
-      setLocalContractManifest(nextPackage.contract_manifest);
-      onSharedExecutionPackageChange?.(nextPackage);
+      const nextContract = await compileTaskSystemTaskGraphContract(graphId);
+      setLocalGraphContract(nextContract);
+      onSharedGraphContractChange?.(nextContract);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "执行包编译失败";
-      setLocalExecutionPackage(null);
-      setLocalRuntimeSpec(null);
-      setLocalContractManifest(null);
-      setLocalRuntimeSpecError(message);
-      onSharedExecutionPackageChange?.(null);
-      onSharedRuntimeSpecErrorChange?.(message);
+      const message = error instanceof Error ? error.message : "图契约编译失败";
+      setLocalGraphContract(null);
+      setLocalGraphContractError(message);
+      onSharedGraphContractChange?.(null);
+      onSharedGraphContractErrorChange?.(message);
     } finally {
-      setRuntimeSpecLoading(false);
+      setGraphContractLoading(false);
     }
   }
 
@@ -223,7 +206,6 @@ export function TaskGraphPublishRunPage({
         dispatch_ready: true,
       });
       setTaskRunId(result.task_run_id);
-      setLocalContractManifest(await compileTaskSystemTaskGraphContractManifest(graphId));
       setRunTrace(result.trace);
       bindTaskGraphMonitorRun({
         task_run_id: result.task_run_id,
@@ -339,8 +321,8 @@ export function TaskGraphPublishRunPage({
             <TaskSystemToolbarButton disabled={!preflightReport.valid || standardViewStale || saving === "task-graph"} onClick={onPublish} variant="primary">
               <Send size={15} />发布可运行
             </TaskSystemToolbarButton>
-            <TaskSystemToolbarButton disabled={!graphId || dirty || standardViewStale || runtimeSpecLoading} onClick={() => void compileRuntimeSpec()}>
-              <RefreshCw size={15} />编译执行包
+            <TaskSystemToolbarButton disabled={!graphId || dirty || standardViewStale || graphContractLoading} onClick={() => void compileGraphContract()}>
+              <RefreshCw size={15} />编译图契约
             </TaskSystemToolbarButton>
             <TaskSystemToolbarButton
               disabled={!graphId || !published || !preflightReport.valid || runStartLoading}
@@ -380,12 +362,7 @@ export function TaskGraphPublishRunPage({
         </article>
       </section>
 
-      <TaskGraphExecutionPackagePanel
-        contractManifest={contractManifest}
-        executionPackage={executionPackage}
-        runtimeSpec={runtimeSpec}
-        runtimeSpecError={runtimeSpecError}
-      />
+      <TaskGraphContractPreviewPanel preview={graphContract} previewError={graphContractError} />
 
       <section className="boundary-card">
         <header><strong>运行追踪与续跑</strong><span>Trace / Checkpoint / Resume</span></header>
@@ -673,7 +650,7 @@ export function TaskGraphPublishRunPage({
         ) : (
           <div className="task-graph-note">
             <strong>没有发现结构阻塞</strong>
-            <span>当前图可以保存并发布。发布后仍需要由后端运行装配确认 runtime spec。</span>
+            <span>当前图可以保存并发布。发布前可以编译图契约，确认 GraphRuntime 与 GraphLoop 可识别。</span>
           </div>
         )}
       </section>

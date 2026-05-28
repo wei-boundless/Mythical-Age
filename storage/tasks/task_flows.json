@@ -7,7 +7,6 @@
       "output_contract_id": "contract.writing.modular_novel.project_brief",
       "default_agent_id": "agent:writing_modular_creator",
       "default_workflow_id": "workflow.writing.modular_novel.node.project_brief",
-      "default_runtime_lane": "coordination_task",
       "default_memory_scope": "writing_modular_novel",
       "enabled": true,
       "metadata": {
@@ -31,7 +30,6 @@
       "output_contract_id": "contract.writing.modular_novel.world_candidate",
       "default_agent_id": "agent:writing_modular_creator",
       "default_workflow_id": "workflow.writing.modular_novel.node.world_design",
-      "default_runtime_lane": "coordination_task",
       "default_memory_scope": "writing_modular_novel",
       "enabled": true,
       "metadata": {
@@ -55,7 +53,6 @@
       "output_contract_id": "contract.writing.modular_novel.world_review",
       "default_agent_id": "agent:writing_modular_reviewer",
       "default_workflow_id": "workflow.writing.modular_novel.node.world_review",
-      "default_runtime_lane": "coordination_task",
       "default_memory_scope": "writing_modular_novel",
       "enabled": true,
       "metadata": {
@@ -79,7 +76,6 @@
       "output_contract_id": "contract.writing.modular_novel.world_commit",
       "default_agent_id": "agent:writing_modular_memory_steward",
       "default_workflow_id": "workflow.writing.modular_novel.node.memory_commit_world",
-      "default_runtime_lane": "coordination_task",
       "default_memory_scope": "writing_modular_novel",
       "enabled": true,
       "metadata": {
@@ -103,7 +99,6 @@
       "output_contract_id": "contract.writing.modular_novel.character_design",
       "default_agent_id": "agent:writing_modular_creator",
       "default_workflow_id": "workflow.writing.modular_novel.node.character_design",
-      "default_runtime_lane": "coordination_task",
       "default_memory_scope": "writing_modular_novel",
       "enabled": true,
       "metadata": {
@@ -127,7 +122,6 @@
       "output_contract_id": "contract.writing.modular_novel.character_review",
       "default_agent_id": "agent:writing_modular_reviewer",
       "default_workflow_id": "workflow.writing.modular_novel.node.character_review",
-      "default_runtime_lane": "coordination_task",
       "default_memory_scope": "writing_modular_novel",
       "enabled": true,
       "metadata": {
@@ -151,7 +145,6 @@
       "output_contract_id": "contract.writing.modular_novel.plot_design",
       "default_agent_id": "agent:writing_modular_creator",
       "default_workflow_id": "workflow.writing.modular_novel.node.plot_design",
-      "default_runtime_lane": "coordination_task",
       "default_memory_scope": "writing_modular_novel",
       "enabled": true,
       "metadata": {
@@ -175,7 +168,6 @@
       "output_contract_id": "contract.writing.modular_novel.design_alignment",
       "default_agent_id": "agent:writing_modular_creator",
       "default_workflow_id": "workflow.writing.modular_novel.node.design_sync",
-      "default_runtime_lane": "coordination_task",
       "default_memory_scope": "writing_modular_novel",
       "enabled": true,
       "metadata": {
@@ -199,7 +191,6 @@
       "output_contract_id": "contract.writing.modular_novel.character_commit",
       "default_agent_id": "agent:writing_modular_memory_steward",
       "default_workflow_id": "workflow.writing.modular_novel.node.memory_commit_character",
-      "default_runtime_lane": "coordination_task",
       "default_memory_scope": "writing_modular_novel",
       "enabled": true,
       "metadata": {
@@ -223,7 +214,6 @@
       "output_contract_id": "contract.writing.modular_novel.outline_design",
       "default_agent_id": "agent:writing_modular_creator",
       "default_workflow_id": "workflow.writing.modular_novel.node.outline_design",
-      "default_runtime_lane": "coordination_task",
       "default_memory_scope": "writing_modular_novel",
       "enabled": true,
       "metadata": {
@@ -247,7 +237,6 @@
       "output_contract_id": "contract.writing.modular_novel.outline_review",
       "default_agent_id": "agent:writing_modular_reviewer",
       "default_workflow_id": "workflow.writing.modular_novel.node.outline_review",
-      "default_runtime_lane": "coordination_task",
       "default_memory_scope": "writing_modular_novel",
       "enabled": true,
       "metadata": {
@@ -271,7 +260,6 @@
       "output_contract_id": "contract.writing.modular_novel.baseline_commit",
       "default_agent_id": "agent:writing_modular_memory_steward",
       "default_workflow_id": "workflow.writing.modular_novel.node.baseline_memory_seed",
-      "default_runtime_lane": "coordination_task",
       "default_memory_scope": "writing_modular_novel",
       "enabled": true,
       "metadata": {
@@ -295,7 +283,6 @@
       "output_contract_id": "contract.writing.modular_novel.volume_plan",
       "default_agent_id": "agent:writing_modular_creator",
       "default_workflow_id": "workflow.writing.modular_novel.node.volume_plan",
-      "default_runtime_lane": "coordination_task",
       "default_memory_scope": "writing_modular_novel",
       "enabled": true,
       "metadata": {
@@ -319,7 +306,6 @@
       "output_contract_id": "contract.writing.modular_novel.chapter_outline",
       "default_agent_id": "agent:writing_modular_creator",
       "default_workflow_id": "workflow.writing.modular_novel.node.chapter_outline",
-      "default_runtime_lane": "coordination_task",
       "default_memory_scope": "writing_modular_novel",
       "enabled": true,
       "metadata": {
@@ -343,7 +329,6 @@
       "output_contract_id": "contract.writing.modular_novel.chapter_draft",
       "default_agent_id": "agent:writing_modular_creator",
       "default_workflow_id": "workflow.writing.modular_novel.node.chapter_draft",
-      "default_runtime_lane": "coordination_task",
       "default_memory_scope": "writing_modular_novel",
       "enabled": true,
       "metadata": {
@@ -367,7 +352,6 @@
       "output_contract_id": "contract.writing.modular_novel.chapter_review",
       "default_agent_id": "agent:writing_modular_reviewer",
       "default_workflow_id": "workflow.writing.modular_novel.node.chapter_review",
-      "default_runtime_lane": "coordination_task",
       "default_memory_scope": "writing_modular_novel",
       "enabled": true,
       "metadata": {
@@ -391,7 +375,6 @@
       "output_contract_id": "contract.writing.modular_novel.chapter_batch_commit",
       "default_agent_id": "agent:writing_modular_memory_steward",
       "default_workflow_id": "workflow.writing.modular_novel.node.memory_commit_chapter",
-      "default_runtime_lane": "coordination_task",
       "default_memory_scope": "writing_modular_novel",
       "enabled": true,
       "metadata": {
@@ -415,7 +398,6 @@
       "output_contract_id": "contract.writing.modular_novel.progress_route",
       "default_agent_id": "agent:writing_modular_creator",
       "default_workflow_id": "workflow.writing.modular_novel.node.chapter_progress_router",
-      "default_runtime_lane": "coordination_task",
       "default_memory_scope": "writing_modular_novel",
       "enabled": true,
       "metadata": {
@@ -439,7 +421,6 @@
       "output_contract_id": "contract.writing.modular_novel.volume_review",
       "default_agent_id": "agent:writing_modular_reviewer",
       "default_workflow_id": "workflow.writing.modular_novel.node.volume_review",
-      "default_runtime_lane": "coordination_task",
       "default_memory_scope": "writing_modular_novel",
       "enabled": true,
       "metadata": {
@@ -463,7 +444,6 @@
       "output_contract_id": "contract.writing.modular_novel.volume_commit",
       "default_agent_id": "agent:writing_modular_memory_steward",
       "default_workflow_id": "workflow.writing.modular_novel.node.volume_commit",
-      "default_runtime_lane": "coordination_task",
       "default_memory_scope": "writing_modular_novel",
       "enabled": true,
       "metadata": {
@@ -487,7 +467,6 @@
       "output_contract_id": "contract.writing.modular_novel.volume_postmortem",
       "default_agent_id": "agent:writing_modular_creator",
       "default_workflow_id": "workflow.writing.modular_novel.node.volume_postmortem",
-      "default_runtime_lane": "coordination_task",
       "default_memory_scope": "writing_modular_novel",
       "enabled": true,
       "metadata": {
@@ -511,7 +490,6 @@
       "output_contract_id": "contract.writing.modular_novel.extension_proposal",
       "default_agent_id": "agent:writing_modular_creator",
       "default_workflow_id": "workflow.writing.modular_novel.node.world_outline_extension_proposal",
-      "default_runtime_lane": "coordination_task",
       "default_memory_scope": "writing_modular_novel",
       "enabled": true,
       "metadata": {
@@ -535,7 +513,6 @@
       "output_contract_id": "contract.writing.modular_novel.extension_review",
       "default_agent_id": "agent:writing_modular_reviewer",
       "default_workflow_id": "workflow.writing.modular_novel.node.extension_review",
-      "default_runtime_lane": "coordination_task",
       "default_memory_scope": "writing_modular_novel",
       "enabled": true,
       "metadata": {
@@ -559,7 +536,6 @@
       "output_contract_id": "contract.writing.modular_novel.extension_commit",
       "default_agent_id": "agent:writing_modular_memory_steward",
       "default_workflow_id": "workflow.writing.modular_novel.node.extension_commit",
-      "default_runtime_lane": "coordination_task",
       "default_memory_scope": "writing_modular_novel",
       "enabled": true,
       "metadata": {
@@ -583,7 +559,6 @@
       "output_contract_id": "contract.writing.modular_novel.volume_route",
       "default_agent_id": "agent:writing_modular_creator",
       "default_workflow_id": "workflow.writing.modular_novel.node.next_volume_router",
-      "default_runtime_lane": "coordination_task",
       "default_memory_scope": "writing_modular_novel",
       "enabled": true,
       "metadata": {
@@ -607,7 +582,6 @@
       "output_contract_id": "contract.writing.modular_novel.final_manuscript",
       "default_agent_id": "agent:writing_modular_creator",
       "default_workflow_id": "workflow.writing.modular_novel.node.final_assemble",
-      "default_runtime_lane": "coordination_task",
       "default_memory_scope": "writing_modular_novel",
       "enabled": true,
       "metadata": {
@@ -631,7 +605,6 @@
       "output_contract_id": "contract.writing.modular_novel.final_review",
       "default_agent_id": "agent:writing_modular_reviewer",
       "default_workflow_id": "workflow.writing.modular_novel.node.final_review",
-      "default_runtime_lane": "coordination_task",
       "default_memory_scope": "writing_modular_novel",
       "enabled": true,
       "metadata": {
@@ -655,7 +628,6 @@
       "output_contract_id": "contract.writing.modular_novel.final_memory_seal",
       "default_agent_id": "agent:writing_modular_memory_steward",
       "default_workflow_id": "workflow.writing.modular_novel.node.memory_finalize",
-      "default_runtime_lane": "coordination_task",
       "default_memory_scope": "writing_modular_novel",
       "enabled": true,
       "metadata": {

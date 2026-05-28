@@ -27,6 +27,11 @@ class TaskRunContract:
     acceptance_policy: dict[str, Any] = field(default_factory=dict)
     recovery_policy: dict[str, Any] = field(default_factory=dict)
     created_from_packet_ref: str = ""
+    source_contract_ref: str = ""
+    external_plan_ref: str = ""
+    task_environment_id: str = ""
+    runtime_profile: dict[str, Any] = field(default_factory=dict)
+    prompt_contract: dict[str, Any] = field(default_factory=dict)
     authority: str = "harness.loop.task_run_contract"
 
     def __post_init__(self) -> None:
@@ -150,6 +155,7 @@ def start_task_lifecycle(
             "turn_id": turn_id,
             "action_request_ref": action_request.request_id,
             "contract": contract.to_dict(),
+            "runtime_task_selection": _runtime_task_selection_from_contract(contract),
         },
     )
     agent_run = AgentRun(
@@ -355,3 +361,42 @@ def _dedupe_tuple(values: tuple[str, ...]) -> tuple[str, ...]:
         seen.add(item)
         result.append(item)
     return tuple(result)
+
+
+def _runtime_task_selection_from_contract(contract: TaskRunContract) -> dict[str, Any]:
+    runtime_profile = dict(contract.runtime_profile or {})
+    mode = str(runtime_profile.get("runtime_mode") or runtime_profile.get("mode") or "professional")
+    mode_policy = dict(runtime_profile.get("runtime_mode_policy") or runtime_profile.get("mode_policy") or {})
+    selection = {
+        "runtime_mode": mode,
+        "runtime_profile": {
+            "mode": mode,
+            "runtime_mode": mode,
+            "runtime_mode_policy": mode_policy,
+        },
+    }
+    if contract.task_environment_id:
+        selection["task_environment_id"] = contract.task_environment_id
+    if contract.external_plan_ref:
+        selection["engagement_plan_ref"] = contract.external_plan_ref
+    if contract.source_contract_ref:
+        selection["engagement_contract_ref"] = contract.source_contract_ref
+        if str(runtime_profile.get("engagement_run_ref") or "").strip():
+            selection["engagement_run_ref"] = str(runtime_profile.get("engagement_run_ref") or "").strip()
+        selection["engagement_contract"] = {
+            "contract_id": contract.source_contract_ref,
+            "plan_id": contract.external_plan_ref,
+            "task_environment_id": contract.task_environment_id,
+            "runtime_profile": runtime_profile,
+            "execution_strategy": {"kind": "single_agent_task_run"},
+            "prompt_contract": dict(contract.prompt_contract or {}),
+            "output_contract": {
+                "required_artifacts": [dict(item) for item in contract.required_artifacts],
+                "required_verifications": [dict(item) for item in contract.required_verifications],
+                "completion_criteria": list(contract.completion_criteria),
+            },
+            "acceptance_policy": dict(contract.acceptance_policy or {}),
+            "recovery_policy": dict(contract.recovery_policy or {}),
+            "authority": "task_system.engagement_contract_projection",
+        }
+    return selection

@@ -146,6 +146,26 @@ def admit_model_action(
             system_reason="task_contract_seed_missing",
             contract_errors=("task_contract_seed_missing",),
         )
+    if action_request.action_type == "request_registered_engagement":
+        task_lifecycle_policy = dict(dict(runtime_profile or {}).get("task_lifecycle_policy") or {})
+        if task_lifecycle_policy.get("request_task_run") is False:
+            return AdmissionDecision(
+                admission_id=f"admission:{action_request.request_id}",
+                action_request_ref=action_request.request_id,
+                decision="deny",
+                user_visible_reason="当前运行模式不允许发起已注册任务承接计划。",
+                system_reason="registered_engagement_disabled_by_runtime_profile",
+                contract_errors=("registered_engagement_disabled_by_runtime_profile",),
+            )
+        if not str(action_request.engagement_request.get("plan_id") or "").strip():
+            return AdmissionDecision(
+                admission_id=f"admission:{action_request.request_id}",
+                action_request_ref=action_request.request_id,
+                decision="needs_contract",
+                user_visible_reason="需要明确 engagement plan id，系统不能替 agent 猜测任务计划。",
+                system_reason="engagement_plan_id_missing",
+                contract_errors=("engagement_plan_id_missing",),
+            )
     return AdmissionDecision(
         admission_id=f"admission:{action_request.request_id}",
         action_request_ref=action_request.request_id,

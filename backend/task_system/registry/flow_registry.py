@@ -109,14 +109,12 @@ def _synthetic_specific_task_record_for_runtime(task_id: str) -> SpecificTaskRec
     if spec is None:
         return None
     workflow_id = str(spec.get("workflow_id") or "").strip()
-    runtime_lane = str(spec.get("runtime_lane") or "main_conversation").strip()
     return SpecificTaskRecord(
         task_id=target,
         task_title=str(spec.get("title") or target),
         domain_id=str(spec.get("domain_id") or "").strip(),
         description=str(spec.get("description") or spec.get("title") or target),
         enabled=True,
-        runtime_lane=runtime_lane,
         input_contract_id=str(spec.get("input_contract_id") or "UserMessage"),
         output_contract_id=str(spec.get("output_contract_id") or "AssistantFinalAnswer"),
         acceptance_profile_id="",
@@ -125,7 +123,6 @@ def _synthetic_specific_task_record_for_runtime(task_id: str) -> SpecificTaskRec
         task_policy={
             "safety_policy": dict(spec.get("safety_policy") or {}),
             "task_structure": {
-                "runtime_lane_hint": runtime_lane,
                 "memory_scope_hint": "conversation",
             },
         },
@@ -239,7 +236,6 @@ def _specific_task_record_from_assignment(task: TaskAssignment) -> SpecificTaskR
         domain_id=task.domain_id,
         description=str(dict(task.metadata or {}).get("description") or task.task_title),
         enabled=task.enabled,
-        runtime_lane=task.runtime_lane,
         input_contract_id=task.input_contract_id,
         output_contract_id=task.output_contract_id,
         acceptance_profile_id=str(dict(task.metadata or {}).get("acceptance_profile_id") or ""),
@@ -292,7 +288,6 @@ def _synthetic_task_from_general_profile(profile: GeneralTaskProfile) -> TaskAss
         task_kind="general_task",
         flow_id="flow.general.main_conversation",
         domain_id="domain.general",
-        runtime_lane="main_conversation",
         default_agent_id=normalize_agent_id(str(profile.default_agent_id or "agent:0").strip() or "agent:0"),
         participant_agent_ids=(),
         workflow_id=str(profile.default_workflow_id or ""),
@@ -429,7 +424,6 @@ class TaskFlowRegistry:
         output_contract_id: str,
         default_agent_id: str,
         default_workflow_id: str,
-        default_runtime_lane: str,
         default_memory_scope: str,
         enabled: bool = True,
         metadata: dict[str, Any] | None = None,
@@ -441,7 +435,6 @@ class TaskFlowRegistry:
             output_contract_id=output_contract_id,
             default_agent_id=default_agent_id,
             default_workflow_id=default_workflow_id,
-            default_runtime_lane=default_runtime_lane,
             default_memory_scope=default_memory_scope,
             enabled=enabled,
             metadata=metadata,
@@ -560,7 +553,6 @@ class TaskFlowRegistry:
         task_kind: str,
         flow_id: str,
         domain_id: str = "",
-        runtime_lane: str = "",
         default_agent_id: str,
         participant_agent_ids: tuple[str, ...] = (),
         workflow_id: str = "",
@@ -586,7 +578,6 @@ class TaskFlowRegistry:
             domain_id=str(domain_id or normalized_metadata.get("domain_id") or "").strip(),
             description=str(normalized_metadata.get("description") or task_title or target).strip(),
             enabled=enabled,
-            runtime_lane=runtime_lane,
             input_contract_id=input_contract_id,
             output_contract_id=output_contract_id,
             acceptance_profile_id=str(normalized_metadata.get("acceptance_profile_id") or ""),
@@ -609,7 +600,6 @@ class TaskFlowRegistry:
             output_contract_id=record.output_contract_id,
             default_agent_id=normalize_agent_id(str(default_agent_id or "agent:0").strip() or "agent:0"),
             default_workflow_id=record.default_workflow_id,
-            default_runtime_lane=record.runtime_lane or str(dict(record.task_policy or {}).get("task_structure", {}).get("runtime_lane_hint") or ""),
             default_memory_scope=str(dict(record.task_policy or {}).get("task_structure", {}).get("memory_scope_hint") or ""),
             enabled=record.enabled,
             metadata={**dict(record.metadata or {}), "task_assignment_id": record.task_id},
@@ -620,7 +610,6 @@ class TaskFlowRegistry:
             task_kind=str(task_kind or "specific_task").strip(),
             flow_id=normalized_flow_id,
             domain_id=record.domain_id,
-            runtime_lane=record.runtime_lane,
             default_agent_id=normalize_agent_id(str(default_agent_id or "agent:0").strip() or "agent:0"),
             participant_agent_ids=normalize_agent_id_sequence(str(item).strip() for item in participant_agent_ids if str(item).strip()),
             workflow_id=record.default_workflow_id,
@@ -644,7 +633,6 @@ class TaskFlowRegistry:
         domain_id: str = "",
         description: str = "",
         enabled: bool = True,
-        runtime_lane: str = "",
         input_contract_id: str = "",
         output_contract_id: str = "",
         acceptance_profile_id: str = "",
@@ -659,7 +647,6 @@ class TaskFlowRegistry:
             domain_id=domain_id,
             description=description,
             enabled=enabled,
-            runtime_lane=runtime_lane,
             input_contract_id=input_contract_id,
             output_contract_id=output_contract_id,
             acceptance_profile_id=acceptance_profile_id,
@@ -709,7 +696,6 @@ class TaskFlowRegistry:
             task_kind="specific_task",
             flow_id=flow.flow_id,
             domain_id=str(flow.metadata.get("domain_id") or ""),
-            runtime_lane=flow.default_runtime_lane,
             default_agent_id=flow.default_agent_id or "agent:0",
             participant_agent_ids=(),
             workflow_id=flow.default_workflow_id,
@@ -718,7 +704,6 @@ class TaskFlowRegistry:
             output_contract_id=flow.output_contract_id,
             safety_policy=dict(spec.get("safety_policy") or {}) if spec is not None else {},
             task_structure={
-                "runtime_lane_hint": flow.default_runtime_lane,
                 "memory_scope_hint": flow.default_memory_scope,
                 "workflow_steps": [dict(item) for item in workflow.steps] if workflow is not None else [],
                 "task_resource_kind": str(flow.metadata.get("task_resource") or ""),
@@ -1026,7 +1011,6 @@ class TaskFlowRegistry:
                 summary=f"{CONTRACT_TITLE_MAP.get(flow.input_contract_id, flow.input_contract_id)} -> {CONTRACT_TITLE_MAP.get(flow.output_contract_id, flow.output_contract_id)}",
                 metadata={
                     "default_workflow_id": flow.default_workflow_id,
-                    "default_runtime_lane": flow.default_runtime_lane,
                 },
             )
 

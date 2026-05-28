@@ -3,12 +3,7 @@
 import { AlertTriangle, Loader2, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import {
-  buildTaskSystemTaskGraphExecutionPackage,
-  type ContractManifest,
-  type TaskGraphExecutionPackage,
-  type TaskGraphRuntimeSpec,
-} from "@/lib/api";
+import type { TaskGraphContractPreview } from "@/lib/api";
 
 import { TaskGraphAgentRosterPage } from "@/components/workspace/views/task-system/TaskGraphAgentRosterPage";
 import { TaskGraphBlueprintPage } from "@/components/workspace/views/task-system/TaskGraphBlueprintPage";
@@ -59,9 +54,8 @@ export function TaskGraphWorkbench({
   ...rest
 }: TaskGraphWorkbenchProps) {
   const [editorFocus, setEditorFocus] = useState<TaskGraphEditorFocus>(() => ({ layer: activeGraphNodes.length ? "topology" : "blueprint" }));
-  const [executionPackage, setExecutionPackage] = useState<TaskGraphExecutionPackage | null>(null);
-  const [executionPackageError, setExecutionPackageError] = useState("");
-  const [executionPackageLoading, setExecutionPackageLoading] = useState(false);
+  const [graphContract, setGraphContract] = useState<TaskGraphContractPreview | null>(null);
+  const [graphContractError, setGraphContractError] = useState("");
   const [showTemplateChooser, setShowTemplateChooser] = useState(false);
   const selectedTaskGraphId = rest.selectedTaskGraphId;
   const taskGraphStandardView = rest.taskGraphStandardView;
@@ -93,24 +87,6 @@ export function TaskGraphWorkbench({
   };
   const updateRuntimePolicy = (patch: Partial<typeof taskGraphDraftV2.runtime_policy>) => {
     updateTaskGraphRuntimePolicy(patch);
-  };
-  const compileExecutionPackage = async () => {
-    if (!taskGraphDraftV2.graph_id) return;
-    if (rest.taskGraphDirty || taskGraphStandardViewStale) {
-      setExecutionPackage(null);
-      setExecutionPackageError("当前草稿或标准视图已过期，请先保存并刷新标准视图后再编译执行包。");
-      return;
-    }
-    setExecutionPackageLoading(true);
-    setExecutionPackageError("");
-    try {
-      setExecutionPackage(await buildTaskSystemTaskGraphExecutionPackage(taskGraphDraftV2.graph_id));
-    } catch (error) {
-      setExecutionPackage(null);
-      setExecutionPackageError(error instanceof Error ? error.message : "执行包编译失败");
-    } finally {
-      setExecutionPackageLoading(false);
-    }
   };
   const applyEditorFocus = (nextFocus: Partial<TaskGraphEditorFocus> & { layer?: TaskGraphStudioLayerId }) => {
     setEditorFocus((current) => mergeTaskGraphEditorFocus(current, nextFocus));
@@ -546,12 +522,10 @@ export function TaskGraphWorkbench({
           onRepairIssue={repairPreflightIssue}
           publishState={publishState}
           saving={rest.saving}
-          sharedContractManifest={executionPackage?.contract_manifest as ContractManifest | null}
-          sharedExecutionPackage={executionPackage}
-          sharedRuntimeSpec={executionPackage?.runtime_spec as TaskGraphRuntimeSpec | null}
-          sharedRuntimeSpecError={executionPackageError}
-          onSharedExecutionPackageChange={setExecutionPackage}
-          onSharedRuntimeSpecErrorChange={setExecutionPackageError}
+          sharedGraphContract={graphContract}
+          sharedGraphContractError={graphContractError}
+          onSharedGraphContractChange={setGraphContract}
+          onSharedGraphContractErrorChange={setGraphContractError}
         />
       );
     }
@@ -565,13 +539,9 @@ export function TaskGraphWorkbench({
       dirty={rest.taskGraphDirty}
       edgeCount={activeGraphEdges.length}
       editorFocus={editorFocus}
-      executionPackage={executionPackage}
-      executionPackageError={executionPackageError}
-      executionPackageLoading={executionPackageLoading}
       graphId={taskGraphDraftV2.graph_id}
       issueCount={issueCount}
       nodeCount={activeGraphNodes.length}
-      onCompileExecutionPackage={() => { void compileExecutionPackage(); }}
       onLayerChange={setActiveLayer}
       onPublish={handlePublish}
       onSave={handleSaveDraft}

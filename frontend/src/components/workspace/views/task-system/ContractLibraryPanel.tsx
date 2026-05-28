@@ -98,7 +98,6 @@ export function newContractSpec(kind = "workflow"): ContractSpec {
       metadata: {},
     },
     allowed_agent_kinds: [],
-    allowed_runtime_lanes: [],
     version: "1.0.0",
     enabled: true,
     metadata: { managed_by: "task_contract_console" },
@@ -132,7 +131,6 @@ function normalizeContractSpec(spec: ContractSpec): ContractSpec {
       ...(spec.human_gate_policy ?? {}),
     },
     allowed_agent_kinds: spec.allowed_agent_kinds ?? [],
-    allowed_runtime_lanes: spec.allowed_runtime_lanes ?? [],
     metadata: spec.metadata ?? {},
   };
 }
@@ -424,7 +422,6 @@ export function ContractLibraryPanel({
             <header><ShieldCheck size={15} /><strong>适用范围与高级字段</strong><span>高级 JSON 只保留扩展元数据</span></header>
             <div className="boundary-form">
               <TaskSystemField label="允许 Agent 类别" wide><textarea value={(draft.allowed_agent_kinds ?? []).join("\n")} onChange={(event) => setDraft((value) => ({ ...value, allowed_agent_kinds: splitLines(event.target.value) }))} /></TaskSystemField>
-              <TaskSystemField label="适用运行场景权限" wide><textarea value={(draft.allowed_runtime_lanes ?? []).join("\n")} onChange={(event) => setDraft((value) => ({ ...value, allowed_runtime_lanes: splitLines(event.target.value) }))} /></TaskSystemField>
               <TaskSystemField label="扩展元数据 JSON" wide><textarea value={metadataText} onChange={(event) => setMetadataText(event.target.value)} /></TaskSystemField>
             </div>
           </section>
@@ -566,7 +563,7 @@ function RuntimeRequirementEditor({ items, onChange }: { items: RuntimeRequireme
             <div className="boundary-form">
               <TaskSystemField label="要求 ID"><input value={item.requirement_id} onChange={(event) => patch(index, { requirement_id: event.target.value })} /></TaskSystemField>
               <TaskSystemField label="名称"><input value={item.title_zh} onChange={(event) => patch(index, { title_zh: event.target.value })} /></TaskSystemField>
-              <TaskSystemSelectField label="要求类型" value={item.requirement_type} options={["capability", "model", "runtime_lane", "memory", "artifact", "human"]} onChange={(value) => patch(index, { requirement_type: value })} />
+              <TaskSystemSelectField label="要求类型" value={item.requirement_type} options={["capability", "model", "memory", "artifact", "human", "tool", "permission", "task_environment"]} onChange={(value) => patch(index, { requirement_type: value })} />
               <TaskSystemField label="值"><input value={item.value} onChange={(event) => patch(index, { value: event.target.value })} /></TaskSystemField>
               <label className="boundary-check"><input checked={item.required} onChange={(event) => patch(index, { required: event.target.checked })} type="checkbox" />必需</label>
               <JsonTextarea key={`${item.requirement_id}-${index}-config`} label="配置 JSON" value={item.config ?? {}} onValidChange={(config) => patch(index, { config })} />

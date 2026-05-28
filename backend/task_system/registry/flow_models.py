@@ -12,7 +12,6 @@ class TaskFlowDefinition:
     output_contract_id: str
     default_agent_id: str
     default_workflow_id: str
-    default_runtime_lane: str
     default_memory_scope: str
     enabled: bool = True
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -45,7 +44,6 @@ class TaskAssignment:
     task_kind: str
     flow_id: str
     domain_id: str = ""
-    runtime_lane: str = ""
     default_agent_id: str = "agent:0"
     participant_agent_ids: tuple[str, ...] = ()
     workflow_id: str = ""
@@ -78,7 +76,6 @@ class SpecificTaskRecord:
     domain_id: str = ""
     description: str = ""
     enabled: bool = True
-    runtime_lane: str = ""
     input_contract_id: str = ""
     output_contract_id: str = ""
     acceptance_profile_id: str = ""
@@ -202,7 +199,6 @@ class TaskAgentBinding:
     flow_id: str
     agent_id: str
     agent_profile_id: str
-    runtime_lane: str
     workflow_id: str
     memory_scope: str
     output_contract_id: str
@@ -346,7 +342,6 @@ class AgentTaskConnectionProfile:
     topology_refs: tuple[str, ...] = ()
     default_flow_ref: str = ""
     default_workflow_ref: str = ""
-    default_runtime_lane_hint: str = ""
     validation_state: str = "unchecked"
     blocked_reasons: tuple[str, ...] = ()
     diagnostics: dict[str, Any] = field(default_factory=dict)

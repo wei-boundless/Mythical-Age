@@ -155,6 +155,7 @@ class GraphHarness:
         config_payload = graph_config.to_dict() if graph_config is not None else {}
         task_run_id = state.task_run_id if state is not None else str(dict(graph_run or {}).get("task_run_id") or "")
         events = self._services.event_log.list_events(task_run_id) if task_run_id else []
+        active_work_orders = _active_work_orders_from_state(state)
         return {
             "authority": "harness.graph_run_monitor",
             "graph_run_id": graph_run_id,
@@ -162,6 +163,8 @@ class GraphHarness:
             "task_run": self.get_task_run(task_run_id).to_dict() if task_run_id and self.get_task_run(task_run_id) is not None else None,
             "graph_harness_config": config_payload,
             "graph_loop_state": state.to_dict() if state is not None else {},
+            "active_node_work_orders": active_work_orders,
+            "active_node_work_order_count": len(active_work_orders),
             "events": [item.to_dict() for item in events],
             "event_count": len(events),
         }
@@ -182,3 +185,17 @@ def _result_should_advance_loop(result: NodeResultEnvelope) -> bool:
     if str(diagnostics.get("authority") or "") == "harness.graph.work_order_executor.unsupported":
         return False
     return result.status in {"completed", "failed"}
+
+
+def _active_work_orders_from_state(state: Any | None) -> list[dict[str, Any]]:
+    if state is None:
+        return []
+    active = dict(getattr(state, "active_work_orders", {}) or {})
+    index = dict(getattr(state, "work_order_index", {}) or {})
+    orders: list[dict[str, Any]] = []
+    for node_id, work_order_id in active.items():
+        payload = dict(index.get(str(work_order_id)) or {})
+        if not payload:
+            payload = {"node_id": str(node_id), "work_order_id": str(work_order_id)}
+        orders.append(payload)
+    return orders

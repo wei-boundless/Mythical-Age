@@ -1689,6 +1689,12 @@ def _upsert_task_asset(
 ) -> None:
     flow_id = task_id.replace("task.", "flow.", 1)
     workflow_id = task_id.replace("task.", "workflow.", 1)
+    node = _node_spec_by_id(node_id)
+    node_contract_bindings = _node_contract_bindings(node) if node is not None else _basic_node_contract_bindings(
+        input_contract_id=input_contract_id,
+        output_contract_id=output_contract_id,
+        node_id=node_id,
+    )
     registry.workflow_registry.upsert_workflow(
         workflow_id=workflow_id,
         title=title,
@@ -1704,7 +1710,13 @@ def _upsert_task_asset(
         output_contract_id=output_contract_id,
         prompt=prompt,
         enabled=True,
-        metadata={"managed_by": MANAGED_BY, "domain_id": DOMAIN_ID, "environment_id": ENVIRONMENT_ID, "node_id": node_id},
+        metadata={
+            "managed_by": MANAGED_BY,
+            "domain_id": DOMAIN_ID,
+            "environment_id": ENVIRONMENT_ID,
+            "node_id": node_id,
+            "contract_bindings": node_contract_bindings,
+        },
     )
     registry.upsert_flow(
         flow_id=flow_id,
@@ -1713,7 +1725,6 @@ def _upsert_task_asset(
         output_contract_id=output_contract_id,
         default_agent_id=agent_id,
         default_workflow_id=workflow_id,
-        default_runtime_lane="",
         default_memory_scope="writing_modular_novel",
         enabled=True,
         metadata={
@@ -1727,6 +1738,7 @@ def _upsert_task_asset(
             "interaction_mode": "role_mode",
             "execution_mode": "single",
             "task_graph_node_runtime": True,
+            "contract_bindings": node_contract_bindings,
         },
     )
     registry.upsert_specific_task_record(
@@ -1735,7 +1747,6 @@ def _upsert_task_asset(
         domain_id=DOMAIN_ID,
         description=f"{title}。由模块化写作任务图原生配置生成。",
         enabled=True,
-        runtime_lane="",
         input_contract_id=input_contract_id,
         output_contract_id=output_contract_id,
         default_flow_contract_id=flow_id,
@@ -1751,6 +1762,7 @@ def _upsert_task_asset(
                 "runtime_interaction_mode": "role_mode",
             },
             "operation_policy": _node_operation_policy(node_id=node_id),
+            "contract_bindings": node_contract_bindings,
         },
         metadata={
             "managed_by": MANAGED_BY,
@@ -1763,6 +1775,7 @@ def _upsert_task_asset(
             "interaction_mode": "role_mode",
             "execution_mode": "single",
             "task_graph_node_runtime": True,
+            "contract_bindings": node_contract_bindings,
         },
     )
     registry.upsert_task_assignment(
@@ -1771,7 +1784,6 @@ def _upsert_task_asset(
         task_kind="specific_task",
         domain_id=DOMAIN_ID,
         flow_id=flow_id,
-        runtime_lane="",
         default_agent_id=agent_id,
         workflow_id=workflow_id,
         workflow_file_ref=f"workflow:{workflow_id}",
@@ -1788,6 +1800,7 @@ def _upsert_task_asset(
                 {"step_id": "execute_node", "title": "执行节点职责"},
                 {"step_id": "commit_artifact_refs", "title": "提交结构化产物引用"},
             ],
+            "contract_bindings": node_contract_bindings,
         },
         enabled=True,
         metadata={
@@ -1801,6 +1814,7 @@ def _upsert_task_asset(
             "interaction_mode": "role_mode",
             "execution_mode": "single",
             "task_graph_node_runtime": True,
+            "contract_bindings": node_contract_bindings,
         },
     )
     registry.upsert_flow_contract_binding(
@@ -1913,6 +1927,14 @@ def _node_payload(node: NodeSpec) -> dict[str, Any]:
     dynamic_expansion_policy = _dynamic_expansion_policy(node)
     if dynamic_expansion_policy:
         runtime_bindings["dynamic_expansion"] = dict(dynamic_expansion_policy)
+    contract_bindings = _node_contract_bindings(
+        node,
+        artifact_policy=artifact_policy,
+        runtime_bindings=runtime_bindings,
+        unit_batch_bindings=unit_batch_bindings,
+        governance_policy=governance_policy,
+        memory_write_policy=memory_write_policy,
+    )
     payload = {
         "node_id": node.node_id,
         "node_type": node.node_type,
@@ -1939,22 +1961,7 @@ def _node_payload(node: NodeSpec) -> dict[str, Any]:
         },
         "input_contract_id": node.input_contract_id,
         "output_contract_id": node.output_contract_id,
-        "contract_bindings": {
-            "schema": {"input_contract_id": node.input_contract_id, "output_contract_id": node.output_contract_id},
-            "execution": {"node_contract_id": node.output_contract_id},
-            "artifact": {"artifact_policy": artifact_policy, "artifact_context_policy": _artifact_context_policy(node)},
-            "memory": {
-                "memory_read_policy": _memory_read_policy(node),
-                "memory_writeback_policy": memory_write_policy,
-                "dynamic_memory_read_policy": _dynamic_memory_read_policy(node),
-                "prewrite_memory_plan_policy": _prewrite_memory_plan_policy(node),
-                "dynamic_expansion_policy": _dynamic_expansion_policy(node),
-            },
-            "acceptance": {"review_gate_policy": _review_gate_policy(node)} if node.node_type == "review_gate" else {},
-            "runtime": runtime_bindings,
-            "unit_batch": unit_batch_bindings,
-            "governance": governance_policy,
-        },
+        "contract_bindings": contract_bindings,
         "memory_read_policy": _memory_read_policy(node),
         "memory_writeback_policy": memory_write_policy,
         "dynamic_memory_read_policy": _dynamic_memory_read_policy(node),
@@ -2060,6 +2067,92 @@ def _repository_collections_payload(spec: dict[str, Any]) -> list[dict[str, Any]
             }
         )
     return payload
+
+
+def _node_spec_by_id(node_id: str) -> NodeSpec | None:
+    target = str(node_id or "").strip()
+    if not target:
+        return None
+    return next((node for node in (*DESIGN_NODES, *CHAPTER_NODES, *FINALIZE_NODES) if node.node_id == target), None)
+
+
+def _basic_node_contract_bindings(
+    *,
+    input_contract_id: str,
+    output_contract_id: str,
+    node_id: str,
+) -> dict[str, Any]:
+    return {
+        "schema": {
+            "input_contract_id": str(input_contract_id or "").strip(),
+            "output_contract_id": str(output_contract_id or "").strip(),
+        },
+        "execution": {
+            "node_contract_id": str(output_contract_id or "").strip(),
+            "task_ref": _node_task_id(node_id) if str(node_id or "").strip() else "",
+        },
+        "governance": {
+            "no_writing_specific_backend_shortcut": True,
+            "contract_source": "node.contract_bindings",
+            "node_id": str(node_id or "").strip(),
+        },
+    }
+
+
+def _node_contract_bindings(
+    node: NodeSpec,
+    *,
+    artifact_policy: dict[str, Any] | None = None,
+    runtime_bindings: dict[str, Any] | None = None,
+    unit_batch_bindings: dict[str, Any] | None = None,
+    governance_policy: dict[str, Any] | None = None,
+    memory_write_policy: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    resolved_artifact_policy = dict(artifact_policy or _artifact_policy(node))
+    resolved_runtime = dict(runtime_bindings or {"model_requirement": _model_requirement(node.node_id), **dict(node.extra_runtime)})
+    resolved_unit_batch = dict(unit_batch_bindings or _node_unit_batch_contract(node))
+    resolved_governance = dict(governance_policy or _node_governance_policy(node))
+    resolved_memory_write = dict(memory_write_policy or _memory_write_policy(node))
+    binding = _basic_node_contract_bindings(
+        input_contract_id=node.input_contract_id,
+        output_contract_id=node.output_contract_id,
+        node_id=node.node_id,
+    )
+    binding.update(
+        {
+            "schema": {
+                **dict(binding["schema"]),
+                "required_inputs": list(node.required_inputs),
+                "output_artifact_paths": list(node.artifact_paths),
+            },
+            "execution": {
+                **dict(binding["execution"]),
+                "node_contract_id": node.output_contract_id,
+                "workflow_role": node.role,
+                "agent_id": _node_agent_id(node),
+            },
+            "artifact": {
+                "artifact_policy": resolved_artifact_policy,
+                "artifact_context_policy": _artifact_context_policy(node),
+                "artifact_targets": [{"path": path, "required": True, "source": "node_spec"} for path in node.artifact_paths],
+            },
+            "memory": {
+                "memory_read_policy": _memory_read_policy(node),
+                "memory_writeback_policy": resolved_memory_write,
+                "dynamic_memory_read_policy": _dynamic_memory_read_policy(node),
+                "prewrite_memory_plan_policy": _prewrite_memory_plan_policy(node),
+                "dynamic_expansion_policy": _dynamic_expansion_policy(node),
+            },
+            "acceptance": {"review_gate_policy": _review_gate_policy(node)} if node.node_type == "review_gate" else {},
+            "runtime": resolved_runtime,
+            "unit_batch": resolved_unit_batch,
+            "governance": {
+                **resolved_governance,
+                "contract_source": "node.contract_bindings",
+            },
+        }
+    )
+    return binding
 
 
 def _node_agent_id(node: NodeSpec) -> str:

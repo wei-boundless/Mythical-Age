@@ -208,11 +208,10 @@ def test_resolved_environment_exports_storage_and_file_boundaries() -> None:
 
 def test_task_environment_catalog_is_single_normalized_resource_surface() -> None:
     catalog = build_task_environment_catalog(
-        specific_task_records=[
+        engagement_plans=[
             {
-                "task_id": "task.test.writing",
-                "metadata": {"task_environment_id": "env.creation.writing"},
-                "task_policy": {},
+                "plan_id": "engage.test.writing",
+                "task_environment_id": "env.creation.writing",
             }
         ]
     )
@@ -230,7 +229,8 @@ def test_task_environment_catalog_is_single_normalized_resource_surface() -> Non
     assert "memory_space" in development
     assert "file_access_tables" in development
     assert development["storage_space"]["task_library_root"] == "storage/task_environments/development/sandbox/task_library"
-    assert writing_item["task_library"]["task_ids"] == ["task.test.writing"]
+    assert writing_item["task_library"]["engagement_plan_ids"] == ["engage.test.writing"]
+    assert writing_item["task_library"]["task_ids"] == ["engage.test.writing"]
 
 
 def test_environment_does_not_filter_agent_allowed_tools() -> None:
