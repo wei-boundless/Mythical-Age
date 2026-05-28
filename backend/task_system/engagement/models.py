@@ -8,11 +8,7 @@ EngagementPlanStatus = Literal["draft", "active", "deprecated", "disabled", "arc
 EngagementAssigneeKind = Literal["agent", "workflow", "human", "system"]
 EngagementRuntimeMode = Literal["role", "standard", "professional", "custom"]
 EngagementExecutionKind = Literal[
-    "turn_contract",
-    "turn_execution",
-    "single_agent_task_run",
-    "workflow_run",
-    "human_gate",
+    "graph_task_run",
 ]
 EngagementAdmissionDecision = Literal["allow", "deny", "ask_user", "requires_approval", "invalid"]
 EngagementRunStatus = Literal[
@@ -136,6 +132,7 @@ class ResolvedEngagementPlan:
     assignee_profile: dict[str, Any]
     execution_strategy: EngagementExecutionStrategy
     runtime_profile: EngagementRuntimeProfile
+    backend_dir: str = ""
     missing_refs: tuple[str, ...] = ()
     authority: str = "task_system.resolved_engagement_plan"
 
@@ -246,4 +243,3 @@ class EngagementEvent:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
-

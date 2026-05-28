@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from task_system.registry.flow_registry import TaskFlowRegistry
+
 from .models import EngagementAdmissionResult, ResolvedEngagementPlan
 
 
-SUPPORTED_STRATEGIES = {"turn_contract", "turn_execution", "single_agent_task_run", "workflow_run", "human_gate"}
+SUPPORTED_STRATEGIES = {"graph_task_run"}
 
 
 def admit_engagement(resolved: ResolvedEngagementPlan) -> EngagementAdmissionResult:
@@ -17,9 +19,9 @@ def admit_engagement(resolved: ResolvedEngagementPlan) -> EngagementAdmissionRes
         environment_errors.append(f"plan_status_not_active:{resolved.plan.status}")
     if strategy_kind not in SUPPORTED_STRATEGIES:
         environment_errors.append(f"unsupported_strategy:{strategy_kind}")
-    if strategy_kind == "single_agent_task_run":
-        if not _has_completion_contract(resolved.plan.output_contract, resolved.plan.acceptance_policy):
-            input_errors.append("task_run_completion_contract_required")
+    if strategy_kind == "graph_task_run":
+        graph_errors = _graph_task_run_errors(resolved)
+        environment_errors.extend(graph_errors)
     decision = "allow"
     reason = ""
     if input_errors:
@@ -44,6 +46,22 @@ def admit_engagement(resolved: ResolvedEngagementPlan) -> EngagementAdmissionRes
     )
 
 
+def _graph_task_run_errors(resolved: ResolvedEngagementPlan) -> list[str]:
+    startup_policy = dict(resolved.execution_strategy.startup_policy or {})
+    graph_id = str(startup_policy.get("graph_id") or startup_policy.get("task_graph_id") or "").strip()
+    if not graph_id:
+        return ["graph_task_run_graph_id_required"]
+    registry = TaskFlowRegistry(resolved.backend_dir)
+    graph = registry.get_task_graph(graph_id)
+    if graph is None:
+        return [f"task_graph_not_found:{graph_id}"]
+    if not graph.enabled or graph.publish_state != "published":
+        return [f"task_graph_not_published:{graph_id}"]
+    if registry.get_published_graph_harness_config(graph_id) is None:
+        return [f"published_graph_harness_config_required:{graph_id}"]
+    return []
+
+
 def _input_errors(parameters: dict[str, Any], input_contract: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     required = input_contract.get("required") or input_contract.get("required_fields") or ()
@@ -56,16 +74,4 @@ def _input_errors(parameters: dict[str, Any], input_contract: dict[str, Any]) ->
         if key and key not in parameters:
             errors.append(f"missing_input:{key}")
     return errors
-
-
-def _has_completion_contract(output_contract: dict[str, Any], acceptance_policy: dict[str, Any]) -> bool:
-    if output_contract.get("required_artifacts") or output_contract.get("required_verifications"):
-        return True
-    if output_contract.get("completion_criteria") or output_contract.get("artifact_requirements"):
-        return True
-    if acceptance_policy.get("required_artifacts") or acceptance_policy.get("required_verifications"):
-        return True
-    if acceptance_policy.get("completion_criteria"):
-        return True
-    return False
 

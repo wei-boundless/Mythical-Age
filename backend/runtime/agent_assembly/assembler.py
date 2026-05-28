@@ -555,11 +555,6 @@ def _build_output_boundary(
         canonical_state = "graph_node"
         persist_policy = "graph_commit"
         finalization_policy = "node_result_commit"
-    elif work_order.work_kind == "graph_module":
-        channel = "graph_module_result"
-        canonical_state = "graph_module"
-        persist_policy = "graph_module_commit"
-        finalization_policy = "graph_module_result_commit"
     else:
         channel = "assistant_message"
         canonical_state = "assistant_message"
@@ -661,8 +656,6 @@ def _role_name_for_work_order(work_order: WorkOrder) -> str:
         return "人工审核员"
     if work_order.work_kind == "node":
         return "阶段任务执行者"
-    if work_order.work_kind == "graph_module":
-        return "图模块执行者"
     return "执行代理"
 
 
@@ -676,8 +669,6 @@ def _role_summary_for_work_order(work_order: WorkOrder, agent_descriptor: Any | 
         return "你负责人工确认和人工结果回填，只处理当前工作单。"
     if work_order.work_kind == "node":
         return f"你负责完成当前阶段任务 {work_order.node_id or work_order.stage_id}，不替代上层流程做取舍。"
-    if work_order.work_kind == "graph_module":
-        return "你负责启动并接收当前图模块的结果，只返回图模块对父图承诺的输出。"
     return f"{agent_name or '你'}负责完成当前工作单并交付受限结果。"
 
 
@@ -702,12 +693,6 @@ def _instruction_text_for_work_order(
             "你是一名阶段任务执行者。"
             "你只负责完成当前阶段职责，交付必须符合当前阶段的验收要求。"
             "你不负责替上层流程重写任务安排。"
-        )
-    if work_order.work_kind == "graph_module":
-        return (
-            "你是一名图模块执行者。"
-            "你只负责完成当前导入图模块并返回对父图承诺的结果。"
-            "你不负责暴露导入图内部执行细节，也不替父图改写流程。"
         )
     return (
         f"你是一名{agent_name or '执行代理'}。"
@@ -741,8 +726,6 @@ def _required_outputs_for_work_order(
         required.append("当前阶段结果")
     if work_order.executor_type == "human":
         required.append("人工反馈")
-    if work_order.work_kind == "graph_module":
-        required.append("图模块结果")
     return tuple(dict.fromkeys([item for item in required if item]))
 
 
@@ -770,4 +753,3 @@ def _agent_resolution_source(
     if runtime_profile is not None:
         return "runtime_registry"
     return "system_default"
-

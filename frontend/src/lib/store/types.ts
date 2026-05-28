@@ -1,12 +1,11 @@
 import type {
   OrchestrationSnapshot,
   GlobalRuntimeMonitor,
+  GraphRunMonitorView,
   ModelProviderConfig,
   RetrievalResult,
   RuntimeMonitorEventPayload,
   SoulImageAssetConfig,
-  TaskGraphMonitorDecision,
-  TaskGraphRunMonitorView,
   HarnessTaskRunLiveMonitor,
   SessionSummary,
   ToolCall,
@@ -186,9 +185,9 @@ export type TaskSelectionState = {
 };
 
 export type TaskGraphMonitorBinding = {
-  task_run_id: string;
-  graph_run_id?: string;
-  graph_harness_config_id?: string;
+  task_run_id?: string;
+  graph_run_id: string;
+  graph_harness_config_id: string;
   graph_id?: string;
   session_id?: string;
   project_id?: string;
@@ -239,19 +238,17 @@ export type StoreState = {
   orchestrationSnapshot: OrchestrationSnapshot | null;
   taskGraphMonitorBinding: TaskGraphMonitorBinding | null;
   taskGraphLiveMonitor: HarnessTaskRunLiveMonitor | null;
-  taskGraphRunMonitor: TaskGraphRunMonitorView | null;
+  taskGraphRunMonitor: GraphRunMonitorView | null;
   globalRuntimeMonitor: GlobalRuntimeMonitor | null;
   globalRuntimeMonitorRevision: string;
   globalRuntimeMonitorSelectedTaskRunId: string;
   globalRuntimeMonitorSelectedLiveMonitor: HarnessTaskRunLiveMonitor | null;
-  globalRuntimeMonitorSelectedGraphMonitor: TaskGraphRunMonitorView | null;
+  globalRuntimeMonitorSelectedGraphMonitor: GraphRunMonitorView | null;
   globalRuntimeMonitorLoading: boolean;
   globalRuntimeMonitorError: string;
   globalRuntimeMonitorStreamStatus: RuntimeMonitorStreamStatus;
   globalRuntimeMonitorLastEvent: RuntimeMonitorEventPayload["runtime_event"] | null;
-  taskGraphBoundRunMonitor: TaskGraphRunMonitorView | null;
-  taskGraphMonitorDecision: TaskGraphMonitorDecision | null;
-  taskGraphMonitorDecisions: TaskGraphMonitorDecision[];
+  taskGraphBoundRunMonitor: GraphRunMonitorView | null;
   taskGraphMonitorLoading: boolean;
   taskGraphMonitorActionLoading: boolean;
   taskGraphMonitorError: string;
@@ -291,10 +288,7 @@ export type StoreActions = {
   setTaskGraphRunInteractionOpen: (open: boolean) => void;
   evaluateBoundTaskGraphMonitor: () => Promise<void>;
   continueBoundTaskGraphRun: () => Promise<void>;
-  refreshAndContinueBoundTaskGraphRun: () => Promise<void>;
-  submitTaskGraphMonitorDecision: (decision: string, controlAction: string, resumePayload?: Record<string, unknown>) => Promise<void>;
   resumeTaskGraphRun: (taskGraphRunId: string, payload?: Record<string, unknown>) => Promise<void>;
-  resolveRuntimeApproval: (taskRunId: string, decision: "approve" | "reject", message?: string) => Promise<void>;
   setTaskSelection: (selection: TaskSelectionState | null) => void;
   selectGlobalRuntimeMonitorTaskRun: (taskRunId: string) => void;
   openGlobalRuntimeMonitorTaskRun: (taskRunId: string) => void;

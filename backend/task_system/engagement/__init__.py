@@ -18,7 +18,6 @@ from .repository import EngagementPlanConfigError, EngagementPlanRepository
 from .resolver import resolve_engagement_plan
 from .run_repository import EngagementRunRepository
 from .service import EngagementService
-from .task_run_adapter import task_run_contract_from_engagement
 
 __all__ = [
     "EngagementAdmissionResult",
@@ -41,5 +40,4 @@ __all__ = [
     "resolve_engagement_plan",
     "sync_engagement_run_closeout",
     "sync_engagement_runs_for_terminal_task",
-    "task_run_contract_from_engagement",
 ]

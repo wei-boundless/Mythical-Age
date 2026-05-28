@@ -39,7 +39,7 @@ def validate_work_order(work_order: WorkOrder) -> AssemblyValidationReport:
         issues.append(_issue("missing_task_ref", "工作单缺少 task_ref", field_name="task_ref"))
     if not str(work_order.executor_type or "").strip():
         issues.append(_issue("missing_executor_type", "工作单缺少 executor_type", field_name="executor_type"))
-    if work_order.work_kind in {"node", "human", "graph_module"} and not str(work_order.node_id or work_order.stage_id or "").strip():
+    if work_order.work_kind in {"node", "human"} and not str(work_order.node_id or work_order.stage_id or "").strip():
         issues.append(_issue("missing_node_id", "节点工作单缺少 node_id 或 stage_id", field_name="node_id"))
     return AssemblyValidationReport(passed=not issues, issues=tuple(issues))
 

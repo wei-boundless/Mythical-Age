@@ -238,7 +238,7 @@ export type EngagementRuntimeProfile = {
 };
 
 export type EngagementExecutionStrategy = {
-  kind: "turn_contract" | "turn_execution" | "single_agent_task_run" | "workflow_run" | "human_gate" | string;
+  kind: "graph_task_run" | string;
   startup_policy?: Record<string, unknown>;
   lifecycle_policy?: Record<string, unknown>;
 };
@@ -1825,7 +1825,6 @@ export type GlobalRuntimeMonitorItem = {
   task_run_id: string;
   session_id: string;
   task_id: string;
-  runtime_lane?: string;
   graph_run_id?: string;
   graph_harness_config_id?: string;
   title: string;
@@ -1872,6 +1871,8 @@ export type GlobalRuntimeMonitorItem = {
     task_run_id?: string;
     graph_id?: string;
     coordination_run_id?: string;
+    graph_run_id?: string;
+    graph_harness_config_id?: string;
   };
 };
 
@@ -1935,7 +1936,6 @@ export type HarnessTaskRunLiveMonitor = {
   task_run_id?: string;
   session_id?: string;
   task_id?: string;
-  runtime_lane?: string;
   is_live?: boolean;
   event_count?: number;
   latest_event?: Record<string, unknown>;
@@ -2242,6 +2242,19 @@ export type TaskGraphRunStartResult = {
   events: Array<Record<string, unknown>>;
 };
 
+export type GraphRunMonitorView = {
+  authority: "harness.graph_run_monitor" | string;
+  graph_run_id: string;
+  graph_run: Record<string, unknown>;
+  task_run: Record<string, unknown> | null;
+  graph_harness_config: GraphHarnessConfigPayload | Record<string, unknown>;
+  graph_loop_state: Record<string, unknown>;
+  active_node_work_orders: Array<Record<string, unknown>>;
+  active_node_work_order_count: number;
+  events: Array<Record<string, unknown>>;
+  event_count: number;
+};
+
 export type GraphRunDispatchReadyResult = {
   authority: string;
   graph_run_id: string;
@@ -2279,39 +2292,6 @@ export type GraphWorkOrderExecuteResult = {
   checkpoint: Record<string, unknown>;
   node_work_orders: Array<Record<string, unknown>>;
   events: Array<Record<string, unknown>>;
-};
-
-export type TaskGraphMonitorDecision = {
-  authority: string;
-  decision_id: string;
-  task_run_id: string;
-  coordination_run_id: string;
-  monitor_node_id: string;
-  severity: string;
-  action: string;
-  reason: string;
-  summary: string;
-  observed: Record<string, unknown>;
-  recommended_control: Record<string, unknown>;
-  run_interaction_request?: Record<string, unknown>;
-  created_at: number;
-};
-
-export type TaskGraphMonitorEvaluation = {
-  authority: string;
-  task_run_id: string;
-  coordination_run_id: string;
-  monitor_node_id: string;
-  decision: TaskGraphMonitorDecision;
-  supervision_record: Record<string, unknown>;
-  monitor_snapshot: TaskGraphRunMonitorView;
-};
-
-export type TaskGraphMonitorDecisionsView = {
-  authority: string;
-  task_run_id: string;
-  decisions: TaskGraphMonitorDecision[];
-  supervision_records: Array<Record<string, unknown>>;
 };
 
 export type OrchestrationCatalogSkill = {
@@ -3717,34 +3697,6 @@ export async function getOrchestrationHarnessTaskRunLiveMonitor(taskRunId: strin
   );
 }
 
-export async function getTaskGraphRunMonitor(taskRunId: string) {
-  return request<TaskGraphRunMonitorView>(
-    `/orchestration/harness/task-runs/${encodeURIComponent(taskRunId)}/task-graph-monitor`
-  );
-}
-
-export async function evaluateTaskGraphRunMonitor(
-  taskRunId: string,
-  payload: {
-    monitor_node_id?: string;
-    monitor_policy?: Record<string, unknown>;
-  } = {}
-) {
-  return request<TaskGraphMonitorEvaluation>(
-    `/orchestration/harness/task-runs/${encodeURIComponent(taskRunId)}/task-graph-monitor/evaluate`,
-    {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }
-  );
-}
-
-export async function getTaskGraphRunMonitorDecisions(taskRunId: string) {
-  return request<TaskGraphMonitorDecisionsView>(
-    `/orchestration/harness/task-runs/${encodeURIComponent(taskRunId)}/monitor-decisions`
-  );
-}
-
 export async function getHarnessTaskRunArtifacts(taskRunId: string) {
   return request<{
     authority: string;
@@ -3766,22 +3718,6 @@ export async function getHarnessTaskRunMemoryReceipts(taskRunId: string) {
     stage_results: Array<Record<string, unknown>>;
   }>(
     `/orchestration/harness/task-runs/${encodeURIComponent(taskRunId)}/memory-receipts`
-  );
-}
-
-export async function resolveHarnessTaskRunApproval(
-  taskRunId: string,
-  payload: {
-    decision: "approve" | "reject" | string;
-    message?: string;
-  }
-) {
-  return request<RuntimeApprovalResolution>(
-    `/orchestration/harness/task-runs/${encodeURIComponent(taskRunId)}/approval`,
-    {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }
   );
 }
 
@@ -3812,7 +3748,7 @@ export async function startTaskGraphHarnessRun(
 
 export async function getGraphRunMonitor(graphRunId: string, graphHarnessConfigId = "") {
   const query = graphHarnessConfigId ? `?graph_harness_config_id=${encodeURIComponent(graphHarnessConfigId)}` : "";
-  return request<Record<string, unknown>>(
+  return request<GraphRunMonitorView>(
     `/orchestration/harness/graph-runs/${encodeURIComponent(graphRunId)}/monitor${query}`
   );
 }
@@ -3860,29 +3796,6 @@ export async function executeGraphWorkOrder(
 ) {
   return request<GraphWorkOrderExecuteResult>(
     `/orchestration/harness/graph-runs/${encodeURIComponent(graphRunId)}/work-orders/execute`,
-    {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }
-  );
-}
-
-export async function stopOrchestrationTaskRun(
-  taskRunId: string,
-  payload: {
-    reason?: string;
-    message?: string;
-    coordination_run_id?: string;
-  } = {}
-) {
-  return request<{
-    authority: string;
-    task_run_id: string;
-    reason: string;
-    checkpoint_ref: string;
-    event_ref: string;
-  }>(
-    `/orchestration/harness/task-runs/${encodeURIComponent(taskRunId)}/stop`,
     {
       method: "POST",
       body: JSON.stringify(payload),

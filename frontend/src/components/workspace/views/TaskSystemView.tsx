@@ -282,7 +282,7 @@ function emptyEngagementPlan(environmentId = "env.general.workspace"): Registere
     task_environment_id: environmentId,
     assignee: { kind: "agent", agent_id: "agent:0", participant_agent_ids: [] },
     runtime_profile: { runtime_mode: "professional", runtime_mode_policy: {} },
-    execution_strategy: { kind: "single_agent_task_run", startup_policy: {}, lifecycle_policy: {} },
+    execution_strategy: { kind: "graph_task_run", startup_policy: {}, lifecycle_policy: {} },
     input_contract: {},
     output_contract: {},
     prompt_contract: { user_visible_goal: "" },
@@ -319,9 +319,23 @@ function engagementPlanJsonText(plan: RegisteredEngagementPlan) {
 
 function mergeEngagementPlanJson(plan: RegisteredEngagementPlan, jsonText: string): RegisteredEngagementPlan {
   const payload = parseJsonObject(jsonText, "承接计划契约 JSON");
+  const currentStrategy = plan.execution_strategy ?? { kind: "graph_task_run", startup_policy: {}, lifecycle_policy: {} };
+  const payloadStrategy = dictOf(payload.execution_strategy);
+  const startupPolicy = {
+    ...dictOf(payloadStrategy.startup_policy),
+    ...dictOf(currentStrategy.startup_policy),
+  };
   return {
     ...plan,
     assignee: dictOf(payload.assignee) as RegisteredEngagementPlan["assignee"],
+    execution_strategy: {
+      kind: "graph_task_run",
+      startup_policy: startupPolicy,
+      lifecycle_policy: {
+        ...dictOf(payloadStrategy.lifecycle_policy),
+        ...dictOf(currentStrategy.lifecycle_policy),
+      },
+    },
     input_contract: dictOf(payload.input_contract),
     output_contract: dictOf(payload.output_contract),
     prompt_contract: dictOf(payload.prompt_contract),
@@ -1265,7 +1279,7 @@ export function TaskSystemView() {
       ...selectedEngagementPlan,
       assignee: selectedEngagementPlan.assignee ?? { kind: "agent", agent_id: "agent:0", participant_agent_ids: [] },
       runtime_profile: selectedEngagementPlan.runtime_profile ?? { runtime_mode: "professional", runtime_mode_policy: {} },
-      execution_strategy: selectedEngagementPlan.execution_strategy ?? { kind: "single_agent_task_run", startup_policy: {}, lifecycle_policy: {} },
+      execution_strategy: selectedEngagementPlan.execution_strategy ?? { kind: "graph_task_run", startup_policy: {}, lifecycle_policy: {} },
       input_contract: selectedEngagementPlan.input_contract ?? {},
       output_contract: selectedEngagementPlan.output_contract ?? {},
       prompt_contract: selectedEngagementPlan.prompt_contract ?? {},
@@ -2726,6 +2740,7 @@ export function TaskSystemView() {
               engagementPlanJsonText={engagementPlanJsonTextState}
               engagementPlans={engagementPlans}
               environmentOptions={engagementEnvironmentOptions}
+              taskGraphs={allTaskGraphs}
               onCreatePlan={createEngagementPlanDraft}
               onDeletePlan={() => void deleteEngagementPlanDraft()}
               onSavePlan={() => void saveEngagementPlanDraft()}

@@ -3,7 +3,7 @@
 import { Play, Save, Trash2 } from "lucide-react";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 
-import type { EngagementEventRecord, EngagementRunRecord, RegisteredEngagementPlan } from "@/lib/api";
+import type { EngagementEventRecord, EngagementRunRecord, RegisteredEngagementPlan, TaskGraphRecord } from "@/lib/api";
 
 import { TaskDefinitionPage } from "../TaskSystemPages";
 import {
@@ -47,6 +47,7 @@ export function EngagementPlanLibraryPage({
   engagementPlanJsonError,
   engagementPlans,
   environmentOptions,
+  taskGraphs,
   onCreatePlan,
   onDeletePlan,
   onSavePlan,
@@ -67,6 +68,7 @@ export function EngagementPlanLibraryPage({
   engagementPlanJsonError: string;
   engagementPlans: RegisteredEngagementPlan[];
   environmentOptions: Array<{ label: string; value: string }>;
+  taskGraphs: TaskGraphRecord[];
   onCreatePlan: () => void;
   onDeletePlan: () => void;
   onSavePlan: () => void;
@@ -85,7 +87,14 @@ export function EngagementPlanLibraryPage({
   const environmentIds = environmentOptions.map((item) => item.value);
   const environmentLabel = (value: string) => environmentOptions.find((item) => item.value === value)?.label || value;
   const runtimeMode = String(engagementPlanDraft.runtime_profile?.runtime_mode || "professional");
-  const strategyKind = String(engagementPlanDraft.execution_strategy?.kind || "single_agent_task_run");
+  const startupPolicy = engagementPlanDraft.execution_strategy?.startup_policy ?? {};
+  const selectedGraphId = String(startupPolicy.graph_id ?? startupPolicy.task_graph_id ?? "");
+  const graphOptions = taskGraphs.map((item) => item.graph_id);
+  const graphLabel = (value: string) => {
+    const graph = taskGraphs.find((item) => item.graph_id === value);
+    if (!graph) return value || "未绑定任务图";
+    return `${graph.title || graph.graph_id} · ${graph.graph_kind} · ${graph.graph_id}`;
+  };
 
   return (
     <TaskDefinitionPage>
@@ -166,11 +175,25 @@ export function EngagementPlanLibraryPage({
               onChange={(value) => onSetEngagementPlanDraft((draft) => ({ ...draft, runtime_profile: { ...draft.runtime_profile, runtime_mode: value } }))}
             />
             <SelectField
-              label="执行策略"
-              value={strategyKind}
-              options={["single_agent_task_run", "turn_contract", "turn_execution", "workflow_run", "human_gate"]}
-              onChange={(value) => onSetEngagementPlanDraft((draft) => ({ ...draft, execution_strategy: { ...draft.execution_strategy, kind: value } }))}
+              label="任务图"
+              value={selectedGraphId}
+              options={graphOptions}
+              formatOption={graphLabel}
+              onChange={(value) => onSetEngagementPlanDraft((draft) => ({
+                ...draft,
+                execution_strategy: {
+                  kind: "graph_task_run",
+                  startup_policy: {
+                    ...(draft.execution_strategy?.startup_policy ?? {}),
+                    graph_id: value,
+                  },
+                  lifecycle_policy: draft.execution_strategy?.lifecycle_policy ?? {},
+                },
+              }))}
             />
+            <Field label="执行策略">
+              <input readOnly value="graph_task_run" />
+            </Field>
             <Field label="状态">
               <select value={engagementPlanDraft.status} onChange={(event) => onSetEngagementPlanDraft((draft) => ({ ...draft, status: event.target.value }))}>
                 {["draft", "active", "deprecated", "disabled", "archived"].map((status) => <option key={status} value={status}>{status}</option>)}

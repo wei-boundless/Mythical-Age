@@ -12,7 +12,6 @@ CONTROL_CONTEXT_KEYS = frozenset(
         "agent_assembly_contract",
         "execution_permit",
         "runtime_control",
-        "graph_module_runtime_handle",
         "human_work_packet",
         "standard_input_package",
         "runtime_assembly",
@@ -277,8 +276,6 @@ def runtime_control_ref_summary(runtime_control: dict[str, Any] | None) -> dict[
     request = dict(control.get("stage_execution_request") or {})
     work_order = dict(control.get("node_work_order") or {})
     assembly = dict(control.get("agent_assembly_contract") or {})
-    runtime_assembly = dict(work_order.get("runtime_assembly") or request.get("runtime_assembly") or {})
-    graph_handle = dict(runtime_assembly.get("graph_module_runtime_handle") or {})
     return {
         "stage_execution_request_ref": str(control.get("stage_execution_request_ref") or request.get("request_id") or request.get("idempotency_key") or ""),
         "work_order_id": str(work_order.get("work_order_id") or request.get("request_id") or ""),
@@ -288,7 +285,6 @@ def runtime_control_ref_summary(runtime_control: dict[str, Any] | None) -> dict[
         "agent_id": str(assembly.get("agent_id") or work_order.get("agent_id") or request.get("agent_id") or ""),
         "agent_profile_id": str(assembly.get("agent_profile_id") or work_order.get("agent_profile_id") or request.get("agent_profile_id") or ""),
         "executor_type": str(assembly.get("executor_type") or work_order.get("executor_type") or request.get("executor_type") or ""),
-        "graph_module_runtime_handle_id": str(graph_handle.get("handle_id") or ""),
     }
 
 

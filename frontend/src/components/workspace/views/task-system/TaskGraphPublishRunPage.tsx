@@ -6,12 +6,8 @@ import { CheckCircle2, MessageSquareShare, PlayCircle, RefreshCw, Save, Send, Tr
 import {
   compileTaskSystemTaskGraphContract,
   getOrchestrationHarnessTrace,
-  taskGraphRunIdOf,
-  taskGraphRunsFromTrace,
-  latestTaskGraphRunFromTrace,
   dispatchGraphRunReadyNodes,
   startTaskGraphHarnessRun,
-  stopOrchestrationTaskRun,
   type HarnessTaskRunTrace,
   type TaskGraphContractPreview,
   type TaskGraphStandardView,
@@ -23,12 +19,7 @@ import { isTaskGraphPublishedState, taskGraphPublishStateLabel, type TaskGraphPu
 import { focusForPreflightIssue, focusTargetLabel } from "./taskGraphEditorFocus";
 import { buildTaskGraphPreflightReport } from "./taskGraphPreflight";
 import type { TaskGraphPreflightIssue } from "./taskGraphPreflight";
-import {
-  batchLifecycleFromTrace,
-  buildTaskGraphBatchLifecycleSummary,
-  buildTaskGraphSchedulerSummary,
-  schedulerStateFromTrace,
-} from "./taskGraphRuntimeView";
+import { buildTaskGraphLoopSummary } from "./taskGraphRuntimeView";
 
 function repairActionLabel(issue: TaskGraphPreflightIssue) {
   if (issue.source === "frontend.preflight.prompt_semantics") return "补全职责字段";
@@ -105,12 +96,9 @@ export function TaskGraphPublishRunPage({
     bindTaskGraphMonitorRun,
     continueBoundTaskGraphRun,
     evaluateBoundTaskGraphMonitor,
-    refreshAndContinueBoundTaskGraphRun,
     setTaskGraphRunInteractionOpen,
     taskGraphBoundRunMonitor,
     taskGraphMonitorBinding,
-    taskGraphMonitorDecision,
-    taskGraphMonitorDecisions,
     taskGraphMonitorError,
     taskGraphMonitorLoading,
   } = useAppStore();
@@ -123,16 +111,15 @@ export function TaskGraphPublishRunPage({
   const [runTraceLoading, setRunTraceLoading] = useState(false);
   const [runStartLoading, setRunStartLoading] = useState(false);
   const [runSessionId, setRunSessionId] = useState("session:task_graph_studio");
+  const [graphRunId, setGraphRunId] = useState("");
+  const [graphHarnessConfigId, setGraphHarnessConfigId] = useState("");
   const [resumeLoading, setResumeLoading] = useState(false);
-  const [stopLoading, setStopLoading] = useState(false);
   const published = isTaskGraphPublishedState(publishState);
   const graphContract = sharedGraphContract ?? localGraphContract;
   const graphContractError = sharedGraphContractError ?? localGraphContractError;
   const latestRunStatus = String(runTrace?.task_run?.status ?? "").trim();
-  const taskGraphRuns = taskGraphRunsFromTrace(runTrace);
   const runStatusLabel = latestRunStatus || (publishState === "run_bound" ? "bound" : published ? "ready" : "draft");
-  const schedulerSummary = buildTaskGraphSchedulerSummary(schedulerStateFromTrace(runTrace));
-  const batchLifecycleSummary = buildTaskGraphBatchLifecycleSummary(batchLifecycleFromTrace(runTrace));
+  const loopSummary = buildTaskGraphLoopSummary(taskGraphBoundRunMonitor?.graph_loop_state);
   const preflightReport = buildTaskGraphPreflightReport({
     dirty,
     editorIssueCount,
@@ -150,9 +137,6 @@ export function TaskGraphPublishRunPage({
       return groups;
     }, new Map<string, TaskGraphPreflightIssue[]>()),
   );
-  const boundTemporal = taskGraphBoundRunMonitor?.temporal;
-  const boundTemporalViolations = boundTemporal?.violations ?? [];
-  const boundBatchLifecycleSummary = buildTaskGraphBatchLifecycleSummary(taskGraphBoundRunMonitor?.batch_lifecycle);
   async function compileGraphContract() {
     if (!graphId) return;
     if (dirty || standardViewStale) {
@@ -206,6 +190,8 @@ export function TaskGraphPublishRunPage({
         dispatch_ready: true,
       });
       setTaskRunId(result.task_run_id);
+      setGraphRunId(result.graph_run_id);
+      setGraphHarnessConfigId(result.graph_harness_config_id);
       setRunTrace(result.trace);
       bindTaskGraphMonitorRun({
         task_run_id: result.task_run_id,
@@ -225,21 +211,21 @@ export function TaskGraphPublishRunPage({
   }
 
   async function resumeLatestTaskGraphRun() {
-    const taskGraphRunId = String(taskGraphMonitorBinding?.graph_run_id || taskGraphRunIdOf(latestTaskGraphRunFromTrace(runTrace))).trim();
-    const graphHarnessConfigId = String(taskGraphMonitorBinding?.graph_harness_config_id || "").trim();
-    if (!taskGraphRunId) {
-      setRunTraceError("当前 trace 没有可续跑的任务图运行。");
+    const targetGraphRunId = String(taskGraphMonitorBinding?.graph_run_id || graphRunId).trim();
+    const targetConfigId = String(taskGraphMonitorBinding?.graph_harness_config_id || graphHarnessConfigId).trim();
+    if (!targetGraphRunId) {
+      setRunTraceError("当前没有可派发的 GraphRun。");
       return;
     }
-    if (!graphHarnessConfigId) {
+    if (!targetConfigId) {
       setRunTraceError("当前运行缺少 graph_harness_config_id，无法派发 ready 节点。");
       return;
     }
     setResumeLoading(true);
     setRunTraceError("");
     try {
-      await dispatchGraphRunReadyNodes(taskGraphRunId, {
-        graph_harness_config_id: graphHarnessConfigId,
+      await dispatchGraphRunReadyNodes(targetGraphRunId, {
+        graph_harness_config_id: targetConfigId,
         max_requests: 1,
       });
       await loadRunTrace();
@@ -250,35 +236,16 @@ export function TaskGraphPublishRunPage({
     }
   }
 
-  async function stopLatestRun() {
-    if (!taskRunId.trim()) {
-      setRunTraceError("当前没有可停止的 TaskRun。");
-      return;
-    }
-    setStopLoading(true);
-    setRunTraceError("");
-    try {
-      await stopOrchestrationTaskRun(taskRunId.trim(), {
-        reason: "user_aborted",
-        message: "图工作台手动停止运行",
-      });
-      await loadRunTrace();
-    } catch (error) {
-      setRunTraceError(error instanceof Error ? error.message : "停止失败");
-    } finally {
-      setStopLoading(false);
-    }
-  }
-
   function bindManualTaskRun() {
-    if (!taskRunId.trim()) {
-      setRunTraceError("请先输入 TaskRun ID。");
+    if (!graphRunId.trim() || !graphHarnessConfigId.trim()) {
+      setRunTraceError("请先输入 GraphRun ID 和 GraphHarnessConfig ID。");
       return;
     }
     setRunTraceError("");
     bindTaskGraphMonitorRun({
-      task_run_id: taskRunId.trim(),
-      graph_run_id: taskGraphRunIdOf(latestTaskGraphRunFromTrace(runTrace)),
+      task_run_id: taskRunId.trim() || undefined,
+      graph_run_id: graphRunId.trim(),
+      graph_harness_config_id: graphHarnessConfigId.trim(),
       graph_id: graphId,
       session_id: runSessionId.trim() || undefined,
       title: graphId,

@@ -1018,7 +1018,7 @@ async def upsert_task_system_engagement_plan(plan_id: str, payload: EngagementPl
         "runtime_mode_policy": dict(dict(raw.get("runtime_profile") or {}).get("runtime_mode_policy") or {}),
     }
     raw["execution_strategy"] = {
-        "kind": str(dict(raw.get("execution_strategy") or {}).get("kind") or "single_agent_task_run"),
+        "kind": str(dict(raw.get("execution_strategy") or {}).get("kind") or "graph_task_run"),
         "startup_policy": dict(dict(raw.get("execution_strategy") or {}).get("startup_policy") or {}),
         "lifecycle_policy": dict(dict(raw.get("execution_strategy") or {}).get("lifecycle_policy") or {}),
     }

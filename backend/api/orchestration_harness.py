@@ -25,22 +25,6 @@ def _sse(event: str, data: dict[str, Any], *, event_id: str = "") -> str:
     return "\n".join(lines) + "\n\n"
 
 
-class TaskRunStopRequest(BaseModel):
-    reason: str = Field(default="user_aborted", max_length=120)
-    message: str = Field(default="", max_length=500)
-    coordination_run_id: str = Field(default="", max_length=180)
-
-
-class TaskRunApprovalRequest(BaseModel):
-    decision: str = Field(..., min_length=1, max_length=40)
-    message: str = Field(default="", max_length=500)
-
-
-class TaskGraphMonitorEvaluateRequest(BaseModel):
-    monitor_node_id: str = Field(default="", max_length=180)
-    monitor_policy: dict[str, Any] = Field(default_factory=dict)
-
-
 class TaskRunExecuteRequest(BaseModel):
     max_steps: int = Field(default=12, ge=1, le=50)
 
@@ -196,26 +180,6 @@ async def execute_harness_task_run(
     }
 
 
-@router.get("/orchestration/harness/task-runs/{task_run_id}/task-graph-monitor")
-async def get_harness_task_graph_run_monitor(task_run_id: str) -> dict[str, Any]:
-    raise HTTPException(status_code=410, detail="TaskGraph monitor is not available in the rebuilt single-agent runtime")
-
-
-@router.post("/orchestration/harness/task-runs/{task_run_id}/task-graph-monitor/evaluate")
-async def evaluate_harness_task_graph_monitor(
-    task_run_id: str,
-    payload: TaskGraphMonitorEvaluateRequest,
-) -> dict[str, Any]:
-    del task_run_id, payload
-    raise HTTPException(status_code=410, detail="TaskGraph monitor evaluation is not available in the rebuilt single-agent runtime")
-
-
-@router.get("/orchestration/harness/task-runs/{task_run_id}/monitor-decisions")
-async def list_harness_task_graph_monitor_decisions(task_run_id: str) -> dict[str, Any]:
-    del task_run_id
-    raise HTTPException(status_code=410, detail="TaskGraph monitor decisions are not available in the rebuilt single-agent runtime")
-
-
 @router.get("/orchestration/harness/task-runs/{task_run_id}/artifacts")
 async def get_harness_task_run_artifacts(task_run_id: str) -> dict[str, Any]:
     runtime = require_runtime()
@@ -228,15 +192,6 @@ async def get_harness_task_run_memory_receipts(task_run_id: str) -> dict[str, An
     return runtime.query_runtime.single_agent_runtime_host.get_task_run_memory_receipts(task_run_id)
 
 
-@router.post("/orchestration/harness/task-runs/{task_run_id}/approval")
-async def resolve_harness_task_run_approval(
-    task_run_id: str,
-    payload: TaskRunApprovalRequest,
-) -> dict[str, Any]:
-    del task_run_id, payload
-    raise HTTPException(status_code=410, detail="Legacy pending approval resolution is not available in the rebuilt single-agent runtime")
-
-
 @router.get("/orchestration/projects/{project_id}/runtime-status")
 async def get_project_runtime_status(project_id: str) -> dict[str, Any]:
     runtime = require_runtime()
@@ -244,15 +199,4 @@ async def get_project_runtime_status(project_id: str) -> dict[str, Any]:
     if status is None:
         raise HTTPException(status_code=404, detail="Project runtime status not found")
     return status
-
-
-@router.post("/orchestration/harness/task-runs/{task_run_id}/stop")
-async def stop_task_run(
-    task_run_id: str,
-    payload: TaskRunStopRequest,
-) -> dict[str, Any]:
-    del task_run_id, payload
-    raise HTTPException(status_code=410, detail="Legacy checkpoint stop is not available in the rebuilt single-agent runtime")
-
-
 

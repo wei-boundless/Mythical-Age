@@ -103,13 +103,10 @@ function Workspace() {
     clearTaskGraphMonitorRun,
     continueBoundTaskGraphRun,
     evaluateBoundTaskGraphMonitor,
-    refreshAndContinueBoundTaskGraphRun,
     setTaskGraphRunInteractionOpen,
-    submitTaskGraphMonitorDecision,
     taskGraphBoundRunMonitor,
     taskGraphMonitorActionLoading,
     taskGraphMonitorBinding,
-    taskGraphMonitorDecision,
     taskGraphMonitorError,
     taskGraphMonitorLoading,
     taskGraphRunInteractionOpen,
@@ -161,7 +158,6 @@ function Workspace() {
     <TaskGraphRunInteractionDock
       actionLoading={taskGraphMonitorActionLoading}
       binding={taskGraphMonitorBinding}
-      decision={taskGraphMonitorDecision}
       error={taskGraphMonitorError}
       monitor={taskGraphBoundRunMonitor}
       monitorLoading={taskGraphMonitorLoading}
@@ -169,8 +165,6 @@ function Workspace() {
       onContinue={() => void continueBoundTaskGraphRun()}
       onEvaluate={() => void evaluateBoundTaskGraphMonitor()}
       onOpenChange={setTaskGraphRunInteractionOpen}
-      onRefreshContinue={() => void refreshAndContinueBoundTaskGraphRun()}
-      onSubmitDecision={(decision, controlAction, resumePayload) => void submitTaskGraphMonitorDecision(decision, controlAction, resumePayload)}
       open={taskGraphRunInteractionOpen}
     />
   );

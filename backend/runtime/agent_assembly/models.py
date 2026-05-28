@@ -7,7 +7,6 @@ from .ids import (
     build_assembly_contract_id,
     build_execution_permit_id,
     build_execution_result_id,
-    build_node_result_envelope_id,
     build_work_order_id,
     safe_id,
     stable_hash,
@@ -210,20 +209,6 @@ class HumanWorkOrder(WorkOrder):
             object.__setattr__(self, "work_kind", "human")
         if self.executor_type != "human":
             object.__setattr__(self, "executor_type", "human")
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class GraphModuleWorkOrder(WorkOrder):
-    work_kind: str = "graph_module"
-    executor_type: str = "graph_module"
-    authority: str = "runtime.agent_assembly.work_order"
-
-    def __post_init__(self) -> None:
-        WorkOrder.__post_init__(self)
-        if self.work_kind != "graph_module":
-            object.__setattr__(self, "work_kind", "graph_module")
-        if self.executor_type != "graph_module":
-            object.__setattr__(self, "executor_type", "graph_module")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -608,108 +593,4 @@ class ExecutionResult:
         payload["diagnostics"] = dict(self.diagnostics)
         payload["metadata"] = dict(self.metadata)
         return payload
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class NodeResultEnvelope:
-    envelope_id: str
-    coordination_run_id: str
-    work_order_id: str
-    assembly_id: str
-    node_id: str
-    stage_id: str = ""
-    task_ref: str = ""
-    executor_type: str = "agent"
-    accepted: bool = True
-    status: str = "completed"
-    result_refs: tuple[str, ...] = ()
-    artifact_refs: tuple[str, ...] = ()
-    output_refs: tuple[str, ...] = ()
-    final_content: str = ""
-    execution_result: ExecutionResult | None = None
-    diagnostics: dict[str, Any] = field(default_factory=dict)
-    metadata: dict[str, Any] = field(default_factory=dict)
-    authority: str = "runtime.agent_assembly.node_result_envelope"
-
-    def __post_init__(self) -> None:
-        if self.authority != "runtime.agent_assembly.node_result_envelope":
-            raise ValueError("NodeResultEnvelope authority must be runtime.agent_assembly.node_result_envelope")
-        if not self.envelope_id:
-            object.__setattr__(self, "envelope_id", build_node_result_envelope_id(self.coordination_run_id or self.node_id, self.node_id, self.identity_payload()))
-        if not self.coordination_run_id:
-            raise ValueError("NodeResultEnvelope requires coordination_run_id")
-        if not self.work_order_id:
-            raise ValueError("NodeResultEnvelope requires work_order_id")
-        if not self.assembly_id:
-            raise ValueError("NodeResultEnvelope requires assembly_id")
-        if not self.node_id:
-            raise ValueError("NodeResultEnvelope requires node_id")
-
-    def identity_payload(self) -> dict[str, Any]:
-        return {
-            "coordination_run_id": self.coordination_run_id,
-            "work_order_id": self.work_order_id,
-            "assembly_id": self.assembly_id,
-            "node_id": self.node_id,
-            "stage_id": self.stage_id,
-            "task_ref": self.task_ref,
-            "executor_type": self.executor_type,
-            "accepted": self.accepted,
-            "status": self.status,
-            "result_refs": list(self.result_refs),
-            "artifact_refs": list(self.artifact_refs),
-            "output_refs": list(self.output_refs),
-            "final_content": self.final_content,
-        }
-
-    def to_dict(self) -> dict[str, Any]:
-        payload = asdict(self)
-        payload["result_refs"] = list(self.result_refs)
-        payload["artifact_refs"] = list(self.artifact_refs)
-        payload["output_refs"] = list(self.output_refs)
-        payload["execution_result"] = self.execution_result.to_dict() if self.execution_result is not None else None
-        payload["diagnostics"] = dict(self.diagnostics)
-        payload["metadata"] = dict(self.metadata)
-        return payload
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class GraphModuleInvocationContract:
-    invocation_id: str
-    kind: str
-    work_order_id: str
-    assembly_id: str
-    executor_type: str = "graph_module"
-    target_ref: str = ""
-    payload: dict[str, Any] = field(default_factory=dict)
-    diagnostics: dict[str, Any] = field(default_factory=dict)
-    authority: str = "runtime.agent_assembly.graph_module_invocation"
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class GraphModuleResultEnvelope:
-    result_id: str
-    invocation_id: str
-    kind: str
-    work_order_id: str
-    assembly_id: str
-    status: str = "completed"
-    content: str = ""
-    result_refs: tuple[str, ...] = ()
-    artifact_refs: tuple[str, ...] = ()
-    diagnostics: dict[str, Any] = field(default_factory=dict)
-    metadata: dict[str, Any] = field(default_factory=dict)
-    authority: str = "runtime.agent_assembly.graph_module_result_envelope"
-
-    def to_dict(self) -> dict[str, Any]:
-        payload = asdict(self)
-        payload["result_refs"] = list(self.result_refs)
-        payload["artifact_refs"] = list(self.artifact_refs)
-        payload["diagnostics"] = dict(self.diagnostics)
-        payload["metadata"] = dict(self.metadata)
-        return payload
-
 

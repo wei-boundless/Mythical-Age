@@ -659,17 +659,6 @@ class RuntimeStateIndex:
         ):
             diagnostics["graph_coordination_state_summary"] = _graph_coordination_state_summary(runtime_state)
             diagnostics.pop("graph_coordination_state", None)
-        if graph_spec := dict(diagnostics.get("coordination_graph_spec") or {}):
-            diagnostics["coordination_graph_spec_ref"] = self.runtime_objects.put_json_once(
-                "coordination_graph_specs",
-                object_id,
-                graph_spec,
-            )
-            diagnostics["coordination_graph_spec_summary"] = _coordination_graph_spec_summary(graph_spec)
-            diagnostics.pop("coordination_graph_spec", None)
-        if scheduler_state := dict(diagnostics.get("task_graph_scheduler_state") or {}):
-            diagnostics["task_graph_scheduler_state_summary"] = _scheduler_state_summary(scheduler_state)
-            diagnostics.pop("task_graph_scheduler_state", None)
         if flow := dict(diagnostics.get("coordination_flow") or {}):
             diagnostics["coordination_flow"] = _coordination_flow_summary(flow)
         compacted["diagnostics"] = diagnostics
@@ -1164,19 +1153,6 @@ def _graph_coordination_state_summary(payload: dict[str, Any]) -> dict[str, Any]
     }
 
 
-def _coordination_graph_spec_summary(payload: dict[str, Any]) -> dict[str, Any]:
-    nodes = list(payload.get("nodes") or [])
-    edges = list(payload.get("edges") or [])
-    return {
-        "graph_id": str(payload.get("graph_id") or payload.get("graph_ref") or ""),
-        "graph_ref": str(payload.get("graph_ref") or payload.get("graph_id") or ""),
-        "coordination_task_id": str(payload.get("coordination_task_id") or ""),
-        "node_count": len(nodes),
-        "edge_count": len(edges),
-        "valid": bool(payload.get("valid") is True),
-    }
-
-
 def _graph_harness_config_summary(payload: dict[str, Any]) -> dict[str, Any]:
     nodes = list(payload.get("nodes") or [])
     edges = list(payload.get("edges") or [])
@@ -1191,18 +1167,6 @@ def _graph_harness_config_summary(payload: dict[str, Any]) -> dict[str, Any]:
         "module_count": len(modules),
         "content_hash": str(payload.get("content_hash") or ""),
         "status": str(payload.get("status") or ""),
-    }
-
-
-def _scheduler_state_summary(payload: dict[str, Any]) -> dict[str, Any]:
-    node_statuses = dict(payload.get("node_statuses") or {})
-    return {
-        "node_count": len(node_statuses),
-        "ready_nodes": list(payload.get("ready_nodes") or []),
-        "running_nodes": list(payload.get("running_nodes") or []),
-        "completed_node_count": len(list(payload.get("completed_nodes") or [])),
-        "failed_node_count": len(list(payload.get("failed_nodes") or [])),
-        "blocked_node_count": len(list(payload.get("blocked_nodes") or [])),
     }
 
 

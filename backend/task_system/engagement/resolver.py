@@ -35,6 +35,7 @@ def resolve_engagement_plan(
         assignee_profile=assignee_profile,
         execution_strategy=plan.execution_strategy,
         runtime_profile=plan.runtime_profile,
+        backend_dir=str(Path(backend_dir)),
         missing_refs=_missing_refs(plan=plan, assignee_profile=assignee_profile),
     )
 
@@ -46,4 +47,3 @@ def _missing_refs(*, plan: Any, assignee_profile: dict[str, Any]) -> tuple[str, 
     if plan.assignee.kind == "workflow" and not plan.assignee.workflow_id:
         missing.append("workflow_id")
     return tuple(missing)
-

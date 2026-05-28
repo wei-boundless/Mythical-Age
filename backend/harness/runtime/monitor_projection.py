@@ -73,6 +73,8 @@ class TaskRunMonitorProjector:
         )
         graph_id = str(route.get("graph_id") or "")
         coordination_run_id = str(diagnostics.get("coordination_run_id") or "")
+        graph_run_id = str(diagnostics.get("graph_run_id") or "")
+        graph_harness_config_id = str(diagnostics.get("graph_harness_config_id") or "")
         return {
             "task_run_id": str(getattr(task_run, "task_run_id", "") or ""),
             "session_id": str(getattr(task_run, "session_id", "") or ""),
@@ -110,12 +112,14 @@ class TaskRunMonitorProjector:
             "route": route,
             "coordination_run_id": coordination_run_id,
             "coordination_status": str(diagnostics.get("coordination_status") or ""),
+            "graph_run_id": graph_run_id,
+            "graph_harness_config_id": graph_harness_config_id,
             "graph_id": graph_id,
             "active_node_id": str(diagnostics.get("active_node_id") or diagnostics.get("node_id") or ""),
             "project_id": str(diagnostics.get("project_id") or ""),
             "project_title": self._public_text(diagnostics.get("project_title")),
             "project_runtime_status": None,
-            "has_coordination": bool(coordination_run_id or graph_id),
+            "has_coordination": bool(graph_run_id or coordination_run_id or graph_id),
             "event_count": len(events),
             "authority": "single_agent_runtime_monitor.item",
         }
@@ -209,7 +213,9 @@ class TaskRunMonitorProjector:
         execution_runtime_kind = str(getattr(task_run, "execution_runtime_kind", "") or "")
         graph_id = str(diagnostics.get("graph_id") or diagnostics.get("task_graph_id") or "")
         coordination_run_id = str(diagnostics.get("coordination_run_id") or "")
-        if coordination_run_id or graph_id:
+        graph_run_id = str(diagnostics.get("graph_run_id") or "")
+        graph_harness_config_id = str(diagnostics.get("graph_harness_config_id") or "")
+        if graph_run_id or coordination_run_id or graph_id:
             kind = "task_graph_run"
         elif _is_chat_scoped(task_run_id=task_run_id, task_id=task_id):
             kind = "chat_turn_runtime"
@@ -223,6 +229,8 @@ class TaskRunMonitorProjector:
             "task_run_id": task_run_id,
             "graph_id": graph_id,
             "coordination_run_id": coordination_run_id,
+            "graph_run_id": graph_run_id,
+            "graph_harness_config_id": graph_harness_config_id,
         }
 
     def _diagnostic_reasons(
@@ -268,6 +276,8 @@ class TaskRunMonitorProjector:
             diagnostics.get("coordination_stage_id")
             or diagnostics.get("stage_request_id")
             or diagnostics.get("stage_idempotency_key")
+            or diagnostics.get("graph_node_id")
+            or diagnostics.get("graph_work_order_id")
         )
 
     def _display_title(self, task_run: Any, diagnostics: dict[str, Any], *, lifecycle: str) -> str:

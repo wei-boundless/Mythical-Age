@@ -2,18 +2,16 @@
 
 import {
   dispatchGraphRunReadyNodes,
-  evaluateTaskGraphRunMonitor,
   loadFile,
   createSession,
   deleteSession,
+  getGraphRunMonitor,
   getGlobalRuntimeMonitor,
   getCodeEnvironmentWorkspaceTree,
   getRuntimeMonitorEventStreamUrl,
   getModelProviderConfig,
   getSoulImageAssetConfig,
   getWorkspaceContext,
-  getTaskGraphRunMonitorDecisions,
-  getTaskGraphRunMonitor,
   getOrchestrationHarnessTaskRunLiveMonitor,
   getOrchestrationHarnessSessionLiveMonitor,
   getRagMode,
@@ -23,10 +21,8 @@ import {
   listSessions,
   listSkills,
   renameSession,
-  resolveHarnessTaskRunApproval,
   saveFile,
   setRagMode,
-  stopOrchestrationTaskRun,
   streamChat,
   switchSoulSystemSeed,
   truncateSessionMessages
@@ -48,8 +44,6 @@ import { isVisibleRuntimeMonitorItem, runtimeWorkProjectionFromMonitorItem, visi
 import type { ChatMode, ChatModelSelection, MainAgentAssemblyMode, SearchPolicySource, StoreActions, StoreState, TaskGraphMonitorBinding, TaskSelectionState, WorkspaceView } from "./types";
 import { toUiMessages } from "./utils";
 
-const LEGACY_TASK_GRAPH_MONITOR_BINDING_STORAGE_KEY = "task-graph-monitor-binding";
-
 export class WorkspaceRuntime {
   private initializePromise: Promise<void> | null = null;
   private createSessionPromise: Promise<string> | null = null;
@@ -60,7 +54,7 @@ export class WorkspaceRuntime {
   private orchestrationMonitorSessionId: string | null = null;
   private orchestrationMonitorInFlight = false;
   private taskGraphMonitorTimer: number | null = null;
-  private taskGraphMonitorTaskRunId: string | null = null;
+  private taskGraphMonitorGraphRunId: string | null = null;
   private taskGraphMonitorInFlight = false;
   private globalRuntimeMonitorTimer: number | null = null;
   private globalRuntimeMonitorInFlight = false;
@@ -173,17 +167,8 @@ export class WorkspaceRuntime {
       continueBoundTaskGraphRun: async () => {
         await this.continueBoundTaskGraphRun();
       },
-      refreshAndContinueBoundTaskGraphRun: async () => {
-        await this.refreshAndContinueBoundTaskGraphRun();
-      },
-      submitTaskGraphMonitorDecision: async (decision, controlAction, resumePayload) => {
-        await this.submitTaskGraphMonitorDecision(decision, controlAction, resumePayload);
-      },
       resumeTaskGraphRun: async (taskGraphRunId, payload) => {
         await this.resumeTaskGraphRun(taskGraphRunId, payload);
-      },
-      resolveRuntimeApproval: async (taskRunId, decision, message) => {
-        await this.resolveRuntimeApproval(taskRunId, decision, message);
       },
       setTaskSelection: (selection) => {
         this.setTaskSelection(selection);
@@ -201,7 +186,6 @@ export class WorkspaceRuntime {
         await this.refreshGlobalRuntimeMonitor();
       }
     };
-    this.clearLegacyTaskGraphMonitorBinding();
   }
 
   startGlobalRuntimeMonitor() {
@@ -310,17 +294,6 @@ export class WorkspaceRuntime {
       inspectorContent: file.content,
       inspectorDirty: false
     }));
-  }
-
-  private clearLegacyTaskGraphMonitorBinding() {
-    if (typeof window === "undefined") {
-      return;
-    }
-    try {
-      window.localStorage.removeItem(LEGACY_TASK_GRAPH_MONITOR_BINDING_STORAGE_KEY);
-    } catch {
-      // Old monitor persistence is not authoritative state.
-    }
   }
 
   dispose() {
@@ -1277,13 +1250,15 @@ export class WorkspaceRuntime {
     binding: Omit<TaskGraphMonitorBinding, "bound_at"> & { bound_at?: number }
   ): TaskGraphMonitorBinding | null {
     const taskRunId = String(binding.task_run_id ?? "").trim();
-    if (!taskRunId) {
+    const graphRunId = String(binding.graph_run_id ?? "").trim();
+    const graphHarnessConfigId = String(binding.graph_harness_config_id ?? "").trim();
+    if (!graphRunId || !graphHarnessConfigId) {
       return null;
     }
     return {
-      task_run_id: taskRunId,
-      graph_run_id: String(binding.graph_run_id ?? "").trim() || undefined,
-      graph_harness_config_id: String(binding.graph_harness_config_id ?? "").trim() || undefined,
+      task_run_id: taskRunId || undefined,
+      graph_run_id: graphRunId,
+      graph_harness_config_id: graphHarnessConfigId,
       graph_id: String(binding.graph_id ?? "").trim() || undefined,
       session_id: String(binding.session_id ?? "").trim() || undefined,
       project_id: String(binding.project_id ?? "").trim() || undefined,
@@ -1301,9 +1276,9 @@ export class WorkspaceRuntime {
       ...prev,
       taskGraphMonitorBinding: normalized,
       taskGraphMonitorError: "",
-      taskGraphRunInteractionOpen: prev.taskGraphRunInteractionOpen || Boolean(prev.taskGraphMonitorDecision?.action && prev.taskGraphMonitorDecision.action !== "no_action"),
+      taskGraphRunInteractionOpen: prev.taskGraphRunInteractionOpen,
     }));
-    this.startTaskGraphMonitorPolling(normalized.task_run_id);
+    this.startTaskGraphMonitorPolling(normalized.graph_run_id, normalized.graph_harness_config_id);
   }
 
   private clearTaskGraphMonitorRun() {
@@ -1312,8 +1287,6 @@ export class WorkspaceRuntime {
       ...prev,
       taskGraphMonitorBinding: null,
       taskGraphBoundRunMonitor: null,
-      taskGraphMonitorDecision: null,
-      taskGraphMonitorDecisions: [],
       taskGraphMonitorError: "",
       taskGraphRunInteractionOpen: false,
     }));
@@ -1322,11 +1295,11 @@ export class WorkspaceRuntime {
   private setTaskGraphRunInteractionOpen(open: boolean) {
     this.store.setState((prev) => ({ ...prev, taskGraphRunInteractionOpen: open }));
     const binding = this.store.getState().taskGraphMonitorBinding;
-    if (open && binding?.task_run_id) {
-      this.startTaskGraphMonitorPolling(binding.task_run_id);
+    if (open && binding?.graph_run_id && binding.graph_harness_config_id) {
+      this.startTaskGraphMonitorPolling(binding.graph_run_id, binding.graph_harness_config_id);
       return;
     }
-    if (!open && !binding?.task_run_id) {
+    if (!open && !binding?.graph_run_id) {
       this.stopTaskGraphMonitorPolling();
     }
   }
@@ -1339,24 +1312,25 @@ export class WorkspaceRuntime {
       window.clearTimeout(this.taskGraphMonitorTimer);
       this.taskGraphMonitorTimer = null;
     }
-    this.taskGraphMonitorTaskRunId = null;
+    this.taskGraphMonitorGraphRunId = null;
     this.taskGraphMonitorInFlight = false;
   }
 
-  private startTaskGraphMonitorPolling(taskRunId: string) {
-    const targetTaskRunId = taskRunId.trim();
-    if (typeof window === "undefined" || !targetTaskRunId) {
+  private startTaskGraphMonitorPolling(graphRunId: string, graphHarnessConfigId: string) {
+    const targetGraphRunId = graphRunId.trim();
+    const targetGraphHarnessConfigId = graphHarnessConfigId.trim();
+    if (typeof window === "undefined" || !targetGraphRunId || !targetGraphHarnessConfigId) {
       return;
     }
     if (this.taskGraphMonitorTimer !== null) {
       window.clearTimeout(this.taskGraphMonitorTimer);
       this.taskGraphMonitorTimer = null;
     }
-    this.taskGraphMonitorTaskRunId = targetTaskRunId;
-    void this.pollTaskGraphMonitor(targetTaskRunId);
+    this.taskGraphMonitorGraphRunId = targetGraphRunId;
+    void this.pollTaskGraphMonitor(targetGraphRunId, targetGraphHarnessConfigId);
   }
 
-  private scheduleNextTaskGraphMonitorPoll(taskRunId: string, delayMs = 1000) {
+  private scheduleNextTaskGraphMonitorPoll(graphRunId: string, graphHarnessConfigId: string, delayMs = 1000) {
     if (typeof window === "undefined") {
       return;
     }
@@ -1364,23 +1338,24 @@ export class WorkspaceRuntime {
       window.clearTimeout(this.taskGraphMonitorTimer);
     }
     this.taskGraphMonitorTimer = window.setTimeout(() => {
-      void this.pollTaskGraphMonitor(taskRunId);
+      void this.pollTaskGraphMonitor(graphRunId, graphHarnessConfigId);
     }, this.monitorPollDelay(delayMs, 5000));
   }
 
-  private async pollTaskGraphMonitor(taskRunId: string) {
-    const targetTaskRunId = taskRunId.trim();
-    if (!targetTaskRunId || this.taskGraphMonitorTaskRunId !== targetTaskRunId) {
+  private async pollTaskGraphMonitor(graphRunId: string, graphHarnessConfigId: string) {
+    const targetGraphRunId = graphRunId.trim();
+    const targetGraphHarnessConfigId = graphHarnessConfigId.trim();
+    if (!targetGraphRunId || !targetGraphHarnessConfigId || this.taskGraphMonitorGraphRunId !== targetGraphRunId) {
       return;
     }
     if (this.taskGraphMonitorInFlight) {
-      this.scheduleNextTaskGraphMonitorPoll(targetTaskRunId, 3000);
+      this.scheduleNextTaskGraphMonitorPoll(targetGraphRunId, targetGraphHarnessConfigId, 3000);
       return;
     }
     this.taskGraphMonitorInFlight = true;
     try {
-      const monitor = await getTaskGraphRunMonitor(targetTaskRunId);
-      if (this.taskGraphMonitorTaskRunId === targetTaskRunId) {
+      const monitor = await getGraphRunMonitor(targetGraphRunId, targetGraphHarnessConfigId);
+      if (this.taskGraphMonitorGraphRunId === targetGraphRunId) {
         this.store.setState((prev) => ({
           ...prev,
           taskGraphBoundRunMonitor: monitor,
@@ -1388,43 +1363,39 @@ export class WorkspaceRuntime {
         }));
       }
     } catch (error) {
-      if (this.taskGraphMonitorTaskRunId === targetTaskRunId) {
+      if (this.taskGraphMonitorGraphRunId === targetGraphRunId) {
         this.store.setState((prev) => ({
           ...prev,
-          taskGraphMonitorError: error instanceof Error ? error.message : "TaskGraph 运行监控读取失败",
+          taskGraphMonitorError: error instanceof Error ? error.message : "GraphRun 运行监控读取失败",
         }));
       }
     } finally {
       this.taskGraphMonitorInFlight = false;
-      if (this.taskGraphMonitorTaskRunId === targetTaskRunId) {
-        this.scheduleNextTaskGraphMonitorPoll(targetTaskRunId);
+      if (this.taskGraphMonitorGraphRunId === targetGraphRunId) {
+        this.scheduleNextTaskGraphMonitorPoll(targetGraphRunId, targetGraphHarnessConfigId);
       }
     }
   }
 
   private async evaluateBoundTaskGraphMonitor() {
     const binding = this.store.getState().taskGraphMonitorBinding;
-    const taskRunId = binding?.task_run_id?.trim() ?? "";
-    if (!taskRunId) {
-      this.store.setState((prev) => ({ ...prev, taskGraphMonitorError: "当前没有绑定可监测的 TaskRun。" }));
+    const graphRunId = String(binding?.graph_run_id || "").trim();
+    const graphHarnessConfigId = String(binding?.graph_harness_config_id || "").trim();
+    if (!graphRunId || !graphHarnessConfigId) {
+      this.store.setState((prev) => ({ ...prev, taskGraphMonitorError: "当前没有绑定可刷新的 GraphRun。" }));
       return;
     }
     this.store.setState((prev) => ({ ...prev, taskGraphMonitorLoading: true, taskGraphMonitorError: "" }));
     try {
-      const result = await evaluateTaskGraphRunMonitor(taskRunId, { monitor_node_id: "runtime_monitor" });
-      const decisions = await getTaskGraphRunMonitorDecisions(taskRunId);
-      const shouldOpen = Boolean(result.decision?.action && result.decision.action !== "no_action");
+      const monitor = await getGraphRunMonitor(graphRunId, graphHarnessConfigId);
       this.store.setState((prev) => ({
         ...prev,
-        taskGraphMonitorDecision: result.decision,
-        taskGraphMonitorDecisions: decisions.decisions ?? [],
-        taskGraphBoundRunMonitor: result.monitor_snapshot ?? prev.taskGraphBoundRunMonitor,
-        taskGraphRunInteractionOpen: shouldOpen ? true : prev.taskGraphRunInteractionOpen,
+        taskGraphBoundRunMonitor: monitor,
       }));
     } catch (error) {
       this.store.setState((prev) => ({
         ...prev,
-        taskGraphMonitorError: error instanceof Error ? error.message : "监测评估失败",
+        taskGraphMonitorError: error instanceof Error ? error.message : "GraphRun 监控刷新失败",
       }));
     } finally {
       this.store.setState((prev) => ({ ...prev, taskGraphMonitorLoading: false }));
@@ -1436,7 +1407,6 @@ export class WorkspaceRuntime {
     const binding = state.taskGraphMonitorBinding;
     const graphRunId = String(binding?.graph_run_id || state.taskGraphBoundRunMonitor?.graph_run_id || "").trim();
     const graphHarnessConfigId = String(binding?.graph_harness_config_id || "").trim();
-    const taskRunId = String(binding?.task_run_id || state.taskGraphBoundRunMonitor?.task_run_id || "").trim();
     if (!graphRunId || !graphHarnessConfigId) {
       this.store.setState((prev) => ({ ...prev, taskGraphMonitorError: "当前没有可派发的 GraphRun。" }));
       return;
@@ -1447,77 +1417,15 @@ export class WorkspaceRuntime {
         graph_harness_config_id: graphHarnessConfigId,
         max_requests: 1,
       });
-      if (taskRunId) {
-        const monitor = await getTaskGraphRunMonitor(taskRunId);
-        this.store.setState((prev) => ({
-          ...prev,
-          taskGraphBoundRunMonitor: monitor,
-        }));
-      }
+      const monitor = await getGraphRunMonitor(graphRunId, graphHarnessConfigId);
+      this.store.setState((prev) => ({
+        ...prev,
+        taskGraphBoundRunMonitor: monitor,
+      }));
     } catch (error) {
       this.store.setState((prev) => ({
         ...prev,
         taskGraphMonitorError: error instanceof Error ? error.message : "续跑失败",
-      }));
-    } finally {
-      this.store.setState((prev) => ({ ...prev, taskGraphMonitorActionLoading: false }));
-    }
-  }
-
-  private async refreshAndContinueBoundTaskGraphRun() {
-    this.store.setState((prev) => ({
-      ...prev,
-      taskGraphMonitorError: "新 GraphHarness 尚未提供 rewind/refresh 控制命令。请使用派发 ready 节点或等待节点结果回交。",
-    }));
-  }
-
-  private async submitTaskGraphMonitorDecision(
-    decision: string,
-    controlAction: string,
-    resumePayload?: Record<string, unknown>,
-  ) {
-    const state = this.store.getState();
-    const binding = state.taskGraphMonitorBinding;
-    const monitorDecision = state.taskGraphMonitorDecision;
-    const graphRunId = String(binding?.graph_run_id || state.taskGraphBoundRunMonitor?.graph_run_id || "").trim();
-    const graphHarnessConfigId = String(binding?.graph_harness_config_id || "").trim();
-    const taskRunId = String(binding?.task_run_id || monitorDecision?.task_run_id || "").trim();
-    if (!graphRunId || !graphHarnessConfigId) {
-      this.store.setState((prev) => ({ ...prev, taskGraphMonitorError: "当前没有可处理运行交互的 GraphRun。" }));
-      return;
-    }
-    this.store.setState((prev) => ({ ...prev, taskGraphMonitorActionLoading: true, taskGraphMonitorError: "" }));
-    try {
-      if (controlAction === "continue_current_stage" || decision === "continue_current_stage" || decision === "retry_current_stage") {
-        await dispatchGraphRunReadyNodes(graphRunId, {
-          graph_harness_config_id: graphHarnessConfigId,
-          max_requests: Number(resumePayload?.max_requests ?? 1),
-        });
-      } else if (controlAction === "stop_task_run" || decision === "pause") {
-        await stopOrchestrationTaskRun(taskRunId, {
-          reason: String(resumePayload?.reason || "monitor_pause_requested"),
-          message: "TaskGraph 运行交互浮窗暂停运行",
-        });
-      } else if (controlAction === "acknowledge" || decision === "acknowledge") {
-        this.store.setState((prev) => ({ ...prev, taskGraphRunInteractionOpen: false }));
-      } else {
-        await dispatchGraphRunReadyNodes(graphRunId, {
-          graph_harness_config_id: graphHarnessConfigId,
-          max_requests: Number(resumePayload?.max_requests ?? 1),
-        });
-      }
-      if (taskRunId) {
-        const monitor = await getTaskGraphRunMonitor(taskRunId);
-        this.store.setState((prev) => ({
-          ...prev,
-          taskGraphBoundRunMonitor: monitor,
-          taskGraphRunInteractionOpen: false,
-        }));
-      }
-    } catch (error) {
-      this.store.setState((prev) => ({
-        ...prev,
-        taskGraphMonitorError: error instanceof Error ? error.message : "运行交互处理失败",
       }));
     } finally {
       this.store.setState((prev) => ({ ...prev, taskGraphMonitorActionLoading: false }));
@@ -1613,19 +1521,6 @@ export class WorkspaceRuntime {
     }
   }
 
-  private async resolveRuntimeApproval(taskRunId: string, decision: "approve" | "reject", message?: string) {
-    const runId = taskRunId.trim();
-    if (!runId) {
-      return;
-    }
-    await resolveHarnessTaskRunApproval(runId, { decision, message });
-    const sessionId = this.store.getState().currentSessionId;
-    if (sessionId) {
-      await this.hydrateLatestOrchestrationSnapshot(sessionId);
-      this.startOrchestrationMonitorPolling(sessionId);
-    }
-  }
-
   private async hydrateLatestOrchestrationSnapshot(sessionId: string): Promise<boolean> {
     const targetSessionId = sessionId.trim();
     const requestId = ++this.orchestrationHydrateRequest;
@@ -1649,10 +1544,11 @@ export class WorkspaceRuntime {
       const hasPendingApproval = liveStatus === "waiting_approval" || String((activeMonitor.loop_state as Record<string, unknown> | undefined)?.terminal_reason ?? "") === "waiting_approval";
       const taskRunId = String(activeTaskRun.task_run_id ?? activeMonitor.task_run_id ?? liveMonitor.active_task_run_id ?? "").trim();
       const graphRunId = String(activeMonitor.graph_run_id ?? activeTaskRun.graph_run_id ?? "").trim();
+      const graphHarnessConfigId = this.graphHarnessConfigIdFromMonitor(activeMonitor);
       this.updateSessionActivityFromLiveMonitor(liveStatus, taskRunId, graphRunId);
       let taskGraphRunMonitor = this.store.getState().taskGraphRunMonitor;
-      if (taskRunId && activeMonitor.has_coordination) {
-        taskGraphRunMonitor = await getTaskGraphRunMonitor(taskRunId).catch(() => null);
+      if (graphRunId && graphHarnessConfigId && activeMonitor.has_coordination) {
+        taskGraphRunMonitor = await getGraphRunMonitor(graphRunId, graphHarnessConfigId).catch(() => null);
       } else {
         taskGraphRunMonitor = null;
       }
@@ -1668,6 +1564,18 @@ export class WorkspaceRuntime {
       // Keep current snapshot on transient harness query failures.
       return false;
     }
+  }
+
+  private graphHarnessConfigIdFromMonitor(monitor: NonNullable<Awaited<ReturnType<typeof getOrchestrationHarnessSessionLiveMonitor>>["monitor"]>) {
+    const taskRun = this.harnessMonitorTaskRun(monitor);
+    const direct = String(monitor.graph_harness_config_id ?? taskRun.graph_harness_config_id ?? "").trim();
+    if (direct) {
+      return direct;
+    }
+    const graphRun = monitor.coordination_run && typeof monitor.coordination_run === "object" && !Array.isArray(monitor.coordination_run)
+      ? monitor.coordination_run as Record<string, unknown>
+      : {};
+    return String(graphRun.config_id ?? graphRun.graph_harness_config_id ?? "").trim();
   }
 
   private activeHarnessSessionMonitor(liveMonitor: Awaited<ReturnType<typeof getOrchestrationHarnessSessionLiveMonitor>>) {
@@ -1709,10 +1617,15 @@ export class WorkspaceRuntime {
     if (typeof window === "undefined" || !this.hasActiveChatStream()) {
       return;
     }
-    if (this.taskGraphMonitorTimer !== null && this.taskGraphMonitorTaskRunId) {
+    const graphBinding = this.store.getState().taskGraphMonitorBinding;
+    if (
+      this.taskGraphMonitorTimer !== null
+      && this.taskGraphMonitorGraphRunId
+      && graphBinding?.graph_harness_config_id
+    ) {
       window.clearTimeout(this.taskGraphMonitorTimer);
       this.taskGraphMonitorTimer = null;
-      this.scheduleNextTaskGraphMonitorPoll(this.taskGraphMonitorTaskRunId, 5000);
+      this.scheduleNextTaskGraphMonitorPoll(this.taskGraphMonitorGraphRunId, graphBinding.graph_harness_config_id, 5000);
     }
     if (this.globalRuntimeMonitorTimer !== null) {
       window.clearTimeout(this.globalRuntimeMonitorTimer);
@@ -2124,7 +2037,7 @@ export class WorkspaceRuntime {
       },
     }));
     if (taskGraphBinding) {
-      this.startTaskGraphMonitorPolling(normalized);
+      this.startTaskGraphMonitorPolling(taskGraphBinding.graph_run_id, taskGraphBinding.graph_harness_config_id);
     }
     this.queueSelectedGlobalRuntimeMonitorDetailRefresh(normalized, this.store.getState().globalRuntimeMonitorRevision);
   }
@@ -2162,8 +2075,8 @@ export class WorkspaceRuntime {
     try {
       const [liveMonitor, graphMonitor] = await Promise.all([
         getOrchestrationHarnessTaskRunLiveMonitor(normalized).catch(() => null),
-        work.workKind === "task_graph_run"
-          ? getTaskGraphRunMonitor(normalized).catch(() => null)
+        work.workKind === "task_graph_run" && selected.graph_run_id && selected.graph_harness_config_id
+          ? getGraphRunMonitor(selected.graph_run_id, selected.graph_harness_config_id).catch(() => null)
           : Promise.resolve(null),
       ]);
       const stateAfterLoad = this.store.getState();

@@ -1,24 +1,25 @@
 "use client";
 
-import { Activity, CheckCircle2, GripHorizontal, MessageSquare, Minimize2, Pause, PlayCircle, RefreshCw, RotateCcw, ShieldCheck, TriangleAlert, X } from "lucide-react";
+import { Activity, CheckCircle2, GripHorizontal, Minimize2, PlayCircle, RefreshCw, TriangleAlert, X } from "lucide-react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
+import type { GraphRunMonitorView } from "@/lib/api";
 import type { TaskGraphMonitorBinding } from "@/lib/store/types";
-import type { TaskGraphMonitorDecision, TaskGraphRunMonitorView } from "@/lib/api";
-import { buildTaskGraphBatchLifecycleSummary } from "./taskGraphRuntimeView";
 
 function recordValue(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
-function arrayValue(value: unknown): Array<Record<string, unknown>> {
-  return Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item)) : [];
+function recordArray(value: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(value)
+    ? value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+    : [];
 }
 
-function interactionRequest(decision: TaskGraphMonitorDecision | null): Record<string, unknown> {
-  return recordValue(decision?.run_interaction_request);
+function stringArray(value: unknown) {
+  return Array.isArray(value) ? value.map((item) => String(item ?? "").trim()).filter(Boolean) : [];
 }
 
 function numberValue(value: unknown) {
@@ -26,18 +27,14 @@ function numberValue(value: unknown) {
   return Number.isFinite(next) ? next : 0;
 }
 
+function textValue(value: unknown, fallback = "") {
+  const next = String(value ?? "").trim();
+  return next || fallback;
+}
+
 function formatClock(seconds: number) {
   if (!seconds) return "暂无更新";
   return new Date(seconds * 1000).toLocaleTimeString();
-}
-
-function latestMonitorTime(monitor: TaskGraphRunMonitorView | null) {
-  return Math.max(
-    numberValue(monitor?.streaming?.latest_chunk_at),
-    numberValue(monitor?.runtime?.updated_at),
-    numberValue(monitor?.timeline?.updated_at),
-    numberValue(monitor?.supervision?.latest_event_at),
-  );
 }
 
 function compactId(value: string, left = 18, right = 8) {
@@ -46,26 +43,45 @@ function compactId(value: string, left = 18, right = 8) {
   return `${value.slice(0, left)}...${value.slice(-right)}`;
 }
 
-function optionIcon(controlAction: string, decision: string) {
-  if (controlAction === "stop_task_run" || decision === "pause") return <Pause size={14} />;
-  if (controlAction === "start_new_run" || decision === "start_new_run") return <RotateCcw size={14} />;
-  if (controlAction === "acknowledge" || decision === "acknowledge") return <CheckCircle2 size={14} />;
-  return <PlayCircle size={14} />;
+function latestMonitorTime(monitor: GraphRunMonitorView | null) {
+  const graphRun = recordValue(monitor?.graph_run);
+  const taskRun = recordValue(monitor?.task_run);
+  const events = Array.isArray(monitor?.events) ? monitor.events : [];
+  const latestEventAt = events.reduce((max, event) => Math.max(max, numberValue(recordValue(event).created_at)), 0);
+  return Math.max(numberValue(graphRun.updated_at), numberValue(taskRun.updated_at), latestEventAt);
 }
 
-function statusLabel(decision: TaskGraphMonitorDecision | null, loading: boolean) {
-  if (loading) return "正在监测";
-  if (!decision) return "等待监测";
-  if (decision.action === "no_action") return "运行健康";
-  if (decision.action === "request_user_decision" || decision.action === "request_human_review") return "等待用户确认";
-  if (decision.severity === "critical" || decision.severity === "error") return "需要处理";
-  return "有新提醒";
+function configNodes(monitor: GraphRunMonitorView | null) {
+  return recordArray(recordValue(monitor?.graph_harness_config).nodes);
+}
+
+function loopState(monitor: GraphRunMonitorView | null) {
+  return recordValue(monitor?.graph_loop_state);
+}
+
+function nodeStatusMap(state: Record<string, unknown>) {
+  const statuses = new Map<string, string>();
+  for (const nodeId of stringArray(state.ready_node_ids)) statuses.set(nodeId, "ready");
+  for (const nodeId of stringArray(state.running_node_ids)) statuses.set(nodeId, "running");
+  for (const nodeId of stringArray(state.completed_node_ids)) statuses.set(nodeId, "completed");
+  for (const nodeId of stringArray(state.failed_node_ids)) statuses.set(nodeId, "failed");
+  for (const nodeId of stringArray(state.blocked_node_ids)) statuses.set(nodeId, "blocked");
+  return statuses;
+}
+
+function statusLabel(status: string, loading: boolean) {
+  if (loading) return "正在刷新";
+  if (status === "completed") return "已完成";
+  if (status === "failed") return "失败";
+  if (status === "running") return "运行中";
+  if (status === "created") return "已创建";
+  if (status === "blocked") return "阻塞";
+  return status || "等待绑定";
 }
 
 export function TaskGraphRunInteractionDock({
   actionLoading,
   binding,
-  decision,
   error,
   monitor,
   monitorLoading,
@@ -73,28 +89,22 @@ export function TaskGraphRunInteractionDock({
   onContinue,
   onEvaluate,
   onOpenChange,
-  onRefreshContinue,
-  onSubmitDecision,
   open,
 }: {
   actionLoading: boolean;
   binding: TaskGraphMonitorBinding | null;
-  decision: TaskGraphMonitorDecision | null;
   error: string;
-  monitor: TaskGraphRunMonitorView | null;
+  monitor: GraphRunMonitorView | null;
   monitorLoading: boolean;
   onClear: () => void;
   onContinue: () => void;
   onEvaluate: () => void;
   onOpenChange: (open: boolean) => void;
-  onRefreshContinue: () => void;
-  onSubmitDecision: (decision: string, controlAction: string, resumePayload?: Record<string, unknown>) => void;
   open: boolean;
 }) {
   const [mounted, setMounted] = useState(false);
   const [ready, setReady] = useState(false);
   const [position, setPosition] = useState({ x: 24, y: 120 });
-  const [operatorNote, setOperatorNote] = useState("");
   const dragRef = useRef<{
     pointerId: number;
     startX: number;
@@ -104,27 +114,25 @@ export function TaskGraphRunInteractionDock({
     moved: boolean;
   } | null>(null);
   const suppressClickRef = useRef(false);
-  const autoOpenedRef = useRef("");
-  const request = useMemo(() => interactionRequest(decision), [decision]);
-  const monitorHumanWorkPacket = recordValue((monitor as unknown as Record<string, unknown> | null)?.current_human_work_packet);
-  const humanWorkPacket = recordValue(request.human_work_packet ?? monitorHumanWorkPacket);
-  const materialSections = useMemo(() => arrayValue(humanWorkPacket.material_sections), [humanWorkPacket]);
-  const outputFormSchema = recordValue(humanWorkPacket.output_form_schema);
-  const requestId = String(request.request_id || decision?.decision_id || "");
-  const decisionOptions = useMemo(() => arrayValue(request.decision_options), [request]);
-  const needsAttention = Boolean(decision && decision.action !== "no_action");
-  const taskRunId = String(binding?.task_run_id ?? "").trim();
-  const graphRunId = String(binding?.graph_run_id || monitor?.graph_run_id || "").trim();
-  const boundLabel = binding?.title || binding?.graph_id || (taskRunId ? compactId(taskRunId) : "未绑定 TaskRun");
-  const activeNodeId = String(monitor?.runtime?.active_node_id || decision?.observed?.active_node_id || "");
-  const runtimeStatus = String(monitor?.runtime?.status || decision?.observed?.runtime_status || (taskRunId ? "watching" : "idle"));
-  const streamEnabled = monitor?.streaming?.enabled === true;
-  const streamChunks = numberValue(monitor?.streaming?.chunk_count);
-  const streamChars = numberValue(monitor?.streaming?.accumulated_chars);
-  const streamPreview = String(monitor?.streaming?.preview_text || "");
+
+  const state = useMemo(() => loopState(monitor), [monitor]);
+  const nodes = useMemo(() => configNodes(monitor), [monitor]);
+  const statuses = useMemo(() => nodeStatusMap(state), [state]);
+  const readyNodeIds = stringArray(state.ready_node_ids);
+  const runningNodeIds = stringArray(state.running_node_ids);
+  const completedNodeIds = stringArray(state.completed_node_ids);
+  const failedNodeIds = stringArray(state.failed_node_ids);
+  const blockedNodeIds = stringArray(state.blocked_node_ids);
+  const activeOrders = Array.isArray(monitor?.active_node_work_orders) ? monitor.active_node_work_orders : [];
+  const graphRunId = textValue(binding?.graph_run_id || monitor?.graph_run_id);
+  const graphHarnessConfigId = textValue(binding?.graph_harness_config_id || state.config_id);
+  const taskRunId = textValue(binding?.task_run_id || recordValue(monitor?.task_run).task_run_id);
+  const graphId = textValue(binding?.graph_id || state.graph_id || recordValue(monitor?.graph_run).graph_id);
+  const runtimeStatus = textValue(state.status || recordValue(monitor?.graph_run).status);
+  const boundLabel = binding?.title || graphId || (graphRunId ? compactId(graphRunId) : "未绑定 GraphRun");
   const latestAt = latestMonitorTime(monitor);
   const lastUpdatedLabel = formatClock(latestAt);
-  const batchLifecycle = buildTaskGraphBatchLifecycleSummary(monitor?.batch_lifecycle);
+  const needsAttention = failedNodeIds.length > 0 || blockedNodeIds.length > 0 || Boolean(error);
 
   function getBoxSize(isOpen = open) {
     return {
@@ -175,14 +183,6 @@ export function TaskGraphRunInteractionDock({
       // Dragging should still work when storage is unavailable.
     }
   }, [position, ready]);
-
-  useEffect(() => {
-    if (!needsAttention || !requestId || autoOpenedRef.current === requestId) {
-      return;
-    }
-    autoOpenedRef.current = requestId;
-    onOpenChange(true);
-  }, [needsAttention, onOpenChange, requestId]);
 
   useEffect(() => {
     function handlePointerMove(event: PointerEvent) {
@@ -244,22 +244,7 @@ export function TaskGraphRunInteractionDock({
     };
   }
 
-  function submitOption(option: Record<string, unknown>, index: number) {
-    const selectedDecision = String(option.decision || `decision_${index + 1}`);
-    const controlAction = String(option.control_action || option.action || "");
-    const resumePayload = {
-      ...recordValue(option.resume_payload),
-      ...(operatorNote.trim() ? { operator_note: operatorNote.trim() } : {}),
-    };
-    onSubmitDecision(selectedDecision, controlAction, resumePayload);
-    setOperatorNote("");
-  }
-
-  if (!mounted) {
-    return null;
-  }
-
-  if (!open && !needsAttention) {
+  if (!mounted || (!open && !binding && !monitor)) {
     return null;
   }
 
@@ -278,13 +263,12 @@ export function TaskGraphRunInteractionDock({
         type="button"
       >
         {needsAttention ? <TriangleAlert size={18} /> : <Activity size={18} />}
-        <span>{needsAttention ? "运行需要处理" : taskRunId ? "运行监控" : "监控待绑定"}</span>
+        <span>{needsAttention ? "图运行需处理" : graphRunId ? "图运行监控" : "监控待绑定"}</span>
       </button>
       <div className="task-graph-run-interaction-launcher__body">
-        <strong>{activeNodeId || boundLabel}</strong>
-        <span>{runtimeStatus} · {lastUpdatedLabel}</span>
-        {streamEnabled ? <small>{streamChunks} 片 / {streamChars} 字</small> : null}
-        {batchLifecycle.available ? <small>批次 {batchLifecycle.summary.committed_batch_count ?? 0}/{batchLifecycle.summary.batch_count ?? 0}</small> : null}
+        <strong>{boundLabel}</strong>
+        <span>{runtimeStatus || "idle"} · {lastUpdatedLabel}</span>
+        <small>Ready {readyNodeIds.length} / Running {runningNodeIds.length}</small>
       </div>
       <GripHorizontal size={15} />
     </aside>
@@ -294,55 +278,35 @@ export function TaskGraphRunInteractionDock({
     <aside className="health-agent-dock task-graph-run-interaction-dock" style={{ left: position.x, opacity: ready ? 1 : 0, top: position.y }}>
       <header onPointerDown={beginDrag}>
         <div>
-          <span>TaskGraph 运行交互</span>
-          <strong>{statusLabel(decision, monitorLoading)}</strong>
+          <span>GraphRun 监控</span>
+          <strong>{statusLabel(runtimeStatus, monitorLoading)}</strong>
           <em>{boundLabel}</em>
         </div>
         <div className="health-agent-dock__window-controls">
           <GripHorizontal size={15} />
-          <button aria-label="折叠运行交互窗口" onClick={() => onOpenChange(false)} type="button">
+          <button aria-label="折叠图运行监控窗口" onClick={() => onOpenChange(false)} type="button">
             <Minimize2 size={16} />
           </button>
-          <button aria-label="解除当前运行监控绑定" onClick={onClear} type="button">
+          <button aria-label="解除当前图运行监控绑定" onClick={onClear} type="button">
             <X size={16} />
           </button>
         </div>
       </header>
 
       <div className="health-agent-dock__scope">
-        <ShieldCheck size={15} />
-        <span>这个浮窗绑定 TaskRun，而不是绑定当前聊天会话。切换普通会话不会中断监控；异常、阻塞和人工确认会在这里升级提醒。</span>
+        <CheckCircle2 size={15} />
+        <span>这个窗口只绑定 GraphRun。它展示 GraphLoop 状态和 work order，不生成监督决策，也不接管任务语义。</span>
       </div>
 
       <section className="task-graph-run-interaction-status">
-        <div>
-          <span>当前节点</span>
-          <strong>{activeNodeId || "-"}</strong>
-        </div>
-        <div>
-          <span>运行态</span>
-          <strong>{runtimeStatus}</strong>
-        </div>
-        <div>
-          <span>最近更新</span>
-          <strong>{lastUpdatedLabel}</strong>
-        </div>
-        <div>
-          <span>实时正文</span>
-          <strong>{streamEnabled ? `${streamChunks} / ${streamChars}` : "未启用"}</strong>
-        </div>
-        {batchLifecycle.available ? (
-          <div>
-            <span>批次进度</span>
-            <strong>{batchLifecycle.summary.committed_batch_count ?? 0}/{batchLifecycle.summary.batch_count ?? 0}</strong>
-          </div>
-        ) : null}
-        {batchLifecycle.available ? (
-          <div>
-            <span>执行实例</span>
-            <strong>{batchLifecycle.summary.execution_instance_count ?? batchLifecycle.execution_instances.length}</strong>
-          </div>
-        ) : null}
+        <div><span>Ready</span><strong>{readyNodeIds.length}</strong></div>
+        <div><span>Running</span><strong>{runningNodeIds.length}</strong></div>
+        <div><span>Done</span><strong>{completedNodeIds.length}</strong></div>
+        <div><span>Failed</span><strong>{failedNodeIds.length}</strong></div>
+        <div><span>Blocked</span><strong>{blockedNodeIds.length}</strong></div>
+        <div><span>WorkOrder</span><strong>{monitor?.active_node_work_order_count ?? activeOrders.length}</strong></div>
+        <div><span>事件</span><strong>{monitor?.event_count ?? 0}</strong></div>
+        <div><span>最近更新</span><strong>{lastUpdatedLabel}</strong></div>
       </section>
 
       <div className="health-agent-dock__messages">
@@ -352,133 +316,74 @@ export function TaskGraphRunInteractionDock({
             <span>{error}</span>
           </article>
         ) : null}
-        {decision ? (
-          <>
-            <article className={`health-agent-message task-graph-run-interaction-message--${decision.severity || "info"}`}>
-              <strong>{decision.summary || "监测节点已返回决策。"}</strong>
-              <span>{decision.action} / {decision.reason}</span>
-            </article>
-            {Object.keys(request).length ? (
-              <article className="health-agent-message">
-                <strong>{String(recordValue(request.presentation).title || "运行交互请求")}</strong>
-                <span>{String(request.summary || decision.summary || "请根据当前运行状态选择下一步。")}</span>
-                <small>{String(request.interaction_kind || "run_interaction")}</small>
-              </article>
-            ) : null}
-            {Object.keys(humanWorkPacket).length ? (
-              <article className="health-agent-message task-graph-run-interaction-work-packet">
-                <strong>{String(humanWorkPacket.title || "节点人工工作单")}</strong>
-                <span>{String(humanWorkPacket.task_brief || "请按节点输入包和输出契约提交本节点结果。")}</span>
-                <small>{String(humanWorkPacket.role_label || "人工执行者")}</small>
-                <div className="task-graph-run-interaction-work-packet__grid">
-                  {materialSections.map((section, index) => {
-                    const items = arrayValue(section.items);
-                    return (
-                      <section key={`${String(section.section_id || "section")}_${index}`}>
-                        <b>{String(section.title || section.section_id || "输入材料")}</b>
-                        {items.length ? (
-                          <ul>
-                            {items.slice(0, 4).map((item, itemIndex) => (
-                              <li key={`${String(item.input_key || "input")}_${itemIndex}`}>
-                                <span>{String(item.input_key || "输入")}</span>
-                                <small>{String(item.usage_instruction || item.content_preview || item.content_ref || "")}</small>
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <small>暂无材料</small>
-                        )}
-                      </section>
-                    );
-                  })}
-                </div>
-                {Array.isArray(outputFormSchema.fields) && outputFormSchema.fields.length ? (
-                  <small>需提交字段：{outputFormSchema.fields.map((field) => String(recordValue(field).label || recordValue(field).field_id || "")).filter(Boolean).join(" / ")}</small>
-                ) : null}
-              </article>
-            ) : null}
-            <details className="task-graph-runtime-spec-details">
-              <summary>请求详情</summary>
-              <pre>{JSON.stringify(Object.keys(request).length ? request : decision, null, 2)}</pre>
-            </details>
-          </>
-        ) : (
-          <article className="health-agent-message">
-            <strong>{taskRunId ? "监控已常驻" : "尚未绑定运行"}</strong>
-            <span>{taskRunId ? "你可以主动执行一次监测评估；普通轮询只刷新运行快照，不会反复写入监督决策。" : "在发布页创建运行或输入 TaskRun ID 后绑定监控。"}</span>
-          </article>
-        )}
-        {streamEnabled && streamPreview ? (
-          <article className="health-agent-message task-graph-run-interaction-stream">
-            <strong><MessageSquare size={14} /> 实时正文流</strong>
-            <small>最近更新 {lastUpdatedLabel}</small>
-            <pre>{streamPreview}</pre>
-          </article>
-        ) : null}
-        {batchLifecycle.available ? (
-          <article className="health-agent-message task-graph-run-interaction-batches">
-            <strong>批次生命周期</strong>
-            <span>Ready {batchLifecycle.summary.ready_batch_count ?? 0} / Running {batchLifecycle.summary.running_batch_count ?? 0} / Committed {batchLifecycle.summary.committed_batch_count ?? 0} / Failed {batchLifecycle.summary.failed_batch_count ?? 0} / Instance {batchLifecycle.summary.execution_instance_count ?? batchLifecycle.execution_instances.length}</span>
-            <div className="task-graph-batch-runtime-list">
-              {batchLifecycle.batches.slice(0, 5).map((batch, index) => {
-                const range = recordValue(batch.range);
+
+        <article className="health-agent-message">
+          <strong>{graphRunId ? compactId(graphRunId) : "尚未绑定 GraphRun"}</strong>
+          <span>{graphHarnessConfigId ? `图契约 ${compactId(graphHarnessConfigId)}` : "需要 graph_harness_config_id 才能读取监控和派发 ready 节点。"}</span>
+          {taskRunId ? <small>TaskRun {compactId(taskRunId)}</small> : null}
+        </article>
+
+        {activeOrders.length ? (
+          <article className="health-agent-message task-graph-run-interaction-work-packet">
+            <strong>活动 Work Order</strong>
+            <div className="task-graph-run-interaction-work-packet__grid">
+              {activeOrders.slice(0, 4).map((order, index) => {
+                const payload = recordValue(order);
+                const nodeId = textValue(payload.node_id);
                 return (
-                  <section className="task-graph-batch-runtime-row" key={`${String(batch.batch_id ?? "batch")}_${index}_dock`}>
-                    <span className={`task-graph-batch-runtime-row__status task-graph-batch-runtime-row__status--${String(batch.status ?? "planned")}`}>
-                      {String(batch.status ?? "planned")}
-                    </span>
-                    <div>
-                      <strong>{String(batch.batch_id ?? `batch_${index + 1}`)}</strong>
-                      <small>{String(batch.unit_kind ?? "unit")} · {String(range.start ?? "-")}-{String(range.end ?? "-")}</small>
-                    </div>
-                    <em>#{String(batch.sequence_index ?? index + 1)}</em>
+                  <section key={`${textValue(payload.work_order_id, "work_order")}_${index}`}>
+                    <b>{nodeId || `order_${index + 1}`}</b>
+                    <small>{textValue(payload.work_kind || payload.executor_type, "agent")}</small>
+                    <small>{compactId(textValue(payload.work_order_id))}</small>
                   </section>
                 );
               })}
             </div>
           </article>
         ) : null}
-      </div>
 
-      <div className="health-agent-dock__actions">
-        <button disabled={!taskRunId || monitorLoading} onClick={onEvaluate} type="button">
-          <RefreshCw size={14} />
-          执行监测
-        </button>
-        <button disabled={!graphRunId || actionLoading} onClick={onContinue} type="button">
-          <PlayCircle size={14} />
-          续跑
-        </button>
-        <button disabled={!graphRunId || actionLoading} onClick={onRefreshContinue} type="button">
-          <RotateCcw size={14} />
-          刷新快照续跑
-        </button>
-        {decisionOptions.map((option, index) => {
-          const selectedDecision = String(option.decision || `decision_${index + 1}`);
-          const controlAction = String(option.control_action || option.action || "");
-          return (
-            <button disabled={actionLoading} key={`${selectedDecision}_${index}`} onClick={() => submitOption(option, index)} title={String(option.label || selectedDecision)} type="button">
-              {optionIcon(controlAction, selectedDecision)}
-              <span>{String(option.label || selectedDecision)}</span>
-            </button>
-          );
-        })}
-        {!decisionOptions.length && decision?.action === "no_action" ? (
-          <button disabled title="无需处理" type="button">
-            <CheckCircle2 size={14} />
-            <span>无需处理</span>
-          </button>
+        {nodes.length ? (
+          <article className="health-agent-message">
+            <strong>节点状态</strong>
+            <div className="task-graph-batch-runtime-list">
+              {nodes.slice(0, 8).map((node, index) => {
+                const nodeId = textValue(node.node_id || node.id);
+                const status = statuses.get(nodeId) || textValue(recordValue(state.node_states)[nodeId], "idle");
+                return (
+                  <section className="task-graph-batch-runtime-row" key={`${nodeId || "node"}_${index}_dock`}>
+                    <span className={`task-graph-batch-runtime-row__status task-graph-batch-runtime-row__status--${status || "idle"}`}>
+                      {status || "idle"}
+                    </span>
+                    <div>
+                      <strong>{textValue(node.title, nodeId || `node_${index + 1}`)}</strong>
+                      <small>{nodeId || "-"}</small>
+                    </div>
+                    <em>#{index + 1}</em>
+                  </section>
+                );
+              })}
+            </div>
+          </article>
+        ) : null}
+
+        {monitor?.events?.length ? (
+          <details className="task-graph-runtime-spec-details">
+            <summary>最近事件</summary>
+            <pre>{JSON.stringify(monitor.events.slice(-8), null, 2)}</pre>
+          </details>
         ) : null}
       </div>
 
-      <label className="health-agent-dock__input">
-        <Activity size={15} />
-        <input
-          onChange={(event) => setOperatorNote(event.target.value)}
-          placeholder="处理意见，可选"
-          value={operatorNote}
-        />
-      </label>
+      <div className="health-agent-dock__actions">
+        <button disabled={!graphRunId || !graphHarnessConfigId || monitorLoading} onClick={onEvaluate} type="button">
+          <RefreshCw size={14} />
+          刷新
+        </button>
+        <button disabled={!graphRunId || !graphHarnessConfigId || actionLoading} onClick={onContinue} type="button">
+          <PlayCircle size={14} />
+          派发 Ready
+        </button>
+      </div>
     </aside>
   );
 

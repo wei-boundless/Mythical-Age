@@ -29,8 +29,3 @@ def build_execution_permit_id(assembly_contract_id: str, payload: Any) -> str:
 def build_execution_result_id(assembly_contract_id: str, payload: Any) -> str:
     return f"execresult:{safe_id(assembly_contract_id or 'assembly')}:{stable_hash(payload)[:16]}"
 
-
-def build_node_result_envelope_id(coordination_run_id: str, node_id: str, payload: Any) -> str:
-    return f"noderesult:{safe_id(coordination_run_id)}:{safe_id(node_id)}:{stable_hash(payload)[:16]}"
-
-
