@@ -97,6 +97,8 @@ class RuntimeCompiler:
             "schema": schema,
             "task_environment": environment_payload,
             "available_tools": [dict(item) for item in tool_payloads],
+            "skill_candidates": [dict(item) for item in list(assembly_payload.get("skill_candidates") or []) if isinstance(item, dict)],
+            "operation_authorization": dict(assembly_payload.get("operation_authorization") or {}),
             "runtime_context": _runtime_context_payload(assembly_payload),
         }
         volatile_payload = {
@@ -228,6 +230,8 @@ class RuntimeCompiler:
             "task_contract": dict(contract),
             "task_environment": environment_payload,
             "available_tools": [dict(item) for item in tool_payloads],
+            "skill_candidates": [dict(item) for item in list(assembly_payload.get("skill_candidates") or []) if isinstance(item, dict)],
+            "operation_authorization": dict(assembly_payload.get("operation_authorization") or {}),
             "runtime_context": _runtime_context_payload(assembly_payload),
         }
         volatile_payload = {
@@ -387,6 +391,8 @@ class RuntimeCompiler:
             "schema": schema,
             "task_environment": environment_payload,
             "available_tools": [dict(item) for item in tool_payloads],
+            "skill_candidates": [dict(item) for item in list(assembly_payload.get("skill_candidates") or []) if isinstance(item, dict)],
+            "operation_authorization": dict(assembly_payload.get("operation_authorization") or {}),
             "runtime_context": _runtime_context_payload(assembly_payload),
         }
         volatile_payload = {
@@ -588,4 +594,6 @@ def _runtime_context_payload(assembly_payload: dict[str, Any]) -> dict[str, Any]
         "permission_policy": dict(profile.get("permission_policy") or {}),
         "task_environment_id": str(environment.get("environment_id") or ""),
         "storage_space": dict(environment.get("storage_space") or {}),
+        "skill_candidate_count": len(list(assembly_payload.get("skill_candidates") or [])),
+        "allowed_operation_count": len(list(dict(assembly_payload.get("operation_authorization") or {}).get("allowed_operations") or [])),
     }

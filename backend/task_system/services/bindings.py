@@ -48,10 +48,11 @@ def default_task_binding(definition: TaskDefinition) -> TaskBindingRecord:
         binding_id=f"binding:{definition.definition_id}:builtin",
         definition_id=definition.definition_id,
         prompt_role_selector=definition.default_prompt_role or "task_default",
-        skill_scope=definition.default_skill_refs,
+        skill_scope=(),
         required_operations=required_operations,
         denied_operations=denied_operations,
         review_policy=definition.review_policy,
+        metadata={"skill_authority": "environment_or_explicit_task_contract"},
     )
 
 
@@ -72,6 +73,10 @@ def merge_task_bindings(bindings: list[TaskBindingRecord]) -> TaskBindingRecord:
         output_contract_id=bindings[-1].output_contract_id,
         review_policy="required" if any(binding.review_policy == "required" for binding in bindings) else "optional",
         approval_policy=bindings[-1].approval_policy,
+        metadata={
+            "skill_authority": "environment_or_explicit_task_contract",
+            "merged_binding_count": len(bindings),
+        },
     )
 
 

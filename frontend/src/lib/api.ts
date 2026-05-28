@@ -935,6 +935,17 @@ export type TaskSystemOverview = {
       environment_prompts?: Array<Record<string, unknown>>;
       sandbox_policy?: Record<string, unknown>;
       storage_space?: Record<string, unknown>;
+      resource_space?: Record<string, unknown>;
+      file_management?: Record<string, unknown>;
+      file_access_tables?: Array<Record<string, unknown>>;
+      memory_space?: Record<string, unknown>;
+      artifact_policy?: Record<string, unknown>;
+      skill_space?: Record<string, unknown>;
+      execution_policy?: Record<string, unknown>;
+      risk_policy?: Record<string, unknown>;
+      runtime_policy?: Record<string, unknown>;
+      observability_policy?: Record<string, unknown>;
+      lifecycle_policy?: Record<string, unknown>;
       task_library?: {
         environment_id: string;
         task_ids: string[];

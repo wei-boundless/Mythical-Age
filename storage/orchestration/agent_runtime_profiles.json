@@ -111,7 +111,7 @@
             "role_interaction"
           ],
           "execution_strategy": "",
-          "default_environment_id": "env.general.workspace",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "role_conversation",
             "task_orientation": "conversation_first",
@@ -160,7 +160,7 @@
             "standard_task"
           ],
           "execution_strategy": "",
-          "default_environment_id": "env.general.workspace",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "general_agent",
             "task_orientation": "agent_decides_next_action",
@@ -209,7 +209,7 @@
             "professional_task"
           ],
           "execution_strategy": "interaction_mode_run",
-          "default_environment_id": "env.development.sandbox",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "professional_agent",
             "task_orientation": "complete_real_work",
@@ -364,7 +364,7 @@
             "role_interaction"
           ],
           "execution_strategy": "",
-          "default_environment_id": "env.general.workspace",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "role_conversation",
             "task_orientation": "conversation_first",
@@ -413,7 +413,7 @@
             "standard_task"
           ],
           "execution_strategy": "",
-          "default_environment_id": "env.general.workspace",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "general_agent",
             "task_orientation": "agent_decides_next_action",
@@ -462,7 +462,7 @@
             "professional_task"
           ],
           "execution_strategy": "interaction_mode_run",
-          "default_environment_id": "env.development.sandbox",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "professional_agent",
             "task_orientation": "complete_real_work",
@@ -607,7 +607,7 @@
             "role_interaction"
           ],
           "execution_strategy": "",
-          "default_environment_id": "env.general.workspace",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "role_conversation",
             "task_orientation": "conversation_first",
@@ -656,7 +656,7 @@
             "standard_task"
           ],
           "execution_strategy": "",
-          "default_environment_id": "env.general.workspace",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "general_agent",
             "task_orientation": "agent_decides_next_action",
@@ -705,7 +705,7 @@
             "professional_task"
           ],
           "execution_strategy": "interaction_mode_run",
-          "default_environment_id": "env.development.sandbox",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "professional_agent",
             "task_orientation": "complete_real_work",
@@ -850,7 +850,7 @@
             "role_interaction"
           ],
           "execution_strategy": "",
-          "default_environment_id": "env.general.workspace",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "role_conversation",
             "task_orientation": "conversation_first",
@@ -899,7 +899,7 @@
             "standard_task"
           ],
           "execution_strategy": "",
-          "default_environment_id": "env.general.workspace",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "general_agent",
             "task_orientation": "agent_decides_next_action",
@@ -948,7 +948,7 @@
             "professional_task"
           ],
           "execution_strategy": "interaction_mode_run",
-          "default_environment_id": "env.development.sandbox",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "professional_agent",
             "task_orientation": "complete_real_work",
@@ -1093,7 +1093,7 @@
             "role_interaction"
           ],
           "execution_strategy": "",
-          "default_environment_id": "env.general.workspace",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "role_conversation",
             "task_orientation": "conversation_first",
@@ -1142,7 +1142,7 @@
             "standard_task"
           ],
           "execution_strategy": "",
-          "default_environment_id": "env.general.workspace",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "general_agent",
             "task_orientation": "agent_decides_next_action",
@@ -1191,7 +1191,7 @@
             "professional_task"
           ],
           "execution_strategy": "interaction_mode_run",
-          "default_environment_id": "env.development.sandbox",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "professional_agent",
             "task_orientation": "complete_real_work",
@@ -1363,7 +1363,7 @@
             "role_interaction"
           ],
           "execution_strategy": "",
-          "default_environment_id": "env.general.workspace",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "role_conversation",
             "task_orientation": "conversation_first",
@@ -1412,7 +1412,7 @@
             "standard_task"
           ],
           "execution_strategy": "",
-          "default_environment_id": "env.general.workspace",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "general_agent",
             "task_orientation": "agent_decides_next_action",
@@ -1461,7 +1461,7 @@
             "professional_task"
           ],
           "execution_strategy": "interaction_mode_run",
-          "default_environment_id": "env.development.sandbox",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "professional_agent",
             "task_orientation": "complete_real_work",
@@ -1618,7 +1618,7 @@
             "role_interaction"
           ],
           "execution_strategy": "",
-          "default_environment_id": "env.general.workspace",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "role_conversation",
             "task_orientation": "conversation_first",
@@ -1667,7 +1667,7 @@
             "standard_task"
           ],
           "execution_strategy": "",
-          "default_environment_id": "env.general.workspace",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "general_agent",
             "task_orientation": "agent_decides_next_action",
@@ -1716,7 +1716,7 @@
             "professional_task"
           ],
           "execution_strategy": "interaction_mode_run",
-          "default_environment_id": "env.development.sandbox",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "professional_agent",
             "task_orientation": "complete_real_work",
@@ -1865,7 +1865,7 @@
             "role_interaction"
           ],
           "execution_strategy": "",
-          "default_environment_id": "env.general.workspace",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "role_conversation",
             "task_orientation": "conversation_first",
@@ -1914,7 +1914,7 @@
             "standard_task"
           ],
           "execution_strategy": "",
-          "default_environment_id": "env.general.workspace",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "general_agent",
             "task_orientation": "agent_decides_next_action",
@@ -1963,7 +1963,7 @@
             "professional_task"
           ],
           "execution_strategy": "interaction_mode_run",
-          "default_environment_id": "env.development.sandbox",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "professional_agent",
             "task_orientation": "complete_real_work",
@@ -2113,7 +2113,7 @@
             "role_interaction"
           ],
           "execution_strategy": "",
-          "default_environment_id": "env.general.workspace",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "role_conversation",
             "task_orientation": "conversation_first",
@@ -2162,7 +2162,7 @@
             "standard_task"
           ],
           "execution_strategy": "",
-          "default_environment_id": "env.general.workspace",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "general_agent",
             "task_orientation": "agent_decides_next_action",
@@ -2211,7 +2211,7 @@
             "professional_task"
           ],
           "execution_strategy": "interaction_mode_run",
-          "default_environment_id": "env.development.sandbox",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "professional_agent",
             "task_orientation": "complete_real_work",
@@ -2399,7 +2399,7 @@
             "role_interaction"
           ],
           "execution_strategy": "",
-          "default_environment_id": "env.general.workspace",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "role_conversation",
             "task_orientation": "conversation_first",
@@ -2448,7 +2448,7 @@
             "standard_task"
           ],
           "execution_strategy": "",
-          "default_environment_id": "env.general.workspace",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "general_agent",
             "task_orientation": "agent_decides_next_action",
@@ -2497,7 +2497,7 @@
             "professional_task"
           ],
           "execution_strategy": "interaction_mode_run",
-          "default_environment_id": "env.development.sandbox",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "professional_agent",
             "task_orientation": "complete_real_work",
@@ -2675,7 +2675,7 @@
             "role_interaction"
           ],
           "execution_strategy": "",
-          "default_environment_id": "env.general.workspace",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "role_conversation",
             "task_orientation": "conversation_first",
@@ -2724,7 +2724,7 @@
             "standard_task"
           ],
           "execution_strategy": "",
-          "default_environment_id": "env.general.workspace",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "general_agent",
             "task_orientation": "agent_decides_next_action",
@@ -2773,7 +2773,7 @@
             "professional_task"
           ],
           "execution_strategy": "interaction_mode_run",
-          "default_environment_id": "env.development.sandbox",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "professional_agent",
             "task_orientation": "complete_real_work",
@@ -2943,7 +2943,7 @@
             "role_interaction"
           ],
           "execution_strategy": "",
-          "default_environment_id": "env.general.workspace",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "role_conversation",
             "task_orientation": "conversation_first",
@@ -2992,7 +2992,7 @@
             "standard_task"
           ],
           "execution_strategy": "",
-          "default_environment_id": "env.general.workspace",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "general_agent",
             "task_orientation": "agent_decides_next_action",
@@ -3041,7 +3041,7 @@
             "professional_task"
           ],
           "execution_strategy": "interaction_mode_run",
-          "default_environment_id": "env.development.sandbox",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "professional_agent",
             "task_orientation": "complete_real_work",
@@ -3205,7 +3205,7 @@
             "role_interaction"
           ],
           "execution_strategy": "",
-          "default_environment_id": "env.general.workspace",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "role_conversation",
             "task_orientation": "conversation_first",
@@ -3254,7 +3254,7 @@
             "standard_task"
           ],
           "execution_strategy": "",
-          "default_environment_id": "env.general.workspace",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "general_agent",
             "task_orientation": "agent_decides_next_action",
@@ -3303,7 +3303,7 @@
             "professional_task"
           ],
           "execution_strategy": "interaction_mode_run",
-          "default_environment_id": "env.development.sandbox",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "professional_agent",
             "task_orientation": "complete_real_work",
@@ -3476,7 +3476,7 @@
             "role_interaction"
           ],
           "execution_strategy": "",
-          "default_environment_id": "env.general.workspace",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "role_conversation",
             "task_orientation": "conversation_first",
@@ -3525,7 +3525,7 @@
             "standard_task"
           ],
           "execution_strategy": "",
-          "default_environment_id": "env.general.workspace",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "general_agent",
             "task_orientation": "agent_decides_next_action",
@@ -3574,7 +3574,7 @@
             "professional_task"
           ],
           "execution_strategy": "interaction_mode_run",
-          "default_environment_id": "env.development.sandbox",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "professional_agent",
             "task_orientation": "complete_real_work",
@@ -3747,7 +3747,7 @@
             "role_interaction"
           ],
           "execution_strategy": "",
-          "default_environment_id": "env.general.workspace",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "role_conversation",
             "task_orientation": "conversation_first",
@@ -3796,7 +3796,7 @@
             "standard_task"
           ],
           "execution_strategy": "",
-          "default_environment_id": "env.general.workspace",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "general_agent",
             "task_orientation": "agent_decides_next_action",
@@ -3845,7 +3845,7 @@
             "professional_task"
           ],
           "execution_strategy": "interaction_mode_run",
-          "default_environment_id": "env.development.sandbox",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "professional_agent",
             "task_orientation": "complete_real_work",
@@ -4017,7 +4017,7 @@
             "role_interaction"
           ],
           "execution_strategy": "",
-          "default_environment_id": "env.general.workspace",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "role_conversation",
             "task_orientation": "conversation_first",
@@ -4066,7 +4066,7 @@
             "standard_task"
           ],
           "execution_strategy": "",
-          "default_environment_id": "env.general.workspace",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "general_agent",
             "task_orientation": "agent_decides_next_action",
@@ -4115,7 +4115,7 @@
             "professional_task"
           ],
           "execution_strategy": "interaction_mode_run",
-          "default_environment_id": "env.development.sandbox",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "professional_agent",
             "task_orientation": "complete_real_work",
@@ -4288,7 +4288,7 @@
             "role_interaction"
           ],
           "execution_strategy": "",
-          "default_environment_id": "env.general.workspace",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "role_conversation",
             "task_orientation": "conversation_first",
@@ -4337,7 +4337,7 @@
             "standard_task"
           ],
           "execution_strategy": "",
-          "default_environment_id": "env.general.workspace",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "general_agent",
             "task_orientation": "agent_decides_next_action",
@@ -4386,7 +4386,7 @@
             "professional_task"
           ],
           "execution_strategy": "interaction_mode_run",
-          "default_environment_id": "env.development.sandbox",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "professional_agent",
             "task_orientation": "complete_real_work",
@@ -4559,7 +4559,7 @@
             "role_interaction"
           ],
           "execution_strategy": "",
-          "default_environment_id": "env.general.workspace",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "role_conversation",
             "task_orientation": "conversation_first",
@@ -4608,7 +4608,7 @@
             "standard_task"
           ],
           "execution_strategy": "",
-          "default_environment_id": "env.general.workspace",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "general_agent",
             "task_orientation": "agent_decides_next_action",
@@ -4657,7 +4657,7 @@
             "professional_task"
           ],
           "execution_strategy": "interaction_mode_run",
-          "default_environment_id": "env.development.sandbox",
+          "default_environment_id": "",
           "interaction_policy": {
             "style": "professional_agent",
             "task_orientation": "complete_real_work",

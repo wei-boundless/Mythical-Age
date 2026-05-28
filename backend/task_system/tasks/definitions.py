@@ -20,7 +20,6 @@ class TaskDefinition:
     input_contract: dict[str, Any] = field(default_factory=dict)
     output_contract: dict[str, Any] = field(default_factory=dict)
     completion_criteria: tuple[str, ...] = ()
-    default_skill_refs: tuple[str, ...] = ()
     default_operation_requirements: tuple[str, ...] = ()
     default_prompt_role: str = ""
     review_policy: str = "optional"
@@ -48,7 +47,6 @@ def default_task_definitions() -> dict[str, TaskDefinition]:
             level="basic",
             goal_summary="Search external sources and summarize evidence.",
             completion_criteria=("Sources are traceable.", "Unknowns are called out."),
-            default_skill_refs=(),
             default_operation_requirements=("op.web_search", "op.fetch_url"),
             default_prompt_role="evidence_first",
         ),
@@ -72,7 +70,6 @@ def default_task_definitions() -> dict[str, TaskDefinition]:
             level="basic",
             goal_summary="Retrieve relevant knowledge-base evidence and answer from it.",
             completion_criteria=("Relevant evidence is retrieved.", "Answer is grounded in retrieved material."),
-            default_skill_refs=("skill.rag-skill",),
             default_prompt_role="evidence_first",
         ),
         TaskDefinition(
@@ -82,7 +79,6 @@ def default_task_definitions() -> dict[str, TaskDefinition]:
             level="basic",
             goal_summary="Read task-relevant local material.",
             completion_criteria=("Only task-relevant local material is used.",),
-            default_skill_refs=(),
             default_operation_requirements=("op.read_file", "op.search_files"),
             default_prompt_role="analyst",
         ),
@@ -93,7 +89,6 @@ def default_task_definitions() -> dict[str, TaskDefinition]:
             level="basic",
             goal_summary="Synthesize read material into a structured answer.",
             completion_criteria=("Summary is grounded in supplied material.",),
-            default_skill_refs=(),
             default_operation_requirements=("op.search_text",),
             default_prompt_role="structure_first",
         ),
@@ -104,7 +99,6 @@ def default_task_definitions() -> dict[str, TaskDefinition]:
             level="basic",
             goal_summary="Recall remembered user or session facts and answer from memory context.",
             completion_criteria=("Answer is grounded in memory context.", "No retrieval fallback is used unless memory is insufficient and route changes explicitly."),
-            default_skill_refs=(),
             default_operation_requirements=("op.memory_read",),
             default_prompt_role="structure_first",
         ),
@@ -115,7 +109,6 @@ def default_task_definitions() -> dict[str, TaskDefinition]:
             level="basic",
             goal_summary="Prepare and execute a bounded change plan.",
             completion_criteria=("Changes are scoped.", "Side effects are gated."),
-            default_skill_refs=(),
             default_operation_requirements=("op.read_file", "op.search_text", "op.edit_file"),
             default_prompt_role="implementer",
             review_policy="required",
@@ -127,7 +120,6 @@ def default_task_definitions() -> dict[str, TaskDefinition]:
             level="basic",
             goal_summary="Inspect a proposed or completed change for conflicts and risks.",
             completion_criteria=("Risks are listed.", "Contradictions are identified."),
-            default_skill_refs=(),
             default_operation_requirements=("op.read_file", "op.search_text"),
             default_prompt_role="risk_reviewer",
             review_policy="required",

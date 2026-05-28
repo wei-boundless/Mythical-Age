@@ -1,6 +1,6 @@
 import type { TaskGraphRecord } from "@/lib/api";
 
-export const WRITING_TASK_ENVIRONMENT_ID = "env.writing";
+export const WRITING_TASK_ENVIRONMENT_ID = "env.creation.writing";
 export const MODULAR_NOVEL_MASTER_GRAPH_ID = "graph.writing.modular_novel.master";
 
 function asRecord(value: unknown): Record<string, unknown> {

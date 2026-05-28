@@ -9,7 +9,7 @@ from evidence import EvidenceOrchestrator, PDFWorker, RetrievalWorker, Structure
 from evidence.output_policy import RAGEvidenceOutputPolicy
 from observability import build_debug_trace_event, start_turn_trace
 from capability_system.tool_authorization import build_tool_authorization_index
-from harness import AgentHarness
+from harness import AgentHarness, GraphHarness
 from harness.runtime import AgentRuntimeServices, SingleAgentRuntimeHost, TaskExecutorServices, assemble_runtime
 from runtime import ModelResponseRuntimeExecutor, ModelRuntimeError, ToolRuntimeExecutor
 from runtime.shared.history_assembler import assemble_runtime_history
@@ -96,10 +96,18 @@ class QueryRuntime:
                 execute_task_run_callback=self.execute_task_run,
             )
         )
+        self.graph_harness = GraphHarness(
+            services=AgentRuntimeServices.from_runtime_host(
+                self.single_agent_runtime_host,
+                execute_task_run_callback=self.execute_task_run,
+            ),
+            agent_harness=self.agent_harness,
+        )
         self.task_executor_recovery = recover_interrupted_task_executors(self.single_agent_runtime_host)
         self.runtime_components = {
             "query_runtime": "adapter_only",
             "agent_harness": "active",
+            "graph_harness": "active",
             "evidence_orchestrator": "active" if retrieval_enabled else "disabled_missing_retrieval_service",
             "task_executor_recovery": self.task_executor_recovery,
         }

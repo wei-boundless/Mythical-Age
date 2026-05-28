@@ -24,8 +24,8 @@ describe("center workspace helpers", () => {
           publish_state: "published",
           enabled: true,
           metadata: {
-            task_environment_id: "env.general_workspace",
-            environment_id: "env.general_workspace",
+            task_environment_id: "env.general.workspace",
+            environment_id: "env.general.workspace",
           },
         },
         {
@@ -39,8 +39,8 @@ describe("center workspace helpers", () => {
           publish_state: "published",
           enabled: true,
           metadata: {
-            task_environment_id: "env.writing",
-            environment_id: "env.writing",
+            task_environment_id: "env.creation.writing",
+            environment_id: "env.creation.writing",
           },
         },
       ],

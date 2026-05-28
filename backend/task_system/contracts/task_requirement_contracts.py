@@ -258,21 +258,6 @@ def _resolve_task_goal_type(
     return "general"
 
 
-def _task_goal_spec_type_is_authoritative(task_goal_type: str, task_goal_spec: dict[str, Any]) -> bool:
-    normalized = str(task_goal_type or "").strip()
-    if normalized in {"game_vertical_slice_delivery", "frontend_app_delivery"}:
-        return True
-    evidence = dict(task_goal_spec.get("evidence") or {})
-    signals = {
-        str(item).strip()
-        for item in list(evidence.get("goal_signals") or [])
-        if str(item).strip()
-    }
-    if "legacy_fallback" in signals:
-        return False
-    return bool(normalized)
-
-
 def _collect_materials(
     *,
     user_goal: str,

@@ -16,7 +16,7 @@ from task_system.environments import resolve_task_environment
 
 
 def test_tool_supervisor_denies_tool_outside_capability_table() -> None:
-    resolved = resolve_task_environment("env.vibe_coding")
+    resolved = resolve_task_environment("env.development.sandbox")
     table = build_tool_capability_table(
         ToolCapabilityBuildRequest(
             environment=resolved.spec,
@@ -47,7 +47,7 @@ def test_tool_supervisor_denies_tool_outside_capability_table() -> None:
             context_id="permctx:one",
             task_run_id="taskrun:one",
             agent_run_id="agrun:one",
-            environment_id="env.vibe_coding",
+            environment_id="env.development.sandbox",
             tool_capability_table_id=table.table_id,
         ),
         operation_gate=OperationGate(build_default_operation_registry()),
@@ -60,7 +60,7 @@ def test_tool_supervisor_denies_tool_outside_capability_table() -> None:
 
 
 def test_tool_supervisor_returns_ask_from_operation_gate_with_parameter_fingerprint() -> None:
-    resolved = resolve_task_environment("env.vibe_coding")
+    resolved = resolve_task_environment("env.development.sandbox")
     table = build_tool_capability_table(
         ToolCapabilityBuildRequest(
             environment=resolved.spec,
@@ -91,7 +91,7 @@ def test_tool_supervisor_returns_ask_from_operation_gate_with_parameter_fingerpr
             context_id="permctx:two",
             task_run_id="taskrun:two",
             agent_run_id="agrun:two",
-            environment_id="env.vibe_coding",
+            environment_id="env.development.sandbox",
             tool_capability_table_id=table.table_id,
         ),
         operation_gate=OperationGate(build_default_operation_registry()),

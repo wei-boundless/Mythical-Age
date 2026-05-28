@@ -27,7 +27,7 @@ from task_system import (
 from task_system.compiler.graph_harness_config_publisher import publish_graph_harness_config_for_graph
 from task_system.compiler.coordination_graph_models import TaskGraphRuntimeSpec
 from task_system.editor.graph_template_catalog import build_task_graph_template_catalog
-from task_system.environments import default_task_environment_registry, resolve_task_environment
+from task_system.environments import build_task_environment_catalog
 from task_system.registry.flow_models import SpecificTaskRecord
 from task_system.graphs.task_graph_models import validate_task_graph
 
@@ -383,45 +383,6 @@ def _task_graph_overview_item(graph) -> dict[str, object]:
     }
 
 
-def _specific_task_environment_id(task: dict[str, object], *, registry) -> str:
-    metadata = task.get("metadata") if isinstance(task.get("metadata"), dict) else {}
-    task_policy = task.get("task_policy") if isinstance(task.get("task_policy"), dict) else {}
-    raw = str(
-        metadata.get("task_environment_id")
-        or metadata.get("environment_id")
-        or task_policy.get("task_environment_id")
-        or task_policy.get("environment_id")
-        or ""
-    ).strip()
-    return registry.resolve_environment_id(raw) if raw else ""
-
-
-def _task_environment_management_item(*, definition, specific_task_records: list[dict[str, object]], registry) -> dict[str, object]:
-    environment_id = str(definition.record.environment_id or "")
-    resolved = resolve_task_environment(environment_id, registry=registry)
-    resolved_payload = resolved.to_dict()
-    task_ids = [
-        str(item.get("task_id") or "")
-        for item in specific_task_records
-        if _specific_task_environment_id(item, registry=registry) == environment_id
-    ]
-    storage_space = dict(resolved_payload.get("storage_space") or {})
-    return {
-        **definition.to_dict(),
-        "group": resolved_payload.get("group") or {},
-        "environment_prompts": resolved_payload.get("environment_prompts") or [],
-        "sandbox_policy": resolved_payload.get("sandbox_policy") or {},
-        "storage_space": storage_space,
-        "task_library": {
-            "environment_id": environment_id,
-            "task_ids": task_ids,
-            "task_count": len(task_ids),
-            "task_library_root": str(storage_space.get("task_library_root") or ""),
-            "authority": "task_system.environment_task_library",
-        },
-    }
-
-
 def _task_system_payload(base_dir) -> dict[str, object]:
     registry = TaskFlowRegistry(base_dir)
     workflow_registry = TaskWorkflowRegistry(base_dir)
@@ -456,15 +417,9 @@ def _task_system_payload(base_dir) -> dict[str, object]:
     }
     topology_templates = [item.to_dict() for item in registry.list_topology_templates()]
     communication_protocols = [item.to_dict() for item in registry.list_task_communication_protocols()]
-    environment_registry = default_task_environment_registry()
-    task_environment_definitions = [
-        _task_environment_management_item(
-            definition=item,
-            specific_task_records=specific_task_records,
-            registry=environment_registry,
-        )
-        for item in environment_registry.list()
-    ]
+    task_environment_management = build_task_environment_catalog(
+        specific_task_records=specific_task_records,
+    ).management_payload()
     communication_protocol_by_id = {
         str(item.get("protocol_id") or ""): item
         for item in communication_protocols
@@ -520,18 +475,7 @@ def _task_system_payload(base_dir) -> dict[str, object]:
             "task_assignments": task_assignments,
             "workflow_resources": workflow_resources,
         },
-        "task_environment_management": {
-            "authority": "task_system.task_environment_management",
-            "groups": [item.to_dict() for item in environment_registry.list_groups()],
-            "environments": task_environment_definitions,
-            "records": [item["record"] for item in task_environment_definitions],
-            "summary": {
-                "environment_count": len(task_environment_definitions),
-                "environment_group_count": len(environment_registry.list_groups()),
-                "enabled_environment_count": sum(1 for item in task_environment_definitions if item["record"].get("enabled") is True),
-                "task_library_count": sum(int(dict(item.get("task_library") or {}).get("task_count") or 0) for item in task_environment_definitions),
-            },
-        },
+        "task_environment_management": task_environment_management,
         "contract_management": contract_management,
         "task_graph_management": {
             "task_graphs": task_graphs,

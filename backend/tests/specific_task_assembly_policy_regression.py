@@ -15,7 +15,7 @@ def test_specific_task_assembly_policy_extracts_environment_and_agent_selection(
     record = SpecificTaskRecord(
         task_id="task.frontend.fix",
         task_title="Frontend Fix",
-        metadata={"environment_id": "env.vibe_coding"},
+        metadata={"environment_id": "env.development.sandbox"},
         output_contract_id="contract.frontend.patch",
         task_policy={
             "tool_capability_requirements": {
@@ -38,7 +38,7 @@ def test_specific_task_assembly_policy_extracts_environment_and_agent_selection(
 
     policy = resolve_specific_task_assembly_policy(task_record=record, execution_policy=execution_policy)
 
-    assert policy.environment_id == "env.vibe_coding"
+    assert policy.environment_id == "env.development.sandbox"
     assert policy.output_contract_ref == "contract.frontend.patch"
     assert policy.runtime_shape == "task_graph"
     assert policy.agent_selection.default_agent_id == "agent:codebase_searcher"
@@ -56,19 +56,19 @@ def test_specific_task_assembly_policy_selection_can_choose_environment_but_not_
         task_id="task.chapter.draft",
         task_title="Chapter Draft",
         domain_id="legacy.writing",
-        metadata={"environment_id": "env.writing"},
+        metadata={"environment_id": "env.creation.writing"},
     )
 
     policy = resolve_specific_task_assembly_policy(
         task_record=record,
         task_selection={
-            "task_environment_id": "env.writing",
+            "task_environment_id": "env.creation.writing",
             "tool_requirements": {"required_operations": ["op.read_file", "op.write_file"]},
             "default_agent_id": "agent:0",
         },
     )
 
-    assert policy.environment_id == "env.writing"
+    assert policy.environment_id == "env.creation.writing"
     assert policy.agent_selection.default_agent_id == "agent:0"
     assert policy.tool_capability_requirements.required_operations == ("op.read_file", "op.write_file")
     payload = policy.to_dict()
@@ -85,6 +85,6 @@ def test_specific_task_assembly_policy_does_not_use_legacy_domain_as_environment
         )
     )
 
-    assert policy.environment_id == "env.general_workspace"
+    assert policy.environment_id == "env.general.workspace"
 
 

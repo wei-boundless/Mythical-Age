@@ -73,7 +73,7 @@ export function CenterWorkspaceView() {
     if (explicitGraphId) return explicitGraphId;
     return String(taskGraphs[0]?.graph_id || "").trim();
   }, [selectedGraphId, taskGraphs]);
-  const selectedTaskEnvironmentId = selectedGraph ? centerWorkspaceTaskEnvironmentId(selectedGraph) : taskEnvironmentIds[0] || "env.general_workspace";
+  const selectedTaskEnvironmentId = selectedGraph ? centerWorkspaceTaskEnvironmentId(selectedGraph) : taskEnvironmentIds[0] || "env.general.workspace";
   const selectedEnvironmentGraphs = useMemo(
     () => taskGraphs.filter((graph) => centerWorkspaceTaskEnvironmentId(graph) === selectedTaskEnvironmentId),
     [selectedTaskEnvironmentId, taskGraphs],

@@ -91,8 +91,6 @@ def build_tool_capability_table(
     runtime_available = {registry.normalize_id(item) for item in request.runtime_available_operations}
 
     dispatch_requested = task_required | task_optional
-    if not dispatch_requested:
-        dispatch_requested = env_allowed
     audit_requested = dispatch_requested | task_denied | agent_allowed | runtime_available
 
     capabilities: list[ToolCapability] = []

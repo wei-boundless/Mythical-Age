@@ -652,11 +652,6 @@ function environmentRecordTitle(environmentId: string, overview?: TaskSystemOver
     "env.research.web": "Web Research",
     "env.document.processing": "Document Processing",
     "env.general.workspace": "General Workspace",
-    "env.writing": "Creative Writing",
-    "env.vibe_coding": "Development Sandbox",
-    "env.web_research": "Web Research",
-    "env.document_processing": "Document Processing",
-    "env.general_workspace": "General Workspace",
   };
   return labels[environmentId] ?? "";
 }

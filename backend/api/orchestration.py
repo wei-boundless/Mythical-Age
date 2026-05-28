@@ -105,35 +105,18 @@ async def start_task_graph_harness_run(
             "source": "harness.task_graph_start_api",
         },
     )
-    stage_execution_request = dict(start.loop_state.diagnostics.get("stage_execution_request") or {})
-    node_work_order = dict(start.loop_state.diagnostics.get("node_work_order") or {})
+    stage_execution_request: dict[str, Any] = {}
+    node_work_order = dict(start.node_work_order or {})
     initial_stage_execution_events: list[dict[str, Any]] = []
     initial_stage_execution_error: dict[str, Any] | None = None
     initial_stage_execution_background = False
     initial_stage_execution_schedule: dict[str, Any] = {}
-    if payload.execute_initial_stage and stage_execution_request:
-        request = NodeExecutionRequest.from_dict(stage_execution_request)
-        try:
-            initial_stage_execution_schedule = _schedule_stage_execution_background(
-                runtime=runtime,
-                session_id=session_id,
-                source="harness.task_graph_start_api",
-                stage_execution_request=request,
-                node_work_order=node_work_order,
-                current_turn_context={
-                    "authority": "context.task_graph_start",
-                    "task_graph_id": graph_config.graph_id,
-                    "selected_graph_id": graph_config.graph_id,
-                    "graph_harness_config_id": graph_config.config_id,
-                    "explicit_inputs": dict(payload.initial_inputs or {}),
-                },
-            )
-            initial_stage_execution_background = bool(initial_stage_execution_schedule.get("background_started"))
-        except Exception as exc:
-            initial_stage_execution_error = {
-                "error": str(exc),
-                "type": exc.__class__.__name__,
-            }
+    if payload.execute_initial_stage and node_work_order:
+        initial_stage_execution_schedule = {
+            "background_started": False,
+            "reason": "node_work_order_created_graph_node_execution_dispatch_not_reconnected",
+            "work_order_id": str(node_work_order.get("work_order_id") or ""),
+        }
     return {
         "authority": "orchestration.task_graph_run_start",
         "graph_id": graph_config.graph_id,
@@ -142,7 +125,7 @@ async def start_task_graph_harness_run(
         "coordination_run_id": start.coordination_run.coordination_run_id if start.coordination_run is not None else "",
         "task_run": start.task_run.to_dict(),
         "coordination_run": start.coordination_run.to_dict() if start.coordination_run is not None else None,
-        "checkpoint": start.checkpoint.to_dict(),
+        "checkpoint": dict(start.checkpoint),
         "graph_harness_config": graph_config.to_dict(),
         "stage_execution_request": stage_execution_request or None,
         "node_work_order": node_work_order or None,

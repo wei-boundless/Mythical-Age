@@ -161,21 +161,8 @@ def _first_value(*values: Any) -> str:
 def _resolve_environment_id(*values: Any) -> str:
     explicit = _first_value(*values)
     if explicit:
-        return _require_known_environment(_normalize_environment_id(explicit))
+        return _require_known_environment(explicit)
     return "env.general.workspace"
-
-
-def _normalize_environment_id(value: Any) -> str:
-    text = str(value or "").strip()
-    if text == "writing":
-        return "env.creation.writing"
-    if text in {"research", "web_research"}:
-        return "env.research.web"
-    if text in {"coding", "development", "vibe_coding"}:
-        return "env.development.sandbox"
-    if text.startswith("env."):
-        return text
-    return text
 
 
 def _require_known_environment(environment_id: str) -> str:
@@ -183,10 +170,9 @@ def _require_known_environment(environment_id: str) -> str:
     if not value:
         raise ValueError("SpecificTaskAssemblyPolicy requires environment_id")
     registry = default_task_environment_registry()
-    resolved = registry.resolve_environment_id(value)
-    if registry.get(resolved) is None:
+    if registry.get(value) is None:
         raise ValueError(f"unknown task environment: {value}")
-    return resolved
+    return value
 
 
 def _tuple_from_any(value: Any) -> tuple[str, ...]:

@@ -7,7 +7,6 @@ from agent_system.profiles.runtime_profile_models import AgentRuntimeProfile
 from capability_system.skill_registry import SkillRegistry
 from permissions.resource_policy_builder import RuntimeApprovalContext
 from request_intent.frame_access import capability_needs
-from request_intent.frame_access import material_kinds
 from task_system.contracts.capability_requirements import build_operation_requirement
 
 from task_system.services.assembly_models import TaskExecutionAssembly
@@ -133,11 +132,6 @@ def build_task_execution_assembly_bundle(
         merge_task_bindings(bindings),
         selected_recipe=selected_recipe,
     )
-    merged_binding = _augment_skill_scope_from_runtime_intent(
-        merged_binding=merged_binding,
-        query_understanding=dict(query_understanding or {}),
-        current_turn_context=current_turn_payload,
-    )
     merged_binding = _apply_specific_task_policy_to_binding(
         merged_binding=merged_binding,
         specific_task_policy=specific_task_policy,
@@ -197,35 +191,22 @@ def build_task_execution_assembly_bundle(
             ],
         ]
     )
-    skill_operations = _dedupe(
+    capability_operations = _dedupe(
         [
             *list(resolved_runtime_operations.get("optional_operations") or ()),
             *policy_optional_operations,
             *_agent_profile_capability_operations(agent_runtime_profile),
-            *[operation for skill in skill_views for operation in skill.required_operations],
         ]
     )
-    if str(resolved_runtime_operations.get("execution_mode") or "").strip() == "delegate":
-        delegated_specialist_ops = {
-            str(item).strip()
-            for skill in skill_views
-            for item in list(skill.required_operations or ())
-            if str(item).strip() and str(item).strip() != "op.delegate_to_agent"
-        }
-        skill_operations = [
-            operation
-            for operation in skill_operations
-            if operation not in delegated_specialist_ops
-        ]
     if allowed_operations:
         default_operations = [
             operation
             for operation in default_operations
             if operation == "op.model_response" or operation in allowed_operations
         ]
-        skill_operations = [
+        capability_operations = [
             operation
-            for operation in skill_operations
+            for operation in capability_operations
             if operation in allowed_operations
         ]
     if _profile_is_text_artifact_runtime_agent(agent_runtime_profile):
@@ -235,9 +216,9 @@ def build_task_execution_assembly_bundle(
             for operation in default_operations
             if operation == "op.model_response" or operation in text_runtime_allowed
         ]
-        skill_operations = [
+        capability_operations = [
             operation
-            for operation in skill_operations
+            for operation in capability_operations
             if operation in text_runtime_allowed
         ]
         policy_denied_operations = _dedupe(
@@ -266,7 +247,7 @@ def build_task_execution_assembly_bundle(
         ),
         denied_operations=tuple(policy_denied_operations),
         default_operation_requirements=tuple(default_operations),
-        capability_operations=tuple(skill_operations),
+        capability_operations=tuple(capability_operations),
         approval_policy=_resolve_operation_approval_policy(
             merged_binding=merged_binding,
             selected_recipe=selected_recipe,
@@ -280,6 +261,7 @@ def build_task_execution_assembly_bundle(
         ),
         extra_metadata={
             "runtime_operation_resolution": dict(resolved_runtime_operations),
+            "skill_operation_policy": "skill_required_operations_are_runtime_visibility_only",
             **(
                 {
                     "specific_task_assembly_policy_ref": specific_task_policy.policy_id,
@@ -289,7 +271,7 @@ def build_task_execution_assembly_bundle(
                 else {}
             ),
         },
-        reason="derived from runtime recipe, TaskDefinition, TaskBinding, task-side skill scope, and task operation policy",
+        reason="derived from runtime recipe, TaskDefinition operation requirements, TaskBinding operation policy, explicit task operation policy, and agent profile operation permissions",
     )
     task_spec = _build_task_spec(
         task_id=task_id,
@@ -541,47 +523,6 @@ def _normalize_current_turn_for_registered_task(
     payload.setdefault("task_goal_type", "task_graph_node_execution")
     payload.setdefault("execution_obligation_policy", "orchestration_owns_task_graph_node_side_effects")
     return payload
-
-
-def _augment_skill_scope_from_runtime_intent(
-    *,
-    merged_binding: Any,
-    query_understanding: dict[str, Any],
-    current_turn_context: dict[str, Any],
-):
-    needs = capability_needs(query_understanding)
-    kinds = material_kinds(query_understanding)
-    task_contract_seed = dict(current_turn_context.get("task_contract_seed") or {})
-    resource_contract = dict(task_contract_seed.get("resource_contract") or {})
-    target_objects = [
-        str(item).strip().lower()
-        for key in ("required_read_files", "required_read_dirs", "required_write_files", "required_write_dirs")
-        for item in list(resource_contract.get(key) or [])
-        if str(item).strip()
-    ]
-    additions: list[str] = []
-    if "knowledge_lookup" in needs:
-        additions.append("skill.rag-skill")
-    if (
-        "dataset_analysis" in needs
-        or "dataset" in kinds
-        or any(item.endswith((".csv", ".tsv", ".xlsx", ".xls", ".parquet", ".json")) for item in target_objects)
-    ):
-        additions.append("skill.structured-data-analysis")
-    if "document_analysis" in needs or "pdf" in kinds or any(item.endswith(".pdf") for item in target_objects):
-        additions.append("skill.pdf-analysis")
-    if bool(dict(resource_contract.get("asset_policy") or {}).get("browser_verification")):
-        additions.append("skill.browser-operation")
-    current_scope = [str(item).strip() for item in list(getattr(merged_binding, "skill_scope", ()) or ()) if str(item).strip()]
-    merged_scope = tuple(_dedupe([*current_scope, *additions]))
-    if merged_scope == tuple(current_scope):
-        return merged_binding
-    return merged_binding.__class__(
-        **{
-            **merged_binding.to_dict(),
-            "skill_scope": merged_scope,
-        }
-    )
 
 
 def _apply_specific_task_policy_to_binding(
@@ -909,7 +850,7 @@ def _skill_views_for_task_binding(
     return skill_runtime_views_from_registry(
         registry=skill_registry,
         skill_refs=tuple(merged_binding.skill_scope or ()),
-        task_reason="Candidate capability available under current task binding.",
+        task_reason="Skill candidate declared by the explicit task contract.",
     )
 
 

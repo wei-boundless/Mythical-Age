@@ -13,8 +13,8 @@ from task_system.registry.flow_models import SpecificTaskRecord, TaskExecutionPo
 from task_system.tasks import resolve_specific_task_assembly_policy
 
 
-def test_vibe_coding_tool_table_intersects_environment_task_agent_and_file_access() -> None:
-    resolved = resolve_task_environment("env.vibe_coding")
+def test_development_tool_table_intersects_environment_task_agent_and_file_access() -> None:
+    resolved = resolve_task_environment("env.development.sandbox")
     table = build_tool_capability_table(
         ToolCapabilityBuildRequest(
             environment=resolved.spec,
@@ -34,8 +34,8 @@ def test_vibe_coding_tool_table_intersects_environment_task_agent_and_file_acces
     assert any(grant.startswith("repo.coding.sandbox_workspace:edit") for grant in edit_capability.file_repository_grants)
 
 
-def test_writing_tool_table_denies_shell_and_gates_official_write() -> None:
-    resolved = resolve_task_environment("env.writing")
+def test_writing_tool_table_keeps_agent_allowed_shell_visible_and_gates_official_write() -> None:
+    resolved = resolve_task_environment("env.creation.writing")
     table = build_tool_capability_table(
         ToolCapabilityBuildRequest(
             environment=resolved.spec,
@@ -45,8 +45,8 @@ def test_writing_tool_table_denies_shell_and_gates_official_write() -> None:
         )
     )
 
-    assert "terminal" not in table.visible_tools
-    assert any(issue.operation_id == "op.shell" and issue.source == "task_environment" for issue in table.filtered)
+    assert "terminal" in table.visible_tools
+    assert not any(issue.operation_id == "op.shell" and issue.source == "task_environment" for issue in table.filtered)
 
     write_capability = table.capability_for_operation("op.write_file")
     assert write_capability is not None
@@ -57,7 +57,7 @@ def test_writing_tool_table_denies_shell_and_gates_official_write() -> None:
 
 
 def test_file_operation_without_file_access_table_is_filtered() -> None:
-    resolved = resolve_task_environment("env.vibe_coding")
+    resolved = resolve_task_environment("env.development.sandbox")
     table = build_tool_capability_table(
         ToolCapabilityBuildRequest(
             environment=resolved.spec,
@@ -72,12 +72,12 @@ def test_file_operation_without_file_access_table_is_filtered() -> None:
 
 
 def test_tool_table_consumes_specific_task_assembly_policy() -> None:
-    resolved = resolve_task_environment("env.vibe_coding")
+    resolved = resolve_task_environment("env.development.sandbox")
     assembly_policy = resolve_specific_task_assembly_policy(
         task_record=SpecificTaskRecord(
             task_id="task.frontend.fix",
             task_title="Frontend Fix",
-            metadata={"environment_id": "env.vibe_coding"},
+            metadata={"environment_id": "env.development.sandbox"},
             task_policy={
                 "tool_capability_requirements": {
                     "required_operations": ["op.read_file", "op.edit_file"],

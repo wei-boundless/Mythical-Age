@@ -813,11 +813,9 @@ def test_professional_mode_exposes_plan_policy_without_soul_prompt() -> None:
 
     assert profile["mode"] == "professional"
     assert dict(profile.get("planning_policy") or {}).get("specified_plan_allowed") is True
-    assert dict(assembly.get("task_environment") or {}).get("environment_id") == "env.development.sandbox"
+    assert dict(assembly.get("task_environment") or {}).get("environment_id") == "env.general.workspace"
     assert dict(profile.get("soul_prompt_policy") or {}).get("enabled") is False
     assert dict(assembly.get("soul_role_prompt") or {}) == {}
-    sandbox_policy = dict(dict(assembly.get("task_environment") or {}).get("sandbox_policy") or {})
-    assert "op.image_generate" in list(sandbox_policy.get("side_effect_operations") or [])
 
 
 def test_specific_task_runtime_policy_can_override_builtin_mode_preset() -> None:

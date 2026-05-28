@@ -12,8 +12,12 @@ from agent_system.profiles.runtime_mode_config import (
     runtime_mode_catalog,
 )
 from capability_system.tool_authorization import build_authorized_tool_set
+from capability_system.skill_registry import SkillRegistry
 from soul.assembly_service import SoulAssemblyService
-from task_system.environments import default_task_environment_registry, resolve_task_environment
+from task_system.environments import build_task_environment_catalog, default_task_environment_registry
+
+from .operation_projection import project_operation_authorization
+from .skill_projection import project_runtime_skill_candidates
 
 
 RuntimeMode = Literal["role", "standard", "professional", "custom"]
@@ -63,6 +67,9 @@ class RuntimeAssembly:
     available_tools: tuple[dict[str, Any], ...] = ()
     tool_names: tuple[str, ...] = ()
     filtered_tools: tuple[dict[str, str], ...] = ()
+    skill_candidates: tuple[dict[str, Any], ...] = ()
+    filtered_skills: tuple[dict[str, str], ...] = ()
+    operation_authorization: dict[str, Any] = field(default_factory=dict)
     soul_role_prompt: dict[str, Any] = field(default_factory=dict)
     rejected_capabilities: tuple[dict[str, str], ...] = ()
     diagnostics: dict[str, Any] = field(default_factory=dict)
@@ -74,6 +81,9 @@ class RuntimeAssembly:
         payload["available_tools"] = [dict(item) for item in self.available_tools]
         payload["tool_names"] = list(self.tool_names)
         payload["filtered_tools"] = [dict(item) for item in self.filtered_tools]
+        payload["skill_candidates"] = [dict(item) for item in self.skill_candidates]
+        payload["filtered_skills"] = [dict(item) for item in self.filtered_skills]
+        payload["operation_authorization"] = dict(self.operation_authorization)
         payload["rejected_capabilities"] = [dict(item) for item in self.rejected_capabilities]
         return payload
 
@@ -102,7 +112,14 @@ def assemble_runtime(
         selection=selection,
         mode=profile.mode,
     )
-    allowed_operations = set(profile.allowed_operations)
+    operation_projection = project_operation_authorization(
+        agent_allowed_operations=profile.allowed_operations,
+        agent_blocked_operations=tuple(getattr(agent_runtime_profile, "blocked_operations", ()) or ()),
+        environment_payload=task_environment,
+        task_requested_operations=_string_tuple(selection.get("allowed_operations")),
+        definitions_by_name=definitions_by_name,
+    )
+    allowed_operations = set(operation_projection.allowed_operations)
     tool_set = build_authorized_tool_set(
         tool_instances=list(tool_instances or []),
         definitions_by_name=definitions_by_name,
@@ -114,6 +131,13 @@ def assemble_runtime(
         profile=profile,
         tool_names=tuple(tool_set.tool_names),
         definitions_by_name=definitions_by_name,
+    )
+    skill_candidates, filtered_skills = project_runtime_skill_candidates(
+        skill_registry=SkillRegistry(backend_dir),
+        environment_payload=task_environment,
+        task_selection=selection,
+        agent_runtime_profile=agent_runtime_profile,
+        authorized_operations=allowed_operations,
     )
     soul_role_prompt, rejected = _assemble_soul_role_prompt(
         backend_dir=backend_dir,
@@ -138,7 +162,16 @@ def assemble_runtime(
         work_role_prompt=_work_role_prompt(agent_runtime_profile),
         available_tools=available_tools,
         tool_names=visible_tool_names,
-        filtered_tools=tuple([*tool_set.filtered_out, *visibility_filtered]),
+        filtered_tools=tuple(
+            [
+                *_operation_filtered_tools(operation_projection.to_dict(), definitions_by_name=definitions_by_name),
+                *_drop_generic_operation_denials(tool_set.filtered_out),
+                *visibility_filtered,
+            ]
+        ),
+        skill_candidates=tuple(item.to_dict() for item in skill_candidates),
+        filtered_skills=filtered_skills,
+        operation_authorization=operation_projection.to_dict(),
         soul_role_prompt=soul_role_prompt,
         rejected_capabilities=tuple(rejected),
         diagnostics={
@@ -146,6 +179,10 @@ def assemble_runtime(
             "resolved_mode": profile.mode,
             "agent_profile_ref": str(getattr(agent_runtime_profile, "agent_profile_id", "") or ""),
             "task_environment": environment_diagnostics,
+            "operation_authorization": {
+                "allowed_operation_count": len(operation_projection.allowed_operations),
+                "denied_operation_count": len(operation_projection.denied_operations),
+            },
         },
     )
 
@@ -256,7 +293,6 @@ def _resolved_mode_runtime_policy(
             "mode": mode,
             "interaction_mode": preset.get("interaction_mode") or f"{mode}_mode",
             "runtime_lane": preset.get("runtime_lane") or "",
-            "default_environment_id": preset.get("default_environment_id") or "",
             "interaction_policy": dict(preset.get("interaction_policy") or {}),
             "planning_policy": dict(preset.get("planning_policy") or {}),
             "task_lifecycle_policy": dict(preset.get("task_lifecycle_policy") or {}),
@@ -290,30 +326,19 @@ def _resolve_runtime_task_environment(
         dict(selection.get("runtime_profile") or {}).get("environment_id"),
     )
     environment_id = explicit or _default_environment_id_for_mode(mode, selection=selection)
-    resolved_id = registry.resolve_environment_id(environment_id)
-    resolved = resolve_task_environment(resolved_id, registry=registry)
+    registry.require(environment_id)
+    environment_payload = build_task_environment_catalog(registry=registry).runtime_environment_payload(environment_id)
+    source = "explicit_selection" if explicit else ("policy_default" if environment_id != "env.general.workspace" else "fallback_default")
     return (
         {
-            "environment_id": resolved.spec.environment_id,
+            **environment_payload,
             "requested_environment_id": environment_id,
-            "group": resolved.group.to_dict() if resolved.group is not None else {},
-            "environment_prompts": [item.to_dict() for item in resolved.spec.environment_prompts],
-            "sandbox_policy": resolved.spec.sandbox_policy.to_dict(),
-            "storage_space": dict(resolved.to_dict().get("storage_space") or {}),
-            "resource_space": resolved.spec.resource_space.to_dict(),
-            "file_management": resolved.spec.file_management.to_dict(),
-            "file_access_tables": [table.to_dict() for table in resolved.file_access_tables],
-            "artifact_policy": resolved.spec.artifact_policy.to_dict(),
-            "execution_policy": resolved.spec.execution_policy.to_dict(),
-            "risk_policy": resolved.spec.risk_policy.to_dict(),
-            "runtime_policy": resolved.spec.runtime_policy.to_dict(),
-            "authority": resolved.authority,
         },
         {
             "requested_environment_id": environment_id,
-            "resolved_environment_id": resolved.spec.environment_id,
-            "environment_group_id": str((resolved.group.group_id if resolved.group is not None else "") or ""),
-            "source": "explicit_selection" if explicit else "mode_default",
+            "resolved_environment_id": str(environment_payload.get("environment_id") or ""),
+            "environment_group_id": str(dict(environment_payload.get("group") or {}).get("group_id") or ""),
+            "source": source,
         },
     )
 
@@ -329,10 +354,6 @@ def _default_environment_id_for_mode(mode: str, *, selection: dict[str, Any]) ->
     explicit_default = str(mode_policy.get("default_environment_id") or "").strip()
     if explicit_default:
         return explicit_default
-    config = runtime_mode_catalog().get(mode)
-    configured_default = str(getattr(config, "default_environment_id", "") or "").strip()
-    if configured_default:
-        return configured_default
     return "env.general.workspace"
 
 
@@ -458,6 +479,33 @@ def _filter_tool_names_by_profile(
             continue
         visible.append(tool_name)
     return tuple(visible), tuple(filtered)
+
+
+def _operation_filtered_tools(
+    operation_authorization: dict[str, Any],
+    *,
+    definitions_by_name: dict[str, Any],
+) -> tuple[dict[str, str], ...]:
+    denied_reasons = {
+        str(item.get("operation_id") or ""): str(item.get("reason") or "operation_denied")
+        for item in list(operation_authorization.get("decisions") or [])
+        if str(item.get("final_decision") or "") != "allow"
+    }
+    filtered: list[dict[str, str]] = []
+    for tool_name, definition in definitions_by_name.items():
+        operation_id = str(getattr(definition, "operation_id", "") or "").strip()
+        reason = denied_reasons.get(operation_id)
+        if reason:
+            filtered.append({"tool_name": str(tool_name), "operation_id": operation_id, "reason": reason})
+    return tuple(filtered)
+
+
+def _drop_generic_operation_denials(filtered_tools: tuple[dict[str, str], ...]) -> tuple[dict[str, str], ...]:
+    return tuple(
+        dict(item)
+        for item in tuple(filtered_tools or ())
+        if str(dict(item).get("reason") or "") != "operation_not_allowed"
+    )
 
 
 def _string_tuple(value: Any) -> tuple[str, ...]:

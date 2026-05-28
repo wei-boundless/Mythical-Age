@@ -17,10 +17,8 @@ class AgentRuntimeModeConfig:
     mode: str
     label: str
     interaction_mode: str
-    runtime_lane: str
     recipe_id: str
     projection_strength: str
-    runtime_lanes: tuple[str, ...] = ()
     execution_strategy: str = ""
     default_environment_id: str = ""
     interaction_policy: dict[str, Any] | None = None
@@ -37,12 +35,7 @@ class AgentRuntimeModeConfig:
     description: str = ""
 
     def to_dict(self) -> dict[str, Any]:
-        payload = asdict(self)
-        payload["runtime_lanes"] = list(self.effective_runtime_lanes())
-        return payload
-
-    def effective_runtime_lanes(self) -> tuple[str, ...]:
-        return tuple(dict.fromkeys([*self.runtime_lanes, self.runtime_lane] if self.runtime_lane else self.runtime_lanes))
+        return asdict(self)
 
 
 MODE_CONFIGS: dict[str, AgentRuntimeModeConfig] = {
@@ -50,10 +43,8 @@ MODE_CONFIGS: dict[str, AgentRuntimeModeConfig] = {
         mode=ROLE_MODE,
         label="角色模式",
         interaction_mode="role_mode",
-        runtime_lane="role_interaction",
         recipe_id="runtime.recipe.role_interaction",
         projection_strength="primary",
-        default_environment_id="env.general.workspace",
         interaction_policy={
             "style": "role_conversation",
             "task_orientation": "conversation_first",
@@ -72,10 +63,8 @@ MODE_CONFIGS: dict[str, AgentRuntimeModeConfig] = {
         mode=STANDARD_MODE,
         label="标准模式",
         interaction_mode="standard_mode",
-        runtime_lane="standard_task",
         recipe_id="runtime.recipe.standard_task",
         projection_strength="companion",
-        default_environment_id="env.general.workspace",
         interaction_policy={
             "style": "general_agent",
             "task_orientation": "agent_decides_next_action",
@@ -94,11 +83,9 @@ MODE_CONFIGS: dict[str, AgentRuntimeModeConfig] = {
         mode=PROFESSIONAL_MODE,
         label="专家模式",
         interaction_mode="professional_mode",
-        runtime_lane="professional_task",
         recipe_id="runtime.recipe.professional_task",
         projection_strength="style_only",
         execution_strategy="interaction_mode_run",
-        default_environment_id="env.development.sandbox",
         interaction_policy={
             "style": "professional_agent",
             "task_orientation": "complete_real_work",
@@ -121,7 +108,6 @@ MODE_CONFIGS: dict[str, AgentRuntimeModeConfig] = {
         mode=CUSTOM_MODE,
         label="自定义模式",
         interaction_mode="custom_mode",
-        runtime_lane="",
         recipe_id="runtime.recipe.custom",
         projection_strength="manual",
         editable=True,
@@ -164,53 +150,6 @@ def normalize_default_runtime_mode(value: Any, enabled_modes: tuple[str, ...]) -
     if DEFAULT_RUNTIME_MODE in enabled_modes:
         return DEFAULT_RUNTIME_MODE
     return enabled_modes[0] if enabled_modes else DEFAULT_RUNTIME_MODE
-
-
-def runtime_lanes_for_modes(
-    modes: tuple[str, ...],
-    *,
-    mode_catalog: dict[str, AgentRuntimeModeConfig] | None = None,
-) -> tuple[str, ...]:
-    catalog = mode_catalog or MODE_CONFIGS
-    lanes: list[str] = []
-    for mode in modes:
-        config = catalog.get(mode)
-        if config is None:
-            continue
-        lanes.extend(config.effective_runtime_lanes())
-    return tuple(dict.fromkeys(lane for lane in lanes if lane))
-
-
-def modes_for_runtime_lanes(
-    lanes: Any,
-    *,
-    mode_catalog: dict[str, AgentRuntimeModeConfig] | None = None,
-) -> tuple[str, ...]:
-    catalog = mode_catalog or MODE_CONFIGS
-    lane_set = {str(item or "").strip() for item in list(lanes or []) if str(item or "").strip()}
-    modes = tuple(
-        mode
-        for mode, config in catalog.items()
-        if any(lane in lane_set for lane in config.effective_runtime_lanes())
-    )
-    return modes
-
-
-def modes_for_runtime_lanes_or_custom(
-    lanes: Any,
-    *,
-    mode_catalog: dict[str, AgentRuntimeModeConfig] | None = None,
-) -> tuple[str, ...]:
-    catalog = mode_catalog or MODE_CONFIGS
-    lane_values = [str(item or "").strip() for item in list(lanes or []) if str(item or "").strip()]
-    modes = modes_for_runtime_lanes(lanes, mode_catalog=mode_catalog)
-    covered_lanes = set(runtime_lanes_for_modes(modes, mode_catalog=catalog))
-    has_manual_lanes = any(lane not in covered_lanes for lane in lane_values)
-    if modes and has_manual_lanes and CUSTOM_MODE in catalog and CUSTOM_MODE not in modes:
-        return (*modes, CUSTOM_MODE)
-    if modes:
-        return modes
-    return (CUSTOM_MODE,) if lane_values else ()
 
 
 def mode_config_catalog(metadata: Any | None = None) -> list[dict[str, Any]]:

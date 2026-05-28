@@ -33,7 +33,9 @@
         "op.web_search",
         "op.fetch_url",
         "op.memory_read",
+        "op.agent_todo",
         "op.delegate_to_agent",
+        "op.image_generate",
         "op.mcp_retrieval",
         "op.mcp_pdf",
         "op.mcp_structured_data",
@@ -108,6 +110,40 @@
             "role_interaction"
           ],
           "execution_strategy": "",
+          "default_environment_id": "",
+          "interaction_policy": {
+            "style": "role_conversation",
+            "task_orientation": "conversation_first",
+            "user_clarification": "allowed"
+          },
+          "planning_policy": {
+            "plan_mode": "disabled",
+            "specified_plan_allowed": false
+          },
+          "task_lifecycle_policy": {
+            "request_task_run": false,
+            "requires_completion_evidence": false
+          },
+          "tool_exposure_policy": {},
+          "context_policy": {
+            "history_scope": "conversation",
+            "task_context": "disabled"
+          },
+          "memory_policy": {
+            "read_scope": "conversation_readonly",
+            "write_scope": "none"
+          },
+          "self_review_policy": {
+            "enabled": false,
+            "before_final": "basic_consistency"
+          },
+          "step_summary_policy": {
+            "enabled": true,
+            "detail": "compact"
+          },
+          "approval_policy": {
+            "permission_scope": "role_conversation_readonly"
+          },
           "builtin": true,
           "editable": false,
           "description": ""
@@ -123,6 +159,40 @@
             "standard_task"
           ],
           "execution_strategy": "",
+          "default_environment_id": "",
+          "interaction_policy": {
+            "style": "general_agent",
+            "task_orientation": "agent_decides_next_action",
+            "user_clarification": "allowed"
+          },
+          "planning_policy": {
+            "plan_mode": "disabled",
+            "specified_plan_allowed": false
+          },
+          "task_lifecycle_policy": {
+            "request_task_run": true,
+            "requires_completion_evidence": true
+          },
+          "tool_exposure_policy": {},
+          "context_policy": {
+            "history_scope": "conversation_and_task",
+            "task_context": "available"
+          },
+          "memory_policy": {
+            "read_scope": "agent_profile",
+            "write_scope": "candidate_only"
+          },
+          "self_review_policy": {
+            "enabled": true,
+            "before_final": "check_answer_or_task_state"
+          },
+          "step_summary_policy": {
+            "enabled": true,
+            "detail": "compact"
+          },
+          "approval_policy": {
+            "permission_scope": "standard_agent_profile_ceiling"
+          },
           "builtin": true,
           "editable": false,
           "description": ""
@@ -138,6 +208,47 @@
             "professional_task"
           ],
           "execution_strategy": "interaction_mode_run",
+          "default_environment_id": "",
+          "interaction_policy": {
+            "style": "professional_agent",
+            "task_orientation": "complete_real_work",
+            "user_clarification": "only_when_blocked"
+          },
+          "planning_policy": {
+            "plan_mode": "available",
+            "specified_plan_allowed": true,
+            "todo_required_when_task_run": true
+          },
+          "task_lifecycle_policy": {
+            "request_task_run": true,
+            "requires_completion_evidence": true,
+            "artifact_evidence_required": true
+          },
+          "tool_exposure_policy": {},
+          "context_policy": {
+            "history_scope": "conversation_task_and_recovery",
+            "task_context": "required_for_task_run"
+          },
+          "memory_policy": {
+            "read_scope": "agent_profile",
+            "write_scope": "candidate_with_receipt"
+          },
+          "self_review_policy": {
+            "enabled": true,
+            "checkpoints": [
+              "before_tool",
+              "after_tool",
+              "before_final"
+            ],
+            "failure_recovery": "replan_or_report_blocker"
+          },
+          "step_summary_policy": {
+            "enabled": true,
+            "detail": "stepwise"
+          },
+          "approval_policy": {
+            "permission_scope": "professional_agent_profile_ceiling"
+          },
           "builtin": true,
           "editable": false,
           "description": ""
@@ -151,6 +262,16 @@
           "projection_strength": "manual",
           "runtime_lanes": [],
           "execution_strategy": "",
+          "default_environment_id": "",
+          "interaction_policy": null,
+          "planning_policy": null,
+          "task_lifecycle_policy": null,
+          "tool_exposure_policy": null,
+          "context_policy": null,
+          "memory_policy": null,
+          "self_review_policy": null,
+          "step_summary_policy": null,
+          "approval_policy": null,
           "builtin": true,
           "editable": true,
           "description": ""
@@ -242,6 +363,40 @@
             "role_interaction"
           ],
           "execution_strategy": "",
+          "default_environment_id": "",
+          "interaction_policy": {
+            "style": "role_conversation",
+            "task_orientation": "conversation_first",
+            "user_clarification": "allowed"
+          },
+          "planning_policy": {
+            "plan_mode": "disabled",
+            "specified_plan_allowed": false
+          },
+          "task_lifecycle_policy": {
+            "request_task_run": false,
+            "requires_completion_evidence": false
+          },
+          "tool_exposure_policy": {},
+          "context_policy": {
+            "history_scope": "conversation",
+            "task_context": "disabled"
+          },
+          "memory_policy": {
+            "read_scope": "conversation_readonly",
+            "write_scope": "none"
+          },
+          "self_review_policy": {
+            "enabled": false,
+            "before_final": "basic_consistency"
+          },
+          "step_summary_policy": {
+            "enabled": true,
+            "detail": "compact"
+          },
+          "approval_policy": {
+            "permission_scope": "role_conversation_readonly"
+          },
           "builtin": true,
           "editable": false,
           "description": ""
@@ -257,6 +412,40 @@
             "standard_task"
           ],
           "execution_strategy": "",
+          "default_environment_id": "",
+          "interaction_policy": {
+            "style": "general_agent",
+            "task_orientation": "agent_decides_next_action",
+            "user_clarification": "allowed"
+          },
+          "planning_policy": {
+            "plan_mode": "disabled",
+            "specified_plan_allowed": false
+          },
+          "task_lifecycle_policy": {
+            "request_task_run": true,
+            "requires_completion_evidence": true
+          },
+          "tool_exposure_policy": {},
+          "context_policy": {
+            "history_scope": "conversation_and_task",
+            "task_context": "available"
+          },
+          "memory_policy": {
+            "read_scope": "agent_profile",
+            "write_scope": "candidate_only"
+          },
+          "self_review_policy": {
+            "enabled": true,
+            "before_final": "check_answer_or_task_state"
+          },
+          "step_summary_policy": {
+            "enabled": true,
+            "detail": "compact"
+          },
+          "approval_policy": {
+            "permission_scope": "standard_agent_profile_ceiling"
+          },
           "builtin": true,
           "editable": false,
           "description": ""
@@ -272,6 +461,47 @@
             "professional_task"
           ],
           "execution_strategy": "interaction_mode_run",
+          "default_environment_id": "",
+          "interaction_policy": {
+            "style": "professional_agent",
+            "task_orientation": "complete_real_work",
+            "user_clarification": "only_when_blocked"
+          },
+          "planning_policy": {
+            "plan_mode": "available",
+            "specified_plan_allowed": true,
+            "todo_required_when_task_run": true
+          },
+          "task_lifecycle_policy": {
+            "request_task_run": true,
+            "requires_completion_evidence": true,
+            "artifact_evidence_required": true
+          },
+          "tool_exposure_policy": {},
+          "context_policy": {
+            "history_scope": "conversation_task_and_recovery",
+            "task_context": "required_for_task_run"
+          },
+          "memory_policy": {
+            "read_scope": "agent_profile",
+            "write_scope": "candidate_with_receipt"
+          },
+          "self_review_policy": {
+            "enabled": true,
+            "checkpoints": [
+              "before_tool",
+              "after_tool",
+              "before_final"
+            ],
+            "failure_recovery": "replan_or_report_blocker"
+          },
+          "step_summary_policy": {
+            "enabled": true,
+            "detail": "stepwise"
+          },
+          "approval_policy": {
+            "permission_scope": "professional_agent_profile_ceiling"
+          },
           "builtin": true,
           "editable": false,
           "description": ""
@@ -285,6 +515,16 @@
           "projection_strength": "manual",
           "runtime_lanes": [],
           "execution_strategy": "",
+          "default_environment_id": "",
+          "interaction_policy": null,
+          "planning_policy": null,
+          "task_lifecycle_policy": null,
+          "tool_exposure_policy": null,
+          "context_policy": null,
+          "memory_policy": null,
+          "self_review_policy": null,
+          "step_summary_policy": null,
+          "approval_policy": null,
           "builtin": true,
           "editable": true,
           "description": ""
@@ -366,6 +606,40 @@
             "role_interaction"
           ],
           "execution_strategy": "",
+          "default_environment_id": "",
+          "interaction_policy": {
+            "style": "role_conversation",
+            "task_orientation": "conversation_first",
+            "user_clarification": "allowed"
+          },
+          "planning_policy": {
+            "plan_mode": "disabled",
+            "specified_plan_allowed": false
+          },
+          "task_lifecycle_policy": {
+            "request_task_run": false,
+            "requires_completion_evidence": false
+          },
+          "tool_exposure_policy": {},
+          "context_policy": {
+            "history_scope": "conversation",
+            "task_context": "disabled"
+          },
+          "memory_policy": {
+            "read_scope": "conversation_readonly",
+            "write_scope": "none"
+          },
+          "self_review_policy": {
+            "enabled": false,
+            "before_final": "basic_consistency"
+          },
+          "step_summary_policy": {
+            "enabled": true,
+            "detail": "compact"
+          },
+          "approval_policy": {
+            "permission_scope": "role_conversation_readonly"
+          },
           "builtin": true,
           "editable": false,
           "description": ""
@@ -381,6 +655,40 @@
             "standard_task"
           ],
           "execution_strategy": "",
+          "default_environment_id": "",
+          "interaction_policy": {
+            "style": "general_agent",
+            "task_orientation": "agent_decides_next_action",
+            "user_clarification": "allowed"
+          },
+          "planning_policy": {
+            "plan_mode": "disabled",
+            "specified_plan_allowed": false
+          },
+          "task_lifecycle_policy": {
+            "request_task_run": true,
+            "requires_completion_evidence": true
+          },
+          "tool_exposure_policy": {},
+          "context_policy": {
+            "history_scope": "conversation_and_task",
+            "task_context": "available"
+          },
+          "memory_policy": {
+            "read_scope": "agent_profile",
+            "write_scope": "candidate_only"
+          },
+          "self_review_policy": {
+            "enabled": true,
+            "before_final": "check_answer_or_task_state"
+          },
+          "step_summary_policy": {
+            "enabled": true,
+            "detail": "compact"
+          },
+          "approval_policy": {
+            "permission_scope": "standard_agent_profile_ceiling"
+          },
           "builtin": true,
           "editable": false,
           "description": ""
@@ -396,6 +704,47 @@
             "professional_task"
           ],
           "execution_strategy": "interaction_mode_run",
+          "default_environment_id": "",
+          "interaction_policy": {
+            "style": "professional_agent",
+            "task_orientation": "complete_real_work",
+            "user_clarification": "only_when_blocked"
+          },
+          "planning_policy": {
+            "plan_mode": "available",
+            "specified_plan_allowed": true,
+            "todo_required_when_task_run": true
+          },
+          "task_lifecycle_policy": {
+            "request_task_run": true,
+            "requires_completion_evidence": true,
+            "artifact_evidence_required": true
+          },
+          "tool_exposure_policy": {},
+          "context_policy": {
+            "history_scope": "conversation_task_and_recovery",
+            "task_context": "required_for_task_run"
+          },
+          "memory_policy": {
+            "read_scope": "agent_profile",
+            "write_scope": "candidate_with_receipt"
+          },
+          "self_review_policy": {
+            "enabled": true,
+            "checkpoints": [
+              "before_tool",
+              "after_tool",
+              "before_final"
+            ],
+            "failure_recovery": "replan_or_report_blocker"
+          },
+          "step_summary_policy": {
+            "enabled": true,
+            "detail": "stepwise"
+          },
+          "approval_policy": {
+            "permission_scope": "professional_agent_profile_ceiling"
+          },
           "builtin": true,
           "editable": false,
           "description": ""
@@ -409,6 +758,16 @@
           "projection_strength": "manual",
           "runtime_lanes": [],
           "execution_strategy": "",
+          "default_environment_id": "",
+          "interaction_policy": null,
+          "planning_policy": null,
+          "task_lifecycle_policy": null,
+          "tool_exposure_policy": null,
+          "context_policy": null,
+          "memory_policy": null,
+          "self_review_policy": null,
+          "step_summary_policy": null,
+          "approval_policy": null,
           "builtin": true,
           "editable": true,
           "description": ""
@@ -490,6 +849,40 @@
             "role_interaction"
           ],
           "execution_strategy": "",
+          "default_environment_id": "",
+          "interaction_policy": {
+            "style": "role_conversation",
+            "task_orientation": "conversation_first",
+            "user_clarification": "allowed"
+          },
+          "planning_policy": {
+            "plan_mode": "disabled",
+            "specified_plan_allowed": false
+          },
+          "task_lifecycle_policy": {
+            "request_task_run": false,
+            "requires_completion_evidence": false
+          },
+          "tool_exposure_policy": {},
+          "context_policy": {
+            "history_scope": "conversation",
+            "task_context": "disabled"
+          },
+          "memory_policy": {
+            "read_scope": "conversation_readonly",
+            "write_scope": "none"
+          },
+          "self_review_policy": {
+            "enabled": false,
+            "before_final": "basic_consistency"
+          },
+          "step_summary_policy": {
+            "enabled": true,
+            "detail": "compact"
+          },
+          "approval_policy": {
+            "permission_scope": "role_conversation_readonly"
+          },
           "builtin": true,
           "editable": false,
           "description": ""
@@ -505,6 +898,40 @@
             "standard_task"
           ],
           "execution_strategy": "",
+          "default_environment_id": "",
+          "interaction_policy": {
+            "style": "general_agent",
+            "task_orientation": "agent_decides_next_action",
+            "user_clarification": "allowed"
+          },
+          "planning_policy": {
+            "plan_mode": "disabled",
+            "specified_plan_allowed": false
+          },
+          "task_lifecycle_policy": {
+            "request_task_run": true,
+            "requires_completion_evidence": true
+          },
+          "tool_exposure_policy": {},
+          "context_policy": {
+            "history_scope": "conversation_and_task",
+            "task_context": "available"
+          },
+          "memory_policy": {
+            "read_scope": "agent_profile",
+            "write_scope": "candidate_only"
+          },
+          "self_review_policy": {
+            "enabled": true,
+            "before_final": "check_answer_or_task_state"
+          },
+          "step_summary_policy": {
+            "enabled": true,
+            "detail": "compact"
+          },
+          "approval_policy": {
+            "permission_scope": "standard_agent_profile_ceiling"
+          },
           "builtin": true,
           "editable": false,
           "description": ""
@@ -520,6 +947,47 @@
             "professional_task"
           ],
           "execution_strategy": "interaction_mode_run",
+          "default_environment_id": "",
+          "interaction_policy": {
+            "style": "professional_agent",
+            "task_orientation": "complete_real_work",
+            "user_clarification": "only_when_blocked"
+          },
+          "planning_policy": {
+            "plan_mode": "available",
+            "specified_plan_allowed": true,
+            "todo_required_when_task_run": true
+          },
+          "task_lifecycle_policy": {
+            "request_task_run": true,
+            "requires_completion_evidence": true,
+            "artifact_evidence_required": true
+          },
+          "tool_exposure_policy": {},
+          "context_policy": {
+            "history_scope": "conversation_task_and_recovery",
+            "task_context": "required_for_task_run"
+          },
+          "memory_policy": {
+            "read_scope": "agent_profile",
+            "write_scope": "candidate_with_receipt"
+          },
+          "self_review_policy": {
+            "enabled": true,
+            "checkpoints": [
+              "before_tool",
+              "after_tool",
+              "before_final"
+            ],
+            "failure_recovery": "replan_or_report_blocker"
+          },
+          "step_summary_policy": {
+            "enabled": true,
+            "detail": "stepwise"
+          },
+          "approval_policy": {
+            "permission_scope": "professional_agent_profile_ceiling"
+          },
           "builtin": true,
           "editable": false,
           "description": ""
@@ -533,6 +1001,16 @@
           "projection_strength": "manual",
           "runtime_lanes": [],
           "execution_strategy": "",
+          "default_environment_id": "",
+          "interaction_policy": null,
+          "planning_policy": null,
+          "task_lifecycle_policy": null,
+          "tool_exposure_policy": null,
+          "context_policy": null,
+          "memory_policy": null,
+          "self_review_policy": null,
+          "step_summary_policy": null,
+          "approval_policy": null,
           "builtin": true,
           "editable": true,
           "description": ""
@@ -614,6 +1092,40 @@
             "role_interaction"
           ],
           "execution_strategy": "",
+          "default_environment_id": "",
+          "interaction_policy": {
+            "style": "role_conversation",
+            "task_orientation": "conversation_first",
+            "user_clarification": "allowed"
+          },
+          "planning_policy": {
+            "plan_mode": "disabled",
+            "specified_plan_allowed": false
+          },
+          "task_lifecycle_policy": {
+            "request_task_run": false,
+            "requires_completion_evidence": false
+          },
+          "tool_exposure_policy": {},
+          "context_policy": {
+            "history_scope": "conversation",
+            "task_context": "disabled"
+          },
+          "memory_policy": {
+            "read_scope": "conversation_readonly",
+            "write_scope": "none"
+          },
+          "self_review_policy": {
+            "enabled": false,
+            "before_final": "basic_consistency"
+          },
+          "step_summary_policy": {
+            "enabled": true,
+            "detail": "compact"
+          },
+          "approval_policy": {
+            "permission_scope": "role_conversation_readonly"
+          },
           "builtin": true,
           "editable": false,
           "description": ""
@@ -629,6 +1141,40 @@
             "standard_task"
           ],
           "execution_strategy": "",
+          "default_environment_id": "",
+          "interaction_policy": {
+            "style": "general_agent",
+            "task_orientation": "agent_decides_next_action",
+            "user_clarification": "allowed"
+          },
+          "planning_policy": {
+            "plan_mode": "disabled",
+            "specified_plan_allowed": false
+          },
+          "task_lifecycle_policy": {
+            "request_task_run": true,
+            "requires_completion_evidence": true
+          },
+          "tool_exposure_policy": {},
+          "context_policy": {
+            "history_scope": "conversation_and_task",
+            "task_context": "available"
+          },
+          "memory_policy": {
+            "read_scope": "agent_profile",
+            "write_scope": "candidate_only"
+          },
+          "self_review_policy": {
+            "enabled": true,
+            "before_final": "check_answer_or_task_state"
+          },
+          "step_summary_policy": {
+            "enabled": true,
+            "detail": "compact"
+          },
+          "approval_policy": {
+            "permission_scope": "standard_agent_profile_ceiling"
+          },
           "builtin": true,
           "editable": false,
           "description": ""
@@ -644,6 +1190,47 @@
             "professional_task"
           ],
           "execution_strategy": "interaction_mode_run",
+          "default_environment_id": "",
+          "interaction_policy": {
+            "style": "professional_agent",
+            "task_orientation": "complete_real_work",
+            "user_clarification": "only_when_blocked"
+          },
+          "planning_policy": {
+            "plan_mode": "available",
+            "specified_plan_allowed": true,
+            "todo_required_when_task_run": true
+          },
+          "task_lifecycle_policy": {
+            "request_task_run": true,
+            "requires_completion_evidence": true,
+            "artifact_evidence_required": true
+          },
+          "tool_exposure_policy": {},
+          "context_policy": {
+            "history_scope": "conversation_task_and_recovery",
+            "task_context": "required_for_task_run"
+          },
+          "memory_policy": {
+            "read_scope": "agent_profile",
+            "write_scope": "candidate_with_receipt"
+          },
+          "self_review_policy": {
+            "enabled": true,
+            "checkpoints": [
+              "before_tool",
+              "after_tool",
+              "before_final"
+            ],
+            "failure_recovery": "replan_or_report_blocker"
+          },
+          "step_summary_policy": {
+            "enabled": true,
+            "detail": "stepwise"
+          },
+          "approval_policy": {
+            "permission_scope": "professional_agent_profile_ceiling"
+          },
           "builtin": true,
           "editable": false,
           "description": ""
@@ -657,6 +1244,16 @@
           "projection_strength": "manual",
           "runtime_lanes": [],
           "execution_strategy": "",
+          "default_environment_id": "",
+          "interaction_policy": null,
+          "planning_policy": null,
+          "task_lifecycle_policy": null,
+          "tool_exposure_policy": null,
+          "context_policy": null,
+          "memory_policy": null,
+          "self_review_policy": null,
+          "step_summary_policy": null,
+          "approval_policy": null,
           "builtin": true,
           "editable": true,
           "description": ""
@@ -765,6 +1362,40 @@
             "role_interaction"
           ],
           "execution_strategy": "",
+          "default_environment_id": "",
+          "interaction_policy": {
+            "style": "role_conversation",
+            "task_orientation": "conversation_first",
+            "user_clarification": "allowed"
+          },
+          "planning_policy": {
+            "plan_mode": "disabled",
+            "specified_plan_allowed": false
+          },
+          "task_lifecycle_policy": {
+            "request_task_run": false,
+            "requires_completion_evidence": false
+          },
+          "tool_exposure_policy": {},
+          "context_policy": {
+            "history_scope": "conversation",
+            "task_context": "disabled"
+          },
+          "memory_policy": {
+            "read_scope": "conversation_readonly",
+            "write_scope": "none"
+          },
+          "self_review_policy": {
+            "enabled": false,
+            "before_final": "basic_consistency"
+          },
+          "step_summary_policy": {
+            "enabled": true,
+            "detail": "compact"
+          },
+          "approval_policy": {
+            "permission_scope": "role_conversation_readonly"
+          },
           "builtin": true,
           "editable": false,
           "description": ""
@@ -780,6 +1411,40 @@
             "standard_task"
           ],
           "execution_strategy": "",
+          "default_environment_id": "",
+          "interaction_policy": {
+            "style": "general_agent",
+            "task_orientation": "agent_decides_next_action",
+            "user_clarification": "allowed"
+          },
+          "planning_policy": {
+            "plan_mode": "disabled",
+            "specified_plan_allowed": false
+          },
+          "task_lifecycle_policy": {
+            "request_task_run": true,
+            "requires_completion_evidence": true
+          },
+          "tool_exposure_policy": {},
+          "context_policy": {
+            "history_scope": "conversation_and_task",
+            "task_context": "available"
+          },
+          "memory_policy": {
+            "read_scope": "agent_profile",
+            "write_scope": "candidate_only"
+          },
+          "self_review_policy": {
+            "enabled": true,
+            "before_final": "check_answer_or_task_state"
+          },
+          "step_summary_policy": {
+            "enabled": true,
+            "detail": "compact"
+          },
+          "approval_policy": {
+            "permission_scope": "standard_agent_profile_ceiling"
+          },
           "builtin": true,
           "editable": false,
           "description": ""
@@ -795,6 +1460,47 @@
             "professional_task"
           ],
           "execution_strategy": "interaction_mode_run",
+          "default_environment_id": "",
+          "interaction_policy": {
+            "style": "professional_agent",
+            "task_orientation": "complete_real_work",
+            "user_clarification": "only_when_blocked"
+          },
+          "planning_policy": {
+            "plan_mode": "available",
+            "specified_plan_allowed": true,
+            "todo_required_when_task_run": true
+          },
+          "task_lifecycle_policy": {
+            "request_task_run": true,
+            "requires_completion_evidence": true,
+            "artifact_evidence_required": true
+          },
+          "tool_exposure_policy": {},
+          "context_policy": {
+            "history_scope": "conversation_task_and_recovery",
+            "task_context": "required_for_task_run"
+          },
+          "memory_policy": {
+            "read_scope": "agent_profile",
+            "write_scope": "candidate_with_receipt"
+          },
+          "self_review_policy": {
+            "enabled": true,
+            "checkpoints": [
+              "before_tool",
+              "after_tool",
+              "before_final"
+            ],
+            "failure_recovery": "replan_or_report_blocker"
+          },
+          "step_summary_policy": {
+            "enabled": true,
+            "detail": "stepwise"
+          },
+          "approval_policy": {
+            "permission_scope": "professional_agent_profile_ceiling"
+          },
           "builtin": true,
           "editable": false,
           "description": ""
@@ -808,6 +1514,16 @@
           "projection_strength": "manual",
           "runtime_lanes": [],
           "execution_strategy": "",
+          "default_environment_id": "",
+          "interaction_policy": null,
+          "planning_policy": null,
+          "task_lifecycle_policy": null,
+          "tool_exposure_policy": null,
+          "context_policy": null,
+          "memory_policy": null,
+          "self_review_policy": null,
+          "step_summary_policy": null,
+          "approval_policy": null,
           "builtin": true,
           "editable": true,
           "description": ""
@@ -901,6 +1617,40 @@
             "role_interaction"
           ],
           "execution_strategy": "",
+          "default_environment_id": "",
+          "interaction_policy": {
+            "style": "role_conversation",
+            "task_orientation": "conversation_first",
+            "user_clarification": "allowed"
+          },
+          "planning_policy": {
+            "plan_mode": "disabled",
+            "specified_plan_allowed": false
+          },
+          "task_lifecycle_policy": {
+            "request_task_run": false,
+            "requires_completion_evidence": false
+          },
+          "tool_exposure_policy": {},
+          "context_policy": {
+            "history_scope": "conversation",
+            "task_context": "disabled"
+          },
+          "memory_policy": {
+            "read_scope": "conversation_readonly",
+            "write_scope": "none"
+          },
+          "self_review_policy": {
+            "enabled": false,
+            "before_final": "basic_consistency"
+          },
+          "step_summary_policy": {
+            "enabled": true,
+            "detail": "compact"
+          },
+          "approval_policy": {
+            "permission_scope": "role_conversation_readonly"
+          },
           "builtin": true,
           "editable": false,
           "description": ""
@@ -916,6 +1666,40 @@
             "standard_task"
           ],
           "execution_strategy": "",
+          "default_environment_id": "",
+          "interaction_policy": {
+            "style": "general_agent",
+            "task_orientation": "agent_decides_next_action",
+            "user_clarification": "allowed"
+          },
+          "planning_policy": {
+            "plan_mode": "disabled",
+            "specified_plan_allowed": false
+          },
+          "task_lifecycle_policy": {
+            "request_task_run": true,
+            "requires_completion_evidence": true
+          },
+          "tool_exposure_policy": {},
+          "context_policy": {
+            "history_scope": "conversation_and_task",
+            "task_context": "available"
+          },
+          "memory_policy": {
+            "read_scope": "agent_profile",
+            "write_scope": "candidate_only"
+          },
+          "self_review_policy": {
+            "enabled": true,
+            "before_final": "check_answer_or_task_state"
+          },
+          "step_summary_policy": {
+            "enabled": true,
+            "detail": "compact"
+          },
+          "approval_policy": {
+            "permission_scope": "standard_agent_profile_ceiling"
+          },
           "builtin": true,
           "editable": false,
           "description": ""
@@ -931,6 +1715,47 @@
             "professional_task"
           ],
           "execution_strategy": "interaction_mode_run",
+          "default_environment_id": "",
+          "interaction_policy": {
+            "style": "professional_agent",
+            "task_orientation": "complete_real_work",
+            "user_clarification": "only_when_blocked"
+          },
+          "planning_policy": {
+            "plan_mode": "available",
+            "specified_plan_allowed": true,
+            "todo_required_when_task_run": true
+          },
+          "task_lifecycle_policy": {
+            "request_task_run": true,
+            "requires_completion_evidence": true,
+            "artifact_evidence_required": true
+          },
+          "tool_exposure_policy": {},
+          "context_policy": {
+            "history_scope": "conversation_task_and_recovery",
+            "task_context": "required_for_task_run"
+          },
+          "memory_policy": {
+            "read_scope": "agent_profile",
+            "write_scope": "candidate_with_receipt"
+          },
+          "self_review_policy": {
+            "enabled": true,
+            "checkpoints": [
+              "before_tool",
+              "after_tool",
+              "before_final"
+            ],
+            "failure_recovery": "replan_or_report_blocker"
+          },
+          "step_summary_policy": {
+            "enabled": true,
+            "detail": "stepwise"
+          },
+          "approval_policy": {
+            "permission_scope": "professional_agent_profile_ceiling"
+          },
           "builtin": true,
           "editable": false,
           "description": ""
@@ -944,6 +1769,16 @@
           "projection_strength": "manual",
           "runtime_lanes": [],
           "execution_strategy": "",
+          "default_environment_id": "",
+          "interaction_policy": null,
+          "planning_policy": null,
+          "task_lifecycle_policy": null,
+          "tool_exposure_policy": null,
+          "context_policy": null,
+          "memory_policy": null,
+          "self_review_policy": null,
+          "step_summary_policy": null,
+          "approval_policy": null,
           "builtin": true,
           "editable": true,
           "description": ""
@@ -1029,6 +1864,40 @@
             "role_interaction"
           ],
           "execution_strategy": "",
+          "default_environment_id": "",
+          "interaction_policy": {
+            "style": "role_conversation",
+            "task_orientation": "conversation_first",
+            "user_clarification": "allowed"
+          },
+          "planning_policy": {
+            "plan_mode": "disabled",
+            "specified_plan_allowed": false
+          },
+          "task_lifecycle_policy": {
+            "request_task_run": false,
+            "requires_completion_evidence": false
+          },
+          "tool_exposure_policy": {},
+          "context_policy": {
+            "history_scope": "conversation",
+            "task_context": "disabled"
+          },
+          "memory_policy": {
+            "read_scope": "conversation_readonly",
+            "write_scope": "none"
+          },
+          "self_review_policy": {
+            "enabled": false,
+            "before_final": "basic_consistency"
+          },
+          "step_summary_policy": {
+            "enabled": true,
+            "detail": "compact"
+          },
+          "approval_policy": {
+            "permission_scope": "role_conversation_readonly"
+          },
           "builtin": true,
           "editable": false,
           "description": ""
@@ -1044,6 +1913,40 @@
             "standard_task"
           ],
           "execution_strategy": "",
+          "default_environment_id": "",
+          "interaction_policy": {
+            "style": "general_agent",
+            "task_orientation": "agent_decides_next_action",
+            "user_clarification": "allowed"
+          },
+          "planning_policy": {
+            "plan_mode": "disabled",
+            "specified_plan_allowed": false
+          },
+          "task_lifecycle_policy": {
+            "request_task_run": true,
+            "requires_completion_evidence": true
+          },
+          "tool_exposure_policy": {},
+          "context_policy": {
+            "history_scope": "conversation_and_task",
+            "task_context": "available"
+          },
+          "memory_policy": {
+            "read_scope": "agent_profile",
+            "write_scope": "candidate_only"
+          },
+          "self_review_policy": {
+            "enabled": true,
+            "before_final": "check_answer_or_task_state"
+          },
+          "step_summary_policy": {
+            "enabled": true,
+            "detail": "compact"
+          },
+          "approval_policy": {
+            "permission_scope": "standard_agent_profile_ceiling"
+          },
           "builtin": true,
           "editable": false,
           "description": ""
@@ -1059,6 +1962,47 @@
             "professional_task"
           ],
           "execution_strategy": "interaction_mode_run",
+          "default_environment_id": "",
+          "interaction_policy": {
+            "style": "professional_agent",
+            "task_orientation": "complete_real_work",
+            "user_clarification": "only_when_blocked"
+          },
+          "planning_policy": {
+            "plan_mode": "available",
+            "specified_plan_allowed": true,
+            "todo_required_when_task_run": true
+          },
+          "task_lifecycle_policy": {
+            "request_task_run": true,
+            "requires_completion_evidence": true,
+            "artifact_evidence_required": true
+          },
+          "tool_exposure_policy": {},
+          "context_policy": {
+            "history_scope": "conversation_task_and_recovery",
+            "task_context": "required_for_task_run"
+          },
+          "memory_policy": {
+            "read_scope": "agent_profile",
+            "write_scope": "candidate_with_receipt"
+          },
+          "self_review_policy": {
+            "enabled": true,
+            "checkpoints": [
+              "before_tool",
+              "after_tool",
+              "before_final"
+            ],
+            "failure_recovery": "replan_or_report_blocker"
+          },
+          "step_summary_policy": {
+            "enabled": true,
+            "detail": "stepwise"
+          },
+          "approval_policy": {
+            "permission_scope": "professional_agent_profile_ceiling"
+          },
           "builtin": true,
           "editable": false,
           "description": ""
@@ -1072,6 +2016,16 @@
           "projection_strength": "manual",
           "runtime_lanes": [],
           "execution_strategy": "",
+          "default_environment_id": "",
+          "interaction_policy": null,
+          "planning_policy": null,
+          "task_lifecycle_policy": null,
+          "tool_exposure_policy": null,
+          "context_policy": null,
+          "memory_policy": null,
+          "self_review_policy": null,
+          "step_summary_policy": null,
+          "approval_policy": null,
           "builtin": true,
           "editable": true,
           "description": ""
@@ -1158,6 +2112,40 @@
             "role_interaction"
           ],
           "execution_strategy": "",
+          "default_environment_id": "",
+          "interaction_policy": {
+            "style": "role_conversation",
+            "task_orientation": "conversation_first",
+            "user_clarification": "allowed"
+          },
+          "planning_policy": {
+            "plan_mode": "disabled",
+            "specified_plan_allowed": false
+          },
+          "task_lifecycle_policy": {
+            "request_task_run": false,
+            "requires_completion_evidence": false
+          },
+          "tool_exposure_policy": {},
+          "context_policy": {
+            "history_scope": "conversation",
+            "task_context": "disabled"
+          },
+          "memory_policy": {
+            "read_scope": "conversation_readonly",
+            "write_scope": "none"
+          },
+          "self_review_policy": {
+            "enabled": false,
+            "before_final": "basic_consistency"
+          },
+          "step_summary_policy": {
+            "enabled": true,
+            "detail": "compact"
+          },
+          "approval_policy": {
+            "permission_scope": "role_conversation_readonly"
+          },
           "builtin": true,
           "editable": false,
           "description": ""
@@ -1173,6 +2161,40 @@
             "standard_task"
           ],
           "execution_strategy": "",
+          "default_environment_id": "",
+          "interaction_policy": {
+            "style": "general_agent",
+            "task_orientation": "agent_decides_next_action",
+            "user_clarification": "allowed"
+          },
+          "planning_policy": {
+            "plan_mode": "disabled",
+            "specified_plan_allowed": false
+          },
+          "task_lifecycle_policy": {
+            "request_task_run": true,
+            "requires_completion_evidence": true
+          },
+          "tool_exposure_policy": {},
+          "context_policy": {
+            "history_scope": "conversation_and_task",
+            "task_context": "available"
+          },
+          "memory_policy": {
+            "read_scope": "agent_profile",
+            "write_scope": "candidate_only"
+          },
+          "self_review_policy": {
+            "enabled": true,
+            "before_final": "check_answer_or_task_state"
+          },
+          "step_summary_policy": {
+            "enabled": true,
+            "detail": "compact"
+          },
+          "approval_policy": {
+            "permission_scope": "standard_agent_profile_ceiling"
+          },
           "builtin": true,
           "editable": false,
           "description": ""
@@ -1188,6 +2210,47 @@
             "professional_task"
           ],
           "execution_strategy": "interaction_mode_run",
+          "default_environment_id": "",
+          "interaction_policy": {
+            "style": "professional_agent",
+            "task_orientation": "complete_real_work",
+            "user_clarification": "only_when_blocked"
+          },
+          "planning_policy": {
+            "plan_mode": "available",
+            "specified_plan_allowed": true,
+            "todo_required_when_task_run": true
+          },
+          "task_lifecycle_policy": {
+            "request_task_run": true,
+            "requires_completion_evidence": true,
+            "artifact_evidence_required": true
+          },
+          "tool_exposure_policy": {},
+          "context_policy": {
+            "history_scope": "conversation_task_and_recovery",
+            "task_context": "required_for_task_run"
+          },
+          "memory_policy": {
+            "read_scope": "agent_profile",
+            "write_scope": "candidate_with_receipt"
+          },
+          "self_review_policy": {
+            "enabled": true,
+            "checkpoints": [
+              "before_tool",
+              "after_tool",
+              "before_final"
+            ],
+            "failure_recovery": "replan_or_report_blocker"
+          },
+          "step_summary_policy": {
+            "enabled": true,
+            "detail": "stepwise"
+          },
+          "approval_policy": {
+            "permission_scope": "professional_agent_profile_ceiling"
+          },
           "builtin": true,
           "editable": false,
           "description": ""
@@ -1201,6 +2264,16 @@
           "projection_strength": "manual",
           "runtime_lanes": [],
           "execution_strategy": "",
+          "default_environment_id": "",
+          "interaction_policy": null,
+          "planning_policy": null,
+          "task_lifecycle_policy": null,
+          "tool_exposure_policy": null,
+          "context_policy": null,
+          "memory_policy": null,
+          "self_review_policy": null,
+          "step_summary_policy": null,
+          "approval_policy": null,
           "builtin": true,
           "editable": true,
           "description": ""
@@ -1325,6 +2398,40 @@
             "role_interaction"
           ],
           "execution_strategy": "",
+          "default_environment_id": "",
+          "interaction_policy": {
+            "style": "role_conversation",
+            "task_orientation": "conversation_first",
+            "user_clarification": "allowed"
+          },
+          "planning_policy": {
+            "plan_mode": "disabled",
+            "specified_plan_allowed": false
+          },
+          "task_lifecycle_policy": {
+            "request_task_run": false,
+            "requires_completion_evidence": false
+          },
+          "tool_exposure_policy": {},
+          "context_policy": {
+            "history_scope": "conversation",
+            "task_context": "disabled"
+          },
+          "memory_policy": {
+            "read_scope": "conversation_readonly",
+            "write_scope": "none"
+          },
+          "self_review_policy": {
+            "enabled": false,
+            "before_final": "basic_consistency"
+          },
+          "step_summary_policy": {
+            "enabled": true,
+            "detail": "compact"
+          },
+          "approval_policy": {
+            "permission_scope": "role_conversation_readonly"
+          },
           "builtin": true,
           "editable": false,
           "description": ""
@@ -1340,6 +2447,40 @@
             "standard_task"
           ],
           "execution_strategy": "",
+          "default_environment_id": "",
+          "interaction_policy": {
+            "style": "general_agent",
+            "task_orientation": "agent_decides_next_action",
+            "user_clarification": "allowed"
+          },
+          "planning_policy": {
+            "plan_mode": "disabled",
+            "specified_plan_allowed": false
+          },
+          "task_lifecycle_policy": {
+            "request_task_run": true,
+            "requires_completion_evidence": true
+          },
+          "tool_exposure_policy": {},
+          "context_policy": {
+            "history_scope": "conversation_and_task",
+            "task_context": "available"
+          },
+          "memory_policy": {
+            "read_scope": "agent_profile",
+            "write_scope": "candidate_only"
+          },
+          "self_review_policy": {
+            "enabled": true,
+            "before_final": "check_answer_or_task_state"
+          },
+          "step_summary_policy": {
+            "enabled": true,
+            "detail": "compact"
+          },
+          "approval_policy": {
+            "permission_scope": "standard_agent_profile_ceiling"
+          },
           "builtin": true,
           "editable": false,
           "description": ""
@@ -1355,6 +2496,47 @@
             "professional_task"
           ],
           "execution_strategy": "interaction_mode_run",
+          "default_environment_id": "",
+          "interaction_policy": {
+            "style": "professional_agent",
+            "task_orientation": "complete_real_work",
+            "user_clarification": "only_when_blocked"
+          },
+          "planning_policy": {
+            "plan_mode": "available",
+            "specified_plan_allowed": true,
+            "todo_required_when_task_run": true
+          },
+          "task_lifecycle_policy": {
+            "request_task_run": true,
+            "requires_completion_evidence": true,
+            "artifact_evidence_required": true
+          },
+          "tool_exposure_policy": {},
+          "context_policy": {
+            "history_scope": "conversation_task_and_recovery",
+            "task_context": "required_for_task_run"
+          },
+          "memory_policy": {
+            "read_scope": "agent_profile",
+            "write_scope": "candidate_with_receipt"
+          },
+          "self_review_policy": {
+            "enabled": true,
+            "checkpoints": [
+              "before_tool",
+              "after_tool",
+              "before_final"
+            ],
+            "failure_recovery": "replan_or_report_blocker"
+          },
+          "step_summary_policy": {
+            "enabled": true,
+            "detail": "stepwise"
+          },
+          "approval_policy": {
+            "permission_scope": "professional_agent_profile_ceiling"
+          },
           "builtin": true,
           "editable": false,
           "description": ""
@@ -1368,6 +2550,16 @@
           "projection_strength": "manual",
           "runtime_lanes": [],
           "execution_strategy": "",
+          "default_environment_id": "",
+          "interaction_policy": null,
+          "planning_policy": null,
+          "task_lifecycle_policy": null,
+          "tool_exposure_policy": null,
+          "context_policy": null,
+          "memory_policy": null,
+          "self_review_policy": null,
+          "step_summary_policy": null,
+          "approval_policy": null,
           "builtin": true,
           "editable": true,
           "description": ""
@@ -1482,6 +2674,40 @@
             "role_interaction"
           ],
           "execution_strategy": "",
+          "default_environment_id": "",
+          "interaction_policy": {
+            "style": "role_conversation",
+            "task_orientation": "conversation_first",
+            "user_clarification": "allowed"
+          },
+          "planning_policy": {
+            "plan_mode": "disabled",
+            "specified_plan_allowed": false
+          },
+          "task_lifecycle_policy": {
+            "request_task_run": false,
+            "requires_completion_evidence": false
+          },
+          "tool_exposure_policy": {},
+          "context_policy": {
+            "history_scope": "conversation",
+            "task_context": "disabled"
+          },
+          "memory_policy": {
+            "read_scope": "conversation_readonly",
+            "write_scope": "none"
+          },
+          "self_review_policy": {
+            "enabled": false,
+            "before_final": "basic_consistency"
+          },
+          "step_summary_policy": {
+            "enabled": true,
+            "detail": "compact"
+          },
+          "approval_policy": {
+            "permission_scope": "role_conversation_readonly"
+          },
           "builtin": true,
           "editable": false,
           "description": ""
@@ -1497,6 +2723,40 @@
             "standard_task"
           ],
           "execution_strategy": "",
+          "default_environment_id": "",
+          "interaction_policy": {
+            "style": "general_agent",
+            "task_orientation": "agent_decides_next_action",
+            "user_clarification": "allowed"
+          },
+          "planning_policy": {
+            "plan_mode": "disabled",
+            "specified_plan_allowed": false
+          },
+          "task_lifecycle_policy": {
+            "request_task_run": true,
+            "requires_completion_evidence": true
+          },
+          "tool_exposure_policy": {},
+          "context_policy": {
+            "history_scope": "conversation_and_task",
+            "task_context": "available"
+          },
+          "memory_policy": {
+            "read_scope": "agent_profile",
+            "write_scope": "candidate_only"
+          },
+          "self_review_policy": {
+            "enabled": true,
+            "before_final": "check_answer_or_task_state"
+          },
+          "step_summary_policy": {
+            "enabled": true,
+            "detail": "compact"
+          },
+          "approval_policy": {
+            "permission_scope": "standard_agent_profile_ceiling"
+          },
           "builtin": true,
           "editable": false,
           "description": ""
@@ -1512,6 +2772,47 @@
             "professional_task"
           ],
           "execution_strategy": "interaction_mode_run",
+          "default_environment_id": "",
+          "interaction_policy": {
+            "style": "professional_agent",
+            "task_orientation": "complete_real_work",
+            "user_clarification": "only_when_blocked"
+          },
+          "planning_policy": {
+            "plan_mode": "available",
+            "specified_plan_allowed": true,
+            "todo_required_when_task_run": true
+          },
+          "task_lifecycle_policy": {
+            "request_task_run": true,
+            "requires_completion_evidence": true,
+            "artifact_evidence_required": true
+          },
+          "tool_exposure_policy": {},
+          "context_policy": {
+            "history_scope": "conversation_task_and_recovery",
+            "task_context": "required_for_task_run"
+          },
+          "memory_policy": {
+            "read_scope": "agent_profile",
+            "write_scope": "candidate_with_receipt"
+          },
+          "self_review_policy": {
+            "enabled": true,
+            "checkpoints": [
+              "before_tool",
+              "after_tool",
+              "before_final"
+            ],
+            "failure_recovery": "replan_or_report_blocker"
+          },
+          "step_summary_policy": {
+            "enabled": true,
+            "detail": "stepwise"
+          },
+          "approval_policy": {
+            "permission_scope": "professional_agent_profile_ceiling"
+          },
           "builtin": true,
           "editable": false,
           "description": ""
@@ -1525,6 +2826,16 @@
           "projection_strength": "manual",
           "runtime_lanes": [],
           "execution_strategy": "",
+          "default_environment_id": "",
+          "interaction_policy": null,
+          "planning_policy": null,
+          "task_lifecycle_policy": null,
+          "tool_exposure_policy": null,
+          "context_policy": null,
+          "memory_policy": null,
+          "self_review_policy": null,
+          "step_summary_policy": null,
+          "approval_policy": null,
           "builtin": true,
           "editable": true,
           "description": ""
@@ -1631,6 +2942,40 @@
             "role_interaction"
           ],
           "execution_strategy": "",
+          "default_environment_id": "",
+          "interaction_policy": {
+            "style": "role_conversation",
+            "task_orientation": "conversation_first",
+            "user_clarification": "allowed"
+          },
+          "planning_policy": {
+            "plan_mode": "disabled",
+            "specified_plan_allowed": false
+          },
+          "task_lifecycle_policy": {
+            "request_task_run": false,
+            "requires_completion_evidence": false
+          },
+          "tool_exposure_policy": {},
+          "context_policy": {
+            "history_scope": "conversation",
+            "task_context": "disabled"
+          },
+          "memory_policy": {
+            "read_scope": "conversation_readonly",
+            "write_scope": "none"
+          },
+          "self_review_policy": {
+            "enabled": false,
+            "before_final": "basic_consistency"
+          },
+          "step_summary_policy": {
+            "enabled": true,
+            "detail": "compact"
+          },
+          "approval_policy": {
+            "permission_scope": "role_conversation_readonly"
+          },
           "builtin": true,
           "editable": false,
           "description": ""
@@ -1646,6 +2991,40 @@
             "standard_task"
           ],
           "execution_strategy": "",
+          "default_environment_id": "",
+          "interaction_policy": {
+            "style": "general_agent",
+            "task_orientation": "agent_decides_next_action",
+            "user_clarification": "allowed"
+          },
+          "planning_policy": {
+            "plan_mode": "disabled",
+            "specified_plan_allowed": false
+          },
+          "task_lifecycle_policy": {
+            "request_task_run": true,
+            "requires_completion_evidence": true
+          },
+          "tool_exposure_policy": {},
+          "context_policy": {
+            "history_scope": "conversation_and_task",
+            "task_context": "available"
+          },
+          "memory_policy": {
+            "read_scope": "agent_profile",
+            "write_scope": "candidate_only"
+          },
+          "self_review_policy": {
+            "enabled": true,
+            "before_final": "check_answer_or_task_state"
+          },
+          "step_summary_policy": {
+            "enabled": true,
+            "detail": "compact"
+          },
+          "approval_policy": {
+            "permission_scope": "standard_agent_profile_ceiling"
+          },
           "builtin": true,
           "editable": false,
           "description": ""
@@ -1661,6 +3040,47 @@
             "professional_task"
           ],
           "execution_strategy": "interaction_mode_run",
+          "default_environment_id": "",
+          "interaction_policy": {
+            "style": "professional_agent",
+            "task_orientation": "complete_real_work",
+            "user_clarification": "only_when_blocked"
+          },
+          "planning_policy": {
+            "plan_mode": "available",
+            "specified_plan_allowed": true,
+            "todo_required_when_task_run": true
+          },
+          "task_lifecycle_policy": {
+            "request_task_run": true,
+            "requires_completion_evidence": true,
+            "artifact_evidence_required": true
+          },
+          "tool_exposure_policy": {},
+          "context_policy": {
+            "history_scope": "conversation_task_and_recovery",
+            "task_context": "required_for_task_run"
+          },
+          "memory_policy": {
+            "read_scope": "agent_profile",
+            "write_scope": "candidate_with_receipt"
+          },
+          "self_review_policy": {
+            "enabled": true,
+            "checkpoints": [
+              "before_tool",
+              "after_tool",
+              "before_final"
+            ],
+            "failure_recovery": "replan_or_report_blocker"
+          },
+          "step_summary_policy": {
+            "enabled": true,
+            "detail": "stepwise"
+          },
+          "approval_policy": {
+            "permission_scope": "professional_agent_profile_ceiling"
+          },
           "builtin": true,
           "editable": false,
           "description": ""
@@ -1674,6 +3094,16 @@
           "projection_strength": "manual",
           "runtime_lanes": [],
           "execution_strategy": "",
+          "default_environment_id": "",
+          "interaction_policy": null,
+          "planning_policy": null,
+          "task_lifecycle_policy": null,
+          "tool_exposure_policy": null,
+          "context_policy": null,
+          "memory_policy": null,
+          "self_review_policy": null,
+          "step_summary_policy": null,
+          "approval_policy": null,
           "builtin": true,
           "editable": true,
           "description": ""
@@ -1774,6 +3204,40 @@
             "role_interaction"
           ],
           "execution_strategy": "",
+          "default_environment_id": "",
+          "interaction_policy": {
+            "style": "role_conversation",
+            "task_orientation": "conversation_first",
+            "user_clarification": "allowed"
+          },
+          "planning_policy": {
+            "plan_mode": "disabled",
+            "specified_plan_allowed": false
+          },
+          "task_lifecycle_policy": {
+            "request_task_run": false,
+            "requires_completion_evidence": false
+          },
+          "tool_exposure_policy": {},
+          "context_policy": {
+            "history_scope": "conversation",
+            "task_context": "disabled"
+          },
+          "memory_policy": {
+            "read_scope": "conversation_readonly",
+            "write_scope": "none"
+          },
+          "self_review_policy": {
+            "enabled": false,
+            "before_final": "basic_consistency"
+          },
+          "step_summary_policy": {
+            "enabled": true,
+            "detail": "compact"
+          },
+          "approval_policy": {
+            "permission_scope": "role_conversation_readonly"
+          },
           "builtin": true,
           "editable": false,
           "description": ""
@@ -1789,6 +3253,40 @@
             "standard_task"
           ],
           "execution_strategy": "",
+          "default_environment_id": "",
+          "interaction_policy": {
+            "style": "general_agent",
+            "task_orientation": "agent_decides_next_action",
+            "user_clarification": "allowed"
+          },
+          "planning_policy": {
+            "plan_mode": "disabled",
+            "specified_plan_allowed": false
+          },
+          "task_lifecycle_policy": {
+            "request_task_run": true,
+            "requires_completion_evidence": true
+          },
+          "tool_exposure_policy": {},
+          "context_policy": {
+            "history_scope": "conversation_and_task",
+            "task_context": "available"
+          },
+          "memory_policy": {
+            "read_scope": "agent_profile",
+            "write_scope": "candidate_only"
+          },
+          "self_review_policy": {
+            "enabled": true,
+            "before_final": "check_answer_or_task_state"
+          },
+          "step_summary_policy": {
+            "enabled": true,
+            "detail": "compact"
+          },
+          "approval_policy": {
+            "permission_scope": "standard_agent_profile_ceiling"
+          },
           "builtin": true,
           "editable": false,
           "description": ""
@@ -1804,6 +3302,47 @@
             "professional_task"
           ],
           "execution_strategy": "interaction_mode_run",
+          "default_environment_id": "",
+          "interaction_policy": {
+            "style": "professional_agent",
+            "task_orientation": "complete_real_work",
+            "user_clarification": "only_when_blocked"
+          },
+          "planning_policy": {
+            "plan_mode": "available",
+            "specified_plan_allowed": true,
+            "todo_required_when_task_run": true
+          },
+          "task_lifecycle_policy": {
+            "request_task_run": true,
+            "requires_completion_evidence": true,
+            "artifact_evidence_required": true
+          },
+          "tool_exposure_policy": {},
+          "context_policy": {
+            "history_scope": "conversation_task_and_recovery",
+            "task_context": "required_for_task_run"
+          },
+          "memory_policy": {
+            "read_scope": "agent_profile",
+            "write_scope": "candidate_with_receipt"
+          },
+          "self_review_policy": {
+            "enabled": true,
+            "checkpoints": [
+              "before_tool",
+              "after_tool",
+              "before_final"
+            ],
+            "failure_recovery": "replan_or_report_blocker"
+          },
+          "step_summary_policy": {
+            "enabled": true,
+            "detail": "stepwise"
+          },
+          "approval_policy": {
+            "permission_scope": "professional_agent_profile_ceiling"
+          },
           "builtin": true,
           "editable": false,
           "description": ""
@@ -1817,6 +3356,16 @@
           "projection_strength": "manual",
           "runtime_lanes": [],
           "execution_strategy": "",
+          "default_environment_id": "",
+          "interaction_policy": null,
+          "planning_policy": null,
+          "task_lifecycle_policy": null,
+          "tool_exposure_policy": null,
+          "context_policy": null,
+          "memory_policy": null,
+          "self_review_policy": null,
+          "step_summary_policy": null,
+          "approval_policy": null,
           "builtin": true,
           "editable": true,
           "description": ""
