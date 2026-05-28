@@ -10,11 +10,11 @@ if str(ROOT) not in sys.path:
 
 from capability_system.tool_definitions import get_tool_definitions
 from capability_system.units.tools.agent_todo_tool import AgentTodoTool
-from harness.runtime.agent_todo import build_agent_todo_plan, update_agent_todo_plan
+from capability_system.units.tools.agent_todo_tool import _build_plan, _update_plan
 
 
 def test_agent_todo_plan_allows_one_active_item_and_completion_ready() -> None:
-    plan = build_agent_todo_plan(
+    plan = _build_plan(
         session_id="s1",
         task_id="t1",
         items=[
@@ -23,19 +23,22 @@ def test_agent_todo_plan_allows_one_active_item_and_completion_ready() -> None:
         ],
     )
 
-    assert plan.completion_ready is True
-    assert plan.active_item_id == ""
+    assert plan["completion_ready"] is True
+    assert plan["active_item_id"] == ""
 
-    started = update_agent_todo_plan(
-        plan.to_dict(),
+    started = _update_plan(
+        plan,
         session_id="s1",
         task_id="t1",
         operation="start",
         todo_id="verify",
+        items=[],
+        status="",
+        notes="",
     )
 
-    assert started.active_item_id == "verify"
-    assert [item.status for item in started.items] == ["completed", "in_progress"]
+    assert started["active_item_id"] == "verify"
+    assert [item["status"] for item in started["items"]] == ["completed", "in_progress"]
 
 
 def test_agent_todo_tool_persists_and_updates_state(tmp_path: Path) -> None:

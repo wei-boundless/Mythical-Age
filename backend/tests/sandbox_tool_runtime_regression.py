@@ -149,6 +149,53 @@ def test_sandbox_search_uses_overlay_view_after_read_copies_workspace_file(tmp_p
     assert "docs/experiments/roguelike_long_task/assets/test.txt" in payload["result"]
 
 
+def test_sandbox_terminal_materializes_contract_directory_before_command(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    sandbox_root = tmp_path / "sandbox" / "workspace"
+    asset = workspace / "docs" / "experiments" / "roguelike_long_task" / "assets" / "player.png"
+    asset.parent.mkdir(parents=True)
+    asset.write_bytes(b"png")
+
+    result = _run_tool(
+        workspace=workspace,
+        sandbox_root=sandbox_root,
+        tool_name="terminal",
+        tool_args={"command": "Test-Path docs/experiments/roguelike_long_task/assets/player.png"},
+        operation_id="op.shell",
+        sandbox_policy_extra={"materialized_roots": ["docs/experiments/roguelike_long_task"]},
+    )
+
+    assert result["error"] == ""
+    assert result["observation"].payload["result"] == "True"
+    assert (sandbox_root / "docs" / "experiments" / "roguelike_long_task" / "assets" / "player.png").exists()
+
+
+def test_agent_todo_is_bound_to_runtime_task_scope_even_when_model_sends_defaults(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    sandbox_root = tmp_path / "sandbox" / "workspace"
+
+    result = _run_tool(
+        workspace=workspace,
+        sandbox_root=sandbox_root,
+        tool_name="agent_todo",
+        tool_args={
+            "operation": "replace",
+            "session_id": "default",
+            "task_id": "runtime",
+            "items": [{"todo_id": "fix", "content": "Fix task bug", "status": "in_progress"}],
+        },
+        operation_id="op.agent_todo",
+        sandbox_policy_extra={"session_id": "session-real"},
+    )
+
+    payload = result["observation"].payload["result"]
+    assert result["error"] == ""
+    assert "agent-todo:session-real:taskrun-agent_todo" in payload
+    assert "agent-todo:default:runtime" not in payload
+    assert (workspace / ".tmp" / "agent_todo" / "session-real__taskrun-agent_todo.json").exists()
+    assert not (workspace / ".tmp" / "agent_todo" / "default__runtime.json").exists()
+
+
 def test_tool_runtime_executor_returns_recoverable_invocation_validation_feedback_before_tool_invocation(tmp_path: Path) -> None:
     workspace = tmp_path / "project"
     workspace.mkdir(parents=True)

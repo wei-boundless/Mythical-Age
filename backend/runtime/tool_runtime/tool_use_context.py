@@ -10,6 +10,7 @@ class ToolUseContext:
     workspace_root: Path
     sandbox_root: Path | None = None
     task_run_id: str = ""
+    session_id: str = ""
     agent_run_id: str = ""
     tool_call_id: str = ""
     read_scopes: tuple[str, ...] = ()

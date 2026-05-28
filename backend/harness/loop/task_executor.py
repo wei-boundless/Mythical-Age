@@ -590,6 +590,7 @@ async def _execute_task_tool_call(
         runtime_executable=True,
         diagnostics={"source": "single_agent_task_executor", "sandbox_policy": _public_policy(sandbox_policy)},
     )
+    sandbox_policy = {**sandbox_policy, "session_id": task_run.session_id}
     gate_result = runtime_host.operation_gate.check(
         operation_id,
         resource_policy=resource_policy,
@@ -721,6 +722,7 @@ def _task_sandbox_policy(runtime_assembly: dict[str, Any], *, runtime_host: Any,
     publish_scopes = _dedupe_strings([*([artifact_root] if artifact_root else []), *_explicit_contract_write_roots(contract)])
     scratch_scopes = _task_scratch_write_scopes(storage)
     write_scopes = _dedupe_strings([*list(sandbox.get("write_scopes") or []), *publish_scopes, *scratch_scopes])
+    materialized_roots = _dedupe_strings([*_explicit_contract_materialized_roots(contract), *publish_scopes])
     return {
         **sandbox,
         "enabled": True,
@@ -730,6 +732,7 @@ def _task_sandbox_policy(runtime_assembly: dict[str, Any], *, runtime_host: Any,
         "write_scopes": write_scopes,
         "publish_scopes": publish_scopes,
         "scratch_scopes": scratch_scopes,
+        "materialized_roots": materialized_roots,
         "read_scopes": ["."],
         "approval_policy": "sandboxed_side_effects",
         "side_effect_operations": list(sandbox.get("side_effect_operations") or ("op.write_file", "op.edit_file", "op.shell", "op.browser_control", "op.image_generate")),
@@ -791,6 +794,18 @@ def _explicit_contract_write_roots(contract: dict[str, Any]) -> list[str]:
         else:
             parent = str(Path(normalized).parent).replace("\\", "/").strip(".")
             roots.append(parent if parent else normalized)
+    return _dedupe_strings(roots)
+
+
+def _explicit_contract_materialized_roots(contract: dict[str, Any]) -> list[str]:
+    roots: list[str] = []
+    for path in _explicit_contract_paths(contract):
+        normalized = _normalize_contract_path(path)
+        if not normalized:
+            continue
+        candidate = normalized.strip("/") if normalized.endswith("/") else str(Path(normalized).parent).replace("\\", "/").strip(".")
+        if candidate:
+            roots.append(candidate)
     return _dedupe_strings(roots)
 
 

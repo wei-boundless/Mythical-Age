@@ -70,10 +70,12 @@ class ToolRuntimeExecutor:
         workspace_root = Path(getattr(self.tool_runtime, "base_dir", ".")).resolve()
         policy_payload = dict(sandbox_policy or {})
         file_policy_payload = dict(file_management_policy or {})
+        tool_args = _bind_runtime_scoped_tool_args(tool_name, tool_args, policy_payload=policy_payload, task_run_id=task_run_id)
         tool_context = ToolUseContext(
             workspace_root=self.sandbox_backend.execution_root(sandbox_context) if sandbox_context else workspace_root,
             sandbox_root=self.sandbox_backend.execution_root(sandbox_context) if sandbox_context else None,
             task_run_id=task_run_id,
+            session_id=_session_id_from_policy(policy_payload),
             agent_run_id=_agent_run_id_from_policy(policy_payload, task_run_id),
             tool_call_id=tool_call_id,
             read_scopes=tuple(str(item) for item in list(policy_payload.get("read_scopes") or [])),
@@ -277,10 +279,12 @@ class ToolRuntimeExecutor:
         execution_root = self.sandbox_backend.tool_workspace_root(sandbox_context) if sandbox_context else workspace_root
         policy_payload = dict(sandbox_policy or {})
         file_policy_payload = dict(file_management_policy or {})
+        tool_args = _bind_runtime_scoped_tool_args(tool_name, tool_args, policy_payload=policy_payload, task_run_id=task_run_id)
         tool_context = ToolUseContext(
             workspace_root=execution_root,
             sandbox_root=self.sandbox_backend.execution_root(sandbox_context) if sandbox_context else None,
             task_run_id=task_run_id,
+            session_id=_session_id_from_policy(policy_payload),
             agent_run_id=_agent_run_id_from_policy(policy_payload, task_run_id),
             tool_call_id=tool_call_id,
             read_scopes=tuple(str(item) for item in list(policy_payload.get("read_scopes") or [])),
@@ -600,7 +604,31 @@ def _capability_tool_instance(
 
 
 def _uses_system_backend_root(tool_name: str) -> bool:
-    return str(tool_name or "").strip() in {"image_generate"}
+    return str(tool_name or "").strip() in {"agent_todo", "image_generate"}
+
+
+def _bind_runtime_scoped_tool_args(
+    tool_name: str,
+    tool_args: dict[str, Any],
+    *,
+    policy_payload: dict[str, Any],
+    task_run_id: str,
+) -> dict[str, Any]:
+    if str(tool_name or "").strip() != "agent_todo":
+        return dict(tool_args or {})
+    session_id = _session_id_from_policy(policy_payload)
+    return {
+        **dict(tool_args or {}),
+        "session_id": session_id,
+        "task_id": task_run_id,
+    }
+
+
+def _session_id_from_policy(policy: dict[str, Any]) -> str:
+    explicit = str(policy.get("session_id") or "").strip()
+    if explicit:
+        return explicit
+    return "runtime"
 
 
 def _agent_run_id_from_policy(policy: dict[str, Any], task_run_id: str) -> str:
