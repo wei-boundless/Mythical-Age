@@ -11,6 +11,13 @@ FAILED_TASK_RUN_STATUSES = {"failed", "aborted", "cancelled", "error"}
 COMPLETED_TASK_RUN_STATUSES = {"completed", "success"}
 TERMINAL_TASK_RUN_STATUSES = COMPLETED_TASK_RUN_STATUSES | FAILED_TASK_RUN_STATUSES
 GLOBAL_MONITOR_BUCKETS = ("running", "completed", "failed", "diagnostics")
+KNOWN_TASK_RUN_STATUSES = (
+    RUNNING_TASK_RUN_STATUSES
+    | WAITING_TASK_RUN_STATUSES
+    | BLOCKED_TASK_RUN_STATUSES
+    | FAILED_TASK_RUN_STATUSES
+    | COMPLETED_TASK_RUN_STATUSES
+)
 
 
 class TaskRunMonitorProjector:
@@ -35,8 +42,19 @@ class TaskRunMonitorProjector:
             not last_activity_at or last_activity_age_seconds > self.freshness_seconds
         )
         action_required = status in {"waiting_approval"} | BLOCKED_TASK_RUN_STATUSES
-        lifecycle = self._lifecycle(status, stale=stale, action_required=action_required)
-        bucket = self._bucket(lifecycle)
+        route = self._route(task_run, diagnostics)
+        diagnostic_reasons = self._diagnostic_reasons(
+            task_run=task_run,
+            status=status,
+            created_at=created_at,
+            updated_at=updated_at,
+            latest_event=latest_event,
+            last_activity_at=last_activity_at,
+            route=route,
+            stale=stale,
+        )
+        lifecycle = "stale" if diagnostic_reasons else self._lifecycle(status, stale=stale, action_required=action_required)
+        bucket = "diagnostics" if diagnostic_reasons else self._bucket(lifecycle)
         resource_class = "dynamic" if bucket == "running" and not terminal else "static"
         ended_at = self._ended_at(
             status=status,
@@ -46,7 +64,6 @@ class TaskRunMonitorProjector:
         )
         duration_end_at = current_time if resource_class == "dynamic" else ended_at
         duration_seconds = max(0.0, duration_end_at - created_at) if created_at and duration_end_at else 0.0
-        route = self._route(task_run, diagnostics)
         title = self._display_title(task_run, diagnostics, lifecycle=lifecycle)
         summary = str(
             latest_step.get("summary")
@@ -77,7 +94,8 @@ class TaskRunMonitorProjector:
             "last_activity_age_seconds": last_activity_age_seconds,
             "action_required": action_required,
             "terminal": terminal,
-            "stale": stale,
+            "stale": bool(stale or diagnostic_reasons),
+            "diagnostic_reasons": diagnostic_reasons,
             "is_live": resource_class == "dynamic",
             "summary": summary,
             "latest_event_type": str(latest_event.get("event_type") or ""),
@@ -106,6 +124,8 @@ class TaskRunMonitorProjector:
         requested_limit = max(1, min(int(limit or 20), 100))
         buckets: dict[str, list[dict[str, Any]]] = {name: [] for name in GLOBAL_MONITOR_BUCKETS}
         for task_run in sorted(task_runs, key=lambda item: float(getattr(item, "updated_at", 0.0) or 0.0), reverse=True):
+            if self._is_internal_child_run(task_run):
+                continue
             item = self.project_task_run(task_run, now=now)
             bucket = str(item.get("bucket") or "diagnostics")
             if bucket not in buckets:
@@ -134,7 +154,11 @@ class TaskRunMonitorProjector:
         }
 
     def build_session_monitor(self, session_id: str, task_runs: list[Any], *, now: float, limit: int = 20) -> dict[str, Any]:
-        items = [self.project_task_run(item, now=now) for item in sorted(task_runs, key=lambda item: float(getattr(item, "updated_at", 0.0) or 0.0), reverse=True)]
+        items = [
+            self.project_task_run(item, now=now)
+            for item in sorted(task_runs, key=lambda item: float(getattr(item, "updated_at", 0.0) or 0.0), reverse=True)
+            if not self._is_internal_child_run(item)
+        ]
         visible = [item for item in items if item.get("bucket") in {"running", "diagnostics"}][: max(1, min(int(limit or 20), 100))]
         latest = items[0] if items else None
         active = visible[0] if visible else None
@@ -200,6 +224,51 @@ class TaskRunMonitorProjector:
             "graph_id": graph_id,
             "coordination_run_id": coordination_run_id,
         }
+
+    def _diagnostic_reasons(
+        self,
+        *,
+        task_run: Any,
+        status: str,
+        created_at: float,
+        updated_at: float,
+        latest_event: dict[str, Any],
+        last_activity_at: float,
+        route: dict[str, str],
+        stale: bool,
+    ) -> list[str]:
+        reasons: list[str] = []
+        if stale:
+            reasons.append("stale_runtime_activity")
+        if not created_at or not updated_at or not last_activity_at:
+            reasons.append("missing_runtime_time")
+        if status not in KNOWN_TASK_RUN_STATUSES:
+            reasons.append("unknown_task_status")
+        kind = str(route.get("kind") or "")
+        if not route.get("task_run_id"):
+            reasons.append("missing_route_task_run_id")
+        if kind in {"chat_turn_runtime", "agent_runtime_run"} and not route.get("session_id"):
+            reasons.append("missing_route_session_id")
+        if kind == "task_graph_run" and not route.get("graph_id"):
+            reasons.append("missing_route_graph_id")
+        event_type = str(latest_event.get("event_type") or "")
+        if status in TERMINAL_TASK_RUN_STATUSES and event_type.startswith("task_run_lifecycle_waiting"):
+            reasons.append("terminal_status_with_waiting_event")
+        if status in RUNNING_TASK_RUN_STATUSES and str(getattr(task_run, "terminal_reason", "") or "") in TERMINAL_TASK_RUN_STATUSES:
+            reasons.append("running_status_with_terminal_reason")
+        return reasons
+
+    def _is_internal_child_run(self, task_run: Any) -> bool:
+        task_id = str(getattr(task_run, "task_id", "") or "")
+        contract_ref = str(getattr(task_run, "task_contract_ref", "") or "")
+        diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+        if task_id.startswith("task_graph.graph_module.") or contract_ref.startswith("task_graph.graph_module."):
+            return True
+        return bool(
+            diagnostics.get("coordination_stage_id")
+            or diagnostics.get("stage_request_id")
+            or diagnostics.get("stage_idempotency_key")
+        )
 
     def _display_title(self, task_run: Any, diagnostics: dict[str, Any], *, lifecycle: str) -> str:
         for key in ("title", "task_graph_title", "project_title", "goal", "task_goal"):

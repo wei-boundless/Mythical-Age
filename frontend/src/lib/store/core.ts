@@ -84,6 +84,7 @@ export function getDefaultState(): StoreState {
     taskGraphLiveMonitor: null,
     taskGraphRunMonitor: null,
     globalRuntimeMonitor: null,
+    globalRuntimeMonitorRevision: "",
     globalRuntimeMonitorSelectedTaskRunId: "",
     globalRuntimeMonitorSelectedLiveMonitor: null,
     globalRuntimeMonitorSelectedGraphMonitor: null,

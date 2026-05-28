@@ -240,6 +240,7 @@ export type StoreState = {
   taskGraphLiveMonitor: HarnessTaskRunLiveMonitor | null;
   taskGraphRunMonitor: TaskGraphRunMonitorView | null;
   globalRuntimeMonitor: GlobalRuntimeMonitor | null;
+  globalRuntimeMonitorRevision: string;
   globalRuntimeMonitorSelectedTaskRunId: string;
   globalRuntimeMonitorSelectedLiveMonitor: HarnessTaskRunLiveMonitor | null;
   globalRuntimeMonitorSelectedGraphMonitor: TaskGraphRunMonitorView | null;

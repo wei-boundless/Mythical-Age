@@ -23,6 +23,8 @@ class ToolObservationRecord:
     side_effect_hash: str = ""
     evidence_source: str = "structured_envelope"
     debug_hints: dict[str, Any] = field(default_factory=dict)
+    runtime_freshness: dict[str, Any] = field(default_factory=dict)
+    structured_error: dict[str, Any] = field(default_factory=dict)
     authority: str = "orchestration.tool_observation_record"
 
     def to_dict(self) -> dict[str, Any]:
@@ -32,6 +34,8 @@ class ToolObservationRecord:
         payload["matched_paths"] = list(self.matched_paths)
         payload["artifact_refs"] = [dict(item) for item in self.artifact_refs]
         payload["debug_hints"] = dict(self.debug_hints)
+        payload["runtime_freshness"] = dict(self.runtime_freshness)
+        payload["structured_error"] = dict(self.structured_error)
         return payload
 
 
@@ -149,6 +153,9 @@ def build_tool_observation_record(
     tool_name: str,
     tool_args: dict[str, Any] | None = None,
     result: Any = None,
+    runtime_fingerprint: dict[str, Any] | None = None,
+    structured_error: dict[str, Any] | None = None,
+    freshness: dict[str, Any] | None = None,
 ) -> ToolObservationRecord:
     name = str(tool_name or "").strip()
     args = dict(tool_args or {})
@@ -229,6 +236,11 @@ def build_tool_observation_record(
         ),
         evidence_source=evidence_source,
         debug_hints=debug_hints,
+        runtime_freshness={
+            **({"fingerprint": dict(runtime_fingerprint or {})} if runtime_fingerprint else {}),
+            **dict(freshness or {}),
+        },
+        structured_error=dict(structured_error or {}),
     )
 
 

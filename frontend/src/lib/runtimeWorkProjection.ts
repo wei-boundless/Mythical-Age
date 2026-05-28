@@ -132,6 +132,7 @@ export function runtimeWorkProjectionFromMonitorItem(item: GlobalRuntimeMonitorI
   if (route === "task_graph_run") return taskGraphProjection(item);
   if (route === "agent_runtime_run") return agentRuntimeProjection(item);
   if (route === "chat_turn_runtime") return chatTurnRuntimeProjection(item);
+  // Legacy fallback for persisted payloads that predate backend route authority.
   if (item.has_coordination || text(item.graph_id)) return taskGraphProjection(item);
   if (isChatScopedRun(item)) return chatTurnRuntimeProjection(item);
   if (text(item.runtime_lane) === "single_agent_task") return agentRuntimeProjection(item);
@@ -178,15 +179,8 @@ export function runtimeWorkProjectionFromLiveMonitor(
 }
 
 export function isVisibleRuntimeMonitorItem(item: GlobalRuntimeMonitorItem) {
-  const taskId = text(item.task_id);
-  const bucket = text(item.bucket) || text(item.display_bucket);
-  const status = statusFromMonitor(item);
   if (!text(item.task_run_id)) return false;
-  if (taskId.startsWith("task_graph.graph_module.")) return false;
-  if (taskId.startsWith("taskinst:")) return false;
-  if (["child_run", "internal", "hidden", "graph_module_imported_run"].includes(bucket)) return false;
-  if (!["running", "completed", "failed", "diagnostics", "live", "stale", "recent"].includes(bucket) && item.is_live !== true) return false;
-  if (!["created", "running", "waiting_executor", "waiting_approval", "blocked", "failed", "aborted", "cancelled", "completed", "success", "error"].includes(status)) return false;
+  if (!["running", "completed", "failed", "diagnostics"].includes(text(item.bucket))) return false;
   const work = runtimeWorkProjectionFromMonitorItem(item);
   return Boolean(work.workId && work.primaryRunId);
 }
@@ -196,39 +190,25 @@ export function monitorBucketItems(
   bucket: "running" | "completed" | "failed" | "diagnostics",
 ) {
   const bucketItems = monitor?.buckets?.[bucket];
-  const source = Array.isArray(bucketItems)
-    ? bucketItems
-    : (monitor?.task_runs ?? []).filter((item) => {
-      const displayBucket = text(item.display_bucket);
-      const normalizedBucket = text(item.bucket);
-      if (normalizedBucket === bucket) return true;
-      if (displayBucket === bucket) return true;
-      const status = statusFromMonitor(item);
-      if (bucket === "running") return ["created", "running", "waiting_executor", "waiting_approval", "blocked"].includes(status);
-      if (bucket === "completed") return ["completed", "success"].includes(status);
-      if (bucket === "diagnostics") return item.stale === true || normalizedBucket === "diagnostics";
-      return ["failed", "aborted", "cancelled", "error"].includes(status);
-    });
+  const source = Array.isArray(bucketItems) ? bucketItems : [];
   return source.filter(isVisibleRuntimeMonitorItem);
 }
 
 export function visibleRuntimeMonitorItems(monitor: GlobalRuntimeMonitor | null | undefined) {
-  return (monitor?.task_runs ?? []).filter(isVisibleRuntimeMonitorItem);
-}
-
-export function summarizeRuntimeMonitorItems(items: GlobalRuntimeMonitorItem[]) {
-  return items.reduce(
-    (summary, item) => {
-      summary.total += 1;
-      if (item.status === "running" || item.status === "created") summary.running += 1;
-      if (item.status === "waiting_executor" || item.status === "waiting_approval") summary.waiting += 1;
-      if (item.status === "completed" || item.status === "success") summary.completed += 1;
-      if (item.status === "failed" || item.status === "aborted" || item.status === "cancelled" || item.status === "blocked") summary.failed += 1;
-      if (item.bucket === "diagnostics") summary.diagnostics += 1;
-      if (item.display_bucket === "stale") summary.stale += 1;
-      if (item.display_bucket === "recent") summary.recent += 1;
-      return summary;
-    },
-    { total: 0, running: 0, waiting: 0, completed: 0, failed: 0, diagnostics: 0, stale: 0, recent: 0 },
-  );
+  const bucketed = [
+    ...monitorBucketItems(monitor, "running"),
+    ...monitorBucketItems(monitor, "completed"),
+    ...monitorBucketItems(monitor, "failed"),
+    ...monitorBucketItems(monitor, "diagnostics"),
+  ];
+  if (bucketed.length) {
+    const seen = new Set<string>();
+    return bucketed.filter((item) => {
+      const id = text(item.task_run_id);
+      if (!id || seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+  }
+  return [];
 }

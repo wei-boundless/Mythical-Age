@@ -10,6 +10,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
+from harness.loop.task_executor import is_task_run_executable
 
 router = APIRouter()
 
@@ -152,7 +153,7 @@ async def execute_harness_task_run(
         raise HTTPException(status_code=404, detail="TaskRun not found")
     if str(task_run.runtime_lane or "") != "single_agent_task":
         raise HTTPException(status_code=409, detail="not_single_agent_task")
-    if str(task_run.status or "") in {"completed", "failed"}:
+    if not is_task_run_executable(task_run):
         raise HTTPException(status_code=409, detail=f"task_run_not_executable:{task_run.status}")
     runtime_host.event_log.append(
         task_run_id,

@@ -74,7 +74,9 @@ export class WorkspaceRuntime {
   private globalRuntimeMonitorReconnectTimer: number | null = null;
   private globalRuntimeMonitorDetailRefreshTimer: number | null = null;
   private globalRuntimeMonitorDetailInFlightTaskRunId: string | null = null;
+  private globalRuntimeMonitorDetailInFlightRevision = "";
   private globalRuntimeMonitorQueuedDetailTaskRunId: string | null = null;
+  private globalRuntimeMonitorQueuedDetailRevision = "";
   private globalRuntimeMonitorDetailLoadedAt = new Map<string, number>();
   private globalRuntimeMonitorVisibilityListener: (() => void) | null = null;
   private sessionRefreshTimers: number[] = [];
@@ -1932,7 +1934,9 @@ export class WorkspaceRuntime {
       this.globalRuntimeMonitorDetailRefreshTimer = null;
     }
     this.globalRuntimeMonitorDetailInFlightTaskRunId = null;
+    this.globalRuntimeMonitorDetailInFlightRevision = "";
     this.globalRuntimeMonitorQueuedDetailTaskRunId = null;
+    this.globalRuntimeMonitorQueuedDetailRevision = "";
     this.store.setState((prev) => ({
       ...prev,
       globalRuntimeMonitorStreamStatus: "closed",
@@ -1990,7 +1994,12 @@ export class WorkspaceRuntime {
       lastEvent?: RuntimeMonitorEventPayload["runtime_event"] | null;
     } = {},
   ) {
-    const currentSelected = this.store.getState().globalRuntimeMonitorSelectedTaskRunId;
+    const nextRevision = this.monitorRevision(monitor);
+    const currentState = this.store.getState();
+    if (this.isStaleMonitorRevision(nextRevision, currentState.globalRuntimeMonitorRevision)) {
+      return;
+    }
+    const currentSelected = currentState.globalRuntimeMonitorSelectedTaskRunId;
     const visibleRuns = visibleRuntimeMonitorItems(monitor);
     const currentStillVisible = visibleRuns.some((item) => item.task_run_id === currentSelected);
     const nextSelected = currentStillVisible ? currentSelected : visibleRuns[0]?.task_run_id || "";
@@ -2000,26 +2009,56 @@ export class WorkspaceRuntime {
     this.store.setState((prev) => ({
       ...prev,
       globalRuntimeMonitor: monitor,
+      globalRuntimeMonitorRevision: nextRevision,
       globalRuntimeMonitorSelectedTaskRunId: nextSelected,
-      globalRuntimeMonitorSelectedLiveMonitor: nextSelected ? prev.globalRuntimeMonitorSelectedLiveMonitor : null,
-      globalRuntimeMonitorSelectedGraphMonitor: nextSelected ? prev.globalRuntimeMonitorSelectedGraphMonitor : null,
+      globalRuntimeMonitorSelectedLiveMonitor: nextSelected && nextRevision === prev.globalRuntimeMonitorRevision
+        ? prev.globalRuntimeMonitorSelectedLiveMonitor
+        : null,
+      globalRuntimeMonitorSelectedGraphMonitor: nextSelected && nextRevision === prev.globalRuntimeMonitorRevision
+        ? prev.globalRuntimeMonitorSelectedGraphMonitor
+        : null,
       globalRuntimeMonitorError: "",
       globalRuntimeMonitorLastEvent: options.lastEvent ?? prev.globalRuntimeMonitorLastEvent,
     }));
-    this.queueSelectedGlobalRuntimeMonitorDetailRefresh(detailTaskRunId);
+    this.queueSelectedGlobalRuntimeMonitorDetailRefresh(detailTaskRunId, nextRevision);
   }
 
-  private queueSelectedGlobalRuntimeMonitorDetailRefresh(taskRunId?: string) {
+  private monitorRevision(monitor: GlobalRuntimeMonitor | null | undefined) {
+    return String(monitor?.revision || monitor?.updated_at || "").trim();
+  }
+
+  private monitorRevisionOrdinal(revision: string) {
+    const match = revision.match(/^rtmon:(\d+(?:\.\d+)?):/);
+    if (match) {
+      return Number(match[1]);
+    }
+    const numeric = Number(revision);
+    return Number.isFinite(numeric) ? numeric : 0;
+  }
+
+  private isStaleMonitorRevision(incoming: string, current: string) {
+    if (!incoming || !current) {
+      return false;
+    }
+    const incomingOrdinal = this.monitorRevisionOrdinal(incoming);
+    const currentOrdinal = this.monitorRevisionOrdinal(current);
+    return incomingOrdinal > 0 && currentOrdinal > 0 && incomingOrdinal < currentOrdinal;
+  }
+
+  private queueSelectedGlobalRuntimeMonitorDetailRefresh(taskRunId?: string, revision?: string) {
     if (typeof window === "undefined") {
       return;
     }
     const normalized = String(taskRunId || "").trim();
-    const selected = this.store.getState().globalRuntimeMonitorSelectedTaskRunId;
-    if (!normalized || normalized !== selected) {
+    const state = this.store.getState();
+    const selected = state.globalRuntimeMonitorSelectedTaskRunId;
+    const monitorRevision = revision || state.globalRuntimeMonitorRevision;
+    if (!normalized || normalized !== selected || !monitorRevision || monitorRevision !== state.globalRuntimeMonitorRevision) {
       return;
     }
     if (this.globalRuntimeMonitorDetailInFlightTaskRunId) {
       this.globalRuntimeMonitorQueuedDetailTaskRunId = normalized;
+      this.globalRuntimeMonitorQueuedDetailRevision = monitorRevision;
       return;
     }
     const lastLoadedAt = this.globalRuntimeMonitorDetailLoadedAt.get(normalized) ?? 0;
@@ -2030,7 +2069,7 @@ export class WorkspaceRuntime {
     }
     this.globalRuntimeMonitorDetailRefreshTimer = window.setTimeout(() => {
       this.globalRuntimeMonitorDetailRefreshTimer = null;
-      void this.loadGlobalRuntimeMonitorTaskRunDetail(normalized);
+      void this.loadGlobalRuntimeMonitorTaskRunDetail(normalized, monitorRevision);
     }, delayMs);
   }
 
@@ -2108,7 +2147,7 @@ export class WorkspaceRuntime {
       globalRuntimeMonitorSelectedGraphMonitor: null,
     }));
     if (normalized && selectable) {
-      this.queueSelectedGlobalRuntimeMonitorDetailRefresh(normalized);
+      this.queueSelectedGlobalRuntimeMonitorDetailRefresh(normalized, this.store.getState().globalRuntimeMonitorRevision);
     }
   }
 
@@ -2135,7 +2174,7 @@ export class WorkspaceRuntime {
         globalRuntimeMonitorSelectedLiveMonitor: null,
         globalRuntimeMonitorSelectedGraphMonitor: null,
       }));
-      this.queueSelectedGlobalRuntimeMonitorDetailRefresh(normalized);
+      this.queueSelectedGlobalRuntimeMonitorDetailRefresh(normalized, this.store.getState().globalRuntimeMonitorRevision);
       return;
     }
     const taskGraphBinding = work.workKind === "task_graph_run"
@@ -2166,7 +2205,7 @@ export class WorkspaceRuntime {
     if (taskGraphBinding) {
       this.startTaskGraphMonitorPolling(normalized);
     }
-    this.queueSelectedGlobalRuntimeMonitorDetailRefresh(normalized);
+    this.queueSelectedGlobalRuntimeMonitorDetailRefresh(normalized, this.store.getState().globalRuntimeMonitorRevision);
   }
 
   private clearTaskSystemRuntimeNavigationTarget() {
@@ -2176,22 +2215,29 @@ export class WorkspaceRuntime {
     }));
   }
 
-  private async loadGlobalRuntimeMonitorTaskRunDetail(taskRunId: string) {
+  private async loadGlobalRuntimeMonitorTaskRunDetail(taskRunId: string, revision?: string) {
     const normalized = taskRunId.trim();
     if (!normalized) {
       return;
     }
-    const selected = visibleRuntimeMonitorItems(this.store.getState().globalRuntimeMonitor)
+    const stateAtStart = this.store.getState();
+    const expectedRevision = revision || stateAtStart.globalRuntimeMonitorRevision;
+    if (stateAtStart.globalRuntimeMonitorSelectedTaskRunId !== normalized || stateAtStart.globalRuntimeMonitorRevision !== expectedRevision) {
+      return;
+    }
+    const selected = visibleRuntimeMonitorItems(stateAtStart.globalRuntimeMonitor)
       .find((item) => item.task_run_id === normalized);
     if (!selected || !isVisibleRuntimeMonitorItem(selected)) {
       return;
     }
     if (this.globalRuntimeMonitorDetailInFlightTaskRunId) {
       this.globalRuntimeMonitorQueuedDetailTaskRunId = normalized;
+      this.globalRuntimeMonitorQueuedDetailRevision = expectedRevision;
       return;
     }
     const work = runtimeWorkProjectionFromMonitorItem(selected);
     this.globalRuntimeMonitorDetailInFlightTaskRunId = normalized;
+    this.globalRuntimeMonitorDetailInFlightRevision = expectedRevision;
     try {
       const [liveMonitor, graphMonitor] = await Promise.all([
         getOrchestrationHarnessTaskRunLiveMonitor(normalized).catch(() => null),
@@ -2199,7 +2245,11 @@ export class WorkspaceRuntime {
           ? getTaskGraphRunMonitor(normalized).catch(() => null)
           : Promise.resolve(null),
       ]);
-      if (this.store.getState().globalRuntimeMonitorSelectedTaskRunId !== normalized) {
+      const stateAfterLoad = this.store.getState();
+      if (
+        stateAfterLoad.globalRuntimeMonitorSelectedTaskRunId !== normalized
+        || stateAfterLoad.globalRuntimeMonitorRevision !== expectedRevision
+      ) {
         return;
       }
       this.store.setState((prev) => ({
@@ -2210,7 +2260,11 @@ export class WorkspaceRuntime {
       }));
       this.globalRuntimeMonitorDetailLoadedAt.set(normalized, Date.now());
     } catch (error) {
-      if (this.store.getState().globalRuntimeMonitorSelectedTaskRunId !== normalized) {
+      const stateAfterError = this.store.getState();
+      if (
+        stateAfterError.globalRuntimeMonitorSelectedTaskRunId !== normalized
+        || stateAfterError.globalRuntimeMonitorRevision !== expectedRevision
+      ) {
         return;
       }
       if (this.isTransientMonitorError(error)) {
@@ -2221,13 +2275,25 @@ export class WorkspaceRuntime {
         globalRuntimeMonitorError: error instanceof Error ? error.message : "任务详情监控读取失败",
       }));
     } finally {
-      if (this.globalRuntimeMonitorDetailInFlightTaskRunId === normalized) {
+      if (
+        this.globalRuntimeMonitorDetailInFlightTaskRunId === normalized
+        && this.globalRuntimeMonitorDetailInFlightRevision === expectedRevision
+      ) {
         this.globalRuntimeMonitorDetailInFlightTaskRunId = null;
+        this.globalRuntimeMonitorDetailInFlightRevision = "";
       }
       const queued = this.globalRuntimeMonitorQueuedDetailTaskRunId;
+      const queuedRevision = this.globalRuntimeMonitorQueuedDetailRevision;
       this.globalRuntimeMonitorQueuedDetailTaskRunId = null;
-      if (queued && queued === this.store.getState().globalRuntimeMonitorSelectedTaskRunId) {
-        this.queueSelectedGlobalRuntimeMonitorDetailRefresh(queued);
+      this.globalRuntimeMonitorQueuedDetailRevision = "";
+      const current = this.store.getState();
+      if (
+        queued
+        && queued === current.globalRuntimeMonitorSelectedTaskRunId
+        && queuedRevision
+        && queuedRevision === current.globalRuntimeMonitorRevision
+      ) {
+        this.queueSelectedGlobalRuntimeMonitorDetailRefresh(queued, queuedRevision);
       }
     }
   }

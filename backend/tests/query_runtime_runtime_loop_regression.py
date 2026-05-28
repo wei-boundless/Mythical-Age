@@ -268,6 +268,21 @@ class _FailingModelRuntime:
         raise TimeoutError("model timed out")
 
 
+class _TaskExecutorSequenceModelRuntime:
+    def __init__(self, task_actions: list[dict[str, object]], *, agent_turn_action_request: dict[str, object]) -> None:
+        self.task_actions = list(task_actions)
+        self.agent_turn_action_request = dict(agent_turn_action_request)
+        self.task_invocation_count = 0
+
+    async def invoke_messages(self, messages, **_kwargs):
+        content = str(list(messages or [])[0].get("content") or "")
+        if "正式 TaskRun 的执行 agent" in content:
+            self.task_invocation_count += 1
+            action = self.task_actions.pop(0) if self.task_actions else self.task_actions[-1]
+            return SimpleNamespace(content=json.dumps(action, ensure_ascii=False))
+        return SimpleNamespace(content=json.dumps(self.agent_turn_action_request, ensure_ascii=False))
+
+
 def test_malformed_agent_action_request_fails_closed() -> None:
     runtime = build_query_runtime(model_runtime=_MalformedModelRuntime())
 
@@ -321,6 +336,90 @@ def test_task_run_executor_keeps_model_call_failure_recoverable() -> None:
     assert monitor is not None
     assert monitor["latest_step_status"] == "blocked"
     assert "模型调用失败" in monitor["latest_step_summary"]
+
+
+def test_task_run_executor_recovers_invalid_model_action_as_observation() -> None:
+    runtime = build_query_runtime(
+        model_runtime=_TaskExecutorSequenceModelRuntime(
+            task_actions=[
+                {
+                    "authority": "harness.loop.model_action_request",
+                    "request_id": "model-action:test:invalid-task-step",
+                    "turn_id": "",
+                    "action_type": "",
+                },
+                {
+                    "authority": "harness.loop.model_action_request",
+                    "request_id": "model-action:test:complete-after-repair",
+                    "turn_id": "",
+                    "action_type": "respond",
+                    "final_answer": "已按合同完成。",
+                    "diagnostics": {"artifacts": []},
+                },
+            ],
+            agent_turn_action_request=_action_request(
+                action_type="request_task_run",
+                task_contract_seed={"goal": "协议错误后继续执行。", "completion_criteria": ["允许无文件收口"]},
+            ),
+        )
+    )
+
+    async def _create_task() -> str:
+        task_run_id = ""
+        async for event in runtime.astream(QueryRequest(session_id="session-protocol-repair", message="做一个可恢复任务。")):
+            if event.get("type") == "harness_run_started":
+                candidate = str(dict(event.get("task_run") or {}).get("task_run_id") or "")
+                if candidate.startswith("taskrun:"):
+                    task_run_id = candidate
+        return task_run_id
+
+    task_run_id = asyncio.run(_create_task())
+    result = asyncio.run(runtime.execute_task_run(task_run_id, max_steps=3))
+    task_run = runtime.single_agent_runtime_host.state_index.get_task_run(task_run_id)
+    trace = runtime.single_agent_runtime_host.get_trace(task_run_id, include_payloads=True)
+    event_types = [str(dict(item).get("event_type") or "") for item in list(dict(trace or {}).get("events") or [])]
+
+    assert result["ok"] is True
+    assert task_run is not None
+    assert task_run.status == "completed"
+    assert runtime.model_runtime.task_invocation_count == 2
+    assert "task_model_action_protocol_repair_required" in event_types
+
+
+def test_task_run_executor_blocks_repeated_invalid_model_actions_as_recoverable() -> None:
+    runtime = build_query_runtime(
+        model_runtime=_TaskExecutorSequenceModelRuntime(
+            task_actions=[
+                {"authority": "harness.loop.model_action_request", "request_id": "model-action:test:bad-1", "turn_id": "", "action_type": ""},
+                {"authority": "harness.loop.model_action_request", "request_id": "model-action:test:bad-2", "turn_id": "", "action_type": ""},
+                {"authority": "harness.loop.model_action_request", "request_id": "model-action:test:bad-3", "turn_id": "", "action_type": ""},
+            ],
+            agent_turn_action_request=_action_request(
+                action_type="request_task_run",
+                task_contract_seed={"goal": "连续协议错误后阻塞。", "completion_criteria": ["不应完成"]},
+            ),
+        )
+    )
+
+    async def _create_task() -> str:
+        task_run_id = ""
+        async for event in runtime.astream(QueryRequest(session_id="session-protocol-block", message="做一个会协议错误的任务。")):
+            if event.get("type") == "harness_run_started":
+                candidate = str(dict(event.get("task_run") or {}).get("task_run_id") or "")
+                if candidate.startswith("taskrun:"):
+                    task_run_id = candidate
+        return task_run_id
+
+    task_run_id = asyncio.run(_create_task())
+    result = asyncio.run(runtime.execute_task_run(task_run_id, max_steps=4))
+    task_run = runtime.single_agent_runtime_host.state_index.get_task_run(task_run_id)
+
+    assert result["ok"] is False
+    assert result["error"] == "model_action_protocol_repair_required"
+    assert task_run is not None
+    assert task_run.status == "blocked"
+    assert task_run.terminal_reason == "model_action_protocol_repair_required"
+    assert dict(dict(task_run.diagnostics or {}).get("recoverable_error") or {}).get("retryable") is True
 
 
 def test_role_mode_allows_soul_prompt_but_blocks_task_lifecycle() -> None:
@@ -634,3 +733,185 @@ def test_task_run_artifact_view_returns_only_existing_files() -> None:
 
     assert view["created_files"] == ["storage/task_environments/development/sandbox/artifacts/final.html"]
     assert view["artifact_refs"][0]["exists"] is True
+
+
+def test_task_observation_projection_separates_stale_and_active_failures() -> None:
+    from harness.loop.task_executor import _observations_for_packet
+
+    runtime = build_query_runtime()
+    host = runtime.single_agent_runtime_host
+    task_run_id = "taskrun:test:observation-projection"
+    stale_fingerprint = {
+        "tool_registry_hash": "tools-v1",
+        "tool_config_hash": "image-config-v1",
+        "sandbox_policy_hash": "sandbox-v1",
+        "permission_policy_hash": "permission-v1",
+        "backend_config_hash": "backend-v1",
+    }
+    current_fingerprint = {
+        **stale_fingerprint,
+        "tool_config_hash": "image-config-v2",
+        "backend_config_hash": "backend-v2",
+    }
+    host.event_log.append(
+        task_run_id,
+        "task_tool_observation_recorded",
+        payload={
+            "observation": {
+                "observation_id": "obs:stale-image",
+                "task_run_id": task_run_id,
+                "observation_type": "executor_error",
+                "source": "tool:image_generate",
+                "payload": {
+                    "tool_name": "image_generate",
+                    "tool_args": {"prompt": "hero"},
+                    "error": "old config failure",
+                    "runtime_fingerprint": stale_fingerprint,
+                },
+                "error": "old config failure",
+            }
+        },
+    )
+    host.event_log.append(
+        task_run_id,
+        "task_tool_observation_recorded",
+        payload={
+            "observation": {
+                "observation_id": "obs:active-read",
+                "task_run_id": task_run_id,
+                "observation_type": "executor_error",
+                "source": "tool:read_file",
+                "payload": {
+                    "tool_name": "read_file",
+                    "tool_args": {"path": "missing.md"},
+                    "error": "file missing",
+                    "runtime_fingerprint": current_fingerprint,
+                },
+                "error": "file missing",
+            }
+        },
+    )
+
+    context = _observations_for_packet(host, task_run_id, current_fingerprint=current_fingerprint)
+    projection = context["execution_state"]["system_projection"]
+
+    assert projection["historical_failures"][0]["tool_name"] == "image_generate"
+    assert projection["historical_failures"][0]["current_runtime_fact"] is False
+    assert projection["active_failures"][0]["tool_name"] == "read_file"
+    assert projection["active_failures"][0]["error"]["message"] == "file missing"
+
+
+def test_task_observation_projection_treats_missing_fingerprint_failure_as_historical() -> None:
+    from harness.loop.task_executor import _observations_for_packet
+
+    runtime = build_query_runtime()
+    host = runtime.single_agent_runtime_host
+    task_run_id = "taskrun:test:missing-fingerprint"
+    host.event_log.append(
+        task_run_id,
+        "task_tool_observation_recorded",
+        payload={
+            "observation": {
+                "observation_id": "obs:legacy-error",
+                "task_run_id": task_run_id,
+                "observation_type": "executor_error",
+                "source": "tool:image_generate",
+                "payload": {
+                    "tool_name": "image_generate",
+                    "tool_args": {"prompt": "hero"},
+                    "error": "legacy failure without runtime fingerprint",
+                },
+                "error": "legacy failure without runtime fingerprint",
+            }
+        },
+    )
+
+    context = _observations_for_packet(host, task_run_id, current_fingerprint={"tool_config_hash": "current"})
+    projection = context["execution_state"]["system_projection"]
+
+    assert projection["active_failures"] == []
+    assert projection["historical_failures"][0]["tool_name"] == "image_generate"
+    assert projection["historical_failures"][0]["reason"] == "missing_runtime_fingerprint"
+
+
+def test_terminal_diagnostics_are_stripped_before_task_resume_packet() -> None:
+    from harness.loop.task_executor import _strip_terminal_diagnostics
+
+    cleaned = _strip_terminal_diagnostics(
+        {
+            "contract": {"user_visible_goal": "继续任务"},
+            "action_request": {"action_type": "block", "blocking_reason": "old blocker"},
+            "terminal_reason": "old blocker",
+            "recoverable_error": {"detail": "old model error"},
+            "recovery_action": "rerun_task_executor",
+            "latest_step_summary": "old blocked summary",
+        }
+    )
+
+    assert cleaned == {"contract": {"user_visible_goal": "继续任务"}}
+
+
+def test_task_observation_projection_keeps_success_artifact_evidence() -> None:
+    from harness.loop.task_executor import _observations_for_packet
+
+    runtime = build_query_runtime()
+    host = runtime.single_agent_runtime_host
+    task_run_id = "taskrun:test:observation-artifact"
+    fingerprint = {"tool_config_hash": "current"}
+    host.event_log.append(
+        task_run_id,
+        "task_tool_observation_recorded",
+        payload={
+            "observation": {
+                "observation_id": "obs:image-ok",
+                "task_run_id": task_run_id,
+                "observation_type": "tool_result",
+                "source": "tool:image_generate",
+                "payload": {
+                    "tool_name": "image_generate",
+                    "runtime_fingerprint": fingerprint,
+                    "result_envelope": {
+                        "tool_name": "image_generate",
+                        "tool_args": {"prompt": "hero"},
+                        "status": "ok",
+                        "text": "generated",
+                        "artifact_refs": [{"path": "frontend/public/souls/generated/hero.png", "kind": "image"}],
+                        "structured_payload": {
+                            "artifact_refs": [{"path": "frontend/public/souls/generated/hero.png", "kind": "image"}]
+                        },
+                    },
+                },
+            }
+        },
+    )
+
+    context = _observations_for_packet(host, task_run_id, current_fingerprint=fingerprint)
+    projection = context["execution_state"]["system_projection"]
+
+    assert projection["current_facts"][0]["tool_name"] == "image_generate"
+    assert projection["artifact_evidence"][0]["path"] == "frontend/public/souls/generated/hero.png"
+    assert context["artifact_refs"][0]["kind"] == "image"
+
+
+def test_task_observation_projection_ignores_already_projected_records() -> None:
+    from harness.loop.task_executor import _observations_for_packet
+
+    runtime = build_query_runtime()
+    host = runtime.single_agent_runtime_host
+    context = _observations_for_packet(
+        host,
+        "taskrun:test:projected-record",
+        current_fingerprint={"tool_config_hash": "current"},
+        pending_observations=[
+            {
+                "observation_ref": "rtobs:already-projected",
+                "tool_name": "read_file",
+                "status": "ok",
+                "runtime_freshness": {"visibility": "active"},
+                "authority": "orchestration.tool_observation_record",
+            }
+        ],
+    )
+
+    assert context["raw_observations"] == []
+    assert context["packet_observations"] == []

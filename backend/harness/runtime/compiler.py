@@ -131,6 +131,7 @@ class RuntimeCompiler:
         task_run: dict[str, Any],
         contract: dict[str, Any],
         observations: list[dict[str, Any]],
+        execution_state: dict[str, Any] | None = None,
         agent_profile_ref: str = "main_interactive_agent",
         model_selection: dict[str, Any] | None = None,
         available_tools: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
@@ -191,6 +192,20 @@ class RuntimeCompiler:
             "写入交付物时优先使用 write_file；路径必须落在任务环境允许的 artifact/storage 范围内。"
             + (f" 当前建议 artifact_root 是 {artifact_root}。" if artifact_root else "")
             + "\n"
+            "你不能只满足最低可见产物。执行前应先读取合同、相关设计文档、现有产物和目录结构；"
+            "执行中要主动补齐合同暗含的核心功能、资源接入、错误处理、验证路径和用户会实际体验到的完整性。"
+            "如果任务是游戏或交互应用，交付标准是可打开、可操作、核心循环成立：输入、状态变化、胜负或进度反馈、资源加载、异常兜底和基础美术都要真实存在。"
+            "如果合同要求交付某个文件而当前目录不存在该文件，你应判断是否可以创建该交付物；在权限允许且合同目标明确时，应创建实现文件和配套文档，而不是把“文件不存在”当作阻塞理由。"
+            "如果合同要求图像或美术资源，应优先使用 image_generate 生成真实位图文件；不要用 SVG、纯文档、占位色块或只在 canvas 中临时绘制的假资源替代需要交付的图片资产。"
+            "只有当必要外部服务、权限或用户决策真实缺失且无法通过创建文件、调整实现、换参数、重试或降级到合同允许的真实资产来源解决时，才可以 block。"
+            "如果发现现有产物功能残缺，应继续修复，不要把文档、清单或部分示例当作完整交付。"
+            "每次工具失败后，要读取错误观察，调整参数、路径或实现方式后继续；历史失败不能替代当前验证。"
+            "最终 respond 前必须执行一次交付自检：确认入口文件存在、关键资源文件存在、实现引用路径一致、核心功能没有明显断点、文档与实现一致。"
+            "若还能继续改进且权限允许，应继续执行而不是提前收尾；respond 中只能报告真实完成项和真实产物路径。\n"
+            "系统会提供 execution_state.system_projection：current_facts 是当前可依赖事实，artifact_evidence 是真实产物证据，"
+            "active_failures 是当前 runtime 下仍有效的失败，historical_failures 是历史失败，只能作为背景，不能视为当前工具不可用。"
+            "当 active_failures 存在时，你需要判断修正参数、换工具、重试、询问用户或 block；"
+            "当 historical_failures 存在时，不能仅凭历史失败放弃当前可用工具。\n"
             "完成前必须自我审查合同中的 completion_criteria、required_artifacts、required_verifications。\n"
             + _environment_instruction(environment_payload)
             + _work_role_instruction(work_role_prompt)
@@ -203,6 +218,7 @@ class RuntimeCompiler:
             "task_environment": environment_payload,
             "available_tools": [dict(item) for item in tool_payloads],
             "runtime_context": _runtime_context_payload(assembly_payload),
+            "execution_state": dict(execution_state or {}),
             "observations": [dict(item) for item in list(observations or [])],
         }
         packet = RuntimeInvocationPacket(

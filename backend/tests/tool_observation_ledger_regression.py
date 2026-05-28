@@ -412,6 +412,33 @@ def test_error_envelope_does_not_satisfy_read_material() -> None:
     assert "read_material" not in ledger.summary()["satisfied_obligations"]
 
 
+def test_tool_observation_record_keeps_freshness_separate_from_evidence() -> None:
+    envelope = build_tool_result_envelope(
+        tool_name="write_file",
+        tool_args={"path": "output/result.md"},
+        result={
+            "text": "Write succeeded: output/result.md",
+            "structured_payload": {
+                "observed_paths": ["output/result.md"],
+                "artifact_refs": [{"path": "output/result.md", "kind": "file"}],
+            },
+        },
+    )
+    record = build_tool_observation_record(
+        observation_ref="obs:fresh-write",
+        tool_name="write_file",
+        result={"result_envelope": envelope.to_dict()},
+        runtime_fingerprint={"tool_config_hash": "current"},
+        freshness={"visibility": "active", "reuse_as_fact": True},
+        structured_error={},
+    )
+    ledger = ToolObservationLedger(ledger_id="ledger:freshness", task_run_id="taskrun:freshness").append(record)
+
+    assert ledger.has_write("output/result.md") is True
+    assert record.runtime_freshness["visibility"] == "active"
+    assert record.structured_error == {}
+
+
 def test_protocol_boundary_detects_command_tool_markup() -> None:
     result = detect_protocol_leak('<｜｜DSML｜｜invoke name="command">pytest -q</｜｜DSML｜｜invoke>')
 

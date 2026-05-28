@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import asyncio
+import hashlib
 import re
 import shutil
 import time
@@ -20,6 +21,7 @@ from runtime.shared.execution_record import (
 )
 from runtime.shared.models import AgentRun, AgentRunResult
 from runtime.shared.safety import build_task_safety_validators
+from runtime.memory.tool_observation_ledger import build_tool_observation_record
 
 from orchestration.runtime_directive import RuntimeDirective
 from project_layout import ProjectLayout
@@ -32,6 +34,11 @@ from .task_lifecycle import TaskLifecycleRecord, finish_task_lifecycle
 
 
 _MAX_TASK_EXECUTION_STEPS = 12
+_MAX_MODEL_PROTOCOL_REPAIR_ATTEMPTS = 3
+
+
+def is_task_run_executable(task_run: Any) -> bool:
+    return str(task_run.status or "") in {"waiting_executor", "running", "blocked"} or _is_recoverable_protocol_terminal(task_run)
 
 
 async def execute_task_run(
@@ -47,7 +54,7 @@ async def execute_task_run(
         return _not_found(task_run_id)
     if str(task_run.runtime_lane or "") != "single_agent_task":
         return _conflict(task_run_id, "not_single_agent_task")
-    if str(task_run.status or "") not in {"waiting_executor", "running", "blocked"}:
+    if not is_task_run_executable(task_run):
         return _conflict(task_run_id, f"task_run_not_executable:{task_run.status}")
 
     contract = _load_contract(runtime_host, task_run)
@@ -76,6 +83,11 @@ async def execute_task_run(
     )
     runtime_available_tools = _runtime_available_tools(runtime_assembly.to_dict())
     allowed_tool_names = _runtime_allowed_tool_names(runtime_available_tools)
+    runtime_fingerprint = _current_runtime_fingerprint(
+        runtime_assembly.to_dict(),
+        runtime_host=runtime_host,
+        query_runtime=query_runtime,
+    )
     runtime_host.event_log.append(
         task_run.task_run_id,
         "task_run_executor_started",
@@ -90,8 +102,15 @@ async def execute_task_run(
         summary="任务执行器已接管正式 TaskRun，并重新装配本次任务运行时。",
     )
 
-    observations: list[dict[str, Any]] = _reusable_observations(runtime_host, task_run.task_run_id)
-    artifact_refs: list[dict[str, Any]] = _artifact_refs_from_observations(observations)
+    observation_context = _observations_for_packet(
+        runtime_host,
+        task_run.task_run_id,
+        current_fingerprint=runtime_fingerprint,
+    )
+    raw_observations: list[dict[str, Any]] = list(observation_context["raw_observations"])
+    observations: list[dict[str, Any]] = list(observation_context["packet_observations"])
+    execution_state: dict[str, Any] = dict(observation_context["execution_state"])
+    artifact_refs: list[dict[str, Any]] = list(observation_context["artifact_refs"])
     compiler = RuntimeCompiler()
     current_task = replace(
         task_run,
@@ -109,6 +128,7 @@ async def execute_task_run(
             task_run=current_task.to_dict(),
             contract=contract,
             observations=observations,
+            execution_state=execution_state,
             agent_profile_ref=current_task.agent_profile_id,
             model_selection={},
             available_tools=runtime_available_tools,
@@ -150,13 +170,60 @@ async def execute_task_run(
                 error=exc,
             )
         if action_request is None:
-            return _finish_executor_failure(
-                runtime_host,
-                task_run=current_task,
-                agent_run=agent_run,
-                terminal_reason="model_action_invalid",
-                payload={"diagnostics": protocol},
+            repair_observation = _model_protocol_repair_observation(
+                task_run_id=current_task.task_run_id,
+                packet_ref=compilation.packet.packet_id,
+                step_index=step_index,
+                diagnostics=protocol,
+                runtime_fingerprint=runtime_fingerprint,
             )
+            raw_observations.append(repair_observation)
+            runtime_host.runtime_objects.put_object("observation", repair_observation["observation_id"], repair_observation)
+            runtime_host.event_log.append(
+                current_task.task_run_id,
+                "task_model_action_protocol_repair_required",
+                payload={"observation": repair_observation, "diagnostics": protocol},
+                refs={
+                    "task_run_ref": current_task.task_run_id,
+                    "observation_ref": repair_observation["observation_id"],
+                    "runtime_invocation_packet_ref": compilation.packet.packet_id,
+                },
+            )
+            _record_task_step_summary(
+                runtime_host,
+                task_run_id=current_task.task_run_id,
+                step=f"model_action_protocol_repair_required:{step_index}",
+                status="running",
+                summary="agent 返回的任务动作未通过协议校验；系统已把校验错误作为观察回灌，要求 agent 修正下一步动作格式后继续。",
+                refs={"observation_ref": repair_observation["observation_id"]},
+            )
+            if _model_protocol_repair_count(raw_observations) >= _MAX_MODEL_PROTOCOL_REPAIR_ATTEMPTS:
+                return _finish_executor_blocked(
+                    runtime_host,
+                    task_run=current_task,
+                    agent_run=agent_run,
+                    terminal_reason="model_action_protocol_repair_required",
+                    payload={
+                        "diagnostics": protocol,
+                        "recoverable_error": {
+                            "error_code": "model_action_invalid",
+                            "retryable": True,
+                            "validation_errors": list(protocol.get("validation_errors") or []),
+                        },
+                        "recovery_action": "rerun_task_executor",
+                    },
+                )
+            observation_context = _observations_for_packet(
+                runtime_host,
+                current_task.task_run_id,
+                current_fingerprint=runtime_fingerprint,
+                pending_observations=raw_observations,
+            )
+            raw_observations = list(observation_context["raw_observations"])
+            observations = list(observation_context["packet_observations"])
+            execution_state = dict(observation_context["execution_state"])
+            artifact_refs = _dedupe_artifacts([*list(observation_context["artifact_refs"]), *artifact_refs])
+            continue
         runtime_host.event_log.append(
             current_task.task_run_id,
             "model_action_request_received",
@@ -212,7 +279,7 @@ async def execute_task_run(
                 action_request=action_request,
                 runtime_assembly=runtime_assembly.to_dict(),
             )
-            observations.append(observation)
+            raw_observations.append(observation)
             runtime_host.runtime_objects.put_object("observation", observation["observation_id"], observation)
             runtime_host.event_log.append(
                 current_task.task_run_id,
@@ -242,6 +309,16 @@ async def execute_task_run(
                     summary="工具调用失败；系统已把失败原因作为观察交还给 agent，由 agent 调整路径、参数或执行方式继续推进。",
                     refs={"observation_ref": observation["observation_id"]},
                 )
+            observation_context = _observations_for_packet(
+                runtime_host,
+                current_task.task_run_id,
+                current_fingerprint=runtime_fingerprint,
+                pending_observations=raw_observations,
+            )
+            raw_observations = list(observation_context["raw_observations"])
+            observations = list(observation_context["packet_observations"])
+            execution_state = dict(observation_context["execution_state"])
+            artifact_refs = _dedupe_artifacts([*list(observation_context["artifact_refs"]), *artifact_refs])
             continue
 
         if action_request.action_type == "respond":
@@ -260,7 +337,7 @@ async def execute_task_run(
                     action_request=action_request,
                     verdict=verdict,
                 )
-                observations.append(repair_observation)
+                raw_observations.append(repair_observation)
                 runtime_host.runtime_objects.put_object("observation", repair_observation["observation_id"], repair_observation)
                 runtime_host.event_log.append(
                     current_task.task_run_id,
@@ -275,6 +352,16 @@ async def execute_task_run(
                     status="running",
                     summary="agent 尝试收尾，但合同证据不足；系统已把缺口作为观察回灌。",
                 )
+                observation_context = _observations_for_packet(
+                    runtime_host,
+                    current_task.task_run_id,
+                    current_fingerprint=runtime_fingerprint,
+                    pending_observations=raw_observations,
+                )
+                raw_observations = list(observation_context["raw_observations"])
+                observations = list(observation_context["packet_observations"])
+                execution_state = dict(observation_context["execution_state"])
+                artifact_refs = _dedupe_artifacts([*list(observation_context["artifact_refs"]), *artifact_refs])
                 continue
             return _finish_executor_success(
                 runtime_host,
@@ -282,7 +369,7 @@ async def execute_task_run(
                 agent_run=agent_run,
                 final_answer=action_request.final_answer,
                 artifact_refs=list(verdict.get("verified_artifacts") or []),
-                observations=observations,
+                observations=raw_observations,
             )
 
         if action_request.action_type == "ask_user":
@@ -413,6 +500,11 @@ async def _execute_task_tool_call(
             error=str(getattr(gate_result, "reason", "") or "operation_gate_denied"),
         )
         observation["payload"]["operation_gate"] = gate_result.to_dict() if hasattr(gate_result, "to_dict") else {}
+        observation["payload"]["runtime_fingerprint"] = _current_runtime_fingerprint(
+            runtime_assembly,
+            runtime_host=runtime_host,
+            query_runtime=query_runtime,
+        )
         return observation
     execution_context = build_execution_context(
         packet_ref=packet_ref,
@@ -459,6 +551,13 @@ async def _execute_task_tool_call(
     observation = dict(result.get("observation").to_dict() if hasattr(result.get("observation"), "to_dict") else result.get("observation") or {})
     if result.get("error") or result.get("recoverable_error"):
         observation["error"] = str(result.get("error") or result.get("recoverable_error") or "tool_execution_failed")
+    observation.setdefault("payload", {})
+    if isinstance(observation.get("payload"), dict):
+        observation["payload"]["runtime_fingerprint"] = _current_runtime_fingerprint(
+            runtime_assembly,
+            runtime_host=runtime_host,
+            query_runtime=query_runtime,
+        )
     return observation
 
 
@@ -754,6 +853,17 @@ def _finish_without_executor(runtime_host: Any, *, task_run: Any, status: str, t
     )
 
 
+def _is_recoverable_protocol_terminal(task_run: Any) -> bool:
+    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+    recoverable = dict(diagnostics.get("recoverable_error") or {})
+    terminal_reason = str(getattr(task_run, "terminal_reason", "") or "")
+    return (
+        str(getattr(task_run, "status", "") or "") in {"failed", "blocked"}
+        and terminal_reason in {"model_action_invalid", "model_action_protocol_repair_required"}
+        and bool(recoverable.get("retryable", True))
+    )
+
+
 def _pause_executor_for_model_recovery(
     runtime_host: Any,
     *,
@@ -888,16 +998,463 @@ def _existing_observations(runtime_host: Any, task_run_id: str) -> list[dict[str
 
 
 def _reusable_observations(runtime_host: Any, task_run_id: str) -> list[dict[str, Any]]:
-    return [
-        item
-        for item in _existing_observations(runtime_host, task_run_id)
-        if not item.get("error") and str(item.get("observation_type") or "") != "executor_error"
+    context = _observations_for_packet(runtime_host, task_run_id, current_fingerprint={})
+    return list(context["packet_observations"])
+
+
+def _observations_for_packet(
+    runtime_host: Any,
+    task_run_id: str,
+    *,
+    current_fingerprint: dict[str, Any],
+    pending_observations: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    raw_observations = [*_existing_observations(runtime_host, task_run_id), *list(pending_observations or [])]
+    deduped = _dedupe_observations(raw_observations)
+    records = [
+        _tool_record_from_observation(observation, current_fingerprint=current_fingerprint)
+        for observation in deduped
     ]
+    projection = _build_execution_state_projection(records)
+    return {
+        "raw_observations": deduped,
+        "tool_observation_records": records,
+        "packet_observations": _packet_observations_from_records(records),
+        "execution_state": {
+            "system_projection": projection,
+            "memory_summary": {},
+            "context_summary": {},
+            "authority": "harness.task_observation_projection",
+        },
+        "artifact_refs": _dedupe_artifacts(
+            [
+                dict(ref)
+                for record in records
+                if str(record.get("status") or "") == "ok" and _record_visibility(record) == "active"
+                for ref in list(record.get("artifact_refs") or [])
+                if isinstance(ref, dict)
+            ]
+        ),
+    }
+
+
+def _tool_record_from_observation(observation: dict[str, Any], *, current_fingerprint: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(observation.get("payload") or {})
+    tool_name = _observation_tool_name(observation)
+    tool_args = _observation_tool_args(observation)
+    result_payload = _observation_result_payload(observation)
+    structured_error = _structured_error_from_observation(observation)
+    previous_fingerprint = _observation_runtime_fingerprint(observation)
+    freshness = _classify_record_freshness(
+        observation=observation,
+        status=_observation_status(observation),
+        structured_error=structured_error,
+        previous_fingerprint=previous_fingerprint,
+        current_fingerprint=current_fingerprint,
+    )
+    record = build_tool_observation_record(
+        observation_ref=str(observation.get("observation_id") or observation.get("observation_ref") or ""),
+        tool_name=tool_name,
+        tool_args=tool_args,
+        result=result_payload,
+        runtime_fingerprint=previous_fingerprint or current_fingerprint,
+        structured_error=structured_error,
+        freshness=freshness,
+    ).to_dict()
+    status = _observation_status(observation) or str(record.get("status") or "ok")
+    if status in {"failed", "denied", "canceled", "error"}:
+        record["status"] = "error"
+    record["source_observation"] = _compact_observation_for_record(observation)
+    if payload.get("operation_gate"):
+        record["side_effect_kind"] = "gate"
+    return record
+
+
+def _classify_record_freshness(
+    *,
+    observation: dict[str, Any],
+    status: str,
+    structured_error: dict[str, Any],
+    previous_fingerprint: dict[str, Any],
+    current_fingerprint: dict[str, Any],
+) -> dict[str, Any]:
+    if _is_completion_repair_observation(observation):
+        return {
+            "visibility": "active",
+            "reuse_as_fact": False,
+            "reuse_as_repair_context": True,
+            "reason": "completion_evidence_missing",
+        }
+    if status not in {"failed", "denied", "canceled", "error"}:
+        return {
+            "visibility": "active",
+            "reuse_as_fact": True,
+            "reuse_as_repair_context": False,
+            "reason": "current_success",
+        }
+    if not previous_fingerprint and current_fingerprint:
+        return {
+            "visibility": "historical",
+            "reuse_as_fact": False,
+            "reuse_as_repair_context": False,
+            "reason": "missing_runtime_fingerprint",
+        }
+    if _fingerprints_compatible(previous_fingerprint, current_fingerprint):
+        return {
+            "visibility": "active",
+            "reuse_as_fact": False,
+            "reuse_as_repair_context": True,
+            "reason": str(structured_error.get("code") or "current_failure"),
+        }
+    return {
+        "visibility": "historical",
+        "reuse_as_fact": False,
+        "reuse_as_repair_context": False,
+        "reason": "superseded_by_runtime_change",
+    }
+
+
+def _build_execution_state_projection(records: list[dict[str, Any]]) -> dict[str, Any]:
+    current_facts: list[dict[str, Any]] = []
+    artifact_evidence: list[dict[str, Any]] = []
+    active_failures: list[dict[str, Any]] = []
+    historical_failures: list[dict[str, Any]] = []
+    repair_focus: list[dict[str, Any]] = []
+    last_action_receipts: list[dict[str, Any]] = []
+    for record in records:
+        visibility = _record_visibility(record)
+        status = str(record.get("status") or "ok")
+        summary = _record_summary(record)
+        receipt = {
+            "observation_ref": str(record.get("observation_ref") or ""),
+            "tool_name": str(record.get("tool_name") or ""),
+            "status": status,
+            "visibility": visibility,
+            "summary": summary,
+        }
+        last_action_receipts.append(receipt)
+        if status == "ok" and visibility == "active":
+            current_facts.append(receipt)
+            for ref in list(record.get("artifact_refs") or []):
+                if isinstance(ref, dict):
+                    artifact_evidence.append({**dict(ref), "observation_ref": receipt["observation_ref"]})
+            continue
+        failure = {
+            **receipt,
+            "error": dict(record.get("structured_error") or {}),
+            "reason": str(dict(record.get("runtime_freshness") or {}).get("reason") or ""),
+        }
+        if visibility == "historical":
+            historical_failures.append({**failure, "current_runtime_fact": False})
+        else:
+            active_failures.append(failure)
+            if str(dict(record.get("structured_error") or {}).get("origin") or "") == "validator" or str(record.get("side_effect_kind") or "") == "repair":
+                repair_focus.append(failure)
+    return {
+        "current_facts": current_facts[-12:],
+        "artifact_evidence": _dedupe_artifacts(artifact_evidence)[-20:],
+        "active_failures": active_failures[-8:],
+        "historical_failures": historical_failures[-8:],
+        "repair_focus": repair_focus[-8:],
+        "open_questions": [],
+        "last_action_receipts": last_action_receipts[-12:],
+        "authority": "harness.task_observation_projection",
+    }
+
+
+def _packet_observations_from_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    packet: list[dict[str, Any]] = []
+    for record in records:
+        visibility = _record_visibility(record)
+        status = str(record.get("status") or "ok")
+        if visibility == "active" or status == "ok" or _is_record_completion_repair(record):
+            packet.append(record)
+        elif visibility == "historical":
+            packet.append(
+                {
+                    "observation_ref": str(record.get("observation_ref") or ""),
+                    "tool_name": str(record.get("tool_name") or ""),
+                    "status": status,
+                    "runtime_freshness": dict(record.get("runtime_freshness") or {}),
+                    "structured_error": dict(record.get("structured_error") or {}),
+                    "result_preview": _record_summary(record),
+                    "authority": "orchestration.tool_observation_record.historical_summary",
+                }
+            )
+    return packet[-24:]
+
+
+def _current_runtime_fingerprint(runtime_assembly: dict[str, Any], *, runtime_host: Any, query_runtime: Any) -> dict[str, Any]:
+    profile = dict(runtime_assembly.get("profile") or {})
+    environment = dict(runtime_assembly.get("task_environment") or {})
+    config = _safe_backend_config(query_runtime)
+    return {
+        "runtime_assembly_id": str(runtime_assembly.get("assembly_id") or ""),
+        "agent_profile_id": str(runtime_assembly.get("agent_profile_ref") or ""),
+        "runtime_mode": str(profile.get("mode") or ""),
+        "task_environment_id": str(environment.get("environment_id") or ""),
+        "tool_registry_hash": _stable_hash(_runtime_available_tools(runtime_assembly)),
+        "tool_config_hash": _stable_hash(_tool_config_fingerprint(config)),
+        "sandbox_policy_hash": _stable_hash(environment.get("sandbox_policy") or {}),
+        "permission_policy_hash": _stable_hash(profile.get("permission_policy") or {}),
+        "backend_config_hash": _stable_hash(config),
+        "permission_mode": str(runtime_host._current_permission_mode()) if hasattr(runtime_host, "_current_permission_mode") else "",
+    }
+
+
+def _dedupe_observations(observations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in observations:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("authority") or "") == "orchestration.tool_observation_record":
+            continue
+        key = str(item.get("observation_id") or item.get("observation_ref") or item.get("request_ref") or json.dumps(item, ensure_ascii=False, sort_keys=True))
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(dict(item))
+    return result
+
+
+def _observation_tool_name(observation: dict[str, Any]) -> str:
+    payload = dict(observation.get("payload") or {})
+    envelope = dict(payload.get("result_envelope") or {})
+    source = str(observation.get("source") or "")
+    if source.startswith("tool:"):
+        source_name = source.split(":", 1)[1].strip()
+    else:
+        source_name = ""
+    return str(
+        payload.get("tool_name")
+        or envelope.get("tool_name")
+        or dict(payload.get("tool_call") or {}).get("name")
+        or source_name
+        or "system"
+    ).strip()
+
+
+def _observation_tool_args(observation: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(observation.get("payload") or {})
+    envelope = dict(payload.get("result_envelope") or {})
+    return dict(
+        payload.get("tool_args")
+        or envelope.get("tool_args")
+        or dict(payload.get("tool_call") or {}).get("args")
+        or {}
+    )
+
+
+def _observation_result_payload(observation: dict[str, Any]) -> Any:
+    payload = dict(observation.get("payload") or {})
+    if payload.get("result_envelope"):
+        return {"result_envelope": dict(payload.get("result_envelope") or {})}
+    if payload.get("structured_payload"):
+        return {
+            "result_envelope": {
+                "tool_name": _observation_tool_name(observation),
+                "tool_args": _observation_tool_args(observation),
+                "status": "error" if _observation_status(observation) in {"failed", "denied", "canceled", "error"} else "ok",
+                "text": str(payload.get("result") or payload.get("error") or ""),
+                "structured_payload": dict(payload.get("structured_payload") or {}),
+                "artifact_refs": list(payload.get("artifact_refs") or []),
+                "error": str(payload.get("error") or observation.get("error") or ""),
+            }
+        }
+    if payload.get("result") is not None:
+        return str(payload.get("result") or "")
+    if payload.get("error") or observation.get("error"):
+        return {
+            "result_envelope": {
+                "tool_name": _observation_tool_name(observation),
+                "tool_args": _observation_tool_args(observation),
+                "status": "error",
+                "text": str(payload.get("error") or observation.get("error") or ""),
+                "structured_payload": {},
+                "error": str(payload.get("error") or observation.get("error") or ""),
+            }
+        }
+    return payload
+
+
+def _observation_status(observation: dict[str, Any]) -> str:
+    payload = dict(observation.get("payload") or {})
+    envelope = dict(payload.get("result_envelope") or {})
+    structured = dict(payload.get("structured_payload") or envelope.get("structured_payload") or {})
+    tool_result = dict(structured.get("tool_result") or {}) if isinstance(structured.get("tool_result"), dict) else {}
+    operation_gate = dict(payload.get("operation_gate") or {})
+    if operation_gate and operation_gate.get("allowed") is False:
+        return "denied"
+    if str(observation.get("observation_type") or "") == "executor_error":
+        return "failed"
+    if observation.get("error") or payload.get("error"):
+        return "failed"
+    if str(envelope.get("status") or "").strip() in {"error", "failed", "denied", "canceled"}:
+        return "failed"
+    if str(tool_result.get("status") or "").strip() in {"error", "failed", "denied", "canceled"}:
+        return "failed"
+    parsed = _json_payload(payload.get("result"))
+    if parsed.get("ok") is False:
+        return "failed"
+    if parsed.get("ok") is True:
+        return "ok"
+    return "ok"
+
+
+def _structured_error_from_observation(observation: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(observation.get("payload") or {})
+    envelope = dict(payload.get("result_envelope") or {})
+    structured = dict(payload.get("structured_payload") or envelope.get("structured_payload") or {})
+    tool_result = dict(structured.get("tool_result") or {}) if isinstance(structured.get("tool_result"), dict) else {}
+    operation_gate = dict(payload.get("operation_gate") or {})
+    if operation_gate and operation_gate.get("allowed") is False:
+        return {
+            "code": str(operation_gate.get("reason") or payload.get("error") or "operation_gate_denied"),
+            "message": str(operation_gate.get("reason") or payload.get("error") or "operation gate denied"),
+            "retryable": False,
+            "origin": "operation_gate",
+        }
+    for source in (tool_result, structured, envelope, payload):
+        error = source.get("error") if isinstance(source, dict) else None
+        if isinstance(error, dict):
+            return {
+                "code": str(error.get("code") or error.get("error_code") or source.get("code") or "tool_error"),
+                "message": str(error.get("message") or error.get("detail") or error),
+                "retryable": bool(error.get("retryable", source.get("retryable", True))),
+                "origin": str(error.get("origin") or source.get("origin") or "tool_provider"),
+            }
+    message = str(payload.get("error") or envelope.get("error") or observation.get("error") or tool_result.get("error") or "")
+    if message:
+        structured_error = payload.get("structured_error")
+        if isinstance(structured_error, dict) and structured_error:
+            return {
+                "code": str(structured_error.get("code") or payload.get("error_code") or payload.get("code") or "tool_error"),
+                "message": str(structured_error.get("message") or message),
+                "retryable": bool(structured_error.get("retryable", payload.get("retryable", True))),
+                "origin": str(structured_error.get("origin") or _error_origin(observation)),
+            }
+        return {
+            "code": str(payload.get("error_code") or payload.get("code") or "tool_error"),
+            "message": message,
+            "retryable": bool(payload.get("retryable", True)),
+            "origin": _error_origin(observation),
+        }
+    if _is_completion_repair_observation(observation):
+        return {
+            "code": "completion_evidence_missing",
+            "message": "completion evidence missing",
+            "retryable": True,
+            "origin": "validator",
+        }
+    return {}
+
+
+def _error_origin(observation: dict[str, Any]) -> str:
+    source = str(observation.get("source") or "")
+    if source == "system:model_runtime":
+        return "model_runtime"
+    if source == "system:model_action_protocol":
+        return "model_protocol"
+    if source == "system:task_completion_validator":
+        return "validator"
+    if source.startswith("tool:"):
+        return "tool_provider"
+    return "runtime"
+
+
+def _observation_runtime_fingerprint(observation: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(observation.get("payload") or {})
+    for source in (
+        payload.get("runtime_fingerprint"),
+        dict(payload.get("runtime_freshness") or {}).get("fingerprint") if isinstance(payload.get("runtime_freshness"), dict) else {},
+        dict(observation.get("runtime_freshness") or {}).get("fingerprint") if isinstance(observation.get("runtime_freshness"), dict) else {},
+    ):
+        if isinstance(source, dict) and source:
+            return dict(source)
+    packet_ref = str(observation.get("directive_ref") or "")
+    assembly_id = ""
+    if ":task_execution:" in packet_ref:
+        assembly_id = packet_ref.split(":task_execution:", 1)[0].replace("rtpacket:", "rtasm:")
+    return {"runtime_assembly_id": assembly_id} if assembly_id else {}
+
+
+def _fingerprints_compatible(previous: dict[str, Any], current: dict[str, Any]) -> bool:
+    if not previous or not current:
+        return True
+    keys = ("tool_registry_hash", "tool_config_hash", "sandbox_policy_hash", "permission_policy_hash", "backend_config_hash")
+    compared = [key for key in keys if previous.get(key) and current.get(key)]
+    if not compared:
+        return str(previous.get("runtime_assembly_id") or "") == str(current.get("runtime_assembly_id") or "") or not previous.get("runtime_assembly_id")
+    return all(str(previous.get(key)) == str(current.get(key)) for key in compared)
+
+
+def _is_completion_repair_observation(observation: dict[str, Any]) -> bool:
+    payload = dict(observation.get("payload") or {})
+    return str(payload.get("error_code") or "") == "completion_evidence_missing" or str(observation.get("source") or "") == "system:task_completion_validator"
+
+
+def _is_record_completion_repair(record: dict[str, Any]) -> bool:
+    error = dict(record.get("structured_error") or {})
+    return str(error.get("origin") or "") == "validator" or str(error.get("code") or "") == "completion_evidence_missing"
+
+
+def _record_visibility(record: dict[str, Any]) -> str:
+    return str(dict(record.get("runtime_freshness") or {}).get("visibility") or "active")
+
+
+def _record_summary(record: dict[str, Any]) -> str:
+    error = dict(record.get("structured_error") or {})
+    if error.get("message"):
+        return _compact_text(str(error.get("message") or ""), limit=400)
+    return _compact_text(str(record.get("result_preview") or ""), limit=400)
+
+
+def _compact_observation_for_record(observation: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "observation_id": str(observation.get("observation_id") or ""),
+        "observation_type": str(observation.get("observation_type") or ""),
+        "source": str(observation.get("source") or ""),
+        "request_ref": str(observation.get("request_ref") or ""),
+        "created_at": observation.get("created_at"),
+    }
+
+
+def _stable_hash(value: Any) -> str:
+    return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+
+
+def _safe_backend_config(query_runtime: Any) -> dict[str, Any]:
+    config = dict(getattr(query_runtime, "config", {}) or {})
+    image = dict(config.get("image_generation") or config.get("images") or config.get("soul_image_assets") or {})
+    return {
+        "image_generation": {
+            "base_url": str(image.get("base_url") or image.get("api_base") or ""),
+            "model": str(image.get("model") or ""),
+            "api_key_present": bool(image.get("api_key") or image.get("key")),
+        }
+    }
+
+
+def _tool_config_fingerprint(config: dict[str, Any]) -> dict[str, Any]:
+    return dict(config.get("image_generation") or {})
 
 
 def _strip_terminal_diagnostics(diagnostics: dict[str, Any]) -> dict[str, Any]:
     payload = dict(diagnostics or {})
-    for key in ("observation", "latest_step", "latest_step_status", "latest_step_summary", "terminal_reason"):
+    for key in (
+        "observation",
+        "latest_step",
+        "latest_step_status",
+        "latest_step_summary",
+        "terminal_reason",
+        "action_request",
+        "admission",
+        "diagnostics",
+        "recoverable_error",
+        "recovery_action",
+        "user_question",
+    ):
         payload.pop(key, None)
     return payload
 
@@ -917,6 +1474,51 @@ def _completion_repair_observation(*, task_run_id: str, packet_ref: str, action_
         "authority": "orchestration.runtime_observation",
         "error": "completion_evidence_missing",
     }
+
+
+def _model_protocol_repair_observation(
+    *,
+    task_run_id: str,
+    packet_ref: str,
+    step_index: int,
+    diagnostics: dict[str, Any],
+    runtime_fingerprint: dict[str, Any],
+) -> dict[str, Any]:
+    errors = [str(item) for item in list(dict(diagnostics or {}).get("validation_errors") or [])]
+    message = "model action request failed protocol validation"
+    if errors:
+        message = f"{message}: {', '.join(errors)}"
+    return {
+        "observation_id": f"rtobs:{task_run_id}:{uuid.uuid4().hex[:8]}",
+        "task_run_id": task_run_id,
+        "observation_type": "executor_error",
+        "source": "system:model_action_protocol",
+        "request_ref": f"model-action:{task_run_id}:{step_index}",
+        "directive_ref": packet_ref,
+        "content_chars": len(message),
+        "payload": {
+            "tool_name": "model_action_protocol",
+            "tool_args": {},
+            "error": message,
+            "error_code": "model_action_invalid",
+            "validation_errors": errors,
+            "structured_error": {
+                "code": "model_action_invalid",
+                "message": message,
+                "retryable": True,
+                "origin": "model_protocol",
+            },
+            "runtime_fingerprint": dict(runtime_fingerprint or {}),
+        },
+        "needs_model_followup": True,
+        "created_at": time.time(),
+        "authority": "orchestration.runtime_observation",
+        "error": "model_action_invalid",
+    }
+
+
+def _model_protocol_repair_count(observations: list[dict[str, Any]]) -> int:
+    return sum(1 for item in observations if str(item.get("source") or "") == "system:model_action_protocol")
 
 
 def _executor_error_observation(*, task_run_id: str, request_ref: str, directive_ref: str, tool_name: str, tool_args: dict[str, Any], error: str) -> dict[str, Any]:

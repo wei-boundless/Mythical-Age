@@ -4,7 +4,7 @@ import { Activity, AlertTriangle, CheckCircle2, ChevronRight, Clock3, Minimize2,
 import { useEffect, useMemo, useState } from "react";
 
 import { useAppStore } from "@/lib/store";
-import { monitorBucketItems, runtimeWorkProjectionFromMonitorItem, summarizeRuntimeMonitorItems } from "@/lib/runtimeWorkProjection";
+import { monitorBucketItems, runtimeWorkProjectionFromMonitorItem } from "@/lib/runtimeWorkProjection";
 import {
   isWaitingStatus,
   formatTime,
@@ -39,12 +39,12 @@ export function TaskMonitorDock({ embedded = false }: { embedded?: boolean }) {
   const diagnosticsRuns = useMemo(() => monitorBucketItems(globalRuntimeMonitor, "diagnostics"), [globalRuntimeMonitor]);
   const runs = activeBucket === "running" ? runningRuns : activeBucket === "completed" ? completedRuns : activeBucket === "failed" ? failedRuns : diagnosticsRuns;
   const allRuns = useMemo(() => [...runningRuns, ...completedRuns, ...failedRuns, ...diagnosticsRuns], [completedRuns, diagnosticsRuns, failedRuns, runningRuns]);
-  const summary = useMemo(() => summarizeRuntimeMonitorItems(allRuns), [allRuns]);
+  const summary = globalRuntimeMonitor?.summary;
   const selectedRun = useMemo(
     () => allRuns.find((item) => item.task_run_id === globalRuntimeMonitorSelectedTaskRunId) ?? runs[0] ?? null,
     [allRuns, globalRuntimeMonitorSelectedTaskRunId, runs]
   );
-  const hasActiveSignal = runningRuns.some((item) => item.resource_class === "dynamic" || item.is_live || item.action_required);
+  const hasActiveSignal = runningRuns.some((item) => item.resource_class === "dynamic" || item.action_required);
   const hasSignal = allRuns.length > 0;
   const nowSeconds = useRuntimeNowTicker(hasActiveSignal);
   const streamLabel = globalRuntimeMonitorStreamStatus === "connected"
@@ -71,13 +71,13 @@ export function TaskMonitorDock({ embedded = false }: { embedded?: boolean }) {
 
   const statusText = useMemo(() => {
     if (globalRuntimeMonitorLoading && !globalRuntimeMonitor) return "同步中";
-    if (summary.waiting) return "等待处理";
-    if (summary.running) return `${summary.running} 运行中`;
-    if (summary.failed) return `${summary.failed} 失败`;
-    if (summary.diagnostics) return `${summary.diagnostics} 需诊断`;
-    if (summary.completed) return `${summary.completed} 完成`;
+    if (summary?.action_required) return "等待处理";
+    if (summary?.running) return `${summary.running} 运行中`;
+    if (summary?.failed) return `${summary.failed} 失败`;
+    if (summary?.diagnostics) return `${summary.diagnostics} 需诊断`;
+    if (summary?.completed) return `${summary.completed} 完成`;
     return "待命";
-  }, [globalRuntimeMonitor, globalRuntimeMonitorLoading, summary.completed, summary.diagnostics, summary.failed, summary.running, summary.waiting]);
+  }, [globalRuntimeMonitor, globalRuntimeMonitorLoading, summary?.action_required, summary?.completed, summary?.diagnostics, summary?.failed, summary?.running]);
 
   return (
     <aside

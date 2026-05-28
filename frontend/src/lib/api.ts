@@ -1627,22 +1627,21 @@ export type GlobalRuntimeMonitorItem = {
   terminal_reason: string;
   created_at?: number;
   updated_at?: number;
-  started_at?: number;
+  started_at: number;
   ended_at?: number | null;
-  duration_seconds?: number;
+  duration_seconds: number;
   elapsed_seconds: number;
   runtime_seconds?: number;
   runtime_end_at?: number;
-  lifecycle?: "running" | "waiting" | "action_required" | "completed" | "failed" | "stale" | string;
-  bucket?: "running" | "completed" | "failed" | "diagnostics" | string;
-  resource_class?: "dynamic" | "static" | string;
+  lifecycle: "running" | "waiting" | "action_required" | "completed" | "failed" | "stale" | string;
+  bucket: "running" | "completed" | "failed" | "diagnostics" | string;
+  resource_class: "dynamic" | "static" | string;
   last_activity_at?: number;
   last_activity_age_seconds?: number;
   action_required?: boolean;
   terminal?: boolean;
   stale?: boolean;
   is_live?: boolean;
-  display_bucket?: "running" | "completed" | "failed" | "live" | "stale" | "recent" | "history" | string;
   summary?: string;
   latest_step?: Record<string, unknown>;
   latest_step_summary?: string;
@@ -1661,7 +1660,7 @@ export type GlobalRuntimeMonitorItem = {
   project_title: string;
   project_runtime_status: Record<string, unknown> | null;
   has_coordination: boolean;
-  route?: {
+  route: {
     kind?: "chat_turn_runtime" | "agent_runtime_run" | "task_graph_run" | string;
     session_id?: string;
     task_run_id?: string;
@@ -1681,14 +1680,12 @@ export type GlobalRuntimeMonitor = {
     failed: number;
     diagnostics?: number;
     action_required?: number;
-    stale?: number;
-    recent?: number;
   };
-  buckets?: {
-    running?: GlobalRuntimeMonitorItem[];
-    completed?: GlobalRuntimeMonitorItem[];
-    failed?: GlobalRuntimeMonitorItem[];
-    diagnostics?: GlobalRuntimeMonitorItem[];
+  buckets: {
+    running: GlobalRuntimeMonitorItem[];
+    completed: GlobalRuntimeMonitorItem[];
+    failed: GlobalRuntimeMonitorItem[];
+    diagnostics: GlobalRuntimeMonitorItem[];
   };
   bucket_limit?: number;
   revision?: string;

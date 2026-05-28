@@ -70,6 +70,63 @@ vi.mock("@/lib/souls", () => ({
   parseSoulSeed: vi.fn(() => ({ key: "default", label: "Default" })),
 }));
 
+function itemForMonitor(patch: Record<string, unknown>) {
+  return {
+    task_run_id: "taskrun:test",
+    session_id: "session:test",
+    task_id: "task:turn:session:test:1",
+    title: "会话运行",
+    status: "running",
+    terminal_reason: "",
+    lifecycle: "running",
+    bucket: "running",
+    resource_class: "dynamic",
+    started_at: 1,
+    ended_at: null,
+    duration_seconds: 1,
+    elapsed_seconds: 1,
+    latest_event_type: "task_run_started",
+    latest_event_at: 2,
+    event_count: 1,
+    coordination_run_id: "",
+    coordination_status: "",
+    graph_id: "",
+    active_node_id: "",
+    project_id: "",
+    project_title: "",
+    project_runtime_status: null,
+    has_coordination: false,
+    is_live: true,
+    route: { kind: "chat_turn_runtime", session_id: "session:test", task_run_id: "taskrun:test" },
+    ...patch,
+  };
+}
+
+function monitorForTest(items: Array<Record<string, unknown>>, patch: Record<string, unknown> = {}) {
+  const buckets = {
+    running: items.filter((item) => item.bucket === "running"),
+    completed: items.filter((item) => item.bucket === "completed"),
+    failed: items.filter((item) => item.bucket === "failed"),
+    diagnostics: items.filter((item) => item.bucket === "diagnostics"),
+  };
+  return {
+    authority: "runtime_live_monitor.global",
+    summary: {
+      total: items.length,
+      running: buckets.running.length,
+      waiting: buckets.running.filter((item) => item.lifecycle === "waiting").length,
+      completed: buckets.completed.length,
+      failed: buckets.failed.length,
+      diagnostics: buckets.diagnostics.length,
+      action_required: items.filter((item) => item.action_required === true).length,
+    },
+    buckets,
+    task_runs: items,
+    updated_at: 1,
+    ...patch,
+  };
+}
+
 describe("WorkspaceRuntime task graph monitor polling", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -199,86 +256,32 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       }, options?: { detailTaskRunId?: string }) => void;
       selectGlobalRuntimeMonitorTaskRun: (taskRunId: string) => void;
     };
-    const monitor = {
-      authority: "runtime_live_monitor.global",
-      summary: { total: 3, running: 3, waiting: 0, completed: 0, failed: 0 },
-      task_runs: [
-        {
+    const monitor = monitorForTest([
+        itemForMonitor({
           task_run_id: "taskrun:agent",
           session_id: "session",
-          task_id: "taskinst:turn:session:world_design",
           title: "world_design",
-          status: "running",
-          terminal_reason: "",
-          created_at: 1,
-          updated_at: 1,
-          elapsed_seconds: 1,
           latest_event_type: "executor_started",
-          latest_event_at: 1,
-          event_count: 1,
-          coordination_run_id: "",
-          coordination_status: "",
-          graph_id: "",
-          active_node_id: "",
-          project_id: "",
-          project_title: "",
-          project_runtime_status: null,
-          has_coordination: false,
-          is_live: true,
-        },
-        {
-          task_run_id: "taskrun:module",
-          session_id: "session",
-          task_id: "task_graph.graph_module.graph.writing.modular_novel.design_init",
-          title: "design_init",
-          status: "running",
-          terminal_reason: "",
-          created_at: 1,
-          updated_at: 1,
-          elapsed_seconds: 1,
-          latest_event_type: "handoff_envelope_created",
-          latest_event_at: 1,
-          event_count: 1,
-          coordination_run_id: "coordrun:module",
-          coordination_status: "running",
-          graph_id: "graph.writing.modular_novel.design_init",
-          active_node_id: "world_design",
-          project_id: "project",
-          project_title: "洪荒时代",
-          project_runtime_status: null,
-          has_coordination: true,
-          is_live: true,
-        },
-        {
+          route: { kind: "agent_runtime_run", session_id: "session", task_run_id: "taskrun:agent" },
+        }),
+        itemForMonitor({
           task_run_id: "taskrun:master",
           session_id: "session",
-          task_id: "graph.writing.modular_novel.master",
           title: "洪荒时代",
-          status: "running",
-          terminal_reason: "",
-          created_at: 1,
-          updated_at: 1,
-          elapsed_seconds: 1,
           latest_event_type: "coordination_graph_module_imported_run_started",
-          latest_event_at: 1,
-          event_count: 1,
           coordination_run_id: "coordrun:master",
-          coordination_status: "running",
           graph_id: "graph.writing.modular_novel.master",
           active_node_id: "graph_module.design_init",
           project_id: "project",
           project_title: "洪荒时代",
-          project_runtime_status: null,
           has_coordination: true,
-          is_live: true,
-        },
-      ],
-      updated_at: 1,
-    };
+          route: { kind: "task_graph_run", session_id: "session", task_run_id: "taskrun:master", graph_id: "graph.writing.modular_novel.master" },
+        }),
+      ]);
 
     runtimeHarness.applyGlobalRuntimeMonitorSnapshot(monitor, { detailTaskRunId: "taskrun:agent" });
 
-    expect(store.getState().globalRuntimeMonitorSelectedTaskRunId).toBe("taskrun:master");
+    expect(store.getState().globalRuntimeMonitorSelectedTaskRunId).toBe("taskrun:agent");
 
     runtimeHarness.selectGlobalRuntimeMonitorTaskRun("taskrun:module");
 
@@ -303,34 +306,21 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       }) => void;
     };
 
-    runtimeHarness.applyGlobalRuntimeMonitorSnapshot({
-      authority: "runtime_live_monitor.global",
-      summary: { total: 1, running: 1, waiting: 0, completed: 0, failed: 0 },
-      task_runs: [{
+    runtimeHarness.applyGlobalRuntimeMonitorSnapshot(monitorForTest([
+      itemForMonitor({
         task_run_id: "taskrun:master",
         session_id: "session",
-        task_id: "graph.writing.master",
         title: "长篇小说",
-        status: "running",
-        terminal_reason: "",
-        created_at: 1,
-        updated_at: 1,
-        elapsed_seconds: 1,
         latest_event_type: "coordination_started",
-        latest_event_at: 1,
-        event_count: 1,
         coordination_run_id: "coordrun:master",
-        coordination_status: "running",
         graph_id: "graph.writing.master",
         active_node_id: "world_review",
         project_id: "project",
         project_title: "长篇小说",
-        project_runtime_status: null,
         has_coordination: true,
-        is_live: true,
-      }],
-      updated_at: 1,
-    });
+        route: { kind: "task_graph_run", session_id: "session", task_run_id: "taskrun:master", graph_id: "graph.writing.master" },
+      }),
+    ]));
 
     runtime.actions.openGlobalRuntimeMonitorTaskRun("taskrun:master");
 
@@ -373,28 +363,19 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     api.getSessionTokens.mockResolvedValue(null);
     api.getOrchestrationHarnessSessionLiveMonitor.mockResolvedValue(null);
 
-    runtimeHarness.applyGlobalRuntimeMonitorSnapshot({
-      authority: "runtime_live_monitor.global",
-      summary: { total: 1, running: 0, waiting: 1, completed: 0, failed: 0 },
-      task_runs: [{
+    runtimeHarness.applyGlobalRuntimeMonitorSnapshot(monitorForTest([
+      itemForMonitor({
         task_run_id: "taskrun:turn:session-a:1:abc",
         session_id: "session-a",
         task_id: "task:turn:session-a:1",
         title: "会话运行",
-        runtime_lane: "single_agent_task",
         status: "waiting_executor",
         terminal_reason: "waiting_executor",
-        created_at: 1,
-        updated_at: 1,
-        elapsed_seconds: 1,
+        lifecycle: "waiting",
         latest_event_type: "task_run_lifecycle_waiting_executor",
-        latest_event_at: 1,
-        event_count: 1,
-        has_coordination: false,
-        is_live: true,
-      }],
-      updated_at: 1,
-    });
+        route: { kind: "chat_turn_runtime", session_id: "session-a", task_run_id: "taskrun:turn:session-a:1:abc" },
+      }),
+    ]));
 
     runtime.actions.openGlobalRuntimeMonitorTaskRun("taskrun:turn:session-a:1:abc");
 
@@ -402,6 +383,109 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().currentSessionId).toBe("session-a");
     expect(store.getState().globalRuntimeMonitorSelectedTaskRunId).toBe("taskrun:turn:session-a:1:abc");
     expect(store.getState().taskSystemRuntimeNavigationTarget).toBeNull();
+  });
+
+  it("ignores stale global monitor snapshots after a newer revision has landed", () => {
+    const store = createStore(getDefaultState());
+    const runtime = new WorkspaceRuntime(store);
+    const runtimeHarness = runtime as unknown as {
+      applyGlobalRuntimeMonitorSnapshot: (monitor: {
+        authority: string;
+        revision: string;
+        summary: {
+          total: number;
+          running: number;
+          waiting: number;
+          completed: number;
+          failed: number;
+        };
+        buckets: {
+          running: Array<Record<string, unknown>>;
+        };
+        task_runs: Array<Record<string, unknown>>;
+        updated_at: number;
+      }) => void;
+    };
+
+    const newerRun = itemForMonitor({ task_run_id: "taskrun:newer", title: "新任务" });
+    const olderRun = itemForMonitor({ task_run_id: "taskrun:older", title: "旧任务" });
+
+    runtimeHarness.applyGlobalRuntimeMonitorSnapshot({
+      authority: "runtime_live_monitor.global",
+      revision: "rtmon:20:new",
+      summary: { total: 1, running: 1, waiting: 0, completed: 0, failed: 0 },
+      buckets: { running: [newerRun] },
+      task_runs: [newerRun],
+      updated_at: 20,
+    });
+    runtimeHarness.applyGlobalRuntimeMonitorSnapshot({
+      authority: "runtime_live_monitor.global",
+      revision: "rtmon:10:old",
+      summary: { total: 1, running: 1, waiting: 0, completed: 0, failed: 0 },
+      buckets: { running: [olderRun] },
+      task_runs: [olderRun],
+      updated_at: 10,
+    });
+
+    expect(store.getState().globalRuntimeMonitorRevision).toBe("rtmon:20:new");
+    expect(store.getState().globalRuntimeMonitorSelectedTaskRunId).toBe("taskrun:newer");
+  });
+
+  it("does not let a stale detail response overwrite the currently selected monitor detail", async () => {
+    vi.useRealTimers();
+    const store = createStore(getDefaultState());
+    const runtime = new WorkspaceRuntime(store);
+    const runtimeHarness = runtime as unknown as {
+      applyGlobalRuntimeMonitorSnapshot: (monitor: {
+        authority: string;
+        revision: string;
+        summary: {
+          total: number;
+          running: number;
+          waiting: number;
+          completed: number;
+          failed: number;
+        };
+        buckets: {
+          running: Array<Record<string, unknown>>;
+        };
+        task_runs: Array<Record<string, unknown>>;
+        updated_at: number;
+      }) => void;
+      loadGlobalRuntimeMonitorTaskRunDetail: (taskRunId: string, revision?: string) => Promise<void>;
+    };
+    let resolveOldDetail: (value: unknown) => void = () => undefined;
+    api.getOrchestrationHarnessTaskRunLiveMonitor.mockImplementationOnce(
+      () => new Promise((resolve) => {
+        resolveOldDetail = resolve;
+      }),
+    );
+    const oldRun = itemForMonitor({ task_run_id: "taskrun:old", title: "旧任务" });
+    const newRun = itemForMonitor({ task_run_id: "taskrun:new", title: "新任务" });
+
+    runtimeHarness.applyGlobalRuntimeMonitorSnapshot({
+      authority: "runtime_live_monitor.global",
+      revision: "rtmon:10:old",
+      summary: { total: 1, running: 1, waiting: 0, completed: 0, failed: 0 },
+      buckets: { running: [oldRun] },
+      task_runs: [oldRun],
+      updated_at: 10,
+    });
+    const loadingOldDetail = runtimeHarness.loadGlobalRuntimeMonitorTaskRunDetail("taskrun:old", "rtmon:10:old");
+    runtimeHarness.applyGlobalRuntimeMonitorSnapshot({
+      authority: "runtime_live_monitor.global",
+      revision: "rtmon:20:new",
+      summary: { total: 1, running: 1, waiting: 0, completed: 0, failed: 0 },
+      buckets: { running: [newRun] },
+      task_runs: [newRun],
+      updated_at: 20,
+    });
+    resolveOldDetail({ monitor: { status: "running", task_run: { task_run_id: "taskrun:old" } } });
+    await loadingOldDetail;
+
+    expect(store.getState().globalRuntimeMonitorRevision).toBe("rtmon:20:new");
+    expect(store.getState().globalRuntimeMonitorSelectedTaskRunId).toBe("taskrun:new");
+    expect(store.getState().globalRuntimeMonitorSelectedLiveMonitor).toBeNull();
   });
 
   it("closes a broken global monitor stream and reconnects after fallback polling", async () => {

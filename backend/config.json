@@ -31,7 +31,8 @@
     }
   },
   "soul_image_assets": {
-    "base_url": "https://www.aimapi.cloud/v1",
-    "model": "gpt-image-2"
+    "base_url": "https://images.example.test/v1",
+    "model": "gpt-image-2",
+    "api_key": "image-key"
   }
 }
