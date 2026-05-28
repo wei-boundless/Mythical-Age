@@ -26,6 +26,10 @@ def extract_provider_usage(
         "prompt_token_count",
         "input_token_count",
     )
+    deepseek_cache_hit_tokens = _first_int(usage, "prompt_cache_hit_tokens")
+    deepseek_cache_miss_tokens = _first_int(usage, "prompt_cache_miss_tokens")
+    if prompt_tokens <= 0 and (deepseek_cache_hit_tokens > 0 or deepseek_cache_miss_tokens > 0):
+        prompt_tokens = deepseek_cache_hit_tokens + deepseek_cache_miss_tokens
     completion_tokens = _first_int(
         usage,
         "completion_tokens",
@@ -49,6 +53,7 @@ def extract_provider_usage(
         ("input_tokens_details", "cached_tokens"),
         ("cache", "read_tokens"),
     )
+    cached_tokens = max(cached_tokens, deepseek_cache_hit_tokens)
     cache_creation_tokens = _nested_first_int(
         usage,
         ("input_token_details", "cache_creation"),
@@ -128,6 +133,8 @@ def _looks_like_usage(payload: dict[str, Any]) -> bool:
                 "output_tokens",
                 "prompt_token_count",
                 "completion_token_count",
+                "prompt_cache_hit_tokens",
+                "prompt_cache_miss_tokens",
                 "cache_read_input_tokens",
                 "cache_creation_input_tokens",
             }

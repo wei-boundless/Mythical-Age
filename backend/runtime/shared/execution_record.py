@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import time
 import uuid
 from dataclasses import asdict, dataclass, field, replace
@@ -304,7 +305,23 @@ class RuntimeExecutionStore:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(f"{path.suffix}.{uuid.uuid4().hex}.tmp")
         tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        tmp.replace(path)
+        last_error: OSError | None = None
+        for attempt in range(16):
+            try:
+                os.replace(tmp, path)
+                return
+            except PermissionError as exc:
+                last_error = exc
+                time.sleep(min(0.75, 0.05 * (attempt + 1)))
+        try:
+            path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            tmp.unlink(missing_ok=True)
+            return
+        except OSError as exc:
+            tmp.unlink(missing_ok=True)
+            if last_error is not None:
+                raise last_error from exc
+            raise
 
 
 def derive_replay_policy(operation: OperationDescriptor | None) -> ReplayPolicy:

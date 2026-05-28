@@ -23,7 +23,7 @@ from prompting import build_static_prompt
 from query.models import QueryRequest
 from query.system_routes import run_direct_system_route
 from harness.runtime import AgentRunRequest
-from harness.loop.task_executor import execute_task_run
+from harness.loop.task_executor import execute_task_run, recover_interrupted_task_executors
 
 logger = logging.getLogger(__name__)
 
@@ -96,10 +96,12 @@ class QueryRuntime:
                 execute_task_run_callback=self.execute_task_run,
             )
         )
+        self.task_executor_recovery = recover_interrupted_task_executors(self.single_agent_runtime_host)
         self.runtime_components = {
             "query_runtime": "adapter_only",
             "agent_harness": "active",
             "evidence_orchestrator": "active" if retrieval_enabled else "disabled_missing_retrieval_service",
+            "task_executor_recovery": self.task_executor_recovery,
         }
 
     def build_system_prompt_for_session(

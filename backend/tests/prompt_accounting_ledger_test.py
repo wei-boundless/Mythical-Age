@@ -9,6 +9,7 @@ from runtime.prompt_accounting import (
     PromptCachePlanner,
     extract_provider_usage,
 )
+from harness.runtime.compiler import RuntimeCompiler
 
 
 def test_prompt_accounting_ledger_records_prediction_provider_usage_and_cache(tmp_path) -> None:
@@ -73,7 +74,7 @@ def test_prompt_accounting_ledger_records_prediction_provider_usage_and_cache(tm
     assert cache_records[-1].status == "hit"
 
 
-def test_provider_usage_extractor_handles_openai_and_anthropic_shapes() -> None:
+def test_provider_usage_extractor_handles_openai_anthropic_and_deepseek_shapes() -> None:
     openai_response = SimpleNamespace(
         content="ok",
         response_metadata={
@@ -94,9 +95,18 @@ def test_provider_usage_extractor_handles_openai_and_anthropic_shapes() -> None:
             "cache_creation_input_tokens": 2,
         },
     )
+    deepseek_response = SimpleNamespace(
+        content="ok",
+        usage_metadata={
+            "completion_tokens": 4,
+            "prompt_cache_hit_tokens": 4352,
+            "prompt_cache_miss_tokens": 33000,
+        },
+    )
 
     openai_usage = extract_provider_usage(openai_response, request_id="modelreq:openai")
     anthropic_usage = extract_provider_usage(anthropic_response, request_id="modelreq:anthropic")
+    deepseek_usage = extract_provider_usage(deepseek_response, request_id="modelreq:deepseek")
 
     assert openai_usage is not None
     assert openai_usage.prompt_tokens == 20
@@ -108,3 +118,76 @@ def test_provider_usage_extractor_handles_openai_and_anthropic_shapes() -> None:
     assert anthropic_usage.cache_read_tokens == 5
     assert anthropic_usage.cache_creation_tokens == 2
     assert anthropic_usage.total_tokens == 14
+    assert deepseek_usage is not None
+    assert deepseek_usage.prompt_tokens == 37352
+    assert deepseek_usage.cached_tokens == 4352
+    assert deepseek_usage.cache_read_tokens == 4352
+    assert deepseek_usage.completion_tokens == 4
+    assert deepseek_usage.total_tokens == 37356
+
+
+def test_prompt_cache_key_is_stable_across_request_ids_for_same_prefix() -> None:
+    serializer = CanonicalPromptSerializer()
+    messages = [
+        {"role": "system", "content": "你是一名可靠的执行代理。"},
+        {"role": "system", "content": "Task execution stable contract\n{\"schema\":{\"action_type\":\"respond\"}}"},
+        {"role": "user", "content": "Task execution current state\n{\"observations\":[]}"},
+    ]
+
+    first = PromptCachePlanner().plan(
+        serializer.build_segment_map(
+            request_id="modelreq:first",
+            session_id="session:test",
+            provider="deepseek",
+            model="deepseek-v4-pro",
+            messages=messages,
+        )
+    )
+    second = PromptCachePlanner().plan(
+        serializer.build_segment_map(
+            request_id="modelreq:second",
+            session_id="session:test",
+            provider="deepseek",
+            model="deepseek-v4-pro",
+            messages=messages,
+        )
+    )
+
+    assert first.prefix_hash == second.prefix_hash
+    assert first.cache_key == second.cache_key
+    assert first.boundary_segment_id != second.boundary_segment_id
+
+
+def test_task_execution_packet_places_stable_contract_before_volatile_state() -> None:
+    result = RuntimeCompiler().compile_task_execution_packet(
+        session_id="session:test",
+        task_run={"task_run_id": "taskrun:test", "title": "审查监控系统"},
+        contract={"task_run_goal": "审查并修复监控系统", "completion_criteria": ["完成真实验证"]},
+        observations=[{"observation_id": "obs:1", "content": "latest command output"}],
+        execution_state={"runtime_status": "running"},
+        available_tools=[{"name": "read_file", "description": "读取文件"}],
+        runtime_assembly={
+            "profile": {"mode": "professional"},
+            "task_environment": {"environment_id": "env.test"},
+        },
+    )
+
+    messages = result.packet.model_messages
+    assert [message["role"] for message in messages] == ["system", "system", "user"]
+    assert "Task execution stable contract" in messages[1]["content"]
+    assert "task_contract" in messages[1]["content"]
+    assert "available_tools" in messages[1]["content"]
+    assert "Task execution current state" in messages[2]["content"]
+    assert "observations" in messages[2]["content"]
+
+    segment_map = CanonicalPromptSerializer().build_segment_map(
+        request_id="modelreq:task",
+        messages=messages,
+        provider="deepseek",
+        model="deepseek-v4-pro",
+    )
+
+    assert [segment.kind for segment in segment_map.segments] == ["system_static", "system_session", "volatile_turn"]
+    assert [segment.cache_role for segment in segment_map.segments] == ["cacheable_prefix", "session_stable", "volatile"]
+    cache_record = PromptCachePlanner().plan(segment_map)
+    assert cache_record.diagnostics["stable_prefix_segment_count"] == 2

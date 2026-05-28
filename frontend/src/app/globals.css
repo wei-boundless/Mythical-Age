@@ -20488,6 +20488,185 @@ html[data-soul="xuannv"] .soul-portrait__label {
   font-weight: 850;
 }
 
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench {
+  --health-token-bg: #ffffff;
+  --health-token-bg-soft: #f8fafc;
+  --health-token-bg-muted: #f1f5f9;
+  --health-token-line: #d8e0eb;
+  --health-token-line-soft: #e5edf6;
+  --health-token-text: #0f172a;
+  --health-token-muted: #526174;
+  --health-token-accent: #155eef;
+  --health-token-green: #16a34a;
+  --health-token-blue: #0284c7;
+  --health-token-amber: #d97706;
+  --health-token-red: #dc2626;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-ledger-hero,
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-structure,
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-chart-panel,
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-system-card,
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-list-panel {
+  border: 1px solid var(--health-token-line);
+  border-radius: 8px;
+  background: var(--health-token-bg);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  color: var(--health-token-text);
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-ledger-hero {
+  background:
+    linear-gradient(180deg, rgba(21, 94, 239, 0.045), transparent 54%),
+    var(--health-token-bg);
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-ledger-hero__main,
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-ledger-hero__score,
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-stat,
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-metric {
+  border-color: var(--health-token-line-soft);
+  background: var(--health-token-bg-soft);
+  color: var(--health-token-text);
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-ledger-hero__main span,
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-ledger-hero__score span,
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-structure > div:first-child span,
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-stat span,
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-panel-head span,
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-metric span,
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-task-row__numbers span {
+  color: var(--health-token-accent);
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-ledger-hero__main strong,
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-ledger-hero__score strong,
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-stat strong,
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-panel-head h3,
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-metric strong,
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-task-row__head strong,
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-task-row__numbers b,
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-data-table td {
+  color: var(--health-token-text);
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-ledger-hero__main p,
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-ledger-hero__main small,
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-ledger-hero__score p,
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-stat p,
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-structure p,
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-structure__legend span,
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-task-row__head span,
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-table__head span,
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-table__row > span,
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-table__row em,
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-detail-table summary,
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-data-table th {
+  color: var(--health-token-muted);
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-ledger-hero__breakdown span,
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-source {
+  border-color: var(--health-token-line);
+  background: #ffffff;
+  color: var(--health-token-muted);
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-stat--exact::before,
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-structure__exact {
+  background: var(--health-token-green);
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-stat--predicted::before,
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-structure__predicted {
+  background: var(--health-token-blue);
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-stat--cache::before,
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-structure__cache {
+  background: var(--health-token-amber);
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-stat--trace::before,
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-structure__trace {
+  background: #fb7185;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-structure__missing {
+  background: #cbd5e1;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-structure__bar,
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-line-chart,
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-switch {
+  border-color: var(--health-token-line-soft);
+  background: var(--health-token-bg-soft);
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-switch button {
+  color: var(--health-token-muted);
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-switch button:hover,
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-switch__item--active {
+  background: #e8f0ff;
+  color: var(--health-token-accent);
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-task-row {
+  border-color: var(--health-token-line-soft);
+  background: #ffffff;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-task-row__meter {
+  border-color: var(--health-token-line-soft);
+  background: var(--health-token-bg-muted);
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-task-row__meter i {
+  background: linear-gradient(90deg, rgba(22, 163, 74, 0.78), rgba(2, 132, 199, 0.72));
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-task-row__meter strong {
+  color: var(--health-token-text);
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-source--exact {
+  border-color: rgba(22, 163, 74, 0.28);
+  color: #15803d;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-source--predicted {
+  border-color: rgba(2, 132, 199, 0.28);
+  color: #0369a1;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-source--trace {
+  border-color: rgba(220, 38, 38, 0.2);
+  color: #b91c1c;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-grid-lines i,
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-table__head,
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-data-table th,
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-data-table td {
+  border-color: var(--health-token-line-soft);
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-line-area {
+  fill: rgba(2, 132, 199, 0.12);
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-line-path {
+  filter: none;
+  stroke: #0891b2;
+}
+
+.system-page-shell:not(.system-page-shell--soul-system) .health-token-workbench .health-token-table__bar i {
+  background: linear-gradient(90deg, #16a34a, #0284c7);
+}
+
 .health-asset-stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));

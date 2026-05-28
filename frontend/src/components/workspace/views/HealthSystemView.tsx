@@ -192,11 +192,20 @@ function taskDisplayTitle(task: Pick<HealthTaskRecord, "title" | "task_id" | "ta
 }
 
 function taskSecondaryLabel(row: Record<string, unknown>) {
-  const source = String(row.token_source || "");
-  if (source) return tokenSourceLabel(source);
   const agent = publicTitle(row.agent_id);
   if (agent) return agent;
-  return "运行记录";
+  return sessionLabel(row.session_id);
+}
+
+function sessionLabel(value: unknown) {
+  const text = String(value ?? "").trim();
+  if (!text) return "会话记录";
+  const match = text.match(/session-([a-f0-9]{6})/i);
+  if (match) return `会话 ${match[1]}`;
+  if (text.toLowerCase().startsWith("session:") || text.toLowerCase().startsWith("session-")) {
+    return "会话记录";
+  }
+  return text;
 }
 
 function taskTitle(task: HealthTaskRecord | null) {
@@ -431,7 +440,7 @@ export function HealthSystemView() {
                   type="button"
                 >
                   <span className={riskClass(task.risk_level)}>{riskLabel(task.risk_level)}</span>
-                  <strong title={task.task_run_id}>{taskDisplayTitle(task)}</strong>
+                  <strong>{taskDisplayTitle(task)}</strong>
                   <small>{statusLabel(task.status)} · {durationLabel(task.duration_seconds)} · {tokenLabel(task.token_total)} tokens</small>
                 </button>
               ))}
@@ -476,7 +485,7 @@ export function HealthSystemView() {
               {tasks.filter((task) => ["completed", "failed", "aborted", "cancelled", "blocked", "waiting_approval"].includes(task.status)).map((task) => (
                 <div className="health-task-row health-task-row--managed" key={task.task_run_id}>
                   <span className={riskClass(task.risk_level)}>{riskLabel(task.risk_level)}</span>
-                  <strong title={task.task_run_id}>{taskDisplayTitle(task)}</strong>
+                  <strong>{taskDisplayTitle(task)}</strong>
                   <small>{statusLabel(task.status)} · {durationLabel(task.duration_seconds)} · {task.latest_event_type || "-"}</small>
                   <button disabled={Boolean(maintenanceBusy)} onClick={() => void pruneRecords("static", [task.task_run_id])} type="button">
                     {maintenanceBusy === task.task_run_id ? <Loader2 size={13} className="spin" /> : <Trash2 size={13} />}
@@ -801,8 +810,8 @@ function TokenTaskLedger({ rows }: { rows: Array<Record<string, unknown>> }) {
             <section className="health-token-task-row" key={`${String(row.task_run_id || index)}`}>
               <div className="health-token-task-row__head">
                 <div>
-                  <strong title={String(row.task_run_id || "")}>{taskDisplayTitle(row)}</strong>
-                  <span>{taskSecondaryLabel(row)} · {String(row.session_id || "-")}</span>
+                  <strong>{taskDisplayTitle(row)}</strong>
+                  <span>{taskSecondaryLabel(row)}</span>
                 </div>
                 <em className={tokenSourceClass(row.token_source)}>{tokenSourceLabel(row.token_source)}</em>
               </div>
@@ -836,7 +845,7 @@ function TaskDetail({ task, detail, loading }: { task: HealthTaskRecord | null; 
   const events = (detail?.recent_events ?? []) as Array<Record<string, unknown>>;
   return (
     <article className="health-detail-panel">
-      <PanelHead title={taskTitle(task)} subtitle={task ? task.task_run_id : "任务详情"} />
+      <PanelHead title={taskTitle(task)} subtitle={task ? statusLabel(task.status) : "任务详情"} />
       {loading ? <p className="health-copy">正在读取任务详情...</p> : null}
       {task ? (
         <>
@@ -873,7 +882,7 @@ function SimpleTable({
 }: {
   title: string;
   rows: Array<Record<string, unknown>>;
-  columns: Array<[string, string, ((value: unknown) => string)?]>;
+  columns: Array<[string, string, ((value: unknown, row: Record<string, unknown>) => string)?]>;
 }) {
   return (
     <article className="health-list-panel">
@@ -887,7 +896,7 @@ function SimpleTable({
             {rows.length ? rows.map((row, index) => (
               <tr key={`${String(row.task_run_id || row.session_id || index)}`}>
                 {columns.map(([label, key, format]) => (
-                  <td key={label}>{format ? format(row[key]) : String(row[key] ?? "-")}</td>
+                  <td key={label}>{format ? format(row[key], row) : String(row[key] ?? "-")}</td>
                 ))}
               </tr>
             )) : (

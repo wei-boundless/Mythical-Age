@@ -1085,11 +1085,27 @@ def _schedule_task_executor(runtime_host: Any, task_run_id: str) -> None:
             refs={"task_run_ref": task_run_id},
         )
         return
-    runtime_host.event_log.append(
+    scheduled_event = runtime_host.event_log.append(
         task_run_id,
         "task_run_executor_scheduled",
         payload={"task_run_id": task_run_id, "scheduler": "agent_loop"},
         refs={"task_run_ref": task_run_id},
+    )
+    runtime_host.state_index.upsert_task_run(
+        replace(
+            current_task_run,
+            status="running",
+            updated_at=scheduled_event.created_at,
+            latest_event_offset=scheduled_event.offset,
+            terminal_reason="",
+            diagnostics={
+                **dict(current_task_run.diagnostics or {}),
+                "executor_status": "scheduled",
+                "latest_step": "task_executor_scheduled",
+                "latest_step_status": "running",
+                "latest_step_summary": "任务执行器已被调度，正在接管 TaskRun。",
+            },
+        )
     )
 
     async def _runner() -> None:

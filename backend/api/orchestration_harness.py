@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from dataclasses import replace
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
@@ -10,7 +11,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
-from harness.loop.task_executor import is_task_run_executable
+from harness.loop.task_executor import is_task_run_executable, is_task_run_executor_claimed
 
 router = APIRouter()
 
@@ -153,13 +154,31 @@ async def execute_harness_task_run(
         raise HTTPException(status_code=404, detail="TaskRun not found")
     if str(task_run.runtime_lane or "") != "single_agent_task":
         raise HTTPException(status_code=409, detail="not_single_agent_task")
+    if is_task_run_executor_claimed(task_run):
+        raise HTTPException(status_code=409, detail="task_run_executor_already_running")
     if not is_task_run_executable(task_run):
         raise HTTPException(status_code=409, detail=f"task_run_not_executable:{task_run.status}")
-    runtime_host.event_log.append(
+    scheduled_event = runtime_host.event_log.append(
         task_run_id,
         "task_run_executor_scheduled",
         payload={"task_run_id": task_run_id, "max_steps": payload.max_steps if payload is not None else 12},
         refs={"task_run_ref": task_run_id},
+    )
+    runtime_host.state_index.upsert_task_run(
+        replace(
+            task_run,
+            status="running",
+            updated_at=scheduled_event.created_at or time.time(),
+            latest_event_offset=scheduled_event.offset,
+            terminal_reason="",
+            diagnostics={
+                **dict(task_run.diagnostics or {}),
+                "executor_status": "scheduled",
+                "latest_step": "task_executor_scheduled",
+                "latest_step_status": "running",
+                "latest_step_summary": "任务执行器已被调度，正在接管 TaskRun。",
+            },
+        )
     )
     background_tasks.add_task(
         runtime.query_runtime.execute_task_run,

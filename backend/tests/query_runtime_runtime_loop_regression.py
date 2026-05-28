@@ -466,6 +466,11 @@ def test_task_executor_scheduler_auto_continues_waiting_executor() -> None:
 
     task_run_id = asyncio.run(_create_task())
     calls = {"count": 0}
+    task_run = runtime.single_agent_runtime_host.state_index.get_task_run(task_run_id)
+    assert task_run is not None
+    runtime.single_agent_runtime_host.state_index.upsert_task_run(
+        replace(task_run, status="waiting_executor", terminal_reason="waiting_executor", diagnostics={})
+    )
 
     async def _executor(task_run_id_arg: str):
         calls["count"] += 1
@@ -498,6 +503,61 @@ def test_task_executor_scheduler_auto_continues_waiting_executor() -> None:
     event_types = [str(dict(item).get("event_type") or "") for item in list(dict(trace or {}).get("events") or [])]
     assert calls["count"] == 2
     assert "task_run_executor_rescheduled" in event_types
+
+
+def test_running_task_run_is_not_externally_executable_unless_executor_claimed() -> None:
+    from harness.loop.task_executor import is_task_run_executable, is_task_run_executor_claimed
+
+    plain_running = TaskRun(
+        task_run_id="taskrun:plain-running",
+        session_id="session-executor-lease",
+        task_id="task:plain-running",
+        runtime_lane="single_agent_task",
+        status="running",
+        diagnostics={},
+    )
+    claimed_running = replace(
+        plain_running,
+        task_run_id="taskrun:claimed-running",
+        diagnostics={"executor_status": "scheduled"},
+    )
+    waiting = replace(
+        plain_running,
+        task_run_id="taskrun:waiting",
+        status="waiting_executor",
+        terminal_reason="waiting_executor",
+    )
+
+    assert is_task_run_executable(waiting) is True
+    assert is_task_run_executable(plain_running) is False
+    assert is_task_run_executor_claimed(plain_running) is False
+    assert is_task_run_executor_claimed(claimed_running) is True
+
+
+def test_runtime_start_recovers_interrupted_task_executor_lease() -> None:
+    from harness.loop.task_executor import recover_interrupted_task_executors
+
+    runtime = build_query_runtime()
+    host = runtime.single_agent_runtime_host
+    host.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id="taskrun:interrupted-executor",
+            session_id="session-interrupted-executor",
+            task_id="task:interrupted-executor",
+            runtime_lane="single_agent_task",
+            status="running",
+            diagnostics={"executor_status": "scheduled", "latest_step": "task_executor_scheduled"},
+        )
+    )
+
+    result = recover_interrupted_task_executors(host)
+    task_run = host.state_index.get_task_run("taskrun:interrupted-executor")
+
+    assert result["recovered_count"] == 1
+    assert task_run is not None
+    assert task_run.status == "waiting_executor"
+    assert task_run.terminal_reason == "waiting_executor"
+    assert dict(task_run.diagnostics or {}).get("executor_status") == "waiting_executor"
 
 
 def test_task_run_executor_keeps_model_call_failure_recoverable() -> None:
@@ -857,10 +917,10 @@ def test_turn_packet_does_not_expose_legacy_task_goal_type_from_selection() -> N
             pass
 
     asyncio.run(_collect())
-    packet_user_payload = json.loads(str(dict(model.messages[-1]).get("content") or "{}"))
+    packet_payload = json.dumps(model.messages, ensure_ascii=False)
 
-    assert "task_selection" not in packet_user_payload
-    assert "code_fix_execution" not in json.dumps(packet_user_payload, ensure_ascii=False)
+    assert "task_selection" not in packet_payload
+    assert "code_fix_execution" not in packet_payload
 
 
 def test_main_session_model_action_writes_prompt_accounting_ledger() -> None:
@@ -1100,6 +1160,46 @@ def test_task_sandbox_workspace_root_is_project_root() -> None:
     )
 
     assert Path(str(policy["workspace_root"])).resolve() == project_root
+
+
+def test_task_sandbox_grants_environment_scratch_without_publishing_it() -> None:
+    from harness.loop.task_executor import _task_sandbox_policy, _verify_completion
+
+    runtime = build_query_runtime()
+    task_run_id = "taskrun:test:scratch-scope"
+    runtime_assembly = {
+        "task_environment": {
+            "storage_space": {
+                "environment_storage_root": "storage/task_environments/development/sandbox",
+                "runtime_state_root": "storage/task_environments/development/sandbox/runtime_state",
+                "artifact_root": "storage/task_environments/development/sandbox/artifacts",
+                "cache_root": "storage/task_environments/development/sandbox/cache",
+            },
+            "sandbox_policy": {},
+        }
+    }
+    policy = _task_sandbox_policy(runtime_assembly, runtime_host=runtime.single_agent_runtime_host, task_run_id=task_run_id)
+
+    assert "storage/task_environments/development/sandbox/tmp" in policy["write_scopes"]
+    assert "storage/task_environments/development/sandbox/cache" in policy["write_scopes"]
+    assert "storage/task_environments/development/sandbox/runtime_state" in policy["write_scopes"]
+    assert "storage/task_environments/development/sandbox/tmp" not in policy["publish_scopes"]
+    assert "." not in policy["write_scopes"]
+
+    scratch_file = Path(str(policy["sandbox_root"])) / "storage/task_environments/development/sandbox/tmp/debug-note.html"
+    scratch_file.parent.mkdir(parents=True, exist_ok=True)
+    scratch_file.write_text("<!doctype html><title>scratch</title>", encoding="utf-8")
+
+    verdict = _verify_completion(
+        runtime_host=runtime.single_agent_runtime_host,
+        runtime_assembly=runtime_assembly,
+        task_run_id=task_run_id,
+        contract={"required_artifacts": [{"artifact_kind": "html_game", "user_visible_name": "debug-note.html"}]},
+        artifact_refs=[{"path": "storage/task_environments/development/sandbox/tmp/debug-note.html", "absolute_path": str(scratch_file)}],
+    )
+
+    assert verdict["ok"] is False
+    assert verdict["missing"] == ["required_artifacts"]
 
 
 def test_task_run_artifact_view_returns_only_existing_files() -> None:

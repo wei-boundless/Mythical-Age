@@ -60,7 +60,9 @@ class PromptCachePlanner:
                 "provider": str(provider or segment_map.provider or ""),
                 "model": str(model or segment_map.model or ""),
                 "prefix_hash": prefix_hash,
-                "boundary_segment_id": boundary.segment_id,
+                "boundary_kind": boundary.kind,
+                "boundary_ordinal": boundary.ordinal,
+                "boundary_content_hash": boundary.content_hash,
             },
         )
         return PromptCacheRecord(

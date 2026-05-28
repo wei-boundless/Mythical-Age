@@ -42,6 +42,58 @@ def is_task_run_executable(task_run: Any) -> bool:
     return str(task_run.status or "") == "waiting_executor" or _is_recoverable_protocol_terminal(task_run)
 
 
+def is_task_run_executor_claimed(task_run: Any) -> bool:
+    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+    return str(getattr(task_run, "status", "") or "") == "running" and str(diagnostics.get("executor_status") or "") in {"scheduled", "running"}
+
+
+def recover_interrupted_task_executors(runtime_host: Any) -> dict[str, Any]:
+    recovered: list[str] = []
+    for task_run in runtime_host.state_index.list_task_runs():
+        if str(task_run.runtime_lane or "") != "single_agent_task":
+            continue
+        if not is_task_run_executor_claimed(task_run):
+            continue
+        event = runtime_host.event_log.append(
+            task_run.task_run_id,
+            "task_run_executor_recovered_after_runtime_start",
+            payload={
+                "task_run_id": task_run.task_run_id,
+                "previous_status": str(task_run.status or ""),
+                "previous_executor_status": str(dict(task_run.diagnostics or {}).get("executor_status") or ""),
+            },
+            refs={"task_run_ref": task_run.task_run_id},
+        )
+        runtime_host.state_index.upsert_task_run(
+            replace(
+                task_run,
+                status="waiting_executor",
+                updated_at=event.created_at,
+                latest_event_offset=event.offset,
+                terminal_reason="waiting_executor",
+                diagnostics={
+                    **_strip_terminal_diagnostics(dict(task_run.diagnostics or {})),
+                    "executor_status": "waiting_executor",
+                    "latest_step": "task_executor_recovered_after_runtime_start",
+                    "latest_step_status": "waiting_executor",
+                    "latest_step_summary": "后端运行时已重启，上一进程中的任务执行器不再存活；任务已恢复为可续跑状态。",
+                    "recoverable_error": {
+                        "error_code": "task_executor_interrupted_by_runtime_restart",
+                        "retryable": True,
+                        "user_message": "后端运行时已重启，任务可以继续续跑。",
+                    },
+                    "recovery_action": "rerun_task_executor",
+                },
+            )
+        )
+        recovered.append(task_run.task_run_id)
+    return {
+        "recovered_count": len(recovered),
+        "task_run_ids": recovered,
+        "authority": "harness.task_executor.runtime_start_recovery",
+    }
+
+
 async def execute_task_run(
     services: TaskExecutorServices,
     task_run_id: str,
@@ -54,7 +106,7 @@ async def execute_task_run(
         return _not_found(task_run_id)
     if str(task_run.runtime_lane or "") != "single_agent_task":
         return _conflict(task_run_id, "not_single_agent_task")
-    if not is_task_run_executable(task_run):
+    if not is_task_run_executable(task_run) and not is_task_run_executor_claimed(task_run):
         return _conflict(task_run_id, f"task_run_not_executable:{task_run.status}")
 
     contract = _load_contract(runtime_host, task_run)
@@ -666,13 +718,9 @@ def _task_sandbox_policy(runtime_assembly: dict[str, Any], *, runtime_host: Any,
         namespace = task_run_id.replace(":", "_")
         sandbox_root = str((Path(runtime_host.root_dir) / "sandboxes" / namespace).resolve())
     artifact_root = str(storage.get("artifact_root") or "").strip()
-    write_scopes = _dedupe_strings(
-        [
-            *list(sandbox.get("write_scopes") or []),
-            *([artifact_root] if artifact_root else []),
-            *_explicit_contract_write_roots(contract),
-        ]
-    )
+    publish_scopes = _dedupe_strings([*([artifact_root] if artifact_root else []), *_explicit_contract_write_roots(contract)])
+    scratch_scopes = _task_scratch_write_scopes(storage)
+    write_scopes = _dedupe_strings([*list(sandbox.get("write_scopes") or []), *publish_scopes, *scratch_scopes])
     return {
         **sandbox,
         "enabled": True,
@@ -680,6 +728,8 @@ def _task_sandbox_policy(runtime_assembly: dict[str, Any], *, runtime_host: Any,
         "workspace_root": str(project_root),
         "artifact_root": artifact_root,
         "write_scopes": write_scopes,
+        "publish_scopes": publish_scopes,
+        "scratch_scopes": scratch_scopes,
         "read_scopes": ["."],
         "approval_policy": "sandboxed_side_effects",
         "side_effect_operations": list(sandbox.get("side_effect_operations") or ("op.write_file", "op.edit_file", "op.shell", "op.browser_control", "op.image_generate")),
@@ -708,6 +758,19 @@ def _sandbox_relative_write_roots(sandbox_policy: dict[str, Any]) -> list[str]:
         except Exception:
             roots.append(text)
     return roots
+
+
+def _task_scratch_write_scopes(storage: dict[str, Any]) -> list[str]:
+    roots: list[str] = []
+    for key in ("environment_storage_root", "runtime_state_root", "cache_root"):
+        root = _normalize_contract_path(str(storage.get(key) or ""))
+        if not root:
+            continue
+        if key == "environment_storage_root":
+            roots.append(f"{root}/tmp")
+        else:
+            roots.append(root)
+    return _dedupe_strings(roots)
 
 
 def _load_contract_for_policy(runtime_host: Any, task_run_id: str) -> dict[str, Any]:
@@ -1733,11 +1796,7 @@ def _verified_artifacts(
     sandbox_policy = _task_sandbox_policy(runtime_assembly, runtime_host=runtime_host, task_run_id=task_run_id)
     sandbox_root = Path(str(sandbox_policy.get("sandbox_root") or "")).resolve()
     artifact_root = str(sandbox_policy.get("artifact_root") or "").replace("\\", "/").strip().strip("/")
-    publish_roots = tuple(
-        str(item or "").replace("\\", "/").strip().strip("/")
-        for item in list(sandbox_policy.get("write_scopes") or [])
-        if str(item or "").strip()
-    )
+    publish_roots = tuple(_sandbox_publish_scopes(sandbox_policy))
     verified: list[dict[str, Any]] = []
     for ref in _dedupe_artifacts(artifact_refs):
         resolved = _publish_or_resolve_artifact_ref(
@@ -1827,9 +1886,16 @@ def _discovered_artifact_matches_contract(logical_path: str, contract: dict[str,
 def _publish_scan_roots(sandbox_policy: dict[str, Any]) -> tuple[str, ...]:
     roots = [
         str(sandbox_policy.get("artifact_root") or ""),
-        *[str(item or "") for item in list(sandbox_policy.get("write_scopes") or [])],
+        *[str(item or "") for item in _sandbox_publish_scopes(sandbox_policy)],
     ]
     return tuple(_dedupe_strings([_normalize_contract_path(root) for root in roots]))
+
+
+def _sandbox_publish_scopes(sandbox_policy: dict[str, Any]) -> list[str]:
+    explicit = _dedupe_strings([str(item or "") for item in list(sandbox_policy.get("publish_scopes") or [])])
+    if explicit:
+        return explicit
+    return _dedupe_strings([str(sandbox_policy.get("artifact_root") or "")])
 
 
 def _artifact_kind_for_path(path: Path) -> str:

@@ -93,13 +93,15 @@ class RuntimeCompiler:
             "不要输出意图分类字段、任务类型字段、task_run_id 或其他内部控制协议。"
             + _work_role_instruction(work_role_prompt)
         )
-        user_payload = {
+        stable_payload = {
             "schema": schema,
-            "runtime_envelope": envelope.to_dict(),
             "task_environment": environment_payload,
-            "turn_id": turn_id,
             "available_tools": [dict(item) for item in tool_payloads],
             "runtime_context": _runtime_context_payload(assembly_payload),
+        }
+        volatile_payload = {
+            "runtime_envelope": envelope.to_dict(),
+            "turn_id": turn_id,
             "history": [dict(item) for item in list(history or [])],
             "user_message": str(user_message or ""),
         }
@@ -112,7 +114,8 @@ class RuntimeCompiler:
             turn_id=turn_id,
             model_messages=[
                 {"role": "system", "content": system},
-                {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
+                _stable_system_message("Turn action stable contract", stable_payload),
+                _volatile_user_message("Turn action current request", volatile_payload),
             ],
             system_instructions=system,
             agent_role_prompt="你是当前 turn 的主 agent，负责决定下一步动作。",
@@ -219,14 +222,16 @@ class RuntimeCompiler:
             + _environment_instruction(environment_payload)
             + _work_role_instruction(work_role_prompt)
         )
-        user_payload = {
+        stable_payload = {
             "schema": schema,
-            "runtime_envelope": envelope.to_dict(),
             "task_run": dict(task_run),
             "task_contract": dict(contract),
             "task_environment": environment_payload,
             "available_tools": [dict(item) for item in tool_payloads],
             "runtime_context": _runtime_context_payload(assembly_payload),
+        }
+        volatile_payload = {
+            "runtime_envelope": envelope.to_dict(),
             "execution_state": dict(execution_state or {}),
             "observations": [dict(item) for item in list(observations or [])],
         }
@@ -239,7 +244,8 @@ class RuntimeCompiler:
             task_run_id=task_run_id,
             model_messages=[
                 {"role": "system", "content": system},
-                {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
+                _stable_system_message("Task execution stable contract", stable_payload),
+                _volatile_user_message("Task execution current state", volatile_payload),
             ],
             system_instructions=system,
             agent_role_prompt="你是正式 TaskRun 的执行 agent，负责真实交付合同产物。",
@@ -377,13 +383,15 @@ class RuntimeCompiler:
             "不要输出 task_run_id、其他内部控制协议或隐藏推理。"
             + _work_role_instruction(work_role_prompt)
         )
-        user_payload = {
+        stable_payload = {
             "schema": schema,
-            "runtime_envelope": envelope.to_dict(),
             "task_environment": environment_payload,
-            "turn_id": turn_id,
             "available_tools": [dict(item) for item in tool_payloads],
             "runtime_context": _runtime_context_payload(assembly_payload),
+        }
+        volatile_payload = {
+            "runtime_envelope": envelope.to_dict(),
+            "turn_id": turn_id,
             "history": [dict(item) for item in list(history or [])],
             "user_message": str(user_message or ""),
             "observations": [dict(item) for item in list(observations or [])],
@@ -397,7 +405,8 @@ class RuntimeCompiler:
             turn_id=turn_id,
             model_messages=[
                 {"role": "system", "content": system},
-                {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
+                _stable_system_message("Observation followup stable contract", stable_payload),
+                _volatile_user_message("Observation followup current request", volatile_payload),
             ],
             system_instructions=system,
             agent_role_prompt="你是当前 turn 的主 agent，负责基于观察继续行动。",
@@ -472,6 +481,25 @@ def task_execution_action_schema() -> dict[str, Any]:
             "verification": "简短说明自审和验收结果",
         },
     }
+
+
+def _stable_system_message(title: str, payload: dict[str, Any]) -> dict[str, str]:
+    return {
+        "role": "system",
+        "content": _packet_payload_content(title, payload),
+    }
+
+
+def _volatile_user_message(title: str, payload: dict[str, Any]) -> dict[str, str]:
+    return {
+        "role": "user",
+        "content": _packet_payload_content(title, payload),
+    }
+
+
+def _packet_payload_content(title: str, payload: dict[str, Any]) -> str:
+    body = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return f"{title}\n{body}"
 
 
 def _mode_instruction(mode_policy: dict[str, Any]) -> str:
