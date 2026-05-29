@@ -86,7 +86,8 @@ class GraphLoop:
             edge_states=edge_states,
             ready_node_ids=tuple(ready_node_ids),
             blocked_node_ids=tuple(_blocked_nodes(graph_config=graph_config, node_states=node_states)) if terminal_status else (),
-            initial_inputs=dict(envelope.initial_inputs or {}),
+            initial_inputs=_initial_loop_inputs(graph_config=graph_config, envelope=envelope),
+            loop_state=_initial_loop_state(graph_config=graph_config, envelope=envelope),
             terminal_reason=terminal_reason,
             diagnostics={
                 "graph_harness_config_id": graph_config.config_id,
@@ -216,6 +217,7 @@ class GraphLoop:
         edge_states = _edge_states_after_node_result(graph_config=graph_config, state=state, result=envelope)
         result_index = {key: dict(value) for key, value in state.result_index.items()}
         result_index[envelope.node_id] = envelope.to_dict()
+        result_history = _result_history_with_result(state=state, result=envelope)
         active_work_orders = dict(state.active_work_orders)
         active_work_orders.pop(envelope.node_id, None)
         next_state = _replace_state(
@@ -223,8 +225,15 @@ class GraphLoop:
             node_states=node_states,
             edge_states=edge_states,
             result_index=result_index,
+            result_history=result_history,
             active_work_orders=active_work_orders,
         )
+        route_decision = _evaluate_loop_route(graph_config=graph_config, state=next_state, result=envelope)
+        if route_decision:
+            next_state = _state_after_loop_route(graph_config=graph_config, state=next_state, decision=route_decision)
+            node_states = {key: dict(value) for key, value in next_state.node_states.items()}
+            edge_states = {key: dict(value) for key, value in next_state.edge_states.items()}
+            result_index = {key: dict(value) for key, value in next_state.result_index.items()}
         next_ready = _ready_nodes(graph_config=graph_config, node_states=node_states)
         running = [
             node_id
@@ -295,6 +304,7 @@ class GraphLoop:
                 payload={
                     "graph_run_id": next_state.graph_run_id,
                     "node_result": envelope.to_dict(),
+                    "loop_route_decision": route_decision,
                     "graph_loop_state": next_state.to_dict(),
                     "node_work_orders": [item.to_dict() for item in work_orders],
                     "graph_result": graph_result.to_dict() if graph_result is not None else None,
@@ -424,6 +434,454 @@ def _initial_edge_states(graph_config: GraphHarnessConfig) -> dict[str, dict[str
         for edge in graph_config.edges
         if str(edge.get("edge_id") or "")
     }
+
+
+def _initial_loop_inputs(*, graph_config: GraphHarnessConfig, envelope: GraphRuntimeEnvelope) -> dict[str, Any]:
+    control_policy = dict(dict(graph_config.control or {}).get("graph_loop_policy") or {})
+    inputs: dict[str, Any] = dict(control_policy.get("initial_inputs") or {})
+    for frame in graph_config.loop_frames:
+        inputs.update(dict(dict(frame).get("initial_inputs") or {}))
+    inputs.update(dict(envelope.initial_inputs or {}))
+    return _apply_derived_fields(inputs, list(control_policy.get("derived_fields") or []))
+
+
+def _initial_loop_state(*, graph_config: GraphHarnessConfig, envelope: GraphRuntimeEnvelope) -> dict[str, Any]:
+    frames: dict[str, dict[str, Any]] = {}
+    for raw in graph_config.loop_frames:
+        frame = _normalize_loop_frame(dict(raw))
+        frame_id = str(frame.get("frame_id") or "")
+        if not frame_id:
+            continue
+        frames[frame_id] = {
+            **frame,
+            "status": "active",
+            "iteration_index": 0,
+            "scope_node_ids": list(_loop_scope_node_ids(graph_config=graph_config, frame=frame)),
+        }
+    return {
+        "authority": "harness.graph.loop_contract_state",
+        "graph_run_id": envelope.graph_run_id,
+        "frames": frames,
+        "route_history": [],
+    }
+
+
+def _normalize_loop_frame(frame: dict[str, Any]) -> dict[str, Any]:
+    frame_id = str(frame.get("frame_id") or frame.get("loop_frame_id") or frame.get("scope_id") or "").strip()
+    return _drop_empty(
+        {
+            **frame,
+            "frame_id": frame_id,
+            "scope_id": str(frame.get("scope_id") or frame_id).strip(),
+            "entry_node_id": str(frame.get("entry_node_id") or frame.get("entry_stage_id") or "").strip(),
+            "router_node_id": str(frame.get("router_node_id") or frame.get("router_stage_id") or "").strip(),
+            "continue_node_id": str(frame.get("continue_node_id") or frame.get("continue_stage_id") or "").strip(),
+            "exit_node_id": str(frame.get("exit_node_id") or frame.get("exit_stage_id") or "").strip(),
+        }
+    )
+
+
+def _evaluate_loop_route(
+    *,
+    graph_config: GraphHarnessConfig,
+    state: GraphLoopState,
+    result: NodeResultEnvelope,
+) -> dict[str, Any]:
+    if result.status != "completed":
+        return {}
+    node = _node_by_id(graph_config, result.node_id) or {}
+    node_loop = dict(node.get("loop") or {})
+    route_policy = dict(node_loop.get("route_policy") or {})
+    if not route_policy:
+        return {}
+    mode = str(route_policy.get("mode") or "metric_target").strip() or "metric_target"
+    if mode != "metric_target":
+        raise ValueError(f"unsupported graph loop route mode: {mode}")
+    scope_id = str(route_policy.get("scope_id") or node_loop.get("scope_id") or "").strip()
+    frame = _loop_frame_for_route(graph_config=graph_config, scope_id=scope_id, node_id=result.node_id, route_policy=route_policy)
+    metric = _route_metric(route_policy=route_policy, state=state, result=result)
+    if metric is None:
+        return {
+            "authority": "harness.graph.loop_route_decision",
+            "action": "blocked",
+            "reason": "loop_route_metric_missing",
+            "node_id": result.node_id,
+            "scope_id": scope_id,
+            "route_policy": route_policy,
+        }
+    patched_inputs = dict(state.initial_inputs or {})
+    current_key = str(route_policy.get("current_key") or "").strip()
+    target_key = str(route_policy.get("target_key") or "").strip()
+    if current_key:
+        patched_inputs[current_key] = _numeric_value(patched_inputs.get(current_key), 0) + metric
+    last_metric_key = str(route_policy.get("last_metric_key") or "").strip()
+    if last_metric_key:
+        patched_inputs[last_metric_key] = metric
+    for counter in list(route_policy.get("secondary_counters") or []):
+        if not isinstance(counter, dict):
+            continue
+        secondary_key = str(counter.get("current_key") or "").strip()
+        if secondary_key:
+            patched_inputs[secondary_key] = _numeric_value(patched_inputs.get(secondary_key), 0) + metric
+    patched_inputs = _apply_patch_rules(patched_inputs, list(route_policy.get("patch_rules") or []))
+    patched_inputs = _apply_derived_fields(patched_inputs, list(route_policy.get("derived_fields") or []))
+    current_value = _numeric_value(patched_inputs.get(current_key), 0) if current_key else 0
+    target_value = _numeric_value(patched_inputs.get(target_key), 0) if target_key else 0
+    action = "exit" if target_key and current_value >= target_value else "continue"
+    continue_node_id = str(route_policy.get("continue_node_id") or frame.get("continue_node_id") or frame.get("entry_node_id") or "").strip()
+    exit_node_id = str(route_policy.get("exit_node_id") or frame.get("exit_node_id") or "").strip()
+    return {
+        "authority": "harness.graph.loop_route_decision",
+        "action": action,
+        "reason": "target_reached" if action == "exit" else "target_not_reached",
+        "node_id": result.node_id,
+        "result_id": result.result_id,
+        "scope_id": scope_id,
+        "frame_id": str(frame.get("frame_id") or scope_id),
+        "continue_node_id": continue_node_id,
+        "exit_node_id": exit_node_id,
+        "metric": metric,
+        "current_key": current_key,
+        "current_value": current_value,
+        "target_key": target_key,
+        "target_value": target_value,
+        "initial_inputs_patch": patched_inputs,
+        "scope_node_ids": list(_loop_scope_node_ids(graph_config=graph_config, frame=frame)),
+    }
+
+
+def _state_after_loop_route(
+    *,
+    graph_config: GraphHarnessConfig,
+    state: GraphLoopState,
+    decision: dict[str, Any],
+) -> GraphLoopState:
+    action = str(decision.get("action") or "").strip()
+    loop_state = _loop_state_after_decision(state=state, decision=decision)
+    node_states = {key: dict(value) for key, value in state.node_states.items()}
+    edge_states = {key: dict(value) for key, value in state.edge_states.items()}
+    result_index = {key: dict(value) for key, value in state.result_index.items()}
+    active_work_orders = dict(state.active_work_orders)
+    if action == "blocked":
+        node_id = str(decision.get("node_id") or "")
+        node_payload = dict(node_states.get(node_id) or {})
+        node_payload["status"] = "blocked"
+        node_payload["blocked_reason"] = str(decision.get("reason") or "loop_route_blocked")
+        node_payload["updated_at"] = time.time()
+        node_states[node_id] = node_payload
+        return _replace_state(state, node_states=node_states, loop_state=loop_state)
+    if action != "continue":
+        return _replace_state(
+            state,
+            initial_inputs=dict(decision.get("initial_inputs_patch") or state.initial_inputs),
+            loop_state=loop_state,
+        )
+    scope_node_ids = [str(item) for item in list(decision.get("scope_node_ids") or []) if str(item)]
+    continue_node_id = str(decision.get("continue_node_id") or "").strip()
+    if not continue_node_id:
+        node_id = str(decision.get("node_id") or "")
+        node_payload = dict(node_states.get(node_id) or {})
+        node_payload["status"] = "blocked"
+        node_payload["blocked_reason"] = "loop_continue_node_missing"
+        node_payload["updated_at"] = time.time()
+        node_states[node_id] = node_payload
+        return _replace_state(state, node_states=node_states, loop_state=loop_state)
+    for node_id in scope_node_ids:
+        payload = dict(node_states.get(node_id) or {})
+        if not payload:
+            continue
+        payload["status"] = "ready" if node_id == continue_node_id else "pending"
+        payload.pop("result_ref", None)
+        payload.pop("work_order_id", None)
+        payload["updated_at"] = time.time()
+        node_states[node_id] = payload
+        result_index.pop(node_id, None)
+        active_work_orders.pop(node_id, None)
+    for edge in graph_config.edges:
+        edge_id = str(edge.get("edge_id") or "")
+        if not edge_id:
+            continue
+        source = str(edge.get("source_node_id") or "")
+        target = str(edge.get("target_node_id") or "")
+        if source in scope_node_ids or target in scope_node_ids:
+            edge_payload = dict(edge_states.get(edge_id) or {})
+            edge_payload.update(
+                {
+                    "edge_id": edge_id,
+                    "source_node_id": source,
+                    "target_node_id": target,
+                    "status": "pending",
+                    "updated_at": time.time(),
+                }
+            )
+            edge_payload.pop("source_result_ref", None)
+            edge_payload.pop("handoff_packet_id", None)
+            edge_states[edge_id] = edge_payload
+    return _replace_state(
+        state,
+        node_states=node_states,
+        edge_states=edge_states,
+        result_index=result_index,
+        active_work_orders=active_work_orders,
+        initial_inputs=dict(decision.get("initial_inputs_patch") or state.initial_inputs),
+        loop_state=loop_state,
+    )
+
+
+def _loop_frame_for_route(
+    *,
+    graph_config: GraphHarnessConfig,
+    scope_id: str,
+    node_id: str,
+    route_policy: dict[str, Any],
+) -> dict[str, Any]:
+    normalized_frames = [_normalize_loop_frame(dict(item)) for item in graph_config.loop_frames]
+    for frame in normalized_frames:
+        if scope_id and str(frame.get("scope_id") or frame.get("frame_id") or "") == scope_id:
+            return frame
+    for frame in normalized_frames:
+        if str(frame.get("router_node_id") or "") == node_id:
+            return frame
+    return _drop_empty(
+        {
+            "frame_id": scope_id,
+            "scope_id": scope_id,
+            "entry_node_id": str(route_policy.get("continue_node_id") or "").strip(),
+            "router_node_id": node_id,
+            "continue_node_id": str(route_policy.get("continue_node_id") or "").strip(),
+            "exit_node_id": str(route_policy.get("exit_node_id") or "").strip(),
+        }
+    )
+
+
+def _loop_scope_node_ids(*, graph_config: GraphHarnessConfig, frame: dict[str, Any]) -> tuple[str, ...]:
+    entry = str(frame.get("entry_node_id") or frame.get("continue_node_id") or "").strip()
+    router = str(frame.get("router_node_id") or "").strip()
+    if entry and router:
+        dependency_edges = build_scheduler_view(graph_config).dependency_edges
+        reachable = _reachable_nodes(entry, dependency_edges)
+        ancestors = _ancestor_nodes(router, dependency_edges)
+        scoped = [node_id for node_id in _graph_node_order(graph_config) if node_id in reachable and node_id in ancestors]
+        if scoped:
+            return tuple(dict.fromkeys([*scoped, router]))
+    scope_id = str(frame.get("scope_id") or frame.get("frame_id") or "").strip()
+    if scope_id:
+        explicit = [
+            str(node.get("node_id") or "")
+            for node in graph_config.nodes
+            if str(dict(node.get("loop") or {}).get("scope_id") or "") == scope_id
+        ]
+        if explicit:
+            return tuple(dict.fromkeys(explicit))
+    return tuple(item for item in (entry, router) if item)
+
+
+def _reachable_nodes(start: str, edges: tuple[dict[str, Any], ...]) -> set[str]:
+    seen = {start}
+    queue = [start]
+    while queue:
+        current = queue.pop(0)
+        for edge in edges:
+            if str(edge.get("source_node_id") or "") != current:
+                continue
+            target = str(edge.get("target_node_id") or "")
+            if target and target not in seen:
+                seen.add(target)
+                queue.append(target)
+    return seen
+
+
+def _ancestor_nodes(target: str, edges: tuple[dict[str, Any], ...]) -> set[str]:
+    seen = {target}
+    queue = [target]
+    while queue:
+        current = queue.pop(0)
+        for edge in edges:
+            if str(edge.get("target_node_id") or "") != current:
+                continue
+            source = str(edge.get("source_node_id") or "")
+            if source and source not in seen:
+                seen.add(source)
+                queue.append(source)
+    return seen
+
+
+def _graph_node_order(graph_config: GraphHarnessConfig) -> tuple[str, ...]:
+    return tuple(str(node.get("node_id") or "") for node in graph_config.nodes if str(node.get("node_id") or ""))
+
+
+def _route_metric(*, route_policy: dict[str, Any], state: GraphLoopState, result: NodeResultEnvelope) -> float | int | None:
+    metric_key = str(route_policy.get("metric_key") or "").strip()
+    for source in _route_metric_sources(result):
+        if metric_key:
+            value = _nested_lookup(source, metric_key)
+            if value is not None:
+                return _numeric_value(value, 0)
+        value = source.get("metric") if isinstance(source, dict) else None
+        if value is not None:
+            return _numeric_value(value, 0)
+    fallback_key = str(route_policy.get("fallback_increment_key") or "").strip()
+    if fallback_key and fallback_key in state.initial_inputs:
+        return _numeric_value(state.initial_inputs.get(fallback_key), 0)
+    if route_policy.get("default_increment") is not None:
+        return _numeric_value(route_policy.get("default_increment"), 0)
+    return None
+
+
+def _route_metric_sources(result: NodeResultEnvelope) -> list[dict[str, Any]]:
+    payload = result.to_dict()
+    sources: list[dict[str, Any]] = [
+        dict(result.outputs or {}),
+        dict(result.decisions or {}),
+        dict(result.diagnostics or {}),
+    ]
+    for key in ("progress_receipts", "memory_commit_receipts", "artifact_materialization_receipts", "memory_candidates"):
+        for item in list(payload.get(key) or []):
+            if isinstance(item, dict):
+                sources.append(dict(item))
+    return sources
+
+
+def _apply_patch_rules(inputs: dict[str, Any], rules: list[Any]) -> dict[str, Any]:
+    patched = dict(inputs)
+    for raw_rule in rules:
+        if not isinstance(raw_rule, dict):
+            continue
+        rule = dict(raw_rule)
+        key = str(rule.get("key") or "").strip()
+        if not key:
+            continue
+        op = str(rule.get("op") or rule.get("mode") or "").strip()
+        if op == "increment":
+            step_key = str(rule.get("step_key") or rule.get("by_key") or "").strip()
+            step = _numeric_value(patched.get(step_key), None) if step_key else None
+            if step is None:
+                step = _numeric_value(rule.get("step") if rule.get("step") is not None else rule.get("value"), 1)
+            patched[key] = _numeric_value(patched.get(key), 0) + _numeric_value(step, 0)
+        elif op == "reset":
+            patched[key] = rule.get("value", 0)
+        elif op == "set":
+            patched[key] = rule.get("value")
+        elif op == "copy":
+            patched[key] = patched.get(str(rule.get("from_key") or ""))
+    return patched
+
+
+def _apply_derived_fields(inputs: dict[str, Any], fields: list[Any]) -> dict[str, Any]:
+    patched = dict(inputs)
+    for raw_field in fields:
+        if not isinstance(raw_field, dict):
+            continue
+        field = dict(raw_field)
+        key = str(field.get("key") or "").strip()
+        op = str(field.get("op") or "").strip()
+        if not key or not op:
+            continue
+        try:
+            if op == "copy":
+                patched[key] = patched.get(str(field.get("from_key") or ""))
+            elif op == "add":
+                base = _numeric_value(patched.get(str(field.get("from_key") or "")), 0)
+                value_key = str(field.get("value_key") or "").strip()
+                value = _numeric_value(patched.get(value_key), None) if value_key else None
+                if value is None:
+                    value = _numeric_value(field.get("value"), 0)
+                patched[key] = base + _numeric_value(value, 0) + _numeric_value(field.get("offset"), 0)
+            elif op == "multiply":
+                base = _numeric_value(patched.get(str(field.get("from_key") or "")), 0)
+                value_key = str(field.get("value_key") or "").strip()
+                value = _numeric_value(patched.get(value_key), None) if value_key else None
+                if value is None:
+                    value = _numeric_value(field.get("value"), 1)
+                patched[key] = base * _numeric_value(value, 1)
+            elif op == "ordinal_group":
+                base = _numeric_value(patched.get(str(field.get("from_key") or "")), 1)
+                size_key = str(field.get("size_key") or "").strip()
+                size = _numeric_value(patched.get(size_key), None) if size_key else None
+                if size is None:
+                    size = _numeric_value(field.get("size"), 1)
+                size = max(1, int(size or 1))
+                patched[key] = int((int(base) - 1) / size) + 1
+            elif op == "format":
+                patched[key] = str(field.get("template") or "").format_map(_SafeFormatDict(patched))
+            elif op == "range":
+                start = int(_numeric_value(patched.get(str(field.get("start_key") or "")), 0))
+                end = int(_numeric_value(patched.get(str(field.get("end_key") or "")), start))
+                patched[key] = list(range(start, end + 1))
+            elif op == "join":
+                values = list(patched.get(str(field.get("from_key") or "")) or [])
+                prefix = str(field.get("prefix") or "")
+                suffix = str(field.get("suffix") or "")
+                separator = str(field.get("separator") or ",")
+                patched[key] = separator.join(f"{prefix}{item}{suffix}" for item in values)
+        except Exception:
+            patched.setdefault("_derived_field_errors", []).append({"key": key, "op": op})
+    return patched
+
+
+def _loop_state_after_decision(*, state: GraphLoopState, decision: dict[str, Any]) -> dict[str, Any]:
+    loop_state = dict(state.loop_state or {})
+    frames = {key: dict(value) for key, value in dict(loop_state.get("frames") or {}).items()}
+    frame_id = str(decision.get("frame_id") or decision.get("scope_id") or "").strip()
+    if frame_id:
+        frame = dict(frames.get(frame_id) or {"frame_id": frame_id, "scope_id": str(decision.get("scope_id") or frame_id)})
+        frame["last_decision"] = dict(decision)
+        frame["iteration_index"] = int(_numeric_value(frame.get("iteration_index"), 0)) + (1 if str(decision.get("action") or "") == "continue" else 0)
+        frame["status"] = "exited" if str(decision.get("action") or "") == "exit" else ("blocked" if str(decision.get("action") or "") == "blocked" else "active")
+        frame["scope_node_ids"] = list(decision.get("scope_node_ids") or frame.get("scope_node_ids") or [])
+        frames[frame_id] = frame
+    history = [dict(item) for item in list(loop_state.get("route_history") or []) if isinstance(item, dict)]
+    history.append(
+        {
+            key: value
+            for key, value in dict(decision).items()
+            if key not in {"initial_inputs_patch", "route_policy"}
+        }
+    )
+    return {
+        **loop_state,
+        "authority": "harness.graph.loop_contract_state",
+        "frames": frames,
+        "route_history": history,
+    }
+
+
+def _result_history_with_result(*, state: GraphLoopState, result: NodeResultEnvelope) -> dict[str, tuple[dict[str, Any], ...]]:
+    history = {key: tuple(dict(item) for item in value) for key, value in state.result_history.items()}
+    node_history = list(history.get(result.node_id) or ())
+    node_history.append(result.to_dict())
+    history[result.node_id] = tuple(node_history)
+    return history
+
+
+def _numeric_value(value: Any, default: Any = 0) -> Any:
+    if value is None or value == "":
+        return default
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    if number.is_integer():
+        return int(number)
+    return number
+
+
+def _nested_lookup(payload: dict[str, Any], dotted_key: str) -> Any:
+    current: Any = payload
+    for part in [item for item in str(dotted_key or "").split(".") if item]:
+        if not isinstance(current, dict) or part not in current:
+            return None
+        current = current.get(part)
+    return current
+
+
+def _drop_empty(payload: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in payload.items() if value not in ("", None, [], {})}
+
+
+class _SafeFormatDict(dict):
+    def __missing__(self, key: str) -> str:
+        return "{" + key + "}"
 
 
 def _ready_nodes(*, graph_config: GraphHarnessConfig, node_states: dict[str, dict[str, Any]]) -> tuple[str, ...]:

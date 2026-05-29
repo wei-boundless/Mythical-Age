@@ -1,21 +1,15 @@
 from __future__ import annotations
 
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
-from prompt_library import (
-    assemble_runtime_prompt_contract,
-    assemble_runtime_prompt_sections,
-    build_prompt_manifest_validation,
-)
+from prompt_library.manifest_validation import build_prompt_manifest_validation
 
-from ..registry.agent_registry import AgentRegistry
 from ..identity import normalize_agent_id
+from ..profiles.body_registry import BodyProfileRegistry
 from ..profiles.runtime_profile_models import AgentRuntimeProfile
 from ..profiles.runtime_profile_registry import AgentRuntimeRegistry
 from .runtime_spec_models import AgentRuntimeSpec, TaskBodyOrchestration
-from ..profiles.body_registry import BodyProfileRegistry
 
 
 def build_orchestration_runtime_bundle(
@@ -39,12 +33,6 @@ def build_orchestration_runtime_bundle(
     binding = dict(task_assembly_bundle.get("binding") or {})
     operation_requirement = dict(task_assembly_bundle.get("operation_requirement") or {})
     memory_request_profile = dict(task_assembly_bundle.get("task_memory_request_profile") or {})
-    skill_runtime_views = [
-        dict(item)
-        for item in list(task_assembly_bundle.get("skill_runtime_views") or ())
-        if isinstance(item, dict)
-    ]
-    registered_task = dict(task_assembly_bundle.get("registered_task") or {})
     current_turn_payload = dict(current_turn_context or task_assembly_bundle.get("current_turn_context") or {})
     memory_view = dict(memory_runtime_view or {})
     context_policy = dict(context_policy_result or {})
@@ -65,7 +53,6 @@ def build_orchestration_runtime_bundle(
                 f"requested {explicit_context_agent_id}, got {getattr(runtime_profile, 'agent_id', '')}"
             )
     agent_id = str(getattr(runtime_profile, "agent_id", "") or agent_id).strip() or "agent:0"
-    descriptor = AgentRegistry(base_dir).get_agent(agent_id)
     profile_registry = BodyProfileRegistry(base_dir)
 
     body_profile = profile_registry.build_agent_body_profile(
@@ -88,42 +75,20 @@ def build_orchestration_runtime_bundle(
         output_contract_id=str(task_execution_assembly.get("output_contract_id") or ""),
     )
 
-    prompt_contract = assemble_runtime_prompt_contract(
-        base_dir=base_dir,
+    prompt_contract = _explicit_prompt_contract(
         task_id=task_id,
         user_goal=user_goal,
         task_contract=task_contract,
         task_execution_assembly=task_execution_assembly,
         task_spec=task_spec,
-        selected_recipe=selected_recipe,
         task_workflow=task_workflow,
-        binding=binding,
-        registered_task=registered_task,
-        skill_runtime_views=skill_runtime_views,
-        operation_requirement=operation_requirement,
-        agent_id=agent_id,
-        current_turn_context=current_turn_payload,
     )
-    prompt_contract_metadata = dict(prompt_contract.get("metadata") or {})
-    prompt_selection_context = dict(prompt_contract_metadata.get("prompt_selection_context") or {})
-    prompt_assembly_plan = dict(prompt_contract_metadata.get("prompt_assembly_plan") or {})
     prompt_manifest = _prompt_manifest_from_contract(
-        base_dir=base_dir,
         session_id=session_id,
         task_id=task_id,
         current_turn_context=current_turn_payload,
         prompt_contract=prompt_contract,
-        interaction_mode=str(
-            prompt_selection_context.get("interaction_mode")
-            or dict(prompt_contract_metadata.get("mode_policy") or {}).get("interaction_mode")
-            or ""
-        ),
-        skill_runtime_views=skill_runtime_views,
-        use_shared_contract=bool(getattr(runtime_profile, "use_shared_contract", True)),
-    )
-    prompt_flow_trace = _prompt_flow_trace(
-        prompt_selection_context=prompt_selection_context,
-        prompt_assembly_plan=prompt_assembly_plan,
+        interaction_mode=_interaction_mode(task_contract=task_contract, task_execution_assembly=task_execution_assembly),
     )
     orchestration = TaskBodyOrchestration(
         orchestration_id=f"orchestration:{task_id}",
@@ -139,7 +104,7 @@ def build_orchestration_runtime_bundle(
             "section_order": list(prompt_profile.section_order),
             "projection_policy": prompt_profile.stage_projection_policy,
             "current_turn_ref": str(current_turn_payload.get("turn_id") or ""),
-            "prompt_flow_trace": prompt_flow_trace,
+            "prompt_contract_ref": str(prompt_contract.get("contract_id") or ""),
         },
         resource_binding_plan={
             "operation_requirement_ref": str(operation_requirement.get("requirement_id") or ""),
@@ -159,9 +124,6 @@ def build_orchestration_runtime_bundle(
         diagnostics={
             "builder": "orchestration.build_orchestration_runtime_bundle",
             "soul_runtime_projection_enabled": False,
-            "prompt_selection_context": prompt_selection_context,
-            "prompt_assembly_plan": prompt_assembly_plan,
-            "prompt_flow_trace": prompt_flow_trace,
             "prompt_manifest_ref": str(prompt_manifest.get("manifest_id") or ""),
             "memory_view_ref": str(memory_view.get("view_id") or ""),
             "context_policy_ref": _context_policy_ref(context_policy),
@@ -211,30 +173,13 @@ def build_orchestration_runtime_bundle(
 
 def _prompt_manifest_from_contract(
     *,
-    base_dir: Path,
     session_id: str,
     task_id: str,
     current_turn_context: dict[str, Any],
     prompt_contract: dict[str, Any],
     interaction_mode: str,
-    skill_runtime_views: list[dict[str, Any]],
-    use_shared_contract: bool,
 ) -> dict[str, Any]:
-    request = SimpleNamespace(
-        task_id=task_id,
-        session_id=session_id,
-        turn_id=str(current_turn_context.get("turn_id") or ""),
-    )
-    sections = assemble_runtime_prompt_sections(
-        base_dir=base_dir,
-        contract=prompt_contract,
-        projection=None,
-        request=request,
-        soul_skill_views=tuple(_attribute_view(item) for item in skill_runtime_views),
-        soul_tool_views=(),
-        use_shared_contract=use_shared_contract,
-    )
-    section_payloads = [section.to_dict() if hasattr(section, "to_dict") else dict(section) for section in sections]
+    section_payloads = _prompt_sections_from_contract(prompt_contract)
     validation = build_prompt_manifest_validation(
         interaction_mode=interaction_mode,
         sections=section_payloads,
@@ -258,45 +203,131 @@ def _prompt_manifest_from_contract(
     }
 
 
-def _attribute_view(payload: dict[str, Any]) -> Any:
-    return SimpleNamespace(**dict(payload or {}))
-
-
-def _prompt_flow_trace(
+def _explicit_prompt_contract(
     *,
-    prompt_selection_context: dict[str, Any],
-    prompt_assembly_plan: dict[str, Any],
+    task_id: str,
+    user_goal: str,
+    task_contract: dict[str, Any],
+    task_execution_assembly: dict[str, Any],
+    task_spec: dict[str, Any],
+    task_workflow: dict[str, Any],
 ) -> dict[str, Any]:
-    context = dict(prompt_selection_context or {})
-    plan = dict(prompt_assembly_plan or {})
-    diagnostics = dict(plan.get("diagnostics") or {})
-    selected = [
-        dict(item)
-        for item in list(plan.get("selected") or [])
-        if isinstance(item, dict) and not str(item.get("resource_id") or "").startswith("builtin:")
-    ]
+    prompt_contract = dict(
+        task_contract.get("prompt_contract")
+        or task_execution_assembly.get("prompt_contract")
+        or task_workflow.get("prompt_contract")
+        or {}
+    )
+    role_prompt = _first_text(
+        prompt_contract.get("role_prompt"),
+        task_workflow.get("prompt"),
+        task_contract.get("role_prompt"),
+    )
+    task_instruction = _first_text(
+        prompt_contract.get("task_instruction"),
+        task_contract.get("task_instruction"),
+        task_contract.get("task_run_goal"),
+        task_contract.get("user_goal"),
+        user_goal,
+    )
+    output_instruction = _first_text(
+        prompt_contract.get("output_instruction"),
+        task_contract.get("output_instruction"),
+        task_execution_assembly.get("output_instruction"),
+        task_spec.get("summary"),
+    )
     return {
-        "authority": "prompt_library.flow_trace",
-        "selector": str(diagnostics.get("selector") or ""),
-        "workflow_id": str(context.get("workflow_id") or diagnostics.get("workflow_id") or ""),
-        "graph_id": str(context.get("graph_id") or diagnostics.get("graph_id") or ""),
-        "node_id": str(context.get("node_id") or diagnostics.get("node_id") or ""),
-        "stage_id": str(context.get("stage_id") or diagnostics.get("stage_id") or ""),
-        "phase_id": str(context.get("phase_id") or diagnostics.get("phase_id") or ""),
-        "current_step_id": str(context.get("current_step_id") or diagnostics.get("current_step_id") or ""),
-        "current_step_kind": str(context.get("current_step_kind") or diagnostics.get("current_step_kind") or ""),
-        "task_graph_node_runtime": bool(context.get("task_graph_node_runtime") or diagnostics.get("task_graph_node_runtime")),
-        "step_sequence": list(context.get("step_sequence") or diagnostics.get("step_sequence") or []),
-        "selected_prompt_resources": [
-            {
-                "section_id": str(item.get("section_id") or ""),
-                "resource_id": str(item.get("resource_id") or ""),
-                "resource_type": str(item.get("resource_type") or ""),
-                "selection_reason": str(item.get("selection_reason") or ""),
-            }
-            for item in selected
-        ],
+        "contract_id": f"orchprompt:{task_id}",
+        "task_id": task_id,
+        "role_prompt": role_prompt,
+        "task_instruction": task_instruction,
+        "output_instruction": output_instruction,
+        "forbidden_behavior": _string_list(prompt_contract.get("forbidden_behavior") or task_contract.get("forbidden_behavior")),
+        "definition_of_done": _string_list(
+            prompt_contract.get("definition_of_done")
+            or task_contract.get("definition_of_done")
+            or task_contract.get("completion_criteria")
+        ),
+        "metadata": {
+            "authority": "orchestration.explicit_prompt_contract",
+            "source": "task_contract_or_workflow",
+        },
     }
+
+
+def _prompt_sections_from_contract(prompt_contract: dict[str, Any]) -> list[dict[str, Any]]:
+    section_specs = (
+        ("role_prompt", "graph_node.role", "角色职责"),
+        ("task_instruction", "graph_node.task_instruction", "任务说明"),
+        ("output_instruction", "graph_node.output_instruction", "输出要求"),
+    )
+    sections: list[dict[str, Any]] = []
+    for order, (field, source_type, title) in enumerate(section_specs, start=1):
+        content = str(prompt_contract.get(field) or "").strip()
+        if not content:
+            continue
+        sections.append(_section(field, source_type=source_type, title=title, content=content, order=order))
+    forbidden = _string_list(prompt_contract.get("forbidden_behavior"))
+    if forbidden:
+        sections.append(
+            _section(
+                "forbidden_behavior",
+                source_type="graph_node.forbidden_behavior",
+                title="禁止事项",
+                content="\n".join(f"- {item}" for item in forbidden),
+                order=4,
+            )
+        )
+    done = _string_list(prompt_contract.get("definition_of_done"))
+    if done:
+        sections.append(
+            _section(
+                "definition_of_done",
+                source_type="graph_node.definition_of_done",
+                title="完成标准",
+                content="\n".join(f"- {item}" for item in done),
+                order=5,
+            )
+        )
+    return sections
+
+
+def _section(section_id: str, *, source_type: str, title: str, content: str, order: int) -> dict[str, Any]:
+    return {
+        "section_id": section_id,
+        "title": title,
+        "source_type": source_type,
+        "source_id": "explicit_prompt_contract",
+        "owner_layer": "task",
+        "cache_scope": "task_stable",
+        "visible_to_model": True,
+        "content": content,
+        "chars": len(content),
+        "order": order,
+    }
+
+
+def _interaction_mode(*, task_contract: dict[str, Any], task_execution_assembly: dict[str, Any]) -> str:
+    runtime_profile = dict(task_contract.get("runtime_profile") or {})
+    mode_policy = dict(task_contract.get("runtime_mode_policy") or task_contract.get("mode_policy") or {})
+    return str(
+        mode_policy.get("interaction_mode")
+        or runtime_profile.get("interaction_mode")
+        or task_execution_assembly.get("task_mode")
+        or "professional_mode"
+    ).strip()
+
+
+def _first_text(*values: Any) -> str:
+    for value in values:
+        item = str(value or "").strip()
+        if item:
+            return item
+    return ""
+
+
+def _string_list(value: Any) -> list[str]:
+    return [str(item).strip() for item in list(value or []) if str(item).strip()]
 
 
 def _context_policy_ref(context_policy_result: dict[str, Any]) -> str:

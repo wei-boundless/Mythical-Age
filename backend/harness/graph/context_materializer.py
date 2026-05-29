@@ -4,7 +4,7 @@ import time
 from typing import Any
 
 from .models import GraphHarnessConfig, GraphLoopState, GraphNodeWorkOrder, safe_id, stable_hash
-from .scheduler_view import start_node_ids, upstream_dependency_node_ids
+from .scheduler_view import upstream_dependency_node_ids
 
 
 class GraphContextMaterializer:
@@ -98,10 +98,11 @@ class GraphContextMaterializer:
     ) -> dict[str, Any]:
         node_id = str(node.get("node_id") or "")
         prompt_contract = _prompt_contract(node)
-        initial_inputs = dict(state.initial_inputs or {}) if node_id in start_node_ids(graph_config) else {}
+        initial_inputs = dict(state.initial_inputs or {})
+        loop_context = _loop_context_for_node(state=state, node=node)
         environment_refs = _environment_refs(graph_config)
         return {
-            "package_id": f"gin:{safe_id(state.graph_run_id)}:{safe_id(node_id)}:{safe_id(stable_hash([upstream_packets, upstream_results])[:12])}",
+            "package_id": f"gin:{safe_id(state.graph_run_id)}:{safe_id(node_id)}:{safe_id(stable_hash([initial_inputs, loop_context, upstream_packets, upstream_results])[:12])}",
             "authority": "harness.graph_node_input_package",
             "materializer_authority": self.authority,
             "node_identity": {
@@ -121,6 +122,7 @@ class GraphContextMaterializer:
             "input_contract": dict(dict(node.get("contracts") or {}).get("contract_bindings") or {}).get("schema", {}),
             "output_contract": dict(node.get("contracts") or {}),
             "initial_inputs": initial_inputs,
+            "loop_context": loop_context,
             "upstream_results": upstream_results,
             "upstream_handoff_packets": upstream_packets,
             "handoff_packets": upstream_packets,
@@ -193,6 +195,30 @@ class GraphContextMaterializer:
                 }
             )
         return packets
+
+
+def _loop_context_for_node(*, state: GraphLoopState, node: dict[str, Any]) -> dict[str, Any]:
+    node_loop = dict(node.get("loop") or {})
+    scope_id = str(node_loop.get("scope_id") or "").strip()
+    frames = dict(dict(state.loop_state or {}).get("frames") or {})
+    active_frame = dict(frames.get(scope_id) or {}) if scope_id else {}
+    history = [
+        dict(item)
+        for item in list(dict(state.loop_state or {}).get("route_history") or [])
+        if isinstance(item, dict) and (not scope_id or str(item.get("scope_id") or "") == scope_id)
+    ]
+    return {
+        "authority": "harness.graph.loop_context",
+        "scope_id": scope_id,
+        "node_loop": node_loop,
+        "active_frame": active_frame,
+        "route_history": history,
+        "result_history_counts": {
+            key: len(list(value or []))
+            for key, value in dict(state.result_history or {}).items()
+        },
+        "contract_inputs": dict(state.initial_inputs or {}),
+    }
 
 
 def _incoming_dependency_edges(graph_config: GraphHarnessConfig, node_id: str) -> tuple[dict[str, Any], ...]:

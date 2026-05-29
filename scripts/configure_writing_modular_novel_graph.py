@@ -16,7 +16,6 @@ from agent_system.models.model_profile_models import AgentModelProfile, parse_ag
 from agent_system.profiles.runtime_mode_config import CUSTOM_MODE, STANDARD_MODE
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from agent_system.registry.agent_registry import AgentRegistry
-from prompt_library import PromptLibraryRegistry
 from task_system.contracts.contract_definition_models import AcceptanceRule, ArtifactRequirement, ContractField, ContractSpec
 from task_system.compiler.graph_harness_config_publisher import publish_graph_harness_config_for_graph
 from task_system.registry.contract_registry import TaskContractRegistry
@@ -25,7 +24,7 @@ from task_system.registry.flow_registry import TaskFlowRegistry
 
 MANAGED_BY = "codex_writing_modular_novel_graph_20260521_native"
 DOMAIN_ID = "domain.writing.modular_novel"
-ENVIRONMENT_ID = "env.writing"
+ENVIRONMENT_ID = "env.creation.writing"
 WRITING_MODULE_ID = "writing_modular_novel"
 PROTOCOL_ID = "protocol.writing.modular_novel"
 MODEL_PROFILE_REF = "llm.deepseek.flash_long_output_65536"
@@ -1292,7 +1291,6 @@ def configure(base_dir: Path | str | None = None) -> dict[str, Any]:
     _upsert_protocol(registry)
     _delete_graph_module_wrapper_task_assets(registry)
     _upsert_task_assets(registry)
-    PromptLibraryRegistry(backend_dir).sync_task_workflow_prompts()
     _upsert_imported_module_graph(registry, graph_id=DESIGN_GRAPH_ID, nodes=DESIGN_NODES, business_edges=DESIGN_BUSINESS_EDGES)
     _upsert_imported_module_graph(registry, graph_id=CHAPTER_GRAPH_ID, nodes=CHAPTER_NODES, business_edges=CHAPTER_BUSINESS_EDGES)
     _upsert_imported_module_graph(registry, graph_id=FINALIZE_GRAPH_ID, nodes=FINALIZE_NODES, business_edges=FINALIZE_BUSINESS_EDGES)

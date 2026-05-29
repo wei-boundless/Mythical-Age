@@ -6,7 +6,6 @@ from typing import Any
 
 from project_layout import ProjectLayout
 
-from .default_resources import list_default_prompt_resources
 from .models import PromptPack, PromptResource, prompt_pack_from_dict, prompt_resource_from_dict
 from .packs import list_builtin_prompt_packs, list_builtin_runtime_prompt_resources
 
@@ -65,20 +64,17 @@ class PromptLibraryRegistry:
     def __init__(self, base_dir: Path) -> None:
         self.base_dir = Path(base_dir)
 
-    def list_resources(self, *, sync_workflow_prompts: bool = True) -> list[PromptResource]:
-        if sync_workflow_prompts:
-            self.sync_task_workflow_prompts()
-        default_resources = {
+    def list_resources(self, *, sync_workflow_prompts: bool = False) -> list[PromptResource]:
+        builtin_resources = {
             item.resource_id: item
             for item in (
-                *list_default_prompt_resources(),
                 *list_builtin_runtime_prompt_resources(),
                 *list_builtin_agent_prompt_resources(),
                 *list_environment_prompt_resources_from_backend_dir(self.base_dir),
             )
         }
         stored_resources = {item.resource_id: item for item in self._list_stored_resources(normalize=True)}
-        merged = {**default_resources, **stored_resources}
+        merged = {**builtin_resources, **stored_resources}
         return sorted(merged.values(), key=lambda item: (item.resource_type, item.workflow_id, item.task_id, item.resource_id))
 
     def list_active_resources(
@@ -182,83 +178,6 @@ class PromptLibraryRegistry:
             if payload.get("packs") != normalized:
                 _write_json(_packs_path(self.base_dir), {"packs": normalized})
         return packs
-
-    def resolve_stage_role(
-        self,
-        *,
-        workflow_id: str = "",
-        task_id: str = "",
-        node_id: str = "",
-    ) -> PromptResource | None:
-        workflow = str(workflow_id or "").strip()
-        task = str(task_id or "").strip()
-        node = str(node_id or "").strip()
-        candidates = [
-            item
-            for item in self.list_resources()
-            if item.enabled and item.model_visible and item.resource_type == "stage_role"
-        ]
-        for item in candidates:
-            if workflow and item.workflow_id == workflow:
-                return item
-        for item in candidates:
-            if task and item.task_id == task:
-                return item
-        for item in candidates:
-            if node and item.node_id == node:
-                return item
-        return None
-
-    def sync_task_workflow_prompts(self) -> tuple[PromptResource, ...]:
-        from task_system.registry.workflow_registry import TaskWorkflowRegistry
-
-        resources: list[PromptResource] = []
-        for workflow in TaskWorkflowRegistry(self.base_dir).list_workflows():
-            prompt = str(workflow.prompt or "").strip()
-            if not prompt:
-                continue
-            metadata = dict(workflow.metadata or {})
-            workflow_id = str(workflow.workflow_id or "").strip()
-            task_id = str(metadata.get("task_id") or _task_id_from_workflow(workflow_id)).strip()
-            node_id = str(metadata.get("node_id") or _node_id_from_workflow(workflow_id)).strip()
-            domain_id = str(metadata.get("domain_id") or "").strip()
-            resources.append(
-                PromptResource(
-                    resource_id=_stable_resource_id(
-                        workflow_id=workflow_id,
-                        task_id=task_id,
-                        node_id=node_id,
-                        resource_type="stage_role",
-                    ),
-                    resource_type="stage_role",
-                    title=str(workflow.title or node_id or workflow_id),
-                    content=prompt,
-                    workflow_id=workflow_id,
-                    task_id=task_id,
-                    node_id=node_id,
-                    stage_id=node_id,
-                    tags=tuple(item for item in ("task_graph", domain_id) if item),
-                    applies_to_task_goal_types=("task_graph_node_execution",),
-                    applies_to_domains=tuple(item for item in ("task_graph", domain_id) if item),
-                    applies_to_modes=("role_mode", "standard_mode", "professional_mode"),
-                    cache_scope="static",
-                    model_visible=True,
-                    source_ref=f"storage/tasks/task_workflows.json#{workflow_id}.prompt",
-                    version="v1",
-                    enabled=bool(workflow.enabled),
-                    metadata={
-                        "managed_by": "prompt_library.task_workflow_sync",
-                        "source_type": "task_workflow_prompt",
-                        "domain_id": domain_id,
-                        "output_contract_id": str(workflow.output_contract_id or ""),
-                    },
-                )
-            )
-        if resources:
-            self.upsert_resources(resources)
-        elif not _resources_path(self.base_dir).exists():
-            _write_json(_resources_path(self.base_dir), {"resources": []})
-        return tuple(resources)
 
     def migrate_task_graph_node_prompt(
         self,

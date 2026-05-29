@@ -13,7 +13,7 @@ from task_system.compiler.graph_harness_config_publisher import (
     build_graph_harness_config_from_graph,
     publish_graph_harness_config_for_graph,
 )
-from task_system.graphs.task_graph_models import TaskGraphDefinition, TaskGraphNodeDefinition
+from task_system.graphs.task_graph_models import TaskGraphDefinition, TaskGraphEdgeDefinition, TaskGraphNodeDefinition
 from task_system.repositories import GraphHarnessConfigRepository
 
 
@@ -643,3 +643,187 @@ def test_graph_run_monitor_returns_recoverable_active_work_orders(tmp_path: Path
     assert monitor["active_node_work_order_count"] == 1
     assert monitor["active_node_work_orders"][0]["work_order_id"] == started["node_work_orders"][0]["work_order_id"]
     assert monitor["active_node_work_orders"][0]["node_id"] == "produce"
+
+
+def test_graph_loop_contract_drives_generic_repeated_node_progression(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    graph = TaskGraphDefinition(
+        graph_id="graph.test.generic_loop_contract",
+        title="Generic Loop Contract Graph",
+        graph_kind="coordination",
+        publish_state="published",
+        enabled=True,
+        entry_node_id="produce",
+        output_node_id="exit",
+        runtime_policy={"coordinator_agent_id": "agent:0"},
+        metadata={
+            "graph_loop_policy": {
+                "enabled": True,
+                "initial_inputs": {"done_units": 0, "target_units": 3},
+                "frames": [
+                    {
+                        "frame_id": "loop.units",
+                        "entry_stage_id": "produce",
+                        "router_stage_id": "router",
+                        "continue_stage_id": "produce",
+                        "exit_stage_id": "exit",
+                    }
+                ],
+            }
+        },
+        nodes=(
+            TaskGraphNodeDefinition(
+                node_id="produce",
+                node_type="agent",
+                title="Produce",
+                task_id="task.test.loop.produce",
+                agent_id="agent:0",
+                loop_scope_id="loop.units",
+            ),
+            TaskGraphNodeDefinition(
+                node_id="commit",
+                node_type="agent",
+                title="Commit",
+                task_id="task.test.loop.commit",
+                agent_id="agent:0",
+                loop_scope_id="loop.units",
+            ),
+            TaskGraphNodeDefinition(
+                node_id="router",
+                node_type="agent",
+                title="Router",
+                task_id="task.test.loop.router",
+                agent_id="agent:0",
+                loop_scope_id="loop.units",
+                loop_route_policy={
+                    "mode": "metric_target",
+                    "loop_scope_id": "loop.units",
+                    "continue_stage_id": "produce",
+                    "exit_stage_id": "exit",
+                    "metric_key": "unit_count",
+                    "default_increment": 1,
+                    "current_key": "done_units",
+                    "target_key": "target_units",
+                },
+            ),
+            TaskGraphNodeDefinition(
+                node_id="exit",
+                node_type="agent",
+                title="Exit",
+                task_id="task.test.loop.exit",
+                agent_id="agent:0",
+            ),
+        ),
+        edges=(
+            TaskGraphEdgeDefinition(
+                edge_id="edge.produce.commit",
+                source_node_id="produce",
+                target_node_id="commit",
+                edge_type="handoff",
+            ),
+            TaskGraphEdgeDefinition(
+                edge_id="edge.commit.router",
+                source_node_id="commit",
+                target_node_id="router",
+                edge_type="handoff",
+            ),
+            TaskGraphEdgeDefinition(
+                edge_id="edge.router.exit",
+                source_node_id="router",
+                target_node_id="exit",
+                edge_type="handoff",
+            ),
+        ),
+    )
+    graph_config = build_graph_harness_config_from_graph(graph=graph)
+    runtime = _runtime_with_graph_harness(base_dir=backend_dir, runtime_root=tmp_path / "runtime_state")
+    loop = runtime.query_runtime.graph_harness.graph_loop
+    started = runtime.query_runtime.graph_harness.start_run(
+        session_id="session-test",
+        task_id="task.test.loop",
+        graph_config=graph_config,
+        initial_inputs={},
+        dispatch_ready=True,
+    )
+
+    state = started.loop_state
+    order = started.node_work_orders[0]
+    completed_orders: list[str] = []
+    for expected_node in ("produce", "commit", "router", "produce", "commit", "router", "produce", "commit", "router", "exit"):
+        assert order.node_id == expected_node
+        completed_orders.append(order.node_id)
+        advance = loop.accept_node_result(
+            graph_config=graph_config,
+            graph_run_id=state.graph_run_id,
+            result={
+                "result_id": f"nresult:{expected_node}:{len(completed_orders)}",
+                "graph_run_id": state.graph_run_id,
+                "task_run_id": state.task_run_id,
+                "node_id": order.node_id,
+                "work_order_id": order.work_order_id,
+                "outputs": {"unit_count": 1, "step": len(completed_orders)},
+            },
+        )
+        state = advance.loop_state
+        if advance.node_work_orders:
+            order = advance.node_work_orders[0]
+
+    assert state.status == "completed"
+    assert state.initial_inputs["done_units"] == 3
+    assert [item["action"] for item in state.loop_state["route_history"]] == ["continue", "continue", "exit"]
+    assert len(state.result_history["produce"]) == 3
+    assert len(state.result_history["commit"]) == 3
+    assert len(state.result_history["router"]) == 3
+    assert state.result_index["exit"]["outputs"]["step"] == 10
+    assert completed_orders == ["produce", "commit", "router", "produce", "commit", "router", "produce", "commit", "router", "exit"]
+
+
+def test_graph_harness_config_publication_moves_loop_fields_to_node_loop_contract() -> None:
+    graph = TaskGraphDefinition(
+        graph_id="graph.test.loop_publication",
+        title="Loop Publication",
+        graph_kind="coordination",
+        publish_state="published",
+        enabled=True,
+        entry_node_id="router",
+        output_node_id="router",
+        nodes=(
+            TaskGraphNodeDefinition(
+                node_id="router",
+                node_type="agent",
+                title="Router",
+                task_id="task.test.router",
+                loop_scope_id="loop.units",
+                title_template="Unit {done_units}",
+                loop_route_policy={
+                    "loop_scope_id": "loop.units",
+                    "continue_stage_id": "router",
+                    "exit_stage_id": "exit",
+                    "current_key": "done_units",
+                    "target_key": "target_units",
+                    "counter_updates": [{"key": "cursor", "mode": "increment", "step": 1}],
+                },
+                metadata={
+                    "loop_scope_id": "legacy.loop",
+                    "loop_route_policy": {"current_key": "legacy"},
+                    "title_template": "Legacy",
+                },
+            ),
+        ),
+    )
+
+    config = build_graph_harness_config_from_graph(graph=graph)
+    node = dict(config.nodes[0])
+    loop_contract = dict(node.get("loop") or {})
+
+    assert loop_contract["scope_id"] == "loop.units"
+    assert loop_contract["title_template"] == "Unit {done_units}"
+    assert loop_contract["route_policy"]["scope_id"] == "loop.units"
+    assert loop_contract["route_policy"]["continue_node_id"] == "router"
+    assert loop_contract["route_policy"]["exit_node_id"] == "exit"
+    assert loop_contract["route_policy"]["patch_rules"] == [{"key": "cursor", "mode": "increment", "step": 1}]
+    assert "loop_scope_id" not in node
+    assert "loop_route_policy" not in node
+    assert "title_template" not in node
+    assert "loop_scope_id" not in dict(node.get("metadata") or {})
+    assert "loop_route_policy" not in dict(node.get("metadata") or {})

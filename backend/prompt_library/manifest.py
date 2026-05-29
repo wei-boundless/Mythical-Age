@@ -15,6 +15,8 @@ class RuntimePromptManifest:
     prompt_pack_refs: tuple[str, ...] = ()
     stable_prompt_refs: tuple[str, ...] = ()
     rejected_refs: tuple[dict[str, Any], ...] = ()
+    dynamic_projection_refs: tuple[str, ...] = ()
+    volatile_state_refs: tuple[str, ...] = ()
     cache_boundary: dict[str, Any] = field(default_factory=dict)
     token_estimate: dict[str, Any] = field(default_factory=dict)
     diagnostics: dict[str, Any] = field(default_factory=dict)
@@ -25,6 +27,8 @@ class RuntimePromptManifest:
         payload["prompt_pack_refs"] = list(self.prompt_pack_refs)
         payload["stable_prompt_refs"] = list(self.stable_prompt_refs)
         payload["rejected_refs"] = [dict(item) for item in self.rejected_refs]
+        payload["dynamic_projection_refs"] = list(self.dynamic_projection_refs)
+        payload["volatile_state_refs"] = list(self.volatile_state_refs)
         payload["cache_boundary"] = dict(self.cache_boundary)
         payload["token_estimate"] = dict(self.token_estimate)
         payload["diagnostics"] = dict(self.diagnostics)
@@ -36,13 +40,19 @@ def build_runtime_prompt_manifest(
     invocation_kind: str,
     assembly: PromptAssemblyResult,
     packet_id: str = "",
+    dynamic_projection_refs: tuple[str, ...] = (),
+    volatile_state_refs: tuple[str, ...] = (),
 ) -> RuntimePromptManifest:
     refs = tuple(item.prompt_ref for item in assembly.sections if item.prompt_ref)
+    projection_refs = tuple(str(item).strip() for item in dynamic_projection_refs if str(item).strip()) or assembly.dynamic_projection_refs
+    volatile_refs = tuple(str(item).strip() for item in volatile_state_refs if str(item).strip()) or assembly.volatile_state_refs
     manifest_seed = {
         "invocation_kind": invocation_kind,
         "packet_id": packet_id,
         "prompt_pack_refs": list(assembly.prompt_pack_refs),
         "stable_prompt_refs": list(refs),
+        "dynamic_projection_refs": list(projection_refs),
+        "volatile_state_refs": list(volatile_refs),
     }
     digest = hashlib.sha256(json.dumps(manifest_seed, sort_keys=True).encode("utf-8")).hexdigest()[:16]
     static_count = len([item for item in assembly.sections if item.cache_scope == "static"])
@@ -52,6 +62,8 @@ def build_runtime_prompt_manifest(
         prompt_pack_refs=assembly.prompt_pack_refs,
         stable_prompt_refs=refs,
         rejected_refs=assembly.rejected_refs,
+        dynamic_projection_refs=projection_refs,
+        volatile_state_refs=volatile_refs,
         cache_boundary={
             "static_section_count": static_count,
             "stable_prompt_section_count": len(assembly.sections),

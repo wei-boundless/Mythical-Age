@@ -141,6 +141,10 @@ class PromptAssemblyRequest:
     invocation_kind: str
     prompt_pack_refs: tuple[str, ...] = ()
     prompt_refs: tuple[str, ...] = ()
+    task_prompt_contract: dict[str, Any] = field(default_factory=dict)
+    graph_node_prompt_contract: dict[str, Any] = field(default_factory=dict)
+    skill_prompt_refs: tuple[str, ...] = ()
+    soul_prompt_ref: str = ""
     agent_profile_ref: str = ""
     task_environment_ref: str = ""
     runtime_mode: str = ""
@@ -151,6 +155,10 @@ class PromptAssemblyRequest:
             "invocation_kind": self.invocation_kind,
             "prompt_pack_refs": list(self.prompt_pack_refs),
             "prompt_refs": list(self.prompt_refs),
+            "task_prompt_contract": dict(self.task_prompt_contract),
+            "graph_node_prompt_contract": dict(self.graph_node_prompt_contract),
+            "skill_prompt_refs": list(self.skill_prompt_refs),
+            "soul_prompt_ref": self.soul_prompt_ref,
             "agent_profile_ref": self.agent_profile_ref,
             "task_environment_ref": self.task_environment_ref,
             "runtime_mode": self.runtime_mode,
@@ -165,6 +173,8 @@ class PromptAssemblyResult:
     sections: tuple[PromptSection, ...]
     prompt_pack_refs: tuple[str, ...] = ()
     rejected_refs: tuple[dict[str, Any], ...] = ()
+    dynamic_projection_refs: tuple[str, ...] = ()
+    volatile_state_refs: tuple[str, ...] = ()
     manifest: dict[str, Any] = field(default_factory=dict)
     authority: str = "prompt_library.prompt_assembly_result"
 
@@ -175,6 +185,8 @@ class PromptAssemblyResult:
             "sections": [item.to_dict() for item in self.sections],
             "prompt_pack_refs": list(self.prompt_pack_refs),
             "rejected_refs": [dict(item) for item in self.rejected_refs],
+            "dynamic_projection_refs": list(self.dynamic_projection_refs),
+            "volatile_state_refs": list(self.volatile_state_refs),
             "manifest": dict(self.manifest),
             "authority": self.authority,
         }
@@ -182,132 +194,6 @@ class PromptAssemblyResult:
     @property
     def content(self) -> str:
         return "\n".join(item.content for item in self.sections if item.content.strip()).strip()
-
-
-@dataclass(frozen=True, slots=True)
-class PromptSelectionContext:
-    task_id: str
-    user_goal: str = ""
-    agent_id: str = ""
-    interaction_mode: str = "standard_mode"
-    process_kind: str = ""
-    interaction_intent: str = ""
-    action_intent: str = ""
-    work_mode: str = ""
-    task_goal_type: str = ""
-    task_domain: str = ""
-    task_mode: str = ""
-    workflow_id: str = ""
-    workflow_title: str = ""
-    registered_task_id: str = ""
-    graph_id: str = ""
-    node_id: str = ""
-    stage_id: str = ""
-    phase_id: str = ""
-    current_step_id: str = ""
-    current_step_kind: str = ""
-    current_step_title: str = ""
-    current_step_index: int = -1
-    current_step_source: str = ""
-    task_graph_node_runtime: bool = False
-    workflow_steps: tuple[dict[str, Any], ...] = ()
-    recipe_steps: tuple[dict[str, Any], ...] = ()
-    step_sequence: tuple[str, ...] = ()
-    skill_ids: tuple[str, ...] = ()
-    visible_tool_ids: tuple[str, ...] = ()
-    agent_turn_action_request: dict[str, Any] = field(default_factory=dict)
-    task_contract_seed: dict[str, Any] = field(default_factory=dict)
-    runtime_admission: dict[str, Any] = field(default_factory=dict)
-    permission_request: dict[str, Any] = field(default_factory=dict)
-    context_binding: dict[str, Any] = field(default_factory=dict)
-    task_requirement_contract: dict[str, Any] = field(default_factory=dict)
-    goal_hypothesis_set: dict[str, Any] = field(default_factory=dict)
-    task_goal_spec: dict[str, Any] = field(default_factory=dict)
-    agent_plan_requirement: dict[str, Any] = field(default_factory=dict)
-    agent_plan_draft: dict[str, Any] = field(default_factory=dict)
-    plan_coverage_review: dict[str, Any] = field(default_factory=dict)
-    verification_review: dict[str, Any] = field(default_factory=dict)
-    completion_judgment: dict[str, Any] = field(default_factory=dict)
-    model_turn_decision: dict[str, Any] = field(default_factory=dict)
-    action_permit: dict[str, Any] = field(default_factory=dict)
-    boundary_policy: dict[str, Any] = field(default_factory=dict)
-    request_facts: dict[str, Any] = field(default_factory=dict)
-    metadata: dict[str, Any] = field(default_factory=dict)
-    authority: str = "prompt_library.selection_context"
-
-    def to_dict(self) -> dict[str, Any]:
-        payload = asdict(self)
-        payload["workflow_steps"] = [dict(item) for item in self.workflow_steps]
-        payload["recipe_steps"] = [dict(item) for item in self.recipe_steps]
-        payload["step_sequence"] = list(self.step_sequence)
-        payload["skill_ids"] = list(self.skill_ids)
-        payload["visible_tool_ids"] = list(self.visible_tool_ids)
-        payload["agent_turn_action_request"] = dict(self.agent_turn_action_request or {})
-        payload["task_contract_seed"] = dict(self.task_contract_seed or {})
-        payload["runtime_admission"] = dict(self.runtime_admission or {})
-        payload["permission_request"] = dict(self.permission_request or {})
-        payload["context_binding"] = dict(self.context_binding or {})
-        payload["task_requirement_contract"] = dict(self.task_requirement_contract or {})
-        payload["goal_hypothesis_set"] = dict(self.goal_hypothesis_set or {})
-        payload["task_goal_spec"] = dict(self.task_goal_spec or {})
-        payload["agent_plan_requirement"] = dict(self.agent_plan_requirement or {})
-        payload["agent_plan_draft"] = dict(self.agent_plan_draft or {})
-        payload["plan_coverage_review"] = dict(self.plan_coverage_review or {})
-        payload["verification_review"] = dict(self.verification_review or {})
-        payload["completion_judgment"] = dict(self.completion_judgment or {})
-        payload["model_turn_decision"] = dict(self.model_turn_decision or {})
-        payload["action_permit"] = dict(self.action_permit or {})
-        payload["boundary_policy"] = dict(self.boundary_policy or {})
-        payload["request_facts"] = dict(self.request_facts or {})
-        payload["metadata"] = dict(self.metadata)
-        return payload
-
-
-@dataclass(frozen=True, slots=True)
-class PromptAssemblyPlanItem:
-    section_id: str
-    resource_id: str
-    resource_type: str
-    title: str
-    owner_layer: str
-    cache_scope: str
-    model_visible: bool
-    source_ref: str = ""
-    source_refs: tuple[str, ...] = ()
-    renderer_id: str = ""
-    order: int = 100
-    priority: int = 100
-    selection_reason: str = ""
-    omitted_reason: str = ""
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-    def to_dict(self) -> dict[str, Any]:
-        payload = asdict(self)
-        payload["source_refs"] = list(self.source_refs)
-        payload["metadata"] = dict(self.metadata)
-        return payload
-
-
-@dataclass(frozen=True, slots=True)
-class PromptAssemblyPlan:
-    plan_id: str
-    task_id: str
-    interaction_mode: str
-    selected: tuple[PromptAssemblyPlanItem, ...] = ()
-    omitted: tuple[PromptAssemblyPlanItem, ...] = ()
-    diagnostics: dict[str, Any] = field(default_factory=dict)
-    authority: str = "prompt_library.assembly_plan"
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "plan_id": self.plan_id,
-            "task_id": self.task_id,
-            "interaction_mode": self.interaction_mode,
-            "selected": [item.to_dict() for item in self.selected],
-            "omitted": [item.to_dict() for item in self.omitted],
-            "diagnostics": dict(self.diagnostics),
-            "authority": self.authority,
-        }
 
 
 def prompt_resource_from_dict(payload: dict[str, Any]) -> PromptResource:

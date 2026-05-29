@@ -173,6 +173,8 @@ class GraphLoopState:
     active_work_orders: dict[str, str] = field(default_factory=dict)
     work_order_index: dict[str, dict[str, Any]] = field(default_factory=dict)
     result_index: dict[str, dict[str, Any]] = field(default_factory=dict)
+    result_history: dict[str, tuple[dict[str, Any], ...]] = field(default_factory=dict)
+    loop_state: dict[str, Any] = field(default_factory=dict)
     event_cursor: int = -1
     terminal_reason: str = ""
     diagnostics: dict[str, Any] = field(default_factory=dict)
@@ -185,6 +187,10 @@ class GraphLoopState:
         payload["completed_node_ids"] = list(self.completed_node_ids)
         payload["failed_node_ids"] = list(self.failed_node_ids)
         payload["blocked_node_ids"] = list(self.blocked_node_ids)
+        payload["result_history"] = {
+            key: [dict(item) for item in value]
+            for key, value in self.result_history.items()
+        }
         return payload
 
     @classmethod
@@ -209,6 +215,11 @@ class GraphLoopState:
             active_work_orders={str(key): str(value) for key, value in dict(payload.get("active_work_orders") or {}).items()},
             work_order_index={str(key): dict(value) for key, value in dict(payload.get("work_order_index") or {}).items()},
             result_index={str(key): dict(value) for key, value in dict(payload.get("result_index") or {}).items()},
+            result_history={
+                str(key): tuple(dict(item) for item in list(value or []) if isinstance(item, dict))
+                for key, value in dict(payload.get("result_history") or {}).items()
+            },
+            loop_state=dict(payload.get("loop_state") or {}),
             event_cursor=_int_or_default(payload.get("event_cursor"), -1),
             terminal_reason=str(payload.get("terminal_reason") or ""),
             diagnostics=dict(payload.get("diagnostics") or {}),
@@ -329,6 +340,7 @@ class NodeResultEnvelope:
     decisions: dict[str, Any] = field(default_factory=dict)
     artifact_refs: tuple[str, ...] = ()
     memory_candidates: tuple[dict[str, Any], ...] = ()
+    progress_receipts: tuple[dict[str, Any], ...] = ()
     artifact_materialization_receipts: tuple[dict[str, Any], ...] = ()
     memory_commit_receipts: tuple[dict[str, Any], ...] = ()
     handoff_summary: str = ""
@@ -357,6 +369,7 @@ class NodeResultEnvelope:
             or self.decisions
             or self.artifact_refs
             or self.memory_candidates
+            or self.progress_receipts
             or self.artifact_materialization_receipts
             or self.memory_commit_receipts
             or self.handoff_summary
@@ -369,6 +382,7 @@ class NodeResultEnvelope:
         payload = asdict(self)
         payload["artifact_refs"] = list(self.artifact_refs)
         payload["memory_candidates"] = [dict(item) for item in self.memory_candidates]
+        payload["progress_receipts"] = [dict(item) for item in self.progress_receipts]
         payload["artifact_materialization_receipts"] = [dict(item) for item in self.artifact_materialization_receipts]
         payload["memory_commit_receipts"] = [dict(item) for item in self.memory_commit_receipts]
         return payload
@@ -387,6 +401,11 @@ class NodeResultEnvelope:
             decisions=dict(payload.get("decisions") or {}),
             artifact_refs=tuple(str(item) for item in list(payload.get("artifact_refs") or []) if str(item)),
             memory_candidates=tuple(dict(item) for item in list(payload.get("memory_candidates") or []) if isinstance(item, dict)),
+            progress_receipts=tuple(
+                dict(item)
+                for item in list(payload.get("progress_receipts") or [])
+                if isinstance(item, dict)
+            ),
             artifact_materialization_receipts=tuple(
                 dict(item)
                 for item in list(payload.get("artifact_materialization_receipts") or [])

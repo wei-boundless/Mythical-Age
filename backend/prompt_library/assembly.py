@@ -34,6 +34,9 @@ class PromptAssemblyService:
                 continue
             prompt_refs.extend(pack.ordered_prompt_refs)
         prompt_refs.extend(request.prompt_refs)
+        prompt_refs.extend(request.skill_prompt_refs)
+        if str(request.soul_prompt_ref or "").strip():
+            prompt_refs.append(str(request.soul_prompt_ref).strip())
 
         sections: list[PromptSection] = []
         seen: set[str] = set()
@@ -67,10 +70,33 @@ class PromptAssemblyService:
                     },
                 )
             )
+        contract_order = len(sections) + 1
+        sections.extend(
+            _contract_sections(
+                contract=dict(request.task_prompt_contract or {}),
+                category="task",
+                source_ref="task_prompt_contract",
+                start_order=contract_order,
+            )
+        )
+        contract_order = len(sections) + 1
+        sections.extend(
+            _contract_sections(
+                contract=dict(request.graph_node_prompt_contract or {}),
+                category="graph_node",
+                source_ref="graph_node_prompt_contract",
+                start_order=contract_order,
+            )
+        )
         assembly_seed = {
             "invocation_kind": request.invocation_kind,
             "pack_refs": list(pack_refs),
             "prompt_refs": [item.prompt_ref for item in sections],
+            "contract_sections": [
+                {"category": item.category, "subtype": item.subtype, "source_ref": item.source_ref}
+                for item in sections
+                if not item.prompt_ref
+            ],
         }
         digest = hashlib.sha256(json.dumps(assembly_seed, sort_keys=True).encode("utf-8")).hexdigest()[:16]
         manifest = {
@@ -78,6 +104,7 @@ class PromptAssemblyService:
             "prompt_pack_refs": list(pack_refs),
             "rejected_refs": [dict(item) for item in rejected],
             "cache_scope_order": [item.cache_scope for item in sections],
+            "contract_section_count": len([item for item in sections if not item.prompt_ref]),
             "authority": "prompt_library.prompt_assembly_manifest",
         }
         return PromptAssemblyResult(
@@ -131,4 +158,60 @@ def _resource_rejection_reason(resource: dict[str, Any], *, request: dict[str, A
     allowed_environment_refs = {str(item) for item in list(resource.get("allowed_environment_refs") or []) if str(item)}
     if allowed_environment_refs and environment_ref and environment_ref not in allowed_environment_refs:
         return "resource_environment_ref_mismatch"
+    return ""
+
+
+_CONTRACT_FIELD_SPECS = (
+    ("role_prompt", "role", "角色职责"),
+    ("task_instruction", "task_instruction", "任务说明"),
+    ("output_instruction", "output_instruction", "输出要求"),
+    ("forbidden_behavior", "forbidden_behavior", "禁止事项"),
+    ("definition_of_done", "definition_of_done", "完成标准"),
+)
+
+
+def _contract_sections(
+    *,
+    contract: dict[str, Any],
+    category: str,
+    source_ref: str,
+    start_order: int,
+) -> list[PromptSection]:
+    if not contract:
+        return []
+    sections: list[PromptSection] = []
+    contract_id = str(contract.get("contract_id") or contract.get("prompt_contract_id") or source_ref).strip()
+    for offset, (field, subtype, title) in enumerate(_CONTRACT_FIELD_SPECS):
+        content = _contract_field_content(contract.get(field))
+        if not content:
+            continue
+        sections.append(
+            PromptSection(
+                section_id=f"{category}.{subtype}:{start_order + offset}",
+                prompt_ref="",
+                category=category,
+                subtype=subtype,
+                title=title,
+                content=content,
+                owner_layer="task",
+                cache_scope="task_stable",
+                source_ref=f"{source_ref}:{contract_id}.{field}",
+                order=start_order + offset,
+                metadata={
+                    "contract_id": contract_id,
+                    "contract_field": field,
+                    "resource_type": f"{category}.{subtype}",
+                    "version": str(contract.get("version") or "v1"),
+                },
+            )
+        )
+    return sections
+
+
+def _contract_field_content(value: Any) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    items = [str(item).strip() for item in list(value or []) if str(item).strip()] if isinstance(value, (list, tuple)) else []
+    if items:
+        return "\n".join(f"- {item}" for item in items)
     return ""

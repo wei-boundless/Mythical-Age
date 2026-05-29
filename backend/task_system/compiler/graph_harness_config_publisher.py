@@ -595,9 +595,10 @@ def _published_environment_payload(
 
 
 def _node_config(node: dict[str, Any], *, graph_id: str) -> dict[str, Any]:
-    metadata = dict(node.get("metadata") or {})
-    contract_bindings = dict(node.get("contract_bindings") or metadata.get("contract_bindings") or {})
-    prompt_contract = dict(metadata.get("prompt_contract") or {})
+    raw_metadata = dict(node.get("metadata") or {})
+    metadata = _published_node_metadata(raw_metadata)
+    contract_bindings = dict(node.get("contract_bindings") or raw_metadata.get("contract_bindings") or {})
+    prompt_contract = dict(raw_metadata.get("prompt_contract") or {})
     node_id = str(node.get("node_id") or "").strip()
     node_type = str(node.get("node_type") or "agent").strip() or "agent"
     task_ref = str(node.get("task_id") or metadata.get("task_ref") or f"task_graph.node.{graph_id}.{node_id}").strip()
@@ -643,10 +644,68 @@ def _node_config(node: dict[str, Any], *, graph_id: str) -> dict[str, Any]:
             "human_gate_policy": dict(node.get("human_gate_policy") or metadata.get("human_gate_policy") or {}),
         },
         "retry": dict(node.get("quality_retry_policy") or metadata.get("quality_retry_policy") or {}),
+        "loop": _node_loop_contract(node, metadata=raw_metadata),
         "permissions": dict(metadata.get("permissions") or {}),
         "tools": dict(metadata.get("tools") or {}),
         "metadata": metadata,
     }
+
+
+def _published_node_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(metadata or {})
+    for migrated_key in ("loop_scope_id", "loop_route_policy", "title_template", "loop_policy", "loop_kind"):
+        payload.pop(migrated_key, None)
+    return payload
+
+
+def _node_loop_contract(node: dict[str, Any], *, metadata: dict[str, Any]) -> dict[str, Any]:
+    scope_id = str(node.get("loop_scope_id") or metadata.get("loop_scope_id") or "").strip()
+    route_policy = _normalize_loop_route_policy(
+        node.get("loop_route_policy") or metadata.get("loop_route_policy")
+    )
+    title_template = str(node.get("title_template") or metadata.get("title_template") or "").strip()
+    policy = dict(node.get("loop_policy") or metadata.get("loop_policy") or {})
+    loop_kind = str(node.get("loop_kind") or policy.get("loop_kind") or "").strip()
+    if not (scope_id or route_policy or title_template or policy or loop_kind):
+        return {}
+    contract = {
+        "scope_id": scope_id,
+        "kind": loop_kind,
+        "title_template": title_template,
+        "policy": policy,
+        "route_policy": route_policy,
+        "authority": "harness.graph.node_loop_contract",
+    }
+    return _prune_empty(contract)
+
+
+def _normalize_loop_route_policy(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    payload = dict(value)
+    scope_id = str(payload.get("scope_id") or payload.get("loop_scope_id") or "").strip()
+    continue_node_id = str(
+        payload.get("continue_node_id")
+        or payload.get("continue_stage_id")
+        or payload.get("entry_node_id")
+        or payload.get("entry_stage_id")
+        or ""
+    ).strip()
+    exit_node_id = str(payload.get("exit_node_id") or payload.get("exit_stage_id") or "").strip()
+    route = {
+        **payload,
+        "scope_id": scope_id,
+        "continue_node_id": continue_node_id,
+        "exit_node_id": exit_node_id,
+        "mode": str(payload.get("mode") or "metric_target").strip() or "metric_target",
+        "patch_rules": list(payload.get("patch_rules") or payload.get("contract_patch_rules") or payload.get("counter_updates") or []),
+        "derived_fields": list(payload.get("derived_fields") or []),
+        "secondary_counters": list(payload.get("secondary_counters") or []),
+        "authority": "harness.graph.loop_route_policy",
+    }
+    for legacy_key in ("loop_scope_id", "continue_stage_id", "exit_stage_id", "entry_stage_id"):
+        route.pop(legacy_key, None)
+    return _prune_empty(route)
 
 
 def _graph_node_config(node: Any, *, graph_id: str) -> dict[str, Any]:
@@ -858,6 +917,14 @@ def _policy_dict(value: Any, *, string_key: str = "mode") -> dict[str, Any]:
         text = value.strip()
         return {string_key: text} if text else {}
     return {}
+
+
+def _prune_empty(value: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: item
+        for key, item in value.items()
+        if item not in ("", None, [], {})
+    }
 
 
 def _list_dicts(value: Any) -> list[dict[str, Any]]:
