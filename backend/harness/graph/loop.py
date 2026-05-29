@@ -117,9 +117,9 @@ class GraphLoop:
                 "graph_loop_started",
                 payload={
                     "graph_run_id": state.graph_run_id,
-                    "graph_loop_state": state.to_dict(),
-                    "node_work_orders": [item.to_dict() for item in work_orders],
-                    "graph_result": graph_result.to_dict() if graph_result is not None else None,
+                    "graph_loop_state": _loop_state_summary(state),
+                    "node_work_orders": [_work_order_summary(item) for item in work_orders],
+                    "graph_result": _graph_result_summary(graph_result),
                 },
                 refs={"graph_run_ref": state.graph_run_id, "graph_harness_config_ref": state.config_id},
             )
@@ -178,8 +178,8 @@ class GraphLoop:
                     "graph_ready_nodes_dispatched",
                     payload={
                         "graph_run_id": next_state.graph_run_id,
-                        "node_work_orders": [item.to_dict() for item in work_orders],
-                        "graph_loop_state": next_state.to_dict(),
+                        "node_work_orders": [_work_order_summary(item) for item in work_orders],
+                        "graph_loop_state": _loop_state_summary(next_state),
                     },
                     refs={"graph_run_ref": next_state.graph_run_id, "graph_harness_config_ref": next_state.config_id},
                 )
@@ -304,11 +304,11 @@ class GraphLoop:
                 "graph_node_result_accepted",
                 payload={
                     "graph_run_id": next_state.graph_run_id,
-                    "node_result": envelope.to_dict(),
+                    "node_result": _node_result_summary(envelope),
                     "loop_route_decision": route_decision,
-                    "graph_loop_state": next_state.to_dict(),
-                    "node_work_orders": [item.to_dict() for item in work_orders],
-                    "graph_result": graph_result.to_dict() if graph_result is not None else None,
+                    "graph_loop_state": _loop_state_summary(next_state),
+                    "node_work_orders": [_work_order_summary(item) for item in work_orders],
+                    "graph_result": _graph_result_summary(graph_result),
                 },
                 refs={"graph_run_ref": next_state.graph_run_id, "node_ref": envelope.node_id},
             )
@@ -953,6 +953,91 @@ def _node_status_from_result(result: NodeResultEnvelope) -> str:
     if result.status == "blocked":
         return "blocked"
     return "failed"
+
+
+def _loop_state_summary(state: GraphLoopState) -> dict[str, Any]:
+    return {
+        "authority": "harness.graph_loop_state_summary",
+        "state_id": state.state_id,
+        "graph_run_id": state.graph_run_id,
+        "task_run_id": state.task_run_id,
+        "session_id": state.session_id,
+        "config_id": state.config_id,
+        "config_hash": state.config_hash,
+        "graph_id": state.graph_id,
+        "status": state.status,
+        "ready_node_ids": list(state.ready_node_ids),
+        "running_node_ids": list(state.running_node_ids),
+        "completed_node_ids": list(state.completed_node_ids),
+        "failed_node_ids": list(state.failed_node_ids),
+        "blocked_node_ids": list(state.blocked_node_ids),
+        "active_work_orders": dict(state.active_work_orders),
+        "node_state_count": len(state.node_states),
+        "edge_state_count": len(state.edge_states),
+        "result_count": len(state.result_index),
+        "event_cursor": state.event_cursor,
+        "terminal_reason": state.terminal_reason,
+    }
+
+
+def _work_order_summary(order: GraphNodeWorkOrder) -> dict[str, Any]:
+    return {
+        "authority": "harness.graph_node_work_order_summary",
+        "work_order_id": order.work_order_id,
+        "work_kind": order.work_kind,
+        "graph_run_id": order.graph_run_id,
+        "task_run_id": order.task_run_id,
+        "node_id": order.node_id,
+        "config_id": order.config_id,
+        "config_hash": order.config_hash,
+        "executor_type": order.executor_type,
+        "agent_id": order.agent_id,
+        "agent_profile_id": order.agent_profile_id,
+        "idempotency_key": order.idempotency_key,
+        "input_package_ref": str(dict(order.input_package or {}).get("package_id") or ""),
+        "inbound_context_count": len(list(dict(order.input_package or {}).get("inbound_context") or [])),
+        "artifact_space_ref": order.artifact_space_ref,
+        "memory_space_ref": order.memory_space_ref,
+    }
+
+
+def _node_result_summary(result: NodeResultEnvelope) -> dict[str, Any]:
+    return {
+        "authority": "harness.graph_node_result_summary",
+        "result_id": result.result_id,
+        "graph_run_id": result.graph_run_id,
+        "task_run_id": result.task_run_id,
+        "node_id": result.node_id,
+        "work_order_id": result.work_order_id,
+        "executor_type": result.executor_type,
+        "status": result.status,
+        "artifact_refs": list(result.artifact_refs),
+        "artifact_ref_count": len(result.artifact_refs),
+        "memory_candidate_count": len(result.memory_candidates),
+        "artifact_materialization_receipt_count": len(result.artifact_materialization_receipts),
+        "memory_commit_receipt_count": len(result.memory_commit_receipts),
+        "handoff_summary": result.handoff_summary[:1200],
+        "error": dict(result.error or {}),
+        "created_at": result.created_at,
+    }
+
+
+def _graph_result_summary(result: GraphResultEnvelope | None) -> dict[str, Any] | None:
+    if result is None:
+        return None
+    return {
+        "authority": "harness.graph_result_summary",
+        "result_id": result.result_id,
+        "graph_run_id": result.graph_run_id,
+        "task_run_id": result.task_run_id,
+        "graph_id": result.graph_id,
+        "config_id": result.config_id,
+        "status": result.status,
+        "artifact_refs": list(result.artifact_refs),
+        "node_result_refs": list(result.node_result_refs),
+        "terminal_reason": result.terminal_reason,
+        "created_at": result.created_at,
+    }
 
 
 def _replace_state(state: GraphLoopState, **patch: Any) -> GraphLoopState:

@@ -80,7 +80,7 @@ def admit_model_action(
                 admission_id=f"admission:{action_request.request_id}",
                 action_request_ref=action_request.request_id,
                 decision="needs_contract",
-                user_visible_reason="这个动作会改变环境，需要先进入正式任务生命周期。",
+                user_visible_reason="这个动作会改变环境，需要先确认处理目标和安全边界。",
                 system_reason="side_effect_tool_requires_task_run",
                 resource_errors=(f"tool_requires_task_run:{tool_name}",),
             )
@@ -133,7 +133,7 @@ def admit_model_action(
                 admission_id=f"admission:{action_request.request_id}",
                 action_request_ref=action_request.request_id,
                 decision="deny",
-                user_visible_reason="当前运行模式不允许开启正式任务生命周期。",
+                user_visible_reason="当前运行模式不允许开始持续处理。",
                 system_reason="task_lifecycle_disabled_by_runtime_profile",
                 contract_errors=("task_lifecycle_disabled_by_runtime_profile",),
             )
@@ -142,7 +142,7 @@ def admit_model_action(
             admission_id=f"admission:{action_request.request_id}",
             action_request_ref=action_request.request_id,
             decision="needs_contract",
-            user_visible_reason="需要先补充正式任务合同，才能开启长任务。",
+            user_visible_reason="需要先补充处理目标和验收标准，才能开始持续处理。",
             system_reason="task_contract_seed_missing",
             contract_errors=("task_contract_seed_missing",),
         )
@@ -162,7 +162,7 @@ def admit_model_action(
                 admission_id=f"admission:{action_request.request_id}",
                 action_request_ref=action_request.request_id,
                 decision="needs_contract",
-                user_visible_reason="需要明确 engagement plan id，系统不能替 agent 猜测任务计划。",
+                user_visible_reason="需要明确要接入的处理计划，当前不能替你猜测。",
                 system_reason="engagement_plan_id_missing",
                 contract_errors=("engagement_plan_id_missing",),
             )
@@ -178,7 +178,7 @@ def _invalid(action_request: ModelActionRequest, reason: str) -> AdmissionDecisi
         admission_id=f"admission:{action_request.request_id}",
         action_request_ref=action_request.request_id,
         decision="invalid",
-        user_visible_reason="本轮动作请求格式不完整，运行时已停止执行。",
+        user_visible_reason="本轮处理格式不完整，已停止执行。",
         system_reason=reason,
         resource_errors=(reason,),
     )

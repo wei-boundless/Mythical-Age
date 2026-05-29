@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +25,26 @@ from project_layout import ProjectLayout
 from query.models import QueryRequest
 from query.system_routes import run_direct_system_route
 from harness.runtime import AgentRunRequest
-from harness.loop.task_executor import execute_task_run, recover_interrupted_task_executors
+from harness.loop.active_work import (
+    ActiveWorkContext,
+    ActiveWorkTurnDecision,
+    active_work_status_reply,
+    build_active_work_context,
+    decide_active_work_turn,
+    default_reply_for_action,
+    public_active_work_text,
+)
+from harness.loop.presentation import final_answer_event
+from harness.loop.task_executor import (
+    append_user_work_instruction,
+    execute_task_run,
+    is_task_run_executable,
+    is_task_run_executor_claimed,
+    recover_interrupted_task_executors,
+    request_task_run_pause,
+    resume_paused_task_run,
+    stop_task_run,
+)
 from harness.loop.task_lifecycle import TaskLifecycleRecord, TaskRunContract
 from harness.graph.models import safe_id
 from runtime.shared.models import AgentRun, TaskRun
@@ -194,6 +215,14 @@ class QueryRuntime:
                     yield direct_system_route_event
                     return
 
+                active_work_event = await self._handle_active_work_turn(
+                    request=request,
+                    turn_id=turn_id,
+                )
+                if active_work_event is not None:
+                    yield active_work_event
+                    return
+
                 agent_runtime_profile = self.agent_runtime_registry.get_profile("agent:0")
                 runtime_task_selection = _task_selection_for_runtime(
                     request_task_selection=dict(request.task_selection or {}),
@@ -257,6 +286,156 @@ class QueryRuntime:
             if isinstance(exc, ModelRuntimeError):
                 error_payload["code"] = exc.code
             yield error_payload
+
+    async def _handle_active_work_turn(self, *, request: QueryRequest, turn_id: str) -> dict[str, Any] | None:
+        context = build_active_work_context(
+            self.single_agent_runtime_host,
+            session_id=request.session_id,
+        )
+        if context is None:
+            return None
+        decision = await decide_active_work_turn(
+            model_runtime=self.model_runtime,
+            user_message=request.message,
+            active_work_context=context,
+            model_selection=dict(request.model_selection or {}),
+        )
+        if decision.action in {"start_new_work", "normal_response"}:
+            return None
+        content = await self._apply_active_work_turn_decision(
+            decision=decision,
+            context=context,
+            turn_id=turn_id,
+            user_message=request.message,
+        )
+        await self._apply_assistant_message_commit_async(
+            request.session_id,
+            {
+                "role": "assistant",
+                "content": content,
+                "turn_id": turn_id,
+                "answer_channel": "active_work_control",
+                "answer_source": "harness.loop.active_work_turn",
+                "answer_canonical_state": "final",
+                "answer_persist_policy": "persist_canonical",
+                "answer_finalization_policy": "assistant_final",
+            },
+        )
+        return final_answer_event(
+            content=content,
+            answer_source="harness.loop.active_work_turn",
+            terminal_reason=decision.action,
+            extra={
+                "active_work": {
+                    "action": decision.action,
+                    "status": context.status,
+                    "control_state": context.control_state,
+                }
+            },
+        )
+
+    async def _apply_active_work_turn_decision(
+        self,
+        *,
+        decision: ActiveWorkTurnDecision,
+        context: ActiveWorkContext,
+        turn_id: str,
+        user_message: str,
+    ) -> str:
+        host = self.single_agent_runtime_host
+        action = decision.action
+        response = public_active_work_text(decision.response) or default_reply_for_action(action, context)
+        if action == "continue_active_work":
+            if context.resumable:
+                result = resume_paused_task_run(host, context.task_run_id, reason="conversation_continue", requested_by="user")
+                if result.get("ok"):
+                    self._schedule_active_task_run_executor(context.task_run_id, scheduler="conversation_continue")
+                else:
+                    response = active_work_status_reply(build_active_work_context(host, session_id=context.session_id) or context)
+            elif context.running:
+                response = response or "我正在接着处理，新的进展会继续更新在这里。"
+            else:
+                response = active_work_status_reply(build_active_work_context(host, session_id=context.session_id) or context)
+        elif action == "pause_active_work":
+            result = request_task_run_pause(host, context.task_run_id, reason="conversation_pause", requested_by="user")
+            if not result.get("ok"):
+                response = active_work_status_reply(build_active_work_context(host, session_id=context.session_id) or context)
+        elif action == "stop_active_work":
+            result = stop_task_run(host, context.task_run_id, reason="conversation_stop", requested_by="user")
+            if not result.get("ok"):
+                response = active_work_status_reply(build_active_work_context(host, session_id=context.session_id) or context)
+        elif action == "append_instruction_to_active_work":
+            instruction = decision.appended_instruction or str(user_message or "").strip()
+            result = append_user_work_instruction(
+                host,
+                context.task_run_id,
+                content=instruction,
+                turn_id=turn_id,
+                intent="append_instruction_to_active_work",
+            )
+            if result.get("ok") and context.resumable:
+                resume_result = resume_paused_task_run(host, context.task_run_id, reason="conversation_instruction", requested_by="user")
+                if resume_result.get("ok"):
+                    self._schedule_active_task_run_executor(context.task_run_id, scheduler="conversation_instruction")
+            if not result.get("ok"):
+                response = active_work_status_reply(build_active_work_context(host, session_id=context.session_id) or context)
+        elif action == "answer_about_active_work":
+            response = decision.response or active_work_status_reply(build_active_work_context(host, session_id=context.session_id) or context)
+        elif action == "ask_user":
+            response = decision.response or default_reply_for_action(action, context)
+        return public_active_work_text(response)
+
+    def _schedule_active_task_run_executor(self, task_run_id: str, *, scheduler: str, max_steps: int = 12) -> dict[str, Any]:
+        runtime_host = self.single_agent_runtime_host
+        task_run = runtime_host.state_index.get_task_run(task_run_id)
+        if task_run is None:
+            return {"ok": False, "scheduled": False, "reason": "task_run_not_found"}
+        if is_task_run_executor_claimed(task_run):
+            return {"ok": True, "scheduled": False, "reason": "already_running"}
+        if not is_task_run_executable(task_run):
+            return {"ok": False, "scheduled": False, "reason": f"not_executable:{getattr(task_run, 'status', '')}"}
+        scheduled_event = runtime_host.event_log.append(
+            task_run_id,
+            "task_run_executor_scheduled",
+            payload={"task_run_id": task_run_id, "max_steps": max_steps, "scheduler": scheduler},
+            refs={"task_run_ref": task_run_id},
+        )
+        runtime_host.state_index.upsert_task_run(
+            replace(
+                task_run,
+                status="running",
+                updated_at=scheduled_event.created_at or time.time(),
+                latest_event_offset=scheduled_event.offset,
+                terminal_reason="",
+                diagnostics={
+                    **dict(task_run.diagnostics or {}),
+                    "executor_status": "scheduled",
+                    "latest_step": "task_executor_scheduled",
+                    "latest_step_status": "running",
+                    "latest_step_summary": "正在准备继续处理。",
+                },
+            )
+        )
+
+        async def _runner() -> None:
+            try:
+                while True:
+                    result = await self.execute_task_run(task_run_id, max_steps=max_steps)
+                    payload = dict(result or {}) if isinstance(result, dict) else {}
+                    if not _task_executor_should_auto_continue(runtime_host, task_run_id=task_run_id, result=payload):
+                        return
+                    runtime_host.event_log.append(
+                        task_run_id,
+                        "task_run_executor_rescheduled",
+                        payload={"task_run_id": task_run_id, "reason": str(payload.get("error") or "waiting_executor"), "scheduler": scheduler},
+                        refs={"task_run_ref": task_run_id},
+                    )
+                    await asyncio.sleep(0)
+            except Exception as exc:
+                _mark_query_scheduled_task_failed(runtime_host, task_run_id=task_run_id, error=str(exc) or exc.__class__.__name__)
+
+        asyncio.create_task(_runner())
+        return {"ok": True, "scheduled": True, "task_run_id": task_run_id}
 
     async def generate_title(self, first_user_message: str) -> str:
         return await self.model_runtime.generate_title(first_user_message)
@@ -571,6 +750,54 @@ class QueryRuntime:
         return "请求处理失败，运行时已按 fail-closed 策略停止。"
 
 
+def _task_executor_should_auto_continue(runtime_host: Any, *, task_run_id: str, result: dict[str, Any]) -> bool:
+    if str(result.get("error") or "") != "task_execution_step_budget_exhausted":
+        return False
+    if not bool(result.get("retryable")):
+        return False
+    task_run = runtime_host.state_index.get_task_run(task_run_id)
+    if task_run is None:
+        return False
+    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+    control = diagnostics.get("runtime_control")
+    control_state = str(dict(control or {}).get("state") or "") if isinstance(control, dict) else ""
+    return str(getattr(task_run, "status", "") or "") == "waiting_executor" and control_state not in {"pause_requested", "paused", "stop_requested", "stopped"}
+
+
+def _mark_query_scheduled_task_failed(runtime_host: Any, *, task_run_id: str, error: str) -> None:
+    event = runtime_host.event_log.append(
+        task_run_id,
+        "task_run_executor_schedule_failed",
+        payload={"task_run_id": task_run_id, "error": error, "scheduler": "conversation"},
+        refs={"task_run_ref": task_run_id},
+    )
+    current = runtime_host.state_index.get_task_run(task_run_id)
+    if current is None:
+        return
+    runtime_host.state_index.upsert_task_run(
+        replace(
+            current,
+            status="blocked",
+            updated_at=event.created_at,
+            latest_event_offset=event.offset,
+            terminal_reason="task_executor_schedule_failed",
+            diagnostics={
+                **dict(current.diagnostics or {}),
+                "executor_status": "blocked",
+                "latest_step": "task_executor_schedule_failed",
+                "latest_step_status": "blocked",
+                "latest_step_summary": f"继续处理时遇到调度失败：{error}",
+                "recoverable_error": {
+                    "error_code": "task_executor_schedule_failed",
+                    "retryable": True,
+                    "detail": error,
+                },
+                "recovery_action": "rerun_task_executor",
+            },
+        )
+    )
+
+
 def _permission_mode_provider(*, permission_service: Any | None, settings_service: Any | None):
     def _current_mode() -> str:
         service_mode = getattr(permission_service, "current_mode", None)
@@ -659,8 +886,7 @@ def _model_visible_input_package(input_package: dict[str, Any]) -> dict[str, Any
         "output_contract": dict(input_package.get("output_contract") or {}),
         "initial_inputs": dict(input_package.get("initial_inputs") or {}),
         "loop_context": dict(input_package.get("loop_context") or {}),
-        "upstream_results": [dict(item) for item in list(input_package.get("upstream_results") or []) if isinstance(item, dict)],
-        "handoff_packets": [dict(item) for item in list(input_package.get("handoff_packets") or []) if isinstance(item, dict)],
+        "inbound_context": [dict(item) for item in list(input_package.get("inbound_context") or []) if isinstance(item, dict)],
         "memory_view": dict(input_package.get("memory_view") or {}),
         "artifact_view": dict(input_package.get("artifact_view") or {}),
         "file_view": dict(input_package.get("file_view") or {}),

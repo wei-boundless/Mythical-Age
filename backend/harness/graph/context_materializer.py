@@ -26,14 +26,12 @@ class GraphContextMaterializer:
         node_id = str(node.get("node_id") or "")
         executor = dict(node.get("executor") or {})
         executor_type = str(executor.get("executor_type") or "agent")
-        upstream_packets = self.handoff_packets_for_node(graph_config=graph_config, state=state, node_id=node_id)
-        upstream_results = self.upstream_results_for_node(graph_config=graph_config, state=state, node_id=node_id)
+        inbound_context = self.inbound_context_for_node(graph_config=graph_config, state=state, node_id=node_id)
         input_package = self.build_input_package(
             graph_config=graph_config,
             state=state,
             node=node,
-            upstream_packets=upstream_packets,
-            upstream_results=upstream_results,
+            inbound_context=inbound_context,
         )
         environment_refs = _environment_refs(graph_config)
         dispatch_seq = len(tuple(dict(state.result_history or {}).get(node_id) or ())) + 1
@@ -84,8 +82,7 @@ class GraphContextMaterializer:
                 "runtime_scope": _runtime_scope_from_state(state),
                 "dispatch_event_id": f"dispatch:{state.graph_run_id}:{node_id}:{int(time.time() * 1000)}",
                 "executor": executor,
-                "handoff_packet_count": len(upstream_packets),
-                "upstream_result_count": len(upstream_results),
+                "inbound_context_count": len(inbound_context),
                 "materializer": self.authority,
             },
         )
@@ -96,8 +93,7 @@ class GraphContextMaterializer:
         graph_config: GraphHarnessConfig,
         state: GraphLoopState,
         node: dict[str, Any],
-        upstream_packets: list[dict[str, Any]],
-        upstream_results: list[dict[str, Any]],
+        inbound_context: list[dict[str, Any]],
     ) -> dict[str, Any]:
         node_id = str(node.get("node_id") or "")
         prompt_contract = _prompt_contract(node)
@@ -105,7 +101,7 @@ class GraphContextMaterializer:
         loop_context = _loop_context_for_node(state=state, node=node)
         environment_refs = _environment_refs(graph_config)
         return {
-            "package_id": f"gin:{safe_id(state.graph_run_id)}:{safe_id(node_id)}:{safe_id(stable_hash([initial_inputs, loop_context, upstream_packets, upstream_results])[:12])}",
+            "package_id": f"gin:{safe_id(state.graph_run_id)}:{safe_id(node_id)}:{safe_id(stable_hash([initial_inputs, loop_context, inbound_context])[:12])}",
             "authority": "harness.graph_node_input_package",
             "materializer_authority": self.authority,
             "node_identity": {
@@ -127,9 +123,7 @@ class GraphContextMaterializer:
             "output_contract": dict(node.get("contracts") or {}),
             "initial_inputs": initial_inputs,
             "loop_context": loop_context,
-            "upstream_results": upstream_results,
-            "upstream_handoff_packets": upstream_packets,
-            "handoff_packets": upstream_packets,
+            "inbound_context": inbound_context,
             "memory_view": _memory_view_request(graph_config=graph_config, node=node),
             "artifact_view": _artifact_view_request(graph_config=graph_config, node=node),
             "file_view": _file_view_request(graph_config=graph_config, node=node),
@@ -153,53 +147,30 @@ class GraphContextMaterializer:
             "expected_result_contract": dict(node.get("contracts") or {}),
         }
 
-    def upstream_results_for_node(self, *, graph_config: GraphHarnessConfig, state: GraphLoopState, node_id: str) -> list[dict[str, Any]]:
-        results: list[dict[str, Any]] = []
+    def inbound_context_for_node(self, *, graph_config: GraphHarnessConfig, state: GraphLoopState, node_id: str) -> list[dict[str, Any]]:
+        context: list[dict[str, Any]] = []
         for edge in _incoming_dependency_edges(graph_config, node_id):
             upstream_id = str(edge.get("source_node_id") or "")
             result = dict(state.result_index.get(upstream_id) or {})
             if result:
                 payload = _filtered_edge_payload(edge=edge, result=result)
-                results.append(
+                context.append(
                     {
+                        "authority": "harness.graph.inbound_context",
+                        "context_id": f"ginctx:{safe_id(state.graph_run_id)}:{safe_id(str(edge.get('edge_id') or upstream_id + '.' + node_id))}",
                         "source_node_id": upstream_id,
-                        "result_id": str(result.get("result_id") or ""),
-                        "status": str(result.get("status") or ""),
-                        **payload,
-                        "delivery_policy": str(edge.get("result_delivery_policy") or "contract_payload_and_refs"),
+                        "target_node_id": node_id,
+                        "source_edge_id": str(edge.get("edge_id") or ""),
+                        "source_result_ref": str(result.get("result_id") or ""),
+                        "source_status": str(result.get("status") or ""),
+                        "payload_contract_id": str(edge.get("payload_contract_id") or ""),
+                        "payload": payload,
+                        "delivery_policy": str(edge.get("result_delivery_policy") or "summary_and_refs"),
+                        "ack_required": bool(edge.get("ack_required", True)),
                         "edge_id": str(edge.get("edge_id") or ""),
                     }
                 )
-        return results
-
-    def handoff_packets_for_node(self, *, graph_config: GraphHarnessConfig, state: GraphLoopState, node_id: str) -> list[dict[str, Any]]:
-        packets: list[dict[str, Any]] = []
-        for edge in _incoming_dependency_edges(graph_config, node_id):
-            source_node_id = str(edge.get("source_node_id") or "")
-            result = dict(state.result_index.get(source_node_id) or {})
-            if not result:
-                continue
-            payload = _filtered_edge_payload(edge=edge, result=result)
-            packets.append(
-                {
-                    "packet_id": f"ghandoff:{safe_id(state.graph_run_id)}:{safe_id(str(edge.get('edge_id') or source_node_id + '.' + node_id))}",
-                    "authority": "harness.graph_edge_handoff_packet",
-                    "graph_run_id": state.graph_run_id,
-                    "config_id": state.config_id,
-                    "edge_id": str(edge.get("edge_id") or ""),
-                    "edge_type": str(edge.get("edge_type") or ""),
-                    "semantic_role": str(edge.get("semantic_role") or ""),
-                    "source_node_id": source_node_id,
-                    "target_node_id": node_id,
-                    "source_result_id": str(result.get("result_id") or ""),
-                    "source_status": str(result.get("status") or ""),
-                    "payload_contract_id": str(edge.get("payload_contract_id") or ""),
-                    "payload": payload,
-                    "delivery_policy": str(edge.get("result_delivery_policy") or "contract_payload_and_refs"),
-                    "ack_required": bool(edge.get("ack_required", True)),
-                }
-            )
-        return packets
+        return context
 
 
 def _loop_context_for_node(*, state: GraphLoopState, node: dict[str, Any]) -> dict[str, Any]:
@@ -238,7 +209,7 @@ def _incoming_dependency_edges(graph_config: GraphHarnessConfig, node_id: str) -
 
 
 def _filtered_edge_payload(*, edge: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
-    delivery_policy = str(edge.get("result_delivery_policy") or "contract_payload_and_refs").strip() or "contract_payload_and_refs"
+    delivery_policy = str(edge.get("result_delivery_policy") or "summary_and_refs").strip() or "summary_and_refs"
     output_payload = _filter_outputs(
         dict(result.get("outputs") or {}),
         context_filter_policy=dict(edge.get("context_filter_policy") or {}),
@@ -262,10 +233,14 @@ def _filtered_edge_payload(*, edge: dict[str, Any], result: dict[str, Any]) -> d
         return {"handoff_summary": base_refs["handoff_summary"]}
     if delivery_policy in {"refs_only", "artifact_refs_only"}:
         return base_refs
-    if delivery_policy in {"summary_only", "summary_and_refs"}:
+    if delivery_policy == "summary_only":
+        return {"handoff_summary": base_refs["handoff_summary"]}
+    if delivery_policy in {"summary_and_refs", "contract_payload_and_refs"}:
+        if output_payload:
+            return {**base_refs, "bounded_outputs": output_payload}
         return base_refs
     return {
-        "outputs": output_payload,
+        "bounded_outputs": output_payload,
         "decisions": dict(result.get("decisions") or {}),
         "memory_candidates": memory_candidates,
         **base_refs,

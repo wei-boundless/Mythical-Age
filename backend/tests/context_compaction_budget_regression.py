@@ -17,6 +17,14 @@ def test_compression_budget_planner_reports_required_reduction_and_summary_targe
             compression_role="preserve",
         ),
         PromptSegment(
+            segment_id="seg:task-stable",
+            request_id="modelreq:test",
+            kind="task_stable",
+            predicted_tokens=80,
+            cache_role="session_stable",
+            compression_role="summarize",
+        ),
+        PromptSegment(
             segment_id="seg:history",
             request_id="modelreq:test",
             kind="recent_history",
@@ -41,10 +49,11 @@ def test_compression_budget_planner_reports_required_reduction_and_summary_targe
     )
 
     assert decision.decision == "microcompact"
-    assert decision.hard_required_tokens == 120
+    assert decision.hard_required_tokens == 200
     assert decision.compressible_tokens == 1200
-    assert decision.compressible_budget == 680
-    assert decision.required_reduction_tokens == 520
+    assert decision.compressible_budget == 600
+    assert decision.required_reduction_tokens == 600
+    assert "seg:task-stable" in decision.preserved_segments
     assert decision.summary_target_tokens > 0
     assert decision.summarized_segments == ("seg:history",)
     assert decision.dropped_segments == ("seg:tool",)

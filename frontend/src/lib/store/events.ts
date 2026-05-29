@@ -563,7 +563,7 @@ export function buildSnapshotFromHarnessTrace(trace: HarnessTaskRunTrace): Orche
     graph_run_ids: taskGraphRunIdsFromTrace(trace),
     execution_mode: String((taskRun["diagnostics"] as Record<string, unknown> | undefined)?.["execution_mode"] ?? snapshot.execution_mode),
     route: String(taskRun["task_id"] ?? snapshot.route),
-    summary: `已载入 TaskRun ${String(taskRun["task_run_id"] ?? "").trim() || "-"}`,
+    summary: "已载入运行记录。",
   };
 }
 
@@ -759,7 +759,7 @@ export function startStreamingTurn(state: StoreState, userContent: string): Stre
     toolCalls: [],
     retrievals: [],
     runtimeProgress: [],
-    stageStatus: "接收请求"
+    stageStatus: "正在整理上下文"
   };
 
   return {
@@ -769,13 +769,13 @@ export function startStreamingTurn(state: StoreState, userContent: string): Stre
       messages: [...state.messages, userMessage, assistantMessage],
       sessionActivity: {
         level: "running",
-        title: "接收请求",
-        detail: userContent.trim().slice(0, 120),
+        title: "正在整理上下文",
+        detail: "准备判断下一步",
         event: "user_message",
         receipt: {
           level: "running",
-          title: "已收到你的命令",
-          body: userContent.trim().slice(0, 120),
+          title: "正在整理上下文",
+          body: "准备判断下一步",
           debug: { event: "user_message" },
         },
         updatedAt: Date.now()

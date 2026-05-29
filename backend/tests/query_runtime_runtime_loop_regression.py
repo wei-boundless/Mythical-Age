@@ -26,6 +26,23 @@ from runtime.prompt_accounting import (
 )
 
 
+_VISIBLE_RUNTIME_INTERNAL_MARKERS = (
+    "TaskRun",
+    "runtime packet",
+    "正式任务",
+    "执行器",
+    "agent 已返回",
+    "agent 动作",
+    "等待 agent",
+    "回灌给 agent",
+)
+
+
+def _assert_no_visible_runtime_internals(text: str) -> None:
+    leaked = [marker for marker in _VISIBLE_RUNTIME_INTERNAL_MARKERS if marker in text]
+    assert leaked == []
+
+
 def _action_request(
     *,
     action_type: str,
@@ -113,7 +130,16 @@ def test_agent_action_request_launches_task_run_and_initializes_todo() -> None:
     assert "task_run_lifecycle_event" in stream_types
     assert "agent_todo_initialized" in event_types
     assert "task_run_executor_scheduled" in event_types
-    assert any("执行器已启动" in str(event.get("content") or "") for event in events if event.get("type") == "done")
+    done_contents = [str(event.get("content") or "") for event in events if event.get("type") == "done"]
+    visible_progress = "\n".join(
+        str(event.get("summary") or "")
+        for event in events
+        if event.get("type") == "runtime_step_summary"
+    )
+    assert any("我会按这个目标继续推进" in content for content in done_contents)
+    assert not any("执行器" in content or "TaskRun" in content or "正式任务" in content for content in done_contents)
+    _assert_no_visible_runtime_internals("\n".join(done_contents))
+    _assert_no_visible_runtime_internals(visible_progress)
     task_run = runtime.single_agent_runtime_host.state_index.get_task_run(task_run_id)
     assert task_run is not None
     assert dict(task_run.diagnostics or {}).get("origin_kind") == "agent_requested"
@@ -241,7 +267,8 @@ def test_global_live_monitor_exposes_step_summary_and_recent_terminal_status(mon
     assert item["bucket"] == "completed"
     assert item["latest_step_name"] == "final_self_review"
     assert item["latest_step_status"] == "completed"
-    assert item["latest_step_summary"] == "agent 已完成最终自检并确认交付物存在。"
+    assert item["latest_step_summary"] == "助手已完成最终自检并确认交付物存在。"
+    _assert_no_visible_runtime_internals(item["latest_step_summary"])
     assert item["artifact_count"] == 1
     assert item["resource_class"] == "static"
     assert item["ended_at"] == 990.0
@@ -318,6 +345,25 @@ class _TurnActionSequenceModelRuntime:
         return SimpleNamespace(content=json.dumps(action, ensure_ascii=False))
 
 
+class _ActiveWorkDecisionModelRuntime:
+    def __init__(self, decisions: list[dict[str, object]]) -> None:
+        self.decisions = list(decisions)
+        self.active_work_decision_count = 0
+
+    async def invoke_messages(self, messages, **_kwargs):
+        content = str(messages or "")
+        if "harness.loop.active_work_turn_decision.input" in content:
+            self.active_work_decision_count += 1
+            decision = self.decisions.pop(0) if self.decisions else {
+                "authority": "harness.loop.active_work_turn_decision",
+                "action": "answer_about_active_work",
+                "response": "现在是正在处理。",
+                "confidence": 0.9,
+            }
+            return SimpleNamespace(content=json.dumps(decision, ensure_ascii=False))
+        return SimpleNamespace(content=json.dumps(_action_request(action_type="respond", final_answer="普通回复。"), ensure_ascii=False))
+
+
 class _TaskExecutorSequenceModelRuntime:
     def __init__(self, task_actions: list[dict[str, object]], *, agent_turn_action_request: dict[str, object]) -> None:
         self.task_actions = list(task_actions)
@@ -364,6 +410,7 @@ def test_turn_model_wait_is_observable(monkeypatch) -> None:
 
     assert any(step.startswith("model_action_invocation_started:") for step in steps)
     assert any(step.startswith("model_action_waiting:") for step in steps)
+    _assert_no_visible_runtime_internals("\n".join(str(event.get("summary") or "") for event in step_summaries))
     assert any(event.get("type") == "done" for event in events)
 
 
@@ -631,6 +678,18 @@ def test_session_runtime_timeline_keeps_completed_task_attachment() -> None:
     assert attachment["status"] == "completed"
     assert attachment["final_answer"] == "Timeline final answer."
     assert attachment["progress_entries"]
+    visible_attachment_text = json.dumps(
+        {
+            "summary": attachment["summary"],
+            "latest_step_summary": attachment["latest_step_summary"],
+            "progress_entries": [
+                {"title": item.get("title"), "body": item.get("body")}
+                for item in attachment["progress_entries"]
+            ],
+        },
+        ensure_ascii=False,
+    )
+    _assert_no_visible_runtime_internals(visible_attachment_text)
 
 
 def test_session_runtime_timeline_derives_turn_anchor_from_structural_task_run_id() -> None:
@@ -1137,6 +1196,153 @@ def test_task_run_stop_before_executor_marks_user_aborted() -> None:
     assert stopped_task.status == "aborted"
     assert stopped_task.terminal_reason == "user_aborted"
     assert task_run_control_state(stopped_task) == "stopped"
+
+
+def _seed_active_work(runtime, *, task_run_id: str = "taskrun:active-work", session_id: str = "session-active-work", status: str = "waiting_executor") -> str:
+    host = runtime.single_agent_runtime_host
+    contract = TaskRunContract(
+        contract_id=f"task-contract:{task_run_id.replace(':', '-')}",
+        contract_source="test",
+        user_visible_goal="继续优化会话体验。",
+        task_run_goal="继续优化会话体验。",
+        completion_criteria=("同一个当前工作可以被自然语言控制",),
+    )
+    contract_ref = host.runtime_objects.put_object("task_run_contract", contract.contract_id, contract.to_dict())
+    lifecycle = TaskLifecycleRecord(
+        task_run_id=task_run_id,
+        contract_ref=contract_ref,
+        status=status,
+        created_at=1.0,
+        updated_at=1.0,
+    )
+    host.runtime_objects.put_object("task_lifecycle", task_run_id, lifecycle.to_dict())
+    host.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id=task_run_id,
+            session_id=session_id,
+            task_id=f"task:{task_run_id}",
+            task_contract_ref=contract_ref,
+            agent_profile_id="main_interactive_agent",
+            execution_runtime_kind="single_agent_task",
+            status=status,
+            terminal_reason="waiting_executor" if status == "waiting_executor" else "",
+            created_at=1.0,
+            updated_at=1.0,
+            diagnostics={"contract": contract.to_dict(), "latest_step_summary": "正在整理上下文，准备继续处理。"},
+        )
+    )
+    return task_run_id
+
+
+def test_active_work_continue_reuses_current_task_run_without_new_task() -> None:
+    model = _ActiveWorkDecisionModelRuntime([
+        {
+            "authority": "harness.loop.active_work_turn_decision",
+            "action": "continue_active_work",
+            "response": "好，我接着处理。",
+            "confidence": 0.94,
+        }
+    ])
+    runtime = build_query_runtime(model_runtime=model)
+    task_run_id = _seed_active_work(runtime)
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(QueryRequest(session_id="session-active-work", message="继续")):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    task_runs = runtime.single_agent_runtime_host.list_session_traces("session-active-work")["task_run_count"]
+    task_run = runtime.single_agent_runtime_host.state_index.get_task_run(task_run_id)
+    event_types = [
+        str(dict(item).get("event_type") or "")
+        for item in list(dict(runtime.single_agent_runtime_host.get_trace(task_run_id, include_payloads=False) or {}).get("events") or [])
+    ]
+
+    assert model.active_work_decision_count == 1
+    assert any(event.get("type") == "done" and "接着处理" in str(event.get("content") or "") for event in events)
+    assert not any(event.get("type") == "harness_run_started" for event in events)
+    assert task_runs == 1
+    assert task_run is not None
+    assert task_run.status == "running"
+    assert "task_run_resume_requested" in event_types
+    assert "task_run_executor_scheduled" in event_types
+
+
+def test_active_work_pause_and_status_are_natural_language_controls() -> None:
+    model = _ActiveWorkDecisionModelRuntime([
+        {
+            "authority": "harness.loop.active_work_turn_decision",
+            "action": "pause_active_work",
+            "response": "好，我先停在这里。",
+            "confidence": 0.93,
+        },
+        {
+            "authority": "harness.loop.active_work_turn_decision",
+            "action": "answer_about_active_work",
+            "response": "",
+            "confidence": 0.92,
+        },
+    ])
+    runtime = build_query_runtime(model_runtime=model)
+    task_run_id = _seed_active_work(runtime, task_run_id="taskrun:active-work-pause")
+
+    async def _send(message: str) -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(QueryRequest(session_id="session-active-work", message=message)):
+            events.append(event)
+        return events
+
+    pause_events = asyncio.run(_send("先停一下"))
+    status_events = asyncio.run(_send("现在到哪了"))
+    paused_task = runtime.single_agent_runtime_host.state_index.get_task_run(task_run_id)
+    done_text = "\n".join(str(event.get("content") or "") for event in [*pause_events, *status_events] if event.get("type") == "done")
+
+    assert model.active_work_decision_count == 2
+    assert paused_task is not None
+    assert str(dict(dict(paused_task.diagnostics or {}).get("runtime_control") or {}).get("state") or "") == "paused"
+    assert "先停在这里" in done_text
+    assert "现在是已暂停" in done_text
+    assert "TaskRun" not in done_text
+    assert "执行器" not in done_text
+    assert "正式任务" not in done_text
+
+
+def test_active_work_appends_user_instruction_to_current_task_run() -> None:
+    model = _ActiveWorkDecisionModelRuntime([
+        {
+            "authority": "harness.loop.active_work_turn_decision",
+            "action": "append_instruction_to_active_work",
+            "response": "收到，我会按这个补充方向继续处理。",
+            "appended_instruction": "把界面改得更自然，少一点开发痕迹。",
+            "confidence": 0.95,
+        }
+    ])
+    runtime = build_query_runtime(model_runtime=model)
+    task_run_id = _seed_active_work(runtime, task_run_id="taskrun:active-work-instruction")
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(QueryRequest(session_id="session-active-work", message="按刚才方向改，别露出开发细节")):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    trace = runtime.single_agent_runtime_host.get_trace(task_run_id, include_payloads=True)
+    instruction_events = [
+        dict(item)
+        for item in list(dict(trace or {}).get("events") or [])
+        if str(dict(item).get("event_type") or "") == "user_work_instruction_recorded"
+    ]
+    payload = dict(instruction_events[0].get("payload") or {}) if instruction_events else {}
+    observation = dict(payload.get("observation") or {})
+    observation_payload = dict(observation.get("payload") or {})
+
+    assert any(event.get("type") == "done" and "补充方向" in str(event.get("content") or "") for event in events)
+    assert len(instruction_events) == 1
+    assert observation.get("observation_type") == "user_work_instruction"
+    assert observation_payload.get("result") == "把界面改得更自然，少一点开发痕迹。"
 
 
 def test_role_mode_allows_soul_prompt_but_blocks_task_lifecycle() -> None:

@@ -180,9 +180,9 @@ describe("runtimeWorkProjection", () => {
 
     expect(runtimeWorkProjectionFromMonitorItem(run)).toMatchObject({
       workKind: "chat_turn_runtime",
-      displayTypeLabel: "会话运行",
+      displayTypeLabel: "处理进展",
       primaryRunId: "taskrun:turn:session-a:1:abc",
-      title: "会话运行",
+      title: "处理进展",
     });
   });
 

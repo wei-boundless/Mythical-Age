@@ -887,6 +887,7 @@ class ModelRuntime:
                 tools=list(tools or []),
                 provider=spec.provider,
                 model=spec.model,
+                base_url=spec.base_url,
                 segment_plan=segment_plan,
                 metadata=metadata,
             )

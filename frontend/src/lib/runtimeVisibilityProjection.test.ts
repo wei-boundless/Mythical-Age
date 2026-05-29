@@ -130,7 +130,7 @@ describe("runtimeVisibilityProjection", () => {
     expect(projection.progressEntry?.meta?.find((item) => item.label === "目标")?.value).toBe("npm test -- --run src/lib/runtimeVisibilityProjection.test.ts");
   });
 
-  it("projects formal task lifecycle events into main-chat progress", () => {
+  it("projects task handoff events into natural main-chat progress", () => {
     const started = projectRuntimeStreamEvent("harness_run_started", {
       task_run: {
         task_run_id: "taskrun:turn:session-1:1:abc",
@@ -163,14 +163,15 @@ describe("runtimeVisibilityProjection", () => {
       },
     });
 
-    expect(started.progressEntry).toMatchObject({
-      kind: "task_order",
-      title: "正式任务已创建",
-      taskRunId: "taskrun:turn:session-1:1:abc",
-      body: "重构主会话监控",
+    expect(started).toMatchObject({
+      stageStatus: "正在整理上下文",
+      activityTitle: "正在整理上下文",
+      activityDetail: "准备判断下一步",
+      level: "running",
     });
+    expect(started.progressEntry).toBeUndefined();
     expect(waiting).toMatchObject({
-      stageStatus: "任务已转入后台执行",
+      stageStatus: "继续在后台处理",
       level: "waiting",
     });
     expect(waiting.progressEntry).toMatchObject({
@@ -196,8 +197,9 @@ describe("runtimeVisibilityProjection", () => {
     });
 
     expect(projection).toMatchObject({
-      stageStatus: "会话运行开始",
-      activityTitle: "会话运行开始",
+      stageStatus: "正在整理上下文",
+      activityTitle: "正在整理上下文",
+      activityDetail: "准备判断下一步",
       level: "running",
     });
     expect(projection.progressEntry).toBeUndefined();

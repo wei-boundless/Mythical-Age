@@ -1,10 +1,10 @@
 "use client";
 
-import { ArrowUp, BrainCircuit, CircleStop, Lightbulb, Play, Square } from "lucide-react";
+import { ArrowUp, BrainCircuit, Lightbulb, Square } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import type { ModelProviderConfig, SoulImageAssetConfig } from "@/lib/api";
-import type { MainAgentAssemblyMode, TaskSelectionState } from "@/lib/store/types";
+import type { MainAgentAssemblyMode } from "@/lib/store/types";
 
 const MAIN_AGENT_MODE_ORDER: MainAgentAssemblyMode[] = ["role", "standard", "professional"];
 const MAIN_AGENT_MODE_LABELS: Record<MainAgentAssemblyMode, string> = {
@@ -18,48 +18,30 @@ export function ChatInput({
   streaming,
   modelProviderConfig,
   soulImageAssetConfig,
-  activeTaskControl,
   onSend,
   onStop,
-  onPauseTask,
-  onResumeTask,
-  onStopTask,
   onSelectChatModel,
   onSelectMainAgentAssemblyMode,
   onToggleDeepSeekThinking,
   deepSeekThinkingEnabled,
   mainAgentAssemblyMode,
   selectedChatModelId,
-  taskSelection,
 }: {
   disabled: boolean;
   streaming: boolean;
-  activeTaskControl: {
-    taskRunId: string;
-    status: string;
-    controlState: string;
-    canPause: boolean;
-    canResume: boolean;
-    canStop: boolean;
-  } | null;
   modelProviderConfig: ModelProviderConfig | null;
   soulImageAssetConfig: SoulImageAssetConfig | null;
   onSend: (value: string) => Promise<void>;
   onStop: () => void;
-  onPauseTask: () => Promise<void>;
-  onResumeTask: () => Promise<void>;
-  onStopTask: () => Promise<void>;
   onSelectChatModel: (selectionId: string) => void;
   onSelectMainAgentAssemblyMode: (mode: MainAgentAssemblyMode) => void;
   onToggleDeepSeekThinking: (enabled: boolean) => void;
   deepSeekThinkingEnabled: boolean;
   mainAgentAssemblyMode: MainAgentAssemblyMode;
   selectedChatModelId: string;
-  taskSelection: TaskSelectionState | null;
 }) {
   const [value, setValue] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [taskControlPending, setTaskControlPending] = useState<"pause" | "resume" | "stop" | null>(null);
   const modelOptions = useMemo(() => buildChatModelOptions(modelProviderConfig, soulImageAssetConfig), [modelProviderConfig, soulImageAssetConfig]);
   const inputDisabled = disabled || submitting;
   const activeModelId = modelOptions.some((option) => option.id === selectedChatModelId)
@@ -68,23 +50,6 @@ export function ChatInput({
   const activeModel = resolveActiveChatModel(activeModelId, modelProviderConfig);
   const showDeepSeekThinkingToggle = activeModel?.provider === "deepseek"
     && !activeModel.model.toLowerCase().includes("image");
-  const selectionLabel = taskSelection?.label?.trim()
-    || taskSelection?.selected_task_id?.trim()
-    || "";
-  const taskControlDisabled = disabled || Boolean(taskControlPending);
-  const runTaskControl = async (kind: "pause" | "resume" | "stop", action: () => Promise<void>) => {
-    if (taskControlDisabled) {
-      return;
-    }
-    setTaskControlPending(kind);
-    try {
-      await action();
-    } catch (error) {
-      console.error("Failed to control active task run", error);
-    } finally {
-      setTaskControlPending(null);
-    }
-  };
   const submit = async () => {
     const nextValue = value.trim();
     if (inputDisabled || !nextValue) {
@@ -104,14 +69,6 @@ export function ChatInput({
 
   return (
     <div className="chat-input-panel chat-input-panel--inline">
-      {taskSelection ? (
-        <div className="chat-task-selection-bar">
-          <div className="chat-task-selection-bar__content">
-            <span className="chat-task-selection-bar__eyebrow">当前承接</span>
-            <strong>特定任务 · {selectionLabel}</strong>
-          </div>
-        </div>
-      ) : null}
       <div className="chat-input-panel__composer">
         <textarea
           className="chat-input-panel__textarea"
@@ -189,42 +146,6 @@ export function ChatInput({
             >
               <Square size={15} />
               停止
-            </button>
-          ) : null}
-          {!streaming && activeTaskControl?.canResume ? (
-            <button
-              className="chat-task-control-button"
-              disabled={taskControlDisabled}
-              onClick={() => void runTaskControl("resume", onResumeTask)}
-              title="继续当前任务"
-              type="button"
-            >
-              <Play size={15} />
-              {taskControlPending === "resume" ? "继续中" : "继续"}
-            </button>
-          ) : null}
-          {!streaming && !activeTaskControl?.canResume && activeTaskControl?.canPause ? (
-            <button
-              className="chat-task-control-button"
-              disabled={taskControlDisabled}
-              onClick={() => void runTaskControl("pause", onPauseTask)}
-              title="暂停当前任务"
-              type="button"
-            >
-              <Square size={15} />
-              {taskControlPending === "pause" ? "暂停中" : "暂停"}
-            </button>
-          ) : null}
-          {!streaming && activeTaskControl?.canStop ? (
-            <button
-              aria-label="停止当前任务"
-              className="chat-task-stop-icon"
-              disabled={taskControlDisabled}
-              onClick={() => void runTaskControl("stop", onStopTask)}
-              title="停止当前任务"
-              type="button"
-            >
-              <CircleStop size={16} />
             </button>
           ) : null}
           <button

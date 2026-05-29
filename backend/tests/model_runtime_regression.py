@@ -13,6 +13,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from runtime.model_gateway.model_runtime import ModelRuntime, ModelRuntimeError, ModelSpec
+from runtime.model_gateway.provider_cache_policy import ProviderCachePolicyResolver
 from runtime.tool_runtime.provider_tool_call_adapter import normalize_tool_call_dicts, tool_calls_for_langchain_messages
 from runtime.model_gateway.model_response import ModelResponseRuntimeExecutor
 from runtime.tool_runtime.tool_call_policy import ToolCallBindingOptions
@@ -948,5 +949,30 @@ def test_model_runtime_prompt_accounting_records_cache_efficiency_metrics(tmp_pa
     assert cache_record.diagnostics["cache_efficiency"] > 0
     assert cache_record.diagnostics["duration_seconds"] >= 0
     assert provider_usage.diagnostics["duration_seconds"] >= 0
+
+
+def test_provider_cache_policy_disables_undeclared_openai_compatible_endpoint() -> None:
+    resolver = ProviderCachePolicyResolver()
+
+    official = resolver.resolve(
+        provider="openai",
+        model="gpt-4.1-mini",
+        base_url="https://api.openai.com/v1",
+    )
+    compatible = resolver.resolve(
+        provider="openai",
+        model="compatible-model",
+        base_url="https://example.invalid/v1",
+    )
+    deepseek = resolver.resolve(
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        base_url="https://api.deepseek.com/v1",
+    )
+
+    assert official.mode == "automatic_prefix"
+    assert deepseek.mode == "automatic_prefix"
+    assert compatible.mode == "disabled"
+    assert compatible.reason == "openai_compatible_endpoint_cache_support_not_declared_by_adapter"
 
 

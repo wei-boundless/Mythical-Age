@@ -19,7 +19,7 @@ const INTERNAL_RUNTIME_STEPS = new Set([
 
 function isChatTurnRunId(value: unknown) {
   const normalized = text(value).toLowerCase();
-  return normalized.startsWith("turnrun:");
+  return normalized.startsWith("turnrun:") || normalized.startsWith("taskrun:turn:");
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -40,6 +40,21 @@ function numberValue(value: unknown) {
 function short(value: unknown, limit = 360) {
   const normalized = text(value).replace(/\s+/g, " ");
   return normalized.length > limit ? `${normalized.slice(0, limit - 1)}...` : normalized;
+}
+
+function publicRuntimeText(value: unknown, limit = 360) {
+  const normalized = short(value, limit)
+    .replace(/\bTaskRun\b/gi, "当前工作")
+    .replace(/\bruntime packet\b/gi, "上下文")
+    .replace(/\bagent\b/gi, "助手")
+    .replace(/执行器/g, "处理流程")
+    .replace(/正式任务/g, "当前工作")
+    .replace(/任务待办/g, "处理清单")
+    .replace(/任务生命周期/g, "处理流程")
+    .replace(/任务运行/g, "处理进展")
+    .replace(/会话运行/g, "处理进展")
+    .replace(/运行装配/g, "整理上下文");
+  return normalized.trim();
 }
 
 function shortCommand(value: unknown, limit = 180) {
@@ -427,13 +442,14 @@ function operationGateProjection(eventType: string, payload: Record<string, unkn
 
 function loopTerminalProjection(eventType: string, payload: Record<string, unknown>, eventMeta: ReturnType<typeof runtimeEvent>): RuntimeVisibilityProjection {
   const status = text(payload.status) || "completed";
-  const terminalReason = text(payload.terminal_reason) || "completed";
+  const terminalReason = publicRuntimeText(payload.terminal_reason || "completed");
+  const title = status === "completed" ? "处理完成" : "处理结束";
   return {
     stageStatus: status === "completed" ? "完成" : "结束",
-    activityTitle: status === "completed" ? "任务运行完成" : "任务运行结束",
+    activityTitle: title,
     activityDetail: terminalReason,
     level: status === "completed" ? "success" : "warning",
-    progressEntry: entry(eventType, status === "completed" ? "任务运行完成" : "任务运行结束", {
+    progressEntry: entry(eventType, title, {
       body: terminalReason,
       level: status === "completed" ? "success" : "warning",
       kind: "terminal",
@@ -515,19 +531,19 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
     const taskRunId = text(taskRun.task_run_id) || text(runtimeEvent.task_run_id);
     if (isChatTurnRunId(taskRunId) || text(taskRun.execution_runtime_kind) === "single_agent_turn") {
       return {
-        stageStatus: "会话运行开始",
-        activityTitle: "会话运行开始",
-        activityDetail: text(taskRun.status) || "本轮请求已进入 agent runtime",
+        stageStatus: "正在整理上下文",
+        activityTitle: "正在整理上下文",
+        activityDetail: "准备判断下一步",
         level: "running",
       };
     }
     return {
-      stageStatus: "正式任务已创建",
-      activityTitle: "正式任务已创建",
-      activityDetail: goal || text(taskRun.status) || "任务已进入运行队列",
+      stageStatus: "已确认目标",
+      activityTitle: "已确认目标",
+      activityDetail: publicRuntimeText(goal || text(taskRun.status) || "已进入处理队列"),
       level: "running",
-      progressEntry: entry("harness_run_started", "正式任务已创建", {
-        body: goal || "任务已进入运行队列",
+      progressEntry: entry("harness_run_started", "已确认目标", {
+        body: publicRuntimeText(goal || "已进入处理队列"),
         level: "running",
         kind: "task_order",
         statusText: text(taskRun.status) || "running",
@@ -535,7 +551,6 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
         eventId: text(runtimeEvent.event_id),
         createdAt: numberValue(runtimeEvent.created_at ?? taskRun.created_at) ?? Date.now(),
         meta: compactMeta([
-          metaItem("TaskRun", taskRun.task_run_id, { shorten: true }),
           goal ? metaItem("目标", goal) : null,
         ]),
       }),
@@ -547,7 +562,7 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
       return {};
     }
     const status = text(data.status);
-    const summary = text(data.summary);
+    const summary = publicRuntimeText(data.summary);
     const level: SessionActivityLevel = status === "completed" ? "success" : status === "failed" ? "error" : status === "waiting" ? "waiting" : "running";
     return {
       stageStatus: summary || step || "运行步骤",
@@ -571,20 +586,19 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
     const contract = record(payload.contract);
     const goal = text(contract.user_visible_goal ?? contract.task_run_goal);
     return {
-      stageStatus: "正式任务已开启",
-      activityTitle: "正式任务已开启",
-      activityDetail: goal,
+      stageStatus: "处理已开始",
+      activityTitle: "处理已开始",
+      activityDetail: publicRuntimeText(goal),
       level: "running",
-      progressEntry: entry("task_run_lifecycle_started", "正式任务已开启", {
-        body: goal,
+      progressEntry: entry("task_run_lifecycle_started", "处理已开始", {
+        body: publicRuntimeText(goal),
         level: "running",
         kind: "task_order",
-        statusText: text(taskRun.status) || "running",
+        statusText: "进行中",
         taskRunId: text(taskRun.task_run_id),
         eventId: text(runtimeEvent.event_id),
         createdAt: numberValue(runtimeEvent.created_at) ?? Date.now(),
         meta: compactMeta([
-          metaItem("TaskRun", taskRun.task_run_id, { shorten: true }),
           metaItem("目标", goal),
         ]),
       }),
@@ -600,11 +614,11 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
     const status = text(taskRun.status);
     const waiting = eventType === "task_run_lifecycle_waiting_executor" || status === "waiting_executor";
     const title = eventType === "agent_todo_initialized"
-      ? "任务待办已建立"
+      ? "处理清单已建立"
       : waiting
-        ? "等待执行器接管"
-        : "任务生命周期更新";
-    const body = short(text(observation.summary) || text(payload.reason) || status || eventType);
+        ? "等待继续"
+        : "处理进展更新";
+    const body = publicRuntimeText(text(observation.summary) || text(payload.reason) || status || eventType);
     return {
       stageStatus: title,
       activityTitle: title,
@@ -638,14 +652,14 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
       || reason === "task_executor_scheduled"
       || taskRunStatus === "waiting_executor";
     const failed = text(runtimeEvent.event_type) === "agent_turn_failed" || status === "failed";
-    const title = waiting ? "任务已转入后台执行" : failed ? "Agent 运行失败" : "Agent 本轮完成";
+    const title = waiting ? "继续在后台处理" : failed ? "处理失败" : "本轮完成";
     return {
       stageStatus: title,
       activityTitle: title,
-      activityDetail: reason || status,
+      activityDetail: publicRuntimeText(reason || status),
       level: waiting ? "waiting" : failed ? "error" : "success",
       progressEntry: entry("agent_turn_terminal", title, {
-        body: reason || status,
+        body: publicRuntimeText(reason || status),
         level: waiting ? "waiting" : failed ? "error" : "success",
         kind: "terminal",
         statusText: waiting ? "等待" : failed ? "失败" : "完成",
@@ -660,12 +674,12 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
     const draft = record(data.draft);
     const missing = arrayText(draft.missing_fields, 8);
     return {
-      stageStatus: "等待任务确认",
-      activityTitle: "任务需要确认",
-      activityDetail: missing.length ? `缺少：${missing.join("、")}` : "需要补充任务信息",
+      stageStatus: "等待确认",
+      activityTitle: "需要确认",
+      activityDetail: missing.length ? `缺少：${missing.join("、")}` : "需要补充信息",
       level: "waiting",
-      progressEntry: entry("task_order_draft", "任务需要确认", {
-        body: missing.length ? `缺少：${missing.join("、")}` : "需要补充任务信息",
+      progressEntry: entry("task_order_draft", "需要确认", {
+        body: missing.length ? `缺少：${missing.join("、")}` : "需要补充信息",
         level: "waiting",
         kind: "task_draft",
         statusText: "待确认",

@@ -170,7 +170,7 @@ async def execute_harness_task_run(
                 "executor_status": "scheduled",
                 "latest_step": "task_executor_scheduled",
                 "latest_step_status": "running",
-                "latest_step_summary": "任务执行器已被调度，正在接管 TaskRun。",
+                "latest_step_summary": "正在准备继续处理。",
             },
         )
     )
@@ -248,7 +248,7 @@ async def resume_harness_task_run(
                 "executor_status": "scheduled",
                 "latest_step": "task_executor_scheduled",
                 "latest_step_status": "running",
-                "latest_step_summary": "继续请求已接入，任务执行器正在从原 TaskRun 续跑。",
+                "latest_step_summary": "继续请求已接入，正在从原进度接着处理。",
             },
         )
     )

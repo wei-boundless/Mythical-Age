@@ -328,7 +328,7 @@ class GraphLoopState:
     blocked_node_ids: tuple[str, ...]
 
     active_work_orders: dict[str, str]
-    result_index: dict[str, NodeResultEnvelope]
+    result_index: dict[str, NodeResultEnvelopeRef | NodeResultSummary]
     event_cursor: int
     terminal_reason: str
     diagnostics: dict
@@ -339,6 +339,8 @@ class GraphLoopState:
 ```text
 GraphLoopState 保存 TaskGraphDefinition
 GraphLoopState 保存 TaskGraphRuntimeSpec 作为恢复依据
+GraphLoopState 保存完整 NodeResultEnvelope.outputs.final_answer
+GraphLoopState 保存完整 GraphNodeWorkOrder.input_package
 GraphLoopState 发现缺字段后补配置
 monitor 根据展示需要改 GraphLoopState
 ```

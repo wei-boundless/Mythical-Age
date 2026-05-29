@@ -37,6 +37,7 @@ class ModelRequestPacket:
     provider: str
     model: str
     messages: tuple[dict[str, Any], ...]
+    base_url: str = ""
     tools: tuple[dict[str, Any], ...] = ()
     segment_plan: dict[str, Any] = field(default_factory=dict)
     segment_bindings: tuple[ModelRequestSegmentBinding, ...] = ()
@@ -69,6 +70,7 @@ class ModelRequestBuilder:
         tools: list[Any] | None = None,
         provider: str = "",
         model: str = "",
+        base_url: str = "",
         segment_plan: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> ModelRequestPacket:
@@ -84,11 +86,12 @@ class ModelRequestBuilder:
                 "metadata": dict(metadata or {}),
             }
         )
-        cache_policy = self.cache_policy_resolver.resolve(provider=provider, model=model)
+        cache_policy = self.cache_policy_resolver.resolve(provider=provider, model=model, base_url=base_url)
         return ModelRequestPacket(
             request_id=str(request_id or ""),
             provider=str(provider or ""),
             model=str(model or ""),
+            base_url=str(base_url or ""),
             messages=normalized_messages,
             tools=normalized_tools,
             segment_plan=plan,

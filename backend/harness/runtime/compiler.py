@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -136,7 +137,8 @@ class RuntimeCompiler:
         stable_payload = {
             "schema": schema,
             "task_environment": _environment_stable_payload(environment_payload),
-            "available_tools": [dict(item) for item in tool_payloads],
+            "available_tools": _stable_tool_catalog_payload(tool_payloads),
+            "tool_catalog_hash": _stable_json_hash([dict(item) for item in tool_payloads]),
         }
         dynamic_payload = {
             "operation_authorization": dict(assembly_payload.get("operation_authorization") or {}),
@@ -370,7 +372,8 @@ class RuntimeCompiler:
             "task_run": _task_run_stable_payload(task_run),
             "task_contract": _task_contract_stable_payload(contract),
             "task_environment": _environment_stable_payload(environment_payload),
-            "available_tools": [dict(item) for item in tool_payloads],
+            "available_tools": _stable_tool_catalog_payload(tool_payloads),
+            "tool_catalog_hash": _stable_json_hash([dict(item) for item in tool_payloads]),
         }
         dynamic_payload = {
             "operation_authorization": dict(assembly_payload.get("operation_authorization") or {}),
@@ -588,7 +591,8 @@ class RuntimeCompiler:
         stable_payload = {
             "schema": schema,
             "task_environment": _environment_stable_payload(environment_payload),
-            "available_tools": [dict(item) for item in tool_payloads],
+            "available_tools": _stable_tool_catalog_payload(tool_payloads),
+            "tool_catalog_hash": _stable_json_hash([dict(item) for item in tool_payloads]),
         }
         dynamic_payload = {
             "operation_authorization": dict(assembly_payload.get("operation_authorization") or {}),
@@ -1187,6 +1191,72 @@ def _environment_stable_payload(environment_payload: dict[str, Any]) -> dict[str
     return payload
 
 
+def _stable_tool_catalog_payload(tool_payloads: tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
+    catalog: list[dict[str, Any]] = []
+    for item in tool_payloads:
+        tool = dict(item or {})
+        name = str(tool.get("tool_name") or tool.get("name") or "").strip()
+        if not name:
+            continue
+        payload: dict[str, Any] = {
+            "tool_name": name,
+            "operation_id": str(tool.get("operation_id") or ""),
+            "display_name": str(tool.get("display_name") or name),
+            "required_inputs": [str(value) for value in list(tool.get("required_inputs") or []) if str(value)],
+            "optional_inputs": [str(value) for value in list(tool.get("optional_inputs") or []) if str(value)],
+            "owner_scope": str(tool.get("owner_scope") or "none"),
+            "read_only": bool(tool.get("read_only") is True),
+        }
+        description = str(tool.get("description") or "").strip()
+        if description:
+            payload["description"] = description
+        input_schema = dict(tool.get("input_schema") or {}) if isinstance(tool.get("input_schema"), dict) else {}
+        if input_schema:
+            payload["input_schema_summary"] = _input_schema_summary(input_schema)
+            payload["input_schema_hash"] = _stable_json_hash(input_schema)
+        catalog.append(payload)
+    return catalog
+
+
+def _input_schema_summary(schema: dict[str, Any]) -> dict[str, Any]:
+    properties = dict(schema.get("properties") or {})
+    summarized_properties: dict[str, Any] = {}
+    for name, value in properties.items():
+        if not isinstance(value, dict):
+            continue
+        field: dict[str, Any] = {}
+        for key in ("type", "format", "enum", "default"):
+            if key in value:
+                field[key] = value.get(key)
+        if isinstance(value.get("items"), dict):
+            item_payload = dict(value.get("items") or {})
+            field["items"] = {key: item_payload.get(key) for key in ("type", "format", "enum") if key in item_payload}
+        description = str(value.get("description") or "").strip()
+        if description:
+            field["description"] = description
+        summarized_properties[str(name)] = field
+    return {
+        "type": str(schema.get("type") or "object"),
+        "required": [str(item) for item in list(schema.get("required") or []) if str(item)],
+        "properties": summarized_properties,
+    }
+
+
+def _stable_json_hash(value: Any) -> str:
+    payload = json.dumps(_json_stable(value), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return "sha256:" + hashlib.sha256(payload.encode("utf-8", errors="ignore")).hexdigest()
+
+
+def _json_stable(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _json_stable(value[key]) for key in sorted(value)}
+    if isinstance(value, (list, tuple)):
+        return [_json_stable(item) for item in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return repr(value)
+
+
 def _task_run_stable_payload(task_run: dict[str, Any]) -> dict[str, Any]:
     diagnostics = dict(task_run.get("diagnostics") or {})
     return {
@@ -1278,6 +1348,10 @@ def _resource_requirements_stable_payload(resource_requirements: dict[str, Any])
 
 def _input_package_stable_payload(input_package: dict[str, Any]) -> dict[str, Any]:
     payload = dict(input_package or {})
+    payload.pop("inbound_context", None)
+    payload.pop("upstream_results", None)
+    payload.pop("upstream_handoff_packets", None)
+    payload.pop("handoff_packets", None)
     if "task_environment" in payload:
         payload["task_environment"] = {
             "environment_id": str(dict(payload.get("task_environment") or {}).get("environment_id") or ""),

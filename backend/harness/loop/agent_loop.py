@@ -10,6 +10,7 @@ from typing import Any
 
 from capability_system.units.tools.agent_todo_tool import AgentTodoTool
 from harness.runtime import AgentRunRequest, RuntimeCompiler, build_execution_context
+from harness.runtime.public_progress import public_action_progress_summary, public_runtime_progress_summary
 from runtime.shared.models import AgentRun, TaskRun
 
 from .admission import admit_model_action
@@ -76,7 +77,7 @@ async def run_agent_invocation_stream(
         turn_id=turn_id,
         step="turn_started",
         status="running",
-        summary="系统已创建本轮单 agent 运行记录，并开始装配运行时。",
+        summary="已收到请求，正在整理上下文。",
     )
     if not runtime_assembly_payload:
         content = "本轮缺少 runtime assembly，系统已按 fail-closed 停止。"
@@ -147,7 +148,7 @@ async def run_agent_invocation_stream(
             turn_id=turn_id,
             step="runtime_packet_compiled",
             status="running",
-            summary="系统已装配本次调用的 runtime packet，并交给 agent 决定下一步动作。",
+            summary="正在整理上下文，准备判断下一步。",
             refs={"runtime_invocation_packet_ref": compilation.packet.packet_id},
         )
 
@@ -157,7 +158,7 @@ async def run_agent_invocation_stream(
             turn_id=turn_id,
             step=f"model_action_invocation_started:{action_index}",
             status="running",
-            summary="runtime packet 已送入模型，系统正在等待 agent 返回下一步动作。",
+            summary="正在处理这一步。",
             refs={"runtime_invocation_packet_ref": compilation.packet.packet_id},
         )
         model_action_task: asyncio.Task | None = None
@@ -188,7 +189,7 @@ async def run_agent_invocation_stream(
                     turn_id=turn_id,
                     step=f"model_action_waiting:{action_index}",
                     status="running",
-                    summary=f"模型调用仍在进行中，系统继续等待 agent 动作返回。等待轮次：{wait_round}。",
+                summary=f"仍在处理中，正在等待下一步结果。等待轮次：{wait_round}。",
                     refs={"runtime_invocation_packet_ref": compilation.packet.packet_id},
                 )
             action_request, diagnostics = await model_action_task
@@ -266,7 +267,7 @@ async def run_agent_invocation_stream(
                 turn_id=turn_id,
                 step=f"model_action_protocol_repair_required:{action_index}",
                 status="running",
-                summary="agent 返回的动作请求未通过协议校验；系统已把校验错误作为观察回灌，要求 agent 修正后继续。",
+                summary="当前步骤输出格式不完整，正在自动修正后继续。",
                 refs={
                     "observation_ref": observation["observation_id"],
                     "runtime_invocation_packet_ref": compilation.packet.packet_id,
@@ -353,7 +354,7 @@ async def run_agent_invocation_stream(
             turn_id=turn_id,
             step="model_action_received",
             status="running",
-            summary=f"agent 已返回动作请求：{action_request.action_type}。",
+            summary=public_action_progress_summary(action_request.action_type),
             refs={"action_request_ref": action_request.request_id},
         )
 
@@ -384,7 +385,7 @@ async def run_agent_invocation_stream(
             turn_id=turn_id,
             step="action_admission_checked",
             status="running",
-            summary=f"系统已完成动作准入检查：{admission.decision}。",
+            summary="安全边界已确认。" if admission.decision == "allow" else "当前步骤未通过安全边界检查。",
             refs={
                 "action_request_ref": action_request.request_id,
                 "admission_ref": admission.admission_id,
@@ -520,7 +521,7 @@ async def run_agent_invocation_stream(
                 turn_id=turn_id,
                 step="bounded_observation_recorded",
                 status="running",
-                summary="系统已执行一次有边界的只读观察，并把结果回灌给 agent。",
+                summary="已完成一次必要观察，正在根据结果继续。",
                 refs={
                     "action_request_ref": action_request.request_id,
                     "observation_ref": observation["observation_id"],
@@ -570,7 +571,7 @@ async def run_agent_invocation_stream(
                     turn_id=turn_id,
                     step="registered_engagement_started",
                     status="completed",
-                    summary="系统已按已注册任务承接计划开启正式任务生命周期。",
+                    summary="已按当前计划开始处理。",
                     refs={
                         "action_request_ref": action_request.request_id,
                         "task_run_ref": str(task_run.get("task_run_id") or ""),
@@ -580,7 +581,7 @@ async def run_agent_invocation_stream(
                 task_run_id = str(task_run.get("task_run_id") or "")
                 if task_run_id:
                     _schedule_task_executor(runtime_host, task_run_id)
-                content = "已按已注册任务计划启动执行，任务执行器会继续推进并记录状态。"
+                content = "我已按当前计划开始处理，后续进展会继续汇总在这里。"
                 await _commit_assistant_message(
                     request.assistant_message_committer,
                     content=content,
@@ -659,7 +660,7 @@ async def run_agent_invocation_stream(
                     turn_id=turn_id,
                     step="task_contract_repair_required",
                     status="running",
-                    summary="系统发现正式任务合同不完整，已把精确错误作为观察回灌给 agent 修复。",
+                    summary="处理目标还不完整，正在补全必要边界。",
                     refs={
                         "action_request_ref": action_request.request_id,
                         "observation_ref": observation["observation_id"],
@@ -695,7 +696,7 @@ async def run_agent_invocation_stream(
                 turn_id=turn_id,
                 step="task_lifecycle_started",
                 status="running",
-                summary="系统已按 agent 的任务合同开启正式任务生命周期。",
+                summary="已确认当前处理目标。",
                 refs={
                     "action_request_ref": action_request.request_id,
                     "task_run_ref": task_run.task_run_id,
@@ -731,13 +732,13 @@ async def run_agent_invocation_stream(
                     turn_id=turn_id,
                     step="task_launch_supervision_waiting",
                     status="completed",
-                    summary="正式任务已建立，正在等待用户建议或直接通过后启动执行器。",
+                    summary="已准备好继续处理，正在等待确认。",
                     refs={"task_run_ref": gated_task.task_run_id},
                 )
                 content = _task_run_handoff_content(
                     contract=contract.to_dict(),
-                    status_text=str(launch_gate_policy.get("user_prompt") or "任务已准备启动。你可以提出建议，或直接通过。"),
-                    control_text="确认启动前，这个任务会停在等待审批状态。",
+                    status_text=str(launch_gate_policy.get("user_prompt") or "我已经准备好继续处理。你可以补充建议，或直接确认继续。"),
+                    control_text="确认前，我会先停在这里。",
                 )
                 await _commit_assistant_message(
                     request.assistant_message_committer,
@@ -778,13 +779,13 @@ async def run_agent_invocation_stream(
                 turn_id=turn_id,
                 step="task_executor_scheduled",
                 status="completed",
-                summary="正式任务已建立，系统已调度任务执行器接管后续步骤。",
+                summary="已开始处理，后续进展会继续汇总在当前会话里。",
                 refs={"task_run_ref": task_run.task_run_id},
             )
             content = _task_run_handoff_content(
                 contract=contract.to_dict(),
-                status_text="我会按这个任务目标继续推进，当前执行器已启动。",
-                control_text="运行中可以暂停、继续或停止；进展会直接汇总在当前会话里。",
+                status_text="我会按这个目标继续推进。",
+                control_text="你可以直接说暂停、继续或停止；进展会汇总在当前会话里。",
             )
             await _commit_assistant_message(
                 request.assistant_message_committer,
@@ -990,7 +991,7 @@ async def _initialize_agent_todo(
         "task_id": task_run_id,
         "items": [
             {
-                "content": str(contract.get("user_visible_goal") or contract.get("task_run_goal") or "执行正式任务"),
+                "content": str(contract.get("user_visible_goal") or contract.get("task_run_goal") or "继续处理当前工作"),
                 "status": "in_progress",
                 "evidence_expectations": [
                     *[str(item) for item in list(contract.get("completion_criteria") or [])],
@@ -1126,7 +1127,7 @@ def _schedule_task_executor(runtime_host: Any, task_run_id: str) -> None:
                 "executor_status": "scheduled",
                 "latest_step": "task_executor_scheduled",
                 "latest_step_status": "running",
-                "latest_step_summary": "任务执行器已被调度，正在接管 TaskRun。",
+                "latest_step_summary": "正在准备继续处理。",
             },
         )
     )
@@ -1155,7 +1156,7 @@ def _schedule_task_executor(runtime_host: Any, task_run_id: str) -> None:
                     turn_id=task_run_id,
                     step="task_executor_auto_continue_scheduled",
                     status="running",
-                    summary="任务执行器已确认本轮预算耗尽且任务可续跑，系统正在自动开启下一轮执行。",
+                    summary="本轮步骤预算已用尽，正在自动接着处理下一段。",
                     refs={"task_run_ref": task_run_id},
                 )
                 await asyncio.sleep(0)
@@ -1173,12 +1174,12 @@ def _task_run_handoff_content(*, contract: dict[str, Any], status_text: str, con
     goal = _first_public_text(
         contract.get("user_visible_goal"),
         contract.get("task_run_goal"),
-        "我会把这件事作为正式任务继续推进。",
+        "我会把这件事继续推进。",
     )
     criteria = _first_list_items(contract.get("completion_criteria"), limit=2)
     artifacts = _artifact_names(contract.get("required_artifacts"), limit=2)
     verifications = _verification_names(contract.get("required_verifications"), limit=2)
-    lines = [f"我会按正式任务推进：{goal}"]
+    lines = [f"我会按这个目标推进：{goal}"]
     scope_parts: list[str] = []
     if criteria:
         scope_parts.append("完成标准：" + "；".join(criteria))
@@ -1272,7 +1273,7 @@ def _mark_task_executor_schedule_failed(runtime_host: Any, *, task_run_id: str, 
                     "executor_status": "blocked",
                     "latest_step": "task_executor_schedule_failed",
                     "latest_step_status": "blocked",
-                    "latest_step_summary": f"任务执行器调度失败：{error}",
+                    "latest_step_summary": f"继续处理时遇到调度失败：{error}",
                     "recoverable_error": {
                         "error_code": "task_executor_schedule_failed",
                         "retryable": True,
@@ -1352,6 +1353,7 @@ def _record_step_summary(
     summary: str,
     refs: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    visible_summary = public_runtime_progress_summary(summary)
     event = runtime_host.event_log.append(
         task_run_id,
         "step_summary_recorded",
@@ -1359,7 +1361,7 @@ def _record_step_summary(
             "turn_id": turn_id,
             "step": step,
             "status": status,
-            "summary": summary,
+            "summary": visible_summary,
         },
         refs={"turn_ref": turn_id, **dict(refs or {})},
     )
@@ -1374,7 +1376,7 @@ def _record_step_summary(
                     **dict(current_task_run.diagnostics or {}),
                     "latest_step": step,
                     "latest_step_status": status,
-                    "latest_step_summary": summary,
+                    "latest_step_summary": visible_summary,
                 },
             )
         )
@@ -1382,7 +1384,7 @@ def _record_step_summary(
         "type": "runtime_step_summary",
         "step": step,
         "status": status,
-        "summary": summary,
+        "summary": visible_summary,
         "event": event.to_dict(),
     }
 
@@ -1399,7 +1401,7 @@ def _build_task_contract_error_observation(
         packet_ref=packet_ref,
         action_request_ref=action_request.request_id,
         execution_context_ref="",
-        summary="正式任务合同未通过校验，需要修正后重新提交 request_task_run。",
+        summary="当前处理目标未通过校验，需要修正后重新提交。",
         payload={
             "error_code": "task_contract_invalid",
             "contract_errors": errors,
@@ -1431,7 +1433,7 @@ def _build_model_protocol_error_observation(
         packet_ref=packet_ref,
         action_request_ref=f"model-action-invalid:{turn_id}:{invocation_index}",
         execution_context_ref="",
-        summary="agent 动作请求未通过协议校验，需要只输出合法 JSON 动作对象后继续。",
+        summary="当前步骤输出格式不完整，需要修正后继续。",
         payload={
             "error_code": "model_action_invalid",
             "validation_errors": errors,
@@ -1440,8 +1442,8 @@ def _build_model_protocol_error_observation(
                 "action_type": "respond|ask_user|tool_call|request_task_run|request_registered_engagement|block",
                 "tool_call": {"tool_name": "工具名", "args": {}},
                 "task_contract_seed": {
-                    "user_visible_goal": "开启正式任务时必填",
-                    "task_run_goal": "开启正式任务时必填",
+                    "user_visible_goal": "开始持续处理时必填",
+                    "task_run_goal": "开始持续处理时必填",
                     "completion_criteria": "真实验收标准",
                 },
             },

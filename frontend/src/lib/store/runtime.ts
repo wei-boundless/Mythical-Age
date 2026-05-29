@@ -1699,7 +1699,7 @@ export class WorkspaceRuntime {
     const eventCount = Number(monitor.event_count ?? 0);
     return {
       id: eventId || `${taskRunId}:latest-step:${eventCount || String(latestStep.step ?? latestStep.status ?? "current")}`,
-      title: String(monitor.latest_step_summary ?? "任务运行中"),
+      title: String(monitor.latest_step_summary ?? "正在处理"),
       body: String(monitor.latest_step_summary ?? ""),
       eventType: String((monitor.latest_event as Record<string, unknown> | undefined)?.event_type ?? "runtime_live_monitor"),
       kind: this.runtimeProgressKindFromStep(String(latestStep.step ?? monitor.latest_step_name ?? "")),
@@ -2369,13 +2369,13 @@ export class WorkspaceRuntime {
         ...prev,
         sessionActivity: {
           level: "waiting",
-          title: "任务已暂停",
-          detail: "任务停在可继续状态，可以从当前会话继续推进",
+          title: "已暂停",
+          detail: "当前处理已停在可继续状态，可以直接说继续。",
           event: "runtime_live_monitor",
           receipt: {
             level: "waiting",
-            title: "任务已暂停",
-            body: "任务停在可继续状态，可以从当前会话继续推进。",
+            title: "已暂停",
+            body: "当前处理已停在可继续状态，可以直接说继续。",
             debug: {
               event: "runtime_live_monitor",
               taskRunId: taskRunId || "",
@@ -2394,12 +2394,12 @@ export class WorkspaceRuntime {
         ...prev,
         sessionActivity: {
           level: "running",
-          title: stopping ? "正在停止任务" : "正在暂停任务",
+          title: stopping ? "正在停止" : "正在暂停",
           detail: stopping ? "停止请求已记录，当前步骤收口后结束" : "暂停请求已记录，当前步骤收口后暂停",
           event: "runtime_live_monitor",
           receipt: {
             level: "running",
-            title: stopping ? "正在停止任务" : "正在暂停任务",
+            title: stopping ? "正在停止" : "正在暂停",
             body: stopping ? "停止请求已记录，当前步骤收口后结束。" : "暂停请求已记录，当前步骤收口后暂停。",
             debug: {
               event: "runtime_live_monitor",
@@ -2418,13 +2418,13 @@ export class WorkspaceRuntime {
         ...prev,
         sessionActivity: {
           level: "waiting",
-          title: normalizedStatus === "waiting_executor" ? "等待执行器接管" : normalizedStatus === "waiting_approval" ? "等待审批" : "运行受阻",
-          detail: normalizedStatus === "waiting_executor" ? "正式任务已建立，等待任务执行器推进步骤" : normalizedStatus === "waiting_approval" ? "需要确认后继续执行" : "任务运行需要处理",
+          title: normalizedStatus === "waiting_executor" ? "等待继续" : normalizedStatus === "waiting_approval" ? "等待确认" : "运行受阻",
+          detail: normalizedStatus === "waiting_executor" ? "已确认目标，正在等待继续推进。" : normalizedStatus === "waiting_approval" ? "需要确认后继续执行。" : "当前处理需要处理。",
           event: "runtime_live_monitor",
           receipt: {
             level: "waiting",
-            title: normalizedStatus === "waiting_executor" ? "等待执行器接管" : normalizedStatus === "waiting_approval" ? "等待审批" : "运行受阻",
-            body: normalizedStatus === "waiting_executor" ? "正式任务已建立，等待任务执行器推进步骤。" : normalizedStatus === "waiting_approval" ? "需要确认后继续执行。" : "任务运行需要处理。",
+            title: normalizedStatus === "waiting_executor" ? "等待继续" : normalizedStatus === "waiting_approval" ? "等待确认" : "运行受阻",
+            body: normalizedStatus === "waiting_executor" ? "已确认目标，正在等待继续推进。" : normalizedStatus === "waiting_approval" ? "需要确认后继续执行。" : "当前处理需要处理。",
             debug: {
               event: "runtime_live_monitor",
               taskRunId: taskRunId || "",
@@ -2441,13 +2441,13 @@ export class WorkspaceRuntime {
         ...prev,
         sessionActivity: {
           level: "running",
-          title: "任务运行中",
-          detail: "正在同步任务运行状态",
+          title: "正在处理",
+          detail: "正在同步当前处理进展",
           event: "runtime_live_monitor",
           receipt: {
             level: "running",
-            title: "任务运行中",
-            body: "正在同步任务运行状态。",
+            title: "正在处理",
+            body: "正在同步当前处理进展。",
             debug: {
               event: "runtime_live_monitor",
               taskRunId: taskRunId || "",
@@ -2464,12 +2464,12 @@ export class WorkspaceRuntime {
         ...prev,
         sessionActivity: {
           level: "success",
-          title: "任务已完成",
+          title: "已完成",
           detail: "结果已写回会话，运行记录可在监控中查看",
           event: "runtime_live_monitor",
           receipt: {
             level: "success",
-            title: "任务已完成",
+            title: "已完成",
             body: "结果已写回会话，运行记录可在监控中查看。",
             debug: {
               event: "runtime_live_monitor",
@@ -2487,13 +2487,13 @@ export class WorkspaceRuntime {
         ...prev,
         sessionActivity: {
           level: "error",
-          title: "任务失败",
-          detail: "任务运行返回失败状态，请查看运行监控",
+          title: "处理失败",
+          detail: "当前处理返回失败状态，请查看运行监控。",
           event: "runtime_live_monitor",
           receipt: {
             level: "error",
-            title: "任务失败",
-            body: "任务运行返回失败状态，请查看运行监控。",
+            title: "处理失败",
+            body: "当前处理返回失败状态，请查看运行监控。",
             debug: {
               event: "runtime_live_monitor",
               taskRunId: taskRunId || "",

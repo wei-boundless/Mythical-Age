@@ -118,9 +118,9 @@ function chatTurnRuntimeProjection(item: GlobalRuntimeMonitorItem): RuntimeWorkP
     workId: text(item.task_run_id),
     workKind: "chat_turn_runtime",
     primaryRunId: text(item.task_run_id),
-    title: publicText(item.title) || "会话运行",
+    title: publicText(item.title) || "处理进展",
     status: statusFromMonitor(item),
-    displayTypeLabel: "会话运行",
+    displayTypeLabel: "处理进展",
     latestEventType: text(item.latest_event_type),
     latestStepSummary: text(item.latest_step_summary),
     isLive: bool(item.is_live) || item.resource_class === "dynamic",
@@ -170,9 +170,9 @@ export function runtimeWorkProjectionFromLiveMonitor(
     workId: taskRunId,
     workKind: "chat_turn_runtime",
     primaryRunId: taskRunId,
-    title: publicText(taskRun.title) || "会话运行",
+    title: publicText(taskRun.title) || "处理进展",
     status: text(monitor.status) || "unknown",
-    displayTypeLabel: "会话运行",
+    displayTypeLabel: "处理进展",
   };
 }
 

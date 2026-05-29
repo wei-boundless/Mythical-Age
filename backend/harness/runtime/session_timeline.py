@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from harness.runtime.public_progress import public_runtime_progress_summary, public_runtime_progress_title
+
 
 def build_session_runtime_timeline(
     *,
@@ -52,9 +54,9 @@ def _runtime_attachment(runtime_host: Any, task_run: Any, *, max_progress_entrie
         "lifecycle": str(monitor.get("lifecycle") or ""),
         "bucket": str(monitor.get("bucket") or ""),
         "title": str(monitor.get("title") or ""),
-        "summary": str(monitor.get("summary") or ""),
+        "summary": public_runtime_progress_summary(monitor.get("summary") or ""),
         "latest_step": dict(monitor.get("latest_step") or {}),
-        "latest_step_summary": str(monitor.get("latest_step_summary") or ""),
+        "latest_step_summary": public_runtime_progress_summary(monitor.get("latest_step_summary") or ""),
         "latest_event_type": str(monitor.get("latest_event_type") or ""),
         "event_count": len(events),
         "progress_entries": progress_entries,
@@ -88,7 +90,7 @@ def _progress_entries(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
         event_type = str(event.get("event_type") or "")
         payload = dict(event.get("payload") or {})
         if event_type == "step_summary_recorded":
-            summary = str(payload.get("summary") or "").strip()
+            summary = public_runtime_progress_summary(payload.get("summary") or "").strip()
             step = str(payload.get("step") or "").strip()
             status = str(payload.get("status") or "").strip()
             if summary or step:
@@ -104,12 +106,12 @@ def _progress_entries(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 )
             continue
         if event_type in {"task_run_lifecycle_started", "task_run_executor_started"}:
-            entries.append(_entry(event, title="任务已启动", body="正式任务生命周期已建立。", kind="task_order"))
+            entries.append(_entry(event, title="处理已开始", body="后续进展会继续汇总。", kind="task_order"))
             continue
         if event_type in {"executor_observation_recorded", "bounded_observation_recorded", "task_run_lifecycle_event"}:
             observation = dict(payload.get("observation") or {})
             source = str(observation.get("source") or "").strip()
-            summary = str(observation.get("summary") or "").strip()
+            summary = public_runtime_progress_summary(observation.get("summary") or "").strip()
             if source or summary:
                 entries.append(
                     _entry(
@@ -128,8 +130,8 @@ def _progress_entries(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
             entries.append(
                 _entry(
                     event,
-                    title="任务已完成" if status == "completed" else "任务已停止",
-                    body=str(task_run.get("terminal_reason") or status),
+                    title="处理已完成" if status == "completed" else "处理已停止",
+                    body=public_runtime_progress_summary(task_run.get("terminal_reason") or status),
                     kind="terminal",
                     level="success" if status == "completed" else "error",
                     status=status,
@@ -164,20 +166,20 @@ def _entry(
 
 def _step_title(step: str, status: str) -> str:
     if step.startswith("task_model_action_invocation_started"):
-        return "等待 agent 决策"
+        return "思考下一步"
     if step.startswith("task_model_action_waiting"):
-        return "agent 正在处理"
+        return "等待结果"
     if step.startswith("task_execution_packet_compiled"):
-        return "装配任务运行时"
+        return "整理上下文"
     if step.startswith("task_tool_executed"):
-        return "工具调用完成"
+        return "执行操作"
     if step.startswith("task_completion_repair_required"):
         return "补充验收证据"
     if step == "task_run_completed":
-        return "任务已完成"
+        return "处理已完成"
     if status == "completed":
         return "步骤已完成"
-    return "任务推进中"
+    return public_runtime_progress_title(step=step, status=status)
 
 
 def _step_kind(step: str) -> str:
@@ -204,7 +206,7 @@ def _level_from_status(status: str) -> str:
 
 def _observation_title(source: str) -> str:
     if source.startswith("tool:"):
-        return "工具观察"
+        return "执行操作"
     if source:
-        return "运行观察"
-    return "观察记录"
+        return "处理观察"
+    return "观察结果"

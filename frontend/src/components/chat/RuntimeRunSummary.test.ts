@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { RuntimeRunSummary } from "./RuntimeRunSummary";
 
 describe("RuntimeRunSummary", () => {
-  it("labels completed chat TaskRun attachments as task activity even when early task_order entries are truncated", () => {
+  it("labels completed work attachments as process progress without exposing internal task wording", () => {
     const html = renderToStaticMarkup(
       React.createElement(RuntimeRunSummary, {
         entries: [],
@@ -36,8 +36,11 @@ describe("RuntimeRunSummary", () => {
       }),
     );
 
-    expect(html).toContain("任务运行");
+    expect(html).toContain("处理进展完成");
+    expect(html).toContain("目标已满足");
+    expect(html).not.toContain("任务运行");
     expect(html).not.toContain("会话运行");
+    expect(html).not.toContain("TaskRun");
   });
 
   it("presents runtime records as process progress with a short stage output", () => {
@@ -66,10 +69,13 @@ describe("RuntimeRunSummary", () => {
       }),
     );
 
-    expect(html).toContain("Agent 判断");
-    expect(html).toContain("agent 正在生成下一步动作");
+    expect(html).toContain("思考下一步");
+    expect(html).toContain("正在生成下一步动作");
+    expect(html).toContain("正在整理上下文");
     expect(html).not.toContain("系统已为当前任务步骤装配 runtime packet");
     expect(html).not.toContain("任务模型调用仍在进行中");
+    expect(html).not.toContain("Agent 判断");
+    expect(html).not.toContain("agent");
     expect(html).toContain("runtime-run-summary--inline");
   });
 
@@ -106,10 +112,11 @@ describe("RuntimeRunSummary", () => {
       }),
     );
 
-    expect(html).toContain("runtime-run-summary--task");
+    expect(html).toContain("runtime-run-summary--work");
     expect(html).toContain(">已完成<");
     expect(html).toContain(">运行中<");
     expect(html).toContain("1/2 步");
+    expect(html).not.toContain("runtime-run-summary--task");
   });
 
   it("marks historical steps completed when the run has reached a terminal success state", () => {
@@ -138,8 +145,9 @@ describe("RuntimeRunSummary", () => {
       }),
     );
 
-    expect(html).toContain("会话运行完成");
+    expect(html).toContain("处理进展完成");
     expect(html).not.toContain(">运行中<");
     expect(html).toContain("已完成");
+    expect(html).not.toContain("会话运行");
   });
 });

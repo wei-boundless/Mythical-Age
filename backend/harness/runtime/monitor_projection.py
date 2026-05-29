@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
+from harness.runtime.public_progress import public_runtime_progress_summary
+
 
 RUNNING_TASK_RUN_STATUSES = {"created", "running"}
 WAITING_TASK_RUN_STATUSES = {"waiting_executor", "waiting_approval"}
@@ -68,7 +70,7 @@ class TaskRunMonitorProjector:
         duration_end_at = current_time if resource_class == "dynamic" else ended_at
         duration_seconds = max(0.0, duration_end_at - created_at) if created_at and duration_end_at else 0.0
         title = self._display_title(task_run, diagnostics, lifecycle=lifecycle)
-        summary = str(
+        summary = public_runtime_progress_summary(
             latest_step.get("summary")
             or diagnostics.get("latest_step_summary")
             or diagnostics.get("summary")
@@ -333,7 +335,7 @@ class TaskRunMonitorProjector:
             return {
                 "step": str(payload.get("step") or ""),
                 "status": str(payload.get("status") or ""),
-                "summary": str(payload.get("summary") or ""),
+                "summary": public_runtime_progress_summary(payload.get("summary") or ""),
                 "event_id": str(getattr(event, "event_id", "") or ""),
                 "offset": int(getattr(event, "offset", -1) or -1),
                 "created_at": float(getattr(event, "created_at", 0.0) or 0.0),

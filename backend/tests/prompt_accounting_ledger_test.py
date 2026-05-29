@@ -188,7 +188,20 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
         contract={"task_run_goal": "审查并修复监控系统", "completion_criteria": ["完成真实验证"]},
         observations=[{"observation_id": "obs:1", "content": "latest command output"}],
         execution_state={"runtime_status": "running"},
-        available_tools=[{"name": "read_file", "description": "读取文件"}],
+        available_tools=[
+            {
+                "tool_name": "read_file",
+                "description": "读取文件",
+                "input_schema": {
+                    "type": "object",
+                    "required": ["path"],
+                    "properties": {
+                        "path": {"type": "string", "description": "要读取的路径"},
+                        "encoding": {"type": "string", "default": "utf-8"},
+                    },
+                },
+            }
+        ],
         runtime_assembly={
             "profile": {"mode": "professional"},
             "task_environment": {"environment_id": "env.test"},
@@ -206,6 +219,10 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
     stable_payload = json.loads(messages[1]["content"].split("\n", 1)[1])
     volatile_payload = json.loads(messages[3]["content"].split("\n", 1)[1])
     assert stable_payload["task_run"]["diagnostics"] == {"graph_run_id": "graph:stable"}
+    assert stable_payload["tool_catalog_hash"].startswith("sha256:")
+    assert "input_schema" not in stable_payload["available_tools"][0]
+    assert stable_payload["available_tools"][0]["input_schema_hash"].startswith("sha256:")
+    assert stable_payload["available_tools"][0]["input_schema_summary"]["properties"]["path"]["type"] == "string"
     assert volatile_payload["task_run_state"]["diagnostics"] == {
         "executor_status": "retrying",
         "recoverable_error": "tool_failed",

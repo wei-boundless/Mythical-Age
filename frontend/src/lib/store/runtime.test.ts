@@ -653,7 +653,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.getOrchestrationHarnessSessionLiveMonitor).toHaveBeenCalledTimes(2);
     await vi.advanceTimersByTimeAsync(1500);
     expect(api.getOrchestrationHarnessSessionLiveMonitor).toHaveBeenCalledTimes(3);
-    expect(store.getState().sessionActivity.title).toBe("任务运行中");
+    expect(store.getState().sessionActivity.title).toBe("正在处理");
   });
 
   it("accumulates live TaskRun progress entries instead of replacing them with the latest step", async () => {
@@ -786,7 +786,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(api.pauseOrchestrationHarnessTaskRun).toHaveBeenCalledWith(taskRunId, "user_pause_from_chat");
     expect(api.resumeOrchestrationHarnessTaskRun).toHaveBeenCalledWith(taskRunId, 12);
     expect(api.stopOrchestrationHarnessTaskRun).toHaveBeenCalledWith(taskRunId, "user_stop_from_chat");
-    expect(store.getState().sessionActivity.title).toBe("任务已暂停");
+    expect(store.getState().sessionActivity.title).toBe("已暂停");
   });
 
   it("does not surface transient global monitor aborts as user-visible errors", async () => {
@@ -1316,16 +1316,16 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     const assistant = transition.state.messages.at(-1);
     expect(assistant?.runtimeProgress?.map((entry) => entry.title)).toEqual([
-      "正式任务已创建",
-      "任务待办已建立",
-      "任务已转入后台执行",
+      "已确认目标",
+      "处理清单已建立",
+      "继续在后台处理",
     ]);
     expect(assistant?.runtimeProgress?.at(-1)).toMatchObject({
       level: "waiting",
       statusText: "等待",
       taskRunId: "taskrun:abc",
     });
-    expect(assistant?.stageStatus).toBe("任务已转入后台执行");
+    expect(assistant?.stageStatus).toBe("继续在后台处理");
   });
 
   it("attaches tool runtime signals to the assistant task flow", () => {
@@ -1418,7 +1418,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     }
 
     const assistant = transition.state.messages.at(-1);
-    expect(assistant?.stageStatus).toBe("接收请求");
+    expect(assistant?.stageStatus).toBe("正在整理上下文");
     expect(assistant?.runtimeProgress).toEqual([]);
   });
 

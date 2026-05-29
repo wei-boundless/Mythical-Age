@@ -26,6 +26,7 @@ from orchestration.runtime_directive import RuntimeDirective
 from orchestration.commit_gate import build_assistant_session_message_commit_decision
 from project_layout import ProjectLayout
 from harness.runtime import RuntimeCompiler, TaskExecutorServices, assemble_runtime, build_execution_context
+from harness.runtime.public_progress import public_action_progress_summary, public_runtime_progress_summary
 
 from .admission import admit_model_action
 from .model_action_runtime import call_model_invoker, compact_text, model_action_timeout_seconds, parse_json_object
@@ -191,7 +192,7 @@ def resume_paused_task_run(runtime_host: Any, task_run_id: str, *, reason: str =
             reason=reason,
             latest_step="task_run_resume_requested",
             latest_step_status="waiting_executor",
-            latest_step_summary="继续请求已记录，任务执行器可以从原 TaskRun 续跑。",
+            latest_step_summary="继续请求已记录，我会从原进度接着处理。",
         ),
     )
     runtime_host.state_index.upsert_task_run(updated)
@@ -200,7 +201,7 @@ def resume_paused_task_run(runtime_host: Any, task_run_id: str, *, reason: str =
         task_run_id=task_run_id,
         step="task_run_resume_requested",
         status="waiting_executor",
-        summary="继续请求已记录，任务执行器可以从原 TaskRun 续跑。",
+        summary="继续请求已记录，我会从原进度接着处理。",
     )
     return {"ok": True, "accepted": True, "task_run": updated.to_dict(), "control": _runtime_control_payload(updated)}
 
@@ -284,6 +285,77 @@ def stop_task_run(runtime_host: Any, task_run_id: str, *, reason: str = "", requ
     }
 
 
+def append_user_work_instruction(
+    runtime_host: Any,
+    task_run_id: str,
+    *,
+    content: str,
+    turn_id: str = "",
+    intent: str = "append_instruction_to_active_work",
+) -> dict[str, Any]:
+    task_run = runtime_host.state_index.get_task_run(task_run_id)
+    if task_run is None:
+        return _not_found(task_run_id)
+    if not _is_single_agent_task_run(task_run):
+        return _conflict(task_run_id, "not_single_agent_task_run")
+    if _origin_kind(task_run) == "graph_node_assigned":
+        return _conflict(task_run_id, "graph_node_task_run_controlled_by_graph_runtime")
+    instruction = str(content or "").strip()
+    if not instruction:
+        return _conflict(task_run_id, "user_work_instruction_empty")
+    now = time.time()
+    observation = {
+        "observation_id": f"rtobs:{task_run_id}:user:{uuid.uuid4().hex[:8]}",
+        "task_run_id": task_run_id,
+        "observation_type": "user_work_instruction",
+        "source": "conversation.user",
+        "request_ref": str(turn_id or ""),
+        "directive_ref": "conversation:user_work_instruction",
+        "content_chars": len(instruction),
+        "payload": {
+            "tool_name": "user_instruction",
+            "tool_args": {"source": "conversation.user", "intent": intent},
+            "result": instruction,
+            "structured_payload": {
+                "user_instruction": instruction,
+                "intent": intent,
+                "turn_id": str(turn_id or ""),
+            },
+        },
+        "needs_model_followup": True,
+        "created_at": now,
+        "authority": "orchestration.runtime_observation",
+    }
+    runtime_host.runtime_objects.put_object("observation", observation["observation_id"], observation)
+    event = runtime_host.event_log.append(
+        task_run_id,
+        "user_work_instruction_recorded",
+        payload={"observation": observation},
+        refs={"task_run_ref": task_run_id, "turn_ref": str(turn_id or ""), "observation_ref": observation["observation_id"]},
+    )
+    updated = replace(
+        task_run,
+        updated_at=event.created_at or now,
+        latest_event_offset=event.offset,
+        diagnostics={
+            **dict(task_run.diagnostics or {}),
+            "latest_step": "user_work_instruction_recorded",
+            "latest_step_status": str(getattr(task_run, "status", "") or "running"),
+            "latest_step_summary": "已收到你的补充说明，会在后续处理里纳入。",
+        },
+    )
+    runtime_host.state_index.upsert_task_run(updated)
+    _record_task_step_summary(
+        runtime_host,
+        task_run_id=task_run_id,
+        step="user_work_instruction_recorded",
+        status=str(getattr(task_run, "status", "") or "running"),
+        summary="已收到你的补充说明，会在后续处理里纳入。",
+        refs={"observation_ref": observation["observation_id"]},
+    )
+    return {"ok": True, "accepted": True, "task_run": updated.to_dict(), "observation": observation}
+
+
 def recover_interrupted_task_executors(runtime_host: Any) -> dict[str, Any]:
     recovered: list[str] = []
     skipped_graph_node_task_run_ids: list[str] = []
@@ -317,7 +389,7 @@ def recover_interrupted_task_executors(runtime_host: Any) -> dict[str, Any]:
                     "executor_status": "waiting_executor",
                     "latest_step": "task_executor_recovered_after_runtime_start",
                     "latest_step_status": "waiting_executor",
-                    "latest_step_summary": "后端运行时已重启，上一进程中的任务执行器不再存活；任务已恢复为可续跑状态。",
+                    "latest_step_summary": "后端运行时已重启，当前工作已恢复为可继续状态。",
                     "recoverable_error": {
                         "error_code": "task_executor_interrupted_by_runtime_restart",
                         "retryable": True,
@@ -396,7 +468,7 @@ async def execute_task_run(
         task_run_id=task_run.task_run_id,
         step="task_executor_started",
         status="running",
-        summary="任务执行器已接管正式 TaskRun，并重新装配本次任务运行时。",
+        summary="已接上当前工作，正在整理上下文。",
     )
 
     observation_context = _observations_for_packet(
@@ -451,7 +523,7 @@ async def execute_task_run(
             task_run_id=current_task.task_run_id,
             step=f"task_execution_packet_compiled:{step_index}",
             status="running",
-            summary="系统已为当前任务步骤装配 runtime packet，并交给 agent 判断下一步。",
+            summary="正在整理上下文，准备继续处理。",
             refs={"runtime_invocation_packet_ref": compilation.packet.packet_id},
         )
         _record_task_step_summary(
@@ -459,7 +531,7 @@ async def execute_task_run(
             task_run_id=current_task.task_run_id,
             step=f"task_model_action_invocation_started:{step_index}",
             status="running",
-            summary="任务 runtime packet 已送入模型，系统正在等待 agent 返回任务动作。",
+            summary="正在处理这一步。",
             refs={"runtime_invocation_packet_ref": compilation.packet.packet_id},
         )
         try:
@@ -506,7 +578,7 @@ async def execute_task_run(
                 task_run_id=current_task.task_run_id,
                 step=f"model_action_protocol_repair_required:{step_index}",
                 status="running",
-                summary="agent 返回的任务动作未通过协议校验；系统已把校验错误作为观察回灌，要求 agent 修正下一步动作格式后继续。",
+                summary="当前步骤输出格式不完整，正在自动修正后继续。",
                 refs={"observation_ref": repair_observation["observation_id"]},
             )
             if _model_protocol_repair_count(raw_observations) >= _MAX_MODEL_PROTOCOL_REPAIR_ATTEMPTS:
@@ -551,7 +623,7 @@ async def execute_task_run(
             task_run_id=current_task.task_run_id,
             step=f"model_action_received:{step_index}",
             status="running",
-            summary=f"agent 已返回任务动作请求：{action_request.action_type}。",
+            summary=public_action_progress_summary(action_request.action_type),
             refs={"action_request_ref": action_request.request_id},
         )
         current_task = runtime_host.state_index.get_task_run(current_task.task_run_id) or current_task
@@ -613,7 +685,7 @@ async def execute_task_run(
                 task_run_id=current_task.task_run_id,
                 step=f"task_tool_observation_recorded:{step_index}",
                 status="running",
-                summary="系统已执行 agent 请求的任务工具调用，并把真实观察回灌给 agent。",
+                summary="工具调用已完成，正在根据结果继续。",
                 refs={"observation_ref": observation["observation_id"]},
             )
             if observation.get("error"):
@@ -622,7 +694,7 @@ async def execute_task_run(
                     task_run_id=current_task.task_run_id,
                     step=f"task_tool_repair_required:{step_index}",
                     status="running",
-                    summary="工具调用失败；系统已把失败原因作为观察交还给 agent，由 agent 调整路径、参数或执行方式继续推进。",
+                    summary="工具调用失败，正在根据失败原因调整处理路径。",
                     refs={"observation_ref": observation["observation_id"]},
                 )
             current_task = runtime_host.state_index.get_task_run(current_task.task_run_id) or current_task
@@ -670,7 +742,7 @@ async def execute_task_run(
                     task_run_id=current_task.task_run_id,
                     step=f"task_completion_repair_required:{step_index}",
                     status="running",
-                    summary="agent 尝试收尾，但合同证据不足；系统已把缺口作为观察回灌。",
+                    summary="当前结果还缺少验收证据，正在补齐。",
                 )
                 observation_context = _observations_for_packet(
                     runtime_host,
@@ -788,7 +860,7 @@ async def _await_task_model_action_with_status(
             task_run_id=task_run_id,
             step=f"task_model_action_waiting:{step_index}",
             status="running",
-            summary=f"任务模型调用仍在进行中，系统继续等待 agent 动作返回。等待轮次：{wait_round}。",
+            summary=f"仍在处理中，正在等待下一步结果。等待轮次：{wait_round}。",
             refs={"runtime_invocation_packet_ref": packet_ref},
         )
     return await task
@@ -1215,7 +1287,7 @@ def _finish_executor_success(
         task_run_id=task_run.task_run_id,
         step="task_run_completed",
         status="completed",
-        summary="任务合同已满足，执行器已完成收尾并记录真实交付物证据。",
+        summary="已完成收口并记录交付证据。",
     )
     _commit_task_run_final_message(
         services,
@@ -1324,7 +1396,7 @@ def _finish_executor_terminal(runtime_host: Any, *, task_run: Any, agent_run: An
         task_run_id=task_run.task_run_id,
         step=f"task_run_{status}",
         status=status,
-        summary=f"任务执行器已停止：{terminal_reason}。",
+        summary=f"当前处理已停止：{terminal_reason}。",
     )
     _sync_engagement_closeout(runtime_host, finished_task.task_run_id)
     return {"ok": False, "task_run": finished_task.to_dict(), "lifecycle": finished_lifecycle.to_dict(), "event": event, "error": terminal_reason}
@@ -1465,7 +1537,7 @@ def _pause_executor_for_user_control(runtime_host: Any, *, task_run: Any, agent_
         reason=str(_runtime_control_payload(task_run).get("reason") or ""),
         latest_step="task_run_paused",
         latest_step_status="waiting_executor",
-        latest_step_summary="任务已在安全边界暂停，后续可以从原 TaskRun 继续执行。",
+        latest_step_summary="已在安全边界暂停，后续可以从这里继续。",
     )
     paused_task = replace(
         task_run,
@@ -1494,7 +1566,7 @@ def _pause_executor_for_user_control(runtime_host: Any, *, task_run: Any, agent_
         task_run_id=task_run.task_run_id,
         step="task_run_paused",
         status="waiting_executor",
-        summary="任务已在安全边界暂停，后续可以从原 TaskRun 继续执行。",
+        summary="已在安全边界暂停，后续可以从这里继续。",
     )
     return {"ok": False, "task_run": paused_task.to_dict(), "error": "task_run_paused", "retryable": True}
 
@@ -1618,7 +1690,7 @@ def _pause_executor_for_step_budget(runtime_host: Any, *, task_run: Any, agent_r
         task_run_id=task_run.task_run_id,
         step="task_executor_waiting_next_run",
         status="waiting_executor",
-        summary="本轮执行步数预算已用尽，任务未失败，已等待下一次执行器续跑。",
+        summary="本轮步骤预算已用尽，当前工作会等待后续继续。",
     )
     return {"ok": False, "task_run": paused_task.to_dict(), "error": "task_execution_step_budget_exhausted", "retryable": True}
 
@@ -1773,6 +1845,13 @@ def _classify_record_freshness(
     previous_fingerprint: dict[str, Any],
     current_fingerprint: dict[str, Any],
 ) -> dict[str, Any]:
+    if str(observation.get("observation_type") or "") == "user_work_instruction":
+        return {
+            "visibility": "active",
+            "reuse_as_fact": True,
+            "reuse_as_repair_context": False,
+            "reason": "user_work_instruction",
+        }
     if _is_completion_repair_observation(observation):
         return {
             "visibility": "active",
@@ -2546,10 +2625,11 @@ def _runtime_allowed_tool_names(available_tools: list[dict[str, Any]]) -> set[st
 
 
 def _record_task_step_summary(runtime_host: Any, *, task_run_id: str, step: str, status: str, summary: str, refs: dict[str, Any] | None = None) -> dict[str, Any]:
+    visible_summary = public_runtime_progress_summary(summary)
     event = runtime_host.event_log.append(
         task_run_id,
         "step_summary_recorded",
-        payload={"task_run_id": task_run_id, "step": step, "status": status, "summary": summary},
+        payload={"task_run_id": task_run_id, "step": step, "status": status, "summary": visible_summary},
         refs={"task_run_ref": task_run_id, **dict(refs or {})},
     )
     current = runtime_host.state_index.get_task_run(task_run_id)
@@ -2559,7 +2639,7 @@ def _record_task_step_summary(runtime_host: Any, *, task_run_id: str, step: str,
                 current,
                 updated_at=event.created_at,
                 latest_event_offset=event.offset,
-                diagnostics={**dict(current.diagnostics or {}), "latest_step": step, "latest_step_status": status, "latest_step_summary": summary},
+                diagnostics={**dict(current.diagnostics or {}), "latest_step": step, "latest_step_status": status, "latest_step_summary": visible_summary},
             )
         )
     return event.to_dict()
