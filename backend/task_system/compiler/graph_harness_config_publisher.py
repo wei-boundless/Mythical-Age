@@ -111,7 +111,6 @@ def build_graph_harness_config_from_graph(
             "checkpoint_policy": _policy_dict(graph_runtime_policy.get("checkpoint_policy")),
             "resume_policy": {"mode": "config_id_locked"},
             "human_gate_policy": _policy_dict(graph_metadata.get("human_gate_policy")),
-            "graph_loop_policy": _policy_dict(graph_metadata.get("graph_loop_policy")),
             "batch_policy": {"enabled": bool(split_plans), "split_plans": split_plans},
             "temporal_edges": _list_dicts(layered.get("temporal_edges")),
             "revision_edges": _list_dicts(layered.get("revision_edges")),
@@ -123,7 +122,7 @@ def build_graph_harness_config_from_graph(
         },
         "nodes": nodes,
         "edges": edges,
-        "loop_frames": _list_dicts(layered.get("loop_frames")) + _list_dicts(projection.get("loop_frames")),
+        "loop_frames": _normalize_loop_frames(_list_dicts(layered.get("loop_frames")) + _list_dicts(projection.get("loop_frames"))),
         "environment": environment,
         "resources": {
             "resource_nodes": _list_dicts(layered.get("resource_nodes")) + _list_dicts(projection.get("resource_nodes")),
@@ -693,19 +692,52 @@ def _normalize_loop_route_policy(value: Any) -> dict[str, Any]:
     ).strip()
     exit_node_id = str(payload.get("exit_node_id") or payload.get("exit_stage_id") or "").strip()
     route = {
-        **payload,
         "scope_id": scope_id,
         "continue_node_id": continue_node_id,
         "exit_node_id": exit_node_id,
         "mode": str(payload.get("mode") or "metric_target").strip() or "metric_target",
+        "metric_key": str(payload.get("metric_key") or "").strip(),
+        "diagnostic_metric_key": str(payload.get("diagnostic_metric_key") or "").strip(),
+        "fallback_increment_key": str(payload.get("fallback_increment_key") or "").strip(),
+        "default_increment": payload.get("default_increment"),
+        "current_key": str(payload.get("current_key") or "").strip(),
+        "target_key": str(payload.get("target_key") or "").strip(),
+        "last_metric_key": str(payload.get("last_metric_key") or "").strip(),
+        "secondary_counters": list(payload.get("secondary_counters") or []),
         "patch_rules": list(payload.get("patch_rules") or payload.get("contract_patch_rules") or payload.get("counter_updates") or []),
         "derived_fields": list(payload.get("derived_fields") or []),
-        "secondary_counters": list(payload.get("secondary_counters") or []),
         "authority": "harness.graph.loop_route_policy",
     }
-    for legacy_key in ("loop_scope_id", "continue_stage_id", "exit_stage_id", "entry_stage_id"):
-        route.pop(legacy_key, None)
     return _prune_empty(route)
+
+
+def _normalize_loop_frames(frames: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for index, raw in enumerate(frames, start=1):
+        frame = dict(raw or {})
+        frame_id = str(frame.get("frame_id") or frame.get("loop_frame_id") or frame.get("scope_id") or f"loop_frame_{index}").strip()
+        if not frame_id:
+            continue
+        result.append(
+            _prune_empty(
+                {
+                    "frame_id": frame_id,
+                    "scope_id": str(frame.get("scope_id") or frame_id).strip(),
+                    "title": str(frame.get("title") or "").strip(),
+                    "loop_kind": str(frame.get("loop_kind") or frame.get("kind") or "").strip(),
+                    "entry_node_id": str(frame.get("entry_node_id") or frame.get("entry_stage_id") or "").strip(),
+                    "router_node_id": str(frame.get("router_node_id") or frame.get("router_stage_id") or "").strip(),
+                    "continue_node_id": str(frame.get("continue_node_id") or frame.get("continue_stage_id") or "").strip(),
+                    "exit_node_id": str(frame.get("exit_node_id") or frame.get("exit_stage_id") or "").strip(),
+                    "unit_kind": str(frame.get("unit_kind") or "").strip(),
+                    "iteration_size_key": str(frame.get("iteration_size_key") or "").strip(),
+                    "initial_inputs": dict(frame.get("initial_inputs") or {}),
+                    "derived_fields": list(frame.get("derived_fields") or []),
+                    "authority": "harness.graph.loop_frame_contract",
+                }
+            )
+        )
+    return result
 
 
 def _graph_node_config(node: Any, *, graph_id: str) -> dict[str, Any]:

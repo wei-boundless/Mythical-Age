@@ -22,7 +22,6 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 def test_runtime_prompt_resources_have_single_clear_function() -> None:
     resources = PromptLibraryRegistry(Path(__file__).resolve().parents[1]).list_active_resources(
         category="runtime",
-        sync_workflow_prompts=False,
     )
     by_id = {item.prompt_id: item for item in resources}
 
@@ -72,6 +71,88 @@ def test_prompt_pack_assembly_rejects_deprecated_resources_for_new_runtime(tmp_p
     assert result.rejected_refs == ({"ref": "runtime.deprecated.test.v1", "reason": "prompt_not_found_or_inactive"},)
 
 
+def test_prompt_assembly_accepts_explicit_task_and_graph_contracts(tmp_path: Path) -> None:
+    result = PromptAssemblyService(tmp_path).assemble(
+        PromptAssemblyRequest(
+            invocation_kind="task_execution",
+            prompt_pack_refs=(),
+            prompt_refs=(),
+            task_prompt_contract={
+                "contract_id": "contract.delivery.test",
+                "role_prompt": "你是一名交付执行员，只负责完成合同产物。",
+                "task_instruction": "读取合同并真实创建交付物。",
+                "output_instruction": "最终说明真实产物路径和验证结果。",
+                "forbidden_behavior": ["不能把计划当作交付物", "不能伪造验证"],
+                "definition_of_done": ["产物存在", "验证完成"],
+            },
+            graph_node_prompt_contract={
+                "contract_id": "node.review.test",
+                "role_prompt": "你是一名审核员，只负责裁决是否通过。",
+                "definition_of_done": "给出明确裁决。",
+            },
+        )
+    )
+
+    sections = {(item.category, item.subtype): item for item in result.sections}
+
+    assert sections[("task", "role")].content == "你是一名交付执行员，只负责完成合同产物。"
+    assert sections[("task", "forbidden_behavior")].content == "- 不能把计划当作交付物\n- 不能伪造验证"
+    assert sections[("graph_node", "role")].content == "你是一名审核员，只负责裁决是否通过。"
+    assert sections[("graph_node", "definition_of_done")].source_ref == "graph_node_prompt_contract:node.review.test.definition_of_done"
+    assert result.manifest["contract_section_count"] == 7
+
+
+def test_prompt_assembly_adds_skill_and_soul_refs_only_when_explicit(tmp_path: Path) -> None:
+    registry = PromptLibraryRegistry(tmp_path)
+    registry.upsert_resources(
+        (
+            PromptResource(
+                prompt_id="skill.imagegen.usage.v1",
+                resource_id="skill.imagegen.usage.v1",
+                category="skill",
+                subtype="usage",
+                resource_type="skill_prompt",
+                title="Image generation skill",
+                content="需要真实图片资源时，可以调用生图技能并保存产物。",
+                allowed_invocation_kinds=("task_execution",),
+                cache_scope="static",
+            ),
+            PromptResource(
+                prompt_id="soul.writer.role.v1",
+                resource_id="soul.writer.role.v1",
+                category="soul",
+                subtype="role_persona",
+                resource_type="role_prompt",
+                title="Writer soul",
+                content="保持角色表达，但不得改变任务边界。",
+                allowed_invocation_kinds=("task_execution",),
+                cache_scope="static",
+            ),
+        )
+    )
+
+    empty = PromptAssemblyService(tmp_path).assemble(
+        PromptAssemblyRequest(invocation_kind="task_execution", prompt_pack_refs=(), prompt_refs=())
+    )
+    explicit = PromptAssemblyService(tmp_path).assemble(
+        PromptAssemblyRequest(
+            invocation_kind="task_execution",
+            prompt_pack_refs=(),
+            prompt_refs=(),
+            skill_prompt_refs=("skill.imagegen.usage.v1",),
+            soul_prompt_ref="soul.writer.role.v1",
+        )
+    )
+
+    assert [item.prompt_ref for item in empty.sections] == ["runtime.task_execution.v1"]
+    assert [item.prompt_ref for item in explicit.sections] == [
+        "runtime.task_execution.v1",
+        "skill.imagegen.usage.v1",
+        "soul.writer.role.v1",
+    ]
+    assert [item.category for item in explicit.sections] == ["runtime", "skill", "soul"]
+
+
 def test_runtime_compiler_uses_prompt_manifest_and_runtime_pack_refs() -> None:
     result = RuntimeCompiler().compile_turn_action_packet(
         session_id="session:pack",
@@ -90,6 +171,8 @@ def test_runtime_compiler_uses_prompt_manifest_and_runtime_pack_refs() -> None:
 
     assert result.packet.prompt_pack_refs == ("runtime.pack.turn_action.v1",)
     assert manifest["stable_prompt_refs"] == ["runtime.turn_action.v1"]
+    assert manifest["dynamic_projection_refs"] == ["agent_visible_runtime_projection", "operation_authorization"]
+    assert manifest["volatile_state_refs"] == ["runtime_envelope", "turn_id", "history", "user_message"]
     assert "你是当前 turn 的主 agent" in result.packet.system_instructions
     assert "本次运行边界" in result.packet.system_instructions
     assert "当前 runtime 是 standard 模式" not in result.packet.system_instructions
@@ -135,3 +218,38 @@ def test_runtime_compiler_assembles_agent_and_environment_prompt_refs() -> None:
         }
     ]
     assert "开发沙盒资源边界" not in result.packet.model_messages[1]["content"]
+
+
+def test_runtime_compiler_assembles_task_prompt_contract_into_task_execution_packet() -> None:
+    result = RuntimeCompiler().compile_task_execution_packet(
+        session_id="session:contract-prompt",
+        task_run={"task_run_id": "taskrun:contract-prompt", "title": "合同 prompt 装配"},
+        contract={
+            "contract_id": "contract:prompt",
+            "task_run_goal": "完成合同 prompt 装配验证",
+            "completion_criteria": ["合同 prompt section 进入 runtime packet"],
+            "prompt_contract": {
+                "role_prompt": "你是一名合同执行员，只负责真实推进合同目标。",
+                "task_instruction": "按合同完成稳定 prompt 装配验证。",
+                "output_instruction": "最终输出真实验证结果。",
+                "forbidden_behavior": ["不能伪造 manifest"],
+                "definition_of_done": ["manifest 记录合同 section"],
+            },
+        },
+        observations=[],
+        execution_state={},
+        available_tools=[],
+        runtime_assembly={
+            "profile": {"mode": "professional"},
+            "task_environment": {"environment_id": "env.general.workspace"},
+            "operation_authorization": {"allowed_operations": ["op.model_response"]},
+        },
+    )
+
+    manifest = result.packet.diagnostics["prompt_manifest"]
+
+    assert "你是一名合同执行员，只负责真实推进合同目标。" in result.packet.system_instructions
+    assert "按合同完成稳定 prompt 装配验证。" in result.packet.system_instructions
+    assert "runtime.task_execution.v1" in manifest["stable_prompt_refs"]
+    assert "task_prompt_contract:contract:prompt.role_prompt" in manifest["stable_contract_refs"]
+    assert "task_prompt_contract:contract:prompt.definition_of_done" in manifest["stable_contract_refs"]

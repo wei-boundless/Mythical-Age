@@ -36,8 +36,9 @@ class GraphContextMaterializer:
             upstream_results=upstream_results,
         )
         environment_refs = _environment_refs(graph_config)
+        dispatch_seq = len(tuple(dict(state.result_history or {}).get(node_id) or ())) + 1
         return GraphNodeWorkOrder(
-            work_order_id=f"gwork:{safe_id(state.graph_run_id)}:{safe_id(node_id)}:{int(time.time() * 1000)}",
+            work_order_id=f"gwork:{safe_id(state.graph_run_id)}:{safe_id(node_id)}:{dispatch_seq}:{state.event_cursor + 1}:{int(time.time() * 1000)}",
             work_kind=_graph_work_kind(executor_type),
             graph_run_id=state.graph_run_id,
             task_run_id=state.task_run_id,
@@ -55,6 +56,7 @@ class GraphContextMaterializer:
                 "graph_run_id": state.graph_run_id,
                 "graph_id": graph_config.graph_id,
                 "config_id": graph_config.config_id,
+                "runtime_scope": _runtime_scope_from_state(state),
                 "completed_node_ids": list(state.completed_node_ids),
                 "failed_node_ids": list(state.failed_node_ids),
                 "upstream_node_ids": list(upstream_dependency_node_ids(graph_config, node_id)),
@@ -79,6 +81,7 @@ class GraphContextMaterializer:
             dispatch_context={
                 "graph_run_id": state.graph_run_id,
                 "config_id": graph_config.config_id,
+                "runtime_scope": _runtime_scope_from_state(state),
                 "dispatch_event_id": f"dispatch:{state.graph_run_id}:{node_id}:{int(time.time() * 1000)}",
                 "executor": executor,
                 "handoff_packet_count": len(upstream_packets),
@@ -117,6 +120,7 @@ class GraphContextMaterializer:
             "prompt": prompt_contract,
             "task_environment_id": str(graph_config.task_environment_id or ""),
             "task_environment": dict(graph_config.environment or {}),
+            "runtime_scope": _runtime_scope_from_state(state),
             "runtime_profile": _node_runtime_profile(graph_config=graph_config, node=node),
             "agent_instruction": _agent_instruction(prompt_contract=prompt_contract, node=node),
             "input_contract": dict(dict(node.get("contracts") or {}).get("contract_bindings") or {}).get("schema", {}),
@@ -143,6 +147,7 @@ class GraphContextMaterializer:
                 "graph_id": graph_config.graph_id,
                 "config_id": graph_config.config_id,
                 "config_hash": graph_config.content_hash,
+                "runtime_scope": _runtime_scope_from_state(state),
                 "work_order_source": "GraphLoop.dispatch_ready",
             },
             "expected_result_contract": dict(node.get("contracts") or {}),
@@ -523,3 +528,7 @@ def _memory_repository_targets(graph_config: GraphHarnessConfig) -> list[dict[st
                 }
             )
     return targets
+
+
+def _runtime_scope_from_state(state: GraphLoopState) -> dict[str, Any]:
+    return dict(dict(state.diagnostics or {}).get("runtime_scope") or {})

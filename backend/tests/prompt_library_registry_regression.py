@@ -9,7 +9,7 @@ from prompt_library import PromptLibraryRegistry, PromptResource
 def test_prompt_library_lists_only_runtime_agent_and_environment_resources_by_default(tmp_path: Path) -> None:
     registry = PromptLibraryRegistry(tmp_path)
 
-    resources = registry.list_resources(sync_workflow_prompts=False)
+    resources = registry.list_resources()
     resource_by_id = {item.resource_id: item for item in resources}
 
     assert resource_by_id["runtime.turn_action.v1"].category == "runtime"
@@ -66,5 +66,33 @@ def test_prompt_library_stored_resource_overrides_default_resource(tmp_path: Pat
     assert resource.title == "覆盖后的 turn action"
     assert resource.content == "这是用户覆盖后的 turn action prompt。"
     assert resource.source_ref == "test.override"
+
+
+def test_task_graph_node_prompt_migration_writes_graph_node_role_resource(tmp_path: Path) -> None:
+    registry = PromptLibraryRegistry(tmp_path)
+
+    resource = registry.migrate_task_graph_node_prompt(
+        graph_id="graph.demo",
+        graph_title="Demo graph",
+        domain_id="domain.demo",
+        node={
+            "node_id": "review",
+            "task_id": "task.demo.review",
+            "workflow_id": "workflow.demo.node.review",
+            "title": "Review",
+        },
+        prompt="你是一名审核员，只负责裁决是否通过。",
+    )
+
+    payload = resource.to_dict()
+
+    assert resource.category == "graph_node"
+    assert resource.subtype == "role"
+    assert resource.resource_type == "graph_node.role"
+    assert resource.allowed_runtime_modes == ("role", "standard", "professional")
+    assert "applies_to_task_goal_types" not in payload
+    assert "applies_to_domains" not in payload
+    assert "applies_to_modes" not in payload
+    assert "stage_role" not in resource.resource_id
 
 

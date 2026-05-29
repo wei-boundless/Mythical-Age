@@ -100,7 +100,8 @@ class PromptAssemblyService:
         }
         digest = hashlib.sha256(json.dumps(assembly_seed, sort_keys=True).encode("utf-8")).hexdigest()[:16]
         manifest = {
-            "stable_prompt_refs": [item.prompt_ref for item in sections],
+            "stable_prompt_refs": [item.prompt_ref for item in sections if item.prompt_ref],
+            "stable_contract_refs": [item.source_ref for item in sections if not item.prompt_ref],
             "prompt_pack_refs": list(pack_refs),
             "rejected_refs": [dict(item) for item in rejected],
             "cache_scope_order": [item.cache_scope for item in sections],

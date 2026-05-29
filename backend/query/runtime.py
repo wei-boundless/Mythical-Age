@@ -347,6 +347,8 @@ class QueryRuntime:
                 "graph_harness_config_id": graph_config.config_id,
                 "graph_node_id": work_order.node_id,
                 "graph_work_order_id": work_order.work_order_id,
+                "runtime_scope": _graph_node_runtime_scope(work_order),
+                **_graph_node_public_scope_fields(work_order),
                 "runtime_task_selection": runtime_selection,
                 "contract": contract.to_dict(),
             },
@@ -708,6 +710,30 @@ def _graph_node_origin(work_order: Any) -> dict[str, str]:
         "graph_run_id": str(getattr(work_order, "graph_run_id", "") or ""),
         "node_id": str(getattr(work_order, "node_id", "") or ""),
     }
+
+
+def _graph_node_runtime_scope(work_order: Any) -> dict[str, Any]:
+    graph_state = dict(getattr(work_order, "graph_state", {}) or {})
+    input_package = dict(getattr(work_order, "input_package", {}) or {})
+    dispatch_context = dict(getattr(work_order, "dispatch_context", {}) or {})
+    return {
+        **dict(graph_state.get("runtime_scope") or {}),
+        **dict(input_package.get("runtime_scope") or {}),
+        **dict(dispatch_context.get("runtime_scope") or {}),
+        "graph_run_id": str(getattr(work_order, "graph_run_id", "") or ""),
+        "task_run_id": str(getattr(work_order, "task_run_id", "") or ""),
+        "authority": "query_runtime.graph_node_runtime_scope",
+    }
+
+
+def _graph_node_public_scope_fields(work_order: Any) -> dict[str, str]:
+    runtime_scope = _graph_node_runtime_scope(work_order)
+    result: dict[str, str] = {}
+    for key in ("project_id", "scope_id"):
+        value = str(runtime_scope.get(key) or "").strip()
+        if value:
+            result[key] = value
+    return result
 
 
 def _validate_existing_graph_node_task_run(task_run: TaskRun, *, graph_run_id: str, work_order_id: str) -> None:

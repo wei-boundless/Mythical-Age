@@ -645,6 +645,112 @@ def test_graph_run_monitor_returns_recoverable_active_work_orders(tmp_path: Path
     assert monitor["active_node_work_orders"][0]["node_id"] == "produce"
 
 
+def test_graph_runtime_generates_managed_project_scope_for_project_scoped_memory(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    graph = TaskGraphDefinition(
+        graph_id="graph.test.project_scoped_memory_start",
+        title="Project Scoped Memory Start",
+        graph_kind="coordination",
+        publish_state="published",
+        enabled=True,
+        entry_node_id="produce",
+        output_node_id="produce",
+        runtime_policy={"coordinator_agent_id": "agent:0"},
+        nodes=(
+            TaskGraphNodeDefinition(
+                node_id="memory.project.baseline",
+                node_type="memory_repository",
+                title="Project Baseline",
+                resource_lifecycle_policy={"scope_kind": "project_scoped", "scope_required": True},
+                metadata={
+                    "memory_repository": {
+                        "repository_id": "memory.project.baseline",
+                        "collections": ["baseline"],
+                        "lifecycle_policy": {"scope_kind": "project_scoped", "scope_required": True},
+                    }
+                },
+            ),
+            TaskGraphNodeDefinition(
+                node_id="produce",
+                node_type="agent",
+                title="Produce",
+                task_id="task.test.project_scoped_memory_start.produce",
+                agent_id="agent:0",
+            ),
+        ),
+    )
+    graph_config = build_graph_harness_config_from_graph(graph=graph)
+    runtime = _runtime_with_graph_harness(base_dir=backend_dir, runtime_root=tmp_path / "runtime_state")
+
+    started = runtime.query_runtime.graph_harness.start_run(
+        session_id="session-test",
+        task_id="task.test.project_scope",
+        graph_config=graph_config,
+        initial_inputs={},
+        dispatch_ready=True,
+    )
+
+    runtime_scope = dict(started.envelope.memory_scope["runtime_scope"])
+    assert runtime_scope["project_id"].startswith("graphrun.")
+    assert started.task_run.diagnostics["runtime_scope"]["project_id"] == runtime_scope["project_id"]
+    assert started.loop_state.diagnostics["runtime_scope"]["project_id"] == runtime_scope["project_id"]
+    assert started.node_work_orders[0].input_package["runtime_scope"]["project_id"] == runtime_scope["project_id"]
+    repositories = runtime.query_runtime.graph_harness._services.formal_memory_service.overview()["repositories"]
+    assert repositories[0]["effective_repository_id"] == f"project:{runtime_scope['project_id']}:memory.project.baseline"
+
+
+def test_graph_node_task_run_receives_explicit_runtime_project_scope(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    graph = _graph()
+    registry = TaskFlowRegistry(backend_dir)
+    registry.upsert_task_graph(
+        graph_id=graph.graph_id,
+        title=graph.title,
+        graph_kind=graph.graph_kind,
+        entry_node_id=graph.entry_node_id,
+        output_node_id=graph.output_node_id,
+        nodes=tuple(node.to_dict() for node in graph.nodes),
+        runtime_policy=graph.runtime_policy,
+        publish_state="published",
+        enabled=True,
+    )
+    graph_config = publish_graph_harness_config_for_graph(base_dir=backend_dir, graph_id=graph.graph_id)
+    runtime = _query_runtime_with_graph_executor(base_dir=backend_dir)
+
+    original = orchestration_api.require_runtime
+    orchestration_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    try:
+        started = asyncio.run(
+            orchestration_api.start_task_graph_harness_run(
+                graph.graph_id,
+                orchestration_api.TaskGraphRunStartRequest(
+                    session_id="session-test",
+                    initial_inputs={"project_id": "project:explicit"},
+                    dispatch_ready=True,
+                ),
+            )
+        )
+        executed = asyncio.run(
+            orchestration_api.execute_graph_work_order(
+                str(started["graph_run_id"]),
+                orchestration_api.GraphWorkOrderExecuteRequest(
+                    graph_harness_config_id=graph_config.config_id,
+                    work_order=dict(started["node_work_orders"][0]),
+                    max_steps=1,
+                    accept_result=False,
+                ),
+            )
+        )
+    finally:
+        orchestration_api.require_runtime = original  # type: ignore[assignment]
+
+    work_order_scope = dict(started["node_work_orders"][0]["input_package"]["runtime_scope"])
+    task_run_diagnostics = dict(executed["node_executor_task_run"]["diagnostics"])
+    assert work_order_scope["project_id"] == "project:explicit"
+    assert task_run_diagnostics["project_id"] == "project:explicit"
+    assert task_run_diagnostics["runtime_scope"]["project_id"] == "project:explicit"
+
+
 def test_graph_loop_contract_drives_generic_repeated_node_progression(tmp_path: Path) -> None:
     backend_dir = tmp_path / "backend"
     graph = TaskGraphDefinition(
@@ -822,8 +928,11 @@ def test_graph_harness_config_publication_moves_loop_fields_to_node_loop_contrac
     assert loop_contract["route_policy"]["continue_node_id"] == "router"
     assert loop_contract["route_policy"]["exit_node_id"] == "exit"
     assert loop_contract["route_policy"]["patch_rules"] == [{"key": "cursor", "mode": "increment", "step": 1}]
+    assert "graph_loop_policy" not in dict(config.control or {})
     assert "loop_scope_id" not in node
     assert "loop_route_policy" not in node
     assert "title_template" not in node
     assert "loop_scope_id" not in dict(node.get("metadata") or {})
     assert "loop_route_policy" not in dict(node.get("metadata") or {})
+    forbidden_route_fields = {"loop_scope_id", "continue_stage_id", "exit_stage_id", "counter_updates"}
+    assert not forbidden_route_fields.intersection(loop_contract["route_policy"])

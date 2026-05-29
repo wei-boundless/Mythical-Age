@@ -14,6 +14,7 @@ class RuntimePromptManifest:
     invocation_kind: str
     prompt_pack_refs: tuple[str, ...] = ()
     stable_prompt_refs: tuple[str, ...] = ()
+    stable_contract_refs: tuple[str, ...] = ()
     rejected_refs: tuple[dict[str, Any], ...] = ()
     dynamic_projection_refs: tuple[str, ...] = ()
     volatile_state_refs: tuple[str, ...] = ()
@@ -26,6 +27,7 @@ class RuntimePromptManifest:
         payload = asdict(self)
         payload["prompt_pack_refs"] = list(self.prompt_pack_refs)
         payload["stable_prompt_refs"] = list(self.stable_prompt_refs)
+        payload["stable_contract_refs"] = list(self.stable_contract_refs)
         payload["rejected_refs"] = [dict(item) for item in self.rejected_refs]
         payload["dynamic_projection_refs"] = list(self.dynamic_projection_refs)
         payload["volatile_state_refs"] = list(self.volatile_state_refs)
@@ -44,6 +46,7 @@ def build_runtime_prompt_manifest(
     volatile_state_refs: tuple[str, ...] = (),
 ) -> RuntimePromptManifest:
     refs = tuple(item.prompt_ref for item in assembly.sections if item.prompt_ref)
+    contract_refs = tuple(item.source_ref for item in assembly.sections if not item.prompt_ref and item.source_ref)
     projection_refs = tuple(str(item).strip() for item in dynamic_projection_refs if str(item).strip()) or assembly.dynamic_projection_refs
     volatile_refs = tuple(str(item).strip() for item in volatile_state_refs if str(item).strip()) or assembly.volatile_state_refs
     manifest_seed = {
@@ -51,6 +54,7 @@ def build_runtime_prompt_manifest(
         "packet_id": packet_id,
         "prompt_pack_refs": list(assembly.prompt_pack_refs),
         "stable_prompt_refs": list(refs),
+        "stable_contract_refs": list(contract_refs),
         "dynamic_projection_refs": list(projection_refs),
         "volatile_state_refs": list(volatile_refs),
     }
@@ -61,6 +65,7 @@ def build_runtime_prompt_manifest(
         invocation_kind=invocation_kind,
         prompt_pack_refs=assembly.prompt_pack_refs,
         stable_prompt_refs=refs,
+        stable_contract_refs=contract_refs,
         rejected_refs=assembly.rejected_refs,
         dynamic_projection_refs=projection_refs,
         volatile_state_refs=volatile_refs,

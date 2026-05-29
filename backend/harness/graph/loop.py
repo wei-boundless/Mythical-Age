@@ -92,6 +92,7 @@ class GraphLoop:
             diagnostics={
                 "graph_harness_config_id": graph_config.config_id,
                 "graph_harness_config_hash": graph_config.content_hash,
+                "runtime_scope": dict(envelope.memory_scope.get("runtime_scope") or {}),
                 "source": "harness.graph_loop.initialize",
                 "scheduler": scheduler_view.diagnostics,
             },
@@ -437,12 +438,13 @@ def _initial_edge_states(graph_config: GraphHarnessConfig) -> dict[str, dict[str
 
 
 def _initial_loop_inputs(*, graph_config: GraphHarnessConfig, envelope: GraphRuntimeEnvelope) -> dict[str, Any]:
-    control_policy = dict(dict(graph_config.control or {}).get("graph_loop_policy") or {})
-    inputs: dict[str, Any] = dict(control_policy.get("initial_inputs") or {})
+    inputs: dict[str, Any] = {}
+    derived_fields: list[Any] = []
     for frame in graph_config.loop_frames:
         inputs.update(dict(dict(frame).get("initial_inputs") or {}))
+        derived_fields.extend(list(dict(frame).get("derived_fields") or []))
     inputs.update(dict(envelope.initial_inputs or {}))
-    return _apply_derived_fields(inputs, list(control_policy.get("derived_fields") or []))
+    return _apply_derived_fields(inputs, derived_fields)
 
 
 def _initial_loop_state(*, graph_config: GraphHarnessConfig, envelope: GraphRuntimeEnvelope) -> dict[str, Any]:
@@ -467,16 +469,16 @@ def _initial_loop_state(*, graph_config: GraphHarnessConfig, envelope: GraphRunt
 
 
 def _normalize_loop_frame(frame: dict[str, Any]) -> dict[str, Any]:
-    frame_id = str(frame.get("frame_id") or frame.get("loop_frame_id") or frame.get("scope_id") or "").strip()
+    frame_id = str(frame.get("frame_id") or frame.get("scope_id") or "").strip()
     return _drop_empty(
         {
             **frame,
             "frame_id": frame_id,
             "scope_id": str(frame.get("scope_id") or frame_id).strip(),
-            "entry_node_id": str(frame.get("entry_node_id") or frame.get("entry_stage_id") or "").strip(),
-            "router_node_id": str(frame.get("router_node_id") or frame.get("router_stage_id") or "").strip(),
-            "continue_node_id": str(frame.get("continue_node_id") or frame.get("continue_stage_id") or "").strip(),
-            "exit_node_id": str(frame.get("exit_node_id") or frame.get("exit_stage_id") or "").strip(),
+            "entry_node_id": str(frame.get("entry_node_id") or "").strip(),
+            "router_node_id": str(frame.get("router_node_id") or "").strip(),
+            "continue_node_id": str(frame.get("continue_node_id") or "").strip(),
+            "exit_node_id": str(frame.get("exit_node_id") or "").strip(),
         }
     )
 

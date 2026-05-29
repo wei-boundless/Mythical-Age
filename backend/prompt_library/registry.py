@@ -37,7 +37,7 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def _stable_resource_id(*, workflow_id: str = "", task_id: str = "", node_id: str = "", resource_type: str = "stage_role") -> str:
+def _stable_resource_id(*, workflow_id: str = "", task_id: str = "", node_id: str = "", resource_type: str = "graph_node.role") -> str:
     base = workflow_id or task_id or node_id
     normalized = ".".join(part for part in str(base or "runtime").replace(":", ".").split(".") if part)
     if normalized.startswith("workflow."):
@@ -64,7 +64,7 @@ class PromptLibraryRegistry:
     def __init__(self, base_dir: Path) -> None:
         self.base_dir = Path(base_dir)
 
-    def list_resources(self, *, sync_workflow_prompts: bool = False) -> list[PromptResource]:
+    def list_resources(self) -> list[PromptResource]:
         builtin_resources = {
             item.resource_id: item
             for item in (
@@ -82,13 +82,12 @@ class PromptLibraryRegistry:
         *,
         category: str = "",
         subtype: str = "",
-        sync_workflow_prompts: bool = False,
     ) -> list[PromptResource]:
         category_filter = str(category or "").strip()
         subtype_filter = str(subtype or "").strip()
         return [
             item
-            for item in self.list_resources(sync_workflow_prompts=sync_workflow_prompts)
+            for item in self.list_resources()
             if item.active
             and not item.deprecated_for_new_runtime
             and (not category_filter or item.category == category_filter)
@@ -128,7 +127,7 @@ class PromptLibraryRegistry:
         return next(
             (
                 item
-                for item in self.list_resources(sync_workflow_prompts=False)
+                for item in self.list_resources()
                 if item.prompt_id == target and item.active and not item.deprecated_for_new_runtime
             ),
             None,
@@ -196,9 +195,11 @@ class PromptLibraryRegistry:
                 workflow_id=workflow_id,
                 task_id=task_id,
                 node_id=f"{graph_id}.{node_id}",
-                resource_type="stage_role",
+                resource_type="graph_node.role",
             ),
-            resource_type="stage_role",
+            category="graph_node",
+            subtype="role",
+            resource_type="graph_node.role",
             title=str(node.get("title") or node_id or graph_title or graph_id),
             content=str(prompt or "").strip(),
             workflow_id=workflow_id,
@@ -207,9 +208,7 @@ class PromptLibraryRegistry:
             node_id=node_id,
             stage_id=node_id,
             tags=tuple(item for item in ("task_graph", domain_id, graph_id) if item),
-            applies_to_task_goal_types=("task_graph_node_execution",),
-            applies_to_domains=tuple(item for item in ("task_graph", domain_id) if item),
-            applies_to_modes=("role_mode", "standard_mode", "professional_mode"),
+            allowed_runtime_modes=("role", "standard", "professional"),
             cache_scope="static",
             model_visible=True,
             source_ref=f"task_graph:{graph_id}#nodes.{node_id}.metadata.role_prompt",

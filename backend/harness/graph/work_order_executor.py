@@ -618,12 +618,21 @@ def _candidate_artifact_refs(candidate: dict[str, Any]) -> list[str]:
 def _runtime_scope(*, graph_config: GraphHarnessConfig, work_order: GraphNodeWorkOrder, task_run_payload: dict[str, Any]) -> dict[str, Any]:
     diagnostics = dict(task_run_payload.get("diagnostics") or {})
     environment = dict(graph_config.environment or {})
+    graph_state = dict(work_order.graph_state or {})
+    input_package = dict(work_order.input_package or {})
+    dispatch_context = dict(work_order.dispatch_context or {})
     return {
         **dict(environment.get("runtime_scope") or {}),
+        **dict(graph_state.get("runtime_scope") or {}),
+        **dict(input_package.get("runtime_scope") or {}),
+        **dict(dispatch_context.get("runtime_scope") or {}),
         **dict(diagnostics.get("runtime_scope") or {}),
         **({"project_id": str(diagnostics.get("project_id") or "")} if str(diagnostics.get("project_id") or "") else {}),
+        **({"scope_id": str(diagnostics.get("scope_id") or "")} if str(diagnostics.get("scope_id") or "") else {}),
         "task_environment_id": str(graph_config.task_environment_id or ""),
         "graph_run_id": work_order.graph_run_id,
+        "task_run_id": work_order.task_run_id,
+        "authority": "harness.graph.work_order_runtime_scope",
     }
 
 

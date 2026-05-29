@@ -28,10 +28,6 @@ class PromptResource:
     step_id: str = ""
     step_kind: str = ""
     tags: tuple[str, ...] = ()
-    applies_to_task_goal_types: tuple[str, ...] = ()
-    applies_to_domains: tuple[str, ...] = ()
-    applies_to_modes: tuple[str, ...] = ()
-    applies_to_agents: tuple[str, ...] = ()
     priority: int = 100
     cache_scope: str = "static"
     model_visible: bool = True
@@ -65,10 +61,6 @@ class PromptResource:
             "allowed_agent_refs",
             "allowed_environment_refs",
             "tags",
-            "applies_to_task_goal_types",
-            "applies_to_domains",
-            "applies_to_modes",
-            "applies_to_agents",
         ):
             payload[key] = list(payload[key])
         payload["chars"] = len(self.content)
@@ -197,8 +189,11 @@ class PromptAssemblyResult:
 
 
 def prompt_resource_from_dict(payload: dict[str, Any]) -> PromptResource:
+    resource_type = str(payload.get("resource_type") or "").strip()
+    prompt_id = str(payload.get("prompt_id") or payload.get("resource_id") or "")
+    resource_id = str(payload.get("resource_id") or "")
     return PromptResource(
-        prompt_id=str(payload.get("prompt_id") or payload.get("resource_id") or ""),
+        prompt_id=prompt_id,
         category=str(payload.get("category") or ""),
         subtype=str(payload.get("subtype") or ""),
         owner_layer=str(payload.get("owner_layer") or ""),
@@ -209,12 +204,12 @@ def prompt_resource_from_dict(payload: dict[str, Any]) -> PromptResource:
         ),
         allowed_runtime_modes=tuple(
             str(item).strip()
-            for item in list(payload.get("allowed_runtime_modes") or payload.get("applies_to_modes") or [])
+            for item in list(payload.get("allowed_runtime_modes") or [])
             if str(item).strip()
         ),
         allowed_agent_refs=tuple(
             str(item).strip()
-            for item in list(payload.get("allowed_agent_refs") or payload.get("applies_to_agents") or [])
+            for item in list(payload.get("allowed_agent_refs") or [])
             if str(item).strip()
         ),
         allowed_environment_refs=tuple(
@@ -223,8 +218,8 @@ def prompt_resource_from_dict(payload: dict[str, Any]) -> PromptResource:
             if str(item).strip()
         ),
         status=str(payload.get("status") or ("active" if bool(payload.get("enabled", True)) else "deprecated")),
-        resource_id=str(payload.get("resource_id") or ""),
-        resource_type=str(payload.get("resource_type") or "stage_role"),
+        resource_id=resource_id,
+        resource_type=resource_type,
         title=str(payload.get("title") or payload.get("resource_id") or ""),
         content=str(payload.get("content") or ""),
         workflow_id=str(payload.get("workflow_id") or ""),
@@ -236,26 +231,6 @@ def prompt_resource_from_dict(payload: dict[str, Any]) -> PromptResource:
         step_id=str(payload.get("step_id") or ""),
         step_kind=str(payload.get("step_kind") or ""),
         tags=tuple(str(item).strip() for item in list(payload.get("tags") or []) if str(item).strip()),
-        applies_to_task_goal_types=tuple(
-            str(item).strip()
-            for item in list(payload.get("applies_to_task_goal_types") or [])
-            if str(item).strip()
-        ),
-        applies_to_domains=tuple(
-            str(item).strip()
-            for item in list(payload.get("applies_to_domains") or [])
-            if str(item).strip()
-        ),
-        applies_to_modes=tuple(
-            str(item).strip()
-            for item in list(payload.get("applies_to_modes") or [])
-            if str(item).strip()
-        ),
-        applies_to_agents=tuple(
-            str(item).strip()
-            for item in list(payload.get("applies_to_agents") or [])
-            if str(item).strip()
-        ),
         priority=int(payload.get("priority") or 100),
         cache_scope=str(payload.get("cache_scope") or "static"),
         model_visible=bool(payload.get("model_visible", True)),
@@ -305,11 +280,8 @@ def _category_from_resource_type(resource_type: str) -> str:
         "common_contract": "runtime",
         "work_role": "agent",
         "environment_prompt": "environment",
-        "understanding_policy": "task",
-        "flow_matching_policy": "task",
         "role_prompt": "soul",
-        "task_goal_role": "task",
-        "stage_role": "graph_node",
+        "graph_node.role": "graph_node",
         "skill_prompt": "skill",
         "tool_guidance": "runtime",
         "verification": "runtime",
@@ -324,11 +296,8 @@ def _subtype_from_resource_type(resource_type: str) -> str:
         "common_contract": "common_contract",
         "work_role": "main.work_role",
         "environment_prompt": "boundary",
-        "understanding_policy": "understanding_policy",
-        "flow_matching_policy": "flow_matching_policy",
         "role_prompt": "role_persona",
-        "task_goal_role": "specific.role",
-        "stage_role": "role",
+        "graph_node.role": "role",
         "skill_prompt": "usage",
         "tool_guidance": "tool_guidance",
         "verification": "verification",
@@ -365,5 +334,7 @@ def _resource_type_from_category_subtype(category: str, subtype: str) -> str:
     if category_value and subtype_value:
         return f"{category_value}.{subtype_value}"
     return category_value or subtype_value or "runtime.instruction"
+
+
 
 

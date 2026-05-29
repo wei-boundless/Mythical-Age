@@ -170,6 +170,8 @@ class RuntimeCompiler:
                         invocation_kind="turn_action",
                     ),
                     packet_id=f"rtpacket:{turn_id}:turn_action:1",
+                    dynamic_projection_refs=("agent_visible_runtime_projection", "operation_authorization"),
+                    volatile_state_refs=("runtime_envelope", "turn_id", "history", "user_message"),
                 ).to_dict(),
             },
         )
@@ -240,12 +242,24 @@ class RuntimeCompiler:
         )
         schema = task_execution_action_schema()
         artifact_root = _artifact_root(environment_payload)
+        task_prompt_contract = _task_prompt_contract_from_runtime(
+            task_run=task_run,
+            contract=contract,
+            assembly_payload=assembly_payload,
+        )
+        graph_node_prompt_contract = _graph_node_prompt_contract_from_runtime(
+            task_run=task_run,
+            contract=contract,
+            assembly_payload=assembly_payload,
+        )
         prompt_assembly = self._assemble_prompt_pack(
             invocation_kind="task_execution",
             prompt_pack_refs=prompt_pack_refs,
             agent_profile_ref=agent_profile_ref,
             task_environment_ref=task_environment_ref,
             runtime_mode=str(profile_payload.get("mode") or "professional"),
+            task_prompt_contract=task_prompt_contract,
+            graph_node_prompt_contract=graph_node_prompt_contract,
         )
         agent_prompt_assembly = self._assemble_prompt_refs(
             invocation_kind="agent_profile",
@@ -316,6 +330,8 @@ class RuntimeCompiler:
                         invocation_kind="task_execution",
                     ),
                     packet_id=f"rtpacket:{task_run_id}:task_execution:{invocation_index}",
+                    dynamic_projection_refs=("agent_visible_runtime_projection", "operation_authorization"),
+                    volatile_state_refs=("runtime_envelope", "execution_state", "observations"),
                 ).to_dict(),
             },
         )
@@ -460,6 +476,8 @@ class RuntimeCompiler:
                         invocation_kind="tool_observation_followup",
                     ),
                     packet_id=f"rtpacket:{turn_id}:tool_observation_followup:{len(observations) + 1}",
+                    dynamic_projection_refs=("agent_visible_runtime_projection", "operation_authorization"),
+                    volatile_state_refs=("runtime_envelope", "turn_id", "history", "user_message", "observations"),
                 ).to_dict(),
             },
         )
@@ -473,6 +491,8 @@ class RuntimeCompiler:
         agent_profile_ref: str,
         task_environment_ref: str,
         runtime_mode: str,
+        task_prompt_contract: dict[str, Any] | None = None,
+        graph_node_prompt_contract: dict[str, Any] | None = None,
     ) -> PromptAssemblyResult:
         refs = tuple(prompt_pack_refs or ())
         if not refs:
@@ -485,6 +505,8 @@ class RuntimeCompiler:
                 agent_profile_ref=agent_profile_ref,
                 task_environment_ref=task_environment_ref,
                 runtime_mode=runtime_mode,
+                task_prompt_contract=dict(task_prompt_contract or {}),
+                graph_node_prompt_contract=dict(graph_node_prompt_contract or {}),
             )
         )
 
@@ -628,7 +650,8 @@ def _merge_prompt_assemblies(
         prompt_pack_refs=tuple(dict.fromkeys(pack_refs)),
         rejected_refs=tuple(rejected_refs),
         manifest={
-            "stable_prompt_refs": [item.prompt_ref for item in sections],
+            "stable_prompt_refs": [item.prompt_ref for item in sections if item.prompt_ref],
+            "stable_contract_refs": [item.source_ref for item in sections if not item.prompt_ref],
             "prompt_pack_refs": list(dict.fromkeys(pack_refs)),
             "rejected_refs": rejected_refs,
             "authority": "prompt_library.prompt_assembly_manifest",
@@ -638,6 +661,89 @@ def _merge_prompt_assemblies(
 
 def _string_tuple(value: Any) -> tuple[str, ...]:
     return tuple(str(item).strip() for item in list(value or []) if str(item).strip())
+
+
+def _task_prompt_contract_from_runtime(
+    *,
+    task_run: dict[str, Any],
+    contract: dict[str, Any],
+    assembly_payload: dict[str, Any],
+) -> dict[str, Any]:
+    payload = dict(contract.get("prompt_contract") or {})
+    engagement_contract = dict(assembly_payload.get("engagement_contract") or {})
+    if not payload:
+        payload = dict(engagement_contract.get("prompt_contract") or {})
+    result = _normalize_prompt_contract(
+        payload,
+        contract_id=str(
+            payload.get("contract_id")
+            or contract.get("contract_id")
+            or engagement_contract.get("contract_id")
+            or task_run.get("task_run_id")
+            or "task_prompt_contract"
+        ),
+    )
+    if not result.get("task_instruction"):
+        result["task_instruction"] = _first_runtime_text(
+            contract.get("task_run_goal"),
+            contract.get("user_visible_goal"),
+            task_run.get("title"),
+        )
+    if not result.get("definition_of_done"):
+        result["definition_of_done"] = _string_list(contract.get("completion_criteria"))
+    return result
+
+
+def _graph_node_prompt_contract_from_runtime(
+    *,
+    task_run: dict[str, Any],
+    contract: dict[str, Any],
+    assembly_payload: dict[str, Any],
+) -> dict[str, Any]:
+    engagement_contract = dict(assembly_payload.get("engagement_contract") or {})
+    payload = dict(
+        dict(contract.get("graph_node_prompt_contract") or {})
+        or dict(engagement_contract.get("graph_node_prompt_contract") or {})
+        or dict(dict(engagement_contract.get("execution_strategy") or {}).get("graph_node_prompt_contract") or {})
+    )
+    if not payload:
+        return {}
+    return _normalize_prompt_contract(
+        payload,
+        contract_id=str(
+            payload.get("contract_id")
+            or payload.get("node_id")
+            or contract.get("source_contract_ref")
+            or task_run.get("task_id")
+            or "graph_node_prompt_contract"
+        ),
+    )
+
+
+def _normalize_prompt_contract(payload: dict[str, Any], *, contract_id: str) -> dict[str, Any]:
+    return {
+        "contract_id": str(contract_id or payload.get("contract_id") or "").strip(),
+        "version": str(payload.get("version") or "v1"),
+        "role_prompt": _first_runtime_text(payload.get("role_prompt")),
+        "task_instruction": _first_runtime_text(payload.get("task_instruction")),
+        "output_instruction": _first_runtime_text(payload.get("output_instruction")),
+        "forbidden_behavior": _string_list(payload.get("forbidden_behavior")),
+        "definition_of_done": _string_list(payload.get("definition_of_done")),
+    }
+
+
+def _first_runtime_text(*values: Any) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _string_list(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value.strip()] if value.strip() else []
+    return [str(item).strip() for item in list(value or []) if str(item).strip()]
 
 
 def _agent_visible_runtime_projection(
