@@ -11,7 +11,6 @@ type MainAgentAssemblyProfile = {
   runtime_assembly_hint: Record<string, unknown>;
   mode_policy: Record<string, unknown>;
   stream_policy: Record<string, unknown>;
-  intent_decision?: Record<string, unknown>;
 };
 
 const INTERACTIVE_STREAM_POLICY = {
@@ -34,10 +33,6 @@ const MODE_OWNED_POLICY_KEYS = new Set([
   "recipe_id",
   "projection_strength",
   "mode_reason",
-]);
-
-const MODE_OWNED_INTENT_KEYS = new Set([
-  "interaction_mode",
 ]);
 
 export const MAIN_AGENT_ID = "agent:0";
@@ -106,9 +101,6 @@ export const MAIN_AGENT_ASSEMBLY_MODES: Record<MainAgentAssemblyMode, MainAgentA
       projection_strength: "style_only",
       mode_reason: "frontend_main_agent_profile",
     },
-    intent_decision: {
-      interaction_mode: "professional_mode",
-    },
   },
 };
 
@@ -139,10 +131,6 @@ export function buildMainAgentTaskSelection(
     mode_policy: {
       ...omitModeOwnedKeys(current.mode_policy, MODE_OWNED_POLICY_KEYS),
       ...profile.mode_policy,
-    },
-    intent_decision: {
-      ...omitModeOwnedKeys(current.intent_decision, MODE_OWNED_INTENT_KEYS),
-      ...(profile.intent_decision ?? { interaction_mode: profile.interaction_mode }),
     },
   };
 }

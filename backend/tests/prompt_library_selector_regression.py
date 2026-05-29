@@ -23,13 +23,6 @@ def test_prompt_selector_selects_static_default_resource_types_for_matching_cont
     plan = PromptSelector(
         (
             PromptResource(
-                resource_id="prompt.default.mode_policy.professional_mode",
-                resource_type="mode_policy",
-                title="专业模式边界",
-                content="当前是专业任务模式。",
-                applies_to_modes=("professional_mode",),
-            ),
-            PromptResource(
                 resource_id="prompt.default.flow_matching_policy.goal_profile_binding",
                 resource_type="flow_matching_policy",
                 title="目标流程匹配规则",
@@ -50,7 +43,7 @@ def test_prompt_selector_selects_static_default_resource_types_for_matching_cont
 
     selected_by_type = {item.resource_type: item for item in plan.selected}
 
-    assert selected_by_type["mode_policy"].section_id == "mode_policy_section"
+    assert "mode_policy" not in selected_by_type
     assert selected_by_type["flow_matching_policy"].section_id == "flow_matching_policy_section"
     assert selected_by_type["task_goal_role"].resource_id == "prompt.default.task_goal_role.game_vertical_slice_delivery"
     assert "domain_flow_matching_stage" in selected_by_type["flow_matching_policy"].selection_reason

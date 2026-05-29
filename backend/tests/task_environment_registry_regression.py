@@ -692,8 +692,17 @@ def test_runtime_packet_includes_environment_prompt_boundary_from_configured_env
         runtime_assembly=assembly,
         invocation_index=1,
     ).packet
-    stable_payload = json.loads(packet.model_messages[1]["content"].split("\n", 1)[1])
+    stable_message = packet.model_messages[1]["content"]
+    stable_payload = json.loads(stable_message.split("\n", 1)[1])
 
     assert "你处在自定义提示环境中" in packet.system_instructions
     assert stable_payload["task_environment"]["environment_boundary"]["prompt_refs"] == ["environment.custom.prompted.v1"]
+    assert stable_payload["task_environment"]["environment_prompts"] == [
+        {
+            "prompt_id": "environment.custom.prompted.v1",
+            "content_omitted": True,
+            "content_source": "prompt_library",
+        }
+    ]
+    assert "你处在自定义提示环境中" not in stable_message
     assert stable_payload["runtime_context"]["environment_boundary"]["environment_prompts_source"] == "task_environment_config"

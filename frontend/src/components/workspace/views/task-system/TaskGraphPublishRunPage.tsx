@@ -6,7 +6,7 @@ import { CheckCircle2, MessageSquareShare, PlayCircle, RefreshCw, Save, Send, Tr
 import {
   compileTaskSystemTaskGraphContract,
   getOrchestrationHarnessTrace,
-  dispatchGraphRunReadyNodes,
+  runGraphRunUntilIdle,
   startTaskGraphHarnessRun,
   taskGraphRunsFromTrace,
   type HarnessTaskRunTrace,
@@ -213,6 +213,7 @@ export function TaskGraphPublishRunPage({
         session_id: runSessionId.trim() || "session:task_graph_studio",
         include_trace: true,
         dispatch_ready: true,
+        run_mode: "auto_run",
       });
       setTaskRunId(result.task_run_id);
       setGraphRunId(result.graph_run_id);
@@ -249,9 +250,9 @@ export function TaskGraphPublishRunPage({
     setResumeLoading(true);
     setRunTraceError("");
     try {
-      await dispatchGraphRunReadyNodes(targetGraphRunId, {
+      await runGraphRunUntilIdle(targetGraphRunId, {
         graph_harness_config_id: targetConfigId,
-        max_requests: 1,
+        max_dispatch_requests: 1,
       });
       await loadRunTrace();
     } catch (error) {

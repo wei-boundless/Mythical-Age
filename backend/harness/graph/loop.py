@@ -209,7 +209,7 @@ class GraphLoop:
             raise ValueError("NodeResultEnvelope work_order_id does not match active GraphNodeWorkOrder")
         node_states = {key: dict(value) for key, value in state.node_states.items()}
         current_node = dict(node_states.get(envelope.node_id) or {})
-        current_node["status"] = "completed" if envelope.status == "completed" else "failed"
+        current_node["status"] = _node_status_from_result(envelope)
         current_node["result_ref"] = envelope.result_id
         current_node["updated_at"] = envelope.created_at or time.time()
         node_states[envelope.node_id] = current_node
@@ -245,7 +245,23 @@ class GraphLoop:
         graph_result: GraphResultEnvelope | None = None
         status = "running"
         terminal_reason = ""
-        if failed:
+        blocked = [
+            node_id
+            for node_id, payload in node_states.items()
+            if str(payload.get("status") or "") in {"blocked", "waiting_human_gate"}
+        ]
+        waiting_human = [
+            node_id
+            for node_id, payload in node_states.items()
+            if str(payload.get("status") or "") == "waiting_human_gate"
+        ]
+        if waiting_human:
+            status = "waiting_human_gate"
+            terminal_reason = f"waiting_human_gate:{waiting_human[0]}"
+        elif blocked:
+            status = "blocked"
+            terminal_reason = f"node_blocked:{blocked[0]}"
+        elif failed:
             status = "failed"
             terminal_reason = f"node_failed:{failed[0]}"
             graph_result = _graph_result(graph_config=graph_config, state=next_state, status="failed", terminal_reason=terminal_reason)
@@ -264,10 +280,10 @@ class GraphLoop:
             running_node_ids=tuple(running),
             completed_node_ids=tuple(completed),
             failed_node_ids=tuple(failed),
-            blocked_node_ids=tuple(_blocked_nodes(graph_config=graph_config, node_states=node_states)),
+            blocked_node_ids=tuple(dict.fromkeys([*blocked, *_blocked_nodes(graph_config=graph_config, node_states=node_states)])),
             terminal_reason=terminal_reason,
         )
-        work_orders = () if graph_result is not None else self.dispatch_ready(graph_config=graph_config, state=next_state)
+        work_orders = () if graph_result is not None or status in {"blocked", "waiting_human_gate"} else self.dispatch_ready(graph_config=graph_config, state=next_state)
         if work_orders:
             next_state = _state_with_work_orders(next_state, work_orders)
         next_state = _advance_event_cursor(next_state)
@@ -469,6 +485,16 @@ def _initial_node_status(node: dict[str, Any], *, start_ids: set[str]) -> str:
     return "ready" if node_id in start_ids else "pending"
 
 
+def _node_status_from_result(result: NodeResultEnvelope) -> str:
+    if result.status == "completed":
+        return "completed"
+    if result.status == "waiting_human_gate":
+        return "waiting_human_gate"
+    if result.status == "blocked":
+        return "blocked"
+    return "failed"
+
+
 def _replace_state(state: GraphLoopState, **patch: Any) -> GraphLoopState:
     payload = state.to_dict()
     payload.update(patch)
@@ -549,6 +575,7 @@ def _graph_result(
         for item in state.result_index.values()
         if str(dict(item).get("result_id") or "")
     ]
+    artifact_refs = _graph_artifact_refs(state)
     return GraphResultEnvelope(
         result_id=f"gresult:{safe_id(state.graph_run_id)}",
         graph_run_id=state.graph_run_id,
@@ -560,7 +587,32 @@ def _graph_result(
             node_id: dict(result).get("outputs")
             for node_id, result in state.result_index.items()
         },
+        artifact_refs=tuple(artifact_refs),
         node_result_refs=tuple(result_refs),
+        diagnostics={
+            "artifact_materialization_receipts": _graph_receipts(state, "artifact_materialization_receipts"),
+            "memory_commit_receipts": _graph_receipts(state, "memory_commit_receipts"),
+            "authority": "harness.graph_result_envelope.diagnostics",
+        },
         terminal_reason=terminal_reason or status,
         created_at=time.time(),
     )
+
+
+def _graph_artifact_refs(state: GraphLoopState) -> list[str]:
+    refs: list[str] = []
+    seen: set[str] = set()
+    for result in state.result_index.values():
+        for raw in list(dict(result).get("artifact_refs") or []):
+            ref = str(raw or "").strip()
+            if ref and ref not in seen:
+                seen.add(ref)
+                refs.append(ref)
+    return refs
+
+
+def _graph_receipts(state: GraphLoopState, key: str) -> list[dict[str, Any]]:
+    receipts: list[dict[str, Any]] = []
+    for result in state.result_index.values():
+        receipts.extend(dict(item) for item in list(dict(result).get(key) or []) if isinstance(item, dict))
+    return receipts

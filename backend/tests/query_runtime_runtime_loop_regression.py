@@ -13,6 +13,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from query.models import QueryRequest
 from runtime.shared.models import AgentRunResult, TaskRun
+from harness.loop.task_lifecycle import TaskLifecycleRecord, TaskRunContract
 from tests.support.runtime_stubs import (
     SingleMessageModelRuntimeStub,
     build_query_runtime,
@@ -74,7 +75,8 @@ def test_agent_action_request_launches_task_run_and_initializes_todo() -> None:
             agent_turn_action_request=_action_request(
                 action_type="request_task_run",
                 task_contract_seed={
-                    "goal": "交付一个真实可验证产物。",
+                    "user_visible_goal": "交付一个真实可验证产物。",
+                    "task_run_goal": "交付一个真实可验证产物。",
                     "required_artifacts": [{"artifact_kind": "test_artifact", "user_visible_name": "测试交付物"}],
                     "required_verifications": [{"verification_kind": "test_verification"}],
                     "completion_criteria": ["交付物和验证证据都已记录"],
@@ -112,6 +114,12 @@ def test_agent_action_request_launches_task_run_and_initializes_todo() -> None:
     assert "agent_todo_initialized" in event_types
     assert "task_run_executor_scheduled" in event_types
     assert any("任务执行器已接管" in str(event.get("content") or "") for event in events if event.get("type") == "done")
+    task_run = runtime.single_agent_runtime_host.state_index.get_task_run(task_run_id)
+    assert task_run is not None
+    assert dict(task_run.diagnostics or {}).get("origin_kind") == "agent_requested"
+    assert dict(dict(task_run.diagnostics or {}).get("origin") or {}).get("origin_authority") == "harness.agent_loop"
+    contract = runtime.single_agent_runtime_host.runtime_objects.get_object(task_run.task_contract_ref)
+    assert dict(contract or {}).get("origin", {}).get("origin_kind") == "agent_requested"
 
 
 def test_global_live_monitor_groups_running_completed_and_failed_runs(monkeypatch) -> None:
@@ -416,7 +424,7 @@ def test_task_executor_schedule_missing_callback_blocks_task_run() -> None:
         model_runtime=SingleMessageModelRuntimeStub(
             agent_turn_action_request=_action_request(
                 action_type="request_task_run",
-                task_contract_seed={"goal": "需要调度。", "completion_criteria": ["调度必须可观测"]},
+                task_contract_seed={"user_visible_goal": "需要调度。", "task_run_goal": "需要调度。", "completion_criteria": ["调度必须可观测"]},
             )
         )
     )
@@ -450,7 +458,7 @@ def test_task_executor_scheduler_auto_continues_waiting_executor() -> None:
         model_runtime=SingleMessageModelRuntimeStub(
             agent_turn_action_request=_action_request(
                 action_type="request_task_run",
-                task_contract_seed={"goal": "需要自动续跑。", "completion_criteria": ["最终完成"]},
+                task_contract_seed={"user_visible_goal": "需要自动续跑。", "task_run_goal": "需要自动续跑。", "completion_criteria": ["最终完成"]},
             )
         )
     )
@@ -505,6 +513,156 @@ def test_task_executor_scheduler_auto_continues_waiting_executor() -> None:
     assert "task_run_executor_rescheduled" in event_types
 
 
+def test_task_executor_commits_final_answer_to_session_history() -> None:
+    runtime = build_query_runtime(
+        model_runtime=_TaskExecutorSequenceModelRuntime(
+            [
+                _action_request(
+                    action_type="respond",
+                    final_answer="TaskRun 已完成并回写到会话。",
+                )
+            ],
+            agent_turn_action_request=_action_request(action_type="respond", final_answer="unused"),
+        )
+    )
+    host = runtime.single_agent_runtime_host
+    contract = TaskRunContract(
+        contract_id="task-contract:session-final-commit",
+        contract_source="test",
+        user_visible_goal="验证 TaskRun final answer 会回写会话。",
+        task_run_goal="完成后把 final answer 写回 session history。",
+        completion_criteria=("final answer 已提交到会话历史",),
+    )
+    contract_ref = host.runtime_objects.put_object("task_run_contract", contract.contract_id, contract.to_dict())
+    lifecycle = TaskLifecycleRecord(
+        task_run_id="taskrun:session-final-commit",
+        contract_ref=contract_ref,
+        status="waiting_executor",
+        created_at=1.0,
+        updated_at=1.0,
+    )
+    host.runtime_objects.put_object("task_lifecycle", lifecycle.task_run_id, lifecycle.to_dict())
+    host.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id=lifecycle.task_run_id,
+            session_id="session-final-commit",
+            task_id="task:session-final-commit",
+            task_contract_ref=contract_ref,
+            agent_profile_id="main_interactive_agent",
+            execution_runtime_kind="single_agent_task",
+            status="waiting_executor",
+            created_at=1.0,
+            updated_at=1.0,
+            diagnostics={"contract": contract.to_dict()},
+        )
+    )
+
+    result = asyncio.run(runtime.execute_task_run(lifecycle.task_run_id, max_steps=2))
+
+    messages = runtime.session_manager.load_session("session-final-commit")
+    trace = host.get_trace(lifecycle.task_run_id, include_payloads=False)
+    event_types = [str(dict(item).get("event_type") or "") for item in list(dict(trace or {}).get("events") or [])]
+
+    assert result["ok"] is True
+    assert any(
+        item.get("role") == "assistant" and item.get("content") == "TaskRun 已完成并回写到会话。"
+        for item in messages
+    )
+    assert "task_run_final_message_commit_checked" in event_types
+
+
+def test_session_runtime_timeline_keeps_completed_task_attachment() -> None:
+    from harness.runtime.session_timeline import build_session_runtime_timeline
+
+    runtime = build_query_runtime(
+        model_runtime=_TaskExecutorSequenceModelRuntime(
+            [
+                _action_request(
+                    action_type="respond",
+                    final_answer="Timeline final answer.",
+                )
+            ],
+            agent_turn_action_request=_action_request(action_type="respond", final_answer="unused"),
+        )
+    )
+    host = runtime.single_agent_runtime_host
+    contract = TaskRunContract(
+        contract_id="task-contract:timeline",
+        contract_source="test",
+        user_visible_goal="验证 timeline attachment。",
+        task_run_goal="完成后仍保留运行附件。",
+        completion_criteria=("final answer 已形成",),
+    )
+    contract_ref = host.runtime_objects.put_object("task_run_contract", contract.contract_id, contract.to_dict())
+    lifecycle = TaskLifecycleRecord(
+        task_run_id="taskrun:turn:session-timeline:1:abc",
+        contract_ref=contract_ref,
+        status="waiting_executor",
+        created_at=1.0,
+        updated_at=1.0,
+    )
+    host.runtime_objects.put_object("task_lifecycle", lifecycle.task_run_id, lifecycle.to_dict())
+    host.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id=lifecycle.task_run_id,
+            session_id="session-timeline",
+            task_id="task:turn:session-timeline:1",
+            task_contract_ref=contract_ref,
+            agent_profile_id="main_interactive_agent",
+            execution_runtime_kind="single_agent_task",
+            status="waiting_executor",
+            created_at=1.0,
+            updated_at=1.0,
+            diagnostics={"turn_id": "turn:session-timeline:1", "contract": contract.to_dict()},
+        )
+    )
+
+    result = asyncio.run(runtime.execute_task_run(lifecycle.task_run_id, max_steps=2))
+    timeline = build_session_runtime_timeline(
+        session_id="session-timeline",
+        history={"messages": runtime.session_manager.load_session("session-timeline")},
+        runtime_host=host,
+    )
+
+    attachment = timeline["runtime_attachments"][0]
+    assert result["ok"] is True
+    assert attachment["task_run_id"] == lifecycle.task_run_id
+    assert attachment["anchor_turn_id"] == "turn:session-timeline:1"
+    assert attachment["status"] == "completed"
+    assert attachment["final_answer"] == "Timeline final answer."
+    assert attachment["progress_entries"]
+
+
+def test_session_runtime_timeline_derives_turn_anchor_from_structural_task_run_id() -> None:
+    from harness.runtime.session_timeline import build_session_runtime_timeline
+
+    runtime = build_query_runtime()
+    host = runtime.single_agent_runtime_host
+    host.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id="taskrun:turn:session-anchor:3:abc",
+            session_id="session-anchor",
+            task_id="task:turn:session-anchor:3",
+            agent_profile_id="main_interactive_agent",
+            execution_runtime_kind="single_agent_task",
+            status="completed",
+            terminal_reason="completed",
+            created_at=1.0,
+            updated_at=2.0,
+            diagnostics={},
+        )
+    )
+
+    timeline = build_session_runtime_timeline(
+        session_id="session-anchor",
+        history={"messages": []},
+        runtime_host=host,
+    )
+
+    attachment = timeline["runtime_attachments"][0]
+    assert attachment["anchor_turn_id"] == "turn:session-anchor:3"
+
+
 def test_running_task_run_is_not_externally_executable_unless_executor_claimed() -> None:
     from harness.loop.task_executor import is_task_run_executable, is_task_run_executor_claimed
 
@@ -534,6 +692,57 @@ def test_running_task_run_is_not_externally_executable_unless_executor_claimed()
     assert is_task_run_executor_claimed(claimed_running) is True
 
 
+def test_task_contract_preserves_runtime_fields_without_goal_aliases() -> None:
+    from harness.loop.model_action_protocol import ModelActionRequest
+    from harness.loop.task_lifecycle import contract_from_action_request
+
+    invalid, errors = contract_from_action_request(
+        ModelActionRequest(
+            request_id="model-action:contract-fields:invalid",
+            turn_id="turn-contract-fields",
+            action_type="request_task_run",
+            task_contract_seed={
+                "goal": "旧字段不能替代正式合同字段",
+                "completion_criteria": ["需要真实验收"],
+            },
+        ),
+        packet_ref="rtpacket:contract-fields",
+    )
+
+    assert invalid is None
+    assert "task_goal_required" in errors
+    assert "task_run_goal_required" in errors
+
+    contract, contract_errors = contract_from_action_request(
+        ModelActionRequest(
+            request_id="model-action:contract-fields:valid",
+            turn_id="turn-contract-fields",
+            action_type="request_task_run",
+            task_contract_seed={
+                "user_visible_goal": "交付可运行示例",
+                "task_run_goal": "创建并验证可运行示例",
+                "completion_criteria": ["示例可以被验证"],
+                "task_environment_id": "env.development.sandbox",
+                "runtime_profile": {"mode": "professional"},
+                "source_contract_ref": "contract.demo",
+                "external_plan_ref": "plan.demo",
+                "prompt_contract": {"role_prompt": "你是执行者。"},
+            },
+        ),
+        packet_ref="rtpacket:contract-fields",
+    )
+
+    assert contract_errors == []
+    assert contract is not None
+    assert contract.user_visible_goal == "交付可运行示例"
+    assert contract.task_run_goal == "创建并验证可运行示例"
+    assert contract.task_environment_id == "env.development.sandbox"
+    assert contract.runtime_profile["mode"] == "professional"
+    assert contract.source_contract_ref == "contract.demo"
+    assert contract.external_plan_ref == "plan.demo"
+    assert contract.prompt_contract["role_prompt"] == "你是执行者。"
+
+
 def test_runtime_start_recovers_interrupted_task_executor_lease() -> None:
     from harness.loop.task_executor import recover_interrupted_task_executors
 
@@ -560,13 +769,52 @@ def test_runtime_start_recovers_interrupted_task_executor_lease() -> None:
     assert dict(task_run.diagnostics or {}).get("executor_status") == "waiting_executor"
 
 
+def test_runtime_start_recovery_skips_graph_node_assigned_task_run() -> None:
+    from harness.loop.task_executor import recover_interrupted_task_executors
+
+    runtime = build_query_runtime()
+    host = runtime.single_agent_runtime_host
+    host.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id="gtask:graph:node:work",
+            session_id="session-graph-node-recovery",
+            task_id="task:graph-node",
+            execution_runtime_kind="single_agent_task",
+            status="running",
+            diagnostics={
+                "executor_status": "scheduled",
+                "origin_kind": "graph_node_assigned",
+                "origin": {
+                    "origin_kind": "graph_node_assigned",
+                    "origin_authority": "harness.graph_loop",
+                    "origin_ref": "gwork:graph:node",
+                    "parent_run_ref": "grun:graph",
+                },
+                "graph_node_id": "draft",
+                "graph_work_order_id": "gwork:graph:node",
+            },
+        )
+    )
+
+    result = recover_interrupted_task_executors(host)
+    task_run = host.state_index.get_task_run("gtask:graph:node:work")
+
+    assert result["recovered_count"] == 0
+    assert result["task_run_ids"] == []
+    assert result["skipped_graph_node_task_run_ids"] == ["gtask:graph:node:work"]
+    assert task_run is not None
+    assert task_run.status == "running"
+    assert dict(task_run.diagnostics or {}).get("executor_status") == "scheduled"
+
+
 def test_task_run_executor_keeps_model_call_failure_recoverable() -> None:
     runtime = build_query_runtime(
         model_runtime=SingleMessageModelRuntimeStub(
             agent_turn_action_request=_action_request(
                 action_type="request_task_run",
                 task_contract_seed={
-                    "goal": "需要长任务续跑。",
+                    "user_visible_goal": "需要长任务续跑。",
+                    "task_run_goal": "需要长任务续跑。",
                     "completion_criteria": ["完成真实交付"],
                 },
             )
@@ -621,7 +869,7 @@ def test_task_run_executor_recovers_invalid_model_action_as_observation() -> Non
             ],
             agent_turn_action_request=_action_request(
                 action_type="request_task_run",
-                task_contract_seed={"goal": "协议错误后继续执行。", "completion_criteria": ["允许无文件收口"]},
+                task_contract_seed={"user_visible_goal": "协议错误后继续执行。", "task_run_goal": "协议错误后继续执行。", "completion_criteria": ["允许无文件收口"]},
             ),
         )
     )
@@ -658,7 +906,7 @@ def test_task_run_executor_blocks_repeated_invalid_model_actions_as_recoverable(
             ],
             agent_turn_action_request=_action_request(
                 action_type="request_task_run",
-                task_contract_seed={"goal": "连续协议错误后阻塞。", "completion_criteria": ["不应完成"]},
+                task_contract_seed={"user_visible_goal": "连续协议错误后阻塞。", "task_run_goal": "连续协议错误后阻塞。", "completion_criteria": ["不应完成"]},
             ),
         )
     )
@@ -697,7 +945,7 @@ def test_task_run_executor_step_budget_exhaustion_waits_for_next_run() -> None:
             ],
             agent_turn_action_request=_action_request(
                 action_type="request_task_run",
-                task_contract_seed={"goal": "预算耗尽后续跑。", "completion_criteria": ["需要下一轮继续"]},
+                task_contract_seed={"user_visible_goal": "预算耗尽后续跑。", "task_run_goal": "预算耗尽后续跑。", "completion_criteria": ["需要下一轮继续"]},
             ),
         )
     )
@@ -729,7 +977,8 @@ def test_role_mode_allows_soul_prompt_but_blocks_task_lifecycle() -> None:
             agent_turn_action_request=_action_request(
                 action_type="request_task_run",
                 task_contract_seed={
-                    "goal": "角色模式不应开启任务。",
+                    "user_visible_goal": "角色模式不应开启任务。",
+                    "task_run_goal": "角色模式不应开启任务。",
                     "completion_criteria": ["不应执行"],
                 },
             )
@@ -1132,7 +1381,7 @@ def test_completion_discovers_sandbox_artifacts_not_returned_by_tool_refs() -> N
         runtime_host=runtime.single_agent_runtime_host,
         runtime_assembly=runtime_assembly,
         task_run_id=task_run_id,
-        contract={"required_artifacts": [{"artifact_kind": "image_file", "user_visible_name": "player.png"}]},
+        contract={"required_artifacts": [{"artifact_kind": "image_file", "path": "storage/task_environments/development/sandbox/artifacts/assets/player.png"}]},
         artifact_refs=[],
     )
 
@@ -1142,6 +1391,34 @@ def test_completion_discovers_sandbox_artifacts_not_returned_by_tool_refs() -> N
     assert any(item["path"].endswith("assets/player.png") for item in verdict["verified_artifacts"])
     assert not unrelated_published.exists()
     assert not any(item["path"].endswith("scratch.txt") for item in verdict["verified_artifacts"])
+
+
+def test_completion_discovery_ignores_free_text_artifact_names() -> None:
+    from harness.loop.task_executor import _task_sandbox_policy, _verify_completion
+
+    runtime = build_query_runtime()
+    task_run_id = "taskrun:test:discover-structured-only"
+    runtime_assembly = {
+        "task_environment": {
+            "storage_space": {"artifact_root": "storage/task_environments/development/sandbox/artifacts"},
+            "sandbox_policy": {},
+        }
+    }
+    policy = _task_sandbox_policy(runtime_assembly, runtime_host=runtime.single_agent_runtime_host, task_run_id=task_run_id)
+    sandbox_asset = Path(str(policy["sandbox_root"])) / "storage/task_environments/development/sandbox/artifacts/assets/free-text-player.png"
+    sandbox_asset.parent.mkdir(parents=True, exist_ok=True)
+    sandbox_asset.write_bytes(b"\x89PNG\r\n\x1a\nfree-text-player")
+
+    verdict = _verify_completion(
+        runtime_host=runtime.single_agent_runtime_host,
+        runtime_assembly=runtime_assembly,
+        task_run_id=task_run_id,
+        contract={"required_artifacts": [{"artifact_kind": "image_file", "user_visible_name": "free-text-player.png"}]},
+        artifact_refs=[],
+    )
+
+    assert verdict["ok"] is False
+    assert verdict["verified_artifacts"] == []
 
 
 def test_task_sandbox_workspace_root_is_project_root() -> None:

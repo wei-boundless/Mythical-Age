@@ -13,7 +13,6 @@ from .models import (
 
 _RESOURCE_SECTION_IDS = {
     "common_contract": "shared_common_contract",
-    "mode_policy": "mode_policy_section",
     "understanding_policy": "understanding_policy_section",
     "flow_matching_policy": "flow_matching_policy_section",
     "role_prompt": "role_prompt_section",
@@ -27,7 +26,6 @@ _RESOURCE_SECTION_IDS = {
 
 _RESOURCE_ORDERS = {
     "common_contract": 8,
-    "mode_policy": 12,
     "understanding_policy": 18,
     "flow_matching_policy": 19,
     "role_prompt": 15,
@@ -48,7 +46,6 @@ _BUILTIN_SECTION_PLAN = (
     ("agent_plan_section", "builtin:agent_plan_section", "agent_plan_draft", "执行计划草案", "task", 50),
     ("plan_coverage_section", "builtin:plan_coverage_section", "plan_coverage_review", "计划覆盖审查", "task", 52),
     ("completion_judgment_section", "builtin:completion_judgment_section", "completion_judgment", "完成裁决", "task", 54),
-    ("mode_policy_section", "builtin:mode_policy_section", "runtime_interaction_mode_policy", "交互模式策略", "task", 60),
     ("output_section", "builtin:output_section", "runtime_output_boundary", "输出边界", "task", 95),
 )
 
@@ -526,9 +523,6 @@ def _score_resource(resource: PromptResource, context: PromptSelectionContext) -
     if resource.resource_type == "common_contract":
         score += 50
         reasons.append("common_contract")
-    if resource.resource_type == "mode_policy" and context.interaction_mode:
-        score += 45
-        reasons.append("mode_policy")
     if resource.resource_type == "understanding_policy" and context.current_step_kind == "task_goal_understanding":
         score += 140
         reasons.append("task_goal_understanding_stage")
@@ -681,8 +675,6 @@ def _winner_key(resource: PromptResource) -> str:
         return "verification"
     if resource.resource_type == "output_boundary":
         return "output_boundary"
-    if resource.resource_type == "mode_policy":
-        return "mode_policy"
     if resource.resource_type == "understanding_policy":
         return "understanding_policy"
     if resource.resource_type == "flow_matching_policy":

@@ -32,6 +32,7 @@ class TaskRunContract:
     task_environment_id: str = ""
     runtime_profile: dict[str, Any] = field(default_factory=dict)
     prompt_contract: dict[str, Any] = field(default_factory=dict)
+    origin: dict[str, Any] = field(default_factory=dict)
     authority: str = "harness.loop.task_run_contract"
 
     def __post_init__(self) -> None:
@@ -78,14 +79,12 @@ def contract_from_action_request(
 ) -> tuple[TaskRunContract | None, list[str]]:
     seed = dict(action_request.task_contract_seed or {})
     errors: list[str] = []
-    goal = _first_text(
-        seed.get("user_visible_goal"),
-        seed.get("task_run_goal"),
-        seed.get("goal"),
-        seed.get("objective"),
-    )
-    if not goal:
+    user_visible_goal = _first_text(seed.get("user_visible_goal"))
+    task_run_goal = _first_text(seed.get("task_run_goal"))
+    if not user_visible_goal:
         errors.append("task_goal_required")
+    if not task_run_goal:
+        errors.append("task_run_goal_required")
     criteria = _string_tuple(
         seed.get("completion_criteria")
         or dict(action_request.completion_contract or {}).get("completion_criteria")
@@ -107,8 +106,8 @@ def contract_from_action_request(
     contract = TaskRunContract(
         contract_id=f"task-contract:{uuid.uuid4().hex[:12]}",
         contract_source="model_request",
-        user_visible_goal=goal,
-        task_run_goal=goal,
+        user_visible_goal=user_visible_goal,
+        task_run_goal=task_run_goal,
         required_artifacts=required_artifacts,
         required_verifications=required_verifications,
         completion_criteria=criteria,
@@ -119,6 +118,11 @@ def contract_from_action_request(
         acceptance_policy=dict(seed.get("acceptance_policy") or {}),
         recovery_policy=dict(seed.get("recovery_policy") or {}),
         created_from_packet_ref=packet_ref,
+        source_contract_ref=str(seed.get("source_contract_ref") or seed.get("contract_ref") or "").strip(),
+        external_plan_ref=str(seed.get("external_plan_ref") or seed.get("plan_ref") or "").strip(),
+        task_environment_id=str(seed.get("task_environment_id") or seed.get("environment_id") or "").strip(),
+        runtime_profile=dict(seed.get("runtime_profile") or {}),
+        prompt_contract=dict(seed.get("prompt_contract") or {}),
     )
     return contract, []
 
@@ -136,6 +140,8 @@ def start_task_lifecycle(
     now = time.time()
     task_run_id = f"taskrun:{turn_id}:{uuid.uuid4().hex[:8]}"
     agent_run_id = f"agrun:{task_run_id}:main"
+    origin = _task_lifecycle_origin(action_request=action_request, turn_id=turn_id)
+    contract = _contract_with_origin(contract, origin)
     contract_ref = runtime_host.runtime_objects.put_object(
         "task_run_contract",
         contract.contract_id,
@@ -154,6 +160,8 @@ def start_task_lifecycle(
         diagnostics={
             "turn_id": turn_id,
             "action_request_ref": action_request.request_id,
+            "origin": origin,
+            **origin,
             "contract": contract.to_dict(),
             "runtime_task_selection": _runtime_task_selection_from_contract(contract),
         },
@@ -167,7 +175,7 @@ def start_task_lifecycle(
         execution_runtime_kind="single_agent_task",
         created_at=now,
         updated_at=now,
-        diagnostics={"turn_id": turn_id, "contract_ref": contract_ref},
+        diagnostics={"turn_id": turn_id, "contract_ref": contract_ref, "origin": origin, **origin},
     )
     lifecycle = TaskLifecycleRecord(
         task_run_id=task_run_id,
@@ -400,3 +408,18 @@ def _runtime_task_selection_from_contract(contract: TaskRunContract) -> dict[str
             "authority": "task_system.engagement_contract_projection",
         }
     return selection
+
+
+def _task_lifecycle_origin(*, action_request: ModelActionRequest, turn_id: str) -> dict[str, str]:
+    return {
+        "origin_kind": "agent_requested",
+        "origin_authority": "harness.agent_loop",
+        "origin_ref": str(action_request.request_id or ""),
+        "parent_run_ref": str(turn_id or ""),
+    }
+
+
+def _contract_with_origin(contract: TaskRunContract, origin: dict[str, Any]) -> TaskRunContract:
+    if dict(contract.origin or {}) == dict(origin or {}):
+        return contract
+    return replace(contract, origin=dict(origin or {}))

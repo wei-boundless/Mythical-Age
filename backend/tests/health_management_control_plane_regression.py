@@ -242,6 +242,34 @@ def test_health_conversation_without_bound_issue_returns_block_message() -> None
         assert "还没有绑定健康问题" in payload["assistant_message"]["content"]
 
 
+def test_health_system_monitor_governance_and_task_record_maintenance_contracts() -> None:
+    with TestClient(app) as client:
+        maintenance = client.get("/api/health-system/task-records/maintenance?min_age_seconds=0")
+        assert maintenance.status_code == 200
+        maintenance_payload = maintenance.json()
+        assert maintenance_payload["authority"] == "health_system.task_record_maintenance"
+        assert maintenance_payload["mode"] == "preflight"
+        assert maintenance_payload["policy"]["requires_preflight"] is True
+        assert "candidates" in maintenance_payload
+
+        dry_run = client.post(
+            "/api/health-system/task-records/prune",
+            json={"bucket": "static", "dry_run": True, "min_age_seconds": 0},
+        )
+        assert dry_run.status_code == 200
+        dry_run_payload = dry_run.json()
+        assert dry_run_payload["mode"] == "dry_run"
+        assert dry_run_payload["deleted_task_run_ids"] == []
+        assert dry_run_payload["maintenance_receipt"]["persisted"] is False
+
+        monitor = client.get("/api/health-system/monitor-governance")
+        assert monitor.status_code == 200
+        monitor_payload = monitor.json()
+        assert monitor_payload["authority"] == "health_system.monitor_governance"
+        assert "monitor_authority" in monitor_payload
+        assert "recommended_actions" in monitor_payload
+
+
 def test_health_conversation_routes_trace_analysis_mode() -> None:
     registry = HealthRegistry(BACKEND_DIR)
     issue = registry.create_issue(

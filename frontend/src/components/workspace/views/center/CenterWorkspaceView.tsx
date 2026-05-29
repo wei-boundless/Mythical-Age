@@ -273,6 +273,7 @@ export function CenterWorkspaceView() {
         initial_inputs: initialInputs,
         include_trace: true,
         dispatch_ready: true,
+        run_mode: "auto_run",
       });
       const monitor = await getGraphRunMonitor(result.graph_run_id, result.graph_harness_config_id).catch(() => null);
       setRunMonitor(monitor);

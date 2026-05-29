@@ -9,7 +9,7 @@ import remarkGfm from "remark-gfm";
 import { RetrievalCard } from "@/components/chat/RetrievalCard";
 import { RuntimeEvidencePanel } from "@/components/chat/RuntimeEvidencePanel";
 import { RuntimeRunSummary } from "@/components/chat/RuntimeRunSummary";
-import type { RetrievalResult, ToolCall } from "@/lib/api";
+import type { RetrievalResult, SessionRuntimeAttachment, ToolCall } from "@/lib/api";
 import type { RuntimeProgressEntry } from "@/lib/store/types";
 
 export function ChatMessage({
@@ -19,6 +19,7 @@ export function ChatMessage({
   image,
   stageStatus,
   runtimeProgress = [],
+  runtimeAttachments = [],
   toolCalls,
   retrievals,
   assistantName = "河伯",
@@ -35,6 +36,7 @@ export function ChatMessage({
   } | null;
   stageStatus?: string;
   runtimeProgress?: RuntimeProgressEntry[];
+  runtimeAttachments?: SessionRuntimeAttachment[];
   toolCalls: ToolCall[];
   retrievals: RetrievalResult[];
   assistantName?: string;
@@ -79,6 +81,7 @@ export function ChatMessage({
         ) : null}
       </div>
       {!isUser && <RetrievalCard results={retrievals} />}
+      {!isUser && runtimeAttachments.length ? <RuntimeRunSummary attachments={runtimeAttachments} entries={[]} /> : null}
       {!isUser && runtimeProgress.length ? <RuntimeRunSummary entries={runtimeProgress} /> : null}
       {!isUser && <RuntimeEvidencePanel toolCalls={toolCalls} />}
       <div className={isUser ? "chat-message-shell__content whitespace-pre-wrap leading-7" : "chat-message-shell__content markdown"}>

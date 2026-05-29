@@ -29,6 +29,7 @@ class GraphHarnessConfig:
     nodes: tuple[dict[str, Any], ...] = ()
     edges: tuple[dict[str, Any], ...] = ()
     loop_frames: tuple[dict[str, Any], ...] = ()
+    environment: dict[str, Any] = field(default_factory=dict)
     resources: dict[str, Any] = field(default_factory=dict)
     memory: dict[str, Any] = field(default_factory=dict)
     artifacts: dict[str, Any] = field(default_factory=dict)
@@ -236,6 +237,11 @@ class GraphNodeWorkOrder:
     memory_view_request: dict[str, Any] = field(default_factory=dict)
     artifact_view_request: dict[str, Any] = field(default_factory=dict)
     file_view_request: dict[str, Any] = field(default_factory=dict)
+    artifact_space_ref: str = ""
+    memory_space_ref: str = ""
+    file_access_table_refs: tuple[str, ...] = ()
+    artifact_repository_targets: tuple[dict[str, Any], ...] = ()
+    memory_repository_targets: tuple[dict[str, Any], ...] = ()
     permission_scope: dict[str, Any] = field(default_factory=dict)
     tool_scope: dict[str, Any] = field(default_factory=dict)
     expected_result_contract: dict[str, Any] = field(default_factory=dict)
@@ -265,7 +271,11 @@ class GraphNodeWorkOrder:
             object.__setattr__(self, "idempotency_key", f"{self.graph_run_id}:{self.node_id}:{stable_hash(self.explicit_inputs)}")
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        payload = asdict(self)
+        payload["file_access_table_refs"] = list(self.file_access_table_refs)
+        payload["artifact_repository_targets"] = [dict(item) for item in self.artifact_repository_targets]
+        payload["memory_repository_targets"] = [dict(item) for item in self.memory_repository_targets]
+        return payload
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "GraphNodeWorkOrder":
@@ -289,6 +299,11 @@ class GraphNodeWorkOrder:
             memory_view_request=dict(payload.get("memory_view_request") or {}),
             artifact_view_request=dict(payload.get("artifact_view_request") or {}),
             file_view_request=dict(payload.get("file_view_request") or {}),
+            artifact_space_ref=str(payload.get("artifact_space_ref") or ""),
+            memory_space_ref=str(payload.get("memory_space_ref") or ""),
+            file_access_table_refs=tuple(str(item) for item in list(payload.get("file_access_table_refs") or []) if str(item)),
+            artifact_repository_targets=tuple(dict(item) for item in list(payload.get("artifact_repository_targets") or []) if isinstance(item, dict)),
+            memory_repository_targets=tuple(dict(item) for item in list(payload.get("memory_repository_targets") or []) if isinstance(item, dict)),
             permission_scope=dict(payload.get("permission_scope") or {}),
             tool_scope=dict(payload.get("tool_scope") or {}),
             expected_result_contract=dict(payload.get("expected_result_contract") or {}),
@@ -314,6 +329,8 @@ class NodeResultEnvelope:
     decisions: dict[str, Any] = field(default_factory=dict)
     artifact_refs: tuple[str, ...] = ()
     memory_candidates: tuple[dict[str, Any], ...] = ()
+    artifact_materialization_receipts: tuple[dict[str, Any], ...] = ()
+    memory_commit_receipts: tuple[dict[str, Any], ...] = ()
     handoff_summary: str = ""
     error: dict[str, Any] = field(default_factory=dict)
     diagnostics: dict[str, Any] = field(default_factory=dict)
@@ -333,10 +350,18 @@ class NodeResultEnvelope:
             raise ValueError("NodeResultEnvelope requires node_id")
         if not self.work_order_id:
             raise ValueError("NodeResultEnvelope requires work_order_id")
-        if self.status not in {"completed", "failed"}:
-            raise ValueError("NodeResultEnvelope status must be completed or failed")
-        if self.status == "completed" and not (self.outputs or self.decisions or self.artifact_refs or self.memory_candidates or self.handoff_summary):
-            raise ValueError("NodeResultEnvelope completed result requires outputs, decisions, refs, candidates, or handoff_summary")
+        if self.status not in {"completed", "failed", "blocked", "waiting_human_gate"}:
+            raise ValueError("NodeResultEnvelope status must be completed, failed, blocked, or waiting_human_gate")
+        if self.status == "completed" and not (
+            self.outputs
+            or self.decisions
+            or self.artifact_refs
+            or self.memory_candidates
+            or self.artifact_materialization_receipts
+            or self.memory_commit_receipts
+            or self.handoff_summary
+        ):
+            raise ValueError("NodeResultEnvelope completed result requires outputs, decisions, refs, receipts, candidates, or handoff_summary")
         if self.status == "failed" and not str(dict(self.error or {}).get("reason") or "").strip():
             raise ValueError("NodeResultEnvelope failed result requires error.reason")
 
@@ -344,6 +369,8 @@ class NodeResultEnvelope:
         payload = asdict(self)
         payload["artifact_refs"] = list(self.artifact_refs)
         payload["memory_candidates"] = [dict(item) for item in self.memory_candidates]
+        payload["artifact_materialization_receipts"] = [dict(item) for item in self.artifact_materialization_receipts]
+        payload["memory_commit_receipts"] = [dict(item) for item in self.memory_commit_receipts]
         return payload
 
     @classmethod
@@ -360,6 +387,16 @@ class NodeResultEnvelope:
             decisions=dict(payload.get("decisions") or {}),
             artifact_refs=tuple(str(item) for item in list(payload.get("artifact_refs") or []) if str(item)),
             memory_candidates=tuple(dict(item) for item in list(payload.get("memory_candidates") or []) if isinstance(item, dict)),
+            artifact_materialization_receipts=tuple(
+                dict(item)
+                for item in list(payload.get("artifact_materialization_receipts") or [])
+                if isinstance(item, dict)
+            ),
+            memory_commit_receipts=tuple(
+                dict(item)
+                for item in list(payload.get("memory_commit_receipts") or [])
+                if isinstance(item, dict)
+            ),
             handoff_summary=str(payload.get("handoff_summary") or ""),
             error=dict(payload.get("error") or {}),
             diagnostics=dict(payload.get("diagnostics") or {}),
@@ -408,6 +445,7 @@ def graph_harness_config_from_dict(payload: dict[str, Any]) -> GraphHarnessConfi
         nodes=tuple(dict(item) for item in list(payload.get("nodes") or []) if isinstance(item, dict)),
         edges=tuple(dict(item) for item in list(payload.get("edges") or []) if isinstance(item, dict)),
         loop_frames=tuple(dict(item) for item in list(payload.get("loop_frames") or []) if isinstance(item, dict)),
+        environment=dict(payload.get("environment") or {}),
         resources=dict(payload.get("resources") or {}),
         memory=dict(payload.get("memory") or {}),
         artifacts=dict(payload.get("artifacts") or {}),

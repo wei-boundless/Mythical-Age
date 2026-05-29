@@ -53,11 +53,12 @@ def assemble_runtime_prompt_contract(
     ).strip()
     professional_profile = get_professional_prompt_profile(professional_profile_id)
     workflow_steps = _workflow_steps(task_workflow=task_workflow, selected_recipe=selected_recipe)
-    skill_ids = [
+    visible_skill_ids = [
         str(item.get("skill_id") or "").strip()
         for item in skill_runtime_views
         if str(item.get("skill_id") or "").strip()
     ]
+    selected_skill_ids = _selected_skill_ids(current_turn_context=dict(current_turn_context or {}))
     prompt_registry = PromptLibraryRegistry(base_dir)
     prompt_resources = prompt_registry.list_resources()
     prompt_selection_context = build_prompt_selection_context(
@@ -88,7 +89,7 @@ def assemble_runtime_prompt_contract(
     skill_detail_section, skill_activation = expand_selected_skill_bodies(
         base_dir=base_dir,
         skill_runtime_views=skill_runtime_views,
-        selected_skill_ids=skill_ids,
+        selected_skill_ids=selected_skill_ids,
     )
     interaction_mode = str(prompt_selection_context.interaction_mode or mode_policy.get("interaction_mode") or "").strip()
     return {
@@ -106,7 +107,7 @@ def assemble_runtime_prompt_contract(
             task_workflow=task_workflow,
             selected_recipe=selected_recipe,
             workflow_steps=workflow_steps,
-            skill_ids=skill_ids,
+            skill_ids=visible_skill_ids,
         ),
         "skill_catalog_section": render_skill_candidate_cards(skill_runtime_views),
         "skill_detail_section": skill_detail_section,
@@ -133,10 +134,6 @@ def assemble_runtime_prompt_contract(
             dict(selected_metadata.get("completion_judgment") or {}),
             verification_review=dict(selected_metadata.get("verification_review") or {}),
         ),
-        "mode_policy_section": _mode_policy_section(
-            mode_policy,
-            semantic_contract=semantic_contract,
-        ),
         "resource_section": "",
         "output_section": _output_section(task_execution_assembly=task_execution_assembly, task_spec=task_spec),
         "guardrail_section": _communication_guardrail_section(task_spec),
@@ -149,8 +146,8 @@ def assemble_runtime_prompt_contract(
             "task_mode": str(task_execution_assembly.get("task_mode") or "").strip(),
             "requested_outputs": list(task_execution_assembly.get("requested_outputs") or ()),
             "workflow_steps": workflow_steps,
-            "visible_skill_ids": skill_ids,
-            "runtime_selected_skill_ids": skill_ids,
+            "visible_skill_ids": visible_skill_ids,
+            "runtime_selected_skill_ids": selected_skill_ids,
             "activated_skill_ids": list(skill_activation.get("accepted_skill_ids") or []),
             "rejected_skill_ids": list(skill_activation.get("rejected_skill_ids") or []),
             "skill_detail_source_refs": list(skill_activation.get("source_refs") or []),
@@ -219,6 +216,19 @@ def _semantic_task_section(semantic_contract: dict[str, Any]) -> str:
     lines = [
         f"你本轮要完成的任务类型是：{str(semantic_contract.get('task_goal_type') or 'general').strip()}。",
     ]
+
+
+def _selected_skill_ids(*, current_turn_context: dict[str, Any]) -> list[str]:
+    model_turn_decision = dict(current_turn_context.get("model_turn_decision") or {})
+    action_request = dict(current_turn_context.get("agent_turn_action_request") or {})
+    task_contract_seed = dict(current_turn_context.get("task_contract_seed") or {})
+    candidates = (
+        model_turn_decision.get("selected_skill_ids")
+        or action_request.get("selected_skill_ids")
+        or task_contract_seed.get("selected_skill_ids")
+        or []
+    )
+    return _dedupe([str(item).strip() for item in list(candidates or []) if str(item).strip()])
     if materials:
         lines.append("需要优先处理的材料：" + "、".join(materials[:8]) + "。")
     if reasoning_steps:
@@ -412,44 +422,6 @@ def _completion_judgment_section(judgment: dict[str, Any], *, verification_revie
     if review:
         mode = str(review.get("verifier_mode") or "readonly_structured_review").strip()
         lines.append(f"验证评审模式：{mode}；只读评审结果不能被最终回答覆盖。")
-    return "\n".join(lines)
-
-
-def _mode_policy_section(
-    mode_policy: dict[str, Any],
-    *,
-    semantic_contract: dict[str, Any] | None = None,
-) -> str:
-    if not mode_policy:
-        return ""
-    contract = dict(semantic_contract or {})
-    interaction_mode = str(mode_policy.get("interaction_mode") or "").strip()
-    projection_strength = str(mode_policy.get("projection_strength") or "").strip()
-    verification_policy = dict(mode_policy.get("verification_policy") or {})
-    tool_policy = dict(mode_policy.get("tool_policy") or {})
-    required_actions = {
-        str(item).strip()
-        for item in list(contract.get("required_actions") or [])
-        if str(item).strip()
-    }
-    lines = [
-        f"当前交互模式：{interaction_mode or 'role_mode'}。",
-    ]
-    if interaction_mode == "role_mode":
-        lines.append(f"角色参与强度：{projection_strength or 'primary'}。")
-    if interaction_mode == "role_mode":
-        lines.append("请优先保持角色与灵魂投影的自然表达，只在真实可用的只读能力范围内辅助回答。")
-    elif interaction_mode == "standard_mode":
-        lines.append("请在当前回合内用有限工具解决明确问题，结论必须说明真实依据和限制。")
-    elif interaction_mode == "professional_mode":
-        lines.append("请以专业任务职责和语义契约为最高优先级推进，不要引入角色投影、灵魂设定或人格包袱来覆盖交付物和验证要求。")
-        if required_actions.intersection({"inspect_code", "apply_real_change", "run_verification", "run_browser_verification"}):
-            lines.append("当专业任务涉及代码、命令或浏览器验证时，需要先理解项目结构和相关文件职责，再做必要、可维护的真实修改或检查。")
-            lines.append("最终回答必须基于真实变更、差异、命令或浏览器证据收口，不要把实现计划写成已完成结果。")
-    if bool(tool_policy.get("requires_evidence_packet")):
-        lines.append("工具或委派观察必须先沉淀为证据包，再进入最终结论。")
-    if bool(verification_policy.get("deliverable_validator")):
-        lines.append("最终回答需要接受交付物验证；缺少必要交付物时不能宣称完成。")
     return "\n".join(lines)
 
 

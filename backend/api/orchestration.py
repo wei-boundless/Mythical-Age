@@ -19,6 +19,8 @@ class TaskGraphRunStartRequest(BaseModel):
     initial_inputs: dict[str, Any] = Field(default_factory=dict)
     include_trace: bool = True
     dispatch_ready: bool = True
+    run_mode: str = Field(default="dispatch_only", max_length=32)
+    runner_budget: dict[str, Any] = Field(default_factory=dict)
 
 
 class GraphNodeResultRequest(BaseModel):
@@ -36,6 +38,16 @@ class GraphWorkOrderExecuteRequest(BaseModel):
     work_order: dict[str, Any] = Field(default_factory=dict)
     max_steps: int = Field(default=12, ge=1, le=50)
     accept_result: bool = True
+
+
+class GraphRunUntilIdleRequest(BaseModel):
+    graph_harness_config_id: str = Field(..., min_length=1, max_length=240)
+    max_node_executions: int = Field(default=64, ge=0, le=512)
+    max_loop_iterations: int = Field(default=128, ge=1, le=1024)
+    max_node_steps: int = Field(default=12, ge=1, le=50)
+    max_dispatches: int = Field(default=64, ge=0, le=512)
+    max_runtime_seconds: float = Field(default=0.0, ge=0.0, le=3600.0)
+    max_dispatch_requests: int | None = Field(default=None, ge=1, le=32)
 
 
 @router.post("/orchestration/harness/task-graphs/{graph_id}/start")
@@ -58,16 +70,45 @@ async def start_task_graph_harness_run(
             },
         )
     session_id = _validated_session_id(payload.session_id)
+    run_mode = _validated_graph_start_run_mode(payload.run_mode)
     graph_harness = runtime.query_runtime.graph_harness
-    start = graph_harness.start_run(
-        session_id=session_id,
-        task_id=payload.task_id.strip(),
-        graph_config=graph_config,
-        initial_inputs=dict(payload.initial_inputs or {}),
-        diagnostics={"source": "harness.task_graph_start_api"},
-        dispatch_ready=payload.dispatch_ready,
-    )
+    try:
+        start = graph_harness.start_run(
+            session_id=session_id,
+            task_id=payload.task_id.strip(),
+            graph_config=graph_config,
+            initial_inputs=dict(payload.initial_inputs or {}),
+            diagnostics={"source": "harness.task_graph_start_api"},
+            dispatch_ready=payload.dispatch_ready,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    runner_result = None
+    if run_mode == "auto_run":
+        try:
+            runner_result = await graph_harness.run_until_idle(
+                graph_config=graph_config,
+                graph_run_id=start.graph_run.graph_run_id,
+                **_runner_budget_kwargs(payload.runner_budget),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
     node_work_orders = [item.to_dict() for item in tuple(start.node_work_orders or ())]
+    response_loop_state = start.loop_state.to_dict()
+    response_checkpoint = dict(start.checkpoint)
+    response_task_run = start.task_run.to_dict()
+    response_graph_run = start.graph_run.to_dict()
+    if runner_result is not None:
+        response_loop_state = dict(runner_result.loop_state)
+        response_checkpoint = graph_harness.get_latest_checkpoint(start.graph_run.graph_run_id)
+        latest_task_run = graph_harness.get_task_run(start.task_run.task_run_id)
+        if latest_task_run is not None:
+            response_task_run = latest_task_run.to_dict() if hasattr(latest_task_run, "to_dict") else dict(latest_task_run)
+        latest_graph_run = graph_harness.get_graph_run(start.graph_run.graph_run_id)
+        if latest_graph_run:
+            response_graph_run = latest_graph_run.to_dict() if hasattr(latest_graph_run, "to_dict") else dict(latest_graph_run)
+        monitor = graph_harness.get_graph_run_monitor(start.graph_run.graph_run_id, graph_config=graph_config)
+        node_work_orders = [dict(item) for item in list(dict(monitor or {}).get("active_node_work_orders") or [])]
     trace = graph_harness.get_trace(start.task_run.task_run_id) if payload.include_trace else None
     return {
         "authority": "harness.api.task_graph_run_start",
@@ -75,12 +116,13 @@ async def start_task_graph_harness_run(
         "graph_run_id": start.graph_run.graph_run_id,
         "graph_harness_config_id": graph_config.config_id,
         "task_run_id": start.task_run.task_run_id,
-        "task_run": start.task_run.to_dict(),
-        "graph_run": start.graph_run.to_dict(),
-        "checkpoint": dict(start.checkpoint),
-        "graph_loop_state": start.loop_state.to_dict(),
+        "task_run": response_task_run,
+        "graph_run": response_graph_run,
+        "checkpoint": response_checkpoint,
+        "graph_loop_state": response_loop_state,
         "graph_harness_config": graph_config.to_dict(),
         "node_work_orders": node_work_orders,
+        "runner_result": runner_result.to_dict() if runner_result is not None else None,
         "trace": trace,
         "events": [dict(item) for item in start.events],
     }
@@ -192,9 +234,77 @@ async def execute_graph_work_order(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+@router.post("/orchestration/harness/graph-runs/{graph_run_id}/run-until-idle")
+async def run_graph_run_until_idle(
+    graph_run_id: str,
+    payload: GraphRunUntilIdleRequest,
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    graph_config = TaskFlowRegistry(runtime.base_dir).get_graph_harness_config(payload.graph_harness_config_id)
+    if graph_config is None:
+        raise HTTPException(status_code=404, detail="GraphHarnessConfig not found")
+    if runtime.query_runtime.graph_harness.graph_loop.get_state(graph_run_id) is None:
+        raise HTTPException(status_code=404, detail="GraphLoopState not found")
+    try:
+        result = await runtime.query_runtime.graph_harness.run_until_idle(
+            graph_config=graph_config,
+            graph_run_id=graph_run_id,
+            max_node_executions=payload.max_node_executions,
+            max_loop_iterations=payload.max_loop_iterations,
+            max_node_steps=payload.max_node_steps,
+            max_dispatches=payload.max_dispatches,
+            max_runtime_seconds=payload.max_runtime_seconds,
+            max_dispatch_requests=payload.max_dispatch_requests,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return result.to_dict()
+
+
 def _validated_session_id(value: str) -> str:
     raw = str(value or "").strip() or "task_graph_studio"
     try:
         return validate_session_id(raw)
     except InvalidSessionId as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _validated_graph_start_run_mode(value: str) -> str:
+    mode = str(value or "dispatch_only").strip()
+    if mode not in {"dispatch_only", "auto_run"}:
+        raise HTTPException(status_code=400, detail="run_mode must be dispatch_only or auto_run")
+    return mode
+
+
+def _runner_budget_kwargs(payload: dict[str, Any]) -> dict[str, Any]:
+    budget = dict(payload or {})
+    return {
+        "max_node_executions": _int_budget(budget.get("max_node_executions"), 64, minimum=0, maximum=512),
+        "max_loop_iterations": _int_budget(budget.get("max_loop_iterations"), 128, minimum=1, maximum=1024),
+        "max_node_steps": _int_budget(budget.get("max_node_steps"), 12, minimum=1, maximum=50),
+        "max_dispatches": _int_budget(budget.get("max_dispatches"), 64, minimum=0, maximum=512),
+        "max_runtime_seconds": _float_budget(budget.get("max_runtime_seconds"), 0.0, minimum=0.0, maximum=3600.0),
+        "max_dispatch_requests": _optional_int_budget(budget.get("max_dispatch_requests"), minimum=1, maximum=32),
+    }
+
+
+def _int_budget(value: Any, default: int, *, minimum: int, maximum: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return min(maximum, max(minimum, parsed))
+
+
+def _optional_int_budget(value: Any, *, minimum: int, maximum: int) -> int | None:
+    if value is None or value == "":
+        return None
+    return _int_budget(value, minimum, minimum=minimum, maximum=maximum)
+
+
+def _float_budget(value: Any, default: float, *, minimum: float, maximum: float) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return min(maximum, max(minimum, parsed))

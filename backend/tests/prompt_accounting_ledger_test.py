@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 from runtime.prompt_accounting import (
@@ -191,3 +192,75 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
     assert [segment.cache_role for segment in segment_map.segments] == ["cacheable_prefix", "session_stable", "volatile"]
     cache_record = PromptCachePlanner().plan(segment_map)
     assert cache_record.diagnostics["stable_prefix_segment_count"] == 2
+
+
+def test_runtime_prompt_uses_assembly_projection_not_mode_instruction() -> None:
+    result = RuntimeCompiler().compile_turn_action_packet(
+        session_id="session:projection",
+        turn_id="turn:projection",
+        agent_invocation_id="aginvoke:projection",
+        user_message="请帮我做一个需要交付物的小工具",
+        history=[],
+        available_tools=[{"tool_name": "write_file", "description": "写入文件"}],
+        runtime_assembly={
+            "profile": {
+                "mode": "professional",
+                "task_lifecycle_policy": {
+                    "request_task_run": True,
+                    "requires_completion_evidence": True,
+                    "artifact_evidence_required": True,
+                },
+                "planning_policy": {"todo_required_when_task_run": True},
+                "self_review_policy": {"enabled": True, "checkpoints": ["before_final"]},
+                "step_summary_policy": {"enabled": True, "detail": "stepwise"},
+                "permission_policy": {"permission_scope": "professional_agent_profile_ceiling"},
+            },
+            "task_environment": {"environment_id": "env.general.workspace"},
+            "operation_authorization": {
+                "allowed_operations": ["op.model_response", "op.write_file"],
+            },
+        },
+    )
+
+    system_prompt = result.packet.system_instructions
+    stable_payload = json.loads(result.packet.model_messages[1]["content"].split("\n", 1)[1])
+    projection = stable_payload["runtime_context"]["agent_visible_runtime_projection"]
+
+    assert "当前 runtime 是 professional 模式" not in system_prompt
+    assert "当前 runtime 是 standard 模式" not in system_prompt
+    assert "当前 runtime 是 role 模式" not in system_prompt
+    assert "本次运行边界" in system_prompt
+    assert "可以请求正式 TaskRun" in system_prompt
+    assert "最终完成声明必须基于合同、真实观察、真实产物或验证证据" in system_prompt
+    assert projection["authority"] == "harness.runtime.agent_visible_runtime_projection"
+    assert projection["task_lifecycle"]["request_task_run_allowed"] is True
+    assert projection["task_lifecycle"]["artifact_evidence_required"] is True
+    assert projection["planning"]["todo_required_when_task_run"] is True
+
+
+def test_role_runtime_projection_blocks_task_run_without_mode_instruction_text() -> None:
+    result = RuntimeCompiler().compile_turn_action_packet(
+        session_id="session:role-projection",
+        turn_id="turn:role-projection",
+        agent_invocation_id="aginvoke:role-projection",
+        user_message="陪我聊一下这个角色",
+        history=[],
+        runtime_assembly={
+            "profile": {
+                "mode": "role",
+                "task_lifecycle_policy": {"request_task_run": False},
+                "permission_policy": {"permission_scope": "role_conversation_readonly"},
+            },
+            "task_environment": {"environment_id": "env.general.workspace"},
+            "operation_authorization": {"allowed_operations": ["op.model_response"]},
+        },
+    )
+
+    system_prompt = result.packet.system_instructions
+    stable_payload = json.loads(result.packet.model_messages[1]["content"].split("\n", 1)[1])
+    projection = stable_payload["runtime_context"]["agent_visible_runtime_projection"]
+
+    assert "当前 runtime 是 role 模式" not in system_prompt
+    assert "本次装配不允许开启正式 TaskRun" in system_prompt
+    assert projection["task_lifecycle"]["request_task_run_allowed"] is False
+    assert projection["permission_boundary"]["permission_scope"] == "role_conversation_readonly"

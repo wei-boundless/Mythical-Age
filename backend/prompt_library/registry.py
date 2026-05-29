@@ -7,7 +7,8 @@ from typing import Any
 from project_layout import ProjectLayout
 
 from .default_resources import list_default_prompt_resources
-from .models import PromptResource, prompt_resource_from_dict
+from .models import PromptPack, PromptResource, prompt_pack_from_dict, prompt_resource_from_dict
+from .packs import list_builtin_prompt_packs, list_builtin_runtime_prompt_resources
 
 
 def _storage_root(base_dir: Path) -> Path:
@@ -16,6 +17,10 @@ def _storage_root(base_dir: Path) -> Path:
 
 def _resources_path(base_dir: Path) -> Path:
     return _storage_root(base_dir) / "prompt_resources.json"
+
+
+def _packs_path(base_dir: Path) -> Path:
+    return _storage_root(base_dir) / "prompt_packs.json"
 
 
 def _read_json(path: Path, fallback: dict[str, Any]) -> dict[str, Any]:
@@ -63,10 +68,36 @@ class PromptLibraryRegistry:
     def list_resources(self, *, sync_workflow_prompts: bool = True) -> list[PromptResource]:
         if sync_workflow_prompts:
             self.sync_task_workflow_prompts()
-        default_resources = {item.resource_id: item for item in list_default_prompt_resources()}
+        default_resources = {
+            item.resource_id: item
+            for item in (
+                *list_default_prompt_resources(),
+                *list_builtin_runtime_prompt_resources(),
+                *list_builtin_agent_prompt_resources(),
+                *list_environment_prompt_resources_from_backend_dir(self.base_dir),
+            )
+        }
         stored_resources = {item.resource_id: item for item in self._list_stored_resources(normalize=True)}
         merged = {**default_resources, **stored_resources}
         return sorted(merged.values(), key=lambda item: (item.resource_type, item.workflow_id, item.task_id, item.resource_id))
+
+    def list_active_resources(
+        self,
+        *,
+        category: str = "",
+        subtype: str = "",
+        sync_workflow_prompts: bool = False,
+    ) -> list[PromptResource]:
+        category_filter = str(category or "").strip()
+        subtype_filter = str(subtype or "").strip()
+        return [
+            item
+            for item in self.list_resources(sync_workflow_prompts=sync_workflow_prompts)
+            if item.active
+            and not item.deprecated_for_new_runtime
+            and (not category_filter or item.category == category_filter)
+            and (not subtype_filter or item.subtype == subtype_filter)
+        ]
 
     def upsert_resource(self, resource: PromptResource) -> PromptResource:
         target = str(resource.resource_id or "").strip()
@@ -94,6 +125,38 @@ class PromptLibraryRegistry:
             return None
         return next((item for item in self.list_resources() if item.resource_id == target and item.enabled), None)
 
+    def get_active_resource(self, prompt_id: str) -> PromptResource | None:
+        target = str(prompt_id or "").strip()
+        if not target:
+            return None
+        return next(
+            (
+                item
+                for item in self.list_resources(sync_workflow_prompts=False)
+                if item.prompt_id == target and item.active and not item.deprecated_for_new_runtime
+            ),
+            None,
+        )
+
+    def list_packs(self) -> list[PromptPack]:
+        default_packs = {item.pack_id: item for item in list_builtin_prompt_packs()}
+        stored_packs = {item.pack_id: item for item in self._list_stored_packs(normalize=True)}
+        merged = {**default_packs, **stored_packs}
+        return sorted(merged.values(), key=lambda item: (item.invocation_kind, item.pack_id))
+
+    def get_pack(self, pack_id: str) -> PromptPack | None:
+        target = str(pack_id or "").strip()
+        if not target:
+            return None
+        return next((item for item in self.list_packs() if item.pack_id == target), None)
+
+    def upsert_pack(self, pack: PromptPack) -> PromptPack:
+        packs = [item for item in self._list_stored_packs(normalize=True) if item.pack_id != pack.pack_id]
+        packs.append(pack)
+        packs.sort(key=lambda item: (item.invocation_kind, item.pack_id))
+        _write_json(_packs_path(self.base_dir), {"packs": [item.to_dict() for item in packs]})
+        return pack
+
     def _list_stored_resources(self, *, normalize: bool) -> list[PromptResource]:
         payload = _read_json(_resources_path(self.base_dir), {"resources": []})
         resources = [
@@ -106,6 +169,19 @@ class PromptLibraryRegistry:
             if payload.get("resources") != normalized:
                 _write_json(_resources_path(self.base_dir), {"resources": normalized})
         return resources
+
+    def _list_stored_packs(self, *, normalize: bool) -> list[PromptPack]:
+        payload = _read_json(_packs_path(self.base_dir), {"packs": []})
+        packs = [
+            prompt_pack_from_dict(item)
+            for item in list(payload.get("packs") or [])
+            if isinstance(item, dict)
+        ]
+        if normalize:
+            normalized = [item.to_dict() for item in packs]
+            if payload.get("packs") != normalized:
+                _write_json(_packs_path(self.base_dir), {"packs": normalized})
+        return packs
 
     def resolve_stage_role(
         self,
@@ -228,5 +304,112 @@ class PromptLibraryRegistry:
             },
         )
         return self.upsert_resource(resource)
+
+
+def list_builtin_agent_prompt_resources() -> tuple[PromptResource, ...]:
+    from agent_system.profiles.runtime_profile_registry import default_agent_runtime_profiles
+
+    return _agent_prompt_resources_from_profiles(default_agent_runtime_profiles(), source_prefix="agent_runtime_profiles.default")
+
+
+def list_agent_prompt_resources_from_backend_dir(base_dir: Path) -> tuple[PromptResource, ...]:
+    from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
+
+    return _agent_prompt_resources_from_profiles(
+        tuple(AgentRuntimeRegistry(base_dir).list_profiles()),
+        source_prefix="agent_runtime_profiles",
+    )
+
+
+def _agent_prompt_resources_from_profiles(profiles: tuple[Any, ...], *, source_prefix: str) -> tuple[PromptResource, ...]:
+    resources: list[PromptResource] = []
+    for profile in profiles:
+        metadata = dict(profile.metadata or {})
+        content = str(
+            metadata.get("work_role_prompt")
+            or metadata.get("professional_role_prompt")
+            or metadata.get("agent_work_role_prompt")
+            or ""
+        ).strip()
+        if not content:
+            continue
+        prompt_id = _agent_work_role_prompt_id(str(profile.agent_profile_id or ""))
+        resources.append(
+            PromptResource(
+                prompt_id=prompt_id,
+                resource_id=prompt_id,
+                category="agent",
+                subtype="main.work_role",
+                resource_type="work_role",
+                title=f"{profile.agent_profile_id} work role",
+                content=content,
+                owner_layer="agent",
+                cache_scope="static",
+                model_visible=True,
+                allowed_agent_refs=(str(profile.agent_profile_id or ""),),
+                source_ref=f"{source_prefix}#{profile.agent_profile_id}.metadata.work_role_prompt",
+                version="v1",
+                enabled=True,
+                status="active",
+                metadata={"managed_by": "prompt_library.agent_profile_sync", "source_type": "agent_work_role_prompt"},
+            )
+        )
+    return tuple(resources)
+
+
+def list_builtin_environment_prompt_resources() -> tuple[PromptResource, ...]:
+    from task_system.environments.default_environments import default_task_environments
+
+    return _environment_prompt_resources_from_definitions(default_task_environments(), source_prefix="task_environment.default")
+
+
+def list_environment_prompt_resources_from_backend_dir(base_dir: Path) -> tuple[PromptResource, ...]:
+    from task_system.environments import task_environment_registry_from_backend_dir
+
+    return _environment_prompt_resources_from_definitions(
+        task_environment_registry_from_backend_dir(base_dir).list(),
+        source_prefix="task_environment",
+    )
+
+
+def _environment_prompt_resources_from_definitions(definitions: tuple[Any, ...], *, source_prefix: str) -> tuple[PromptResource, ...]:
+    resources: list[PromptResource] = []
+    for definition in definitions:
+        environment_id = str(definition.record.environment_id or "")
+        for prompt in definition.spec.environment_prompts:
+            prompt_id = str(prompt.prompt_id or "").strip()
+            content = str(prompt.content or "").strip()
+            if not prompt_id or not content:
+                continue
+            resources.append(
+                PromptResource(
+                    prompt_id=prompt_id,
+                    resource_id=prompt_id,
+                    category="environment",
+                    subtype=str(prompt.prompt_kind or "boundary"),
+                    resource_type="environment_prompt",
+                    title=f"{environment_id} environment boundary",
+                    content=content,
+                    owner_layer="environment",
+                    cache_scope=str(prompt.cache_scope or "static_environment"),
+                    model_visible=True,
+                    allowed_environment_refs=(environment_id,),
+                    source_ref=f"{source_prefix}#{environment_id}.environment_prompts.{prompt_id}",
+                    version=str(prompt.version or "v1"),
+                    enabled=True,
+                    status="active",
+                    metadata={
+                        "managed_by": "prompt_library.task_environment_sync",
+                        "source_type": "environment_prompt",
+                        "environment_id": environment_id,
+                    },
+                )
+            )
+    return tuple(resources)
+
+
+def _agent_work_role_prompt_id(agent_profile_id: str) -> str:
+    normalized = ".".join(part for part in str(agent_profile_id or "agent").replace(":", ".").split(".") if part)
+    return f"agent.{normalized}.work_role.v1"
 
 

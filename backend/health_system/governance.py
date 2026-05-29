@@ -3,13 +3,16 @@ from __future__ import annotations
 import time
 from typing import Any
 
+from runtime.environment import RuntimeEnvironment, check_runtime_connection_health
 from runtime.prompt_accounting import TokenCounterRegistry
+
+from .store import HealthStore
+from .task_record_maintenance import HealthTaskRecordMaintenanceService
 
 
 ACTIVE_STATUSES = {"created", "queued", "running", "waiting_approval", "paused"}
 FAILED_STATUSES = {"failed", "aborted", "cancelled"}
 WARNING_STATUSES = {"waiting_approval", "paused"}
-PRUNE_BUCKETS = {"completed", "failed", "diagnostics"}
 
 
 class HealthGovernanceBuilder:
@@ -20,6 +23,7 @@ class HealthGovernanceBuilder:
         self.prompt_accounting_ledger = getattr(self.runtime_host, "prompt_accounting_ledger", None)
         self.token_counter = TokenCounterRegistry()
         self.now = time.time()
+        self.store = self._build_store()
 
     def build_overview(self, *, limit: int = 80) -> dict[str, Any]:
         tasks = self.build_tasks(limit=limit)["tasks"]
@@ -28,6 +32,7 @@ class HealthGovernanceBuilder:
         token_usage = self._token_usage(tasks)
         efficiency = self._efficiency(tasks)
         system_risks = self._system_risks(monitor=monitor)
+        monitor_governance = self._monitor_governance(monitor=monitor)
         recommendations = self._recommendations(risks=risks, token_usage=token_usage, efficiency=efficiency)
         summary = {
             "task_count": len(tasks),
@@ -50,6 +55,7 @@ class HealthGovernanceBuilder:
             "efficiency": efficiency,
             "recommendations": recommendations,
             "monitor": monitor,
+            "monitor_governance": monitor_governance,
             "updated_at": self.now,
         }
 
@@ -116,77 +122,61 @@ class HealthGovernanceBuilder:
             "updated_at": self.now,
         }
 
+    def build_monitor_governance(self) -> dict[str, Any]:
+        monitor = self._global_monitor(limit=120)
+        return self._monitor_governance(monitor=monitor)
+
     def build_token_usage(self, *, limit: int = 100) -> dict[str, Any]:
         return self._token_usage(self.build_tasks(limit=limit)["tasks"])
 
     def build_efficiency(self, *, limit: int = 100) -> dict[str, Any]:
         return self._efficiency(self.build_tasks(limit=limit)["tasks"])
 
-    def prune_task_records(self, *, bucket: str = "static", task_run_ids: list[str] | None = None) -> dict[str, Any]:
-        monitor = self._global_monitor(limit=300)
-        monitor_items = [
-            dict(item)
-            for item in list(monitor.get("task_runs") or [])
-            if isinstance(item, dict)
-        ]
-        requested = {str(item).strip() for item in list(task_run_ids or []) if str(item).strip()}
-        if requested:
-            candidates = [item for item in monitor_items if str(item.get("task_run_id") or "") in requested]
-        else:
-            candidates = [item for item in monitor_items if self._matches_prune_bucket(item, bucket=bucket)]
-        deletable: set[str] = set()
-        skipped: list[dict[str, Any]] = []
-        for item in candidates:
-            task_run_id = str(item.get("task_run_id") or "")
-            if not task_run_id:
-                continue
-            if str(item.get("resource_class") or "") == "dynamic" or str(item.get("bucket") or "") == "running":
-                skipped.append({
-                    "task_run_id": task_run_id,
-                    "reason": "dynamic_runtime_not_prunable",
-                    "status": str(item.get("status") or ""),
-                    "bucket": str(item.get("bucket") or ""),
-                })
-                continue
-            deletable.add(task_run_id)
-        state_result = self.state_index.prune_task_runs(deletable)
-        deleted_task_run_ids = list(state_result.get("deleted_task_run_ids") or [])
-        deleted_event_logs = [
-            task_run_id
-            for task_run_id in deleted_task_run_ids
-            if self.runtime_host.event_log.delete_events(task_run_id)
-        ]
-        prompt_accounting_prune = {}
-        ledger_prune = getattr(self.prompt_accounting_ledger, "prune_task_runs", None)
-        if callable(ledger_prune):
-            prompt_accounting_prune = dict(ledger_prune(set(deleted_task_run_ids)) or {})
-        return {
-            "authority": "health_system.task_record_maintenance",
-            "bucket": bucket,
-            "requested_task_run_ids": sorted(requested),
-            "candidate_count": len(candidates),
-            "deleted_task_run_ids": deleted_task_run_ids,
-            "deleted_event_log_task_run_ids": deleted_event_logs,
-            "deleted_counts": {
-                **dict(state_result.get("deleted_counts") or {}),
-                **{
-                    f"prompt_accounting.{key}": value
-                    for key, value in dict(prompt_accounting_prune.get("deleted_counts") or {}).items()
-                },
-            },
-            "skipped": skipped,
-            "monitor": self._global_monitor(limit=80),
-            "updated_at": time.time(),
-        }
+    def build_task_record_maintenance(
+        self,
+        *,
+        bucket: str = "static",
+        task_run_ids: list[str] | None = None,
+        min_age_seconds: int = 24 * 60 * 60,
+    ) -> dict[str, Any]:
+        return self._maintenance_service().build_view(
+            bucket=bucket,
+            task_run_ids=task_run_ids,
+            min_age_seconds=min_age_seconds,
+        )
 
-    def _matches_prune_bucket(self, item: dict[str, Any], *, bucket: str) -> bool:
-        item_bucket = str(item.get("bucket") or "")
-        resource_class = str(item.get("resource_class") or "")
-        if bucket == "static":
-            return resource_class == "static" and item_bucket in PRUNE_BUCKETS
-        if bucket in PRUNE_BUCKETS:
-            return resource_class == "static" and item_bucket == bucket
-        return False
+    def prune_task_records(
+        self,
+        *,
+        bucket: str = "static",
+        task_run_ids: list[str] | None = None,
+        dry_run: bool = False,
+        min_age_seconds: int = 24 * 60 * 60,
+        operation: str = "delete_expired",
+    ) -> dict[str, Any]:
+        result = self._maintenance_service().prune_task_records(
+            bucket=bucket,
+            task_run_ids=task_run_ids,
+            dry_run=dry_run,
+            min_age_seconds=min_age_seconds,
+            operation=operation,
+        )
+        result["monitor"] = self._global_monitor(limit=80)
+        return result
+
+    def _maintenance_service(self) -> HealthTaskRecordMaintenanceService:
+        return HealthTaskRecordMaintenanceService(
+            runtime_host=self.runtime_host,
+            prompt_accounting_ledger=self.prompt_accounting_ledger,
+            store=self.store,
+            now=self.now,
+        )
+
+    def _build_store(self) -> HealthStore | None:
+        base_dir = getattr(self.runtime, "base_dir", None)
+        if base_dir is None:
+            return None
+        return HealthStore(base_dir)
 
     def _task_record(self, task_run: Any) -> dict[str, Any]:
         task_run_id = str(task_run.task_run_id or "")
@@ -223,7 +213,7 @@ class HealthGovernanceBuilder:
             "task_id": str(task_run.task_id or ""),
             "agent_id": str(task_run.agent_id or ""),
             "agent_profile_id": str(task_run.agent_profile_id or ""),
-            "runtime_lane": str(task_run.runtime_lane or ""),
+            "runtime_lane": self._task_runtime_lane(task_run),
             "status": status,
             "terminal_reason": str(task_run.terminal_reason or ""),
             "created_at": float(task_run.created_at or 0.0),
@@ -311,7 +301,68 @@ class HealthGovernanceBuilder:
             risks.append(self._risk("system", "warning", "runtime_monitor", "存在停滞运行", f"{summary.get('stale')} 个运行长时间未更新。"))
         if int(summary.get("waiting") or 0) > 0:
             risks.append(self._risk("task", "high", "runtime_monitor", "存在等待处理任务", f"{summary.get('waiting')} 个任务正在等待确认或人工处理。"))
+        risks.extend(self._environment_risks())
+        risks.extend(self._instrumentation_risks())
         return risks
+
+    def _monitor_governance(self, *, monitor: dict[str, Any]) -> dict[str, Any]:
+        summary = dict(monitor.get("summary") or {})
+        task_runs = [dict(item) for item in list(monitor.get("task_runs") or []) if isinstance(item, dict)]
+        stale_items = [item for item in task_runs if item.get("stale")]
+        action_required = [item for item in task_runs if item.get("action_required")]
+        diagnostics = [item for item in task_runs if str(item.get("bucket") or "") == "diagnostics"]
+        failed_count = int(summary.get("failed") or 0)
+        recommended_actions: list[dict[str, Any]] = []
+        if failed_count:
+            recommended_actions.append({
+                "title": "查看失败运行",
+                "summary": f"{failed_count} 个运行处于失败 bucket，建议进入任务健康详情确认是否需要登记健康问题。",
+                "priority": "high",
+            })
+        if stale_items:
+            recommended_actions.append({
+                "title": "检查停滞运行",
+                "summary": f"{len(stale_items)} 个运行长时间没有活动，优先打开任务详情查看最近事件。",
+                "priority": "high",
+            })
+        if action_required:
+            recommended_actions.append({
+                "title": "处理等待确认任务",
+                "summary": f"{len(action_required)} 个运行需要人工确认或解除阻塞。",
+                "priority": "high",
+            })
+        if not recommended_actions:
+            recommended_actions.append({
+                "title": "监控状态稳定",
+                "summary": "运行监控没有需要立即处理的停滞或等待确认信号。",
+                "priority": "info",
+            })
+        health_status = "healthy"
+        if monitor.get("error") or stale_items:
+            health_status = "degraded"
+        if action_required or failed_count > 0:
+            health_status = "attention_required"
+        return {
+            "authority": "health_system.monitor_governance",
+            "monitor_authority": str(monitor.get("authority") or ""),
+            "revision": str(monitor.get("revision") or ""),
+            "status": health_status,
+            "summary": {
+                "total": int(summary.get("total") or len(task_runs)),
+                "running": int(summary.get("running") or 0),
+                "completed": int(summary.get("completed") or 0),
+                "failed": int(summary.get("failed") or 0),
+                "diagnostics": int(summary.get("diagnostics") or len(diagnostics)),
+                "stale": len(stale_items),
+                "action_required": len(action_required),
+            },
+            "risk_escalations": [
+                self._risk("system", "warning", str(item.get("task_run_id") or "runtime_monitor"), "运行监控诊断项", ", ".join(str(reason) for reason in list(item.get("diagnostic_reasons") or [])) or "运行监控发现诊断项。")
+                for item in diagnostics[:20]
+            ],
+            "recommended_actions": recommended_actions,
+            "updated_at": self.now,
+        }
 
     def _token_usage(self, tasks: list[dict[str, Any]]) -> dict[str, Any]:
         by_session: dict[str, dict[str, Any]] = {}
@@ -552,6 +603,41 @@ class HealthGovernanceBuilder:
             "billing_truth_available": False,
         }
 
+    def _environment_risks(self) -> list[dict[str, Any]]:
+        base_dir = getattr(self.runtime, "base_dir", None)
+        if base_dir is None:
+            return [self._risk("system", "info", "runtime_environment", "运行环境健康探针未接入", "unknown/not_instrumented，当前 runtime 没有 base_dir。")]
+        try:
+            environment = RuntimeEnvironment(workspace_root=base_dir.parent)
+            health = check_runtime_connection_health(environment)
+            payload = health.to_dict()
+        except Exception as exc:
+            return [self._risk("system", "high", "runtime_environment", "运行环境健康检查失败", str(exc))]
+        risks: list[dict[str, Any]] = []
+        diagnostics = dict(payload.get("diagnostics") or {})
+        ports = dict(payload.get("ports") or {})
+        if not payload.get("ok"):
+            risks.append(self._risk("system", "high", "runtime_environment", "固定运行环境异常", payload.get("error") or "runtime_environment_error"))
+        if not diagnostics.get("api_base_ok", True):
+            risks.append(self._risk("system", "high", "api_base", "前端 API Base 配置异常", f"期望 {diagnostics.get('api_base_expected')}，实际 {diagnostics.get('api_base_actual')}。"))
+        if diagnostics.get("sse_status") == "not_checked":
+            risks.append(self._risk("system", "info", "sse", "SSE 连接未纳入健康探针", "当前只能确认 API base 和端口，SSE 状态仍为 unknown/not_checked。"))
+        for name, raw_probe in dict(ports.get("diagnostics") or {}).items():
+            if not isinstance(raw_probe, dict):
+                continue
+            probe = dict(raw_probe)
+            if probe.get("status") == "wrong_process_on_fixed_port":
+                risks.append(self._risk("system", "high", f"port:{name}", "固定端口被非项目进程占用", str(probe.get("summary") or "")))
+            elif not probe.get("listening"):
+                risks.append(self._risk("system", "warning", f"port:{name}", "固定端口未监听", f"{name} 端口 {probe.get('port')} 当前未监听。"))
+        return risks
+
+    def _instrumentation_risks(self) -> list[dict[str, Any]]:
+        risks: list[dict[str, Any]] = []
+        for target in ("tool_runtime", "model_runtime", "sandbox"):
+            risks.append(self._risk("system", "info", target, f"{target} 健康探针未接入", "unknown/not_instrumented，不能默认为 healthy。"))
+        return risks
+
     def _task_prompt_accounting_detail(self, task_run_id: str) -> dict[str, Any]:
         ledger = self.prompt_accounting_ledger
         if ledger is None:
@@ -599,6 +685,15 @@ class HealthGovernanceBuilder:
         if int(summary.get("trace_estimate_record_count") or 0) > 0:
             return "trace_estimate"
         return "none"
+
+    @staticmethod
+    def _task_runtime_lane(task_run: Any) -> str:
+        diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+        for key in ("runtime_lane", "runtime_directive_lane", "lane_type"):
+            value = str(diagnostics.get(key) or "").strip()
+            if value:
+                return value
+        return str(getattr(task_run, "execution_runtime_kind", "") or "")
 
     def _event_token_fragments(self, event: dict[str, Any]) -> list[str]:
         event_type = str(event.get("event_type") or "")

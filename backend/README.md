@@ -110,7 +110,7 @@
 - `storage/capability_system`
 - `storage/tasks`
 - `storage/orchestration`
-- `storage/health_system/maintenance/test_system`
+- `storage/test_system`
 
 因此：
 

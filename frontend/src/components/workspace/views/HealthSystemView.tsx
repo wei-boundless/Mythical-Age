@@ -19,10 +19,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   getHealthSystemOverview,
+  getHealthSystemTaskRecordMaintenance,
   getHealthSystemTaskDetail,
   pruneHealthSystemTaskRecords,
   type HealthRiskEvent,
   type HealthSystemOverview,
+  type HealthTaskRecordMaintenance,
   type HealthTaskRecord,
 } from "@/lib/api";
 
@@ -32,7 +34,7 @@ type TokenChartMode = "daily" | "six_hour";
 const pages: Array<{ key: HealthPage; title: string; subtitle: string; icon: typeof HeartPulse }> = [
   { key: "overview", title: "总览", subtitle: "风险、成本、效率", icon: HeartPulse },
   { key: "tasks", title: "任务健康", subtitle: "任务记录与风险", icon: Activity },
-  { key: "maintenance", title: "记录维护", subtitle: "清理历史记录", icon: Trash2 },
+  { key: "maintenance", title: "任务记录管理", subtitle: "预检与回执", icon: Trash2 },
   { key: "system", title: "系统风险", subtitle: "监控与运行环境", icon: ShieldAlert },
   { key: "cost", title: "运行成本", subtitle: "Token 与效率", icon: WalletCards },
 ];
@@ -230,6 +232,7 @@ function costConclusion(overview: HealthSystemOverview) {
 export function HealthSystemView() {
   const [activePage, setActivePage] = useState<HealthPage>("overview");
   const [overview, setOverview] = useState<HealthSystemOverview | null>(null);
+  const [maintenance, setMaintenance] = useState<HealthTaskRecordMaintenance | null>(null);
   const [tokenChartMode, setTokenChartMode] = useState<TokenChartMode>("daily");
   const [selectedTaskId, setSelectedTaskId] = useState("");
   const [taskDetail, setTaskDetail] = useState<Record<string, unknown> | null>(null);
@@ -257,6 +260,21 @@ export function HealthSystemView() {
   useEffect(() => {
     void loadOverview();
   }, [loadOverview]);
+
+  const loadMaintenance = useCallback(async () => {
+    try {
+      const payload = await getHealthSystemTaskRecordMaintenance("static", 24 * 60 * 60);
+      setMaintenance(payload);
+    } catch {
+      setMaintenance(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activePage === "maintenance") {
+      void loadMaintenance();
+    }
+  }, [activePage, loadMaintenance]);
 
   useEffect(() => {
     if (!selectedTaskId) {
@@ -289,6 +307,7 @@ export function HealthSystemView() {
   const systemRisks = overview?.system_risks ?? [];
   const tokenTasks = overview?.token_usage?.tasks ?? [];
   const efficiencyTasks = overview?.efficiency?.tasks ?? [];
+  const monitorGovernance = overview?.monitor_governance ?? null;
   const tokenUsage = overview?.token_usage;
   const dailyTokenBuckets = tokenBuckets(tokenUsage?.daily);
   const sixHourTokenBuckets = tokenBuckets(tokenUsage?.six_hour);
@@ -334,14 +353,10 @@ export function HealthSystemView() {
       ? "部分任务已有 provider usage，仍有任务只停留在预测或旧轨迹估算。"
       : "当前主要依赖预测或旧轨迹估算，精确账单真值还不足。";
 
-  const maintenanceSummary = useMemo(() => {
-    const monitor = overview?.monitor as Record<string, any> | undefined;
-    const buckets = monitor?.buckets ?? {};
-    const completed = Array.isArray(buckets.completed) ? buckets.completed.length : 0;
-    const failed = Array.isArray(buckets.failed) ? buckets.failed.length : 0;
-    const diagnostics = Array.isArray(buckets.diagnostics) ? buckets.diagnostics.length : 0;
-    return { completed, failed, diagnostics, staticTotal: completed + failed + diagnostics };
-  }, [overview]);
+  const maintenanceSummary = maintenance?.summary ?? {};
+  const maintenanceCandidates = maintenance?.candidates ?? [];
+  const protectedMaintenanceCandidates = maintenanceCandidates.filter((item) => !Boolean(item.eligible));
+  const monitorSummary = monitorGovernance?.summary ?? ((overview?.monitor as Record<string, any> | undefined)?.summary as Record<string, any> | undefined) ?? {};
 
   async function pruneRecords(bucket: "static" | "completed" | "failed" | "diagnostics", taskRunIds: string[] = []) {
     setMaintenanceBusy(taskRunIds.length ? taskRunIds[0] : bucket);
@@ -351,9 +366,12 @@ export function HealthSystemView() {
       const result = await pruneHealthSystemTaskRecords({
         bucket,
         task_run_ids: taskRunIds,
+        dry_run: false,
+        min_age_seconds: 24 * 60 * 60,
       });
-      setMaintenanceMessage(`已清理 ${result.deleted_task_run_ids.length} 条记录，跳过 ${result.skipped.length} 条运行中记录。`);
+      setMaintenanceMessage(`维护完成：删除 ${result.deleted_task_run_ids.length} 条，保护 ${result.protected_task_run_ids?.length ?? result.skipped.length} 条。回执 ${String(result.maintenance_receipt?.receipt_id || "未持久化")}`);
       setSelectedTaskId((current) => result.deleted_task_run_ids.includes(current) ? "" : current);
+      await loadMaintenance();
       await loadOverview();
     } catch (pruneError) {
       setError(pruneError instanceof Error ? pruneError.message : "任务记录清理失败");
@@ -424,6 +442,24 @@ export function HealthSystemView() {
             <RiskList title="最近风险" risks={risks.slice(0, 5)} />
             <RecommendationList items={overview.recommendations ?? []} />
           </section>
+
+          <section className="health-system-grid">
+            <article className="health-system-card">
+              <PanelHead title="监控汇总" subtitle={monitorGovernance?.status || "RuntimeMonitor"} />
+              <div className="health-overview-metrics">
+                <Metric label="运行中" value={monitorSummary.running ?? 0} />
+                <Metric label="等待处理" value={monitorSummary.action_required ?? monitorSummary.waiting ?? 0} danger={numberValue(monitorSummary.action_required ?? monitorSummary.waiting) > 0} />
+                <Metric label="停滞" value={monitorSummary.stale ?? 0} danger={numberValue(monitorSummary.stale) > 0} />
+                <Metric label="诊断" value={monitorSummary.diagnostics ?? 0} danger={numberValue(monitorSummary.diagnostics) > 0} />
+              </div>
+              <section className="health-semantic-box">
+                <span>监控归属</span>
+                <p>运行监控页面负责实时状态查看；健康系统只汇总监控事实、风险和建议，不接管运行监控界面。</p>
+                <p>Revision：{monitorGovernance?.revision || String((overview.monitor as Record<string, any>)?.revision || "-")}</p>
+              </section>
+            </article>
+            <RiskList title="监控风险摘要" risks={monitorGovernance?.risk_escalations ?? []} />
+          </section>
         </section>
       ) : null}
 
@@ -453,51 +489,68 @@ export function HealthSystemView() {
       {overview && activePage === "maintenance" ? (
         <section className="health-maintenance-layout">
           <article className="health-system-card health-maintenance-panel">
-            <PanelHead title="运行记录维护" subtitle="只清理静态历史，不影响运行中任务" />
+            <PanelHead title="任务记录管理" subtitle="预检、保护条件和维护回执" />
             <div className="health-overview-metrics">
-              <Metric label="可清理" value={maintenanceSummary.staticTotal} />
-              <Metric label="已完成" value={maintenanceSummary.completed} />
-              <Metric label="失败" value={maintenanceSummary.failed} danger={maintenanceSummary.failed > 0} />
-              <Metric label="诊断" value={maintenanceSummary.diagnostics} danger={maintenanceSummary.diagnostics > 0} />
+              <Metric label="候选" value={maintenanceSummary.candidate_count ?? 0} />
+              <Metric label="可维护" value={maintenanceSummary.eligible_count ?? 0} />
+              <Metric label="受保护" value={maintenanceSummary.protected_count ?? 0} danger={numberValue(maintenanceSummary.protected_count) > 0} />
+              <Metric label="回执" value={maintenance?.recent_receipts?.length ?? 0} />
             </div>
             {maintenanceMessage ? <div className="boundary-notice"><Trash2 size={16} />{maintenanceMessage}</div> : null}
             <div className="health-maintenance-actions">
-              <button disabled={Boolean(maintenanceBusy) || maintenanceSummary.staticTotal === 0} onClick={() => void pruneRecords("static")} type="button">
+              <button disabled={Boolean(maintenanceBusy) || numberValue(maintenanceSummary.eligible_count) === 0} onClick={() => void pruneRecords("static")} type="button">
                 {maintenanceBusy === "static" ? <Loader2 size={15} className="spin" /> : <Trash2 size={15} />}
-                清理全部静态历史
+                执行受控维护
               </button>
-              <button disabled={Boolean(maintenanceBusy) || maintenanceSummary.completed === 0} onClick={() => void pruneRecords("completed")} type="button">
-                清理已完成
-              </button>
-              <button disabled={Boolean(maintenanceBusy) || maintenanceSummary.failed === 0} onClick={() => void pruneRecords("failed")} type="button">
-                清理失败
-              </button>
-              <button disabled={Boolean(maintenanceBusy) || maintenanceSummary.diagnostics === 0} onClick={() => void pruneRecords("diagnostics")} type="button">
-                清理诊断
+              <button disabled={Boolean(maintenanceBusy)} onClick={() => void loadMaintenance()} type="button">
+                重新预检
               </button>
             </div>
-            <p className="health-copy">清理会删除 TaskRun 索引、关联 Agent/协调/工具派生记录和事件日志。后端会跳过动态运行中的任务，避免误删仍在执行的记录。</p>
+            <p className="health-copy">任务记录管理归健康系统，但执行前必须预检影响范围。运行中、近期记录、未形成健康报告的失败记录会被保护。</p>
           </article>
 
           <article className="health-list-panel">
-            <PanelHead title="可清理记录" subtitle={`${maintenanceSummary.staticTotal} 条`} />
+            <PanelHead title="预检候选" subtitle={`${maintenanceCandidates.length} 条`} />
             <div className="health-task-list">
-              {tasks.filter((task) => ["completed", "failed", "aborted", "cancelled", "blocked", "waiting_approval"].includes(task.status)).map((task) => (
-                <div className="health-task-row health-task-row--managed" key={task.task_run_id}>
-                  <span className={riskClass(task.risk_level)}>{riskLabel(task.risk_level)}</span>
-                  <strong>{taskDisplayTitle(task)}</strong>
-                  <small>{statusLabel(task.status)} · {durationLabel(task.duration_seconds)} · {task.latest_event_type || "-"}</small>
-                  <button disabled={Boolean(maintenanceBusy)} onClick={() => void pruneRecords("static", [task.task_run_id])} type="button">
-                    {maintenanceBusy === task.task_run_id ? <Loader2 size={13} className="spin" /> : <Trash2 size={13} />}
-                    清理
+              {maintenanceCandidates.map((record) => (
+                <div className="health-task-row health-task-row--managed" key={String(record.task_run_id)}>
+                  <span className={Boolean(record.eligible) ? "health-pill" : "health-pill health-pill--notice"}>{Boolean(record.eligible) ? "可维护" : "受保护"}</span>
+                  <strong>{String(record.title || record.task_run_id || "任务记录")}</strong>
+                  <small>{statusLabelValue(record.status)} · {durationLabel(record.age_seconds)} old · {String((record.protection_reasons as string[] | undefined)?.join(" / ") || "通过保护规则")}</small>
+                  <button disabled={Boolean(maintenanceBusy) || !Boolean(record.eligible)} onClick={() => void pruneRecords("static", [String(record.task_run_id || "")])} type="button">
+                    {maintenanceBusy === record.task_run_id ? <Loader2 size={13} className="spin" /> : <Trash2 size={13} />}
+                    维护
                   </button>
                 </div>
               ))}
-              {!maintenanceSummary.staticTotal ? (
+              {!maintenanceCandidates.length ? (
                 <div className="runtime-monitor-empty">
                   <TimerReset size={18} />
-                  <strong>暂无可清理记录</strong>
-                  <span>运行中的任务不会出现在清理列表。</span>
+                  <strong>暂无维护候选</strong>
+                  <span>当前没有通过预检的任务记录。</span>
+                </div>
+              ) : null}
+            </div>
+          </article>
+
+          <article className="health-system-card">
+            <PanelHead title="保护规则" subtitle={`${protectedMaintenanceCandidates.length} 条受保护`} />
+            <div className="health-risk-list">
+              {protectedMaintenanceCandidates.slice(0, 8).map((record) => (
+                <section className="health-risk-row" key={String(record.task_run_id)}>
+                  <span className="health-pill health-pill--notice">保护</span>
+                  <div>
+                    <strong>{String(record.title || record.task_run_id || "任务记录")}</strong>
+                    <p>{Array.isArray(record.protection_reasons) ? record.protection_reasons.join(" / ") : "受保护记录"}</p>
+                    <small>{statusLabelValue(record.status)} · {durationLabel(record.age_seconds)} old</small>
+                  </div>
+                </section>
+              ))}
+              {!protectedMaintenanceCandidates.length ? (
+                <div className="runtime-monitor-empty">
+                  <ShieldAlert size={18} />
+                  <strong>没有被保护候选</strong>
+                  <span>当前预检候选均满足维护条件。</span>
                 </div>
               ) : null}
             </div>
@@ -510,9 +563,16 @@ export function HealthSystemView() {
           <RiskList title="系统风险" risks={systemRisks} />
           <article className="health-system-card">
             <PanelHead title="监控连接" subtitle="实时运行监控" />
-            <Metric label="运行中" value={String((overview.monitor as Record<string, any>)?.summary?.running ?? 0)} />
-            <Metric label="等待处理" value={String((overview.monitor as Record<string, any>)?.summary?.waiting ?? 0)} danger={numberValue((overview.monitor as Record<string, any>)?.summary?.waiting) > 0} />
-            <Metric label="停滞" value={String((overview.monitor as Record<string, any>)?.summary?.stale ?? 0)} />
+            <Metric label="运行中" value={String(monitorSummary.running ?? 0)} />
+            <Metric label="等待处理" value={String(monitorSummary.action_required ?? monitorSummary.waiting ?? 0)} danger={numberValue(monitorSummary.action_required ?? monitorSummary.waiting) > 0} />
+            <Metric label="停滞" value={String(monitorSummary.stale ?? 0)} danger={numberValue(monitorSummary.stale) > 0} />
+            <Metric label="诊断" value={String(monitorSummary.diagnostics ?? 0)} danger={numberValue(monitorSummary.diagnostics) > 0} />
+            {monitorGovernance?.recommended_actions?.length ? (
+              <section className="health-semantic-box">
+                <span>健康系统汇总</span>
+                <p>{monitorGovernance.recommended_actions[0]?.summary || monitorGovernance.recommended_actions[0]?.title}</p>
+              </section>
+            ) : null}
           </article>
         </section>
       ) : null}

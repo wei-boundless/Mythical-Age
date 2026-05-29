@@ -18,24 +18,14 @@
 - 场景实测：
   - `python backend/tests/run_regression_gate.py --profile scenario`
 
-统一 harness 入口也支持同样的 profile：
-
-- `python -m health_system.maintenance.harness.run --profile chain`
-- `python -m health_system.maintenance.harness.run --profile functional`
-- `python -m health_system.maintenance.harness.run --profile system`
-- `python -m health_system.maintenance.harness.run --profile scenario`
-
 ## Case Governance
 
-- 活跃用例必须登记在 `backend/health_system/maintenance/test_system/case_registry.py` 的 `ACTIVE_CASES`。
+- 活跃用例必须通过 `backend/tests/run_regression_gate.py` 所使用的测试登记入口进入对应 profile。
 - 旧链路参考用例已退出用例库；需要保留的行为必须重写为 `ACTIVE_CASES` 或前端管理的候选用例。
 - 未确认是否保留的历史用例由登记表自动暴露为 `candidate`，不进入 curated gate。
 - 新增测试文件时，先决定它属于 `chain / functional / system / scenario` 哪一层，再登记 owner、profile、tags 和断言边界。
 
-测试 agent 的治理报告入口：
-
-- API：`GET /api/health-system/maintenance/test-system/agent/report`
-- Python：`from health_system.maintenance.test_system.agent import TestAgentAdvisor`
+测试治理不再挂在 HealthSystem 子目录下；HealthSystem 只消费测试结果形成健康风险，不承载测试 harness 或测试 agent。
 
 ## RuntimeLoop Assertions
 

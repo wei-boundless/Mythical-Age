@@ -14,7 +14,7 @@
 - 场景登记合同：
   - `python backend/tests/run_regression_gate.py --profile scenario`
 - 长场景 runner：
-  - `python -m health_system.maintenance.harness.run --profile long`
+  - `python backend/tests/run_regression_gate.py --profile scenario`
 - 旧兼容 runner：
   - `python backend/tests/system_eval/runner.py --profile smoke`
   - `python backend/tests/system_eval/runner.py --profile stable`
@@ -30,4 +30,4 @@
 - `trace.jsonl`
 - `artifacts/`
 
-后续前端健康维护视图应优先读取 `/api/health-system/maintenance/test-system/*`，并把 RuntimeLoop 监控事实交给编排系统提供。
+健康系统只消费场景实测结果形成健康风险；测试 harness 和测试治理入口不再挂在 `/api/health-system/maintenance/test-system/*` 下。

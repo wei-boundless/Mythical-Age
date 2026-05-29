@@ -33,14 +33,20 @@ class EventStub:
 class EventLogStub:
     def __init__(self, events_by_task_run_id: dict[str, list[EventStub]]):
         self.events_by_task_run_id = events_by_task_run_id
+        self.deleted_task_run_ids: list[str] = []
 
     def list_events(self, task_run_id: str):
         return list(self.events_by_task_run_id.get(task_run_id, []))
+
+    def delete_events(self, task_run_id: str):
+        self.deleted_task_run_ids.append(task_run_id)
+        return bool(self.events_by_task_run_id.pop(task_run_id, []))
 
 
 class StateIndexStub:
     def __init__(self, task_runs: list[TaskRun]):
         self.task_runs = task_runs
+        self.deleted_task_run_ids: list[str] = []
 
     def list_task_runs(self):
         return list(self.task_runs)
@@ -56,6 +62,18 @@ class StateIndexStub:
 
     def list_task_supervision_records(self, _task_run_id: str):
         return []
+
+    def prune_task_runs(self, task_run_ids: set[str]):
+        targets = {str(item) for item in task_run_ids}
+        existing = {item.task_run_id for item in self.task_runs if item.task_run_id in targets}
+        self.deleted_task_run_ids.extend(sorted(existing))
+        self.task_runs = [item for item in self.task_runs if item.task_run_id not in existing]
+        return {
+            "authority": "orchestration.runtime_state_index.prune_task_runs",
+            "requested_task_run_ids": sorted(targets),
+            "deleted_task_run_ids": sorted(existing),
+            "deleted_counts": {"task_runs": len(existing)} if existing else {},
+        }
 
 
 def test_health_token_usage_is_task_trace_scoped_not_session_duplicated() -> None:
@@ -142,3 +160,128 @@ def test_health_token_usage_prefers_prompt_accounting_provider_usage(tmp_path) -
     assert token_usage["summary"]["exact_total_tokens"] == 120
     assert token_usage["summary"]["predicted_total_tokens"] == 300
     assert token_usage["summary"]["trace_estimate_total_tokens"] == 0
+
+
+def test_health_task_record_maintenance_dry_run_does_not_delete_records() -> None:
+    now = time.time()
+    old_completed = TaskRun(
+        task_run_id="taskrun:old-completed",
+        session_id="session:maintenance",
+        task_id="task.old",
+        status="completed",
+        created_at=now - 200000,
+        updated_at=now - 190000,
+    )
+    running = TaskRun(
+        task_run_id="taskrun:running",
+        session_id="session:maintenance",
+        task_id="task.running",
+        status="running",
+        created_at=now - 200000,
+        updated_at=now - 190000,
+    )
+    state_index = StateIndexStub([old_completed, running])
+    event_log = EventLogStub(
+        {
+            "taskrun:old-completed": [EventStub("step_summary_recorded", {"summary": "done"})],
+            "taskrun:running": [EventStub("step_summary_recorded", {"summary": "active"})],
+        }
+    )
+    runtime_host = SimpleNamespace(
+        state_index=state_index,
+        event_log=event_log,
+        prompt_accounting_ledger=None,
+        list_global_live_monitor=lambda limit: {
+            "summary": {"completed": 1, "running": 1},
+            "task_runs": [
+                {
+                    "task_run_id": "taskrun:old-completed",
+                    "status": "completed",
+                    "bucket": "completed",
+                    "resource_class": "static",
+                },
+                {
+                    "task_run_id": "taskrun:running",
+                    "status": "running",
+                    "bucket": "running",
+                    "resource_class": "dynamic",
+                },
+            ],
+        },
+    )
+    runtime = SimpleNamespace(query_runtime=SimpleNamespace(single_agent_runtime_host=runtime_host))
+
+    result = HealthGovernanceBuilder(runtime).prune_task_records(
+        task_run_ids=["taskrun:old-completed", "taskrun:running"],
+        dry_run=True,
+        min_age_seconds=0,
+    )
+
+    assert result["mode"] == "dry_run"
+    assert result["eligible_task_run_ids"] == ["taskrun:old-completed"]
+    assert result["protected_task_run_ids"] == ["taskrun:running"]
+    assert result["deleted_task_run_ids"] == []
+    assert state_index.deleted_task_run_ids == []
+    assert event_log.deleted_task_run_ids == []
+
+
+def test_health_task_record_maintenance_protects_failed_without_report_and_deletes_old_completed() -> None:
+    now = time.time()
+    old_completed = TaskRun(
+        task_run_id="taskrun:old-completed",
+        session_id="session:maintenance",
+        task_id="task.old",
+        status="completed",
+        created_at=now - 200000,
+        updated_at=now - 190000,
+    )
+    failed_without_report = TaskRun(
+        task_run_id="taskrun:failed",
+        session_id="session:maintenance",
+        task_id="task.failed",
+        status="failed",
+        created_at=now - 200000,
+        updated_at=now - 190000,
+    )
+    state_index = StateIndexStub([old_completed, failed_without_report])
+    event_log = EventLogStub(
+        {
+            "taskrun:old-completed": [EventStub("step_summary_recorded", {"summary": "done"})],
+            "taskrun:failed": [EventStub("loop_error", {"error": "failed"})],
+        }
+    )
+    runtime_host = SimpleNamespace(
+        state_index=state_index,
+        event_log=event_log,
+        prompt_accounting_ledger=None,
+        list_global_live_monitor=lambda limit: {
+            "summary": {"completed": 1, "failed": 1},
+            "task_runs": [
+                {
+                    "task_run_id": "taskrun:old-completed",
+                    "status": "completed",
+                    "bucket": "completed",
+                    "resource_class": "static",
+                },
+                {
+                    "task_run_id": "taskrun:failed",
+                    "status": "failed",
+                    "bucket": "failed",
+                    "resource_class": "static",
+                },
+            ],
+        },
+    )
+    runtime = SimpleNamespace(query_runtime=SimpleNamespace(single_agent_runtime_host=runtime_host))
+
+    result = HealthGovernanceBuilder(runtime).prune_task_records(
+        task_run_ids=["taskrun:old-completed", "taskrun:failed"],
+        min_age_seconds=0,
+    )
+
+    assert result["mode"] == "execute"
+    assert result["deleted_task_run_ids"] == ["taskrun:old-completed"]
+    assert result["protected_task_run_ids"] == ["taskrun:failed"]
+    assert result["maintenance_receipt"]["status"] == "completed"
+    assert state_index.deleted_task_run_ids == ["taskrun:old-completed"]
+    assert event_log.deleted_task_run_ids == ["taskrun:old-completed"]

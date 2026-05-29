@@ -1,0 +1,2 @@
+timeline smoke ok
+本文件用于验证会话 timeline runtime attachment 的实测产物。

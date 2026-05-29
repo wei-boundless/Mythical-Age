@@ -14,12 +14,12 @@ from harness.runtime import AgentRuntimeServices, SingleAgentRuntimeHost, TaskEx
 from runtime import ModelResponseRuntimeExecutor, ModelRuntimeError, ToolRuntimeExecutor
 from runtime.shared.history_assembler import assemble_runtime_history
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
+from agent_system.identity import normalize_agent_id
 from orchestration import (
     build_base_unit_catalog,
     build_user_message_commit_decision,
 )
 from project_layout import ProjectLayout
-from prompting import build_static_prompt
 from query.models import QueryRequest
 from query.system_routes import run_direct_system_route
 from harness.runtime import AgentRunRequest
@@ -141,10 +141,8 @@ class QueryRuntime:
         return self.build_system_prompt_for_session(*args, **kwargs)
 
     def build_static_system_prompt_for_session(self, *args, **kwargs) -> str:
-        return build_static_prompt(
-            self.base_dir,
-            self.settings_service.get_rag_mode(),
-        )
+        _ = (args, kwargs)
+        return "当前单 agent harness prompt 由每次 RuntimeInvocationPacket 装配；请查看 latest_prompt_manifest_summary。"
 
     async def astream(self, request: QueryRequest):
         history_record = self.session_manager.load_session_record(request.session_id)
@@ -261,13 +259,36 @@ class QueryRuntime:
     async def execute_graph_agent_work_order(self, *, graph_config: Any, work_order: Any, max_steps: int = 12) -> dict[str, Any]:
         task_run = self._create_graph_node_task_run(graph_config=graph_config, work_order=work_order)
         return await execute_task_run(
-            self._task_executor_services(agent_profile_id=str(getattr(work_order, "agent_profile_id", "") or getattr(work_order, "agent_id", "") or "agent:0")),
+            self._task_executor_services_for_task_run(task_run),
             task_run.task_run_id,
             max_steps=max(1, int(max_steps or 12)),
         )
 
-    def _task_executor_services(self, *, agent_profile_id: str = "agent:0") -> TaskExecutorServices:
-        profile = self.agent_runtime_registry.get_profile(agent_profile_id) or self.agent_runtime_registry.get_profile("agent:0")
+    def _task_executor_services(self, *, agent_id: str = "agent:0") -> TaskExecutorServices:
+        profile = self.agent_runtime_registry.get_profile(agent_id) or self.agent_runtime_registry.get_profile("agent:0")
+        if profile is None:
+            raise ValueError("AgentRuntimeProfile not found: agent:0")
+        return self._task_executor_services_with_profile(profile)
+
+    def _task_executor_services_for_task_run(self, task_run: TaskRun) -> TaskExecutorServices:
+        return self._task_executor_services_with_profile(self._resolve_task_run_runtime_profile(task_run))
+
+    def _resolve_task_run_runtime_profile(self, task_run: TaskRun) -> Any:
+        explicit_profile_id = str(getattr(task_run, "agent_profile_id", "") or "").strip()
+        profile = None
+        if explicit_profile_id:
+            profile = self.agent_runtime_registry.get_profile_by_profile_id(explicit_profile_id)
+            if profile is None:
+                raise ValueError(f"AgentRuntimeProfile not found: {explicit_profile_id}")
+        if profile is None:
+            profile = self.agent_runtime_registry.get_profile(getattr(task_run, "agent_id", "") or "agent:0")
+        if profile is None:
+            profile = self.agent_runtime_registry.get_profile("agent:0")
+        if profile is None:
+            raise ValueError("AgentRuntimeProfile not found: agent:0")
+        return profile
+
+    def _task_executor_services_with_profile(self, profile: Any) -> TaskExecutorServices:
         return TaskExecutorServices(
             runtime_host=self.single_agent_runtime_host,
             backend_dir=self.base_dir,
@@ -276,6 +297,10 @@ class QueryRuntime:
             tool_instances=tuple(self._all_tool_instances()),
             agent_runtime_profile=profile,
             backend_config=dict(getattr(self, "config", {}) or {}),
+            assistant_message_committer=lambda payload: self._apply_assistant_message_commit(
+                str(dict(payload or {}).get("session_id") or ""),
+                payload,
+            ),
         )
 
     def _create_graph_node_task_run(self, *, graph_config: Any, work_order: Any) -> TaskRun:
@@ -284,8 +309,14 @@ class QueryRuntime:
         node_task_run_id = f"gtask:{safe_id(work_order.graph_run_id)}:{safe_id(work_order.node_id)}:{safe_id(work_order.work_order_id)}"
         existing = runtime_host.state_index.get_task_run(node_task_run_id)
         if existing is not None:
+            _validate_existing_graph_node_task_run(existing, graph_run_id=work_order.graph_run_id, work_order_id=work_order.work_order_id)
             return existing
+        origin = _graph_node_origin(work_order)
         contract = _graph_node_contract_from_work_order(work_order)
+        runtime_selection = _graph_node_task_selection(graph_config, work_order)
+        node_agent_id = _graph_node_agent_id(graph_config, work_order)
+        node_profile = self._resolve_graph_node_profile(node_agent_id=node_agent_id, work_order=work_order, graph_config=graph_config)
+        node_profile_id = str(getattr(node_profile, "agent_profile_id", "") or "")
         contract_ref = runtime_host.runtime_objects.put_object("task_run_contract", contract.contract_id, contract.to_dict())
         lifecycle = TaskLifecycleRecord(
             task_run_id=node_task_run_id,
@@ -302,19 +333,21 @@ class QueryRuntime:
             task_id=work_order.task_ref,
             task_contract_ref=contract_ref,
             owner_agent_seat_id=work_order.node_id,
-            agent_id=work_order.agent_id or "agent:0",
-            agent_profile_id=work_order.agent_profile_id or _graph_coordinator_profile_ref(graph_config),
+            agent_id=node_agent_id,
+            agent_profile_id=node_profile_id,
             execution_runtime_kind="single_agent_task",
             status="waiting_executor",
             created_at=now,
             updated_at=now,
             diagnostics={
                 "source": "query_runtime.graph_agent_work_order_adapter",
+                "origin": origin,
+                **origin,
                 "graph_run_id": work_order.graph_run_id,
                 "graph_harness_config_id": graph_config.config_id,
                 "graph_node_id": work_order.node_id,
                 "graph_work_order_id": work_order.work_order_id,
-                "runtime_task_selection": _graph_node_task_selection(graph_config, work_order),
+                "runtime_task_selection": runtime_selection,
                 "contract": contract.to_dict(),
             },
         )
@@ -332,6 +365,8 @@ class QueryRuntime:
             created_at=now,
             updated_at=now,
             diagnostics={
+                "origin": origin,
+                **origin,
                 "graph_run_id": work_order.graph_run_id,
                 "graph_node_id": work_order.node_id,
                 "graph_work_order_id": work_order.work_order_id,
@@ -365,6 +400,27 @@ class QueryRuntime:
             )
         )
         return runtime_host.state_index.get_task_run(node_task_run_id) or task_run
+
+    def _resolve_graph_node_profile(self, *, node_agent_id: str, work_order: Any, graph_config: Any) -> Any:
+        explicit_profile_id = str(getattr(work_order, "agent_profile_id", "") or "").strip()
+        if explicit_profile_id:
+            profile = self.agent_runtime_registry.get_profile_by_profile_id(explicit_profile_id)
+            if profile is None:
+                raise ValueError(f"AgentRuntimeProfile not found: {explicit_profile_id}")
+            if normalize_agent_id(str(getattr(profile, "agent_id", "") or "")) != normalize_agent_id(node_agent_id):
+                raise ValueError("Graph node agent_profile_id does not belong to node agent_id")
+            return profile
+        coordinator_profile_id = _graph_coordinator_profile_ref(graph_config)
+        if coordinator_profile_id:
+            profile = self.agent_runtime_registry.get_profile_by_profile_id(coordinator_profile_id)
+            if profile is not None and normalize_agent_id(str(getattr(profile, "agent_id", "") or "")) == normalize_agent_id(node_agent_id):
+                return profile
+        profile = self.agent_runtime_registry.get_profile(node_agent_id)
+        if profile is None:
+            profile = self.agent_runtime_registry.get_profile("agent:0")
+        if profile is None:
+            raise ValueError(f"AgentRuntimeProfile not found for agent_id: {node_agent_id}")
+        return profile
 
     def _commit_user_message(self, *, session_id: str, content: str, turn_id: str):
         decision = build_user_message_commit_decision(
@@ -524,6 +580,15 @@ def _permission_mode_provider(*, permission_service: Any | None, settings_servic
 
 def _graph_node_contract_from_work_order(work_order: Any) -> TaskRunContract:
     contracts = dict(getattr(work_order, "expected_result_contract", {}) or {})
+    input_package = dict(getattr(work_order, "input_package", {}) or {})
+    prompt_contract = dict(input_package.get("prompt_contract") or input_package.get("prompt") or {})
+    runtime_profile = dict(input_package.get("runtime_profile") or {})
+    task_environment_id = str(
+        input_package.get("task_environment_id")
+        or dict(input_package.get("task_environment") or {}).get("task_environment_id")
+        or dict(input_package.get("task_environment") or {}).get("environment_id")
+        or ""
+    ).strip()
     criteria = [
         "完成当前图节点职责，并输出可被下游节点消费的结果。",
         "如产生文件或记忆候选，需要在输出中列出真实引用。",
@@ -544,22 +609,50 @@ def _graph_node_contract_from_work_order(work_order: Any) -> TaskRunContract:
             "memory_view_request": dict(getattr(work_order, "memory_view_request", {}) or {}),
             "artifact_view_request": dict(getattr(work_order, "artifact_view_request", {}) or {}),
             "file_view_request": dict(getattr(work_order, "file_view_request", {}) or {}),
+            "artifact_space_ref": str(getattr(work_order, "artifact_space_ref", "") or ""),
+            "memory_space_ref": str(getattr(work_order, "memory_space_ref", "") or ""),
+            "file_access_table_refs": list(getattr(work_order, "file_access_table_refs", ()) or ()),
+            "artifact_repository_targets": [
+                dict(item)
+                for item in list(getattr(work_order, "artifact_repository_targets", ()) or ())
+                if isinstance(item, dict)
+            ],
+            "memory_repository_targets": [
+                dict(item)
+                for item in list(getattr(work_order, "memory_repository_targets", ()) or ())
+                if isinstance(item, dict)
+            ],
         },
         permission_requirements=dict(getattr(work_order, "permission_scope", {}) or {}),
         acceptance_policy=contracts,
         recovery_policy=dict(getattr(work_order, "retry_policy", {}) or {}),
         created_from_packet_ref=work_order.work_order_id,
+        task_environment_id=task_environment_id,
+        runtime_profile=runtime_profile,
+        prompt_contract=prompt_contract,
+        origin=_graph_node_origin(work_order),
     )
 
 
 def _graph_node_task_selection(graph_config: Any, work_order: Any) -> dict[str, Any]:
     mode = _graph_node_runtime_mode(graph_config, work_order)
+    input_package = dict(getattr(work_order, "input_package", {}) or {})
+    package_profile = dict(input_package.get("runtime_profile") or {})
+    task_environment_id = str(
+        getattr(graph_config, "task_environment_id", "")
+        or input_package.get("task_environment_id")
+        or dict(input_package.get("task_environment") or {}).get("environment_id")
+        or ""
+    )
     runtime_profile = {
+        **package_profile,
         "mode": mode,
-        "task_environment_id": str(getattr(graph_config, "task_environment_id", "") or ""),
+        "runtime_mode": mode,
+        "task_environment_id": task_environment_id,
         "tool_policy": dict(getattr(work_order, "tool_scope", {}) or getattr(graph_config, "tools", {}) or {}),
         "permission_policy": dict(getattr(work_order, "permission_scope", {}) or getattr(graph_config, "permissions", {}) or {}),
         "runtime_mode_policy": {
+            **dict(package_profile.get("runtime_mode_policy") or package_profile.get("mode_policy") or {}),
             "source": "graph_node_work_order",
             "graph_run_id": work_order.graph_run_id,
             "node_id": work_order.node_id,
@@ -567,9 +660,10 @@ def _graph_node_task_selection(graph_config: Any, work_order: Any) -> dict[str, 
     }
     return {
         "selected_task_id": work_order.task_ref,
-        "task_environment_id": str(getattr(graph_config, "task_environment_id", "") or ""),
+        "task_environment_id": task_environment_id,
         "runtime_mode": mode,
         "runtime_profile": runtime_profile,
+        "prompt_contract": dict(input_package.get("prompt_contract") or input_package.get("prompt") or {}),
         "allowed_operations": list(dict(getattr(work_order, "tool_scope", {}) or {}).get("allowed_operations") or []),
     }
 
@@ -593,6 +687,37 @@ def _graph_node_runtime_mode(graph_config: Any, work_order: Any) -> str:
 
 def _graph_coordinator_profile_ref(graph_config: Any) -> str:
     return str(dict(getattr(graph_config, "agents", {}) or {}).get("coordinator_agent_profile_id") or "task_graph_node_executor")
+
+
+def _graph_node_agent_id(graph_config: Any, work_order: Any) -> str:
+    raw = str(
+        getattr(work_order, "agent_id", "")
+        or dict(getattr(graph_config, "agents", {}) or {}).get("coordinator_agent_id")
+        or "agent:0"
+    ).strip()
+    normalized = normalize_agent_id(raw)
+    return normalized if normalized.startswith("agent:") else "agent:0"
+
+
+def _graph_node_origin(work_order: Any) -> dict[str, str]:
+    return {
+        "origin_kind": "graph_node_assigned",
+        "origin_authority": "harness.graph_loop",
+        "origin_ref": str(getattr(work_order, "work_order_id", "") or ""),
+        "parent_run_ref": str(getattr(work_order, "graph_run_id", "") or ""),
+        "graph_run_id": str(getattr(work_order, "graph_run_id", "") or ""),
+        "node_id": str(getattr(work_order, "node_id", "") or ""),
+    }
+
+
+def _validate_existing_graph_node_task_run(task_run: TaskRun, *, graph_run_id: str, work_order_id: str) -> None:
+    diagnostics = dict(task_run.diagnostics or {})
+    if str(diagnostics.get("origin_kind") or "") != "graph_node_assigned":
+        raise ValueError("Existing graph node TaskRun origin_kind mismatch")
+    if str(diagnostics.get("graph_run_id") or "") != str(graph_run_id or ""):
+        raise ValueError("Existing graph node TaskRun graph_run_id mismatch")
+    if str(diagnostics.get("graph_work_order_id") or "") != str(work_order_id or ""):
+        raise ValueError("Existing graph node TaskRun work_order_id mismatch")
 
 
 def _task_selection_for_runtime(

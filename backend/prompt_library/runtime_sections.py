@@ -160,17 +160,6 @@ def assemble_runtime_prompt_sections(
             source_refs=(str(contract.get("contract_id") or getattr(request, "task_id", "")),),
         ),
         PromptSection(
-            section_id="mode_policy_section",
-            title="交互模式策略",
-            source_type="runtime_interaction_mode_policy",
-            source_id=_mode_policy_source_id(contract),
-            owner_layer="task",
-            cache_scope="dynamic",
-            visible_to_model=True,
-            content=str(contract.get("mode_policy_section") or ""),
-            source_refs=(str(contract.get("contract_id") or getattr(request, "task_id", "")),),
-        ),
-        PromptSection(
             section_id="workflow_section",
             title="工作流",
             source_type="task_workflow",
@@ -378,14 +367,6 @@ def _completion_judgment_source_id(contract: dict[str, Any]) -> str:
     judgment = metadata.get("completion_judgment")
     if isinstance(judgment, dict):
         return str(judgment.get("judgment_id") or "")
-    return ""
-
-
-def _mode_policy_source_id(contract: dict[str, Any]) -> str:
-    metadata = dict(contract.get("metadata") or {})
-    mode_policy = metadata.get("mode_policy")
-    if isinstance(mode_policy, dict):
-        return str(mode_policy.get("authority") or "")
     return ""
 
 

@@ -1,4 +1,4 @@
-import { type ToolCall, type SessionHistory } from "@/lib/api";
+import { type ToolCall, type SessionHistory, type SessionRuntimeAttachment } from "@/lib/api";
 
 import type { Message, SkillSummary } from "./types";
 
@@ -85,7 +85,18 @@ export function sanitizeToolCall(toolCall: ToolCall): ToolCall | null {
   };
 }
 
-export function toUiMessages(history: SessionHistory["messages"]) {
+function attachmentTurnIndex(anchorTurnId: string) {
+  const parts = String(anchorTurnId || "").split(":");
+  const tail = parts.at(-1) || "";
+  const parsed = Number(tail);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function attachmentsForSourceIndex(attachments: SessionRuntimeAttachment[], sourceIndex: number) {
+  return attachments.filter((item) => attachmentTurnIndex(item.anchor_turn_id) === sourceIndex);
+}
+
+export function toUiMessages(history: SessionHistory["messages"], runtimeAttachments: SessionRuntimeAttachment[] = []) {
   const normalized = history
     .map<Message | null>((message, sourceIndex) => {
       const toolCalls = (message.tool_calls ?? [])
@@ -105,7 +116,8 @@ export function toUiMessages(history: SessionHistory["messages"]) {
         toolCalls,
         retrievals: [],
         sourceIndex,
-        image: message.image ?? null
+        image: message.image ?? null,
+        runtimeAttachments: attachmentsForSourceIndex(runtimeAttachments, sourceIndex)
       };
     })
     .filter(Boolean) as Message[];
@@ -113,7 +125,8 @@ export function toUiMessages(history: SessionHistory["messages"]) {
   const merged: Message[] = [];
   for (const message of normalized) {
     const previous = merged[merged.length - 1];
-    if (message.role === "assistant" && previous?.role === "assistant") {
+    const hasRuntimeAttachment = Boolean(message.runtimeAttachments?.length || previous?.runtimeAttachments?.length);
+    if (message.role === "assistant" && previous?.role === "assistant" && !hasRuntimeAttachment) {
       previous.content = appendMessageContent(previous.content, message.content);
       previous.toolCalls = [...previous.toolCalls, ...message.toolCalls];
       previous.retrievals = [...previous.retrievals, ...message.retrievals];

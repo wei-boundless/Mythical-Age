@@ -7,6 +7,7 @@ import type {
   RuntimeMonitorEventPayload,
   SoulImageAssetConfig,
   HarnessTaskRunLiveMonitor,
+  SessionRuntimeAttachment,
   SessionSummary,
   ToolCall,
   WorkspaceContext,
@@ -21,6 +22,7 @@ export type Message = {
   toolCalls: ToolCall[];
   retrievals: RetrievalResult[];
   runtimeProgress?: RuntimeProgressEntry[];
+  runtimeAttachments?: SessionRuntimeAttachment[];
   stageStatus?: string;
   sourceIndex?: number;
   image?: {
@@ -178,7 +180,6 @@ export type TaskSelectionState = {
   runtime_interaction_mode?: string;
   runtime_assembly_hint?: Record<string, unknown>;
   mode_policy?: Record<string, unknown>;
-  intent_decision?: Record<string, unknown>;
   agent_invocation?: Record<string, unknown>;
   agent_invocation_id?: string;
 };

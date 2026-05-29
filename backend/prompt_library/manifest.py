@@ -1,0 +1,67 @@
+from __future__ import annotations
+
+import hashlib
+import json
+from dataclasses import asdict, dataclass, field
+from typing import Any
+
+from .models import PromptAssemblyResult
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimePromptManifest:
+    manifest_id: str
+    invocation_kind: str
+    prompt_pack_refs: tuple[str, ...] = ()
+    stable_prompt_refs: tuple[str, ...] = ()
+    rejected_refs: tuple[dict[str, Any], ...] = ()
+    cache_boundary: dict[str, Any] = field(default_factory=dict)
+    token_estimate: dict[str, Any] = field(default_factory=dict)
+    diagnostics: dict[str, Any] = field(default_factory=dict)
+    authority: str = "runtime.prompt_manifest"
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["prompt_pack_refs"] = list(self.prompt_pack_refs)
+        payload["stable_prompt_refs"] = list(self.stable_prompt_refs)
+        payload["rejected_refs"] = [dict(item) for item in self.rejected_refs]
+        payload["cache_boundary"] = dict(self.cache_boundary)
+        payload["token_estimate"] = dict(self.token_estimate)
+        payload["diagnostics"] = dict(self.diagnostics)
+        return payload
+
+
+def build_runtime_prompt_manifest(
+    *,
+    invocation_kind: str,
+    assembly: PromptAssemblyResult,
+    packet_id: str = "",
+) -> RuntimePromptManifest:
+    refs = tuple(item.prompt_ref for item in assembly.sections if item.prompt_ref)
+    manifest_seed = {
+        "invocation_kind": invocation_kind,
+        "packet_id": packet_id,
+        "prompt_pack_refs": list(assembly.prompt_pack_refs),
+        "stable_prompt_refs": list(refs),
+    }
+    digest = hashlib.sha256(json.dumps(manifest_seed, sort_keys=True).encode("utf-8")).hexdigest()[:16]
+    static_count = len([item for item in assembly.sections if item.cache_scope == "static"])
+    return RuntimePromptManifest(
+        manifest_id=f"rtprompt:{digest}",
+        invocation_kind=invocation_kind,
+        prompt_pack_refs=assembly.prompt_pack_refs,
+        stable_prompt_refs=refs,
+        rejected_refs=assembly.rejected_refs,
+        cache_boundary={
+            "static_section_count": static_count,
+            "stable_prompt_section_count": len(assembly.sections),
+            "volatile_state_after_stable_sections": True,
+        },
+        token_estimate={
+            "prompt_chars": sum(len(item.content) for item in assembly.sections),
+        },
+        diagnostics={
+            "packet_id": packet_id,
+            "prompt_assembly_id": assembly.assembly_id,
+        },
+    )

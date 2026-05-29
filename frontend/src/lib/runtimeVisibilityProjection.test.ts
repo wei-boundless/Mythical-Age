@@ -96,29 +96,6 @@ describe("runtimeVisibilityProjection", () => {
     expect(returned.progressEntry?.artifacts?.[0]?.path).toBe("docs/plan.md");
   });
 
-  it("projects direct stream tool events for legacy stream adapters", () => {
-    const started = projectRuntimeStreamEvent("tool_start", {
-      tool: "read_file",
-      input: "frontend/src/components/chat/ChatMessage.tsx",
-    });
-    const ended = projectRuntimeStreamEvent("tool_end", {
-      tool: "read_file",
-      output: "ok",
-    });
-
-    expect(started.progressEntry).toMatchObject({
-      kind: "tool",
-      toolName: "read_file",
-      title: "正在读取 frontend/src/components/chat/ChatMessage.tsx",
-      statusText: "读取中",
-    });
-    expect(ended.progressEntry).toMatchObject({
-      kind: "tool",
-      toolName: "read_file",
-      statusText: "已完成",
-    });
-  });
-
   it("projects terminal commands as Codex-style running activity", () => {
     const projection = projectRuntimeStreamEvent("harness_loop_event", {
       event: {

@@ -97,7 +97,7 @@ class ProjectLayout:
 
     @property
     def test_system_dir(self) -> Path:
-        return self.health_system_dir / "maintenance" / "test_system"
+        return self.storage_root / "test_system"
 
     @property
     def knowledge_storage_dir(self) -> Path:
@@ -107,6 +107,7 @@ class ProjectLayout:
         self._migrate_storage_dir(self.storage_root / "indexes_v2", self.indexes_dir)
         self._migrate_storage_dir(self.storage_root / "document_cache_v2", self.document_cache_dir)
         self._migrate_storage_dir(self.backend_dir / "knowledge", self.knowledge_storage_dir)
+        self._migrate_storage_dir(self.health_system_dir / "maintenance" / "test_system", self.test_system_dir)
         for path in (
             self.storage_root,
             self.durable_memory_dir,

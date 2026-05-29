@@ -52,6 +52,9 @@ class HealthManagementCommandRequest(BaseModel):
 class HealthTaskRecordPruneRequest(BaseModel):
     bucket: str = Field(default="static", max_length=40)
     task_run_ids: list[str] = Field(default_factory=list)
+    dry_run: bool = Field(default=False)
+    min_age_seconds: int = Field(default=24 * 60 * 60, ge=0)
+    operation: str = Field(default="delete_expired", max_length=60)
 
 
 class HealthAgentConversationSessionCreateRequest(BaseModel):
@@ -95,6 +98,24 @@ async def health_system_prune_task_records(payload: HealthTaskRecordPruneRequest
         return HealthGovernanceBuilder(runtime).prune_task_records(
             bucket=payload.bucket,
             task_run_ids=payload.task_run_ids,
+            dry_run=payload.dry_run,
+            min_age_seconds=payload.min_age_seconds,
+            operation=payload.operation,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/health-system/task-records/maintenance")
+async def health_system_task_record_maintenance(
+    bucket: str = "static",
+    min_age_seconds: int = 24 * 60 * 60,
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    try:
+        return HealthGovernanceBuilder(runtime).build_task_record_maintenance(
+            bucket=bucket,
+            min_age_seconds=max(0, int(min_age_seconds or 0)),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -110,6 +131,12 @@ async def health_system_risks(limit: int = 100) -> dict[str, Any]:
 async def health_system_system_risks() -> dict[str, Any]:
     runtime = require_runtime()
     return HealthGovernanceBuilder(runtime).build_system_risks()
+
+
+@router.get("/health-system/monitor-governance")
+async def health_system_monitor_governance() -> dict[str, Any]:
+    runtime = require_runtime()
+    return HealthGovernanceBuilder(runtime).build_monitor_governance()
 
 
 @router.get("/health-system/token-usage")

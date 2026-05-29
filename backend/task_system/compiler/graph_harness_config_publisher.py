@@ -19,6 +19,7 @@ from harness.graph.language import (
 )
 from harness.graph.models import GraphHarnessConfig, safe_id, stable_hash
 from task_system.compiler.layered_graph_normalizer import normalize_task_graph_layers
+from task_system.environments import build_task_environment_catalog, task_environment_registry_from_backend_dir
 from task_system.graphs.composable_graph_builder import build_composable_graph_view
 from task_system.registry.flow_registry import TaskFlowRegistry
 
@@ -38,6 +39,7 @@ def publish_graph_harness_config_for_graph(
         graph=graph,
         publish_version=publish_version,
         graph_lookup=registry,
+        base_dir=base_dir,
         visited_graph_ids=set(_visited or set()),
     )
     return registry.upsert_graph_harness_config(config, publish=True)
@@ -49,6 +51,7 @@ def build_graph_harness_config_from_graph(
     contract_manifest: dict[str, Any] | None = None,
     publish_version: str = "published",
     graph_lookup: Any | None = None,
+    base_dir: Path | str | None = None,
     visited_graph_ids: set[str] | None = None,
 ) -> GraphHarnessConfig:
     graph_id = str(getattr(graph, "graph_id", "") or "").strip()
@@ -69,6 +72,15 @@ def build_graph_harness_config_from_graph(
     graph_metadata = dict(getattr(graph, "metadata", {}) or {})
     graph_runtime_policy = dict(getattr(graph, "runtime_policy", {}) or {})
     graph_context_policy = dict(getattr(graph, "context_policy", {}) or {})
+    task_environment_id = _graph_task_environment_id(
+        graph_runtime_policy=graph_runtime_policy,
+        graph_context_policy=graph_context_policy,
+    )
+    environment = _published_environment_payload(
+        task_environment_id=task_environment_id,
+        base_dir=base_dir,
+        graph_lookup=graph_lookup,
+    )
     split_plans = _list_dicts(graph_metadata.get("split_plans") or graph_runtime_policy.get("split_plans"))
     manifest = dict(contract_manifest or _contract_manifest_from_projection(graph=graph, projection=projection))
     nodes = [dict(item) for item in projection["nodes"]]
@@ -83,12 +95,7 @@ def build_graph_harness_config_from_graph(
         "graph_id": graph_id,
         "graph_title": str(getattr(graph, "title", "") or graph_id),
         "publish_version": publish_version,
-        "task_environment_id": str(
-            graph_runtime_policy.get("task_environment_id")
-            or graph_context_policy.get("task_environment_id")
-            or getattr(graph, "domain_id", "")
-            or ""
-        ),
+        "task_environment_id": task_environment_id,
         "root_task_ref": str(getattr(graph, "graph_contract_id", "") or graph_id),
         "control": {
             "start_node_ids": list(projection["start_node_ids"]),
@@ -117,6 +124,7 @@ def build_graph_harness_config_from_graph(
         "nodes": nodes,
         "edges": edges,
         "loop_frames": _list_dicts(layered.get("loop_frames")) + _list_dicts(projection.get("loop_frames")),
+        "environment": environment,
         "resources": {
             "resource_nodes": _list_dicts(layered.get("resource_nodes")) + _list_dicts(projection.get("resource_nodes")),
         },
@@ -542,6 +550,47 @@ def _contract_manifest_from_projection(*, graph: Any, projection: dict[str, Any]
         "issues": [],
         "valid": True,
         "metadata": {"compiler": "graph_harness_config_publisher"},
+    }
+
+
+def _graph_task_environment_id(*, graph_runtime_policy: dict[str, Any], graph_context_policy: dict[str, Any]) -> str:
+    return str(
+        graph_runtime_policy.get("task_environment_id")
+        or graph_runtime_policy.get("environment_id")
+        or graph_context_policy.get("task_environment_id")
+        or graph_context_policy.get("environment_id")
+        or ""
+    ).strip()
+
+
+def _published_environment_payload(
+    *,
+    task_environment_id: str,
+    base_dir: Path | str | None,
+    graph_lookup: Any | None,
+) -> dict[str, Any]:
+    environment_id = str(task_environment_id or "").strip()
+    if not environment_id:
+        return {}
+    registry_base = base_dir or getattr(graph_lookup, "base_dir", None)
+    if registry_base is None:
+        return {
+            "task_environment_id": environment_id,
+            "environment_id": environment_id,
+            "locked": False,
+            "lock_error": "backend_dir_required_for_task_environment_lock",
+            "authority": "task_system.graph_harness_config_publisher.environment_lock",
+        }
+    catalog = build_task_environment_catalog(
+        registry=task_environment_registry_from_backend_dir(Path(registry_base)),
+    )
+    payload = catalog.runtime_environment_payload(environment_id)
+    return {
+        **dict(payload),
+        "task_environment_id": environment_id,
+        "environment_id": str(payload.get("environment_id") or environment_id),
+        "locked": True,
+        "authority": "task_system.graph_harness_config_publisher.environment_lock",
     }
 
 

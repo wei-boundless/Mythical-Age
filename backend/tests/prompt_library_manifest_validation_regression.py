@@ -16,7 +16,6 @@ def test_manifest_validation_rejects_role_prompt_section_outside_role_mode() -> 
         sections=[
             {"section_id": "task_section", "content": "任务契约"},
             {"section_id": "semantic_task_section", "content": "语义任务契约"},
-            {"section_id": "mode_policy_section", "content": "模式策略"},
             {"section_id": "role_prompt_section", "content": "角色表达锚点"},
             {"section_id": "output_section", "content": "输出边界"},
         ],
@@ -31,7 +30,6 @@ def test_manifest_validation_requires_professional_core_sections() -> None:
         interaction_mode="professional_mode",
         sections=[
             {"section_id": "task_section", "content": "任务契约"},
-            {"section_id": "mode_policy_section", "content": "模式策略"},
         ],
     )
 
@@ -44,7 +42,6 @@ def test_manifest_validation_keeps_unknown_mode_outside_professional_requirement
         interaction_mode="retired_code_mode",
         sections=[
             {"section_id": "task_section", "content": "任务契约"},
-            {"section_id": "mode_policy_section", "content": "模式策略"},
         ],
     )
 

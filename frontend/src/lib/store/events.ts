@@ -5,8 +5,7 @@ import {
   OrchestrationNode,
   OrchestrationSnapshot,
   RetrievalResult,
-  HarnessTaskRunTrace,
-  ToolCall
+  HarnessTaskRunTrace
 } from "@/lib/api";
 import { projectRuntimeStreamEvent, type RuntimeVisibilityProjection } from "../runtimeVisibilityProjection";
 
@@ -14,13 +13,11 @@ import type { Message, RuntimeProgressEntry, StoreState, UserReceipt } from "./t
 import {
   looksLikeSkillDocument,
   looksLikeSkillDocumentPrefix,
-  makeId,
-  sanitizeToolCall
+  makeId
 } from "./utils";
 
 export type StreamSession = {
   assistantId: string;
-  hiddenToolCallInFlight: boolean;
 };
 
 type StreamTransition = {
@@ -110,12 +107,6 @@ function stageStatusForEvent(event: string, data: Record<string, unknown>) {
   if (event === "retrieval" || event.startsWith("worker")) {
     return "检索证据";
   }
-  if (event === "tool_start") {
-    return `调用 ${String(data.tool ?? "工具")}`;
-  }
-  if (event === "tool_end") {
-    return "整理工具结果";
-  }
   if (event === "token" || event === "content_delta" || event === "answer_candidate") {
     return "生成回答";
   }
@@ -157,14 +148,6 @@ function activityLevelForEvent(event: string, data: Record<string, unknown>) {
 }
 
 function activityDetailForEvent(event: string, data: Record<string, unknown>) {
-  if (event === "tool_start") {
-    const tool = String(data.tool ?? "工具").trim() || "工具";
-    return `正在调用 ${tool}`;
-  }
-  if (event === "tool_end") {
-    const tool = String(data.tool ?? "工具").trim() || "工具";
-    return `${tool} 已返回，正在整理结果`;
-  }
   if (event === "retrieval") {
     const results = Array.isArray(data.results) ? data.results.length : 0;
     return results ? `已检索到 ${results} 条候选证据` : "正在检索可用证据";
@@ -215,24 +198,6 @@ function extractArtifactPaths(value: unknown): string[] {
 }
 
 function userReceiptForEvent(event: string, data: Record<string, unknown>): UserReceipt | null {
-  if (event === "tool_start") {
-    const tool = stringValue(data.tool) || "工具";
-    return {
-      level: "running",
-      title: `正在调用 ${tool}`,
-      body: "系统正在处理你的命令，完成后会更新结果。",
-      debug: { event, tool },
-    };
-  }
-  if (event === "tool_end") {
-    const tool = stringValue(data.tool) || "工具";
-    return {
-      level: "running",
-      title: `${tool} 已返回`,
-      body: "正在整理工具结果。",
-      debug: { event, tool },
-    };
-  }
   if (event === "retrieval") {
     const results = Array.isArray(data.results) ? data.results.length : 0;
     return {
@@ -438,8 +403,6 @@ function resolveSnapshotNodeId(snapshot: OrchestrationSnapshot, event: string) {
     debug: "execution",
     done: "output",
     error: "output",
-    tool_start: "contract",
-    tool_end: "contract",
     worker_start: "capability",
     worker_end: "execution"
   };
@@ -524,7 +487,7 @@ function runtimeEventToUiEvent(eventType: string) {
   if (eventType === "memory_runtime_view_built") return "memory_context";
   if (eventType === "stage_projection_built") return "prompt_manifest";
   if (eventType.startsWith("agent_delegation_") || eventType.startsWith("child_agent_")) return "worker_start";
-  if (eventType === "tool_call_requested") return "tool_start";
+  if (eventType === "tool_call_requested") return "harness_loop_event";
   if (eventType === "executor_observation_received" || eventType === "executor_started") return "token";
   if (eventType.startsWith("coordination_")) return "harness_loop_event";
   return "harness_loop_event";
@@ -645,7 +608,7 @@ function updateOrchestrationSnapshot(
     }
   ];
   const autoVisited = new Set<string>(["followup", "planner", "execution-mode", "capability"]);
-  if (["context_management", "memory_context", "prompt_manifest", "worker_start", "tool_start", "token", "content_delta", "answer_candidate", "done"].includes(event)) {
+  if (["context_management", "memory_context", "prompt_manifest", "worker_start", "token", "content_delta", "answer_candidate", "done"].includes(event)) {
     autoVisited.add("followup");
     autoVisited.add("planner");
     autoVisited.add("execution-mode");
@@ -820,8 +783,7 @@ export function startStreamingTurn(state: StoreState, userContent: string): Stre
       orchestrationSnapshot: makeOrchestrationSnapshot(state, userContent)
     },
     session: {
-      assistantId: assistantMessage.id,
-      hiddenToolCallInFlight: false
+      assistantId: assistantMessage.id
     }
   };
 }
@@ -872,54 +834,6 @@ export function reduceStreamEvent(
         }
         return { ...message, content: nextContent };
       }),
-      session
-    };
-  }
-
-  if (event === "tool_start") {
-    const rawToolCall: ToolCall = {
-      tool: String(data.tool ?? "tool"),
-      input: String(data.input ?? ""),
-      output: ""
-    };
-    const toolCall = sanitizeToolCall(rawToolCall);
-    const hiddenToolCallInFlight = !toolCall;
-    if (!toolCall) {
-      return {
-        state: stateWithOrchestration,
-        session: { ...session, hiddenToolCallInFlight }
-      };
-    }
-    return {
-      state: patchAssistant(stateWithOrchestration, session.assistantId, (message) => ({
-        ...message,
-        toolCalls: [...message.toolCalls, toolCall]
-      })),
-      session: { ...session, hiddenToolCallInFlight }
-    };
-  }
-
-  if (event === "tool_end") {
-    if (session.hiddenToolCallInFlight) {
-      return {
-        state: stateWithOrchestration,
-        session: { ...session, hiddenToolCallInFlight: false }
-      };
-    }
-    return {
-      state: patchAssistant(stateWithOrchestration, session.assistantId, (message) => ({
-        ...message,
-        toolCalls: message.toolCalls.flatMap((toolCall, index, list) => {
-          if (index !== list.length - 1) {
-            return [toolCall];
-          }
-          const sanitized = sanitizeToolCall({
-            ...toolCall,
-            output: String(data.output ?? "")
-          });
-          return sanitized ? [sanitized] : [];
-        })
-      })),
       session
     };
   }

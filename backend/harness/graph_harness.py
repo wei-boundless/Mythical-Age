@@ -8,6 +8,7 @@ from runtime.shared.models import TaskRun
 from .graph.loop import GraphLoop, GraphLoopAdvance, GraphLoopStart
 from .graph.models import GraphHarnessConfig, GraphNodeWorkOrder, GraphRun, NodeResultEnvelope
 from .graph.resume import GraphResumeResult, GraphResumeService
+from .graph.runner import GraphRunRunner, GraphRunRunnerResult
 from .graph.runtime import GraphRuntime, GraphRuntimeStart
 from .graph.work_order_executor import GraphNodeWorkOrderExecutor
 
@@ -45,6 +46,11 @@ class GraphHarness:
         self._loop = GraphLoop(services=services)
         self._resume = GraphResumeService(graph_loop=self._loop)
         self._work_order_executor = GraphNodeWorkOrderExecutor(services=services)
+        self._runner = GraphRunRunner(
+            services=services,
+            graph_loop=self._loop,
+            execute_work_order=self.execute_work_order,
+        )
 
     @property
     def graph_loop(self) -> GraphLoop:
@@ -158,6 +164,29 @@ class GraphHarness:
             "events": [*list(execution.events), *([dict(item) for item in advance.events] if advance is not None else [])],
         }
 
+    async def run_until_idle(
+        self,
+        *,
+        graph_config: GraphHarnessConfig,
+        graph_run_id: str,
+        max_node_executions: int = 64,
+        max_loop_iterations: int = 128,
+        max_node_steps: int = 12,
+        max_dispatches: int = 64,
+        max_runtime_seconds: float = 0.0,
+        max_dispatch_requests: int | None = None,
+    ) -> GraphRunRunnerResult:
+        return await self._runner.run_until_idle(
+            graph_config=graph_config,
+            graph_run_id=graph_run_id,
+            max_node_executions=max_node_executions,
+            max_loop_iterations=max_loop_iterations,
+            max_node_steps=max_node_steps,
+            max_dispatches=max_dispatches,
+            max_runtime_seconds=max_runtime_seconds,
+            max_dispatch_requests=max_dispatch_requests,
+        )
+
     def get_checkpoint_state(self, graph_run_id: str) -> dict[str, Any]:
         state = self._loop.get_state(graph_run_id)
         return state.to_dict() if state is not None else {}
@@ -190,6 +219,11 @@ class GraphHarness:
         task_run_id = state.task_run_id if state is not None else str(dict(graph_run or {}).get("task_run_id") or "")
         events = self._services.event_log.list_events(task_run_id) if task_run_id else []
         active_work_orders = _active_work_orders_from_state(state)
+        node_runtime_views = _node_runtime_views(
+            state=state,
+            events=events,
+            task_run_lookup=self.get_task_run,
+        )
         return {
             "authority": "harness.graph_run_monitor",
             "graph_run_id": graph_run_id,
@@ -199,6 +233,7 @@ class GraphHarness:
             "graph_loop_state": state.to_dict() if state is not None else {},
             "active_node_work_orders": active_work_orders,
             "active_node_work_order_count": len(active_work_orders),
+            "node_runtime_views": node_runtime_views,
             "events": [item.to_dict() for item in events],
             "event_count": len(events),
         }
@@ -231,10 +266,7 @@ def _graph_run_from_payload(payload: Any, *, fallback: GraphRun) -> GraphRun:
 
 
 def _result_should_advance_loop(result: NodeResultEnvelope) -> bool:
-    diagnostics = dict(result.diagnostics or {})
-    if str(diagnostics.get("authority") or "") == "harness.graph.work_order_executor.unsupported":
-        return False
-    return result.status in {"completed", "failed"}
+    return result.status in {"completed", "failed", "blocked", "waiting_human_gate"}
 
 
 def _active_work_orders_from_state(state: Any | None) -> list[dict[str, Any]]:
@@ -249,3 +281,62 @@ def _active_work_orders_from_state(state: Any | None) -> list[dict[str, Any]]:
             payload = {"node_id": str(node_id), "work_order_id": str(work_order_id)}
         orders.append(payload)
     return orders
+
+
+def _node_runtime_views(*, state: Any | None, events: list[Any], task_run_lookup: Any) -> list[dict[str, Any]]:
+    if state is None:
+        return []
+    node_states = {key: dict(value) for key, value in dict(getattr(state, "node_states", {}) or {}).items()}
+    work_order_index = dict(getattr(state, "work_order_index", {}) or {})
+    result_index = dict(getattr(state, "result_index", {}) or {})
+    task_run_refs = _node_executor_refs_by_node(events)
+    views: list[dict[str, Any]] = []
+    for node_id, node_state in node_states.items():
+        result = dict(result_index.get(node_id) or {})
+        work_order_id = str(node_state.get("work_order_id") or result.get("work_order_id") or "")
+        work_order = dict(work_order_index.get(work_order_id) or {}) if work_order_id else {}
+        task_run_id = str(
+            task_run_refs.get(node_id)
+            or dict(result.get("outputs") or {}).get("node_executor_task_run_id")
+            or ""
+        )
+        task_run = task_run_lookup(task_run_id) if task_run_id else None
+        task_payload = task_run.to_dict() if hasattr(task_run, "to_dict") else (dict(task_run) if isinstance(task_run, dict) else {})
+        diagnostics = dict(task_payload.get("diagnostics") or {})
+        views.append(
+            {
+                "node_id": node_id,
+                "status": str(node_state.get("status") or ""),
+                "executor_type": str(node_state.get("executor_type") or work_order.get("executor_type") or ""),
+                "work_order_id": work_order_id,
+                "work_order": work_order,
+                "node_executor_task_run_id": task_run_id,
+                "node_executor_task_run": task_payload or None,
+                "latest_step": diagnostics.get("latest_step") or diagnostics.get("step_summary") or {},
+                "artifact_refs": list(result.get("artifact_refs") or []),
+                "artifact_materialization_receipts": list(result.get("artifact_materialization_receipts") or []),
+                "memory_commit_receipts": list(result.get("memory_commit_receipts") or []),
+                "error": dict(result.get("error") or {}),
+                "result": result,
+            }
+        )
+    return views
+
+
+def _node_executor_refs_by_node(events: list[Any]) -> dict[str, str]:
+    refs: dict[str, str] = {}
+    for event in events:
+        payload = dict(getattr(event, "payload", {}) or {})
+        node_id = str(payload.get("node_id") or "")
+        if not node_id:
+            work_order = dict(payload.get("work_order") or {})
+            node_id = str(work_order.get("node_id") or "")
+        if not node_id:
+            continue
+        task_run_id = str(payload.get("node_executor_task_run_id") or "")
+        if not task_run_id:
+            task_run = dict(payload.get("node_executor_task_run") or {})
+            task_run_id = str(task_run.get("task_run_id") or "")
+        if task_run_id:
+            refs[node_id] = task_run_id
+    return refs

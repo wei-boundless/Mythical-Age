@@ -656,16 +656,6 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
       }),
     };
   }
-  if (event === "task_intent_decision") {
-    const decision = record(data.decision);
-    const draft = text(decision.decision) === "task_order_draft";
-    return {
-      stageStatus: draft ? "等待任务确认" : "判断任务边界",
-      activityTitle: draft ? "需要确认任务信息" : "判断任务边界",
-      activityDetail: text(decision.reason),
-      level: draft ? "waiting" : "running",
-    };
-  }
   if (event === "task_order_draft") {
     const draft = record(data.draft);
     const missing = arrayText(draft.missing_fields, 8);
@@ -741,54 +731,6 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
         statusText: "已停止",
         createdAt: Date.now(),
         completedAt: Date.now(),
-      }),
-    };
-  }
-  if (event === "tool_start") {
-    const tool = text(data.tool) || "工具";
-    const preview = shortCommand(data.input) || commandPreviewFromArgs(record(data.args ?? data.payload));
-    const activity = toolActivityText(tool, preview);
-    return {
-      stageStatus: `${activity.startedTitle} ${activity.display}`,
-      activityTitle: activity.startedTitle,
-      activityDetail: activity.display,
-      level: "running",
-      progressEntry: entry("tool_start", `${activity.startedTitle} ${activity.display}`, {
-        body: preview || short(data.input || "工具完成后会继续更新结果"),
-        kind: "tool",
-        statusText: activity.statusRunning,
-        toolName: tool,
-        createdAt: Date.now(),
-        startedAt: Date.now(),
-        meta: compactMeta([
-          metaItem("工具", tool),
-          preview ? metaItem("目标", preview) : null,
-        ]),
-      }),
-    };
-  }
-  if (event === "tool_end") {
-    const tool = text(data.tool) || "工具";
-    const preview = commandPreviewFromArgs(record(data.args ?? data.payload), data.input);
-    const activity = toolActivityText(tool, preview);
-    const failed = Boolean(text(data.error));
-    return {
-      stageStatus: "整理工具结果",
-      activityTitle: failed ? activity.failedTitle : activity.completedTitle,
-      activityDetail: preview || "正在整理工具结果",
-      level: failed ? "error" : "running",
-      progressEntry: entry("tool_end", failed ? `${activity.failedTitle} ${activity.display}` : `${activity.completedTitle} ${activity.display}`, {
-        body: short(data.output || "正在整理工具结果"),
-        kind: "tool",
-        level: failed ? "error" : "running",
-        statusText: failed ? activity.statusFailed : activity.statusDone,
-        toolName: tool,
-        createdAt: Date.now(),
-        completedAt: Date.now(),
-        meta: compactMeta([
-          metaItem("工具", tool),
-          preview ? metaItem("目标", preview) : null,
-        ]),
       }),
     };
   }

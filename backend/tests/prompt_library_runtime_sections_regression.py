@@ -30,12 +30,10 @@ def test_runtime_sections_never_emit_projection_section() -> None:
             "agent_plan_section": "执行计划草案",
             "plan_coverage_section": "计划覆盖审查",
             "completion_judgment_section": "完成裁决",
-            "mode_policy_section": "当前交互模式：professional_mode。",
             "workflow_section": "工作流",
             "output_section": "输出边界",
             "metadata": {
                 "prompt_selection_context": {"interaction_mode": "professional_mode"},
-                "mode_policy": {"interaction_mode": "professional_mode"},
             },
         },
         projection={"task_id": "task-runtime", "identity_anchor": "你是执行投影。"},
@@ -49,7 +47,7 @@ def test_runtime_sections_never_emit_projection_section() -> None:
     assert "projection_section" not in ids
     assert "task_goal_role_prompt_section" in ids
     assert "domain_playbook_section" not in ids
-    assert "mode_policy_section" in ids
+    assert "mode_policy_section" not in ids
 
 
 def test_runtime_sections_emit_skill_catalog_and_detail_separately() -> None:
@@ -68,14 +66,12 @@ def test_runtime_sections_emit_skill_catalog_and_detail_separately() -> None:
             "agent_plan_section": "",
             "plan_coverage_section": "",
             "completion_judgment_section": "",
-            "mode_policy_section": "当前交互模式：professional_mode。",
             "workflow_section": "",
             "skill_catalog_section": "候选 Skills（第一阶段）\n- skill_id: skill.image-prompt-design",
             "skill_detail_section": "已激活 Skills（第二阶段）\n## skill.image-prompt-design",
             "output_section": "输出边界",
             "metadata": {
                 "prompt_selection_context": {"interaction_mode": "professional_mode"},
-                "mode_policy": {"interaction_mode": "professional_mode"},
                 "activated_skill_ids": ["skill.image-prompt-design"],
                 "skill_detail_source_refs": ["capability_system/units/skills/image-prompt-design/SKILL.md"],
             },
@@ -109,12 +105,10 @@ def test_runtime_sections_ignore_legacy_domain_playbook_even_when_present() -> N
             "agent_plan_section": "",
             "plan_coverage_section": "",
             "completion_judgment_section": "",
-            "mode_policy_section": "当前交互模式：professional_mode。",
             "workflow_section": "",
             "output_section": "输出边界",
             "metadata": {
                 "prompt_selection_context": {"interaction_mode": "professional_mode"},
-                "mode_policy": {"interaction_mode": "professional_mode"},
                 "task_domain_binding": {"binding_id": "taskdomainbind:legacy"},
             },
         },

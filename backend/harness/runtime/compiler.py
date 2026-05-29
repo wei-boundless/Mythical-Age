@@ -2,7 +2,16 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
+
+from prompt_library import (
+    PromptAssemblyRequest,
+    PromptAssemblyResult,
+    PromptAssemblyService,
+    build_runtime_prompt_manifest,
+    default_pack_ref_for_invocation,
+)
 
 from .envelope import RuntimeEnvelope
 from .invocation_packet import RuntimeInvocationPacket
@@ -21,6 +30,9 @@ class RuntimeCompilationResult:
 
 
 class RuntimeCompiler:
+    def __init__(self, *, base_dir: Path | None = None) -> None:
+        self.base_dir = Path(base_dir) if base_dir is not None else Path(__file__).resolve().parents[2]
+
     def compile_turn_action_packet(
         self,
         *,
@@ -36,9 +48,11 @@ class RuntimeCompiler:
         runtime_assembly: Any | None = None,
     ) -> RuntimeCompilationResult:
         assembly_payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
+        self._bind_assembly_base_dir(assembly_payload)
         profile_payload = dict(assembly_payload.get("profile") or {})
         environment_payload = dict(assembly_payload.get("task_environment") or {})
-        work_role_prompt = str(assembly_payload.get("work_role_prompt") or "").strip()
+        agent_profile_ref = str(agent_profile_ref or assembly_payload.get("agent_profile_ref") or "main_interactive_agent")
+        task_environment_ref = str(environment_payload.get("environment_id") or "env.general.workspace")
         mode_policy = {
             "mode": str(profile_payload.get("mode") or "standard"),
             "interaction_mode": str(profile_payload.get("interaction_mode") or "standard_mode"),
@@ -51,13 +65,21 @@ class RuntimeCompiler:
         prompt_pack_refs = tuple(str(item) for item in list(profile_payload.get("prompt_pack_refs") or []) if str(item))
         soul_role_prompt = dict(assembly_payload.get("soul_role_prompt") or {})
         tool_payloads = tuple(dict(item) for item in list(available_tools or []) if isinstance(item, dict))
+        agent_visible_runtime_projection = _agent_visible_runtime_projection(
+            invocation_kind="turn_action",
+            allowed_action_types=("respond", "ask_user", "tool_call", "request_task_run", "request_registered_engagement", "block"),
+            profile_payload=profile_payload,
+            environment_payload=environment_payload,
+            operation_authorization=dict(assembly_payload.get("operation_authorization") or {}),
+            available_tools=tool_payloads,
+        )
         envelope = RuntimeEnvelope(
             envelope_id=f"rtenv:{turn_id}:turn",
             scope_kind="turn",
             session_id=session_id,
             turn_id=turn_id,
             agent_profile_ref=agent_profile_ref,
-            task_environment_ref=str(environment_payload.get("environment_id") or "env.general.workspace"),
+            task_environment_ref=task_environment_ref,
             mode_policy=mode_policy,
             sandbox_policy=dict(environment_payload.get("sandbox_policy") or {}),
             file_policy={
@@ -75,30 +97,43 @@ class RuntimeCompiler:
             },
         )
         schema = model_action_request_schema(turn_id)
-        system = (
-            "你是当前 turn 的主 agent。系统已经为你装配本次调用的运行时边界、"
-            "可用动作和输出契约；你负责理解用户请求并选择下一步动作。\n"
-            "只输出一个合法 JSON 对象，不要 Markdown，不要暴露隐藏推理。\n"
-            "如果可以直接回答，action_type=respond，并填写 final_answer。\n"
-            "如果缺少必要信息，action_type=ask_user，并填写 user_question。\n"
-            "如果只需要一次只读观察，action_type=tool_call，并填写 tool_call。tool_call 必须包含 tool_name 和 args。\n"
-            "如果要调用系统中已注册的任务承接计划，action_type=request_registered_engagement，并填写 engagement_request.plan_id 与 startup_parameters。"
-            "如果必须进入新的正式任务生命周期，action_type=request_task_run，并严格按 schema.task_contract_seed 填写任务合同；"
-            "合同必须包含 user_visible_goal、task_run_goal，并且至少包含 completion_criteria、required_artifacts、required_verifications 之一。\n"
-            "如果请求越界或不能执行，action_type=block，并填写 blocking_reason。\n"
-            + _mode_instruction(mode_policy)
-            + _environment_instruction(environment_payload)
-            + _soul_instruction(soul_role_prompt)
-            + "request_id 和 turn_id 可省略；如果输出 turn_id，必须与本次 runtime_envelope.turn_id 完全一致。\n"
-            "不要输出意图分类字段、任务类型字段、task_run_id 或其他内部控制协议。"
-            + _work_role_instruction(work_role_prompt)
+        prompt_assembly = self._assemble_prompt_pack(
+            invocation_kind="turn_action",
+            prompt_pack_refs=prompt_pack_refs,
+            agent_profile_ref=agent_profile_ref,
+            task_environment_ref=task_environment_ref,
+            runtime_mode=str(profile_payload.get("mode") or "standard"),
+        )
+        agent_prompt_assembly = self._assemble_prompt_refs(
+            invocation_kind="agent_profile",
+            prompt_refs=_string_tuple(assembly_payload.get("agent_prompt_refs")),
+            agent_profile_ref=agent_profile_ref,
+            task_environment_ref=task_environment_ref,
+            runtime_mode=str(profile_payload.get("mode") or "standard"),
+        )
+        environment_prompt_assembly = self._assemble_prompt_refs(
+            invocation_kind="environment",
+            prompt_refs=_string_tuple(assembly_payload.get("environment_prompt_refs")),
+            agent_profile_ref=agent_profile_ref,
+            task_environment_ref=task_environment_ref,
+            runtime_mode=str(profile_payload.get("mode") or "standard"),
+        )
+        system = _join_prompt_sections(
+            prompt_assembly.content,
+            _runtime_projection_instruction(agent_visible_runtime_projection),
+            _environment_instruction(environment_payload, environment_prompt_assembly=environment_prompt_assembly),
+            _soul_instruction(soul_role_prompt),
+            _agent_prompt_instruction(agent_prompt_assembly),
         )
         stable_payload = {
             "schema": schema,
-            "task_environment": environment_payload,
+            "task_environment": _environment_stable_payload(environment_payload),
             "available_tools": [dict(item) for item in tool_payloads],
             "operation_authorization": dict(assembly_payload.get("operation_authorization") or {}),
-            "runtime_context": _runtime_context_payload(assembly_payload),
+            "runtime_context": _runtime_context_payload(
+                assembly_payload,
+                agent_visible_runtime_projection=agent_visible_runtime_projection,
+            ),
         }
         volatile_payload = {
             "runtime_envelope": envelope.to_dict(),
@@ -120,11 +155,23 @@ class RuntimeCompiler:
             ],
             system_instructions=system,
             agent_role_prompt="你是当前 turn 的主 agent，负责决定下一步动作。",
-            prompt_pack_refs=(*prompt_pack_refs, "runtime.prompt.turn_action.v1") if prompt_pack_refs else ("runtime.prompt.turn_action.v1",),
+            prompt_pack_refs=prompt_assembly.prompt_pack_refs,
             available_tools=tool_payloads,
             available_modes=("respond", "ask_user", "tool_call", "request_task_run", "request_registered_engagement", "block"),
             output_contract={"schema": schema, "format": "json_object"},
             hidden_control_refs={"agent_invocation_id": agent_invocation_id, "runtime_assembly_id": str(assembly_payload.get("assembly_id") or "")},
+            diagnostics={
+                "prompt_manifest": build_runtime_prompt_manifest(
+                    invocation_kind="turn_action",
+                    assembly=_merge_prompt_assemblies(
+                        prompt_assembly,
+                        agent_prompt_assembly,
+                        environment_prompt_assembly,
+                        invocation_kind="turn_action",
+                    ),
+                    packet_id=f"rtpacket:{turn_id}:turn_action:1",
+                ).to_dict(),
+            },
         )
         return RuntimeCompilationResult(envelope=envelope, packet=packet)
 
@@ -143,9 +190,11 @@ class RuntimeCompiler:
         invocation_index: int = 1,
     ) -> RuntimeCompilationResult:
         assembly_payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
+        self._bind_assembly_base_dir(assembly_payload)
         profile_payload = dict(assembly_payload.get("profile") or {})
         environment_payload = dict(assembly_payload.get("task_environment") or {})
-        work_role_prompt = str(assembly_payload.get("work_role_prompt") or "").strip()
+        agent_profile_ref = str(agent_profile_ref or assembly_payload.get("agent_profile_ref") or "main_interactive_agent")
+        task_environment_ref = str(environment_payload.get("environment_id") or "env.general.workspace")
         task_run_id = str(task_run.get("task_run_id") or "")
         mode_policy = {
             "mode": str(profile_payload.get("mode") or "professional"),
@@ -158,13 +207,21 @@ class RuntimeCompiler:
         permission_policy.setdefault("permission_scope", str(permission_policy.get("scope") or "task_run_execution"))
         prompt_pack_refs = tuple(str(item) for item in list(profile_payload.get("prompt_pack_refs") or []) if str(item))
         tool_payloads = tuple(dict(item) for item in list(available_tools or []) if isinstance(item, dict))
+        agent_visible_runtime_projection = _agent_visible_runtime_projection(
+            invocation_kind="task_execution",
+            allowed_action_types=("respond", "ask_user", "tool_call", "block"),
+            profile_payload=profile_payload,
+            environment_payload=environment_payload,
+            operation_authorization=dict(assembly_payload.get("operation_authorization") or {}),
+            available_tools=tool_payloads,
+        )
         envelope = RuntimeEnvelope(
             envelope_id=f"rtenv:{task_run_id}:task_execution:{invocation_index}",
             scope_kind="task_run",
             session_id=session_id,
             task_run_id=task_run_id,
             agent_profile_ref=agent_profile_ref,
-            task_environment_ref=str(environment_payload.get("environment_id") or "env.general.workspace"),
+            task_environment_ref=task_environment_ref,
             mode_policy=mode_policy,
             sandbox_policy=dict(environment_payload.get("sandbox_policy") or {}),
             file_policy={
@@ -183,53 +240,46 @@ class RuntimeCompiler:
         )
         schema = task_execution_action_schema()
         artifact_root = _artifact_root(environment_payload)
-        system = (
-            "你是正式 TaskRun 的执行 agent。你已经不在普通对话轮次中，而是在执行一个已建立合同的长任务。\n"
-            "你的职责是按合同真实推进工作：必要时调用工具创建或修改交付物，记录可验证证据，最后只在合同满足时给出完成答复。\n"
-            "只输出一个合法 JSON 对象，不要 Markdown 包裹，不要暴露隐藏推理。\n"
-            "如果需要执行一步工作，action_type=tool_call，并填写 tool_call.tool_name 与 tool_call.args。\n"
-            "如果合同已经满足，action_type=respond，final_answer 必须总结完成情况，并在 diagnostics.artifacts 中列出真实产物路径。\n"
-            "如果缺少用户决策，action_type=ask_user。\n"
-            "如果任务无法继续，action_type=block，并说明 blocking_reason。\n"
-            "不要再次 request_task_run，不要输出 task_run_id 作为用户可见内容。\n"
-            "写入交付物时优先使用 write_file；路径必须落在任务环境允许的 artifact/storage 范围内。"
-            + (f" 当前建议 artifact_root 是 {artifact_root}。" if artifact_root else "")
-            + "\n"
-            "你不能只满足最低可见产物。执行前应先读取合同、相关设计文档、现有产物和目录结构；"
-            "执行中要主动补齐合同暗含的核心功能、资源接入、错误处理、验证路径和用户会实际体验到的完整性。"
-            "如果任务是游戏或交互应用，交付标准是可打开、可操作、核心循环成立：输入、状态变化、胜负或进度反馈、资源加载、异常兜底和基础美术都要真实存在。"
-            "如果合同要求交付某个文件而当前目录不存在该文件，你应判断是否可以创建该交付物；在权限允许且合同目标明确时，应创建实现文件和配套文档，而不是把“文件不存在”当作阻塞理由。"
-            "如果合同要求图像或美术资源，应优先使用 image_generate 生成真实位图文件；不要用 SVG、纯文档、占位色块或只在 canvas 中临时绘制的假资源替代需要交付的图片资产。"
-            "调用 image_generate 生成游戏角色、怪物、tile、icon 或 sprite 时，不要把最终游戏内小尺寸当作供应商生成尺寸；"
-            "size 只表示供应商生成规格，必须使用稳定的 1024x1024；如果合同需要 128x128、256x256 等最终资产尺寸，用 output_size 指定本地缩放后的 PNG 尺寸。"
-            "prompt 应描述清晰居中的游戏资产图：主体完整、轮廓清楚、简单背景、适合后续缩放；"
-            "不要在 prompt 中写 64x64、128x128、tiny、8-bit、transparent background 等容易让供应商失败或生成不可用小图的窄约束。"
-            "只有当必要外部服务、权限或用户决策真实缺失且无法通过创建文件、调整实现、换参数、重试或降级到合同允许的真实资产来源解决时，才可以 block。"
-            "如果发现现有产物功能残缺，应继续修复，不要把文档、清单或部分示例当作完整交付。"
-            "每次工具失败后，要读取错误观察，调整参数、路径或实现方式后继续；历史失败不能替代当前验证。"
-            "如果 write_file 或 edit_file 失败，下一步必须先取得目标文件的当前精确内容或相关片段，再用当前内容重新编辑；"
-            "不能在未修正 old_text、路径、编码或写入方式前转去重复执行无关的昂贵工具。"
-            "如果 current_facts、observations 或最近命令验证已经证明某些交付物存在，你必须把这些交付物视为当前事实；"
-            "不能再声称这些交付物不存在，也不能仅因同类外部生成工具历史失败而 block。"
-            "当真实资产已存在但不是由理想工具生成时，应先判断合同是否要求具体来源；若合同只要求真实文件，应继续接入、验证和记录，而不是重复生成。"
-            "最终 respond 前必须执行一次交付自检：确认入口文件存在、关键资源文件存在、实现引用路径一致、核心功能没有明显断点、文档与实现一致。"
-            "若还能继续改进且权限允许，应继续执行而不是提前收尾；respond 中只能报告真实完成项和真实产物路径。\n"
-            "系统会提供 execution_state.system_projection：current_facts 是当前可依赖事实，artifact_evidence 是真实产物证据，"
-            "active_failures 是当前 runtime 下仍有效的失败，historical_failures 是历史失败，只能作为背景，不能视为当前工具不可用。"
-            "当 active_failures 存在时，你需要判断修正参数、换工具、重试、询问用户或 block；"
-            "当 historical_failures 存在时，不能仅凭历史失败放弃当前可用工具。\n"
-            "完成前必须自我审查合同中的 completion_criteria、required_artifacts、required_verifications。\n"
-            + _environment_instruction(environment_payload)
-            + _work_role_instruction(work_role_prompt)
+        prompt_assembly = self._assemble_prompt_pack(
+            invocation_kind="task_execution",
+            prompt_pack_refs=prompt_pack_refs,
+            agent_profile_ref=agent_profile_ref,
+            task_environment_ref=task_environment_ref,
+            runtime_mode=str(profile_payload.get("mode") or "professional"),
+        )
+        agent_prompt_assembly = self._assemble_prompt_refs(
+            invocation_kind="agent_profile",
+            prompt_refs=_string_tuple(assembly_payload.get("agent_prompt_refs")),
+            agent_profile_ref=agent_profile_ref,
+            task_environment_ref=task_environment_ref,
+            runtime_mode=str(profile_payload.get("mode") or "professional"),
+        )
+        environment_prompt_assembly = self._assemble_prompt_refs(
+            invocation_kind="environment",
+            prompt_refs=_string_tuple(assembly_payload.get("environment_prompt_refs")),
+            agent_profile_ref=agent_profile_ref,
+            task_environment_ref=task_environment_ref,
+            runtime_mode=str(profile_payload.get("mode") or "professional"),
+        )
+        artifact_note = f"当前建议 artifact_root 是 {artifact_root}。" if artifact_root else ""
+        system = _join_prompt_sections(
+            prompt_assembly.content,
+            artifact_note,
+            _runtime_projection_instruction(agent_visible_runtime_projection),
+            _environment_instruction(environment_payload, environment_prompt_assembly=environment_prompt_assembly),
+            _agent_prompt_instruction(agent_prompt_assembly),
         )
         stable_payload = {
             "schema": schema,
             "task_run": dict(task_run),
             "task_contract": dict(contract),
-            "task_environment": environment_payload,
+            "task_environment": _environment_stable_payload(environment_payload),
             "available_tools": [dict(item) for item in tool_payloads],
             "operation_authorization": dict(assembly_payload.get("operation_authorization") or {}),
-            "runtime_context": _runtime_context_payload(assembly_payload),
+            "runtime_context": _runtime_context_payload(
+                assembly_payload,
+                agent_visible_runtime_projection=agent_visible_runtime_projection,
+            ),
         }
         volatile_payload = {
             "runtime_envelope": envelope.to_dict(),
@@ -250,65 +300,24 @@ class RuntimeCompiler:
             ],
             system_instructions=system,
             agent_role_prompt="你是正式 TaskRun 的执行 agent，负责真实交付合同产物。",
-            prompt_pack_refs=(*prompt_pack_refs, "runtime.prompt.task_execution.v1") if prompt_pack_refs else ("runtime.prompt.task_execution.v1",),
+            prompt_pack_refs=prompt_assembly.prompt_pack_refs,
             available_tools=tool_payloads,
             available_modes=("respond", "ask_user", "tool_call", "block"),
             observation_refs=tuple(str(item.get("observation_id") or "") for item in observations if item.get("observation_id")),
             output_contract={"schema": schema, "format": "json_object"},
             hidden_control_refs={"task_run_id": task_run_id, "runtime_assembly_id": str(assembly_payload.get("assembly_id") or "")},
-        )
-        return RuntimeCompilationResult(envelope=envelope, packet=packet)
-
-    def compile_direct_answer_packet(
-        self,
-        *,
-        session_id: str,
-        turn_id: str,
-        agent_invocation_id: str,
-        user_message: str,
-        history: list[dict[str, Any]],
-        agent_profile_ref: str = "main_interactive_agent",
-        model_selection: dict[str, Any] | None = None,
-    ) -> RuntimeCompilationResult:
-        envelope = RuntimeEnvelope(
-            envelope_id=f"rtenv:{turn_id}:direct_answer",
-            scope_kind="turn",
-            session_id=session_id,
-            turn_id=turn_id,
-            agent_profile_ref=agent_profile_ref,
-            mode_policy={"mode": "direct_answer"},
-            permission_policy={"permission_scope": "no_tool_side_effects"},
-            prompt_policy={"invocation_kind": "direct_answer"},
-            output_policy={"format": "natural_final_answer"},
             diagnostics={
-                "agent_invocation_id": agent_invocation_id,
-                "model_selection": dict(model_selection or {}),
+                "prompt_manifest": build_runtime_prompt_manifest(
+                    invocation_kind="task_execution",
+                    assembly=_merge_prompt_assemblies(
+                        prompt_assembly,
+                        agent_prompt_assembly,
+                        environment_prompt_assembly,
+                        invocation_kind="task_execution",
+                    ),
+                    packet_id=f"rtpacket:{task_run_id}:task_execution:{invocation_index}",
+                ).to_dict(),
             },
-        )
-        system = (
-            "你是当前对话轮次的回答 agent。你只回答用户当前问题。\n"
-            "你没有执行工具、没有读取文件、没有修改工作区，也没有创建任务；不要声称已经做过这些事情。\n"
-            "回答必须自然、简洁、直接，不要输出内部运行 ID、控制协议或隐藏推理。"
-        )
-        packet = RuntimeInvocationPacket(
-            packet_id=f"rtpacket:{turn_id}:direct_answer:1",
-            envelope_ref=envelope.envelope_id,
-            invocation_kind="direct_answer",
-            invocation_index=1,
-            session_id=session_id,
-            turn_id=turn_id,
-            model_messages=[
-                {"role": "system", "content": system},
-                *[dict(message) for message in list(history or [])],
-                {"role": "user", "content": str(user_message or "")},
-            ],
-            system_instructions=system,
-            agent_role_prompt="你是当前对话轮次的回答 agent。",
-            prompt_pack_refs=("runtime.prompt.direct_answer.v1",),
-            available_modes=("respond",),
-            permission_snapshot={"tools_enabled": False, "task_run_enabled": False},
-            output_contract={"format": "natural_final_answer"},
-            hidden_control_refs={"agent_invocation_id": agent_invocation_id},
         )
         return RuntimeCompilationResult(envelope=envelope, packet=packet)
 
@@ -327,9 +336,11 @@ class RuntimeCompiler:
         runtime_assembly: Any | None = None,
     ) -> RuntimeCompilationResult:
         assembly_payload = runtime_assembly.to_dict() if hasattr(runtime_assembly, "to_dict") else dict(runtime_assembly or {})
+        self._bind_assembly_base_dir(assembly_payload)
         profile_payload = dict(assembly_payload.get("profile") or {})
         environment_payload = dict(assembly_payload.get("task_environment") or {})
-        work_role_prompt = str(assembly_payload.get("work_role_prompt") or "").strip()
+        agent_profile_ref = str(agent_profile_ref or assembly_payload.get("agent_profile_ref") or "main_interactive_agent")
+        task_environment_ref = str(environment_payload.get("environment_id") or "env.general.workspace")
         mode_policy = {
             "mode": str(profile_payload.get("mode") or "standard"),
             "interaction_mode": str(profile_payload.get("interaction_mode") or "standard_mode"),
@@ -342,13 +353,21 @@ class RuntimeCompiler:
         prompt_pack_refs = tuple(str(item) for item in list(profile_payload.get("prompt_pack_refs") or []) if str(item))
         soul_role_prompt = dict(assembly_payload.get("soul_role_prompt") or {})
         tool_payloads = tuple(dict(item) for item in list(available_tools or []) if isinstance(item, dict))
+        agent_visible_runtime_projection = _agent_visible_runtime_projection(
+            invocation_kind="tool_observation_followup",
+            allowed_action_types=("respond", "ask_user", "tool_call", "request_task_run", "request_registered_engagement", "block"),
+            profile_payload=profile_payload,
+            environment_payload=environment_payload,
+            operation_authorization=dict(assembly_payload.get("operation_authorization") or {}),
+            available_tools=tool_payloads,
+        )
         envelope = RuntimeEnvelope(
             envelope_id=f"rtenv:{turn_id}:observation_followup",
             scope_kind="turn",
             session_id=session_id,
             turn_id=turn_id,
             agent_profile_ref=agent_profile_ref,
-            task_environment_ref=str(environment_payload.get("environment_id") or "env.general.workspace"),
+            task_environment_ref=task_environment_ref,
             mode_policy=mode_policy,
             sandbox_policy=dict(environment_payload.get("sandbox_policy") or {}),
             file_policy={
@@ -366,30 +385,43 @@ class RuntimeCompiler:
             },
         )
         schema = model_action_request_schema(turn_id)
-        system = (
-            "你是当前 turn 的主 agent。你刚收到系统执行的只读观察结果。\n"
-            "请基于用户请求、历史和观察结果继续判断下一步。只输出一个合法 JSON 对象。\n"
-            "如果 observation 带有 error，必须把它当作真实失败处理：可以改用其他只读观察、请求正式任务、询问用户或阻止，不能声称该观察成功。\n"
-            "如果观察足够，action_type=respond，并填写 final_answer。\n"
-            "如果还需要一次只读观察，action_type=tool_call，并填写 tool_call。\n"
-            "如果发现任务应由已注册承接计划处理，action_type=request_registered_engagement，并填写 engagement_request.plan_id 与 startup_parameters。"
-            "如果发现任务需要写入、命令、长期跟进或真实交付物，action_type=request_task_run，并严格按 schema.task_contract_seed 填写任务合同；"
-            "合同必须包含 user_visible_goal、task_run_goal，并且至少包含 completion_criteria、required_artifacts、required_verifications 之一。\n"
-            "如果观察结果指出 task_contract_invalid，你需要修正合同字段后重新提交 request_task_run，而不是直接放弃。\n"
-            "如果缺少用户信息，action_type=ask_user。\n"
-            + _mode_instruction(mode_policy)
-            + _environment_instruction(environment_payload)
-            + _soul_instruction(soul_role_prompt)
-            + "request_id 和 turn_id 可省略；如果输出 turn_id，必须与本次 runtime_envelope.turn_id 完全一致。\n"
-            "不要输出 task_run_id、其他内部控制协议或隐藏推理。"
-            + _work_role_instruction(work_role_prompt)
+        prompt_assembly = self._assemble_prompt_pack(
+            invocation_kind="tool_observation_followup",
+            prompt_pack_refs=prompt_pack_refs,
+            agent_profile_ref=agent_profile_ref,
+            task_environment_ref=task_environment_ref,
+            runtime_mode=str(profile_payload.get("mode") or "standard"),
+        )
+        agent_prompt_assembly = self._assemble_prompt_refs(
+            invocation_kind="agent_profile",
+            prompt_refs=_string_tuple(assembly_payload.get("agent_prompt_refs")),
+            agent_profile_ref=agent_profile_ref,
+            task_environment_ref=task_environment_ref,
+            runtime_mode=str(profile_payload.get("mode") or "standard"),
+        )
+        environment_prompt_assembly = self._assemble_prompt_refs(
+            invocation_kind="environment",
+            prompt_refs=_string_tuple(assembly_payload.get("environment_prompt_refs")),
+            agent_profile_ref=agent_profile_ref,
+            task_environment_ref=task_environment_ref,
+            runtime_mode=str(profile_payload.get("mode") or "standard"),
+        )
+        system = _join_prompt_sections(
+            prompt_assembly.content,
+            _runtime_projection_instruction(agent_visible_runtime_projection),
+            _environment_instruction(environment_payload, environment_prompt_assembly=environment_prompt_assembly),
+            _soul_instruction(soul_role_prompt),
+            _agent_prompt_instruction(agent_prompt_assembly),
         )
         stable_payload = {
             "schema": schema,
-            "task_environment": environment_payload,
+            "task_environment": _environment_stable_payload(environment_payload),
             "available_tools": [dict(item) for item in tool_payloads],
             "operation_authorization": dict(assembly_payload.get("operation_authorization") or {}),
-            "runtime_context": _runtime_context_payload(assembly_payload),
+            "runtime_context": _runtime_context_payload(
+                assembly_payload,
+                agent_visible_runtime_projection=agent_visible_runtime_projection,
+            ),
         }
         volatile_payload = {
             "runtime_envelope": envelope.to_dict(),
@@ -412,14 +444,80 @@ class RuntimeCompiler:
             ],
             system_instructions=system,
             agent_role_prompt="你是当前 turn 的主 agent，负责基于观察继续行动。",
-            prompt_pack_refs=(*prompt_pack_refs, "runtime.prompt.tool_observation_followup.v1") if prompt_pack_refs else ("runtime.prompt.tool_observation_followup.v1",),
+            prompt_pack_refs=prompt_assembly.prompt_pack_refs,
             available_tools=tool_payloads,
             available_modes=("respond", "ask_user", "tool_call", "request_task_run", "request_registered_engagement", "block"),
             observation_refs=tuple(str(item.get("observation_id") or "") for item in observations if item.get("observation_id")),
             output_contract={"schema": schema, "format": "json_object"},
             hidden_control_refs={"agent_invocation_id": agent_invocation_id, "runtime_assembly_id": str(assembly_payload.get("assembly_id") or "")},
+            diagnostics={
+                "prompt_manifest": build_runtime_prompt_manifest(
+                    invocation_kind="tool_observation_followup",
+                    assembly=_merge_prompt_assemblies(
+                        prompt_assembly,
+                        agent_prompt_assembly,
+                        environment_prompt_assembly,
+                        invocation_kind="tool_observation_followup",
+                    ),
+                    packet_id=f"rtpacket:{turn_id}:tool_observation_followup:{len(observations) + 1}",
+                ).to_dict(),
+            },
         )
         return RuntimeCompilationResult(envelope=envelope, packet=packet)
+
+    def _assemble_prompt_pack(
+        self,
+        *,
+        invocation_kind: str,
+        prompt_pack_refs: tuple[str, ...],
+        agent_profile_ref: str,
+        task_environment_ref: str,
+        runtime_mode: str,
+    ) -> PromptAssemblyResult:
+        refs = tuple(prompt_pack_refs or ())
+        if not refs:
+            default_ref = default_pack_ref_for_invocation(invocation_kind)
+            refs = (default_ref,) if default_ref else ()
+        return PromptAssemblyService(self.base_dir).assemble(
+            PromptAssemblyRequest(
+                invocation_kind=invocation_kind,
+                prompt_pack_refs=refs,
+                agent_profile_ref=agent_profile_ref,
+                task_environment_ref=task_environment_ref,
+                runtime_mode=runtime_mode,
+            )
+        )
+
+    def _bind_assembly_base_dir(self, assembly_payload: dict[str, Any]) -> None:
+        backend_dir = str(assembly_payload.get("backend_dir") or "").strip()
+        if backend_dir:
+            self.base_dir = Path(backend_dir)
+
+    def _assemble_prompt_refs(
+        self,
+        *,
+        invocation_kind: str,
+        prompt_refs: tuple[str, ...],
+        agent_profile_ref: str,
+        task_environment_ref: str,
+        runtime_mode: str,
+    ) -> PromptAssemblyResult:
+        if not prompt_refs:
+            return PromptAssemblyResult(
+                assembly_id=f"promptasm:empty:{invocation_kind}",
+                invocation_kind=invocation_kind,
+                sections=(),
+            )
+        return PromptAssemblyService(self.base_dir).assemble(
+            PromptAssemblyRequest(
+                invocation_kind=invocation_kind,
+                prompt_pack_refs=(),
+                prompt_refs=prompt_refs,
+                agent_profile_ref=agent_profile_ref,
+                task_environment_ref=task_environment_ref,
+                runtime_mode=runtime_mode,
+            )
+        )
 
 
 def model_action_request_schema(turn_id: str) -> dict[str, Any]:
@@ -508,54 +606,191 @@ def _packet_payload_content(title: str, payload: dict[str, Any]) -> str:
     return f"{title}\n{body}"
 
 
-def _mode_instruction(mode_policy: dict[str, Any]) -> str:
-    mode = str(mode_policy.get("mode") or "standard").strip()
-    planning = dict(mode_policy.get("planning_policy") or {})
-    task_lifecycle = dict(mode_policy.get("task_lifecycle_policy") or {})
-    if mode == "role":
-        return (
-            "当前 runtime 是 role 模式：你主要进行角色化对话，可使用已显式提供的只读/搜索能力；"
-            "不要开启正式任务生命周期，不要声称拥有未提供的工具权限。\n"
-        )
-    if mode == "professional":
-        plan_note = "可以使用指定计划或先请求正式任务生命周期。" if planning.get("specified_plan_allowed") else "不强制计划。"
-        return (
-            "当前 runtime 是 professional 模式：你需要以高标准完成任务，重视真实交付物、验证、失败恢复和最终验收。"
-            + plan_note
-            + "\n"
-        )
-    lifecycle_note = (
-        "如果任务需要长期执行或真实交付物，可以请求正式任务生命周期。"
-        if task_lifecycle.get("request_task_run") is not False
-        else "当前 runtime 不允许开启正式任务生命周期。"
+def _join_prompt_sections(*sections: str) -> str:
+    return "\n".join(str(section or "").strip() for section in sections if str(section or "").strip()) + "\n"
+
+
+def _merge_prompt_assemblies(
+    *assemblies: PromptAssemblyResult,
+    invocation_kind: str,
+) -> PromptAssemblyResult:
+    sections = []
+    pack_refs: list[str] = []
+    rejected_refs: list[dict[str, Any]] = []
+    for assembly in assemblies:
+        sections.extend(assembly.sections)
+        pack_refs.extend(assembly.prompt_pack_refs)
+        rejected_refs.extend(dict(item) for item in assembly.rejected_refs)
+    return PromptAssemblyResult(
+        assembly_id=f"promptasm:runtime_packet:{invocation_kind}",
+        invocation_kind=invocation_kind,
+        sections=tuple(sections),
+        prompt_pack_refs=tuple(dict.fromkeys(pack_refs)),
+        rejected_refs=tuple(rejected_refs),
+        manifest={
+            "stable_prompt_refs": [item.prompt_ref for item in sections],
+            "prompt_pack_refs": list(dict.fromkeys(pack_refs)),
+            "rejected_refs": rejected_refs,
+            "authority": "prompt_library.prompt_assembly_manifest",
+        },
     )
-    return (
-        "当前 runtime 是 standard 模式：不默认启动计划模式；你可以在已装配工具和权限范围内行动。"
-        + lifecycle_note
-        + "\n"
-    )
+
+
+def _string_tuple(value: Any) -> tuple[str, ...]:
+    return tuple(str(item).strip() for item in list(value or []) if str(item).strip())
+
+
+def _agent_visible_runtime_projection(
+    *,
+    invocation_kind: str,
+    allowed_action_types: tuple[str, ...],
+    profile_payload: dict[str, Any],
+    environment_payload: dict[str, Any],
+    operation_authorization: dict[str, Any],
+    available_tools: tuple[dict[str, Any], ...],
+) -> dict[str, Any]:
+    task_lifecycle = dict(profile_payload.get("task_lifecycle_policy") or {})
+    planning = dict(profile_payload.get("planning_policy") or {})
+    self_review = dict(profile_payload.get("self_review_policy") or {})
+    step_summary = dict(profile_payload.get("step_summary_policy") or {})
+    permission = dict(profile_payload.get("permission_policy") or {})
+    subagent = dict(profile_payload.get("subagent_policy") or {})
+    storage = dict(environment_payload.get("storage_space") or {})
+    environment_boundary = dict(environment_payload.get("environment_boundary") or {})
+    allowed_operations = [
+        str(item)
+        for item in list(operation_authorization.get("allowed_operations") or [])
+        if str(item)
+    ]
+    tool_names = [
+        str(item.get("tool_name") or item.get("name") or "")
+        for item in available_tools
+        if str(item.get("tool_name") or item.get("name") or "")
+    ]
+    task_run_allowed = "request_task_run" in allowed_action_types and task_lifecycle.get("request_task_run") is not False
+    return {
+        "authority": "harness.runtime.agent_visible_runtime_projection",
+        "invocation_kind": str(invocation_kind or ""),
+        "allowed_action_types": list(allowed_action_types),
+        "task_lifecycle": {
+            "request_task_run_allowed": task_run_allowed,
+            "requires_completion_evidence": bool(task_lifecycle.get("requires_completion_evidence") is True),
+            "artifact_evidence_required": bool(task_lifecycle.get("artifact_evidence_required") is True),
+        },
+        "planning": {
+            "specified_plan_allowed": bool(planning.get("specified_plan_allowed") is True),
+            "todo_required_when_task_run": bool(planning.get("todo_required_when_task_run") is True),
+        },
+        "self_review": {
+            "enabled": bool(self_review.get("enabled") is True),
+            "before_final": str(self_review.get("before_final") or ""),
+            "checkpoints": [str(item) for item in list(self_review.get("checkpoints") or []) if str(item)],
+            "failure_recovery": str(self_review.get("failure_recovery") or ""),
+        },
+        "step_summary": {
+            "enabled": bool(step_summary.get("enabled") is True),
+            "detail": str(step_summary.get("detail") or ""),
+        },
+        "tool_boundary": {
+            "visible_tool_count": len(tool_names),
+            "visible_tool_names": tool_names,
+            "allowed_operation_count": len(allowed_operations),
+            "tools_are_limited_to_runtime_packet": True,
+            "subagent_delegation_enabled": bool(subagent.get("enabled") is True),
+        },
+        "permission_boundary": {
+            "permission_scope": str(permission.get("permission_scope") or permission.get("scope") or ""),
+        },
+        "environment_boundary": {
+            "task_environment_id": str(environment_payload.get("environment_id") or ""),
+            "artifact_root": str(storage.get("artifact_root") or ""),
+            "environment_storage_root": str(storage.get("environment_storage_root") or ""),
+            "boundary_authority": str(environment_boundary.get("authority") or ""),
+        },
+    }
+
+
+def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
+    if not projection:
+        return ""
+    allowed_actions = {
+        str(item)
+        for item in list(projection.get("allowed_action_types") or [])
+        if str(item)
+    }
+    task_lifecycle = dict(projection.get("task_lifecycle") or {})
+    planning = dict(projection.get("planning") or {})
+    self_review = dict(projection.get("self_review") or {})
+    step_summary = dict(projection.get("step_summary") or {})
+    tool_boundary = dict(projection.get("tool_boundary") or {})
+    permission_boundary = dict(projection.get("permission_boundary") or {})
+    lines = ["本次运行边界："]
+    action_notes: list[str] = []
+    if "respond" in allowed_actions:
+        action_notes.append("直接回答")
+    if "ask_user" in allowed_actions:
+        action_notes.append("询问用户")
+    if "tool_call" in allowed_actions:
+        action_notes.append("调用本次可见工具")
+    if "block" in allowed_actions:
+        action_notes.append("在越界、缺少授权或无法继续时阻止")
+    if action_notes:
+        lines.append("- 你可以" + "、".join(action_notes) + "。")
+    if bool(task_lifecycle.get("request_task_run_allowed") is True):
+        lines.append(
+            "- 当目标需要真实交付物、持续执行、文件修改、命令验证、浏览器验证或失败恢复时，可以请求正式 TaskRun。"
+        )
+    elif "request_task_run" in allowed_actions:
+        lines.append("- 本次装配不允许开启正式 TaskRun；如任务需要长期执行或真实交付物，应询问用户或说明阻塞边界。")
+    if "request_registered_engagement" in allowed_actions:
+        lines.append("- 如果系统已注册的承接计划能精确覆盖当前目标，可以请求该计划；不要用它替代普通回答或临时任务判断。")
+    if "tool_call" in allowed_actions:
+        visible_count = int(tool_boundary.get("visible_tool_count") or 0)
+        lines.append(f"- 工具只能从 runtime packet 中实际可见的工具选择；当前可见工具数：{visible_count}。")
+    if bool(tool_boundary.get("subagent_delegation_enabled") is True):
+        lines.append("- 如需委派子 agent，只能在可见委派工具和授权范围内进行；主 agent 仍负责最终判断和收口。")
+    if bool(planning.get("todo_required_when_task_run") is True):
+        lines.append("- 进入正式任务生命周期后，需要维护步骤状态；步骤状态不能替代真实交付物或验收证据。")
+    if bool(task_lifecycle.get("requires_completion_evidence") is True):
+        lines.append("- 最终完成声明必须基于合同、真实观察、真实产物或验证证据。")
+    if bool(task_lifecycle.get("artifact_evidence_required") is True):
+        lines.append("- 如果合同要求 artifact，收口前必须确认 artifact 真实存在且路径可复核。")
+    if bool(self_review.get("enabled") is True):
+        checkpoints = [str(item) for item in list(self_review.get("checkpoints") or []) if str(item)]
+        if checkpoints:
+            lines.append("- 需要在关键检查点进行自我审查：" + "、".join(checkpoints) + "。")
+        else:
+            lines.append("- 收口前需要自我审查目标、边界、证据和未完成项。")
+    if bool(step_summary.get("enabled") is True):
+        detail = str(step_summary.get("detail") or "").strip()
+        suffix = f"；摘要粒度：{detail}" if detail else ""
+        lines.append("- 系统会记录任务步骤摘要，你的行动应能被步骤摘要和观察记录复核" + suffix + "。")
+    permission_scope = str(permission_boundary.get("permission_scope") or "").strip()
+    if permission_scope:
+        lines.append(f"- 权限边界由本次 runtime 装配决定；当前权限范围：{permission_scope}。")
+    return "\n".join(lines) + "\n"
 
 
 def _soul_instruction(soul_role_prompt: dict[str, Any]) -> str:
     content = str(soul_role_prompt.get("content") or "").strip()
     if not content:
         return ""
-    return "以下是 role 模式专属角色表达锚点；它不改变工具、任务或系统边界：\n" + content + "\n"
+    return "以下是本次角色表达锚点；它不改变工具、任务或系统边界：\n" + content + "\n"
 
 
-def _work_role_instruction(work_role_prompt: str) -> str:
-    content = str(work_role_prompt or "").strip()
+def _agent_prompt_instruction(agent_prompt_assembly: PromptAssemblyResult) -> str:
+    content = str(agent_prompt_assembly.content or "").strip()
     if not content:
         return ""
     return "\n当前主 agent 工作角色：\n" + content + "\n"
 
 
-def _environment_instruction(environment_payload: dict[str, Any]) -> str:
-    prompts = [
-        str(item.get("content") or "").strip()
-        for item in list(environment_payload.get("environment_prompts") or [])
-        if isinstance(item, dict) and str(item.get("content") or "").strip()
-    ]
+def _environment_instruction(
+    environment_payload: dict[str, Any],
+    *,
+    environment_prompt_assembly: PromptAssemblyResult,
+) -> str:
+    content = str(environment_prompt_assembly.content or "").strip()
     storage = dict(environment_payload.get("storage_space") or {})
     storage_note = ""
     if storage:
@@ -565,9 +800,28 @@ def _environment_instruction(environment_payload: dict[str, Any]) -> str:
             f"artifact_root={storage.get('artifact_root') or ''}；"
             "你不能自行改变环境存储边界。\n"
         )
-    if not prompts and not storage_note:
+    if not content and not storage_note:
         return ""
-    return "当前任务环境说明：\n" + "\n".join(prompts) + ("\n" if prompts else "") + storage_note
+    return "当前任务环境说明：\n" + (content + "\n" if content else "") + storage_note
+
+
+def _environment_stable_payload(environment_payload: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(environment_payload or {})
+    prompt_refs = [
+        str(item.get("prompt_id") or "").strip()
+        for item in list(payload.get("environment_prompts") or [])
+        if isinstance(item, dict) and str(item.get("prompt_id") or "").strip()
+    ]
+    if "environment_prompts" in payload:
+        payload["environment_prompts"] = [
+            {
+                "prompt_id": prompt_ref,
+                "content_omitted": True,
+                "content_source": "prompt_library",
+            }
+            for prompt_ref in prompt_refs
+        ]
+    return payload
 
 
 def _artifact_root(environment_payload: dict[str, Any]) -> str:
@@ -579,10 +833,14 @@ def _artifact_root(environment_payload: dict[str, Any]) -> str:
     return str(artifact_policy.get("artifact_root") or "").strip()
 
 
-def _runtime_context_payload(assembly_payload: dict[str, Any]) -> dict[str, Any]:
+def _runtime_context_payload(
+    assembly_payload: dict[str, Any],
+    *,
+    agent_visible_runtime_projection: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     profile = dict(assembly_payload.get("profile") or {})
     environment = dict(assembly_payload.get("task_environment") or {})
-    return {
+    payload = {
         "assembly_id": str(assembly_payload.get("assembly_id") or ""),
         "agent_profile_ref": str(assembly_payload.get("agent_profile_ref") or ""),
         "mode": str(profile.get("mode") or ""),
@@ -593,6 +851,8 @@ def _runtime_context_payload(assembly_payload: dict[str, Any]) -> dict[str, Any]
         "permission_policy": dict(profile.get("permission_policy") or {}),
         "task_environment_id": str(environment.get("environment_id") or ""),
         "storage_space": dict(environment.get("storage_space") or {}),
+        "agent_prompt_refs": _string_tuple(assembly_payload.get("agent_prompt_refs")),
+        "environment_prompt_refs": _string_tuple(assembly_payload.get("environment_prompt_refs")),
         "environment_boundary": {
             "authority": str(dict(environment.get("environment_boundary") or {}).get("authority") or ""),
             "environment_prompts_source": str(
@@ -614,3 +874,6 @@ def _runtime_context_payload(assembly_payload: dict[str, Any]) -> dict[str, Any]
         },
         "allowed_operation_count": len(list(dict(assembly_payload.get("operation_authorization") or {}).get("allowed_operations") or [])),
     }
+    if agent_visible_runtime_projection:
+        payload["agent_visible_runtime_projection"] = dict(agent_visible_runtime_projection)
+    return payload

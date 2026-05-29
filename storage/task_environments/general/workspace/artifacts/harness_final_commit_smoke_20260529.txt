@@ -1,0 +1,2 @@
+final commit smoke ok
+这是用于验证 TaskRun 最终答复回写会话的实测产物。

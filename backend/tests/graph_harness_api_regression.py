@@ -218,6 +218,59 @@ def test_task_graph_start_api_returns_node_work_order_for_published_config(tmp_p
     assert payload["checkpoint"]["state"]["graph_id"] == graph.graph_id
 
 
+def test_task_graph_start_api_rejects_stale_published_config_as_conflict(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    graph = _graph()
+    registry = TaskFlowRegistry(backend_dir)
+    registry.upsert_task_graph(
+        graph_id=graph.graph_id,
+        title=graph.title,
+        graph_kind=graph.graph_kind,
+        entry_node_id=graph.entry_node_id,
+        output_node_id=graph.output_node_id,
+        nodes=tuple(node.to_dict() for node in graph.nodes),
+        runtime_policy=graph.runtime_policy,
+        publish_state="published",
+        enabled=True,
+    )
+    config = publish_graph_harness_config_for_graph(base_dir=backend_dir, graph_id=graph.graph_id)
+    registry.graph_harness_config_repository.storage.write_object(
+        "graph_harness_configs.json",
+        {
+            "configs": [
+                {
+                    **config.to_dict(),
+                    "content_hash": "stale-content-hash",
+                }
+            ],
+            "published_bindings": {graph.graph_id: config.config_id},
+        },
+    )
+    runtime = _runtime_with_graph_harness(base_dir=backend_dir, runtime_root=tmp_path / "runtime_state")
+
+    original = orchestration_api.require_runtime
+    orchestration_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    try:
+        try:
+            asyncio.run(
+                orchestration_api.start_task_graph_harness_run(
+                    graph.graph_id,
+                    orchestration_api.TaskGraphRunStartRequest(
+                        session_id="session-test",
+                        dispatch_ready=True,
+                    ),
+                )
+            )
+            raised = None
+        except Exception as exc:  # noqa: BLE001 - assert FastAPI error contract directly.
+            raised = exc
+    finally:
+        orchestration_api.require_runtime = original  # type: ignore[assignment]
+
+    assert getattr(raised, "status_code", None) == 409
+    assert "content_hash mismatch" in str(getattr(raised, "detail", ""))
+
+
 def test_graph_harness_api_accepts_node_result_and_returns_next_work_order(tmp_path: Path) -> None:
     backend_dir = tmp_path / "backend"
     graph = TaskGraphDefinition(
@@ -418,6 +471,134 @@ def test_graph_harness_api_executes_work_order_and_accepts_result(tmp_path: Path
     assert executed["graph_loop_state"]["status"] == "completed"
     assert executed["graph_result"]["status"] == "completed"
     assert executed["checkpoint"]["state"]["status"] == "completed"
+
+
+def test_graph_harness_api_runs_graph_until_idle(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    graph = TaskGraphDefinition(
+        graph_id="graph.test.api_run_until_idle",
+        title="API Run Until Idle Graph",
+        graph_kind="multi_agent",
+        publish_state="published",
+        enabled=True,
+        entry_node_id="first",
+        output_node_id="second",
+        runtime_policy={"coordinator_agent_id": "agent:0"},
+        nodes=(
+            TaskGraphNodeDefinition(
+                node_id="first",
+                node_type="agent",
+                title="第一节点",
+                task_id="task.test.first",
+                agent_id="agent:0",
+            ),
+            TaskGraphNodeDefinition(
+                node_id="second",
+                node_type="agent",
+                title="第二节点",
+                task_id="task.test.second",
+                agent_id="agent:0",
+            ),
+        ),
+        edges=(
+            {
+                "edge_id": "edge.first.second",
+                "source_node_id": "first",
+                "target_node_id": "second",
+                "edge_type": "handoff",
+            },
+        ),
+    )
+    registry = TaskFlowRegistry(backend_dir)
+    registry.upsert_task_graph(
+        graph_id=graph.graph_id,
+        title=graph.title,
+        graph_kind=graph.graph_kind,
+        entry_node_id=graph.entry_node_id,
+        output_node_id=graph.output_node_id,
+        nodes=tuple(node.to_dict() for node in graph.nodes),
+        edges=tuple(dict(edge) for edge in graph.edges),
+        runtime_policy=graph.runtime_policy,
+        publish_state="published",
+        enabled=True,
+    )
+    graph_config = publish_graph_harness_config_for_graph(base_dir=backend_dir, graph_id=graph.graph_id)
+    runtime = _query_runtime_with_graph_executor(base_dir=backend_dir)
+
+    original = orchestration_api.require_runtime
+    orchestration_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    try:
+        started = asyncio.run(
+            orchestration_api.start_task_graph_harness_run(
+                graph.graph_id,
+                orchestration_api.TaskGraphRunStartRequest(
+                    session_id="session-test",
+                    dispatch_ready=True,
+                ),
+            )
+        )
+        runner = asyncio.run(
+            orchestration_api.run_graph_run_until_idle(
+                str(started["graph_run_id"]),
+                orchestration_api.GraphRunUntilIdleRequest(
+                    graph_harness_config_id=graph_config.config_id,
+                    max_node_executions=3,
+                    max_node_steps=1,
+                ),
+            )
+        )
+    finally:
+        orchestration_api.require_runtime = original  # type: ignore[assignment]
+
+    assert runner["authority"] == "harness.graph_run_runner"
+    assert runner["status"] == "completed"
+    assert runner["executed_work_order_count"] == 2
+    assert runner["graph_loop_state"]["completed_node_ids"] == ["first", "second"]
+    assert runner["graph_result"]["status"] == "completed"
+
+
+def test_task_graph_start_api_can_auto_run_graph(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    graph = _graph()
+    registry = TaskFlowRegistry(backend_dir)
+    registry.upsert_task_graph(
+        graph_id=graph.graph_id,
+        title=graph.title,
+        graph_kind=graph.graph_kind,
+        entry_node_id=graph.entry_node_id,
+        output_node_id=graph.output_node_id,
+        nodes=tuple(node.to_dict() for node in graph.nodes),
+        runtime_policy=graph.runtime_policy,
+        publish_state="published",
+        enabled=True,
+    )
+    publish_graph_harness_config_for_graph(base_dir=backend_dir, graph_id=graph.graph_id)
+    runtime = _query_runtime_with_graph_executor(base_dir=backend_dir)
+
+    original = orchestration_api.require_runtime
+    orchestration_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    try:
+        payload = asyncio.run(
+            orchestration_api.start_task_graph_harness_run(
+                graph.graph_id,
+                orchestration_api.TaskGraphRunStartRequest(
+                    session_id="session-test",
+                    dispatch_ready=True,
+                    run_mode="auto_run",
+                    runner_budget={"max_node_executions": 2, "max_node_steps": 1},
+                ),
+            )
+        )
+    finally:
+        orchestration_api.require_runtime = original  # type: ignore[assignment]
+
+    assert payload["runner_result"]["status"] == "completed"
+    assert payload["runner_result"]["executed_work_order_count"] == 1
+    assert payload["runner_result"]["graph_loop_state"]["status"] == "completed"
+    assert payload["graph_loop_state"]["status"] == "completed"
+    assert payload["task_run"]["status"] == "completed"
+    assert payload["graph_run"]["status"] == "completed"
+    assert payload["node_work_orders"] == []
 
 
 def test_graph_run_monitor_returns_recoverable_active_work_orders(tmp_path: Path) -> None:

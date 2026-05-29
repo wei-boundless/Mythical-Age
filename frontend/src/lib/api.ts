@@ -40,6 +40,35 @@ export type SessionHistory = {
   }>;
 };
 
+export type SessionRuntimeAttachment = {
+  attachment_id: string;
+  anchor_turn_id: string;
+  task_run_id: string;
+  task_id?: string;
+  status: string;
+  terminal_reason?: string;
+  lifecycle?: string;
+  bucket?: string;
+  title?: string;
+  summary?: string;
+  latest_step?: Record<string, unknown>;
+  latest_step_summary?: string;
+  latest_event_type?: string;
+  event_count?: number;
+  progress_entries?: Array<Record<string, unknown>>;
+  artifact_refs?: Array<Record<string, unknown>>;
+  final_answer?: string;
+  trace_available?: boolean;
+  created_at?: number;
+  updated_at?: number;
+};
+
+export type SessionTimeline = SessionHistory & {
+  session_id?: string;
+  runtime_attachments?: SessionRuntimeAttachment[];
+  authority?: string;
+};
+
 export type WorkspaceContext = {
   project_name: string;
   project_root: string;
@@ -1367,6 +1396,7 @@ export type HealthSystemOverview = {
   efficiency: HealthEfficiency;
   recommendations: HealthRecommendation[];
   monitor: GlobalRuntimeMonitor | Record<string, unknown>;
+  monitor_governance?: HealthMonitorGovernance;
   updated_at: number;
   issues?: HealthIssue[];
   agent_runs?: HealthAgentRun[];
@@ -1377,14 +1407,44 @@ export type HealthSystemOverview = {
 
 export type HealthTaskRecordPruneResult = {
   authority: string;
+  mode?: string;
+  operation?: string;
   bucket: string;
   requested_task_run_ids: string[];
   candidate_count: number;
+  eligible_task_run_ids?: string[];
+  protected_task_run_ids?: string[];
   deleted_task_run_ids: string[];
   deleted_event_log_task_run_ids: string[];
   deleted_counts: Record<string, number>;
   skipped: Array<Record<string, unknown>>;
+  preflight?: HealthTaskRecordMaintenance;
+  policy?: Record<string, unknown>;
+  maintenance_receipt?: Record<string, unknown>;
   monitor: GlobalRuntimeMonitor | Record<string, unknown>;
+  updated_at: number;
+};
+
+export type HealthTaskRecordMaintenance = {
+  authority: string;
+  mode: string;
+  bucket: string;
+  requested_task_run_ids: string[];
+  policy: Record<string, unknown>;
+  summary: Record<string, number>;
+  candidates: Array<Record<string, unknown>>;
+  recent_receipts: Array<Record<string, unknown>>;
+  updated_at: number;
+};
+
+export type HealthMonitorGovernance = {
+  authority: string;
+  monitor_authority: string;
+  revision: string;
+  status: string;
+  summary: Record<string, number>;
+  risk_escalations: HealthRiskEvent[];
+  recommended_actions: HealthRecommendation[];
   updated_at: number;
 };
 
@@ -2014,6 +2074,7 @@ export type TaskGraphRunStartResult = {
   graph_loop_state: Record<string, unknown>;
   graph_harness_config: Record<string, unknown>;
   node_work_orders: Array<Record<string, unknown>>;
+  runner_result: GraphRunUntilIdleResult | null;
   trace: HarnessTaskRunTrace | null;
   events: Array<Record<string, unknown>>;
 };
@@ -2067,6 +2128,21 @@ export type GraphWorkOrderExecuteResult = {
   graph_loop_state: Record<string, unknown>;
   checkpoint: Record<string, unknown>;
   node_work_orders: Array<Record<string, unknown>>;
+  events: Array<Record<string, unknown>>;
+};
+
+export type GraphRunUntilIdleResult = {
+  authority: string;
+  graph_run_id: string;
+  status: string;
+  terminal_reason: string;
+  executed_work_order_count: number;
+  accepted_result_count: number;
+  dispatch_count: number;
+  blocked_reason: string;
+  budget_exhausted: boolean;
+  graph_loop_state: Record<string, unknown>;
+  graph_result: Record<string, unknown>;
   events: Array<Record<string, unknown>>;
 };
 
@@ -3111,6 +3187,10 @@ export async function getSessionHistory(sessionId: string) {
   return request<SessionHistory>(`/sessions/${sessionId}/history`);
 }
 
+export async function getSessionTimeline(sessionId: string) {
+  return request<SessionTimeline>(`/sessions/${sessionId}/timeline`);
+}
+
 export async function truncateSessionMessages(sessionId: string, messageIndex: number) {
   return request<SessionTruncateResponse>(`/sessions/${sessionId}/messages/truncate`, {
     method: "POST",
@@ -3513,10 +3593,33 @@ export async function startTaskGraphHarnessRun(
     initial_inputs?: Record<string, unknown>;
     include_trace?: boolean;
     dispatch_ready?: boolean;
+    run_mode?: "dispatch_only" | "auto_run" | string;
+    runner_budget?: Record<string, unknown>;
   } = {}
 ) {
   return request<TaskGraphRunStartResult>(
     `/orchestration/harness/task-graphs/${encodeURIComponent(graphId)}/start`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+export async function runGraphRunUntilIdle(
+  graphRunId: string,
+  payload: {
+    graph_harness_config_id: string;
+    max_node_executions?: number;
+    max_loop_iterations?: number;
+    max_node_steps?: number;
+    max_dispatches?: number;
+    max_runtime_seconds?: number;
+    max_dispatch_requests?: number | null;
+  }
+) {
+  return request<GraphRunUntilIdleResult>(
+    `/orchestration/harness/graph-runs/${encodeURIComponent(graphRunId)}/run-until-idle`,
     {
       method: "POST",
       body: JSON.stringify(payload),
@@ -4022,14 +4125,27 @@ export async function getHealthSystemTaskDetail(taskRunId: string) {
   }>(`/health-system/tasks/${encodeURIComponent(taskRunId)}`);
 }
 
+export async function getHealthSystemTaskRecordMaintenance(bucket = "static", minAgeSeconds = 24 * 60 * 60) {
+  return request<HealthTaskRecordMaintenance>(
+    `/health-system/task-records/maintenance?bucket=${encodeURIComponent(bucket)}&min_age_seconds=${minAgeSeconds}`,
+  );
+}
+
 export async function pruneHealthSystemTaskRecords(payload: {
   bucket?: "static" | "completed" | "failed" | "diagnostics" | string;
   task_run_ids?: string[];
+  dry_run?: boolean;
+  min_age_seconds?: number;
+  operation?: string;
 }) {
   return request<HealthTaskRecordPruneResult>("/health-system/task-records/prune", {
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export async function getHealthSystemMonitorGovernance() {
+  return request<HealthMonitorGovernance>("/health-system/monitor-governance");
 }
 
 export async function getHealthSystemRisks(limit = 100) {

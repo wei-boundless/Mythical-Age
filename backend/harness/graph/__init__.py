@@ -17,6 +17,7 @@ from .checkpoint_store import GraphCheckpointRecord, GraphCheckpointStore
 from .context_materializer import GraphContextMaterializer
 from .langgraph_checkpoint_store import LangGraphCheckpointStore
 from .resume import GraphResumeResult, GraphResumeService
+from .runner import GraphRunRunner, GraphRunRunnerResult
 
 __all__ = [
     "GRAPH_HARNESS_CONFIG_AUTHORITY",
@@ -28,6 +29,8 @@ __all__ = [
     "GraphContextMaterializer",
     "GraphResumeResult",
     "GraphResumeService",
+    "GraphRunRunner",
+    "GraphRunRunnerResult",
     "GraphNodeWorkOrder",
     "GraphRun",
     "GraphResultEnvelope",

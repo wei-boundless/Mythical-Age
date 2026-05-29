@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
+from harness.runtime.session_timeline import build_session_runtime_timeline
 
 router = APIRouter()
 
@@ -58,8 +59,8 @@ async def delete_session(session_id: str) -> dict[str, bool]:
 async def get_session_messages(session_id: str) -> dict[str, Any]:
     runtime = require_runtime()
     return {
-        "system_prompt": runtime.query_runtime.build_system_prompt_for_session(session_id),
         "messages": runtime.session_manager.load_session(session_id),
+        "latest_prompt_manifest_summary": _latest_prompt_manifest_summary(runtime, session_id),
     }
 
 
@@ -67,6 +68,17 @@ async def get_session_messages(session_id: str) -> dict[str, Any]:
 async def get_session_history(session_id: str) -> dict[str, Any]:
     runtime = require_runtime()
     return runtime.session_manager.get_history(session_id)
+
+
+@router.get("/sessions/{session_id}/timeline")
+async def get_session_timeline(session_id: str) -> dict[str, Any]:
+    runtime = require_runtime()
+    history = runtime.session_manager.get_history(session_id)
+    return build_session_runtime_timeline(
+        session_id=session_id,
+        history=history,
+        runtime_host=runtime.query_runtime.single_agent_runtime_host,
+    )
 
 
 @router.post("/sessions/{session_id}/messages/truncate")
@@ -99,5 +111,20 @@ async def generate_title(session_id: str, payload: GenerateTitleRequest) -> dict
     title = await runtime.query_runtime.generate_title(seed or DEFAULT_SESSION_TITLE)
     runtime.session_manager.set_title(session_id, title)
     return {"session_id": session_id, "title": title}
+
+
+def _latest_prompt_manifest_summary(runtime: Any, session_id: str) -> dict[str, Any]:
+    ledger = runtime.query_runtime.single_agent_runtime_host.prompt_accounting_ledger
+    maps = ledger.list_segment_maps(session_id=session_id)
+    latest = maps[-1] if maps else {}
+    return {
+        "authority": "api.sessions.latest_prompt_manifest_summary",
+        "available": bool(latest),
+        "request_id": str(latest.get("request_id") or ""),
+        "task_run_id": str(latest.get("task_run_id") or ""),
+        "segment_count": len(list(latest.get("segments") or [])),
+        "predicted_prompt_tokens": int(latest.get("predicted_prompt_tokens") or 0),
+        "metadata": dict(latest.get("metadata") or {}),
+    }
 
 

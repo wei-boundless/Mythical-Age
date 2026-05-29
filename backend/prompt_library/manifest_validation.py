@@ -28,7 +28,7 @@ def build_prompt_manifest_validation(
             issues.append("forbidden_role_prompt_sections_outside_role_mode:" + ",".join(leaked))
 
     if normalized_mode == "professional_mode":
-        required = {"semantic_task_section", "mode_policy_section", "output_section"}
+        required = {"semantic_task_section", "output_section"}
         missing = [section_id for section_id in sorted(required) if section_id not in section_ids]
         if missing:
             issues.append("missing_required_professional_sections:" + ",".join(missing))

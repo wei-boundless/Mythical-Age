@@ -32,6 +32,8 @@ class AgentRuntimeServices:
     tool_runtime_executor: Any | None = None
     tool_instances: tuple[Any, ...] = ()
     agent_runtime_profile_resolver: Any | None = None
+    artifact_repository_service: Any | None = None
+    formal_memory_service: Any | None = None
     backend_config: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -46,8 +48,14 @@ class AgentRuntimeServices:
         tool_runtime_executor: Any | None = None,
         tool_instances: list[Any] | tuple[Any, ...] | None = None,
         agent_runtime_profile_resolver: Any | None = None,
+        artifact_repository_service: Any | None = None,
+        formal_memory_service: Any | None = None,
         backend_config: dict[str, Any] | None = None,
     ) -> "AgentRuntimeServices":
+        resolved_artifact_repository_service = artifact_repository_service
+        resolved_formal_memory_service = formal_memory_service
+        if resolved_artifact_repository_service is None or resolved_formal_memory_service is None:
+            resolved_artifact_repository_service, resolved_formal_memory_service = _default_environment_services(host)
         return cls(
             root_dir=Path(host.root_dir),
             backend_dir=Path(host.backend_dir),
@@ -68,6 +76,8 @@ class AgentRuntimeServices:
             tool_runtime_executor=tool_runtime_executor,
             tool_instances=tuple(tool_instances or ()),
             agent_runtime_profile_resolver=agent_runtime_profile_resolver,
+            artifact_repository_service=resolved_artifact_repository_service,
+            formal_memory_service=resolved_formal_memory_service,
             backend_config=dict(backend_config or {}),
         )
 
@@ -82,6 +92,25 @@ class AgentRuntimeServices:
 
     def event_count(self, task_run_id: str) -> int:
         return len(self.event_log.list_events(task_run_id))
+
+
+def _default_environment_services(host: Any) -> tuple[Any | None, Any | None]:
+    try:
+        from artifact_system import ArtifactRepositoryService
+        from memory_system.runtime_services import MemoryRuntimeServices
+        from project_layout import ProjectLayout
+    except Exception:
+        return None, None
+    try:
+        layout = ProjectLayout.from_backend_dir(Path(host.backend_dir))
+        memory_services = MemoryRuntimeServices(layout.storage_root)
+        artifact_repository = ArtifactRepositoryService(
+            layout.storage_root / "artifact_repository",
+            workspace_root=layout.project_root,
+        )
+        return artifact_repository, memory_services.formal_memory
+    except Exception:
+        return None, None
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +129,7 @@ class TaskExecutorServices:
     tool_instances: tuple[Any, ...]
     agent_runtime_profile: Any | None
     backend_config: dict[str, Any]
+    assistant_message_committer: Any | None = None
 
     def all_tool_instances(self) -> list[Any]:
         return list(self.tool_instances)

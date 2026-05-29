@@ -568,6 +568,12 @@ class AgentRuntimeRegistry:
         aliases = set(agent_id_aliases(target))
         return next((item for item in self.list_profiles() if item.agent_id in aliases), None)
 
+    def get_profile_by_profile_id(self, agent_profile_id: str) -> AgentRuntimeProfile | None:
+        target = str(agent_profile_id or "").strip()
+        if not target:
+            return None
+        return next((item for item in self.list_profiles() if item.agent_profile_id == target), None)
+
     def upsert_profile(
         self,
         *,

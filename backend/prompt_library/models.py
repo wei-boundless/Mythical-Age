@@ -6,10 +6,19 @@ from typing import Any
 
 @dataclass(frozen=True, slots=True)
 class PromptResource:
-    resource_id: str
-    resource_type: str
-    title: str
-    content: str
+    prompt_id: str = ""
+    category: str = ""
+    subtype: str = ""
+    owner_layer: str = ""
+    allowed_invocation_kinds: tuple[str, ...] = ()
+    allowed_runtime_modes: tuple[str, ...] = ()
+    allowed_agent_refs: tuple[str, ...] = ()
+    allowed_environment_refs: tuple[str, ...] = ()
+    status: str = "active"
+    resource_id: str = ""
+    resource_type: str = ""
+    title: str = ""
+    content: str = ""
     workflow_id: str = ""
     task_id: str = ""
     graph_id: str = ""
@@ -32,9 +41,29 @@ class PromptResource:
     metadata: dict[str, Any] = field(default_factory=dict)
     authority: str = "prompt_library.prompt_resource"
 
+    def __post_init__(self) -> None:
+        prompt_id = str(self.prompt_id or self.resource_id or "").strip()
+        resource_id = str(self.resource_id or prompt_id).strip()
+        resource_type = str(self.resource_type or _resource_type_from_category_subtype(self.category, self.subtype)).strip()
+        category = str(self.category or _category_from_resource_type(self.resource_type)).strip()
+        subtype = str(self.subtype or _subtype_from_resource_type(self.resource_type)).strip()
+        owner_layer = str(self.owner_layer or _owner_layer_from_category(category)).strip()
+        status = str(self.status or ("active" if self.enabled else "deprecated")).strip()
+        object.__setattr__(self, "prompt_id", prompt_id)
+        object.__setattr__(self, "resource_id", resource_id)
+        object.__setattr__(self, "resource_type", resource_type)
+        object.__setattr__(self, "category", category)
+        object.__setattr__(self, "subtype", subtype)
+        object.__setattr__(self, "owner_layer", owner_layer)
+        object.__setattr__(self, "status", status)
+
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         for key in (
+            "allowed_invocation_kinds",
+            "allowed_runtime_modes",
+            "allowed_agent_refs",
+            "allowed_environment_refs",
             "tags",
             "applies_to_task_goal_types",
             "applies_to_domains",
@@ -44,6 +73,115 @@ class PromptResource:
             payload[key] = list(payload[key])
         payload["chars"] = len(self.content)
         return payload
+
+    @property
+    def active(self) -> bool:
+        return self.enabled and self.status == "active"
+
+    @property
+    def deprecated_for_new_runtime(self) -> bool:
+        return self.status in {"deprecated", "archived"} or bool(
+            dict(self.metadata or {}).get("deprecated_for_new_runtime") is True
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class PromptPack:
+    pack_id: str
+    invocation_kind: str
+    ordered_prompt_refs: tuple[str, ...]
+    cache_scope: str = "static"
+    status: str = "active"
+    title: str = ""
+    allowed_runtime_modes: tuple[str, ...] = ()
+    allowed_agent_refs: tuple[str, ...] = ()
+    allowed_environment_refs: tuple[str, ...] = ()
+    metadata: dict[str, Any] = field(default_factory=dict)
+    authority: str = "prompt_library.prompt_pack"
+
+    def __post_init__(self) -> None:
+        if not str(self.pack_id or "").strip():
+            raise ValueError("PromptPack requires pack_id")
+        if not str(self.invocation_kind or "").strip():
+            raise ValueError("PromptPack requires invocation_kind")
+        object.__setattr__(self, "ordered_prompt_refs", tuple(str(item).strip() for item in self.ordered_prompt_refs if str(item).strip()))
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["ordered_prompt_refs"] = list(self.ordered_prompt_refs)
+        payload["allowed_runtime_modes"] = list(self.allowed_runtime_modes)
+        payload["allowed_agent_refs"] = list(self.allowed_agent_refs)
+        payload["allowed_environment_refs"] = list(self.allowed_environment_refs)
+        payload["metadata"] = dict(self.metadata)
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
+class PromptSection:
+    section_id: str
+    prompt_ref: str
+    category: str
+    subtype: str
+    title: str
+    content: str
+    owner_layer: str
+    cache_scope: str
+    source_ref: str = ""
+    order: int = 100
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["metadata"] = dict(self.metadata)
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
+class PromptAssemblyRequest:
+    invocation_kind: str
+    prompt_pack_refs: tuple[str, ...] = ()
+    prompt_refs: tuple[str, ...] = ()
+    agent_profile_ref: str = ""
+    task_environment_ref: str = ""
+    runtime_mode: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "invocation_kind": self.invocation_kind,
+            "prompt_pack_refs": list(self.prompt_pack_refs),
+            "prompt_refs": list(self.prompt_refs),
+            "agent_profile_ref": self.agent_profile_ref,
+            "task_environment_ref": self.task_environment_ref,
+            "runtime_mode": self.runtime_mode,
+            "metadata": dict(self.metadata),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class PromptAssemblyResult:
+    assembly_id: str
+    invocation_kind: str
+    sections: tuple[PromptSection, ...]
+    prompt_pack_refs: tuple[str, ...] = ()
+    rejected_refs: tuple[dict[str, Any], ...] = ()
+    manifest: dict[str, Any] = field(default_factory=dict)
+    authority: str = "prompt_library.prompt_assembly_result"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "assembly_id": self.assembly_id,
+            "invocation_kind": self.invocation_kind,
+            "sections": [item.to_dict() for item in self.sections],
+            "prompt_pack_refs": list(self.prompt_pack_refs),
+            "rejected_refs": [dict(item) for item in self.rejected_refs],
+            "manifest": dict(self.manifest),
+            "authority": self.authority,
+        }
+
+    @property
+    def content(self) -> str:
+        return "\n".join(item.content for item in self.sections if item.content.strip()).strip()
 
 
 @dataclass(frozen=True, slots=True)
@@ -174,6 +312,31 @@ class PromptAssemblyPlan:
 
 def prompt_resource_from_dict(payload: dict[str, Any]) -> PromptResource:
     return PromptResource(
+        prompt_id=str(payload.get("prompt_id") or payload.get("resource_id") or ""),
+        category=str(payload.get("category") or ""),
+        subtype=str(payload.get("subtype") or ""),
+        owner_layer=str(payload.get("owner_layer") or ""),
+        allowed_invocation_kinds=tuple(
+            str(item).strip()
+            for item in list(payload.get("allowed_invocation_kinds") or [])
+            if str(item).strip()
+        ),
+        allowed_runtime_modes=tuple(
+            str(item).strip()
+            for item in list(payload.get("allowed_runtime_modes") or payload.get("applies_to_modes") or [])
+            if str(item).strip()
+        ),
+        allowed_agent_refs=tuple(
+            str(item).strip()
+            for item in list(payload.get("allowed_agent_refs") or payload.get("applies_to_agents") or [])
+            if str(item).strip()
+        ),
+        allowed_environment_refs=tuple(
+            str(item).strip()
+            for item in list(payload.get("allowed_environment_refs") or [])
+            if str(item).strip()
+        ),
+        status=str(payload.get("status") or ("active" if bool(payload.get("enabled", True)) else "deprecated")),
         resource_id=str(payload.get("resource_id") or ""),
         resource_type=str(payload.get("resource_type") or "stage_role"),
         title=str(payload.get("title") or payload.get("resource_id") or ""),
@@ -216,5 +379,105 @@ def prompt_resource_from_dict(payload: dict[str, Any]) -> PromptResource:
         metadata=dict(payload.get("metadata") or {}),
         authority=str(payload.get("authority") or "prompt_library.prompt_resource"),
     )
+
+
+def prompt_pack_from_dict(payload: dict[str, Any]) -> PromptPack:
+    return PromptPack(
+        pack_id=str(payload.get("pack_id") or ""),
+        invocation_kind=str(payload.get("invocation_kind") or ""),
+        ordered_prompt_refs=tuple(
+            str(item).strip()
+            for item in list(payload.get("ordered_prompt_refs") or [])
+            if str(item).strip()
+        ),
+        cache_scope=str(payload.get("cache_scope") or "static"),
+        status=str(payload.get("status") or "active"),
+        title=str(payload.get("title") or payload.get("pack_id") or ""),
+        allowed_runtime_modes=tuple(
+            str(item).strip()
+            for item in list(payload.get("allowed_runtime_modes") or [])
+            if str(item).strip()
+        ),
+        allowed_agent_refs=tuple(
+            str(item).strip()
+            for item in list(payload.get("allowed_agent_refs") or [])
+            if str(item).strip()
+        ),
+        allowed_environment_refs=tuple(
+            str(item).strip()
+            for item in list(payload.get("allowed_environment_refs") or [])
+            if str(item).strip()
+        ),
+        metadata=dict(payload.get("metadata") or {}),
+        authority=str(payload.get("authority") or "prompt_library.prompt_pack"),
+    )
+
+
+def _category_from_resource_type(resource_type: str) -> str:
+    value = str(resource_type or "").strip()
+    mapping = {
+        "common_contract": "runtime",
+        "work_role": "agent",
+        "environment_prompt": "environment",
+        "understanding_policy": "task",
+        "flow_matching_policy": "task",
+        "role_prompt": "soul",
+        "task_goal_role": "task",
+        "stage_role": "graph_node",
+        "skill_prompt": "skill",
+        "tool_guidance": "runtime",
+        "verification": "runtime",
+        "output_boundary": "runtime",
+    }
+    return mapping.get(value, value.split(".", 1)[0] if "." in value else "runtime")
+
+
+def _subtype_from_resource_type(resource_type: str) -> str:
+    value = str(resource_type or "").strip()
+    mapping = {
+        "common_contract": "common_contract",
+        "work_role": "main.work_role",
+        "environment_prompt": "boundary",
+        "understanding_policy": "understanding_policy",
+        "flow_matching_policy": "flow_matching_policy",
+        "role_prompt": "role_persona",
+        "task_goal_role": "specific.role",
+        "stage_role": "role",
+        "skill_prompt": "usage",
+        "tool_guidance": "tool_guidance",
+        "verification": "verification",
+        "output_boundary": "output_boundary",
+    }
+    if value in mapping:
+        return mapping[value]
+    if "." in value:
+        return value.split(".", 1)[1]
+    return value or "instruction"
+
+
+def _owner_layer_from_category(category: str) -> str:
+    value = str(category or "").strip()
+    mapping = {
+        "runtime": "runtime",
+        "agent": "agent",
+        "environment": "environment",
+        "task": "task",
+        "graph_node": "task",
+        "skill": "agent",
+        "soul": "agent",
+    }
+    return mapping.get(value, value or "runtime")
+
+
+def _resource_type_from_category_subtype(category: str, subtype: str) -> str:
+    category_value = str(category or "").strip()
+    subtype_value = str(subtype or "").strip()
+    if category_value == "agent" and subtype_value in {"main.work_role", "work_role"}:
+        return "work_role"
+    if category_value == "environment":
+        return "environment_prompt"
+    if category_value and subtype_value:
+        return f"{category_value}.{subtype_value}"
+    return category_value or subtype_value or "runtime.instruction"
 
 

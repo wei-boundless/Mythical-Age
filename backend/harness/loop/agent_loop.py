@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import inspect
 import time
 from collections.abc import AsyncIterator
@@ -15,6 +14,7 @@ from runtime.shared.models import AgentRun, TaskRun
 
 from .admission import admit_model_action
 from .model_action_protocol import ModelActionRequest, model_action_request_from_payload
+from .model_action_runtime import call_model_invoker, compact_text, model_action_timeout_seconds, parse_json_object
 from .observations import build_observation_record
 from .presentation import error_event, final_answer_event
 from .task_lifecycle import (
@@ -849,12 +849,12 @@ async def _invoke_model_action(
     invoker = getattr(model_runtime, "invoke_messages", None)
     if not callable(invoker):
         return None, {"status": "invalid", "validation_errors": ["model_runtime_unavailable"]}
-    timeout_seconds = _model_action_timeout_seconds(
+    timeout_seconds = model_action_timeout_seconds(
         model_runtime,
         model_selection=model_selection,
     )
     response = await asyncio.wait_for(
-        _call_model_invoker(
+        call_model_invoker(
             invoker,
             list(packet.model_messages),
             model_selection=model_selection,
@@ -870,69 +870,9 @@ async def _invoke_model_action(
         ),
         timeout=timeout_seconds,
     )
-    payload = _parse_json_object(getattr(response, "content", response))
+    payload = parse_json_object(getattr(response, "content", response))
     payload.setdefault("request_id", f"model-action:{turn_id}:{invocation_index}")
     return model_action_request_from_payload(payload, turn_id=turn_id)
-
-
-async def _call_model_invoker(
-    invoker: Any,
-    messages: list[Any],
-    *,
-    model_selection: dict[str, Any],
-    accounting_context: dict[str, Any] | None = None,
-) -> Any:
-    if model_selection:
-        try:
-            return await _await_if_needed(
-                invoker(messages, model_spec=model_selection, accounting_context=accounting_context)
-            )
-        except TypeError as exc:
-            if "model_spec" not in str(exc) and "accounting_context" not in str(exc):
-                raise
-        try:
-            return await _await_if_needed(invoker(messages, model_spec=model_selection))
-        except TypeError as exc:
-            if "model_spec" not in str(exc):
-                raise
-            return await _await_if_needed(invoker(messages))
-    if accounting_context:
-        try:
-            return await _await_if_needed(invoker(messages, accounting_context=accounting_context))
-        except TypeError as exc:
-            if "accounting_context" not in str(exc):
-                raise
-    return await _await_if_needed(invoker(messages))
-
-
-async def _await_if_needed(value: Any) -> Any:
-    if inspect.isawaitable(value):
-        return await value
-    return value
-
-
-def _model_action_timeout_seconds(
-    model_runtime: Any,
-    *,
-    model_selection: dict[str, Any],
-) -> float:
-    for key in ("model_response_timeout_seconds", "model_timeout_seconds", "request_timeout_seconds", "timeout_seconds"):
-        if key not in model_selection:
-            continue
-        try:
-            value = float(model_selection.get(key) or 0)
-        except (TypeError, ValueError):
-            continue
-        if value > 0:
-            return value
-    for attr_name in ("model_call_timeout_seconds", "request_timeout_seconds", "long_output_timeout_seconds"):
-        try:
-            value = float(getattr(model_runtime, attr_name) or 0)
-        except (AttributeError, TypeError, ValueError):
-            continue
-        if value > 0:
-            return value
-    return 180.0
 
 
 async def _commit_assistant_message(
@@ -958,19 +898,6 @@ async def _commit_assistant_message(
     )
     if hasattr(result, "__await__"):
         await result
-
-
-def _parse_json_object(content: Any) -> dict[str, Any]:
-    text = str(content or "").strip()
-    if text.startswith("```"):
-        text = text.strip("`").strip()
-        if text.lower().startswith("json"):
-            text = text[4:].strip()
-    try:
-        parsed = json.loads(text)
-    except Exception:
-        return {}
-    return dict(parsed) if isinstance(parsed, dict) else {}
 
 
 async def _run_bounded_tool_observation(
@@ -1014,7 +941,7 @@ async def _run_bounded_tool_observation(
                 packet_ref=packet_ref,
                 action_request_ref=action_request.request_id,
                 execution_context_ref=execution_context.execution_context_id,
-                summary=_compact_text(result),
+                summary=compact_text(result),
                 payload={
                     "tool_name": tool_name,
                     "tool_args": tool_args,
@@ -1071,7 +998,7 @@ async def _initialize_agent_todo(
     }
     try:
         result = await _call_tool(tool, args)
-        return {"source": source, "summary": _compact_text(result), "payload": {"result": str(result or "")}}
+        return {"source": source, "summary": compact_text(result), "payload": {"result": str(result or "")}}
     except Exception as exc:
         return {
             "source": source,
@@ -1518,10 +1445,3 @@ async def _call_tool(tool: Any, args: dict[str, Any]) -> Any:
             return await result
         return result
     raise RuntimeError(f"Tool is not callable: {getattr(tool, 'name', type(tool).__name__)}")
-
-
-def _compact_text(value: Any, *, limit: int = 1200) -> str:
-    text = str(value or "").strip()
-    if len(text) <= limit:
-        return text
-    return text[:limit].rstrip() + "\n[truncated]"

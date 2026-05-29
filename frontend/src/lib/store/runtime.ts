@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  dispatchGraphRunReadyNodes,
+  runGraphRunUntilIdle,
   loadFile,
   createSession,
   deleteSession,
@@ -16,6 +16,7 @@ import {
   getOrchestrationHarnessSessionLiveMonitor,
   getRagMode,
   getSessionHistory,
+  getSessionTimeline,
   getSessionTokens,
   isRequestAbortError,
   listSessions,
@@ -368,7 +369,7 @@ export class WorkspaceRuntime {
     const requestId = ++this.sessionDetailsRequest;
     try {
       const [history, tokens] = await Promise.all([
-        getSessionHistory(sessionId),
+        getSessionTimeline(sessionId).catch(() => getSessionHistory(sessionId)),
         getSessionTokens(sessionId)
       ]);
       if (this.store.getState().currentSessionId !== sessionId || this.sessionDetailsRequest !== requestId) {
@@ -377,7 +378,10 @@ export class WorkspaceRuntime {
       this.store.setState((prev) => {
         const next: StoreState = {
           ...prev,
-          messages: toUiMessages(history.messages),
+          messages: toUiMessages(
+            history.messages,
+            "runtime_attachments" in history ? history.runtime_attachments ?? [] : [],
+          ),
           tokenStats: tokens,
         };
         return prev.sessionActivity.event === "session_history_load_failed"
@@ -1417,9 +1421,9 @@ export class WorkspaceRuntime {
     }
     this.store.setState((prev) => ({ ...prev, taskGraphMonitorActionLoading: true, taskGraphMonitorError: "" }));
     try {
-      await dispatchGraphRunReadyNodes(graphRunId, {
+      await runGraphRunUntilIdle(graphRunId, {
         graph_harness_config_id: graphHarnessConfigId,
-        max_requests: 1,
+        max_dispatch_requests: 1,
       });
       const monitor = await getGraphRunMonitor(graphRunId, graphHarnessConfigId);
       this.store.setState((prev) => ({
@@ -1515,9 +1519,9 @@ export class WorkspaceRuntime {
     if (!graphHarnessConfigId) {
       throw new Error("新 GraphHarness 派发需要 graph_harness_config_id。");
     }
-    await dispatchGraphRunReadyNodes(runId, {
+    await runGraphRunUntilIdle(runId, {
       graph_harness_config_id: graphHarnessConfigId,
-      max_requests: Number(payload?.max_requests ?? 1),
+      max_dispatch_requests: Number(payload?.max_requests ?? 1),
     });
     const sessionId = this.store.getState().currentSessionId;
     if (sessionId) {
@@ -1559,7 +1563,7 @@ export class WorkspaceRuntime {
       }
       if (this.store.getState().currentSessionId === targetSessionId && this.orchestrationHydrateRequest === requestId) {
         this.store.setState((prev) => ({
-          ...prev,
+          ...this.patchRuntimeAttachmentFromMonitor(prev, activeMonitor),
           taskGraphLiveMonitor: activeMonitor,
           taskGraphRunMonitor,
         }));
@@ -1597,6 +1601,71 @@ export class WorkspaceRuntime {
       ? monitor.task_run as Record<string, unknown>
       : {};
     return Object.keys(nested).length ? nested : monitor as unknown as Record<string, unknown>;
+  }
+
+  private patchRuntimeAttachmentFromMonitor(state: StoreState, monitor: NonNullable<Awaited<ReturnType<typeof getOrchestrationHarnessSessionLiveMonitor>>["monitor"]>): StoreState {
+    const taskRun = this.harnessMonitorTaskRun(monitor);
+    const taskRunId = String(taskRun.task_run_id ?? monitor.task_run_id ?? "").trim();
+    if (!taskRunId) {
+      return state;
+    }
+    const attachment = {
+      attachment_id: `runtime-attachment:${taskRunId}`,
+      anchor_turn_id: this.turnIdFromTaskRunId(taskRunId),
+      task_run_id: taskRunId,
+      task_id: String(taskRun.task_id ?? monitor.task_id ?? ""),
+      status: String(monitor.status ?? taskRun.status ?? ""),
+      terminal_reason: String(monitor.terminal_reason ?? taskRun.terminal_reason ?? ""),
+      lifecycle: String((monitor as Record<string, unknown>).lifecycle ?? ""),
+      title: String((monitor as Record<string, unknown>).title ?? "Agent 运行"),
+      summary: String(monitor.latest_step_summary ?? ""),
+      latest_step: monitor.latest_step ?? {},
+      latest_step_summary: String(monitor.latest_step_summary ?? ""),
+      latest_event_type: String((monitor.latest_event as Record<string, unknown> | undefined)?.event_type ?? ""),
+      event_count: Number(monitor.event_count ?? 0),
+      progress_entries: monitor.latest_step ? [{
+        id: String((monitor.latest_step as Record<string, unknown>).event_id ?? `${taskRunId}:latest`),
+        title: String(monitor.latest_step_summary ?? "任务运行中"),
+        body: String(monitor.latest_step_summary ?? ""),
+        eventType: "runtime_live_monitor",
+        kind: "stage",
+        level: String(monitor.status ?? "") === "completed" ? "success" : "running",
+        statusText: String((monitor.latest_step as Record<string, unknown>).status ?? monitor.status ?? ""),
+        taskRunId,
+        createdAt: Number((monitor.latest_step as Record<string, unknown>).created_at ?? 0) || undefined,
+      }] : [],
+      artifact_refs: Array.isArray(monitor.artifact_refs) ? monitor.artifact_refs : [],
+      trace_available: true,
+      updated_at: Number(monitor.updated_at ?? Date.now() / 1000),
+    };
+    return {
+      ...state,
+      messages: state.messages.map((message) => {
+        if (message.role !== "assistant") {
+          return message;
+        }
+        const existing = message.runtimeAttachments ?? [];
+        const hasAttachment = existing.some((item) => item.task_run_id === taskRunId);
+        const sourceMatches = attachment.anchor_turn_id && message.sourceIndex === Number(attachment.anchor_turn_id.split(":").at(-1));
+        if (!hasAttachment && !sourceMatches) {
+          return message;
+        }
+        return {
+          ...message,
+          runtimeAttachments: hasAttachment
+            ? existing.map((item) => item.task_run_id === taskRunId ? { ...item, ...attachment } : item)
+            : [...existing, attachment],
+        };
+      }),
+    };
+  }
+
+  private turnIdFromTaskRunId(taskRunId: string) {
+    const parts = taskRunId.split(":");
+    if (parts.length < 4 || parts[0] !== "taskrun" || parts[1] !== "turn") {
+      return "";
+    }
+    return parts.slice(1, 4).join(":");
   }
 
   private setTaskSelection(selection: TaskSelectionState | null) {

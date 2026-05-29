@@ -70,6 +70,7 @@ export function ChatPanel() {
               onResendEdit={resendEditedMessage}
               retrievals={message.retrievals}
               role={message.role}
+              runtimeAttachments={message.runtimeAttachments}
               runtimeProgress={message.runtimeProgress}
               stageStatus={message.stageStatus}
               toolCalls={message.toolCalls}

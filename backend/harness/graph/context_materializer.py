@@ -35,6 +35,7 @@ class GraphContextMaterializer:
             upstream_packets=upstream_packets,
             upstream_results=upstream_results,
         )
+        environment_refs = _environment_refs(graph_config)
         return GraphNodeWorkOrder(
             work_order_id=f"gwork:{safe_id(state.graph_run_id)}:{safe_id(node_id)}:{int(time.time() * 1000)}",
             work_kind=_graph_work_kind(executor_type),
@@ -64,6 +65,11 @@ class GraphContextMaterializer:
             memory_view_request=dict(input_package.get("memory_view") or {}),
             artifact_view_request=dict(input_package.get("artifact_view") or {}),
             file_view_request=dict(input_package.get("file_view") or {}),
+            artifact_space_ref=str(environment_refs.get("artifact_space_ref") or ""),
+            memory_space_ref=str(environment_refs.get("memory_space_ref") or ""),
+            file_access_table_refs=tuple(environment_refs.get("file_access_table_refs") or ()),
+            artifact_repository_targets=tuple(dict(item) for item in list(environment_refs.get("artifact_repository_targets") or []) if isinstance(item, dict)),
+            memory_repository_targets=tuple(dict(item) for item in list(environment_refs.get("memory_repository_targets") or []) if isinstance(item, dict)),
             permission_scope=dict(input_package.get("permission_summary") or graph_config.permissions or {}),
             tool_scope=dict(input_package.get("tool_capability_table") or graph_config.tools or {}),
             expected_result_contract=dict(input_package.get("expected_result_contract") or {}),
@@ -93,6 +99,7 @@ class GraphContextMaterializer:
         node_id = str(node.get("node_id") or "")
         prompt_contract = _prompt_contract(node)
         initial_inputs = dict(state.initial_inputs or {}) if node_id in start_node_ids(graph_config) else {}
+        environment_refs = _environment_refs(graph_config)
         return {
             "package_id": f"gin:{safe_id(state.graph_run_id)}:{safe_id(node_id)}:{safe_id(stable_hash([upstream_packets, upstream_results])[:12])}",
             "authority": "harness.graph_node_input_package",
@@ -107,6 +114,9 @@ class GraphContextMaterializer:
             },
             "prompt_contract": prompt_contract,
             "prompt": prompt_contract,
+            "task_environment_id": str(graph_config.task_environment_id or ""),
+            "task_environment": dict(graph_config.environment or {}),
+            "runtime_profile": _node_runtime_profile(graph_config=graph_config, node=node),
             "agent_instruction": _agent_instruction(prompt_contract=prompt_contract, node=node),
             "input_contract": dict(dict(node.get("contracts") or {}).get("contract_bindings") or {}).get("schema", {}),
             "output_contract": dict(node.get("contracts") or {}),
@@ -117,6 +127,12 @@ class GraphContextMaterializer:
             "memory_view": _memory_view_request(graph_config=graph_config, node=node),
             "artifact_view": _artifact_view_request(graph_config=graph_config, node=node),
             "file_view": _file_view_request(graph_config=graph_config, node=node),
+            "environment_refs": environment_refs,
+            "artifact_space_ref": str(environment_refs.get("artifact_space_ref") or ""),
+            "memory_space_ref": str(environment_refs.get("memory_space_ref") or ""),
+            "file_access_table_refs": list(environment_refs.get("file_access_table_refs") or []),
+            "artifact_repository_targets": [dict(item) for item in list(environment_refs.get("artifact_repository_targets") or []) if isinstance(item, dict)],
+            "memory_repository_targets": [dict(item) for item in list(environment_refs.get("memory_repository_targets") or []) if isinstance(item, dict)],
             "issue_view": _issue_view_request(graph_config=graph_config, node=node),
             "permission_summary": dict(node.get("permissions") or graph_config.permissions or {}),
             "tool_capability_table": dict(node.get("tools") or graph_config.tools or {}),
@@ -132,18 +148,19 @@ class GraphContextMaterializer:
 
     def upstream_results_for_node(self, *, graph_config: GraphHarnessConfig, state: GraphLoopState, node_id: str) -> list[dict[str, Any]]:
         results: list[dict[str, Any]] = []
-        for upstream_id in upstream_dependency_node_ids(graph_config, node_id):
+        for edge in _incoming_dependency_edges(graph_config, node_id):
+            upstream_id = str(edge.get("source_node_id") or "")
             result = dict(state.result_index.get(upstream_id) or {})
             if result:
+                payload = _filtered_edge_payload(edge=edge, result=result)
                 results.append(
                     {
                         "source_node_id": upstream_id,
                         "result_id": str(result.get("result_id") or ""),
                         "status": str(result.get("status") or ""),
-                        "outputs": dict(result.get("outputs") or {}),
-                        "decisions": dict(result.get("decisions") or {}),
-                        "artifact_refs": list(result.get("artifact_refs") or []),
-                        "handoff_summary": str(result.get("handoff_summary") or ""),
+                        **payload,
+                        "delivery_policy": str(edge.get("result_delivery_policy") or "contract_payload_and_refs"),
+                        "edge_id": str(edge.get("edge_id") or ""),
                     }
                 )
         return results
@@ -155,6 +172,7 @@ class GraphContextMaterializer:
             result = dict(state.result_index.get(source_node_id) or {})
             if not result:
                 continue
+            payload = _filtered_edge_payload(edge=edge, result=result)
             packets.append(
                 {
                     "packet_id": f"ghandoff:{safe_id(state.graph_run_id)}:{safe_id(str(edge.get('edge_id') or source_node_id + '.' + node_id))}",
@@ -169,13 +187,7 @@ class GraphContextMaterializer:
                     "source_result_id": str(result.get("result_id") or ""),
                     "source_status": str(result.get("status") or ""),
                     "payload_contract_id": str(edge.get("payload_contract_id") or ""),
-                    "payload": {
-                        "outputs": dict(result.get("outputs") or {}),
-                        "decisions": dict(result.get("decisions") or {}),
-                        "artifact_refs": list(result.get("artifact_refs") or []),
-                        "memory_candidates": list(result.get("memory_candidates") or []),
-                        "handoff_summary": str(result.get("handoff_summary") or ""),
-                    },
+                    "payload": payload,
                     "delivery_policy": str(edge.get("result_delivery_policy") or "contract_payload_and_refs"),
                     "ack_required": bool(edge.get("ack_required", True)),
                 }
@@ -192,6 +204,119 @@ def _incoming_dependency_edges(graph_config: GraphHarnessConfig, node_id: str) -
         for edge in build_scheduler_view(graph_config).dependency_edges
         if str(edge.get("target_node_id") or "") == target
     )
+
+
+def _filtered_edge_payload(*, edge: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
+    delivery_policy = str(edge.get("result_delivery_policy") or "contract_payload_and_refs").strip() or "contract_payload_and_refs"
+    output_payload = _filter_outputs(
+        dict(result.get("outputs") or {}),
+        context_filter_policy=dict(edge.get("context_filter_policy") or {}),
+    )
+    artifact_refs = _filter_artifact_refs(
+        list(result.get("artifact_refs") or []),
+        artifact_ref_policy=dict(edge.get("artifact_ref_policy") or {}),
+    )
+    memory_candidates = _filter_memory_candidates(
+        list(result.get("memory_candidates") or []),
+        working_memory_handoff_policy=dict(edge.get("working_memory_handoff_policy") or {}),
+        delivery_policy=delivery_policy,
+    )
+    base_refs = {
+        "artifact_refs": artifact_refs,
+        "artifact_materialization_receipts": list(result.get("artifact_materialization_receipts") or []),
+        "memory_commit_receipts": list(result.get("memory_commit_receipts") or []),
+        "handoff_summary": str(result.get("handoff_summary") or ""),
+    }
+    if delivery_policy in {"notification_only", "status_only"}:
+        return {"handoff_summary": base_refs["handoff_summary"]}
+    if delivery_policy in {"refs_only", "artifact_refs_only"}:
+        return base_refs
+    if delivery_policy in {"summary_only", "summary_and_refs"}:
+        return base_refs
+    return {
+        "outputs": output_payload,
+        "decisions": dict(result.get("decisions") or {}),
+        "memory_candidates": memory_candidates,
+        **base_refs,
+    }
+
+
+def _filter_outputs(outputs: dict[str, Any], *, context_filter_policy: dict[str, Any]) -> dict[str, Any]:
+    include_keys = _string_set(
+        context_filter_policy.get("include_output_keys")
+        or context_filter_policy.get("allowed_output_keys")
+        or context_filter_policy.get("include_keys")
+        or context_filter_policy.get("allow")
+    )
+    exclude_keys = _string_set(
+        context_filter_policy.get("exclude_output_keys")
+        or context_filter_policy.get("blocked_output_keys")
+        or context_filter_policy.get("exclude_keys")
+        or context_filter_policy.get("deny")
+    )
+    if include_keys:
+        filtered = {key: value for key, value in outputs.items() if str(key) in include_keys}
+    else:
+        filtered = dict(outputs)
+    for key in exclude_keys:
+        filtered.pop(key, None)
+    max_chars = _int_value(context_filter_policy.get("max_chars") or context_filter_policy.get("max_output_chars"), 0)
+    if max_chars > 0:
+        return {key: _truncate_value(value, max_chars=max_chars) for key, value in filtered.items()}
+    return filtered
+
+
+def _filter_artifact_refs(refs: list[Any], *, artifact_ref_policy: dict[str, Any]) -> list[Any]:
+    if artifact_ref_policy.get("include") is False or artifact_ref_policy.get("enabled") is False:
+        return []
+    max_refs = _int_value(artifact_ref_policy.get("max_refs") or artifact_ref_policy.get("limit"), 0)
+    result = list(refs)
+    if max_refs > 0:
+        result = result[:max_refs]
+    return result
+
+
+def _filter_memory_candidates(
+    candidates: list[Any],
+    *,
+    working_memory_handoff_policy: dict[str, Any],
+    delivery_policy: str,
+) -> list[Any]:
+    if delivery_policy in {"refs_only", "artifact_refs_only", "summary_only", "summary_and_refs", "notification_only", "status_only"}:
+        return []
+    if working_memory_handoff_policy.get("include_candidates") is False:
+        return []
+    carry_kinds = _string_set(working_memory_handoff_policy.get("carry_kinds") or working_memory_handoff_policy.get("record_kinds"))
+    if not carry_kinds:
+        return [dict(item) for item in candidates if isinstance(item, dict)]
+    return [
+        dict(item)
+        for item in candidates
+        if isinstance(item, dict) and str(item.get("record_kind") or item.get("kind") or "") in carry_kinds
+    ]
+
+
+def _truncate_value(value: Any, *, max_chars: int) -> Any:
+    if isinstance(value, str) and len(value) > max_chars:
+        return value[:max_chars].rstrip()
+    if isinstance(value, dict):
+        return {key: _truncate_value(item, max_chars=max_chars) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_truncate_value(item, max_chars=max_chars) for item in value]
+    return value
+
+
+def _string_set(value: Any) -> set[str]:
+    if isinstance(value, str):
+        return {value.strip()} if value.strip() else set()
+    return {str(item).strip() for item in list(value or []) if str(item).strip()}
+
+
+def _int_value(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _prompt_contract(node: dict[str, Any]) -> dict[str, Any]:
@@ -224,21 +349,36 @@ def _agent_instruction(*, prompt_contract: dict[str, Any], node: dict[str, Any])
 
 
 def _memory_view_request(*, graph_config: GraphHarnessConfig, node: dict[str, Any]) -> dict[str, Any]:
+    environment = dict(graph_config.environment or {})
     return {
+        "task_environment_id": str(graph_config.task_environment_id or ""),
+        "environment_memory_space": dict(environment.get("memory_space") or {}),
+        "memory_space_ref": _memory_space_ref(graph_config),
         "node_memory_policy": dict(node.get("memory") or {}),
         "graph_memory_policy": dict(graph_config.memory or {}),
     }
 
 
 def _artifact_view_request(*, graph_config: GraphHarnessConfig, node: dict[str, Any]) -> dict[str, Any]:
+    environment = dict(graph_config.environment or {})
     return {
+        "task_environment_id": str(graph_config.task_environment_id or ""),
+        "environment_artifact_policy": dict(environment.get("artifact_policy") or {}),
+        "environment_storage_space": dict(environment.get("storage_space") or {}),
+        "artifact_space_ref": _artifact_space_ref(graph_config),
         "node_artifact_policy": dict(node.get("artifacts") or {}),
         "graph_artifact_policy": dict(graph_config.artifacts or {}),
     }
 
 
 def _file_view_request(*, graph_config: GraphHarnessConfig, node: dict[str, Any]) -> dict[str, Any]:
+    environment = dict(graph_config.environment or {})
     return {
+        "task_environment_id": str(graph_config.task_environment_id or ""),
+        "environment_storage_space": dict(environment.get("storage_space") or {}),
+        "file_management": dict(environment.get("file_management") or {}),
+        "file_access_tables": list(environment.get("file_access_tables") or []),
+        "file_access_table_refs": _file_access_table_refs(graph_config),
         "node_file_policy": dict(node.get("files") or {}),
         "graph_resource_policy": dict(graph_config.resources or {}),
     }
@@ -262,3 +402,98 @@ def _graph_work_kind(executor_type: str) -> str:
     if normalized == "tool":
         return "tool"
     return "agent"
+
+
+def _node_runtime_profile(*, graph_config: GraphHarnessConfig, node: dict[str, Any]) -> dict[str, Any]:
+    metadata = dict(node.get("metadata") or {})
+    runtime_profile = dict(metadata.get("runtime_profile") or {})
+    if not runtime_profile:
+        runtime_profile = dict(metadata.get("runtime") or {})
+    mode = str(
+        runtime_profile.get("mode")
+        or runtime_profile.get("runtime_mode")
+        or metadata.get("runtime_mode")
+        or dict(graph_config.agents or {}).get("runtime_mode")
+        or "professional"
+    ).strip() or "professional"
+    return {
+        **runtime_profile,
+        "mode": mode,
+        "runtime_mode": str(runtime_profile.get("runtime_mode") or mode),
+        "task_environment_id": str(graph_config.task_environment_id or ""),
+        "tool_policy": dict(node.get("tools") or graph_config.tools or {}),
+        "permission_policy": dict(node.get("permissions") or graph_config.permissions or {}),
+        "runtime_mode_policy": {
+            **dict(runtime_profile.get("runtime_mode_policy") or runtime_profile.get("mode_policy") or {}),
+            "source": "graph_node_config",
+            "node_id": str(node.get("node_id") or ""),
+        },
+    }
+
+
+def _environment_refs(graph_config: GraphHarnessConfig) -> dict[str, Any]:
+    return {
+        "task_environment_id": str(graph_config.task_environment_id or ""),
+        "artifact_space_ref": _artifact_space_ref(graph_config),
+        "memory_space_ref": _memory_space_ref(graph_config),
+        "file_access_table_refs": list(_file_access_table_refs(graph_config)),
+        "artifact_repository_targets": _artifact_repository_targets(graph_config),
+        "memory_repository_targets": _memory_repository_targets(graph_config),
+        "authority": "harness.graph.context_materializer.environment_refs",
+    }
+
+
+def _artifact_space_ref(graph_config: GraphHarnessConfig) -> str:
+    storage = dict(dict(graph_config.environment or {}).get("storage_space") or {})
+    return str(storage.get("artifact_root") or "").strip()
+
+
+def _memory_space_ref(graph_config: GraphHarnessConfig) -> str:
+    memory_space = dict(dict(graph_config.environment or {}).get("memory_space") or {})
+    for key in ("environment_memory_refs", "project_knowledge_refs", "shared_context_refs", "retrieval_index_refs"):
+        refs = [str(item) for item in list(memory_space.get(key) or []) if str(item)]
+        if refs:
+            return refs[0]
+    return str(graph_config.task_environment_id or "").strip()
+
+
+def _file_access_table_refs(graph_config: GraphHarnessConfig) -> tuple[str, ...]:
+    tables = list(dict(graph_config.environment or {}).get("file_access_tables") or [])
+    refs: list[str] = []
+    for item in tables:
+        if not isinstance(item, dict):
+            continue
+        table_id = str(item.get("table_id") or "").strip()
+        if table_id:
+            refs.append(table_id)
+    return tuple(dict.fromkeys(refs))
+
+
+def _artifact_repository_targets(graph_config: GraphHarnessConfig) -> list[dict[str, Any]]:
+    artifact_root = _artifact_space_ref(graph_config)
+    if not artifact_root:
+        return []
+    return [
+        {
+            "target_ref": artifact_root,
+            "target_kind": "task_environment_artifact_root",
+            "task_environment_id": str(graph_config.task_environment_id or ""),
+            "authority": "task_environment.artifact_policy",
+        }
+    ]
+
+
+def _memory_repository_targets(graph_config: GraphHarnessConfig) -> list[dict[str, Any]]:
+    memory_space = dict(dict(graph_config.environment or {}).get("memory_space") or {})
+    targets: list[dict[str, Any]] = []
+    for key in ("environment_memory_refs", "project_knowledge_refs", "shared_context_refs", "retrieval_index_refs"):
+        for ref in [str(item).strip() for item in list(memory_space.get(key) or []) if str(item).strip()]:
+            targets.append(
+                {
+                    "target_ref": ref,
+                    "target_kind": key,
+                    "task_environment_id": str(graph_config.task_environment_id or ""),
+                    "authority": "task_environment.memory_space",
+                }
+            )
+    return targets

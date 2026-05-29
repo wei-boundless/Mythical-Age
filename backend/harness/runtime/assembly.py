@@ -56,6 +56,7 @@ class RuntimeAssembly:
     turn_id: str
     agent_invocation_id: str
     profile: RuntimeAssemblyProfile
+    backend_dir: str = ""
     agent_profile_ref: str = ""
     model_selection: dict[str, Any] = field(default_factory=dict)
     task_selection: dict[str, Any] = field(default_factory=dict)
@@ -63,7 +64,8 @@ class RuntimeAssembly:
     execution_strategy: dict[str, Any] = field(default_factory=dict)
     engagement_run_ref: str = ""
     task_environment: dict[str, Any] = field(default_factory=dict)
-    work_role_prompt: str = ""
+    agent_prompt_refs: tuple[str, ...] = ()
+    environment_prompt_refs: tuple[str, ...] = ()
     available_tools: tuple[dict[str, Any], ...] = ()
     tool_names: tuple[str, ...] = ()
     filtered_tools: tuple[dict[str, str], ...] = ()
@@ -82,6 +84,8 @@ class RuntimeAssembly:
         payload["operation_authorization"] = dict(self.operation_authorization)
         payload["engagement_contract"] = dict(self.engagement_contract)
         payload["execution_strategy"] = dict(self.execution_strategy)
+        payload["agent_prompt_refs"] = list(self.agent_prompt_refs)
+        payload["environment_prompt_refs"] = list(self.environment_prompt_refs)
         payload["rejected_capabilities"] = [dict(item) for item in self.rejected_capabilities]
         return payload
 
@@ -156,6 +160,7 @@ def assemble_runtime(
         turn_id=turn_id,
         agent_invocation_id=agent_invocation_id,
         profile=profile,
+        backend_dir=str(Path(backend_dir).resolve()),
         agent_profile_ref=str(getattr(agent_runtime_profile, "agent_profile_id", "") or "main_interactive_agent"),
         model_selection=dict(model_selection or {}),
         task_selection=selection,
@@ -163,7 +168,8 @@ def assemble_runtime(
         execution_strategy=dict(engagement_contract.get("execution_strategy") or selection.get("execution_strategy") or {}),
         engagement_run_ref=str(selection.get("engagement_run_ref") or ""),
         task_environment=task_environment,
-        work_role_prompt=_work_role_prompt(agent_runtime_profile),
+        agent_prompt_refs=_agent_prompt_refs(agent_runtime_profile),
+        environment_prompt_refs=_environment_prompt_refs(task_environment),
         available_tools=available_tools,
         tool_names=visible_tool_names,
         filtered_tools=tuple(
@@ -269,6 +275,34 @@ def _work_role_prompt(agent_runtime_profile: Any | None) -> str:
         or metadata.get("agent_work_role_prompt")
         or ""
     ).strip()
+
+
+def _agent_prompt_refs(agent_runtime_profile: Any | None) -> tuple[str, ...]:
+    metadata = dict(getattr(agent_runtime_profile, "metadata", {}) or {})
+    explicit = _string_tuple(metadata.get("agent_prompt_refs"))
+    if explicit:
+        return explicit
+    if _work_role_prompt(agent_runtime_profile):
+        profile_id = str(getattr(agent_runtime_profile, "agent_profile_id", "") or "main_interactive_agent")
+        return (_agent_work_role_prompt_id(profile_id),)
+    return ()
+
+
+def _environment_prompt_refs(environment_payload: dict[str, Any]) -> tuple[str, ...]:
+    boundary = dict(environment_payload.get("environment_boundary") or {})
+    refs = _string_tuple(boundary.get("prompt_refs"))
+    if refs:
+        return refs
+    return tuple(
+        str(item.get("prompt_id") or "").strip()
+        for item in list(environment_payload.get("environment_prompts") or [])
+        if isinstance(item, dict) and str(item.get("prompt_id") or "").strip()
+    )
+
+
+def _agent_work_role_prompt_id(agent_profile_id: str) -> str:
+    normalized = ".".join(part for part in str(agent_profile_id or "agent").replace(":", ".").split(".") if part)
+    return f"agent.{normalized}.work_role.v1"
 
 
 def _resolved_mode_runtime_policy(

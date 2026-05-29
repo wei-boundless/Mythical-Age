@@ -1,13 +1,12 @@
 "use client";
 
-import { Bot, Eraser, FileText, GripHorizontal, MessageSquare, Minimize2, PanelRightOpen, Play, ShieldCheck } from "lucide-react";
+import { Bot, Eraser, FileText, GripHorizontal, MessageSquare, Minimize2, PanelRightOpen, ShieldCheck } from "lucide-react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import {
   createHealthAgentConversationSession,
-  createHealthManagementCommand,
   sendHealthAgentConversationMessage,
   type HealthAgentConversationMessage,
   type HealthAgentConversationSession,
@@ -264,70 +263,6 @@ export function HealthAgentDock({
     }
   }
 
-  async function delegateCommand() {
-    const targetRef = activeIssueRef || activeRunRef;
-    if (!targetRef || !session) {
-      setMode("blocked");
-      setMessages((prev) => [
-        ...prev,
-        {
-          message_id: `local:block:${Date.now()}`,
-          session_id: session?.session_id || "local",
-          role: "assistant",
-          content: !targetRef ? "请先绑定一个健康问题或运行，再让我代操。" : "健康管家会话还没建立，稍等一下再试。",
-          created_at: Date.now() / 1000
-        }
-      ]);
-      return;
-    }
-    setMode("delegating");
-    try {
-      const response = await createHealthManagementCommand({
-        command_type: "analyze_trace",
-        initiator_type: "agent",
-        initiator_ref: session.agent_id,
-        source: "health_agent_dock",
-        conversation_session_ref: session.session_id,
-        target_scope: activeIssueRef ? "health_issue" : "health_agent_run",
-        target_ref: targetRef,
-        health_action: "issue_triage",
-        payload: {
-          active_issue_ref: activeIssueRef,
-          active_run_ref: activeRunRef
-        }
-      });
-      const content = response.receipt.accepted
-        ? `已提交代操命令并收到回执：${response.receipt.status}。报告：${response.receipt.report_ref || "待生成"}。`
-        : `代操被门禁拒绝：${response.receipt.blocked_reasons.join(" / ") || response.receipt.status}。`;
-      setMessages((prev) => [
-        ...prev,
-        {
-          message_id: `local:receipt:${response.receipt.receipt_id}`,
-          session_id: session.session_id,
-          role: "assistant",
-          content,
-          command_ref: response.command.command_id,
-          receipt_ref: response.receipt.receipt_id,
-          report_ref: response.receipt.report_ref,
-          created_at: Date.now() / 1000
-        }
-      ]);
-      setMode(response.receipt.accepted ? "idle" : "blocked");
-    } catch {
-      setMode("failed");
-      setMessages((prev) => [
-        ...prev,
-        {
-          message_id: `local:delegate-failed:${Date.now()}`,
-          session_id: session.session_id,
-          role: "assistant",
-          content: "代操命令提交失败。健康系统原生操作台仍可直接使用。",
-          created_at: Date.now() / 1000
-        }
-      ]);
-    }
-  }
-
   if (!mounted) {
     return null;
   }
@@ -381,9 +316,9 @@ export function HealthAgentDock({
       </div>
 
       <div className="health-agent-dock__actions">
-        <button disabled={!selectedIssue || running || mode === "delegating"} onClick={() => void delegateCommand()} type="button">
-          <Play size={14} />
-          分析当前问题
+        <button disabled type="button" title="健康分析 Agent 未启用；当前只提供治理视图和问题登记。">
+          <ShieldCheck size={14} />
+          Agent 未启用
         </button>
         <button disabled={!selectedRun} onClick={onExplainRun} type="button">
           <PanelRightOpen size={14} />

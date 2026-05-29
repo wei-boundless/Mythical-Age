@@ -14,6 +14,7 @@ const api = vi.hoisted(() => ({
   getOrchestrationHarnessSessionLiveMonitor: vi.fn(),
   getRagMode: vi.fn(),
   getSessionHistory: vi.fn(),
+  getSessionTimeline: vi.fn(),
   getSessionTokens: vi.fn(),
   getSoulImageAssetConfig: vi.fn(),
   getGraphRunMonitor: vi.fn(),
@@ -27,7 +28,7 @@ const api = vi.hoisted(() => ({
 vi.mock("@/lib/api", () => ({
   createSession: api.createSession,
   deleteSession: vi.fn(),
-  dispatchGraphRunReadyNodes: vi.fn(),
+  runGraphRunUntilIdle: vi.fn(),
   evaluateTaskGraphRunMonitor: vi.fn(),
   getCodeEnvironmentWorkspaceTree: api.getCodeEnvironmentWorkspaceTree,
   getGlobalRuntimeMonitor: api.getGlobalRuntimeMonitor,
@@ -41,6 +42,7 @@ vi.mock("@/lib/api", () => ({
   getOrchestrationHarnessSessionLiveMonitor: api.getOrchestrationHarnessSessionLiveMonitor,
   getRagMode: api.getRagMode,
   getSessionHistory: api.getSessionHistory,
+  getSessionTimeline: api.getSessionTimeline,
   getSessionTokens: api.getSessionTokens,
   listSessions: api.listSessions,
   listSkills: api.listSkills,
@@ -157,6 +159,8 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     api.getOrchestrationHarnessTaskRunLiveMonitor.mockResolvedValue({ monitor: null });
     api.getSessionHistory.mockReset();
     api.getSessionHistory.mockResolvedValue({ messages: [] });
+    api.getSessionTimeline.mockReset();
+    api.getSessionTimeline.mockResolvedValue({ messages: [], runtime_attachments: [] });
     api.getSessionTokens.mockReset();
     api.getSessionTokens.mockResolvedValue(null);
     api.getGraphRunMonitor.mockReset();
@@ -825,6 +829,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
   it("keeps the page alive when selected session history times out", async () => {
     vi.useRealTimers();
+    api.getSessionTimeline.mockRejectedValue(new Error("Request timed out after 12000ms: /sessions/session:slow/timeline"));
     api.getSessionHistory.mockRejectedValue(new Error("Request timed out after 12000ms: /sessions/session:slow/history"));
     const store = createStore<StoreState>({
       ...getDefaultState(),
@@ -1272,23 +1277,52 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(assistant?.runtimeProgress).toEqual([]);
   });
 
-  it("attaches legacy stream tool events to the assistant task flow", () => {
-    let transition = startStreamingTurn(getDefaultState(), "读取文件");
-    transition = reduceStreamEvent(transition.state, transition.session, "tool_start", {
-      tool: "read_file",
-      input: "frontend/src/components/chat/ChatMessage.tsx",
+  it("attaches session timeline TaskRun activity to the assistant message", async () => {
+    vi.useRealTimers();
+    api.getSessionTimeline.mockResolvedValue({
+      messages: [
+        { role: "user", content: "执行任务" },
+        { role: "assistant", content: "任务已接管" },
+        { role: "assistant", content: "任务完成" },
+      ],
+      runtime_attachments: [{
+        attachment_id: "runtime-attachment:taskrun:turn:session:timeline:1:abc",
+        anchor_turn_id: "turn:session:timeline:1",
+        task_run_id: "taskrun:turn:session:timeline:1:abc",
+        status: "completed",
+        lifecycle: "completed",
+        title: "Agent 运行",
+        latest_step_summary: "任务合同已满足。",
+        progress_entries: [{
+          id: "step:1",
+          title: "任务已完成",
+          body: "任务合同已满足。",
+          kind: "terminal",
+          level: "success",
+          eventType: "step_summary_recorded",
+        }],
+        artifact_refs: [{ path: "storage/task.txt" }],
+      }],
     });
-    transition = reduceStreamEvent(transition.state, transition.session, "tool_end", {
-      tool: "read_file",
-      output: "ok",
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:timeline",
+      sessions: [{
+        id: "session:timeline",
+        title: "Timeline",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 3,
+      }],
     });
+    const runtime = new WorkspaceRuntime(store);
 
-    const assistant = transition.state.messages.at(-1);
-    expect(assistant?.runtimeProgress?.map((entry) => entry.statusText)).toEqual(["读取中", "已完成"]);
-    expect(assistant?.toolCalls).toHaveLength(1);
-    expect(assistant?.toolCalls[0]).toMatchObject({
-      tool: "read_file",
-      output: "ok",
+    await runtime.actions.selectSession("session:timeline");
+
+    const assistant = store.getState().messages.find((message) => message.role === "assistant" && message.content === "任务已接管");
+    expect(assistant?.runtimeAttachments?.[0]).toMatchObject({
+      task_run_id: "taskrun:turn:session:timeline:1:abc",
+      status: "completed",
     });
   });
 

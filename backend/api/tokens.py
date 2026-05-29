@@ -24,14 +24,14 @@ async def session_tokens(session_id: str) -> dict[str, Any]:
     runtime = require_runtime()
 
     record = runtime.session_manager.get_history(session_id)
-    system_prompt = runtime.query_runtime.build_system_prompt_for_session(session_id)
+    prompt_usage = runtime.query_runtime.single_agent_runtime_host.prompt_accounting_ledger.summarize_session(session_id)
     message_text = []
     for item in record.get("messages", []):
         message_text.append(str(item.get("content", "")))
         for tool_call in item.get("tool_calls", []) or []:
             message_text.append(str(tool_call))
 
-    system_tokens = _count_tokens(system_prompt)
+    system_tokens = int(prompt_usage.get("prompt_tokens") or prompt_usage.get("predicted_total_tokens") or 0)
     message_tokens = _count_tokens("\n".join(message_text))
     messages = list(record.get("messages", []))
     py_messages = runtime.memory_facade.adapter.to_messages(messages, session_id=session_id)
@@ -84,6 +84,7 @@ async def session_tokens(session_id: str) -> dict[str, Any]:
         "history_did_compact": bool(context_compaction.get("did_compact", False)),
         "history_did_microcompact": bool(context_compaction.get("did_microcompact", False)),
         "history_did_full_compact": bool(context_compaction.get("did_full_compact", False)),
+        "prompt_accounting": prompt_usage,
     }
 
 

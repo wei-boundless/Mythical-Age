@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import asyncio
 import hashlib
-import re
 import shutil
 import time
 import uuid
@@ -24,11 +23,12 @@ from runtime.shared.safety import build_task_safety_validators
 from runtime.memory.tool_observation_ledger import build_tool_observation_record
 
 from orchestration.runtime_directive import RuntimeDirective
+from orchestration.commit_gate import build_assistant_session_message_commit_decision
 from project_layout import ProjectLayout
 from harness.runtime import RuntimeCompiler, TaskExecutorServices, assemble_runtime, build_execution_context
 
 from .admission import admit_model_action
-from .agent_loop import _call_model_invoker, _compact_text, _model_action_timeout_seconds, _parse_json_object
+from .model_action_runtime import call_model_invoker, compact_text, model_action_timeout_seconds, parse_json_object
 from .model_action_protocol import ModelActionRequest, model_action_request_from_payload
 from .task_lifecycle import TaskLifecycleRecord, finish_task_lifecycle
 
@@ -49,8 +49,12 @@ def is_task_run_executor_claimed(task_run: Any) -> bool:
 
 def recover_interrupted_task_executors(runtime_host: Any) -> dict[str, Any]:
     recovered: list[str] = []
+    skipped_graph_node_task_run_ids: list[str] = []
     for task_run in runtime_host.state_index.list_task_runs():
         if str(getattr(task_run, "execution_runtime_kind", "") or "") != "single_agent_task":
+            continue
+        if _origin_kind(task_run) == "graph_node_assigned":
+            skipped_graph_node_task_run_ids.append(task_run.task_run_id)
             continue
         if not is_task_run_executor_claimed(task_run):
             continue
@@ -90,6 +94,7 @@ def recover_interrupted_task_executors(runtime_host: Any) -> dict[str, Any]:
     return {
         "recovered_count": len(recovered),
         "task_run_ids": recovered,
+        "skipped_graph_node_task_run_ids": skipped_graph_node_task_run_ids,
         "authority": "harness.task_executor.runtime_start_recovery",
     }
 
@@ -427,10 +432,12 @@ async def execute_task_run(
                 artifact_refs = _dedupe_artifacts([*list(observation_context["artifact_refs"]), *artifact_refs])
                 continue
             return _finish_executor_success(
+                services,
                 runtime_host,
                 task_run=current_task,
                 agent_run=agent_run,
                 final_answer=action_request.final_answer,
+                final_action_diagnostics=dict(action_request.diagnostics or {}),
                 artifact_refs=list(verdict.get("verified_artifacts") or []),
                 observations=raw_observations,
             )
@@ -472,9 +479,9 @@ async def _invoke_task_model_action(
     invoker = getattr(model_runtime, "invoke_messages", None)
     if not callable(invoker):
         return None, {"status": "invalid", "validation_errors": ["model_runtime_unavailable"]}
-    timeout_seconds = _model_action_timeout_seconds(model_runtime, model_selection={})
+    timeout_seconds = model_action_timeout_seconds(model_runtime, model_selection={})
     response = await asyncio.wait_for(
-        _call_model_invoker(
+        call_model_invoker(
             invoker,
             list(packet.model_messages),
             model_selection={},
@@ -490,7 +497,7 @@ async def _invoke_task_model_action(
         ),
         timeout=timeout_seconds,
     )
-    payload = _parse_json_object(getattr(response, "content", response))
+    payload = parse_json_object(getattr(response, "content", response))
     payload.setdefault("request_id", f"model-action:{task_run_id}:{invocation_index}")
     return model_action_request_from_payload(payload, turn_id=task_run_id)
 
@@ -708,6 +715,12 @@ def _task_selection_from_task_run(task_run: Any) -> dict[str, Any]:
     }
 
 
+def _origin_kind(task_run: Any) -> str:
+    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+    origin = dict(diagnostics.get("origin") or {})
+    return str(origin.get("origin_kind") or diagnostics.get("origin_kind") or "").strip()
+
+
 def _task_sandbox_policy(runtime_assembly: dict[str, Any], *, runtime_host: Any, task_run_id: str) -> dict[str, Any]:
     environment = dict(runtime_assembly.get("task_environment") or {})
     storage = dict(environment.get("storage_space") or {})
@@ -818,21 +831,14 @@ def _explicit_contract_paths(contract: dict[str, Any]) -> list[str]:
             value = str(item.get(key) or "").strip()
             if value:
                 paths.append(value)
-        paths.extend(_path_tokens_from_text(str(item.get("description") or "")))
-    for key in ("completion_criteria", "required_verifications"):
-        for item in list(contract.get(key) or []):
-            if isinstance(item, dict):
-                paths.extend(_path_tokens_from_text(json.dumps(item, ensure_ascii=False)))
-            else:
-                paths.extend(_path_tokens_from_text(str(item or "")))
+    for item in list(contract.get("required_verifications") or []):
+        if not isinstance(item, dict):
+            continue
+        for key in ("path", "output_path", "artifact_path", "target_path", "verification_path"):
+            value = str(item.get(key) or "").strip()
+            if value:
+                paths.append(value)
     return _dedupe_strings(paths)
-
-
-_CONTRACT_PATH_TOKEN_RE = re.compile(r"(?<![\w:])([A-Za-z0-9_.\-\u4e00-\u9fff]+(?:/[A-Za-z0-9_.\-\u4e00-\u9fff]+)+(?:/|\\.[A-Za-z0-9]{1,12})?)")
-
-
-def _path_tokens_from_text(text: str) -> list[str]:
-    return [match.group(1) for match in _CONTRACT_PATH_TOKEN_RE.finditer(str(text or "").replace("\\", "/"))]
 
 
 def _normalize_contract_path(path: str) -> str:
@@ -898,11 +904,13 @@ def _verify_completion(
 
 
 def _finish_executor_success(
+    services: TaskExecutorServices,
     runtime_host: Any,
     *,
     task_run: Any,
     agent_run: Any,
     final_answer: str,
+    final_action_diagnostics: dict[str, Any] | None = None,
     artifact_refs: list[dict[str, Any]],
     observations: list[dict[str, Any]],
 ) -> dict[str, Any]:
@@ -926,7 +934,7 @@ def _finish_executor_success(
             agent_id=agent_run.agent_id,
             status="completed",
             output_ref=result_ref,
-            summary=_compact_text(final_answer, limit=500),
+            summary=compact_text(final_answer, limit=500),
             artifact_refs=tuple(str(item.get("path") or item.get("src") or item) for item in artifact_refs),
             created_at=now,
             diagnostics={"artifact_refs": artifact_refs},
@@ -935,7 +943,15 @@ def _finish_executor_success(
     lifecycle = _load_lifecycle(runtime_host, task_run)
     finished_task, finished_lifecycle, event = finish_task_lifecycle(
         runtime_host,
-        task_run=replace(task_run, diagnostics={**dict(task_run.diagnostics or {}), "artifact_refs": artifact_refs, "final_answer": final_answer}),
+        task_run=replace(
+            task_run,
+            diagnostics={
+                **dict(task_run.diagnostics or {}),
+                "artifact_refs": artifact_refs,
+                "final_answer": final_answer,
+                "final_action_diagnostics": dict(final_action_diagnostics or {}),
+            },
+        ),
         lifecycle=lifecycle,
         status="completed",
         terminal_reason="completed",
@@ -948,6 +964,11 @@ def _finish_executor_success(
         status="completed",
         summary="任务合同已满足，执行器已完成收尾并记录真实交付物证据。",
     )
+    _commit_task_run_final_message(
+        services,
+        task_run=finished_task,
+        final_answer=final_answer,
+    )
     _sync_engagement_closeout(runtime_host, finished_task.task_run_id)
     return {
         "ok": True,
@@ -957,6 +978,57 @@ def _finish_executor_success(
         "final_answer": final_answer,
         "artifact_refs": artifact_refs,
     }
+
+
+def _commit_task_run_final_message(
+    services: TaskExecutorServices,
+    *,
+    task_run: Any,
+    final_answer: str,
+) -> None:
+    committer = getattr(services, "assistant_message_committer", None)
+    if not callable(committer):
+        return
+    decision = build_assistant_session_message_commit_decision(
+        session_id=str(getattr(task_run, "session_id", "") or ""),
+        task_run_id=str(getattr(task_run, "task_run_id", "") or ""),
+        task_id=str(getattr(task_run, "task_id", "") or ""),
+        content=final_answer,
+        answer_channel="final_answer",
+        answer_source="harness.loop.task_executor.completed",
+        answer_canonical_state="final",
+        answer_persist_policy="persist_canonical",
+        answer_finalization_policy="assistant_final",
+        completion_state="completed",
+        terminal_reason="completed",
+        source="harness.loop.task_executor",
+    )
+    runtime_host = services.runtime_host
+    runtime_host.event_log.append(
+        str(getattr(task_run, "task_run_id", "") or ""),
+        "task_run_final_message_commit_checked",
+        payload={"commit_gate": decision.to_dict()},
+        refs={"task_run_ref": str(getattr(task_run, "task_run_id", "") or "")},
+    )
+    if not decision.commit_allowed:
+        return
+    try:
+        result = committer(dict(decision.commit_candidate.payload))
+        if hasattr(result, "__await__"):
+            runtime_host.event_log.append(
+                str(getattr(task_run, "task_run_id", "") or ""),
+                "task_run_final_message_commit_failed",
+                payload={"error": "async_committer_not_supported", "authority": "harness.loop.task_executor"},
+                refs={"task_run_ref": str(getattr(task_run, "task_run_id", "") or "")},
+            )
+            return
+    except Exception as exc:
+        runtime_host.event_log.append(
+            str(getattr(task_run, "task_run_id", "") or ""),
+            "task_run_final_message_commit_failed",
+            payload={"error": str(exc), "authority": "harness.loop.task_executor"},
+            refs={"task_run_ref": str(getattr(task_run, "task_run_id", "") or "")},
+        )
 
 
 def _finish_executor_failure(runtime_host: Any, *, task_run: Any, agent_run: Any, terminal_reason: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -1651,8 +1723,8 @@ def _record_visibility(record: dict[str, Any]) -> str:
 def _record_summary(record: dict[str, Any]) -> str:
     error = dict(record.get("structured_error") or {})
     if error.get("message"):
-        return _compact_text(str(error.get("message") or ""), limit=400)
-    return _compact_text(str(record.get("result_preview") or ""), limit=400)
+        return compact_text(str(error.get("message") or ""), limit=400)
+    return compact_text(str(record.get("result_preview") or ""), limit=400)
 
 
 def _compact_observation_for_record(observation: dict[str, Any]) -> dict[str, Any]:
@@ -1906,21 +1978,17 @@ def _discovered_artifact_matches_contract(logical_path: str, contract: dict[str,
     normalized = _normalize_contract_path(logical_path)
     if not normalized:
         return False
-    basename = Path(normalized).name
-    if not basename:
-        return False
-    explicit_paths = {_normalize_contract_path(item) for item in _explicit_contract_paths(contract)}
-    if normalized in explicit_paths:
+    if _is_graph_node_contract(contract):
         return True
-    artifact_texts: list[str] = []
-    for item in list(contract.get("required_artifacts") or []):
-        if not isinstance(item, dict):
-            continue
-        artifact_texts.extend(str(item.get(key) or "") for key in ("user_visible_name", "description", "path", "output_path", "artifact_path", "target_path"))
-    for item in list(contract.get("completion_criteria") or []):
-        artifact_texts.append(json.dumps(item, ensure_ascii=False) if isinstance(item, dict) else str(item or ""))
-    contract_text = "\n".join(artifact_texts).replace("\\", "/")
-    return basename in contract_text or normalized in contract_text
+    explicit_paths = {_normalize_contract_path(item) for item in _explicit_contract_paths(contract)}
+    return normalized in explicit_paths
+
+
+def _is_graph_node_contract(contract: dict[str, Any]) -> bool:
+    if str(dict(contract or {}).get("contract_source") or "") == "graph_node_work_order":
+        return True
+    origin = dict(dict(contract or {}).get("origin") or {})
+    return str(origin.get("origin_kind") or "") == "graph_node_assigned"
 
 
 def _publish_scan_roots(sandbox_policy: dict[str, Any]) -> tuple[str, ...]:
