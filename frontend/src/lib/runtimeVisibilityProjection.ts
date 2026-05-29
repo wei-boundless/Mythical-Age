@@ -221,6 +221,9 @@ function entry(
   title: string,
   options: {
     body?: string;
+    publicNote?: string;
+    agentBrief?: string;
+    evidenceType?: string;
     level?: SessionActivityLevel;
     kind?: RuntimeProgressEntry["kind"];
     statusText?: string;
@@ -239,6 +242,9 @@ function entry(
     level: options.level || "running",
     title,
     body: options.body ? short(options.body) : undefined,
+    publicNote: options.publicNote ? short(options.publicNote) : undefined,
+    agentBrief: options.agentBrief ? short(options.agentBrief, 180) : undefined,
+    evidenceType: options.evidenceType,
     eventType,
     kind: options.kind,
     statusText: options.statusText,
@@ -568,19 +574,40 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
   }
   if (event === "runtime_step_summary") {
     const step = text(data.step);
-    if (INTERNAL_RUNTIME_STEPS.has(step)) {
+    const eventPayload = record(record(data.event).payload);
+    const explicitPublicNote = publicRuntimeText(
+      data.public_progress_note
+      ?? data.publicProgressNote
+      ?? eventPayload.public_progress_note
+      ?? "",
+    );
+    if (INTERNAL_RUNTIME_STEPS.has(step) && !explicitPublicNote) {
       return {};
     }
     const status = text(data.status);
     const summary = publicRuntimeText(data.summary);
+    const publicNote = publicRuntimeText(
+      data.public_progress_note
+      ?? data.publicProgressNote
+      ?? eventPayload.public_progress_note
+      ?? summary,
+    );
+    const agentBrief = publicRuntimeText(
+      data.agent_brief_output
+      ?? data.agentBrief
+      ?? eventPayload.agent_brief_output
+      ?? "",
+    );
     const level: SessionActivityLevel = status === "completed" ? "success" : status === "failed" ? "error" : status === "waiting" ? "waiting" : "running";
     return {
-      stageStatus: summary || step || "运行步骤",
-      activityTitle: summary || step || "运行步骤",
-      activityDetail: summary,
+      stageStatus: publicNote || summary || step || "运行步骤",
+      activityTitle: publicNote || summary || step || "运行步骤",
+      activityDetail: publicNote || summary,
       level,
-      progressEntry: entry("runtime_step_summary", summary || step || "运行步骤", {
-        body: summary,
+      progressEntry: entry("runtime_step_summary", publicNote || summary || step || "运行步骤", {
+        body: publicNote || summary,
+        publicNote,
+        agentBrief,
         level,
         kind: "stage",
         statusText: status || "进行中",

@@ -55,6 +55,9 @@ export type RuntimeProgressEntry = {
   level: SessionActivityLevel;
   title: string;
   body?: string;
+  publicNote?: string;
+  agentBrief?: string;
+  evidenceType?: string;
   eventType: string;
   kind?:
     | "task_order"

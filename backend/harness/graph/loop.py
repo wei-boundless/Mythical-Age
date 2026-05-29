@@ -498,13 +498,19 @@ def _initial_node_states(graph_config: GraphHarnessConfig) -> dict[str, dict[str
 
 
 def _initial_edge_states(graph_config: GraphHarnessConfig) -> dict[str, dict[str, Any]]:
+    edge_protocol_index = dict(dict(graph_config.contracts or {}).get("edge_protocol_index") or {})
     return {
-        str(edge.get("edge_id") or ""): {
-            "edge_id": str(edge.get("edge_id") or ""),
-            "source_node_id": str(edge.get("source_node_id") or ""),
-            "target_node_id": str(edge.get("target_node_id") or ""),
-            "status": "pending",
-        }
+        str(edge.get("edge_id") or ""): _drop_empty(
+            {
+                "edge_id": str(edge.get("edge_id") or ""),
+                "source_node_id": str(edge.get("source_node_id") or ""),
+                "target_node_id": str(edge.get("target_node_id") or ""),
+                "status": "pending",
+                "ack_required": bool(dict(edge_protocol_index.get(str(edge.get("edge_id") or "")) or edge).get("ack_required", True)),
+                "ack_policy": str(dict(edge_protocol_index.get(str(edge.get("edge_id") or "")) or edge).get("ack_policy") or ""),
+                "protocol_ref": str(edge.get("edge_id") or "") if str(edge.get("edge_id") or "") in edge_protocol_index else "",
+            }
+        )
         for edge in graph_config.edges
         if str(edge.get("edge_id") or "")
     }

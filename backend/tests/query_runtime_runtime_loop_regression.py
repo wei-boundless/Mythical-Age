@@ -29,7 +29,7 @@ from runtime.prompt_accounting import (
 _VISIBLE_RUNTIME_INTERNAL_MARKERS = (
     "TaskRun",
     "runtime packet",
-    "正式任务",
+    "正式任务生命周期",
     "执行器",
     "agent 已返回",
     "agent 动作",
@@ -47,6 +47,7 @@ def _action_request(
     *,
     action_type: str,
     final_answer: str = "",
+    public_progress_note: str = "",
     task_contract_seed: dict[str, object] | None = None,
 ) -> dict[str, object]:
     return {
@@ -54,6 +55,7 @@ def _action_request(
         "request_id": f"model-action:test:{action_type}",
         "turn_id": "",
         "action_type": action_type,
+        "public_progress_note": public_progress_note,
         "final_answer": final_answer,
         "task_contract_seed": dict(task_contract_seed or {}),
         "completion_contract": {},
@@ -627,6 +629,7 @@ def test_session_runtime_timeline_keeps_completed_task_attachment() -> None:
                 _action_request(
                     action_type="respond",
                     final_answer="Timeline final answer.",
+                    public_progress_note="我已完成 timeline 验证，正在整理最终回复。",
                 )
             ],
             agent_turn_action_request=_action_request(action_type="respond", final_answer="unused"),
@@ -678,12 +681,20 @@ def test_session_runtime_timeline_keeps_completed_task_attachment() -> None:
     assert attachment["status"] == "completed"
     assert attachment["final_answer"] == "Timeline final answer."
     assert attachment["progress_entries"]
+    assert any(
+        item.get("publicNote") == "我已完成 timeline 验证，正在整理最终回复。"
+        for item in attachment["progress_entries"]
+    )
+    assert any(
+        item.get("agentBrief") == "Timeline final answer."
+        for item in attachment["progress_entries"]
+    )
     visible_attachment_text = json.dumps(
         {
             "summary": attachment["summary"],
             "latest_step_summary": attachment["latest_step_summary"],
             "progress_entries": [
-                {"title": item.get("title"), "body": item.get("body")}
+                {"title": item.get("title"), "body": item.get("body"), "publicNote": item.get("publicNote")}
                 for item in attachment["progress_entries"]
             ],
         },
@@ -2135,6 +2146,33 @@ def test_completion_discovery_ignores_free_text_artifact_names() -> None:
 
     assert verdict["ok"] is False
     assert verdict["verified_artifacts"] == []
+
+
+def test_model_action_request_accepts_public_progress_note() -> None:
+    from harness.loop.model_action_protocol import model_action_request_from_payload
+
+    action, diagnostics = model_action_request_from_payload(
+        {
+            "authority": "harness.loop.model_action_request",
+            "request_id": "model-action:test:progress",
+            "turn_id": "turn:test:1",
+            "action_type": "tool_call",
+            "public_progress_note": "我先检查现有文件，确认下一步修改范围。",
+            "tool_call": {"tool_name": "read_file", "args": {"path": "README.md"}},
+        },
+        turn_id="turn:test:1",
+    )
+
+    assert diagnostics["status"] == "accepted"
+    assert action is not None
+    assert action.public_progress_note == "我先检查现有文件，确认下一步修改范围。"
+
+
+def test_public_runtime_progress_preserves_user_level_task_wording() -> None:
+    from harness.runtime.public_progress import public_runtime_progress_summary
+
+    assert public_runtime_progress_summary("不需要开启正式任务。") == "不需要开启正式任务。"
+    assert public_runtime_progress_summary("正式任务生命周期已完成。") == "处理流程已完成。"
 
 
 def test_task_sandbox_workspace_root_is_project_root() -> None:

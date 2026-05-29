@@ -12,6 +12,8 @@ from harness.graph.context_materializer import GraphContextMaterializer
 from harness.graph.models import GraphLoopState
 from harness.graph.models import GraphHarnessConfig
 from harness.graph.scheduler_view import build_scheduler_view
+from task_system.compiler.graph_harness_config_publisher import build_graph_harness_config_from_graph
+from task_system.graphs.task_graph_models import TaskGraphDefinition, TaskGraphEdgeDefinition, TaskGraphNodeDefinition
 
 
 def _config(edges: tuple[dict, ...]) -> GraphHarnessConfig:
@@ -145,3 +147,137 @@ def test_resource_flow_edges_materialize_as_view_requests_not_result_context() -
     assert [item["edge_id"] for item in order.memory_view_request["graph_memory_policy"]["read_rules"]] == ["edge.plan.draft.memory"]
     assert [item["edge_id"] for item in order.artifact_view_request["graph_artifact_policy"]["context_edges"]] == ["edge.plan.draft.artifact"]
     assert [item["edge_id"] for item in order.file_view_request["graph_resource_policy"]["file_context_edges"]] == ["edge.plan.draft.file"]
+
+
+def test_published_graph_includes_node_and_edge_protocol_indexes() -> None:
+    graph = TaskGraphDefinition(
+        graph_id="graph.test.protocol_indexes",
+        title="Protocol Indexes",
+        graph_kind="multi_agent",
+        entry_node_id="draft",
+        output_node_id="review",
+        publish_state="published",
+        enabled=True,
+        nodes=(
+            TaskGraphNodeDefinition(
+                node_id="draft",
+                node_type="agent",
+                title="起草",
+                contract_bindings={"schema": {"output_contract_id": "contract.draft.out", "output_keys": ["public"]}},
+            ),
+            TaskGraphNodeDefinition(
+                node_id="review",
+                node_type="agent",
+                title="审核",
+                contract_bindings={"schema": {"input_contract_id": "contract.draft.out", "required_inputs": ["上游交接包"]}},
+            ),
+        ),
+        edges=(
+            TaskGraphEdgeDefinition(
+                edge_id="edge.draft.review",
+                source_node_id="draft",
+                target_node_id="review",
+                edge_type="structured_handoff",
+                payload_contract_id="contract.draft.out",
+                context_filter_policy={"include_output_keys": ["public"], "max_chars": 32},
+                metadata={"input_alias": "上游交接包"},
+            ),
+        ),
+    )
+
+    config = build_graph_harness_config_from_graph(graph=graph)
+    contracts = dict(config.contracts)
+
+    assert contracts["node_protocol_index"]["draft"]["produced_payload_contract_ids"] == ["contract.draft.out"]
+    assert contracts["node_protocol_index"]["review"]["accepted_payload_contract_ids"] == ["contract.draft.out"]
+    assert contracts["edge_protocol_index"]["edge.draft.review"]["source_output_keys"] == ["public"]
+    assert contracts["edge_protocol_index"]["edge.draft.review"]["target_input_keys"] == ["上游交接包"]
+
+
+def test_publish_fails_when_edge_references_unknown_source_output_key() -> None:
+    graph = TaskGraphDefinition(
+        graph_id="graph.test.bad_source_output_key",
+        title="Bad Source Output Key",
+        graph_kind="multi_agent",
+        entry_node_id="draft",
+        output_node_id="review",
+        publish_state="published",
+        enabled=True,
+        nodes=(
+            TaskGraphNodeDefinition(
+                node_id="draft",
+                node_type="agent",
+                title="起草",
+                contract_bindings={"schema": {"output_contract_id": "contract.draft.out", "output_keys": ["public"]}},
+            ),
+            TaskGraphNodeDefinition(
+                node_id="review",
+                node_type="agent",
+                title="审核",
+                contract_bindings={"schema": {"input_contract_id": "contract.draft.out"}},
+            ),
+        ),
+        edges=(
+            TaskGraphEdgeDefinition(
+                edge_id="edge.draft.review",
+                source_node_id="draft",
+                target_node_id="review",
+                edge_type="structured_handoff",
+                payload_contract_id="contract.draft.out",
+                context_filter_policy={"include_output_keys": ["secret"], "max_chars": 32},
+            ),
+        ),
+    )
+
+    try:
+        build_graph_harness_config_from_graph(graph=graph)
+        raised = None
+    except ValueError as exc:
+        raised = exc
+
+    assert raised is not None
+    assert "edge_source_output_key_not_declared" in str(raised)
+
+
+def test_publish_fails_when_edge_payload_is_not_accepted_by_target_without_alias() -> None:
+    graph = TaskGraphDefinition(
+        graph_id="graph.test.bad_target_contract",
+        title="Bad Target Contract",
+        graph_kind="multi_agent",
+        entry_node_id="draft",
+        output_node_id="review",
+        publish_state="published",
+        enabled=True,
+        nodes=(
+            TaskGraphNodeDefinition(
+                node_id="draft",
+                node_type="agent",
+                title="起草",
+                contract_bindings={"schema": {"output_contract_id": "contract.draft.out"}},
+            ),
+            TaskGraphNodeDefinition(
+                node_id="review",
+                node_type="agent",
+                title="审核",
+                contract_bindings={"schema": {"input_contract_id": "contract.review.in"}},
+            ),
+        ),
+        edges=(
+            TaskGraphEdgeDefinition(
+                edge_id="edge.draft.review",
+                source_node_id="draft",
+                target_node_id="review",
+                edge_type="structured_handoff",
+                payload_contract_id="contract.draft.out",
+            ),
+        ),
+    )
+
+    try:
+        build_graph_harness_config_from_graph(graph=graph)
+        raised = None
+    except ValueError as exc:
+        raised = exc
+
+    assert raised is not None
+    assert "edge_payload_not_accepted_by_target" in str(raised)

@@ -15,8 +15,8 @@ from memory_system.runtime_services import MemoryRuntimeServices
 
 class MemorySearchInput(BaseModel):
     query: str = Field(..., description="Search terms for formal task memory.")
-    task_run_id: str = Field(default="", description="Optional task run id. When omitted, searches all formal task memory visible in storage.")
-    project_id: str = Field(default="", description="Optional project id. Project-scoped formal memory is searched when provided.")
+    task_run_id: str = Field(default="", description="Runtime-bound task run id. The runtime may override this for graph node isolation.")
+    project_id: str = Field(default="", description="Runtime-bound project id. The runtime may override this for graph node isolation.")
     repositories: list[str] = Field(default_factory=list, description="Optional logical repository ids to search.")
     collections: list[str] = Field(default_factory=list, description="Optional collection ids to search.")
     limit: int = Field(default=8, ge=1, le=20, description="Maximum result count.")

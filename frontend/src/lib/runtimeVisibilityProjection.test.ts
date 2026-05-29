@@ -19,6 +19,31 @@ describe("runtimeVisibilityProjection", () => {
     }
   });
 
+  it("projects public progress notes from runtime step summaries", () => {
+    const projection = projectRuntimeStreamEvent("runtime_step_summary", {
+      step: "model_action_received",
+      status: "running",
+      summary: "旧的内部摘要",
+      event: {
+        event_id: "rtevt:progress",
+        task_run_id: "turnrun:session-1:1",
+        created_at: 40,
+        payload: {
+          public_progress_note: "我先核对当前文件状态，确认可以从断点继续。",
+          agent_brief_output: "已定位入口文件。",
+        },
+      },
+    });
+
+    expect(projection.progressEntry).toMatchObject({
+      body: "我先核对当前文件状态，确认可以从断点继续。",
+      publicNote: "我先核对当前文件状态，确认可以从断点继续。",
+      agentBrief: "已定位入口文件。",
+      statusText: "running",
+    });
+    expect(projection.activityDetail).toBe("我先核对当前文件状态，确认可以从断点继续。");
+  });
+
   it("keeps permission gate diagnostics out of the user-visible task flow", () => {
     const projection = projectRuntimeStreamEvent("harness_loop_event", {
       event: {

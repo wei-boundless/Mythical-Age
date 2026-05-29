@@ -87,10 +87,22 @@ def build_graph_harness_config_from_graph(
     nodes = [dict(item) for item in projection["nodes"]]
     edges = [dict(item) for item in projection["edges"]]
     composition_sources = [dict(item) for item in projection["composition_sources"]]
+    resource_nodes = _list_dicts(layered.get("resource_nodes")) + _list_dicts(projection.get("resource_nodes"))
+    memory_read_rules = _list_dicts(layered.get("memory_edges")) + _list_dicts(projection.get("memory_edges"))
+    artifact_context_edges = _list_dicts(layered.get("artifact_context_edges")) + _list_dicts(projection.get("artifact_context_edges"))
+    protocol_index = _build_protocol_indexes(
+        nodes=nodes,
+        edges=edges,
+        memory_read_rules=memory_read_rules,
+        artifact_context_edges=artifact_context_edges,
+        resource_nodes=resource_nodes,
+    )
+    _raise_on_protocol_alignment_errors(protocol_index.get("issues") or [])
     issues = [
         *[dict(item) for item in list(getattr(graph, "to_dict", lambda: {})().get("issues") or []) if isinstance(item, dict)],
         *[dict(item) for item in list(layered.get("issues") or []) if isinstance(item, dict)],
         *[dict(item) for item in list(projection.get("issues") or []) if isinstance(item, dict)],
+        *[dict(item) for item in list(protocol_index.get("issues") or []) if isinstance(item, dict)],
     ]
     provisional = {
         "graph_id": graph_id,
@@ -126,17 +138,17 @@ def build_graph_harness_config_from_graph(
         "loop_frames": _normalize_loop_frames(_list_dicts(layered.get("loop_frames")) + _list_dicts(projection.get("loop_frames"))),
         "environment": environment,
         "resources": {
-            "resource_nodes": _list_dicts(layered.get("resource_nodes")) + _list_dicts(projection.get("resource_nodes")),
+            "resource_nodes": resource_nodes,
         },
         "memory": {
             "working_memory_policy_profile_id": str(getattr(graph, "working_memory_policy_profile_id", "") or ""),
             "working_memory_policy": dict(getattr(graph, "working_memory_policy", {}) or {}),
             "memory_matrix": dict(layered.get("memory_matrix") or {}),
             "memory_protocol": dict(layered.get("memory_protocol") or {}),
-            "read_rules": _list_dicts(layered.get("memory_edges")) + _list_dicts(projection.get("memory_edges")),
+            "read_rules": memory_read_rules,
         },
         "artifacts": {
-            "context_edges": _list_dicts(layered.get("artifact_context_edges")) + _list_dicts(projection.get("artifact_context_edges")),
+            "context_edges": artifact_context_edges,
         },
         "permissions": dict(graph_runtime_policy.get("permissions") or graph_metadata.get("permissions") or {}),
         "tools": dict(graph_runtime_policy.get("tools") or graph_metadata.get("tools") or {}),
@@ -150,6 +162,14 @@ def build_graph_harness_config_from_graph(
             "edge_contracts": list(manifest.get("edge_handoff_contracts") or []),
             "runtime_contracts": list(manifest.get("runtime_contracts") or []),
             "acceptance_contracts": list(manifest.get("acceptance_contracts") or []),
+            "protocol_index_version": "graph_protocol_index.v1",
+            "node_protocol_index": dict(protocol_index.get("node_protocol_index") or {}),
+            "edge_protocol_index": dict(protocol_index.get("edge_protocol_index") or {}),
+            "protocol_alignment": {
+                "status": "valid",
+                "issue_count": len(list(protocol_index.get("issues") or [])),
+                "authority": "task_system.graph_harness_config_publisher.protocol_alignment",
+            },
         },
         "composition_sources": composition_sources,
         "diagnostics": {
@@ -528,6 +548,345 @@ def _contract_manifest_from_projection(*, graph: Any, projection: dict[str, Any]
     }
 
 
+def _build_protocol_indexes(
+    *,
+    nodes: list[dict[str, Any]],
+    edges: list[dict[str, Any]],
+    memory_read_rules: list[dict[str, Any]],
+    artifact_context_edges: list[dict[str, Any]],
+    resource_nodes: list[dict[str, Any]],
+) -> dict[str, Any]:
+    nodes_by_id = {str(node.get("node_id") or ""): dict(node) for node in nodes if str(node.get("node_id") or "")}
+    node_protocol_index = {
+        node_id: _node_protocol_entry(node)
+        for node_id, node in nodes_by_id.items()
+    }
+    resource_access = _resource_access_index(resource_nodes)
+    for node_id, access in resource_access.items():
+        entry = node_protocol_index.get(node_id)
+        if not entry:
+            continue
+        entry["readable_resource_node_ids"] = _dedupe_strings(
+            [*list(entry.get("readable_resource_node_ids") or []), *list(access.get("readable") or [])]
+        )
+        entry["writable_resource_node_ids"] = _dedupe_strings(
+            [*list(entry.get("writable_resource_node_ids") or []), *list(access.get("writable") or [])]
+        )
+
+    edge_protocol_index: dict[str, dict[str, Any]] = {}
+    issues: list[dict[str, Any]] = []
+    memory_by_edge_id = _items_by_edge_id(memory_read_rules)
+    artifact_by_edge_id = _items_by_edge_id(artifact_context_edges)
+    for edge in edges:
+        edge_id = str(edge.get("edge_id") or "")
+        if not edge_id:
+            continue
+        entry, entry_issues = _edge_protocol_entry(
+            edge=edge,
+            nodes_by_id=nodes_by_id,
+            node_protocol_index=node_protocol_index,
+            memory_rule=memory_by_edge_id.get(edge_id, {}),
+            artifact_context_edge=artifact_by_edge_id.get(edge_id, {}),
+        )
+        edge_protocol_index[edge_id] = entry
+        issues.extend(entry_issues)
+    return {
+        "node_protocol_index": node_protocol_index,
+        "edge_protocol_index": edge_protocol_index,
+        "issues": issues,
+    }
+
+
+def _node_protocol_entry(node: dict[str, Any]) -> dict[str, Any]:
+    node_id = str(node.get("node_id") or "")
+    contracts = dict(node.get("contracts") or {})
+    bindings = dict(contracts.get("contract_bindings") or {})
+    schema = dict(bindings.get("schema") or {})
+    artifact = dict(bindings.get("artifact") or {})
+    memory = dict(bindings.get("memory") or {})
+    input_contract_id = str(contracts.get("input_contract_id") or schema.get("input_contract_id") or "").strip()
+    output_contract_id = str(contracts.get("output_contract_id") or schema.get("output_contract_id") or "").strip()
+    required_inputs = _string_list(schema.get("required_inputs") or schema.get("input_keys") or schema.get("required_input_keys"))
+    output_keys = _node_output_keys(
+        output_contract_id=output_contract_id,
+        schema=schema,
+        node=node,
+    )
+    artifact_output_keys = _node_artifact_output_keys(
+        output_contract_id=output_contract_id,
+        schema=schema,
+        artifact=artifact,
+        node=node,
+    )
+    return _prune_empty(
+        {
+            "node_id": node_id,
+            "node_type": str(node.get("node_type") or ""),
+            "node_class": str(node.get("node_class") or ""),
+            "executor_type": str(dict(node.get("executor") or {}).get("executor_type") or "agent"),
+            "input_contract_ids": _dedupe_strings([input_contract_id]),
+            "output_contract_ids": _dedupe_strings([output_contract_id]),
+            "accepted_payload_contract_ids": _dedupe_strings([input_contract_id]),
+            "produced_payload_contract_ids": _dedupe_strings([output_contract_id]),
+            "input_keys": required_inputs,
+            "output_keys": output_keys,
+            "artifact_output_keys": artifact_output_keys,
+            "memory_read_scopes": _policy_scopes(memory.get("memory_read_policy") or dict(node.get("memory") or {}).get("read_policy")),
+            "memory_write_scopes": _policy_scopes(memory.get("memory_writeback_policy") or dict(node.get("memory") or {}).get("writeback_policy")),
+            "readable_resource_node_ids": [],
+            "writable_resource_node_ids": [],
+            "authority": "task_system.graph_node_protocol",
+        }
+    )
+
+
+def _edge_protocol_entry(
+    *,
+    edge: dict[str, Any],
+    nodes_by_id: dict[str, dict[str, Any]],
+    node_protocol_index: dict[str, dict[str, Any]],
+    memory_rule: dict[str, Any],
+    artifact_context_edge: dict[str, Any],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    edge_id = str(edge.get("edge_id") or "")
+    source_node_id = str(edge.get("source_node_id") or "")
+    target_node_id = str(edge.get("target_node_id") or "")
+    payload_contract_id = str(edge.get("payload_contract_id") or dict(dict(edge.get("contract_bindings") or {}).get("schema") or {}).get("payload_contract_id") or "").strip()
+    source_protocol = dict(node_protocol_index.get(source_node_id) or {})
+    target_protocol = dict(node_protocol_index.get(target_node_id) or {})
+    context_filter_policy = dict(edge.get("context_filter_policy") or {})
+    artifact_ref_policy = dict(edge.get("artifact_ref_policy") or {})
+    working_memory_handoff_policy = dict(edge.get("working_memory_handoff_policy") or {})
+    metadata = dict(edge.get("metadata") or {})
+    include_output_keys = _string_list(
+        context_filter_policy.get("include_output_keys")
+        or context_filter_policy.get("allowed_output_keys")
+        or context_filter_policy.get("include_keys")
+        or context_filter_policy.get("allow")
+    )
+    target_input_keys = _dedupe_strings(
+        [
+            *_string_list(metadata.get("input_alias") or metadata.get("target_input_key")),
+            *_string_list(artifact_ref_policy.get("target_input_key")),
+            *_string_list(dict(edge.get("revision_policy") or {}).get("target_input_key")),
+            *_string_list(dict(memory_rule or {}).get("target_input_key")),
+            *_string_list(dict(artifact_context_edge or {}).get("target_input_key")),
+        ]
+    )
+    source_output_keys = _dedupe_strings(
+        [
+            *include_output_keys,
+            *_string_list(artifact_ref_policy.get("source_output_key")),
+            *_string_list(dict(memory_rule or {}).get("source_output_key")),
+            *_string_list(dict(artifact_context_edge or {}).get("source_output_key")),
+        ]
+    )
+    entry = _prune_empty(
+        {
+            "edge_id": edge_id,
+            "source_node_id": source_node_id,
+            "target_node_id": target_node_id,
+            "edge_type": str(edge.get("edge_type") or ""),
+            "semantic_role": str(edge.get("semantic_role") or ""),
+            "scheduler_role": str(edge.get("scheduler_role") or ""),
+            "payload_contract_id": payload_contract_id,
+            "source_output_keys": source_output_keys,
+            "target_input_keys": target_input_keys,
+            "delivery_policy": str(edge.get("result_delivery_policy") or ""),
+            "context_filter_policy": context_filter_policy,
+            "artifact_ref_policy": artifact_ref_policy,
+            "memory_handoff_policy": working_memory_handoff_policy,
+            "ack_required": bool(edge.get("ack_required", True)),
+            "ack_policy": str(edge.get("ack_policy") or ""),
+            "source_output_contract_ids": list(source_protocol.get("output_contract_ids") or []),
+            "target_input_contract_ids": list(target_protocol.get("input_contract_ids") or []),
+            "authority": "task_system.graph_edge_protocol",
+        }
+    )
+    issues = _edge_protocol_issues(
+        entry=entry,
+        source_node=nodes_by_id.get(source_node_id),
+        target_node=nodes_by_id.get(target_node_id),
+        source_protocol=source_protocol,
+        target_protocol=target_protocol,
+    )
+    return entry, issues
+
+
+def _edge_protocol_issues(
+    *,
+    entry: dict[str, Any],
+    source_node: dict[str, Any] | None,
+    target_node: dict[str, Any] | None,
+    source_protocol: dict[str, Any],
+    target_protocol: dict[str, Any],
+) -> list[dict[str, Any]]:
+    edge_id = str(entry.get("edge_id") or "")
+    source_node_id = str(entry.get("source_node_id") or "")
+    target_node_id = str(entry.get("target_node_id") or "")
+    issues: list[dict[str, Any]] = []
+    if source_node is None:
+        issues.append(_protocol_issue("edge_source_node_missing", "边引用的源节点不存在。", edge_id=edge_id, node_id=source_node_id))
+    if target_node is None:
+        issues.append(_protocol_issue("edge_target_node_missing", "边引用的目标节点不存在。", edge_id=edge_id, node_id=target_node_id))
+    if source_node is None or target_node is None:
+        return issues
+    if str(source_node.get("node_class") or "") == "resource" and str(entry.get("scheduler_role") or "") == "dependency":
+        issues.append(_protocol_issue("edge_source_not_deliverable", "资源节点不能作为调度依赖边的模型输出源。", edge_id=edge_id, node_id=source_node_id))
+
+    payload_contract_id = str(entry.get("payload_contract_id") or "").strip()
+    produced_contracts = set(_string_list(source_protocol.get("produced_payload_contract_ids")))
+    accepted_contracts = set(_string_list(target_protocol.get("accepted_payload_contract_ids")))
+    require_node_contract_alignment = _edge_requires_node_contract_alignment(entry=entry, target_node=target_node)
+    if payload_contract_id and require_node_contract_alignment:
+        if accepted_contracts and payload_contract_id not in accepted_contracts and not _string_list(entry.get("target_input_keys")):
+            issues.append(
+                _protocol_issue(
+                    "edge_payload_not_accepted_by_target",
+                    f"边 payload_contract_id 不属于目标节点 input contract: {payload_contract_id}",
+                    edge_id=edge_id,
+                    node_id=target_node_id,
+                )
+            )
+
+    source_output_keys = set(_string_list(entry.get("source_output_keys")))
+    known_output_keys = set(_string_list(source_protocol.get("output_keys")))
+    unknown_output_keys = sorted(key for key in source_output_keys if known_output_keys and key not in known_output_keys)
+    for key in unknown_output_keys:
+        issues.append(
+            _protocol_issue(
+                "edge_source_output_key_not_declared",
+                f"边引用了源节点未声明的输出键: {key}",
+                edge_id=edge_id,
+                node_id=source_node_id,
+            )
+        )
+
+    artifact_policy = dict(entry.get("artifact_ref_policy") or {})
+    artifact_source_key = str(artifact_policy.get("source_output_key") or "").strip()
+    artifact_output_keys = set(_string_list(source_protocol.get("artifact_output_keys")))
+    if artifact_source_key and artifact_output_keys and artifact_source_key not in artifact_output_keys:
+        issues.append(
+            _protocol_issue(
+                "edge_artifact_source_output_key_not_declared",
+                f"边 artifact_ref_policy.source_output_key 不属于源节点产物输出: {artifact_source_key}",
+                edge_id=edge_id,
+                node_id=source_node_id,
+            )
+        )
+
+    if bool(entry.get("ack_required", True)) and not str(entry.get("ack_policy") or "").strip():
+        issues.append(_protocol_issue("edge_ack_policy_missing", "ack_required=true 的边必须声明 ack_policy。", edge_id=edge_id))
+    return issues
+
+
+def _edge_requires_node_contract_alignment(*, entry: dict[str, Any], target_node: dict[str, Any]) -> bool:
+    semantic_role = str(entry.get("semantic_role") or "").strip()
+    scheduler_role = str(entry.get("scheduler_role") or "").strip()
+    edge_type = str(entry.get("edge_type") or "").strip()
+    target_class = str(target_node.get("node_class") or "").strip()
+    if target_class == "resource":
+        return False
+    if semantic_role in {"memory", "artifact", "file", "event", "audit", "extension"}:
+        return False
+    if scheduler_role not in {"dependency", "conditional_dependency"}:
+        return False
+    return edge_type in {"handoff", "structured_handoff", "revision_request", "review_feedback", "repair_feedback", "conditional_feedback", "repair_route"}
+
+
+def _raise_on_protocol_alignment_errors(issues: list[Any]) -> None:
+    errors = [dict(item) for item in issues if isinstance(item, dict) and str(item.get("severity") or "error") == "error"]
+    if not errors:
+        return
+    first = errors[0]
+    label = str(first.get("edge_id") or first.get("node_id") or "graph")
+    raise ValueError(f"Graph protocol alignment failed: {first.get('code')} at {label}: {first.get('message')}")
+
+
+def _protocol_issue(code: str, message: str, *, edge_id: str = "", node_id: str = "", severity: str = "error") -> dict[str, Any]:
+    return {
+        "code": code,
+        "message": message,
+        "severity": severity,
+        "edge_id": edge_id,
+        "node_id": node_id,
+        "authority": "task_system.graph_protocol_alignment",
+    }
+
+
+def _node_output_keys(*, output_contract_id: str, schema: dict[str, Any], node: dict[str, Any]) -> list[str]:
+    keys = _dedupe_strings(
+        [
+            *_string_list(schema.get("output_keys") or schema.get("outputs") or schema.get("required_outputs")),
+            *_string_list(schema.get("output_artifact_paths")),
+            *_string_list(dict(node.get("artifacts") or {}).get("output_keys")),
+            *_string_list(dict(node.get("artifacts") or {}).get("artifact_paths")),
+        ]
+    )
+    if output_contract_id:
+        keys.extend([output_contract_id, f"{output_contract_id}:artifact_refs"])
+    return _dedupe_strings(keys)
+
+
+def _node_artifact_output_keys(*, output_contract_id: str, schema: dict[str, Any], artifact: dict[str, Any], node: dict[str, Any]) -> list[str]:
+    artifact_policy = dict(artifact.get("artifact_policy") or dict(node.get("artifacts") or {}))
+    artifact_targets = list(artifact.get("artifact_targets") or artifact_policy.get("artifact_targets") or artifact_policy.get("artifacts") or [])
+    keys = [
+        *_string_list(schema.get("output_artifact_paths")),
+        *_string_list(artifact_policy.get("output_keys")),
+        *_string_list(artifact_policy.get("artifact_paths")),
+    ]
+    for item in artifact_targets:
+        if isinstance(item, dict):
+            keys.extend(_string_list(item.get("path") or item.get("artifact_key") or item.get("source_output_key")))
+        elif str(item or "").strip():
+            keys.append(str(item).strip())
+    if output_contract_id:
+        keys.append(f"{output_contract_id}:artifact_refs")
+    return _dedupe_strings(keys)
+
+
+def _resource_access_index(resource_nodes: list[dict[str, Any]]) -> dict[str, dict[str, list[str]]]:
+    result: dict[str, dict[str, list[str]]] = {}
+    for resource in resource_nodes:
+        resource_id = str(resource.get("node_id") or resource.get("resource_id") or "").strip()
+        if not resource_id:
+            continue
+        for node_id in _string_list(resource.get("readable_by")):
+            if node_id == "*":
+                continue
+            result.setdefault(node_id, {"readable": [], "writable": []})["readable"].append(resource_id)
+        for node_id in _string_list(resource.get("write_owner_node_ids")):
+            if node_id == "*":
+                continue
+            result.setdefault(node_id, {"readable": [], "writable": []})["writable"].append(resource_id)
+    return result
+
+
+def _items_by_edge_id(items: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for item in items:
+        edge_id = str(item.get("edge_id") or "").strip()
+        if edge_id:
+            result[edge_id] = dict(item)
+    return result
+
+
+def _policy_scopes(value: Any) -> list[str]:
+    if not isinstance(value, dict):
+        return []
+    return _dedupe_strings(
+        [
+            *_string_list(value.get("scopes")),
+            *_string_list(value.get("memory_scopes")),
+            *_string_list(value.get("writable_scopes")),
+            *_string_list(value.get("readable_scopes")),
+            *_string_list(value.get("allowed_write_targets")),
+            *_string_list(value.get("repository_node_ids")),
+        ]
+    )
+
+
 def _graph_task_environment_id(*, graph_runtime_policy: dict[str, Any], graph_context_policy: dict[str, Any]) -> str:
     return str(
         graph_runtime_policy.get("task_environment_id")
@@ -747,7 +1106,12 @@ def _bridge_edge(raw_edge: dict[str, Any], *, source_node_id: str, target_node_i
     metadata = dict(payload.get("metadata") or {})
     metadata["composition_bridge_role"] = bridge_role
     metadata["source_edge_id"] = str(raw_edge.get("edge_id") or "")
+    metadata.setdefault("input_alias", "上游交接包")
+    metadata.setdefault("target_input_key", "上游交接包")
     payload["metadata"] = metadata
+    artifact_ref_policy = dict(payload.get("artifact_ref_policy") or {})
+    artifact_ref_policy.setdefault("target_input_key", str(metadata.get("target_input_key") or "上游交接包"))
+    payload["artifact_ref_policy"] = artifact_ref_policy
     return payload
 
 
@@ -969,6 +1333,21 @@ def _prune_empty(value: dict[str, Any]) -> dict[str, Any]:
 
 def _list_dicts(value: Any) -> list[dict[str, Any]]:
     return [dict(item) for item in list(value or []) if isinstance(item, dict)]
+
+
+def _string_list(value: Any) -> list[str]:
+    if isinstance(value, str):
+        text = value.strip()
+        return [text] if text else []
+    if isinstance(value, dict):
+        return [str(key).strip() for key, enabled in value.items() if str(key).strip() and enabled]
+    if value is None:
+        return []
+    return [str(item).strip() for item in list(value or []) if str(item).strip()]
+
+
+def _dedupe_strings(values: list[Any]) -> list[str]:
+    return list(dict.fromkeys(str(value).strip() for value in values if str(value).strip()))
 
 
 def _contract_refs(*values: Any) -> list[str]:

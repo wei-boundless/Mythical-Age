@@ -678,7 +678,14 @@ def _bind_runtime_scoped_tool_args(
     policy_payload: dict[str, Any],
     task_run_id: str,
 ) -> dict[str, Any]:
-    if str(tool_name or "").strip() != "agent_todo":
+    effective_tool = str(tool_name or "").strip()
+    if effective_tool == "memory_search":
+        return _bind_memory_search_scope(
+            tool_args,
+            policy_payload=policy_payload,
+            task_run_id=task_run_id,
+        )
+    if effective_tool != "agent_todo":
         return dict(tool_args or {})
     session_id = _session_id_from_policy(policy_payload)
     return {
@@ -686,6 +693,26 @@ def _bind_runtime_scoped_tool_args(
         "session_id": session_id,
         "task_id": task_run_id,
     }
+
+
+def _bind_memory_search_scope(
+    tool_args: dict[str, Any],
+    *,
+    policy_payload: dict[str, Any],
+    task_run_id: str,
+) -> dict[str, Any]:
+    args = dict(tool_args or {})
+    runtime_scope = dict(policy_payload.get("runtime_scope") or {})
+    if not runtime_scope:
+        return args
+    project_id = str(runtime_scope.get("project_id") or policy_payload.get("project_id") or "").strip()
+    bound_args = {
+        **args,
+        "task_run_id": str(args.get("task_run_id") or task_run_id or "").strip(),
+    }
+    if project_id:
+        bound_args["project_id"] = project_id
+    return bound_args
 
 
 def _session_id_from_policy(policy: dict[str, Any]) -> str:

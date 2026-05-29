@@ -53,6 +53,8 @@ export type SessionRuntimeAttachment = {
   summary?: string;
   latest_step?: Record<string, unknown>;
   latest_step_summary?: string;
+  latest_public_progress_note?: string;
+  agent_brief_output?: string;
   latest_event_type?: string;
   event_count?: number;
   progress_entries?: Array<Record<string, unknown>>;
@@ -1876,6 +1878,8 @@ export type GlobalRuntimeMonitorItem = {
   latest_step_summary?: string;
   latest_step_name?: string;
   latest_step_status?: string;
+  latest_public_progress_note?: string;
+  agent_brief_output?: string;
   artifact_count?: number;
   artifact_refs?: Array<Record<string, unknown>>;
   latest_event_type: string;
@@ -1965,6 +1969,8 @@ export type HarnessTaskRunLiveMonitor = {
   latest_step_summary?: string;
   latest_step_name?: string;
   latest_step_status?: string;
+  latest_public_progress_note?: string;
+  agent_brief_output?: string;
   artifact_count?: number;
   artifact_refs?: Array<Record<string, unknown>>;
   loop_state: Record<string, unknown>;

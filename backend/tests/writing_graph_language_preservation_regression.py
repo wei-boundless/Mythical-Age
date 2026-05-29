@@ -7,7 +7,8 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from harness.graph.models import NodeResultEnvelope, graph_harness_config_from_dict
+from harness.graph.context_materializer import GraphContextMaterializer
+from harness.graph.models import GraphLoopState, NodeResultEnvelope, graph_harness_config_from_dict
 from harness.graph.scheduler_view import build_scheduler_view
 from task_system.compiler.graph_harness_config_publisher import build_graph_harness_config_from_graph
 from task_system.graphs.task_graph_models import (
@@ -61,6 +62,11 @@ def _writing_like_graph() -> TaskGraphDefinition:
                 node_type="review_gate",
                 title="审核",
                 agent_id="agent:0",
+                metadata={
+                    "prompt_contract": {
+                        "role_prompt": "下游专属审核角色文本不得进入起草节点。",
+                    }
+                },
             ),
             TaskGraphNodeDefinition(
                 node_id="memory.commit",
@@ -232,6 +238,41 @@ def test_scheduler_view_uses_only_dependency_edges() -> None:
     assert dependency_edge_ids == {"edge.draft.review", "edge.draft.memory_commit"}
     assert scheduler.start_node_ids == ("draft",)
     assert set(scheduler.terminal_node_ids) == {"review", "memory.commit"}
+
+
+def test_current_node_input_package_does_not_expose_downstream_prompt_or_unrelated_resources() -> None:
+    graph_config = _graph_harness_config()
+    state = GraphLoopState(
+        state_id="gstate:test:scope",
+        graph_run_id="grun:test:scope",
+        task_run_id="taskrun:test:scope",
+        session_id="session:test",
+        config_id=graph_config.config_id,
+        config_hash=graph_config.content_hash,
+        graph_id=graph_config.graph_id,
+        status="running",
+        node_states={"draft": {"node_id": "draft", "status": "ready"}},
+    )
+    draft = next(node for node in graph_config.nodes if node["node_id"] == "draft")
+
+    order = GraphContextMaterializer(services=None).build_work_order(
+        graph_config=graph_config,
+        state=state,
+        node=draft,
+    )
+    package_text = str(order.input_package)
+    resource_nodes = order.file_view_request["graph_resource_policy"]["resource_nodes"]
+
+    assert "下游专属审核角色文本不得进入起草节点" not in package_text
+    assert "memory.commit" not in package_text
+    assert all(
+        item["target_node_id"] == "draft"
+        for item in order.memory_view_request["graph_memory_policy"]["read_rules"]
+    )
+    assert "readable_by" not in package_text
+    assert "write_owner_node_ids" not in package_text
+    assert all(item["node_id"] != "memory.commit" for item in resource_nodes)
+    assert all(item["current_node_can_read"] for item in resource_nodes)
 
 
 def test_graph_harness_config_rejects_unknown_scheduler_role() -> None:

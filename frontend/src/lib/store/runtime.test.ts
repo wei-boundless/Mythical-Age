@@ -1538,6 +1538,55 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     });
   });
 
+  it("keeps streamed public progress after session timeline refresh", async () => {
+    vi.useRealTimers();
+    api.getSessionTimeline.mockResolvedValue({
+      messages: [
+        { role: "user", content: "请直接回复" },
+        { role: "assistant", content: "已直接回复。" },
+      ],
+      runtime_attachments: [],
+    });
+    api.streamChat.mockImplementation(async (_payload, handlers) => {
+      handlers.onEvent("runtime_step_summary", {
+        step: "model_action_received",
+        status: "running",
+        summary: "内部摘要",
+        event: {
+          event_id: "rtevt:public-progress",
+          task_run_id: "turnrun:turn:session:progress:1",
+          created_at: 10,
+          payload: {
+            public_progress_note: "我正在直接回复这条消息。",
+            agent_brief_output: "已形成一句话回复。",
+          },
+        },
+      });
+      handlers.onEvent("done", { content: "已直接回复。" });
+      return { terminalEvent: "done" };
+    });
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:progress",
+      sessions: [{
+        id: "session:progress",
+        title: "Progress",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 0,
+      }],
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.sendMessage("请直接回复");
+
+    const assistant = store.getState().messages.find((message) => message.role === "assistant");
+    expect(assistant?.runtimeProgress?.[0]).toMatchObject({
+      publicNote: "我正在直接回复这条消息。",
+      agentBrief: "已形成一句话回复。",
+    });
+  });
+
   it("does not block send completion on post-stream session refresh", async () => {
     vi.useRealTimers();
     api.listSessions.mockImplementation(() => new Promise(() => undefined));

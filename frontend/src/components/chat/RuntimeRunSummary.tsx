@@ -25,6 +25,7 @@ function cleanText(value: unknown) {
     .replace(/(?:^|\s)(?:harness|backend|runtime|query|agent_system|capability_system|health_system|task_system)(?:\.[A-Za-z0-9_-]+){2,}(?=\s|$)/gi, " ")
     .replace(/\bTaskRun\b/gi, "当前工作")
     .replace(/\bruntime packet\b/gi, "上下文")
+    .replace(/\bruntime\b/gi, "处理流程")
     .replace(/\bRuntimeInvocationPacket\b/gi, "上下文")
     .replace(/\bagent\b/gi, "助手")
     .replace(/当前任务步骤/g, "当前步骤")
@@ -100,7 +101,9 @@ function isWorkEntry(entry: RuntimeProgressEntry) {
 function entryBody(entry: RuntimeProgressEntry | undefined) {
   if (!entry) return "";
   return truncate(
-    entry.meta?.find((item) => item.label === "目标")?.value
+    entry.publicNote
+      || entry.meta?.find((item) => item.label === "公开进展")?.value
+      || entry.meta?.find((item) => item.label === "目标")?.value
       || entry.body
       || entry.toolName
       || entry.title,
@@ -128,13 +131,14 @@ function stageOutput(entry: RuntimeProgressEntry | undefined) {
     .replace(/^当前工作 上下文 已送入模型，正在等待 助手 返回任务动作。?$/i, "正在处理这一步。")
     .replace(/^任务 上下文 已送入模型，正在等待 助手 返回任务动作。?$/i, "正在处理这一步。")
     .replace(/^上下文 已送入模型，正在等待 助手 返回任务动作。?$/i, "正在处理这一步。")
+    .replace(/^系统正在等待 助手返回下一步.*$/i, "正在等待下一步结果。")
     .replace(/^已执行 助手 请求的任务工具调用。?$/i, toolName ? `${toolName} 调用完成。` : "工具调用完成。")
     .replace(/^已执行 助手 请求的任务工具调用，并把真实观察交回给 助手。?$/i, toolName ? `${toolName} 调用完成，结果已交回助手。` : "工具结果已交回助手。")
     .replace(/^助手 已返回任务动作请求：respond。?$/i, "助手已形成回复方向。")
     .replace(/^助手 已返回任务动作请求：tool_call。?$/i, toolName ? `助手准备调用 ${toolName}。` : "助手准备调用工具。")
     .replace(/^目标已满足，处理流程已完成收尾.*$/i, "目标已满足，结果已记录。")
     .replace(/^目标已满足。?$/i, "目标已满足，准备交付结果。")
-    .replace(/^(?:任务)?模型调用仍在进行中，(?:系统)?继续等待(?:待)? 助手 动作返回。等待轮次：(\d+)。?$/i, "正在生成下一步动作（第 $1 轮等待）。")
+    .replace(/^(?:任务)?模型调用仍在进行中，(?:系统)?继续等待(?:待)? 助手 动作返回。等待轮次：\d+。?$/i, "正在生成下一步动作。")
     .replace(/^已完成动作准入检查：allow。?$/i, "执行边界已确认。")
     .replace(/^当前工作处理流程已建立。?$/i, "已确认目标，开始处理。")
     .trim();
@@ -170,7 +174,7 @@ function entryStatus(entry: RuntimeProgressEntry, runState: RuntimeRunState, isL
 
 function agentBrief(entry: RuntimeProgressEntry | undefined) {
   const metaBrief = entry?.meta?.find((item) => ["输出", "简要输出", "助手输出"].includes(item.label))?.value;
-  const body = cleanText(metaBrief || "");
+  const body = cleanText(entry?.agentBrief || metaBrief || "");
   if (!body) return "";
   return truncate(body, 96);
 }
@@ -246,16 +250,6 @@ function combinedRunState(entries: RuntimeProgressEntry[], attachments: SessionR
   return "success";
 }
 
-function runStateLabel(state: RuntimeRunState) {
-  const map: Record<RuntimeRunState, string> = {
-    error: "失败",
-    waiting: "等待",
-    running: "进行中",
-    success: "完成",
-  };
-  return map[state];
-}
-
 function stepIcon(level: SessionActivityLevel) {
   if (level === "success") return <Check size={12} />;
   if (level === "error") return <CircleX size={13} />;
@@ -272,6 +266,9 @@ function entriesFromAttachments(attachments: SessionRuntimeAttachment[]): Runtim
           level: String(item.level ?? "running") as SessionActivityLevel,
           title: String(item.title ?? attachment.title ?? "处理进展"),
           body: String(item.body ?? item.summary ?? attachment.latest_step_summary ?? ""),
+          publicNote: String(item.publicNote ?? item.public_progress_note ?? item.body ?? item.summary ?? attachment.latest_public_progress_note ?? attachment.latest_step_summary ?? ""),
+          agentBrief: String(item.agentBrief ?? item.agent_brief_output ?? attachment.agent_brief_output ?? ""),
+          evidenceType: String(item.evidenceType ?? item.evidence_type ?? ""),
           eventType: String(item.eventType ?? item.event_type ?? attachment.latest_event_type ?? "runtime_attachment"),
           kind: String(item.kind ?? "stage") as RuntimeProgressEntry["kind"],
           statusText: String(item.statusText ?? item.status ?? attachment.status ?? ""),
@@ -283,7 +280,15 @@ function entriesFromAttachments(attachments: SessionRuntimeAttachment[]): Runtim
       : [];
     const artifactRefs = Array.isArray(attachment.artifact_refs) ? attachment.artifact_refs : [];
     const attachmentState = attachmentRunState(attachment);
-    const shouldAddStatusEntry = progress.length === 0 || attachmentState === "success" || attachmentState === "error" || attachmentState === "waiting";
+    const hasTerminalProgress = progress.some((item) => isTerminalEntry(item));
+    const hasLatestSummary = Boolean(
+      String(attachment.latest_step_summary || attachment.summary || attachment.final_answer || "").trim(),
+    );
+    const shouldAddStatusEntry =
+      progress.length === 0
+      || attachmentState === "error"
+      || attachmentState === "waiting"
+      || (attachmentState === "success" && !hasTerminalProgress && hasLatestSummary);
     const terminalEntry: RuntimeProgressEntry = {
       id: `${attachment.attachment_id}:status`,
       level: attachmentState === "success" ? "success" : attachmentState === "error" ? "error" : attachmentState === "waiting" ? "waiting" : "running",
@@ -307,10 +312,16 @@ function completedCount(steps: RuntimeStepView[]) {
 }
 
 function progressSummary(doneCount: number, totalCount: number, runState: RuntimeRunState) {
-  if (runState === "success") return `已完成 ${totalCount} 项`;
-  if (runState === "error") return `${doneCount}/${totalCount} 项完成，遇到问题`;
-  if (runState === "waiting") return `${doneCount}/${totalCount} 项完成，等待继续`;
-  return `${doneCount}/${totalCount} 项完成`;
+  if (totalCount <= 1) {
+    if (runState === "error") return "需要处理";
+    if (runState === "waiting") return "等待继续";
+    if (runState === "success") return "";
+    return "进行中";
+  }
+  if (runState === "success") return `${totalCount} 步`;
+  if (runState === "error") return `${doneCount}/${totalCount} 已完成`;
+  if (runState === "waiting") return `${doneCount}/${totalCount} 已完成`;
+  return `${doneCount}/${totalCount} 已完成`;
 }
 
 export function RuntimeRunSummary({ entries, attachments = [] }: { entries: RuntimeProgressEntry[]; attachments?: SessionRuntimeAttachment[] }) {
@@ -318,12 +329,14 @@ export function RuntimeRunSummary({ entries, attachments = [] }: { entries: Runt
   const runState = combinedRunState(activities, attachments);
   const [expanded, setExpanded] = useState(runState === "error" || runState === "waiting");
   const allSteps = compactStepViews(activities, runState);
-  const visibleSteps = expanded ? allSteps.slice(-MAX_VISIBLE_STEPS) : allSteps.slice(-3);
+  const detailSteps = expanded ? allSteps : [];
+  const visibleSteps = detailSteps.slice(-MAX_VISIBLE_STEPS);
   const latest = allSteps[allSteps.length - 1];
   const hasWorkActivity = activities.some(isWorkEntry);
   const doneCount = completedCount(allSteps);
   const totalCount = allSteps.length;
-  const hasMoreSteps = allSteps.length > visibleSteps.length;
+  const hasMoreSteps = detailSteps.length > visibleSteps.length;
+  const summaryMeta = progressSummary(doneCount, totalCount, runState);
 
   useEffect(() => {
     if (runState === "error" || runState === "waiting") {
@@ -350,12 +363,11 @@ export function RuntimeRunSummary({ entries, attachments = [] }: { entries: Runt
             <strong>{runState === "success" ? "已完成" : latest.phase}</strong>
             <span>{latest.output}</span>
           </span>
+          {latest.agentBrief ? <small className="runtime-run-summary__brief">{latest.agentBrief}</small> : null}
         </span>
-        <span className="runtime-run-summary__meta">
-          <span>{progressSummary(doneCount, totalCount, runState)}</span>
-        </span>
+        {summaryMeta ? <span className="runtime-run-summary__meta"><span>{summaryMeta}</span></span> : null}
       </button>
-      <div className="runtime-run-summary__items" hidden={!expanded && allSteps.length <= 1}>
+      <div className="runtime-run-summary__items" hidden={!expanded || !visibleSteps.length}>
         {visibleSteps.map((entry) => (
           <div className="runtime-run-summary__item" data-level={entry.level} key={entry.id}>
             <span className="runtime-run-summary__item-mark">{stepIcon(entry.level)}</span>

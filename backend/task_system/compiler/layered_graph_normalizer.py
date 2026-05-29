@@ -17,6 +17,7 @@ RESOURCE_NODE_TYPES = {
     "runtime_state_store",
     "working_memory_store",
 }
+EXECUTABLE_MEMORY_NODE_TYPES = {"memory_commit", "memory_finalize"}
 MEMORY_EDGE_TYPES = {"memory_read", "memory_write", "memory_write_candidate", "memory_commit", "memory_handoff"}
 ARTIFACT_EDGE_TYPES = {"artifact_read", "artifact_write", "artifact_context"}
 REVISION_EDGE_TYPES = {"revision_request", "review_feedback", "repair_feedback", "conditional_feedback", "repair_route"}
@@ -83,7 +84,10 @@ def normalize_task_graph_layers(graph: TaskGraphDefinition) -> dict[str, Any]:
 def _is_resource_node(node: TaskGraphNodeDefinition) -> bool:
     node_type = str(node.node_type or "").strip()
     node_id = str(node.node_id or "").strip()
-    return node_type in RESOURCE_NODE_TYPES or node_id.startswith(("memory.", "artifact.", "thread.", "progress.", "issue."))
+    return node_type in RESOURCE_NODE_TYPES or (
+        node_id.startswith(("memory.", "artifact.", "thread.", "progress.", "issue."))
+        and node_type not in EXECUTABLE_MEMORY_NODE_TYPES
+    )
 
 
 def _is_loop_frame(node: TaskGraphNodeDefinition) -> bool:

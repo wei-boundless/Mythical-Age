@@ -151,17 +151,22 @@ def _progress_entries(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
         payload = dict(event.get("payload") or {})
         if event_type == "step_summary_recorded":
             summary = public_runtime_progress_summary(payload.get("summary") or "").strip()
+            public_note = public_runtime_progress_summary(payload.get("public_progress_note") or summary).strip()
+            agent_brief = public_runtime_progress_summary(payload.get("agent_brief_output") or "").strip()
             step = str(payload.get("step") or "").strip()
             status = str(payload.get("status") or "").strip()
-            if summary or step:
+            if public_note or summary or step:
                 entries.append(
                     _entry(
                         event,
                         title=_step_title(step, status),
-                        body=summary,
+                        body=public_note or summary,
                         kind=_step_kind(step),
                         level=_level_from_status(status),
                         status=status,
+                        public_note=public_note,
+                        agent_brief=agent_brief,
+                        evidence_type=_evidence_type(event_type, step),
                     )
                 )
             continue
@@ -186,6 +191,8 @@ def _progress_entries(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     level="success",
                     status="completed",
                     tool_name="",
+                    public_note=public_runtime_progress_summary(instruction),
+                    evidence_type="user_instruction",
                 )
             )
             continue
@@ -202,6 +209,9 @@ def _progress_entries(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
                         kind="tool" if source.startswith("tool:") else "system",
                         status="completed",
                         tool_name=source.removeprefix("tool:"),
+                        public_note=summary,
+                        agent_brief=summary,
+                        evidence_type="tool_observation" if source.startswith("tool:") else "observation",
                     )
                 )
             continue
@@ -216,6 +226,8 @@ def _progress_entries(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     kind="terminal",
                     level="success" if status == "completed" else "error",
                     status=status,
+                    public_note=public_runtime_progress_summary(task_run.get("terminal_reason") or status),
+                    evidence_type="terminal",
                 )
             )
     return entries
@@ -230,8 +242,11 @@ def _entry(
     level: str = "running",
     status: str = "",
     tool_name: str = "",
+    public_note: str = "",
+    agent_brief: str = "",
+    evidence_type: str = "",
 ) -> dict[str, Any]:
-    return {
+    item = {
         "id": str(event.get("event_id") or f"{event.get('task_run_id')}:{event.get('offset')}"),
         "eventType": str(event.get("event_type") or ""),
         "taskRunId": str(event.get("task_run_id") or ""),
@@ -243,6 +258,13 @@ def _entry(
         "toolName": tool_name,
         "createdAt": float(event.get("created_at") or 0.0),
     }
+    if public_note:
+        item["publicNote"] = public_note
+    if agent_brief:
+        item["agentBrief"] = agent_brief
+    if evidence_type:
+        item["evidenceType"] = evidence_type
+    return item
 
 
 def _step_title(step: str, status: str) -> str:
@@ -291,3 +313,15 @@ def _observation_title(source: str) -> str:
     if source:
         return "处理观察"
     return "观察结果"
+
+
+def _evidence_type(event_type: str, step: str) -> str:
+    if "tool" in step:
+        return "tool_observation"
+    if "model_action" in step:
+        return "model_action"
+    if "repair" in step or "verification" in step:
+        return "verification"
+    if "completed" in step or event_type.endswith("finished"):
+        return "terminal"
+    return "runtime_step"

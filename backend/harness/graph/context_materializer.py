@@ -273,12 +273,13 @@ def _file_view_request(*, graph_config: GraphHarnessConfig, node: dict[str, Any]
 
 
 def _issue_view_request(*, graph_config: GraphHarnessConfig, node: dict[str, Any]) -> dict[str, Any]:
-    del node
+    node_id = str(node.get("node_id") or "")
     return {
         "issue_ledgers": [
-            _resource_node_summary(dict(item))
+            _resource_node_summary(dict(item), node_id=node_id)
             for item in list(dict(graph_config.resources or {}).get("resource_nodes") or [])
             if str(dict(item).get("resource_type") or dict(item).get("node_type") or "") == "issue_ledger"
+            and _resource_visible_to_node(dict(item), node_id=node_id)
         ]
     }
 
@@ -287,7 +288,7 @@ def _node_memory_policy_view(*, graph_config: GraphHarnessConfig, node_id: str) 
     policy = dict(graph_config.memory or {})
     read_rules = _dedupe_edge_items(
         [
-            *_node_related_items(list(policy.get("read_rules") or []), node_id=node_id),
+            *_target_node_items(list(policy.get("read_rules") or []), node_id=node_id),
             *_resource_flow_edges(graph_config=graph_config, node_id=node_id, semantic_role="memory"),
         ]
     )
@@ -306,7 +307,7 @@ def _node_artifact_policy_view(*, graph_config: GraphHarnessConfig, node_id: str
     policy = dict(graph_config.artifacts or {})
     context_edges = _dedupe_edge_items(
         [
-            *_node_related_items(list(policy.get("context_edges") or []), node_id=node_id),
+            *_target_node_items(list(policy.get("context_edges") or []), node_id=node_id),
             *_resource_flow_edges(graph_config=graph_config, node_id=node_id, semantic_role="artifact"),
         ]
     )
@@ -319,35 +320,49 @@ def _node_artifact_policy_view(*, graph_config: GraphHarnessConfig, node_id: str
 
 
 def _resource_policy_view(*, graph_config: GraphHarnessConfig, node_id: str = "") -> dict[str, Any]:
+    file_context_edges = _resource_flow_edges(graph_config=graph_config, node_id=node_id, semantic_role="file") if node_id else []
+    visible_resource_ids = {
+        str(edge.get("source_node_id") or "")
+        for edge in file_context_edges
+        if str(edge.get("source_node_id") or "")
+    }
+    protocol_entry = _node_protocol_entry(graph_config=graph_config, node_id=node_id)
+    visible_resource_ids.update(str(item) for item in list(protocol_entry.get("readable_resource_node_ids") or []) if str(item))
+    visible_resource_ids.update(str(item) for item in list(protocol_entry.get("writable_resource_node_ids") or []) if str(item))
     resources = [
-        _resource_node_summary(dict(item))
+        _resource_node_summary(dict(item), node_id=node_id)
         for item in list(dict(graph_config.resources or {}).get("resource_nodes") or [])
         if isinstance(item, dict)
+        and (
+            _resource_visible_to_node(dict(item), node_id=node_id)
+            or str(dict(item).get("node_id") or dict(item).get("resource_id") or "") in visible_resource_ids
+        )
     ]
-    file_context_edges = _resource_flow_edges(graph_config=graph_config, node_id=node_id, semantic_role="file") if node_id else []
     return {
         "resource_nodes": resources,
         "resource_node_count": len(resources),
         "file_context_edges": file_context_edges,
         "file_context_edge_count": len(file_context_edges),
+        "protocol_resource_node_ids": sorted(visible_resource_ids),
         "authority": "harness.graph.context_materializer.resource_policy_view",
     }
 
 
-def _resource_node_summary(item: dict[str, Any]) -> dict[str, Any]:
+def _resource_node_summary(item: dict[str, Any], *, node_id: str = "") -> dict[str, Any]:
+    current_node_id = str(node_id or "")
     return {
         "node_id": str(item.get("node_id") or ""),
         "title": str(item.get("title") or ""),
         "resource_type": str(item.get("resource_type") or item.get("node_type") or ""),
         "repository_id": str(item.get("repository_id") or ""),
         "collections": [str(value) for value in list(item.get("collections") or []) if str(value)],
-        "readable_by": [str(value) for value in list(item.get("readable_by") or []) if str(value)],
-        "write_owner_node_ids": [str(value) for value in list(item.get("write_owner_node_ids") or []) if str(value)],
+        "current_node_can_read": _resource_can_read(item, node_id=current_node_id),
+        "current_node_can_write": _resource_can_write(item, node_id=current_node_id),
         "authority": str(item.get("authority") or "task_system.resource_node"),
     }
 
 
-def _node_related_items(items: list[Any], *, node_id: str) -> list[dict[str, Any]]:
+def _target_node_items(items: list[Any], *, node_id: str) -> list[dict[str, Any]]:
     target = str(node_id or "")
     if not target:
         return []
@@ -356,17 +371,33 @@ def _node_related_items(items: list[Any], *, node_id: str) -> list[dict[str, Any
         if not isinstance(item, dict):
             continue
         payload = dict(item)
-        refs = {
-            str(payload.get("source_node_id") or ""),
-            str(payload.get("target_node_id") or ""),
-            str(payload.get("node_id") or ""),
-            str(payload.get("owner_node_id") or ""),
-            str(payload.get("before_node_id") or ""),
-            str(payload.get("after_node_id") or ""),
-        }
-        if target in refs:
+        if str(payload.get("target_node_id") or "") == target or str(payload.get("node_id") or "") == target:
             result.append(payload)
     return result
+
+
+def _resource_visible_to_node(item: dict[str, Any], *, node_id: str) -> bool:
+    current_node_id = str(node_id or "")
+    if not current_node_id:
+        return False
+    resource_id = str(item.get("node_id") or item.get("resource_id") or "")
+    return (
+        current_node_id == resource_id
+        or _resource_can_read(item, node_id=current_node_id)
+        or _resource_can_write(item, node_id=current_node_id)
+    )
+
+
+def _resource_can_read(item: dict[str, Any], *, node_id: str) -> bool:
+    current_node_id = str(node_id or "")
+    readable_by = {str(value) for value in list(item.get("readable_by") or []) if str(value)}
+    return bool(current_node_id and ("*" in readable_by or current_node_id in readable_by))
+
+
+def _resource_can_write(item: dict[str, Any], *, node_id: str) -> bool:
+    current_node_id = str(node_id or "")
+    write_owners = {str(value) for value in list(item.get("write_owner_node_ids") or []) if str(value)}
+    return bool(current_node_id and ("*" in write_owners or current_node_id in write_owners))
 
 
 def _resource_flow_edges(*, graph_config: GraphHarnessConfig, node_id: str, semantic_role: str) -> list[dict[str, Any]]:
@@ -378,6 +409,11 @@ def _resource_flow_edges(*, graph_config: GraphHarnessConfig, node_id: str, sema
             continue
         result.append(payload)
     return result
+
+
+def _node_protocol_entry(*, graph_config: GraphHarnessConfig, node_id: str) -> dict[str, Any]:
+    index = dict(dict(graph_config.contracts or {}).get("node_protocol_index") or {})
+    return dict(index.get(str(node_id or "")) or {})
 
 
 def _dedupe_edge_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:

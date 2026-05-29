@@ -688,7 +688,10 @@ async def execute_task_run(
             task_run_id=current_task.task_run_id,
             step=f"model_action_received:{step_index}",
             status="running",
-            summary=public_action_progress_summary(action_request.action_type),
+            summary=_action_progress_note(action_request),
+            public_progress_note=action_request.public_progress_note,
+            agent_brief_output=compact_text(action_request.final_answer, limit=300) if action_request.action_type == "respond" else "",
+            presentation_source="model_action.public_progress_note" if action_request.public_progress_note else "model_action.action_type_fallback",
             refs={"action_request_ref": action_request.request_id},
         )
         append_work_rollout_item(
@@ -697,11 +700,15 @@ async def execute_task_run(
             item_type="progress",
             title="思考下一步",
             status="running",
-            summary=public_action_progress_summary(action_request.action_type),
+            summary=_action_progress_note(action_request),
             agent_brief_output=compact_text(action_request.final_answer, limit=300) if action_request.action_type == "respond" else "",
             event_offset=action_event.offset,
             refs={"action_request_ref": action_request.request_id, "runtime_invocation_packet_ref": compilation.packet.packet_id},
-            payload={"action_type": action_request.action_type},
+            payload={
+                "action_type": action_request.action_type,
+                "public_progress_note": action_request.public_progress_note,
+                "presentation_source": "model_action.public_progress_note" if action_request.public_progress_note else "model_action.action_type_fallback",
+            },
         )
         current_task = runtime_host.state_index.get_task_run(current_task.task_run_id) or current_task
         control_result = _apply_runtime_control_boundary(runtime_host, task_run=current_task, agent_run=agent_run, boundary=f"after_model_action:{step_index}")
@@ -1011,7 +1018,11 @@ async def _execute_task_tool_call(
         runtime_executable=True,
         diagnostics={"source": "single_agent_task_executor", "sandbox_policy": _public_policy(sandbox_policy)},
     )
-    sandbox_policy = {**sandbox_policy, "session_id": task_run.session_id}
+    sandbox_policy = {
+        **sandbox_policy,
+        "session_id": task_run.session_id,
+        **_task_runtime_scope_policy(task_run),
+    }
     gate_result = runtime_host.operation_gate.check(
         operation_id,
         resource_policy=resource_policy,
@@ -1163,6 +1174,23 @@ def _task_sandbox_policy(runtime_assembly: dict[str, Any], *, runtime_host: Any,
         "read_scopes": ["."],
         "approval_policy": "sandboxed_side_effects",
         "side_effect_operations": list(sandbox.get("side_effect_operations") or ("op.write_file", "op.edit_file", "op.shell", "op.browser_control", "op.image_generate")),
+    }
+
+
+def _task_runtime_scope_policy(task_run: Any) -> dict[str, Any]:
+    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+    runtime_scope = {
+        **dict(diagnostics.get("runtime_scope") or {}),
+    }
+    for key in ("project_id", "scope_id", "graph_run_id", "graph_node_id", "graph_work_order_id"):
+        value = str(diagnostics.get(key) or "").strip()
+        if value:
+            runtime_scope.setdefault(key, value)
+    if not runtime_scope:
+        return {}
+    return {
+        "runtime_scope": runtime_scope,
+        **({"project_id": str(runtime_scope.get("project_id") or "")} if runtime_scope.get("project_id") else {}),
     }
 
 
@@ -2804,12 +2832,32 @@ def _runtime_allowed_tool_names(available_tools: list[dict[str, Any]]) -> set[st
     return {str(item.get("tool_name") or "").strip() for item in available_tools if str(item.get("tool_name") or "").strip()}
 
 
-def _record_task_step_summary(runtime_host: Any, *, task_run_id: str, step: str, status: str, summary: str, refs: dict[str, Any] | None = None) -> dict[str, Any]:
+def _record_task_step_summary(
+    runtime_host: Any,
+    *,
+    task_run_id: str,
+    step: str,
+    status: str,
+    summary: str,
+    refs: dict[str, Any] | None = None,
+    public_progress_note: str = "",
+    agent_brief_output: str = "",
+    presentation_source: str = "",
+) -> dict[str, Any]:
     visible_summary = public_runtime_progress_summary(summary)
+    visible_note = public_runtime_progress_summary(public_progress_note)
+    visible_brief = public_runtime_progress_summary(agent_brief_output)
+    payload = {"task_run_id": task_run_id, "step": step, "status": status, "summary": visible_summary}
+    if visible_note:
+        payload["public_progress_note"] = visible_note
+    if visible_brief:
+        payload["agent_brief_output"] = visible_brief
+    if presentation_source:
+        payload["presentation_source"] = presentation_source
     event = runtime_host.event_log.append(
         task_run_id,
         "step_summary_recorded",
-        payload={"task_run_id": task_run_id, "step": step, "status": status, "summary": visible_summary},
+        payload=payload,
         refs={"task_run_ref": task_run_id, **dict(refs or {})},
     )
     current = runtime_host.state_index.get_task_run(task_run_id)
@@ -2823,6 +2871,10 @@ def _record_task_step_summary(runtime_host: Any, *, task_run_id: str, step: str,
             )
         )
     return event.to_dict()
+
+
+def _action_progress_note(action_request: ModelActionRequest) -> str:
+    return public_runtime_progress_summary(action_request.public_progress_note) or public_action_progress_summary(action_request.action_type)
 
 
 def _public_policy(policy: dict[str, Any]) -> dict[str, Any]:

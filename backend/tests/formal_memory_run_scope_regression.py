@@ -1,6 +1,15 @@
 from __future__ import annotations
 
+import asyncio
+import json
+import time
+
+from capability_system.tool_runtime import ToolRuntime
 from memory_system.formal_memory_service import FormalMemoryService
+from orchestration.runtime_directive import RuntimeDirective
+from runtime.shared.action_request import RuntimeActionRequest
+from runtime.shared.execution_record import OperationExecutionRecord
+from runtime.tool_runtime.tool_executor import ToolRuntimeExecutor
 
 
 def _edge() -> dict:
@@ -153,5 +162,89 @@ def test_formal_memory_project_scope_shares_within_project_only(tmp_path) -> Non
 
     assert same_project["required_records"][0]["canonical_text"] == "同项目共享世界观"
     assert other_project["required_records"] == []
+
+
+def test_graph_task_memory_search_is_bound_to_runtime_project_scope(tmp_path) -> None:
+    service = FormalMemoryService(tmp_path / "storage" / "formal_memory")
+    project_edge = {**_edge(), "lifecycle_policy": {"scope_kind": "project_scoped"}}
+    candidate, _write_txn = service.write_candidate_from_edge(
+        edge=project_edge,
+        candidate={"canonical_text": "旧项目世界观", "record_key": "world.current"},
+        task_run_id="taskrun:old",
+        node_run_id="taskrun:old:writer",
+        source_node_id="writer",
+        source_clock_seq=1,
+        runtime_scope={"project_id": "project:old"},
+    )
+    service.commit_from_edge(
+        edge=project_edge,
+        candidate_version_id=candidate.version_id,
+        node_run_id="taskrun:old:commit",
+        source_clock_seq=2,
+    )
+
+    executor = ToolRuntimeExecutor(tool_runtime=ToolRuntime(tmp_path))
+    task_run_id = "gtask:graph:new:node"
+    action = RuntimeActionRequest(
+        request_id="model-action:memory-search",
+        task_run_id=task_run_id,
+        request_type="tool_call",
+        step_id="step:memory-search",
+        directive_ref="directive:memory-search",
+        operation_id="op.memory_read",
+        payload={
+            "tool_name": "memory_search",
+            "tool_call": {
+                "id": "model-action:memory-search",
+                "name": "memory_search",
+                "args": {"query": "旧项目世界观", "task_run_id": "", "project_id": "", "limit": 8},
+            },
+        },
+        created_at=time.time(),
+    )
+    directive = RuntimeDirective(
+        directive_id="directive:memory-search",
+        task_id=task_run_id,
+        plan_ref="plan:memory-search",
+        stage_ref="stage:memory-search",
+        executor_type="tool",
+        adopted_resource_policy_ref="resource-policy:memory-search",
+        operation_refs=("op.memory_read",),
+    )
+    record = OperationExecutionRecord(
+        execution_id="rtexec:memory-search",
+        task_run_id=task_run_id,
+        step_id="step:memory-search",
+        request_ref=action.request_id,
+        directive_ref=directive.directive_id,
+        operation_id="op.memory_read",
+        executor_type="tool",
+        request_fingerprint="fingerprint",
+        idempotency_token="token",
+        replay_policy="replay_read",
+    )
+
+    result = asyncio.run(
+        executor.run(
+            task_run_id=task_run_id,
+            action_request=action,
+            directive=directive,
+            execution_record=record,
+            sandbox_policy={
+                "runtime_scope": {
+                    "project_id": "project:new",
+                    "graph_run_id": "grun:new",
+                    "graph_node_id": "graph_module.design_init::project_brief",
+                }
+            },
+        )
+    )
+    observation = result["observation"].to_dict()
+    payload = json.loads(observation["payload"]["result"])
+
+    assert payload["project_id"] == "project:new"
+    assert payload["task_run_id"] == task_run_id
+    assert payload["result_count"] == 0
+    assert payload["diagnostics"]["candidate_version_count"] == 0
 
 

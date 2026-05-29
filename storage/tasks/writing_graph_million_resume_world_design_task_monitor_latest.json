@@ -1,0 +1,81 @@
+{
+  "task_run_id": "gtask:grun_graph_writing_modular_novel_master_1780092444341:graph_module_design_init__world_design:gwork_grun_graph_writing_modular_novel_master_1780092444341_graph_module_design_init__world_design_1_1_1780092762954",
+  "session_id": "writing-modular-novel-honghuang-million-resume-20260530-060723",
+  "task_id": "task.writing.modular_novel.node.world_design@graph_module.design_init",
+  "execution_runtime_kind": "single_agent_task",
+  "title": "Agent 运行",
+  "status": "running",
+  "terminal_reason": "",
+  "lifecycle": "stale",
+  "bucket": "diagnostics",
+  "resource_class": "static",
+  "started_at": 1780092903.1576467,
+  "ended_at": 1780093041.345067,
+  "duration_seconds": 138.18742036819458,
+  "elapsed_seconds": 138.18742036819458,
+  "runtime_seconds": 138.18742036819458,
+  "runtime_end_at": 1780093041.345067,
+  "last_activity_at": 1780093041.345067,
+  "last_activity_age_seconds": 11.184995651245117,
+  "action_required": false,
+  "terminal": false,
+  "stale": true,
+  "diagnostic_reasons": [
+    "missing_route_graph_id"
+  ],
+  "runtime_control": {},
+  "control_state": "",
+  "is_live": false,
+  "summary": "仍在处理中，正在等待下一步结果。",
+  "latest_event_type": "step_summary_recorded",
+  "latest_event_at": 1780093041.345067,
+  "latest_event": {
+    "event_id": "rtevt:gtask:grun_graph_writing_modular_novel_master_1780092444341:graph_module_design_init__world_design:gwork_grun_graph_writing_modular_novel_master_1780092444341_graph_module_design_init__world_design_1_1_1780092762954:12:a830f514",
+    "task_run_id": "gtask:grun_graph_writing_modular_novel_master_1780092444341:graph_module_design_init__world_design:gwork_grun_graph_writing_modular_novel_master_1780092444341_graph_module_design_init__world_design_1_1_1780092762954",
+    "event_type": "step_summary_recorded",
+    "offset": 12,
+    "created_at": 1780093041.345067,
+    "payload": {
+      "task_run_id": "gtask:grun_graph_writing_modular_novel_master_1780092444341:graph_module_design_init__world_design:gwork_grun_graph_writing_modular_novel_master_1780092444341_graph_module_design_init__world_design_1_1_1780092762954",
+      "step": "task_model_action_waiting:1",
+      "status": "running",
+      "summary": "仍在处理中，正在等待下一步结果。"
+    },
+    "refs": {
+      "task_run_ref": "gtask:grun_graph_writing_modular_novel_master_1780092444341:graph_module_design_init__world_design:gwork_grun_graph_writing_modular_novel_master_1780092444341_graph_module_design_init__world_design_1_1_1780092762954",
+      "runtime_invocation_packet_ref": "rtpacket:gtask:grun_graph_writing_modular_novel_master_1780092444341:graph_module_design_init__world_design:gwork_grun_graph_writing_modular_novel_master_1780092444341_graph_module_design_init__world_design_1_1_1780092762954:task_execution:1"
+    },
+    "authority": "orchestration.runtime_event"
+  },
+  "latest_step": {
+    "step": "task_model_action_waiting:1",
+    "status": "running",
+    "summary": "仍在处理中，正在等待下一步结果。",
+    "event_id": "rtevt:gtask:grun_graph_writing_modular_novel_master_1780092444341:graph_module_design_init__world_design:gwork_grun_graph_writing_modular_novel_master_1780092444341_graph_module_design_init__world_design_1_1_1780092762954:12:a830f514",
+    "offset": 12,
+    "created_at": 1780093041.345067
+  },
+  "latest_step_summary": "仍在处理中，正在等待下一步结果。",
+  "latest_step_name": "task_model_action_waiting:1",
+  "latest_step_status": "running",
+  "artifact_count": 0,
+  "artifact_refs": [],
+  "route": {
+    "kind": "task_graph_run",
+    "session_id": "writing-modular-novel-honghuang-million-resume-20260530-060723",
+    "task_run_id": "gtask:grun_graph_writing_modular_novel_master_1780092444341:graph_module_design_init__world_design:gwork_grun_graph_writing_modular_novel_master_1780092444341_graph_module_design_init__world_design_1_1_1780092762954",
+    "graph_id": "",
+    "graph_run_id": "grun:graph_writing_modular_novel_master:1780092444341",
+    "graph_harness_config_id": "ghcfg:graph_writing_modular_novel_master:4122a436a5e9fdfa"
+  },
+  "graph_run_id": "grun:graph_writing_modular_novel_master:1780092444341",
+  "graph_harness_config_id": "ghcfg:graph_writing_modular_novel_master:4122a436a5e9fdfa",
+  "graph_id": "",
+  "active_node_id": "graph_module.design_init::world_design",
+  "project_id": "project:honghuang-times",
+  "project_title": "",
+  "project_runtime_status": null,
+  "has_graph_run": true,
+  "event_count": 13,
+  "authority": "single_agent_runtime_monitor.item"
+}

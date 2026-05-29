@@ -354,7 +354,10 @@ async def run_agent_invocation_stream(
             turn_id=turn_id,
             step="model_action_received",
             status="running",
-            summary=public_action_progress_summary(action_request.action_type),
+            summary=_action_progress_note(action_request),
+            public_progress_note=action_request.public_progress_note,
+            agent_brief_output=compact_text(action_request.final_answer, limit=300) if action_request.action_type == "respond" else "",
+            presentation_source="model_action.public_progress_note" if action_request.public_progress_note else "model_action.action_type_fallback",
             refs={"action_request_ref": action_request.request_id},
         )
 
@@ -1352,17 +1355,29 @@ def _record_step_summary(
     status: str,
     summary: str,
     refs: dict[str, Any] | None = None,
+    public_progress_note: str = "",
+    agent_brief_output: str = "",
+    presentation_source: str = "",
 ) -> dict[str, Any]:
     visible_summary = public_runtime_progress_summary(summary)
+    visible_note = public_runtime_progress_summary(public_progress_note)
+    visible_brief = public_runtime_progress_summary(agent_brief_output)
+    payload = {
+        "turn_id": turn_id,
+        "step": step,
+        "status": status,
+        "summary": visible_summary,
+    }
+    if visible_note:
+        payload["public_progress_note"] = visible_note
+    if visible_brief:
+        payload["agent_brief_output"] = visible_brief
+    if presentation_source:
+        payload["presentation_source"] = presentation_source
     event = runtime_host.event_log.append(
         task_run_id,
         "step_summary_recorded",
-        payload={
-            "turn_id": turn_id,
-            "step": step,
-            "status": status,
-            "summary": visible_summary,
-        },
+        payload=payload,
         refs={"turn_ref": turn_id, **dict(refs or {})},
     )
     current_task_run = runtime_host.state_index.get_task_run(task_run_id)
@@ -1387,6 +1402,10 @@ def _record_step_summary(
         "summary": visible_summary,
         "event": event.to_dict(),
     }
+
+
+def _action_progress_note(action_request: ModelActionRequest) -> str:
+    return public_runtime_progress_summary(action_request.public_progress_note) or public_action_progress_summary(action_request.action_type)
 
 
 def _build_task_contract_error_observation(

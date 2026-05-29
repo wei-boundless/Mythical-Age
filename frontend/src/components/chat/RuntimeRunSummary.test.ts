@@ -5,6 +5,31 @@ import { describe, expect, it } from "vitest";
 import { RuntimeRunSummary } from "./RuntimeRunSummary";
 
 describe("RuntimeRunSummary", () => {
+  it("uses model authored public progress notes before runtime fallback text", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(RuntimeRunSummary, {
+        entries: [
+          {
+            id: "model-action",
+            kind: "model",
+            level: "running",
+            title: "agent 正在处理",
+            body: "系统已为当前任务步骤装配 runtime packet，并交给 agent 判断下一步。",
+            publicNote: "我先核对当前文件状态，确认可以从断点继续。",
+            agentBrief: "已定位到上次中断前的入口文件。",
+            eventType: "step_summary_recorded",
+            statusText: "running",
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain("我先核对当前文件状态");
+    expect(html).toContain("已定位到上次中断前的入口文件");
+    expect(html).not.toContain("runtime packet");
+    expect(html).not.toContain("装配");
+  });
+
   it("labels completed work attachments as process progress without exposing internal task wording", () => {
     const html = renderToStaticMarkup(
       React.createElement(RuntimeRunSummary, {
@@ -37,7 +62,7 @@ describe("RuntimeRunSummary", () => {
     );
 
     expect(html).toContain("目标已满足");
-    expect(html).toContain("目标已满足");
+    expect(html).toContain("2 步");
     expect(html).not.toContain("任务运行");
     expect(html).not.toContain("会话运行");
     expect(html).not.toContain("TaskRun");
@@ -71,7 +96,7 @@ describe("RuntimeRunSummary", () => {
 
     expect(html).toContain("思考下一步");
     expect(html).toContain("正在生成下一步动作");
-    expect(html).toContain("正在整理上下文");
+    expect(html).toContain("1/2 已完成");
     expect(html).not.toContain("系统已为当前任务步骤装配 runtime packet");
     expect(html).not.toContain("任务模型调用仍在进行中");
     expect(html).not.toContain("Agent 判断");
@@ -114,9 +139,8 @@ describe("RuntimeRunSummary", () => {
     );
 
     expect(html).toContain("runtime-run-summary--work");
-    expect(html).toContain(">已完成<");
-    expect(html).toContain(">进行中<");
-    expect(html).toContain("1/2 步");
+    expect(html).toContain("思考下一步");
+    expect(html).toContain("1/2 已完成");
     expect(html).not.toContain("runtime-run-summary--task");
   });
 

@@ -12,6 +12,7 @@ class ModelActionRequest:
     request_id: str
     turn_id: str
     action_type: ModelActionType
+    public_progress_note: str = ""
     final_answer: str = ""
     user_question: str = ""
     blocking_reason: str = ""
@@ -77,6 +78,7 @@ def model_action_request_from_payload(
     final_answer = str(raw.get("final_answer") or "").strip()
     user_question = str(raw.get("user_question") or "").strip()
     blocking_reason = str(raw.get("blocking_reason") or "").strip()
+    public_progress_note = _public_progress_note(raw.get("public_progress_note"))
     if action_type == "respond" and not final_answer:
         errors.append("final_answer_required_for_respond")
     if action_type == "ask_user" and not user_question:
@@ -106,6 +108,7 @@ def model_action_request_from_payload(
         request_id=str(raw.get("request_id") or f"model-action:{turn_id}:1"),
         turn_id=raw_turn_id,
         action_type=action_type,  # type: ignore[arg-type]
+        public_progress_note=public_progress_note,
         final_answer=final_answer,
         user_question=user_question,
         blocking_reason=blocking_reason,
@@ -120,3 +123,20 @@ def model_action_request_from_payload(
         "validation_errors": [],
         "authority": "harness.loop.model_action_protocol",
     }
+
+
+def _public_progress_note(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    for source, replacement in (
+        ("runtime packet", "上下文"),
+        ("RuntimeInvocationPacket", "上下文"),
+        ("TaskRun", "当前工作"),
+        ("task run", "当前工作"),
+        ("执行器", "处理流程"),
+        ("回灌", "交回"),
+    ):
+        text = text.replace(source, replacement)
+    text = " ".join(text.split())
+    return text[:160].rstrip()

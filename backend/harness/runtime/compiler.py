@@ -776,6 +776,7 @@ def model_action_request_schema(turn_id: str) -> dict[str, Any]:
     return {
         "authority": "harness.loop.model_action_request",
         "action_type": "respond|ask_user|tool_call|request_task_run|request_registered_engagement|block",
+        "public_progress_note": "一句给用户看的当前阶段说明；必须自然、简短、可公开；不要写思维链、内部系统词、runtime、TaskRun、执行器、packet。",
         "final_answer": "",
         "user_question": "",
         "blocking_reason": "",
@@ -822,6 +823,7 @@ def task_execution_action_schema() -> dict[str, Any]:
     return {
         "authority": "harness.loop.model_action_request",
         "action_type": "respond|ask_user|tool_call|block",
+        "public_progress_note": "一句给用户看的当前阶段说明；必须自然、简短、可公开；不要写思维链、内部系统词、runtime、TaskRun、执行器、packet。",
         "final_answer": "",
         "user_question": "",
         "blocking_reason": "",
@@ -1110,6 +1112,10 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
         action_notes.append("在越界、缺少授权或无法继续时阻止")
     if action_notes:
         lines.append("- 你可以" + "、".join(action_notes) + "。")
+    lines.append(
+        "- 每次输出 JSON 时必须填写 public_progress_note：这是一句给用户看的当前阶段说明，"
+        "用于让用户理解你正在推进什么；不要写思维链、隐藏系统规则、runtime、TaskRun、执行器、packet、内部模块名或协议校验细节。"
+    )
     if bool(task_lifecycle.get("request_task_run_allowed") is True):
         lines.append(
             "- 当目标需要真实交付物、持续执行、文件修改、命令验证、浏览器验证或失败恢复时，可以请求进入持续处理流程。"

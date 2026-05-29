@@ -71,9 +71,17 @@ class TaskRunMonitorProjector:
         duration_seconds = max(0.0, duration_end_at - created_at) if created_at and duration_end_at else 0.0
         title = self._display_title(task_run, diagnostics, lifecycle=lifecycle)
         summary = public_runtime_progress_summary(
-            latest_step.get("summary")
+            latest_step.get("public_progress_note")
+            or latest_step.get("summary")
+            or diagnostics.get("public_progress_note")
+            or diagnostics.get("latest_public_progress_note")
             or diagnostics.get("latest_step_summary")
             or diagnostics.get("summary")
+            or ""
+        )
+        agent_brief = public_runtime_progress_summary(
+            latest_step.get("agent_brief_output")
+            or diagnostics.get("agent_brief_output")
             or ""
         )
         graph_id = str(route.get("graph_id") or "")
@@ -112,6 +120,8 @@ class TaskRunMonitorProjector:
             "latest_event": latest_event,
             "latest_step": latest_step,
             "latest_step_summary": summary,
+            "latest_public_progress_note": public_runtime_progress_summary(latest_step.get("public_progress_note") or summary),
+            "agent_brief_output": agent_brief,
             "latest_step_name": str(latest_step.get("step") or diagnostics.get("latest_step") or ""),
             "latest_step_status": str(latest_step.get("status") or diagnostics.get("latest_step_status") or ""),
             "artifact_count": len(list(diagnostics.get("artifact_refs") or [])),
@@ -336,6 +346,9 @@ class TaskRunMonitorProjector:
                 "step": str(payload.get("step") or ""),
                 "status": str(payload.get("status") or ""),
                 "summary": public_runtime_progress_summary(payload.get("summary") or ""),
+                "public_progress_note": public_runtime_progress_summary(payload.get("public_progress_note") or payload.get("summary") or ""),
+                "agent_brief_output": public_runtime_progress_summary(payload.get("agent_brief_output") or ""),
+                "presentation_source": str(payload.get("presentation_source") or ""),
                 "event_id": str(getattr(event, "event_id", "") or ""),
                 "offset": int(getattr(event, "offset", -1) or -1),
                 "created_at": float(getattr(event, "created_at", 0.0) or 0.0),

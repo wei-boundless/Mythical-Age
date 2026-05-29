@@ -45,7 +45,7 @@ import {
 import { createIdleSessionActivity, type Store } from "./core";
 import { reduceStreamEvent, startStreamingTurn, type StreamSession } from "./events";
 import { isVisibleRuntimeMonitorItem, runtimeWorkProjectionFromMonitorItem, visibleRuntimeMonitorItems } from "../runtimeWorkProjection";
-import type { ChatMode, ChatModelSelection, MainAgentAssemblyMode, SearchPolicySource, StoreActions, StoreState, TaskGraphMonitorBinding, TaskSelectionState, WorkspaceView } from "./types";
+import type { ChatMode, ChatModelSelection, MainAgentAssemblyMode, Message, RuntimeProgressEntry, SearchPolicySource, StoreActions, StoreState, TaskGraphMonitorBinding, TaskSelectionState, WorkspaceView } from "./types";
 import { toUiMessages } from "./utils";
 
 type HarnessSessionMonitor = NonNullable<Awaited<ReturnType<typeof getOrchestrationHarnessSessionLiveMonitor>>["monitor"]>;
@@ -391,12 +391,16 @@ export class WorkspaceRuntime {
         return;
       }
       this.store.setState((prev) => {
-        const next: StoreState = {
-          ...prev,
-          messages: toUiMessages(
+        const refreshedMessages = this.mergeVolatileMessageProgress(
+          toUiMessages(
             history.messages,
             "runtime_attachments" in history ? history.runtime_attachments ?? [] : [],
           ),
+          prev.messages,
+        );
+        const next: StoreState = {
+          ...prev,
+          messages: refreshedMessages,
           tokenStats: tokens,
         };
         return prev.sessionActivity.event === "session_history_load_failed"
@@ -434,6 +438,57 @@ export class WorkspaceRuntime {
         };
       });
     }
+  }
+
+  private mergeVolatileMessageProgress(refreshedMessages: Message[], currentMessages: Message[]) {
+    if (!currentMessages.some((message) => message.runtimeProgress?.length)) {
+      return refreshedMessages;
+    }
+    const currentBySourceIndex = new Map<number, Message>();
+    for (const message of currentMessages) {
+      if (message.role === "assistant" && message.sourceIndex !== undefined) {
+        currentBySourceIndex.set(message.sourceIndex, message);
+      }
+    }
+    return refreshedMessages.map((message) => {
+      if (message.role !== "assistant" || message.sourceIndex === undefined) {
+        return message;
+      }
+      const current = currentBySourceIndex.get(message.sourceIndex);
+      if (!current?.runtimeProgress?.length) {
+        return message;
+      }
+      return {
+        ...message,
+        runtimeProgress: this.mergeMessageRuntimeProgress(message.runtimeProgress, current.runtimeProgress),
+        stageStatus: message.stageStatus ?? current.stageStatus,
+      };
+    });
+  }
+
+  private mergeMessageRuntimeProgress(
+    persisted: RuntimeProgressEntry[] | undefined,
+    volatile: RuntimeProgressEntry[],
+  ) {
+    const merged = [...(persisted ?? [])];
+    const ids = new Set(merged.map((entry) => entry.id));
+    for (const entry of volatile) {
+      if (ids.has(entry.id)) {
+        continue;
+      }
+      merged.push(entry);
+      ids.add(entry.id);
+    }
+    return merged
+      .sort((left, right) => {
+        const leftTime = Number(left.createdAt ?? left.completedAt ?? left.startedAt ?? 0) || 0;
+        const rightTime = Number(right.createdAt ?? right.completedAt ?? right.startedAt ?? 0) || 0;
+        if (leftTime && rightTime && leftTime !== rightTime) {
+          return leftTime - rightTime;
+        }
+        return 0;
+      })
+      .slice(-MAX_LIVE_RUNTIME_PROGRESS_ENTRIES);
   }
 
   private addActiveStreamSession(sessionId: string) {
@@ -683,6 +738,8 @@ export class WorkspaceRuntime {
         messages: transition.state.messages.map((message, index, list) =>
           index === list.length - 2 && message.role === "user"
             ? { ...message, sourceIndex: nextSourceIndex }
+            : index === list.length - 1 && message.role === "assistant"
+              ? { ...message, sourceIndex: nextSourceIndex + 1 }
             : message
         )
       }
@@ -1701,12 +1758,27 @@ export class WorkspaceRuntime {
     }
     const eventId = String(latestStep.event_id ?? "").trim();
     const eventCount = Number(monitor.event_count ?? 0);
+    const publicNote = String(
+      latestStep.public_progress_note
+      ?? (monitor as Record<string, unknown>).latest_public_progress_note
+      ?? monitor.latest_step_summary
+      ?? "",
+    );
+    const agentBrief = String(
+      latestStep.agent_brief_output
+      ?? (monitor as Record<string, unknown>).agent_brief_output
+      ?? "",
+    );
+    const stepName = String(latestStep.step ?? monitor.latest_step_name ?? "");
     return {
       id: eventId || `${taskRunId}:latest-step:${eventCount || String(latestStep.step ?? latestStep.status ?? "current")}`,
-      title: String(monitor.latest_step_summary ?? "正在处理"),
-      body: String(monitor.latest_step_summary ?? ""),
+      title: String(monitor.latest_step_summary ?? publicNote) || "正在处理",
+      body: publicNote || String(monitor.latest_step_summary ?? ""),
+      publicNote,
+      agentBrief,
+      evidenceType: this.runtimeEvidenceTypeFromStep(stepName),
       eventType: String((monitor.latest_event as Record<string, unknown> | undefined)?.event_type ?? "runtime_live_monitor"),
-      kind: this.runtimeProgressKindFromStep(String(latestStep.step ?? monitor.latest_step_name ?? "")),
+      kind: this.runtimeProgressKindFromStep(stepName),
       level: this.runtimeProgressLevelFromStatus(String(latestStep.status ?? monitor.latest_step_status ?? monitor.status ?? "")),
       statusText: String(latestStep.status ?? monitor.latest_step_status ?? monitor.status ?? ""),
       taskRunId,
@@ -1721,6 +1793,15 @@ export class WorkspaceRuntime {
     if (normalized.includes("model") || normalized.includes("agent")) return "model";
     if (normalized.includes("completed") || normalized.includes("terminal")) return "terminal";
     return "stage";
+  }
+
+  private runtimeEvidenceTypeFromStep(step: string) {
+    const normalized = step.toLowerCase();
+    if (normalized.includes("tool")) return "tool_observation";
+    if (normalized.includes("model_action")) return "model_action";
+    if (normalized.includes("repair") || normalized.includes("verification")) return "verification";
+    if (normalized.includes("completed") || normalized.includes("terminal")) return "terminal";
+    return "runtime_step";
   }
 
   private runtimeProgressLevelFromStatus(status: string): "running" | "waiting" | "success" | "error" {

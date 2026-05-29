@@ -60,7 +60,6 @@ def public_runtime_progress_summary(summary: Any) -> str:
     normalized = normalized.replace("TaskRun", "当前工作")
     normalized = normalized.replace("task run", "当前工作")
     normalized = normalized.replace("正式任务生命周期", "处理流程")
-    normalized = normalized.replace("正式任务", "当前工作")
     normalized = normalized.replace("任务运行时", "上下文")
     normalized = normalized.replace("任务动作", "下一步")
     normalized = normalized.replace("动作请求", "下一步判断")
