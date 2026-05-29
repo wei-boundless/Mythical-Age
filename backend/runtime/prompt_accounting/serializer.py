@@ -274,6 +274,7 @@ def _bindings_by_message_index(bindings: list[dict[str, Any]]) -> dict[int, dict
             "metadata": {
                 "planned_segment_id": str(binding.get("planned_segment_id") or ""),
                 "planned_content_hash": str(binding.get("planned_content_hash") or ""),
+                "planned_model_message_hash": str(binding.get("planned_model_message_hash") or ""),
                 "request_content_hash": str(binding.get("request_content_hash") or ""),
                 **dict(binding.get("metadata") or {}),
             },

@@ -125,7 +125,7 @@ def default_worker_agent_blueprints() -> tuple[WorkerAgentBlueprint, ...]:
                 "op.shell",
                 "op.browser_control",
             ),
-            blocked_operations=("op.python_repl", "op.memory_write_candidate", "op.delegate_to_agent"),
+            blocked_operations=("op.python_repl", "op.memory_write_candidate"),
             allowed_memory_scopes=("conversation_readonly", "state_readonly"),
             allowed_context_sections=("task", "projection", "tool", "runtime_contracts", "upstream_outputs", "artifact_refs"),
             approval_policy="task_bounded_write",

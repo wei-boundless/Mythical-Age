@@ -36,7 +36,7 @@ describe("RuntimeRunSummary", () => {
       }),
     );
 
-    expect(html).toContain("处理进展完成");
+    expect(html).toContain("目标已满足");
     expect(html).toContain("目标已满足");
     expect(html).not.toContain("任务运行");
     expect(html).not.toContain("会话运行");
@@ -77,6 +77,7 @@ describe("RuntimeRunSummary", () => {
     expect(html).not.toContain("Agent 判断");
     expect(html).not.toContain("agent");
     expect(html).toContain("runtime-run-summary--inline");
+    expect(html).not.toContain("<details");
   });
 
   it("marks completed phases explicitly while the newest phase remains running", () => {
@@ -114,7 +115,7 @@ describe("RuntimeRunSummary", () => {
 
     expect(html).toContain("runtime-run-summary--work");
     expect(html).toContain(">已完成<");
-    expect(html).toContain(">运行中<");
+    expect(html).toContain(">进行中<");
     expect(html).toContain("1/2 步");
     expect(html).not.toContain("runtime-run-summary--task");
   });
@@ -145,9 +146,32 @@ describe("RuntimeRunSummary", () => {
       }),
     );
 
-    expect(html).toContain("处理进展完成");
-    expect(html).not.toContain(">运行中<");
+    expect(html).toContain("目标已满足");
+    expect(html).not.toContain(">进行中<");
     expect(html).toContain("已完成");
     expect(html).not.toContain("会话运行");
+  });
+
+  it("filters internal module names from historical progress entries", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(RuntimeRunSummary, {
+        entries: [
+          {
+            id: "done",
+            kind: "terminal",
+            level: "success",
+            title: "会话输出完成",
+            body: "harness.loop.single_agent.respond",
+            eventType: "done",
+            statusText: "completed",
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain("目标已满足");
+    expect(html).not.toContain("harness");
+    expect(html).not.toContain("single_agent");
+    expect(html).not.toContain(".respond");
   });
 });

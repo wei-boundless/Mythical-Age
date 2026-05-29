@@ -27,9 +27,18 @@ def decide_runtime_resume(
     current_obligation: dict[str, Any] | None = None,
     user_goal: str = "",
     human_gate_state: dict[str, Any] | None = None,
+    resume_intent: str = "",
 ) -> RuntimeResumeDecision:
     obligation = dict(current_obligation or {})
     human_gate = dict(human_gate_state or {})
+    intent = _explicit_resume_intent(
+        resume_intent,
+        obligation.get("resume_intent"),
+        obligation.get("requested_resume_action"),
+        human_gate.get("resume_intent"),
+        human_gate.get("requested_resume_action"),
+    )
+    _ = user_goal
     if checkpoint is None:
         return RuntimeResumeDecision(
             decision_id=f"runtime-resume:{task_run_id}",
@@ -46,12 +55,15 @@ def decide_runtime_resume(
     status = str(getattr(loop_state, "status", "") or "")
     gate_status = str(human_gate.get("status") or "").strip().lower()
 
-    if _user_requests_restart(user_goal):
+    if intent == "restart":
         decision = "restart"
-        reason = "current_turn_requests_restart"
-    elif gate_status in {"pending", "waiting"} and not _user_requests_force_continue(user_goal):
+        reason = "resume_intent_restart"
+    elif gate_status in {"pending", "waiting"} and intent != "force_continue":
         decision = "wait_for_human"
         reason = "human_gate_pending"
+    elif gate_status in {"pending", "waiting"} and intent == "force_continue":
+        decision = "continue"
+        reason = "human_gate_force_continue_intent"
     elif gate_status in {"rejected", "failed"}:
         decision = "rewind"
         reason = "human_gate_rejected"
@@ -84,14 +96,25 @@ def decide_runtime_resume(
         },
         human_gate_summary=_human_gate_summary(human_gate),
     )
-def _user_requests_restart(user_goal: str) -> bool:
-    text = str(user_goal or "").lower()
-    return any(marker in text for marker in ("重新开始", "从头", "restart", "start over"))
 
 
-def _user_requests_force_continue(user_goal: str) -> bool:
-    text = str(user_goal or "").lower()
-    return any(marker in text for marker in ("继续", "continue", "go on", "resume"))
+def _explicit_resume_intent(*values: Any) -> str:
+    aliases = {
+        "continue_active_work": "continue",
+        "resume": "continue",
+        "force_resume": "force_continue",
+        "restart_active_work": "restart",
+        "start_over": "restart",
+        "new_attempt": "restart",
+    }
+    for value in values:
+        normalized = str(value or "").strip().lower()
+        if not normalized:
+            continue
+        normalized = aliases.get(normalized, normalized)
+        if normalized in {"continue", "force_continue", "restart"}:
+            return normalized
+    return ""
 
 
 def _obligation_requires_new_side_effect(obligation: dict[str, Any]) -> bool:

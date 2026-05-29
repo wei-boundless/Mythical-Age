@@ -1,6 +1,6 @@
 import { ExternalLink, Layers3, Network, Trash2 } from "lucide-react";
 
-import type { ComposableUnitSpec, GraphModuleRuntimePlanSpec, TaskGraphRecord } from "@/lib/api";
+import type { ComposableUnitSpec, GraphModuleExpansionPlanSpec, TaskGraphRecord } from "@/lib/api";
 
 import { TaskGraphContractBindingInspector } from "./TaskGraphContractBindingInspector";
 import {
@@ -195,23 +195,23 @@ export function TaskGraphTimelineBlockInspector({
   );
 }
 
-export function TaskGraphModuleRuntimeInspector({ plan }: { plan: GraphModuleRuntimePlanSpec }) {
+export function TaskGraphModuleExpansionPlanInspector({ plan }: { plan: GraphModuleExpansionPlanSpec }) {
   return (
-    <TaskGraphInspectorSection icon={<Network aria-hidden="true" size={15} />} title="图模块运行" aside="标准视图">
+    <TaskGraphInspectorSection icon={<Network aria-hidden="true" size={15} />} title="图模块展开计划" aside="标准视图">
       <TaskGraphInspectorSummary
         caption={plan.plan_id}
         metrics={[
           { label: "Unit", value: plan.unit_id },
           { label: "版本", value: plan.version_ref || "未锚定" },
           { label: "交接契约", value: plan.handoff_contract_id || "未声明" },
-          { label: "隔离", value: plan.isolation_policy || "isolated_per_graph_module_run" },
+          { label: "展开", value: plan.isolation_policy || "compile_time_inline_expansion" },
         ]}
-        overline={plan.visibility_policy || "committed_only"}
+        overline={plan.visibility_policy || "expanded_internal_nodes"}
         title={plan.linked_graph_id || plan.plan_id}
       />
       <div className="task-graph-note">
-        <strong>运行边界来自图模块配置</strong>
-        <span>请通过图模块的 linked_graph_id、version_ref、handoff_contract_id 和可见性策略维护这份运行计划。</span>
+        <strong>发布时展开为内部节点</strong>
+        <span>这份计划只描述 linked_graph_id、version_ref、scope_prefix 和交接契约；GraphHarness 运行时不会收到图模块封装执行器。</span>
       </div>
     </TaskGraphInspectorSection>
   );

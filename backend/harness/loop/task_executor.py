@@ -32,6 +32,7 @@ from .admission import admit_model_action
 from .model_action_runtime import call_model_invoker, compact_text, model_action_timeout_seconds, parse_json_object
 from .model_action_protocol import ModelActionRequest, model_action_request_from_payload
 from .task_lifecycle import TaskLifecycleRecord, finish_task_lifecycle
+from .work_rollout import append_work_rollout_item, ensure_work_rollout, work_rollout_summary
 
 
 _MAX_TASK_EXECUTION_STEPS = 12
@@ -149,6 +150,16 @@ def request_task_run_pause(runtime_host: Any, task_run_id: str, *, reason: str =
             status="waiting_executor",
             summary="任务已暂停，后续可以继续执行。",
         )
+        append_work_rollout_item(
+            runtime_host,
+            task_run=updated,
+            item_type="pause_boundary",
+            title="已暂停",
+            status="waiting_executor",
+            summary="任务已暂停，后续可以继续执行。",
+            event_offset=event.offset,
+            refs={"task_run_ref": task_run_id},
+        )
     else:
         _record_task_step_summary(
             runtime_host,
@@ -156,6 +167,16 @@ def request_task_run_pause(runtime_host: Any, task_run_id: str, *, reason: str =
             step="task_run_pause_requested",
             status="running",
             summary="暂停请求已记录；当前步骤收口后任务会停在可继续状态。",
+        )
+        append_work_rollout_item(
+            runtime_host,
+            task_run=updated,
+            item_type="progress",
+            title="正在暂停",
+            status="running",
+            summary="暂停请求已记录；当前步骤收口后任务会停在可继续状态。",
+            event_offset=event.offset,
+            refs={"task_run_ref": task_run_id},
         )
     return {"ok": True, "accepted": True, "task_run": updated.to_dict(), "control": _runtime_control_payload(updated)}
 
@@ -202,6 +223,16 @@ def resume_paused_task_run(runtime_host: Any, task_run_id: str, *, reason: str =
         step="task_run_resume_requested",
         status="waiting_executor",
         summary="继续请求已记录，我会从原进度接着处理。",
+    )
+    append_work_rollout_item(
+        runtime_host,
+        task_run=updated,
+        item_type="progress",
+        title="继续处理",
+        status="waiting_executor",
+        summary="继续请求已记录，我会从原进度接着处理。",
+        event_offset=event.offset,
+        refs={"task_run_ref": task_run_id},
     )
     return {"ok": True, "accepted": True, "task_run": updated.to_dict(), "control": _runtime_control_payload(updated)}
 
@@ -353,6 +384,18 @@ def append_user_work_instruction(
         summary="已收到你的补充说明，会在后续处理里纳入。",
         refs={"observation_ref": observation["observation_id"]},
     )
+    append_work_rollout_item(
+        runtime_host,
+        task_run=updated,
+        item_type="user_instruction",
+        title="收到补充要求",
+        status=str(getattr(updated, "status", "") or "running"),
+        summary="已收到你的补充说明，会在后续处理里纳入。",
+        agent_brief_output=instruction,
+        event_offset=event.offset,
+        refs={"observation_ref": observation["observation_id"], "turn_ref": str(turn_id or "")},
+        payload={"user_instruction": instruction, "intent": intent},
+    )
     return {"ok": True, "accepted": True, "task_run": updated.to_dict(), "observation": observation}
 
 
@@ -377,27 +420,37 @@ def recover_interrupted_task_executors(runtime_host: Any) -> dict[str, Any]:
             },
             refs={"task_run_ref": task_run.task_run_id},
         )
-        runtime_host.state_index.upsert_task_run(
-            replace(
-                task_run,
-                status="waiting_executor",
-                updated_at=event.created_at,
-                latest_event_offset=event.offset,
-                terminal_reason="waiting_executor",
-                diagnostics={
-                    **_strip_terminal_diagnostics(dict(task_run.diagnostics or {})),
-                    "executor_status": "waiting_executor",
-                    "latest_step": "task_executor_recovered_after_runtime_start",
-                    "latest_step_status": "waiting_executor",
-                    "latest_step_summary": "后端运行时已重启，当前工作已恢复为可继续状态。",
-                    "recoverable_error": {
-                        "error_code": "task_executor_interrupted_by_runtime_restart",
-                        "retryable": True,
-                        "user_message": "后端运行时已重启，任务可以继续续跑。",
-                    },
-                    "recovery_action": "rerun_task_executor",
+        recovered_task = replace(
+            task_run,
+            status="waiting_executor",
+            updated_at=event.created_at,
+            latest_event_offset=event.offset,
+            terminal_reason="waiting_executor",
+            diagnostics={
+                **_strip_terminal_diagnostics(dict(task_run.diagnostics or {})),
+                "executor_status": "waiting_executor",
+                "latest_step": "task_executor_recovered_after_runtime_start",
+                "latest_step_status": "waiting_executor",
+                "latest_step_summary": "后端运行时已重启，当前工作已恢复为可继续状态。",
+                "recoverable_error": {
+                    "error_code": "task_executor_interrupted_by_runtime_restart",
+                    "retryable": True,
+                    "user_message": "后端运行时已重启，任务可以继续续跑。",
                 },
-            )
+                "recovery_action": "rerun_task_executor",
+            },
+        )
+        runtime_host.state_index.upsert_task_run(recovered_task)
+        append_work_rollout_item(
+            runtime_host,
+            task_run=recovered_task,
+            item_type="interrupted_boundary",
+            title="恢复断点",
+            status="waiting_executor",
+            summary="后端运行时已重启，当前工作已恢复为可继续状态。",
+            event_offset=event.offset,
+            refs={"task_run_ref": task_run.task_run_id},
+            payload={"terminal_reason": "task_executor_interrupted_by_runtime_restart"},
         )
         recovered.append(task_run.task_run_id)
     return {
@@ -463,6 +516,7 @@ async def execute_task_run(
         payload={"task_run": task_run.to_dict(), "runtime_assembly": runtime_assembly.to_dict()},
         refs={"task_run_ref": task_run.task_run_id},
     )
+    ensure_work_rollout(runtime_host, task_run, status="running")
     _record_task_step_summary(
         runtime_host,
         task_run_id=task_run.task_run_id,
@@ -502,6 +556,7 @@ async def execute_task_run(
             contract=contract,
             observations=observations,
             execution_state=execution_state,
+            work_rollout=work_rollout_summary(runtime_host, current_task),
             agent_profile_ref=current_task.agent_profile_id,
             model_selection={},
             available_tools=runtime_available_tools,
@@ -524,6 +579,16 @@ async def execute_task_run(
             step=f"task_execution_packet_compiled:{step_index}",
             status="running",
             summary="正在整理上下文，准备继续处理。",
+            refs={"runtime_invocation_packet_ref": compilation.packet.packet_id},
+        )
+        append_work_rollout_item(
+            runtime_host,
+            task_run=current_task,
+            item_type="progress",
+            title="整理上下文",
+            status="running",
+            summary="正在整理上下文，准备继续处理。",
+            event_offset=packet_event.offset,
             refs={"runtime_invocation_packet_ref": compilation.packet.packet_id},
         )
         _record_task_step_summary(
@@ -608,7 +673,7 @@ async def execute_task_run(
             execution_state = dict(observation_context["execution_state"])
             artifact_refs = _dedupe_artifacts([*list(observation_context["artifact_refs"]), *artifact_refs])
             continue
-        runtime_host.event_log.append(
+        action_event = runtime_host.event_log.append(
             current_task.task_run_id,
             "model_action_request_received",
             payload={"model_action_request": action_request.to_dict(), "diagnostics": protocol},
@@ -625,6 +690,18 @@ async def execute_task_run(
             status="running",
             summary=public_action_progress_summary(action_request.action_type),
             refs={"action_request_ref": action_request.request_id},
+        )
+        append_work_rollout_item(
+            runtime_host,
+            task_run=current_task,
+            item_type="progress",
+            title="思考下一步",
+            status="running",
+            summary=public_action_progress_summary(action_request.action_type),
+            agent_brief_output=compact_text(action_request.final_answer, limit=300) if action_request.action_type == "respond" else "",
+            event_offset=action_event.offset,
+            refs={"action_request_ref": action_request.request_id, "runtime_invocation_packet_ref": compilation.packet.packet_id},
+            payload={"action_type": action_request.action_type},
         )
         current_task = runtime_host.state_index.get_task_run(current_task.task_run_id) or current_task
         control_result = _apply_runtime_control_boundary(runtime_host, task_run=current_task, agent_run=agent_run, boundary=f"after_model_action:{step_index}")
@@ -669,7 +746,7 @@ async def execute_task_run(
             )
             raw_observations.append(observation)
             runtime_host.runtime_objects.put_object("observation", observation["observation_id"], observation)
-            runtime_host.event_log.append(
+            observation_event = runtime_host.event_log.append(
                 current_task.task_run_id,
                 "task_tool_observation_recorded",
                 payload={"observation": observation},
@@ -687,6 +764,18 @@ async def execute_task_run(
                 status="running",
                 summary="工具调用已完成，正在根据结果继续。",
                 refs={"observation_ref": observation["observation_id"]},
+            )
+            append_work_rollout_item(
+                runtime_host,
+                task_run=current_task,
+                item_type="progress",
+                title="执行操作",
+                status="running",
+                summary="工具调用已完成，正在根据结果继续。" if not observation.get("error") else "工具调用失败，正在根据失败原因调整处理路径。",
+                agent_brief_output=_observation_brief(observation),
+                event_offset=observation_event.offset,
+                refs={"observation_ref": observation["observation_id"], "action_request_ref": action_request.request_id},
+                payload={"artifact_refs": _artifact_refs_from_observation(observation), "error": str(observation.get("error") or "")},
             )
             if observation.get("error"):
                 _record_task_step_summary(
@@ -1289,6 +1378,18 @@ def _finish_executor_success(
         status="completed",
         summary="已完成收口并记录交付证据。",
     )
+    append_work_rollout_item(
+        runtime_host,
+        task_run=finished_task,
+        item_type="final_response",
+        title="已完成",
+        status="completed",
+        summary="已完成收口并记录交付证据。",
+        agent_brief_output=final_answer,
+        event_offset=_event_offset(event),
+        refs={"task_run_ref": finished_task.task_run_id},
+        payload={"artifact_refs": artifact_refs, "final_answer": final_answer},
+    )
     _commit_task_run_final_message(
         services,
         task_run=finished_task,
@@ -1398,6 +1499,17 @@ def _finish_executor_terminal(runtime_host: Any, *, task_run: Any, agent_run: An
         status=status,
         summary=f"当前处理已停止：{terminal_reason}。",
     )
+    append_work_rollout_item(
+        runtime_host,
+        task_run=finished_task,
+        item_type="interrupted_boundary" if status in {"aborted", "failed", "blocked"} else "progress",
+        title="已中断" if status in {"aborted", "failed", "blocked"} else "处理停止",
+        status=status,
+        summary=f"当前处理已停止：{terminal_reason}。",
+        event_offset=_event_offset(event),
+        refs={"task_run_ref": finished_task.task_run_id},
+        payload={"terminal_reason": terminal_reason},
+    )
     _sync_engagement_closeout(runtime_host, finished_task.task_run_id)
     return {"ok": False, "task_run": finished_task.to_dict(), "lifecycle": finished_lifecycle.to_dict(), "event": event, "error": terminal_reason}
 
@@ -1473,7 +1585,7 @@ def _pause_executor_for_model_recovery(
         "error": str(error_payload.get("code") or "model_call_failed"),
     }
     runtime_host.runtime_objects.put_object("observation", observation["observation_id"], observation)
-    runtime_host.event_log.append(
+    failed_event = runtime_host.event_log.append(
         task_run.task_run_id,
         "task_executor_model_call_failed",
         payload={"observation": observation},
@@ -1482,7 +1594,8 @@ def _pause_executor_for_model_recovery(
     paused_task = replace(
         task_run,
         status="blocked",
-        updated_at=now,
+        updated_at=failed_event.created_at or now,
+        latest_event_offset=failed_event.offset,
         terminal_reason="model_call_recovery_required",
         diagnostics={
             **dict(task_run.diagnostics or {}),
@@ -1507,6 +1620,17 @@ def _pause_executor_for_model_recovery(
         status="blocked",
         summary=f"模型调用失败，任务已保留在可续跑状态：{error_payload['user_message']}",
         refs={"observation_ref": observation["observation_id"]},
+    )
+    append_work_rollout_item(
+        runtime_host,
+        task_run=paused_task,
+        item_type="interrupted_boundary",
+        title="等待恢复",
+        status="blocked",
+        summary=f"模型调用失败，任务已保留在可续跑状态：{error_payload['user_message']}",
+        event_offset=failed_event.offset,
+        refs={"observation_ref": observation["observation_id"], "runtime_invocation_packet_ref": packet_ref},
+        payload={"terminal_reason": "model_call_recovery_required", "recoverable_error": error_payload},
     )
     return {"ok": False, "task_run": paused_task.to_dict(), "observation": observation, "error": "model_call_recovery_required"}
 
@@ -1567,6 +1691,16 @@ def _pause_executor_for_user_control(runtime_host: Any, *, task_run: Any, agent_
         step="task_run_paused",
         status="waiting_executor",
         summary="已在安全边界暂停，后续可以从这里继续。",
+    )
+    append_work_rollout_item(
+        runtime_host,
+        task_run=paused_task,
+        item_type="pause_boundary",
+        title="已暂停",
+        status="waiting_executor",
+        summary="已在安全边界暂停，后续可以从这里继续。",
+        event_offset=event.offset,
+        refs={"task_run_ref": task_run.task_run_id},
     )
     return {"ok": False, "task_run": paused_task.to_dict(), "error": "task_run_paused", "retryable": True}
 
@@ -1646,6 +1780,17 @@ def _finish_user_stopped_task(runtime_host: Any, *, task_run: Any, reason: str =
         status="aborted",
         terminal_reason="user_aborted",
     )
+    append_work_rollout_item(
+        runtime_host,
+        task_run=stopped_task,
+        item_type="interrupted_boundary",
+        title="已停止",
+        status="aborted",
+        summary="任务已按用户要求停止。",
+        event_offset=_event_offset(event),
+        refs={"task_run_ref": stopped_task.task_run_id},
+        payload={"terminal_reason": "user_aborted"},
+    )
     _sync_engagement_closeout(runtime_host, stopped_task.task_run_id)
     return stopped_task, stopped_lifecycle, event
 
@@ -1679,7 +1824,7 @@ def _pause_executor_for_step_budget(runtime_host: Any, *, task_run: Any, agent_r
             diagnostics={**dict(agent_run.diagnostics or {}), "terminal_reason": "task_execution_step_budget_exhausted", "recoverable_error": payload},
         )
     )
-    runtime_host.event_log.append(
+    budget_event = runtime_host.event_log.append(
         task_run.task_run_id,
         "task_executor_step_budget_exhausted",
         payload={"task_run": paused_task.to_dict(), "max_steps": int(max_steps or _MAX_TASK_EXECUTION_STEPS)},
@@ -1691,6 +1836,17 @@ def _pause_executor_for_step_budget(runtime_host: Any, *, task_run: Any, agent_r
         step="task_executor_waiting_next_run",
         status="waiting_executor",
         summary="本轮步骤预算已用尽，当前工作会等待后续继续。",
+    )
+    append_work_rollout_item(
+        runtime_host,
+        task_run=replace(paused_task, latest_event_offset=budget_event.offset, updated_at=budget_event.created_at or now),
+        item_type="pause_boundary",
+        title="等待继续",
+        status="waiting_executor",
+        summary="本轮步骤预算已用尽，当前工作会等待后续继续。",
+        event_offset=budget_event.offset,
+        refs={"task_run_ref": task_run.task_run_id},
+        payload={"terminal_reason": "task_execution_step_budget_exhausted"},
     )
     return {"ok": False, "task_run": paused_task.to_dict(), "error": "task_execution_step_budget_exhausted", "retryable": True}
 
@@ -1705,6 +1861,18 @@ def _model_error_payload(error: Exception) -> dict[str, Any]:
         "model": str(getattr(error, "model", "") or ""),
         "detail": str(getattr(error, "detail", "") or error),
     }
+
+
+def _event_offset(event: Any) -> int:
+    if isinstance(event, dict):
+        try:
+            return int(event.get("offset", -1))
+        except (TypeError, ValueError):
+            return -1
+    try:
+        return int(getattr(event, "offset", -1))
+    except (TypeError, ValueError):
+        return -1
 
 
 def _load_lifecycle(runtime_host: Any, task_run: Any) -> TaskLifecycleRecord:
@@ -2196,6 +2364,18 @@ def _record_summary(record: dict[str, Any]) -> str:
     if error.get("message"):
         return compact_text(str(error.get("message") or ""), limit=400)
     return compact_text(str(record.get("result_preview") or ""), limit=400)
+
+
+def _observation_brief(observation: dict[str, Any]) -> str:
+    payload = dict(observation.get("payload") or {})
+    if observation.get("error") or payload.get("error"):
+        return compact_text(str(payload.get("error") or observation.get("error") or ""), limit=300)
+    envelope = dict(payload.get("result_envelope") or {})
+    if envelope.get("text"):
+        return compact_text(str(envelope.get("text") or ""), limit=300)
+    if payload.get("result") is not None:
+        return compact_text(str(payload.get("result") or ""), limit=300)
+    return ""
 
 
 def _compact_observation_for_record(observation: dict[str, Any]) -> dict[str, Any]:

@@ -1510,8 +1510,7 @@ def _turn_direct_tools(available_tools: list[dict[str, Any]]) -> list[dict[str, 
 def _tool_can_run_directly_in_turn(tool: dict[str, Any]) -> bool:
     if bool(tool.get("read_only") is True):
         return True
-    operation_id = str(tool.get("operation_id") or "").strip()
-    return operation_id in {"op.delegate_to_agent"}
+    return False
 
 
 def _runtime_allowed_tool_names(available_tools: list[dict[str, Any]]) -> set[str]:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 
-MODEL_VISIBLE_AGENT_OPERATIONS = frozenset({"op.delegate_to_agent"})
+MODEL_VISIBLE_AGENT_OPERATIONS = frozenset()
 MODEL_VISIBLE_STATE_OPERATIONS = frozenset({"op.agent_todo"})
 
 

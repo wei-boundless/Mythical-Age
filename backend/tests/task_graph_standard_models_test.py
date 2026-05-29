@@ -226,7 +226,6 @@ def test_build_task_graph_standard_view_projects_nodes_edges_resources_and_timel
     assert any(item["unit_id"] == "unit.graph.block.design" and item["ref"]["graph_id"] == "graph.design.initialization" for item in payload["units"])
     assert any(item["interface_id"] == "interface.node.draft" for item in payload["interfaces"])
     assert any(item["edge_id"] == "edge.input.draft" and item["source_unit_id"] == "unit.node.input" for item in payload["port_edges"])
-    assert payload["graph_module_runtime"] == []
     assert payload["graph_module_expansions"] == []
     assert payload["diagnostics"]["composable_graph"]["diagnostics"]["mode"] == "read_only_shadow_model"
     assert payload["diagnostics"]["graph_module_expansion_count"] == 0
@@ -406,14 +405,13 @@ def test_task_graph_standard_view_api_round_trips_title_and_node_runtime(tmp_pat
     assert draft["runtime"]["dispatch_group"] == "drafting"
 
 
-def test_standard_view_does_not_promote_linked_timeline_block_to_graph_composition(tmp_path: Path) -> None:
+def test_standard_view_does_not_promote_linked_timeline_block_to_graph_module_expansion(tmp_path: Path) -> None:
     _seed_graph(tmp_path)
     graph = TaskFlowRegistry(tmp_path).get_task_graph("graph.test.standard_view")
     assert graph is not None
 
     view = build_task_graph_standard_view(graph=graph, graph_lookup=TaskFlowRegistry(tmp_path)).to_dict()
 
-    assert view["graph_module_runtime"] == []
     assert view["graph_module_expansions"] == []
     assert view["diagnostics"]["graph_harness_config"]["composition_source_count"] == 0
 
@@ -434,14 +432,14 @@ def test_standard_view_surfaces_invalid_explicit_graph_module_node_without_old_r
                 "task_id": "task.test.graph_module_import",
                 "agent_id": "agent:0",
                 "agent_group_id": "group.should_not_survive",
-                "work_posture": "graph_module_runner",
+                "work_posture": "graph_module_expansion_marker",
                 "phase_id": "phase.import",
                 "sequence_index": 10,
                 "metadata": {"editor_node": True},
                 "contract_bindings": {
                     "handoff": {"handoff_contract_id": "contract.agent_output.markdown"},
                     "runtime": {
-                        "graph_module_runtime": {"linked_graph_id": "graph.test.imported", "version_ref": "published"},
+                        "graph_module_expansion": {"linked_graph_id": "graph.test.imported", "version_ref": "published"},
                         "model_requirement": {"profile_ref": "should_not_survive", "preferred_output_tokens": 65536},
                     }
                 },
@@ -457,12 +455,13 @@ def test_standard_view_surfaces_invalid_explicit_graph_module_node_without_old_r
     graph_module_nodes = [node for node in view["nodes"] if node["node_id"] == "graph_module.import"]
 
     assert len(graph_module_nodes) == 1
-    assert view["graph_module_runtime"] == []
+    assert view["graph_module_expansion"][0]["linked_graph_id"] == "graph.test.imported"
     assert graph_module_nodes[0]["node_type"] == "graph_module"
     assert graph_module_nodes[0]["executor"]["agent_id"] == "agent:0"
     assert graph_module_nodes[0]["task_id"] == "task.test.graph_module_import"
     assert graph_module_nodes[0]["metadata"]["editor_node"] is True
-    assert view["graph_module_expansions"] == []
+    assert view["graph_module_expansions"][0]["linked_graph_id"] == "graph.test.imported"
+    assert view["graph_module_expansions"][0]["metadata"]["expansion_status"] == "unavailable"
     assert any(issue["code"] == "graph_module_linked_graph_not_found" for issue in view["issues"])
     assert view["diagnostics"]["graph_harness_config"]["available"] is False
 
@@ -488,7 +487,7 @@ def test_graph_module_handoff_contract_binding_comes_from_explicit_node(tmp_path
                 "contract_bindings": {
                     "handoff": {"handoff_contract_id": "contract.binding.graph_module.handoff"},
                     "runtime": {
-                        "graph_module_runtime": {
+                        "graph_module_expansion": {
                             "linked_graph_id": "graph.design.initialization",
                             "version_ref": "v1",
                         }
@@ -498,7 +497,7 @@ def test_graph_module_handoff_contract_binding_comes_from_explicit_node(tmp_path
                     "graph_module": True,
                     "linked_graph_id": "graph.design.initialization",
                     "version_ref": "v1",
-                    "graph_module_runtime_plan_id": "graph_module_runtime.design",
+                    "graph_module_expansion_plan_id": "graph_module_expansion.design",
                 },
             },
         ),
@@ -521,8 +520,10 @@ def test_graph_module_handoff_contract_binding_comes_from_explicit_node(tmp_path
     graph_interface = next(item for item in view["interfaces"] if item["unit_id"] == "unit.node.graph_module.design")
 
     assert graph_interface["input_ports"][0]["payload_contract_id"] == "contract.binding.graph_module.handoff"
-    assert view["graph_module_runtime"] == []
-    assert view["graph_module_expansions"] == []
+    assert view["graph_module_expansion"][0]["handoff_contract_id"] == "contract.binding.graph_module.handoff"
+    assert view["graph_module_expansions"][0]["linked_graph_id"] == "graph.design.initialization"
+    assert view["graph_module_expansions"][0]["metadata"]["expansion_status"] == "expanded"
+    assert view["graph_module_expansions"][0]["nodes"]
     assert view["diagnostics"]["graph_harness_config"]["config_id"]
 
 
@@ -576,7 +577,7 @@ def test_graph_module_expansion_blocks_self_reference_and_surfaces_issue(tmp_pat
                 "contract_bindings": {
                     "handoff": {"handoff_contract_id": "contract.self.handoff"},
                     "runtime": {
-                        "graph_module_runtime": {
+                        "graph_module_expansion": {
                             "linked_graph_id": "graph.test.self_import",
                             "version_ref": "v1",
                         }
@@ -586,7 +587,7 @@ def test_graph_module_expansion_blocks_self_reference_and_surfaces_issue(tmp_pat
                     "graph_module": True,
                     "linked_graph_id": "graph.test.self_import",
                     "version_ref": "v1",
-                    "graph_module_runtime_plan_id": "graph_module_runtime.block.self",
+                    "graph_module_expansion_plan_id": "graph_module_expansion.block.self",
                 },
             },
         ),
@@ -598,8 +599,8 @@ def test_graph_module_expansion_blocks_self_reference_and_surfaces_issue(tmp_pat
 
     payload = build_task_graph_standard_view(graph=graph, graph_lookup=registry).to_dict()
 
-    assert payload["graph_module_runtime"] == []
-    assert payload["graph_module_expansions"] == []
+    assert payload["graph_module_expansion"][0]["linked_graph_id"] == "graph.test.self_import"
+    assert payload["graph_module_expansions"][0]["metadata"]["expansion_status"] == "unavailable"
     assert any(issue["code"] == "graph_module_self_reference" for issue in payload["issues"])
 
 

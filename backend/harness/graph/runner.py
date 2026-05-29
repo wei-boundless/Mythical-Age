@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
 from .models import GraphHarnessConfig, GraphLoopState, GraphNodeWorkOrder
+from .runtime_objects import load_work_order
 
 
 _TERMINAL_STATUSES = {"completed", "failed", "blocked", "waiting_human_gate", "cancelled"}
@@ -149,7 +150,7 @@ class GraphRunRunner:
                     events=events,
                 )
 
-            active_orders = _active_work_orders_from_state(state)
+            active_orders = _active_work_orders_from_state(state, services=self._services)
             if not active_orders:
                 if not state.ready_node_ids:
                     return self._finish(
@@ -184,7 +185,7 @@ class GraphRunRunner:
                 dispatch_count += 1
                 events.extend(dict(item) for item in dispatch.events)
                 state = dispatch.loop_state
-                active_orders = _active_work_orders_from_state(state)
+                active_orders = _active_work_orders_from_state(state, services=self._services)
                 if not active_orders:
                     return self._finish(
                         state=state,
@@ -324,12 +325,11 @@ class GraphRunRunner:
         task_run = dict(execution.get("node_executor_task_run") or {})
         if not task_run:
             return
-        diagnostics = dict(task_run.get("diagnostics") or {})
-        if str(diagnostics.get("origin_kind") or "") != "graph_node_assigned":
+        if str(task_run.get("origin_kind") or "") != "graph_node_assigned":
             raise ValueError("GraphRunRunner node executor TaskRun origin_kind mismatch")
-        if str(diagnostics.get("graph_run_id") or "") != graph_run_id:
+        if str(task_run.get("graph_run_id") or "") != graph_run_id:
             raise ValueError("GraphRunRunner node executor TaskRun graph_run_id mismatch")
-        if str(diagnostics.get("graph_work_order_id") or "") != work_order.work_order_id:
+        if str(task_run.get("graph_work_order_id") or "") != work_order.work_order_id:
             raise ValueError("GraphRunRunner node executor TaskRun work_order_id mismatch")
 
     def _append_runner_event(
@@ -385,13 +385,13 @@ class GraphRunRunner:
             dispatch_count=dispatch_count,
             blocked_reason=blocked_reason,
             budget_exhausted=budget_exhausted,
-            loop_state=state.to_dict(),
+            loop_state=_loop_state_public_view(state),
             graph_result=dict(graph_result or {}),
             events=tuple(events),
         )
 
 
-def _active_work_orders_from_state(state: GraphLoopState) -> tuple[GraphNodeWorkOrder, ...]:
+def _active_work_orders_from_state(state: GraphLoopState, *, services: Any) -> tuple[GraphNodeWorkOrder, ...]:
     active = dict(state.active_work_orders or {})
     index = dict(state.work_order_index or {})
     orders: list[GraphNodeWorkOrder] = []
@@ -399,7 +399,9 @@ def _active_work_orders_from_state(state: GraphLoopState) -> tuple[GraphNodeWork
         payload = dict(index.get(str(work_order_id)) or {})
         if not payload:
             raise ValueError(f"GraphNodeWorkOrder missing from work_order_index: {node_id}")
-        order = GraphNodeWorkOrder.from_dict(payload)
+        order = load_work_order(services, payload)
+        if order is None:
+            order = GraphNodeWorkOrder.from_dict(payload)
         if order.node_id != str(node_id):
             raise ValueError("GraphNodeWorkOrder node_id does not match active_work_orders")
         orders.append(order)
@@ -418,3 +420,12 @@ def _runtime_budget_exhausted(started_at: float, *, max_runtime_seconds: float) 
     if max_runtime_seconds <= 0:
         return False
     return (time.monotonic() - started_at) >= max_runtime_seconds
+
+
+def _loop_state_public_view(state: GraphLoopState) -> dict[str, Any]:
+    payload = state.to_dict()
+    return {
+        **payload,
+        "work_order_index": {key: dict(value) for key, value in dict(payload.get("work_order_index") or {}).items()},
+        "result_index": {key: dict(value) for key, value in dict(payload.get("result_index") or {}).items()},
+    }

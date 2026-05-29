@@ -14,8 +14,6 @@ from agent_system.profiles.runtime_mode_config import (
 )
 from capability_system.local_mcp_registry import get_local_mcp_unit_for_source_kind
 from intent.execution_obligation import build_execution_obligation
-from orchestration.delegation_protocol import build_agent_delegation_protocol, default_expected_output_contract
-from continuation.profile_registry import profile_by_domain
 from task_system.goal_profiles import get_task_goal_profile
 
 from task_system.services.bundle_models import BundleItemSpec, BundleSpec
@@ -577,11 +575,6 @@ def _build_task_spec(
         for item in list(current_turn_context.get("resolved_bindings") or [])
         if isinstance(item, dict)
     ]
-    agent_communication_protocol = _build_agent_communication_protocol(
-        selected_recipe=selected_recipe,
-        user_goal=user_goal,
-        current_turn_context=current_turn_context,
-    )
     step_input_bindings = _build_step_input_bindings(
         selected_recipe=selected_recipe,
         current_turn_context=current_turn_context,
@@ -614,7 +607,6 @@ def _build_task_spec(
         user_goal=user_goal,
         inputs={
             **explicit_inputs,
-            **({"agent_communication_protocol": agent_communication_protocol} if agent_communication_protocol else {}),
             **({"explicit_workspace_path": default_artifact_path} if default_artifact_path else {}),
             **({"coordination_request_brief": coordination_request_brief} if coordination_request_brief else {}),
             **({"bundle_spec": bundle_spec.to_dict()} if bundle_spec is not None else {}),
@@ -628,7 +620,6 @@ def _build_task_spec(
             "confidence": float(current_turn_context.get("confidence") or query_understanding.get("confidence") or 0.0),
             "runtime_limits": runtime_limits,
             "capability_needs": sorted(capability_needs(query_understanding)),
-            **({"agent_communication_protocol_ref": agent_communication_protocol["protocol_id"]} if agent_communication_protocol else {}),
             **({"coordination_request_ref": coordination_request_brief["brief_id"]} if coordination_request_brief else {}),
         },
         current_turn_context_ref=str(current_turn_context.get("authority") or ""),
@@ -641,140 +632,6 @@ def _build_task_spec(
         operation_requirement_ref=operation_requirement_ref,
         safety_envelope=dict(dict(operation_requirement.get("metadata") or {}).get("safety_envelope") or {}),
     )
-
-
-def _build_agent_communication_protocol(
-    *,
-    selected_recipe,
-    user_goal: str,
-    current_turn_context: dict[str, Any],
-) -> dict[str, Any]:
-    metadata = dict(getattr(selected_recipe, "metadata", {}) or {})
-    target_agent_id = str(metadata.get("delegate_target_agent_id") or "").strip()
-    delegation_kind = str(metadata.get("delegation_kind") or "").strip()
-    recipe_strategy = str(metadata.get("execution_strategy") or "").strip()
-    recall_context = _build_recall_context(
-        selected_recipe=selected_recipe,
-        current_turn_context=current_turn_context,
-    )
-    source_kind = str(
-        recall_context.get("source_kind")
-        or getattr(selected_recipe, "source_kind", "")
-        or metadata.get("source_kind")
-        or ""
-    ).strip()
-    profile = profile_by_domain().get(source_kind)
-    if not target_agent_id and profile is not None:
-        target_agent_id = str(getattr(profile, "target_agent_id", "") or "").strip()
-        delegation_kind = delegation_kind or str(getattr(profile, "delegation_kind", "") or "").strip()
-    if not target_agent_id and source_kind == "dataset":
-        target_agent_id = "agent:table_analyst"
-        delegation_kind = delegation_kind or "table_analysis"
-    elif not target_agent_id and source_kind == "pdf":
-        target_agent_id = "agent:pdf_reader"
-        delegation_kind = delegation_kind or "pdf_reading"
-    elif not target_agent_id and source_kind in {"knowledge", "knowledge_base", "retrieval"}:
-        target_agent_id = "agent:knowledge_searcher"
-        delegation_kind = delegation_kind or "evidence_lookup"
-    should_emit = bool(target_agent_id) and (
-        recipe_strategy == "delegate_preferred"
-        or recall_context
-    )
-    if not should_emit:
-        return {}
-    protocol = build_agent_delegation_protocol(
-        source_agent_id="agent:0",
-        target_agent_id=target_agent_id,
-        delegation_kind=delegation_kind,
-        source_kind="knowledge" if source_kind in {"knowledge_base", "retrieval"} else source_kind,
-        user_goal=user_goal,
-        recall_context=recall_context,
-    )
-    protocol["expected_output_contract"] = default_expected_output_contract(
-        source_kind=str(protocol.get("source_kind") or ""),
-        delegation_kind=delegation_kind,
-    )
-    return protocol
-
-
-def _build_recall_context(
-    *,
-    selected_recipe,
-    current_turn_context: dict[str, Any],
-) -> dict[str, Any]:
-    recall_candidates = [
-        dict(item)
-        for item in list(current_turn_context.get("context_recall_candidates") or [])
-        if isinstance(item, dict)
-    ]
-    if not recall_candidates:
-        return {}
-    recipe_source = str(getattr(selected_recipe, "source_kind", "") or dict(getattr(selected_recipe, "metadata", {}) or {}).get("source_kind") or "").strip()
-    compatible = [
-        _compact_recall_for_handoff(item)
-        for item in recall_candidates
-        if _recall_candidate_matches_source(item, recipe_source)
-    ]
-    compatible = [item for item in compatible if item]
-    if not compatible:
-        return {}
-    return {
-        "authority": "task_system.context_recall_handoff",
-        "recall_context_id": f"recall-context:{current_turn_context.get('task_id') or 'task'}",
-        "source_kind": recipe_source or str(compatible[0].get("source_kind") or ""),
-        "candidate_policy": "candidate_only_child_must_verify_before_use",
-        "candidates": compatible[:5],
-    }
-
-
-def _recall_candidate_matches_source(candidate: dict[str, Any], recipe_source: str) -> bool:
-    source_kind = str(candidate.get("source_kind") or "").strip()
-    normalized_recipe = "knowledge" if recipe_source in {"knowledge_base", "retrieval"} else str(recipe_source or "").strip()
-    if not normalized_recipe:
-        return bool(source_kind)
-    return source_kind == normalized_recipe
-
-
-def _compact_recall_for_handoff(candidate: dict[str, Any]) -> dict[str, Any]:
-    payload = dict(candidate.get("recall_payload") or {})
-    metadata = dict(candidate.get("metadata") or {})
-    compact: dict[str, Any] = {
-        "candidate_id": str(candidate.get("candidate_id") or "").strip(),
-        "source_kind": str(candidate.get("source_kind") or "").strip(),
-        "file_kind": str(candidate.get("file_kind") or "").strip(),
-        "target_kind": str(candidate.get("target_kind") or "").strip(),
-        "identity": str(candidate.get("identity") or "").strip(),
-        "confidence": candidate.get("confidence", candidate.get("score")),
-        "compatible": candidate.get("compatible"),
-        "recall_payload": _compact_recall_payload(payload),
-        "metadata": {
-            key: value
-            for key, value in metadata.items()
-            if key in {"task_id", "task_kind", "summary", "slot_name", "profile_id"} and value not in ("", [], {}, None)
-        },
-    }
-    return {key: value for key, value in compact.items() if value not in ("", [], {}, None)}
-
-
-def _compact_recall_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    allowed = (
-        "path",
-        "active_pdf",
-        "active_dataset",
-        "source_kind",
-        "slot_name",
-        "active_constraints",
-        "active_result_handle_id",
-        "active_object_handle_id",
-        "active_subset_handle_id",
-        "result_handle_id",
-        "ordinal",
-    )
-    return {
-        key: payload.get(key)
-        for key in allowed
-        if payload.get(key) not in ("", [], {}, None)
-    }
 
 
 def _default_task_artifact_path(selected_recipe, current_turn_context: dict[str, Any]) -> str:

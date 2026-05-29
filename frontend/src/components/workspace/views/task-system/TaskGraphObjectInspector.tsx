@@ -3,10 +3,10 @@
 import type {
   ComposableUnitSpec,
   ContractSpec,
-  GraphModuleRuntimePlanSpec,
   OrchestrationAgentRuntimeCatalog,
   TaskGraphRecord,
   GraphModuleExpansionSpec,
+  GraphModuleExpansionPlanSpec,
   UnitInterfaceSpec,
   UnitPortEdgeSpec,
 } from "@/lib/api";
@@ -15,7 +15,7 @@ import type { TaskGraphDraftV2 } from "./taskGraphDraftV2";
 import { taskGraphDisplayName } from "./taskGraphNameRegistry";
 import {
   TaskGraphGraphModuleInspector,
-  TaskGraphModuleRuntimeInspector,
+  TaskGraphModuleExpansionPlanInspector,
 } from "./TaskGraphGraphModuleInspector";
 import {
   TaskGraphInterfacePlaceholderPanel,
@@ -58,10 +58,6 @@ function selectedPortEdge(subject: TaskGraphComposableSubject, portEdges: UnitPo
   return subject.kind === "port_edge" ? portEdges.find((edge) => edge.edge_id === subject.edge_id) ?? null : null;
 }
 
-function selectedGraphModuleRuntime(subject: TaskGraphComposableSubject, plans: GraphModuleRuntimePlanSpec[]) {
-  return subject.kind === "graph_module_runtime" ? plans.find((plan) => plan.plan_id === subject.plan_id) ?? null : null;
-}
-
 function selectedGraphModuleExpansion(subject: TaskGraphComposableSubject, expansions: GraphModuleExpansionSpec[]) {
   if (subject.kind !== "graph_module_expansion" && subject.kind !== "graph_module_expansion_node" && subject.kind !== "graph_module_expansion_edge") {
     return null;
@@ -102,7 +98,7 @@ export function TaskGraphObjectInspector({
   graphDraft,
   graphModuleExpansions,
   interfaces,
-  graphModuleRuntime,
+  graphModuleExpansionPlans,
   onOpenGraph,
   onSelectSubject,
   orchestrationAgentCatalog,
@@ -124,7 +120,7 @@ export function TaskGraphObjectInspector({
   graphDraft: TaskGraphDraftV2;
   graphModuleExpansions: GraphModuleExpansionSpec[];
   interfaces: UnitInterfaceSpec[];
-  graphModuleRuntime: GraphModuleRuntimePlanSpec[];
+  graphModuleExpansionPlans: GraphModuleExpansionPlanSpec[];
   onOpenGraph?: (graphId: string) => void;
   onSelectSubject: (subject: TaskGraphComposableSubject) => void;
   orchestrationAgentCatalog?: OrchestrationAgentRuntimeCatalog | null;
@@ -144,7 +140,9 @@ export function TaskGraphObjectInspector({
   const blocks = coordinationTimelineBlocks(metadata);
   const unit = selectedUnit(selectedSubject, units);
   const portEdge = selectedPortEdge(selectedSubject, portEdges);
-  const nestedPlan = selectedGraphModuleRuntime(selectedSubject, graphModuleRuntime);
+  const graphModuleExpansionPlan = selectedSubject.kind === "graph_module_expansion"
+    ? graphModuleExpansionPlans.find((plan) => plan.plan_id === selectedSubject.plan_id || plan.unit_id === selectedSubject.unit_id) ?? null
+    : null;
   const graphModuleExpansion = selectedGraphModuleExpansion(selectedSubject, graphModuleExpansions);
   const unitOptions = units.map((item) => item.unit_id);
   const nodeUnitOptions = units.filter((item) => nodeIdFromUnit(item)).map((item) => item.unit_id);
@@ -304,8 +302,8 @@ export function TaskGraphObjectInspector({
     );
   };
 
-  const renderGraphModuleRuntime = (plan: GraphModuleRuntimePlanSpec) => (
-    <TaskGraphModuleRuntimeInspector plan={plan} />
+  const renderGraphModuleExpansionPlan = (plan: GraphModuleExpansionPlanSpec) => (
+    <TaskGraphModuleExpansionPlanInspector plan={plan} />
   );
 
   return (
@@ -313,7 +311,7 @@ export function TaskGraphObjectInspector({
       {selectedSubject.kind === "graph" ? renderGraphEditor() : null}
       {unit ? renderUnitEditor(unit) : null}
       {portEdge ? renderPortEdgeEditor(portEdge) : null}
-      {nestedPlan ? renderGraphModuleRuntime(nestedPlan) : null}
+      {graphModuleExpansionPlan ? renderGraphModuleExpansionPlan(graphModuleExpansionPlan) : null}
       <TaskGraphModuleExpansionInspector
         expansion={graphModuleExpansion}
         onOpenGraph={onOpenGraph}

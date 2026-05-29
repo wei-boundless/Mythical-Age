@@ -261,6 +261,7 @@ class RuntimeCompiler:
         contract: dict[str, Any],
         observations: list[dict[str, Any]],
         execution_state: dict[str, Any] | None = None,
+        work_rollout: dict[str, Any] | None = None,
         agent_profile_ref: str = "main_interactive_agent",
         model_selection: dict[str, Any] | None = None,
         available_tools: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
@@ -355,6 +356,7 @@ class RuntimeCompiler:
         runtime_instruction = _join_prompt_sections(
             artifact_note,
             _runtime_projection_instruction(agent_visible_runtime_projection),
+            _work_rollout_instruction(work_rollout),
         )
         environment_instruction = _environment_instruction(
             environment_payload,
@@ -387,6 +389,7 @@ class RuntimeCompiler:
             "task_run_state": _task_run_volatile_payload(task_run),
             "execution_state": dict(execution_state or {}),
             "observations": [dict(item) for item in list(observations or [])],
+            "work_history": _work_rollout_payload(work_rollout),
         }
         packet_id = f"rtpacket:{task_run_id}:task_execution:{invocation_index}"
         model_messages, segment_plan = _model_messages_and_segment_plan(
@@ -462,7 +465,7 @@ class RuntimeCompiler:
             ),
             packet_id=packet_id,
             dynamic_projection_refs=("agent_visible_runtime_projection", "operation_authorization"),
-            volatile_state_refs=("runtime_envelope", "execution_state", "observations"),
+            volatile_state_refs=("runtime_envelope", "execution_state", "observations", "work_history"),
         ).to_dict()
         prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
         packet = RuntimeInvocationPacket(
@@ -475,7 +478,7 @@ class RuntimeCompiler:
             model_messages=model_messages,
             segment_plan=segment_plan.to_dict(),
             system_instructions=system,
-            agent_role_prompt="你是正式 TaskRun 的执行 agent，负责真实交付合同产物。",
+            agent_role_prompt="你是当前工作的执行者，负责基于真实上下文继续推进并交付结果。",
             prompt_pack_refs=prompt_assembly.prompt_pack_refs,
             available_tools=tool_payloads,
             available_modes=("respond", "ask_user", "tool_call", "block"),
@@ -865,7 +868,11 @@ def _model_messages_and_segment_plan(
     specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
 ) -> tuple[list[dict[str, str]], Any]:
     clean_specs = [
-        dict(spec)
+        {
+            **dict(spec),
+            "role": str(dict(spec).get("role") or "user"),
+            "content": str(dict(spec).get("content") or "").strip(),
+        }
         for spec in list(specs or [])
         if str(dict(spec).get("content") or "").strip()
     ]
@@ -1105,19 +1112,19 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
         lines.append("- 你可以" + "、".join(action_notes) + "。")
     if bool(task_lifecycle.get("request_task_run_allowed") is True):
         lines.append(
-            "- 当目标需要真实交付物、持续执行、文件修改、命令验证、浏览器验证或失败恢复时，可以请求正式 TaskRun。"
+            "- 当目标需要真实交付物、持续执行、文件修改、命令验证、浏览器验证或失败恢复时，可以请求进入持续处理流程。"
         )
     elif "request_task_run" in allowed_actions:
-        lines.append("- 本次装配不允许开启正式 TaskRun；如任务需要长期执行或真实交付物，应询问用户或说明阻塞边界。")
+        lines.append("- 本轮不允许开启持续处理流程；如目标需要长期执行或真实交付物，应询问用户或说明阻塞边界。")
     if "request_registered_engagement" in allowed_actions:
         lines.append("- 如果系统已注册的承接计划能精确覆盖当前目标，可以请求该计划；不要用它替代普通回答或临时任务判断。")
     if "tool_call" in allowed_actions:
         visible_count = int(tool_boundary.get("visible_tool_count") or 0)
-        lines.append(f"- 工具只能从 runtime packet 中实际可见的工具选择；当前可见工具数：{visible_count}。")
+        lines.append(f"- 工具只能从本轮上下文中实际可见的工具选择；当前可见工具数：{visible_count}。")
     if bool(tool_boundary.get("subagent_delegation_enabled") is True):
         lines.append("- 如需委派子 agent，只能在可见委派工具和授权范围内进行；主 agent 仍负责最终判断和收口。")
     if bool(planning.get("todo_required_when_task_run") is True):
-        lines.append("- 进入正式任务生命周期后，需要维护步骤状态；步骤状态不能替代真实交付物或验收证据。")
+        lines.append("- 进入持续处理流程后，需要维护步骤状态；步骤状态不能替代真实交付物或验收证据。")
     if bool(task_lifecycle.get("requires_completion_evidence") is True):
         lines.append("- 最终完成声明必须基于合同、真实观察、真实产物或验证证据。")
     if bool(task_lifecycle.get("artifact_evidence_required") is True):
@@ -1134,8 +1141,79 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
         lines.append("- 系统会记录任务步骤摘要，你的行动应能被步骤摘要和观察记录复核" + suffix + "。")
     permission_scope = str(permission_boundary.get("permission_scope") or "").strip()
     if permission_scope:
-        lines.append(f"- 权限边界由本次 runtime 装配决定；当前权限范围：{permission_scope}。")
+        lines.append(f"- 权限边界由本轮运行上下文决定；当前权限范围：{permission_scope}。")
     return "\n".join(lines) + "\n"
+
+
+def _work_rollout_instruction(work_rollout: dict[str, Any] | None) -> str:
+    rollout = dict(work_rollout or {})
+    if not rollout:
+        return ""
+    latest_progress = str(rollout.get("latest_progress") or "").strip()
+    latest_step = str(rollout.get("latest_step_title") or "").strip()
+    agent_brief = str(rollout.get("agent_brief_output") or "").strip()
+    breakpoint = dict(rollout.get("breakpoint") or {})
+    history = [dict(item) for item in list(rollout.get("model_visible_history") or []) if isinstance(item, dict)]
+    interrupted = any(str(item.get("type") or "") == "interrupted_boundary" for item in history[-8:])
+    checkout_started = any(str(item.get("type") or "") == "checkout_started" for item in history[-8:])
+    lines = ["当前工作恢复参考："]
+    if latest_step or latest_progress:
+        lines.append(f"- 最近进展：{latest_step or '处理进展'}；{latest_progress or '暂无进一步摘要'}。")
+    if agent_brief:
+        lines.append(f"- 最近一次简要输出：{agent_brief}")
+    if breakpoint:
+        offset = breakpoint.get("event_offset")
+        checkpoint_ref = str(breakpoint.get("checkpoint_ref") or "").strip()
+        parts = []
+        if isinstance(offset, int) and offset >= 0:
+            parts.append(f"事件位置 {offset}")
+        if checkpoint_ref:
+            parts.append(f"检查点 {checkpoint_ref}")
+        if parts:
+            lines.append("- 可参考的恢复断点：" + "；".join(parts) + "。")
+    if interrupted or checkout_started:
+        lines.append(
+            "- 这项工作此前可能在执行中被中断。继续前先检查当前工作区、已有文件、观察结果和验收证据；"
+            "不要假设中断前的最后一步已经完整成功。"
+        )
+    recent_completed = [
+        str(item.get("summary") or item.get("title") or "").strip()
+        for item in history[-6:]
+        if str(item.get("status") or "") in {"completed", "success", "waiting_executor"} and str(item.get("summary") or item.get("title") or "").strip()
+    ]
+    if recent_completed:
+        lines.append("- 已记录的近期进展：" + "；".join(recent_completed[-3:]) + "。")
+    if len(lines) == 1:
+        return ""
+    return "\n".join(lines) + "\n"
+
+
+def _work_rollout_payload(work_rollout: dict[str, Any] | None) -> dict[str, Any]:
+    rollout = dict(work_rollout or {})
+    if not rollout:
+        return {}
+    return {
+        "latest_progress": str(rollout.get("latest_progress") or ""),
+        "latest_step_title": str(rollout.get("latest_step_title") or ""),
+        "agent_brief_output": str(rollout.get("agent_brief_output") or ""),
+        "breakpoint": dict(rollout.get("breakpoint") or {}),
+        "lineage": dict(rollout.get("lineage") or {}),
+        "model_visible_history": [
+            {
+                "type": str(item.get("type") or ""),
+                "title": str(item.get("title") or ""),
+                "status": str(item.get("status") or ""),
+                "summary": str(item.get("summary") or ""),
+                "agent_brief_output": str(item.get("agent_brief_output") or ""),
+                "event_offset": item.get("event_offset"),
+                "refs": dict(item.get("refs") or {}),
+            }
+            for item in list(rollout.get("model_visible_history") or [])[-18:]
+            if isinstance(item, dict)
+        ],
+        "artifact_refs": [dict(item) for item in list(rollout.get("artifact_refs") or []) if isinstance(item, dict)],
+        "authority": "runtime.work_rollout.model_context",
+    }
 
 
 def _soul_instruction(soul_role_prompt: dict[str, Any]) -> str:

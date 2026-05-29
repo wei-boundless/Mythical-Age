@@ -2,7 +2,7 @@
 
 import { Boxes, Cable, FileWarning, GitBranch, Layers3, Network } from "lucide-react";
 
-import type { ComposableUnitSpec, GraphModuleExpansionSpec, GraphModuleRuntimePlanSpec, TaskGraphStandardView, UnitPortEdgeSpec } from "@/lib/api";
+import type { ComposableUnitSpec, GraphModuleExpansionPlanSpec, GraphModuleExpansionSpec, TaskGraphStandardView, UnitPortEdgeSpec } from "@/lib/api";
 
 import type { TaskGraphDraftV2 } from "./taskGraphDraftV2";
 import { taskGraphDisplayName } from "./taskGraphNameRegistry";
@@ -68,7 +68,7 @@ export function TaskGraphGraphLayerRail({
   graphModuleExpansions,
   graphDraft,
   issues,
-  graphModuleRuntime,
+  graphModuleExpansionPlans,
   onOpenGraph,
   onFacetChange,
   onSelectSubject,
@@ -82,7 +82,7 @@ export function TaskGraphGraphLayerRail({
   graphModuleExpansions: GraphModuleExpansionSpec[];
   graphDraft: TaskGraphDraftV2;
   issues: TaskGraphPreflightIssue[];
-  graphModuleRuntime: GraphModuleRuntimePlanSpec[];
+  graphModuleExpansionPlans: GraphModuleExpansionPlanSpec[];
   onOpenGraph?: (graphId: string) => void;
   onFacetChange: (facet: TaskGraphModuleFacet) => void;
   onSelectSubject: (subject: TaskGraphComposableSubject) => void;
@@ -122,7 +122,7 @@ export function TaskGraphGraphLayerRail({
         <div className="task-graph-composer-mini-metrics">
           <p><span>图模块</span><strong>{counts.graph ?? 0}</strong></p>
           <p><span>资源</span><strong>{counts.resource ?? 0}</strong></p>
-          <p><span>导入计划</span><strong>{graphModuleRuntime.length}</strong></p>
+          <p><span>展开计划</span><strong>{graphModuleExpansionPlans.length}</strong></p>
           <p><span>问题</span><strong>{issues.length}</strong></p>
         </div>
         {graphIssueCount ? (

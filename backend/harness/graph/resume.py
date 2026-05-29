@@ -80,6 +80,28 @@ class GraphResumeService:
                 checkpoint=checkpoint.to_dict(),
                 active_work_orders=active,
             )
+        if state.status == "blocked" and dispatch_ready:
+            blocked = _blocked_replay_node_ids(state)
+            if blocked:
+                replay = self._graph_loop.requeue_blocked_nodes_and_checkpoint(
+                    state=state,
+                    node_ids=blocked,
+                )
+                dispatch = self._graph_loop.dispatch_ready_and_checkpoint(
+                    graph_config=graph_config,
+                    graph_run_id=graph_run_id,
+                    max_requests=max_requests,
+                )
+                return GraphResumeResult(
+                    graph_run_id=graph_run_id,
+                    resumed=True,
+                    reason="blocked_nodes_requeued",
+                    loop_state=dispatch.loop_state,
+                    checkpoint=dict(dispatch.checkpoint),
+                    active_work_orders=_active_work_orders_from_state(dispatch.loop_state),
+                    node_work_orders=dispatch.node_work_orders,
+                    events=tuple([*replay.events, *dispatch.events]),
+                )
         if not dispatch_ready:
             return GraphResumeResult(
                 graph_run_id=graph_run_id,
@@ -116,3 +138,12 @@ def _active_work_orders_from_state(state: GraphLoopState) -> tuple[dict[str, Any
             payload = {"node_id": str(node_id), "work_order_id": str(work_order_id)}
         result.append(payload)
     return tuple(result)
+
+
+def _blocked_replay_node_ids(state: GraphLoopState) -> tuple[str, ...]:
+    node_states = dict(state.node_states or {})
+    return tuple(
+        node_id
+        for node_id in state.blocked_node_ids
+        if str(dict(node_states.get(node_id) or {}).get("status") or "") == "blocked"
+    )

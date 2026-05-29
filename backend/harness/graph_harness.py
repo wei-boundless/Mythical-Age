@@ -154,13 +154,13 @@ class GraphHarness:
             "graph_harness_config_id": graph_config.config_id,
             "work_order": execution.work_order.to_dict(),
             "node_result": execution.node_result.to_dict(),
-            "node_executor_task_run": execution.task_run.to_dict() if hasattr(execution.task_run, "to_dict") else execution.task_run,
-            "executor_result": dict(execution.executor_result or {}),
+            "node_executor_task_run": _task_run_summary(execution.task_run),
+            "executor_result": _executor_result_summary(execution.executor_result),
             "accepted_result": advance.accepted_result.to_dict() if advance is not None and advance.accepted_result is not None else None,
             "graph_result": advance.graph_result.to_dict() if advance is not None and advance.graph_result is not None else None,
-            "graph_loop_state": advance.loop_state.to_dict() if advance is not None else {},
+            "graph_loop_state": _loop_state_public_view(advance.loop_state) if advance is not None else {},
             "checkpoint": dict(advance.checkpoint) if advance is not None else {},
-            "node_work_orders": [item.to_dict() for item in advance.node_work_orders] if advance is not None else [],
+            "node_work_orders": [_work_order_public_view(item) for item in advance.node_work_orders] if advance is not None else [],
             "events": [*list(execution.events), *([dict(item) for item in advance.events] if advance is not None else [])],
         }
 
@@ -228,9 +228,9 @@ class GraphHarness:
             "authority": "harness.graph_run_monitor",
             "graph_run_id": graph_run_id,
             "graph_run": graph_run or {},
-            "task_run": self.get_task_run(task_run_id).to_dict() if task_run_id and self.get_task_run(task_run_id) is not None else None,
+            "task_run": _task_run_summary(self.get_task_run(task_run_id)) if task_run_id else None,
             "graph_harness_config": config_payload,
-            "graph_loop_state": state.to_dict() if state is not None else {},
+            "graph_loop_state": _loop_state_public_view(state) if state is not None else {},
             "active_node_work_orders": active_work_orders,
             "active_node_work_order_count": len(active_work_orders),
             "node_runtime_views": node_runtime_views,
@@ -279,7 +279,13 @@ def _active_work_orders_from_state(state: Any | None) -> list[dict[str, Any]]:
         payload = dict(index.get(str(work_order_id)) or {})
         if not payload:
             payload = {"node_id": str(node_id), "work_order_id": str(work_order_id)}
-        orders.append(payload)
+        orders.append(
+            {
+                **payload,
+                "node_id": str(payload.get("node_id") or node_id),
+                "work_order_id": str(payload.get("work_order_id") or work_order_id),
+            }
+        )
     return orders
 
 
@@ -287,35 +293,34 @@ def _node_runtime_views(*, state: Any | None, events: list[Any], task_run_lookup
     if state is None:
         return []
     node_states = {key: dict(value) for key, value in dict(getattr(state, "node_states", {}) or {}).items()}
-    work_order_index = dict(getattr(state, "work_order_index", {}) or {})
     result_index = dict(getattr(state, "result_index", {}) or {})
     task_run_refs = _node_executor_refs_by_node(events)
     views: list[dict[str, Any]] = []
     for node_id, node_state in node_states.items():
         result = dict(result_index.get(node_id) or {})
         work_order_id = str(node_state.get("work_order_id") or result.get("work_order_id") or "")
-        work_order = dict(work_order_index.get(work_order_id) or {}) if work_order_id else {}
         task_run_id = str(
             task_run_refs.get(node_id)
-            or dict(result.get("outputs") or {}).get("node_executor_task_run_id")
+            or result.get("node_executor_task_run_id")
             or ""
         )
         task_run = task_run_lookup(task_run_id) if task_run_id else None
-        task_payload = task_run.to_dict() if hasattr(task_run, "to_dict") else (dict(task_run) if isinstance(task_run, dict) else {})
-        diagnostics = dict(task_payload.get("diagnostics") or {})
+        task_payload = _task_run_summary(task_run)
+        work_order_summary = dict(getattr(state, "work_order_index", {}).get(work_order_id) or {}) if work_order_id else {}
         views.append(
             {
                 "node_id": node_id,
                 "status": str(node_state.get("status") or ""),
-                "executor_type": str(node_state.get("executor_type") or work_order.get("executor_type") or ""),
+                "executor_type": str(node_state.get("executor_type") or ""),
                 "work_order_id": work_order_id,
-                "work_order": work_order,
+                "work_order": {},
+                "work_order_summary": work_order_summary,
                 "node_executor_task_run_id": task_run_id,
                 "node_executor_task_run": task_payload or None,
-                "latest_step": diagnostics.get("latest_step") or diagnostics.get("step_summary") or {},
+                "latest_step": task_payload.get("latest_step") or {},
                 "artifact_refs": list(result.get("artifact_refs") or []),
-                "artifact_materialization_receipts": list(result.get("artifact_materialization_receipts") or []),
-                "memory_commit_receipts": list(result.get("memory_commit_receipts") or []),
+                "artifact_materialization_receipt_count": int(result.get("artifact_materialization_receipt_count") or 0),
+                "memory_commit_receipt_count": int(result.get("memory_commit_receipt_count") or 0),
                 "error": dict(result.get("error") or {}),
                 "result": result,
             }
@@ -340,3 +345,106 @@ def _node_executor_refs_by_node(events: list[Any]) -> dict[str, str]:
         if task_run_id:
             refs[node_id] = task_run_id
     return refs
+
+
+def _loop_state_public_view(state: Any | None) -> dict[str, Any]:
+    if state is None:
+        return {}
+    payload = state.to_dict() if hasattr(state, "to_dict") else dict(state or {})
+    return {
+        **payload,
+        "work_order_index": {key: dict(value) for key, value in dict(payload.get("work_order_index") or {}).items()},
+        "result_index": {key: dict(value) for key, value in dict(payload.get("result_index") or {}).items()},
+    }
+
+
+def _task_run_summary(task_run: Any | None) -> dict[str, Any]:
+    if task_run is None:
+        return {}
+    payload = task_run.to_dict() if hasattr(task_run, "to_dict") else (dict(task_run) if isinstance(task_run, dict) else {})
+    diagnostics = dict(payload.get("diagnostics") or {})
+    return {
+        "task_run_id": str(payload.get("task_run_id") or ""),
+        "session_id": str(payload.get("session_id") or ""),
+        "task_id": str(payload.get("task_id") or ""),
+        "status": str(payload.get("status") or ""),
+        "created_at": payload.get("created_at", 0.0),
+        "updated_at": payload.get("updated_at", 0.0),
+        "terminal_reason": str(payload.get("terminal_reason") or ""),
+        "latest_step": diagnostics.get("latest_step") or diagnostics.get("step_summary") or {},
+        "latest_step_status": diagnostics.get("latest_step_status") or "",
+        "latest_step_summary": diagnostics.get("latest_step_summary") or "",
+        "origin_kind": diagnostics.get("origin_kind") or "",
+        "graph_run_id": diagnostics.get("graph_run_id") or "",
+        "graph_work_order_id": diagnostics.get("graph_work_order_id") or "",
+        "project_id": diagnostics.get("project_id") or "",
+        "runtime_scope": dict(diagnostics.get("runtime_scope") or {}),
+    }
+
+
+def _executor_result_summary(result: dict[str, Any] | None) -> dict[str, Any]:
+    payload = dict(result or {})
+    task_run = payload.get("task_run")
+    return {
+        "ok": bool(payload.get("ok") is True),
+        "error": str(payload.get("error") or ""),
+        "artifact_refs": [dict(item) for item in list(payload.get("artifact_refs") or []) if isinstance(item, dict)],
+        "task_run": _task_run_summary(task_run),
+        "event": _event_summary(payload.get("event")),
+        "lifecycle": _lifecycle_summary(payload.get("lifecycle")),
+    }
+
+
+def _lifecycle_summary(lifecycle: Any | None) -> dict[str, Any]:
+    payload = lifecycle.to_dict() if hasattr(lifecycle, "to_dict") else (dict(lifecycle) if isinstance(lifecycle, dict) else {})
+    return {
+        "task_run_id": str(payload.get("task_run_id") or ""),
+        "contract_ref": str(payload.get("contract_ref") or ""),
+        "status": str(payload.get("status") or ""),
+        "created_at": payload.get("created_at", 0.0),
+        "updated_at": payload.get("updated_at", 0.0),
+        "terminal_reason": str(payload.get("terminal_reason") or ""),
+        "acceptance_ref_count": len(list(payload.get("acceptance_refs") or [])),
+        "observation_ref_count": len(list(payload.get("observation_refs") or [])),
+        "authority": str(payload.get("authority") or "harness.loop.task_lifecycle"),
+    }
+
+
+def _event_summary(event: Any | None) -> dict[str, Any]:
+    payload = event.to_dict() if hasattr(event, "to_dict") else (dict(event) if isinstance(event, dict) else {})
+    return {
+        "event_id": str(payload.get("event_id") or ""),
+        "event_type": str(payload.get("event_type") or payload.get("type") or ""),
+        "task_run_id": str(payload.get("task_run_id") or ""),
+        "created_at": payload.get("created_at", 0.0),
+        "refs": dict(payload.get("refs") or {}),
+        "authority": str(payload.get("authority") or ""),
+    }
+
+
+def _work_order_public_view(order: GraphNodeWorkOrder) -> dict[str, Any]:
+    return {
+        "authority": "harness.graph_node_work_order_dispatch",
+        "work_order_id": order.work_order_id,
+        "work_kind": order.work_kind,
+        "graph_run_id": order.graph_run_id,
+        "task_run_id": order.task_run_id,
+        "node_id": order.node_id,
+        "config_id": order.config_id,
+        "config_hash": order.config_hash,
+        "executor_type": order.executor_type,
+        "agent_id": order.agent_id,
+        "agent_profile_id": order.agent_profile_id,
+        "message": order.message,
+        "explicit_inputs": dict(order.explicit_inputs or {}),
+        "input_package": dict(order.input_package or {}),
+        "graph_state": dict(order.graph_state or {}),
+        "memory_view_request": dict(order.memory_view_request or {}),
+        "artifact_view_request": dict(order.artifact_view_request or {}),
+        "file_view_request": dict(order.file_view_request or {}),
+        "permission_scope": dict(order.permission_scope or {}),
+        "tool_scope": dict(order.tool_scope or {}),
+        "expected_result_contract": dict(order.expected_result_contract or {}),
+        "dispatch_context": dict(order.dispatch_context or {}),
+        "idempotency_key": order.idempotency_key,
+    }

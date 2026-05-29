@@ -3,7 +3,10 @@ from __future__ import annotations
 import time
 from typing import Any
 
+from .flow_edges import build_inbound_flow_edges
+from .flow_packet import flow_packet_inbound_projection
 from .models import GraphHarnessConfig, GraphLoopState, GraphNodeWorkOrder, safe_id, stable_hash
+from .runtime_objects import load_flow_packet
 from .scheduler_view import upstream_dependency_node_ids
 
 
@@ -15,6 +18,9 @@ class GraphContextMaterializer:
     """
 
     authority = "harness.graph.context_materializer"
+
+    def __init__(self, *, services: Any | None = None) -> None:
+        self._services = services
 
     def build_work_order(
         self,
@@ -149,27 +155,13 @@ class GraphContextMaterializer:
 
     def inbound_context_for_node(self, *, graph_config: GraphHarnessConfig, state: GraphLoopState, node_id: str) -> list[dict[str, Any]]:
         context: list[dict[str, Any]] = []
-        for edge in _incoming_dependency_edges(graph_config, node_id):
-            upstream_id = str(edge.get("source_node_id") or "")
-            result = dict(state.result_index.get(upstream_id) or {})
-            if result:
-                payload = _filtered_edge_payload(edge=edge, result=result)
-                context.append(
-                    {
-                        "authority": "harness.graph.inbound_context",
-                        "context_id": f"ginctx:{safe_id(state.graph_run_id)}:{safe_id(str(edge.get('edge_id') or upstream_id + '.' + node_id))}",
-                        "source_node_id": upstream_id,
-                        "target_node_id": node_id,
-                        "source_edge_id": str(edge.get("edge_id") or ""),
-                        "source_result_ref": str(result.get("result_id") or ""),
-                        "source_status": str(result.get("status") or ""),
-                        "payload_contract_id": str(edge.get("payload_contract_id") or ""),
-                        "payload": payload,
-                        "delivery_policy": str(edge.get("result_delivery_policy") or "summary_and_refs"),
-                        "ack_required": bool(edge.get("ack_required", True)),
-                        "edge_id": str(edge.get("edge_id") or ""),
-                    }
-                )
+        for edge in build_inbound_flow_edges(graph_config, node_id):
+            edge_state = dict(state.edge_states.get(str(edge.get("edge_id") or "")) or {})
+            for packet_entry in _edge_packet_entries(edge_state):
+                packet = load_flow_packet(self._services, packet_entry) if self._services is not None else None
+                if packet is None or packet.target_unit_id != node_id:
+                    continue
+                context.append(flow_packet_inbound_projection(packet, packet_ref=str(packet_entry.get("packet_ref") or "")))
         return context
 
 
@@ -197,132 +189,19 @@ def _loop_context_for_node(*, state: GraphLoopState, node: dict[str, Any]) -> di
     }
 
 
-def _incoming_dependency_edges(graph_config: GraphHarnessConfig, node_id: str) -> tuple[dict[str, Any], ...]:
-    target = str(node_id or "")
-    from .scheduler_view import build_scheduler_view
-
-    return tuple(
-        dict(edge)
-        for edge in build_scheduler_view(graph_config).dependency_edges
-        if str(edge.get("target_node_id") or "") == target
-    )
-
-
-def _filtered_edge_payload(*, edge: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
-    delivery_policy = str(edge.get("result_delivery_policy") or "summary_and_refs").strip() or "summary_and_refs"
-    output_payload = _filter_outputs(
-        dict(result.get("outputs") or {}),
-        context_filter_policy=dict(edge.get("context_filter_policy") or {}),
-    )
-    artifact_refs = _filter_artifact_refs(
-        list(result.get("artifact_refs") or []),
-        artifact_ref_policy=dict(edge.get("artifact_ref_policy") or {}),
-    )
-    memory_candidates = _filter_memory_candidates(
-        list(result.get("memory_candidates") or []),
-        working_memory_handoff_policy=dict(edge.get("working_memory_handoff_policy") or {}),
-        delivery_policy=delivery_policy,
-    )
-    base_refs = {
-        "artifact_refs": artifact_refs,
-        "artifact_materialization_receipts": list(result.get("artifact_materialization_receipts") or []),
-        "memory_commit_receipts": list(result.get("memory_commit_receipts") or []),
-        "handoff_summary": str(result.get("handoff_summary") or ""),
-    }
-    if delivery_policy in {"notification_only", "status_only"}:
-        return {"handoff_summary": base_refs["handoff_summary"]}
-    if delivery_policy in {"refs_only", "artifact_refs_only"}:
-        return base_refs
-    if delivery_policy == "summary_only":
-        return {"handoff_summary": base_refs["handoff_summary"]}
-    if delivery_policy in {"summary_and_refs", "contract_payload_and_refs"}:
-        if output_payload:
-            return {**base_refs, "bounded_outputs": output_payload}
-        return base_refs
-    return {
-        "bounded_outputs": output_payload,
-        "decisions": dict(result.get("decisions") or {}),
-        "memory_candidates": memory_candidates,
-        **base_refs,
-    }
-
-
-def _filter_outputs(outputs: dict[str, Any], *, context_filter_policy: dict[str, Any]) -> dict[str, Any]:
-    include_keys = _string_set(
-        context_filter_policy.get("include_output_keys")
-        or context_filter_policy.get("allowed_output_keys")
-        or context_filter_policy.get("include_keys")
-        or context_filter_policy.get("allow")
-    )
-    exclude_keys = _string_set(
-        context_filter_policy.get("exclude_output_keys")
-        or context_filter_policy.get("blocked_output_keys")
-        or context_filter_policy.get("exclude_keys")
-        or context_filter_policy.get("deny")
-    )
-    if include_keys:
-        filtered = {key: value for key, value in outputs.items() if str(key) in include_keys}
-    else:
-        filtered = dict(outputs)
-    for key in exclude_keys:
-        filtered.pop(key, None)
-    max_chars = _int_value(context_filter_policy.get("max_chars") or context_filter_policy.get("max_output_chars"), 0)
-    if max_chars > 0:
-        return {key: _truncate_value(value, max_chars=max_chars) for key, value in filtered.items()}
-    return filtered
-
-
-def _filter_artifact_refs(refs: list[Any], *, artifact_ref_policy: dict[str, Any]) -> list[Any]:
-    if artifact_ref_policy.get("include") is False or artifact_ref_policy.get("enabled") is False:
-        return []
-    max_refs = _int_value(artifact_ref_policy.get("max_refs") or artifact_ref_policy.get("limit"), 0)
-    result = list(refs)
-    if max_refs > 0:
-        result = result[:max_refs]
-    return result
-
-
-def _filter_memory_candidates(
-    candidates: list[Any],
-    *,
-    working_memory_handoff_policy: dict[str, Any],
-    delivery_policy: str,
-) -> list[Any]:
-    if delivery_policy in {"refs_only", "artifact_refs_only", "summary_only", "summary_and_refs", "notification_only", "status_only"}:
-        return []
-    if working_memory_handoff_policy.get("include_candidates") is False:
-        return []
-    carry_kinds = _string_set(working_memory_handoff_policy.get("carry_kinds") or working_memory_handoff_policy.get("record_kinds"))
-    if not carry_kinds:
-        return [dict(item) for item in candidates if isinstance(item, dict)]
-    return [
-        dict(item)
-        for item in candidates
-        if isinstance(item, dict) and str(item.get("record_kind") or item.get("kind") or "") in carry_kinds
-    ]
-
-
-def _truncate_value(value: Any, *, max_chars: int) -> Any:
-    if isinstance(value, str) and len(value) > max_chars:
-        return value[:max_chars].rstrip()
-    if isinstance(value, dict):
-        return {key: _truncate_value(item, max_chars=max_chars) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_truncate_value(item, max_chars=max_chars) for item in value]
-    return value
-
-
-def _string_set(value: Any) -> set[str]:
-    if isinstance(value, str):
-        return {value.strip()} if value.strip() else set()
-    return {str(item).strip() for item in list(value or []) if str(item).strip()}
-
-
-def _int_value(value: Any, default: int) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
+def _edge_packet_entries(edge_state: dict[str, Any]) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    for item in list(edge_state.get("packet_refs") or []):
+        if isinstance(item, dict):
+            entry = dict(item)
+        else:
+            entry = {"packet_ref": str(item or "")}
+        if str(entry.get("packet_ref") or ""):
+            entries.append(entry)
+    latest_ref = str(edge_state.get("latest_packet_ref") or "")
+    if latest_ref and all(str(item.get("packet_ref") or "") != latest_ref for item in entries):
+        entries.append({"packet_ref": latest_ref, "packet_id": str(edge_state.get("latest_packet_id") or "")})
+    return entries
 
 
 def _prompt_contract(node: dict[str, Any]) -> dict[str, Any]:
@@ -381,6 +260,7 @@ def _artifact_view_request(*, graph_config: GraphHarnessConfig, node: dict[str, 
 
 def _file_view_request(*, graph_config: GraphHarnessConfig, node: dict[str, Any]) -> dict[str, Any]:
     environment = dict(graph_config.environment or {})
+    node_id = str(node.get("node_id") or "")
     return {
         "task_environment_id": str(graph_config.task_environment_id or ""),
         "environment_storage_space": dict(environment.get("storage_space") or {}),
@@ -388,7 +268,7 @@ def _file_view_request(*, graph_config: GraphHarnessConfig, node: dict[str, Any]
         "file_access_tables": list(environment.get("file_access_tables") or []),
         "file_access_table_refs": _file_access_table_refs(graph_config),
         "node_file_policy": dict(node.get("files") or {}),
-        "graph_resource_policy": _resource_policy_view(graph_config=graph_config),
+        "graph_resource_policy": _resource_policy_view(graph_config=graph_config, node_id=node_id),
     }
 
 
@@ -405,7 +285,12 @@ def _issue_view_request(*, graph_config: GraphHarnessConfig, node: dict[str, Any
 
 def _node_memory_policy_view(*, graph_config: GraphHarnessConfig, node_id: str) -> dict[str, Any]:
     policy = dict(graph_config.memory or {})
-    read_rules = _node_related_items(list(policy.get("read_rules") or []), node_id=node_id)
+    read_rules = _dedupe_edge_items(
+        [
+            *_node_related_items(list(policy.get("read_rules") or []), node_id=node_id),
+            *_resource_flow_edges(graph_config=graph_config, node_id=node_id, semantic_role="memory"),
+        ]
+    )
     return {
         "working_memory_policy_profile_id": str(policy.get("working_memory_policy_profile_id") or ""),
         "working_memory_policy": dict(policy.get("working_memory_policy") or {}),
@@ -419,7 +304,12 @@ def _node_memory_policy_view(*, graph_config: GraphHarnessConfig, node_id: str) 
 
 def _node_artifact_policy_view(*, graph_config: GraphHarnessConfig, node_id: str) -> dict[str, Any]:
     policy = dict(graph_config.artifacts or {})
-    context_edges = _node_related_items(list(policy.get("context_edges") or []), node_id=node_id)
+    context_edges = _dedupe_edge_items(
+        [
+            *_node_related_items(list(policy.get("context_edges") or []), node_id=node_id),
+            *_resource_flow_edges(graph_config=graph_config, node_id=node_id, semantic_role="artifact"),
+        ]
+    )
     return {
         "context_edges": context_edges,
         "context_edge_count": len(context_edges),
@@ -428,15 +318,18 @@ def _node_artifact_policy_view(*, graph_config: GraphHarnessConfig, node_id: str
     }
 
 
-def _resource_policy_view(*, graph_config: GraphHarnessConfig) -> dict[str, Any]:
+def _resource_policy_view(*, graph_config: GraphHarnessConfig, node_id: str = "") -> dict[str, Any]:
     resources = [
         _resource_node_summary(dict(item))
         for item in list(dict(graph_config.resources or {}).get("resource_nodes") or [])
         if isinstance(item, dict)
     ]
+    file_context_edges = _resource_flow_edges(graph_config=graph_config, node_id=node_id, semantic_role="file") if node_id else []
     return {
         "resource_nodes": resources,
         "resource_node_count": len(resources),
+        "file_context_edges": file_context_edges,
+        "file_context_edge_count": len(file_context_edges),
         "authority": "harness.graph.context_materializer.resource_policy_view",
     }
 
@@ -473,6 +366,30 @@ def _node_related_items(items: list[Any], *, node_id: str) -> list[dict[str, Any
         }
         if target in refs:
             result.append(payload)
+    return result
+
+
+def _resource_flow_edges(*, graph_config: GraphHarnessConfig, node_id: str, semantic_role: str) -> list[dict[str, Any]]:
+    role = str(semantic_role or "").strip()
+    result: list[dict[str, Any]] = []
+    for edge in build_inbound_flow_edges(graph_config, node_id):
+        payload = dict(edge)
+        if str(payload.get("semantic_role") or "") != role:
+            continue
+        result.append(payload)
+    return result
+
+
+def _dedupe_edge_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in items:
+        payload = dict(item)
+        key = str(payload.get("edge_id") or payload)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(payload)
     return result
 
 

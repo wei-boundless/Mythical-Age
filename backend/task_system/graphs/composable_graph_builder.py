@@ -5,12 +5,13 @@ from typing import Any
 from task_system.graphs.composable_graph_models import (
     ComposableGraphView,
     ComposableUnit,
-    GraphModuleRuntimePlan,
+    GraphModuleExpansionPlan,
     UnitInterface,
     UnitPort,
     UnitPortEdge,
 )
 from task_system.compiler.layered_graph_normalizer import normalize_task_graph_layers
+from task_system.graphs.graph_module_expansion import graph_module_expansion_plan_payloads
 from task_system.graphs.task_graph_models import TaskGraphDefinition, TaskGraphEdgeDefinition, TaskGraphNodeDefinition
 
 
@@ -55,15 +56,18 @@ def build_composable_graph_view(
         ],
     ]
     port_edges = [_port_edge_from_graph_edge(edge) for edge in graph.edges]
-    graph_module_runtime: list[GraphModuleRuntimePlan] = []
+    graph_module_expansion: list[GraphModuleExpansionPlan] = []
     overlay = _composable_overlay(graph)
     units = _merge_units(units, _units_from_overlay(overlay))
     interfaces = _merge_interfaces(interfaces, _interfaces_from_overlay(overlay))
     port_edges = _merge_port_edges(port_edges, _port_edges_from_overlay(overlay))
-    graph_module_runtime = _merge_graph_module_runtime(graph_module_runtime, _graph_module_runtime_from_overlay(overlay, graph=graph))
+    graph_module_expansion = _merge_graph_module_expansion(
+        [*_graph_module_expansion_from_graph(graph)],
+        _graph_module_expansion_from_overlay(overlay, graph=graph),
+    )
     issues = tuple(
         [
-            *_composable_issues(units=units, interfaces=interfaces, port_edges=port_edges, graph_module_runtime=graph_module_runtime),
+            *_composable_issues(units=units, interfaces=interfaces, port_edges=port_edges, graph_module_expansion=graph_module_expansion),
             *_overlay_issues(overlay),
         ]
     )
@@ -81,19 +85,19 @@ def build_composable_graph_view(
         units=tuple(units),
         interfaces=tuple(interfaces),
         port_edges=tuple(port_edges),
-        graph_module_runtime=tuple(graph_module_runtime),
+        graph_module_expansion=tuple(graph_module_expansion),
         diagnostics={
             "mode": "metadata_overlay_shadow_model" if overlay else "read_only_shadow_model",
             "source": "task_system.task_graph_definition",
             "node_unit_count": len(graph.nodes),
             "timeline_block_unit_count": len(timeline_blocks),
             "timeline_block_units_migration_only": True,
-            "graph_module_runtime_count": len(graph_module_runtime),
+            "graph_module_expansion_count": len(graph_module_expansion),
             "legacy_edge_count": len(graph.edges),
             "overlay_unit_count": len(_overlay_list(overlay, "units")),
             "overlay_interface_count": len(_overlay_list(overlay, "interfaces")),
             "overlay_port_edge_count": len(_overlay_list(overlay, "port_edges")),
-            "overlay_graph_module_runtime_count": len(_overlay_list(overlay, "graph_module_runtime")),
+            "overlay_graph_module_expansion_count": len(_overlay_list(overlay, "graph_module_expansion")),
         },
         issues=issues,
     )
@@ -140,7 +144,7 @@ def _merge_port_edges(derived: list[UnitPortEdge], explicit: list[UnitPortEdge])
     return list(merged.values())
 
 
-def _merge_graph_module_runtime(derived: list[GraphModuleRuntimePlan], explicit: list[GraphModuleRuntimePlan]) -> list[GraphModuleRuntimePlan]:
+def _merge_graph_module_expansion(derived: list[GraphModuleExpansionPlan], explicit: list[GraphModuleExpansionPlan]) -> list[GraphModuleExpansionPlan]:
     merged = {item.plan_id: item for item in derived}
     for item in explicit:
         if not item.plan_id:
@@ -161,8 +165,15 @@ def _port_edges_from_overlay(overlay: dict[str, Any]) -> list[UnitPortEdge]:
     return [_port_edge_from_overlay_payload(item) for item in _overlay_list(overlay, "port_edges")]
 
 
-def _graph_module_runtime_from_overlay(overlay: dict[str, Any], *, graph: TaskGraphDefinition) -> list[GraphModuleRuntimePlan]:
-    return [_graph_module_runtime_from_overlay_payload(item, graph=graph) for item in _overlay_list(overlay, "graph_module_runtime")]
+def _graph_module_expansion_from_graph(graph: TaskGraphDefinition) -> list[GraphModuleExpansionPlan]:
+    return [_graph_module_expansion_from_payload(item, graph=graph) for item in graph_module_expansion_plan_payloads(graph)]
+
+
+def _graph_module_expansion_from_overlay(overlay: dict[str, Any], *, graph: TaskGraphDefinition) -> list[GraphModuleExpansionPlan]:
+    return [
+        _graph_module_expansion_from_payload(item, graph=graph)
+        for item in _overlay_list(overlay, "graph_module_expansion")
+    ]
 
 
 def _overlay_issues(overlay: dict[str, Any]) -> list[dict[str, Any]]:
@@ -185,9 +196,9 @@ def _overlay_issues(overlay: dict[str, Any]) -> list[dict[str, Any]]:
     for index, edge in enumerate(_overlay_list(overlay, "port_edges")):
         if not str(edge.get("edge_id") or "").strip():
             issues.append(_issue("overlay_port_edge_id_missing", f"显式端口边覆盖层第 {index + 1} 项缺少 edge_id", severity="error"))
-    for index, plan in enumerate(_overlay_list(overlay, "graph_module_runtime")):
+    for index, plan in enumerate(_overlay_list(overlay, "graph_module_expansion")):
         if not str(plan.get("plan_id") or "").strip():
-            issues.append(_issue("overlay_graph_module_runtime_plan_id_missing", f"显式图模块运行覆盖层第 {index + 1} 项缺少 plan_id", severity="error"))
+            issues.append(_issue("overlay_graph_module_expansion_plan_id_missing", f"显式图模块展开覆盖层第 {index + 1} 项缺少 plan_id", severity="error"))
     return issues
 
 
@@ -267,9 +278,9 @@ def _port_edge_from_overlay_payload(payload: dict[str, Any]) -> UnitPortEdge:
     )
 
 
-def _graph_module_runtime_from_overlay_payload(payload: dict[str, Any], *, graph: TaskGraphDefinition) -> GraphModuleRuntimePlan:
+def _graph_module_expansion_from_payload(payload: dict[str, Any], *, graph: TaskGraphDefinition) -> GraphModuleExpansionPlan:
     plan_id = str(payload.get("plan_id") or "").strip()
-    return GraphModuleRuntimePlan(
+    return GraphModuleExpansionPlan(
         plan_id=plan_id,
         importing_graph_id=str(payload.get("importing_graph_id") or graph.graph_id).strip(),
         unit_id=str(payload.get("unit_id") or "").strip(),
@@ -278,8 +289,10 @@ def _graph_module_runtime_from_overlay_payload(payload: dict[str, Any], *, graph
         handoff_contract_id=str(payload.get("handoff_contract_id") or "").strip(),
         input_port_id=str(payload.get("input_port_id") or "input.default").strip() or "input.default",
         output_port_id=str(payload.get("output_port_id") or "output.default").strip() or "output.default",
-        isolation_policy=str(payload.get("isolation_policy") or "isolated_per_graph_module_run").strip() or "isolated_per_graph_module_run",
-        visibility_policy=str(payload.get("visibility_policy") or "committed_only").strip() or "committed_only",
+        runtime_node_id=str(payload.get("runtime_node_id") or payload.get("composition_node_id") or "").strip(),
+        scope_prefix=str(payload.get("scope_prefix") or "").strip(),
+        isolation_policy=str(payload.get("isolation_policy") or "compile_time_inline_expansion").strip() or "compile_time_inline_expansion",
+        visibility_policy=str(payload.get("visibility_policy") or "expanded_internal_nodes").strip() or "expanded_internal_nodes",
         detach_policy=str(payload.get("detach_policy") or "preserve_version_anchor").strip() or "preserve_version_anchor",
         metadata={
             **dict(payload.get("metadata") or {}),
@@ -335,8 +348,8 @@ def _unit_from_timeline_block(*, graph: TaskGraphDefinition, block: dict[str, An
         },
         interface_id=f"interface.graph.{_safe_identifier(str(block.get('block_id') or index + 1))}",
         runtime_policy={
-            "execution_mode": "graph_module_run" if linked_graph_id else "phase_window",
-            "task_run_scope_policy": "isolated_per_graph_module_run" if linked_graph_id else "same_graph_phase_window",
+            "execution_mode": "compile_time_inline_expansion" if linked_graph_id else "phase_window",
+            "task_run_scope_policy": "expanded_internal_nodes" if linked_graph_id else "same_graph_phase_window",
             "wait_policy": "wait_for_output_port_commit",
             "detach_policy": str(block.get("detach_policy") or "preserve_version_anchor").strip() or "preserve_version_anchor",
         },
@@ -518,7 +531,7 @@ def _composable_issues(
     units: list[ComposableUnit],
     interfaces: list[UnitInterface],
     port_edges: list[UnitPortEdge],
-    graph_module_runtime: list[GraphModuleRuntimePlan],
+    graph_module_expansion: list[GraphModuleExpansionPlan],
 ) -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
     unit_ids = {unit.unit_id for unit in units}
@@ -564,11 +577,11 @@ def _composable_issues(
             issues.append(_issue("port_edge_source_port_missing", "端口边的源端口不存在", edge_id=edge.edge_id, severity="error"))
         if (edge.target_unit_id, edge.target_port_id) not in port_keys:
             issues.append(_issue("port_edge_target_port_missing", "端口边的目标端口不存在", edge_id=edge.edge_id, severity="error"))
-    for plan in graph_module_runtime:
+    for plan in graph_module_expansion:
         if not plan.version_ref:
-            issues.append(_issue("graph_module_version_anchor_missing", "图模块运行缺少版本锚点", unit_id=plan.unit_id, severity="warning"))
+            issues.append(_issue("graph_module_version_anchor_missing", "图模块展开缺少版本锚点", unit_id=plan.unit_id, severity="warning"))
         if not plan.handoff_contract_id:
-            issues.append(_issue("graph_module_handoff_contract_missing", "图模块运行缺少交接契约", unit_id=plan.unit_id, severity="warning"))
+            issues.append(_issue("graph_module_handoff_contract_missing", "图模块展开缺少交接契约", unit_id=plan.unit_id, severity="warning"))
     return issues
 
 

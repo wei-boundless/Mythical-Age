@@ -34,6 +34,9 @@ def main() -> None:
     payload = json.loads(capability_paths.tools_registry_path.read_text(encoding="utf-8"))
     assert payload["version"] == 2
     assert payload["tool_count"] >= 20
+    assert payload["tool_packages"]
+    assert any(item["package_id"] == "pkg.git.read" for item in payload["tool_packages"])
+    assert any(item["package_id"] == "pkg.git.write" for item in payload["tool_packages"])
 
     by_name = {tool["name"]: tool for tool in payload["tools"]}
     assert "get_weather" not in by_name
@@ -56,10 +59,22 @@ def main() -> None:
         "git_diff",
         "git_log",
         "git_show",
+        "git_branch_list",
     ]:
         assert name in by_name
         assert by_name[name]["is_read_only"] is True
         assert by_name[name]["is_destructive"] is False
+
+    for name in [
+        "git_branch_create",
+        "git_stage",
+        "git_unstage",
+        "git_commit",
+        "git_restore",
+        "git_push",
+    ]:
+        assert name in by_name
+        assert by_name[name]["is_read_only"] is False
 
     assert by_name["python_repl"]["safe_for_auto_route"] is False
     assert by_name["terminal"]["safe_for_auto_route"] is False

@@ -7,6 +7,7 @@ from .operation_registry import build_default_operation_registry
 from .skill_registry import SkillRegistry
 from .skill_routes import skill_operation_ids_from_skill
 from .tool_registry import ToolRegistry
+from .tool_packages import default_tool_packages
 from .mcp_registry import build_mcp_catalog
 from .catalog import MAIN_AGENT_ID, build_capability_catalog
 from .models import (
@@ -64,6 +65,7 @@ def build_capability_supply_package_from_base_dir(
             for skill in skill_registry.skills
         ],
         "tools": [tool.to_registry_record() for tool in tool_registry.tools],
+        "tool_packages": [package.to_dict() for package in default_tool_packages()],
         "mcps": mcps,
         "capability_endpoints": build_capability_endpoints(mcps=mcps),
     }
@@ -84,6 +86,7 @@ def build_capability_supply_package_from_catalog(
 ) -> CapabilitySupplyPackage:
     normalized_scope = _normalize_operation_scope(operation_scope)
     tools = list(catalog.get("tools") or [])
+    tool_packages = list(catalog.get("tool_packages") or [])
     skills = list(catalog.get("skills") or [])
     mcps = list(catalog.get("mcps") or [])
 
@@ -175,6 +178,7 @@ def build_capability_supply_package_from_catalog(
         capability_constraints={
             "operation_scope": sorted(normalized_scope),
             "available_operation_ids": available_operation_ids,
+            "tool_packages": tool_packages,
         },
         visibility_rules={
             "main_runtime_tools": main_runtime_tools,

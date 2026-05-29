@@ -70,7 +70,6 @@ def test_writing_text_artifact_worker_profiles_have_no_tool_side_effects(tmp_pat
         assert profile.model_profile.thinking_mode == "enabled"
         assert profile.model_profile.reasoning_effort == "high"
         assert set(profile.allowed_operations).issubset({"op.model_response", "op.memory_read", "op.text_metric"})
-        assert "op.delegate_to_agent" in profile.blocked_operations
         assert "op.write_file" in profile.blocked_operations
         assert "op.read_file" in profile.blocked_operations
 

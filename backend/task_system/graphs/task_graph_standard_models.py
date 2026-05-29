@@ -5,7 +5,7 @@ from typing import Any
 
 from harness.graph.scheduler_view import build_scheduler_view
 from task_system.graphs.composable_graph_builder import build_composable_graph_view
-from task_system.graphs.composable_graph_models import ComposableUnit, GraphModuleRuntimePlan, UnitInterface, UnitPortEdge
+from task_system.graphs.composable_graph_models import ComposableUnit, GraphModuleExpansionPlan, UnitInterface, UnitPortEdge
 from task_system.compiler.graph_harness_config_publisher import build_graph_harness_config_from_graph
 from task_system.compiler.layered_graph_normalizer import normalize_task_graph_layers
 from task_system.runtime_semantics.length_budget import compiled_length_budget_preview, compile_length_budget
@@ -176,7 +176,7 @@ class TaskGraphStandardView:
     units: tuple[ComposableUnit, ...]
     interfaces: tuple[UnitInterface, ...]
     port_edges: tuple[UnitPortEdge, ...]
-    graph_module_runtime: tuple[GraphModuleRuntimePlan, ...]
+    graph_module_expansion: tuple[GraphModuleExpansionPlan, ...]
     graph_module_expansions: tuple[TaskGraphModuleExpansionSpec, ...]
     timeline: TaskGraphStandardTimelineSpec
     runtime_isolation: TaskGraphRuntimeIsolationSpec
@@ -195,7 +195,7 @@ class TaskGraphStandardView:
             "units": [item.to_dict() for item in self.units],
             "interfaces": [item.to_dict() for item in self.interfaces],
             "port_edges": [item.to_dict() for item in self.port_edges],
-            "graph_module_runtime": [item.to_dict() for item in self.graph_module_runtime],
+            "graph_module_expansion": [item.to_dict() for item in self.graph_module_expansion],
             "graph_module_expansions": [item.to_dict() for item in self.graph_module_expansions],
             "timeline": self.timeline.to_dict(),
             "runtime_isolation": self.runtime_isolation.to_dict(),
@@ -234,7 +234,7 @@ def build_task_graph_standard_view(
     composable = build_composable_graph_view(graph=graph, layered_graph=layered)
     graph_module_expansions = _graph_module_expansions(
         current_graph=graph,
-        graph_module_runtime=composable.graph_module_runtime,
+        graph_module_expansion=composable.graph_module_expansion,
         graph_lookup=graph_lookup,
     )
     resource_nodes = [dict(item) for item in list(layered.get("resource_nodes") or []) if isinstance(item, dict)]
@@ -354,7 +354,7 @@ def build_task_graph_standard_view(
         units=composable.units,
         interfaces=composable.interfaces,
         port_edges=composable.port_edges,
-        graph_module_runtime=composable.graph_module_runtime,
+        graph_module_expansion=composable.graph_module_expansion,
         graph_module_expansions=tuple(graph_module_expansions),
         timeline=timeline,
         runtime_isolation=runtime_isolation,
@@ -631,8 +631,8 @@ def _unavailable_graph_harness_config_summary(graph: TaskGraphDefinition, issues
 def _graph_harness_config_issue(*, graph: TaskGraphDefinition, error: str) -> dict[str, Any]:
     message = str(error or "graph harness config compile failed")
     lowered = message.lower()
-    if "cyclic graph composition" in lowered:
-        code = "graph_module_self_reference" if graph.graph_id in message else "graph_composition_cycle"
+    if "cyclic graph module expansion" in lowered:
+        code = "graph_module_self_reference" if graph.graph_id in message else "graph_module_expansion_cycle"
     elif "not found" in lowered:
         code = "graph_module_linked_graph_not_found"
     elif "linked_graph_id" in lowered:
@@ -651,11 +651,11 @@ def _graph_harness_config_issue(*, graph: TaskGraphDefinition, error: str) -> di
 def _graph_module_expansions(
     *,
     current_graph: TaskGraphDefinition,
-    graph_module_runtime: tuple[GraphModuleRuntimePlan, ...],
+    graph_module_expansion: tuple[GraphModuleExpansionPlan, ...],
     graph_lookup: Any | None,
 ) -> list[TaskGraphModuleExpansionSpec]:
     expansions: list[TaskGraphModuleExpansionSpec] = []
-    for plan in graph_module_runtime:
+    for plan in graph_module_expansion:
         linked_graph_id = str(plan.linked_graph_id or "").strip()
         runtime_node_id = _runtime_node_id_for_expansion(plan)
         scope_prefix = f"{runtime_node_id}::"
@@ -744,16 +744,16 @@ def _lookup_imported_graph(graph_lookup: Any | None, graph_id: str) -> TaskGraph
     return None
 
 
-def _runtime_node_id_for_expansion(plan: GraphModuleRuntimePlan) -> str:
+def _runtime_node_id_for_expansion(plan: GraphModuleExpansionPlan) -> str:
     metadata = dict(plan.metadata or {})
-    runtime_node_id = str(metadata.get("runtime_node_id") or "").strip()
+    runtime_node_id = str(plan.runtime_node_id or metadata.get("runtime_node_id") or "").strip()
     if runtime_node_id:
         return runtime_node_id
     unit_id = str(plan.unit_id or "").strip()
     if unit_id.startswith("unit.graph."):
         return f"graph_module.{unit_id.removeprefix('unit.graph.')}"
     plan_id = str(plan.plan_id or "graph_module").strip()
-    return f"graph_module.{plan_id.removeprefix('graph_module_runtime.')}"
+    return f"graph_module.{plan_id.removeprefix('graph_module_expansion.')}"
 
 
 def _resource_node_payloads(graph: TaskGraphDefinition) -> list[dict[str, Any]]:
@@ -829,7 +829,7 @@ def _expanded_imported_resource_payload(*, payload: dict[str, Any], scope_prefix
 
 def _graph_module_expansion_issue(
     *,
-    plan: GraphModuleRuntimePlan,
+    plan: GraphModuleExpansionPlan,
     runtime_node_id: str,
     code: str,
     message: str,

@@ -33,6 +33,12 @@ class GraphRunDispatchReadyRequest(BaseModel):
     max_requests: int = Field(default=1, ge=1, le=32)
 
 
+class GraphRunResumeRequest(BaseModel):
+    graph_harness_config_id: str = Field(..., min_length=1, max_length=240)
+    dispatch_ready: bool = True
+    max_requests: int | None = Field(default=None, ge=1, le=32)
+
+
 class GraphWorkOrderExecuteRequest(BaseModel):
     graph_harness_config_id: str = Field(..., min_length=1, max_length=240)
     work_order: dict[str, Any] = Field(default_factory=dict)
@@ -143,6 +149,27 @@ async def get_graph_run_monitor(graph_run_id: str, graph_harness_config_id: str 
     if monitor is None:
         raise HTTPException(status_code=404, detail="GraphRun monitor not found")
     return monitor
+
+
+@router.post("/orchestration/harness/graph-runs/{graph_run_id}/resume")
+async def resume_graph_run(
+    graph_run_id: str,
+    payload: GraphRunResumeRequest,
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    graph_config = TaskFlowRegistry(runtime.base_dir).get_graph_harness_config(payload.graph_harness_config_id)
+    if graph_config is None:
+        raise HTTPException(status_code=404, detail="GraphHarnessConfig not found")
+    try:
+        result = runtime.query_runtime.graph_harness.resume_run(
+            graph_config=graph_config,
+            graph_run_id=graph_run_id,
+            dispatch_ready=payload.dispatch_ready,
+            max_requests=payload.max_requests,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return result.to_dict()
 
 
 @router.post("/orchestration/harness/graph-runs/{graph_run_id}/dispatch-ready")

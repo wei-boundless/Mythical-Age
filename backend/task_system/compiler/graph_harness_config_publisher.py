@@ -20,6 +20,7 @@ from harness.graph.language import (
 from harness.graph.models import GraphHarnessConfig, safe_id, stable_hash
 from task_system.compiler.layered_graph_normalizer import normalize_task_graph_layers
 from task_system.environments import build_task_environment_catalog, task_environment_registry_from_backend_dir
+from task_system.graphs.graph_module_expansion import graph_module_expansion_plan_payloads
 from task_system.graphs.composable_graph_builder import build_composable_graph_view
 from task_system.registry.flow_registry import TaskFlowRegistry
 
@@ -59,7 +60,7 @@ def build_graph_harness_config_from_graph(
         raise ValueError("TaskGraphDefinition requires graph_id before GraphHarnessConfig publication")
     visited = set(visited_graph_ids or set())
     if graph_id in visited:
-        raise ValueError(f"cyclic graph composition detected: {graph_id}")
+        raise ValueError(f"cyclic graph module expansion detected: {graph_id}")
     visited.add(graph_id)
 
     projection = _project_graph_for_harness(
@@ -259,48 +260,7 @@ def _project_graph_for_harness(
 
 
 def _composition_plans(graph: Any) -> tuple[dict[str, Any], ...]:
-    plans: list[dict[str, Any]] = []
-    for node in tuple(getattr(graph, "nodes", ()) or ()):
-        node_id = str(getattr(node, "node_id", "") or "").strip()
-        node_type = str(getattr(node, "node_type", "") or "").strip()
-        metadata = dict(getattr(node, "metadata", {}) or {})
-        executor_policy = dict(getattr(node, "executor_policy", {}) or {})
-        bindings = dict(getattr(node, "contract_bindings", {}) or {})
-        runtime_bindings = dict(bindings.get("runtime") or {})
-        composition = dict(runtime_bindings.get("graph_composition") or {})
-        legacy_module = dict(runtime_bindings.get("graph_module_runtime") or {})
-        default_executor = str(executor_policy.get("default_executor") or executor_policy.get("executor") or "").strip()
-        is_composition = (
-            node_type in {"graph_module", "graph_composition"}
-            or bool(metadata.get("graph_module"))
-            or bool(metadata.get("graph_composition"))
-            or default_executor in {"graph_module", "imported_graph", "graph_composition"}
-        )
-        if not is_composition:
-            continue
-        linked_graph_id = str(
-            composition.get("linked_graph_id")
-            or metadata.get("linked_graph_id")
-            or metadata.get("imported_graph_id")
-            or executor_policy.get("linked_graph_id")
-            or executor_policy.get("imported_graph_id")
-            or legacy_module.get("linked_graph_id")
-            or ""
-        ).strip()
-        plans.append(
-            {
-                "composition_id": f"graph-composition:{safe_id(str(getattr(graph, 'graph_id', '') or 'graph'))}:{safe_id(node_id)}",
-                "composition_node_id": node_id,
-                "linked_graph_id": linked_graph_id,
-                "scope_prefix": f"{node_id}::",
-                "version_ref": str(composition.get("version_ref") or metadata.get("version_ref") or publish_version_default()),
-                "metadata": {
-                    "source_node_title": str(getattr(node, "title", "") or node_id),
-                    "source_node_type": node_type,
-                },
-            }
-        )
-    return tuple(plans)
+    return graph_module_expansion_plan_payloads(graph, publish_version=publish_version_default())
 
 
 def publish_version_default() -> str:
@@ -394,15 +354,15 @@ def _expand_composition_plan(
     linked_graph_id = str(plan.get("linked_graph_id") or "").strip()
     composition_node_id = str(plan.get("composition_node_id") or "").strip()
     if not composition_node_id:
-        raise ValueError("Graph composition source requires composition_node_id")
+        raise ValueError("Graph module expansion source requires composition_node_id")
     if not linked_graph_id:
-        raise ValueError(f"Graph composition source requires linked_graph_id: {composition_node_id}")
+        raise ValueError(f"Graph module expansion source requires linked_graph_id: {composition_node_id}")
     current_graph_id = str(getattr(graph, "graph_id", "") or "").strip()
     if linked_graph_id in visited_graph_ids or linked_graph_id == current_graph_id:
-        raise ValueError(f"cyclic graph composition detected: {current_graph_id} -> {linked_graph_id}")
+        raise ValueError(f"cyclic graph module expansion detected: {current_graph_id} -> {linked_graph_id}")
     imported_graph = _lookup_graph(graph_lookup, linked_graph_id)
     if imported_graph is None:
-        raise ValueError(f"Graph composition source not found: {linked_graph_id}")
+        raise ValueError(f"Graph module expansion source not found: {linked_graph_id}")
     nested = _project_graph_for_harness(
         graph=imported_graph,
         graph_lookup=graph_lookup,
@@ -449,12 +409,13 @@ def _expand_composition_plan(
         "start_node_ids": scoped_start_ids,
         "terminal_node_ids": scoped_terminal_ids,
         "composition_source": {
-            "source_type": "graph_composition",
+            "source_type": "graph_module_expansion",
             "composition_id": str(plan.get("composition_id") or ""),
             "composition_node_id": composition_node_id,
             "linked_graph_id": linked_graph_id,
             "scope_prefix": scope_prefix,
             "publish_version": publish_version,
+            "expansion_mode": "compile_time_inline",
             "entry_node_ids": scoped_start_ids,
             "terminal_node_ids": scoped_terminal_ids,
             "node_count": len(scoped_nodes),
@@ -953,11 +914,11 @@ def _executor_type_for_node(node: dict[str, Any]) -> str:
     executor_policy = dict(node.get("executor_policy") or metadata.get("executor_policy") or {})
     raw = str(executor_policy.get("default_executor") or executor_policy.get("executor") or "").strip()
     if raw:
-        if raw in {"imported_graph", "graph_module", "graph_composition"}:
-            raise ValueError("graph composition nodes must be expanded before executor selection")
+        if raw in {"imported_graph", "graph_module"}:
+            raise ValueError("graph module nodes must be expanded before executor selection")
         return raw
-    if node_type in {"graph_module", "graph_composition"} or bool(metadata.get("graph_module") or metadata.get("graph_composition")):
-        raise ValueError("graph composition nodes must be expanded before executor selection")
+    if node_type == "graph_module" or bool(metadata.get("graph_module")):
+        raise ValueError("graph module nodes must be expanded before executor selection")
     if node_type in {"manual_gate", "human_gate"}:
         return "human"
     if node_type == "review_gate":

@@ -20,6 +20,7 @@ class ModelRequestSegmentBinding:
     cache_role: str = "volatile"
     compression_role: str = "summarize"
     planned_content_hash: str = ""
+    planned_model_message_hash: str = ""
     request_content_hash: str = ""
     byte_length: int = 0
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -79,6 +80,7 @@ class ModelRequestBuilder:
         plan = dict(segment_plan or {})
         bindings = tuple(_bindings_from_plan(plan, normalized_messages))
         stable_prefix_hash = _stable_prefix_hash(bindings)
+        binding_diagnostics = _binding_diagnostics(bindings, normalized_messages)
         canonical = canonical_json(
             {
                 "messages": list(normalized_messages),
@@ -103,6 +105,7 @@ class ModelRequestBuilder:
                 "planned_segment_count": len(list(plan.get("segments") or [])),
                 "bound_segment_count": len(bindings),
                 "unplanned_message_count": max(0, len(normalized_messages) - len(bindings)),
+                **binding_diagnostics,
                 **dict(metadata or {}),
             },
         )
@@ -133,6 +136,7 @@ def _bindings_from_plan(
                 cache_role=_cache_role(raw_segment.get("cache_role")),
                 compression_role=_compression_role(raw_segment.get("compression_role")),
                 planned_content_hash=str(raw_segment.get("content_hash") or ""),
+                planned_model_message_hash=str(raw_segment.get("model_message_hash") or ""),
                 request_content_hash=_stable_text_hash(message_payload),
                 byte_length=len(message_payload.encode("utf-8", errors="ignore")),
                 metadata=dict(raw_segment.get("metadata") or {}),
@@ -155,6 +159,31 @@ def _stable_prefix_hash(bindings: tuple[ModelRequestSegmentBinding, ...]) -> str
     if not parts:
         return ""
     return _stable_text_hash("|".join(parts))
+
+
+def _binding_diagnostics(
+    bindings: tuple[ModelRequestSegmentBinding, ...],
+    normalized_messages: tuple[dict[str, Any], ...],
+) -> dict[str, Any]:
+    mismatched_bindings = [
+        binding.planned_segment_id
+        for binding in bindings
+        if binding.planned_model_message_hash and binding.planned_model_message_hash != binding.request_content_hash
+    ]
+    contiguous_prefix_count = 0
+    for expected_index, binding in enumerate(sorted(bindings, key=lambda item: item.ordinal)):
+        if binding.model_message_index != expected_index:
+            break
+        contiguous_prefix_count += 1
+        if binding.cache_role not in {"cacheable_prefix", "session_stable"}:
+            break
+    return {
+        "segment_binding_content_mismatch_count": len(mismatched_bindings),
+        "segment_binding_content_mismatch_ids": mismatched_bindings[:10],
+        "segment_bindings_match_planned_messages": not mismatched_bindings,
+        "contiguous_planned_prefix_count": contiguous_prefix_count,
+        "request_message_count": len(normalized_messages),
+    }
 
 
 def _cache_role(value: Any) -> str:

@@ -1385,7 +1385,7 @@ def _upsert_domain(registry: TaskFlowRegistry) -> None:
         sort_order=88,
         metadata={
             "managed_by": MANAGED_BY,
-            "architecture": "native_graph_module_composition",
+            "architecture": "compile_time_graph_module_expansion",
             "task_environment_id": ENVIRONMENT_ID,
             "environment_id": ENVIRONMENT_ID,
         },
@@ -1671,7 +1671,7 @@ def _upsert_protocol(registry: TaskFlowRegistry) -> None:
             "task/revision_request",
             "task/memory_read",
             "task/memory_write",
-            "task/graph_module_commit",
+            "task/graph_module_expansion_commit",
         ),
         payload_contracts=(
             "contract.writing.modular_novel.graph",
@@ -1681,7 +1681,7 @@ def _upsert_protocol(registry: TaskFlowRegistry) -> None:
             "contract.writing.modular_novel.final_delivery",
         ),
         signal_rules=(
-            "graph_module_commits_before_next_graph_module",
+            "expanded_graph_module_terminal_nodes_gate_next_module",
             "unit_batch_range_is_runtime_contract",
             "review_result_required_before_commit",
             "baseline_memory_updates_only_through_commit_nodes",
@@ -1689,7 +1689,7 @@ def _upsert_protocol(registry: TaskFlowRegistry) -> None:
         handoff_rules=(
             "structured_artifact_refs_only",
             "no_raw_agent_dialogue",
-            "committed_refs_only_between_graph_modules",
+            "committed_refs_only_between_expanded_graph_modules",
             "batch_candidate_not_visible_as_committed_memory",
         ),
         ack_policy="explicit_ack",
@@ -3151,7 +3151,7 @@ def _upsert_master_graph(registry: TaskFlowRegistry) -> None:
         contract_bindings={
             "schema": {"graph_contract_id": "contract.writing.modular_novel.graph"},
             "runtime": {
-                "graph_module_composition": {"mode": "sequential_graph_module_runtime", "graph_module_count": 3, "imported_run_scope": "isolated_per_graph_module_run"},
+                "graph_module_expansion": {"mode": "compile_time_inline", "graph_module_count": 3, "expanded_scope": "scoped_internal_nodes"},
             },
             "governance": {"no_writing_specific_backend_shortcut": True, "contract_source": "contract_bindings"},
         },
@@ -3159,7 +3159,7 @@ def _upsert_master_graph(registry: TaskFlowRegistry) -> None:
         working_memory_policy_profile_id="wmprofile.writing.modular_novel",
         working_memory_policy={
             "memory_scope": "writing_modular_novel",
-            "access_model": "graph_module_committed_refs_only",
+            "access_model": "expanded_graph_module_committed_refs_only",
             "conversation_memory": "suppressed_for_creator_and_reviewer",
             "raw_full_text_global_context": "forbidden",
         },
@@ -3172,7 +3172,7 @@ def _upsert_master_graph(registry: TaskFlowRegistry) -> None:
             "architecture": "graph_as_first_class_task_unit",
             "task_environment_id": ENVIRONMENT_ID,
             "environment_id": ENVIRONMENT_ID,
-            "graph_module_composition": True,
+            "graph_module_expansion": True,
             "phase_definitions": [
                 {"phase_id": "phase.master.design_init", "title": "设计初始化", "sequence_index": 10},
                 {"phase_id": "phase.master.chapter_cycle", "title": "分卷创作循环", "sequence_index": 20},
@@ -3201,30 +3201,30 @@ def _graph_module_node(node_id: str, title: str, linked_graph_id: str, phase_id:
             "allowed_executors": ["graph_module"],
             "linked_graph_id": linked_graph_id,
             "imported_graph_id": linked_graph_id,
-            "auto_start_imported_initial_stage": True,
+            "compile_time_expand_imported_graph": True,
         },
-        "context_visibility_policy": {"shared_context_policy": "explicit_refs_only", "graph_module_runtime_visibility": "committed_only", "importing_visible_scope": "run_handle_and_committed_output"},
+        "context_visibility_policy": {"shared_context_policy": "explicit_refs_only", "graph_module_expansion_visibility": "expanded_internal_nodes", "importing_visible_scope": "expanded_internal_nodes_and_committed_output"},
         "contract_bindings": {
             "schema": {"input_contract_id": "contract.user_request.basic", "output_contract_id": _graph_contract_id(linked_graph_id)},
             "execution": {"node_contract_id": "contract.writing.modular_novel.graph_module_handoff"},
             "handoff": {"handoff_contract_id": "contract.writing.modular_novel.graph_module_handoff", "visibility_policy": "committed_only"},
-            "runtime": {"graph_module_runtime": {"linked_graph_id": linked_graph_id, "version_ref": "published", "isolation_policy": "isolated_per_graph_module_run"}},
+            "runtime": {"graph_module_expansion": {"linked_graph_id": linked_graph_id, "version_ref": "published", "isolation_policy": "compile_time_inline_expansion"}},
         },
         "metadata": {
             "managed_by": MANAGED_BY,
             "graph_module": True,
-            "runtime_role": "graph_module_container",
+            "runtime_role": "compile_time_graph_module_expansion",
             "model_visible": False,
             "linked_graph_id": linked_graph_id,
             "version_ref": "published",
             "handoff_contract_id": "contract.writing.modular_novel.graph_module_handoff",
             "input_port_id": "input.default",
             "output_port_id": "output.default",
-            "isolation_policy": "isolated_per_graph_module_run",
-            "visibility_policy": "committed_only",
+            "isolation_policy": "compile_time_inline_expansion",
+            "visibility_policy": "expanded_internal_nodes",
             "detach_policy": "preserve_version_anchor",
-            "execution_mode": "graph_module_run",
-            "graph_module_runtime_plan_id": f"graph_module_runtime.{block_id}",
+            "execution_mode": "compile_time_inline_expansion",
+            "graph_module_expansion_plan_id": f"graph_module_expansion.{block_id}",
         },
     }
 
@@ -3259,8 +3259,8 @@ def _timeline_block(block_id: str, title: str, linked_graph_id: str, phase_id: s
         "version_ref": "published",
         "input_port_id": "input.default",
         "output_port_id": "output.default",
-        "isolation_policy": "isolated_per_graph_module_run",
-        "visibility_policy": "committed_only",
+        "isolation_policy": "compile_time_inline_expansion",
+        "visibility_policy": "expanded_internal_nodes",
         "detach_policy": "preserve_version_anchor",
         "contract_bindings": {"handoff": {"handoff_contract_id": "contract.writing.modular_novel.graph_module_handoff"}, "runtime": {"sequence_index": sequence_index}},
         "metadata": {"managed_by": MANAGED_BY, "sequence_index": sequence_index},
@@ -3292,7 +3292,7 @@ def _working_memory_policy() -> dict[str, Any]:
         "conversation_memory": "suppressed_for_creator_and_reviewer",
         "raw_full_text_global_context": "forbidden",
         "scheduler_binding": "memory_edges_are_context_edges_not_business_steps",
-        "graph_module_boundary": "committed_refs_only",
+        "graph_module_boundary": "expanded_internal_nodes_with_committed_refs",
         "libraries": {
             "baseline_memory": {
                 "repository_node_id": "memory.writing.baseline",

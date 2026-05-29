@@ -538,6 +538,10 @@ export class WorkspaceRuntime {
   }
 
   private async ensureSession() {
+    const pendingSession = this.createSessionPromise;
+    if (pendingSession) {
+      return pendingSession;
+    }
     const current = this.store.getState().currentSessionId;
     if (current) {
       return current;

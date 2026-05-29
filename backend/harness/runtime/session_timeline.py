@@ -46,7 +46,7 @@ def _runtime_attachment(runtime_host: Any, task_run: Any, *, max_progress_entrie
     progress_entries = _progress_entries(events)[-max(1, int(max_progress_entries or 24)) :]
     return {
         "attachment_id": f"runtime-attachment:{task_run_id}",
-        "anchor_turn_id": str(diagnostics.get("turn_id") or _turn_id_from_task_run(task_run_id) or ""),
+        "anchor_turn_id": _anchor_turn_id(task_run_id=task_run_id, diagnostics=diagnostics, events=events),
         "task_run_id": task_run_id,
         "task_id": str(getattr(task_run, "task_id", "") or ""),
         "status": str(getattr(task_run, "status", "") or ""),
@@ -74,6 +74,63 @@ def _latest_now(events: list[dict[str, Any]], task_run: Any) -> float:
     return max(event_time, float(getattr(task_run, "updated_at", 0.0) or 0.0))
 
 
+def _anchor_turn_id(*, task_run_id: str, diagnostics: dict[str, Any], events: list[dict[str, Any]]) -> str:
+    return (
+        _latest_interaction_turn_id(events)
+        or _valid_turn_ref(diagnostics.get("latest_interaction_turn_id"))
+        or _lineage_turn_id(diagnostics)
+        or _valid_turn_ref(diagnostics.get("turn_id"))
+        or _turn_id_from_task_run(task_run_id)
+        or ""
+    )
+
+
+def _latest_interaction_turn_id(events: list[dict[str, Any]]) -> str:
+    for event in reversed(events):
+        event_type = str(event.get("event_type") or "")
+        payload = dict(event.get("payload") or {})
+        refs = dict(event.get("refs") or {})
+        if event_type == "user_work_instruction_recorded":
+            observation = dict(payload.get("observation") or {})
+            observation_payload = dict(observation.get("payload") or {})
+            structured_payload = dict(observation_payload.get("structured_payload") or {})
+            for candidate in (
+                refs.get("turn_ref"),
+                observation.get("request_ref"),
+                structured_payload.get("turn_id"),
+            ):
+                turn_id = _valid_turn_ref(candidate)
+                if turn_id:
+                    return turn_id
+        if event_type == "task_run_checkout_created":
+            lineage = dict(payload.get("lineage") or {})
+            task_run = dict(payload.get("task_run") or {})
+            task_diagnostics = dict(task_run.get("diagnostics") or {})
+            for candidate in (
+                refs.get("turn_ref"),
+                lineage.get("turn_id"),
+                _lineage_turn_id(task_diagnostics),
+            ):
+                turn_id = _valid_turn_ref(candidate)
+                if turn_id:
+                    return turn_id
+    return ""
+
+
+def _lineage_turn_id(diagnostics: dict[str, Any]) -> str:
+    lineage = diagnostics.get("lineage")
+    if isinstance(lineage, dict):
+        turn_id = _valid_turn_ref(lineage.get("turn_id"))
+        if turn_id:
+            return turn_id
+    return ""
+
+
+def _valid_turn_ref(value: Any) -> str:
+    candidate = str(value or "").strip()
+    return candidate if candidate.startswith("turn:") else ""
+
+
 def _turn_id_from_task_run(task_run_id: str) -> str:
     prefix = "taskrun:turn:"
     if not task_run_id.startswith(prefix):
@@ -81,7 +138,10 @@ def _turn_id_from_task_run(task_run_id: str) -> str:
     parts = task_run_id.split(":")
     if len(parts) < 5:
         return ""
-    return ":".join(parts[1:4])
+    for index in range(2, len(parts)):
+        if parts[index].isdigit():
+            return ":".join(parts[1 : index + 1])
+    return ""
 
 
 def _progress_entries(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -107,6 +167,27 @@ def _progress_entries(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
             continue
         if event_type in {"task_run_lifecycle_started", "task_run_executor_started"}:
             entries.append(_entry(event, title="处理已开始", body="后续进展会继续汇总。", kind="task_order"))
+            continue
+        if event_type == "user_work_instruction_recorded":
+            observation = dict(payload.get("observation") or {})
+            observation_payload = dict(observation.get("payload") or {})
+            structured_payload = dict(observation_payload.get("structured_payload") or {})
+            instruction = str(
+                structured_payload.get("user_instruction")
+                or observation_payload.get("result")
+                or ""
+            ).strip()
+            entries.append(
+                _entry(
+                    event,
+                    title="收到补充要求",
+                    body=public_runtime_progress_summary(instruction),
+                    kind="stage",
+                    level="success",
+                    status="completed",
+                    tool_name="",
+                )
+            )
             continue
         if event_type in {"executor_observation_recorded", "bounded_observation_recorded", "task_run_lifecycle_event"}:
             observation = dict(payload.get("observation") or {})

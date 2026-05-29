@@ -92,11 +92,29 @@ function attachmentTurnIndex(anchorTurnId: string) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function attachmentsForSourceIndex(attachments: SessionRuntimeAttachment[], sourceIndex: number) {
-  return attachments.filter((item) => attachmentTurnIndex(item.anchor_turn_id) === sourceIndex);
+function runtimeAttachmentsByAssistantIndex(
+  history: SessionHistory["messages"],
+  attachments: SessionRuntimeAttachment[],
+) {
+  const buckets = new Map<number, SessionRuntimeAttachment[]>();
+  const assistantIndexes = history
+    .map((message, index) => message.role === "assistant" ? index : -1)
+    .filter((index) => index >= 0);
+
+  for (const attachment of attachments) {
+    const anchorIndex = attachmentTurnIndex(attachment.anchor_turn_id);
+    const assistantIndex = assistantIndexes.find((index) => index >= anchorIndex) ?? assistantIndexes.at(-1);
+    if (assistantIndex === undefined) {
+      continue;
+    }
+    const existing = buckets.get(assistantIndex) ?? [];
+    buckets.set(assistantIndex, [...existing, attachment]);
+  }
+  return buckets;
 }
 
 export function toUiMessages(history: SessionHistory["messages"], runtimeAttachments: SessionRuntimeAttachment[] = []) {
+  const attachmentsByAssistantIndex = runtimeAttachmentsByAssistantIndex(history, runtimeAttachments);
   const normalized = history
     .map<Message | null>((message, sourceIndex) => {
       const toolCalls = (message.tool_calls ?? [])
@@ -117,7 +135,7 @@ export function toUiMessages(history: SessionHistory["messages"], runtimeAttachm
         retrievals: [],
         sourceIndex,
         image: message.image ?? null,
-        runtimeAttachments: attachmentsForSourceIndex(runtimeAttachments, sourceIndex)
+        runtimeAttachments: attachmentsByAssistantIndex.get(sourceIndex) ?? []
       };
     })
     .filter(Boolean) as Message[];

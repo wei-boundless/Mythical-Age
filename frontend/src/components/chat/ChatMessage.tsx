@@ -81,8 +81,9 @@ export function ChatMessage({
         ) : null}
       </div>
       {!isUser && <RetrievalCard results={retrievals} />}
-      {!isUser && runtimeAttachments.length ? <RuntimeRunSummary attachments={runtimeAttachments} entries={[]} /> : null}
-      {!isUser && runtimeProgress.length ? <RuntimeRunSummary entries={runtimeProgress} /> : null}
+      {!isUser && (runtimeAttachments.length || runtimeProgress.length) ? (
+        <RuntimeRunSummary attachments={runtimeAttachments} entries={runtimeProgress} />
+      ) : null}
       {!isUser && <RuntimeEvidencePanel toolCalls={toolCalls} />}
       <div className={isUser ? "chat-message-shell__content whitespace-pre-wrap leading-7" : "chat-message-shell__content markdown"}>
         {isUser && editing ? (

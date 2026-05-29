@@ -338,12 +338,7 @@ class AgentDelegationExecutor:
         if parent_profile is None:
             reasons.append("parent_runtime_profile_missing")
         else:
-            if not bool(getattr(parent_profile, "can_delegate_to_agents", False)):
-                reasons.append("parent_delegation_not_authorized")
-            parent_allowed = {str(item).strip() for item in parent_profile.allowed_operations if str(item).strip()}
-            parent_blocked = {str(item).strip() for item in parent_profile.blocked_operations if str(item).strip()}
-            if "op.delegate_to_agent" not in parent_allowed or "op.delegate_to_agent" in parent_blocked:
-                reasons.append("parent_delegate_operation_not_allowed")
+            reasons.append("agent_control_runtime_not_configured")
             allowed_target_ids = {
                 str(item).strip()
                 for item in tuple(getattr(parent_profile, "allowed_delegate_agent_ids", ()) or ())

@@ -179,7 +179,10 @@ function recordValue(value: unknown): Record<string, unknown> {
 }
 
 function isMachineReference(value: string) {
-  return /^(taskrun|taskinst|turn|run|rtchk|runtime|event)[:_-]/i.test(value.trim());
+  const normalized = value.trim();
+  return /^(taskrun|taskinst|turn|run|rtchk|runtime|event)[:_-]/i.test(normalized)
+    || /(?:^|\s)(?:harness|backend|runtime|query|agent_system|capability_system|health_system|task_system)(?:\.[A-Za-z0-9_-]+){2,}(?:\s|$)/i.test(normalized)
+    || /\b(?:RuntimeInvocationPacket|runtime packet|answer_source|task_run_id|event_id)\b/i.test(normalized);
 }
 
 function extractArtifactPaths(value: unknown): string[] {
@@ -439,7 +442,8 @@ function eventSummary(event: string, data: Record<string, unknown>) {
     return String(snapshot.summary ?? "行为决策 trace 已生成。");
   }
   if (event === "done") {
-    return String(data.answer_source ?? data.content ?? "完成输出").slice(0, 220);
+    const summary = stringValue(data.receipt_summary ?? data.summary ?? data.message ?? data.content);
+    return summary && !isMachineReference(summary) ? summary.slice(0, 220) : "完成输出";
   }
   if (event === "error") {
     return String(data.error ?? "执行失败");
@@ -645,7 +649,7 @@ function updateOrchestrationSnapshot(
     route: route === "undefined" ? snapshot.route : route,
     status: event === "error" ? "failed" : event === "done" ? "success" : "running",
     summary: event === "done"
-      ? `编排完成：${String(data.answer_source ?? "done")}`
+      ? "编排完成"
       : event === "error"
         ? `编排失败：${String(data.error ?? "unknown")}`
         : `最近事件：${event}`,

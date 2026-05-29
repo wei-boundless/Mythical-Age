@@ -372,7 +372,7 @@ class _TaskExecutorSequenceModelRuntime:
 
     async def invoke_messages(self, messages, **_kwargs):
         content = str(list(messages or [])[0].get("content") or "")
-        if "正式 TaskRun 的执行 agent" in content:
+        if "持续处理流程" in content or "task_execution" in str(messages):
             self.task_invocation_count += 1
             action = self.task_actions.pop(0) if self.task_actions else self.task_actions[-1]
             return SimpleNamespace(content=json.dumps(action, ensure_ascii=False))
@@ -720,6 +720,92 @@ def test_session_runtime_timeline_derives_turn_anchor_from_structural_task_run_i
 
     attachment = timeline["runtime_attachments"][0]
     assert attachment["anchor_turn_id"] == "turn:session-anchor:3"
+
+
+def test_session_runtime_timeline_anchors_checkout_to_latest_user_control_turn() -> None:
+    from harness.loop.task_checkout import checkout_task_run_for_resume
+    from harness.loop.task_executor import append_user_work_instruction
+    from harness.runtime.session_timeline import build_session_runtime_timeline
+
+    runtime = build_query_runtime()
+    host = runtime.single_agent_runtime_host
+    contract = TaskRunContract(
+        contract_id="task-contract:timeline-checkout-anchor",
+        contract_source="test",
+        user_visible_goal="验证续跑进展显示在最新继续消息。",
+        task_run_goal="断点续跑后 timeline 必须锚到用户最新控制 turn。",
+        completion_criteria=("timeline anchor uses latest control turn",),
+    )
+    contract_ref = host.runtime_objects.put_object("task_run_contract", contract.contract_id, contract.to_dict())
+    source_task_run_id = "taskrun:turn:session-checkout-anchor:8:abc"
+    host.runtime_objects.put_object(
+        "task_lifecycle",
+        source_task_run_id,
+        TaskLifecycleRecord(
+            task_run_id=source_task_run_id,
+            contract_ref=contract_ref,
+            status="aborted",
+            created_at=1.0,
+            updated_at=2.0,
+        ).to_dict(),
+    )
+    host.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id=source_task_run_id,
+            session_id="session-checkout-anchor",
+            task_id="task:turn:session-checkout-anchor:8",
+            task_contract_ref=contract_ref,
+            agent_profile_id="main_interactive_agent",
+            execution_runtime_kind="single_agent_task",
+            status="aborted",
+            terminal_reason="user_aborted",
+            created_at=1.0,
+            updated_at=2.0,
+            diagnostics={"turn_id": "turn:session-checkout-anchor:8", "contract": contract.to_dict()},
+        )
+    )
+
+    checkout = checkout_task_run_for_resume(
+        host,
+        source_task_run_id,
+        user_instruction="继续旧任务。",
+        turn_id="turn:session-checkout-anchor:16",
+    )
+    child = dict(checkout.get("task_run") or {})
+    child_task_run_id = str(child.get("task_run_id") or "")
+    assert child_task_run_id
+    append_user_work_instruction(
+        host,
+        child_task_run_id,
+        content="预算已经调大，请继续完成。",
+        turn_id="turn:session-checkout-anchor:18",
+        intent="conversation_instruction",
+    )
+
+    timeline = build_session_runtime_timeline(
+        session_id="session-checkout-anchor",
+        history={
+            "messages": [
+                {"role": "user", "content": "开始任务"},
+                {"role": "assistant", "content": "任务已接管"},
+                {"role": "user", "content": "继续"},
+                {"role": "assistant", "content": "我会继续处理"},
+                {"role": "user", "content": "预算已经调大，请继续完成。"},
+                {"role": "assistant", "content": "收到，继续执行。"},
+            ]
+        },
+        runtime_host=host,
+    )
+
+    checkout_attachment = next(
+        item for item in timeline["runtime_attachments"]
+        if item["task_run_id"] == child_task_run_id
+    )
+    assert checkout_attachment["anchor_turn_id"] == "turn:session-checkout-anchor:18"
+    assert any(
+        item.get("eventType") == "user_work_instruction_recorded"
+        for item in checkout_attachment["progress_entries"]
+    )
 
 
 def test_running_task_run_is_not_externally_executable_unless_executor_claimed() -> None:
@@ -1198,6 +1284,77 @@ def test_task_run_stop_before_executor_marks_user_aborted() -> None:
     assert task_run_control_state(stopped_task) == "stopped"
 
 
+def test_user_aborted_work_rollout_records_single_breakpoint_and_checkout_inherits_it() -> None:
+    from harness.loop.task_checkout import checkout_task_run_for_resume
+    from harness.loop.task_executor import stop_task_run
+    from harness.loop.work_rollout import work_rollout_summary
+
+    runtime = build_query_runtime()
+    host = runtime.single_agent_runtime_host
+    contract = TaskRunContract(
+        contract_id="task-contract:rollout-breakpoint",
+        contract_source="test",
+        user_visible_goal="验证 rollout 断点。",
+        task_run_goal="停止后 checkout 必须继承 rollout 断点。",
+        completion_criteria=("断点可被恢复",),
+    )
+    contract_ref = host.runtime_objects.put_object("task_run_contract", contract.contract_id, contract.to_dict())
+    host.runtime_objects.put_object(
+        "task_lifecycle",
+        "taskrun:rollout-breakpoint",
+        TaskLifecycleRecord(
+            task_run_id="taskrun:rollout-breakpoint",
+            contract_ref=contract_ref,
+            status="waiting_executor",
+            created_at=1.0,
+            updated_at=1.0,
+        ).to_dict(),
+    )
+    host.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id="taskrun:rollout-breakpoint",
+            session_id="session-rollout-breakpoint",
+            task_id="task:rollout-breakpoint",
+            task_contract_ref=contract_ref,
+            agent_profile_id="main_interactive_agent",
+            execution_runtime_kind="single_agent_task",
+            status="waiting_executor",
+            latest_checkpoint_ref="rtchk:source:7",
+            created_at=1.0,
+            updated_at=1.0,
+            diagnostics={"contract": contract.to_dict()},
+        )
+    )
+
+    stop_result = stop_task_run(host, "taskrun:rollout-breakpoint", reason="用户停止")
+    source_summary = work_rollout_summary(host, "taskrun:rollout-breakpoint")
+    interrupted_items = [
+        item for item in list(source_summary.get("model_visible_history") or [])
+        if str(dict(item).get("type") or "") == "interrupted_boundary"
+    ]
+
+    assert stop_result["ok"] is True
+    assert len(interrupted_items) == 1
+    assert int(source_summary["breakpoint"]["event_offset"]) >= 0
+    assert source_summary["breakpoint"]["checkpoint_ref"] == "rtchk:source:7"
+
+    checkout_result = checkout_task_run_for_resume(
+        host,
+        "taskrun:rollout-breakpoint",
+        user_instruction="继续刚才的工作",
+        turn_id="turn:rollout-breakpoint:2",
+    )
+    child_task = dict(checkout_result.get("task_run") or {})
+    child_summary = work_rollout_summary(host, str(child_task.get("task_run_id") or ""))
+    lineage = dict(child_summary.get("lineage") or {})
+
+    assert checkout_result["ok"] is True
+    assert lineage["parent_task_run_id"] == "taskrun:rollout-breakpoint"
+    assert lineage["forked_from_event_offset"] == source_summary["breakpoint"]["event_offset"]
+    assert lineage["forked_from_checkpoint_ref"] == "rtchk:source:7"
+    assert child_summary["breakpoint"]["event_offset"] == source_summary["breakpoint"]["event_offset"]
+
+
 def _seed_active_work(runtime, *, task_run_id: str = "taskrun:active-work", session_id: str = "session-active-work", status: str = "waiting_executor") -> str:
     host = runtime.single_agent_runtime_host
     contract = TaskRunContract(
@@ -1268,6 +1425,191 @@ def test_active_work_continue_reuses_current_task_run_without_new_task() -> None
     assert task_run.status == "running"
     assert "task_run_resume_requested" in event_types
     assert "task_run_executor_scheduled" in event_types
+
+
+def test_active_work_continue_user_aborted_creates_checkout_without_reviving_source() -> None:
+    from harness.loop.task_executor import stop_task_run
+    from harness.loop.work_rollout import work_rollout_summary
+
+    model = _ActiveWorkDecisionModelRuntime([
+        {
+            "authority": "harness.loop.active_work_turn_decision",
+            "action": "continue_active_work",
+            "response": "好，我会先检查上次中断处的现状，再接着处理。",
+            "confidence": 0.95,
+        }
+    ])
+    runtime = build_query_runtime(model_runtime=model)
+    host = runtime.single_agent_runtime_host
+    source_task_run_id = _seed_active_work(
+        runtime,
+        task_run_id="taskrun:active-work-aborted",
+        session_id="session-active-work-aborted",
+    )
+    stop_result = stop_task_run(host, source_task_run_id, reason="用户停止")
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(QueryRequest(session_id="session-active-work-aborted", message="继续刚才那个任务")):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    source_task = host.state_index.get_task_run(source_task_run_id)
+    task_runs = host.state_index.list_session_task_runs("session-active-work-aborted")
+    child_runs = [
+        item
+        for item in task_runs
+        if str(item.task_run_id).startswith(f"{source_task_run_id}:checkout:")
+    ]
+    child_task = child_runs[0] if child_runs else None
+    source_events = [
+        str(dict(item).get("event_type") or "")
+        for item in list(dict(host.get_trace(source_task_run_id, include_payloads=False) or {}).get("events") or [])
+    ]
+    child_events = [
+        str(dict(item).get("event_type") or "")
+        for item in list(dict(host.get_trace(child_task.task_run_id, include_payloads=False) or {}).get("events") or [])
+    ] if child_task is not None else []
+    child_summary = work_rollout_summary(host, child_task.task_run_id if child_task is not None else "")
+
+    assert stop_result["ok"] is True
+    assert model.active_work_decision_count == 1
+    assert any(event.get("type") == "done" and "检查上次中断处" in str(event.get("content") or "") for event in events)
+    assert source_task is not None
+    assert source_task.status == "aborted"
+    assert source_task.terminal_reason == "user_aborted"
+    assert "task_run_resume_requested" not in source_events
+    assert child_task is not None
+    assert dict(child_task.diagnostics or {}).get("origin_kind") == "checkout_resume"
+    assert dict(dict(child_task.diagnostics or {}).get("lineage") or {}).get("parent_task_run_id") == source_task_run_id
+    assert "task_run_checkout_created" in child_events
+    assert "task_run_executor_scheduled" in child_events
+    assert dict(child_summary.get("lineage") or {}).get("parent_task_run_id") == source_task_run_id
+
+
+def test_active_work_continue_prefers_interrupted_task_over_stale_completed_executor_status() -> None:
+    from harness.loop.task_executor import stop_task_run
+    from harness.loop.work_rollout import work_rollout_summary
+
+    model = _ActiveWorkDecisionModelRuntime([
+        {
+            "authority": "harness.loop.active_work_turn_decision",
+            "action": "continue_active_work",
+            "response": "好，我会先检查上次中断处的现状，再接着处理。",
+            "confidence": 0.95,
+        }
+    ])
+    runtime = build_query_runtime(model_runtime=model)
+    host = runtime.single_agent_runtime_host
+    session_id = "session-active-work-stale-completed"
+    completed_task_run_id = _seed_active_work(
+        runtime,
+        task_run_id="taskrun:active-work-stale-completed",
+        session_id=session_id,
+        status="completed",
+    )
+    completed_task = host.state_index.get_task_run(completed_task_run_id)
+    assert completed_task is not None
+    host.state_index.upsert_task_run(
+        replace(
+            completed_task,
+            terminal_reason="completed",
+            updated_at=1.0,
+            diagnostics={
+                **dict(completed_task.diagnostics or {}),
+                "executor_status": "scheduled",
+                "latest_step": "task_run_completed",
+                "latest_step_summary": "任务合同已满足，处理流程已完成收尾并记录真实交付物证据。",
+            },
+        )
+    )
+    source_task_run_id = _seed_active_work(
+        runtime,
+        task_run_id="taskrun:active-work-interrupted-after-stale-completed",
+        session_id=session_id,
+    )
+    stop_task_run(host, source_task_run_id, reason="用户停止")
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(QueryRequest(session_id=session_id, message="继续刚才那个任务")):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    task_runs = host.state_index.list_session_task_runs(session_id)
+    child_runs = [
+        item
+        for item in task_runs
+        if str(item.task_run_id).startswith(f"{source_task_run_id}:checkout:")
+    ]
+    source_task = host.state_index.get_task_run(source_task_run_id)
+    completed_after = host.state_index.get_task_run(completed_task_run_id)
+    child_task = child_runs[0] if child_runs else None
+    child_summary = work_rollout_summary(host, child_task.task_run_id if child_task is not None else "")
+
+    assert model.active_work_decision_count == 1
+    assert any(event.get("type") == "done" and "检查上次中断处" in str(event.get("content") or "") for event in events)
+    assert source_task is not None
+    assert source_task.status == "aborted"
+    assert source_task.terminal_reason == "user_aborted"
+    assert completed_after is not None
+    assert completed_after.status == "completed"
+    assert child_task is not None
+    assert dict(child_task.diagnostics or {}).get("origin_kind") == "checkout_resume"
+    assert dict(dict(child_task.diagnostics or {}).get("lineage") or {}).get("parent_task_run_id") == source_task_run_id
+    assert dict(child_summary.get("lineage") or {}).get("parent_task_run_id") == source_task_run_id
+
+
+def test_active_work_append_instruction_to_user_aborted_creates_checkout_with_instruction() -> None:
+    from harness.loop.task_executor import stop_task_run
+    from harness.loop.work_rollout import work_rollout_summary
+
+    model = _ActiveWorkDecisionModelRuntime([
+        {
+            "authority": "harness.loop.active_work_turn_decision",
+            "action": "append_instruction_to_active_work",
+            "response": "收到，我会按这个补充方向继续处理。",
+            "appended_instruction": "恢复后先检查当前文件状态，再继续实现。",
+            "confidence": 0.95,
+        }
+    ])
+    runtime = build_query_runtime(model_runtime=model)
+    host = runtime.single_agent_runtime_host
+    source_task_run_id = _seed_active_work(
+        runtime,
+        task_run_id="taskrun:active-work-aborted-instruction",
+        session_id="session-active-work-aborted-instruction",
+    )
+    stop_task_run(host, source_task_run_id, reason="用户停止")
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(QueryRequest(session_id="session-active-work-aborted-instruction", message="继续，但是先检查文件状态")):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    source_task = host.state_index.get_task_run(source_task_run_id)
+    child_runs = [
+        item
+        for item in host.state_index.list_session_task_runs("session-active-work-aborted-instruction")
+        if str(item.task_run_id).startswith(f"{source_task_run_id}:checkout:")
+    ]
+    child_task = child_runs[0] if child_runs else None
+    child_summary = work_rollout_summary(host, child_task.task_run_id if child_task is not None else "")
+    child_contract = host.runtime_objects.get_object(child_task.task_contract_ref) if child_task is not None else {}
+    resume_context = dict(dict(child_contract.get("prompt_contract") or {}).get("resume_context") or {})
+
+    assert any(event.get("type") == "done" and "补充方向" in str(event.get("content") or "") for event in events)
+    assert source_task is not None
+    assert source_task.status == "aborted"
+    assert source_task.terminal_reason == "user_aborted"
+    assert child_task is not None
+    assert dict(child_task.diagnostics or {}).get("origin_kind") == "checkout_resume"
+    assert resume_context.get("user_instruction") == "恢复后先检查当前文件状态，再继续实现。"
+    assert child_summary["agent_brief_output"] == "恢复后先检查当前文件状态，再继续实现。"
 
 
 def test_active_work_pause_and_status_are_natural_language_controls() -> None:

@@ -141,7 +141,7 @@ describe("TaskGraph editor focus", () => {
     });
   });
 
-  it("routes composable graph module diagnostics to the graph module runtime facet", () => {
+  it("routes composable graph module diagnostics to the graph module expansion facet", () => {
     const focus = focusForPreflightIssue(issue({
       source: "backend.composable_graph",
       scope: "unit",
@@ -151,7 +151,7 @@ describe("TaskGraph editor focus", () => {
 
     expect(focus).toMatchObject({
       layer: "modules",
-      facet: "graph_module_runtime",
+      facet: "graph_module_expansion",
       node_id: "unit.graph.block.design",
     });
   });

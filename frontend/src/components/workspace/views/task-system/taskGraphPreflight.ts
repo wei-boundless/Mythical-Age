@@ -35,7 +35,7 @@ export type BuildTaskGraphPreflightReportInput = {
   editorIssueCount: number;
   metadata?: Record<string, unknown>;
   graphContract?: TaskGraphContractPreview | null;
-  standardView?: Pick<TaskGraphStandardView, "issues" | "units" | "interfaces" | "port_edges" | "graph_module_runtime" | "graph_module_expansions" | "memory_protocol"> | null;
+  standardView?: Pick<TaskGraphStandardView, "issues" | "units" | "interfaces" | "port_edges" | "graph_module_expansion" | "graph_module_expansions" | "memory_protocol"> | null;
 };
 
 function stringValue(value: unknown) {

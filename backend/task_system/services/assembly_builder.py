@@ -159,7 +159,6 @@ def build_task_execution_assembly_bundle(
     runtime_operations = _dedupe(list(runtime_required_operations or ()))
     resolved_runtime_operations = _resolve_runtime_recipe_operations(
         selected_recipe=selected_recipe,
-        agent_runtime_profile=agent_runtime_profile,
     )
     operation_policy = _resolve_task_operation_policy(
         selected_recipe=selected_recipe,
@@ -232,7 +231,6 @@ def build_task_execution_assembly_bundle(
                 "op.read_structured_file",
                 "op.web_search",
                 "op.fetch_url",
-                "op.delegate_to_agent",
                 "op.write_file",
                 "op.edit_file",
                 "op.shell",
@@ -580,7 +578,6 @@ def _registered_task_is_task_graph_node_runtime(registered_task: dict[str, Any] 
 def _resolve_runtime_recipe_operations(
     *,
     selected_recipe,
-    agent_runtime_profile: AgentRuntimeProfile | None,
 ) -> dict[str, Any]:
     metadata = dict(getattr(selected_recipe, "metadata", {}) or {})
     strategy = str(metadata.get("execution_strategy") or "").strip()
@@ -592,20 +589,6 @@ def _resolve_runtime_recipe_operations(
         }
     fallback_operation = str(metadata.get("fallback_operation") or "").strip()
     target_agent_id = str(metadata.get("delegate_target_agent_id") or "").strip()
-    if _can_profile_delegate_to_target(
-        agent_runtime_profile,
-        target_agent_id=target_agent_id,
-    ):
-        return {
-            "strategy": "delegate_preferred",
-            "execution_mode": "delegate",
-            "required_operations": ("op.model_response", "op.delegate_to_agent"),
-            "optional_operations": (),
-            "delegate_target_agent_id": target_agent_id,
-            "delegation_kind": str(metadata.get("delegation_kind") or "").strip(),
-            "delegate_context_policy": str(getattr(agent_runtime_profile, "delegate_context_policy", "") or "").strip(),
-            "fallback_operation": fallback_operation,
-        }
     return {
         "strategy": "delegate_preferred",
         "execution_mode": "direct_fallback",
@@ -615,35 +598,6 @@ def _resolve_runtime_recipe_operations(
         "delegation_kind": str(metadata.get("delegation_kind") or "").strip(),
         "fallback_operation": fallback_operation,
     }
-
-
-def _can_profile_delegate_to_target(
-    profile: AgentRuntimeProfile | None,
-    *,
-    target_agent_id: str,
-) -> bool:
-    if profile is None or not bool(getattr(profile, "can_delegate_to_agents", False)):
-        return False
-    allowed_operations = {
-        str(item).strip()
-        for item in tuple(getattr(profile, "allowed_operations", ()) or ())
-        if str(item).strip()
-    }
-    blocked_operations = {
-        str(item).strip()
-        for item in tuple(getattr(profile, "blocked_operations", ()) or ())
-        if str(item).strip()
-    }
-    if "op.delegate_to_agent" not in allowed_operations or "op.delegate_to_agent" in blocked_operations:
-        return False
-    allowed_ids = {
-        str(item).strip()
-        for item in tuple(getattr(profile, "allowed_delegate_agent_ids", ()) or ())
-        if str(item).strip()
-    }
-    if allowed_ids and target_agent_id and target_agent_id not in allowed_ids:
-        return False
-    return True
 
 
 def _memory_request_profile_payload(

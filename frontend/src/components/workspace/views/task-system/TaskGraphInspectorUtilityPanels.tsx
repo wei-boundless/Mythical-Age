@@ -113,12 +113,12 @@ export function TaskGraphModuleExpansionInspector({
             { label: "资源", value: expansion.resources?.length ?? 0 },
             { label: "诊断", value: expansion.issues?.length ?? 0 },
           ]}
-          overline="封装模块"
+          overline="编译期展开"
           title={expansionTitle(expansion)}
         />
         <div className="task-graph-note">
           <strong>模块内部拓扑只读</strong>
-          <span>这里展示导入后的图结构关系；修改内部节点、边和资源需要进入该图模块自己的工作台。</span>
+          <span>这里展示发布时会内联展开的节点、边和资源；修改内部结构需要进入该图模块自己的工作台。</span>
         </div>
         <div className="task-graph-topology-actions task-graph-topology-actions--stacked">
           <button disabled={!expansion.linked_graph_id || !onOpenGraph} onClick={() => expansion.linked_graph_id && onOpenGraph?.(expansion.linked_graph_id)} type="button">
@@ -189,9 +189,9 @@ export function TaskGraphOverlayStatusPanel({
         <p><span>Unit 覆盖</span><strong>{overlay.units.length}</strong></p>
         <p><span>Interface 覆盖</span><strong>{overlay.interfaces.length}</strong></p>
         <p><span>PortEdge 覆盖</span><strong>{overlay.port_edges.length}</strong></p>
-        <p><span>图模块运行覆盖</span><strong>{overlay.graph_module_runtime.length}</strong></p>
+        <p><span>图模块展开覆盖</span><strong>{overlay.graph_module_expansion.length}</strong></p>
       </div>
-      {overlay.units.length || overlay.interfaces.length || overlay.graph_module_runtime.length ? (
+      {overlay.units.length || overlay.interfaces.length || overlay.graph_module_expansion.length ? (
         <button className="task-graph-composer-subtle-action" onClick={onNormalizeOverlay} type="button">
           重新规范化覆盖层
         </button>

@@ -10,6 +10,7 @@ from capability_system.mcp_registry import build_mcp_catalog
 from capability_system.operation_registry import build_default_operation_registry
 from capability_system.permission_views import attach_capability_permission_views
 from capability_system.skill_routes import skill_operation_ids_from_runtime
+from capability_system.tool_packages import default_tool_packages
 from .endpoints import build_capability_endpoints
 from .models import AgentCapability, CapabilityBindingEdge, CapabilityBindingGraph, MCPCapability
 from .search_policy import classify_tool_source, search_policy_labels, tool_text_set
@@ -26,6 +27,7 @@ TOOL_TYPE_OPTIONS = [
     "知识检索",
     "系统执行",
     "多模态处理",
+    "版本控制",
     "通用能力",
 ]
 
@@ -123,6 +125,8 @@ def default_tool_type(tool: dict[str, Any]) -> str:
     safety = tool_text_set(tool, "safety_tags")
     name = str(tool.get("name") or "").lower()
     source_class = classify_tool_source(tool)
+    if tags & {"git", "vcs"} or str(tool.get("operation_id") or "").startswith("op.git_"):
+        return "版本控制"
     if source_class == "web":
         return "实时查询"
     if source_class in {"document", "data"} or tags & {"pdf", "document", "table", "spreadsheet", "csv", "json", "dataset"}:
@@ -423,6 +427,20 @@ def build_capability_catalog(runtime, tool_overrides: dict[str, dict[str, Any]] 
         risk_counts[operation_metadata["risk_level"]] = risk_counts.get(operation_metadata["risk_level"], 0) + 1
         boundary_counts[operation_metadata["tool_boundary"]] = boundary_counts.get(operation_metadata["tool_boundary"], 0) + 1
         source_counts[operation_metadata["source_class"]] = source_counts.get(operation_metadata["source_class"], 0) + 1
+    operation_ids_in_packages = {
+        operation_id
+        for package in default_tool_packages()
+        for operation_id in package.operation_ids
+    }
+    default_library = [
+        {
+            "tool_name": str(tool.get("name") or ""),
+            "operation_id": str(tool.get("operation_id") or ""),
+            "tool_type": str(dict(tool.get("operation_metadata") or {}).get("tool_type") or ""),
+        }
+        for tool in tools
+        if str(tool.get("operation_id") or "") not in operation_ids_in_packages
+    ]
 
     catalog_payload = {
         "skills": skills,
@@ -432,6 +450,8 @@ def build_capability_catalog(runtime, tool_overrides: dict[str, dict[str, Any]] 
         "mcp_management": unified_mcp,
         "capability_endpoints": capability_endpoints,
         "operations": operations,
+        "tool_packages": [package.to_dict() for package in default_tool_packages()],
+        "default_library": default_library,
     }
     capability_units = attach_capability_permission_views(build_capability_units(catalog_payload))
 
@@ -453,6 +473,8 @@ def build_capability_catalog(runtime, tool_overrides: dict[str, dict[str, Any]] 
         "capability_units": capability_units,
         "capability_endpoints": capability_endpoints,
         "operations": operations,
+        "tool_packages": [package.to_dict() for package in default_tool_packages()],
+        "default_library": default_library,
         "binding_graph": build_binding_graph(skills, tools, bindings_by_agent, mcps).to_operation_payload(),
         "validation_issues": [issue.to_dict() for issue in validation_issues],
         "tool_type_options": TOOL_TYPE_OPTIONS,
@@ -467,6 +489,8 @@ def build_capability_catalog(runtime, tool_overrides: dict[str, dict[str, Any]] 
             "capability_unit_count": len(capability_units),
             "model_visible_skills": sum(1 for item in skills if item["runtime"].get("activation_policy") == "model_visible"),
             "tool_types": sorted({tool["operation_metadata"]["tool_type"] for tool in tools}),
+            "tool_package_count": len(default_tool_packages()),
+            "default_library_tool_count": len(default_library),
             "tool_boundaries": dict(sorted(boundary_counts.items())),
             "tool_sources": dict(sorted(source_counts.items())),
             "tool_risks": dict(sorted(risk_counts.items(), key=lambda item: TOOL_RISK_ORDER.get(item[0], 0))),

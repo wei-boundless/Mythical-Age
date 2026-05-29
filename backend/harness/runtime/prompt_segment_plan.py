@@ -22,6 +22,7 @@ class PromptSegmentPlanSegment:
     cache_role: SegmentCacheRole = "volatile"
     compression_role: SegmentCompressionRole = "summarize"
     content_hash: str = ""
+    model_message_hash: str = ""
     byte_length: int = 0
     metadata: dict[str, Any] = field(default_factory=dict)
     authority: str = "runtime.prompt_segment_plan.segment"
@@ -59,26 +60,29 @@ def build_prompt_segment_plan(
     collect_stable_prefix = True
     for index, spec in enumerate(list(message_specs or [])):
         content = str(spec.get("content") or "")
+        role = str(spec.get("role") or "user")
         kind = str(spec.get("kind") or "unknown_unplanned").strip() or "unknown_unplanned"
         cache_role = _cache_role(spec.get("cache_role"))
         content_hash = stable_text_hash(content)
+        model_message_hash = stable_text_hash(_canonical_json({"role": role, "content": content}))
         segment = PromptSegmentPlanSegment(
             segment_id=_segment_id(packet_id=packet_id, ordinal=index + 1, kind=kind, content_hash=content_hash),
             kind=kind,
             ordinal=index + 1,
             model_message_index=index,
-            model_message_role=str(spec.get("role") or "user"),
+            model_message_role=role,
             source_ref=str(spec.get("source_ref") or ""),
             cache_scope=str(spec.get("cache_scope") or "none"),
             cache_role=cache_role,
             compression_role=_compression_role(spec.get("compression_role")),
             content_hash=content_hash,
+            model_message_hash=model_message_hash,
             byte_length=len(content.encode("utf-8", errors="ignore")),
             metadata=dict(spec.get("metadata") or {}),
         )
         segments.append(segment)
         if collect_stable_prefix and cache_role in {"cacheable_prefix", "session_stable"}:
-            stable_hash_parts.append(content_hash)
+            stable_hash_parts.append(model_message_hash)
             continue
         collect_stable_prefix = False
     seed = {
@@ -92,6 +96,7 @@ def build_prompt_segment_plan(
                 "source_ref": item.source_ref,
                 "cache_role": item.cache_role,
                 "content_hash": item.content_hash,
+                "model_message_hash": item.model_message_hash,
             }
             for item in segments
         ],
@@ -116,6 +121,20 @@ def _segment_id(*, packet_id: str, ordinal: int, kind: str, content_hash: str) -
 
 def _digest(value: str) -> str:
     return hashlib.sha256(str(value or "").encode("utf-8", errors="ignore")).hexdigest()[:16]
+
+
+def _canonical_json(value: Any) -> str:
+    return json.dumps(_json_stable(value), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _json_stable(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _json_stable(value[key]) for key in sorted(value)}
+    if isinstance(value, (list, tuple)):
+        return [_json_stable(item) for item in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return repr(value)
 
 
 def _cache_role(value: Any) -> SegmentCacheRole:

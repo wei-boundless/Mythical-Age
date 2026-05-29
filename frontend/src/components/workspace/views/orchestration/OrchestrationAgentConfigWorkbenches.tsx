@@ -1378,38 +1378,21 @@ export function OrchestrationCollaborationWorkbench({
 }) {
   const allowedDelegateIds = dedupe(runtimeDraft.allowed_delegate_agent_ids ?? []);
   const canDelegate = Boolean(runtimeDraft.can_delegate_to_agents);
-  const delegateOperationAllowed = dedupe(runtimeDraft.allowed_operations ?? []).includes("op.delegate_to_agent");
-  const delegateOperationBlocked = dedupe(runtimeDraft.blocked_operations ?? []).includes("op.delegate_to_agent");
   const category = String(agentDraft.agent_category || "");
   const canBeDelegatedByDefault = category === "custom_agent" || category === "builtin_agent";
-
-  function toggleDelegateOperation(enabled: boolean) {
-    const allowedOps = dedupe(runtimeDraft.allowed_operations ?? []);
-    const blockedOps = dedupe(runtimeDraft.blocked_operations ?? []);
-    if (enabled) {
-      patchRuntimeDraft({
-        allowed_operations: dedupe([...allowedOps, "op.delegate_to_agent"]),
-        blocked_operations: blockedOps.filter((item) => item !== "op.delegate_to_agent"),
-      });
-      return;
-    }
-    patchRuntimeDraft({
-      allowed_operations: allowedOps.filter((item) => item !== "op.delegate_to_agent"),
-    });
-  }
 
   return (
     <section className="boundary-layer-grid boundary-layer-grid--wide">
       <div className="boundary-card">
         <header>
           <strong>协作资格</strong>
-          <OrchestrationBadge tone={canDelegate && delegateOperationAllowed && !delegateOperationBlocked ? "ok" : "neutral"}>
-            {canDelegate && delegateOperationAllowed && !delegateOperationBlocked ? "可发起委派" : "未开放委派"}
+          <OrchestrationBadge tone={canDelegate ? "neutral" : "neutral"}>
+            {canDelegate ? "等待新调度能力" : "未开放协作"}
           </OrchestrationBadge>
         </header>
         <div className="orchestration-identity-note">
-          <span>协作不是 Agent 分类本身。</span>
-          <strong>系统管理 Agent 也可以显式进入委派池；是否能被调用由目标暴露策略、父 Agent 白名单和运行权限共同决定。</strong>
+          <span>当前没有接入子 Agent 执行入口。</span>
+          <strong>子 Agent 协作将由新的 agent control 生命周期接入；这里暂只保留目标白名单和协作意图配置。</strong>
         </div>
         <div className="boundary-form">
           <label className="boundary-check">
@@ -1419,14 +1402,6 @@ export function OrchestrationCollaborationWorkbench({
               type="checkbox"
             />
             允许这个 Agent 发起委派
-          </label>
-          <label className="boundary-check">
-            <input
-              checked={delegateOperationAllowed && !delegateOperationBlocked}
-              onChange={(event) => toggleDelegateOperation(event.target.checked)}
-              type="checkbox"
-            />
-            允许运行操作 op.delegate_to_agent
           </label>
           <OrchestrationField label="单轮最大调用次数">
             <input
@@ -1457,8 +1432,8 @@ export function OrchestrationCollaborationWorkbench({
         <header><strong>协作诊断</strong></header>
         <div className="boundary-readiness-list boundary-readiness-list--grid">
           <OrchestrationReadinessCard label="可被委派" ready={canBeDelegatedByDefault} value={canBeDelegatedByDefault ? "默认可配置" : "默认不暴露"} />
-          <OrchestrationReadinessCard label="可发起委派" ready={canDelegate} value={canDelegate ? "已开启" : "未开启"} />
-          <OrchestrationReadinessCard label="委派操作" ready={delegateOperationAllowed && !delegateOperationBlocked} value={delegateOperationBlocked ? "被阻断" : delegateOperationAllowed ? "已允许" : "未允许"} />
+          <OrchestrationReadinessCard label="协作配置" ready={canDelegate} value={canDelegate ? "已开启" : "未开启"} />
+          <OrchestrationReadinessCard label="执行入口" ready={false} value="等待 agent control" />
           <OrchestrationReadinessCard label="目标白名单" ready={Boolean(allowedDelegateIds.length)} value={allowedDelegateIds.length ? `${allowedDelegateIds.length} 个` : "未限制"} />
         </div>
         <div className="boundary-kv">

@@ -37,7 +37,7 @@ __all__ = [
     "UnitInterface",
     "UnitPort",
     "UnitPortEdge",
-    "GraphModuleRuntimePlan",
+    "GraphModuleExpansionPlan",
     "build_composable_graph_view",
     "build_task_graph_standard_view",
     "apply_task_graph_standard_view_update",
@@ -204,14 +204,14 @@ def __getattr__(name: str) -> Any:
         "UnitInterface",
         "UnitPort",
         "UnitPortEdge",
-        "GraphModuleRuntimePlan",
+        "GraphModuleExpansionPlan",
         "build_composable_graph_view",
     }:
         from task_system.graphs.composable_graph_builder import build_composable_graph_view
         from task_system.graphs.composable_graph_models import (
             ComposableGraphView,
             ComposableUnit,
-            GraphModuleRuntimePlan,
+            GraphModuleExpansionPlan,
             UnitInterface,
             UnitPort,
             UnitPortEdge,
@@ -223,7 +223,7 @@ def __getattr__(name: str) -> Any:
             "UnitInterface": UnitInterface,
             "UnitPort": UnitPort,
             "UnitPortEdge": UnitPortEdge,
-            "GraphModuleRuntimePlan": GraphModuleRuntimePlan,
+            "GraphModuleExpansionPlan": GraphModuleExpansionPlan,
             "build_composable_graph_view": build_composable_graph_view,
         }[name]
     if name in {"TaskGraphStandardView", "build_task_graph_standard_view", "apply_task_graph_standard_view_update"}:

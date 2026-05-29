@@ -90,9 +90,7 @@ RUNTIME_CONTRACT_KEYS = {
     "outline_thread_policy",
     "prewrite_memory_plan_policy",
     "dynamic_expansion",
-    "graph_composition",
-    "graph_module_runtime",
-    "graph_module_composition",
+    "graph_module_expansion",
     "sequence_index",
 }
 

@@ -28,7 +28,6 @@
         "op.fetch_url",
         "op.memory_read",
         "op.agent_todo",
-        "op.delegate_to_agent",
         "op.image_generate",
         "op.mcp_retrieval",
         "op.mcp_pdf",
@@ -276,7 +275,6 @@
         "op.shell",
         "op.python_repl",
         "op.agent_bounded",
-        "op.delegate_to_agent",
         "op.web_search"
       ],
       "allowed_memory_scopes": [
@@ -1187,8 +1185,7 @@
         "op.edit_file",
         "op.shell",
         "op.python_repl",
-        "op.memory_write_candidate",
-        "op.delegate_to_agent"
+        "op.memory_write_candidate"
       ],
       "allowed_memory_scopes": [
         "conversation_readonly",
@@ -1441,8 +1438,7 @@
         "op.edit_file",
         "op.shell",
         "op.python_repl",
-        "op.memory_write_candidate",
-        "op.delegate_to_agent"
+        "op.memory_write_candidate"
       ],
       "allowed_memory_scopes": [],
       "allowed_context_sections": [
@@ -1673,8 +1669,7 @@
         "op.edit_file",
         "op.shell",
         "op.python_repl",
-        "op.memory_write_candidate",
-        "op.delegate_to_agent"
+        "op.memory_write_candidate"
       ],
       "allowed_memory_scopes": [
         "conversation_readonly",
@@ -1903,8 +1898,7 @@
         "op.edit_file",
         "op.shell",
         "op.python_repl",
-        "op.memory_write_candidate",
-        "op.delegate_to_agent"
+        "op.memory_write_candidate"
       ],
       "allowed_memory_scopes": [
         "conversation_readonly",
@@ -2136,8 +2130,7 @@
         "op.edit_file",
         "op.shell",
         "op.python_repl",
-        "op.memory_write_candidate",
-        "op.delegate_to_agent"
+        "op.memory_write_candidate"
       ],
       "allowed_memory_scopes": [],
       "allowed_context_sections": [
@@ -2406,8 +2399,7 @@
         "op.edit_file",
         "op.shell",
         "op.python_repl",
-        "op.memory_write_candidate",
-        "op.delegate_to_agent"
+        "op.memory_write_candidate"
       ],
       "allowed_memory_scopes": [],
       "allowed_context_sections": [
@@ -2658,8 +2650,7 @@
         "op.edit_file",
         "op.shell",
         "op.python_repl",
-        "op.memory_write_candidate",
-        "op.delegate_to_agent"
+        "op.memory_write_candidate"
       ],
       "allowed_memory_scopes": [
         "conversation_readonly",
@@ -2906,8 +2897,7 @@
         "op.edit_file",
         "op.shell",
         "op.python_repl",
-        "op.memory_write_candidate",
-        "op.delegate_to_agent"
+        "op.memory_write_candidate"
       ],
       "allowed_memory_scopes": [
         "conversation_readonly",

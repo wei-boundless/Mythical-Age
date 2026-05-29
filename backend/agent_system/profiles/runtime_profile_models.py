@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from ..models.model_profile_models import AgentModelProfile
+from capability_system.tool_packages import ToolPackageSelection
 from .runtime_mode_config import mode_config_catalog
 
 
@@ -13,6 +14,8 @@ class AgentRuntimeProfile:
     agent_id: str
     enabled_runtime_modes: tuple[str, ...] = ()
     default_runtime_mode: str = ""
+    allowed_tool_packages: tuple[ToolPackageSelection, ...] = ()
+    extra_allowed_operations: tuple[str, ...] = ()
     allowed_operations: tuple[str, ...] = ()
     blocked_operations: tuple[str, ...] = ()
     allowed_memory_scopes: tuple[str, ...] = ()
@@ -36,6 +39,7 @@ class AgentRuntimeProfile:
         payload = asdict(self)
         for key in (
             "enabled_runtime_modes",
+            "extra_allowed_operations",
             "allowed_operations",
             "blocked_operations",
             "allowed_memory_scopes",
@@ -43,6 +47,8 @@ class AgentRuntimeProfile:
             "allowed_delegate_agent_ids",
         ):
             payload[key] = list(payload[key])
+        payload["allowed_tool_packages"] = [item.to_dict() for item in self.allowed_tool_packages]
+        payload["final_allowed_operations"] = list(self.allowed_operations)
         payload["model_profile"] = self.model_profile.to_dict()
         payload["runtime_template_id"] = self.runtime_template_id
         payload["runtime_mode_catalog"] = mode_config_catalog()

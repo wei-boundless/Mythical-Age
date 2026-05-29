@@ -420,12 +420,13 @@ def _profile_operations(agent_runtime_profile: Any | None) -> tuple[str, ...]:
 
 
 def _subagent_policy(*, agent_runtime_profile: Any | None, mode_policy: dict[str, Any], mode: str) -> dict[str, Any]:
-    enabled_by_mode = bool(mode_policy.get("enabled", mode != ROLE_MODE))
+    _ = agent_runtime_profile, mode
     return {
         **dict(mode_policy or {}),
-        "enabled": enabled_by_mode and bool(getattr(agent_runtime_profile, "can_delegate_to_agents", False)),
-        "max_delegate_calls_per_turn": int(getattr(agent_runtime_profile, "max_delegate_calls_per_turn", 0) or 0),
-        "allowed_delegate_agent_ids": list(getattr(agent_runtime_profile, "allowed_delegate_agent_ids", ()) or ()),
+        "enabled": False,
+        "max_delegate_calls_per_turn": 0,
+        "allowed_delegate_agent_ids": [],
+        "disabled_reason": "agent_control_runtime_not_configured",
     }
 
 

@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "tool_count": 24,
+  "tool_count": 30,
   "tools": [
     {
       "name": "agent_todo",
@@ -1190,6 +1190,441 @@
       "is_concurrency_safe": true
     },
     {
+      "name": "git_branch_list",
+      "display_name": "查看 Git 分支",
+      "operation_id": "op.git_branch_list",
+      "module": "tools.git_tools",
+      "contract": {
+        "required_inputs": [],
+        "required_bindings": [],
+        "optional_inputs": [
+          "all_branches"
+        ],
+        "owner_scope": "none",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "clarify",
+        "context_policy": "inline",
+        "result_channel": "canonical"
+      },
+      "resolution_contract": {
+        "path_field": "",
+        "path_kind": "",
+        "binding_field": "",
+        "allow_message_extraction": false
+      },
+      "output_contract": {
+        "display_mode": "summary_text",
+        "finalization_policy": "none",
+        "persistence_policy": "persist_canonical"
+      },
+      "projection_contract": {
+        "task_summary_policy": "canonical_only",
+        "result_ref_policy": "default",
+        "memory_projection_policy": "canonical_only"
+      },
+      "capability_tags": [
+        "git",
+        "branch",
+        "workspace",
+        "vcs"
+      ],
+      "supported_modalities": [
+        "workspace",
+        "system"
+      ],
+      "safety_tags": [
+        "read"
+      ],
+      "route_hints": [
+        "tool",
+        "git_read"
+      ],
+      "safe_for_auto_route": false,
+      "schema_identity": "local.tools/git_branch_list",
+      "runtime_visibility": "main_runtime",
+      "prompt_exposure_policy": "schema_only",
+      "resource_exposure_policy": "explicit_resource",
+      "is_read_only": true,
+      "is_destructive": false,
+      "is_concurrency_safe": true
+    },
+    {
+      "name": "git_branch_create",
+      "display_name": "创建 Git 分支",
+      "operation_id": "op.git_branch_create",
+      "module": "tools.git_tools",
+      "contract": {
+        "required_inputs": [
+          "branch_name"
+        ],
+        "required_bindings": [],
+        "optional_inputs": [
+          "start_point"
+        ],
+        "owner_scope": "none",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "clarify",
+        "context_policy": "inline",
+        "result_channel": "canonical"
+      },
+      "resolution_contract": {
+        "path_field": "",
+        "path_kind": "",
+        "binding_field": "",
+        "allow_message_extraction": false
+      },
+      "output_contract": {
+        "display_mode": "summary_text",
+        "finalization_policy": "none",
+        "persistence_policy": "persist_canonical"
+      },
+      "projection_contract": {
+        "task_summary_policy": "canonical_only",
+        "result_ref_policy": "default",
+        "memory_projection_policy": "canonical_only"
+      },
+      "capability_tags": [
+        "git",
+        "branch",
+        "workspace",
+        "vcs"
+      ],
+      "supported_modalities": [
+        "workspace",
+        "system"
+      ],
+      "safety_tags": [
+        "write",
+        "git_write"
+      ],
+      "route_hints": [
+        "tool",
+        "git_write"
+      ],
+      "safe_for_auto_route": false,
+      "schema_identity": "local.tools/git_branch_create",
+      "runtime_visibility": "main_runtime",
+      "prompt_exposure_policy": "schema_only",
+      "resource_exposure_policy": "explicit_resource",
+      "is_read_only": false,
+      "is_destructive": false,
+      "is_concurrency_safe": false
+    },
+    {
+      "name": "git_stage",
+      "display_name": "暂存 Git 文件",
+      "operation_id": "op.git_stage",
+      "module": "tools.git_tools",
+      "contract": {
+        "required_inputs": [
+          "paths"
+        ],
+        "required_bindings": [],
+        "optional_inputs": [],
+        "owner_scope": "none",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "clarify",
+        "context_policy": "inline",
+        "result_channel": "canonical"
+      },
+      "resolution_contract": {
+        "path_field": "",
+        "path_kind": "",
+        "binding_field": "",
+        "allow_message_extraction": false
+      },
+      "output_contract": {
+        "display_mode": "summary_text",
+        "finalization_policy": "none",
+        "persistence_policy": "persist_canonical"
+      },
+      "projection_contract": {
+        "task_summary_policy": "canonical_only",
+        "result_ref_policy": "default",
+        "memory_projection_policy": "canonical_only"
+      },
+      "capability_tags": [
+        "git",
+        "stage",
+        "workspace",
+        "vcs"
+      ],
+      "supported_modalities": [
+        "workspace",
+        "system"
+      ],
+      "safety_tags": [
+        "write",
+        "git_write"
+      ],
+      "route_hints": [
+        "tool",
+        "git_write"
+      ],
+      "safe_for_auto_route": false,
+      "schema_identity": "local.tools/git_stage",
+      "runtime_visibility": "main_runtime",
+      "prompt_exposure_policy": "schema_only",
+      "resource_exposure_policy": "explicit_resource",
+      "is_read_only": false,
+      "is_destructive": false,
+      "is_concurrency_safe": false
+    },
+    {
+      "name": "git_unstage",
+      "display_name": "取消暂存 Git 文件",
+      "operation_id": "op.git_unstage",
+      "module": "tools.git_tools",
+      "contract": {
+        "required_inputs": [
+          "paths"
+        ],
+        "required_bindings": [],
+        "optional_inputs": [],
+        "owner_scope": "none",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "clarify",
+        "context_policy": "inline",
+        "result_channel": "canonical"
+      },
+      "resolution_contract": {
+        "path_field": "",
+        "path_kind": "",
+        "binding_field": "",
+        "allow_message_extraction": false
+      },
+      "output_contract": {
+        "display_mode": "summary_text",
+        "finalization_policy": "none",
+        "persistence_policy": "persist_canonical"
+      },
+      "projection_contract": {
+        "task_summary_policy": "canonical_only",
+        "result_ref_policy": "default",
+        "memory_projection_policy": "canonical_only"
+      },
+      "capability_tags": [
+        "git",
+        "unstage",
+        "workspace",
+        "vcs"
+      ],
+      "supported_modalities": [
+        "workspace",
+        "system"
+      ],
+      "safety_tags": [
+        "write",
+        "git_write"
+      ],
+      "route_hints": [
+        "tool",
+        "git_write"
+      ],
+      "safe_for_auto_route": false,
+      "schema_identity": "local.tools/git_unstage",
+      "runtime_visibility": "main_runtime",
+      "prompt_exposure_policy": "schema_only",
+      "resource_exposure_policy": "explicit_resource",
+      "is_read_only": false,
+      "is_destructive": false,
+      "is_concurrency_safe": false
+    },
+    {
+      "name": "git_commit",
+      "display_name": "提交 Git 版本",
+      "operation_id": "op.git_commit",
+      "module": "tools.git_tools",
+      "contract": {
+        "required_inputs": [
+          "message"
+        ],
+        "required_bindings": [],
+        "optional_inputs": [],
+        "owner_scope": "none",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "clarify",
+        "context_policy": "inline",
+        "result_channel": "canonical"
+      },
+      "resolution_contract": {
+        "path_field": "",
+        "path_kind": "",
+        "binding_field": "",
+        "allow_message_extraction": false
+      },
+      "output_contract": {
+        "display_mode": "summary_text",
+        "finalization_policy": "none",
+        "persistence_policy": "persist_canonical"
+      },
+      "projection_contract": {
+        "task_summary_policy": "canonical_only",
+        "result_ref_policy": "default",
+        "memory_projection_policy": "canonical_only"
+      },
+      "capability_tags": [
+        "git",
+        "commit",
+        "workspace",
+        "vcs"
+      ],
+      "supported_modalities": [
+        "workspace",
+        "system"
+      ],
+      "safety_tags": [
+        "write",
+        "git_write"
+      ],
+      "route_hints": [
+        "tool",
+        "git_write"
+      ],
+      "safe_for_auto_route": false,
+      "schema_identity": "local.tools/git_commit",
+      "runtime_visibility": "main_runtime",
+      "prompt_exposure_policy": "schema_only",
+      "resource_exposure_policy": "explicit_resource",
+      "is_read_only": false,
+      "is_destructive": false,
+      "is_concurrency_safe": false
+    },
+    {
+      "name": "git_restore",
+      "display_name": "恢复 Git 文件",
+      "operation_id": "op.git_restore",
+      "module": "tools.git_tools",
+      "contract": {
+        "required_inputs": [
+          "paths"
+        ],
+        "required_bindings": [],
+        "optional_inputs": [
+          "staged"
+        ],
+        "owner_scope": "none",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "clarify",
+        "context_policy": "inline",
+        "result_channel": "canonical"
+      },
+      "resolution_contract": {
+        "path_field": "",
+        "path_kind": "",
+        "binding_field": "",
+        "allow_message_extraction": false
+      },
+      "output_contract": {
+        "display_mode": "summary_text",
+        "finalization_policy": "none",
+        "persistence_policy": "persist_canonical"
+      },
+      "projection_contract": {
+        "task_summary_policy": "canonical_only",
+        "result_ref_policy": "default",
+        "memory_projection_policy": "canonical_only"
+      },
+      "capability_tags": [
+        "git",
+        "restore",
+        "workspace",
+        "vcs"
+      ],
+      "supported_modalities": [
+        "workspace",
+        "system"
+      ],
+      "safety_tags": [
+        "write",
+        "git_write",
+        "destructive"
+      ],
+      "route_hints": [
+        "tool",
+        "git_write"
+      ],
+      "safe_for_auto_route": false,
+      "schema_identity": "local.tools/git_restore",
+      "runtime_visibility": "main_runtime",
+      "prompt_exposure_policy": "schema_only",
+      "resource_exposure_policy": "explicit_resource",
+      "is_read_only": false,
+      "is_destructive": true,
+      "is_concurrency_safe": false
+    },
+    {
+      "name": "git_push",
+      "display_name": "推送 Git 分支",
+      "operation_id": "op.git_push",
+      "module": "tools.git_tools",
+      "contract": {
+        "required_inputs": [],
+        "required_bindings": [],
+        "optional_inputs": [
+          "remote",
+          "branch"
+        ],
+        "owner_scope": "none",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "clarify",
+        "context_policy": "inline",
+        "result_channel": "canonical"
+      },
+      "resolution_contract": {
+        "path_field": "",
+        "path_kind": "",
+        "binding_field": "",
+        "allow_message_extraction": false
+      },
+      "output_contract": {
+        "display_mode": "summary_text",
+        "finalization_policy": "none",
+        "persistence_policy": "persist_canonical"
+      },
+      "projection_contract": {
+        "task_summary_policy": "canonical_only",
+        "result_ref_policy": "default",
+        "memory_projection_policy": "canonical_only"
+      },
+      "capability_tags": [
+        "git",
+        "push",
+        "remote",
+        "workspace",
+        "vcs"
+      ],
+      "supported_modalities": [
+        "workspace",
+        "system"
+      ],
+      "safety_tags": [
+        "write",
+        "git_write",
+        "network",
+        "remote"
+      ],
+      "route_hints": [
+        "tool",
+        "git_remote"
+      ],
+      "safe_for_auto_route": false,
+      "schema_identity": "local.tools/git_push",
+      "runtime_visibility": "main_runtime",
+      "prompt_exposure_policy": "schema_only",
+      "resource_exposure_policy": "explicit_resource",
+      "is_read_only": false,
+      "is_destructive": false,
+      "is_concurrency_safe": false
+    },
+    {
       "name": "write_file",
       "display_name": "写入文件",
       "operation_id": "op.write_file",
@@ -1315,67 +1750,6 @@
       "is_concurrency_safe": false
     },
     {
-      "name": "delegate_to_agent",
-      "display_name": "委派子Agent",
-      "operation_id": "op.delegate_to_agent",
-      "module": "tools.delegate_to_agent_tool",
-      "contract": {
-        "required_inputs": [
-          "target_agent_id",
-          "delegation_kind",
-          "instruction"
-        ],
-        "required_bindings": [],
-        "optional_inputs": [],
-        "owner_scope": "none",
-        "allow_catalog_default": false,
-        "allow_history_binding": false,
-        "missing_binding_behavior": "deny",
-        "context_policy": "isolated",
-        "result_channel": "canonical"
-      },
-      "resolution_contract": {
-        "path_field": "",
-        "path_kind": "",
-        "binding_field": "",
-        "allow_message_extraction": false
-      },
-      "output_contract": {
-        "display_mode": "summary_text",
-        "finalization_policy": "none",
-        "persistence_policy": "persist_canonical"
-      },
-      "projection_contract": {
-        "task_summary_policy": "canonical_only",
-        "result_ref_policy": "default",
-        "memory_projection_policy": "canonical_only"
-      },
-      "capability_tags": [
-        "delegation",
-        "agent",
-        "orchestration"
-      ],
-      "supported_modalities": [
-        "text",
-        "workspace"
-      ],
-      "safety_tags": [
-        "agent_execution"
-      ],
-      "route_hints": [
-        "tool",
-        "delegation"
-      ],
-      "safe_for_auto_route": false,
-      "schema_identity": "local.tools/delegate_to_agent",
-      "runtime_visibility": "main_runtime",
-      "prompt_exposure_policy": "schema_only",
-      "resource_exposure_policy": "none",
-      "is_read_only": true,
-      "is_destructive": false,
-      "is_concurrency_safe": false
-    },
-    {
       "name": "terminal",
       "display_name": "终端命令",
       "operation_id": "op.shell",
@@ -1494,6 +1868,244 @@
       "is_read_only": false,
       "is_destructive": false,
       "is_concurrency_safe": false
+    }
+  ],
+  "tool_packages": [
+    {
+      "package_id": "pkg.filesystem.read",
+      "title": "文件只读",
+      "description": "读取、查找和检查工作区文件，不修改内容。",
+      "category": "本地文件",
+      "operation_ids": [
+        "op.read_file",
+        "op.list_dir",
+        "op.stat_path",
+        "op.path_exists",
+        "op.glob_paths",
+        "op.read_structured_file"
+      ],
+      "risk_level": "低",
+      "managed": true,
+      "default_enabled": true,
+      "tags": [
+        "filesystem",
+        "read"
+      ],
+      "metadata": {}
+    },
+    {
+      "package_id": "pkg.filesystem.write",
+      "title": "文件写入",
+      "description": "创建、覆盖或精确编辑工作区文件。",
+      "category": "本地文件",
+      "operation_ids": [
+        "op.write_file",
+        "op.edit_file"
+      ],
+      "risk_level": "高",
+      "managed": true,
+      "default_enabled": true,
+      "tags": [
+        "filesystem",
+        "write"
+      ],
+      "metadata": {}
+    },
+    {
+      "package_id": "pkg.search.local",
+      "title": "本地搜索",
+      "description": "搜索工作区路径和文本内容。",
+      "category": "本地文件",
+      "operation_ids": [
+        "op.search_files",
+        "op.search_text"
+      ],
+      "risk_level": "低",
+      "managed": true,
+      "default_enabled": true,
+      "tags": [
+        "search",
+        "workspace"
+      ],
+      "metadata": {}
+    },
+    {
+      "package_id": "pkg.git.read",
+      "title": "Git 只读",
+      "description": "查看版本库状态、差异、日志、对象和分支。",
+      "category": "版本控制",
+      "operation_ids": [
+        "op.git_status",
+        "op.git_diff",
+        "op.git_log",
+        "op.git_show",
+        "op.git_branch_list"
+      ],
+      "risk_level": "低",
+      "managed": true,
+      "default_enabled": true,
+      "tags": [
+        "git",
+        "read",
+        "vcs"
+      ],
+      "metadata": {}
+    },
+    {
+      "package_id": "pkg.git.write",
+      "title": "Git 写入",
+      "description": "创建分支、暂存指定文件、取消暂存、提交和恢复指定路径。",
+      "category": "版本控制",
+      "operation_ids": [
+        "op.git_branch_create",
+        "op.git_stage",
+        "op.git_unstage",
+        "op.git_commit",
+        "op.git_restore"
+      ],
+      "risk_level": "高",
+      "managed": true,
+      "default_enabled": true,
+      "tags": [
+        "git",
+        "write",
+        "vcs"
+      ],
+      "metadata": {}
+    },
+    {
+      "package_id": "pkg.git.remote",
+      "title": "Git 远端",
+      "description": "推送分支到远端仓库。默认不启用。",
+      "category": "版本控制",
+      "operation_ids": [
+        "op.git_push"
+      ],
+      "risk_level": "极高",
+      "managed": true,
+      "default_enabled": false,
+      "tags": [
+        "git",
+        "remote",
+        "push"
+      ],
+      "metadata": {}
+    },
+    {
+      "package_id": "pkg.web",
+      "title": "网络查询",
+      "description": "开放网络搜索和抓取网页内容。",
+      "category": "实时查询",
+      "operation_ids": [
+        "op.web_search",
+        "op.fetch_url"
+      ],
+      "risk_level": "中",
+      "managed": true,
+      "default_enabled": true,
+      "tags": [
+        "web",
+        "network"
+      ],
+      "metadata": {}
+    },
+    {
+      "package_id": "pkg.memory",
+      "title": "记忆读取",
+      "description": "读取会话、状态或正式记忆视图。",
+      "category": "知识检索",
+      "operation_ids": [
+        "op.memory_read"
+      ],
+      "risk_level": "低",
+      "managed": true,
+      "default_enabled": true,
+      "tags": [
+        "memory",
+        "read"
+      ],
+      "metadata": {}
+    },
+    {
+      "package_id": "pkg.agent",
+      "title": "Agent 状态",
+      "description": "维护任务步骤状态。",
+      "category": "通用能力",
+      "operation_ids": [
+        "op.agent_todo"
+      ],
+      "risk_level": "低",
+      "managed": true,
+      "default_enabled": true,
+      "tags": [
+        "agent",
+        "state"
+      ],
+      "metadata": {}
+    },
+    {
+      "package_id": "pkg.execution",
+      "title": "本地执行",
+      "description": "本地命令和脚本执行能力。",
+      "category": "系统执行",
+      "operation_ids": [
+        "op.shell",
+        "op.python_repl"
+      ],
+      "risk_level": "极高",
+      "managed": true,
+      "default_enabled": false,
+      "tags": [
+        "shell",
+        "execution"
+      ],
+      "metadata": {}
+    },
+    {
+      "package_id": "pkg.multimodal",
+      "title": "多模态生成",
+      "description": "生成图像和视觉资产。",
+      "category": "多模态处理",
+      "operation_ids": [
+        "op.image_generate"
+      ],
+      "risk_level": "高",
+      "managed": true,
+      "default_enabled": true,
+      "tags": [
+        "image",
+        "multimodal"
+      ],
+      "metadata": {}
+    },
+    {
+      "package_id": "pkg.mcp.local",
+      "title": "本地能力端点",
+      "description": "调用本地检索、PDF 和结构化数据 MCP 能力。",
+      "category": "文档数据",
+      "operation_ids": [
+        "op.mcp_retrieval",
+        "op.mcp_pdf",
+        "op.mcp_structured_data"
+      ],
+      "risk_level": "中",
+      "managed": true,
+      "default_enabled": true,
+      "tags": [
+        "mcp",
+        "local"
+      ],
+      "metadata": {}
+    }
+  ],
+  "default_library": [
+    {
+      "tool_name": "text_metric",
+      "operation_id": "op.text_metric"
+    },
+    {
+      "tool_name": "browser_control",
+      "operation_id": "op.browser_control"
     }
   ]
 }

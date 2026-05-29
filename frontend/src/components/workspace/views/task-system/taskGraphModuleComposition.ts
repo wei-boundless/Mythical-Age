@@ -1,13 +1,13 @@
 import type { UnitPortEdgeSpec } from "@/lib/api";
 
-export type TaskGraphModuleFacet = "units" | "interfaces" | "connections" | "graph_module_runtime";
+export type TaskGraphModuleFacet = "units" | "interfaces" | "connections" | "graph_module_expansion";
 
 export type TaskGraphComposableGraphOverlay = {
   version: string;
   units: Array<Record<string, unknown>>;
   interfaces: Array<Record<string, unknown>>;
   port_edges: UnitPortEdgeSpec[];
-  graph_module_runtime: Array<Record<string, unknown>>;
+  graph_module_expansion: Array<Record<string, unknown>>;
 };
 
 export const TASK_GRAPH_MODULE_FACET_ITEMS: Array<{
@@ -18,7 +18,7 @@ export const TASK_GRAPH_MODULE_FACET_ITEMS: Array<{
   { id: "units", title: "标准单元", desc: "从 canonical 图编译" },
   { id: "interfaces", title: "接口端口", desc: "输入/输出契约诊断" },
   { id: "connections", title: "端口映射", desc: "由 canonical edges 派生" },
-  { id: "graph_module_runtime", title: "图模块展开", desc: "导入图只读诊断" },
+  { id: "graph_module_expansion", title: "图模块展开", desc: "导入图只读诊断" },
 ];
 
 const TASK_GRAPH_MODULE_FACETS = new Set<TaskGraphModuleFacet>(
@@ -26,7 +26,7 @@ const TASK_GRAPH_MODULE_FACETS = new Set<TaskGraphModuleFacet>(
 );
 
 export function taskGraphModuleFacetFromEditorFocus(facet?: string | null): TaskGraphModuleFacet {
-  if (facet === "blocks" || facet === "stitching") return "graph_module_runtime";
+  if (facet === "blocks" || facet === "stitching") return "graph_module_expansion";
   if (TASK_GRAPH_MODULE_FACETS.has(facet as TaskGraphModuleFacet)) {
     return facet as TaskGraphModuleFacet;
   }
@@ -63,7 +63,7 @@ export function taskGraphComposableOverlayFromMetadata(metadata: Record<string, 
     units: asRecordArray(overlay.units),
     interfaces: asRecordArray(overlay.interfaces),
     port_edges: asPortEdgeArray(overlay.port_edges),
-    graph_module_runtime: asRecordArray(overlay.graph_module_runtime),
+    graph_module_expansion: asRecordArray(overlay.graph_module_expansion),
   };
 }
 

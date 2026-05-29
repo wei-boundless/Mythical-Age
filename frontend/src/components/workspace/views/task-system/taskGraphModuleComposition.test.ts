@@ -12,13 +12,13 @@ describe("TaskGraph module composition facets", () => {
   it("keeps publish diagnostics on the matching module facet", () => {
     expect(taskGraphModuleFacetFromEditorFocus("connections")).toBe("connections");
     expect(taskGraphModuleFacetFromEditorFocus("interfaces")).toBe("interfaces");
-    expect(taskGraphModuleFacetFromEditorFocus("graph_module_runtime")).toBe("graph_module_runtime");
+    expect(taskGraphModuleFacetFromEditorFocus("graph_module_expansion")).toBe("graph_module_expansion");
     expect(taskGraphModuleFacetFromEditorFocus("units")).toBe("units");
   });
 
   it("routes removed timeline block focus to graph module diagnostics", () => {
-    expect(taskGraphModuleFacetFromEditorFocus("blocks")).toBe("graph_module_runtime");
-    expect(taskGraphModuleFacetFromEditorFocus("stitching")).toBe("graph_module_runtime");
+    expect(taskGraphModuleFacetFromEditorFocus("blocks")).toBe("graph_module_expansion");
+    expect(taskGraphModuleFacetFromEditorFocus("stitching")).toBe("graph_module_expansion");
   });
 
   it("falls back to unit composition for unknown focus facets", () => {
@@ -31,9 +31,9 @@ describe("TaskGraph module composition facets", () => {
       "units",
       "interfaces",
       "connections",
-      "graph_module_runtime",
+      "graph_module_expansion",
     ]);
-    expect(TASK_GRAPH_MODULE_FACET_ITEMS.find((item) => item.id === "graph_module_runtime")?.title).toBe("图模块展开");
+    expect(TASK_GRAPH_MODULE_FACET_ITEMS.find((item) => item.id === "graph_module_expansion")?.title).toBe("图模块展开");
   });
 
   it("reads, normalizes, and removes composable graph overlay port edges", () => {

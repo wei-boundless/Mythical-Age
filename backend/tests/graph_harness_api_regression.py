@@ -17,6 +17,12 @@ from task_system.graphs.task_graph_models import TaskGraphDefinition, TaskGraphE
 from task_system.repositories import GraphHarnessConfigRepository
 
 
+def _runtime_object_payload(graph_harness: GraphHarness, ref: str) -> dict:
+    payload = graph_harness._services.runtime_objects.get_object(ref)
+    assert payload, f"runtime object not found: {ref}"
+    return payload
+
+
 class TaskExecutionModelRuntimeStub:
     async def invoke_messages(self, messages, **_kwargs):
         import json
@@ -643,6 +649,7 @@ def test_graph_run_monitor_returns_recoverable_active_work_orders(tmp_path: Path
     assert monitor["active_node_work_order_count"] == 1
     assert monitor["active_node_work_orders"][0]["work_order_id"] == started["node_work_orders"][0]["work_order_id"]
     assert monitor["active_node_work_orders"][0]["node_id"] == "produce"
+    assert "input_package" not in monitor["active_node_work_orders"][0]
 
 
 def test_graph_runtime_generates_managed_project_scope_for_project_scoped_memory(tmp_path: Path) -> None:
@@ -745,10 +752,10 @@ def test_graph_node_task_run_receives_explicit_runtime_project_scope(tmp_path: P
         orchestration_api.require_runtime = original  # type: ignore[assignment]
 
     work_order_scope = dict(started["node_work_orders"][0]["input_package"]["runtime_scope"])
-    task_run_diagnostics = dict(executed["node_executor_task_run"]["diagnostics"])
+    task_run_summary = dict(executed["node_executor_task_run"])
     assert work_order_scope["project_id"] == "project:explicit"
-    assert task_run_diagnostics["project_id"] == "project:explicit"
-    assert task_run_diagnostics["runtime_scope"]["project_id"] == "project:explicit"
+    assert task_run_summary["project_id"] == "project:explicit"
+    assert task_run_summary["runtime_scope"]["project_id"] == "project:explicit"
 
 
 def test_graph_loop_contract_drives_generic_repeated_node_progression(tmp_path: Path) -> None:
@@ -881,7 +888,10 @@ def test_graph_loop_contract_drives_generic_repeated_node_progression(tmp_path: 
     assert len(state.result_history["produce"]) == 3
     assert len(state.result_history["commit"]) == 3
     assert len(state.result_history["router"]) == 3
-    assert state.result_index["exit"]["outputs"]["step"] == 10
+    exit_summary = state.result_index["exit"]
+    exit_result = _runtime_object_payload(runtime.query_runtime.graph_harness, exit_summary["result_ref"])
+    assert "outputs" not in exit_summary
+    assert exit_result["outputs"]["step"] == 10
     assert completed_orders == ["produce", "commit", "router", "produce", "commit", "router", "produce", "commit", "router", "exit"]
 
 

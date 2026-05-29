@@ -183,7 +183,7 @@ export function TaskGraphComposableEditorPage({
           graphModuleExpansions={composableModel.graphModuleExpansions}
           graphDraft={taskGraphDraft}
           issues={preflightReport.issues.filter((issue) => issue.source.includes("composable_graph") || issue.source.includes("graph_module_expansion") || issue.source.includes("timeline") || issue.scope === "unit" || issue.scope === "port_edge")}
-          graphModuleRuntime={composableModel.graphModuleRuntime}
+          graphModuleExpansionPlans={composableModel.graphModuleExpansionPlans}
           onOpenGraph={onOpenGraph}
           onFacetChange={applyFacet}
           onSelectSubject={applySubject}
@@ -212,7 +212,7 @@ export function TaskGraphComposableEditorPage({
           graphDraft={taskGraphDraft}
           graphModuleExpansions={composableModel.graphModuleExpansions}
           interfaces={composableModel.interfaces}
-          graphModuleRuntime={composableModel.graphModuleRuntime}
+          graphModuleExpansionPlans={composableModel.graphModuleExpansionPlans}
           onOpenGraph={onOpenGraph}
           onSelectSubject={applySubject}
           orchestrationAgentCatalog={orchestrationAgentCatalog}

@@ -125,7 +125,7 @@ describe("TaskGraph preflight", () => {
         issues: [
           {
             code: "graph_module_handoff_contract_missing",
-            message: "图模块运行缺少交接契约",
+            message: "图模块展开缺少交接契约",
             severity: "warning",
             unit_id: "unit.graph.block.design",
             source: "task_system.composable_graph_issue",
@@ -165,7 +165,7 @@ describe("TaskGraph preflight", () => {
         ],
         graph_module_expansions: [
           {
-            plan_id: "graph_module_runtime.block.design",
+            plan_id: "graph_module_expansion.block.design",
             runtime_node_id: "graph_module.block.design",
             unit_id: "unit.graph.block.design",
             linked_graph_id: "graph.missing",
@@ -482,7 +482,7 @@ describe("TaskGraph preflight", () => {
         units: [],
         interfaces: [],
         port_edges: [],
-        graph_module_runtime: [],
+        graph_module_expansion: [],
         graph_module_expansions: [],
         memory_protocol: {
           repositories: [],

@@ -29,12 +29,16 @@ from harness.loop.active_work import (
     ActiveWorkContext,
     ActiveWorkTurnDecision,
     active_work_status_reply,
+    build_active_work_turn_context,
     build_active_work_context,
     decide_active_work_turn,
     default_reply_for_action,
     public_active_work_text,
 )
 from harness.loop.presentation import final_answer_event
+from harness.loop.resume_policy import build_resume_plan
+from harness.loop.resume_policy import ResumePlan
+from harness.loop.task_checkout import checkout_task_run_for_resume
 from harness.loop.task_executor import (
     append_user_work_instruction,
     execute_task_run,
@@ -50,6 +54,8 @@ from harness.graph.models import safe_id
 from runtime.shared.models import AgentRun, TaskRun
 
 logger = logging.getLogger(__name__)
+
+_CONVERSATION_TASK_EXECUTION_STEPS = 50
 
 
 class QueryRuntime:
@@ -288,7 +294,7 @@ class QueryRuntime:
             yield error_payload
 
     async def _handle_active_work_turn(self, *, request: QueryRequest, turn_id: str) -> dict[str, Any] | None:
-        context = build_active_work_context(
+        context = build_active_work_turn_context(
             self.single_agent_runtime_host,
             session_id=request.session_id,
         )
@@ -346,16 +352,12 @@ class QueryRuntime:
         action = decision.action
         response = public_active_work_text(decision.response) or default_reply_for_action(action, context)
         if action == "continue_active_work":
-            if context.resumable:
-                result = resume_paused_task_run(host, context.task_run_id, reason="conversation_continue", requested_by="user")
-                if result.get("ok"):
-                    self._schedule_active_task_run_executor(context.task_run_id, scheduler="conversation_continue")
-                else:
-                    response = active_work_status_reply(build_active_work_context(host, session_id=context.session_id) or context)
-            elif context.running:
-                response = response or "我正在接着处理，新的进展会继续更新在这里。"
-            else:
-                response = active_work_status_reply(build_active_work_context(host, session_id=context.session_id) or context)
+            response = self._apply_continue_active_work(
+                context=context,
+                turn_id=turn_id,
+                user_message=user_message,
+                default_response=response,
+            )
         elif action == "pause_active_work":
             result = request_task_run_pause(host, context.task_run_id, reason="conversation_pause", requested_by="user")
             if not result.get("ok"):
@@ -366,26 +368,115 @@ class QueryRuntime:
                 response = active_work_status_reply(build_active_work_context(host, session_id=context.session_id) or context)
         elif action == "append_instruction_to_active_work":
             instruction = decision.appended_instruction or str(user_message or "").strip()
-            result = append_user_work_instruction(
-                host,
-                context.task_run_id,
-                content=instruction,
-                turn_id=turn_id,
-                intent="append_instruction_to_active_work",
-            )
-            if result.get("ok") and context.resumable:
-                resume_result = resume_paused_task_run(host, context.task_run_id, reason="conversation_instruction", requested_by="user")
-                if resume_result.get("ok"):
-                    self._schedule_active_task_run_executor(context.task_run_id, scheduler="conversation_instruction")
-            if not result.get("ok"):
-                response = active_work_status_reply(build_active_work_context(host, session_id=context.session_id) or context)
+            if context.checkout_allowed:
+                response = self._apply_checkout_active_work(
+                    context=context,
+                    turn_id=turn_id,
+                    user_instruction=instruction,
+                    reason="conversation_instruction",
+                    default_response=response,
+                )
+            else:
+                result = append_user_work_instruction(
+                    host,
+                    context.task_run_id,
+                    content=instruction,
+                    turn_id=turn_id,
+                    intent="append_instruction_to_active_work",
+                )
+                if result.get("ok") and context.resumable:
+                    resume_result = resume_paused_task_run(host, context.task_run_id, reason="conversation_instruction", requested_by="user")
+                    if resume_result.get("ok"):
+                        self._schedule_active_task_run_executor(context.task_run_id, scheduler="conversation_instruction")
+                if not result.get("ok"):
+                    response = active_work_status_reply(build_active_work_context(host, session_id=context.session_id) or context)
         elif action == "answer_about_active_work":
             response = decision.response or active_work_status_reply(build_active_work_context(host, session_id=context.session_id) or context)
         elif action == "ask_user":
             response = decision.response or default_reply_for_action(action, context)
         return public_active_work_text(response)
 
-    def _schedule_active_task_run_executor(self, task_run_id: str, *, scheduler: str, max_steps: int = 12) -> dict[str, Any]:
+    def _apply_continue_active_work(
+        self,
+        *,
+        context: ActiveWorkContext,
+        turn_id: str,
+        user_message: str,
+        default_response: str,
+    ) -> str:
+        host = self.single_agent_runtime_host
+        plan = build_resume_plan(host, context=context, user_message=user_message)
+        if plan.decision == "same_run_resume":
+            result = resume_paused_task_run(host, context.task_run_id, reason="conversation_continue", requested_by="user")
+            if result.get("ok"):
+                self._schedule_active_task_run_executor(context.task_run_id, scheduler="conversation_continue")
+                return default_response or "好，我接着处理。"
+            return active_work_status_reply(build_active_work_context(host, session_id=context.session_id) or context)
+        if plan.decision == "checkout_fork":
+            return self._apply_checkout_active_work(
+                context=context,
+                turn_id=turn_id,
+                user_instruction=user_message,
+                reason="conversation_continue",
+                default_response=default_response or "好，我会先检查上次中断处的现状，再接着处理。",
+                plan=plan,
+            )
+        if plan.decision == "already_running":
+            return default_response or "我正在接着处理，新的进展会继续更新在这里。"
+        if plan.decision == "completed_iteration":
+            return active_work_status_reply(build_active_work_context(host, session_id=context.session_id) or context)
+        return active_work_status_reply(build_active_work_context(host, session_id=context.session_id) or context)
+
+    def _apply_checkout_active_work(
+        self,
+        *,
+        context: ActiveWorkContext,
+        turn_id: str,
+        user_instruction: str,
+        reason: str,
+        default_response: str,
+        plan: ResumePlan | None = None,
+    ) -> str:
+        host = self.single_agent_runtime_host
+        plan = plan or build_resume_plan(host, context=context, user_message=user_instruction)
+        if plan.decision not in {"checkout_fork", "same_run_resume"}:
+            return active_work_status_reply(build_active_work_context(host, session_id=context.session_id) or context)
+        if plan.decision == "same_run_resume":
+            if user_instruction:
+                append_user_work_instruction(
+                    host,
+                    context.task_run_id,
+                    content=user_instruction,
+                    turn_id=turn_id,
+                    intent=reason,
+                )
+            resume_result = resume_paused_task_run(host, context.task_run_id, reason=reason, requested_by="user")
+            if resume_result.get("ok"):
+                self._schedule_active_task_run_executor(context.task_run_id, scheduler=reason)
+                return default_response
+            return active_work_status_reply(build_active_work_context(host, session_id=context.session_id) or context)
+        checkout_result = checkout_task_run_for_resume(
+            host,
+            context.task_run_id,
+            user_instruction=user_instruction,
+            turn_id=turn_id,
+            reason=reason,
+        )
+        if not checkout_result.get("ok"):
+            return active_work_status_reply(build_active_work_context(host, session_id=context.session_id) or context)
+        child = dict(checkout_result.get("task_run") or {})
+        child_task_run_id = str(child.get("task_run_id") or "")
+        if child_task_run_id:
+            self._schedule_active_task_run_executor(child_task_run_id, scheduler=reason)
+        return default_response or "好，我会先检查上次中断处的现状，再接着处理。"
+
+    def _schedule_active_task_run_executor(
+        self,
+        task_run_id: str,
+        *,
+        scheduler: str,
+        max_steps: int = _CONVERSATION_TASK_EXECUTION_STEPS,
+    ) -> dict[str, Any]:
         runtime_host = self.single_agent_runtime_host
         task_run = runtime_host.state_index.get_task_run(task_run_id)
         if task_run is None:

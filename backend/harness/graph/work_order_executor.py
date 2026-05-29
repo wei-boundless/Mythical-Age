@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .models import GraphHarnessConfig, GraphNodeWorkOrder, NodeResultEnvelope, safe_id
+from .runtime_objects import node_result_summary, work_order_summary
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,9 +86,9 @@ class GraphNodeWorkOrderExecutor:
             payload={
                 "graph_run_id": work_order.graph_run_id,
                 "node_id": work_order.node_id,
-                "work_order": work_order.to_dict(),
+                "work_order": work_order_summary(work_order),
                 "node_executor_task_run_id": str(task_run_payload.get("task_run_id") or ""),
-                "node_result": result.to_dict(),
+                "node_result": node_result_summary(result),
                 "executor_result": _public_executor_result(executor_result),
             },
             refs={
@@ -116,6 +117,14 @@ class GraphNodeWorkOrderExecutor:
     ) -> NodeResultEnvelope:
         ok = bool(executor_result.get("ok") is True)
         task_run_payload = dict(executor_result.get("task_run") or {})
+        if not ok:
+            return _agent_execution_not_ok_result(
+                graph_config=graph_config,
+                work_order=work_order,
+                task_run_id=task_run_id,
+                executor_result=executor_result,
+                task_run_payload=task_run_payload,
+            )
         final_answer = str(executor_result.get("final_answer") or task_run_payload.get("diagnostics", {}).get("final_answer") or "")
         artifact_refs = _artifact_refs_from_executor_result(executor_result, task_run_payload=task_run_payload)
         contract_artifact_refs, contract_artifact_errors = _contract_artifact_refs_from_final_content(
@@ -151,7 +160,6 @@ class GraphNodeWorkOrderExecutor:
             executor_type=work_order.executor_type,
             status=result_status,
             outputs={
-                "final_answer": final_answer,
                 "node_executor_task_run_id": task_run_id,
                 "executor_status": str(task_run_payload.get("status") or ("completed" if ok else "failed")),
                 "artifact_refs": artifact_refs,
@@ -206,6 +214,79 @@ class GraphNodeWorkOrderExecutor:
             created_at=time.time(),
         )
         return GraphWorkOrderExecution(work_order=work_order, node_result=result)
+
+
+def _agent_execution_not_ok_result(
+    *,
+    graph_config: GraphHarnessConfig,
+    work_order: GraphNodeWorkOrder,
+    task_run_id: str,
+    executor_result: dict[str, Any],
+    task_run_payload: dict[str, Any],
+) -> NodeResultEnvelope:
+    status = _agent_node_result_status_for_not_ok_execution(
+        executor_result=executor_result,
+        task_run_payload=task_run_payload,
+    )
+    diagnostics = dict(task_run_payload.get("diagnostics") or {})
+    recoverable_error = dict(diagnostics.get("recoverable_error") or {})
+    reason = str(
+        executor_result.get("error")
+        or task_run_payload.get("terminal_reason")
+        or recoverable_error.get("error_code")
+        or ("node_executor_blocked" if status == "blocked" else "node_executor_failed")
+    )
+    return NodeResultEnvelope(
+        result_id=f"nresult:{safe_id(work_order.graph_run_id)}:{safe_id(work_order.node_id)}:{safe_id(work_order.work_order_id)}",
+        graph_run_id=work_order.graph_run_id,
+        task_run_id=work_order.task_run_id,
+        node_id=work_order.node_id,
+        work_order_id=work_order.work_order_id,
+        executor_type=work_order.executor_type,
+        status=status,
+        outputs={
+            "node_executor_task_run_id": task_run_id,
+            "executor_status": str(task_run_payload.get("status") or status),
+            "artifact_refs": [],
+        },
+        error={
+            "reason": reason,
+            **({"recoverable_error": recoverable_error} if recoverable_error else {}),
+        },
+        diagnostics={
+            "authority": "harness.graph.work_order_executor.agent_result",
+            "graph_harness_config_id": graph_config.config_id,
+            "node_executor_task_run_id": task_run_id,
+            "executor_result": _public_executor_result(executor_result),
+            "formal_postprocess_errors": [],
+        },
+        created_at=time.time(),
+    )
+
+
+def _agent_node_result_status_for_not_ok_execution(
+    *,
+    executor_result: dict[str, Any],
+    task_run_payload: dict[str, Any],
+) -> str:
+    task_status = str(task_run_payload.get("status") or "").strip()
+    terminal_reason = str(task_run_payload.get("terminal_reason") or executor_result.get("error") or "").strip()
+    diagnostics = dict(task_run_payload.get("diagnostics") or {})
+    recoverable_error = dict(diagnostics.get("recoverable_error") or {})
+    if task_status in {"blocked", "waiting_executor", "waiting_approval"}:
+        return "blocked"
+    if terminal_reason in {
+        "model_call_recovery_required",
+        "task_execution_step_budget_exhausted",
+        "task_execution_step_budget_exceeded",
+        "waiting_executor",
+        "user_input_required",
+        "agent_blocked",
+    }:
+        return "blocked"
+    if recoverable_error and bool(recoverable_error.get("retryable", True)):
+        return "blocked"
+    return "failed"
 
 
 def _artifact_refs_from_executor_result(executor_result: dict[str, Any], *, task_run_payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -313,9 +394,57 @@ def _contract_artifact_refs_from_final_content(
 def _public_executor_result(result: dict[str, Any] | None) -> dict[str, Any]:
     payload = dict(result or {})
     return {
-        key: value
-        for key, value in payload.items()
-        if key in {"ok", "error", "final_answer", "artifact_refs", "task_run", "event", "lifecycle"}
+        "ok": bool(payload.get("ok") is True),
+        "error": str(payload.get("error") or ""),
+        "artifact_refs": [dict(item) for item in list(payload.get("artifact_refs") or []) if isinstance(item, dict)],
+        "task_run": _task_run_summary(payload.get("task_run")),
+        "event": _event_summary(payload.get("event")),
+        "lifecycle": _lifecycle_summary(payload.get("lifecycle")),
+    }
+
+
+def _task_run_summary(task_run: Any | None) -> dict[str, Any]:
+    payload = task_run.to_dict() if hasattr(task_run, "to_dict") else (dict(task_run) if isinstance(task_run, dict) else {})
+    diagnostics = dict(payload.get("diagnostics") or {})
+    return {
+        "task_run_id": str(payload.get("task_run_id") or ""),
+        "session_id": str(payload.get("session_id") or ""),
+        "task_id": str(payload.get("task_id") or ""),
+        "status": str(payload.get("status") or ""),
+        "terminal_reason": str(payload.get("terminal_reason") or ""),
+        "origin_kind": str(diagnostics.get("origin_kind") or ""),
+        "graph_run_id": str(diagnostics.get("graph_run_id") or ""),
+        "graph_work_order_id": str(diagnostics.get("graph_work_order_id") or ""),
+        "graph_node_id": str(diagnostics.get("graph_node_id") or ""),
+        "project_id": str(diagnostics.get("project_id") or ""),
+        "runtime_scope": dict(diagnostics.get("runtime_scope") or {}),
+    }
+
+
+def _lifecycle_summary(lifecycle: Any | None) -> dict[str, Any]:
+    payload = lifecycle.to_dict() if hasattr(lifecycle, "to_dict") else (dict(lifecycle) if isinstance(lifecycle, dict) else {})
+    return {
+        "task_run_id": str(payload.get("task_run_id") or ""),
+        "contract_ref": str(payload.get("contract_ref") or ""),
+        "status": str(payload.get("status") or ""),
+        "created_at": payload.get("created_at", 0.0),
+        "updated_at": payload.get("updated_at", 0.0),
+        "terminal_reason": str(payload.get("terminal_reason") or ""),
+        "acceptance_ref_count": len(list(payload.get("acceptance_refs") or [])),
+        "observation_ref_count": len(list(payload.get("observation_refs") or [])),
+        "authority": str(payload.get("authority") or "harness.loop.task_lifecycle"),
+    }
+
+
+def _event_summary(event: Any | None) -> dict[str, Any]:
+    payload = event.to_dict() if hasattr(event, "to_dict") else (dict(event) if isinstance(event, dict) else {})
+    return {
+        "event_id": str(payload.get("event_id") or ""),
+        "event_type": str(payload.get("event_type") or payload.get("type") or ""),
+        "task_run_id": str(payload.get("task_run_id") or ""),
+        "created_at": payload.get("created_at", 0.0),
+        "refs": dict(payload.get("refs") or {}),
+        "authority": str(payload.get("authority") or ""),
     }
 
 

@@ -129,7 +129,7 @@ def test_graph_harness_config_preserves_full_graph_language() -> None:
     assert edge_types["edge.review.revise"] == "revision_request"
 
 
-def test_graph_composition_scopes_imported_loop_contracts() -> None:
+def test_graph_module_expansion_scopes_imported_loop_contracts() -> None:
     child = TaskGraphDefinition(
         graph_id="graph.test.child_loop",
         title="Child Loop",

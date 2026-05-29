@@ -140,7 +140,7 @@ def test_resume_decision_uses_checkpoint_without_overriding_current_obligation()
         task_run_id="taskrun:test",
         checkpoint=checkpoint,
         current_obligation={"required_writes": [{"kind": "workspace_change"}]},
-        user_goal="继续修复",
+        resume_intent="continue",
     )
 
     assert decision.decision == "continue"

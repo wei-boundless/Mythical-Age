@@ -518,7 +518,7 @@ export type TaskGraphDraftTopologySpec = {
   artifact_context_edges?: Array<Record<string, unknown>>;
   revision_edges?: Array<Record<string, unknown>>;
   loop_frames?: Array<Record<string, unknown>>;
-  graph_module_runtime_plans?: Array<Record<string, unknown>>;
+  graph_module_expansion_plans?: Array<Record<string, unknown>>;
   graph_modules?: Array<Record<string, unknown>>;
   issues: Array<Record<string, unknown>>;
   valid: boolean;
@@ -755,7 +755,7 @@ export type UnitPortEdgeSpec = {
   metadata?: Record<string, unknown>;
 };
 
-export type GraphModuleRuntimePlanSpec = {
+export type GraphModuleExpansionPlanSpec = {
   plan_id: string;
   importing_graph_id: string;
   unit_id: string;
@@ -764,6 +764,8 @@ export type GraphModuleRuntimePlanSpec = {
   handoff_contract_id?: string;
   input_port_id?: string;
   output_port_id?: string;
+  runtime_node_id?: string;
+  scope_prefix?: string;
   isolation_policy?: string;
   visibility_policy?: string;
   detach_policy?: string;
@@ -805,7 +807,7 @@ export type TaskGraphStandardView = {
   units?: ComposableUnitSpec[];
   interfaces?: UnitInterfaceSpec[];
   port_edges?: UnitPortEdgeSpec[];
-  graph_module_runtime?: GraphModuleRuntimePlanSpec[];
+  graph_module_expansion?: GraphModuleExpansionPlanSpec[];
   graph_module_expansions?: GraphModuleExpansionSpec[];
   timeline: TaskGraphStandardTimelineSpec;
   runtime_isolation: TaskGraphRuntimeIsolationSpec;
@@ -1170,7 +1172,15 @@ export type OrchestrationAgentRuntimeProfile = {
   agent_id: string;
   enabled_runtime_modes?: string[];
   default_runtime_mode?: string;
+  allowed_tool_packages?: Array<{
+    package_id: string;
+    enabled: boolean;
+    include_operations: string[];
+    exclude_operations: string[];
+  }>;
+  extra_allowed_operations?: string[];
   allowed_operations: string[];
+  final_allowed_operations?: string[];
   blocked_operations: string[];
   allowed_memory_scopes: string[];
   allowed_context_sections: string[];
@@ -2407,6 +2417,12 @@ export type OperationBindingGraph = {
 export type CapabilitySystemCatalog = {
   skills: OperationSkill[];
   tools: OperationTool[];
+  tool_packages?: ToolPackageDefinition[];
+  default_library?: Array<{
+    tool_name: string;
+    operation_id: string;
+    tool_type?: string;
+  }>;
   mcps?: OperationMCP[];
   local_mcp_units?: Array<Record<string, unknown>>;
   mcp_management?: Record<string, unknown>;
@@ -2464,6 +2480,8 @@ export type CapabilitySystemCatalog = {
     tool_sources: Record<string, number>;
     tool_risks: Record<string, number>;
     operation_count?: number;
+    tool_package_count?: number;
+    default_library_tool_count?: number;
     validation_issue_count?: number;
     validation_error_count?: number;
   };
@@ -3144,6 +3162,19 @@ export type StreamHandlers = {
 
 export type StreamResult = {
   terminalEvent: "done" | "error" | "stopped";
+};
+
+export type ToolPackageDefinition = {
+  package_id: string;
+  title: string;
+  description: string;
+  category: string;
+  operation_ids: string[];
+  risk_level: string;
+  managed: boolean;
+  default_enabled: boolean;
+  tags: string[];
+  metadata?: Record<string, unknown>;
 };
 
 const TERMINAL_STREAM_EVENTS = new Set(["done", "error", "stopped"]);

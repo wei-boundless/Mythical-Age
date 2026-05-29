@@ -138,7 +138,7 @@ const STANDARD_VIEW_FIXTURE: TaskGraphStandardView = {
       title: "正式创作图",
       ref: { graph_id: "graph.creation", version_ref: "v1" },
       interface_id: "interface.graph.block.creation",
-      runtime_policy: { execution_mode: "graph_module_run" },
+      runtime_policy: { execution_mode: "compile_time_inline_expansion" },
       phase_id: "phase.draft",
       sequence_index: 2,
       source_kind: "timeline_block",
@@ -179,9 +179,9 @@ const STANDARD_VIEW_FIXTURE: TaskGraphStandardView = {
       metadata: {},
     },
   ],
-  graph_module_runtime: [
+  graph_module_expansion: [
     {
-      plan_id: "graph_module_runtime.block.creation",
+      plan_id: "graph_module_expansion.block.creation",
       importing_graph_id: "graph.novel",
       unit_id: "unit.graph.block.creation",
       linked_graph_id: "graph.creation",
@@ -189,15 +189,17 @@ const STANDARD_VIEW_FIXTURE: TaskGraphStandardView = {
       handoff_contract_id: "contract.creation.commit",
       input_port_id: "input.default",
       output_port_id: "output.default",
-      isolation_policy: "isolated_per_graph_module_run",
-      visibility_policy: "committed_only",
+      runtime_node_id: "graph_module.block.creation",
+      scope_prefix: "graph_module.block.creation::",
+      isolation_policy: "compile_time_inline_expansion",
+      visibility_policy: "expanded_internal_nodes",
       detach_policy: "preserve_version_anchor",
       metadata: {},
     },
   ],
   graph_module_expansions: [
     {
-      plan_id: "graph_module_runtime.block.creation",
+      plan_id: "graph_module_expansion.block.creation",
       runtime_node_id: "graph_module.block.creation",
       unit_id: "unit.graph.block.creation",
       linked_graph_id: "graph.creation",
@@ -272,7 +274,7 @@ describe("TaskGraph standard view helpers", () => {
     expect(describeTaskGraphStandardEdge(STANDARD_VIEW_FIXTURE.edges[0]!)).toContain("memory.world.world_bible");
   });
 
-  it("summarizes composable units, interfaces, port edges, and graph module runtime", () => {
+  it("summarizes composable units, interfaces, port edges, and graph module expansion", () => {
     const model = buildTaskGraphComposableStandardModel(STANDARD_VIEW_FIXTURE);
 
     expect(model.units).toHaveLength(2);
@@ -281,7 +283,7 @@ describe("TaskGraph standard view helpers", () => {
     expect(model.interfaces).toHaveLength(2);
     expect(model.interfaceByUnitId.get("unit.graph.block.creation")?.output_ports[0]?.status_required).toBe("committed");
     expect(model.portEdgesByUnitId.get("unit.node.writer")).toHaveLength(1);
-    expect(model.graphModuleRuntime[0]?.linked_graph_id).toBe("graph.creation");
+    expect(model.graphModuleExpansionPlans[0]?.linked_graph_id).toBe("graph.creation");
     expect(model.graphModuleExpansions[0]?.nodes?.[0]?.node_id).toBe("outline");
     expect(model.graphModuleExpansionByUnitId.get("unit.graph.block.creation")?.linked_graph_id).toBe("graph.creation");
     expect(model.expandedNodeCount).toBe(2);

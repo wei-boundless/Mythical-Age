@@ -21,11 +21,17 @@ _BUILTIN_OPERATION_TO_TOOL = {
     "op.git_diff": "git_diff",
     "op.git_log": "git_log",
     "op.git_show": "git_show",
+    "op.git_branch_list": "git_branch_list",
+    "op.git_branch_create": "git_branch_create",
+    "op.git_stage": "git_stage",
+    "op.git_unstage": "git_unstage",
+    "op.git_commit": "git_commit",
+    "op.git_restore": "git_restore",
+    "op.git_push": "git_push",
     "op.write_file": "write_file",
     "op.edit_file": "edit_file",
     "op.shell": "terminal",
     "op.python_repl": "python_repl",
-    "op.delegate_to_agent": "delegate_to_agent",
     "op.agent_todo": "agent_todo",
 }
 

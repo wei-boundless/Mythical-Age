@@ -10,36 +10,107 @@
         "custom"
       ],
       "default_runtime_mode": "standard",
+      "allowed_tool_packages": [
+        {
+          "package_id": "pkg.filesystem.read",
+          "enabled": true,
+          "include_operations": [],
+          "exclude_operations": []
+        },
+        {
+          "package_id": "pkg.filesystem.write",
+          "enabled": true,
+          "include_operations": [],
+          "exclude_operations": []
+        },
+        {
+          "package_id": "pkg.search.local",
+          "enabled": true,
+          "include_operations": [],
+          "exclude_operations": []
+        },
+        {
+          "package_id": "pkg.git.read",
+          "enabled": true,
+          "include_operations": [],
+          "exclude_operations": []
+        },
+        {
+          "package_id": "pkg.git.write",
+          "enabled": true,
+          "include_operations": [],
+          "exclude_operations": []
+        },
+        {
+          "package_id": "pkg.web",
+          "enabled": true,
+          "include_operations": [],
+          "exclude_operations": []
+        },
+        {
+          "package_id": "pkg.memory",
+          "enabled": true,
+          "include_operations": [],
+          "exclude_operations": []
+        },
+        {
+          "package_id": "pkg.agent",
+          "enabled": true,
+          "include_operations": [],
+          "exclude_operations": []
+        },
+        {
+          "package_id": "pkg.multimodal",
+          "enabled": true,
+          "include_operations": [],
+          "exclude_operations": []
+        },
+        {
+          "package_id": "pkg.mcp.local",
+          "enabled": true,
+          "include_operations": [],
+          "exclude_operations": []
+        }
+      ],
+      "extra_allowed_operations": [
+        "op.shell"
+      ],
       "allowed_operations": [
-        "op.model_response",
         "op.read_file",
         "op.list_dir",
         "op.stat_path",
         "op.path_exists",
         "op.glob_paths",
         "op.read_structured_file",
+        "op.write_file",
+        "op.edit_file",
         "op.search_files",
         "op.search_text",
         "op.git_status",
         "op.git_diff",
         "op.git_log",
         "op.git_show",
+        "op.git_branch_list",
+        "op.git_branch_create",
+        "op.git_stage",
+        "op.git_unstage",
+        "op.git_commit",
+        "op.git_restore",
         "op.web_search",
         "op.fetch_url",
         "op.memory_read",
         "op.agent_todo",
-        "op.delegate_to_agent",
         "op.image_generate",
         "op.mcp_retrieval",
         "op.mcp_pdf",
         "op.mcp_structured_data",
-        "op.write_file",
-        "op.edit_file",
-        "op.shell"
+        "op.shell",
+        "op.model_response"
       ],
       "blocked_operations": [
         "op.python_repl",
-        "op.memory_write_candidate"
+        "op.memory_write_candidate",
+        "op.git_push"
       ],
       "allowed_memory_scopes": [
         "conversation_readonly",
@@ -92,6 +163,38 @@
         "runtime_template_id": "builtin.main.default",
         "work_role_prompt": "你是一名通用主 agent，负责把用户的真实目标转化为可执行行动，并在系统装配的运行时、工具、权限和任务环境内完成工作。\n你需要先理解当前请求是否只是对话、一次性回答、只读观察、工具辅助，还是需要开启正式任务生命周期；这个判断由你基于语义和可见边界作出，不能依赖关键词、旧分类器或隐藏默认任务。\n当任务需要真实产物、持续执行、文件修改、命令验证、浏览器验证或失败恢复时，你应主动请求 TaskRun，并给出清晰合同：用户可理解目标、执行目标、交付物、验收标准、验证要求和恢复策略。\n进入 TaskRun 后，你必须围绕合同推进，使用 todo 管理步骤，逐步产出真实文件、真实观察和真实验证证据；报告、计划和总结只能作为辅助产物，不能替代核心交付。\n每次工具调用前要确认它服务于当前步骤和权限边界；工具失败后要把失败当作事实观察，调整路径、参数、计划或验证方式继续推进，只有在必要材料、权限或用户决策缺失时才阻塞。\n你需要持续自我审查：目标是否被偷换，计划是否覆盖合同，产物是否真实存在，验证是否足够，最终答复是否夸大完成度。不要暴露隐藏推理，不要输出内部 task id。"
       },
+      "final_allowed_operations": [
+        "op.read_file",
+        "op.list_dir",
+        "op.stat_path",
+        "op.path_exists",
+        "op.glob_paths",
+        "op.read_structured_file",
+        "op.write_file",
+        "op.edit_file",
+        "op.search_files",
+        "op.search_text",
+        "op.git_status",
+        "op.git_diff",
+        "op.git_log",
+        "op.git_show",
+        "op.git_branch_list",
+        "op.git_branch_create",
+        "op.git_stage",
+        "op.git_unstage",
+        "op.git_commit",
+        "op.git_restore",
+        "op.web_search",
+        "op.fetch_url",
+        "op.memory_read",
+        "op.agent_todo",
+        "op.image_generate",
+        "op.mcp_retrieval",
+        "op.mcp_pdf",
+        "op.mcp_structured_data",
+        "op.shell",
+        "op.model_response"
+      ],
       "runtime_template_id": "builtin.main.default",
       "runtime_mode_catalog": [
         {
@@ -266,6 +369,8 @@
         "custom"
       ],
       "default_runtime_mode": "custom",
+      "allowed_tool_packages": [],
+      "extra_allowed_operations": [],
       "allowed_operations": [
         "op.model_response",
         "op.memory_read",
@@ -277,7 +382,6 @@
         "op.shell",
         "op.python_repl",
         "op.agent_bounded",
-        "op.delegate_to_agent",
         "op.web_search"
       ],
       "allowed_memory_scopes": [
@@ -325,6 +429,11 @@
         "manager_kind": "memory",
         "runtime_template_id": "builtin.system.memory_manager"
       },
+      "final_allowed_operations": [
+        "op.model_response",
+        "op.memory_read",
+        "op.memory_write_candidate"
+      ],
       "runtime_template_id": "builtin.system.memory_manager",
       "runtime_mode_catalog": [
         {
@@ -499,6 +608,8 @@
         "custom"
       ],
       "default_runtime_mode": "custom",
+      "allowed_tool_packages": [],
+      "extra_allowed_operations": [],
       "allowed_operations": [
         "op.model_response",
         "op.read_file",
@@ -551,6 +662,11 @@
         "manager_kind": "config",
         "runtime_template_id": "builtin.system.config_manager"
       },
+      "final_allowed_operations": [
+        "op.model_response",
+        "op.read_file",
+        "op.search_text"
+      ],
       "runtime_template_id": "builtin.system.config_manager",
       "runtime_mode_catalog": [
         {
@@ -725,6 +841,8 @@
         "custom"
       ],
       "default_runtime_mode": "custom",
+      "allowed_tool_packages": [],
+      "extra_allowed_operations": [],
       "allowed_operations": [
         "op.model_response",
         "op.read_file",
@@ -777,6 +895,11 @@
         "manager_kind": "task",
         "runtime_template_id": "builtin.system.task_manager"
       },
+      "final_allowed_operations": [
+        "op.model_response",
+        "op.read_file",
+        "op.search_text"
+      ],
       "runtime_template_id": "builtin.system.task_manager",
       "runtime_mode_catalog": [
         {
@@ -951,6 +1074,8 @@
         "custom"
       ],
       "default_runtime_mode": "custom",
+      "allowed_tool_packages": [],
+      "extra_allowed_operations": [],
       "allowed_operations": [
         "op.model_response",
         "op.read_file",
@@ -1003,6 +1128,11 @@
         "manager_kind": "capability",
         "runtime_template_id": "builtin.system.capability_manager"
       },
+      "final_allowed_operations": [
+        "op.model_response",
+        "op.read_file",
+        "op.search_text"
+      ],
       "runtime_template_id": "builtin.system.capability_manager",
       "runtime_mode_catalog": [
         {
@@ -1177,6 +1307,8 @@
         "custom"
       ],
       "default_runtime_mode": "custom",
+      "allowed_tool_packages": [],
+      "extra_allowed_operations": [],
       "allowed_operations": [
         "op.model_response"
       ],
@@ -1188,8 +1320,7 @@
         "op.edit_file",
         "op.shell",
         "op.python_repl",
-        "op.memory_write_candidate",
-        "op.delegate_to_agent"
+        "op.memory_write_candidate"
       ],
       "allowed_memory_scopes": [
         "conversation_readonly",
@@ -1255,6 +1386,9 @@
           }
         }
       },
+      "final_allowed_operations": [
+        "op.model_response"
+      ],
       "runtime_template_id": "builtin.system.context_compactor",
       "runtime_mode_catalog": [
         {
@@ -1427,6 +1561,8 @@
       "agent_id": "agent:knowledge_searcher",
       "enabled_runtime_modes": [],
       "default_runtime_mode": "",
+      "allowed_tool_packages": [],
+      "extra_allowed_operations": [],
       "allowed_operations": [
         "op.model_response",
         "op.mcp_retrieval"
@@ -1442,8 +1578,7 @@
         "op.edit_file",
         "op.shell",
         "op.python_repl",
-        "op.memory_write_candidate",
-        "op.delegate_to_agent"
+        "op.memory_write_candidate"
       ],
       "allowed_memory_scopes": [],
       "allowed_context_sections": [
@@ -1490,6 +1625,10 @@
         ],
         "runtime_template_id": "runtime.template.knowledge_search"
       },
+      "final_allowed_operations": [
+        "op.model_response",
+        "op.mcp_retrieval"
+      ],
       "runtime_template_id": "runtime.template.knowledge_search",
       "runtime_mode_catalog": [
         {
@@ -1664,6 +1803,8 @@
         "custom"
       ],
       "default_runtime_mode": "custom",
+      "allowed_tool_packages": [],
+      "extra_allowed_operations": [],
       "allowed_operations": [
         "op.model_response",
         "op.mcp_pdf",
@@ -1674,8 +1815,7 @@
         "op.edit_file",
         "op.shell",
         "op.python_repl",
-        "op.memory_write_candidate",
-        "op.delegate_to_agent"
+        "op.memory_write_candidate"
       ],
       "allowed_memory_scopes": [
         "conversation_readonly",
@@ -1719,6 +1859,11 @@
         "delegation_kind": "pdf_reading",
         "runtime_template_id": "builtin.specialist.pdf_reader"
       },
+      "final_allowed_operations": [
+        "op.model_response",
+        "op.mcp_pdf",
+        "op.read_file"
+      ],
       "runtime_template_id": "builtin.specialist.pdf_reader",
       "runtime_mode_catalog": [
         {
@@ -1893,6 +2038,8 @@
         "custom"
       ],
       "default_runtime_mode": "custom",
+      "allowed_tool_packages": [],
+      "extra_allowed_operations": [],
       "allowed_operations": [
         "op.model_response",
         "op.mcp_structured_data",
@@ -1904,8 +2051,7 @@
         "op.edit_file",
         "op.shell",
         "op.python_repl",
-        "op.memory_write_candidate",
-        "op.delegate_to_agent"
+        "op.memory_write_candidate"
       ],
       "allowed_memory_scopes": [
         "conversation_readonly",
@@ -1949,6 +2095,12 @@
         "delegation_kind": "table_analysis",
         "runtime_template_id": "builtin.specialist.table_analyst"
       },
+      "final_allowed_operations": [
+        "op.model_response",
+        "op.mcp_structured_data",
+        "op.read_structured_file",
+        "op.read_file"
+      ],
       "runtime_template_id": "builtin.specialist.table_analyst",
       "runtime_mode_catalog": [
         {
@@ -2121,6 +2273,8 @@
       "agent_id": "agent:web_researcher",
       "enabled_runtime_modes": [],
       "default_runtime_mode": "",
+      "allowed_tool_packages": [],
+      "extra_allowed_operations": [],
       "allowed_operations": [
         "op.model_response",
         "op.search_agent",
@@ -2137,8 +2291,7 @@
         "op.edit_file",
         "op.shell",
         "op.python_repl",
-        "op.memory_write_candidate",
-        "op.delegate_to_agent"
+        "op.memory_write_candidate"
       ],
       "allowed_memory_scopes": [],
       "allowed_context_sections": [
@@ -2215,6 +2368,12 @@
           }
         }
       },
+      "final_allowed_operations": [
+        "op.model_response",
+        "op.search_agent",
+        "op.web_search",
+        "op.fetch_url"
+      ],
       "runtime_template_id": "builtin.specialist.web_researcher",
       "runtime_mode_catalog": [
         {
@@ -2387,6 +2546,8 @@
       "agent_id": "agent:codebase_searcher",
       "enabled_runtime_modes": [],
       "default_runtime_mode": "",
+      "allowed_tool_packages": [],
+      "extra_allowed_operations": [],
       "allowed_operations": [
         "op.model_response",
         "op.codebase_search",
@@ -2407,8 +2568,7 @@
         "op.edit_file",
         "op.shell",
         "op.python_repl",
-        "op.memory_write_candidate",
-        "op.delegate_to_agent"
+        "op.memory_write_candidate"
       ],
       "allowed_memory_scopes": [],
       "allowed_context_sections": [
@@ -2472,6 +2632,17 @@
           }
         }
       },
+      "final_allowed_operations": [
+        "op.model_response",
+        "op.codebase_search",
+        "op.search_files",
+        "op.search_text",
+        "op.read_file",
+        "op.glob_paths",
+        "op.git_status",
+        "op.git_log",
+        "op.git_show"
+      ],
       "runtime_template_id": "runtime.template.codebase_search",
       "runtime_mode_catalog": [
         {
@@ -2644,6 +2815,8 @@
       "agent_id": "agent:memory_searcher",
       "enabled_runtime_modes": [],
       "default_runtime_mode": "",
+      "allowed_tool_packages": [],
+      "extra_allowed_operations": [],
       "allowed_operations": [
         "op.model_response",
         "op.memory_read"
@@ -2659,8 +2832,7 @@
         "op.edit_file",
         "op.shell",
         "op.python_repl",
-        "op.memory_write_candidate",
-        "op.delegate_to_agent"
+        "op.memory_write_candidate"
       ],
       "allowed_memory_scopes": [
         "conversation_readonly",
@@ -2720,6 +2892,10 @@
           "stop_policy": "enough_memory_evidence_or_budget_exhausted"
         }
       },
+      "final_allowed_operations": [
+        "op.model_response",
+        "op.memory_read"
+      ],
       "runtime_template_id": "runtime.template.memory_search",
       "runtime_mode_catalog": [
         {
@@ -2894,6 +3070,8 @@
         "custom"
       ],
       "default_runtime_mode": "custom",
+      "allowed_tool_packages": [],
+      "extra_allowed_operations": [],
       "allowed_operations": [
         "op.model_response",
         "op.read_file",
@@ -2907,8 +3085,7 @@
         "op.edit_file",
         "op.shell",
         "op.python_repl",
-        "op.memory_write_candidate",
-        "op.delegate_to_agent"
+        "op.memory_write_candidate"
       ],
       "allowed_memory_scopes": [
         "conversation_readonly",
@@ -2963,6 +3140,14 @@
         "runtime_template_id": "builtin.specialist.verifier",
         "child_execution_mode": "model_only_review"
       },
+      "final_allowed_operations": [
+        "op.model_response",
+        "op.read_file",
+        "op.search_files",
+        "op.search_text",
+        "op.git_diff",
+        "op.git_status"
+      ],
       "runtime_template_id": "builtin.specialist.verifier",
       "runtime_mode_catalog": [
         {
@@ -3138,6 +3323,8 @@
         "custom"
       ],
       "default_runtime_mode": "standard",
+      "allowed_tool_packages": [],
+      "extra_allowed_operations": [],
       "allowed_operations": [
         "op.model_response",
         "op.memory_read",
@@ -3152,7 +3339,6 @@
         "op.edit_file",
         "op.shell",
         "op.python_repl",
-        "op.delegate_to_agent",
         "op.web_search",
         "op.fetch_url"
       ],
@@ -3215,6 +3401,11 @@
         "agent_side_memory_read_tool": "memory_search",
         "generic_length_metric_tool_enabled": true
       },
+      "final_allowed_operations": [
+        "op.model_response",
+        "op.memory_read",
+        "op.text_metric"
+      ],
       "runtime_template_id": "task_graph.writing.modular_novel.worker",
       "runtime_mode_catalog": [
         {
@@ -3390,6 +3581,8 @@
         "custom"
       ],
       "default_runtime_mode": "standard",
+      "allowed_tool_packages": [],
+      "extra_allowed_operations": [],
       "allowed_operations": [
         "op.model_response",
         "op.memory_read",
@@ -3404,7 +3597,6 @@
         "op.edit_file",
         "op.shell",
         "op.python_repl",
-        "op.delegate_to_agent",
         "op.web_search",
         "op.fetch_url"
       ],
@@ -3467,6 +3659,11 @@
         "agent_side_memory_read_tool": "memory_search",
         "generic_length_metric_tool_enabled": true
       },
+      "final_allowed_operations": [
+        "op.model_response",
+        "op.memory_read",
+        "op.text_metric"
+      ],
       "runtime_template_id": "task_graph.writing.modular_novel.creator",
       "runtime_mode_catalog": [
         {
@@ -3642,6 +3839,8 @@
         "custom"
       ],
       "default_runtime_mode": "standard",
+      "allowed_tool_packages": [],
+      "extra_allowed_operations": [],
       "allowed_operations": [
         "op.model_response",
         "op.memory_read"
@@ -3655,7 +3854,6 @@
         "op.edit_file",
         "op.shell",
         "op.python_repl",
-        "op.delegate_to_agent",
         "op.web_search",
         "op.fetch_url"
       ],
@@ -3718,6 +3916,10 @@
         "agent_side_memory_read_tool": "memory_search",
         "generic_length_metric_tool_enabled": false
       },
+      "final_allowed_operations": [
+        "op.model_response",
+        "op.memory_read"
+      ],
       "runtime_template_id": "task_graph.writing.modular_novel.reviewer",
       "runtime_mode_catalog": [
         {
@@ -3893,6 +4095,8 @@
         "custom"
       ],
       "default_runtime_mode": "standard",
+      "allowed_tool_packages": [],
+      "extra_allowed_operations": [],
       "allowed_operations": [
         "op.model_response",
         "op.memory_read"
@@ -3906,7 +4110,6 @@
         "op.edit_file",
         "op.shell",
         "op.python_repl",
-        "op.delegate_to_agent",
         "op.web_search",
         "op.fetch_url"
       ],
@@ -3969,6 +4172,10 @@
         "agent_side_memory_read_tool": "memory_search",
         "generic_length_metric_tool_enabled": false
       },
+      "final_allowed_operations": [
+        "op.model_response",
+        "op.memory_read"
+      ],
       "runtime_template_id": "task_graph.writing.modular_novel.memory_steward",
       "runtime_mode_catalog": [
         {
@@ -4144,6 +4351,8 @@
         "custom"
       ],
       "default_runtime_mode": "standard",
+      "allowed_tool_packages": [],
+      "extra_allowed_operations": [],
       "allowed_operations": [
         "op.model_response",
         "op.memory_read"
@@ -4157,7 +4366,6 @@
         "op.edit_file",
         "op.shell",
         "op.python_repl",
-        "op.delegate_to_agent",
         "op.web_search",
         "op.fetch_url"
       ],
@@ -4221,6 +4429,10 @@
         "agent_side_memory_read_tool": "memory_search",
         "generic_length_metric_tool_enabled": false
       },
+      "final_allowed_operations": [
+        "op.model_response",
+        "op.memory_read"
+      ],
       "runtime_template_id": "task_graph.writing.modular_novel.runtime_monitor",
       "runtime_mode_catalog": [
         {

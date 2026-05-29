@@ -162,7 +162,7 @@ def default_runtime_lane_descriptors() -> tuple[RuntimeLaneDescriptor, ...]:
                 "op.git_log",
                 "op.git_show",
                 "op.memory_read",
-                "op.delegate_to_agent",
+                
                 "op.write_file",
                 "op.edit_file",
                 "op.shell",

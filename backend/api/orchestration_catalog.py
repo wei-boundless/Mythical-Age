@@ -13,9 +13,9 @@ from agent_system.registry.agent_registry import AgentRegistry
 from agent_system.registry.worker_agent_factory import default_worker_agent_blueprints
 from api.deps import require_runtime
 from capability_system import build_capability_catalog, build_default_operation_registry, build_orchestration_capability_items
+from capability_system.tool_packages import parse_tool_package_selection
 from harness.runtime import assemble_runtime
 from orchestration import ControlKernel, TaskContract, build_base_unit_catalog
-from orchestration.delegation_catalog import DelegationCatalogBuilder
 from orchestration.resource_inventory import build_runtime_resource_inventory
 from agent_system.profiles.runtime_mode_config import mode_config_catalog
 from task_system import TaskFlowRegistry
@@ -38,6 +38,8 @@ class AgentRuntimeProfileRequest(BaseModel):
     agent_profile_id: str = Field(default="", max_length=160)
     enabled_runtime_modes: list[str] = Field(default_factory=list)
     default_runtime_mode: str = Field(default="", max_length=80)
+    allowed_tool_packages: list[dict[str, Any]] = Field(default_factory=list)
+    extra_allowed_operations: list[str] = Field(default_factory=list)
     allowed_operations: list[str] = Field(default_factory=list)
     blocked_operations: list[str] = Field(default_factory=list)
     allowed_memory_scopes: list[str] = Field(default_factory=list)
@@ -86,12 +88,6 @@ class OrchestrationPreviewRequest(BaseModel):
     task_selection: dict[str, Any] = Field(default_factory=dict)
 
 
-class DelegationPreviewRequest(BaseModel):
-    parent_agent_id: str = Field(default="")
-    target_agent_id: str = Field(default="")
-    delegation_kind: str = Field(default="")
-
-
 OPTION_LABELS: dict[str, str] = {
     "general": "通用任务域",
     "development": "开发任务域",
@@ -128,6 +124,13 @@ OPTION_LABELS: dict[str, str] = {
     "op.git_diff": "查看 Git 差异",
     "op.git_log": "查看 Git 日志",
     "op.git_show": "查看 Git 对象",
+    "op.git_branch_list": "查看 Git 分支",
+    "op.git_branch_create": "创建 Git 分支",
+    "op.git_stage": "暂存 Git 文件",
+    "op.git_unstage": "取消暂存 Git 文件",
+    "op.git_commit": "提交 Git 版本",
+    "op.git_restore": "恢复 Git 文件",
+    "op.git_push": "推送 Git 分支",
     "op.write_file": "写入文件",
     "op.edit_file": "编辑文件",
     "op.shell": "终端命令",
@@ -136,9 +139,7 @@ OPTION_LABELS: dict[str, str] = {
     "op.memory_write_candidate": "提交记忆候选",
     "op.mcp_retrieval": "检索 MCP",
     "op.mcp_pdf": "PDF MCP",
-    "op.mcp_structured_data": "结构化数据 MCP",
-    "op.delegate_to_agent": "委派子Agent",
-    "op.agent_bounded": "运行受限 Agent",
+    "op.mcp_structured_data": "结构化数据 MCP",    "op.agent_bounded": "运行受限 Agent",
     "op.session_message_candidate": "提交会话消息候选",
     "op.artifact_result_ref": "提交产物引用候选",
     "default": "默认审批",
@@ -619,6 +620,15 @@ async def upsert_orchestration_agent_runtime_profile(
             agent_profile_id=payload.agent_profile_id,
             enabled_runtime_modes=tuple(payload.enabled_runtime_modes),
             default_runtime_mode=payload.default_runtime_mode,
+            allowed_tool_packages=tuple(
+                item
+                for item in (
+                    parse_tool_package_selection(raw)
+                    for raw in payload.allowed_tool_packages
+                )
+                if item is not None
+            ),
+            extra_allowed_operations=tuple(payload.extra_allowed_operations),
             allowed_operations=tuple(payload.allowed_operations),
             blocked_operations=tuple(payload.blocked_operations),
             allowed_memory_scopes=tuple(payload.allowed_memory_scopes),
@@ -646,22 +656,6 @@ async def refresh_orchestration_catalog() -> dict[str, Any]:
     runtime = require_runtime()
     runtime.refresh_catalogs()
     return await orchestration_catalog()
-
-
-@router.get("/orchestration/delegation-catalog")
-async def orchestration_delegation_catalog(parent_agent_id: str = "") -> dict[str, Any]:
-    runtime = require_runtime()
-    return DelegationCatalogBuilder(runtime.base_dir).build(parent_agent_id=parent_agent_id)
-
-
-@router.post("/orchestration/delegation-catalog/preview")
-async def orchestration_delegation_preview(payload: DelegationPreviewRequest) -> dict[str, Any]:
-    runtime = require_runtime()
-    return DelegationCatalogBuilder(runtime.base_dir).preview(
-        parent_agent_id=payload.parent_agent_id,
-        target_agent_id=payload.target_agent_id,
-        delegation_kind=payload.delegation_kind,
-    )
 
 
 @router.put("/orchestration/plan-mode")

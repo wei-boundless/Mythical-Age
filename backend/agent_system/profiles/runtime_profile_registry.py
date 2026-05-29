@@ -9,6 +9,12 @@ from project_layout import ProjectLayout
 from ..registry.agent_registry import AgentRegistry
 from ..identity import agent_id_aliases, normalize_agent_id, normalize_agent_id_sequence
 from .runtime_profile_models import AgentRuntimeProfile
+from capability_system.tool_packages import (
+    ToolPackageSelection,
+    default_enabled_package_selections,
+    parse_tool_package_selection,
+    resolve_tool_package_operations,
+)
 from ..models.model_profile_models import contains_raw_secret, parse_agent_model_profile
 from .runtime_mode_config import (
     DEFAULT_RUNTIME_MODE,
@@ -58,12 +64,15 @@ def _is_removed_health_runtime_profile(payload: dict[str, Any]) -> bool:
 
 
 def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
+    main_packages = default_enabled_package_selections()
     return (
         AgentRuntimeProfile(
             agent_profile_id="main_interactive_agent",
             agent_id="agent:0",
             enabled_runtime_modes=(ROLE_MODE, STANDARD_MODE, PROFESSIONAL_MODE, CUSTOM_MODE),
             default_runtime_mode=STANDARD_MODE,
+            allowed_tool_packages=main_packages,
+            extra_allowed_operations=("op.shell",),
             allowed_operations=(
                 "op.model_response",
                 "op.read_file",
@@ -78,12 +87,16 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 "op.git_diff",
                 "op.git_log",
                 "op.git_show",
+                "op.git_branch_list",
+                "op.git_branch_create",
+                "op.git_stage",
+                "op.git_unstage",
+                "op.git_commit",
+                "op.git_restore",
                 "op.web_search",
                 "op.fetch_url",
                 "op.memory_read",
-                "op.agent_todo",
-                "op.delegate_to_agent",
-                "op.image_generate",
+                "op.agent_todo",                "op.image_generate",
                 "op.mcp_retrieval",
                 "op.mcp_pdf",
                 "op.mcp_structured_data",
@@ -91,7 +104,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 "op.edit_file",
                 "op.shell",
             ),
-            blocked_operations=("op.python_repl", "op.memory_write_candidate"),
+            blocked_operations=("op.python_repl", "op.memory_write_candidate", "op.git_push"),
             allowed_memory_scopes=("conversation_readonly", "state_readonly", "long_term_candidate"),
             allowed_context_sections=("conversation", "state", "task", "projection", "tool", "runtime_contracts"),
             use_shared_contract=True,
@@ -124,7 +137,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             agent_profile_id="memory_system_agent",
             agent_id="agent:1",
             allowed_operations=("op.model_response", "op.memory_read", "op.memory_write_candidate"),
-            blocked_operations=("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.agent_bounded", "op.delegate_to_agent", "op.web_search"),
+            blocked_operations=("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.agent_bounded", "op.web_search"),
             allowed_memory_scopes=("conversation_readonly", "state_readonly", "long_term_candidate", "session_memory_write_candidate", "durable_memory_write_candidate"),
             allowed_context_sections=("task", "runtime_trace", "memory_runtime_view", "prompt_manifest", "runtime_contracts"),
             use_shared_contract=True,
@@ -180,9 +193,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 "op.edit_file",
                 "op.shell",
                 "op.python_repl",
-                "op.memory_write_candidate",
-                "op.delegate_to_agent",
-            ),
+                "op.memory_write_candidate",            ),
             allowed_memory_scopes=("conversation_readonly", "state_readonly"),
             allowed_context_sections=("task", "runtime_trace", "memory_runtime_view", "prompt_manifest", "runtime_contracts", "artifact_refs"),
             use_shared_contract=True,
@@ -229,9 +240,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 "op.edit_file",
                 "op.shell",
                 "op.python_repl",
-                "op.memory_write_candidate",
-                "op.delegate_to_agent",
-            ),
+                "op.memory_write_candidate",            ),
             allowed_memory_scopes=(),
             allowed_context_sections=("task", "projection", "tool", "runtime_contracts", "artifact_refs"),
             use_shared_contract=True,
@@ -249,7 +258,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             agent_profile_id="pdf_analysis_agent",
             agent_id="agent:pdf_reader",
             allowed_operations=("op.model_response", "op.mcp_pdf", "op.read_file"),
-            blocked_operations=("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.memory_write_candidate", "op.delegate_to_agent"),
+            blocked_operations=("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.memory_write_candidate"),
             allowed_memory_scopes=("conversation_readonly", "state_readonly"),
             allowed_context_sections=("task", "projection", "tool", "runtime_contracts", "artifact_refs"),
             use_shared_contract=True,
@@ -262,7 +271,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             agent_profile_id="structured_data_analysis_agent",
             agent_id="agent:table_analyst",
             allowed_operations=("op.model_response", "op.mcp_structured_data", "op.read_structured_file", "op.read_file"),
-            blocked_operations=("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.memory_write_candidate", "op.delegate_to_agent"),
+            blocked_operations=("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.memory_write_candidate"),
             allowed_memory_scopes=("conversation_readonly", "state_readonly"),
             allowed_context_sections=("task", "projection", "tool", "runtime_contracts", "artifact_refs"),
             use_shared_contract=True,
@@ -290,9 +299,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 "op.edit_file",
                 "op.shell",
                 "op.python_repl",
-                "op.memory_write_candidate",
-                "op.delegate_to_agent",
-            ),
+                "op.memory_write_candidate",            ),
             allowed_memory_scopes=(),
             allowed_context_sections=("task", "projection", "tool", "runtime_contracts", "artifact_refs"),
             use_shared_contract=True,
@@ -362,9 +369,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 "op.edit_file",
                 "op.shell",
                 "op.python_repl",
-                "op.memory_write_candidate",
-                "op.delegate_to_agent",
-            ),
+                "op.memory_write_candidate",            ),
             allowed_memory_scopes=(),
             allowed_context_sections=("task", "projection", "tool", "runtime_contracts", "artifact_refs"),
             use_shared_contract=True,
@@ -410,9 +415,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 "op.edit_file",
                 "op.shell",
                 "op.python_repl",
-                "op.memory_write_candidate",
-                "op.delegate_to_agent",
-            ),
+                "op.memory_write_candidate",            ),
             allowed_memory_scopes=("conversation_readonly", "state_readonly"),
             allowed_context_sections=("task", "projection", "tool", "runtime_contracts", "artifact_refs", "memory_runtime_view"),
             use_shared_contract=True,
@@ -440,7 +443,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             agent_profile_id="completion_verifier_agent",
             agent_id="agent:verifier",
             allowed_operations=("op.model_response", "op.read_file", "op.search_files", "op.search_text", "op.git_diff", "op.git_status"),
-            blocked_operations=("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.memory_write_candidate", "op.delegate_to_agent"),
+            blocked_operations=("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.memory_write_candidate"),
             allowed_memory_scopes=("conversation_readonly", "state_readonly"),
             allowed_context_sections=("task", "projection", "runtime_trace", "assertions", "runtime_contracts", "artifact_refs"),
             use_shared_contract=True,
@@ -482,16 +485,31 @@ def _profile_from_dict(payload: dict[str, Any]) -> AgentRuntimeProfile:
         payload.get("default_runtime_mode") or metadata.get("default_runtime_mode") or DEFAULT_RUNTIME_MODE,
         explicit_modes,
     )
-    allowed_operations = tuple(str(item) for item in list(payload.get("allowed_operations") or []) if str(item))
-    blocked_operations = _without_allowed_operations(
-        tuple(str(item) for item in list(payload.get("blocked_operations") or []) if str(item)),
-        allowed_operations=allowed_operations,
+    raw_blocked_operations = tuple(str(item) for item in list(payload.get("blocked_operations") or []) if str(item))
+    package_selections = tuple(
+        item
+        for item in (
+            parse_tool_package_selection(raw)
+            for raw in list(payload.get("allowed_tool_packages") or [])
+        )
+        if item is not None
     )
+    extra_allowed_operations = tuple(str(item) for item in list(payload.get("extra_allowed_operations") or []) if str(item))
+    legacy_allowed_operations = tuple(str(item) for item in list(payload.get("allowed_operations") or []) if str(item))
+    allowed_operations = resolve_tool_package_operations(
+        package_selections,
+        extra_allowed_operations=extra_allowed_operations,
+        legacy_allowed_operations=legacy_allowed_operations,
+        blocked_operations=raw_blocked_operations,
+    )
+    blocked_operations = _without_allowed_operations(raw_blocked_operations, allowed_operations=allowed_operations)
     return AgentRuntimeProfile(
         agent_profile_id=str(payload.get("agent_profile_id") or ""),
         agent_id=normalized_agent_id,
         enabled_runtime_modes=explicit_modes,
         default_runtime_mode=default_runtime_mode,
+        allowed_tool_packages=package_selections,
+        extra_allowed_operations=extra_allowed_operations,
         allowed_operations=allowed_operations,
         blocked_operations=blocked_operations,
         allowed_memory_scopes=tuple(_normalize_memory_scopes(normalized_agent_id, payload.get("allowed_memory_scopes"))),
@@ -581,6 +599,8 @@ class AgentRuntimeRegistry:
         agent_profile_id: str = "",
         enabled_runtime_modes: tuple[str, ...] = (),
         default_runtime_mode: str = "",
+        allowed_tool_packages: tuple[ToolPackageSelection, ...] = (),
+        extra_allowed_operations: tuple[str, ...] = (),
         allowed_operations: tuple[str, ...] = (),
         blocked_operations: tuple[str, ...] = (),
         allowed_memory_scopes: tuple[str, ...] = (),
@@ -619,13 +639,24 @@ class AgentRuntimeRegistry:
         )
         metadata_payload.pop("enabled_runtime_modes", None)
         metadata_payload.pop("default_runtime_mode", None)
+        requested_packages = allowed_tool_packages or (current.allowed_tool_packages if current else ())
+        requested_extra_operations = extra_allowed_operations or (current.extra_allowed_operations if current else ())
+        raw_blocked_operations = tuple(str(item).strip() for item in blocked_operations if str(item).strip())
+        resolved_allowed_operations = resolve_tool_package_operations(
+            requested_packages,
+            extra_allowed_operations=requested_extra_operations,
+            legacy_allowed_operations=allowed_operations,
+            blocked_operations=raw_blocked_operations,
+        )
         profile = AgentRuntimeProfile(
             agent_profile_id=str(agent_profile_id or (current.agent_profile_id if current else f"{target.removeprefix('agent:').replace(':', '_')}_runtime")).strip(),
             agent_id=target,
             enabled_runtime_modes=normalized_modes,
             default_runtime_mode=normalized_default_mode,
-            allowed_operations=tuple(str(item).strip() for item in allowed_operations if str(item).strip()),
-            blocked_operations=tuple(str(item).strip() for item in blocked_operations if str(item).strip()),
+            allowed_tool_packages=tuple(requested_packages),
+            extra_allowed_operations=tuple(str(item).strip() for item in requested_extra_operations if str(item).strip()),
+            allowed_operations=resolved_allowed_operations,
+            blocked_operations=tuple(str(item).strip() for item in raw_blocked_operations if str(item).strip()),
             allowed_memory_scopes=tuple(_normalize_memory_scopes(target, allowed_memory_scopes)),
             allowed_context_sections=tuple(str(item).strip() for item in allowed_context_sections if str(item).strip()),
             use_shared_contract=bool(use_shared_contract),

@@ -1,0 +1,25 @@
+{
+  "packet_id": "rtpacket:gtask:grun_graph_writing_modular_novel_master_1780089733745:graph_module_design_init__project_brief:gwork_grun_graph_writing_modular_novel_master_1780089733745_graph_module_design_init__project_brief_1_0_1780089740259:task_execution:1",
+  "message_count": 5,
+  "node_id": "graph_module.design_init::project_brief",
+  "task_ref": "task.writing.modular_novel.node.project_brief@graph_module.design_init",
+  "contains_current_role": true,
+  "unexpected_role_hits": [],
+  "message_roles": [
+    "system",
+    "system",
+    "system",
+    "system",
+    "user"
+  ],
+  "segment_kinds": [
+    "global_static",
+    "task_stable",
+    "environment_stable",
+    "dynamic_projection",
+    "volatile_task_state"
+  ],
+  "stable_contract_has_current_role": true,
+  "stable_contract_has_other_role": false,
+  "system_instruction_chars": 3176
+}

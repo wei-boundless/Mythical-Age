@@ -123,7 +123,7 @@ export function TaskGraphComposableCanvas({
         ? selectedSubject.unit_id
         : "";
   const selectedExpansion = selectedExpansionUnitId ? expansionByUnitId.get(selectedExpansionUnitId) ?? null : null;
-  const showingImportedGraph = activeFacet === "graph_module_runtime" && Boolean(selectedExpansion);
+  const showingImportedGraph = activeFacet === "graph_module_expansion" && Boolean(selectedExpansion);
   const moduleNodes = units
     .filter((unit) => unit.unit_type === "graph")
     .map((unit) => {
@@ -164,13 +164,13 @@ export function TaskGraphComposableCanvas({
     edgeKind: childEdgeKind(edge),
     status: "idle",
   })).filter((edge) => edge.id && edge.from && edge.to);
-  const canvasNodes = activeFacet === "graph_module_runtime"
+  const canvasNodes = activeFacet === "graph_module_expansion"
     ? showingImportedGraph ? importedNodes : moduleNodes
     : graphNodes;
-  const canvasEdges = activeFacet === "graph_module_runtime"
+  const canvasEdges = activeFacet === "graph_module_expansion"
     ? showingImportedGraph ? importedEdges : moduleEdges
     : graphEdges;
-  const selectedCanvasNodeId = activeFacet === "graph_module_runtime"
+  const selectedCanvasNodeId = activeFacet === "graph_module_expansion"
     ? selectedSubject.kind === "graph_module_expansion"
       ? selectedSubject.unit_id
       : selectedSubject.kind === "graph_module_expansion_node"
@@ -179,14 +179,14 @@ export function TaskGraphComposableCanvas({
           ? selectedSubject.unit_id
           : ""
     : selectedNodeId;
-  const selectedCanvasEdgeId = activeFacet === "graph_module_runtime"
+  const selectedCanvasEdgeId = activeFacet === "graph_module_expansion"
     ? selectedSubject.kind === "graph_module_expansion_edge" ? selectedSubject.scoped_edge_id : ""
     : selectedEdgeId;
   const canvasTitle = showingImportedGraph ? expansionTitle(selectedExpansion) : graphDraft.title || graphDraft.graph_id;
-  const canvasOverline = activeFacet === "graph_module_runtime"
+  const canvasOverline = activeFacet === "graph_module_expansion"
     ? showingImportedGraph ? "图模块内部拓扑" : "导入模块关系图"
     : "标准视图画布";
-  const canvasDescription = activeFacet === "graph_module_runtime"
+  const canvasDescription = activeFacet === "graph_module_expansion"
     ? showingImportedGraph
       ? "当前只读查看被导入图模块的内部节点与边；编辑请进入该图模块工作台。"
       : "当前显示已导入图模块之间的交接关系；选择一个模块可查看它的内部拓扑。"
@@ -218,7 +218,7 @@ export function TaskGraphComposableCanvas({
           <span>边</span>
           <strong>派生映射</strong>
         </button>
-        <button className={activeFacet === "graph_module_runtime" ? "active" : ""} onClick={() => onFacetChange("graph_module_runtime")} type="button">
+        <button className={activeFacet === "graph_module_expansion" ? "active" : ""} onClick={() => onFacetChange("graph_module_expansion")} type="button">
           <Network aria-hidden="true" size={14} />
           <span>图模块</span>
           <strong>只读展开</strong>
@@ -228,11 +228,11 @@ export function TaskGraphComposableCanvas({
       <div className="coordination-topology-viewport coordination-topology-viewport--builder task-graph-composer-viewport">
         <TaskGraphTopologyCanvas
           edges={canvasEdges}
-          emptyDescription={activeFacet === "graph_module_runtime" ? "绑定 linked_graph_id 并刷新标准视图后，导入图模块会生成可浏览的关系图。" : "保存或刷新标准视图后，canonical 节点、边和图模块会被编译成标准对象。"}
-          emptyTitle={activeFacet === "graph_module_runtime" ? "当前还没有导入图模块" : "当前层级还没有可组合单元"}
+          emptyDescription={activeFacet === "graph_module_expansion" ? "绑定 linked_graph_id 并刷新标准视图后，导入图模块会生成可浏览的关系图。" : "保存或刷新标准视图后，canonical 节点、边和图模块会被编译成标准对象。"}
+          emptyTitle={activeFacet === "graph_module_expansion" ? "当前还没有导入图模块" : "当前层级还没有可组合单元"}
           nodes={canvasNodes}
           onSelectEdge={(edgeId) => {
-            if (activeFacet === "graph_module_runtime" && showingImportedGraph && selectedExpansion) {
+            if (activeFacet === "graph_module_expansion" && showingImportedGraph && selectedExpansion) {
               const edge = selectedExpansion.edges?.find((item) => String(item.scoped_edge_id ?? item.edge_id ?? "").trim() === edgeId);
               onSelectSubject({ kind: "graph_module_expansion_edge", unit_id: selectedExpansion.unit_id, scoped_edge_id: edgeId, edge_id: edge?.edge_id });
               return;
@@ -240,7 +240,7 @@ export function TaskGraphComposableCanvas({
             onSelectSubject({ kind: "port_edge", edge_id: edgeId });
           }}
           onSelectNode={(nodeId) => {
-            if (activeFacet === "graph_module_runtime") {
+            if (activeFacet === "graph_module_expansion") {
               if (showingImportedGraph && selectedExpansion) {
                 const node = selectedExpansion.nodes?.find((item) => String(item.scoped_node_id ?? item.node_id ?? "").trim() === nodeId);
                 onSelectSubject({ kind: "graph_module_expansion_node", unit_id: selectedExpansion.unit_id, scoped_node_id: nodeId, node_id: node?.node_id });

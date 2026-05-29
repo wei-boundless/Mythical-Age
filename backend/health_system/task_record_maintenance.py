@@ -182,6 +182,7 @@ class HealthTaskRecordMaintenanceService:
     ) -> dict[str, Any]:
         task_run_id = str(getattr(task_run, "task_run_id", "") or "")
         status = str(getattr(task_run, "status", "") or "unknown")
+        diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
         created_at = float(getattr(task_run, "created_at", 0.0) or 0.0)
         updated_at = float(getattr(task_run, "updated_at", 0.0) or created_at or 0.0)
         age_seconds = max(0.0, self.now - max(created_at, updated_at))
@@ -196,6 +197,10 @@ class HealthTaskRecordMaintenanceService:
             protection_reasons.append("recent_task_record")
         if status in FAILED_TASK_STATUSES and task_run_id not in reported_task_run_ids:
             protection_reasons.append("failed_without_health_report")
+        if self._has_lineage(task_run, diagnostics=diagnostics):
+            protection_reasons.append("task_lineage_record")
+        if self._has_lineage_dependents(task_run_id):
+            protection_reasons.append("task_lineage_parent")
         return {
             "task_run_id": task_run_id,
             "title": str(
@@ -252,6 +257,28 @@ class HealthTaskRecordMaintenanceService:
         summarizer = getattr(self.prompt_accounting_ledger, "summarize_task", None)
         if not callable(summarizer):
             return {}
+
+    def _has_lineage(self, task_run: Any, *, diagnostics: dict[str, Any]) -> bool:
+        lineage = dict(diagnostics.get("lineage") or {})
+        origin = dict(diagnostics.get("origin") or {})
+        parent_id = str(diagnostics.get("parent_task_run_id") or lineage.get("parent_task_run_id") or origin.get("parent_task_run_id") or "")
+        root_id = str(diagnostics.get("root_task_run_id") or lineage.get("root_task_run_id") or "")
+        origin_kind = str(diagnostics.get("origin_kind") or origin.get("origin_kind") or "")
+        task_run_id = str(getattr(task_run, "task_run_id", "") or "")
+        return bool(parent_id or (root_id and root_id != task_run_id) or origin_kind == "checkout_resume")
+
+    def _has_lineage_dependents(self, task_run_id: str) -> bool:
+        if not task_run_id:
+            return False
+        for other in self.state_index.list_task_runs():
+            diagnostics = dict(getattr(other, "diagnostics", {}) or {})
+            lineage = dict(diagnostics.get("lineage") or {})
+            origin = dict(diagnostics.get("origin") or {})
+            parent_id = str(diagnostics.get("parent_task_run_id") or lineage.get("parent_task_run_id") or origin.get("parent_task_run_id") or "")
+            root_id = str(diagnostics.get("root_task_run_id") or lineage.get("root_task_run_id") or "")
+            if parent_id == task_run_id or root_id == task_run_id:
+                return True
+        return False
         try:
             return dict(summarizer(task_run_id) or {})
         except Exception:

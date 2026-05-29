@@ -31,7 +31,7 @@ export function focusForPreflightIssue(issue: TaskGraphPreflightIssue): TaskGrap
     const facet = issue.scope === "port_edge"
       ? "connections"
       : issue.title.includes("graph_module")
-        ? "graph_module_runtime"
+        ? "graph_module_expansion"
         : issue.title.includes("unit_interface")
           ? "interfaces"
           : "units";

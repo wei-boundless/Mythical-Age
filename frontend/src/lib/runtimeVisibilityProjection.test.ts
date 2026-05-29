@@ -204,4 +204,25 @@ describe("runtimeVisibilityProjection", () => {
     });
     expect(projection.progressEntry).toBeUndefined();
   });
+
+  it("does not expose internal answer source names in completion progress", () => {
+    const projection = projectRuntimeStreamEvent("done", {
+      answer_source: "harness.loop.single_agent.respond",
+    });
+
+    const visibleText = [
+      projection.activityDetail,
+      projection.progressEntry?.title,
+      projection.progressEntry?.body,
+    ].join(" ");
+
+    expect(projection.progressEntry).toMatchObject({
+      kind: "terminal",
+      statusText: "完成",
+      body: "回答已生成并写回会话",
+    });
+    expect(visibleText).not.toContain("harness");
+    expect(visibleText).not.toContain("single_agent");
+    expect(visibleText).not.toContain(".respond");
+  });
 });

@@ -93,7 +93,7 @@ class UnitPortEdge:
 
 
 @dataclass(frozen=True, slots=True)
-class GraphModuleRuntimePlan:
+class GraphModuleExpansionPlan:
     plan_id: str
     importing_graph_id: str
     unit_id: str
@@ -102,8 +102,10 @@ class GraphModuleRuntimePlan:
     handoff_contract_id: str = ""
     input_port_id: str = "input.default"
     output_port_id: str = "output.default"
-    isolation_policy: str = "isolated_per_graph_module_run"
-    visibility_policy: str = "committed_only"
+    runtime_node_id: str = ""
+    scope_prefix: str = ""
+    isolation_policy: str = "compile_time_inline_expansion"
+    visibility_policy: str = "expanded_internal_nodes"
     detach_policy: str = "preserve_version_anchor"
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -118,7 +120,7 @@ class ComposableGraphView:
     units: tuple[ComposableUnit, ...]
     interfaces: tuple[UnitInterface, ...]
     port_edges: tuple[UnitPortEdge, ...]
-    graph_module_runtime: tuple[GraphModuleRuntimePlan, ...] = ()
+    graph_module_expansion: tuple[GraphModuleExpansionPlan, ...] = ()
     diagnostics: dict[str, Any] = field(default_factory=dict)
     issues: tuple[dict[str, Any], ...] = ()
 
@@ -129,9 +131,8 @@ class ComposableGraphView:
             "units": [item.to_dict() for item in self.units],
             "interfaces": [item.to_dict() for item in self.interfaces],
             "port_edges": [item.to_dict() for item in self.port_edges],
-            "graph_module_runtime": [item.to_dict() for item in self.graph_module_runtime],
+            "graph_module_expansion": [item.to_dict() for item in self.graph_module_expansion],
             "diagnostics": dict(self.diagnostics),
             "issues": [dict(item) for item in self.issues],
         }
-
 

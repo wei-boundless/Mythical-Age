@@ -42,7 +42,17 @@ function short(value: unknown, limit = 360) {
   return normalized.length > limit ? `${normalized.slice(0, limit - 1)}...` : normalized;
 }
 
+function isInternalRuntimeReference(value: unknown) {
+  const normalized = text(value);
+  if (!normalized) return false;
+  return /(?:^|\s)(?:harness|backend|runtime|query|agent_system|capability_system|health_system|task_system)(?:\.[A-Za-z0-9_-]+){2,}(?:\s|$)/i.test(normalized)
+    || /\b(?:TaskRun|RuntimeInvocationPacket|runtime packet|answer_source|task_run_id|event_id)\b/i.test(normalized);
+}
+
 function publicRuntimeText(value: unknown, limit = 360) {
+  if (isInternalRuntimeReference(value)) {
+    return "";
+  }
   const normalized = short(value, limit)
     .replace(/\bTaskRun\b/gi, "当前工作")
     .replace(/\bruntime packet\b/gi, "上下文")
@@ -697,6 +707,7 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
   }
   if (event === "done") {
     const partialTimeout = text(data.completion_state) === "partial_timeout";
+    const summary = publicRuntimeText(data.receipt_summary ?? data.summary ?? data.message);
     return {
       stageStatus: partialTimeout ? "部分完成" : "完成",
       activityTitle: partialTimeout ? "已生成部分内容" : "完成",
@@ -704,7 +715,7 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
       level: partialTimeout ? "warning" : "success",
       terminalEvent: "done",
       progressEntry: entry("done", partialTimeout ? "会话输出部分完成" : "会话输出完成", {
-        body: partialTimeout ? "模型结束信号超时，当前内容已保留。" : text(data.receipt_summary ?? data.summary ?? data.answer_source) || "回答已生成并写回会话",
+        body: partialTimeout ? "模型结束信号超时，当前内容已保留。" : summary || "回答已生成并写回会话",
         level: partialTimeout ? "warning" : "success",
         kind: "terminal",
         statusText: partialTimeout ? "部分完成" : "完成",

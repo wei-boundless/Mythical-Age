@@ -972,6 +972,73 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().workspaceInitializing).toBe(false);
   });
 
+  it("sends to the newly created session when the user submits during creation", async () => {
+    vi.useRealTimers();
+    let resolveCreate: (value: {
+      id: string;
+      title: string;
+      created_at: number;
+      updated_at: number;
+      message_count: number;
+    }) => void = () => undefined;
+    api.createSession.mockImplementation(() => new Promise((resolve) => {
+      resolveCreate = resolve;
+    }));
+    api.listSessions.mockResolvedValue([
+      {
+        id: "session:new",
+        title: "New Session",
+        created_at: 2,
+        updated_at: 2,
+        message_count: 0,
+      },
+      {
+        id: "session:old",
+        title: "Old",
+        created_at: 1,
+        updated_at: 1,
+        message_count: 1,
+      },
+    ]);
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:old",
+      sessions: [
+        {
+          id: "session:old",
+          title: "Old",
+          created_at: 1,
+          updated_at: 1,
+          message_count: 1,
+        },
+      ],
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    const createPromise = runtime.actions.createNewSession();
+    const sendPromise = runtime.actions.sendMessage("马上发送");
+    expect(api.streamChat).not.toHaveBeenCalled();
+
+    resolveCreate({
+      id: "session:new",
+      title: "New Session",
+      created_at: 2,
+      updated_at: 2,
+      message_count: 0,
+    });
+    await Promise.all([createPromise, sendPromise]);
+
+    expect(api.streamChat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "马上发送",
+        session_id: "session:new",
+      }),
+      expect.any(Object),
+      expect.any(Object),
+    );
+    expect(store.getState().currentSessionId).toBe("session:new");
+  });
+
   it("keeps the page alive when selected session history times out", async () => {
     vi.useRealTimers();
     api.getSessionTimeline.mockRejectedValue(new Error("Request timed out after 12000ms: /sessions/session:slow/timeline"));

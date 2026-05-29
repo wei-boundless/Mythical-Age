@@ -261,6 +261,102 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
     assert cache_record.diagnostics["stable_prefix_segment_count"] == 2
 
 
+def test_task_execution_stable_prefix_is_unchanged_across_runtime_state_updates() -> None:
+    base_kwargs = {
+        "session_id": "session:append-only",
+        "task_run": {
+            "task_run_id": "taskrun:append-only",
+            "task_id": "task:dungeon",
+            "task_contract_ref": "contract:dungeon",
+            "diagnostics": {
+                "graph_run_id": "graph:dungeon",
+                "executor_status": "running",
+                "recoverable_error": "old tool failure",
+            },
+        },
+        "contract": {
+            "contract_id": "contract:dungeon",
+            "task_run_goal": "开发五层地下塔肉鸽游戏",
+            "completion_criteria": ["生成可运行游戏", "完成基本验证"],
+        },
+        "runtime_assembly": {
+            "profile": {"mode": "professional"},
+            "task_environment": {"environment_id": "env.general.workspace"},
+        },
+    }
+    first = RuntimeCompiler().compile_task_execution_packet(
+        **base_kwargs,
+        invocation_index=1,
+        observations=[{"observation_id": "obs:first", "content": "first observation"}],
+        execution_state={"step": 1, "status": "debugging"},
+    )
+    second = RuntimeCompiler().compile_task_execution_packet(
+        **base_kwargs,
+        invocation_index=2,
+        observations=[
+            {"observation_id": "obs:first", "content": "first observation"},
+            {"observation_id": "obs:second", "content": "second observation"},
+        ],
+        execution_state={"step": 2, "status": "verifying"},
+    )
+
+    first_messages = first.packet.model_messages
+    second_messages = second.packet.model_messages
+    assert first_messages[:2] == second_messages[:2]
+    assert first_messages[2] == second_messages[2]
+    assert first_messages[3] != second_messages[3]
+
+    first_request = ModelRequestBuilder().build(
+        request_id="modelreq:first-append-only",
+        messages=first_messages,
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        segment_plan=first.packet.segment_plan,
+    )
+    second_request = ModelRequestBuilder().build(
+        request_id="modelreq:second-append-only",
+        messages=second_messages,
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        segment_plan=second.packet.segment_plan,
+    )
+    assert first_request.stable_prefix_hash == second_request.stable_prefix_hash
+    assert first_request.diagnostics["segment_bindings_match_planned_messages"] is True
+    assert second_request.diagnostics["segment_bindings_match_planned_messages"] is True
+
+
+def test_model_request_reports_segment_plan_binding_mismatch() -> None:
+    planned_messages = [
+        {"role": "system", "content": "stable runtime"},
+        {"role": "system", "content": "stable contract"},
+        {"role": "user", "content": "current request"},
+    ]
+    segment_plan = _segment_plan(
+        "packet:mismatch",
+        "turn_action",
+        planned_messages,
+        ("cacheable_prefix", "session_stable", "volatile"),
+    )
+    actual_messages = [
+        {"role": "system", "content": "stable runtime"},
+        {"role": "system", "content": "mutated stable contract"},
+        {"role": "user", "content": "current request"},
+    ]
+
+    model_request = ModelRequestBuilder().build(
+        request_id="modelreq:mismatch",
+        messages=actual_messages,
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        segment_plan=segment_plan,
+    )
+
+    assert model_request.diagnostics["segment_bindings_match_planned_messages"] is False
+    assert model_request.diagnostics["segment_binding_content_mismatch_count"] == 1
+    assert model_request.segment_bindings[1].planned_model_message_hash.startswith("sha256:")
+    assert model_request.segment_bindings[1].planned_model_message_hash != model_request.segment_bindings[1].request_content_hash
+
+
 def test_runtime_prompt_uses_assembly_projection_not_mode_instruction() -> None:
     result = RuntimeCompiler().compile_turn_action_packet(
         session_id="session:projection",
@@ -298,7 +394,7 @@ def test_runtime_prompt_uses_assembly_projection_not_mode_instruction() -> None:
     assert "当前 runtime 是 standard 模式" not in system_prompt
     assert "当前 runtime 是 role 模式" not in system_prompt
     assert "本次运行边界" in system_prompt
-    assert "可以请求正式 TaskRun" in system_prompt
+    assert "可以请求进入持续处理流程" in system_prompt
     assert "最终完成声明必须基于合同、真实观察、真实产物或验证证据" in system_prompt
     assert projection["authority"] == "harness.runtime.agent_visible_runtime_projection"
     assert projection["task_lifecycle"]["request_task_run_allowed"] is True
@@ -330,7 +426,7 @@ def test_role_runtime_projection_blocks_task_run_without_mode_instruction_text()
     projection = dynamic_payload["runtime_context"]["agent_visible_runtime_projection"]
 
     assert "当前 runtime 是 role 模式" not in system_prompt
-    assert "本次装配不允许开启正式 TaskRun" in system_prompt
+    assert "可以请求进入持续处理流程" not in system_prompt
     assert projection["task_lifecycle"]["request_task_run_allowed"] is False
     assert projection["permission_boundary"]["permission_scope"] == "role_conversation_readonly"
 

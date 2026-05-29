@@ -39,6 +39,7 @@ import {
   type MCPManagementTool,
   type OperationSkill,
   type OperationTool,
+  type ToolPackageDefinition,
 } from "@/lib/api";
 import { useConfirmDialog } from "@/components/layout/ConfirmDialogProvider";
 
@@ -196,6 +197,18 @@ function toolSearchText(tool: OperationTool) {
   ].join(" ").toLowerCase();
 }
 
+function toolPackageSearchText(toolPackage: ToolPackageDefinition) {
+  return [
+    toolPackage.package_id,
+    toolPackage.title,
+    toolPackage.description,
+    toolPackage.category,
+    toolPackage.risk_level,
+    toolPackage.operation_ids.join(" "),
+    toolPackage.tags.join(" "),
+  ].join(" ").toLowerCase();
+}
+
 function unitSearchText(unit: CapabilityUnit) {
   return [
     unit.capability_id,
@@ -306,6 +319,10 @@ function semanticToolPurpose(tool: OperationTool) {
     || "暂无用途说明";
 }
 
+function packageLabel(toolPackage: ToolPackageDefinition | null) {
+  return toolPackage ? `${toolPackage.category} · ${toolPackage.title}` : "默认库";
+}
+
 function semanticSkillUse(skill: OperationSkill) {
   return skill.prompt_view.use_when
     || skill.runtime.description
@@ -404,6 +421,7 @@ export function CapabilitySystemWorkbench() {
   const [promptDraft, setPromptDraft] = useState({ title: "", capability: "", use_when: "", output_rule: "" });
   const [promptEditing, setPromptEditing] = useState(false);
   const [newSkill, setNewSkill] = useState({ name: "", title: "", description: "" });
+  const [toolPackageFilter, setToolPackageFilter] = useState("全部工具包");
   const [toolBoundaryFilter, setToolBoundaryFilter] = useState("全部边界");
   const [toolRiskFilter, setToolRiskFilter] = useState("全部风险");
   const [toolNoteDraft, setToolNoteDraft] = useState("");
@@ -466,14 +484,34 @@ export function CapabilitySystemWorkbench() {
   );
   const toolBoundaryOptions = useMemo(() => ["全部边界", ...Object.keys(catalog?.summary.tool_boundaries ?? {})], [catalog?.summary.tool_boundaries]);
   const toolRiskOptions = useMemo(() => ["全部风险", ...Object.keys(catalog?.summary.tool_risks ?? {})], [catalog?.summary.tool_risks]);
+  const packageByOperationId = useMemo(() => {
+    const byOperation = new Map<string, ToolPackageDefinition[]>();
+    for (const toolPackage of catalog?.tool_packages ?? []) {
+      for (const operationId of toolPackage.operation_ids ?? []) {
+        const bucket = byOperation.get(operationId) ?? [];
+        bucket.push(toolPackage);
+        byOperation.set(operationId, bucket);
+      }
+    }
+    return byOperation;
+  }, [catalog?.tool_packages]);
+  const toolPackageOptions = useMemo(() => ["全部工具包", ...(catalog?.tool_packages ?? []).map((item) => item.package_id), "默认库"], [catalog?.tool_packages]);
   const visibleTools = useMemo(
     () => (catalog?.tools ?? []).filter((tool) => {
       const matchesQuery = !normalizedQuery || toolSearchText(tool).includes(normalizedQuery);
+      const packages = packageByOperationId.get(tool.operation_id) ?? [];
+      const matchesPackage = toolPackageFilter === "全部工具包"
+        || (toolPackageFilter === "默认库" && packages.length === 0)
+        || packages.some((item) => item.package_id === toolPackageFilter);
       const matchesBoundary = toolBoundaryFilter === "全部边界" || tool.operation_metadata.tool_boundary === toolBoundaryFilter;
       const matchesRisk = toolRiskFilter === "全部风险" || tool.operation_metadata.risk_level === toolRiskFilter;
-      return matchesQuery && matchesBoundary && matchesRisk;
+      return matchesQuery && matchesPackage && matchesBoundary && matchesRisk;
     }),
-    [catalog?.tools, normalizedQuery, toolBoundaryFilter, toolRiskFilter],
+    [catalog?.tools, normalizedQuery, packageByOperationId, toolPackageFilter, toolBoundaryFilter, toolRiskFilter],
+  );
+  const visibleToolPackages = useMemo(
+    () => (catalog?.tool_packages ?? []).filter((item) => !normalizedQuery || toolPackageSearchText(item).includes(normalizedQuery)),
+    [catalog?.tool_packages, normalizedQuery],
   );
   const visibleMcpServers = useMemo(
     () => (mcpCatalog?.servers ?? []).filter((server) => !normalizedQuery || mcpServerSearchText(server).includes(normalizedQuery)),
@@ -1045,10 +1083,49 @@ export function CapabilitySystemWorkbench() {
   }
 
   function renderTools() {
+    const selectedToolPackages = selectedTool ? packageByOperationId.get(selectedTool.operation_id) ?? [] : [];
+    const selectedPackage = selectedToolPackages[0] ?? null;
     return (
       <section className="operation-layout operation-layout--tools">
         <div className="operation-list">
+          <div className="capability-package-strip">
+            <button
+              className={toolPackageFilter === "全部工具包" ? "capability-package-chip capability-package-chip--active" : "capability-package-chip"}
+              onClick={() => setToolPackageFilter("全部工具包")}
+              type="button"
+            >
+              <strong>全部工具包</strong>
+              <span>{catalog?.tools.length ?? 0} 个工具</span>
+            </button>
+            {visibleToolPackages.map((toolPackage) => (
+              <button
+                className={toolPackageFilter === toolPackage.package_id ? "capability-package-chip capability-package-chip--active" : "capability-package-chip"}
+                key={toolPackage.package_id}
+                onClick={() => setToolPackageFilter(toolPackage.package_id)}
+                type="button"
+              >
+                <strong>{toolPackage.title}</strong>
+                <span>{toolPackage.category} · {toolPackage.operation_ids.length} 项 · {toolPackage.risk_level}风险</span>
+              </button>
+            ))}
+            {(catalog?.default_library ?? []).length ? (
+              <button
+                className={toolPackageFilter === "默认库" ? "capability-package-chip capability-package-chip--active" : "capability-package-chip"}
+                onClick={() => setToolPackageFilter("默认库")}
+                type="button"
+              >
+                <strong>默认库</strong>
+                <span>{catalog?.default_library?.length ?? 0} 个单工具</span>
+              </button>
+            ) : null}
+          </div>
           <div className="operation-tool-filters">
+            <select value={toolPackageFilter} onChange={(event) => setToolPackageFilter(event.target.value)}>
+              {toolPackageOptions.map((option) => {
+                const pkg = (catalog?.tool_packages ?? []).find((item) => item.package_id === option);
+                return <option key={option} value={option}>{pkg ? `${pkg.category} / ${pkg.title}` : option}</option>;
+              })}
+            </select>
             <select value={toolBoundaryFilter} onChange={(event) => setToolBoundaryFilter(event.target.value)}>
               {toolBoundaryOptions.map((option) => <option key={option} value={option}>{option}</option>)}
             </select>
@@ -1063,7 +1140,7 @@ export function CapabilitySystemWorkbench() {
               onClick={() => setSelectedToolName(tool.name)}
               type="button"
             >
-              <span>{tool.operation_metadata.tool_type} · {tool.operation_metadata.risk_level}风险</span>
+              <span>{packageLabel((packageByOperationId.get(tool.operation_id) ?? [])[0] ?? null)} · {tool.operation_metadata.risk_level}风险</span>
               <strong>{tool.display_name || tool.name}</strong>
               <p>{semanticToolPurpose(tool)}</p>
             </button>
@@ -1074,7 +1151,7 @@ export function CapabilitySystemWorkbench() {
             <>
               <div className="operation-detail__head">
                 <div>
-                  <span>{selectedTool.operation_metadata.tool_type} · {visibilityLabel(selectedTool.runtime_visibility)}</span>
+                  <span>{packageLabel(selectedPackage)} · {visibilityLabel(selectedTool.runtime_visibility)}</span>
                   <h3>{selectedTool.display_name || selectedTool.name}</h3>
                   <p>{semanticToolPurpose(selectedTool)}</p>
                 </div>
@@ -1087,9 +1164,9 @@ export function CapabilitySystemWorkbench() {
                 columns={4}
                 items={[
                   { label: "用途分类", value: selectedTool.operation_metadata.tool_type },
+                  { label: "所属工具包", value: selectedToolPackages.length ? selectedToolPackages.map((item) => item.title).join(" / ") : "默认库" },
                   { label: "风险等级", value: `${selectedTool.operation_metadata.risk_level}风险` },
                   { label: "模型可见", value: visibilityLabel(selectedTool.runtime_visibility) },
-                  { label: "自动路由", value: selectedTool.safe_for_auto_route ? "允许" : "需显式触发" },
                 ]}
               />
               <div className="operation-tool-control">

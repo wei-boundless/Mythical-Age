@@ -10,7 +10,7 @@ def test_runtime_resume_starts_new_without_checkpoint() -> None:
         task_run_id="taskrun:new",
         checkpoint=None,
         current_obligation={"required_reads": [{"path": "report.json"}]},
-        user_goal="继续分析",
+        resume_intent="continue",
     )
 
     assert decision.decision == "start_new"
@@ -30,11 +30,11 @@ def test_runtime_resume_restarts_when_current_turn_requests_restart() -> None:
         task_run_id="taskrun:old",
         checkpoint=checkpoint,
         current_obligation={"required_writes": [{"kind": "workspace_change"}]},
-        user_goal="从头重新开始，改另一个方向",
+        resume_intent="restart",
     )
 
     assert decision.decision == "restart"
-    assert decision.reason == "current_turn_requests_restart"
+    assert decision.reason == "resume_intent_restart"
     assert decision.resume_from_checkpoint_ref == "rtchk:taskrun:old:7"
     assert decision.current_obligation["required_writes"]
 
@@ -77,5 +77,44 @@ def test_runtime_resume_waits_for_human_gate_before_continuing() -> None:
     assert decision.decision == "wait_for_human"
     assert decision.reason == "human_gate_pending"
     assert decision.human_gate_summary["stage_id"] == "stage:a"
+
+
+def test_runtime_resume_human_gate_continue_requires_structured_intent_not_keyword() -> None:
+    checkpoint = SimpleNamespace(
+        checkpoint_id="rtchk:taskrun:gate:5",
+        event_offset=5,
+        loop_state=SimpleNamespace(status="blocked", terminal_reason="waiting_approval"),
+    )
+
+    keyword_only = decide_runtime_resume(
+        task_run_id="taskrun:gate",
+        checkpoint=checkpoint,
+        current_obligation={},
+        user_goal="继续",
+        human_gate_state={"status": "pending", "stage_id": "stage:a"},
+    )
+    structured_continue = decide_runtime_resume(
+        task_run_id="taskrun:gate",
+        checkpoint=checkpoint,
+        current_obligation={},
+        user_goal="继续",
+        human_gate_state={"status": "pending", "stage_id": "stage:a"},
+        resume_intent="continue",
+    )
+    structured_force_continue = decide_runtime_resume(
+        task_run_id="taskrun:gate",
+        checkpoint=checkpoint,
+        current_obligation={},
+        user_goal="继续",
+        human_gate_state={"status": "pending", "stage_id": "stage:a"},
+        resume_intent="force_continue",
+    )
+
+    assert keyword_only.decision == "wait_for_human"
+    assert keyword_only.reason == "human_gate_pending"
+    assert structured_continue.decision == "wait_for_human"
+    assert structured_continue.reason == "human_gate_pending"
+    assert structured_force_continue.decision == "continue"
+    assert structured_force_continue.reason == "human_gate_force_continue_intent"
 
 

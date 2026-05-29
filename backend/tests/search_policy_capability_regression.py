@@ -35,7 +35,6 @@ def test_harness_service_host_filters_main_runtime_tools_by_search_policy(tmp_pa
     resource_policy = SimpleNamespace(
         allowed_operations=(
             "op.model_response",
-            "op.delegate_to_agent",
             "op.web_search",
             "op.fetch_url",
             "op.read_file",
@@ -60,7 +59,7 @@ def test_harness_service_host_filters_main_runtime_tools_by_search_policy(tmp_pa
         for item in plan.filtered_tools
     }
 
-    assert "delegate_to_agent" in names
+    assert "delegate_to_agent" not in names
     assert "web_search" not in names
     assert "fetch_url" not in names
     assert "read_file" not in names

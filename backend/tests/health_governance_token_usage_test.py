@@ -76,6 +76,14 @@ class StateIndexStub:
         }
 
 
+class RuntimeObjectsStub:
+    def __init__(self, payloads: dict[str, dict] | None = None) -> None:
+        self.payloads = dict(payloads or {})
+
+    def get_object(self, ref: str):
+        return dict(self.payloads.get(str(ref), {}))
+
+
 def test_health_token_usage_is_task_trace_scoped_not_session_duplicated() -> None:
     now = time.time()
     task_runs = [
@@ -89,6 +97,7 @@ def test_health_token_usage_is_task_trace_scoped_not_session_duplicated() -> Non
     runtime_host = SimpleNamespace(
         state_index=StateIndexStub(task_runs),
         event_log=EventLogStub(events),
+        runtime_objects=RuntimeObjectsStub(),
         prompt_accounting_ledger=None,
         list_global_live_monitor=lambda limit: {"summary": {}, "task_runs": []},
     )
@@ -145,6 +154,7 @@ def test_health_token_usage_prefers_prompt_accounting_provider_usage(tmp_path) -
     runtime_host = SimpleNamespace(
         state_index=StateIndexStub([task_run]),
         event_log=EventLogStub({"taskrun:accounted": [EventStub("step_summary_recorded", {"summary": "large trace should not win"})]}),
+        runtime_objects=RuntimeObjectsStub(),
         prompt_accounting_ledger=ledger,
         list_global_live_monitor=lambda limit: {"summary": {}, "task_runs": []},
     )
@@ -190,6 +200,7 @@ def test_health_task_record_maintenance_dry_run_does_not_delete_records() -> Non
     runtime_host = SimpleNamespace(
         state_index=state_index,
         event_log=event_log,
+        runtime_objects=RuntimeObjectsStub(),
         prompt_accounting_ledger=None,
         list_global_live_monitor=lambda limit: {
             "summary": {"completed": 1, "running": 1},
@@ -253,6 +264,7 @@ def test_health_task_record_maintenance_protects_failed_without_report_and_delet
     runtime_host = SimpleNamespace(
         state_index=state_index,
         event_log=event_log,
+        runtime_objects=RuntimeObjectsStub(),
         prompt_accounting_ledger=None,
         list_global_live_monitor=lambda limit: {
             "summary": {"completed": 1, "failed": 1},
@@ -285,3 +297,153 @@ def test_health_task_record_maintenance_protects_failed_without_report_and_delet
     assert result["maintenance_receipt"]["status"] == "completed"
     assert state_index.deleted_task_run_ids == ["taskrun:old-completed"]
     assert event_log.deleted_task_run_ids == ["taskrun:old-completed"]
+
+
+def test_health_governance_reports_rollout_and_checkout_lineage_risks() -> None:
+    now = time.time()
+    interrupted_without_checkout = TaskRun(
+        task_run_id="taskrun:interrupted",
+        session_id="session:health-rollout",
+        task_id="task.interrupted",
+        execution_runtime_kind="single_agent_task",
+        status="aborted",
+        terminal_reason="user_aborted",
+        created_at=now - 2000,
+        updated_at=now - 1900,
+    )
+    missing_rollout = TaskRun(
+        task_run_id="taskrun:missing-rollout",
+        session_id="session:health-rollout",
+        task_id="task.missing-rollout",
+        execution_runtime_kind="single_agent_task",
+        status="waiting_executor",
+        terminal_reason="waiting_executor",
+        created_at=now - 2000,
+        updated_at=now - 1900,
+    )
+    failed_checkout_a = TaskRun(
+        task_run_id="taskrun:root:checkout:a",
+        session_id="session:health-rollout",
+        task_id="task.root.checkout.a",
+        execution_runtime_kind="single_agent_task",
+        status="failed",
+        terminal_reason="model_call_recovery_required",
+        created_at=now - 2000,
+        updated_at=now - 1800,
+        diagnostics={
+            "origin_kind": "checkout_resume",
+            "root_task_run_id": "taskrun:root",
+            "parent_task_run_id": "taskrun:root",
+            "lineage": {"root_task_run_id": "taskrun:root", "parent_task_run_id": "taskrun:root"},
+        },
+    )
+    failed_checkout_b = TaskRun(
+        task_run_id="taskrun:root:checkout:b",
+        session_id="session:health-rollout",
+        task_id="task.root.checkout.b",
+        execution_runtime_kind="single_agent_task",
+        status="failed",
+        terminal_reason="model_call_recovery_required",
+        created_at=now - 1700,
+        updated_at=now - 1600,
+        diagnostics={
+            "origin_kind": "checkout_resume",
+            "root_task_run_id": "taskrun:root",
+            "parent_task_run_id": "taskrun:root",
+            "lineage": {"root_task_run_id": "taskrun:root", "parent_task_run_id": "taskrun:root"},
+        },
+    )
+    runtime_host = SimpleNamespace(
+        state_index=StateIndexStub([interrupted_without_checkout, missing_rollout, failed_checkout_a, failed_checkout_b]),
+        event_log=EventLogStub({
+            "taskrun:interrupted": [EventStub("task_run_finished", {"terminal_reason": "user_aborted"})],
+            "taskrun:missing-rollout": [EventStub("step_summary_recorded", {"summary": "waiting"})],
+            "taskrun:root:checkout:a": [EventStub("loop_error", {"error": "failed"})],
+            "taskrun:root:checkout:b": [EventStub("loop_error", {"error": "failed"})],
+        }),
+        runtime_objects=RuntimeObjectsStub({
+            "rtobj:work_rollout:taskrun_root_checkout_a": {"rollout_id": "workrollout:a"},
+            "rtobj:work_rollout:taskrun_root_checkout_b": {"rollout_id": "workrollout:b"},
+        }),
+        prompt_accounting_ledger=None,
+        list_global_live_monitor=lambda limit: {"summary": {}, "task_runs": []},
+    )
+    runtime = SimpleNamespace(query_runtime=SimpleNamespace(single_agent_runtime_host=runtime_host))
+
+    risks = HealthGovernanceBuilder(runtime).build_risks(limit=10)["risks"]
+    risk_codes = {str(item.get("risk_code") or "") for item in risks}
+
+    assert "interrupted_without_checkout" in risk_codes
+    assert "missing_rollout_for_resumable_task" in risk_codes
+    assert "stale_waiting_executor" in risk_codes
+    assert "repeated_checkout_failure" in risk_codes
+
+
+def test_health_task_record_maintenance_protects_checkout_lineage_records() -> None:
+    now = time.time()
+    source = TaskRun(
+        task_run_id="taskrun:lineage-source",
+        session_id="session:maintenance-lineage",
+        task_id="task.lineage.source",
+        status="completed",
+        created_at=now - 200000,
+        updated_at=now - 190000,
+    )
+    child = TaskRun(
+        task_run_id="taskrun:lineage-source:checkout:a",
+        session_id="session:maintenance-lineage",
+        task_id="task.lineage.child",
+        status="completed",
+        created_at=now - 200000,
+        updated_at=now - 190000,
+        diagnostics={
+            "origin_kind": "checkout_resume",
+            "root_task_run_id": "taskrun:lineage-source",
+            "parent_task_run_id": "taskrun:lineage-source",
+            "lineage": {
+                "root_task_run_id": "taskrun:lineage-source",
+                "parent_task_run_id": "taskrun:lineage-source",
+            },
+        },
+    )
+    state_index = StateIndexStub([source, child])
+    event_log = EventLogStub({
+        "taskrun:lineage-source": [EventStub("step_summary_recorded", {"summary": "done"})],
+        "taskrun:lineage-source:checkout:a": [EventStub("step_summary_recorded", {"summary": "done"})],
+    })
+    runtime_host = SimpleNamespace(
+        state_index=state_index,
+        event_log=event_log,
+        runtime_objects=RuntimeObjectsStub(),
+        prompt_accounting_ledger=None,
+        list_global_live_monitor=lambda limit: {
+            "summary": {"completed": 2},
+            "task_runs": [
+                {
+                    "task_run_id": "taskrun:lineage-source",
+                    "status": "completed",
+                    "bucket": "completed",
+                    "resource_class": "static",
+                },
+                {
+                    "task_run_id": "taskrun:lineage-source:checkout:a",
+                    "status": "completed",
+                    "bucket": "completed",
+                    "resource_class": "static",
+                },
+            ],
+        },
+    )
+    runtime = SimpleNamespace(query_runtime=SimpleNamespace(single_agent_runtime_host=runtime_host))
+
+    result = HealthGovernanceBuilder(runtime).prune_task_records(
+        task_run_ids=["taskrun:lineage-source", "taskrun:lineage-source:checkout:a"],
+        dry_run=True,
+        min_age_seconds=0,
+    )
+    skipped = {item["task_run_id"]: item["protection_reasons"] for item in result["skipped"]}
+
+    assert result["eligible_task_run_ids"] == []
+    assert set(result["protected_task_run_ids"]) == {"taskrun:lineage-source", "taskrun:lineage-source:checkout:a"}
+    assert "task_lineage_parent" in skipped["taskrun:lineage-source"]
+    assert "task_lineage_record" in skipped["taskrun:lineage-source:checkout:a"]

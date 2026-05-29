@@ -240,7 +240,7 @@ export function buildTaskGraphComposableStandardModel(standardView: TaskGraphSta
       runtimeMonitorUnits: [] as ComposableUnitSpec[],
       interfaces: [] as UnitInterfaceSpec[],
       portEdges: [] as UnitPortEdgeSpec[],
-      graphModuleRuntime: [] as NonNullable<TaskGraphStandardView["graph_module_runtime"]>,
+      graphModuleExpansionPlans: [] as NonNullable<TaskGraphStandardView["graph_module_expansion"]>,
       graphModuleExpansions: [] as NonNullable<TaskGraphStandardView["graph_module_expansions"]>,
       graphModuleExpansionByUnitId: new Map<string, GraphModuleExpansionSpec>(),
       interfaceByUnitId: new Map<string, UnitInterfaceSpec>(),
@@ -254,7 +254,7 @@ export function buildTaskGraphComposableStandardModel(standardView: TaskGraphSta
   const units = standardView.units ?? [];
   const interfaces = standardView.interfaces ?? [];
   const portEdges = standardView.port_edges ?? [];
-  const graphModuleRuntime = standardView.graph_module_runtime ?? [];
+  const graphModuleExpansionPlans = standardView.graph_module_expansion ?? [];
   const graphModuleExpansions = standardView.graph_module_expansions ?? [];
   const graphModuleExpansionByUnitId = new Map(
     graphModuleExpansions
@@ -281,7 +281,7 @@ export function buildTaskGraphComposableStandardModel(standardView: TaskGraphSta
     runtimeMonitorUnits: units.filter((unit) => unit.unit_type === "runtime_monitor"),
     interfaces,
     portEdges,
-    graphModuleRuntime,
+    graphModuleExpansionPlans,
     graphModuleExpansions,
     graphModuleExpansionByUnitId,
     interfaceByUnitId,
