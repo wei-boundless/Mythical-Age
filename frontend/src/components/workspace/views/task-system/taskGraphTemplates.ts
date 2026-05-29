@@ -63,7 +63,7 @@ type TemplateNodeInput = {
   dispatch_group?: string;
   execution_mode?: string;
   join_policy?: string;
-  loop_policy?: Record<string, unknown>;
+  loop?: Record<string, unknown>;
   context_visibility_policy?: Record<string, unknown>;
   memory_read_policy?: Record<string, unknown>;
   memory_writeback_policy?: Record<string, unknown>;
@@ -160,7 +160,7 @@ function makeNode(input: TemplateNodeInput, domainId: string): TaskGraphNode {
     memory_read_policy: input.memory_read_policy,
     memory_writeback_policy: input.memory_writeback_policy,
     review_gate_policy: input.review_gate ? { is_review_gate: true, gate_kind: "quality_gate", ...asRecord(input.metadata?.review_policy) } : undefined,
-    loop_policy: input.loop_policy,
+    loop: input.loop,
     artifact_policy: input.artifact_target ? {
       required: true,
       artifact_target: input.artifact_target,
@@ -453,12 +453,12 @@ function applyTemplateOptions(
         artifact_type: artifactType,
         require_human_confirmation: requireHumanConfirmation,
       },
-      loop_policy: loopCount
+      loop: loopCount
         ? {
-          ...((result.metadata.loop_policy ?? {}) as Record<string, unknown>),
+          ...((result.metadata.loop ?? {}) as Record<string, unknown>),
           max_attempts: loopCount,
         }
-        : result.metadata.loop_policy,
+        : result.metadata.loop,
       review_policy: {
         strength: reviewStrength,
         require_human_confirmation: requireHumanConfirmation,
@@ -684,7 +684,7 @@ export function buildTaskGraphTemplateDraft(input: TaskGraphTemplateBuildInput):
           { phase_id: "phase.review", title: "审核门", node_ids: ["agent.reviewer"] },
           { phase_id: "phase.repair", title: "返修", node_ids: ["agent.repair"] },
         ]),
-        loop_policy: { max_attempts: 3, exit_condition: "review_gate_passed" },
+        loop: { max_attempts: 3, exit_condition: "review_gate_passed" },
       },
       entry_node_id: "agent.executor",
       output_node_id: "agent.reviewer",
@@ -936,7 +936,7 @@ export function buildTaskGraphTemplateDraft(input: TaskGraphTemplateBuildInput):
           { phase_id: "phase.review", title: "复盘", node_ids: ["agent.reviewer"] },
           { phase_id: "phase.memory", title: "记忆写回", node_ids: ["agent.memory", "memory.baseline", "memory.mutable", "memory.issue_ledger", "memory.artifact_index"] },
         ]),
-        loop_policy: { max_attempts: 12, exit_condition: "project_goal_reached_or_human_stop" },
+        loop: { max_attempts: 12, exit_condition: "project_goal_reached_or_human_stop" },
         artifact_policy: {
           candidate_layer: "artifact.candidates",
           committed_layer: "artifact.commits",

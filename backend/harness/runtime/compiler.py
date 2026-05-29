@@ -285,8 +285,8 @@ class RuntimeCompiler:
         )
         stable_payload = {
             "schema": schema,
-            "task_run": dict(task_run),
-            "task_contract": dict(contract),
+            "task_run": _task_run_stable_payload(task_run),
+            "task_contract": _task_contract_stable_payload(contract),
             "task_environment": _environment_stable_payload(environment_payload),
             "available_tools": [dict(item) for item in tool_payloads],
             "operation_authorization": dict(assembly_payload.get("operation_authorization") or {}),
@@ -928,6 +928,111 @@ def _environment_stable_payload(environment_payload: dict[str, Any]) -> dict[str
             for prompt_ref in prompt_refs
         ]
     return payload
+
+
+def _task_run_stable_payload(task_run: dict[str, Any]) -> dict[str, Any]:
+    diagnostics = dict(task_run.get("diagnostics") or {})
+    return {
+        "task_run_id": str(task_run.get("task_run_id") or ""),
+        "session_id": str(task_run.get("session_id") or ""),
+        "task_id": str(task_run.get("task_id") or ""),
+        "task_contract_ref": str(task_run.get("task_contract_ref") or ""),
+        "owner_agent_seat_id": str(task_run.get("owner_agent_seat_id") or ""),
+        "agent_id": str(task_run.get("agent_id") or ""),
+        "agent_profile_id": str(task_run.get("agent_profile_id") or ""),
+        "execution_runtime_kind": str(task_run.get("execution_runtime_kind") or ""),
+        "status": str(task_run.get("status") or ""),
+        "terminal_reason": str(task_run.get("terminal_reason") or ""),
+        "diagnostics": _task_run_diagnostics_stable_payload(diagnostics),
+        "authority": str(task_run.get("authority") or "orchestration.task_run"),
+    }
+
+
+def _task_run_diagnostics_stable_payload(diagnostics: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: diagnostics.get(key)
+        for key in (
+            "source",
+            "origin",
+            "origin_kind",
+            "origin_authority",
+            "origin_ref",
+            "parent_run_ref",
+            "graph_run_id",
+            "graph_harness_config_id",
+            "graph_node_id",
+            "graph_work_order_id",
+            "node_id",
+            "project_id",
+            "runtime_scope",
+            "executor_status",
+            "recoverable_error",
+            "recovery_action",
+        )
+        if key in diagnostics
+    }
+
+
+def _task_contract_stable_payload(contract: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(contract or {})
+    resource_requirements = dict(payload.get("resource_requirements") or {})
+    if resource_requirements:
+        payload["resource_requirements"] = _resource_requirements_stable_payload(resource_requirements)
+    return payload
+
+
+def _resource_requirements_stable_payload(resource_requirements: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "graph_state": dict(resource_requirements.get("graph_state") or {}),
+        "input_package": _input_package_stable_payload(dict(resource_requirements.get("input_package") or {})),
+        "context_refs": dict(resource_requirements.get("context_refs") or {}),
+        "artifact_space_ref": str(resource_requirements.get("artifact_space_ref") or ""),
+        "memory_space_ref": str(resource_requirements.get("memory_space_ref") or ""),
+        "file_access_table_refs": [str(item) for item in list(resource_requirements.get("file_access_table_refs") or []) if str(item)],
+        "artifact_repository_targets": [
+            dict(item) for item in list(resource_requirements.get("artifact_repository_targets") or []) if isinstance(item, dict)
+        ],
+        "memory_repository_targets": [
+            dict(item) for item in list(resource_requirements.get("memory_repository_targets") or []) if isinstance(item, dict)
+        ],
+    }
+
+
+def _input_package_stable_payload(input_package: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(input_package or {})
+    if "task_environment" in payload:
+        payload["task_environment"] = {
+            "environment_id": str(dict(payload.get("task_environment") or {}).get("environment_id") or ""),
+            "task_environment_id": str(dict(payload.get("task_environment") or {}).get("task_environment_id") or ""),
+            "storage_space": dict(dict(payload.get("task_environment") or {}).get("storage_space") or {}),
+            "authority": str(dict(payload.get("task_environment") or {}).get("authority") or ""),
+        }
+    for key in ("memory_view", "artifact_view", "file_view"):
+        if isinstance(payload.get(key), dict):
+            payload[key] = _bounded_view_payload(dict(payload.get(key) or {}))
+    payload.pop("hidden_control_refs", None)
+    return payload
+
+
+def _bounded_view_payload(view: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(view or {})
+    if isinstance(payload.get("graph_memory_policy"), dict):
+        policy = dict(payload.get("graph_memory_policy") or {})
+        policy["read_rules"] = _bounded_dict_list(policy.get("read_rules"), limit=16)
+        payload["graph_memory_policy"] = policy
+    if isinstance(payload.get("graph_artifact_policy"), dict):
+        policy = dict(payload.get("graph_artifact_policy") or {})
+        policy["context_edges"] = _bounded_dict_list(policy.get("context_edges"), limit=16)
+        payload["graph_artifact_policy"] = policy
+    if isinstance(payload.get("graph_resource_policy"), dict):
+        policy = dict(payload.get("graph_resource_policy") or {})
+        policy["resource_nodes"] = _bounded_dict_list(policy.get("resource_nodes"), limit=24)
+        payload["graph_resource_policy"] = policy
+    return payload
+
+
+def _bounded_dict_list(value: Any, *, limit: int) -> list[dict[str, Any]]:
+    return [dict(item) for item in list(value or [])[:limit] if isinstance(item, dict)]
 
 
 def _artifact_root(environment_payload: dict[str, Any]) -> str:

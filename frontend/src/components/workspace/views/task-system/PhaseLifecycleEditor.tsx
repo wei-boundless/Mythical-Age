@@ -33,7 +33,7 @@ export function PhaseLifecycleEditor({
       <div className="task-graph-phase-grid">
         {phases.map(({ phase, nodes, node_coordinates, issues }) => {
           const exitPolicy = asRecord(phase.exit_policy);
-          const loopPolicy = asRecord(phase.loop_policy);
+          const loop = asRecord(phase.loop);
           return (
             <article className="task-graph-phase-card" key={phase.phase_id}>
               <header>
@@ -47,7 +47,7 @@ export function PhaseLifecycleEditor({
                 <p><span>问题</span><strong>{issues.length}</strong></p>
                 <p><span>坐标</span><strong>{node_coordinates.length}</strong></p>
                 <p><span>审核门</span><strong>{phase.review_gate_node_id || "未绑定"}</strong></p>
-                <p><span>循环</span><strong>{Object.keys(loopPolicy).length ? "已配置" : "未配置"}</strong></p>
+                <p><span>循环</span><strong>{Object.keys(loop).length ? "已配置" : "未配置"}</strong></p>
               </div>
               <div className="boundary-form">
                 <TaskSystemField label="阶段标题">
@@ -84,16 +84,16 @@ export function PhaseLifecycleEditor({
                 <TaskSystemField label="最大循环次数">
                   <input
                     min={0}
-                    onChange={(event) => onUpdatePhase(phase.phase_id, { loop_policy: { ...loopPolicy, max_attempts: Number(event.target.value || 0) } })}
+                    onChange={(event) => onUpdatePhase(phase.phase_id, { loop: { ...loop, max_attempts: Number(event.target.value || 0) } })}
                     type="number"
-                    value={Number(loopPolicy.max_attempts ?? 0)}
+                    value={Number(loop.max_attempts ?? 0)}
                   />
                 </TaskSystemField>
                 <TaskSystemField label="循环退出条件">
                   <input
-                    onChange={(event) => onUpdatePhase(phase.phase_id, { loop_policy: { ...loopPolicy, exit_condition: event.target.value } })}
+                    onChange={(event) => onUpdatePhase(phase.phase_id, { loop: { ...loop, exit_condition: event.target.value } })}
                     placeholder="review_gate_passed"
-                    value={String(loopPolicy.exit_condition ?? "")}
+                    value={String(loop.exit_condition ?? "")}
                   />
                 </TaskSystemField>
               </div>

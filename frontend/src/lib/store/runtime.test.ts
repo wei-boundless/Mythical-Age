@@ -644,6 +644,91 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().sessionActivity.title).toBe("任务运行中");
   });
 
+  it("accumulates live TaskRun progress entries instead of replacing them with the latest step", async () => {
+    const taskRunId = "taskrun:turn:session:live:1:abc";
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:live",
+      messages: [
+        {
+          id: "user:1",
+          role: "user",
+          content: "开始任务",
+          toolCalls: [],
+          retrievals: [],
+          sourceIndex: 0,
+        },
+        {
+          id: "assistant:1",
+          role: "assistant",
+          content: "任务已接管",
+          toolCalls: [],
+          retrievals: [],
+          sourceIndex: 1,
+        },
+      ],
+    });
+    const runtime = new WorkspaceRuntime(store) as unknown as {
+      hydrateLatestOrchestrationSnapshot: (sessionId: string) => Promise<boolean>;
+    };
+    api.getOrchestrationHarnessSessionLiveMonitor
+      .mockResolvedValueOnce({
+        active_task_run_id: taskRunId,
+        monitor: {
+          task_run_id: taskRunId,
+          session_id: "session:live",
+          status: "running",
+          event_count: 1,
+          latest_step: {
+            event_id: "step:packet",
+            step: "task_execution_packet_compiled:1",
+            status: "running",
+            created_at: 1,
+          },
+          latest_step_summary: "系统已为当前任务步骤装配 runtime packet，并交给 agent 判断下一步。",
+          latest_event: { event_type: "step_summary_recorded" },
+          updated_at: 1,
+          task_run: {
+            task_run_id: taskRunId,
+            task_id: "task:turn:session:live:1",
+            status: "running",
+          },
+        },
+        task_runs: [],
+      })
+      .mockResolvedValueOnce({
+        active_task_run_id: taskRunId,
+        monitor: {
+          task_run_id: taskRunId,
+          session_id: "session:live",
+          status: "running",
+          event_count: 2,
+          latest_step: {
+            event_id: "step:model",
+            step: "task_model_action_invocation_started:1",
+            status: "running",
+            created_at: 2,
+          },
+          latest_step_summary: "任务 runtime packet 已送入模型，系统正在等待 agent 返回任务动作。",
+          latest_event: { event_type: "step_summary_recorded" },
+          updated_at: 2,
+          task_run: {
+            task_run_id: taskRunId,
+            task_id: "task:turn:session:live:1",
+            status: "running",
+          },
+        },
+        task_runs: [],
+      });
+
+    await runtime.hydrateLatestOrchestrationSnapshot("session:live");
+    await runtime.hydrateLatestOrchestrationSnapshot("session:live");
+
+    const attachment = store.getState().messages[1]?.runtimeAttachments?.[0];
+    expect(attachment?.anchor_turn_id).toBe("turn:session:live:1");
+    expect(attachment?.progress_entries?.map((item) => item.id)).toEqual(["step:packet", "step:model"]);
+  });
+
   it("does not surface transient global monitor aborts as user-visible errors", async () => {
     vi.stubGlobal("EventSource", undefined);
     api.getGlobalRuntimeMonitor.mockRejectedValue(new DOMException("signal is aborted without reason", "AbortError"));

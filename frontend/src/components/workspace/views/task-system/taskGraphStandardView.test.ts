@@ -226,7 +226,7 @@ const STANDARD_VIEW_FIXTURE: TaskGraphStandardView = {
     entry_node_id: "writer",
     output_node_id: "review",
     temporal_edges: [{ edge_id: "edge.temporal.review", phase_id: "phase.review" }],
-    loop_frames: [{ node_id: "loop.volume", loop_kind: "while_target_not_met" }],
+    loop_frames: [{ node_id: "loop.volume", kind: "while_target_not_met" }],
     phases: [
       { phase_id: "phase.draft", title: "draft" },
       { phase_id: "phase.review", title: "review" },

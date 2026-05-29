@@ -380,22 +380,22 @@
           "visibility": "model_visible"
         },
         {
-          "field_id": "target_volumes",
-          "title_zh": "target_volumes",
+          "field_id": "target_group_count",
+          "title_zh": "target_group_count",
           "field_type": "string",
           "required": true,
-          "description": "target_volumes",
+          "description": "target_group_count",
           "default_value": null,
           "schema": {},
           "source_hint": "upstream_output",
           "visibility": "model_visible"
         },
         {
-          "field_id": "chapters_per_volume",
-          "title_zh": "chapters_per_volume",
+          "field_id": "units_per_group",
+          "title_zh": "units_per_group",
           "field_type": "string",
           "required": true,
-          "description": "chapters_per_volume",
+          "description": "units_per_group",
           "default_value": null,
           "schema": {},
           "source_hint": "upstream_output",

@@ -270,7 +270,7 @@ def derive_stage_contracts_from_graph(
                 gate_policy=_derived_gate_policy(node),
                 on_success="advance",
                 on_failure=_derived_failure_policy(node),
-                retry_policy=dict(node.get("retry_policy") or dict(node.get("loop_policy") or {})),
+                retry_policy=dict(node.get("retry_policy") or dict(node.get("loop") or {})),
                 agent_id=str(node.get("agent_id") or "").strip(),
                 role=str(node.get("role") or node.get("work_posture") or "").strip(),
                 title=str(node.get("title") or node_id).strip(),
@@ -558,9 +558,11 @@ def _derived_gate_policy(node: dict[str, Any]) -> str:
 
 
 def _derived_failure_policy(node: dict[str, Any]) -> str:
-    loop_policy = dict(node.get("loop_policy") or {}) if isinstance(node.get("loop_policy"), dict) else {}
-    if loop_policy:
-        return "retry_once" if int(loop_policy.get("max_attempts") or 0) > 0 else "fail_closed"
+    loop = dict(node.get("loop") or {}) if isinstance(node.get("loop"), dict) else {}
+    policy = dict(loop.get("policy") or {})
+    max_attempts = loop.get("max_attempts", policy.get("max_attempts"))
+    if loop or policy:
+        return "retry_once" if int(max_attempts or 0) > 0 else "fail_closed"
     return "fail_closed"
 
 

@@ -42,6 +42,7 @@ export type TaskGraphDraftV2 = {
   context_policy: TaskGraphContextPolicyDraftV2;
   working_memory_policy_profile_id: string;
   working_memory_policy: TaskGraphWorkingMemoryPolicyDraftV2;
+  loop_frames: Array<Record<string, unknown>>;
   publish_state: TaskGraphPublishStateV2;
   metadata: TaskGraphMetadataDraftV2;
   ui_state: TaskGraphEditorUiState;
@@ -173,6 +174,7 @@ export function emptyTaskGraphDraftV2(): TaskGraphDraftV2 {
     },
     working_memory_policy_profile_id: "",
     working_memory_policy: {},
+    loop_frames: [],
     publish_state: "draft",
     metadata: {},
     ui_state: {
@@ -248,6 +250,7 @@ export function taskGraphRecordToDraftV2(graph: TaskGraphRecord): TaskGraphDraft
       ?? "",
     ),
     working_memory_policy: workingMemoryPolicy,
+    loop_frames: Array.isArray(graph.loop_frames) ? graph.loop_frames.map(asRecord) : [],
     publish_state: normalizeTaskGraphPublishState(metadata.editor_publish_state ?? graph.publish_state, graph.enabled),
     metadata: metadataRemainder,
     ui_state: {

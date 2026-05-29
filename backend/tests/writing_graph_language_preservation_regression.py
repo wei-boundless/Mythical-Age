@@ -129,6 +129,99 @@ def test_graph_harness_config_preserves_full_graph_language() -> None:
     assert edge_types["edge.review.revise"] == "revision_request"
 
 
+def test_graph_composition_scopes_imported_loop_contracts() -> None:
+    child = TaskGraphDefinition(
+        graph_id="graph.test.child_loop",
+        title="Child Loop",
+        graph_kind="multi_agent",
+        entry_node_id="draft",
+        output_node_id="review",
+        publish_state="published",
+        enabled=True,
+        loop_frames=(
+            {
+                "frame_id": "loop.units",
+                "scope_id": "loop.units",
+                "kind": "bounded_metric_iteration",
+                "entry_node_id": "draft",
+                "router_node_id": "router",
+                "continue_node_id": "draft",
+                "exit_node_id": "review",
+                "initial_inputs": {"target_unit_count": 2, "unit_index": 1},
+            },
+        ),
+        nodes=(
+            TaskGraphNodeDefinition(
+                node_id="draft",
+                node_type="agent",
+                title="起草",
+                agent_id="agent:0",
+                loop={"scope_id": "loop.units", "kind": "bounded_metric_iteration"},
+            ),
+            TaskGraphNodeDefinition(
+                node_id="router",
+                node_type="agent",
+                title="路由",
+                agent_id="agent:0",
+                loop={
+                    "scope_id": "loop.units",
+                    "kind": "bounded_metric_iteration",
+                    "route_policy": {
+                        "scope_id": "loop.units",
+                        "continue_node_id": "draft",
+                        "exit_node_id": "review",
+                        "current_key": "unit_index",
+                        "target_key": "target_unit_count",
+                    },
+                },
+            ),
+            TaskGraphNodeDefinition(node_id="review", node_type="agent", title="审核", agent_id="agent:0"),
+        ),
+        edges=(
+            TaskGraphEdgeDefinition(edge_id="edge.draft.router", source_node_id="draft", target_node_id="router", edge_type="handoff"),
+            TaskGraphEdgeDefinition(edge_id="edge.router.review", source_node_id="router", target_node_id="review", edge_type="handoff"),
+        ),
+    )
+    parent = TaskGraphDefinition(
+        graph_id="graph.test.parent_loop_composition",
+        title="Parent Loop Composition",
+        graph_kind="multi_agent",
+        entry_node_id="graph_module.child",
+        output_node_id="graph_module.child",
+        publish_state="published",
+        enabled=True,
+        nodes=(
+            TaskGraphNodeDefinition(
+                node_id="graph_module.child",
+                node_type="graph_module",
+                title="导入子图",
+                metadata={"linked_graph_id": child.graph_id},
+            ),
+        ),
+    )
+
+    graph_config = build_graph_harness_config_from_graph(
+        graph=parent,
+        graph_lookup={child.graph_id: child},
+        contract_manifest={"manifest_id": "contract-manifest:test", "valid": True},
+    )
+
+    frame = graph_config.loop_frames[0]
+    router = next(node for node in graph_config.nodes if node["node_id"] == "graph_module.child::router")
+    route_policy = dict(dict(router["loop"]).get("route_policy") or {})
+
+    assert frame["frame_id"] == "graph_module.child::loop.units"
+    assert frame["scope_id"] == "graph_module.child::loop.units"
+    assert frame["entry_node_id"] == "graph_module.child::draft"
+    assert frame["router_node_id"] == "graph_module.child::router"
+    assert frame["continue_node_id"] == "graph_module.child::draft"
+    assert frame["exit_node_id"] == "graph_module.child::review"
+    assert router["loop"]["scope_id"] == "graph_module.child::loop.units"
+    assert route_policy["scope_id"] == "graph_module.child::loop.units"
+    assert route_policy["continue_node_id"] == "graph_module.child::draft"
+    assert route_policy["exit_node_id"] == "graph_module.child::review"
+
+
 def test_scheduler_view_uses_only_dependency_edges() -> None:
     graph_config = _graph_harness_config()
     scheduler = build_scheduler_view(graph_config)

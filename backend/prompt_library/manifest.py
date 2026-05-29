@@ -59,7 +59,12 @@ def build_runtime_prompt_manifest(
         "volatile_state_refs": list(volatile_refs),
     }
     digest = hashlib.sha256(json.dumps(manifest_seed, sort_keys=True).encode("utf-8")).hexdigest()[:16]
-    static_count = len([item for item in assembly.sections if item.cache_scope == "static"])
+    cache_scope_counts = _cache_scope_counts(assembly)
+    static_count = sum(
+        count
+        for scope, count in cache_scope_counts.items()
+        if _is_static_cache_scope(scope)
+    )
     return RuntimePromptManifest(
         manifest_id=f"rtprompt:{digest}",
         invocation_kind=invocation_kind,
@@ -72,6 +77,8 @@ def build_runtime_prompt_manifest(
         cache_boundary={
             "static_section_count": static_count,
             "stable_prompt_section_count": len(assembly.sections),
+            "cache_scope_counts": cache_scope_counts,
+            "static_cache_scopes": sorted(scope for scope in cache_scope_counts if _is_static_cache_scope(scope)),
             "volatile_state_after_stable_sections": True,
         },
         token_estimate={
@@ -82,3 +89,15 @@ def build_runtime_prompt_manifest(
             "prompt_assembly_id": assembly.assembly_id,
         },
     )
+
+
+def _cache_scope_counts(assembly: PromptAssemblyResult) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for section in assembly.sections:
+        scope = str(section.cache_scope or "static").strip() or "static"
+        counts[scope] = counts.get(scope, 0) + 1
+    return counts
+
+
+def _is_static_cache_scope(scope: str) -> bool:
+    return str(scope or "").strip() in {"static", "static_environment"}

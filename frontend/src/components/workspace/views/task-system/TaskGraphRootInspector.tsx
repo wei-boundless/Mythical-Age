@@ -264,7 +264,7 @@ export function TaskGraphRootInspector({
             {loopFrames.map((frame) => (
               <p key={stringValue(frame.frame_id)}>
                 <span>{stringValue(frame.title ?? frame.frame_id, "循环帧")}</span>
-                <strong>{`${stringValue(frame.entry_stage_id, "入口")} -> ${stringValue(frame.router_stage_id ?? frame.exit_stage_id, "路由")}`}</strong>
+                <strong>{`${stringValue(frame.entry_node_id, "入口")} -> ${stringValue(frame.router_node_id ?? frame.exit_node_id, "路由")}`}</strong>
               </p>
             ))}
           </div>

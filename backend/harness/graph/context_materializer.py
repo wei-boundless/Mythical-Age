@@ -381,24 +381,26 @@ def _agent_instruction(*, prompt_contract: dict[str, Any], node: dict[str, Any])
 
 def _memory_view_request(*, graph_config: GraphHarnessConfig, node: dict[str, Any]) -> dict[str, Any]:
     environment = dict(graph_config.environment or {})
+    node_id = str(node.get("node_id") or "")
     return {
         "task_environment_id": str(graph_config.task_environment_id or ""),
         "environment_memory_space": dict(environment.get("memory_space") or {}),
         "memory_space_ref": _memory_space_ref(graph_config),
         "node_memory_policy": dict(node.get("memory") or {}),
-        "graph_memory_policy": dict(graph_config.memory or {}),
+        "graph_memory_policy": _node_memory_policy_view(graph_config=graph_config, node_id=node_id),
     }
 
 
 def _artifact_view_request(*, graph_config: GraphHarnessConfig, node: dict[str, Any]) -> dict[str, Any]:
     environment = dict(graph_config.environment or {})
+    node_id = str(node.get("node_id") or "")
     return {
         "task_environment_id": str(graph_config.task_environment_id or ""),
         "environment_artifact_policy": dict(environment.get("artifact_policy") or {}),
         "environment_storage_space": dict(environment.get("storage_space") or {}),
         "artifact_space_ref": _artifact_space_ref(graph_config),
         "node_artifact_policy": dict(node.get("artifacts") or {}),
-        "graph_artifact_policy": dict(graph_config.artifacts or {}),
+        "graph_artifact_policy": _node_artifact_policy_view(graph_config=graph_config, node_id=node_id),
     }
 
 
@@ -411,7 +413,7 @@ def _file_view_request(*, graph_config: GraphHarnessConfig, node: dict[str, Any]
         "file_access_tables": list(environment.get("file_access_tables") or []),
         "file_access_table_refs": _file_access_table_refs(graph_config),
         "node_file_policy": dict(node.get("files") or {}),
-        "graph_resource_policy": dict(graph_config.resources or {}),
+        "graph_resource_policy": _resource_policy_view(graph_config=graph_config),
     }
 
 
@@ -419,10 +421,94 @@ def _issue_view_request(*, graph_config: GraphHarnessConfig, node: dict[str, Any
     del node
     return {
         "issue_ledgers": [
-            dict(item)
+            _resource_node_summary(dict(item))
             for item in list(dict(graph_config.resources or {}).get("resource_nodes") or [])
             if str(dict(item).get("resource_type") or dict(item).get("node_type") or "") == "issue_ledger"
         ]
+    }
+
+
+def _node_memory_policy_view(*, graph_config: GraphHarnessConfig, node_id: str) -> dict[str, Any]:
+    policy = dict(graph_config.memory or {})
+    read_rules = _node_related_items(list(policy.get("read_rules") or []), node_id=node_id)
+    return {
+        "working_memory_policy_profile_id": str(policy.get("working_memory_policy_profile_id") or ""),
+        "working_memory_policy": dict(policy.get("working_memory_policy") or {}),
+        "read_rules": read_rules,
+        "read_rule_count": len(read_rules),
+        "total_read_rule_count": len(list(policy.get("read_rules") or [])),
+        "memory_protocol": _memory_protocol_summary(dict(policy.get("memory_protocol") or {})),
+        "authority": "harness.graph.context_materializer.node_memory_policy_view",
+    }
+
+
+def _node_artifact_policy_view(*, graph_config: GraphHarnessConfig, node_id: str) -> dict[str, Any]:
+    policy = dict(graph_config.artifacts or {})
+    context_edges = _node_related_items(list(policy.get("context_edges") or []), node_id=node_id)
+    return {
+        "context_edges": context_edges,
+        "context_edge_count": len(context_edges),
+        "total_context_edge_count": len(list(policy.get("context_edges") or [])),
+        "authority": "harness.graph.context_materializer.node_artifact_policy_view",
+    }
+
+
+def _resource_policy_view(*, graph_config: GraphHarnessConfig) -> dict[str, Any]:
+    resources = [
+        _resource_node_summary(dict(item))
+        for item in list(dict(graph_config.resources or {}).get("resource_nodes") or [])
+        if isinstance(item, dict)
+    ]
+    return {
+        "resource_nodes": resources,
+        "resource_node_count": len(resources),
+        "authority": "harness.graph.context_materializer.resource_policy_view",
+    }
+
+
+def _resource_node_summary(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "node_id": str(item.get("node_id") or ""),
+        "title": str(item.get("title") or ""),
+        "resource_type": str(item.get("resource_type") or item.get("node_type") or ""),
+        "repository_id": str(item.get("repository_id") or ""),
+        "collections": [str(value) for value in list(item.get("collections") or []) if str(value)],
+        "readable_by": [str(value) for value in list(item.get("readable_by") or []) if str(value)],
+        "write_owner_node_ids": [str(value) for value in list(item.get("write_owner_node_ids") or []) if str(value)],
+        "authority": str(item.get("authority") or "task_system.resource_node"),
+    }
+
+
+def _node_related_items(items: list[Any], *, node_id: str) -> list[dict[str, Any]]:
+    target = str(node_id or "")
+    if not target:
+        return []
+    result: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        payload = dict(item)
+        refs = {
+            str(payload.get("source_node_id") or ""),
+            str(payload.get("target_node_id") or ""),
+            str(payload.get("node_id") or ""),
+            str(payload.get("owner_node_id") or ""),
+            str(payload.get("before_node_id") or ""),
+            str(payload.get("after_node_id") or ""),
+        }
+        if target in refs:
+            result.append(payload)
+    return result
+
+
+def _memory_protocol_summary(protocol: dict[str, Any]) -> dict[str, Any]:
+    if not protocol:
+        return {}
+    return {
+        "authority": str(protocol.get("authority") or ""),
+        "repository_count": len(list(protocol.get("repositories") or [])),
+        "read_rule_count": len(list(protocol.get("read_rules") or [])),
+        "write_rule_count": len(list(protocol.get("write_rules") or [])),
     }
 
 

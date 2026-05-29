@@ -20,6 +20,7 @@ from task_system.contracts.contract_definition_models import AcceptanceRule, Art
 from task_system.compiler.graph_harness_config_publisher import publish_graph_harness_config_for_graph
 from task_system.registry.contract_registry import TaskContractRegistry
 from task_system.registry.flow_registry import TaskFlowRegistry
+from task_system.storage import TaskSystemStorage
 
 
 MANAGED_BY = "codex_writing_modular_novel_graph_20260521_native"
@@ -35,6 +36,7 @@ MASTER_GRAPH_ID = "graph.writing.modular_novel.master"
 DESIGN_GRAPH_ID = "graph.writing.modular_novel.design_init"
 CHAPTER_GRAPH_ID = "graph.writing.modular_novel.chapter_cycle"
 FINALIZE_GRAPH_ID = "graph.writing.modular_novel.finalize"
+WRITING_GRAPH_IDS = (MASTER_GRAPH_ID, DESIGN_GRAPH_ID, CHAPTER_GRAPH_ID, FINALIZE_GRAPH_ID)
 
 WORKER_AGENT_ID = "agent:writing_modular_worker"
 CREATOR_AGENT_ID = "agent:writing_modular_creator"
@@ -347,8 +349,8 @@ def _chapter_loop_derived_fields() -> list[dict[str, Any]]:
         {"key": "chapter_label", "op": "format", "template": "第{chapter_index}章"},
         {"key": "chapter_file_prefix", "op": "format", "template": "chapter_{chapter_index:03d}"},
         {"key": "batch_start_index", "op": "copy", "from_key": "chapter_index"},
-        {"key": "batch_end_index", "op": "add", "from_key": "chapter_index", "value_key": "chapters_per_round", "value": CHAPTER_BATCH_SIZE - 1, "offset": -1},
-        {"key": "batch_index", "op": "ordinal_group", "from_key": "chapter_index", "size_key": "chapters_per_round", "size": CHAPTER_BATCH_SIZE},
+        {"key": "batch_end_index", "op": "add", "from_key": "chapter_index", "value_key": "units_per_batch", "value": CHAPTER_BATCH_SIZE - 1, "offset": -1},
+        {"key": "batch_index", "op": "ordinal_group", "from_key": "chapter_index", "size_key": "units_per_batch", "size": CHAPTER_BATCH_SIZE},
         {"key": "batch_index_padded", "op": "format", "template": "{batch_index:03d}"},
         {"key": "batch_start_index_padded", "op": "format", "template": "{batch_start_index:03d}"},
         {"key": "batch_end_index_padded", "op": "format", "template": "{batch_end_index:03d}"},
@@ -356,26 +358,26 @@ def _chapter_loop_derived_fields() -> list[dict[str, Any]]:
         {"key": "batch_label", "op": "format", "template": "第{batch_start_index}章至第{batch_end_index}章"},
         {"key": "batch_chapter_numbers", "op": "range", "start_key": "batch_start_index", "end_key": "batch_end_index"},
         {"key": "batch_chapter_list", "op": "join", "from_key": "batch_chapter_numbers", "prefix": "第", "suffix": "章", "separator": "、"},
-        {"key": "batch_target_words", "op": "multiply", "from_key": "chapter_target_words", "value_key": "chapters_per_round", "value": CHAPTER_BATCH_SIZE},
-        {"key": "graph_loop_summary", "op": "format", "template": "当前卷：{volume_label}；当前批次：{batch_label}；本批允许范围：{batch_chapter_list}；本次目标 {target_volumes} 卷；全书累计约 {current_words}/{target_words} 字；本卷累计约 {volume_current_words}/{volume_target_words} 字。"},
+        {"key": "batch_target_measure", "op": "multiply", "from_key": "unit_target_measure", "value_key": "units_per_batch", "value": CHAPTER_BATCH_SIZE},
+        {"key": "graph_loop_summary", "op": "format", "template": "当前卷：{volume_label}；当前批次：{batch_label}；本批允许范围：{batch_chapter_list}；目标组数 {target_group_count}；全书累计约 {total_current_measure}/{target_measure_units} 字；本卷累计约 {group_current_measure}/{group_target_measure} 字。"},
     ]
 
 
 def _chapter_progress_route_policy_static() -> dict[str, Any]:
     return {
         "mode": "metric_target",
-        "loop_scope_id": "loop.chapter_batch",
-        "continue_stage_id": "chapter_outline",
-        "exit_stage_id": "volume_review",
+        "scope_id": "loop.chapter_batch",
+        "continue_node_id": "chapter_outline",
+        "exit_node_id": "volume_review",
         "metric_key": "chapter_words",
         "diagnostic_metric_key": "chapter_words",
-        "fallback_increment_key": "batch_target_words",
+        "fallback_increment_key": "batch_target_measure",
         "default_increment": BATCH_TARGET_WORDS,
-        "current_key": "volume_current_words",
-        "target_key": "volume_target_words",
+        "current_key": "group_current_measure",
+        "target_key": "group_target_measure",
         "last_metric_key": "last_batch_words",
-        "secondary_counters": [{"current_key": "current_words", "target_key": "target_words"}],
-        "counter_updates": [{"key": "chapter_index", "mode": "increment", "step_key": "chapters_per_round", "step": CHAPTER_BATCH_SIZE}],
+        "secondary_counters": [{"current_key": "total_current_measure", "target_key": "target_measure_units"}],
+        "patch_rules": [{"key": "chapter_index", "mode": "increment", "step_key": "units_per_batch", "step": CHAPTER_BATCH_SIZE}],
         "derived_fields": _chapter_loop_derived_fields(),
     }
 
@@ -383,16 +385,16 @@ def _chapter_progress_route_policy_static() -> dict[str, Any]:
 def _next_volume_route_policy_static() -> dict[str, Any]:
     return {
         "mode": "metric_target",
-        "loop_scope_id": "loop.volume",
-        "continue_stage_id": "volume_plan",
-        "exit_stage_id": "__graph_module_complete__",
+        "scope_id": "loop.volume",
+        "continue_node_id": "volume_plan",
+        "exit_node_id": "__graph_module_complete__",
         "metric_key": "volume_router_metric",
         "default_increment": 1,
-        "current_key": "completed_volumes",
-        "target_key": "target_volumes",
-        "counter_updates": [
+        "current_key": "completed_groups",
+        "target_key": "target_group_count",
+        "patch_rules": [
             {"key": "volume_index", "mode": "increment", "step": 1},
-            {"key": "volume_current_words", "mode": "reset", "value": 0},
+            {"key": "group_current_measure", "mode": "reset", "value": 0},
         ],
         "derived_fields": _chapter_loop_derived_fields(),
     }
@@ -435,9 +437,9 @@ def _chapter_batch_quality_retry_policy() -> dict[str, Any]:
         "acceptance_policies": ["sectioned_text_batch_quality"],
         "unit_start_key": "batch_start_index",
         "unit_end_key": "batch_end_index",
-        "unit_count_key": "chapters_per_round",
-        "target_metric_key": "batch_target_words",
-        "unit_target_metric_key": "chapter_target_words",
+        "unit_count_key": "units_per_batch",
+        "target_metric_key": "batch_target_measure",
+        "unit_target_metric_key": "unit_target_measure",
         "minimum_metric_ratio": 0.9,
         "minimum_metric_per_unit": CHAPTER_MIN_WORDS,
         "unit_label": "章",
@@ -498,8 +500,8 @@ def _chapter_draft_quality_retry_policy() -> dict[str, Any]:
                 "质量门统计：{quality_issue_summary}。\n"
                 "本轮不是补丁说明，也不是局部增补；必须按运行时允许范围完整重交当前批次小说正文。"
                 "上一版正文只能作为连续性参照，不能原样缩写、摘要化或只交差异说明。\n"
-                "硬性生产规格：严格写第{batch_start_index}章至第{batch_end_index}章，共{chapters_per_round}章；"
-                "每章目标约{chapter_target_words}字，最低不得少于"
+                "硬性生产规格：严格写第{batch_start_index}章至第{batch_end_index}章，共{units_per_batch}章；"
+                "每章目标约{unit_target_measure}字，最低不得少于"
                 f"{CHAPTER_MIN_WORDS}字；整批正文最低不得少于"
                 f"{CHAPTER_MIN_WORDS * CHAPTER_BATCH_SIZE}字。\n"
                 "修复方式：优先扩写质量门指出的短章，同时保持十章连续小说正文完整交付；"
@@ -534,11 +536,40 @@ class NodeSpec:
     artifact_context_keys: tuple[str, ...] = ("上游交接包",)
     artifact_context_max_chars: int = 30000
     review_revision_stage_id: str = ""
-    loop_scope_id: str = ""
-    title_template: str = ""
-    loop_route_policy: dict[str, Any] = field(default_factory=dict)
+    loop: dict[str, Any] = field(default_factory=dict)
     length_budget: dict[str, Any] = field(default_factory=dict)
     extra_runtime: dict[str, Any] = field(default_factory=dict)
+
+
+def _node_loop(
+    scope_id: str,
+    *,
+    title_template: str = "",
+    route_policy: dict[str, Any] | None = None,
+    kind: str = "bounded_metric_iteration",
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "scope_id": scope_id,
+        "kind": kind,
+        "title_template": title_template,
+        "policy": {
+            "loop_variable": "batch_start_index" if scope_id == "loop.chapter_batch" else "volume_index",
+            "iteration_size_key": "units_per_batch" if scope_id == "loop.chapter_batch" else "target_group_count",
+            "iteration_size": CHAPTER_BATCH_SIZE if scope_id == "loop.chapter_batch" else TARGET_VOLUMES,
+            "exit_decision": "group_target_reached" if scope_id == "loop.chapter_batch" else "target_group_count_reached",
+        },
+    }
+    if route_policy:
+        payload["route_policy"] = dict(route_policy)
+    return payload
+
+
+def _chapter_loop_contract(title_template: str) -> dict[str, Any]:
+    return _node_loop("loop.chapter_batch", title_template=title_template)
+
+
+def _volume_loop_contract(title_template: str) -> dict[str, Any]:
+    return _node_loop("loop.volume", title_template=title_template)
 
 
 def _role_prompt(*sections: str) -> str:
@@ -840,8 +871,7 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         readable_repositories=("memory.writing.baseline", "memory.writing.mutable", "memory.writing.manuscript"),
         artifact_context_keys=("上游交接包", "基准库", "动态记忆库", "正文记忆库"),
         artifact_paths=("volume_{volume_index_padded}/volume_plan_round_{round_index:03d}.md",),
-        loop_scope_id="loop.volume",
-        title_template="{volume_label}分卷计划",
+        loop=_volume_loop_contract("{volume_label}分卷计划"),
         prompt=_role_prompt(
             "你是一名名家级中文商业网文分卷规划师。你必须读取基准库的完整世界观、角色、关系和全书细纲，以及动态记忆库里上一卷后的调整。",
             "你的分卷规划必须满足明确指标：一卷要有清晰读者承诺、阶段升级、场域展开、群体压力、情绪回报、爆点兑现和下一卷牵引。你可以学习成熟商业作品在节奏设计、压力递进和爽点排布上的通用做法，但不能复刻任何具体作者的可识别套路、口癖、桥段模板或专属设定。",
@@ -863,8 +893,7 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         readable_repositories=("memory.writing.baseline", "memory.writing.mutable", "memory.writing.manuscript"),
         artifact_context_keys=("上游交接包", "基准库", "动态记忆库", "正文记忆库"),
         artifact_paths=("volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/outline_round_{round_index:03d}.md",),
-        loop_scope_id="loop.chapter_batch",
-        title_template="{batch_label}章节批次细纲",
+        loop=_chapter_loop_contract("{batch_label}章节批次细纲"),
         prompt=_role_prompt(
             "你是一名中文商业网文章节批次细纲师。你只负责当前任务包允许章号范围内的十章细纲。",
             "你的细纲必须是专业中文网文的小说细纲，不是分镜表、舞台说明、场景清单或人物走位表。你要写的是章内叙事推进：起势、推进、碰撞、反应、回收、余韵和章末钩子，而不是把一章拆成镜头化条目。",
@@ -888,8 +917,7 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         readable_repositories=("memory.writing.baseline", "memory.writing.mutable", "memory.writing.manuscript"),
         artifact_context_keys=("上游交接包", "基准库", "动态记忆库", "正文记忆库"),
         artifact_paths=("volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/draft_round_{round_index:03d}.md",),
-        loop_scope_id="loop.chapter_batch",
-        title_template="{batch_label}章节正文草稿",
+        loop=_chapter_loop_contract("{batch_label}章节正文草稿"),
         length_budget=_length_budget_contract_static("batch", BATCH_TARGET_WORDS, BATCH_MIN_WORDS, BATCH_MAX_WORDS, CHAPTER_BATCH_SIZE),
         extra_runtime={
             "split_policy": {
@@ -945,8 +973,7 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         artifact_context_keys=("上游交接包", "基准库", "动态记忆库", "正文记忆库"),
         artifact_paths=("volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/review_round_{round_index:03d}.md",),
         review_revision_stage_id="chapter_draft",
-        loop_scope_id="loop.chapter_batch",
-        title_template="{batch_label}章节批次审核",
+        loop=_chapter_loop_contract("{batch_label}章节批次审核"),
         length_budget=_length_budget_contract_static("batch", BATCH_TARGET_WORDS, BATCH_MIN_WORDS, BATCH_MAX_WORDS, CHAPTER_BATCH_SIZE),
         write_mode="review_and_issue_ledger",
         prompt=_role_prompt(
@@ -975,8 +1002,7 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         readable_repositories=("memory.writing.baseline", "memory.writing.mutable", "memory.writing.manuscript"),
         artifact_context_keys=("上游交接包", "基准库", "动态记忆库", "正文记忆库"),
         artifact_paths=("volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/chapter_commit_round_{round_index:03d}.md",),
-        loop_scope_id="loop.chapter_batch",
-        title_template="{batch_label}章节批次提交",
+        loop=_chapter_loop_contract("{batch_label}章节批次提交"),
         write_mode="chapter_commit",
         prompt=_role_prompt(
             "你是一名章节记忆提交员。你只负责在章节审核通过或带备注通过后登记当前批次正文引用、章节摘要、角色状态变化、群体关系变化、伏笔状态、连续性说明和下一批承接事项。",
@@ -997,9 +1023,11 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         memory_topics=("chapter_commit_ref", "volume_progress"),
         artifact_context_keys=("上游交接包",),
         artifact_paths=("volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/progress_route_round_{round_index:03d}.md",),
-        loop_scope_id="loop.chapter_batch",
-        title_template="{batch_label}章节进度路由",
-        loop_route_policy=_chapter_progress_route_policy_static(),
+        loop=_node_loop(
+            "loop.chapter_batch",
+            title_template="{batch_label}章节进度路由",
+            route_policy=_chapter_progress_route_policy_static(),
+        ),
         prompt=_role_prompt(
             "你是一名章节进度路由员。你只负责读取已提交批次的度量结果、当前卷目标和本轮进度边界，判断继续下一批还是进入本卷审核。",
             "你需要依据已提交章节数量、已提交字数、当前卷目标和审核状态做路由裁决。只有已提交记忆可以计入完成进度。",
@@ -1021,8 +1049,7 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         artifact_context_keys=("上游交接包", "基准库", "动态记忆库", "正文记忆库"),
         artifact_paths=("volume_{volume_index_padded}/volume_review_round_{round_index:03d}.md",),
         review_revision_stage_id="chapter_outline",
-        loop_scope_id="loop.volume",
-        title_template="{volume_label}卷级审核",
+        loop=_volume_loop_contract("{volume_label}卷级审核"),
         write_mode="review_and_issue_ledger",
         prompt=_role_prompt(
             "你是一名名家级中文商业网文卷级总审。你只负责审核当前卷是否完成约二十万字的阶段目标、人物变化、群体关系变化、伏笔推进、连续性闭环和分卷主题表达。",
@@ -1047,8 +1074,7 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         readable_repositories=("memory.writing.mutable", "memory.writing.manuscript"),
         artifact_context_keys=("上游交接包", "动态记忆库", "正文记忆库"),
         artifact_paths=("volume_{volume_index_padded}/volume_commit_round_{round_index:03d}.md",),
-        loop_scope_id="loop.volume",
-        title_template="{volume_label}卷级提交",
+        loop=_volume_loop_contract("{volume_label}卷级提交"),
         write_mode="volume_commit",
         prompt=_role_prompt(
             "你是一名卷级记忆提交员。你只负责在卷级审核通过或带备注通过后登记本卷正文引用、卷摘要、角色状态、群体关系格局、世界状态、伏笔变更和下一卷承接事项。",
@@ -1069,8 +1095,7 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         readable_repositories=("memory.writing.baseline", "memory.writing.mutable"),
         artifact_context_keys=("上游交接包", "基准库", "动态记忆库"),
         artifact_paths=("volume_{volume_index_padded}/volume_postmortem_round_{round_index:03d}.md",),
-        loop_scope_id="loop.volume",
-        title_template="{volume_label}卷后复盘",
+        loop=_volume_loop_contract("{volume_label}卷后复盘"),
         prompt=_role_prompt(
             "你是一名卷后复盘员。你只负责总结本卷完成情况、节奏偏差、人物与群体关系变化、伏笔状态、下一卷风险和需要补充的设定候选。",
             "你需要判断哪些问题来自执行偏差，哪些来自原始设计不足，哪些需要下一卷动态调整。所有建议都必须区分事实观察、风险判断和候选提案。",
@@ -1091,8 +1116,7 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         readable_repositories=("memory.writing.baseline", "memory.writing.mutable"),
         artifact_context_keys=("上游交接包", "基准库", "动态记忆库"),
         artifact_paths=("volume_{volume_index_padded}/extension_proposal_round_{round_index:03d}.md",),
-        loop_scope_id="loop.volume",
-        title_template="{volume_label}设定与大纲补充提案",
+        loop=_volume_loop_contract("{volume_label}设定与大纲补充提案"),
         prompt=_role_prompt(
             "你是一名设定与大纲补充提案员。你只负责把卷后复盘中确实需要补充的内容整理成候选提案，供审核节点判断能否进入动态记忆库。",
             "提案必须拆成世界细节卡、角色状态卡、大纲线程调整卡、正文连续性修正卡和拒绝项。每张卡都要说明来源引用、必要性、影响范围、有效窗口、下游使用方式、冲突检查、替代方案和为什么不能直接写入基准库。",
@@ -1114,8 +1138,7 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         artifact_context_keys=("上游交接包", "基准库", "动态记忆库"),
         artifact_paths=("volume_{volume_index_padded}/extension_review_round_{round_index:03d}.md",),
         review_revision_stage_id="world_outline_extension_proposal",
-        loop_scope_id="loop.volume",
-        title_template="{volume_label}补充提案审核",
+        loop=_volume_loop_contract("{volume_label}补充提案审核"),
         write_mode="review_and_issue_ledger",
         prompt=_role_prompt(
             "你是一名补充提案审核员。你只负责判断设定与大纲补充提案能否进入动态记忆库，是否触碰基准库冻结事实，是否会污染后续创作。",
@@ -1138,8 +1161,7 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         readable_repositories=("memory.writing.mutable",),
         artifact_context_keys=("上游交接包", "动态记忆库"),
         artifact_paths=("volume_{volume_index_padded}/extension_commit_round_{round_index:03d}.md",),
-        loop_scope_id="loop.volume",
-        title_template="{volume_label}动态记忆提交",
+        loop=_volume_loop_contract("{volume_label}动态记忆提交"),
         write_mode="dynamic_memory_commit",
         prompt=_role_prompt(
             "你是一名动态记忆提交员。你只负责把审核通过或带备注通过的补充提案写入动态记忆库，作为下一卷读取层。",
@@ -1156,12 +1178,14 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         sequence_index=130,
         output_contract_id="contract.writing.modular_novel.volume_route",
         required_inputs=("上游交接包",),
-        memory_topics=("volume_commit_ref", "extension_commit_ref", "target_volumes"),
+        memory_topics=("volume_commit_ref", "extension_commit_ref", "target_group_count"),
         artifact_context_keys=("上游交接包",),
         artifact_paths=("volume_{volume_index_padded}/next_volume_route_round_{round_index:03d}.md",),
-        loop_scope_id="loop.volume",
-        title_template="{volume_label}下一卷路由",
-        loop_route_policy=_next_volume_route_policy_static(),
+        loop=_node_loop(
+            "loop.volume",
+            title_template="{volume_label}下一卷路由",
+            route_policy=_next_volume_route_policy_static(),
+        ),
         prompt=_role_prompt(
             "你是一名分卷路由员。你只负责根据目标卷数、已提交卷数、卷级提交状态和动态记忆提交状态判断是否进入下一卷计划或结束章节图。",
             "只有完成卷级审核和卷级提交的卷才能计入完成进度。若补充提案需要进入下一卷，必须确认动态记忆提交已经完成。",
@@ -1199,7 +1223,7 @@ FINALIZE_NODES: tuple[NodeSpec, ...] = (
         sequence_index=20,
         output_contract_id="contract.writing.modular_novel.final_review",
         required_inputs=("上游交接包",),
-        memory_topics=("final_manuscript_ref", "delivery_manifest_ref", "target_words", "target_chapters"),
+        memory_topics=("final_manuscript_ref", "delivery_manifest_ref", "target_measure_units", "target_unit_count"),
         readable_repositories=("memory.writing.baseline", "memory.writing.mutable", "memory.writing.manuscript"),
         artifact_context_keys=("上游交接包", "基准库", "动态记忆库", "正文记忆库"),
         artifact_paths=("final/final_review_round_{round_index:03d}.md",),
@@ -1278,6 +1302,7 @@ FINALIZE_BUSINESS_EDGES = (
 
 def configure(base_dir: Path | str | None = None) -> dict[str, Any]:
     backend_dir = Path(base_dir or BACKEND_DIR).resolve()
+    _delete_managed_graph_runtime_records(backend_dir)
     registry = TaskFlowRegistry(backend_dir)
     contract_registry = TaskContractRegistry(backend_dir)
 
@@ -1301,15 +1326,15 @@ def configure(base_dir: Path | str | None = None) -> dict[str, Any]:
         "domain_id": DOMAIN_ID,
         "environment_id": ENVIRONMENT_ID,
         "protocol_id": PROTOCOL_ID,
-        "graph_ids": [MASTER_GRAPH_ID, DESIGN_GRAPH_ID, CHAPTER_GRAPH_ID, FINALIZE_GRAPH_ID],
+        "graph_ids": list(WRITING_GRAPH_IDS),
         "graph_harness_config_id": published_config.config_id,
-        "requested_chapters": CHAPTER_REQUESTED_COUNT,
-        "target_volumes": TARGET_VOLUMES,
-        "chapters_per_volume": CHAPTERS_PER_VOLUME,
-        "chapter_batch_size": CHAPTER_BATCH_SIZE,
-        "batch_target_words": BATCH_TARGET_WORDS,
-        "volume_target_words": VOLUME_TARGET_WORDS,
-        "target_words": TARGET_WORDS,
+        "target_unit_count": CHAPTER_REQUESTED_COUNT,
+        "target_group_count": TARGET_VOLUMES,
+        "units_per_group": CHAPTERS_PER_VOLUME,
+        "units_per_batch": CHAPTER_BATCH_SIZE,
+        "batch_target_measure": BATCH_TARGET_WORDS,
+        "group_target_measure": VOLUME_TARGET_WORDS,
+        "target_measure_units": TARGET_WORDS,
         "managed_by": MANAGED_BY,
     }
     print(
@@ -1319,6 +1344,36 @@ def configure(base_dir: Path | str | None = None) -> dict[str, Any]:
         f"{CHAPTER_BATCH_SIZE} chapters per batch"
     )
     return configured
+
+
+def _delete_managed_graph_runtime_records(backend_dir: Path) -> None:
+    storage = TaskSystemStorage(backend_dir)
+    graph_ids = set(WRITING_GRAPH_IDS)
+
+    graph_payload = storage.read_object("task_graphs.json", {"task_graphs": []})
+    graph_records = [item for item in list(graph_payload.get("task_graphs") or []) if isinstance(item, dict)]
+    retained_graphs = [
+        item
+        for item in graph_records
+        if str(item.get("graph_id") or "") not in graph_ids
+        and dict(item.get("metadata") or {}).get("managed_by") != MANAGED_BY
+    ]
+    if retained_graphs != graph_records:
+        storage.write_object("task_graphs.json", {"task_graphs": retained_graphs})
+
+    config_payload = storage.read_object("graph_harness_configs.json", {"configs": [], "published_bindings": {}})
+    config_records = [item for item in list(config_payload.get("configs") or []) if isinstance(item, dict)]
+    retained_configs = [item for item in config_records if str(item.get("graph_id") or "") not in graph_ids]
+    published_bindings = {
+        str(key): str(value)
+        for key, value in dict(config_payload.get("published_bindings") or {}).items()
+        if str(key) not in graph_ids
+    }
+    if retained_configs != config_records or published_bindings != dict(config_payload.get("published_bindings") or {}):
+        storage.write_object(
+            "graph_harness_configs.json",
+            {"configs": retained_configs, "published_bindings": published_bindings},
+        )
 
 
 def _upsert_domain(registry: TaskFlowRegistry) -> None:
@@ -1509,7 +1564,7 @@ def _contract_specs() -> list[ContractSpec]:
             "contract.writing.modular_novel.chapter_cycle_commit",
             "章节循环图提交契约",
             "final_output",
-            input_fields=("baseline_memory_ref", "target_volumes", "chapters_per_volume"),
+            input_fields=("baseline_memory_ref", "target_group_count", "units_per_group"),
             output_fields=("volume_commit_refs", "chapter_commit_refs", "dynamic_memory_ref", "artifact_refs"),
         ),
         _contract_spec(
@@ -1856,11 +1911,11 @@ def _upsert_imported_module_graph(
         metadata_extra = {
             "unit_batch_contract": _chapter_unit_batch_contract(),
             "length_budget_contract": _length_budget_contract("volume", VOLUME_TARGET_WORDS, VOLUME_MIN_WORDS, VOLUME_MAX_WORDS, CHAPTERS_PER_VOLUME, "graph.metadata.length_budget_contract"),
-            "graph_loop_policy": _chapter_graph_loop_policy(),
-            "loop_frames": list(_chapter_graph_loop_policy()["frames"]),
         }
+        loop_frames = tuple(_chapter_loop_frames())
     else:
         metadata_extra = {}
+        loop_frames = ()
     registry.upsert_task_graph(
         graph_id=graph_id,
         title=_graph_title(graph_id),
@@ -1877,6 +1932,7 @@ def _upsert_imported_module_graph(
         working_memory_policy=_working_memory_policy(),
         runtime_policy=_runtime_policy(),
         context_policy={"task_environment_id": ENVIRONMENT_ID, "environment_id": ENVIRONMENT_ID, "handoff": "contract_payload_and_refs", "raw_dialogue_handoff": "forbidden", "long_text_policy": "artifact_ref_with_authorized_expansion"},
+        loop_frames=loop_frames,
         publish_state="published",
         enabled=True,
         metadata={
@@ -1966,11 +2022,7 @@ def _node_payload(node: NodeSpec) -> dict[str, Any]:
         "artifact_targets": [{"path": path, "required": True, "source": "node_spec"} for path in node.artifact_paths],
         "quality_retry_policy": _quality_retry_policy(node),
         "review_gate_policy": _review_gate_policy(node),
-        "loop_policy": _loop_policy(node),
-        "loop_kind": "bounded_metric_iteration" if node.loop_scope_id else "",
-        "loop_scope_id": node.loop_scope_id,
-        "title_template": node.title_template,
-        "loop_route_policy": dict(node.loop_route_policy),
+        "loop": dict(node.loop),
         "metadata": {
             "managed_by": MANAGED_BY,
             "node_spec_source": "native_modular_writing_graph",
@@ -1986,9 +2038,6 @@ def _node_payload(node: NodeSpec) -> dict[str, Any]:
             "outline_thread_policy": outline_thread_policy,
             "prewrite_memory_plan_policy": _prewrite_memory_plan_policy(node),
             "dynamic_expansion_policy": _dynamic_expansion_policy(node),
-            "loop_route_policy": dict(node.loop_route_policy),
-            "loop_scope_id": node.loop_scope_id,
-            "title_template": node.title_template,
         },
     }
     return payload
@@ -2510,14 +2559,16 @@ def _node_unit_batch_contract(node: NodeSpec) -> dict[str, Any]:
         "range_start": 1,
         "input_contract_id": node.input_contract_id,
         "output_contract_id": node.output_contract_id,
-        "target_volumes": TARGET_VOLUMES,
-        "chapters_per_volume": CHAPTERS_PER_VOLUME,
-        "chapter_target_words": CHAPTER_TARGET_WORDS,
-        "batch_target_words": BATCH_TARGET_WORDS,
-        "volume_target_words": VOLUME_TARGET_WORDS,
+        "target_group_count": TARGET_VOLUMES,
+        "units_per_group": CHAPTERS_PER_VOLUME,
+        "target_unit_count": CHAPTER_REQUESTED_COUNT,
+        "units_per_batch": CHAPTER_BATCH_SIZE,
+        "unit_target_measure": CHAPTER_TARGET_WORDS,
+        "batch_target_measure": BATCH_TARGET_WORDS,
+        "group_target_measure": VOLUME_TARGET_WORDS,
+        "target_measure_units": TARGET_WORDS,
         "metadata": {
             "source": "node.contract_bindings.unit_batch",
-            "loop_scope_id": node.loop_scope_id,
             "review_node_id": "chapter_review",
             "commit_node_id": "memory_commit_chapter",
         },
@@ -2923,15 +2974,15 @@ def _memory_write_policy(node: NodeSpec) -> dict[str, Any]:
 
 
 def _runtime_batch_boundary_policy(node: NodeSpec) -> dict[str, Any]:
-    if node.loop_scope_id != "loop.chapter_batch":
+    if str(dict(node.loop).get("scope_id") or "") != "loop.chapter_batch":
         return {}
     return {
         "enabled": True,
         "start_key": "batch_start_index",
         "end_key": "batch_end_index",
-        "count_key": "chapters_per_round",
+        "count_key": "units_per_batch",
         "list_key": "batch_chapter_list",
-        "target_metric_key": "batch_target_words",
+        "target_metric_key": "batch_target_measure",
         "unit_label": "章",
         "unit_label_prefix": "第",
         "unit_label_suffix": "章",
@@ -2953,8 +3004,8 @@ def _replay_sanitization_policy(node: NodeSpec) -> dict[str, Any]:
         "unit_label_suffix": "章",
         "unit_start_key": "batch_start_index",
         "unit_end_key": "batch_end_index",
-        "unit_count_key": "chapters_per_round",
-        "unit_target_metric_key": "chapter_target_words",
+        "unit_count_key": "units_per_batch",
+        "unit_target_metric_key": "unit_target_measure",
         "unit_list_key": "batch_chapter_list",
         "requirements_key": "chapter_revision_requirements",
         "requirements_template": (
@@ -3042,20 +3093,6 @@ def _review_gate_policy(node: NodeSpec) -> dict[str, Any]:
             "forbid_mutable_write": True,
         },
     }
-
-
-def _loop_policy(node: NodeSpec) -> dict[str, Any]:
-    if not node.loop_scope_id:
-        return {}
-    return {
-        "loop_kind": "bounded_metric_iteration",
-        "loop_variable": "batch_start_index" if node.loop_scope_id == "loop.chapter_batch" else "volume_index",
-        "iteration_size_key": "chapters_per_round" if node.loop_scope_id == "loop.chapter_batch" else "target_volumes",
-        "iteration_size": CHAPTER_BATCH_SIZE if node.loop_scope_id == "loop.chapter_batch" else TARGET_VOLUMES,
-        "exit_decision": "volume_target_reached" if node.loop_scope_id == "loop.chapter_batch" else "target_volumes_reached",
-    }
-
-
 def _executor_policy(node: NodeSpec) -> dict[str, Any]:
     return {
         "default_executor": "agent",
@@ -3141,15 +3178,6 @@ def _upsert_master_graph(registry: TaskFlowRegistry) -> None:
                 {"phase_id": "phase.master.chapter_cycle", "title": "分卷创作循环", "sequence_index": 20},
                 {"phase_id": "phase.master.finalize", "title": "收尾交付", "sequence_index": 30},
             ],
-            "graph_loop_policy": {
-                "enabled": True,
-                "flow_control": "graph_module_sequence",
-                "initial_inputs": _chapter_initial_graph_loop_inputs(),
-                "frames": [
-                    {"frame_id": "graph_module.design_init", "entry_stage_id": "graph_module.design_init", "exit_stage_id": "graph_module.chapter_cycle"},
-                    {"frame_id": "graph_module.chapter_cycle", "entry_stage_id": "graph_module.chapter_cycle", "exit_stage_id": "graph_module.finalize"},
-                ],
-            },
             "graph_module_refs": [DESIGN_GRAPH_ID, CHAPTER_GRAPH_ID, FINALIZE_GRAPH_ID],
             "editor_publish_state": "published",
         },
@@ -3349,7 +3377,6 @@ def _graph_contract_bindings(graph_id: str) -> dict[str, Any]:
         bindings["unit_batch"] = _chapter_unit_batch_contract()
         bindings["runtime"] = {
             **dict(bindings["runtime"]),
-            "loop_policy_ref": "metadata.graph_loop_policy",
             "split_policy": {"mode": "static_batch", "batch_size": CHAPTER_BATCH_SIZE, "range_label_template": "chapter_{start}_{end}", "source": "graph.contract_bindings.runtime.split_policy"},
             "length_budget": _length_budget_contract("volume", VOLUME_TARGET_WORDS, VOLUME_MIN_WORDS, VOLUME_MAX_WORDS, CHAPTERS_PER_VOLUME, "graph.contract_bindings.runtime.length_budget"),
         }
@@ -3362,48 +3389,74 @@ def _chapter_unit_batch_contract() -> dict[str, Any]:
         "requested_count": CHAPTER_REQUESTED_COUNT,
         "batch_size": CHAPTER_BATCH_SIZE,
         "range_start": 1,
-        "target_volumes": TARGET_VOLUMES,
-        "chapters_per_volume": CHAPTERS_PER_VOLUME,
-        "chapter_target_words": CHAPTER_TARGET_WORDS,
-        "batch_target_words": BATCH_TARGET_WORDS,
-        "volume_target_words": VOLUME_TARGET_WORDS,
+        "target_group_count": TARGET_VOLUMES,
+        "units_per_group": CHAPTERS_PER_VOLUME,
+        "target_unit_count": CHAPTER_REQUESTED_COUNT,
+        "units_per_batch": CHAPTER_BATCH_SIZE,
+        "unit_target_measure": CHAPTER_TARGET_WORDS,
+        "batch_target_measure": BATCH_TARGET_WORDS,
+        "group_target_measure": VOLUME_TARGET_WORDS,
+        "target_measure_units": TARGET_WORDS,
         "unit_label_zh": "章节",
-        "source": "metadata.graph_loop_policy.initial_inputs",
+        "source": "graph.loop_frames.initial_inputs",
     }
 
 
-def _chapter_graph_loop_policy() -> dict[str, Any]:
-    return {
-        "enabled": True,
-        "loop_owner": "graph",
-        "flow_control": "chapter_batch_and_volume_frames",
-        "initial_inputs": _chapter_initial_graph_loop_inputs(),
-        "derived_fields": _chapter_loop_derived_fields(),
-        "summary": "当前卷：{volume_label}；当前批次：{batch_label}；本批允许范围：{batch_chapter_list}；本次目标 {target_volumes} 卷；全书累计约 {current_words}/{target_words} 字；本卷累计约 {volume_current_words}/{volume_target_words} 字。",
-        "frames": [
-            {"frame_id": "loop.chapter_batch", "title": "章节批次循环", "entry_stage_id": "chapter_outline", "router_stage_id": "chapter_progress_router", "continue_stage_id": "chapter_outline", "exit_stage_id": "volume_review", "unit_kind": "chapter", "iteration_size_key": "chapters_per_round"},
-            {"frame_id": "loop.volume", "title": "分卷大循环", "entry_stage_id": "volume_plan", "router_stage_id": "next_volume_router", "continue_stage_id": "volume_plan", "exit_stage_id": "__graph_module_complete__", "unit_kind": "volume", "iteration_size_key": "target_volumes"},
-        ],
-    }
+def _chapter_loop_frames() -> list[dict[str, Any]]:
+    initial_inputs = _chapter_initial_graph_loop_inputs()
+    derived_fields = _chapter_loop_derived_fields()
+    summary = "当前卷：{volume_label}；当前批次：{batch_label}；本批允许范围：{batch_chapter_list}；目标组数 {target_group_count}；全书累计约 {total_current_measure}/{target_measure_units} 字；本卷累计约 {group_current_measure}/{group_target_measure} 字。"
+    return [
+        {
+            "frame_id": "loop.chapter_batch",
+            "scope_id": "loop.chapter_batch",
+            "title": "章节批次循环",
+            "kind": "bounded_metric_iteration",
+            "entry_node_id": "chapter_outline",
+            "router_node_id": "chapter_progress_router",
+            "continue_node_id": "chapter_outline",
+            "exit_node_id": "volume_review",
+            "unit_kind": "chapter",
+            "iteration_size_key": "units_per_batch",
+            "initial_inputs": initial_inputs,
+            "derived_fields": derived_fields,
+            "summary": summary,
+        },
+        {
+            "frame_id": "loop.volume",
+            "scope_id": "loop.volume",
+            "title": "分卷大循环",
+            "kind": "bounded_metric_iteration",
+            "entry_node_id": "volume_plan",
+            "router_node_id": "next_volume_router",
+            "continue_node_id": "volume_plan",
+            "exit_node_id": "__graph_module_complete__",
+            "unit_kind": "volume",
+            "iteration_size_key": "target_group_count",
+            "initial_inputs": initial_inputs,
+            "derived_fields": derived_fields,
+            "summary": summary,
+        },
+    ]
 
 
 def _chapter_initial_graph_loop_inputs() -> dict[str, Any]:
     return {
-        "target_volumes": TARGET_VOLUMES,
+        "target_group_count": TARGET_VOLUMES,
+        "units_per_group": CHAPTERS_PER_VOLUME,
+        "target_unit_count": CHAPTER_REQUESTED_COUNT,
+        "units_per_batch": CHAPTER_BATCH_SIZE,
+        "unit_target_measure": CHAPTER_TARGET_WORDS,
+        "batch_target_measure": BATCH_TARGET_WORDS,
+        "group_target_measure": VOLUME_TARGET_WORDS,
+        "target_measure_units": TARGET_WORDS,
         "volume_index": 1,
-        "completed_volumes": 0,
-        "volume_current_words": 0,
-        "volume_target_words": VOLUME_TARGET_WORDS,
-        "chapters_per_volume": CHAPTERS_PER_VOLUME,
+        "completed_groups": 0,
+        "group_current_measure": 0,
         "chapter_index": 1,
-        "chapters_per_round": CHAPTER_BATCH_SIZE,
-        "chapter_batch_size": CHAPTER_BATCH_SIZE,
-        "target_chapters": CHAPTER_REQUESTED_COUNT,
+        "unit_index": 1,
         "metric_label": "words",
-        "target_metric_total": TARGET_WORDS,
-        "target_words": TARGET_WORDS,
-        "current_words": 0,
-        "chapter_target_words": CHAPTER_TARGET_WORDS,
+        "total_current_measure": 0,
     }
 
 

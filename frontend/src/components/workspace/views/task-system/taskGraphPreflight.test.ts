@@ -262,7 +262,7 @@ describe("TaskGraph preflight", () => {
           {
             phase_id: "phase.review",
             title: "审核",
-            loop_policy: { mode: "repair_loop" },
+            loop: { mode: "repair_loop" },
           },
         ],
       },

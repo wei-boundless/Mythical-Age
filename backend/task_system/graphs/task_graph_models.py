@@ -82,7 +82,6 @@ RUNTIME_CONTRACT_KEYS = {
     "runtime_policy",
     "model_requirement",
     "length_budget",
-    "loop_policy_ref",
     "split_policy",
     "merge_policy",
     "batch_acceptance_policy",
@@ -124,11 +123,7 @@ class TaskGraphNodeDefinition:
     timeline_group_id: str = ""
     main_chain: bool = True
     blocks_phase_exit: bool = True
-    loop_policy: dict[str, Any] = field(default_factory=dict)
-    loop_kind: str = ""
-    loop_scope_id: str = ""
-    title_template: str = ""
-    loop_route_policy: dict[str, Any] = field(default_factory=dict)
+    loop: dict[str, Any] = field(default_factory=dict)
     review_gate_policy: dict[str, Any] = field(default_factory=dict)
     artifact_context_policy: dict[str, Any] = field(default_factory=dict)
     revision_context_policy: dict[str, Any] = field(default_factory=dict)
@@ -205,6 +200,7 @@ class TaskGraphDefinition:
     working_memory_policy: dict[str, Any] = field(default_factory=dict)
     runtime_policy: dict[str, Any] = field(default_factory=dict)
     context_policy: dict[str, Any] = field(default_factory=dict)
+    loop_frames: tuple[dict[str, Any], ...] = ()
     publish_state: TaskGraphPublishState = "draft"
     enabled: bool = False
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -262,10 +258,7 @@ def task_graph_node_from_dict(payload: dict[str, Any]) -> TaskGraphNodeDefinitio
     background_policy = dict(payload.get("background_policy") or {})
     notification_policy = dict(payload.get("notification_policy") or {})
     resource_lifecycle_policy = dict(payload.get("resource_lifecycle_policy") or {})
-    loop_kind = str(payload.get("loop_kind") or "").strip()
-    loop_scope_id = str(payload.get("loop_scope_id") or "").strip()
-    title_template = str(payload.get("title_template") or "").strip()
-    loop_route_policy = dict(payload.get("loop_route_policy") or {})
+    loop = dict(payload.get("loop") or {})
     artifact_context_policy = dict(payload.get("artifact_context_policy") or {})
     revision_context_policy = dict(payload.get("revision_context_policy") or {})
     quality_retry_policy = dict(payload.get("quality_retry_policy") or {})
@@ -327,11 +320,7 @@ def task_graph_node_from_dict(payload: dict[str, Any]) -> TaskGraphNodeDefinitio
         timeline_group_id=str(payload.get("timeline_group_id") or "").strip(),
         main_chain=bool(payload.get("main_chain", True)),
         blocks_phase_exit=bool(payload.get("blocks_phase_exit", True)),
-        loop_policy=dict(payload.get("loop_policy") or {}),
-        loop_kind=loop_kind,
-        loop_scope_id=loop_scope_id,
-        title_template=title_template,
-        loop_route_policy=loop_route_policy,
+        loop=loop,
         review_gate_policy=review_gate_policy,
         artifact_context_policy=artifact_context_policy,
         revision_context_policy=revision_context_policy,
@@ -442,6 +431,7 @@ def task_graph_from_dict(payload: dict[str, Any]) -> TaskGraphDefinition:
     graph_contract_id = str(explicit_schema_bindings.get("graph_contract_id") or legacy_graph_contract_id or "").strip()
     working_memory_policy = dict(payload.get("working_memory_policy") or {})
     context_policy = dict(payload.get("context_policy") or {})
+    loop_frames = tuple(dict(item) for item in list(payload.get("loop_frames") or []) if isinstance(item, dict))
     metadata = _legacy_contract_metadata(
         dict(payload.get("metadata") or {}),
         {
@@ -471,6 +461,7 @@ def task_graph_from_dict(payload: dict[str, Any]) -> TaskGraphDefinition:
         working_memory_policy=working_memory_policy,
         runtime_policy=runtime_policy,
         context_policy=context_policy,
+        loop_frames=loop_frames,
         publish_state=_normalize_publish_state(payload.get("publish_state"), bool(payload.get("enabled", False))),
         enabled=bool(payload.get("enabled", False)),
         metadata=metadata,

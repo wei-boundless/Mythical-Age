@@ -6,28 +6,8 @@ const DEFAULT_UNITS_PER_BATCH = 1;
 const DEFAULT_UNIT_TARGET_MEASURE = 0;
 const DEFAULT_GROUP_TARGET_MEASURE = DEFAULT_UNITS_PER_GROUP * DEFAULT_UNIT_TARGET_MEASURE;
 const DEFAULT_TARGET_MEASURE_UNITS = DEFAULT_TARGET_GROUP_COUNT * DEFAULT_GROUP_TARGET_MEASURE;
-
-const LEGACY_RUNTIME_LOOP_INPUT_KEYS = new Set([
-  "target_volumes",
-  "chapters_per_volume",
-  "target_chapters",
-  "chapters_per_round",
-  "chapter_batch_size",
-  "chapter_target_words",
-  "volume_target_words",
-  "target_words",
-]);
-
-const LEGACY_RUNTIME_LOOP_KEY_MAP: Record<string, string> = {
-  target_volumes: "target_group_count",
-  chapters_per_volume: "units_per_group",
-  target_chapters: "target_unit_count",
-  chapters_per_round: "units_per_batch",
-  chapter_batch_size: "units_per_batch",
-  chapter_target_words: "unit_target_measure",
-  volume_target_words: "group_target_measure",
-  target_words: "target_measure_units",
-};
+const DEFAULT_LOOP_FRAME_ID = "loop.default";
+const LOOP_INITIAL_INPUT_SOURCE = "graph.loop_frames.initial_inputs";
 
 export function taskGraphLoopRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -39,12 +19,14 @@ export function taskGraphLoopNumber(value: unknown, fallback = 0) {
 }
 
 export function taskGraphLoopInitialInputs(graphDraft: TaskGraphDraftV2) {
-  return taskGraphLoopRecord(taskGraphLoopRecord(graphDraft.metadata.graph_loop_policy).initial_inputs);
+  return taskGraphLoopFrames(graphDraft).reduce<Record<string, unknown>>(
+    (acc, frame) => ({ ...acc, ...taskGraphLoopRecord(frame.initial_inputs) }),
+    {},
+  );
 }
 
 export function taskGraphLoopFrames(graphDraft: TaskGraphDraftV2) {
-  const frames = taskGraphLoopRecord(graphDraft.metadata.graph_loop_policy).frames;
-  return Array.isArray(frames) ? frames.map(taskGraphLoopRecord) : [];
+  return Array.isArray(graphDraft.loop_frames) ? graphDraft.loop_frames.map(taskGraphLoopRecord) : [];
 }
 
 function writePath(source: Record<string, unknown>, path: string[], value: unknown): Record<string, unknown> {
@@ -78,12 +60,6 @@ function firstNonNegativeGraphLoopNumber(...values: unknown[]): number | undefin
   return undefined;
 }
 
-function stripLegacyGraphLoopInputs(value: Record<string, unknown>): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries(value).filter(([key]) => !LEGACY_RUNTIME_LOOP_INPUT_KEYS.has(key)),
-  );
-}
-
 export function defaultTaskGraphLoopInitialInputs() {
   return {
     target_group_count: DEFAULT_TARGET_GROUP_COUNT,
@@ -103,51 +79,44 @@ export function resolvedTaskGraphLoopInitialInputs(graphDraft: TaskGraphDraftV2)
   const targetGroupCount = firstPositiveGraphLoopNumber(
     loopInputs.target_group_count,
     unitBatch.target_group_count,
-    loopInputs.target_volumes,
-    unitBatch.target_volumes,
     defaults.target_group_count,
   ) ?? defaults.target_group_count;
   const unitsPerGroup = firstPositiveGraphLoopNumber(
     loopInputs.units_per_group,
     unitBatch.units_per_group,
-    loopInputs.chapters_per_volume,
-    unitBatch.chapters_per_volume,
     defaults.units_per_group,
   ) ?? defaults.units_per_group;
   const unitsPerBatch = firstPositiveGraphLoopNumber(
     loopInputs.units_per_batch,
-    loopInputs.chapters_per_round,
-    loopInputs.chapter_batch_size,
+    unitBatch.units_per_batch,
     unitBatch.batch_size,
     defaults.units_per_batch,
   ) ?? defaults.units_per_batch;
   const unitTargetMeasure = firstNonNegativeGraphLoopNumber(
     loopInputs.unit_target_measure,
-    loopInputs.chapter_target_words,
-    unitBatch.chapter_target_words,
+    unitBatch.unit_target_measure,
     defaults.unit_target_measure,
   ) ?? defaults.unit_target_measure;
   const groupTargetMeasure = firstNonNegativeGraphLoopNumber(
     loopInputs.group_target_measure,
-    loopInputs.volume_target_words,
-    unitBatch.volume_target_words,
+    unitBatch.group_target_measure,
     unitsPerGroup * unitTargetMeasure,
   ) ?? unitsPerGroup * unitTargetMeasure;
   const targetMeasureUnits = firstNonNegativeGraphLoopNumber(
     loopInputs.target_measure_units,
-    loopInputs.target_words,
+    unitBatch.target_measure_units,
     targetGroupCount * groupTargetMeasure,
   ) ?? targetGroupCount * groupTargetMeasure;
   const targetUnitCount = firstPositiveGraphLoopNumber(
     loopInputs.target_unit_count,
-    loopInputs.target_chapters,
+    unitBatch.target_unit_count,
     unitBatch.requested_count,
     targetGroupCount * unitsPerGroup,
   ) ?? targetGroupCount * unitsPerGroup;
 
   return {
     ...defaults,
-    ...stripLegacyGraphLoopInputs(loopInputs),
+    ...loopInputs,
     target_group_count: targetGroupCount,
     units_per_group: unitsPerGroup,
     target_unit_count: targetUnitCount,
@@ -155,10 +124,34 @@ export function resolvedTaskGraphLoopInitialInputs(graphDraft: TaskGraphDraftV2)
     unit_target_measure: unitTargetMeasure,
     group_target_measure: groupTargetMeasure,
     target_measure_units: targetMeasureUnits,
-    legacy_input_key_map: Object.fromEntries(
-      Object.entries(LEGACY_RUNTIME_LOOP_KEY_MAP).filter(([legacyKey]) => loopInputs[legacyKey] !== undefined),
-    ),
   };
+}
+
+function defaultTaskGraphLoopFrame(initialInputs: Record<string, unknown>): Record<string, unknown> {
+  return {
+    frame_id: DEFAULT_LOOP_FRAME_ID,
+    scope_id: DEFAULT_LOOP_FRAME_ID,
+    title: "默认循环",
+    kind: "bounded_metric_iteration",
+    initial_inputs: initialInputs,
+  };
+}
+
+function taskGraphLoopFramesWithInitialInputs(
+  graphDraft: TaskGraphDraftV2,
+  initialInputs: Record<string, unknown>,
+): Array<Record<string, unknown>> {
+  const frames = taskGraphLoopFrames(graphDraft);
+  if (!frames.length) return [defaultTaskGraphLoopFrame(initialInputs)];
+  return frames.map((frame, index) => {
+    const frameId = String(frame.frame_id ?? frame.scope_id ?? (index === 0 ? DEFAULT_LOOP_FRAME_ID : `loop.${index + 1}`)).trim();
+    return {
+      ...frame,
+      frame_id: frameId || DEFAULT_LOOP_FRAME_ID,
+      scope_id: String(frame.scope_id ?? frameId ?? DEFAULT_LOOP_FRAME_ID).trim() || DEFAULT_LOOP_FRAME_ID,
+      initial_inputs: initialInputs,
+    };
+  });
 }
 
 export function buildTaskGraphLoopInputPatch(
@@ -166,9 +159,7 @@ export function buildTaskGraphLoopInputPatch(
   key: string,
   value: unknown,
 ): Partial<TaskGraphDraftV2> {
-  const metadata = taskGraphLoopRecord(graphDraft.metadata);
-  const graphLoopPolicy = taskGraphLoopRecord(metadata.graph_loop_policy);
-  const normalizedKey = LEGACY_RUNTIME_LOOP_KEY_MAP[key] ?? key;
+  const normalizedKey = key;
   const initialInputs: Record<string, unknown> = {
     ...resolvedTaskGraphLoopInitialInputs(graphDraft),
     [normalizedKey]: value,
@@ -190,15 +181,7 @@ export function buildTaskGraphLoopInputPatch(
   initialInputs.group_target_measure = groupTargetMeasure;
   initialInputs.target_measure_units = targetMeasureUnits;
   initialInputs.target_unit_count = targetGroupCount * unitsPerGroup;
-  delete initialInputs.legacy_input_key_map;
-  const nextMetadata = {
-    ...metadata,
-    graph_loop_policy: {
-      ...graphLoopPolicy,
-      enabled: graphLoopPolicy.enabled ?? true,
-      initial_inputs: stripLegacyGraphLoopInputs(initialInputs),
-    },
-  };
+  const nextLoopFrames = taskGraphLoopFramesWithInitialInputs(graphDraft, initialInputs);
   const contractBindings = taskGraphLoopRecord(graphDraft.contract_bindings);
   const currentUnitBatch = taskGraphLoopRecord(contractBindings.unit_batch);
   const currentLengthBudget = taskGraphLoopRecord(taskGraphLoopRecord(contractBindings.runtime).length_budget);
@@ -244,9 +227,12 @@ export function buildTaskGraphLoopInputPatch(
     batch_size: unitsPerBatch,
     target_group_count: targetGroupCount,
     units_per_group: unitsPerGroup,
+    target_unit_count: initialInputs.target_unit_count,
+    units_per_batch: unitsPerBatch,
     unit_target_measure: unitTargetMeasure,
     group_target_measure: groupTargetMeasure,
-    source: "metadata.graph_loop_policy.initial_inputs",
+    target_measure_units: targetMeasureUnits,
+    source: LOOP_INITIAL_INPUT_SOURCE,
   };
   const lengthBudgetPatch: Record<string, unknown> = {
     ...currentLengthBudget,
@@ -269,11 +255,11 @@ export function buildTaskGraphLoopInputPatch(
       require_continuity: currentLengthBudgetAcceptancePolicy.require_continuity ?? true,
       require_formal_headings: currentLengthBudgetAcceptancePolicy.require_formal_headings ?? true,
     },
-    source: "metadata.graph_loop_policy.initial_inputs",
+    source: LOOP_INITIAL_INPUT_SOURCE,
   };
   const nextContractBindings = writePath(contractBindings, ["unit_batch"], unitBatchPatch);
   return {
-    metadata: nextMetadata,
+    loop_frames: nextLoopFrames,
     contract_bindings: shouldWriteLengthBudget
       ? writePath(nextContractBindings, ["runtime", "length_budget"], lengthBudgetPatch)
       : nextContractBindings,

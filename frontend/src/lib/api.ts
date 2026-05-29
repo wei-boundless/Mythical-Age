@@ -848,7 +848,7 @@ export type TaskGraphNodeRecord = {
   start_policy?: string;
   completion_policy?: string;
   blocks_phase_exit?: boolean;
-  loop_policy?: Record<string, unknown>;
+  loop?: Record<string, unknown>;
   review_gate_policy?: Record<string, unknown>;
   artifact_policy?: Record<string, unknown>;
   stream_policy?: Record<string, unknown>;
@@ -900,6 +900,7 @@ export type TaskGraphRecord = {
   working_memory_policy?: Record<string, unknown>;
   runtime_policy?: Record<string, unknown>;
   context_policy?: Record<string, unknown>;
+  loop_frames?: Array<Record<string, unknown>>;
   publish_state: "draft" | "published" | "archived";
   enabled: boolean;
   metadata?: Record<string, unknown>;

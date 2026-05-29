@@ -762,21 +762,19 @@ def test_graph_loop_contract_drives_generic_repeated_node_progression(tmp_path: 
         entry_node_id="produce",
         output_node_id="exit",
         runtime_policy={"coordinator_agent_id": "agent:0"},
-        metadata={
-            "graph_loop_policy": {
-                "enabled": True,
+        loop_frames=(
+            {
+                "frame_id": "loop.units",
+                "scope_id": "loop.units",
+                "title": "Unit loop",
+                "kind": "bounded_metric_iteration",
+                "entry_node_id": "produce",
+                "router_node_id": "router",
+                "continue_node_id": "produce",
+                "exit_node_id": "exit",
                 "initial_inputs": {"done_units": 0, "target_units": 3},
-                "frames": [
-                    {
-                        "frame_id": "loop.units",
-                        "entry_stage_id": "produce",
-                        "router_stage_id": "router",
-                        "continue_stage_id": "produce",
-                        "exit_stage_id": "exit",
-                    }
-                ],
-            }
-        },
+            },
+        ),
         nodes=(
             TaskGraphNodeDefinition(
                 node_id="produce",
@@ -784,7 +782,7 @@ def test_graph_loop_contract_drives_generic_repeated_node_progression(tmp_path: 
                 title="Produce",
                 task_id="task.test.loop.produce",
                 agent_id="agent:0",
-                loop_scope_id="loop.units",
+                loop={"scope_id": "loop.units", "kind": "bounded_metric_iteration"},
             ),
             TaskGraphNodeDefinition(
                 node_id="commit",
@@ -792,7 +790,7 @@ def test_graph_loop_contract_drives_generic_repeated_node_progression(tmp_path: 
                 title="Commit",
                 task_id="task.test.loop.commit",
                 agent_id="agent:0",
-                loop_scope_id="loop.units",
+                loop={"scope_id": "loop.units", "kind": "bounded_metric_iteration"},
             ),
             TaskGraphNodeDefinition(
                 node_id="router",
@@ -800,16 +798,19 @@ def test_graph_loop_contract_drives_generic_repeated_node_progression(tmp_path: 
                 title="Router",
                 task_id="task.test.loop.router",
                 agent_id="agent:0",
-                loop_scope_id="loop.units",
-                loop_route_policy={
-                    "mode": "metric_target",
-                    "loop_scope_id": "loop.units",
-                    "continue_stage_id": "produce",
-                    "exit_stage_id": "exit",
-                    "metric_key": "unit_count",
-                    "default_increment": 1,
-                    "current_key": "done_units",
-                    "target_key": "target_units",
+                loop={
+                    "scope_id": "loop.units",
+                    "kind": "bounded_metric_iteration",
+                    "route_policy": {
+                        "mode": "metric_target",
+                        "scope_id": "loop.units",
+                        "continue_node_id": "produce",
+                        "exit_node_id": "exit",
+                        "metric_key": "unit_count",
+                        "default_increment": 1,
+                        "current_key": "done_units",
+                        "target_key": "target_units",
+                    },
                 },
             ),
             TaskGraphNodeDefinition(
@@ -884,7 +885,7 @@ def test_graph_loop_contract_drives_generic_repeated_node_progression(tmp_path: 
     assert completed_orders == ["produce", "commit", "router", "produce", "commit", "router", "produce", "commit", "router", "exit"]
 
 
-def test_graph_harness_config_publication_moves_loop_fields_to_node_loop_contract() -> None:
+def test_graph_harness_config_publication_preserves_formal_node_loop_contract() -> None:
     graph = TaskGraphDefinition(
         graph_id="graph.test.loop_publication",
         title="Loop Publication",
@@ -899,20 +900,18 @@ def test_graph_harness_config_publication_moves_loop_fields_to_node_loop_contrac
                 node_type="agent",
                 title="Router",
                 task_id="task.test.router",
-                loop_scope_id="loop.units",
-                title_template="Unit {done_units}",
-                loop_route_policy={
-                    "loop_scope_id": "loop.units",
-                    "continue_stage_id": "router",
-                    "exit_stage_id": "exit",
-                    "current_key": "done_units",
-                    "target_key": "target_units",
-                    "counter_updates": [{"key": "cursor", "mode": "increment", "step": 1}],
-                },
-                metadata={
-                    "loop_scope_id": "legacy.loop",
-                    "loop_route_policy": {"current_key": "legacy"},
-                    "title_template": "Legacy",
+                loop={
+                    "scope_id": "loop.units",
+                    "kind": "bounded_metric_iteration",
+                    "title_template": "Unit {done_units}",
+                    "route_policy": {
+                        "scope_id": "loop.units",
+                        "continue_node_id": "router",
+                        "exit_node_id": "exit",
+                        "current_key": "done_units",
+                        "target_key": "target_units",
+                        "patch_rules": [{"key": "cursor", "mode": "increment", "step": 1}],
+                    },
                 },
             ),
         ),
@@ -928,11 +927,7 @@ def test_graph_harness_config_publication_moves_loop_fields_to_node_loop_contrac
     assert loop_contract["route_policy"]["continue_node_id"] == "router"
     assert loop_contract["route_policy"]["exit_node_id"] == "exit"
     assert loop_contract["route_policy"]["patch_rules"] == [{"key": "cursor", "mode": "increment", "step": 1}]
-    assert "graph_loop_policy" not in dict(config.control or {})
-    assert "loop_scope_id" not in node
-    assert "loop_route_policy" not in node
     assert "title_template" not in node
-    assert "loop_scope_id" not in dict(node.get("metadata") or {})
-    assert "loop_route_policy" not in dict(node.get("metadata") or {})
-    forbidden_route_fields = {"loop_scope_id", "continue_stage_id", "exit_stage_id", "counter_updates"}
-    assert not forbidden_route_fields.intersection(loop_contract["route_policy"])
+    assert set(loop_contract["route_policy"]).issubset(
+        {"scope_id", "continue_node_id", "exit_node_id", "mode", "current_key", "target_key", "patch_rules", "authority"}
+    )

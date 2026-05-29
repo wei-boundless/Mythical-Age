@@ -76,6 +76,7 @@ def contract_from_action_request(
     action_request: ModelActionRequest,
     *,
     packet_ref: str,
+    task_environment_id: str = "",
 ) -> tuple[TaskRunContract | None, list[str]]:
     seed = dict(action_request.task_contract_seed or {})
     errors: list[str] = []
@@ -120,7 +121,7 @@ def contract_from_action_request(
         created_from_packet_ref=packet_ref,
         source_contract_ref=str(seed.get("source_contract_ref") or seed.get("contract_ref") or "").strip(),
         external_plan_ref=str(seed.get("external_plan_ref") or seed.get("plan_ref") or "").strip(),
-        task_environment_id=str(seed.get("task_environment_id") or seed.get("environment_id") or "").strip(),
+        task_environment_id=str(task_environment_id or "").strip(),
         runtime_profile=dict(seed.get("runtime_profile") or {}),
         prompt_contract=dict(seed.get("prompt_contract") or {}),
     )

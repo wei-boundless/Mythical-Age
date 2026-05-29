@@ -10,11 +10,11 @@ param(
     [string]$ProjectId = "project:honghuang-times",
     [string]$ProjectTitle = "洪荒时代",
     [string]$ProjectBriefFile = "output/novel_artifacts/modular_novel/runs/project-honghuang-times-memoryscope-20260523-001/project_brief.md",
-    [int]$TargetVolumes = 5,
-    [int]$ChaptersPerVolume = 100,
-    [int]$TargetWords = 1000000,
-    [int]$ChapterTargetWords = 2000,
-    [int]$ChaptersPerRound = 10,
+    [int]$TargetGroupCount = 5,
+    [int]$UnitsPerGroup = 100,
+    [int]$TargetMeasureUnits = 1000000,
+    [int]$UnitTargetMeasure = 2000,
+    [int]$UnitsPerBatch = 10,
     [string]$ArtifactRoot = "",
     [int]$StartupTimeoutSeconds = 45
 )
@@ -62,12 +62,15 @@ function Test-BackendHealth {
 }
 
 function Stop-BackendProcesses {
-    param([int]$BackendPort, [string]$StoredPidFile)
+    param([int]$BackendPort, [string]$StoredPidFile, [string]$ExpectedBackendRoot)
 
     if (Test-Path $StoredPidFile) {
         $storedPid = (Get-Content -Path $StoredPidFile -ErrorAction SilentlyContinue | Select-Object -First 1).Trim()
         if ($storedPid -match '^\d+$') {
-            Stop-Process -Id ([int]$storedPid) -Force -ErrorAction SilentlyContinue
+            $storedProcess = Get-CimInstance Win32_Process -Filter "ProcessId=$storedPid" -ErrorAction SilentlyContinue
+            if ($storedProcess -and (Test-IsProjectBackendProcess -ProcessInfo $storedProcess -ExpectedBackendRoot $ExpectedBackendRoot -ExpectedBackendPort $BackendPort)) {
+                Stop-Process -Id ([int]$storedPid) -Force -ErrorAction SilentlyContinue
+            }
         }
         Remove-Item -LiteralPath $StoredPidFile -Force -ErrorAction SilentlyContinue
     }
@@ -75,9 +78,25 @@ function Stop-BackendProcesses {
     $listeners = @(Get-NetTCPConnection -LocalPort $BackendPort -State Listen -ErrorAction SilentlyContinue)
     foreach ($listener in $listeners) {
         if ($listener.OwningProcess) {
-            Stop-Process -Id $listener.OwningProcess -Force -ErrorAction SilentlyContinue
+            $processInfo = Get-CimInstance Win32_Process -Filter "ProcessId=$($listener.OwningProcess)" -ErrorAction SilentlyContinue
+            if ($processInfo -and (Test-IsProjectBackendProcess -ProcessInfo $processInfo -ExpectedBackendRoot $ExpectedBackendRoot -ExpectedBackendPort $BackendPort)) {
+                Stop-Process -Id $listener.OwningProcess -Force -ErrorAction SilentlyContinue
+            } else {
+                throw "Port $BackendPort is occupied by a non-project process: PID $($listener.OwningProcess). Stop it manually or free the fixed backend port."
+            }
         }
     }
+}
+
+function Test-IsProjectBackendProcess {
+    param([object]$ProcessInfo, [string]$ExpectedBackendRoot, [int]$ExpectedBackendPort)
+
+    $commandLine = [string]($ProcessInfo.CommandLine)
+    $normalizedCommand = $commandLine.Replace('/', '\').ToLowerInvariant()
+    $normalizedRoot = ([string]$ExpectedBackendRoot).Replace('/', '\').ToLowerInvariant()
+    $usesProjectRoot = $normalizedCommand.Contains($normalizedRoot) -and $normalizedCommand.Contains("run_uvicorn.py")
+    $usesFixedBackendEntry = $normalizedCommand.Contains("run_uvicorn.py") -and $normalizedCommand.Contains("--port $ExpectedBackendPort")
+    return $usesProjectRoot -or $usesFixedBackendEntry
 }
 
 function Start-BackendProcess {
@@ -136,7 +155,7 @@ function Wait-BackendHealthy {
 if (-not $SkipBackendRestart) {
     Ensure-OutputDir
     Clear-LegacyBackendLogs
-    Stop-BackendProcesses -BackendPort $BindPort -StoredPidFile $PidFile
+    Stop-BackendProcesses -BackendPort $BindPort -StoredPidFile $PidFile -ExpectedBackendRoot $BackendRoot
     Start-Sleep -Seconds 1
     $backendProcess = Start-BackendProcess `
         -WorkingDirectory $BackendRoot `
@@ -171,11 +190,11 @@ if (-not $SkipRunStart) {
         -ProjectId $ProjectId `
         -ProjectTitle $ProjectTitle `
         -ProjectBriefFile $ProjectBriefFile `
-        -TargetWords $TargetWords `
-        -ChapterTargetWords $ChapterTargetWords `
-        -TargetVolumes $TargetVolumes `
-        -ChaptersPerVolume $ChaptersPerVolume `
-        -ChaptersPerRound $ChaptersPerRound `
+        -TargetMeasureUnits $TargetMeasureUnits `
+        -UnitTargetMeasure $UnitTargetMeasure `
+        -TargetGroupCount $TargetGroupCount `
+        -UnitsPerGroup $UnitsPerGroup `
+        -UnitsPerBatch $UnitsPerBatch `
         -ArtifactRoot $ArtifactRoot
     $result.run = $runOutput | ConvertFrom-Json
 }

@@ -80,8 +80,8 @@ def _node_semantics(node: TaskGraphNodeDefinition) -> NodeRuntimeSemantics:
     elif node_type in {"manual_gate", "human_gate", "approval_gate"} or dict(node.human_gate_policy or {}):
         evidence.append("node.human_gate_policy")
         role = "approver"
-    elif node_type in {"router", "switch", "condition", "loop_router"} or dict(node.loop_route_policy or {}):
-        evidence.append("node.loop_route_policy")
+    elif node_type in {"router", "switch", "condition", "loop_router"} or dict(node.loop or {}).get("route_policy"):
+        evidence.append("node.loop.route_policy")
         role = "router"
     elif node_type in {"barrier", "join", "merge", "aggregator"} or str(node.join_policy or "") in {"allow_partial_with_issues", "coordinator_decides"}:
         evidence.append("node.join_policy")

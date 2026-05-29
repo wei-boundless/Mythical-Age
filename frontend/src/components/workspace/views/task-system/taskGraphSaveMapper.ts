@@ -145,6 +145,7 @@ export function buildTaskGraphUpsertPayload({
     working_memory_policy: asRecord(taskGraphDraft.working_memory_policy),
     runtime_policy,
     context_policy,
+    loop_frames: taskGraphDraft.loop_frames.map((frame) => asRecord(frame)),
     publish_state,
     enabled: publish_state === "published",
     metadata: compactRecord({

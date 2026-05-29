@@ -83,7 +83,7 @@ describe("task graph templates", () => {
       loop_count: 5,
       require_human_confirmation: true,
     });
-    expect(draft.metadata.loop_policy).toMatchObject({ max_attempts: 5 });
+    expect(draft.metadata.loop).toMatchObject({ max_attempts: 5 });
     expect(draft.metadata.review_policy).toMatchObject({ strength: "strict", require_human_confirmation: true });
     expect((draft.nodes[0].metadata as Record<string, unknown>).template_prompt_context).toContain("当前任务意图：形成投资决策简报");
     expect((draft.nodes[0].metadata as Record<string, unknown>).agent_binding_source).toBe("template_parameter");

@@ -6,11 +6,11 @@ param(
     [string]$ProjectId = "project:honghuang-times",
     [string]$ProjectTitle = "洪荒时代",
     [string]$ProjectBriefFile = "output/novel_artifacts/modular_novel/runs/project-honghuang-times-memoryscope-20260523-001/project_brief.md",
-    [int]$TargetVolumes = 5,
-    [int]$ChaptersPerVolume = 100,
-    [int]$TargetWords = 1000000,
-    [int]$ChapterTargetWords = 2000,
-    [int]$ChaptersPerRound = 10,
+    [int]$TargetGroupCount = 5,
+    [int]$UnitsPerGroup = 100,
+    [int]$TargetMeasureUnits = 1000000,
+    [int]$UnitTargetMeasure = 2000,
+    [int]$UnitsPerBatch = 10,
     [string]$ArtifactRoot = ""
 )
 
@@ -41,21 +41,30 @@ $Payload = @{
     session_id = $SessionId
     task_id = $TaskId
     include_trace = $true
-    execute_initial_stage = $true
+    dispatch_ready = $true
+    run_mode = "dispatch_only"
     initial_inputs = @{
         project_id = $ProjectId
         project_title = $ProjectTitle
         title = $ProjectTitle
         project_brief = $ProjectBrief
-        target_volumes = $TargetVolumes
-        chapters_per_volume = $ChaptersPerVolume
-        target_chapters = ($TargetVolumes * $ChaptersPerVolume)
-        target_words = $TargetWords
-        target_length = [string]$TargetWords
-        chapter_target_words = $ChapterTargetWords
-        chapters_per_round = $ChaptersPerRound
-        chapter_batch_size = $ChaptersPerRound
-        requested_batch = "每轮连续创作 $ChaptersPerRound 章，每章约 $ChapterTargetWords 字；审核和记忆提交按同一批次处理。"
+        target_group_count = $TargetGroupCount
+        units_per_group = $UnitsPerGroup
+        target_unit_count = ($TargetGroupCount * $UnitsPerGroup)
+        target_measure_units = $TargetMeasureUnits
+        target_length = [string]$TargetMeasureUnits
+        unit_target_measure = $UnitTargetMeasure
+        units_per_batch = $UnitsPerBatch
+        batch_target_measure = ($UnitsPerBatch * $UnitTargetMeasure)
+        group_target_measure = ($UnitsPerGroup * $UnitTargetMeasure)
+        completed_groups = 0
+        group_current_measure = 0
+        total_current_measure = 0
+        volume_index = 1
+        chapter_index = 1
+        unit_index = 1
+        metric_label = "words"
+        requested_batch = "每轮连续创作 $UnitsPerBatch 个章节单位，每个单位约 $UnitTargetMeasure 字；审核和记忆提交按同一批次处理。"
         artifact_root = $ArtifactRoot
         human_gate_mode = "auto_continue"
         run_mode = "project_self_running"
@@ -65,7 +74,7 @@ $Payload = @{
 
 $Response = Invoke-RestMethod `
     -Method Post `
-    -Uri "$BaseUrl/orchestration/runtime-loop/task-graphs/$GraphId/start" `
+    -Uri "$BaseUrl/orchestration/harness/task-graphs/$GraphId/start" `
     -ContentType "application/json; charset=utf-8" `
     -Body ($Payload | ConvertTo-Json -Depth 8)
 
@@ -75,8 +84,11 @@ $Result = [pscustomobject]@{
     task_id = $TaskId
     task_run_id = [string]$Response.task_run_id
     graph_run_id = [string]$Response.graph_run_id
+    graph_harness_config_id = [string]$Response.graph_harness_config_id
+    node_work_order_count = @($Response.node_work_orders).Count
+    first_node_id = if (@($Response.node_work_orders).Count -gt 0) { [string]$Response.node_work_orders[0].node_id } else { "" }
     artifact_root = $ArtifactRoot
-    initial_stage_execution_background = [bool]$Response.initial_stage_execution_background
+    graph_status = [string]$Response.graph_loop_state.status
     source = "scripts.start_writing_project_run"
 }
 

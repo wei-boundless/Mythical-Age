@@ -22,8 +22,10 @@ def test_writing_task_graph_uses_agent_runtime_phase_policy_not_old_writing_priv
     chapter_graph = graphs["graph.writing.modular_novel.chapter_cycle"]
 
     assert strategy_prototype_for_task_goal("writing_graph_long_run").prototype_id == "generic_professional_task"
-    assert chapter_graph.metadata["graph_loop_policy"]["enabled"] is True
-    assert chapter_graph.metadata["graph_loop_policy"]["frames"][0]["frame_id"] == "loop.chapter_batch"
+    assert chapter_graph.loop_frames[0]["frame_id"] == "loop.chapter_batch"
+    assert chapter_graph.loop_frames[0]["entry_node_id"] == "chapter_outline"
+    assert chapter_graph.loop_frames[0]["continue_node_id"] == "chapter_outline"
+    assert chapter_graph.loop_frames[0]["exit_node_id"] == "volume_review"
     retired_writing_tokens = ("_".join(("writing", "simple")), "_".join(("writing", "team")))
     assert not any(any(token in node.node_id for token in retired_writing_tokens) for node in chapter_graph.nodes)
 

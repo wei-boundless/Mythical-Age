@@ -7,9 +7,9 @@
       "owner_layer": "task",
       "allowed_invocation_kinds": [],
       "allowed_runtime_modes": [
-        "role_mode",
-        "standard_mode",
-        "professional_mode"
+        "role",
+        "standard",
+        "professional"
       ],
       "allowed_agent_refs": [],
       "allowed_environment_refs": [],
@@ -29,10 +29,6 @@
       "tags": [
         "task_graph"
       ],
-      "applies_to_task_goal_types": [],
-      "applies_to_domains": [],
-      "applies_to_modes": [],
-      "applies_to_agents": [],
       "priority": 100,
       "cache_scope": "static",
       "model_visible": true,
@@ -55,9 +51,9 @@
       "owner_layer": "task",
       "allowed_invocation_kinds": [],
       "allowed_runtime_modes": [
-        "role_mode",
-        "standard_mode",
-        "professional_mode"
+        "role",
+        "standard",
+        "professional"
       ],
       "allowed_agent_refs": [],
       "allowed_environment_refs": [],
@@ -78,10 +74,6 @@
         "task_graph",
         "domain.writing.modular_novel"
       ],
-      "applies_to_task_goal_types": [],
-      "applies_to_domains": [],
-      "applies_to_modes": [],
-      "applies_to_agents": [],
       "priority": 100,
       "cache_scope": "static",
       "model_visible": true,
@@ -104,9 +96,9 @@
       "owner_layer": "task",
       "allowed_invocation_kinds": [],
       "allowed_runtime_modes": [
-        "role_mode",
-        "standard_mode",
-        "professional_mode"
+        "role",
+        "standard",
+        "professional"
       ],
       "allowed_agent_refs": [],
       "allowed_environment_refs": [],
@@ -127,10 +119,6 @@
         "task_graph",
         "domain.writing.modular_novel"
       ],
-      "applies_to_task_goal_types": [],
-      "applies_to_domains": [],
-      "applies_to_modes": [],
-      "applies_to_agents": [],
       "priority": 100,
       "cache_scope": "static",
       "model_visible": true,
@@ -153,9 +141,9 @@
       "owner_layer": "task",
       "allowed_invocation_kinds": [],
       "allowed_runtime_modes": [
-        "role_mode",
-        "standard_mode",
-        "professional_mode"
+        "role",
+        "standard",
+        "professional"
       ],
       "allowed_agent_refs": [],
       "allowed_environment_refs": [],
@@ -176,10 +164,6 @@
         "task_graph",
         "domain.writing.modular_novel"
       ],
-      "applies_to_task_goal_types": [],
-      "applies_to_domains": [],
-      "applies_to_modes": [],
-      "applies_to_agents": [],
       "priority": 100,
       "cache_scope": "static",
       "model_visible": true,
@@ -202,9 +186,9 @@
       "owner_layer": "task",
       "allowed_invocation_kinds": [],
       "allowed_runtime_modes": [
-        "role_mode",
-        "standard_mode",
-        "professional_mode"
+        "role",
+        "standard",
+        "professional"
       ],
       "allowed_agent_refs": [],
       "allowed_environment_refs": [],
@@ -225,10 +209,6 @@
         "task_graph",
         "domain.writing.modular_novel"
       ],
-      "applies_to_task_goal_types": [],
-      "applies_to_domains": [],
-      "applies_to_modes": [],
-      "applies_to_agents": [],
       "priority": 100,
       "cache_scope": "static",
       "model_visible": true,
@@ -251,9 +231,9 @@
       "owner_layer": "task",
       "allowed_invocation_kinds": [],
       "allowed_runtime_modes": [
-        "role_mode",
-        "standard_mode",
-        "professional_mode"
+        "role",
+        "standard",
+        "professional"
       ],
       "allowed_agent_refs": [],
       "allowed_environment_refs": [],
@@ -274,10 +254,6 @@
         "task_graph",
         "domain.writing.modular_novel"
       ],
-      "applies_to_task_goal_types": [],
-      "applies_to_domains": [],
-      "applies_to_modes": [],
-      "applies_to_agents": [],
       "priority": 100,
       "cache_scope": "static",
       "model_visible": true,
@@ -300,9 +276,9 @@
       "owner_layer": "task",
       "allowed_invocation_kinds": [],
       "allowed_runtime_modes": [
-        "role_mode",
-        "standard_mode",
-        "professional_mode"
+        "role",
+        "standard",
+        "professional"
       ],
       "allowed_agent_refs": [],
       "allowed_environment_refs": [],
@@ -323,10 +299,6 @@
         "task_graph",
         "domain.writing.modular_novel"
       ],
-      "applies_to_task_goal_types": [],
-      "applies_to_domains": [],
-      "applies_to_modes": [],
-      "applies_to_agents": [],
       "priority": 100,
       "cache_scope": "static",
       "model_visible": true,
@@ -349,9 +321,9 @@
       "owner_layer": "task",
       "allowed_invocation_kinds": [],
       "allowed_runtime_modes": [
-        "role_mode",
-        "standard_mode",
-        "professional_mode"
+        "role",
+        "standard",
+        "professional"
       ],
       "allowed_agent_refs": [],
       "allowed_environment_refs": [],
@@ -372,10 +344,6 @@
         "task_graph",
         "domain.writing.modular_novel"
       ],
-      "applies_to_task_goal_types": [],
-      "applies_to_domains": [],
-      "applies_to_modes": [],
-      "applies_to_agents": [],
       "priority": 100,
       "cache_scope": "static",
       "model_visible": true,
@@ -398,9 +366,9 @@
       "owner_layer": "task",
       "allowed_invocation_kinds": [],
       "allowed_runtime_modes": [
-        "role_mode",
-        "standard_mode",
-        "professional_mode"
+        "role",
+        "standard",
+        "professional"
       ],
       "allowed_agent_refs": [],
       "allowed_environment_refs": [],
@@ -421,10 +389,6 @@
         "task_graph",
         "domain.writing.modular_novel"
       ],
-      "applies_to_task_goal_types": [],
-      "applies_to_domains": [],
-      "applies_to_modes": [],
-      "applies_to_agents": [],
       "priority": 100,
       "cache_scope": "static",
       "model_visible": true,
@@ -447,9 +411,9 @@
       "owner_layer": "task",
       "allowed_invocation_kinds": [],
       "allowed_runtime_modes": [
-        "role_mode",
-        "standard_mode",
-        "professional_mode"
+        "role",
+        "standard",
+        "professional"
       ],
       "allowed_agent_refs": [],
       "allowed_environment_refs": [],
@@ -470,10 +434,6 @@
         "task_graph",
         "domain.writing.modular_novel"
       ],
-      "applies_to_task_goal_types": [],
-      "applies_to_domains": [],
-      "applies_to_modes": [],
-      "applies_to_agents": [],
       "priority": 100,
       "cache_scope": "static",
       "model_visible": true,
@@ -496,9 +456,9 @@
       "owner_layer": "task",
       "allowed_invocation_kinds": [],
       "allowed_runtime_modes": [
-        "role_mode",
-        "standard_mode",
-        "professional_mode"
+        "role",
+        "standard",
+        "professional"
       ],
       "allowed_agent_refs": [],
       "allowed_environment_refs": [],
@@ -519,10 +479,6 @@
         "task_graph",
         "domain.writing.modular_novel"
       ],
-      "applies_to_task_goal_types": [],
-      "applies_to_domains": [],
-      "applies_to_modes": [],
-      "applies_to_agents": [],
       "priority": 100,
       "cache_scope": "static",
       "model_visible": true,
@@ -545,9 +501,9 @@
       "owner_layer": "task",
       "allowed_invocation_kinds": [],
       "allowed_runtime_modes": [
-        "role_mode",
-        "standard_mode",
-        "professional_mode"
+        "role",
+        "standard",
+        "professional"
       ],
       "allowed_agent_refs": [],
       "allowed_environment_refs": [],
@@ -568,10 +524,6 @@
         "task_graph",
         "domain.writing.modular_novel"
       ],
-      "applies_to_task_goal_types": [],
-      "applies_to_domains": [],
-      "applies_to_modes": [],
-      "applies_to_agents": [],
       "priority": 100,
       "cache_scope": "static",
       "model_visible": true,
@@ -594,9 +546,9 @@
       "owner_layer": "task",
       "allowed_invocation_kinds": [],
       "allowed_runtime_modes": [
-        "role_mode",
-        "standard_mode",
-        "professional_mode"
+        "role",
+        "standard",
+        "professional"
       ],
       "allowed_agent_refs": [],
       "allowed_environment_refs": [],
@@ -617,10 +569,6 @@
         "task_graph",
         "domain.writing.modular_novel"
       ],
-      "applies_to_task_goal_types": [],
-      "applies_to_domains": [],
-      "applies_to_modes": [],
-      "applies_to_agents": [],
       "priority": 100,
       "cache_scope": "static",
       "model_visible": true,
@@ -643,9 +591,9 @@
       "owner_layer": "task",
       "allowed_invocation_kinds": [],
       "allowed_runtime_modes": [
-        "role_mode",
-        "standard_mode",
-        "professional_mode"
+        "role",
+        "standard",
+        "professional"
       ],
       "allowed_agent_refs": [],
       "allowed_environment_refs": [],
@@ -666,10 +614,6 @@
         "task_graph",
         "domain.writing.modular_novel"
       ],
-      "applies_to_task_goal_types": [],
-      "applies_to_domains": [],
-      "applies_to_modes": [],
-      "applies_to_agents": [],
       "priority": 100,
       "cache_scope": "static",
       "model_visible": true,
@@ -692,9 +636,9 @@
       "owner_layer": "task",
       "allowed_invocation_kinds": [],
       "allowed_runtime_modes": [
-        "role_mode",
-        "standard_mode",
-        "professional_mode"
+        "role",
+        "standard",
+        "professional"
       ],
       "allowed_agent_refs": [],
       "allowed_environment_refs": [],
@@ -715,10 +659,6 @@
         "task_graph",
         "domain.writing.modular_novel"
       ],
-      "applies_to_task_goal_types": [],
-      "applies_to_domains": [],
-      "applies_to_modes": [],
-      "applies_to_agents": [],
       "priority": 100,
       "cache_scope": "static",
       "model_visible": true,
@@ -741,9 +681,9 @@
       "owner_layer": "task",
       "allowed_invocation_kinds": [],
       "allowed_runtime_modes": [
-        "role_mode",
-        "standard_mode",
-        "professional_mode"
+        "role",
+        "standard",
+        "professional"
       ],
       "allowed_agent_refs": [],
       "allowed_environment_refs": [],
@@ -764,10 +704,6 @@
         "task_graph",
         "domain.writing.modular_novel"
       ],
-      "applies_to_task_goal_types": [],
-      "applies_to_domains": [],
-      "applies_to_modes": [],
-      "applies_to_agents": [],
       "priority": 100,
       "cache_scope": "static",
       "model_visible": true,
@@ -790,9 +726,9 @@
       "owner_layer": "task",
       "allowed_invocation_kinds": [],
       "allowed_runtime_modes": [
-        "role_mode",
-        "standard_mode",
-        "professional_mode"
+        "role",
+        "standard",
+        "professional"
       ],
       "allowed_agent_refs": [],
       "allowed_environment_refs": [],
@@ -813,10 +749,6 @@
         "task_graph",
         "domain.writing.modular_novel"
       ],
-      "applies_to_task_goal_types": [],
-      "applies_to_domains": [],
-      "applies_to_modes": [],
-      "applies_to_agents": [],
       "priority": 100,
       "cache_scope": "static",
       "model_visible": true,
@@ -839,9 +771,9 @@
       "owner_layer": "task",
       "allowed_invocation_kinds": [],
       "allowed_runtime_modes": [
-        "role_mode",
-        "standard_mode",
-        "professional_mode"
+        "role",
+        "standard",
+        "professional"
       ],
       "allowed_agent_refs": [],
       "allowed_environment_refs": [],
@@ -862,10 +794,6 @@
         "task_graph",
         "domain.writing.modular_novel"
       ],
-      "applies_to_task_goal_types": [],
-      "applies_to_domains": [],
-      "applies_to_modes": [],
-      "applies_to_agents": [],
       "priority": 100,
       "cache_scope": "static",
       "model_visible": true,
@@ -888,9 +816,9 @@
       "owner_layer": "task",
       "allowed_invocation_kinds": [],
       "allowed_runtime_modes": [
-        "role_mode",
-        "standard_mode",
-        "professional_mode"
+        "role",
+        "standard",
+        "professional"
       ],
       "allowed_agent_refs": [],
       "allowed_environment_refs": [],
@@ -911,10 +839,6 @@
         "task_graph",
         "domain.writing.modular_novel"
       ],
-      "applies_to_task_goal_types": [],
-      "applies_to_domains": [],
-      "applies_to_modes": [],
-      "applies_to_agents": [],
       "priority": 100,
       "cache_scope": "static",
       "model_visible": true,
@@ -937,9 +861,9 @@
       "owner_layer": "task",
       "allowed_invocation_kinds": [],
       "allowed_runtime_modes": [
-        "role_mode",
-        "standard_mode",
-        "professional_mode"
+        "role",
+        "standard",
+        "professional"
       ],
       "allowed_agent_refs": [],
       "allowed_environment_refs": [],
@@ -960,10 +884,6 @@
         "task_graph",
         "domain.writing.modular_novel"
       ],
-      "applies_to_task_goal_types": [],
-      "applies_to_domains": [],
-      "applies_to_modes": [],
-      "applies_to_agents": [],
       "priority": 100,
       "cache_scope": "static",
       "model_visible": true,
@@ -986,9 +906,9 @@
       "owner_layer": "task",
       "allowed_invocation_kinds": [],
       "allowed_runtime_modes": [
-        "role_mode",
-        "standard_mode",
-        "professional_mode"
+        "role",
+        "standard",
+        "professional"
       ],
       "allowed_agent_refs": [],
       "allowed_environment_refs": [],
@@ -1009,10 +929,6 @@
         "task_graph",
         "domain.writing.modular_novel"
       ],
-      "applies_to_task_goal_types": [],
-      "applies_to_domains": [],
-      "applies_to_modes": [],
-      "applies_to_agents": [],
       "priority": 100,
       "cache_scope": "static",
       "model_visible": true,
@@ -1035,9 +951,9 @@
       "owner_layer": "task",
       "allowed_invocation_kinds": [],
       "allowed_runtime_modes": [
-        "role_mode",
-        "standard_mode",
-        "professional_mode"
+        "role",
+        "standard",
+        "professional"
       ],
       "allowed_agent_refs": [],
       "allowed_environment_refs": [],
@@ -1058,10 +974,6 @@
         "task_graph",
         "domain.writing.modular_novel"
       ],
-      "applies_to_task_goal_types": [],
-      "applies_to_domains": [],
-      "applies_to_modes": [],
-      "applies_to_agents": [],
       "priority": 100,
       "cache_scope": "static",
       "model_visible": true,
@@ -1084,9 +996,9 @@
       "owner_layer": "task",
       "allowed_invocation_kinds": [],
       "allowed_runtime_modes": [
-        "role_mode",
-        "standard_mode",
-        "professional_mode"
+        "role",
+        "standard",
+        "professional"
       ],
       "allowed_agent_refs": [],
       "allowed_environment_refs": [],
@@ -1107,10 +1019,6 @@
         "task_graph",
         "domain.writing.modular_novel"
       ],
-      "applies_to_task_goal_types": [],
-      "applies_to_domains": [],
-      "applies_to_modes": [],
-      "applies_to_agents": [],
       "priority": 100,
       "cache_scope": "static",
       "model_visible": true,
@@ -1133,9 +1041,9 @@
       "owner_layer": "task",
       "allowed_invocation_kinds": [],
       "allowed_runtime_modes": [
-        "role_mode",
-        "standard_mode",
-        "professional_mode"
+        "role",
+        "standard",
+        "professional"
       ],
       "allowed_agent_refs": [],
       "allowed_environment_refs": [],
@@ -1156,10 +1064,6 @@
         "task_graph",
         "domain.writing.modular_novel"
       ],
-      "applies_to_task_goal_types": [],
-      "applies_to_domains": [],
-      "applies_to_modes": [],
-      "applies_to_agents": [],
       "priority": 100,
       "cache_scope": "static",
       "model_visible": true,
@@ -1182,9 +1086,9 @@
       "owner_layer": "task",
       "allowed_invocation_kinds": [],
       "allowed_runtime_modes": [
-        "role_mode",
-        "standard_mode",
-        "professional_mode"
+        "role",
+        "standard",
+        "professional"
       ],
       "allowed_agent_refs": [],
       "allowed_environment_refs": [],
@@ -1205,10 +1109,6 @@
         "task_graph",
         "domain.writing.modular_novel"
       ],
-      "applies_to_task_goal_types": [],
-      "applies_to_domains": [],
-      "applies_to_modes": [],
-      "applies_to_agents": [],
       "priority": 100,
       "cache_scope": "static",
       "model_visible": true,
@@ -1231,9 +1131,9 @@
       "owner_layer": "task",
       "allowed_invocation_kinds": [],
       "allowed_runtime_modes": [
-        "role_mode",
-        "standard_mode",
-        "professional_mode"
+        "role",
+        "standard",
+        "professional"
       ],
       "allowed_agent_refs": [],
       "allowed_environment_refs": [],
@@ -1254,10 +1154,6 @@
         "task_graph",
         "domain.writing.modular_novel"
       ],
-      "applies_to_task_goal_types": [],
-      "applies_to_domains": [],
-      "applies_to_modes": [],
-      "applies_to_agents": [],
       "priority": 100,
       "cache_scope": "static",
       "model_visible": true,
@@ -1280,9 +1176,9 @@
       "owner_layer": "task",
       "allowed_invocation_kinds": [],
       "allowed_runtime_modes": [
-        "role_mode",
-        "standard_mode",
-        "professional_mode"
+        "role",
+        "standard",
+        "professional"
       ],
       "allowed_agent_refs": [],
       "allowed_environment_refs": [],
@@ -1303,10 +1199,6 @@
         "task_graph",
         "domain.writing.modular_novel"
       ],
-      "applies_to_task_goal_types": [],
-      "applies_to_domains": [],
-      "applies_to_modes": [],
-      "applies_to_agents": [],
       "priority": 100,
       "cache_scope": "static",
       "model_visible": true,
@@ -1329,9 +1221,9 @@
       "owner_layer": "task",
       "allowed_invocation_kinds": [],
       "allowed_runtime_modes": [
-        "role_mode",
-        "standard_mode",
-        "professional_mode"
+        "role",
+        "standard",
+        "professional"
       ],
       "allowed_agent_refs": [],
       "allowed_environment_refs": [],
@@ -1352,10 +1244,6 @@
         "task_graph",
         "domain.writing.modular_novel"
       ],
-      "applies_to_task_goal_types": [],
-      "applies_to_domains": [],
-      "applies_to_modes": [],
-      "applies_to_agents": [],
       "priority": 100,
       "cache_scope": "static",
       "model_visible": true,
@@ -1378,9 +1266,9 @@
       "owner_layer": "task",
       "allowed_invocation_kinds": [],
       "allowed_runtime_modes": [
-        "role_mode",
-        "standard_mode",
-        "professional_mode"
+        "role",
+        "standard",
+        "professional"
       ],
       "allowed_agent_refs": [],
       "allowed_environment_refs": [],
@@ -1401,10 +1289,6 @@
         "task_graph",
         "domain.writing.modular_novel"
       ],
-      "applies_to_task_goal_types": [],
-      "applies_to_domains": [],
-      "applies_to_modes": [],
-      "applies_to_agents": [],
       "priority": 100,
       "cache_scope": "static",
       "model_visible": true,

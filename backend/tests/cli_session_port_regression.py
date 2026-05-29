@@ -155,7 +155,7 @@ def test_send_command_uses_selected_session_and_stream_client(tmp_path: Path) ->
     assert stdout.getvalue() == "ok\n"
 
 
-def test_send_command_forwards_runtime_mode_and_soul_id(tmp_path: Path) -> None:
+def test_send_command_forwards_runtime_mode_environment_and_soul_id(tmp_path: Path) -> None:
     state_path = tmp_path / "state.json"
     store = CliStateStore(state_path)
     store.update(api_base="http://127.0.0.1:8003/api", selected_session_id="session-cli")
@@ -171,14 +171,35 @@ def test_send_command_forwards_runtime_mode_and_soul_id(tmp_path: Path) -> None:
             yield SimpleNamespace(event="done", data={"content": ""})
 
     client = FakeClient()
-    args = build_parser().parse_args(["send", "--runtime-mode", "role", "--soul-id", "hebo", "hello"])
+    args = build_parser().parse_args(
+        [
+            "send",
+            "--runtime-mode",
+            "professional",
+            "--task-environment-id",
+            "env.development.sandbox",
+            "--soul-id",
+            "hebo",
+            "hello",
+        ]
+    )
     stdout = io.StringIO()
     stderr = io.StringIO()
 
     code = run_command(args, client=client, store=store, stdout=stdout, stderr=stderr)  # type: ignore[arg-type]
 
     assert code == 0
-    assert client.calls == [("session-cli", "hello", {"runtime_mode": "role", "soul_id": "hebo"})]
+    assert client.calls == [
+        (
+            "session-cli",
+            "hello",
+            {
+                "runtime_mode": "professional",
+                "task_selection": {"task_environment_id": "env.development.sandbox"},
+                "soul_id": "hebo",
+            },
+        )
+    ]
 
 
 def test_task_run_watch_exits_on_waiting_executor() -> None:

@@ -175,7 +175,7 @@ export function TaskGraphNodeStandardPage({
               </div>
               <div className="task-graph-note">
                 <strong>循环与运行语义</strong>
-                <span>{loop.loop_kind ? `loop=${stringValue(loop.loop_kind)}` : `wait=${stringValue(runtime.wait_policy, "wait_all_upstream_completed")} / join=${stringValue(runtime.join_policy, "all_success")}`}</span>
+                <span>{loop.kind ? `loop=${stringValue(loop.kind)}` : `wait=${stringValue(runtime.wait_policy, "wait_all_upstream_completed")} / join=${stringValue(runtime.join_policy, "all_success")}`}</span>
               </div>
             </>
           ) : (

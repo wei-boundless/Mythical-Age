@@ -409,19 +409,34 @@ def _expand_composition_plan(
         publish_version=publish_version,
         visited_graph_ids=visited_graph_ids,
     )
+    nested_layered = dict(nested.get("layered_graph") or {})
     scope_prefix = str(plan.get("scope_prefix") or f"{composition_node_id}::")
+    nested_node_ids = {str(node.get("node_id") or "") for node in nested["nodes"] if str(node.get("node_id") or "")}
     scoped_nodes = [
-        _scope_node(node, scope_prefix=scope_prefix, source_graph_id=linked_graph_id, composition_node_id=composition_node_id)
+        _scope_node(
+            node,
+            scope_prefix=scope_prefix,
+            source_graph_id=linked_graph_id,
+            composition_node_id=composition_node_id,
+            node_ids=nested_node_ids,
+        )
         for node in nested["nodes"]
     ]
     scoped_edges = [
         _scope_edge(edge, scope_prefix=scope_prefix, source_graph_id=linked_graph_id, composition_node_id=composition_node_id)
         for edge in nested["edges"]
     ]
-    scoped_loop_frames = [_scope_generic_payload(item, scope_prefix=scope_prefix, id_keys=("frame_id", "loop_frame_id", "scope_id")) for item in nested.get("loop_frames", [])]
-    scoped_resources = [_scope_generic_payload(item, scope_prefix=scope_prefix, id_keys=("node_id", "resource_id", "repository_id")) for item in nested.get("resource_nodes", [])]
-    scoped_memory_edges = [_scope_edge_like_payload(item, scope_prefix=scope_prefix) for item in nested.get("memory_edges", [])]
-    scoped_artifact_edges = [_scope_edge_like_payload(item, scope_prefix=scope_prefix) for item in nested.get("artifact_context_edges", [])]
+    nested_loop_frames = _list_dicts(nested_layered.get("loop_frames")) + _list_dicts(nested.get("loop_frames"))
+    nested_resource_nodes = _list_dicts(nested_layered.get("resource_nodes")) + _list_dicts(nested.get("resource_nodes"))
+    nested_memory_edges = _list_dicts(nested_layered.get("memory_edges")) + _list_dicts(nested.get("memory_edges"))
+    nested_artifact_edges = _list_dicts(nested_layered.get("artifact_context_edges")) + _list_dicts(nested.get("artifact_context_edges"))
+    scoped_loop_frames = [
+        _scope_loop_frame_payload(item, scope_prefix=scope_prefix, node_ids=nested_node_ids)
+        for item in nested_loop_frames
+    ]
+    scoped_resources = [_scope_generic_payload(item, scope_prefix=scope_prefix, id_keys=("node_id", "resource_id", "repository_id")) for item in nested_resource_nodes]
+    scoped_memory_edges = [_scope_edge_like_payload(item, scope_prefix=scope_prefix) for item in nested_memory_edges]
+    scoped_artifact_edges = [_scope_edge_like_payload(item, scope_prefix=scope_prefix) for item in nested_artifact_edges]
     scoped_start_ids = [_scoped_id(item, scope_prefix=scope_prefix) for item in nested["start_node_ids"]]
     scoped_terminal_ids = [_scoped_id(item, scope_prefix=scope_prefix) for item in nested["terminal_node_ids"]]
     return {
@@ -651,46 +666,31 @@ def _node_config(node: dict[str, Any], *, graph_id: str) -> dict[str, Any]:
 
 
 def _published_node_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
-    payload = dict(metadata or {})
-    for migrated_key in ("loop_scope_id", "loop_route_policy", "title_template", "loop_policy", "loop_kind"):
-        payload.pop(migrated_key, None)
-    return payload
+    return dict(metadata or {})
 
 
 def _node_loop_contract(node: dict[str, Any], *, metadata: dict[str, Any]) -> dict[str, Any]:
-    scope_id = str(node.get("loop_scope_id") or metadata.get("loop_scope_id") or "").strip()
-    route_policy = _normalize_loop_route_policy(
-        node.get("loop_route_policy") or metadata.get("loop_route_policy")
-    )
-    title_template = str(node.get("title_template") or metadata.get("title_template") or "").strip()
-    policy = dict(node.get("loop_policy") or metadata.get("loop_policy") or {})
-    loop_kind = str(node.get("loop_kind") or policy.get("loop_kind") or "").strip()
-    if not (scope_id or route_policy or title_template or policy or loop_kind):
+    loop = dict(node.get("loop") or {})
+    if not loop:
         return {}
-    contract = {
-        "scope_id": scope_id,
-        "kind": loop_kind,
-        "title_template": title_template,
-        "policy": policy,
-        "route_policy": route_policy,
-        "authority": "harness.graph.node_loop_contract",
-    }
+    contract = dict(loop)
+    if isinstance(contract.get("route_policy"), dict):
+        contract["route_policy"] = _normalize_route_policy(contract.get("route_policy"))
+    contract["scope_id"] = str(contract.get("scope_id") or "").strip()
+    contract["kind"] = str(contract.get("kind") or "").strip()
+    contract["title_template"] = str(contract.get("title_template") or "").strip()
+    contract["policy"] = dict(contract.get("policy") or {})
+    contract["authority"] = "harness.graph.node_loop_contract"
     return _prune_empty(contract)
 
 
-def _normalize_loop_route_policy(value: Any) -> dict[str, Any]:
+def _normalize_route_policy(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         return {}
     payload = dict(value)
-    scope_id = str(payload.get("scope_id") or payload.get("loop_scope_id") or "").strip()
-    continue_node_id = str(
-        payload.get("continue_node_id")
-        or payload.get("continue_stage_id")
-        or payload.get("entry_node_id")
-        or payload.get("entry_stage_id")
-        or ""
-    ).strip()
-    exit_node_id = str(payload.get("exit_node_id") or payload.get("exit_stage_id") or "").strip()
+    scope_id = str(payload.get("scope_id") or "").strip()
+    continue_node_id = str(payload.get("continue_node_id") or "").strip()
+    exit_node_id = str(payload.get("exit_node_id") or "").strip()
     route = {
         "scope_id": scope_id,
         "continue_node_id": continue_node_id,
@@ -704,9 +704,9 @@ def _normalize_loop_route_policy(value: Any) -> dict[str, Any]:
         "target_key": str(payload.get("target_key") or "").strip(),
         "last_metric_key": str(payload.get("last_metric_key") or "").strip(),
         "secondary_counters": list(payload.get("secondary_counters") or []),
-        "patch_rules": list(payload.get("patch_rules") or payload.get("contract_patch_rules") or payload.get("counter_updates") or []),
+        "patch_rules": list(payload.get("patch_rules") or []),
         "derived_fields": list(payload.get("derived_fields") or []),
-        "authority": "harness.graph.loop_route_policy",
+        "authority": "harness.graph.route_policy",
     }
     return _prune_empty(route)
 
@@ -724,11 +724,11 @@ def _normalize_loop_frames(frames: list[dict[str, Any]]) -> list[dict[str, Any]]
                     "frame_id": frame_id,
                     "scope_id": str(frame.get("scope_id") or frame_id).strip(),
                     "title": str(frame.get("title") or "").strip(),
-                    "loop_kind": str(frame.get("loop_kind") or frame.get("kind") or "").strip(),
-                    "entry_node_id": str(frame.get("entry_node_id") or frame.get("entry_stage_id") or "").strip(),
-                    "router_node_id": str(frame.get("router_node_id") or frame.get("router_stage_id") or "").strip(),
-                    "continue_node_id": str(frame.get("continue_node_id") or frame.get("continue_stage_id") or "").strip(),
-                    "exit_node_id": str(frame.get("exit_node_id") or frame.get("exit_stage_id") or "").strip(),
+                    "kind": str(frame.get("kind") or "").strip(),
+                    "entry_node_id": str(frame.get("entry_node_id") or "").strip(),
+                    "router_node_id": str(frame.get("router_node_id") or "").strip(),
+                    "continue_node_id": str(frame.get("continue_node_id") or "").strip(),
+                    "exit_node_id": str(frame.get("exit_node_id") or "").strip(),
                     "unit_kind": str(frame.get("unit_kind") or "").strip(),
                     "iteration_size_key": str(frame.get("iteration_size_key") or "").strip(),
                     "initial_inputs": dict(frame.get("initial_inputs") or {}),
@@ -802,11 +802,19 @@ def _lookup_graph(graph_lookup: Any | None, graph_id: str) -> Any | None:
     return None
 
 
-def _scope_node(node: dict[str, Any], *, scope_prefix: str, source_graph_id: str, composition_node_id: str) -> dict[str, Any]:
+def _scope_node(
+    node: dict[str, Any],
+    *,
+    scope_prefix: str,
+    source_graph_id: str,
+    composition_node_id: str,
+    node_ids: set[str],
+) -> dict[str, Any]:
     payload = dict(node)
     original_node_id = str(payload.get("node_id") or "")
     payload["node_id"] = _scoped_id(original_node_id, scope_prefix=scope_prefix)
     payload["task_ref"] = _scope_task_ref(str(payload.get("task_ref") or ""), scope_prefix=scope_prefix, source_graph_id=source_graph_id)
+    payload["loop"] = _scope_node_loop_contract(dict(payload.get("loop") or {}), scope_prefix=scope_prefix, node_ids=node_ids)
     metadata = dict(payload.get("metadata") or {})
     metadata.update(
         {
@@ -845,6 +853,45 @@ def _scope_edge_like_payload(payload: dict[str, Any], *, scope_prefix: str) -> d
         if str(scoped.get(key) or ""):
             scoped[key] = _scoped_id(str(scoped.get(key) or ""), scope_prefix=scope_prefix)
     return scoped
+
+
+def _scope_loop_frame_payload(payload: dict[str, Any], *, scope_prefix: str, node_ids: set[str]) -> dict[str, Any]:
+    scoped = _scope_generic_payload(payload, scope_prefix=scope_prefix, id_keys=("frame_id", "loop_frame_id", "scope_id"))
+    for key in ("entry_node_id", "router_node_id", "continue_node_id", "exit_node_id"):
+        if str(scoped.get(key) or ""):
+            scoped[key] = _scope_graph_node_ref(str(scoped.get(key) or ""), scope_prefix=scope_prefix, node_ids=node_ids)
+    return scoped
+
+
+def _scope_node_loop_contract(loop: dict[str, Any], *, scope_prefix: str, node_ids: set[str]) -> dict[str, Any]:
+    if not loop:
+        return {}
+    scoped = dict(loop)
+    for key in ("frame_id", "loop_frame_id", "scope_id"):
+        if str(scoped.get(key) or ""):
+            scoped[key] = _scoped_id(str(scoped.get(key) or ""), scope_prefix=scope_prefix)
+    route_policy = scoped.get("route_policy")
+    if isinstance(route_policy, dict):
+        route = dict(route_policy)
+        for key in ("frame_id", "loop_frame_id", "scope_id"):
+            if str(route.get(key) or ""):
+                route[key] = _scoped_id(str(route.get(key) or ""), scope_prefix=scope_prefix)
+        for key in ("entry_node_id", "router_node_id", "continue_node_id", "exit_node_id"):
+            if str(route.get(key) or ""):
+                route[key] = _scope_graph_node_ref(str(route.get(key) or ""), scope_prefix=scope_prefix, node_ids=node_ids)
+        scoped["route_policy"] = route
+    return scoped
+
+
+def _scope_graph_node_ref(value: str, *, scope_prefix: str, node_ids: set[str]) -> str:
+    text = str(value or "").strip()
+    if not text or text.startswith(scope_prefix):
+        return text
+    if text.startswith("__") and text.endswith("__"):
+        return text
+    if text in node_ids:
+        return _scoped_id(text, scope_prefix=scope_prefix)
+    return _scoped_id(text, scope_prefix=scope_prefix)
 
 
 def _scope_generic_payload(payload: dict[str, Any], *, scope_prefix: str, id_keys: tuple[str, ...]) -> dict[str, Any]:

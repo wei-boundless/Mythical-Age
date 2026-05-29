@@ -730,17 +730,64 @@ def test_task_contract_preserves_runtime_fields_without_goal_aliases() -> None:
             },
         ),
         packet_ref="rtpacket:contract-fields",
+        task_environment_id="env.creation.writing",
     )
 
     assert contract_errors == []
     assert contract is not None
     assert contract.user_visible_goal == "交付可运行示例"
     assert contract.task_run_goal == "创建并验证可运行示例"
-    assert contract.task_environment_id == "env.development.sandbox"
+    assert contract.task_environment_id == "env.creation.writing"
     assert contract.runtime_profile["mode"] == "professional"
     assert contract.source_contract_ref == "contract.demo"
     assert contract.external_plan_ref == "plan.demo"
     assert contract.prompt_contract["role_prompt"] == "你是执行者。"
+
+
+def test_agent_requested_task_run_inherits_selected_runtime_environment() -> None:
+    runtime = build_query_runtime(
+        model_runtime=SingleMessageModelRuntimeStub(
+            agent_turn_action_request=_action_request(
+                action_type="request_task_run",
+                task_contract_seed={
+                    "user_visible_goal": "交付开发环境产物。",
+                    "task_run_goal": "在用户选择的开发环境中交付产物。",
+                    "required_artifacts": [{"artifact_kind": "html_app", "user_visible_name": "可运行页面"}],
+                    "completion_criteria": ["产物位于所选任务环境的 artifact 区域"],
+                    "task_environment_id": "env.general.workspace",
+                },
+            )
+        )
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            QueryRequest(
+                session_id="session-selected-env-taskrun",
+                message="开发一个可运行页面。",
+                runtime_mode="professional",
+                task_selection={"task_environment_id": "env.development.sandbox"},
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    started = [
+        event
+        for event in events
+        if event.get("type") == "harness_run_started"
+        and str(dict(event.get("task_run") or {}).get("task_run_id") or "").startswith("taskrun:")
+    ][0]
+    task_run_id = str(dict(started.get("task_run") or {}).get("task_run_id") or "")
+    task_run = runtime.single_agent_runtime_host.state_index.get_task_run(task_run_id)
+    assert task_run is not None
+    contract = dict(runtime.single_agent_runtime_host.runtime_objects.get_object(task_run.task_contract_ref) or {})
+    runtime_task_selection = dict(dict(task_run.diagnostics or {}).get("runtime_task_selection") or {})
+
+    assert contract["task_environment_id"] == "env.development.sandbox"
+    assert runtime_task_selection["task_environment_id"] == "env.development.sandbox"
 
 
 def test_runtime_start_recovers_interrupted_task_executor_lease() -> None:

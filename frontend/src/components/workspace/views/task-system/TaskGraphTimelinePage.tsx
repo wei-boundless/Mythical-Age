@@ -98,7 +98,7 @@ export function TaskGraphTimelinePage({
   };
 
   const reviewNodes = activeGraphNodes.filter((node) => asRecord(node.review_gate_policy).is_review_gate === true || node.node_type === "review_gate");
-  const loopNodes = activeGraphNodes.filter((node) => Object.keys(asRecord(node.loop_policy)).length > 0 || String(node.node_type ?? "") === "loop_frame");
+  const loopNodes = activeGraphNodes.filter((node) => Object.keys(asRecord(node.loop)).length > 0 || String(node.node_type ?? "") === "loop_frame");
   const boundaryNodeCount = new Set([taskGraphDraft.entry_node_id, taskGraphDraft.output_node_id].map((item) => String(item ?? "").trim()).filter(Boolean)).size;
   const asyncNodes = activeGraphNodes.filter((node) => ["async", "background", "parallel"].includes(String(node.execution_mode ?? "")));
   const revisionEdges = activeGraphEdges.filter((edge) => {
@@ -533,7 +533,7 @@ export function TaskGraphTimelinePage({
           <div className="task-graph-node-policy-list">
             {(loopNodes.length ? loopNodes : activeGraphNodes).map((node, index) => {
               const nodeId = String(node.node_id ?? "");
-              const loopPolicy = asRecord(node.loop_policy);
+              const loop = asRecord(node.loop);
               return (
                 <article className="task-graph-node-policy-row task-graph-node-policy-row--wide" key={nodeId || `loop_${index}`}>
                   <div className="task-graph-node-policy-row__identity">
@@ -542,29 +542,29 @@ export function TaskGraphTimelinePage({
                   </div>
                   <TaskSystemSelectField
                     label="循环模式"
-                    onChange={(value) => updateTaskGraphNode(nodeId, { loop_policy: { ...loopPolicy, loop_kind: value } })}
+                    onChange={(value) => updateTaskGraphNode(nodeId, { loop: { ...loop, kind: value } })}
                     options={["none", "fixed_iteration", "until_gate_passed", "while_target_not_met", "manual_release"]}
-                    value={String(loopPolicy.loop_kind ?? (Object.keys(loopPolicy).length ? "while_target_not_met" : "none"))}
+                    value={String(loop.kind ?? (Object.keys(loop).length ? "while_target_not_met" : "none"))}
                   />
                   <TaskSystemField label="迭代变量">
                     <input
-                      onChange={(event) => updateTaskGraphNode(nodeId, { loop_policy: { ...loopPolicy, loop_variable: event.target.value } })}
+                      onChange={(event) => updateTaskGraphNode(nodeId, { loop: { ...loop, loop_variable: event.target.value } })}
                       placeholder="iteration_index"
-                      value={String(loopPolicy.loop_variable ?? "")}
+                      value={String(loop.loop_variable ?? "")}
                     />
                   </TaskSystemField>
                   <TaskSystemField label="退出条件">
                     <input
-                      onChange={(event) => updateTaskGraphNode(nodeId, { loop_policy: { ...loopPolicy, exit_condition: event.target.value } })}
+                      onChange={(event) => updateTaskGraphNode(nodeId, { loop: { ...loop, exit_condition: event.target.value } })}
                       placeholder="target_reached / gate_passed"
-                      value={String(loopPolicy.exit_condition ?? "")}
+                      value={String(loop.exit_condition ?? "")}
                     />
                   </TaskSystemField>
                   <TaskSystemSelectField
                     label="记忆快照"
-                    onChange={(value) => updateTaskGraphNode(nodeId, { loop_policy: { ...loopPolicy, memory_snapshot_policy: value } })}
+                    onChange={(value) => updateTaskGraphNode(nodeId, { loop: { ...loop, memory_snapshot_policy: value } })}
                     options={["snapshot_before_iteration", "latest_committed_before_iteration", "manual_snapshot"]}
-                    value={String(loopPolicy.memory_snapshot_policy ?? "latest_committed_before_iteration")}
+                    value={String(loop.memory_snapshot_policy ?? "latest_committed_before_iteration")}
                   />
                 </article>
               );

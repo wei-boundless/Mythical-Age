@@ -32,6 +32,10 @@ class PromptAssemblyService:
             if pack.invocation_kind != request.invocation_kind:
                 rejected.append({"ref": pack_ref, "reason": "invocation_kind_mismatch"})
                 continue
+            reason = _pack_rejection_reason(pack.to_dict(), request=request.to_dict())
+            if reason:
+                rejected.append({"ref": pack_ref, "reason": reason})
+                continue
             prompt_refs.extend(pack.ordered_prompt_refs)
         prompt_refs.extend(request.prompt_refs)
         prompt_refs.extend(request.skill_prompt_refs)
@@ -159,6 +163,22 @@ def _resource_rejection_reason(resource: dict[str, Any], *, request: dict[str, A
     allowed_environment_refs = {str(item) for item in list(resource.get("allowed_environment_refs") or []) if str(item)}
     if allowed_environment_refs and environment_ref and environment_ref not in allowed_environment_refs:
         return "resource_environment_ref_mismatch"
+    return ""
+
+
+def _pack_rejection_reason(pack: dict[str, Any], *, request: dict[str, Any]) -> str:
+    runtime_mode = str(request.get("runtime_mode") or "")
+    allowed_runtime_modes = {str(item) for item in list(pack.get("allowed_runtime_modes") or []) if str(item)}
+    if allowed_runtime_modes and runtime_mode and runtime_mode not in allowed_runtime_modes:
+        return "pack_runtime_mode_mismatch"
+    agent_ref = str(request.get("agent_profile_ref") or "")
+    allowed_agent_refs = {str(item) for item in list(pack.get("allowed_agent_refs") or []) if str(item)}
+    if allowed_agent_refs and agent_ref and agent_ref not in allowed_agent_refs:
+        return "pack_agent_ref_mismatch"
+    environment_ref = str(request.get("task_environment_ref") or "")
+    allowed_environment_refs = {str(item) for item in list(pack.get("allowed_environment_refs") or []) if str(item)}
+    if allowed_environment_refs and environment_ref and environment_ref not in allowed_environment_refs:
+        return "pack_environment_ref_mismatch"
     return ""
 
 

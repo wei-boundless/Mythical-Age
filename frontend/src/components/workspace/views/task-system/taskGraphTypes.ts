@@ -33,7 +33,7 @@ export type TaskGraphNode = Record<string, unknown> & {
   start_policy?: string;
   completion_policy?: string;
   blocks_phase_exit?: boolean;
-  loop_policy?: Record<string, unknown>;
+  loop?: Record<string, unknown>;
   review_gate_policy?: Record<string, unknown>;
 };
 

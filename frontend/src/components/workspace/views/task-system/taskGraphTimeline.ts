@@ -6,7 +6,7 @@ export type TaskGraphPhaseDefinition = {
   review_gate_node_id?: string;
   memory_commit_node_id?: string;
   exit_policy?: Record<string, unknown>;
-  loop_policy?: Record<string, unknown>;
+  loop?: Record<string, unknown>;
 };
 
 export type TaskGraphLifecyclePolicy = {
@@ -33,7 +33,7 @@ export type TaskGraphTimelineFrame = {
   node_ids: string[];
   edge_ids: string[];
   review_gate_node_id?: string;
-  loop_policy?: Record<string, unknown>;
+  loop?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
   source_frame_type?: string;
 };
@@ -174,7 +174,7 @@ export function nodeReviewGatePolicy(node: Record<string, unknown>) {
 }
 
 export function nodeLoopPolicy(node: Record<string, unknown>) {
-  return asRecord(nodeTimelineValue(node, "loop_policy", {}));
+  return asRecord(nodeTimelineValue(node, "loop", {}));
 }
 
 export function nodeCompletionPolicy(node: Record<string, unknown>) {
@@ -205,7 +205,7 @@ export function coordinationTimelineFrames(metadata: Record<string, unknown> | u
         node_ids: asStringArray(item.node_ids),
         edge_ids: asStringArray(item.edge_ids),
         review_gate_node_id: String(item.review_gate_node_id ?? "").trim() || undefined,
-        loop_policy: asRecord(item.loop_policy),
+        loop: asRecord(item.loop),
         metadata: asRecord(item.metadata),
         source_frame_type: frameType,
       };
@@ -246,7 +246,7 @@ export function coordinationPhaseDefinitions(metadata: Record<string, unknown> |
       review_gate_node_id: String(item.review_gate_node_id ?? ""),
       memory_commit_node_id: String(item.memory_commit_node_id ?? ""),
       exit_policy: asRecord(item.exit_policy),
-      loop_policy: asRecord(item.loop_policy),
+      loop: asRecord(item.loop),
     }))
     .filter((item) => item.phase_id);
   if (explicit.length) return explicit;
@@ -328,7 +328,7 @@ function hasLoopStopCondition(policy: Record<string, unknown>) {
     || Number(policy.target_words ?? 0) > 0
     || Number(policy.unit_count ?? 0) > 0
     || String(policy.exit_condition ?? "").trim()
-    || String(policy.exit_stage_id ?? "").trim()
+    || String(policy.exit_node_id ?? "").trim()
   );
 }
 
@@ -371,7 +371,7 @@ export function buildTimelinePreflightIssues(
     if (phase.entry_node_id && phase.exit_node_id && !hasPath(edges, phase.entry_node_id, phase.exit_node_id)) {
       issues.push({ code: "timeline_phase_main_path_missing", message: `阶段 ${phase.title || phase.phase_id} 的入口到出口没有连通路径。`, severity: "warning", phase_id: phase.phase_id });
     }
-    if (Object.keys(asRecord(phase.loop_policy)).length && !hasLoopStopCondition(asRecord(phase.loop_policy))) {
+    if (Object.keys(asRecord(phase.loop)).length && !hasLoopStopCondition(asRecord(phase.loop))) {
       issues.push({ code: "timeline_phase_loop_stop_missing", message: `阶段 ${phase.title || phase.phase_id} 的循环策略缺少停止条件。`, severity: "error", phase_id: phase.phase_id });
     }
   }
@@ -409,7 +409,7 @@ export function buildTimelinePreflightIssues(
         issues.push({ code: "timeline_frame_review_gate_outside", message: `审核 Frame ${frame.title || frame.frame_id} 的审核门节点不在 Frame 节点集合中。`, severity: "warning", node_id: frame.review_gate_node_id });
       }
     }
-    if (frame.frame_type === "loop_frame" && !hasLoopStopCondition(asRecord(frame.loop_policy))) {
+    if (frame.frame_type === "loop_frame" && !hasLoopStopCondition(asRecord(frame.loop))) {
       issues.push({ code: "timeline_frame_loop_stop_missing", message: `循环 Frame ${frame.title || frame.frame_id} 缺少停止条件。`, severity: "error" });
     }
   }

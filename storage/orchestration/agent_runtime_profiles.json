@@ -3195,7 +3195,7 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "environment_id": "env.writing",
+        "environment_id": "env.creation.writing",
         "source_task_graph_refs": [
           "graph.writing.modular_novel.master",
           "graph.writing.modular_novel.design_init",
@@ -3447,7 +3447,7 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "environment_id": "env.writing",
+        "environment_id": "env.creation.writing",
         "source_task_graph_refs": [
           "graph.writing.modular_novel.master",
           "graph.writing.modular_novel.design_init",
@@ -3698,7 +3698,7 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "environment_id": "env.writing",
+        "environment_id": "env.creation.writing",
         "source_task_graph_refs": [
           "graph.writing.modular_novel.master",
           "graph.writing.modular_novel.design_init",
@@ -3949,7 +3949,7 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "environment_id": "env.writing",
+        "environment_id": "env.creation.writing",
         "source_task_graph_refs": [
           "graph.writing.modular_novel.master",
           "graph.writing.modular_novel.design_init",
@@ -4201,7 +4201,7 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "domain_id": "domain.writing.modular_novel",
-        "environment_id": "env.writing",
+        "environment_id": "env.creation.writing",
         "source_task_graph_refs": [
           "graph.writing.modular_novel.master",
           "graph.writing.modular_novel.design_init",

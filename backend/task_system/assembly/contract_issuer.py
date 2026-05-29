@@ -101,7 +101,7 @@ class TaskContractIssuer:
                 "memory_requirements": dict(policy.memory_requirements),
             },
             loop_requirements={
-                "loop_policy": dict(task_policy.get("loop_policy") or metadata.get("loop_policy") or {}),
+                "loop": dict(task_policy.get("loop") or metadata.get("loop") or {}),
                 "flow_ref": policy.flow_ref,
             },
             runtime_assembly_plan={

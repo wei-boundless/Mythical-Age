@@ -28,7 +28,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "WorkerAgentSpawnRequest": (".registry.worker_agent_blueprints", "WorkerAgentSpawnRequest"),
     "WorkerAgentSpawnResult": (".registry.worker_agent_blueprints", "WorkerAgentSpawnResult"),
     "agent_id_aliases": (".identity", "agent_id_aliases"),
-    "build_orchestration_runtime_bundle": (".assembly.runtime_bundle_builder", "build_orchestration_runtime_bundle"),
     "build_provider_catalog": (".models.model_profile_resolver", "build_provider_catalog"),
     "default_agent_descriptors": (".registry.agent_registry", "default_agent_descriptors"),
     "default_agent_groups": (".groups.registry", "default_agent_groups"),

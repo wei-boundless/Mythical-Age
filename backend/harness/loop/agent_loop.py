@@ -632,6 +632,7 @@ async def run_agent_invocation_stream(
             contract, contract_errors = contract_from_action_request(
                 action_request,
                 packet_ref=compilation.packet.packet_id,
+                task_environment_id=_runtime_task_environment_id(runtime_assembly_payload),
             )
             if contract is None:
                 observation = _build_task_contract_error_observation(
@@ -1407,6 +1408,15 @@ def _runtime_available_tools(runtime_assembly_payload: dict[str, Any]) -> list[d
         for item in list(runtime_assembly_payload.get("available_tools") or [])
         if isinstance(item, dict) and str(item.get("tool_name") or "").strip()
     ]
+
+
+def _runtime_task_environment_id(runtime_assembly_payload: dict[str, Any]) -> str:
+    environment = dict(runtime_assembly_payload.get("task_environment") or {})
+    return str(
+        environment.get("environment_id")
+        or environment.get("task_environment_id")
+        or ""
+    ).strip()
 
 
 def _turn_direct_tools(available_tools: list[dict[str, Any]]) -> list[dict[str, Any]]:

@@ -29,7 +29,7 @@ import {
   truncateSessionMessages
 } from "@/lib/api";
 import { buildMainAgentTaskSelection } from "@/lib/mainAgentAssemblyModes";
-import type { GlobalRuntimeMonitor, RuntimeMonitorEventPayload } from "@/lib/api";
+import type { GlobalRuntimeMonitor, RuntimeMonitorEventPayload, SessionRuntimeAttachment } from "@/lib/api";
 import {
   ACTIVE_SOUL_PATH,
   SOUL_SEED_PATHS,
@@ -44,6 +44,9 @@ import { reduceStreamEvent, startStreamingTurn, type StreamSession } from "./eve
 import { isVisibleRuntimeMonitorItem, runtimeWorkProjectionFromMonitorItem, visibleRuntimeMonitorItems } from "../runtimeWorkProjection";
 import type { ChatMode, ChatModelSelection, MainAgentAssemblyMode, SearchPolicySource, StoreActions, StoreState, TaskGraphMonitorBinding, TaskSelectionState, WorkspaceView } from "./types";
 import { toUiMessages } from "./utils";
+
+type HarnessSessionMonitor = NonNullable<Awaited<ReturnType<typeof getOrchestrationHarnessSessionLiveMonitor>>["monitor"]>;
+const MAX_LIVE_RUNTIME_PROGRESS_ENTRIES = 24;
 
 export class WorkspaceRuntime {
   private initializePromise: Promise<void> | null = null;
@@ -1575,7 +1578,7 @@ export class WorkspaceRuntime {
     }
   }
 
-  private graphHarnessConfigIdFromMonitor(monitor: NonNullable<Awaited<ReturnType<typeof getOrchestrationHarnessSessionLiveMonitor>>["monitor"]>) {
+  private graphHarnessConfigIdFromMonitor(monitor: HarnessSessionMonitor) {
     const taskRun = this.harnessMonitorTaskRun(monitor);
     const direct = String(monitor.graph_harness_config_id ?? taskRun.graph_harness_config_id ?? "").trim();
     if (direct) {
@@ -1596,22 +1599,102 @@ export class WorkspaceRuntime {
       ?? null;
   }
 
-  private harnessMonitorTaskRun(monitor: NonNullable<Awaited<ReturnType<typeof getOrchestrationHarnessSessionLiveMonitor>>["monitor"]>) {
+  private harnessMonitorTaskRun(monitor: HarnessSessionMonitor) {
     const nested = monitor.task_run && typeof monitor.task_run === "object" && !Array.isArray(monitor.task_run)
       ? monitor.task_run as Record<string, unknown>
       : {};
     return Object.keys(nested).length ? nested : monitor as unknown as Record<string, unknown>;
   }
 
-  private patchRuntimeAttachmentFromMonitor(state: StoreState, monitor: NonNullable<Awaited<ReturnType<typeof getOrchestrationHarnessSessionLiveMonitor>>["monitor"]>): StoreState {
+  private runtimeProgressEntryFromMonitor(monitor: HarnessSessionMonitor, taskRunId: string) {
+    const latestStep = monitor.latest_step && typeof monitor.latest_step === "object" && !Array.isArray(monitor.latest_step)
+      ? monitor.latest_step as Record<string, unknown>
+      : {};
+    if (!Object.keys(latestStep).length) {
+      return null;
+    }
+    const eventId = String(latestStep.event_id ?? "").trim();
+    const eventCount = Number(monitor.event_count ?? 0);
+    return {
+      id: eventId || `${taskRunId}:latest-step:${eventCount || String(latestStep.step ?? latestStep.status ?? "current")}`,
+      title: String(monitor.latest_step_summary ?? "任务运行中"),
+      body: String(monitor.latest_step_summary ?? ""),
+      eventType: String((monitor.latest_event as Record<string, unknown> | undefined)?.event_type ?? "runtime_live_monitor"),
+      kind: this.runtimeProgressKindFromStep(String(latestStep.step ?? monitor.latest_step_name ?? "")),
+      level: this.runtimeProgressLevelFromStatus(String(latestStep.status ?? monitor.latest_step_status ?? monitor.status ?? "")),
+      statusText: String(latestStep.status ?? monitor.latest_step_status ?? monitor.status ?? ""),
+      taskRunId,
+      createdAt: Number(latestStep.created_at ?? 0) || undefined,
+    };
+  }
+
+  private runtimeProgressKindFromStep(step: string): "stage" | "tool" | "verification" | "model" | "terminal" {
+    const normalized = step.toLowerCase();
+    if (normalized.includes("tool")) return "tool";
+    if (normalized.includes("repair") || normalized.includes("verification") || normalized.includes("closeout")) return "verification";
+    if (normalized.includes("model") || normalized.includes("agent")) return "model";
+    if (normalized.includes("completed") || normalized.includes("terminal")) return "terminal";
+    return "stage";
+  }
+
+  private runtimeProgressLevelFromStatus(status: string): "running" | "waiting" | "success" | "error" {
+    const normalized = status.trim().toLowerCase();
+    if (["completed", "success"].includes(normalized)) return "success";
+    if (["failed", "error", "blocked", "aborted", "cancelled"].includes(normalized)) return "error";
+    if (normalized.startsWith("wait") || normalized === "paused" || normalized === "queued") return "waiting";
+    return "running";
+  }
+
+  private mergeRuntimeProgressEntries(existing: Array<Record<string, unknown>> | undefined, latest: Record<string, unknown> | null) {
+    const entries = Array.isArray(existing) ? [...existing] : [];
+    if (!latest) {
+      return entries.slice(-MAX_LIVE_RUNTIME_PROGRESS_ENTRIES);
+    }
+    const latestId = String(latest.id ?? "").trim();
+    const existingIndex = latestId
+      ? entries.findIndex((item) => String(item.id ?? "").trim() === latestId)
+      : -1;
+    if (existingIndex >= 0) {
+      entries[existingIndex] = { ...entries[existingIndex], ...latest };
+    } else {
+      entries.push(latest);
+    }
+    return entries
+      .sort((left, right) => {
+        const leftTime = Number(left.createdAt ?? left.created_at ?? 0) || 0;
+        const rightTime = Number(right.createdAt ?? right.created_at ?? 0) || 0;
+        if (leftTime && rightTime && leftTime !== rightTime) {
+          return leftTime - rightTime;
+        }
+        return 0;
+      })
+      .slice(-MAX_LIVE_RUNTIME_PROGRESS_ENTRIES);
+  }
+
+  private mergeRuntimeAttachment(existing: SessionRuntimeAttachment | undefined, attachment: SessionRuntimeAttachment): SessionRuntimeAttachment {
+    return {
+      ...existing,
+      ...attachment,
+      progress_entries: this.mergeRuntimeProgressEntries(existing?.progress_entries, attachment.progress_entries?.[0] ?? null),
+    };
+  }
+
+  private patchRuntimeAttachmentFromMonitor(state: StoreState, monitor: HarnessSessionMonitor): StoreState {
     const taskRun = this.harnessMonitorTaskRun(monitor);
     const taskRunId = String(taskRun.task_run_id ?? monitor.task_run_id ?? "").trim();
     if (!taskRunId) {
       return state;
     }
-    const attachment = {
+    const taskRunDiagnostics = taskRun.diagnostics && typeof taskRun.diagnostics === "object" && !Array.isArray(taskRun.diagnostics)
+      ? taskRun.diagnostics as Record<string, unknown>
+      : {};
+    const taskIdForAnchor = String(monitor.task_id ?? taskRun.task_id ?? "").trim();
+    const anchorTurnId = this.turnIdFromTaskRunId(taskRunId)
+      || String(taskRunDiagnostics.turn_id ?? taskIdForAnchor).trim().replace(/^task:/, "");
+    const latestProgressEntry = this.runtimeProgressEntryFromMonitor(monitor, taskRunId);
+    const attachment: SessionRuntimeAttachment = {
       attachment_id: `runtime-attachment:${taskRunId}`,
-      anchor_turn_id: this.turnIdFromTaskRunId(taskRunId),
+      anchor_turn_id: anchorTurnId,
       task_run_id: taskRunId,
       task_id: String(taskRun.task_id ?? monitor.task_id ?? ""),
       status: String(monitor.status ?? taskRun.status ?? ""),
@@ -1623,17 +1706,7 @@ export class WorkspaceRuntime {
       latest_step_summary: String(monitor.latest_step_summary ?? ""),
       latest_event_type: String((monitor.latest_event as Record<string, unknown> | undefined)?.event_type ?? ""),
       event_count: Number(monitor.event_count ?? 0),
-      progress_entries: monitor.latest_step ? [{
-        id: String((monitor.latest_step as Record<string, unknown>).event_id ?? `${taskRunId}:latest`),
-        title: String(monitor.latest_step_summary ?? "任务运行中"),
-        body: String(monitor.latest_step_summary ?? ""),
-        eventType: "runtime_live_monitor",
-        kind: "stage",
-        level: String(monitor.status ?? "") === "completed" ? "success" : "running",
-        statusText: String((monitor.latest_step as Record<string, unknown>).status ?? monitor.status ?? ""),
-        taskRunId,
-        createdAt: Number((monitor.latest_step as Record<string, unknown>).created_at ?? 0) || undefined,
-      }] : [],
+      progress_entries: latestProgressEntry ? [latestProgressEntry] : [],
       artifact_refs: Array.isArray(monitor.artifact_refs) ? monitor.artifact_refs : [],
       trace_available: true,
       updated_at: Number(monitor.updated_at ?? Date.now() / 1000),
@@ -1653,7 +1726,7 @@ export class WorkspaceRuntime {
         return {
           ...message,
           runtimeAttachments: hasAttachment
-            ? existing.map((item) => item.task_run_id === taskRunId ? { ...item, ...attachment } : item)
+            ? existing.map((item) => item.task_run_id === taskRunId ? this.mergeRuntimeAttachment(item, attachment) : item)
             : [...existing, attachment],
         };
       }),
@@ -1665,7 +1738,7 @@ export class WorkspaceRuntime {
     if (parts.length < 4 || parts[0] !== "taskrun" || parts[1] !== "turn") {
       return "";
     }
-    return parts.slice(1, 4).join(":");
+    return parts.slice(1, -1).join(":");
   }
 
   private setTaskSelection(selection: TaskSelectionState | null) {

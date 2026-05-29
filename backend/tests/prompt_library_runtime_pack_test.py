@@ -71,6 +71,56 @@ def test_prompt_pack_assembly_rejects_deprecated_resources_for_new_runtime(tmp_p
     assert result.rejected_refs == ({"ref": "runtime.deprecated.test.v1", "reason": "prompt_not_found_or_inactive"},)
 
 
+def test_prompt_pack_assembly_enforces_pack_boundaries(tmp_path: Path) -> None:
+    registry = PromptLibraryRegistry(tmp_path)
+    registry.upsert_resource(
+        PromptResource(
+            prompt_id="runtime.professional.only.v1",
+            resource_id="runtime.professional.only.v1",
+            category="runtime",
+            subtype="turn_action",
+            resource_type="runtime.turn_action",
+            title="Professional only",
+            content="只允许专家模式使用。",
+            allowed_invocation_kinds=("turn_action",),
+            status="active",
+        )
+    )
+    registry.upsert_pack(
+        pack=PromptPack(
+            pack_id="runtime.pack.professional-only.v1",
+            invocation_kind="turn_action",
+            ordered_prompt_refs=("runtime.professional.only.v1",),
+            allowed_runtime_modes=("professional",),
+            allowed_agent_refs=("main_interactive_agent",),
+            allowed_environment_refs=("env.development.sandbox",),
+        )
+    )
+
+    rejected = PromptAssemblyService(tmp_path).assemble(
+        PromptAssemblyRequest(
+            invocation_kind="turn_action",
+            prompt_pack_refs=("runtime.pack.professional-only.v1",),
+            runtime_mode="standard",
+            agent_profile_ref="main_interactive_agent",
+            task_environment_ref="env.development.sandbox",
+        )
+    )
+    accepted = PromptAssemblyService(tmp_path).assemble(
+        PromptAssemblyRequest(
+            invocation_kind="turn_action",
+            prompt_pack_refs=("runtime.pack.professional-only.v1",),
+            runtime_mode="professional",
+            agent_profile_ref="main_interactive_agent",
+            task_environment_ref="env.development.sandbox",
+        )
+    )
+
+    assert rejected.sections == ()
+    assert rejected.rejected_refs == ({"ref": "runtime.pack.professional-only.v1", "reason": "pack_runtime_mode_mismatch"},)
+    assert [section.prompt_ref for section in accepted.sections] == ["runtime.professional.only.v1"]
+
+
 def test_prompt_assembly_accepts_explicit_task_and_graph_contracts(tmp_path: Path) -> None:
     result = PromptAssemblyService(tmp_path).assemble(
         PromptAssemblyRequest(
@@ -208,6 +258,8 @@ def test_runtime_compiler_assembles_agent_and_environment_prompt_refs() -> None:
 
     assert "agent.main_interactive_agent.work_role.v1" in manifest["stable_prompt_refs"]
     assert "environment.development.sandbox.v1" in manifest["stable_prompt_refs"]
+    assert manifest["cache_boundary"]["static_section_count"] == 3
+    assert manifest["cache_boundary"]["cache_scope_counts"]["static_environment"] == 1
     assert "通用主 agent" in result.packet.system_instructions
     assert "开发沙盒资源边界" in result.packet.system_instructions
     assert stable_payload["task_environment"]["environment_prompts"] == [
@@ -218,6 +270,17 @@ def test_runtime_compiler_assembles_agent_and_environment_prompt_refs() -> None:
         }
     ]
     assert "开发沙盒资源边界" not in result.packet.model_messages[1]["content"]
+
+
+def test_stored_prompt_resources_use_current_runtime_mode_names() -> None:
+    resources = PromptLibraryRegistry(BACKEND_DIR).list_resources()
+    stale_modes = []
+    for resource in resources:
+        for mode in resource.allowed_runtime_modes:
+            if str(mode).endswith("_mode"):
+                stale_modes.append((resource.prompt_id, mode))
+
+    assert stale_modes == []
 
 
 def test_runtime_compiler_assembles_task_prompt_contract_into_task_execution_packet() -> None:

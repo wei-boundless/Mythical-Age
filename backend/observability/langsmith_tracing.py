@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import time
@@ -80,6 +81,19 @@ def _compact_mapping(payload: Mapping[str, Any] | None) -> dict[str, Any] | None
         if normalized is not None and normalized != "":
             compacted[str(key)] = normalized
     return compacted or None
+
+
+def _is_stream_close_exception(exc: BaseException | None) -> bool:
+    return isinstance(exc, (GeneratorExit, asyncio.CancelledError))
+
+
+_NON_ERROR_TERMINAL_STATUSES = {
+    "completed",
+    "task_executor_scheduled",
+    "waiting_approval",
+    "blocked",
+    "clarification_required",
+}
 
 
 def _iso_now() -> str:
@@ -313,6 +327,8 @@ class LangSmithTurnTrace:
     _root_run: Any = field(default=None, init=False)
     _trace_context: Any = field(default=None, init=False)
     _context_manager: Any = field(default=None, init=False)
+    _terminal_status: str = field(default="", init=False)
+    _terminal_reason: str = field(default="", init=False)
 
     def __enter__(self) -> "LangSmithTurnTrace":
         if not _is_enabled():
@@ -356,8 +372,15 @@ class LangSmithTurnTrace:
 
     def __exit__(self, exc_type, exc, tb) -> bool:
         if self._root_run is not None:
-            if exc is None:
-                _safe_add_metadata(self._root_run, {"app.status": "ok"})
+            if exc is None or self._terminal_status_is_non_error_stream_close(exc):
+                _safe_add_metadata(
+                    self._root_run,
+                    {
+                        "app.status": "ok",
+                        "app.terminal_status": self._terminal_status,
+                        "app.terminal_reason": self._terminal_reason,
+                    },
+                )
             else:
                 _safe_add_metadata(
                     self._root_run,
@@ -391,6 +414,22 @@ class LangSmithTurnTrace:
     def annotate(self, metadata: Mapping[str, Any] | None = None) -> None:
         _safe_add_metadata(self._root_run, metadata)
 
+    def mark_terminal(self, *, status: str, reason: str = "") -> None:
+        self._terminal_status = str(status or "").strip()
+        self._terminal_reason = str(reason or "").strip()
+        self.annotate(
+            {
+                "app.terminal_status": self._terminal_status,
+                "app.terminal_reason": self._terminal_reason,
+            }
+        )
+
+    def _terminal_status_is_non_error_stream_close(self, exc: BaseException | None) -> bool:
+        return (
+            self._terminal_status in _NON_ERROR_TERMINAL_STATUSES
+            and _is_stream_close_exception(exc)
+        )
+
     def _close(self, exc_type, exc, tb) -> None:
         if self._context_manager is not None:
             try:
@@ -423,6 +462,8 @@ class LocalTurnTrace:
     _started_perf: float = field(default=0.0, init=False)
     _annotations: dict[str, Any] = field(default_factory=dict, init=False)
     _stages: list[dict[str, Any]] = field(default_factory=list, init=False)
+    _terminal_status: str = field(default="", init=False)
+    _terminal_reason: str = field(default="", init=False)
 
     def __enter__(self) -> "LocalTurnTrace":
         if not is_local_trace_enabled():
@@ -440,10 +481,13 @@ class LocalTurnTrace:
     def __exit__(self, exc_type, exc, tb) -> bool:
         if not self.enabled:
             return False
+        status = "ok" if exc is None or self._terminal_status_is_non_error_stream_close(exc) else "error"
         payload = {
             "trace_id": self.trace_id,
             "trace_source": self.trace_source,
-            "status": "error" if exc is not None else "ok",
+            "status": status,
+            "terminal_status": self._terminal_status,
+            "terminal_reason": self._terminal_reason,
             "started_at": self._started_at or _iso_now(),
             "ended_at": _iso_now(),
             "latency_ms": round(max(time.perf_counter() - self._started_perf, 0.0) * 1000.0, 2),
@@ -454,7 +498,7 @@ class LocalTurnTrace:
             "annotations": _compact_mapping(self._annotations),
             "tags": list(self.tags or []),
             "stages": list(self._stages),
-            "error": _truncate(str(exc), limit=240) if exc is not None else "",
+            "error": _truncate(str(exc), limit=240) if status == "error" and exc is not None else "",
         }
         _atomic_write_text(Path(self.trace_url), json.dumps(payload, ensure_ascii=False, indent=2))
         return False
@@ -483,8 +527,24 @@ class LocalTurnTrace:
         if compacted:
             self._annotations.update(compacted)
 
+    def mark_terminal(self, *, status: str, reason: str = "") -> None:
+        self._terminal_status = str(status or "").strip()
+        self._terminal_reason = str(reason or "").strip()
+        self.annotate(
+            {
+                "terminal_status": self._terminal_status,
+                "terminal_reason": self._terminal_reason,
+            }
+        )
+
     def _append_stage(self, payload: Mapping[str, Any]) -> None:
         self._stages.append(dict(payload))
+
+    def _terminal_status_is_non_error_stream_close(self, exc: BaseException | None) -> bool:
+        return (
+            self._terminal_status in _NON_ERROR_TERMINAL_STATUSES
+            and _is_stream_close_exception(exc)
+        )
 
 
 def start_turn_trace(

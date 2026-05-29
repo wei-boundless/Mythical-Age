@@ -241,6 +241,14 @@ class QueryRuntime:
                         runtime_assembly=runtime_assembly,
                     )
                 ):
+                    if event.get("type") == "agent_turn_terminal":
+                        terminal_payload = dict(dict(event.get("event") or {}).get("payload") or {})
+                        marker = getattr(trace, "mark_terminal", None)
+                        if callable(marker):
+                            marker(
+                                status=str(terminal_payload.get("status") or ""),
+                                reason=str(terminal_payload.get("terminal_reason") or ""),
+                            )
                     yield event
         except Exception as exc:
             logger.exception("QueryRuntime failed while streaming request.")
@@ -604,27 +612,7 @@ def _graph_node_contract_from_work_order(work_order: Any) -> TaskRunContract:
         user_visible_goal=work_order.message or f"完成图节点 {work_order.node_id}。",
         task_run_goal=work_order.message or f"完成图节点 {work_order.node_id}。",
         completion_criteria=tuple(criteria),
-        resource_requirements={
-            "graph_state": dict(getattr(work_order, "graph_state", {}) or {}),
-            "input_package": dict(getattr(work_order, "input_package", {}) or {}),
-            "context_refs": dict(getattr(work_order, "context_refs", {}) or {}),
-            "memory_view_request": dict(getattr(work_order, "memory_view_request", {}) or {}),
-            "artifact_view_request": dict(getattr(work_order, "artifact_view_request", {}) or {}),
-            "file_view_request": dict(getattr(work_order, "file_view_request", {}) or {}),
-            "artifact_space_ref": str(getattr(work_order, "artifact_space_ref", "") or ""),
-            "memory_space_ref": str(getattr(work_order, "memory_space_ref", "") or ""),
-            "file_access_table_refs": list(getattr(work_order, "file_access_table_refs", ()) or ()),
-            "artifact_repository_targets": [
-                dict(item)
-                for item in list(getattr(work_order, "artifact_repository_targets", ()) or ())
-                if isinstance(item, dict)
-            ],
-            "memory_repository_targets": [
-                dict(item)
-                for item in list(getattr(work_order, "memory_repository_targets", ()) or ())
-                if isinstance(item, dict)
-            ],
-        },
+        resource_requirements=_graph_node_resource_requirements(work_order),
         permission_requirements=dict(getattr(work_order, "permission_scope", {}) or {}),
         acceptance_policy=contracts,
         recovery_policy=dict(getattr(work_order, "retry_policy", {}) or {}),
@@ -634,6 +622,72 @@ def _graph_node_contract_from_work_order(work_order: Any) -> TaskRunContract:
         prompt_contract=prompt_contract,
         origin=_graph_node_origin(work_order),
     )
+
+
+def _graph_node_resource_requirements(work_order: Any) -> dict[str, Any]:
+    return {
+        "graph_state": dict(getattr(work_order, "graph_state", {}) or {}),
+        "input_package": _model_visible_input_package(dict(getattr(work_order, "input_package", {}) or {})),
+        "context_refs": dict(getattr(work_order, "context_refs", {}) or {}),
+        "artifact_space_ref": str(getattr(work_order, "artifact_space_ref", "") or ""),
+        "memory_space_ref": str(getattr(work_order, "memory_space_ref", "") or ""),
+        "file_access_table_refs": list(getattr(work_order, "file_access_table_refs", ()) or ()),
+        "artifact_repository_targets": [
+            dict(item)
+            for item in list(getattr(work_order, "artifact_repository_targets", ()) or ())
+            if isinstance(item, dict)
+        ],
+        "memory_repository_targets": [
+            dict(item)
+            for item in list(getattr(work_order, "memory_repository_targets", ()) or ())
+            if isinstance(item, dict)
+        ],
+    }
+
+
+def _model_visible_input_package(input_package: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "package_id": str(input_package.get("package_id") or ""),
+        "authority": str(input_package.get("authority") or "harness.graph_node_input_package"),
+        "node_identity": dict(input_package.get("node_identity") or {}),
+        "prompt_contract": dict(input_package.get("prompt_contract") or input_package.get("prompt") or {}),
+        "task_environment_id": str(input_package.get("task_environment_id") or ""),
+        "runtime_scope": dict(input_package.get("runtime_scope") or {}),
+        "runtime_profile": _compact_runtime_profile(dict(input_package.get("runtime_profile") or {})),
+        "agent_instruction": str(input_package.get("agent_instruction") or ""),
+        "input_contract": dict(input_package.get("input_contract") or {}),
+        "output_contract": dict(input_package.get("output_contract") or {}),
+        "initial_inputs": dict(input_package.get("initial_inputs") or {}),
+        "loop_context": dict(input_package.get("loop_context") or {}),
+        "upstream_results": [dict(item) for item in list(input_package.get("upstream_results") or []) if isinstance(item, dict)],
+        "handoff_packets": [dict(item) for item in list(input_package.get("handoff_packets") or []) if isinstance(item, dict)],
+        "memory_view": dict(input_package.get("memory_view") or {}),
+        "artifact_view": dict(input_package.get("artifact_view") or {}),
+        "file_view": dict(input_package.get("file_view") or {}),
+        "issue_view": dict(input_package.get("issue_view") or {}),
+        "environment_refs": dict(input_package.get("environment_refs") or {}),
+        "artifact_space_ref": str(input_package.get("artifact_space_ref") or ""),
+        "memory_space_ref": str(input_package.get("memory_space_ref") or ""),
+        "file_access_table_refs": [str(item) for item in list(input_package.get("file_access_table_refs") or []) if str(item)],
+        "artifact_repository_targets": [
+            dict(item) for item in list(input_package.get("artifact_repository_targets") or []) if isinstance(item, dict)
+        ],
+        "memory_repository_targets": [
+            dict(item) for item in list(input_package.get("memory_repository_targets") or []) if isinstance(item, dict)
+        ],
+        "permission_summary": dict(input_package.get("permission_summary") or {}),
+        "tool_capability_table": dict(input_package.get("tool_capability_table") or {}),
+        "expected_result_contract": dict(input_package.get("expected_result_contract") or {}),
+    }
+
+
+def _compact_runtime_profile(profile: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "mode": str(profile.get("mode") or ""),
+        "runtime_mode": str(profile.get("runtime_mode") or profile.get("mode") or ""),
+        "task_environment_id": str(profile.get("task_environment_id") or ""),
+        "runtime_mode_policy": dict(profile.get("runtime_mode_policy") or profile.get("mode_policy") or {}),
+    }
 
 
 def _graph_node_task_selection(graph_config: Any, work_order: Any) -> dict[str, Any]:

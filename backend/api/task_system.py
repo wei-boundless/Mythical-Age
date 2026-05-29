@@ -295,6 +295,7 @@ class TaskGraphUpsertRequest(BaseModel):
     working_memory_policy: dict[str, object] = Field(default_factory=dict)
     runtime_policy: dict[str, object] = Field(default_factory=dict)
     context_policy: dict[str, object] = Field(default_factory=dict)
+    loop_frames: list[dict[str, object]] = Field(default_factory=list)
     publish_state: str = Field(default="draft", max_length=80)
     enabled: bool = False
     metadata: dict[str, object] = Field(default_factory=dict)
@@ -846,6 +847,7 @@ async def upsert_task_system_task_graph_standard_view(
             working_memory_policy=next_graph.working_memory_policy,
             runtime_policy=next_graph.runtime_policy,
             context_policy=next_graph.context_policy,
+            loop_frames=tuple(dict(item) for item in next_graph.loop_frames),
             publish_state=next_graph.publish_state,
             enabled=next_graph.enabled,
             metadata=next_graph.metadata,
@@ -1244,6 +1246,7 @@ async def upsert_task_system_task_graph(
             working_memory_policy=payload.working_memory_policy,
             runtime_policy=payload.runtime_policy,
             context_policy=payload.context_policy,
+            loop_frames=tuple(dict(item) for item in payload.loop_frames),
             publish_state=payload.publish_state,
             enabled=payload.enabled,
             metadata=payload.metadata,

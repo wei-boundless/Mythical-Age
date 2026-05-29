@@ -20,9 +20,16 @@ function draft(): TaskGraphDraftV2 {
         batch_size: 5,
       },
     },
-    metadata: {
-      graph_loop_policy: {
-        enabled: true,
+    loop_frames: [
+      {
+        frame_id: "loop.records",
+        scope_id: "loop.records",
+        title: "记录批次循环",
+        kind: "bounded_metric_iteration",
+        entry_node_id: "produce",
+        router_node_id: "router",
+        continue_node_id: "produce",
+        exit_node_id: "exit",
         initial_inputs: {
           target_group_count: 5,
           units_per_group: 10,
@@ -33,15 +40,18 @@ function draft(): TaskGraphDraftV2 {
           target_measure_units: 1000,
         },
       },
-    },
+    ],
   };
 }
 
+function firstFrameInputs(patch: Partial<TaskGraphDraftV2>) {
+  return patch.loop_frames?.[0]?.initial_inputs as Record<string, unknown>;
+}
+
 describe("taskGraphLoopConfig", () => {
-  it("stores graph-level batch size into runtime loop policy and unit batch contract summary", () => {
+  it("stores graph-level batch size into loop_frames and unit batch contract summary", () => {
     const patch = buildTaskGraphLoopInputPatch(draft(), "units_per_batch", 8);
-    const graphLoopPolicy = patch.metadata?.graph_loop_policy as Record<string, unknown>;
-    const initialInputs = graphLoopPolicy.initial_inputs as Record<string, unknown>;
+    const initialInputs = firstFrameInputs(patch);
     const unitBatch = patch.contract_bindings?.unit_batch as Record<string, unknown>;
     const runtime = patch.contract_bindings?.runtime as Record<string, unknown>;
     const lengthBudget = runtime.length_budget as Record<string, unknown>;
@@ -52,12 +62,11 @@ describe("taskGraphLoopConfig", () => {
     expect(initialInputs.target_unit_count).toBe(50);
     expect(initialInputs.group_target_measure).toBe(200);
     expect(initialInputs.target_measure_units).toBe(1000);
-    expect(initialInputs.chapters_per_round).toBeUndefined();
-    expect(initialInputs.chapter_batch_size).toBeUndefined();
     expect(unitBatch.batch_size).toBe(8);
     expect(unitBatch.requested_count).toBe(50);
+    expect(unitBatch.target_unit_count).toBe(50);
     expect(unitBatch.unit_kind).toBe("record");
-    expect(unitBatch.source).toBe("metadata.graph_loop_policy.initial_inputs");
+    expect(unitBatch.source).toBe("graph.loop_frames.initial_inputs");
     expect(lengthBudget.enabled).toBe(true);
     expect(lengthBudget.measurement_mode).toBe("text_units");
     expect(lengthBudget.unit_kind).toBe("record");
@@ -66,16 +75,17 @@ describe("taskGraphLoopConfig", () => {
     expect((lengthBudget.repair_policy as Record<string, unknown>).mode).toBe("expand_or_split");
   });
 
-  it("uses generic one-unit defaults when no graph contract exists", () => {
+  it("uses generic one-unit defaults when no graph loop frame exists", () => {
     const minimal = {
       ...emptyTaskGraphDraftV2(),
-      metadata: {
-        graph_loop_policy: {
+      loop_frames: [
+        {
+          frame_id: "loop.units",
           initial_inputs: {
             units_per_batch: 5,
           },
         },
-      },
+      ],
     };
 
     expect(resolvedTaskGraphLoopInitialInputs(emptyTaskGraphDraftV2())).toMatchObject({
@@ -89,8 +99,7 @@ describe("taskGraphLoopConfig", () => {
     });
 
     const patch = buildTaskGraphLoopInputPatch(minimal, "units_per_batch", 8);
-    const graphLoopPolicy = patch.metadata?.graph_loop_policy as Record<string, unknown>;
-    const initialInputs = graphLoopPolicy.initial_inputs as Record<string, unknown>;
+    const initialInputs = firstFrameInputs(patch);
 
     expect(initialInputs.target_unit_count).toBe(1);
     expect(initialInputs.target_measure_units).toBe(0);
@@ -101,8 +110,7 @@ describe("taskGraphLoopConfig", () => {
 
   it("recalculates dependent scale fields when units per group changes", () => {
     const patch = buildTaskGraphLoopInputPatch(draft(), "units_per_group", 8);
-    const graphLoopPolicy = patch.metadata?.graph_loop_policy as Record<string, unknown>;
-    const initialInputs = graphLoopPolicy.initial_inputs as Record<string, unknown>;
+    const initialInputs = firstFrameInputs(patch);
     const unitBatch = patch.contract_bindings?.unit_batch as Record<string, unknown>;
     const runtime = patch.contract_bindings?.runtime as Record<string, unknown>;
     const lengthBudget = runtime.length_budget as Record<string, unknown>;
@@ -116,47 +124,18 @@ describe("taskGraphLoopConfig", () => {
     expect(lengthBudget.target_units).toBe(100);
   });
 
-  it("migrates legacy chapter loop inputs into generic fields without writing them back", () => {
-    const legacy = {
+  it("creates a formal loop frame when the draft has no loop frame yet", () => {
+    const emptyLoop = {
       ...emptyTaskGraphDraftV2(),
-      contract_bindings: {
-        unit_batch: {
-          unit_kind: "chapter",
-          requested_count: 500,
-          batch_size: 10,
-        },
-      },
-      metadata: {
-        graph_loop_policy: {
-          initial_inputs: {
-            target_volumes: 5,
-            chapters_per_volume: 100,
-            target_chapters: 500,
-            chapters_per_round: 10,
-            chapter_batch_size: 10,
-            chapter_target_words: 2000,
-            volume_target_words: 200000,
-            target_words: 1000000,
-          },
-        },
-      },
     };
 
-    const resolved = resolvedTaskGraphLoopInitialInputs(legacy);
-    expect(resolved).toMatchObject({
-      target_group_count: 5,
-      units_per_group: 100,
-      target_unit_count: 500,
-      units_per_batch: 10,
-      unit_target_measure: 2000,
-      group_target_measure: 200000,
-      target_measure_units: 1000000,
-    });
+    const resolved = resolvedTaskGraphLoopInitialInputs(emptyLoop);
+    expect(resolved.target_group_count).toBe(1);
+    expect(resolved.units_per_batch).toBe(1);
 
-    const patch = buildTaskGraphLoopInputPatch(legacy, "units_per_batch", 8);
-    const initialInputs = (patch.metadata?.graph_loop_policy as Record<string, unknown>).initial_inputs as Record<string, unknown>;
-    expect(initialInputs.chapters_per_round).toBeUndefined();
-    expect(initialInputs.chapter_batch_size).toBeUndefined();
-    expect(initialInputs.units_per_batch).toBe(8);
+    const patch = buildTaskGraphLoopInputPatch(emptyLoop, "units_per_batch", 8);
+    expect(patch.metadata).toBeUndefined();
+    expect(patch.loop_frames?.[0]?.frame_id).toBe("loop.default");
+    expect(firstFrameInputs(patch).units_per_batch).toBe(8);
   });
 });

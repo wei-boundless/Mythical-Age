@@ -32,7 +32,7 @@ def normalize_task_graph_layers(graph: TaskGraphDefinition) -> dict[str, Any]:
     artifact_context_edges = [_artifact_context_edge_payload(edge) for edge in edges if _is_artifact_context_edge(edge)]
     revision_edges = [_revision_edge_payload(edge) for edge in edges if _is_revision_edge(edge)]
     loop_frames = [
-        *_graph_loop_policy_frames(graph),
+        *_graph_loop_frames(graph),
         *[_loop_frame_payload(node) for node in nodes if _is_loop_frame(node)],
     ]
     timeline_blocks = _timeline_blocks(graph=graph, nodes=nodes)
@@ -90,10 +90,8 @@ def _is_loop_frame(node: TaskGraphNodeDefinition) -> bool:
     return str(node.node_type or "").strip() == "loop_frame"
 
 
-def _graph_loop_policy_frames(graph: TaskGraphDefinition) -> list[dict[str, Any]]:
-    metadata = dict(graph.metadata or {})
-    policy = dict(metadata.get("graph_loop_policy") or {})
-    frames = list(policy.get("frames") or [])
+def _graph_loop_frames(graph: TaskGraphDefinition) -> list[dict[str, Any]]:
+    frames = list(graph.loop_frames or [])
     normalized: list[dict[str, Any]] = []
     for index, raw_frame in enumerate(frames, start=1):
         if not isinstance(raw_frame, dict):
@@ -107,14 +105,14 @@ def _graph_loop_policy_frames(graph: TaskGraphDefinition) -> list[dict[str, Any]
                 **frame,
                 "frame_id": frame_id,
                 "loop_frame_id": frame_id,
-                "loop_kind": str(frame.get("loop_kind") or frame.get("kind") or "graph_loop_policy_frame").strip(),
-                "entry_stage_id": str(frame.get("entry_stage_id") or "").strip(),
-                "router_stage_id": str(frame.get("router_stage_id") or "").strip(),
-                "exit_stage_id": str(frame.get("exit_stage_id") or "").strip(),
-                "initial_inputs": dict(policy.get("initial_inputs") or {}),
-                "derived_fields": list(policy.get("derived_fields") or []),
-                "policy": policy,
-                "authority": "task_system.graph_loop_policy",
+                "kind": str(frame.get("kind") or "").strip(),
+                "entry_node_id": str(frame.get("entry_node_id") or "").strip(),
+                "router_node_id": str(frame.get("router_node_id") or "").strip(),
+                "continue_node_id": str(frame.get("continue_node_id") or "").strip(),
+                "exit_node_id": str(frame.get("exit_node_id") or "").strip(),
+                "initial_inputs": dict(frame.get("initial_inputs") or {}),
+                "derived_fields": list(frame.get("derived_fields") or []),
+                "authority": "task_system.loop_frame_contract",
             }
         )
     return normalized
@@ -549,12 +547,12 @@ def _revision_edge_payload(edge: TaskGraphEdgeDefinition) -> dict[str, Any]:
 
 
 def _loop_frame_payload(node: TaskGraphNodeDefinition) -> dict[str, Any]:
-    policy = dict(node.loop_policy or {})
+    policy = dict(node.loop or {})
     return {
         "loop_frame_id": str(policy.get("loop_frame_id") or node.node_id),
         "node_id": node.node_id,
         "phase_id": node.phase_id,
-        "loop_kind": str(policy.get("loop_kind") or ("loop_frame" if node.node_type == "loop_frame" else "while_target_not_met")),
+        "kind": str(policy.get("kind") or ("loop_frame" if node.node_type == "loop_frame" else "while_target_not_met")),
         "loop_variable": str(policy.get("loop_variable") or "iteration_index"),
         "exit_condition": str(policy.get("exit_condition") or ""),
         "memory_snapshot_policy": str(policy.get("memory_snapshot_policy") or "latest_committed_before_iteration"),

@@ -103,7 +103,7 @@ function topologyNodeKind(node: Record<string, unknown>) {
   const role = String(node.role ?? "").trim();
   const executionMode = String(node.execution_mode ?? "").trim();
   if (nodeType === "review_gate" || String(node.review_gate_policy ?? "") === "review_gate" || role === "review_gate") return "review_gate";
-  if (nodeType === "loop" || nodeType === "loop_controller" || Object.keys(asRecord(node.loop_policy)).length > 0) return "loop";
+  if (nodeType === "loop" || nodeType === "loop_controller" || Object.keys(asRecord(node.loop)).length > 0) return "loop";
   if (executionMode === "manual_gate" || nodeType === "manual_gate" || role === "manual_gate") return "manual_gate";
   if (
     role === "memory"
