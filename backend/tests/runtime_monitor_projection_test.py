@@ -84,6 +84,31 @@ def test_stale_waiting_executor_moves_to_diagnostics_not_running():
     assert item["stale"] is True
 
 
+def test_user_paused_waiting_executor_is_actionable_not_stale():
+    projector = TaskRunMonitorProjector(EventLogStub(), freshness_seconds=60.0)
+    run = task_run(
+        status="waiting_executor",
+        updated_at=120.0,
+        diagnostics={
+            "runtime_control": {
+                "state": "paused",
+                "requested_by": "user",
+                "requested_at": 121.0,
+                "reason": "用户暂停",
+            }
+        },
+    )
+
+    item = projector.project_task_run(run, now=300.0)
+
+    assert item["bucket"] == "diagnostics"
+    assert item["lifecycle"] == "paused"
+    assert item["resource_class"] == "static"
+    assert item["stale"] is False
+    assert item["action_required"] is True
+    assert item["runtime_control"]["state"] == "paused"
+
+
 def test_waiting_approval_moves_to_diagnostics_and_freezes_duration():
     projector = TaskRunMonitorProjector(EventLogStub(), freshness_seconds=60.0)
     run = task_run(status="waiting_approval", updated_at=120.0)

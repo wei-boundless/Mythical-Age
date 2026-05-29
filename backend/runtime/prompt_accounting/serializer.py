@@ -37,24 +37,30 @@ class CanonicalPromptSerializer:
         session_id: str = "",
         created_at: float | None = None,
         metadata: dict[str, Any] | None = None,
+        segment_plan: dict[str, Any] | None = None,
+        model_request: Any | None = None,
     ) -> PromptSegmentMap:
         timestamp = time.time() if created_at is None else float(created_at or 0.0)
-        normalized_messages = normalize_messages(messages)
-        normalized_tools = normalize_tools(list(tools or []))
+        normalized_messages = _model_request_messages(model_request) or normalize_messages(messages)
+        normalized_tools = _model_request_tools(model_request) or normalize_tools(list(tools or []))
         request_payload = {
             "messages": normalized_messages,
             "tools": normalized_tools,
             "metadata": dict(metadata or {}),
         }
         canonical = canonical_json(request_payload)
+        bindings = _model_request_bindings(model_request)
+        plan = _model_request_segment_plan(model_request) or dict(segment_plan or {})
+        planned_by_index = _bindings_by_message_index(bindings) if bindings else _plan_segments_by_message_index(plan)
         segments: list[PromptSegment] = []
         ordinal = 0
         for index, message in enumerate(normalized_messages):
             ordinal += 1
             segment_payload = canonical_json(message)
-            kind = _message_segment_kind(message, index=index, total=len(normalized_messages))
-            cache_role = _cache_role_for_message(kind=kind, message=message, index=index)
-            compression_role = _compression_role_for_kind(kind)
+            planned = planned_by_index.get(index)
+            kind = str(planned.get("kind") or "unknown_unplanned") if planned else "unknown_unplanned"
+            cache_role = _cache_role(planned.get("cache_role")) if planned else "never_cache"
+            compression_role = _compression_role(planned.get("compression_role")) if planned else "summarize"
             token_count = self.token_counter.count_text(segment_payload, provider=provider, model=model)
             segments.append(
                 PromptSegment(
@@ -70,9 +76,12 @@ class CanonicalPromptSerializer:
                     predicted_tokens=token_count.tokens,
                     cache_role=cache_role,
                     compression_role=compression_role,
-                    source=str(message.get("source") or "message"),
+                    source=str(planned.get("source_ref") or "model_request.message") if planned else "model_request.unplanned_message",
                     created_at=timestamp,
-                    metadata={"token_count_mode": token_count.mode},
+                    metadata={
+                        "token_count_mode": token_count.mode,
+                        **_planned_metadata(planned),
+                    },
                 )
             )
         if normalized_tools:
@@ -91,11 +100,15 @@ class CanonicalPromptSerializer:
                     content_hash=stable_text_hash(segment_payload),
                     byte_length=len(segment_payload.encode("utf-8", errors="ignore")),
                     predicted_tokens=token_count.tokens,
-                    cache_role="cacheable_prefix",
+                    cache_role="never_cache",
                     compression_role="preserve",
                     source="model_request.tools",
                     created_at=timestamp,
-                    metadata={"tool_count": len(normalized_tools), "token_count_mode": token_count.mode},
+                    metadata={
+                        "tool_count": len(normalized_tools),
+                        "token_count_mode": token_count.mode,
+                        "cache_note": "tool_schema_is_recorded_but_not_promoted_to_prefix_without_explicit_request_boundary",
+                    },
                 )
             )
         return PromptSegmentMap(
@@ -205,47 +218,112 @@ def _tool_schema(tool: Any) -> Any:
     return {}
 
 
-def _message_segment_kind(message: dict[str, Any], *, index: int, total: int) -> str:
-    role = str(message.get("role") or "").lower()
-    content = str(message.get("content") or "")
-    if role == "tool":
-        return "tool_observations"
-    if role == "system":
-        if "Runtime Context Package" in content or "当前情境" in content:
-            return "memory_context"
-        if "当前 Agent 工作契约" in content or "Runtime Execution Facts" in content:
-            return "task_contract"
-        return "system_static" if index == 0 else "system_session"
-    if role == "user" and index >= max(0, total - 1):
-        return "volatile_turn"
-    if role == "assistant" and message.get("tool_calls"):
-        return "tool_observations"
-    return "conversation_recent"
+def _model_request_messages(model_request: Any | None) -> list[dict[str, Any]]:
+    if model_request is None:
+        return []
+    value = getattr(model_request, "messages", None)
+    if value is None and isinstance(model_request, dict):
+        value = model_request.get("messages")
+    return [dict(item) for item in list(value or []) if isinstance(item, dict)]
 
 
-def _cache_role_for_message(*, kind: str, message: dict[str, Any], index: int) -> str:
-    if kind == "system_static" and index == 0 and not _contains_volatile_fact(str(message.get("content") or "")):
-        return "cacheable_prefix"
-    if kind in {"system_session", "task_contract"}:
-        return "session_stable"
-    if kind == "memory_context":
-        return "volatile"
+def _model_request_tools(model_request: Any | None) -> list[dict[str, Any]]:
+    if model_request is None:
+        return []
+    value = getattr(model_request, "tools", None)
+    if value is None and isinstance(model_request, dict):
+        value = model_request.get("tools")
+    return [dict(item) for item in list(value or []) if isinstance(item, dict)]
+
+
+def _model_request_bindings(model_request: Any | None) -> list[dict[str, Any]]:
+    if model_request is None:
+        return []
+    value = getattr(model_request, "segment_bindings", None)
+    if value is None and isinstance(model_request, dict):
+        value = model_request.get("segment_bindings")
+    result: list[dict[str, Any]] = []
+    for item in list(value or []):
+        if hasattr(item, "to_dict"):
+            result.append(dict(item.to_dict()))
+        elif isinstance(item, dict):
+            result.append(dict(item))
+    return result
+
+
+def _model_request_segment_plan(model_request: Any | None) -> dict[str, Any]:
+    if model_request is None:
+        return {}
+    value = getattr(model_request, "segment_plan", None)
+    if value is None and isinstance(model_request, dict):
+        value = model_request.get("segment_plan")
+    return dict(value or {}) if isinstance(value, dict) else {}
+
+
+def _bindings_by_message_index(bindings: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
+    result: dict[int, dict[str, Any]] = {}
+    for binding in bindings:
+        index = _int(binding.get("model_message_index"), default=-1)
+        if index < 0:
+            continue
+        result[index] = {
+            "kind": str(binding.get("kind") or "unknown_unplanned"),
+            "cache_role": _cache_role(binding.get("cache_role")),
+            "compression_role": _compression_role(binding.get("compression_role")),
+            "source_ref": str(binding.get("source_ref") or ""),
+            "metadata": {
+                "planned_segment_id": str(binding.get("planned_segment_id") or ""),
+                "planned_content_hash": str(binding.get("planned_content_hash") or ""),
+                "request_content_hash": str(binding.get("request_content_hash") or ""),
+                **dict(binding.get("metadata") or {}),
+            },
+        }
+    return result
+
+
+def _plan_segments_by_message_index(segment_plan: dict[str, Any]) -> dict[int, dict[str, Any]]:
+    result: dict[int, dict[str, Any]] = {}
+    for segment in list(segment_plan.get("segments") or []):
+        if not isinstance(segment, dict):
+            continue
+        index = _int(segment.get("model_message_index"), default=-1)
+        if index < 0:
+            continue
+        result[index] = dict(segment)
+    return result
+
+
+def _planned_metadata(planned: dict[str, Any] | None) -> dict[str, Any]:
+    if not planned:
+        return {"planned": False}
+    metadata = dict(planned.get("metadata") or {})
+    return {
+        "planned": True,
+        "planned_segment_id": str(planned.get("segment_id") or planned.get("planned_segment_id") or ""),
+        "planned_content_hash": str(planned.get("content_hash") or planned.get("planned_content_hash") or ""),
+        **metadata,
+    }
+
+
+def _cache_role(value: Any) -> str:
+    normalized = str(value or "").strip()
+    if normalized in {"cacheable_prefix", "session_stable", "volatile", "never_cache"}:
+        return normalized
     return "volatile"
 
 
-def _compression_role_for_kind(kind: str) -> str:
-    if kind in {"system_static", "tool_schema", "task_contract"}:
-        return "preserve"
-    if kind in {"tool_observations", "artifact_summaries"}:
-        return "ref_only"
-    if kind == "conversation_recent":
-        return "summarize"
+def _compression_role(value: Any) -> str:
+    normalized = str(value or "").strip()
+    if normalized in {"preserve", "summarize", "drop_if_cold", "ref_only"}:
+        return normalized
     return "summarize"
 
 
-def _contains_volatile_fact(content: str) -> bool:
-    lowered = content.lower()
-    return any(marker in lowered for marker in ("current time", "当前时间", "local_time", "runtime execution facts"))
+def _int(value: Any, *, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _segment_id(request_id: str, ordinal: int, kind: str, payload: str) -> str:

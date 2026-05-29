@@ -1164,6 +1164,84 @@ def test_graph_agent_node_records_artifact_repository_receipts(tmp_path: Path) -
     assert overview["artifacts"][0]["producer_node_id"] == "draft"
 
 
+def test_graph_agent_node_materializes_declared_final_content_artifact() -> None:
+    runtime = _task_execution_runtime("graph-contract-artifact-materialization-")
+    registry = TaskFlowRegistry(runtime.base_dir)
+    graph = registry.upsert_task_graph(
+        graph_id="graph.test.contract_artifact_materialization",
+        title="Contract Artifact Materialization",
+        graph_kind="multi_agent",
+        entry_node_id="draft",
+        output_node_id="draft",
+        nodes=(
+            {
+                "node_id": "draft",
+                "node_type": "agent",
+                "title": "起草",
+                "task_id": "task.test.draft",
+                "agent_id": "agent:0",
+                "artifact_policy": {
+                    "enabled": True,
+                    "required": True,
+                    "default_artifact_root": "output/test_graph_artifacts",
+                    "subdir_template": "{project_slug}",
+                    "artifacts": [
+                        {
+                            "path": "world/world_candidate_round_{round_index:03d}.md",
+                            "required": True,
+                            "content_source": "final_content",
+                            "fallback_to_full_content": True,
+                        }
+                    ],
+                },
+            },
+        ),
+        runtime_policy={"coordinator_agent_id": "agent:0", "task_environment_id": "env.development.sandbox"},
+        publish_state="published",
+        enabled=True,
+    )
+    graph_config = publish_graph_harness_config_for_graph(base_dir=runtime.base_dir, graph_id=graph.graph_id)
+    start = runtime.graph_harness.start_run(
+        session_id="session:test",
+        task_id="",
+        graph_config=graph_config,
+        initial_inputs={"project_id": "project:artifact-test", "round_index": 2},
+    )
+
+    result = asyncio.run(
+        runtime.graph_harness.run_until_idle(
+            graph_config=graph_config,
+            graph_run_id=start.graph_run.graph_run_id,
+            max_node_executions=1,
+            max_node_steps=1,
+        )
+    )
+    state = runtime.graph_harness.get_checkpoint_state(start.graph_run.graph_run_id)
+    node_result = state["result_index"]["draft"]
+    artifact_path = (
+        runtime.base_dir.parent
+        / "output"
+        / "test_graph_artifacts"
+        / "project-artifact-test"
+        / "world"
+        / "world_candidate_round_002.md"
+    )
+    overview = runtime.graph_harness._services.artifact_repository_service.overview(
+        task_run_id=start.task_run.task_run_id,
+        graph_run_id=start.graph_run.graph_run_id,
+    )
+
+    assert result.status == "completed"
+    assert artifact_path.exists()
+    assert "图节点执行完成" in artifact_path.read_text(encoding="utf-8")
+    assert node_result["artifact_refs"] == [
+        "output/test_graph_artifacts/project-artifact-test/world/world_candidate_round_002.md"
+    ]
+    assert node_result["artifact_materialization_receipts"][0]["authority"] == "artifact_repository.service"
+    assert overview["artifact_count"] == 1
+    assert overview["artifacts"][0]["path"] == "output/test_graph_artifacts/project-artifact-test/world/world_candidate_round_002.md"
+
+
 def test_graph_agent_node_writes_formal_memory_candidate_and_commit() -> None:
     runtime = _task_execution_runtime("graph-formal-memory-")
     registry = TaskFlowRegistry(runtime.base_dir)

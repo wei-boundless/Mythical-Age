@@ -16,6 +16,8 @@ from runtime.model_gateway.model_runtime import ModelRuntime, ModelRuntimeError,
 from runtime.tool_runtime.provider_tool_call_adapter import normalize_tool_call_dicts, tool_calls_for_langchain_messages
 from runtime.model_gateway.model_response import ModelResponseRuntimeExecutor
 from runtime.tool_runtime.tool_call_policy import ToolCallBindingOptions
+from runtime.prompt_accounting import PromptAccountingLedger
+from harness.runtime.prompt_segment_plan import build_prompt_segment_plan
 
 MAIN_AGENT = SimpleNamespace(agent_id="agent:main:test")
 
@@ -864,5 +866,87 @@ def test_model_runtime_resolves_frontend_model_selection_dict_credential_ref() -
     assert specs[0].api_key == "deepseek-key"
     assert specs[0].thinking_mode == "enabled"
     assert specs[0].reasoning_effort == "max"
+
+
+def test_model_runtime_prompt_accounting_records_cache_efficiency_metrics(tmp_path: Path) -> None:
+    runtime = _runtime(retries=0)
+    ledger = PromptAccountingLedger(tmp_path)
+    runtime.attach_prompt_accounting_ledger(ledger)
+    messages = [
+        {"role": "system", "content": "stable runtime"},
+        {"role": "system", "content": "stable contract"},
+        {"role": "user", "content": "current request"},
+    ]
+    segment_plan = build_prompt_segment_plan(
+        packet_id="packet:metrics",
+        invocation_kind="turn_action",
+        message_specs=[
+            {
+                "role": "system",
+                "content": "stable runtime",
+                "kind": "global_static",
+                "source_ref": "runtime.test",
+                "cache_scope": "global",
+                "cache_role": "cacheable_prefix",
+                "compression_role": "preserve",
+            },
+            {
+                "role": "system",
+                "content": "stable contract",
+                "kind": "task_stable",
+                "source_ref": "contract.test",
+                "cache_scope": "session",
+                "cache_role": "session_stable",
+                "compression_role": "preserve",
+            },
+            {
+                "role": "user",
+                "content": "current request",
+                "kind": "volatile_user",
+                "source_ref": "turn.test",
+                "cache_scope": "none",
+                "cache_role": "volatile",
+                "compression_role": "summarize",
+            },
+        ],
+    ).to_dict()
+
+    accounting = runtime._begin_prompt_accounting(
+        messages,
+        tools=None,
+        spec=ModelSpec(provider="openai", model="gpt-4.1-mini", api_key="key", base_url="https://example.invalid/v1"),
+        accounting_context={
+            "request_id": "modelreq:metrics",
+            "session_id": "session:metrics",
+            "source": "test.metrics",
+            "segment_plan": segment_plan,
+        },
+        attempt=1,
+        call_kind="test_call",
+    )
+    runtime._finish_prompt_accounting(
+        accounting,
+        response=SimpleNamespace(
+            content="ok",
+            response_metadata={
+                "token_usage": {
+                    "prompt_tokens": 20,
+                    "completion_tokens": 4,
+                    "total_tokens": 24,
+                    "prompt_tokens_details": {"cached_tokens": 8},
+                }
+            },
+        ),
+    )
+
+    cache_record = ledger.list_prompt_cache(session_id="session:metrics")[-1]
+    provider_usage = [record for record in ledger.list_token_usage(session_id="session:metrics") if record.source == "provider_usage"][0]
+
+    assert cache_record.diagnostics["prefix_hash_matches_model_request"] is True
+    assert cache_record.diagnostics["unplanned_message_count"] == 0
+    assert cache_record.diagnostics["provider_cached_tokens"] == 8
+    assert cache_record.diagnostics["cache_efficiency"] > 0
+    assert cache_record.diagnostics["duration_seconds"] >= 0
+    assert provider_usage.diagnostics["duration_seconds"] >= 0
 
 

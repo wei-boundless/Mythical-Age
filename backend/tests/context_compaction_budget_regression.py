@@ -11,7 +11,7 @@ def test_compression_budget_planner_reports_required_reduction_and_summary_targe
         PromptSegment(
             segment_id="seg:system",
             request_id="modelreq:test",
-            kind="system_static",
+            kind="global_static",
             predicted_tokens=120,
             cache_role="cacheable_prefix",
             compression_role="preserve",
@@ -19,7 +19,7 @@ def test_compression_budget_planner_reports_required_reduction_and_summary_targe
         PromptSegment(
             segment_id="seg:history",
             request_id="modelreq:test",
-            kind="conversation_recent",
+            kind="recent_history",
             predicted_tokens=900,
             cache_role="volatile",
             compression_role="summarize",

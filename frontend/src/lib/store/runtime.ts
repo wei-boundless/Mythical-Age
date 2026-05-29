@@ -14,7 +14,9 @@ import {
   getWorkspaceContext,
   getOrchestrationHarnessTaskRunLiveMonitor,
   getOrchestrationHarnessSessionLiveMonitor,
+  pauseOrchestrationHarnessTaskRun,
   getRagMode,
+  resumeOrchestrationHarnessTaskRun,
   getSessionHistory,
   getSessionTimeline,
   getSessionTokens,
@@ -24,6 +26,7 @@ import {
   renameSession,
   saveFile,
   setRagMode,
+  stopOrchestrationHarnessTaskRun,
   streamChat,
   switchSoulSystemSeed,
   truncateSessionMessages
@@ -101,6 +104,15 @@ export class WorkspaceRuntime {
       },
       stopCurrentStream: () => {
         this.stopCurrentStream();
+      },
+      pauseActiveTaskRun: async () => {
+        await this.pauseActiveTaskRun();
+      },
+      resumeActiveTaskRun: async () => {
+        await this.resumeActiveTaskRun();
+      },
+      stopActiveTaskRun: async () => {
+        await this.stopActiveTaskRun();
       },
       resendEditedMessage: async (messageId, value) => {
         await this.resendEditedMessage(messageId, value);
@@ -857,6 +869,58 @@ export class WorkspaceRuntime {
     this.streamAbortControllers.get(sessionId)?.abort();
   }
 
+  private async pauseActiveTaskRun() {
+    const taskRunId = this.activeControllableTaskRunId();
+    if (!taskRunId) {
+      return;
+    }
+    await pauseOrchestrationHarnessTaskRun(taskRunId, "user_pause_from_chat");
+    await this.refreshActiveSessionMonitor();
+  }
+
+  private async resumeActiveTaskRun() {
+    const taskRunId = this.activeControllableTaskRunId();
+    if (!taskRunId) {
+      return;
+    }
+    await resumeOrchestrationHarnessTaskRun(taskRunId, 12);
+    await this.refreshActiveSessionMonitor();
+  }
+
+  private async stopActiveTaskRun() {
+    const taskRunId = this.activeControllableTaskRunId();
+    if (!taskRunId) {
+      return;
+    }
+    await stopOrchestrationHarnessTaskRun(taskRunId, "user_stop_from_chat");
+    await this.refreshActiveSessionMonitor();
+  }
+
+  private activeControllableTaskRunId() {
+    const monitor = this.store.getState().taskGraphLiveMonitor;
+    const taskRun = monitor ? this.harnessMonitorTaskRun(monitor) : {};
+    const executionRuntimeKind = String((monitor as Record<string, unknown> | null)?.execution_runtime_kind ?? taskRun.execution_runtime_kind ?? "").trim();
+    const route = monitor && (monitor as Record<string, unknown>).route && typeof (monitor as Record<string, unknown>).route === "object" && !Array.isArray((monitor as Record<string, unknown>).route)
+      ? (monitor as Record<string, unknown>).route as Record<string, unknown>
+      : {};
+    const diagnostics = taskRun.diagnostics && typeof taskRun.diagnostics === "object" && !Array.isArray(taskRun.diagnostics)
+      ? taskRun.diagnostics as Record<string, unknown>
+      : {};
+    if (executionRuntimeKind !== "single_agent_task" || String(route.kind ?? "").trim() === "task_graph_run" || String(diagnostics.origin_kind ?? "").trim() === "graph_node_assigned") {
+      return "";
+    }
+    return String(taskRun.task_run_id ?? monitor?.task_run_id ?? "").trim();
+  }
+
+  private async refreshActiveSessionMonitor() {
+    const sessionId = this.store.getState().currentSessionId;
+    if (!sessionId) {
+      return;
+    }
+    await this.hydrateLatestOrchestrationSnapshot(sessionId);
+    this.startOrchestrationMonitorPolling(sessionId);
+  }
+
   private isAbortError(error: unknown) {
     return isRequestAbortError(error);
   }
@@ -1551,13 +1615,14 @@ export class WorkspaceRuntime {
       }
       const activeTaskRun = this.harnessMonitorTaskRun(activeMonitor);
       const liveStatus = String(activeMonitor.status ?? activeTaskRun.status ?? "").trim();
+      const controlState = this.runtimeControlState(activeMonitor);
       const hasActiveHarnessRun = ["created", "running", "waiting_executor", "waiting_approval", "blocked"].includes(liveStatus);
       const hasActiveGraphRun = Boolean(activeMonitor.has_graph_run || activeMonitor.graph_run_id || activeMonitor.graph_harness_config_id) && hasActiveHarnessRun;
       const hasPendingApproval = liveStatus === "waiting_approval" || String((activeMonitor.loop_state as Record<string, unknown> | undefined)?.terminal_reason ?? "") === "waiting_approval";
       const taskRunId = String(activeTaskRun.task_run_id ?? activeMonitor.task_run_id ?? liveMonitor.active_task_run_id ?? "").trim();
       const graphRunId = String(activeMonitor.graph_run_id ?? activeTaskRun.graph_run_id ?? "").trim();
       const graphHarnessConfigId = this.graphHarnessConfigIdFromMonitor(activeMonitor);
-      this.updateSessionActivityFromLiveMonitor(liveStatus, taskRunId, graphRunId);
+      this.updateSessionActivityFromLiveMonitor(liveStatus, taskRunId, graphRunId, controlState);
       let taskGraphRunMonitor = this.store.getState().taskGraphRunMonitor;
       if (graphRunId && graphHarnessConfigId && hasActiveGraphRun) {
         taskGraphRunMonitor = await getGraphRunMonitor(graphRunId, graphHarnessConfigId).catch(() => null);
@@ -1604,6 +1669,23 @@ export class WorkspaceRuntime {
       ? monitor.task_run as Record<string, unknown>
       : {};
     return Object.keys(nested).length ? nested : monitor as unknown as Record<string, unknown>;
+  }
+
+  private runtimeControlState(monitor: HarnessSessionMonitor) {
+    const direct = String((monitor as Record<string, unknown>).control_state ?? "").trim();
+    if (direct) {
+      return direct;
+    }
+    const taskRun = this.harnessMonitorTaskRun(monitor);
+    const control = (monitor as Record<string, unknown>).runtime_control
+      ?? taskRun.runtime_control
+      ?? (taskRun.diagnostics && typeof taskRun.diagnostics === "object" && !Array.isArray(taskRun.diagnostics)
+        ? (taskRun.diagnostics as Record<string, unknown>).runtime_control
+        : null);
+    if (control && typeof control === "object" && !Array.isArray(control)) {
+      return String((control as Record<string, unknown>).state ?? "").trim();
+    }
+    return "";
   }
 
   private runtimeProgressEntryFromMonitor(monitor: HarnessSessionMonitor, taskRunId: string) {
@@ -2276,9 +2358,59 @@ export class WorkspaceRuntime {
     }
   }
 
-  private updateSessionActivityFromLiveMonitor(liveStatus: string, taskRunId: string, graphRunId: string) {
+  private updateSessionActivityFromLiveMonitor(liveStatus: string, taskRunId: string, graphRunId: string, controlState = "") {
     const normalizedStatus = liveStatus.trim();
+    const normalizedControlState = controlState.trim();
     if (!normalizedStatus) {
+      return;
+    }
+    if (normalizedControlState === "paused") {
+      this.store.setState((prev) => ({
+        ...prev,
+        sessionActivity: {
+          level: "waiting",
+          title: "任务已暂停",
+          detail: "任务停在可继续状态，可以从当前会话继续推进",
+          event: "runtime_live_monitor",
+          receipt: {
+            level: "waiting",
+            title: "任务已暂停",
+            body: "任务停在可继续状态，可以从当前会话继续推进。",
+            debug: {
+              event: "runtime_live_monitor",
+              taskRunId: taskRunId || "",
+              graphRunId: graphRunId || "",
+              controlState: normalizedControlState,
+            },
+          },
+          updatedAt: Date.now(),
+        },
+      }));
+      return;
+    }
+    if (normalizedControlState === "pause_requested" || normalizedControlState === "stop_requested") {
+      const stopping = normalizedControlState === "stop_requested";
+      this.store.setState((prev) => ({
+        ...prev,
+        sessionActivity: {
+          level: "running",
+          title: stopping ? "正在停止任务" : "正在暂停任务",
+          detail: stopping ? "停止请求已记录，当前步骤收口后结束" : "暂停请求已记录，当前步骤收口后暂停",
+          event: "runtime_live_monitor",
+          receipt: {
+            level: "running",
+            title: stopping ? "正在停止任务" : "正在暂停任务",
+            body: stopping ? "停止请求已记录，当前步骤收口后结束。" : "暂停请求已记录，当前步骤收口后暂停。",
+            debug: {
+              event: "runtime_live_monitor",
+              taskRunId: taskRunId || "",
+              graphRunId: graphRunId || "",
+              controlState: normalizedControlState,
+            },
+          },
+          updatedAt: Date.now(),
+        },
+      }));
       return;
     }
     if (normalizedStatus === "waiting_executor" || normalizedStatus === "waiting_approval" || normalizedStatus === "blocked") {

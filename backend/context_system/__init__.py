@@ -22,10 +22,6 @@ __all__ = [
     "MemoryContextPolicy",
     "PressureLevel",
     "ResolvedBinding",
-    "RuntimeContextInvariantReport",
-    "RuntimeContextManager",
-    "RuntimeContextObservationRecord",
-    "RuntimeContextSnapshot",
     "SealedContextLedgerEntry",
     "SealedContextReceipt",
     "SemanticCompactionRequest",
@@ -57,10 +53,6 @@ _EXPORTS = {
     "MemoryContextPolicy": ("context_system.policy.package_builder", "MemoryContextPolicy"),
     "PressureLevel": ("context_system.models.context_models", "PressureLevel"),
     "ResolvedBinding": ("context_system.current_turn.turn_binding", "ResolvedBinding"),
-    "RuntimeContextInvariantReport": ("runtime.shared.context_manager", "RuntimeContextInvariantReport"),
-    "RuntimeContextManager": ("runtime.shared.context_manager", "RuntimeContextManager"),
-    "RuntimeContextObservationRecord": ("runtime.shared.context_manager", "RuntimeContextObservationRecord"),
-    "RuntimeContextSnapshot": ("runtime.shared.context_manager", "RuntimeContextSnapshot"),
     "SealedContextLedgerEntry": ("context_system.models.context_models", "SealedContextLedgerEntry"),
     "SealedContextReceipt": ("context_system.models.context_models", "SealedContextReceipt"),
     "SemanticCompactionRequest": ("context_system.compaction.compactor", "SemanticCompactionRequest"),
@@ -106,12 +98,6 @@ if TYPE_CHECKING:
         projection_from_file_work,
     )
     from context_system.resolution.resolver import ContextResolver
-    from runtime.shared.context_manager import (
-        RuntimeContextInvariantReport,
-        RuntimeContextManager,
-        RuntimeContextObservationRecord,
-        RuntimeContextSnapshot,
-    )
 
 
 def __getattr__(name: str):

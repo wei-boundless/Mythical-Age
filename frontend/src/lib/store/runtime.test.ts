@@ -12,7 +12,9 @@ const api = vi.hoisted(() => ({
   getModelProviderConfig: vi.fn(),
   getOrchestrationHarnessTaskRunLiveMonitor: vi.fn(),
   getOrchestrationHarnessSessionLiveMonitor: vi.fn(),
+  pauseOrchestrationHarnessTaskRun: vi.fn(),
   getRagMode: vi.fn(),
+  resumeOrchestrationHarnessTaskRun: vi.fn(),
   getSessionHistory: vi.fn(),
   getSessionTimeline: vi.fn(),
   getSessionTokens: vi.fn(),
@@ -22,6 +24,7 @@ const api = vi.hoisted(() => ({
   listSessions: vi.fn(),
   listSkills: vi.fn(),
   loadFile: vi.fn(),
+  stopOrchestrationHarnessTaskRun: vi.fn(),
   streamChat: vi.fn(),
 }));
 
@@ -40,7 +43,9 @@ vi.mock("@/lib/api", () => ({
   getGraphRunMonitor: api.getGraphRunMonitor,
   getOrchestrationHarnessTaskRunLiveMonitor: api.getOrchestrationHarnessTaskRunLiveMonitor,
   getOrchestrationHarnessSessionLiveMonitor: api.getOrchestrationHarnessSessionLiveMonitor,
+  pauseOrchestrationHarnessTaskRun: api.pauseOrchestrationHarnessTaskRun,
   getRagMode: api.getRagMode,
+  resumeOrchestrationHarnessTaskRun: api.resumeOrchestrationHarnessTaskRun,
   getSessionHistory: api.getSessionHistory,
   getSessionTimeline: api.getSessionTimeline,
   getSessionTokens: api.getSessionTokens,
@@ -51,6 +56,7 @@ vi.mock("@/lib/api", () => ({
   resolveHarnessTaskRunApproval: vi.fn(),
   saveFile: vi.fn(),
   setRagMode: vi.fn(),
+  stopOrchestrationHarnessTaskRun: api.stopOrchestrationHarnessTaskRun,
   stopOrchestrationTaskRun: vi.fn(),
   streamChat: api.streamChat,
   switchSoulSystemSeed: vi.fn(),
@@ -157,6 +163,12 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     api.getOrchestrationHarnessSessionLiveMonitor.mockResolvedValue({ monitor: null });
     api.getOrchestrationHarnessTaskRunLiveMonitor.mockReset();
     api.getOrchestrationHarnessTaskRunLiveMonitor.mockResolvedValue({ monitor: null });
+    api.pauseOrchestrationHarnessTaskRun.mockReset();
+    api.pauseOrchestrationHarnessTaskRun.mockResolvedValue({ ok: true });
+    api.resumeOrchestrationHarnessTaskRun.mockReset();
+    api.resumeOrchestrationHarnessTaskRun.mockResolvedValue({ ok: true });
+    api.stopOrchestrationHarnessTaskRun.mockReset();
+    api.stopOrchestrationHarnessTaskRun.mockResolvedValue({ ok: true });
     api.getSessionHistory.mockReset();
     api.getSessionHistory.mockResolvedValue({ messages: [] });
     api.getSessionTimeline.mockReset();
@@ -727,6 +739,54 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     const attachment = store.getState().messages[1]?.runtimeAttachments?.[0];
     expect(attachment?.anchor_turn_id).toBe("turn:session:live:1");
     expect(attachment?.progress_entries?.map((item) => item.id)).toEqual(["step:packet", "step:model"]);
+  });
+
+  it("controls the active session task run from chat actions", async () => {
+    const taskRunId = "taskrun:turn:session-control:1:abc";
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session-control",
+      taskGraphLiveMonitor: {
+        authority: "single_agent_runtime_monitor.item",
+        task_run_id: taskRunId,
+        session_id: "session-control",
+      task_id: "task:turn:session-control:1",
+      execution_runtime_kind: "single_agent_task",
+      task_run: { task_run_id: taskRunId },
+        loop_state: {},
+        has_graph_run: false,
+        status: "running",
+        terminal_reason: "",
+        updated_at: 1,
+      },
+    });
+    api.getOrchestrationHarnessSessionLiveMonitor.mockResolvedValue({
+      active_task_run_id: taskRunId,
+      monitor: {
+        task_run_id: taskRunId,
+        session_id: "session-control",
+        status: "waiting_executor",
+        execution_runtime_kind: "single_agent_task",
+        terminal_reason: "waiting_executor",
+        runtime_control: { state: "paused" },
+        control_state: "paused",
+        latest_step: {},
+        loop_state: {},
+        has_graph_run: false,
+        task_run: { task_run_id: taskRunId },
+      },
+      task_runs: [],
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.pauseActiveTaskRun();
+    await runtime.actions.resumeActiveTaskRun();
+    await runtime.actions.stopActiveTaskRun();
+
+    expect(api.pauseOrchestrationHarnessTaskRun).toHaveBeenCalledWith(taskRunId, "user_pause_from_chat");
+    expect(api.resumeOrchestrationHarnessTaskRun).toHaveBeenCalledWith(taskRunId, 12);
+    expect(api.stopOrchestrationHarnessTaskRun).toHaveBeenCalledWith(taskRunId, "user_stop_from_chat");
+    expect(store.getState().sessionActivity.title).toBe("任务已暂停");
   });
 
   it("does not surface transient global monitor aborts as user-visible errors", async () => {

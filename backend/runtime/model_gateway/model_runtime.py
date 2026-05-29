@@ -7,7 +7,7 @@ import logging
 import os
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 from langchain.agents import create_agent
@@ -25,10 +25,13 @@ from runtime.prompt_accounting import (
     CanonicalPromptSerializer,
     ModelTokenUsageRecord,
     PromptAccountingLedger,
+    PromptCacheBreakDetector,
     PromptCachePlanner,
     extract_provider_usage,
 )
 from runtime.tool_runtime.tool_call_policy import ToolCallBindingOptions
+
+from .model_request import ModelRequestBuilder
 
 if TYPE_CHECKING:
     from agent_system.a2a.models import AgentDefinition
@@ -165,6 +168,8 @@ class ModelRuntime:
         self.prompt_accounting_ledger = prompt_accounting_ledger
         self._prompt_serializer = CanonicalPromptSerializer()
         self._prompt_cache_planner = PromptCachePlanner()
+        self._prompt_cache_break_detector = PromptCacheBreakDetector()
+        self._model_request_builder = ModelRequestBuilder()
 
     @property
     def request_timeout_seconds(self) -> float:
@@ -874,7 +879,18 @@ class ModelRuntime:
             "turn_id": str(context.get("turn_id") or ""),
             "invocation_index": context.get("invocation_index"),
         }
+        segment_plan = dict(context.get("segment_plan") or {})
         try:
+            model_request = self._model_request_builder.build(
+                request_id=request_id,
+                messages=list(messages or []),
+                tools=list(tools or []),
+                provider=spec.provider,
+                model=spec.model,
+                segment_plan=segment_plan,
+                metadata=metadata,
+            )
+            cache_policy = model_request.cache_policy
             segment_map = self._prompt_serializer.build_segment_map(
                 request_id=request_id,
                 messages=list(messages or []),
@@ -884,7 +900,14 @@ class ModelRuntime:
                 task_run_id=task_run_id,
                 session_id=session_id,
                 created_at=created_at,
-                metadata=metadata,
+                metadata={
+                    **metadata,
+                    "model_request_ref": model_request.request_id,
+                    "provider_cache_policy": cache_policy.to_dict(),
+                    "stable_prefix_hash": model_request.stable_prefix_hash,
+                },
+                segment_plan=segment_plan,
+                model_request=model_request,
             )
             ledger.record_segment_map(segment_map)
             prediction = ModelTokenUsageRecord(
@@ -901,6 +924,9 @@ class ModelRuntime:
                 diagnostics={
                     "segment_count": len(segment_map.segments),
                     "canonical_hash": segment_map.canonical_hash,
+                    "model_request_canonical_hash": model_request.canonical_hash,
+                    "stable_prefix_hash": model_request.stable_prefix_hash,
+                    "provider_cache_policy": cache_policy.to_dict(),
                     **metadata,
                 },
             )
@@ -911,6 +937,37 @@ class ModelRuntime:
                 model=spec.model,
                 created_at=created_at,
             )
+            model_request_diagnostics = dict(model_request.diagnostics or {})
+            prefix_hash_matches_model_request = (
+                bool(cache_record.prefix_hash)
+                and cache_record.prefix_hash == model_request.stable_prefix_hash
+            )
+            cache_record_diagnostics = {
+                **dict(cache_record.diagnostics or {}),
+                "provider_cache_policy": cache_policy.to_dict(),
+                "model_request_stable_prefix_hash": model_request.stable_prefix_hash,
+                "prefix_hash_matches_model_request": prefix_hash_matches_model_request,
+                "unplanned_message_count": int(model_request_diagnostics.get("unplanned_message_count") or 0),
+                "bound_segment_count": int(model_request_diagnostics.get("bound_segment_count") or 0),
+                "planned_segment_count": int(model_request_diagnostics.get("planned_segment_count") or 0),
+            }
+            if cache_policy.mode == "disabled" and cache_record.status != "bypassed":
+                cache_record = replace(
+                    cache_record,
+                    scope="none",
+                    ttl_seconds=0,
+                    status="bypassed",
+                    cache_safety_reasons=(
+                        *tuple(cache_record.cache_safety_reasons or ()),
+                        cache_policy.reason or "provider_cache_disabled",
+                    ),
+                    diagnostics=cache_record_diagnostics,
+                )
+            else:
+                cache_record = replace(
+                    cache_record,
+                    diagnostics=cache_record_diagnostics,
+                )
             ledger.record_prompt_cache(cache_record)
             return {
                 "request_id": request_id,
@@ -919,6 +976,9 @@ class ModelRuntime:
                 "provider": spec.provider,
                 "model": spec.model,
                 "cache_record": cache_record,
+                "model_request": model_request,
+                "segment_map": segment_map,
+                "started_at": created_at,
             }
         except Exception:
             logger.debug("Failed to record prompt accounting prediction", exc_info=True)
@@ -940,10 +1000,59 @@ class ModelRuntime:
             )
             if provider_usage is None:
                 return
-            ledger.record_token_usage(provider_usage)
             cache_record = accounting.get("cache_record")
+            finished_at = time.time()
+            started_at = float(accounting.get("started_at") or finished_at)
+            duration_seconds = max(0.0, finished_at - started_at)
+            previous_cache_records = ledger.list_prompt_cache(
+                task_run_id=str(accounting.get("task_run_id") or ""),
+                session_id=str(accounting.get("session_id") or ""),
+            )
+            model_request = accounting.get("model_request")
+            cache_policy = getattr(model_request, "cache_policy", None)
+            if cache_policy is not None:
+                provider_usage = replace(
+                    provider_usage,
+                    diagnostics={
+                        **dict(provider_usage.diagnostics or {}),
+                        "provider_cache_policy": cache_policy.to_dict(),
+                        "model_request_ref": str(getattr(model_request, "request_id", "") or ""),
+                        "stable_prefix_hash": str(getattr(model_request, "stable_prefix_hash", "") or ""),
+                        "duration_seconds": duration_seconds,
+                    },
+                )
+            ledger.record_token_usage(provider_usage)
             if cache_record is not None:
-                ledger.record_prompt_cache(self._prompt_cache_planner.with_provider_usage(cache_record, provider_usage))
+                updated_cache_record = self._prompt_cache_planner.with_provider_usage(cache_record, provider_usage)
+                stable_prefix_predicted_tokens = int(
+                    dict(updated_cache_record.diagnostics or {}).get("stable_prefix_predicted_tokens") or 0
+                )
+                cached_tokens = max(int(provider_usage.cached_tokens or 0), int(provider_usage.cache_read_tokens or 0))
+                cache_efficiency = (
+                    round(cached_tokens / stable_prefix_predicted_tokens, 4)
+                    if stable_prefix_predicted_tokens > 0
+                    else 0.0
+                )
+                updated_cache_record = replace(
+                    updated_cache_record,
+                    diagnostics={
+                        **dict(updated_cache_record.diagnostics or {}),
+                        "duration_seconds": duration_seconds,
+                        "provider_prompt_tokens": int(provider_usage.prompt_tokens or 0),
+                        "provider_total_tokens": int(provider_usage.total_tokens or 0),
+                        "provider_cached_tokens": cached_tokens,
+                        "cache_efficiency": cache_efficiency,
+                    },
+                )
+                ledger.record_prompt_cache(updated_cache_record)
+                break_record = self._prompt_cache_break_detector.detect(
+                    cache_record=updated_cache_record,
+                    provider_usage=provider_usage,
+                    previous_cache_records=previous_cache_records,
+                    created_at=time.time(),
+                )
+                if break_record is not None:
+                    ledger.record_prompt_cache_break(break_record)
         except Exception:
             logger.debug("Failed to record provider token usage", exc_info=True)
 

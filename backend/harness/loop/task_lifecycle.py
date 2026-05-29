@@ -10,7 +10,7 @@ from runtime.shared.models import AgentRun, TaskRun
 from .model_action_protocol import ModelActionRequest
 
 
-TaskLifecycleStatus = Literal["created", "admitted", "running", "waiting_executor", "waiting_approval", "completed", "failed", "blocked"]
+TaskLifecycleStatus = Literal["created", "admitted", "running", "waiting_executor", "waiting_approval", "completed", "failed", "blocked", "aborted"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -219,7 +219,7 @@ def finish_task_lifecycle(
     *,
     task_run: TaskRun,
     lifecycle: TaskLifecycleRecord,
-    status: Literal["completed", "failed", "blocked"],
+    status: Literal["completed", "failed", "blocked", "aborted"],
     terminal_reason: str,
     observation_refs: tuple[str, ...] = (),
 ) -> tuple[TaskRun, TaskLifecycleRecord, dict[str, Any]]:

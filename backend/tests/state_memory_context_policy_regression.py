@@ -8,7 +8,6 @@ from context_system.models.context_models import hash_context_section_package
 from memory_system.storage.models import MemoryNote
 from memory_system.storage.process_state import ContextSlots, ProcessState
 from prompting.builder import _render_context_package_block
-from runtime.shared.context_manager import _render_context_policy_block
 from token_accounting import count_text_tokens
 
 
@@ -284,13 +283,7 @@ def test_sealed_context_receipt_rejects_tampered_model_visible_sections() -> Non
     else:
         raise AssertionError("Prompt builder rendered a tampered sealed context package")
 
-    try:
-        _render_context_policy_block(tampered_payload)
-    except ValueError as exc:
-        assert "sealed receipt" in str(exc)
-    else:
-        raise AssertionError("Runtime context renderer accepted tampered sealed context package")
-
-
-
+    assert tampered_payload["package"]["sealed_receipt"]["package_sha256"] != hash_context_section_package(
+        result.package.model_visible_sections
+    )
 

@@ -12,7 +12,6 @@ from capability_system.tool_authorization import build_tool_authorization_index
 from capability_system.tool_definitions import build_tool_instances, get_tool_definitions
 from agent_system.profiles.runtime_profile_models import AgentRuntimeProfile
 from runtime.capabilities import build_current_turn_capability_plan, tool_instances_for_capability_plan
-from runtime.shared.context_manager import RuntimeContextManager
 from permissions import (
     OperationGate,
     OperationGatePipelineContext,
@@ -61,20 +60,6 @@ def main() -> None:
     assert state["turn_write_tool_visible"] is False
     assert "op.write_file" in state["agent_profile_operations"]
     assert "op.write_file" in state["blocked_by_turn_policy_operations"]
-
-    manager = RuntimeContextManager(lambda **_: "BASE")
-    snapshot = manager.prepare_model_context(
-        session_id="s",
-        task_id="task:test:capability",
-        user_message="你不能自己创建文件吗",
-        history=[],
-        runtime_execution_facts={"runtime_capability_state": state},
-    )
-    system_prompt = snapshot.model_messages[0]["content"]
-    assert "Agent 配置上限允许文件写入/编辑：是" in system_prompt
-    assert "本轮任务已准入写入/编辑 operation：否" in system_prompt
-    assert "当前可见工具只代表本轮执行面" in system_prompt
-    assert "历史对话或记忆中的 Assistant 自我能力判断不能覆盖这一运行时能力状态" in system_prompt
 
 
 def test_execution_permit_operations_are_admitted_for_runtime_tools() -> None:

@@ -113,7 +113,7 @@ def test_agent_action_request_launches_task_run_and_initializes_todo() -> None:
     assert "task_run_lifecycle_event" in stream_types
     assert "agent_todo_initialized" in event_types
     assert "task_run_executor_scheduled" in event_types
-    assert any("任务执行器已接管" in str(event.get("content") or "") for event in events if event.get("type") == "done")
+    assert any("执行器已启动" in str(event.get("content") or "") for event in events if event.get("type") == "done")
     task_run = runtime.single_agent_runtime_host.state_index.get_task_run(task_run_id)
     assert task_run is not None
     assert dict(task_run.diagnostics or {}).get("origin_kind") == "agent_requested"
@@ -1016,6 +1016,127 @@ def test_task_run_executor_step_budget_exhaustion_waits_for_next_run() -> None:
     assert task_run.status == "waiting_executor"
     assert task_run.terminal_reason == "waiting_executor"
     assert dict(dict(task_run.diagnostics or {}).get("recoverable_error") or {}).get("retryable") is True
+
+
+def test_task_run_pause_resume_and_stop_control_plane() -> None:
+    from harness.loop.task_executor import (
+        request_task_run_pause,
+        resume_paused_task_run,
+        stop_task_run,
+        task_run_control_state,
+    )
+
+    runtime = build_query_runtime(
+        model_runtime=_TaskExecutorSequenceModelRuntime(
+            task_actions=[
+                _action_request(action_type="respond", final_answer="暂停后继续完成。"),
+            ],
+            agent_turn_action_request=_action_request(action_type="respond", final_answer="unused"),
+        )
+    )
+    host = runtime.single_agent_runtime_host
+    contract = TaskRunContract(
+        contract_id="task-contract:pause-resume",
+        contract_source="test",
+        user_visible_goal="验证暂停继续控制。",
+        task_run_goal="验证暂停继续控制。",
+        completion_criteria=("可以暂停并从同一个 TaskRun 继续",),
+    )
+    contract_ref = host.runtime_objects.put_object("task_run_contract", contract.contract_id, contract.to_dict())
+    lifecycle = TaskLifecycleRecord(
+        task_run_id="taskrun:pause-resume",
+        contract_ref=contract_ref,
+        status="waiting_executor",
+        created_at=1.0,
+        updated_at=1.0,
+    )
+    host.runtime_objects.put_object("task_lifecycle", lifecycle.task_run_id, lifecycle.to_dict())
+    host.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id=lifecycle.task_run_id,
+            session_id="session-pause-resume",
+            task_id="task:pause-resume",
+            task_contract_ref=contract_ref,
+            agent_profile_id="main_interactive_agent",
+            execution_runtime_kind="single_agent_task",
+            status="waiting_executor",
+            created_at=1.0,
+            updated_at=1.0,
+            diagnostics={"contract": contract.to_dict()},
+        )
+    )
+
+    pause_result = request_task_run_pause(host, lifecycle.task_run_id, reason="先暂停")
+    paused_task = host.state_index.get_task_run(lifecycle.task_run_id)
+
+    assert pause_result["ok"] is True
+    assert paused_task is not None
+    assert paused_task.status == "waiting_executor"
+    assert task_run_control_state(paused_task) == "paused"
+
+    resume_result = resume_paused_task_run(host, lifecycle.task_run_id, reason="继续")
+    resumed_task = host.state_index.get_task_run(lifecycle.task_run_id)
+
+    assert resume_result["ok"] is True
+    assert resumed_task is not None
+    assert task_run_control_state(resumed_task) == "resume_requested"
+
+    result = asyncio.run(runtime.execute_task_run(lifecycle.task_run_id, max_steps=2))
+    completed_task = host.state_index.get_task_run(lifecycle.task_run_id)
+
+    assert result["ok"] is True
+    assert completed_task is not None
+    assert completed_task.status == "completed"
+
+    stop_result = stop_task_run(host, lifecycle.task_run_id, reason="已完成后停止无效")
+    assert stop_result["ok"] is True
+    assert stop_result["accepted"] is False
+
+
+def test_task_run_stop_before_executor_marks_user_aborted() -> None:
+    from harness.loop.task_executor import stop_task_run, task_run_control_state
+
+    runtime = build_query_runtime()
+    host = runtime.single_agent_runtime_host
+    contract = TaskRunContract(
+        contract_id="task-contract:stop-before-executor",
+        contract_source="test",
+        user_visible_goal="验证停止控制。",
+        task_run_goal="验证停止控制。",
+        completion_criteria=("停止后进入用户终态",),
+    )
+    contract_ref = host.runtime_objects.put_object("task_run_contract", contract.contract_id, contract.to_dict())
+    lifecycle = TaskLifecycleRecord(
+        task_run_id="taskrun:stop-before-executor",
+        contract_ref=contract_ref,
+        status="waiting_executor",
+        created_at=1.0,
+        updated_at=1.0,
+    )
+    host.runtime_objects.put_object("task_lifecycle", lifecycle.task_run_id, lifecycle.to_dict())
+    host.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id=lifecycle.task_run_id,
+            session_id="session-stop-before-executor",
+            task_id="task:stop-before-executor",
+            task_contract_ref=contract_ref,
+            agent_profile_id="main_interactive_agent",
+            execution_runtime_kind="single_agent_task",
+            status="waiting_executor",
+            created_at=1.0,
+            updated_at=1.0,
+            diagnostics={"contract": contract.to_dict()},
+        )
+    )
+
+    result = stop_task_run(host, lifecycle.task_run_id, reason="用户停止")
+    stopped_task = host.state_index.get_task_run(lifecycle.task_run_id)
+
+    assert result["ok"] is True
+    assert stopped_task is not None
+    assert stopped_task.status == "aborted"
+    assert stopped_task.terminal_reason == "user_aborted"
+    assert task_run_control_state(stopped_task) == "stopped"
 
 
 def test_role_mode_allows_soul_prompt_but_blocks_task_lifecycle() -> None:

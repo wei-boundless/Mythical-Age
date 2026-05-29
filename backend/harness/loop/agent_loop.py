@@ -734,7 +734,11 @@ async def run_agent_invocation_stream(
                     summary="正式任务已建立，正在等待用户建议或直接通过后启动执行器。",
                     refs={"task_run_ref": gated_task.task_run_id},
                 )
-                content = str(launch_gate_policy.get("user_prompt") or "任务已准备启动。你可以提出建议，或直接通过。")
+                content = _task_run_handoff_content(
+                    contract=contract.to_dict(),
+                    status_text=str(launch_gate_policy.get("user_prompt") or "任务已准备启动。你可以提出建议，或直接通过。"),
+                    control_text="确认启动前，这个任务会停在等待审批状态。",
+                )
                 await _commit_assistant_message(
                     request.assistant_message_committer,
                     content=content,
@@ -777,8 +781,10 @@ async def run_agent_invocation_stream(
                 summary="正式任务已建立，系统已调度任务执行器接管后续步骤。",
                 refs={"task_run_ref": task_run.task_run_id},
             )
-            content = (
-                "我已经把这件事转入正式任务并建立了待办，任务执行器已接管后续步骤。"
+            content = _task_run_handoff_content(
+                contract=contract.to_dict(),
+                status_text="我会按这个任务目标继续推进，当前执行器已启动。",
+                control_text="运行中可以暂停、继续或停止；进展会直接汇总在当前会话里。",
             )
             await _commit_assistant_message(
                 request.assistant_message_committer,
@@ -867,6 +873,7 @@ async def _invoke_model_action(
                 "packet_ref": str(packet.packet_id or ""),
                 "invocation_index": invocation_index,
                 "source": "harness.loop.agent_turn.model_action",
+                "segment_plan": dict(getattr(packet, "segment_plan", {}) or {}),
             },
         ),
         timeout=timeout_seconds,
@@ -1162,6 +1169,74 @@ def _schedule_task_executor(runtime_host: Any, task_run_id: str) -> None:
     asyncio.create_task(_runner())
 
 
+def _task_run_handoff_content(*, contract: dict[str, Any], status_text: str, control_text: str) -> str:
+    goal = _first_public_text(
+        contract.get("user_visible_goal"),
+        contract.get("task_run_goal"),
+        "我会把这件事作为正式任务继续推进。",
+    )
+    criteria = _first_list_items(contract.get("completion_criteria"), limit=2)
+    artifacts = _artifact_names(contract.get("required_artifacts"), limit=2)
+    verifications = _verification_names(contract.get("required_verifications"), limit=2)
+    lines = [f"我会按正式任务推进：{goal}"]
+    scope_parts: list[str] = []
+    if criteria:
+        scope_parts.append("完成标准：" + "；".join(criteria))
+    if artifacts:
+        scope_parts.append("产物：" + "、".join(artifacts))
+    if verifications:
+        scope_parts.append("验证：" + "、".join(verifications))
+    if scope_parts:
+        lines.append("；".join(scope_parts) + "。")
+    lines.append(status_text.strip())
+    if control_text.strip():
+        lines.append(control_text.strip())
+    return "\n".join(line for line in lines if line.strip())
+
+
+def _first_public_text(*values: Any) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _first_list_items(value: Any, *, limit: int) -> list[str]:
+    result: list[str] = []
+    for item in list(value or []):
+        text = str(item or "").strip()
+        if text:
+            result.append(text)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def _artifact_names(value: Any, *, limit: int) -> list[str]:
+    names: list[str] = []
+    for item in list(value or []):
+        payload = dict(item or {}) if isinstance(item, dict) else {}
+        text = str(payload.get("user_visible_name") or payload.get("artifact_kind") or item or "").strip()
+        if text:
+            names.append(text)
+        if len(names) >= limit:
+            break
+    return names
+
+
+def _verification_names(value: Any, *, limit: int) -> list[str]:
+    names: list[str] = []
+    for item in list(value or []):
+        payload = dict(item or {}) if isinstance(item, dict) else {}
+        text = str(payload.get("user_visible_name") or payload.get("verification_kind") or item or "").strip()
+        if text:
+            names.append(text)
+        if len(names) >= limit:
+            break
+    return names
+
+
 def _task_executor_should_continue(runtime_host: Any, *, task_run_id: str, result: dict[str, Any]) -> bool:
     if str(result.get("error") or "") != "task_execution_step_budget_exhausted":
         return False
@@ -1170,7 +1245,10 @@ def _task_executor_should_continue(runtime_host: Any, *, task_run_id: str, resul
     task_run = runtime_host.state_index.get_task_run(task_run_id)
     if task_run is None:
         return False
-    return str(task_run.status or "") == "waiting_executor"
+    diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+    control = diagnostics.get("runtime_control")
+    control_state = str(dict(control or {}).get("state") or "") if isinstance(control, dict) else ""
+    return str(task_run.status or "") == "waiting_executor" and control_state not in {"pause_requested", "paused", "stop_requested", "stopped"}
 
 
 def _mark_task_executor_schedule_failed(runtime_host: Any, *, task_run_id: str, error: str) -> None:

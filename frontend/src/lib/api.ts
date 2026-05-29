@@ -1858,6 +1858,8 @@ export type GlobalRuntimeMonitorItem = {
   action_required?: boolean;
   terminal?: boolean;
   stale?: boolean;
+  runtime_control?: Record<string, unknown>;
+  control_state?: string;
   is_live?: boolean;
   summary?: string;
   latest_step?: Record<string, unknown>;
@@ -1945,6 +1947,7 @@ export type HarnessTaskRunLiveMonitor = {
   task_run_id?: string;
   session_id?: string;
   task_id?: string;
+  execution_runtime_kind?: string;
   is_live?: boolean;
   event_count?: number;
   latest_event?: Record<string, unknown>;
@@ -1959,6 +1962,8 @@ export type HarnessTaskRunLiveMonitor = {
   graph_harness_config_id?: string;
   agent_runtime_phase_summary?: Record<string, unknown> | null;
   has_graph_run: boolean;
+  runtime_control?: Record<string, unknown>;
+  control_state?: string;
   status: string;
   terminal_reason: string;
   updated_at: number;
@@ -3553,6 +3558,36 @@ export async function getOrchestrationHarnessTrace(
 export async function getOrchestrationHarnessTaskRunLiveMonitor(taskRunId: string) {
   return request<HarnessTaskRunLiveMonitor>(
     `/orchestration/harness/task-runs/${encodeURIComponent(taskRunId)}/live-monitor`
+  );
+}
+
+export async function pauseOrchestrationHarnessTaskRun(taskRunId: string, reason = "") {
+  return request<Record<string, unknown>>(
+    `/orchestration/harness/task-runs/${encodeURIComponent(taskRunId)}/pause`,
+    {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }
+  );
+}
+
+export async function resumeOrchestrationHarnessTaskRun(taskRunId: string, maxSteps = 12) {
+  return request<Record<string, unknown>>(
+    `/orchestration/harness/task-runs/${encodeURIComponent(taskRunId)}/resume`,
+    {
+      method: "POST",
+      body: JSON.stringify({ max_steps: maxSteps }),
+    }
+  );
+}
+
+export async function stopOrchestrationHarnessTaskRun(taskRunId: string, reason = "") {
+  return request<Record<string, unknown>>(
+    `/orchestration/harness/task-runs/${encodeURIComponent(taskRunId)}/stop`,
+    {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }
   );
 }
 

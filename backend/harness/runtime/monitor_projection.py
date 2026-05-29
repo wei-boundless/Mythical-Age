@@ -37,11 +37,13 @@ class TaskRunMonitorProjector:
         last_activity_at = max(created_at, updated_at, latest_event_at)
         last_activity_age_seconds = max(0.0, current_time - last_activity_at) if last_activity_at else 0.0
         status = str(getattr(task_run, "status", "") or "")
+        runtime_control = self._runtime_control(diagnostics)
+        control_state = str(runtime_control.get("state") or "")
         terminal = status in TERMINAL_TASK_RUN_STATUSES
-        stale = status in RUNNING_TASK_RUN_STATUSES | {"waiting_executor"} and (
+        stale = control_state != "paused" and status in RUNNING_TASK_RUN_STATUSES | {"waiting_executor"} and (
             not last_activity_at or last_activity_age_seconds > self.freshness_seconds
         )
-        action_required = status in {"waiting_approval"} | BLOCKED_TASK_RUN_STATUSES
+        action_required = status in {"waiting_approval"} | BLOCKED_TASK_RUN_STATUSES or control_state == "paused"
         route = self._route(task_run, diagnostics)
         diagnostic_reasons = self._diagnostic_reasons(
             task_run=task_run,
@@ -52,8 +54,9 @@ class TaskRunMonitorProjector:
             last_activity_at=last_activity_at,
             route=route,
             stale=stale,
+            control_state=control_state,
         )
-        lifecycle = "stale" if diagnostic_reasons else self._lifecycle(status, stale=stale, action_required=action_required)
+        lifecycle = "stale" if diagnostic_reasons else self._lifecycle(status, stale=stale, action_required=action_required, control_state=control_state)
         bucket = "diagnostics" if diagnostic_reasons else self._bucket(lifecycle)
         resource_class = "dynamic" if bucket == "running" and not terminal else "static"
         ended_at = self._ended_at(
@@ -98,6 +101,8 @@ class TaskRunMonitorProjector:
             "terminal": terminal,
             "stale": bool(stale or diagnostic_reasons),
             "diagnostic_reasons": diagnostic_reasons,
+            "runtime_control": runtime_control,
+            "control_state": control_state,
             "is_live": resource_class == "dynamic",
             "summary": summary,
             "latest_event_type": str(latest_event.get("event_type") or ""),
@@ -175,11 +180,15 @@ class TaskRunMonitorProjector:
             "task_runs": visible,
         }
 
-    def _lifecycle(self, status: str, *, stale: bool, action_required: bool) -> str:
+    def _lifecycle(self, status: str, *, stale: bool, action_required: bool, control_state: str = "") -> str:
         if status in COMPLETED_TASK_RUN_STATUSES:
             return "completed"
         if status in FAILED_TASK_RUN_STATUSES:
             return "failed"
+        if control_state == "paused":
+            return "paused"
+        if control_state in {"pause_requested", "stop_requested"}:
+            return "running"
         if stale:
             return "stale"
         if action_required:
@@ -193,7 +202,7 @@ class TaskRunMonitorProjector:
             return "completed"
         if lifecycle == "failed":
             return "failed"
-        if lifecycle in {"stale", "action_required"}:
+        if lifecycle in {"stale", "action_required", "paused"}:
             return "diagnostics"
         return "running"
 
@@ -240,6 +249,7 @@ class TaskRunMonitorProjector:
         last_activity_at: float,
         route: dict[str, str],
         stale: bool,
+        control_state: str = "",
     ) -> list[str]:
         reasons: list[str] = []
         if stale:
@@ -260,6 +270,8 @@ class TaskRunMonitorProjector:
             reasons.append("terminal_status_with_waiting_event")
         if status in RUNNING_TASK_RUN_STATUSES and str(getattr(task_run, "terminal_reason", "") or "") in TERMINAL_TASK_RUN_STATUSES:
             reasons.append("running_status_with_terminal_reason")
+        if control_state and control_state not in {"running", "pause_requested", "paused", "resume_requested", "stop_requested", "stopped"}:
+            reasons.append("unknown_runtime_control_state")
         return reasons
 
     def _is_internal_child_run(self, task_run: Any) -> bool:
@@ -289,9 +301,23 @@ class TaskRunMonitorProjector:
             return "会话运行失败"
         if lifecycle == "action_required":
             return "会话运行等待处理"
+        if lifecycle == "paused":
+            return "会话运行已暂停"
         if lifecycle == "stale":
             return "运行状态需诊断"
         return "会话运行中"
+
+    def _runtime_control(self, diagnostics: dict[str, Any]) -> dict[str, Any]:
+        control = diagnostics.get("runtime_control")
+        if not isinstance(control, dict):
+            return {}
+        return {
+            "state": str(control.get("state") or ""),
+            "requested_by": str(control.get("requested_by") or ""),
+            "requested_at": float(control.get("requested_at") or 0.0),
+            "reason": str(control.get("reason") or ""),
+            "authority": str(control.get("authority") or "orchestration.task_run_control"),
+        }
 
     def _public_text(self, value: Any) -> str:
         candidate = str(value or "").strip()

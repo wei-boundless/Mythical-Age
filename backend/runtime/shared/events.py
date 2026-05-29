@@ -35,7 +35,7 @@ RuntimeEventType = Literal[
     "runtime_admission_blocked",
     "direct_response_started",
     "direct_response_completed",
-    "task_run_launch_requested",  ‘
+    "task_run_launch_requested",
     "task_run_launched",
     "task_run_terminal_observed",
     "agent_turn_closing",
@@ -125,5 +125,4 @@ class RuntimeEvent:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
-
 

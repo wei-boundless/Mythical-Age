@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from .models import GraphHarnessConfig, GraphNodeWorkOrder, NodeResultEnvelope, safe_id
@@ -117,6 +118,13 @@ class GraphNodeWorkOrderExecutor:
         task_run_payload = dict(executor_result.get("task_run") or {})
         final_answer = str(executor_result.get("final_answer") or task_run_payload.get("diagnostics", {}).get("final_answer") or "")
         artifact_refs = _artifact_refs_from_executor_result(executor_result, task_run_payload=task_run_payload)
+        contract_artifact_refs, contract_artifact_errors = _contract_artifact_refs_from_final_content(
+            final_answer=final_answer,
+            services=self._services,
+            graph_config=graph_config,
+            work_order=work_order,
+        )
+        artifact_refs = _dedupe_artifact_ref_dicts([*artifact_refs, *contract_artifact_refs])
         artifact_receipts, artifact_errors = _artifact_materialization_receipts(
             artifact_refs,
             services=self._services,
@@ -132,7 +140,7 @@ class GraphNodeWorkOrderExecutor:
             task_run_payload=task_run_payload,
             artifact_refs=artifact_refs,
         )
-        postprocess_errors = [*artifact_errors, *memory_errors]
+        postprocess_errors = [*contract_artifact_errors, *artifact_errors, *memory_errors]
         result_status = "completed" if ok and not postprocess_errors else "failed"
         return NodeResultEnvelope(
             result_id=f"nresult:{safe_id(work_order.graph_run_id)}:{safe_id(work_order.node_id)}:{safe_id(work_order.work_order_id)}",
@@ -220,6 +228,88 @@ def _artifact_refs_from_executor_result(executor_result: dict[str, Any], *, task
     return result
 
 
+def _contract_artifact_refs_from_final_content(
+    *,
+    final_answer: str,
+    services: Any,
+    graph_config: GraphHarnessConfig,
+    work_order: GraphNodeWorkOrder,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    policy = _node_artifact_policy(work_order)
+    if not policy or policy.get("enabled") is False:
+        return [], []
+    artifacts = [
+        dict(item)
+        for item in list(policy.get("artifacts") or policy.get("artifact_targets") or [])
+        if isinstance(item, dict)
+    ]
+    if not artifacts:
+        return [], []
+    values = _artifact_template_values(graph_config=graph_config, work_order=work_order)
+    root = _contract_artifact_root(policy=policy, services=services, graph_config=graph_config, work_order=work_order, values=values)
+    if root is None:
+        required = any(bool(item.get("required")) for item in artifacts)
+        if required:
+            return [], [{"reason": "contract_artifact_root_unresolved", "authority": "harness.graph.contract_artifact_materializer"}]
+        return [], []
+
+    refs: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    for artifact in artifacts:
+        raw_path = str(artifact.get("path") or artifact.get("artifact_path") or artifact.get("naming_rule") or "").strip()
+        if not raw_path:
+            if artifact.get("required"):
+                errors.append(
+                    {
+                        "reason": "contract_artifact_path_missing",
+                        "authority": "harness.graph.contract_artifact_materializer",
+                    }
+                )
+            continue
+        rendered_path = _render_artifact_template(raw_path, values).replace("\\", "/").lstrip("/")
+        content_source = str(artifact.get("content_source") or "final_content").strip()
+        content = _artifact_content_for_source(content_source=content_source, final_answer=final_answer)
+        if not content and bool(artifact.get("fallback_to_full_content")):
+            content = str(final_answer or "").strip()
+        if not content:
+            if artifact.get("required"):
+                errors.append(
+                    {
+                        "reason": "contract_artifact_content_missing",
+                        "path": raw_path,
+                        "content_source": content_source,
+                        "authority": "harness.graph.contract_artifact_materializer",
+                    }
+                )
+            continue
+        target = _resolve_artifact_target(root=root, relative_path=rendered_path)
+        if target is None:
+            errors.append(
+                {
+                    "reason": "contract_artifact_path_outside_root",
+                    "path": rendered_path,
+                    "authority": "harness.graph.contract_artifact_materializer",
+                }
+            )
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(_normalize_artifact_text(content), encoding="utf-8")
+        workspace_root = _workspace_root_from_services(services)
+        artifact_ref = _relative_to_workspace(target, workspace_root=workspace_root)
+        refs.append(
+            {
+                "artifact_ref": artifact_ref,
+                "path": artifact_ref,
+                "created_file": artifact_ref,
+                "absolute_path": str(target),
+                "content_source": content_source,
+                "source": "graph_contract_artifact_policy",
+                "authority": "harness.graph.contract_artifact_materializer",
+            }
+        )
+    return _dedupe_artifact_ref_dicts(refs), errors
+
+
 def _public_executor_result(result: dict[str, Any] | None) -> dict[str, Any]:
     payload = dict(result or {})
     return {
@@ -261,7 +351,7 @@ def _artifact_materialization_receipts(
             producer_node_id=work_order.node_id,
             artifact_refs=refs,
             created_files=[_created_file(ref) for ref in artifact_refs],
-            artifact_root=str(work_order.artifact_space_ref or _environment_artifact_root(graph_config)),
+            artifact_root=_artifact_materialization_root(graph_config=graph_config, work_order=work_order),
             repository_id=str(artifact_policy.get("repository_id") or "artifact.repository.default"),
             collection_id=str(artifact_policy.get("collection_id") or "default"),
             lifecycle_policy=dict(artifact_policy.get("lifecycle_policy") or {}),
@@ -399,6 +489,220 @@ def _artifact_ref_value(ref: dict[str, Any]) -> str:
 def _created_file(ref: dict[str, Any]) -> str:
     payload = dict(ref or {})
     return str(payload.get("created_file") or payload.get("filename") or payload.get("path") or payload.get("src") or "").replace("\\", "/").strip()
+
+
+def _node_artifact_policy(work_order: GraphNodeWorkOrder) -> dict[str, Any]:
+    view = dict(work_order.artifact_view_request or {})
+    node_policy = dict(view.get("node_artifact_policy") or {})
+    if node_policy:
+        return node_policy
+    bindings = dict(dict(work_order.expected_result_contract or {}).get("contract_bindings") or {})
+    artifact_binding = dict(bindings.get("artifact") or {})
+    return dict(artifact_binding.get("artifact_policy") or artifact_binding)
+
+
+def _contract_artifact_root(
+    *,
+    policy: dict[str, Any],
+    services: Any,
+    graph_config: GraphHarnessConfig,
+    work_order: GraphNodeWorkOrder,
+    values: dict[str, Any],
+) -> Path | None:
+    workspace_root = _workspace_root_from_services(services)
+    explicit_root = _explicit_artifact_root(work_order)
+    if explicit_root:
+        return _resolve_inside_workspace(workspace_root=workspace_root, value=explicit_root)
+    environment = dict(graph_config.environment or {})
+    storage_space = dict(environment.get("storage_space") or {})
+    root_value = str(
+        policy.get("artifact_root")
+        or policy.get("default_artifact_root")
+        or policy.get("root")
+        or storage_space.get("artifact_root")
+        or work_order.artifact_space_ref
+        or ""
+    ).strip()
+    root = _resolve_inside_workspace(workspace_root=workspace_root, value=_render_artifact_template(root_value, values))
+    if root is None:
+        return None
+    subdir_template = str(policy.get("subdir_template") or policy.get("scope_template") or "").strip()
+    if subdir_template:
+        subdir = _sanitize_relative_path(_render_artifact_template(subdir_template, values))
+        if subdir:
+            root = _resolve_artifact_target(root=root, relative_path=subdir) or root
+    return root
+
+
+def _explicit_artifact_root(work_order: GraphNodeWorkOrder) -> str:
+    input_package = dict(work_order.input_package or {})
+    initial_inputs = dict(input_package.get("initial_inputs") or {})
+    values = [
+        dict(work_order.explicit_inputs or {}).get("artifact_root"),
+        initial_inputs.get("artifact_root"),
+        dict(input_package.get("runtime_scope") or {}).get("artifact_root"),
+    ]
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _artifact_materialization_root(*, graph_config: GraphHarnessConfig, work_order: GraphNodeWorkOrder) -> str:
+    return str(_explicit_artifact_root(work_order) or work_order.artifact_space_ref or _environment_artifact_root(graph_config)).strip()
+
+
+def _artifact_template_values(*, graph_config: GraphHarnessConfig, work_order: GraphNodeWorkOrder) -> dict[str, Any]:
+    input_package = dict(work_order.input_package or {})
+    loop_context = dict(input_package.get("loop_context") or {})
+    active_frame = dict(loop_context.get("active_frame") or {})
+    frame_values = dict(active_frame.get("values") or active_frame.get("state") or active_frame)
+    runtime_scope = {
+        **dict(input_package.get("runtime_scope") or {}),
+        **dict(dict(work_order.graph_state or {}).get("runtime_scope") or {}),
+        **dict(dict(work_order.dispatch_context or {}).get("runtime_scope") or {}),
+    }
+    initial_inputs = dict(input_package.get("initial_inputs") or {})
+    values: dict[str, Any] = {
+        **runtime_scope,
+        **initial_inputs,
+        **dict(work_order.explicit_inputs or {}),
+        **frame_values,
+        "graph_id": graph_config.graph_id,
+        "graph_run_id": work_order.graph_run_id,
+        "task_run_id": work_order.task_run_id,
+        "node_id": work_order.node_id,
+        "safe_graph_run_id": safe_id(work_order.graph_run_id),
+        "safe_node_id": safe_id(work_order.node_id),
+    }
+    for key in ("round_index", "volume_index", "chapter_index", "unit_index", "group_index", "batch_index"):
+        values[key] = _int_template_value(values.get(key), 1)
+    project_id = str(values.get("project_id") or values.get("scope_id") or "").strip()
+    if project_id:
+        values.setdefault("project_slug", _safe_path_component(project_id))
+    return values
+
+
+def _artifact_content_for_source(*, content_source: str, final_answer: str) -> str:
+    source = str(content_source or "").strip()
+    if source in {"", "final_content", "final_answer", "full_content", "model_response"}:
+        return str(final_answer or "").strip()
+    return ""
+
+
+def _render_artifact_template(template: str, values: dict[str, Any]) -> str:
+    text = str(template or "").strip()
+    if not text:
+        return ""
+    try:
+        return text.format_map(_ArtifactFormatValues(values))
+    except Exception:
+        return text
+
+
+class _ArtifactFormatValues(dict):
+    def __missing__(self, key: str) -> Any:
+        return _MissingArtifactFormatValue(key)
+
+
+class _MissingArtifactFormatValue:
+    def __init__(self, key: str) -> None:
+        self.key = key
+
+    def __format__(self, _spec: str) -> str:
+        return _safe_path_component(self.key)
+
+    def __str__(self) -> str:
+        return _safe_path_component(self.key)
+
+
+def _resolve_artifact_target(*, root: Path, relative_path: str) -> Path | None:
+    clean = _sanitize_relative_path(relative_path)
+    if not clean:
+        return None
+    relative = Path(clean)
+    if relative.is_absolute() or any(part == ".." for part in relative.parts):
+        return None
+    resolved_root = root.resolve()
+    target = (resolved_root / relative).resolve()
+    try:
+        target.relative_to(resolved_root)
+    except ValueError:
+        return None
+    return target
+
+
+def _resolve_inside_workspace(*, workspace_root: Path, value: str) -> Path | None:
+    raw = str(value or "").replace("\\", "/").strip()
+    if not raw:
+        return None
+    candidate = Path(raw)
+    resolved = candidate.resolve() if candidate.is_absolute() else (workspace_root / raw.lstrip("/")).resolve()
+    try:
+        resolved.relative_to(workspace_root.resolve())
+    except ValueError:
+        return None
+    return resolved
+
+
+def _relative_to_workspace(path: Path, *, workspace_root: Path) -> str:
+    try:
+        return path.resolve().relative_to(workspace_root.resolve()).as_posix()
+    except ValueError:
+        return path.resolve().as_posix()
+
+
+def _workspace_root_from_services(services: Any) -> Path:
+    backend_dir = Path(getattr(services, "backend_dir", "") or ".").resolve()
+    return backend_dir.parent if backend_dir.name == "backend" else backend_dir
+
+
+def _sanitize_relative_path(value: str) -> str:
+    parts = [
+        _safe_path_component(part)
+        for part in str(value or "").replace("\\", "/").split("/")
+        if part not in {"", "."}
+    ]
+    return "/".join(part for part in parts if part)
+
+
+def _safe_path_component(value: Any) -> str:
+    text = str(value or "").strip()
+    result = []
+    for ch in text:
+        if ch.isalnum() or ch in {"-", "_", "."} or "\u4e00" <= ch <= "\u9fff":
+            result.append(ch)
+        else:
+            result.append("-")
+    return "".join(result).strip("-") or "value"
+
+
+def _normalize_artifact_text(content: str) -> str:
+    text = str(content or "").strip()
+    return text + "\n" if text else ""
+
+
+def _int_template_value(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _dedupe_artifact_ref_dicts(refs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    result: list[dict[str, Any]] = []
+    for ref in refs:
+        if not isinstance(ref, dict):
+            continue
+        payload = dict(ref)
+        key = str(payload.get("artifact_ref") or payload.get("path") or payload.get("absolute_path") or payload.get("src") or "").strip()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        result.append(payload)
+    return result
 
 
 def _artifact_repository_policy(*, graph_config: GraphHarnessConfig, work_order: GraphNodeWorkOrder) -> dict[str, Any]:

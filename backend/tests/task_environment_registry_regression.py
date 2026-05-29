@@ -352,13 +352,14 @@ def test_runtime_compiler_stable_payload_keeps_environment_and_operation_project
     ).packet
     stable_message = packet.model_messages[1]["content"]
     stable_payload = json.loads(stable_message.split("\n", 1)[1])
+    dynamic_payload = _payload_after_title(packet.model_messages[-2]["content"], "Task execution dynamic runtime")
 
     assert "task_environment" in stable_payload
     assert "storage_space" in stable_payload["task_environment"]
     assert "environment_boundary" in stable_payload["task_environment"]
-    assert "operation_authorization" in stable_payload
-    assert stable_payload["operation_authorization"]["authority"] == "harness.runtime.operation_authorization_projection"
-    assert stable_payload["runtime_context"]["allowed_operation_count"] == len(stable_payload["operation_authorization"]["allowed_operations"])
+    assert "operation_authorization" not in stable_payload
+    assert dynamic_payload["operation_authorization"]["authority"] == "harness.runtime.operation_authorization_projection"
+    assert dynamic_payload["runtime_context"]["allowed_operation_count"] == len(dynamic_payload["operation_authorization"]["allowed_operations"])
 
 
 def test_resolved_writing_environment_builds_file_access_table() -> None:
@@ -694,6 +695,7 @@ def test_runtime_packet_includes_environment_prompt_boundary_from_configured_env
     ).packet
     stable_message = packet.model_messages[1]["content"]
     stable_payload = json.loads(stable_message.split("\n", 1)[1])
+    dynamic_payload = _payload_after_title(packet.model_messages[-2]["content"], "Task execution dynamic runtime")
 
     assert "你处在自定义提示环境中" in packet.system_instructions
     assert stable_payload["task_environment"]["environment_boundary"]["prompt_refs"] == ["environment.custom.prompted.v1"]
@@ -705,4 +707,10 @@ def test_runtime_packet_includes_environment_prompt_boundary_from_configured_env
         }
     ]
     assert "你处在自定义提示环境中" not in stable_message
-    assert stable_payload["runtime_context"]["environment_boundary"]["environment_prompts_source"] == "task_environment_config"
+    assert dynamic_payload["runtime_context"]["environment_boundary"]["environment_prompts_source"] == "task_environment_config"
+
+
+def _payload_after_title(content: str, title: str) -> dict[str, object]:
+    marker = title + "\n"
+    assert marker in content
+    return json.loads(content.split(marker, 1)[1])

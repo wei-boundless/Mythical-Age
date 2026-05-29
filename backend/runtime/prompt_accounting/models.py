@@ -17,7 +17,7 @@ class PromptSegment:
     request_id: str
     task_run_id: str = ""
     session_id: str = ""
-    kind: str = "volatile_turn"
+    kind: str = "unknown_unplanned"
     ordinal: int = 0
     role: str = ""
     content_hash: str = ""

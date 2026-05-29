@@ -15,6 +15,7 @@ class RuntimeInvocationPacket:
     task_run_id: str = ""
     step_id: str = ""
     model_messages: list[Any] = field(default_factory=list)
+    segment_plan: dict[str, Any] = field(default_factory=dict)
     system_instructions: str = ""
     agent_role_prompt: str = ""
     prompt_pack_refs: tuple[str, ...] = ()
@@ -52,6 +53,7 @@ class RuntimeInvocationPacket:
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
+        payload["segment_plan"] = dict(self.segment_plan)
         payload["prompt_pack_refs"] = list(self.prompt_pack_refs)
         payload["available_tools"] = [dict(item) for item in self.available_tools]
         payload["available_modes"] = list(self.available_modes)
@@ -60,4 +62,3 @@ class RuntimeInvocationPacket:
         payload["artifact_refs"] = list(self.artifact_refs)
         payload["current_repair_refs"] = list(self.current_repair_refs)
         return payload
-

@@ -6,6 +6,7 @@ from json import JSONDecodeError
 from pathlib import Path
 from typing import Any
 
+from .cache_break_detector import PromptCacheBreakRecord
 from .models import ModelTokenUsageRecord, PromptCacheRecord, PromptSegment, PromptSegmentMap
 
 
@@ -31,6 +32,9 @@ class PromptAccountingLedger:
 
     def record_prompt_cache(self, record: PromptCacheRecord) -> None:
         self._append_jsonl("prompt_cache.jsonl", record.to_dict())
+
+    def record_prompt_cache_break(self, record: PromptCacheBreakRecord) -> None:
+        self._append_jsonl("prompt_cache_breaks.jsonl", record.to_dict())
 
     def list_segments(self, *, task_run_id: str = "", session_id: str = "") -> list[PromptSegment]:
         rows = self._read_jsonl("segments.jsonl")
@@ -82,6 +86,20 @@ class PromptAccountingLedger:
                 records[key] = record
         return sorted(records.values(), key=lambda item: item.created_at)
 
+    def list_prompt_cache_breaks(self, *, task_run_id: str = "", session_id: str = "") -> list[PromptCacheBreakRecord]:
+        records: dict[str, PromptCacheBreakRecord] = {}
+        for row in self._read_jsonl("prompt_cache_breaks.jsonl"):
+            if task_run_id and str(row.get("task_run_id") or "") != task_run_id:
+                continue
+            if session_id and str(row.get("session_id") or "") != session_id:
+                continue
+            record = PromptCacheBreakRecord.from_dict(row)
+            key = record.break_id or f"{record.request_id}:{record.created_at}"
+            previous = records.get(key)
+            if previous is None or record.created_at >= previous.created_at:
+                records[key] = record
+        return sorted(records.values(), key=lambda item: item.created_at)
+
     def summarize_task(self, task_run_id: str) -> dict[str, Any]:
         return summarize_usage_records(
             self.list_token_usage(task_run_id=task_run_id),
@@ -113,6 +131,7 @@ class PromptAccountingLedger:
             "segments": self._rewrite_without_tasks("segments.jsonl", targets),
             "token_usage": self._rewrite_without_tasks("token_usage.jsonl", targets),
             "prompt_cache": self._rewrite_without_tasks("prompt_cache.jsonl", targets),
+            "prompt_cache_breaks": self._rewrite_without_tasks("prompt_cache_breaks.jsonl", targets),
         }
         return {
             "authority": "runtime.prompt_accounting.ledger.prune_task_runs",
@@ -227,7 +246,7 @@ def _segment_from_dict(payload: dict[str, Any]) -> PromptSegment:
         request_id=str(payload.get("request_id") or ""),
         task_run_id=str(payload.get("task_run_id") or ""),
         session_id=str(payload.get("session_id") or ""),
-        kind=str(payload.get("kind") or "volatile_turn"),
+        kind=str(payload.get("kind") or "unknown_unplanned"),
         ordinal=int(payload.get("ordinal") or 0),
         role=str(payload.get("role") or ""),
         content_hash=str(payload.get("content_hash") or ""),

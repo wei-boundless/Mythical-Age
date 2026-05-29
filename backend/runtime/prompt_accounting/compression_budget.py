@@ -102,8 +102,6 @@ class CompressionBudgetPlanner:
     def _is_hard_required(self, segment: PromptSegment) -> bool:
         if segment.compression_role == "preserve":
             return True
-        if segment.kind in {"system_static", "tool_schema", "task_contract", "volatile_turn"}:
-            return True
         if segment.cache_role == "cacheable_prefix":
             return True
         return False

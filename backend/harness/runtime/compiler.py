@@ -15,6 +15,7 @@ from prompt_library import (
 
 from .envelope import RuntimeEnvelope
 from .invocation_packet import RuntimeInvocationPacket
+from .prompt_segment_plan import build_prompt_segment_plan
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,17 +119,26 @@ class RuntimeCompiler:
             task_environment_ref=task_environment_ref,
             runtime_mode=str(profile_payload.get("mode") or "standard"),
         )
+        runtime_instruction = _runtime_projection_instruction(agent_visible_runtime_projection)
+        environment_instruction = _environment_instruction(
+            environment_payload,
+            environment_prompt_assembly=environment_prompt_assembly,
+        )
+        agent_instruction = _agent_prompt_instruction(agent_prompt_assembly)
+        soul_instruction = _soul_instruction(soul_role_prompt)
         system = _join_prompt_sections(
             prompt_assembly.content,
-            _runtime_projection_instruction(agent_visible_runtime_projection),
-            _environment_instruction(environment_payload, environment_prompt_assembly=environment_prompt_assembly),
-            _soul_instruction(soul_role_prompt),
-            _agent_prompt_instruction(agent_prompt_assembly),
+            soul_instruction,
+            agent_instruction,
+            environment_instruction,
+            runtime_instruction,
         )
         stable_payload = {
             "schema": schema,
             "task_environment": _environment_stable_payload(environment_payload),
             "available_tools": [dict(item) for item in tool_payloads],
+        }
+        dynamic_payload = {
             "operation_authorization": dict(assembly_payload.get("operation_authorization") or {}),
             "runtime_context": _runtime_context_payload(
                 assembly_payload,
@@ -141,18 +151,92 @@ class RuntimeCompiler:
             "history": [dict(item) for item in list(history or [])],
             "user_message": str(user_message or ""),
         }
+        packet_id = f"rtpacket:{turn_id}:turn_action:1"
+        model_messages, segment_plan = _model_messages_and_segment_plan(
+            packet_id=packet_id,
+            invocation_kind="turn_action",
+            specs=[
+                _message_spec(
+                    role="system",
+                    content=prompt_assembly.content,
+                    kind="global_static",
+                    source_ref=",".join(prompt_assembly.prompt_pack_refs),
+                    cache_scope="global",
+                    cache_role="cacheable_prefix",
+                    compression_role="preserve",
+                ),
+                _message_spec(
+                    role="system",
+                    content=_packet_payload_content("Turn action stable contract", stable_payload),
+                    kind="task_stable",
+                    source_ref="turn_action_stable_contract",
+                    cache_scope="session",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                ),
+                _message_spec(
+                    role="system",
+                    content=_join_prompt_sections(soul_instruction, agent_instruction),
+                    kind="agent_stable",
+                    source_ref=",".join(_string_tuple(assembly_payload.get("agent_prompt_refs"))),
+                    cache_scope="session",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                ),
+                _message_spec(
+                    role="system",
+                    content=environment_instruction,
+                    kind="environment_stable",
+                    source_ref=",".join(_string_tuple(assembly_payload.get("environment_prompt_refs"))),
+                    cache_scope="session",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                ),
+                _message_spec(
+                    role="system",
+                    content=_join_prompt_sections(
+                        runtime_instruction,
+                        _packet_payload_content("Turn action dynamic runtime", dynamic_payload),
+                    ),
+                    kind="dynamic_projection",
+                    source_ref="agent_visible_runtime_projection",
+                    cache_scope="none",
+                    cache_role="volatile",
+                    compression_role="summarize",
+                ),
+                _message_spec(
+                    role="user",
+                    content=_packet_payload_content("Turn action current request", volatile_payload),
+                    kind="volatile_user",
+                    source_ref="turn_action_current_request",
+                    cache_scope="none",
+                    cache_role="volatile",
+                    compression_role="summarize",
+                ),
+            ],
+        )
+        prompt_manifest = build_runtime_prompt_manifest(
+            invocation_kind="turn_action",
+            assembly=_merge_prompt_assemblies(
+                prompt_assembly,
+                agent_prompt_assembly,
+                environment_prompt_assembly,
+                invocation_kind="turn_action",
+            ),
+            packet_id=packet_id,
+            dynamic_projection_refs=("agent_visible_runtime_projection", "operation_authorization"),
+            volatile_state_refs=("runtime_envelope", "turn_id", "history", "user_message"),
+        ).to_dict()
+        prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
         packet = RuntimeInvocationPacket(
-            packet_id=f"rtpacket:{turn_id}:turn_action:1",
+            packet_id=packet_id,
             envelope_ref=envelope.envelope_id,
             invocation_kind="turn_action",
             invocation_index=1,
             session_id=session_id,
             turn_id=turn_id,
-            model_messages=[
-                {"role": "system", "content": system},
-                _stable_system_message("Turn action stable contract", stable_payload),
-                _volatile_user_message("Turn action current request", volatile_payload),
-            ],
+            model_messages=model_messages,
+            segment_plan=segment_plan.to_dict(),
             system_instructions=system,
             agent_role_prompt="你是当前 turn 的主 agent，负责决定下一步动作。",
             prompt_pack_refs=prompt_assembly.prompt_pack_refs,
@@ -161,18 +245,8 @@ class RuntimeCompiler:
             output_contract={"schema": schema, "format": "json_object"},
             hidden_control_refs={"agent_invocation_id": agent_invocation_id, "runtime_assembly_id": str(assembly_payload.get("assembly_id") or "")},
             diagnostics={
-                "prompt_manifest": build_runtime_prompt_manifest(
-                    invocation_kind="turn_action",
-                    assembly=_merge_prompt_assemblies(
-                        prompt_assembly,
-                        agent_prompt_assembly,
-                        environment_prompt_assembly,
-                        invocation_kind="turn_action",
-                    ),
-                    packet_id=f"rtpacket:{turn_id}:turn_action:1",
-                    dynamic_projection_refs=("agent_visible_runtime_projection", "operation_authorization"),
-                    volatile_state_refs=("runtime_envelope", "turn_id", "history", "user_message"),
-                ).to_dict(),
+                "prompt_manifest": prompt_manifest,
+                "segment_plan": segment_plan.to_dict(),
             },
         )
         return RuntimeCompilationResult(envelope=envelope, packet=packet)
@@ -276,12 +350,20 @@ class RuntimeCompiler:
             runtime_mode=str(profile_payload.get("mode") or "professional"),
         )
         artifact_note = f"当前建议 artifact_root 是 {artifact_root}。" if artifact_root else ""
-        system = _join_prompt_sections(
-            prompt_assembly.content,
+        runtime_instruction = _join_prompt_sections(
             artifact_note,
             _runtime_projection_instruction(agent_visible_runtime_projection),
-            _environment_instruction(environment_payload, environment_prompt_assembly=environment_prompt_assembly),
-            _agent_prompt_instruction(agent_prompt_assembly),
+        )
+        environment_instruction = _environment_instruction(
+            environment_payload,
+            environment_prompt_assembly=environment_prompt_assembly,
+        )
+        agent_instruction = _agent_prompt_instruction(agent_prompt_assembly)
+        system = _join_prompt_sections(
+            prompt_assembly.content,
+            agent_instruction,
+            environment_instruction,
+            runtime_instruction,
         )
         stable_payload = {
             "schema": schema,
@@ -289,6 +371,8 @@ class RuntimeCompiler:
             "task_contract": _task_contract_stable_payload(contract),
             "task_environment": _environment_stable_payload(environment_payload),
             "available_tools": [dict(item) for item in tool_payloads],
+        }
+        dynamic_payload = {
             "operation_authorization": dict(assembly_payload.get("operation_authorization") or {}),
             "runtime_context": _runtime_context_payload(
                 assembly_payload,
@@ -297,21 +381,96 @@ class RuntimeCompiler:
         }
         volatile_payload = {
             "runtime_envelope": envelope.to_dict(),
+            "task_run_state": _task_run_volatile_payload(task_run),
             "execution_state": dict(execution_state or {}),
             "observations": [dict(item) for item in list(observations or [])],
         }
+        packet_id = f"rtpacket:{task_run_id}:task_execution:{invocation_index}"
+        model_messages, segment_plan = _model_messages_and_segment_plan(
+            packet_id=packet_id,
+            invocation_kind="task_execution",
+            specs=[
+                _message_spec(
+                    role="system",
+                    content=prompt_assembly.content,
+                    kind="global_static",
+                    source_ref=",".join(prompt_assembly.prompt_pack_refs),
+                    cache_scope="global",
+                    cache_role="cacheable_prefix",
+                    compression_role="preserve",
+                ),
+                _message_spec(
+                    role="system",
+                    content=_packet_payload_content("Task execution stable contract", stable_payload),
+                    kind="task_stable",
+                    source_ref=str(contract.get("contract_id") or task_run.get("task_run_id") or "task_execution_stable_contract"),
+                    cache_scope="task",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                ),
+                _message_spec(
+                    role="system",
+                    content=agent_instruction,
+                    kind="agent_stable",
+                    source_ref=",".join(_string_tuple(assembly_payload.get("agent_prompt_refs"))),
+                    cache_scope="session",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                ),
+                _message_spec(
+                    role="system",
+                    content=environment_instruction,
+                    kind="environment_stable",
+                    source_ref=",".join(_string_tuple(assembly_payload.get("environment_prompt_refs"))),
+                    cache_scope="session",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                ),
+                _message_spec(
+                    role="system",
+                    content=_join_prompt_sections(
+                        runtime_instruction,
+                        _packet_payload_content("Task execution dynamic runtime", dynamic_payload),
+                    ),
+                    kind="dynamic_projection",
+                    source_ref="agent_visible_runtime_projection",
+                    cache_scope="none",
+                    cache_role="volatile",
+                    compression_role="summarize",
+                ),
+                _message_spec(
+                    role="user",
+                    content=_packet_payload_content("Task execution current state", volatile_payload),
+                    kind="volatile_task_state",
+                    source_ref="task_execution_current_state",
+                    cache_scope="none",
+                    cache_role="volatile",
+                    compression_role="summarize",
+                ),
+            ],
+        )
+        prompt_manifest = build_runtime_prompt_manifest(
+            invocation_kind="task_execution",
+            assembly=_merge_prompt_assemblies(
+                prompt_assembly,
+                agent_prompt_assembly,
+                environment_prompt_assembly,
+                invocation_kind="task_execution",
+            ),
+            packet_id=packet_id,
+            dynamic_projection_refs=("agent_visible_runtime_projection", "operation_authorization"),
+            volatile_state_refs=("runtime_envelope", "execution_state", "observations"),
+        ).to_dict()
+        prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
         packet = RuntimeInvocationPacket(
-            packet_id=f"rtpacket:{task_run_id}:task_execution:{invocation_index}",
+            packet_id=packet_id,
             envelope_ref=envelope.envelope_id,
             invocation_kind="task_execution",
             invocation_index=invocation_index,
             session_id=session_id,
             task_run_id=task_run_id,
-            model_messages=[
-                {"role": "system", "content": system},
-                _stable_system_message("Task execution stable contract", stable_payload),
-                _volatile_user_message("Task execution current state", volatile_payload),
-            ],
+            model_messages=model_messages,
+            segment_plan=segment_plan.to_dict(),
             system_instructions=system,
             agent_role_prompt="你是正式 TaskRun 的执行 agent，负责真实交付合同产物。",
             prompt_pack_refs=prompt_assembly.prompt_pack_refs,
@@ -321,18 +480,8 @@ class RuntimeCompiler:
             output_contract={"schema": schema, "format": "json_object"},
             hidden_control_refs={"task_run_id": task_run_id, "runtime_assembly_id": str(assembly_payload.get("assembly_id") or "")},
             diagnostics={
-                "prompt_manifest": build_runtime_prompt_manifest(
-                    invocation_kind="task_execution",
-                    assembly=_merge_prompt_assemblies(
-                        prompt_assembly,
-                        agent_prompt_assembly,
-                        environment_prompt_assembly,
-                        invocation_kind="task_execution",
-                    ),
-                    packet_id=f"rtpacket:{task_run_id}:task_execution:{invocation_index}",
-                    dynamic_projection_refs=("agent_visible_runtime_projection", "operation_authorization"),
-                    volatile_state_refs=("runtime_envelope", "execution_state", "observations"),
-                ).to_dict(),
+                "prompt_manifest": prompt_manifest,
+                "segment_plan": segment_plan.to_dict(),
             },
         )
         return RuntimeCompilationResult(envelope=envelope, packet=packet)
@@ -422,17 +571,26 @@ class RuntimeCompiler:
             task_environment_ref=task_environment_ref,
             runtime_mode=str(profile_payload.get("mode") or "standard"),
         )
+        runtime_instruction = _runtime_projection_instruction(agent_visible_runtime_projection)
+        environment_instruction = _environment_instruction(
+            environment_payload,
+            environment_prompt_assembly=environment_prompt_assembly,
+        )
+        agent_instruction = _agent_prompt_instruction(agent_prompt_assembly)
+        soul_instruction = _soul_instruction(soul_role_prompt)
         system = _join_prompt_sections(
             prompt_assembly.content,
-            _runtime_projection_instruction(agent_visible_runtime_projection),
-            _environment_instruction(environment_payload, environment_prompt_assembly=environment_prompt_assembly),
-            _soul_instruction(soul_role_prompt),
-            _agent_prompt_instruction(agent_prompt_assembly),
+            soul_instruction,
+            agent_instruction,
+            environment_instruction,
+            runtime_instruction,
         )
         stable_payload = {
             "schema": schema,
             "task_environment": _environment_stable_payload(environment_payload),
             "available_tools": [dict(item) for item in tool_payloads],
+        }
+        dynamic_payload = {
             "operation_authorization": dict(assembly_payload.get("operation_authorization") or {}),
             "runtime_context": _runtime_context_payload(
                 assembly_payload,
@@ -446,18 +604,92 @@ class RuntimeCompiler:
             "user_message": str(user_message or ""),
             "observations": [dict(item) for item in list(observations or [])],
         }
+        packet_id = f"rtpacket:{turn_id}:tool_observation_followup:{len(observations) + 1}"
+        model_messages, segment_plan = _model_messages_and_segment_plan(
+            packet_id=packet_id,
+            invocation_kind="tool_observation_followup",
+            specs=[
+                _message_spec(
+                    role="system",
+                    content=prompt_assembly.content,
+                    kind="global_static",
+                    source_ref=",".join(prompt_assembly.prompt_pack_refs),
+                    cache_scope="global",
+                    cache_role="cacheable_prefix",
+                    compression_role="preserve",
+                ),
+                _message_spec(
+                    role="system",
+                    content=_packet_payload_content("Observation followup stable contract", stable_payload),
+                    kind="task_stable",
+                    source_ref="observation_followup_stable_contract",
+                    cache_scope="session",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                ),
+                _message_spec(
+                    role="system",
+                    content=_join_prompt_sections(soul_instruction, agent_instruction),
+                    kind="agent_stable",
+                    source_ref=",".join(_string_tuple(assembly_payload.get("agent_prompt_refs"))),
+                    cache_scope="session",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                ),
+                _message_spec(
+                    role="system",
+                    content=environment_instruction,
+                    kind="environment_stable",
+                    source_ref=",".join(_string_tuple(assembly_payload.get("environment_prompt_refs"))),
+                    cache_scope="session",
+                    cache_role="session_stable",
+                    compression_role="preserve",
+                ),
+                _message_spec(
+                    role="system",
+                    content=_join_prompt_sections(
+                        runtime_instruction,
+                        _packet_payload_content("Observation followup dynamic runtime", dynamic_payload),
+                    ),
+                    kind="dynamic_projection",
+                    source_ref="agent_visible_runtime_projection",
+                    cache_scope="none",
+                    cache_role="volatile",
+                    compression_role="summarize",
+                ),
+                _message_spec(
+                    role="user",
+                    content=_packet_payload_content("Observation followup current request", volatile_payload),
+                    kind="tool_observations",
+                    source_ref="observation_followup_current_request",
+                    cache_scope="none",
+                    cache_role="volatile",
+                    compression_role="ref_only",
+                ),
+            ],
+        )
+        prompt_manifest = build_runtime_prompt_manifest(
+            invocation_kind="tool_observation_followup",
+            assembly=_merge_prompt_assemblies(
+                prompt_assembly,
+                agent_prompt_assembly,
+                environment_prompt_assembly,
+                invocation_kind="tool_observation_followup",
+            ),
+            packet_id=packet_id,
+            dynamic_projection_refs=("agent_visible_runtime_projection", "operation_authorization"),
+            volatile_state_refs=("runtime_envelope", "turn_id", "history", "user_message", "observations"),
+        ).to_dict()
+        prompt_manifest["segment_plan_ref"] = segment_plan.segment_plan_id
         packet = RuntimeInvocationPacket(
-            packet_id=f"rtpacket:{turn_id}:tool_observation_followup:{len(observations) + 1}",
+            packet_id=packet_id,
             envelope_ref=envelope.envelope_id,
             invocation_kind="tool_observation_followup",
             invocation_index=len(observations) + 1,
             session_id=session_id,
             turn_id=turn_id,
-            model_messages=[
-                {"role": "system", "content": system},
-                _stable_system_message("Observation followup stable contract", stable_payload),
-                _volatile_user_message("Observation followup current request", volatile_payload),
-            ],
+            model_messages=model_messages,
+            segment_plan=segment_plan.to_dict(),
             system_instructions=system,
             agent_role_prompt="你是当前 turn 的主 agent，负责基于观察继续行动。",
             prompt_pack_refs=prompt_assembly.prompt_pack_refs,
@@ -467,18 +699,8 @@ class RuntimeCompiler:
             output_contract={"schema": schema, "format": "json_object"},
             hidden_control_refs={"agent_invocation_id": agent_invocation_id, "runtime_assembly_id": str(assembly_payload.get("assembly_id") or "")},
             diagnostics={
-                "prompt_manifest": build_runtime_prompt_manifest(
-                    invocation_kind="tool_observation_followup",
-                    assembly=_merge_prompt_assemblies(
-                        prompt_assembly,
-                        agent_prompt_assembly,
-                        environment_prompt_assembly,
-                        invocation_kind="tool_observation_followup",
-                    ),
-                    packet_id=f"rtpacket:{turn_id}:tool_observation_followup:{len(observations) + 1}",
-                    dynamic_projection_refs=("agent_visible_runtime_projection", "operation_authorization"),
-                    volatile_state_refs=("runtime_envelope", "turn_id", "history", "user_message", "observations"),
-                ).to_dict(),
+                "prompt_manifest": prompt_manifest,
+                "segment_plan": segment_plan.to_dict(),
             },
         )
         return RuntimeCompilationResult(envelope=envelope, packet=packet)
@@ -609,18 +831,53 @@ def task_execution_action_schema() -> dict[str, Any]:
     }
 
 
-def _stable_system_message(title: str, payload: dict[str, Any]) -> dict[str, str]:
+def _message_spec(
+    *,
+    role: str,
+    content: str,
+    kind: str,
+    source_ref: str,
+    cache_scope: str,
+    cache_role: str,
+    compression_role: str,
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     return {
-        "role": "system",
-        "content": _packet_payload_content(title, payload),
+        "role": str(role or "user"),
+        "content": str(content or ""),
+        "kind": str(kind or "unknown_unplanned"),
+        "source_ref": str(source_ref or ""),
+        "cache_scope": str(cache_scope or "none"),
+        "cache_role": str(cache_role or "volatile"),
+        "compression_role": str(compression_role or "summarize"),
+        "metadata": dict(metadata or {}),
     }
 
 
-def _volatile_user_message(title: str, payload: dict[str, Any]) -> dict[str, str]:
-    return {
-        "role": "user",
-        "content": _packet_payload_content(title, payload),
-    }
+def _model_messages_and_segment_plan(
+    *,
+    packet_id: str,
+    invocation_kind: str,
+    specs: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+) -> tuple[list[dict[str, str]], Any]:
+    clean_specs = [
+        dict(spec)
+        for spec in list(specs or [])
+        if str(dict(spec).get("content") or "").strip()
+    ]
+    model_messages = [
+        {
+            "role": str(spec.get("role") or "user"),
+            "content": str(spec.get("content") or "").strip(),
+        }
+        for spec in clean_specs
+    ]
+    segment_plan = build_prompt_segment_plan(
+        packet_id=packet_id,
+        invocation_kind=invocation_kind,
+        message_specs=clean_specs,
+    )
+    return model_messages, segment_plan
 
 
 def _packet_payload_content(title: str, payload: dict[str, Any]) -> str:
@@ -941,10 +1198,34 @@ def _task_run_stable_payload(task_run: dict[str, Any]) -> dict[str, Any]:
         "agent_id": str(task_run.get("agent_id") or ""),
         "agent_profile_id": str(task_run.get("agent_profile_id") or ""),
         "execution_runtime_kind": str(task_run.get("execution_runtime_kind") or ""),
-        "status": str(task_run.get("status") or ""),
-        "terminal_reason": str(task_run.get("terminal_reason") or ""),
         "diagnostics": _task_run_diagnostics_stable_payload(diagnostics),
         "authority": str(task_run.get("authority") or "orchestration.task_run"),
+    }
+
+
+def _task_run_volatile_payload(task_run: dict[str, Any]) -> dict[str, Any]:
+    diagnostics = dict(task_run.get("diagnostics") or {})
+    return {
+        "task_run_id": str(task_run.get("task_run_id") or ""),
+        "status": str(task_run.get("status") or ""),
+        "terminal_reason": str(task_run.get("terminal_reason") or ""),
+        "started_at": task_run.get("started_at"),
+        "updated_at": task_run.get("updated_at"),
+        "completed_at": task_run.get("completed_at"),
+        "current_step_index": task_run.get("current_step_index"),
+        "diagnostics": {
+            key: diagnostics.get(key)
+            for key in (
+                "executor_status",
+                "recoverable_error",
+                "recovery_action",
+                "last_error",
+                "last_observation_id",
+                "last_model_action",
+            )
+            if key in diagnostics
+        },
+        "authority": "orchestration.task_run.volatile_state",
     }
 
 
@@ -965,9 +1246,6 @@ def _task_run_diagnostics_stable_payload(diagnostics: dict[str, Any]) -> dict[st
             "node_id",
             "project_id",
             "runtime_scope",
-            "executor_status",
-            "recoverable_error",
-            "recovery_action",
         )
         if key in diagnostics
     }

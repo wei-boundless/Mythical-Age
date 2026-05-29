@@ -10,21 +10,26 @@ from runtime.prompt_accounting import (
     PromptCachePlanner,
     extract_provider_usage,
 )
+from runtime.model_gateway import ModelRequestBuilder
 from harness.runtime.compiler import RuntimeCompiler
+from harness.runtime.prompt_segment_plan import build_prompt_segment_plan
 
 
 def test_prompt_accounting_ledger_records_prediction_provider_usage_and_cache(tmp_path) -> None:
     ledger = PromptAccountingLedger(tmp_path)
+    messages = [
+        {"role": "system", "content": "你是一名可靠的执行代理。"},
+        {"role": "user", "content": "hello"},
+    ]
+    segment_plan = _segment_plan("packet:test", "turn_action", messages, ("cacheable_prefix", "volatile"))
     segment_map = CanonicalPromptSerializer().build_segment_map(
         request_id="modelreq:test",
         session_id="session:test",
         task_run_id="taskrun:test",
         provider="openai",
         model="gpt-4.1-mini",
-        messages=[
-            {"role": "system", "content": "你是一名可靠的执行代理。"},
-            {"role": "user", "content": "hello"},
-        ],
+        messages=messages,
+        segment_plan=segment_plan,
     )
     cache_record = PromptCachePlanner().plan(segment_map)
     provider_usage = ModelTokenUsageRecord(
@@ -134,6 +139,12 @@ def test_prompt_cache_key_is_stable_across_request_ids_for_same_prefix() -> None
         {"role": "system", "content": "Task execution stable contract\n{\"schema\":{\"action_type\":\"respond\"}}"},
         {"role": "user", "content": "Task execution current state\n{\"observations\":[]}"},
     ]
+    segment_plan = _segment_plan(
+        "packet:cache-key",
+        "task_execution",
+        messages,
+        ("cacheable_prefix", "session_stable", "volatile"),
+    )
 
     first = PromptCachePlanner().plan(
         serializer.build_segment_map(
@@ -142,6 +153,7 @@ def test_prompt_cache_key_is_stable_across_request_ids_for_same_prefix() -> None
             provider="deepseek",
             model="deepseek-v4-pro",
             messages=messages,
+            segment_plan=segment_plan,
         )
     )
     second = PromptCachePlanner().plan(
@@ -151,6 +163,7 @@ def test_prompt_cache_key_is_stable_across_request_ids_for_same_prefix() -> None
             provider="deepseek",
             model="deepseek-v4-pro",
             messages=messages,
+            segment_plan=segment_plan,
         )
     )
 
@@ -162,7 +175,16 @@ def test_prompt_cache_key_is_stable_across_request_ids_for_same_prefix() -> None
 def test_task_execution_packet_places_stable_contract_before_volatile_state() -> None:
     result = RuntimeCompiler().compile_task_execution_packet(
         session_id="session:test",
-        task_run={"task_run_id": "taskrun:test", "title": "审查监控系统"},
+        task_run={
+            "task_run_id": "taskrun:test",
+            "title": "审查监控系统",
+            "diagnostics": {
+                "graph_run_id": "graph:stable",
+                "executor_status": "retrying",
+                "recoverable_error": "tool_failed",
+                "recovery_action": "retry_with_current_file",
+            },
+        },
         contract={"task_run_goal": "审查并修复监控系统", "completion_criteria": ["完成真实验证"]},
         observations=[{"observation_id": "obs:1", "content": "latest command output"}],
         execution_state={"runtime_status": "running"},
@@ -174,23 +196,51 @@ def test_task_execution_packet_places_stable_contract_before_volatile_state() ->
     )
 
     messages = result.packet.model_messages
-    assert [message["role"] for message in messages] == ["system", "system", "user"]
+    assert [message["role"] for message in messages] == ["system", "system", "system", "user"]
     assert "Task execution stable contract" in messages[1]["content"]
     assert "task_contract" in messages[1]["content"]
     assert "available_tools" in messages[1]["content"]
-    assert "Task execution current state" in messages[2]["content"]
-    assert "observations" in messages[2]["content"]
+    assert "Task execution dynamic runtime" in messages[2]["content"]
+    assert "Task execution current state" in messages[3]["content"]
+    assert "observations" in messages[3]["content"]
+    stable_payload = json.loads(messages[1]["content"].split("\n", 1)[1])
+    volatile_payload = json.loads(messages[3]["content"].split("\n", 1)[1])
+    assert stable_payload["task_run"]["diagnostics"] == {"graph_run_id": "graph:stable"}
+    assert volatile_payload["task_run_state"]["diagnostics"] == {
+        "executor_status": "retrying",
+        "recoverable_error": "tool_failed",
+        "recovery_action": "retry_with_current_file",
+    }
 
     segment_map = CanonicalPromptSerializer().build_segment_map(
         request_id="modelreq:task",
         messages=messages,
         provider="deepseek",
         model="deepseek-v4-pro",
+        segment_plan=result.packet.segment_plan,
     )
 
-    assert [segment.kind for segment in segment_map.segments] == ["system_static", "system_session", "volatile_turn"]
-    assert [segment.cache_role for segment in segment_map.segments] == ["cacheable_prefix", "session_stable", "volatile"]
+    assert [segment.kind for segment in segment_map.segments] == [
+        "global_static",
+        "task_stable",
+        "dynamic_projection",
+        "volatile_task_state",
+    ]
+    assert [segment.cache_role for segment in segment_map.segments] == [
+        "cacheable_prefix",
+        "session_stable",
+        "volatile",
+        "volatile",
+    ]
     cache_record = PromptCachePlanner().plan(segment_map)
+    model_request = ModelRequestBuilder().build(
+        request_id="modelreq:task",
+        messages=messages,
+        provider="deepseek",
+        model="deepseek-v4-pro",
+        segment_plan=result.packet.segment_plan,
+    )
+    assert model_request.stable_prefix_hash == cache_record.prefix_hash
     assert cache_record.diagnostics["stable_prefix_segment_count"] == 2
 
 
@@ -224,7 +274,8 @@ def test_runtime_prompt_uses_assembly_projection_not_mode_instruction() -> None:
 
     system_prompt = result.packet.system_instructions
     stable_payload = json.loads(result.packet.model_messages[1]["content"].split("\n", 1)[1])
-    projection = stable_payload["runtime_context"]["agent_visible_runtime_projection"]
+    dynamic_payload = _payload_after_title(result.packet.model_messages[2]["content"], "Turn action dynamic runtime")
+    projection = dynamic_payload["runtime_context"]["agent_visible_runtime_projection"]
 
     assert "当前 runtime 是 professional 模式" not in system_prompt
     assert "当前 runtime 是 standard 模式" not in system_prompt
@@ -258,9 +309,40 @@ def test_role_runtime_projection_blocks_task_run_without_mode_instruction_text()
 
     system_prompt = result.packet.system_instructions
     stable_payload = json.loads(result.packet.model_messages[1]["content"].split("\n", 1)[1])
-    projection = stable_payload["runtime_context"]["agent_visible_runtime_projection"]
+    dynamic_payload = _payload_after_title(result.packet.model_messages[2]["content"], "Turn action dynamic runtime")
+    projection = dynamic_payload["runtime_context"]["agent_visible_runtime_projection"]
 
     assert "当前 runtime 是 role 模式" not in system_prompt
     assert "本次装配不允许开启正式 TaskRun" in system_prompt
     assert projection["task_lifecycle"]["request_task_run_allowed"] is False
     assert projection["permission_boundary"]["permission_scope"] == "role_conversation_readonly"
+
+
+def _segment_plan(
+    packet_id: str,
+    invocation_kind: str,
+    messages: list[dict[str, str]],
+    cache_roles: tuple[str, ...],
+) -> dict[str, object]:
+    return build_prompt_segment_plan(
+        packet_id=packet_id,
+        invocation_kind=invocation_kind,
+        message_specs=[
+            {
+                "role": message["role"],
+                "content": message["content"],
+                "kind": "global_static" if index == 0 else ("volatile_user" if message["role"] == "user" else "task_stable"),
+                "source_ref": f"test:{index}",
+                "cache_scope": "session" if index else "global",
+                "cache_role": cache_roles[index],
+                "compression_role": "preserve" if cache_roles[index] != "volatile" else "summarize",
+            }
+            for index, message in enumerate(messages)
+        ],
+    ).to_dict()
+
+
+def _payload_after_title(content: str, title: str) -> dict[str, object]:
+    marker = title + "\n"
+    assert marker in content
+    return json.loads(content.split(marker, 1)[1])

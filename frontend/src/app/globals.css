@@ -7457,6 +7457,55 @@ button:hover {
   color: #8f1d15;
 }
 
+.chat-task-control-button,
+.chat-task-stop-icon {
+  display: inline-flex;
+  min-height: 2.3rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--color-text-soft);
+  font-size: 0.78rem;
+  font-weight: 700;
+  transition: border-color 160ms ease, background 160ms ease, color 160ms ease;
+}
+
+.chat-task-control-button {
+  gap: 0.42rem;
+  padding: 0 0.78rem;
+}
+
+.chat-task-stop-icon {
+  width: 2.3rem;
+  padding: 0;
+  color: #9b2f28;
+}
+
+.chat-task-control-button:hover:not(:disabled),
+.chat-task-control-button:focus-visible,
+.chat-task-stop-icon:hover:not(:disabled),
+.chat-task-stop-icon:focus-visible {
+  border-color: var(--color-border-strong);
+  background: #f8fafc;
+  color: var(--color-text);
+  outline: none;
+}
+
+.chat-task-stop-icon:hover:not(:disabled),
+.chat-task-stop-icon:focus-visible {
+  border-color: #efc0bc;
+  background: #fff7f6;
+  color: #b42318;
+}
+
+.chat-task-control-button:disabled,
+.chat-task-stop-icon:disabled {
+  cursor: not-allowed;
+  opacity: 0.56;
+}
+
 .chat-send-button {
   display: inline-flex;
   width: 2.3rem;
@@ -34960,7 +35009,9 @@ html[data-workspace-tone] .agent-workbench {
 }
 
 .agent-workbench .chat-send-button,
-.agent-workbench .chat-stop-button {
+.agent-workbench .chat-stop-button,
+.agent-workbench .chat-task-control-button,
+.agent-workbench .chat-task-stop-icon {
   height: 34px;
   border-radius: 8px;
 }
@@ -34977,6 +35028,28 @@ html[data-workspace-tone] .agent-workbench {
   background: #fff7f6;
   color: #b42318;
   font-size: 12px;
+}
+
+.agent-workbench .chat-task-control-button,
+.agent-workbench .chat-task-stop-icon {
+  border-color: #d5dae5;
+  background: #fff;
+  color: #44546a;
+  font-size: 12px;
+}
+
+.agent-workbench .chat-task-control-button:hover:not(:disabled),
+.agent-workbench .chat-task-control-button:focus-visible {
+  border-color: #b8c7e4;
+  background: #eef4ff;
+  color: #2559c7;
+}
+
+.agent-workbench .chat-task-stop-icon:hover:not(:disabled),
+.agent-workbench .chat-task-stop-icon:focus-visible {
+  border-color: #efc0bc;
+  background: #fff7f6;
+  color: #b42318;
 }
 
 @media (max-width: 860px) {

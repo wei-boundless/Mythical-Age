@@ -1,4 +1,5 @@
 from .cache_planner import PromptCachePlanner, prompt_cache_key, stable_text_hash
+from .cache_break_detector import PromptCacheBreakDetector, PromptCacheBreakRecord
 from .compression_budget import CompressionBudgetPlanner
 from .ledger import PromptAccountingLedger
 from .models import (
@@ -16,6 +17,8 @@ __all__ = [
     "CompressionBudgetPlanner",
     "ModelTokenUsageRecord",
     "PromptAccountingLedger",
+    "PromptCacheBreakDetector",
+    "PromptCacheBreakRecord",
     "PromptCachePlanner",
     "PromptCacheRecord",
     "PromptSegment",
