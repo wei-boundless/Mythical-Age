@@ -37,7 +37,7 @@ class QueryRuntime:
     The old query layer used to own planning, tool routing, worker orchestration,
     follow-up execution, context restore, and writeback. Those responsibilities
     are intentionally gone from this class. QueryRuntime now only accepts API
-    input, emits stream events, and calls the admitted agent runtime lane.
+    input, emits stream events, and calls the admitted agent harness.
     """
 
     def __init__(

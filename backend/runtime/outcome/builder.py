@@ -79,7 +79,7 @@ def build_professional_run_outcome(
         task_run_id=str(task_run_id or ""),
         task_id=str(task_id or ""),
         execution_runtime_kind=str(execution_runtime_kind or "single_agent_task"),
-        source="agent_runtime.phases.verification",
+        source="runtime.outcome.completion",
         status=status,
         completed=completed,
         terminal_reason=str(terminal_reason or ""),

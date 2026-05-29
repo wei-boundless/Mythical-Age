@@ -228,7 +228,7 @@ def _build_runtime_decisions(
             ResourceDecision(
                 operation_id="op.model_response",
                 decision="allow",
-                reason="model response is always required for the primary runtime lane",
+                reason="model response is always required for the primary agent invocation",
                 risk_tags=("model_response", "read_only"),
             ),
         )

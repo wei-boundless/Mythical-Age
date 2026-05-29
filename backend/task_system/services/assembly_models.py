@@ -17,7 +17,7 @@ class TaskExecutionAssembly:
     workflow_id: str = ""
     flow_contract_binding_ref: str = ""
     flow_contract_id: str = ""
-    execution_chain_type: str = "single_agent_chain"
+    execution_chain_type: str = "agent_harness_chain"
     task_execution_policy_ref: str = ""
     memory_request_profile_ref: str = ""
     communication_protocol_ref: str = ""

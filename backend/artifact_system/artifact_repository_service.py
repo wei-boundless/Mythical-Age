@@ -50,7 +50,7 @@ class ArtifactRepositoryService:
         stage_id: str = "",
         node_run_id: str = "",
         task_ref: str = "",
-        coordination_run_id: str = "",
+        graph_run_id: str = "",
         output_contract_id: str = "",
         producer_node_id: str = "",
         artifact_kind: str = "file",
@@ -122,7 +122,7 @@ class ArtifactRepositoryService:
                 stage_id=stage_id,
                 node_run_id=node_run_id,
                 task_ref=task_ref,
-                coordination_run_id=coordination_run_id,
+                graph_run_id=graph_run_id,
                 status=status,
                 content_hash=self._artifact_content_hash(artifact_ref=artifact_ref, artifact_path=artifact_path),
                 metadata={
@@ -174,6 +174,7 @@ class ArtifactRepositoryService:
         collection_id: str = "",
         status: str = "",
         graph_id: str = "",
+        graph_run_id: str = "",
         stage_id: str = "",
         node_run_id: str = "",
         task_ref: str = "",
@@ -202,6 +203,7 @@ class ArtifactRepositoryService:
                 output_contract_id=output_contract_id,
                 producer_node_id=producer_node_id,
                 artifact_kind=artifact_kind,
+                graph_run_id=graph_run_id,
                 limit=limit,
             )
         ]
@@ -211,6 +213,7 @@ class ArtifactRepositoryService:
             "collection_id": collection_id,
             "status": status,
             "graph_id": graph_id,
+            "graph_run_id": graph_run_id,
             "stage_id": stage_id,
             "node_run_id": node_run_id,
             "task_ref": task_ref,

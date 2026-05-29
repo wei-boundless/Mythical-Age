@@ -335,18 +335,14 @@ def build_task_execution_assembly_bundle(
     task_contract_payload["selected_recipe_id"] = selected_recipe.recipe_id
     task_contract_payload["bundle_spec_ref"] = bundle_spec.bundle_id if bundle_spec is not None else ""
     task_contract_payload["requested_outputs"] = list(task_spec.requested_outputs)
-    execution_chain_type = "single_agent_chain"
+    execution_chain_type = "agent_harness_chain"
     if task_graph is not None:
-        execution_chain_type = "coordination_chain"
+        execution_chain_type = "task_graph_chain"
     elif bool(getattr(execution_policy, "allow_worker_agent_spawn", False)):
-        execution_chain_type = "coordination_chain"
+        execution_chain_type = "task_graph_chain"
     graph_ref = str(getattr(task_graph, "graph_id", "") or "").strip()
     task_graph_record = flow_registry.get_task_graph(graph_ref) if graph_ref.startswith("graph.") else None
     task_policy = dict((registered_task or {}).get("task_policy") or {})
-    task_graph_node_runtime = _registered_task_is_task_graph_node_runtime(registered_task)
-    runtime_lane_hint = str(
-        task_mode if task_graph_node_runtime else mode_policy.get("runtime_lane") or ""
-    ).strip()
     assembly = TaskExecutionAssembly(
         assembly_id=f"taskasm:{task_id}",
         task_id=task_contract.task_id,
@@ -378,7 +374,6 @@ def build_task_execution_assembly_bundle(
             "execution_kind": selected_recipe.execution_kind,
             "source_kind": selected_recipe.source_kind,
             "interaction_mode": str(mode_policy.get("interaction_mode") or ""),
-            "runtime_lane_hint": runtime_lane_hint,
             "projection_strength": str(mode_policy.get("projection_strength") or ""),
             "semantic_task_type": str(task_requirement_contract.get("task_goal_type") or ""),
             "professional_profile_id": str(task_requirement_contract.get("professional_profile_id") or ""),
@@ -499,12 +494,6 @@ def _normalize_current_turn_for_registered_task(
     task_structure = dict(task_policy.get("task_structure") or {})
     metadata = dict((registered_task or {}).get("metadata") or {})
     task_id = str((registered_task or {}).get("task_id") or "").strip()
-    runtime_lane = str(
-        (registered_task or {}).get("task_mode")
-        or task_structure.get("runtime_lane_hint")
-        or metadata.get("runtime_lane_hint")
-        or "coordination_task"
-    ).strip()
     interaction_mode = str(
         payload.get("interaction_mode")
         or payload.get("runtime_interaction_mode")
@@ -517,8 +506,6 @@ def _normalize_current_turn_for_registered_task(
         payload["selected_task_id"] = task_id
         payload["task_id"] = task_id
         payload["specific_task_id"] = task_id
-    if runtime_lane:
-        payload["runtime_lane"] = runtime_lane
     if interaction_mode:
         payload["interaction_mode"] = interaction_mode
         payload["runtime_interaction_mode"] = interaction_mode
@@ -586,7 +573,7 @@ def _registered_task_is_task_graph_node_runtime(registered_task: dict[str, Any] 
         metadata.get("task_graph_node_runtime") is True
         or metadata.get("suppress_bundle_projection") is True
         or task_structure.get("suppress_bundle_projection") is True
-        or str(task_structure.get("execution_chain_type") or "").strip() == "coordination_node"
+        or str(task_structure.get("execution_chain_type") or "").strip() == "task_graph_node"
     )
 
 
@@ -921,7 +908,6 @@ def _select_task_graph(
         current_turn_payload.get("graph_id"),
         current_turn_payload.get("selected_graph_id"),
         current_turn_payload.get("task_graph_id"),
-        current_turn_payload.get("coordination_task_id"),
     )
     for ref in explicit_refs:
         target = str(ref or "").strip()
@@ -952,9 +938,7 @@ def _is_stage_execution_turn(current_turn_payload: dict[str, Any]) -> bool:
         return False
     if str(current_turn_payload.get("continuation_stage_id") or "").strip():
         return True
-    if str(current_turn_payload.get("stage_execution_request_ref") or "").strip():
-        return True
-    if str(current_turn_payload.get("coordination_run_id") or "").strip():
+    if str(current_turn_payload.get("work_request_ref") or "").strip():
         return True
     if dict(current_turn_payload.get("task_result_ready_event") or {}):
         return True

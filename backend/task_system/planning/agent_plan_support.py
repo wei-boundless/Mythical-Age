@@ -275,6 +275,7 @@ def _readonly_planner_request(*, task_id: str, semantic_contract: dict[str, Any]
     contract = _model_visible_semantic_contract(semantic_contract)
     return {
         "request_id": f"readonly-planner-request:{task_id or 'runtime'}",
+        "authority": "runtime.readonly_planner_request",
         "semantic_contract_ref": str(contract.get("contract_id") or ""),
         "semantic_contract": contract,
         "workspace_observations": [],

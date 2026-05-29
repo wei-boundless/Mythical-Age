@@ -70,6 +70,25 @@ class GraphHarnessConfigRepository:
         )
         return item
 
+    def replace_all(self, configs: list[Any], *, published_bindings: dict[str, str]) -> list[GraphHarnessConfig]:
+        items = [
+            config if isinstance(config, GraphHarnessConfig) else graph_harness_config_from_dict(dict(config or {}))
+            for config in configs
+        ]
+        bindings = {str(key): str(value) for key, value in published_bindings.items() if str(key) and str(value)}
+        config_ids = {item.config_id for item in items}
+        missing = {key: value for key, value in bindings.items() if value not in config_ids}
+        if missing:
+            raise ValueError("GraphHarnessConfigRepository published binding references missing config")
+        self.storage.write_object(
+            "graph_harness_configs.json",
+            {
+                "configs": [item.to_dict() for item in sorted(items, key=lambda value: (value.graph_id, value.config_id))],
+                "published_bindings": bindings,
+            },
+        )
+        return items
+
     def published_bindings(self) -> dict[str, str]:
         payload = self.storage.read_object("graph_harness_configs.json", {"configs": [], "published_bindings": {}})
         return {

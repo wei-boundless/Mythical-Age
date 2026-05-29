@@ -15,7 +15,6 @@
           "session_id",
           "task_id",
           "items",
-          "todos",
           "todo_id",
           "status",
           "notes"

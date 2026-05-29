@@ -305,41 +305,6 @@ def test_runtime_context_record_observation_builds_tool_use_summary() -> None:
     assert "web:evidence:1" in summary["evidence_refs"]
 
 
-def test_runtime_context_prompt_applies_agent_assembly_contract() -> None:
-    manager = RuntimeContextManager(
-        system_prompt_builder=lambda **_: "基础系统提示"
-    )
-
-    snapshot = manager.prepare_model_context(
-        session_id="session:test",
-        task_id="task:test",
-        user_message="请审核世界观设定",
-        history=[],
-        agent_assembly_contract={
-            "assembly_id": "assembly:world-review",
-            "prompt_assembly": {
-                "role_name": "世界观审核员",
-                "role_summary": "你只负责评审当前世界观设定是否完整、一致、可支撑后续写作。",
-                "instruction_text": "你不负责替创作者扩写设定。",
-                "required_outputs": ["问题清单", "是否允许进入下一阶段"],
-                "forbidden_actions": ["扩写世界观正文"],
-            },
-            "output_boundary": {
-                "selected_channel": "graph_node_result",
-            },
-        },
-    )
-    system_prompt = snapshot.model_messages[0]["content"]
-
-    assert snapshot.diagnostics["agent_assembly_contract_applied"] is True
-    assert snapshot.diagnostics["agent_assembly_contract_ref"] == "assembly:world-review"
-    assert "当前 Agent 工作契约" in system_prompt
-    assert "你是一名世界观审核员" in system_prompt
-    assert "你不负责替创作者扩写设定" in system_prompt
-    assert "是否允许进入下一阶段" in system_prompt
-    assert "runtime 节点" not in system_prompt
-
-
 def test_runtime_context_prompt_keeps_single_user_visible_receipt_protocol_source() -> None:
     manager = RuntimeContextManager(
         system_prompt_builder=lambda **_: (

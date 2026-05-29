@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sqlite3
 import time
 from typing import Any, Callable
 
@@ -9,11 +10,13 @@ from capability_system.tool_authorization import ToolAuthorizationIndex, build_t
 from permissions import OperationGate
 from project_layout import ProjectLayout
 from harness.runtime.monitor_projection import TaskRunMonitorProjector
+from harness.graph.langgraph_checkpoint_store import LangGraphCheckpointStore
 from runtime.memory.state_index import RuntimeStateIndex
 from runtime.prompt_accounting import PromptAccountingLedger
 from runtime.shared.event_log import RuntimeEventLog
 from runtime.shared.execution_record import RuntimeExecutionStore
 from runtime.shared.runtime_object_store import RuntimeObjectStore
+from langgraph.checkpoint.sqlite import SqliteSaver
 
 class SingleAgentRuntimeHost:
     """Minimal service host for the rebuilt single-agent mainline.
@@ -38,6 +41,7 @@ class SingleAgentRuntimeHost:
         self.execution_store = RuntimeExecutionStore(self.root_dir)
         self.state_index = RuntimeStateIndex(self.root_dir)
         self.runtime_objects = RuntimeObjectStore(self.root_dir)
+        self.graph_checkpoint_store = LangGraphCheckpointStore(_build_graph_checkpoint_saver(self.root_dir))
         self.operation_gate = operation_gate or OperationGate(build_default_operation_registry())
         self.permission_mode_provider = permission_mode_provider
         self.tool_authorization_index = tool_authorization_index or build_tool_authorization_index(
@@ -99,6 +103,7 @@ class SingleAgentRuntimeHost:
         if task_run is None:
             return None
         events = [item.to_dict() for item in self.event_log.list_events(task_run_id)]
+        graph_runs = self._graph_runs_for_task_run(task_run)
         if not include_payloads:
             events = [
                 {
@@ -109,6 +114,8 @@ class SingleAgentRuntimeHost:
             ]
         return {
             "task_run": task_run.to_dict(),
+            "graph_runs": graph_runs,
+            "graph_run_count": len(graph_runs),
             "events": events,
             "event_count": len(events),
             "authority": "single_agent_runtime_host.task_run_trace",
@@ -150,6 +157,7 @@ class SingleAgentRuntimeHost:
         }
 
     def _task_run_summary(self, task_run: Any) -> dict[str, Any]:
+        graph_runs = self._graph_runs_for_task_run(task_run)
         return {
             "task_run_id": task_run.task_run_id,
             "session_id": task_run.session_id,
@@ -160,7 +168,19 @@ class SingleAgentRuntimeHost:
             "updated_at": task_run.updated_at,
             "terminal_reason": task_run.terminal_reason,
             "latest_event_offset": task_run.latest_event_offset,
+            "graph_run_count": len(graph_runs),
+            "graph_runs": graph_runs,
         }
+
+    def _graph_runs_for_task_run(self, task_run: Any) -> list[dict[str, Any]]:
+        diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
+        graph_run_id = str(diagnostics.get("graph_run_id") or "").strip()
+        if not graph_run_id:
+            return []
+        payload = self.runtime_objects.get_object(f"rtobj:graph_run:{_safe_runtime_object_id(graph_run_id)}")
+        if not payload:
+            return []
+        return [payload]
 
 def _redact_payload(payload: dict[str, Any], *, include_model_messages: bool) -> dict[str, Any]:
     if include_model_messages:
@@ -197,3 +217,16 @@ def _existing_artifact_refs(values: list[Any], *, project_root: Path) -> list[di
 
 def _inside(path: Path, root: Path) -> bool:
     return path == root or root in path.parents
+
+
+def _safe_runtime_object_id(value: str) -> str:
+    return "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in str(value or ""))[:180]
+
+
+def _build_graph_checkpoint_saver(root_dir: Path) -> SqliteSaver:
+    path = Path(root_dir) / "graph_checkpoints.sqlite"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(str(path), check_same_thread=False)
+    saver = SqliteSaver(connection)
+    saver.setup()
+    return saver

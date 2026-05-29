@@ -185,10 +185,10 @@ function taskDisplayTitle(task: Pick<HealthTaskRecord, "title" | "task_id" | "ta
   const title = publicTitle(rawTitle) || publicTitle(rawTaskId);
   if (title) return title;
   const status = String(("status" in task ? task.status : "") || "");
-  if (status === "failed") return `会话任务失败${runOrdinal(rawRunId)}`;
-  if (status === "completed" || status === "success") return `会话任务完成${runOrdinal(rawRunId)}`;
-  if (status === "blocked" || status === "waiting_approval") return `会话任务等待处理${runOrdinal(rawRunId)}`;
-  return `会话任务${runOrdinal(rawRunId)}`;
+  if (status === "failed") return `会话运行失败${runOrdinal(rawRunId)}`;
+  if (status === "completed" || status === "success") return `会话运行完成${runOrdinal(rawRunId)}`;
+  if (status === "blocked" || status === "waiting_approval") return `会话运行等待处理${runOrdinal(rawRunId)}`;
+  return `会话运行${runOrdinal(rawRunId)}`;
 }
 
 function taskSecondaryLabel(row: Record<string, unknown>) {

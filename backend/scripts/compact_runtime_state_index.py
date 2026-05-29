@@ -42,15 +42,9 @@ def compact_runtime_state_index(root_dir: Path, *, dry_run: bool = False) -> dic
     after = dict(before)
 
     task_runs = dict(before.get("task_runs") or {})
-    coordination_runs = dict(before.get("coordination_runs") or {})
     after["task_runs"] = {
         key: state_index._compact_task_run_payload(dict(value))
         for key, value in task_runs.items()
-        if isinstance(value, dict)
-    }
-    after["coordination_runs"] = {
-        key: state_index._compact_coordination_run_payload(dict(value))
-        for key, value in coordination_runs.items()
         if isinstance(value, dict)
     }
     after["updated_at"] = time.time()
@@ -64,9 +58,8 @@ def compact_runtime_state_index(root_dir: Path, *, dry_run: bool = False) -> dic
         "after_bytes": len(after_text.encode("utf-8")),
         "saved_bytes": len(before_text.encode("utf-8")) - len(after_text.encode("utf-8")),
         "task_run_count": len(task_runs),
-        "coordination_run_count": len(coordination_runs),
         "forbidden_field_counts_after": _forbidden_field_counts(after),
-        "authority": "orchestration.runtime_state_index_compaction_report",
+        "authority": "runtime.memory.state_index_compaction_report",
     }
     timestamp = time.strftime("%Y%m%d-%H%M%S")
     backup = root_dir / f"state_index.json.bak.{timestamp}"
@@ -89,15 +82,14 @@ def compact_runtime_state_index(root_dir: Path, *, dry_run: bool = False) -> dic
 def _forbidden_field_counts(payload: dict[str, Any]) -> dict[str, int]:
     counts = {
         "task_graph_definition": 0,
-        "task_graph_runtime_spec": 0,
-        "graph_coordination_state": 0,
+        "graph_harness_config_payload": 0,
+        "graph_harness_config": 0,
     }
-    for bucket in ("task_runs", "coordination_runs"):
-        for item in dict(payload.get(bucket) or {}).values():
-            diagnostics = dict(dict(item or {}).get("diagnostics") or {}) if isinstance(item, dict) else {}
-            for key in counts:
-                if key in diagnostics:
-                    counts[key] += 1
+    for item in dict(payload.get("task_runs") or {}).values():
+        diagnostics = dict(dict(item or {}).get("diagnostics") or {}) if isinstance(item, dict) else {}
+        for key in counts:
+            if key in diagnostics:
+                counts[key] += 1
     return counts
 
 

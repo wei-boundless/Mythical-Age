@@ -406,20 +406,19 @@ def test_task_graph_standard_view_api_round_trips_title_and_node_runtime(tmp_pat
     assert draft["runtime"]["dispatch_group"] == "drafting"
 
 
-def test_runtime_spec_does_not_promote_linked_timeline_block_to_graph_module(tmp_path: Path) -> None:
+def test_standard_view_does_not_promote_linked_timeline_block_to_graph_composition(tmp_path: Path) -> None:
     _seed_graph(tmp_path)
     graph = TaskFlowRegistry(tmp_path).get_task_graph("graph.test.standard_view")
     assert graph is not None
 
-    spec = build_task_graph_standard_view(graph=graph, graph_lookup=TaskFlowRegistry(tmp_path)).diagnostics["runtime_spec"]
-    graph_modules = spec["graph_module_runtime_plans"]
-    graph_module_nodes = [node for node in spec["nodes"] if node["node_type"] == "graph_module"]
+    view = build_task_graph_standard_view(graph=graph, graph_lookup=TaskFlowRegistry(tmp_path)).to_dict()
 
-    assert graph_modules == []
-    assert graph_module_nodes == []
+    assert view["graph_module_runtime"] == []
+    assert view["graph_module_expansions"] == []
+    assert view["diagnostics"]["graph_harness_config"]["composition_source_count"] == 0
 
 
-def test_runtime_spec_compiles_explicit_graph_module_node_without_timeline_runtime(tmp_path: Path) -> None:
+def test_standard_view_surfaces_invalid_explicit_graph_module_node_without_old_runtime_plan(tmp_path: Path) -> None:
     registry = TaskFlowRegistry(tmp_path)
     registry.upsert_task_graph(
         graph_id="graph.test.explicit_graph_module",
@@ -436,7 +435,6 @@ def test_runtime_spec_compiles_explicit_graph_module_node_without_timeline_runti
                 "agent_id": "agent:0",
                 "agent_group_id": "group.should_not_survive",
                 "work_posture": "graph_module_runner",
-                "projection_id": "projection.should_not_survive",
                 "phase_id": "phase.import",
                 "sequence_index": 10,
                 "metadata": {"editor_node": True},
@@ -455,28 +453,18 @@ def test_runtime_spec_compiles_explicit_graph_module_node_without_timeline_runti
     graph = registry.get_task_graph("graph.test.explicit_graph_module")
     assert graph is not None
 
-    spec = build_task_graph_standard_view(graph=graph, graph_lookup=registry).diagnostics["runtime_spec"]
-    graph_module_nodes = [node for node in spec["nodes"] if node["node_id"] == "graph_module.import"]
+    view = build_task_graph_standard_view(graph=graph, graph_lookup=registry).to_dict()
+    graph_module_nodes = [node for node in view["nodes"] if node["node_id"] == "graph_module.import"]
 
     assert len(graph_module_nodes) == 1
-    assert len(spec["graph_module_runtime_plans"]) == 1
-    assert graph_module_nodes[0]["role"] == "graph_module"
-    assert graph_module_nodes[0]["agent_id"] == ""
-    assert graph_module_nodes[0]["runtime_lane"] == ""
-    assert "projection_id" not in graph_module_nodes[0]
-    assert graph_module_nodes[0]["task_id"] == "task_graph.node.graph.test.explicit_graph_module.graph_module.import"
+    assert view["graph_module_runtime"] == []
+    assert graph_module_nodes[0]["node_type"] == "graph_module"
+    assert graph_module_nodes[0]["executor"]["agent_id"] == "agent:0"
+    assert graph_module_nodes[0]["task_id"] == "task.test.graph_module_import"
     assert graph_module_nodes[0]["metadata"]["editor_node"] is True
-    assert graph_module_nodes[0]["metadata"]["explicit_graph_module_node"] is True
-    assert graph_module_nodes[0]["metadata"]["runtime_role"] == "graph_module_container"
-    assert graph_module_nodes[0]["metadata"]["model_visible"] is False
-    assert "agent_group_id" not in graph_module_nodes[0]["metadata"]
-    assert "model_requirement" not in graph_module_nodes[0]["metadata"]
-    assert "model_resolution" not in graph_module_nodes[0]["metadata"]
-    assert "model_requirement" not in graph_module_nodes[0]["metadata"]["contract_bindings"].get("runtime", {})
-    assert graph_module_nodes[0]["metadata"]["graph_module_runtime_plan_id"] == "graph_module_runtime.import"
-    assert graph_module_nodes[0]["executor_policy"]["linked_graph_id"] == "graph.test.imported"
-    assert graph_module_nodes[0]["executor_policy"]["imported_graph_id"] == "graph.test.imported"
-    assert spec["subtask_refs"] == ()
+    assert view["graph_module_expansions"] == []
+    assert any(issue["code"] == "graph_module_linked_graph_not_found" for issue in view["issues"])
+    assert view["diagnostics"]["graph_harness_config"]["available"] is False
 
 
 def test_graph_module_handoff_contract_binding_comes_from_explicit_node(tmp_path: Path) -> None:
@@ -531,11 +519,11 @@ def test_graph_module_handoff_contract_binding_comes_from_explicit_node(tmp_path
     assert graph is not None
     view = build_task_graph_standard_view(graph=graph, graph_lookup=registry).to_dict()
     graph_interface = next(item for item in view["interfaces"] if item["unit_id"] == "unit.node.graph_module.design")
-    runtime_spec = view["diagnostics"]["runtime_spec"]
 
     assert graph_interface["input_ports"][0]["payload_contract_id"] == "contract.binding.graph_module.handoff"
-    assert runtime_spec["graph_module_runtime_plans"][0]["handoff_contract_id"] == "contract.binding.graph_module.handoff"
-    assert runtime_spec["nodes"][-1]["metadata"]["graph_module_runtime_plan_id"] == "graph_module_runtime.design"
+    assert view["graph_module_runtime"] == []
+    assert view["graph_module_expansions"] == []
+    assert view["diagnostics"]["graph_harness_config"]["config_id"]
 
 
 def test_standard_view_round_trips_contract_bindings(tmp_path: Path) -> None:
@@ -610,11 +598,8 @@ def test_graph_module_expansion_blocks_self_reference_and_surfaces_issue(tmp_pat
 
     payload = build_task_graph_standard_view(graph=graph, graph_lookup=registry).to_dict()
 
-    expansion = payload["graph_module_expansions"][0]
-    assert expansion["metadata"]["expansion_status"] == "unavailable"
-    assert expansion["nodes"] == []
-    assert expansion["issues"][0]["code"] == "graph_module_self_reference"
-    assert expansion["issues"][0]["node_id"] == "graph_module.block.self"
+    assert payload["graph_module_runtime"] == []
+    assert payload["graph_module_expansions"] == []
     assert any(issue["code"] == "graph_module_self_reference" for issue in payload["issues"])
 
 

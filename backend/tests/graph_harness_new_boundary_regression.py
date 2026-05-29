@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import ast
 
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -10,31 +11,37 @@ NEW_GRAPH_FILES = [
 ]
 
 
-def test_new_graph_harness_does_not_use_old_stage_request_protocol() -> None:
-    forbidden = (
-        "stage_execution_request",
-        "execution_runtime_kind",
-        "NodeExecutionRequest",
-        "GraphCoordination",
-        "TaskGraphRuntimeSpec",
-        "compile_task_graph_definition_runtime_spec",
-        "TaskFlowRegistry",
-        "graph_module",
-        "linked_config_id",
-        "modules",
-    )
-    offenders: dict[str, list[str]] = {}
+def test_graph_harness_imports_only_harness_graph_layers() -> None:
+    imports_by_file: dict[str, set[str]] = {}
     for path in NEW_GRAPH_FILES:
-        text = path.read_text(encoding="utf-8")
-        hits = [item for item in forbidden if item in text]
-        if hits:
-            offenders[str(path.relative_to(BACKEND_DIR))] = hits
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        imports: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imports.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imports.add(node.module)
+        imports_by_file[str(path.relative_to(BACKEND_DIR))] = imports
 
-    assert offenders == {}
+    assert any("graph.runtime" in imports for imports in imports_by_file.values())
+    assert any("graph.loop" in imports for imports in imports_by_file.values())
+    assert all(not any(item.startswith("task_system") for item in imports) for imports in imports_by_file.values())
 
 
 def test_new_graph_harness_public_contract_uses_graph_run_language() -> None:
     text = (BACKEND_DIR / "harness" / "graph_harness.py").read_text(encoding="utf-8")
 
-    assert "graph_run" in text
-    assert "coordination_run" not in text
+    assert "GraphHarnessStart" in text
+    assert "graph_run_id" in text
+    assert "get_graph_run_monitor" in text
+
+
+def test_graph_loop_does_not_materialize_agent_input_package_inline() -> None:
+    loop_text = (BACKEND_DIR / "harness" / "graph" / "loop.py").read_text(encoding="utf-8")
+    materializer_text = (BACKEND_DIR / "harness" / "graph" / "context_materializer.py").read_text(encoding="utf-8")
+
+    assert "harness.graph_node_input_package" not in loop_text
+    assert "harness.graph_edge_handoff_packet" not in loop_text
+    assert "agent_instruction" not in loop_text
+    assert "harness.graph_node_input_package" in materializer_text
+    assert "harness.graph.context_materializer" in materializer_text

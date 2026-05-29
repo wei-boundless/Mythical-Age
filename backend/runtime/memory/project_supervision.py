@@ -186,7 +186,6 @@ def build_runtime_status(
     *,
     ledger: ProjectProgressLedger,
     task_run_id: str,
-    coordination_run_id: str,
     active_run_status: str,
     latest_artifact_root: str,
     latest_event_offset: int,
@@ -213,7 +212,6 @@ def build_runtime_status(
         graph_id=ledger.graph_id,
         project_title=ledger.project_title,
         active_task_run_id=task_run_id,
-        active_coordination_run_id=coordination_run_id,
         active_run_status=active_run_status,
         project_runtime_status=runtime_status,
         metric_label=ledger.metric_label,
@@ -237,13 +235,11 @@ def classify_blocker(
     run_status: str,
     terminal_reason: str,
     active_node_id: str,
-    stage_execution_request: dict[str, Any] | None,
     last_event_at: float,
     now: float | None = None,
     failure: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     current_time = float(now or time.time())
-    stage_request = dict(stage_execution_request or {})
     error = dict(failure or {})
     if run_status in {"failed", "aborted"}:
         return {
@@ -252,13 +248,6 @@ def classify_blocker(
             "summary": str(error.get("message") or terminal_reason or "Task run failed"),
             "active_node_id": active_node_id,
             "terminal_reason": terminal_reason,
-        }
-    if active_node_id and not stage_request and run_status == "running":
-        return {
-            "kind": "missing_stage_execution_request",
-            "severity": "error",
-            "summary": "Active run has no current stage execution request.",
-            "active_node_id": active_node_id,
         }
     if last_event_at > 0 and current_time - last_event_at >= 180 and run_status == "running":
         return {
@@ -276,7 +265,6 @@ def make_supervision_record(
     project_id: str,
     session_id: str,
     task_run_id: str = "",
-    coordination_run_id: str = "",
     issue_type: str,
     issue_summary: str,
     root_cause: str = "",
@@ -292,7 +280,6 @@ def make_supervision_record(
         supervision_session_id=session_id,
         project_id=project_id,
         observed_task_run_id=task_run_id,
-        observed_coordination_run_id=coordination_run_id,
         issue_type=issue_type,
         issue_summary=issue_summary,
         root_cause=root_cause,

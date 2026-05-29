@@ -6,11 +6,17 @@ from request_intent.frame_access import (
     capability_needs,
     turn_signals,
 )
+from agent_system.profiles.runtime_mode_config import (
+    PROFESSIONAL_MODE,
+    ROLE_MODE,
+    STANDARD_MODE,
+    runtime_mode_catalog,
+)
 from capability_system.local_mcp_registry import get_local_mcp_unit_for_source_kind
 from intent.execution_obligation import build_execution_obligation
 from orchestration.delegation_protocol import build_agent_delegation_protocol, default_expected_output_contract
-from orchestration.interaction_mode_policy import build_runtime_interaction_mode_policy
 from continuation.profile_registry import profile_by_domain
+from task_system.goal_profiles import get_task_goal_profile
 
 from task_system.services.bundle_models import BundleItemSpec, BundleSpec
 from task_system.tasks.definitions import default_task_definitions
@@ -30,17 +36,14 @@ def _record_task_mode(record: Any, flow: Any | None = None) -> str:
     return str(
         metadata.get("task_mode")
         or structure.get("task_mode")
-        or structure.get("runtime_lane_hint")
-        or getattr(record, "runtime_lane", "")
         or flow_metadata.get("task_mode")
-        or getattr(flow, "default_runtime_lane", "")
         or ""
     ).strip()
 
 
 def _flow_task_mode(flow: Any) -> str:
     metadata = dict(getattr(flow, "metadata", {}) or {})
-    return str(metadata.get("task_mode") or getattr(flow, "default_runtime_lane", "") or "").strip()
+    return str(metadata.get("task_mode") or "").strip()
 
 
 def _dedupe(values: list[str] | tuple[str, ...]) -> list[str]:
@@ -140,7 +143,7 @@ def build_runtime_task_intent_contract(
         explicit_inputs=explicit_inputs,
         execution_obligation=execution_obligation_payload,
     )
-    mode_policy = build_runtime_interaction_mode_policy(
+    mode_policy = build_runtime_mode_request(
         task_requirement_contract=semantic_contract.to_dict(),
         query_understanding=understanding,
         current_turn_context=current_turn_with_obligation,
@@ -179,14 +182,14 @@ def build_runtime_task_intent_contract(
         capability_requests=tuple(capability_requests),
         execution_obligation=execution_obligation_payload,
         task_requirement_contract=semantic_contract.to_dict(),
-        mode_policy=mode_policy.to_dict(),
+        mode_policy=mode_policy,
         diagnostics={
             "execution_mode": str(current_turn.get("execution_mode") or "single"),
             "agent_turn_action_request": dict(current_turn.get("agent_turn_action_request") or {}),
             "task_contract_seed": dict(current_turn.get("task_contract_seed") or {}),
-            "interaction_mode": mode_policy.interaction_mode,
-            "runtime_lane": mode_policy.runtime_lane,
-            "projection_strength": mode_policy.projection_strength,
+            "interaction_mode": str(mode_policy.get("interaction_mode") or ""),
+            "runtime_mode": str(mode_policy.get("runtime_mode") or ""),
+            "projection_strength": str(mode_policy.get("projection_strength") or ""),
             "semantic_task_type": semantic_contract.task_goal_type,
             "professional_profile_id": semantic_contract.professional_profile_id,
             "execution_obligation": {
@@ -207,18 +210,180 @@ def build_runtime_task_intent_contract(
     )
 
 
+def build_runtime_mode_request(
+    *,
+    task_requirement_contract: dict[str, Any] | None = None,
+    query_understanding: dict[str, Any] | None = None,
+    current_turn_context: dict[str, Any] | None = None,
+    execution_obligation: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    contract = dict(task_requirement_contract or {})
+    understanding = dict(query_understanding or {})
+    current_turn = dict(current_turn_context or {})
+    obligation = dict(execution_obligation or contract.get("execution_obligation") or current_turn.get("execution_obligation") or {})
+    explicit_mode = _normalize_runtime_mode(
+        current_turn.get("runtime_mode")
+        or current_turn.get("mode")
+        or current_turn.get("interaction_mode")
+        or current_turn.get("runtime_interaction_mode")
+        or dict(current_turn.get("mode_policy") or {}).get("runtime_mode")
+        or dict(current_turn.get("mode_policy") or {}).get("interaction_mode")
+        or dict(current_turn.get("runtime_mode_policy") or {}).get("runtime_mode")
+        or dict(current_turn.get("runtime_mode_policy") or {}).get("interaction_mode")
+    )
+    task_goal_type = str(contract.get("task_goal_type") or "").strip()
+    if _current_turn_is_task_graph_node_runtime(current_turn):
+        mode = explicit_mode or ROLE_MODE
+        reason = "task_graph_node_runtime"
+    elif _obligation_requires_professional_mode(obligation):
+        mode = explicit_mode or _runtime_mode_for_goal_profile(task_goal_type) or PROFESSIONAL_MODE
+        reason = "execution_obligation_requires_real_work"
+    elif explicit_mode:
+        mode = explicit_mode
+        reason = "explicit_runtime_mode"
+    else:
+        action_request = dict(understanding.get("agent_turn_action_request") or current_turn.get("agent_turn_action_request") or {})
+        action_type = str(action_request.get("action_type") or "").strip()
+        if action_type in {"respond", "ask_user"}:
+            mode = ROLE_MODE
+            reason = f"agent_action:{action_type or 'respond'}"
+        else:
+            mode = _runtime_mode_for_goal_profile(task_goal_type) or _runtime_mode_for_contract(contract, understanding)
+            reason = f"semantic_task:{task_goal_type or 'general'}"
+    catalog = runtime_mode_catalog()
+    mode_config = catalog.get(mode) or catalog.get(STANDARD_MODE)
+    interaction_mode = str(getattr(mode_config, "interaction_mode", "") or f"{mode}_mode")
+    return {
+        "authority": "task_system.runtime_mode_request",
+        "runtime_mode": mode,
+        "mode": mode,
+        "interaction_mode": interaction_mode,
+        "mode_reason": reason,
+        "recipe_id": str(getattr(mode_config, "recipe_id", "") or _default_agent_mode_recipe_id(interaction_mode)),
+        "projection_strength": str(getattr(mode_config, "projection_strength", "") or ""),
+        "semantic_contract_required": mode != ROLE_MODE,
+        "professional_profile_required": mode == PROFESSIONAL_MODE,
+        "planning_policy": dict(getattr(mode_config, "planning_policy", None) or {}),
+        "task_lifecycle_policy": dict(getattr(mode_config, "task_lifecycle_policy", None) or {}),
+        "diagnostics": {
+            "task_goal_type": task_goal_type,
+            "professional_profile_id": str(contract.get("professional_profile_id") or ""),
+            "agent_turn_action_request": dict(understanding.get("agent_turn_action_request") or {}),
+            "task_contract_seed": dict(understanding.get("task_contract_seed") or {}),
+            "execution_obligation": _obligation_summary(obligation),
+            "tool_permission_authority": "harness.runtime.assembly",
+            "sandbox_authority": "task_environment",
+        },
+    }
+
+
+def _normalize_runtime_mode(value: Any) -> str:
+    raw = str(value or "").strip().lower()
+    mapping = {
+        "role": ROLE_MODE,
+        "role_mode": ROLE_MODE,
+        "standard": STANDARD_MODE,
+        "standard_mode": STANDARD_MODE,
+        "professional": PROFESSIONAL_MODE,
+        "professional_mode": PROFESSIONAL_MODE,
+        "coding": PROFESSIONAL_MODE,
+        "code": PROFESSIONAL_MODE,
+        "coder": PROFESSIONAL_MODE,
+    }
+    return mapping.get(raw, "")
+
+
+def _runtime_mode_for_goal_profile(task_goal_type: str) -> str:
+    profile = get_task_goal_profile(str(task_goal_type or "").strip())
+    if profile is None:
+        return ""
+    goal_type = str(getattr(profile, "task_goal_type", "") or "").strip()
+    if goal_type in {"role_conversation", "light_qa", "blocked"}:
+        return ROLE_MODE
+    professional_markers = {
+        "workspace_write",
+        "terminal",
+        "browser",
+        "image_generation_or_asset_integration",
+        "apply_real_change",
+        "run_verification",
+        "run_browser_verification",
+        "integrate_asset",
+        "execute_node_contract",
+        "verification_evidence",
+        "runnable_artifact_refs",
+        "gameplay_acceptance",
+        "workflow_acceptance",
+        "visual_asset_refs",
+    }
+    profile_values = {
+        str(item).strip()
+        for source in (
+            getattr(profile, "required_capabilities", ()) or (),
+            getattr(profile, "required_actions", ()) or (),
+            getattr(profile, "default_core_deliverables", ()) or (),
+        )
+        for item in list(source or ())
+        if str(item).strip()
+    }
+    if str(getattr(profile, "professional_profile_id", "") or "").strip() or profile_values.intersection(professional_markers):
+        return PROFESSIONAL_MODE
+    return STANDARD_MODE
+
+
+def _runtime_mode_for_contract(contract: dict[str, Any], understanding: dict[str, Any]) -> str:
+    task_goal_type = str(contract.get("task_goal_type") or "").strip()
+    if task_goal_type in {"code_fix_execution", "artifact_delivery", "frontend_app_delivery", "game_vertical_slice_delivery", "implementation", "verification"}:
+        return PROFESSIONAL_MODE
+    seed = dict(understanding.get("task_contract_seed") or {})
+    resource_contract = dict(seed.get("resource_contract") or {})
+    if (
+        list(resource_contract.get("required_write_files") or [])
+        or list(resource_contract.get("required_write_dirs") or [])
+        or list(seed.get("deliverables") or [])
+    ):
+        return PROFESSIONAL_MODE
+    return STANDARD_MODE
+
+
+def _obligation_requires_professional_mode(obligation: dict[str, Any]) -> bool:
+    item = dict(obligation or {})
+    forbidden = {
+        str(value).strip()
+        for value in list(item.get("forbidden_actions") or [])
+        if str(value).strip()
+    }
+    if forbidden.intersection({"modify_code", "write_file", "edit_file"}):
+        return False
+    return bool(
+        list(item.get("required_writes") or [])
+        or list(item.get("required_commands") or [])
+        or list(item.get("required_verifications") or [])
+    )
+
+
+def _obligation_summary(obligation: dict[str, Any]) -> dict[str, Any]:
+    item = dict(obligation or {})
+    return {
+        "required_reads": len(list(item.get("required_reads") or [])),
+        "required_writes": len(list(item.get("required_writes") or [])),
+        "required_commands": len(list(item.get("required_commands") or [])),
+        "required_verifications": len(list(item.get("required_verifications") or [])),
+        "forbidden_actions": list(item.get("forbidden_actions") or []),
+    }
+
+
+def _default_agent_mode_recipe_id(interaction_mode: str) -> str:
+    return {
+        "role_mode": "runtime.recipe.role_interaction",
+        "standard_mode": "runtime.recipe.standard_task",
+        "professional_mode": "runtime.recipe.professional_task",
+    }.get(str(interaction_mode or "").strip(), "runtime.recipe.standard_task")
+
+
 def _current_turn_is_task_graph_node_runtime(current_turn_context: dict[str, Any]) -> bool:
     current_turn = dict(current_turn_context or {})
     if current_turn.get("task_graph_node_runtime") is True or current_turn.get("suppress_bundle_projection") is True:
-        return True
-    if str(current_turn.get("runtime_lane") or "").strip() == "coordination_task":
-        return True
-    if str(current_turn.get("coordination_run_id") or "").strip() and str(
-        current_turn.get("selected_task_id")
-        or current_turn.get("task_id")
-        or current_turn.get("specific_task_id")
-        or ""
-    ).startswith("task."):
         return True
     return False
 

@@ -149,8 +149,7 @@ export function buildMainAgentTaskSelection(
 
 function isTaskGraphLaunchSelection(selection: Record<string, unknown>): boolean {
   return (
-    String(selection.mode || "").trim() === "coordination"
-    || Boolean(String(selection.coordination_task_id || "").trim())
+    String(selection.mode || "").trim() === "task_graph"
     || Boolean(String(selection.task_graph_id || "").trim())
     || Boolean(String(selection.selected_graph_id || "").trim())
   );

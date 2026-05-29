@@ -10,7 +10,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "AgentGroupRegistry": (".groups.registry", "AgentGroupRegistry"),
     "AgentLifecycleRecord": (".models.agent_models", "AgentLifecycleRecord"),
     "AgentModelProfile": (".models.model_profile_models", "AgentModelProfile"),
-    "AgentRuntimeChainAssembler": (".assembly.runtime_chain", "AgentRuntimeChainAssembler"),
     "AgentRuntimeProfile": (".profiles.runtime_profile_models", "AgentRuntimeProfile"),
     "AgentRuntimeRegistry": (".profiles.runtime_profile_registry", "AgentRuntimeRegistry"),
     "AgentRuntimeSpec": (".assembly.runtime_spec_models", "AgentRuntimeSpec"),

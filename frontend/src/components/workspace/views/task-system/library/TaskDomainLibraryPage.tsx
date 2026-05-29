@@ -51,8 +51,6 @@ export function TaskDomainLibraryPage({
   onSetDomainDraft,
   onSetEditingDomainName,
   onSetEntryDraft,
-  projectionCount,
-  projectionLoading,
   saving,
   selectedDomain,
   workflowOptions,
@@ -70,8 +68,6 @@ export function TaskDomainLibraryPage({
   onSetDomainDraft: Dispatch<SetStateAction<TaskDomainRecord>>;
   onSetEditingDomainName: (editing: boolean) => void;
   onSetEntryDraft: Dispatch<SetStateAction<ConversationEntryPolicy>>;
-  projectionCount: number;
-  projectionLoading: boolean;
   saving: string;
   selectedDomain: TaskDomainLibraryDomain | null;
   workflowOptions: string[];
@@ -165,12 +161,10 @@ export function TaskDomainLibraryPage({
         </section>
 
         {loading ? <div className="boundary-empty"><Loader2 className="spin" size={16} />加载中</div> : null}
-        {!loading && projectionLoading ? <div className="boundary-empty">投影卡片加载中，任务系统已可用</div> : null}
         <div className="task-management-status-row">
           <ReadinessCard label="域内任务" ready={Boolean(selectedDomain?.tasks.length)} value={`${selectedDomain?.tasks.length ?? 0}`} />
           <ReadinessCard label="任务图" ready={Boolean(graphCount)} value={`${graphCount}`} />
           <ReadinessCard label="契约" ready={Boolean(contractCount)} value={`${contractCount}`} />
-          <ReadinessCard label="Projection" ready={Boolean(projectionCount)} value={`${projectionCount}`} />
         </div>
       </main>
     </TaskDomainManagementPage>

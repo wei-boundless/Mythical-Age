@@ -12,7 +12,6 @@ from runtime.model_gateway.model_response import ModelResponseRuntimeExecutor
 from orchestration.runtime_directive import RuntimeDirective
 from request_intent.request_signals import build_request_signals
 from runtime.context_management.system_retrieval import build_system_retrieval_request_parts
-from harness.loop.agent_execution.delegation_context import build_delegation_request
 
 
 def _candidate_context() -> dict:
@@ -44,45 +43,6 @@ def _candidate_context() -> dict:
             }
         ],
     }
-
-
-def test_delegation_payload_uses_context_recall_candidate_without_old_contract() -> None:
-    action_request = SimpleNamespace(
-        operation_id="op.delegate_to_agent",
-        payload={
-            "tool_call": {
-                "id": "call-1",
-                "args": {
-                    "target_agent_id": "agent:table_analyst",
-                    "delegation_kind": "table_analysis",
-                    "instruction": "只基于刚才这前五名员工按部门总结。",
-                    "input_payload": {"query": "按部门总结。"},
-                },
-            }
-        },
-    )
-    task_operation = {
-        "current_turn_context": _candidate_context(),
-        "task_spec": {
-            "recipe_id": "runtime.recipe.structured_data_analysis",
-            "inputs": {},
-        },
-    }
-
-    request = build_delegation_request(
-        task_run_id="task-run-context-recall",
-        action_request=action_request,
-        parent_agent_run_ref="agentrun:main",
-        source_agent_id="agent:main",
-        user_message="只基于刚才这前五名员工，按部门做一个归类总结，不要回到全表重算。",
-        task_operation=task_operation,
-        session_id="session-context-recall",
-    )
-
-    assert request.input_payload["path"] == "Data/employees.xlsx"
-    assert request.input_payload["active_dataset"] == "Data/employees.xlsx"
-    assert request.input_payload["query"] == "按部门总结。"
-    assert "followup_execution_contract" not in request.input_payload
 
 
 def test_system_retrieval_request_derives_path_from_context_recall_candidate() -> None:

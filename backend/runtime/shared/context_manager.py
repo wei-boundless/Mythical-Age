@@ -119,7 +119,6 @@ class RuntimeContextManager:
         stage_projection_snapshot: Any | None = None,
         runtime_execution_facts: dict[str, Any] | None = None,
         runtime_assembly: dict[str, Any] | None = None,
-        agent_assembly_contract: dict[str, Any] | None = None,
     ) -> RuntimeContextSnapshot:
         system_prompt = self.system_prompt_builder(
             session_id=session_id,
@@ -145,7 +144,7 @@ class RuntimeContextManager:
         else:
             normalized_history_list, history_compaction = microcompact_history(
                 normalized_history_list,
-                root_dir=_runtime_context_root(runtime_assembly=runtime_assembly, agent_assembly_contract=agent_assembly_contract),
+                root_dir=_runtime_context_root(runtime_assembly=runtime_assembly),
                 session_id=session_id,
                 task_id=task_id,
             )
@@ -160,7 +159,6 @@ class RuntimeContextManager:
             context_policy_result=context_policy_result,
             runtime_execution_facts=runtime_execution_facts,
             runtime_assembly=runtime_assembly,
-            agent_assembly_contract=agent_assembly_contract,
         )
         model_messages = (
             {"role": "system", "content": runtime_prompt},
@@ -209,8 +207,6 @@ class RuntimeContextManager:
                 "runtime_prompt_assembly_applied": True,
                 "runtime_assembly_ref": str((runtime_assembly or {}).get("assembly_id") or ""),
                 "runtime_assembly_context_applied": bool(runtime_assembly),
-                "agent_assembly_contract_ref": str((agent_assembly_contract or {}).get("assembly_id") or ""),
-                "agent_assembly_contract_applied": bool(agent_assembly_contract),
                 "assembly_main_session_history": str(assembly_policy.get("main_session_history") or ""),
             },
         )
@@ -339,12 +335,8 @@ def _build_runtime_system_prompt(
     context_policy_result: dict[str, Any] | None,
     runtime_execution_facts: dict[str, Any] | None = None,
     runtime_assembly: dict[str, Any] | None = None,
-    agent_assembly_contract: dict[str, Any] | None = None,
 ) -> str:
     parts = [str(base_system_prompt or "").strip()]
-    agent_assembly_block = _render_agent_assembly_contract_block(agent_assembly_contract)
-    if agent_assembly_block:
-        parts.append(agent_assembly_block)
     context_block = _render_context_policy_block(context_policy_result)
     if context_block:
         parts.append(context_block)
@@ -360,53 +352,6 @@ def _build_runtime_system_prompt(
     return "\n\n".join(part for part in parts if part)
 
 
-def _render_agent_assembly_contract_block(agent_assembly_contract: dict[str, Any] | None) -> str:
-    assembly = dict(agent_assembly_contract or {})
-    if not assembly:
-        return ""
-    prompt = dict(assembly.get("prompt_assembly") or {})
-    role_name = str(prompt.get("role_name") or "执行代理").strip() or "执行代理"
-    role_summary = str(prompt.get("role_summary") or "").strip()
-    instruction_text = str(prompt.get("instruction_text") or "").strip()
-    required_outputs = [
-        str(item).strip()
-        for item in list(prompt.get("required_outputs") or [])
-        if str(item).strip()
-    ]
-    forbidden_actions = [
-        str(item).strip()
-        for item in list(prompt.get("forbidden_actions") or [])
-        if str(item).strip()
-    ]
-    output_boundary = dict(assembly.get("output_boundary") or {})
-    delivery = _delivery_label(str(output_boundary.get("selected_channel") or ""))
-    lines = [
-        "## 当前 Agent 工作契约",
-        f"你是一名{role_name}。",
-    ]
-    if role_summary:
-        lines.append(role_summary)
-    if instruction_text:
-        lines.append(instruction_text)
-    if delivery:
-        lines.append(f"你的最终交付应是：{delivery}。")
-    if required_outputs:
-        lines.append("必须交付：" + "，".join(required_outputs))
-    if forbidden_actions:
-        lines.append("禁止事项：" + "，".join(forbidden_actions))
-    lines.append("不要把装配字段、节点编号、权限记录或运行状态当作用户可见内容输出。")
-    return "\n".join(line for line in lines if line)
-
-
-def _delivery_label(channel: str) -> str:
-    return {
-        "assistant_message": "面向用户的最终回答",
-        "graph_node_result": "当前阶段任务结果",
-        "human_review": "人工审核反馈",
-        "graph_module_result": "图模块结果",
-    }.get(str(channel or "").strip(), "当前任务结果")
-
-
 def _runtime_assembly_context_policy(runtime_assembly: dict[str, Any] | None) -> dict[str, str]:
     assembly = dict(runtime_assembly or {})
     if not assembly:
@@ -418,13 +363,12 @@ def _runtime_assembly_context_policy(runtime_assembly: dict[str, Any] | None) ->
     return {"main_session_history": str(main_history.get("content_mode") or "summary").strip() or "summary"}
 
 
-def _runtime_context_root(*, runtime_assembly: dict[str, Any] | None, agent_assembly_contract: dict[str, Any] | None) -> Path:
-    for payload in (runtime_assembly, agent_assembly_contract):
-        data = dict(payload or {})
-        for key in ("root_dir", "workspace_root", "backend_root"):
-            value = str(data.get(key) or "").strip()
-            if value:
-                return Path(value)
+def _runtime_context_root(*, runtime_assembly: dict[str, Any] | None) -> Path:
+    data = dict(runtime_assembly or {})
+    for key in ("root_dir", "workspace_root", "backend_root"):
+        value = str(data.get(key) or "").strip()
+        if value:
+            return Path(value)
     return Path(".")
 
 

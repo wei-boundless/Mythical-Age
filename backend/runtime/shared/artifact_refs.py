@@ -82,22 +82,6 @@ class ArtifactRefIndex:
         matches.sort(key=lambda item: item[0], reverse=True)
         return matches[0][1] if matches else []
 
-    def accepted_refs(self, *, coordination_run_id: str, ref_kind: str = "") -> list[str]:
-        coordination_run = self.state_index.get_coordination_run(str(coordination_run_id or ""))
-        if coordination_run is None:
-            return []
-        diagnostics = dict(coordination_run.diagnostics or {})
-        refs: list[str] = []
-        for item in list(diagnostics.get("accepted_refs") or []):
-            if isinstance(item, dict):
-                if ref_kind and str(item.get("ref_kind") or "") != ref_kind:
-                    continue
-                refs.append(str(item.get("ref") or ""))
-            else:
-                refs.append(str(item or ""))
-        return dedupe_refs(refs)
-
-
 def collect_task_result_output_refs(task_result: dict[str, Any]) -> list[str]:
     refs: list[str] = []
     for item in list(task_result.get("output_refs") or []):

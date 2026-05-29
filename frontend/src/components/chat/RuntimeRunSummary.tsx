@@ -31,6 +31,14 @@ function isVisibleEntry(entry: RuntimeProgressEntry) {
   ].includes(entry.kind || "");
 }
 
+function isFormalTaskEntry(entry: RuntimeProgressEntry) {
+  const taskRunId = String(entry.taskRunId ?? "").trim().toLowerCase();
+  if (taskRunId.startsWith("turnrun:")) {
+    return false;
+  }
+  return entry.kind === "task_order" || entry.kind === "task_draft";
+}
+
 function entryLabel(entry: RuntimeProgressEntry) {
   return truncate(
     entry.meta?.find((item) => item.label === "目标")?.value
@@ -52,18 +60,20 @@ function entryStatus(entry: RuntimeProgressEntry) {
 function summaryText(entries: RuntimeProgressEntry[]) {
   const failed = entries.some((entry) => entry.level === "error");
   const waiting = entries.some((entry) => entry.level === "waiting");
-  const taskEntries = entries.filter((entry) => entry.kind && entry.kind !== "tool");
+  const formalTaskEntries = entries.filter(isFormalTaskEntry);
+  const runtimeEntries = entries.filter((entry) => entry.kind && entry.kind !== "tool");
   const toolCount = entries.filter((entry) => entry.kind === "tool").length;
-  if (failed) return "任务运行 · 失败";
-  if (waiting) return "任务运行 · 等待";
-  if (taskEntries.length) return toolCount ? `任务运行 · ${toolCount} 个工具` : "任务运行";
-  return toolCount ? `运行 ${toolCount} 个工具` : "任务运行";
+  const label = formalTaskEntries.length ? "任务运行" : "会话运行";
+  if (failed) return `${label} · 失败`;
+  if (waiting) return `${label} · 等待`;
+  if (runtimeEntries.length) return toolCount ? `${label} · ${toolCount} 个工具` : label;
+  return toolCount ? `运行 ${toolCount} 个工具` : label;
 }
 
 export function RuntimeRunSummary({ entries }: { entries: RuntimeProgressEntry[] }) {
   const activities = entries.filter(isVisibleEntry);
   const recentActivities = activities.slice(-MAX_ACTIVITY_ROWS);
-  const hasTaskActivity = activities.some((entry) => entry.kind && entry.kind !== "tool");
+  const hasTaskActivity = activities.some(isFormalTaskEntry);
   const Icon = hasTaskActivity ? CircleDashed : SquareTerminal;
   const [isOpen, setIsOpen] = useState(hasTaskActivity);
 

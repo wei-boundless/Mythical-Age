@@ -100,7 +100,7 @@ export function ChatPanel() {
           selectedChatModelId={selectedChatModelId}
           deepSeekThinkingEnabled={deepSeekThinkingEnabled}
           onToggleDeepSeekThinking={setDeepSeekThinkingEnabled}
-          taskSelection={taskSelection?.mode === "coordination" ? null : taskSelection}
+          taskSelection={taskSelection?.mode === "task_graph" ? null : taskSelection}
         />
       </div>
     </section>

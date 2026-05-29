@@ -3,8 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from runtime.shared.models import TaskRun
+
 from .graph.loop import GraphLoop, GraphLoopAdvance, GraphLoopStart
-from .graph.models import GraphHarnessConfig, GraphNodeWorkOrder, NodeResultEnvelope
+from .graph.models import GraphHarnessConfig, GraphNodeWorkOrder, GraphRun, NodeResultEnvelope
+from .graph.resume import GraphResumeResult, GraphResumeService
 from .graph.runtime import GraphRuntime, GraphRuntimeStart
 from .graph.work_order_executor import GraphNodeWorkOrderExecutor
 
@@ -40,6 +43,7 @@ class GraphHarness:
         self._agent_harness = agent_harness
         self._runtime = GraphRuntime(services=services)
         self._loop = GraphLoop(services=services)
+        self._resume = GraphResumeService(graph_loop=self._loop)
         self._work_order_executor = GraphNodeWorkOrderExecutor(services=services)
 
     @property
@@ -72,9 +76,17 @@ class GraphHarness:
             envelope=runtime_start.envelope,
             dispatch_ready=dispatch_ready,
         )
+        task_run = _task_run_from_payload(
+            self._services.state_index.get_task_run(runtime_start.task_run.task_run_id),
+            fallback=runtime_start.task_run,
+        )
+        graph_run = _graph_run_from_payload(
+            self.get_graph_run(runtime_start.graph_run.graph_run_id),
+            fallback=runtime_start.graph_run,
+        )
         return GraphHarnessStart(
-            task_run=runtime_start.task_run,
-            graph_run=runtime_start.graph_run,
+            task_run=task_run,
+            graph_run=graph_run,
             envelope=runtime_start.envelope,
             loop_state=loop_start.loop_state,
             checkpoint=loop_start.checkpoint,
@@ -93,6 +105,21 @@ class GraphHarness:
             graph_config=graph_config,
             graph_run_id=graph_run_id,
             result=result,
+        )
+
+    def resume_run(
+        self,
+        *,
+        graph_config: GraphHarnessConfig,
+        graph_run_id: str,
+        dispatch_ready: bool = True,
+        max_requests: int | None = None,
+    ) -> GraphResumeResult:
+        return self._resume.resume(
+            graph_config=graph_config,
+            graph_run_id=graph_run_id,
+            dispatch_ready=dispatch_ready,
+            max_requests=max_requests,
         )
 
     async def execute_work_order(
@@ -134,6 +161,13 @@ class GraphHarness:
     def get_checkpoint_state(self, graph_run_id: str) -> dict[str, Any]:
         state = self._loop.get_state(graph_run_id)
         return state.to_dict() if state is not None else {}
+
+    def get_latest_checkpoint(self, graph_run_id: str) -> dict[str, Any]:
+        checkpoint = self._loop.get_latest_checkpoint(graph_run_id)
+        return checkpoint.to_dict() if checkpoint is not None else {}
+
+    def list_checkpoints(self, graph_run_id: str, *, limit: int | None = None) -> list[dict[str, Any]]:
+        return [item.to_dict() for item in self._loop.list_checkpoints(graph_run_id, limit=limit)]
 
     def get_graph_run(self, graph_run_id: str) -> Any | None:
         try:
@@ -178,6 +212,22 @@ class GraphHarness:
 
 def _safe_ref_id(value: str) -> str:
     return "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in str(value or ""))[:180]
+
+
+def _task_run_from_payload(payload: Any, *, fallback: TaskRun) -> TaskRun:
+    if isinstance(payload, TaskRun):
+        return payload
+    if isinstance(payload, dict):
+        return TaskRun(**payload)
+    return fallback
+
+
+def _graph_run_from_payload(payload: Any, *, fallback: GraphRun) -> GraphRun:
+    if isinstance(payload, GraphRun):
+        return payload
+    if isinstance(payload, dict) and payload:
+        return GraphRun.from_dict(payload)
+    return fallback
 
 
 def _result_should_advance_loop(result: NodeResultEnvelope) -> bool:

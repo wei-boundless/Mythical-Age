@@ -30,7 +30,7 @@ describe("taskGraphRuntimeView", () => {
       },
     };
     const state = schedulerStateFromTrace({
-      coordination_runs: [
+      graph_runs: [
         {
           diagnostics: {
             task_graph_scheduler_state: raw,
@@ -65,7 +65,7 @@ describe("taskGraphRuntimeView", () => {
     };
 
     const state = schedulerStateFromTrace({
-      coordination_runs: [
+      graph_runs: [
         {
           diagnostics: {
             graph_coordination_state: {
@@ -93,7 +93,7 @@ describe("taskGraphRuntimeView", () => {
 
   it("extracts batch lifecycle state from runtime trace summaries", () => {
     const state = batchLifecycleFromTrace({
-      coordination_runs: [
+      graph_runs: [
         {
           diagnostics: {
             graph_coordination_state: {

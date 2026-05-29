@@ -6,86 +6,12 @@ from typing import Any
 from agent_system.identity import normalize_agent_id, normalize_agent_id_sequence
 
 from task_system.graphs.task_graph_models import TaskGraphDefinition
-from task_system.registry.flow_models import CoordinationTaskDefinition
 
 
 class TaskGraphRegistryService:
     def __init__(self, registry: Any, base_dir: Path) -> None:
         self.registry = registry
         self.base_dir = Path(base_dir)
-
-    def derive_coordination_task_view_from_graph(self, graph: TaskGraphDefinition) -> CoordinationTaskDefinition:
-        metadata = dict(graph.metadata or {})
-        runtime_policy = dict(graph.runtime_policy or {})
-        continuation_policy = {**dict(metadata.get("continuation_policy") or {})}
-        human_gate_mode = str(runtime_policy.get("human_gate_mode") or "").strip()
-        if human_gate_mode and "human_gate_mode" not in continuation_policy:
-            continuation_policy["human_gate_mode"] = human_gate_mode
-        if continuation_policy:
-            metadata["continuation_policy"] = continuation_policy
-        coordinator_agent_id = normalize_agent_id(str(runtime_policy.get("coordinator_agent_id") or "agent:0").strip() or "agent:0")
-        domain_id = str(graph.domain_id or metadata.get("domain_id") or "").strip()
-        stored_nodes = tuple(node.to_dict() for node in graph.nodes)
-        metadata_task_id = str(metadata.get("task_id") or "").strip()
-        raw_subtask_refs = [
-            *[str(value).strip() for value in list(metadata.get("subtask_refs") or []) if str(value).strip()],
-            *_subtask_refs_from_graph_nodes(stored_nodes),
-            *([metadata_task_id] if metadata_task_id.startswith("task.") else []),
-        ]
-        subtask_refs = tuple(dict.fromkeys(value for value in raw_subtask_refs if value.startswith("task.")))
-        participant_agent_ids = self.resolve_coordination_participants(
-            coordinator_agent_id=coordinator_agent_id,
-            agent_group_id=str(runtime_policy.get("agent_group_id") or metadata.get("agent_group_id") or ""),
-            participant_agent_ids=normalize_agent_id_sequence(
-                str(value)
-                for value in list(runtime_policy.get("participant_agent_ids") or metadata.get("participant_agent_ids") or [])
-                if str(value)
-            ),
-        )
-        fallback_nodes, fallback_edges = _default_coordination_graph(
-            coordinator_agent_id=coordinator_agent_id,
-            participant_agent_ids=participant_agent_ids,
-            subtask_refs=subtask_refs,
-        )
-        graph_nodes = stored_nodes or fallback_nodes
-        graph_edges = tuple(edge.to_dict() for edge in graph.edges) or fallback_edges
-        subtask_refs = tuple(dict.fromkeys([*subtask_refs, *_subtask_refs_from_graph_nodes(graph_nodes)]))
-        communication_modes = tuple(
-            str(value).strip()
-            for value in list(metadata.get("business_communication_modes") or metadata.get("communication_modes") or [])
-            if str(value).strip()
-        ) or tuple(
-            dict(edge).get("mode", "")
-            for edge in graph_edges
-            if str(dict(edge).get("mode", "")).strip()
-        )
-        derived_metadata = {
-            **metadata,
-            "graph_id": graph.graph_id,
-            "task_graph_id": graph.graph_id,
-        }
-        return CoordinationTaskDefinition(
-            graph_id=graph.graph_id,
-            title=str(graph.title or ""),
-            coordination_mode=str(runtime_policy.get("coordination_mode") or metadata.get("coordination_mode") or "review_merge"),
-            coordinator_agent_id=coordinator_agent_id,
-            domain_id=domain_id,
-            agent_group_id=str(runtime_policy.get("agent_group_id") or metadata.get("agent_group_id") or ""),
-            participant_agent_ids=participant_agent_ids,
-            topology_template_id=str(metadata.get("topology_template_id") or ""),
-            shared_context_policy=str(dict(graph.context_policy or {}).get("shared_context_policy") or "explicit_refs_only"),
-            memory_sharing_policy=str(dict(graph.context_policy or {}).get("memory_sharing_policy") or "isolated_by_default"),
-            handoff_policy=str(metadata.get("handoff_policy") or "filtered_handoff"),
-            conflict_resolution_policy=str(metadata.get("conflict_resolution_policy") or "coordinator_review"),
-            output_merge_policy=str(metadata.get("output_merge_policy") or "coordinator_final_merge"),
-            stop_conditions=tuple(str(value) for value in list(metadata.get("stop_conditions") or []) if str(value)),
-            subtask_refs=subtask_refs,
-            graph_nodes=graph_nodes,
-            graph_edges=graph_edges,
-            communication_modes=tuple(dict.fromkeys(str(value).strip() for value in communication_modes if str(value).strip())),
-            enabled=bool(graph.enabled),
-            metadata=derived_metadata,
-        )
 
     def upsert_graph_task(
         self,
@@ -258,8 +184,6 @@ def _normalize_agent_refs_in_mapping(payload: dict[str, Any]) -> dict[str, Any]:
         next_payload["participant_agent_ids"] = list(
             normalize_agent_id_sequence(str(item) for item in list(next_payload.get("participant_agent_ids") or []) if str(item))
         )
-    next_payload.pop("projection_id", None)
-    next_payload.pop("projection_overlay_id", None)
     return next_payload
 
 

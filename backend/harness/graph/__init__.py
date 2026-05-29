@@ -13,18 +13,28 @@ from .models import (
     graph_harness_config_from_dict,
 )
 from .scheduler_view import SchedulerView, build_scheduler_view
+from .checkpoint_store import GraphCheckpointRecord, GraphCheckpointStore
+from .context_materializer import GraphContextMaterializer
+from .langgraph_checkpoint_store import LangGraphCheckpointStore
+from .resume import GraphResumeResult, GraphResumeService
 
 __all__ = [
     "GRAPH_HARNESS_CONFIG_AUTHORITY",
     "GRAPH_HARNESS_CONFIG_SCHEMA_VERSION",
     "GraphHarnessConfig",
     "GraphLoopState",
+    "GraphCheckpointRecord",
+    "GraphCheckpointStore",
+    "GraphContextMaterializer",
+    "GraphResumeResult",
+    "GraphResumeService",
     "GraphNodeWorkOrder",
     "GraphRun",
     "GraphResultEnvelope",
     "GraphRuntimeEnvelope",
     "NodeResultEnvelope",
     "SchedulerView",
+    "LangGraphCheckpointStore",
     "build_scheduler_view",
     "graph_harness_config_from_dict",
 ]

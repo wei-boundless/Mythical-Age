@@ -222,7 +222,6 @@ class AgentDelegationExecutor:
                 context_scope=child_agent_run.context_scope,
                 execution_runtime_kind=child_agent_run.execution_runtime_kind,
                 parent_agent_run_ref=child_agent_run.parent_agent_run_ref,
-                coordination_run_ref="",
                 status=agent_run_result.status,
                 result_ref=agent_run_result.agent_run_result_id,
                 created_at=child_agent_run.created_at,

@@ -255,7 +255,7 @@ def default_contract_specs() -> tuple[ContractSpec, ...]:
                     title_zh="监测快照",
                     field_type="object",
                     required=True,
-                    description="来自 task_graph.run_monitor 的运行态快照摘要。",
+                    description="来自 graph_harness.run_monitor 的运行态快照摘要。",
                     source_hint="runtime_context",
                     visibility="monitor_visible",
                 ),
@@ -328,7 +328,7 @@ def default_contract_specs() -> tuple[ContractSpec, ...]:
             title_zh="TaskGraph 监测快照",
             title_en="TaskGraph Monitor Snapshot",
             contract_kind="runtime",
-            description="定义后台监测节点读取的任务图运行态快照摘要，来源必须是 task_graph.run_monitor。",
+            description="定义后台监测节点读取的任务图运行态快照摘要，来源必须是 graph_harness.run_monitor。",
             output_fields=(
                 ContractField(
                     field_id="task_run_id",
@@ -339,8 +339,8 @@ def default_contract_specs() -> tuple[ContractSpec, ...]:
                     visibility="monitor_visible",
                 ),
                 ContractField(
-                    field_id="coordination_run_id",
-                    title_zh="CoordinationRun ID",
+                    field_id="graph_run_id",
+                    title_zh="GraphRun ID",
                     field_type="string",
                     required=False,
                     source_hint="runtime_context",

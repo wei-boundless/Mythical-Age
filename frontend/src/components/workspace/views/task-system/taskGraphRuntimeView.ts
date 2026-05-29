@@ -77,7 +77,7 @@ function asNumberRecord(value: unknown): Record<string, number> {
   );
 }
 
-export function schedulerStateFromTrace(trace: HarnessTaskRunTrace | { coordination_runs?: Array<Record<string, unknown>> } | null | undefined) {
+export function schedulerStateFromTrace(trace: HarnessTaskRunTrace | { graph_runs?: Array<Record<string, unknown>> } | null | undefined) {
   const taskGraphRun = latestTaskGraphRunFromTrace(trace);
   const diagnostics = asRecord(taskGraphRun?.diagnostics);
   const runtimeState = asRecord(diagnostics.graph_coordination_state);
@@ -87,7 +87,7 @@ export function schedulerStateFromTrace(trace: HarnessTaskRunTrace | { coordinat
   };
 }
 
-export function batchLifecycleFromTrace(trace: HarnessTaskRunTrace | { coordination_runs?: Array<Record<string, unknown>> } | null | undefined) {
+export function batchLifecycleFromTrace(trace: HarnessTaskRunTrace | { graph_runs?: Array<Record<string, unknown>> } | null | undefined) {
   const taskGraphRun = latestTaskGraphRunFromTrace(trace);
   const diagnostics = asRecord(taskGraphRun?.diagnostics);
   const runtimeState = asRecord(diagnostics.graph_coordination_state);

@@ -12,8 +12,11 @@ from capability_system.search_policy import normalize_search_policy, operation_a
 from capability_system import build_default_operation_registry
 from capability_system.tool_authorization import build_tool_authorization_index
 from capability_system.tool_definitions import build_tool_instances, get_tool_definitions
-from harness.runtime.execution_policy import tool_instances_for_policy_and_permit
-from harness.runtime.context import resolve_runtime_search_sources
+from runtime.capabilities.current_turn_capability_plan import (
+    build_current_turn_capability_plan,
+    tool_instances_for_capability_plan,
+)
+from runtime.context_management.system_retrieval import task_operation_requests_context_retrieval
 
 
 def test_normalized_empty_search_policy_blocks_source_bound_operations() -> None:
@@ -40,54 +43,72 @@ def test_harness_service_host_filters_main_runtime_tools_by_search_policy(tmp_pa
         requires_approval_operations=(),
     )
 
-    filtered = tool_instances_for_policy_and_permit(
+    plan = build_current_turn_capability_plan(
         tool_instances=tools,
         resource_policy=resource_policy,
         definitions_by_name=index.definitions_by_name,
         normalize_operation_id=registry.normalize_id,
         allowed_search_sources={"rag"},
     )
+    filtered = tool_instances_for_capability_plan(
+        tool_instances=tools,
+        capability_plan=plan,
+    )
     names = {str(getattr(tool, "name", "") or "") for tool in filtered}
+    filtered_reasons = {
+        str(item.get("tool_name") or ""): str(item.get("reason") or "")
+        for item in plan.filtered_tools
+    }
 
     assert "delegate_to_agent" in names
     assert "web_search" not in names
     assert "fetch_url" not in names
     assert "read_file" not in names
+    assert filtered_reasons["web_search"] == "search_policy_blocked"
+    assert filtered_reasons["fetch_url"] == "search_policy_blocked"
 
 
-def test_coordination_task_without_search_policy_defaults_to_no_search_sources() -> None:
-    allowed = resolve_runtime_search_sources(
-        search_policy=None,
-        task_selection={
-            "coordination_run_id": "coordrun:test",
-            "continuation_stage_id": "world_design",
-            "selected_task_id": "task.writing.modular_novel.node.world_design",
+def test_graph_work_request_does_not_trigger_system_context_retrieval() -> None:
+    allowed = task_operation_requests_context_retrieval(
+        {
+            "current_turn_context": {
+                "work_request_ref": "workreq:graph-node:test",
+                "continuation_stage_id": "world_design",
+                "selected_task_id": "task.writing.modular_novel.node.world_design",
+            },
+            "operation_requirement": {"optional_operations": ["op.mcp_retrieval"]},
+            "selected_recipe": {"source_kind": "knowledge"},
         },
     )
 
-    assert allowed == set()
+    assert allowed is False
 
 
-def test_main_session_without_search_policy_keeps_default_search_sources() -> None:
-    allowed = resolve_runtime_search_sources(
-        search_policy=None,
-        task_selection={"turn_id": "turn:test"},
+def test_main_session_can_request_system_context_retrieval() -> None:
+    allowed = task_operation_requests_context_retrieval(
+        {
+            "current_turn_context": {"turn_id": "turn:test"},
+            "operation_requirement": {"optional_operations": ["op.mcp_retrieval"]},
+            "selected_recipe": {"source_kind": "knowledge"},
+        },
     )
 
-    assert {"rag", "local_files", "web"} <= allowed
+    assert allowed is True
 
 
 def test_direct_agent_invocation_ref_does_not_make_turn_coordination_scoped() -> None:
-    allowed = resolve_runtime_search_sources(
-        search_policy=None,
-        task_selection={
-            "turn_id": "turn:test",
-            "stage_execution_request_ref": "stageexec:direct:test",
-            "work_order_id": "work:direct:test",
-            "assembly_id": "assembly:direct:test",
+    allowed = task_operation_requests_context_retrieval(
+        {
+            "current_turn_context": {
+                "turn_id": "turn:test",
+                "work_order_id": "work:direct:test",
+                "assembly_id": "assembly:direct:test",
+            },
+            "operation_requirement": {"optional_operations": ["op.mcp_retrieval"]},
+            "selected_recipe": {"source_kind": "knowledge"},
         },
     )
 
-    assert {"rag", "local_files", "web"} <= allowed
+    assert allowed is True
 
 

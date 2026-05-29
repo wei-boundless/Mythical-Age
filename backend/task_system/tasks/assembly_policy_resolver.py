@@ -191,7 +191,7 @@ def _merge_dicts(*values: Any) -> dict[str, Any]:
 
 def _runtime_shape(value: str) -> str:
     normalized = str(value or "").strip()
-    if normalized in {"coordination_chain", "task_graph", "graph"}:
+    if normalized in {"task_graph_chain", "task_graph", "graph"}:
         return "task_graph"
     if normalized in {"human_gate", "human"}:
         return "human_gate"

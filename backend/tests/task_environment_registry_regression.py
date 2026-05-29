@@ -110,6 +110,46 @@ def test_professional_development_runtime_exposes_shell_and_image_generation_too
     assert decisions["op.shell"]["environment_constraint"] == "sandboxed"
 
 
+def test_runtime_available_tools_expose_canonical_tool_input_schema() -> None:
+    profile = next(item for item in default_agent_runtime_profiles() if item.agent_profile_id == "main_interactive_agent")
+    definitions = get_tool_definitions()
+    index = build_tool_authorization_index(definitions)
+
+    assembly = assemble_runtime(
+        backend_dir=BACKEND_DIR,
+        session_id="session-tool-schema",
+        turn_id="turn-tool-schema",
+        agent_invocation_id="agent-invocation-tool-schema",
+        request_task_selection={"runtime_mode": "professional", "task_environment_id": "env.development.sandbox"},
+        model_selection={},
+        agent_runtime_profile=profile,
+        tool_instances=build_tool_instances(BACKEND_DIR),
+        definitions_by_name=index.definitions_by_name,
+    ).to_dict()
+
+    tools = {
+        str(item.get("tool_name") or ""): dict(item)
+        for item in list(assembly.get("available_tools") or [])
+    }
+    todo = tools["agent_todo"]
+    input_schema = dict(todo.get("input_schema") or {})
+    properties = dict(input_schema.get("properties") or {})
+
+    assert properties["operation"]["enum"] == [
+        "replace",
+        "append",
+        "start",
+        "complete",
+        "update_status",
+        "remove",
+        "clear",
+        "view",
+    ]
+    assert "complete_item" not in properties["operation"]["enum"]
+    assert "todos" not in properties
+    assert "todos" not in todo["optional_inputs"]
+
+
 def test_runtime_mode_does_not_bind_task_environment_without_explicit_selection() -> None:
     profile = next(item for item in default_agent_runtime_profiles() if item.agent_profile_id == "main_interactive_agent")
     definitions = get_tool_definitions()

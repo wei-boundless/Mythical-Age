@@ -34,8 +34,7 @@
             }
           ],
           "task_resource_kind": "",
-          "runtime_lane_hint": "coordination_task",
-          "execution_chain_type": "coordination_node",
+          "execution_chain_type": "task_graph_node",
           "node_id": "project_brief",
           "runtime_interaction_mode": "role_mode",
           "trigger_signals": [],
@@ -92,8 +91,7 @@
             }
           ],
           "task_resource_kind": "",
-          "runtime_lane_hint": "coordination_task",
-          "execution_chain_type": "coordination_node",
+          "execution_chain_type": "task_graph_node",
           "node_id": "world_design",
           "runtime_interaction_mode": "role_mode",
           "trigger_signals": [],
@@ -150,8 +148,7 @@
             }
           ],
           "task_resource_kind": "",
-          "runtime_lane_hint": "coordination_task",
-          "execution_chain_type": "coordination_node",
+          "execution_chain_type": "task_graph_node",
           "node_id": "world_review",
           "runtime_interaction_mode": "role_mode",
           "trigger_signals": [],
@@ -208,8 +205,7 @@
             }
           ],
           "task_resource_kind": "",
-          "runtime_lane_hint": "coordination_task",
-          "execution_chain_type": "coordination_node",
+          "execution_chain_type": "task_graph_node",
           "node_id": "memory_commit_world",
           "runtime_interaction_mode": "role_mode",
           "trigger_signals": [],
@@ -266,8 +262,7 @@
             }
           ],
           "task_resource_kind": "",
-          "runtime_lane_hint": "coordination_task",
-          "execution_chain_type": "coordination_node",
+          "execution_chain_type": "task_graph_node",
           "node_id": "character_design",
           "runtime_interaction_mode": "role_mode",
           "trigger_signals": [],
@@ -324,8 +319,7 @@
             }
           ],
           "task_resource_kind": "",
-          "runtime_lane_hint": "coordination_task",
-          "execution_chain_type": "coordination_node",
+          "execution_chain_type": "task_graph_node",
           "node_id": "character_review",
           "runtime_interaction_mode": "role_mode",
           "trigger_signals": [],
@@ -382,8 +376,7 @@
             }
           ],
           "task_resource_kind": "",
-          "runtime_lane_hint": "coordination_task",
-          "execution_chain_type": "coordination_node",
+          "execution_chain_type": "task_graph_node",
           "node_id": "plot_design",
           "runtime_interaction_mode": "role_mode",
           "trigger_signals": [],
@@ -440,8 +433,7 @@
             }
           ],
           "task_resource_kind": "",
-          "runtime_lane_hint": "coordination_task",
-          "execution_chain_type": "coordination_node",
+          "execution_chain_type": "task_graph_node",
           "node_id": "design_sync",
           "runtime_interaction_mode": "role_mode",
           "trigger_signals": [],
@@ -498,8 +490,7 @@
             }
           ],
           "task_resource_kind": "",
-          "runtime_lane_hint": "coordination_task",
-          "execution_chain_type": "coordination_node",
+          "execution_chain_type": "task_graph_node",
           "node_id": "memory_commit_character",
           "runtime_interaction_mode": "role_mode",
           "trigger_signals": [],
@@ -556,8 +547,7 @@
             }
           ],
           "task_resource_kind": "",
-          "runtime_lane_hint": "coordination_task",
-          "execution_chain_type": "coordination_node",
+          "execution_chain_type": "task_graph_node",
           "node_id": "outline_design",
           "runtime_interaction_mode": "role_mode",
           "trigger_signals": [],
@@ -614,8 +604,7 @@
             }
           ],
           "task_resource_kind": "",
-          "runtime_lane_hint": "coordination_task",
-          "execution_chain_type": "coordination_node",
+          "execution_chain_type": "task_graph_node",
           "node_id": "outline_review",
           "runtime_interaction_mode": "role_mode",
           "trigger_signals": [],
@@ -672,8 +661,7 @@
             }
           ],
           "task_resource_kind": "",
-          "runtime_lane_hint": "coordination_task",
-          "execution_chain_type": "coordination_node",
+          "execution_chain_type": "task_graph_node",
           "node_id": "baseline_memory_seed",
           "runtime_interaction_mode": "role_mode",
           "trigger_signals": [],
@@ -730,8 +718,7 @@
             }
           ],
           "task_resource_kind": "",
-          "runtime_lane_hint": "coordination_task",
-          "execution_chain_type": "coordination_node",
+          "execution_chain_type": "task_graph_node",
           "node_id": "volume_plan",
           "runtime_interaction_mode": "role_mode",
           "trigger_signals": [],
@@ -788,8 +775,7 @@
             }
           ],
           "task_resource_kind": "",
-          "runtime_lane_hint": "coordination_task",
-          "execution_chain_type": "coordination_node",
+          "execution_chain_type": "task_graph_node",
           "node_id": "chapter_outline",
           "runtime_interaction_mode": "role_mode",
           "trigger_signals": [],
@@ -846,8 +832,7 @@
             }
           ],
           "task_resource_kind": "",
-          "runtime_lane_hint": "coordination_task",
-          "execution_chain_type": "coordination_node",
+          "execution_chain_type": "task_graph_node",
           "node_id": "chapter_draft",
           "runtime_interaction_mode": "role_mode",
           "trigger_signals": [],
@@ -904,8 +889,7 @@
             }
           ],
           "task_resource_kind": "",
-          "runtime_lane_hint": "coordination_task",
-          "execution_chain_type": "coordination_node",
+          "execution_chain_type": "task_graph_node",
           "node_id": "chapter_review",
           "runtime_interaction_mode": "role_mode",
           "trigger_signals": [],
@@ -962,8 +946,7 @@
             }
           ],
           "task_resource_kind": "",
-          "runtime_lane_hint": "coordination_task",
-          "execution_chain_type": "coordination_node",
+          "execution_chain_type": "task_graph_node",
           "node_id": "memory_commit_chapter",
           "runtime_interaction_mode": "role_mode",
           "trigger_signals": [],
@@ -1020,8 +1003,7 @@
             }
           ],
           "task_resource_kind": "",
-          "runtime_lane_hint": "coordination_task",
-          "execution_chain_type": "coordination_node",
+          "execution_chain_type": "task_graph_node",
           "node_id": "chapter_progress_router",
           "runtime_interaction_mode": "role_mode",
           "trigger_signals": [],
@@ -1078,8 +1060,7 @@
             }
           ],
           "task_resource_kind": "",
-          "runtime_lane_hint": "coordination_task",
-          "execution_chain_type": "coordination_node",
+          "execution_chain_type": "task_graph_node",
           "node_id": "volume_review",
           "runtime_interaction_mode": "role_mode",
           "trigger_signals": [],
@@ -1136,8 +1117,7 @@
             }
           ],
           "task_resource_kind": "",
-          "runtime_lane_hint": "coordination_task",
-          "execution_chain_type": "coordination_node",
+          "execution_chain_type": "task_graph_node",
           "node_id": "volume_commit",
           "runtime_interaction_mode": "role_mode",
           "trigger_signals": [],
@@ -1194,8 +1174,7 @@
             }
           ],
           "task_resource_kind": "",
-          "runtime_lane_hint": "coordination_task",
-          "execution_chain_type": "coordination_node",
+          "execution_chain_type": "task_graph_node",
           "node_id": "volume_postmortem",
           "runtime_interaction_mode": "role_mode",
           "trigger_signals": [],
@@ -1252,8 +1231,7 @@
             }
           ],
           "task_resource_kind": "",
-          "runtime_lane_hint": "coordination_task",
-          "execution_chain_type": "coordination_node",
+          "execution_chain_type": "task_graph_node",
           "node_id": "world_outline_extension_proposal",
           "runtime_interaction_mode": "role_mode",
           "trigger_signals": [],
@@ -1310,8 +1288,7 @@
             }
           ],
           "task_resource_kind": "",
-          "runtime_lane_hint": "coordination_task",
-          "execution_chain_type": "coordination_node",
+          "execution_chain_type": "task_graph_node",
           "node_id": "extension_review",
           "runtime_interaction_mode": "role_mode",
           "trigger_signals": [],
@@ -1368,8 +1345,7 @@
             }
           ],
           "task_resource_kind": "",
-          "runtime_lane_hint": "coordination_task",
-          "execution_chain_type": "coordination_node",
+          "execution_chain_type": "task_graph_node",
           "node_id": "extension_commit",
           "runtime_interaction_mode": "role_mode",
           "trigger_signals": [],
@@ -1426,8 +1402,7 @@
             }
           ],
           "task_resource_kind": "",
-          "runtime_lane_hint": "coordination_task",
-          "execution_chain_type": "coordination_node",
+          "execution_chain_type": "task_graph_node",
           "node_id": "next_volume_router",
           "runtime_interaction_mode": "role_mode",
           "trigger_signals": [],
@@ -1484,8 +1459,7 @@
             }
           ],
           "task_resource_kind": "",
-          "runtime_lane_hint": "coordination_task",
-          "execution_chain_type": "coordination_node",
+          "execution_chain_type": "task_graph_node",
           "node_id": "final_assemble",
           "runtime_interaction_mode": "role_mode",
           "trigger_signals": [],
@@ -1542,8 +1516,7 @@
             }
           ],
           "task_resource_kind": "",
-          "runtime_lane_hint": "coordination_task",
-          "execution_chain_type": "coordination_node",
+          "execution_chain_type": "task_graph_node",
           "node_id": "final_review",
           "runtime_interaction_mode": "role_mode",
           "trigger_signals": [],
@@ -1600,8 +1573,7 @@
             }
           ],
           "task_resource_kind": "",
-          "runtime_lane_hint": "coordination_task",
-          "execution_chain_type": "coordination_node",
+          "execution_chain_type": "task_graph_node",
           "node_id": "memory_finalize",
           "runtime_interaction_mode": "role_mode",
           "trigger_signals": [],
@@ -1642,7 +1614,7 @@
           "safety_class": "S2_bounded"
         },
         "task_structure": {
-          "execution_chain_type": "coordination_chain",
+          "execution_chain_type": "task_graph_chain",
           "trigger_signals": []
         }
       },

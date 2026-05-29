@@ -45,7 +45,7 @@ class ArtifactRecord:
     stage_id: str = ""
     node_run_id: str = ""
     task_ref: str = ""
-    coordination_run_id: str = ""
+    graph_run_id: str = ""
     status: str = "accepted"
     content_hash: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)

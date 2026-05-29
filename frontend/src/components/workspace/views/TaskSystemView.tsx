@@ -60,7 +60,6 @@ import {
   getOrchestrationResourceInventory,
   getOrchestrationHarnessTaskRunLiveMonitor,
   listOrchestrationHarnessTaskRuns,
-  getSoulProjectionCards,
   getTaskSystemTaskGraph,
   getTaskSystemTaskGraphStandardView,
   getTaskSystemNextIds,
@@ -85,8 +84,6 @@ import {
   type RuntimeResourceInventory,
   type HarnessTaskRunLiveMonitor,
   type HarnessTaskRunSummary,
-  type SoulProjectionCard,
-  type SoulProjectionCatalog,
   type RegisteredEngagementPlan,
   type EngagementEventRecord,
   type EngagementRunRecord,
@@ -177,11 +174,12 @@ function uniqueStrings(values: Array<string | null | undefined>) {
 }
 
 function getRuntimeTaskRunId(summary: HarnessTaskRunSummary | null | undefined) {
-  return recordFieldText(dictOf(summary?.task_run), ["task_run_id", "id", "run_id"], "");
+  return recordFieldText(dictOf(summary), ["task_run_id", "id", "run_id"], "");
 }
 
 function runtimeTaskRunGraphId(summary: HarnessTaskRunSummary | null | undefined) {
-  return recordFieldText(dictOf(summary?.task_run), ["graph_id", "coordination_task_id", "task_graph_id"], "");
+  const graphRun = Array.isArray(summary?.graph_runs) ? dictOf(summary?.graph_runs[0]) : {};
+  return recordFieldText(graphRun, ["graph_id"], "");
 }
 
 function slugFromTitle(value: string, fallback = "custom") {
@@ -263,7 +261,7 @@ function emptySpecificTaskRecord(workflowId = "", flowId = ""): SpecificTaskReco
         verification_mode: "artifact_or_trace",
       },
       task_structure: {
-        execution_chain_type: "single_agent_chain",
+        execution_chain_type: "agent_harness_chain",
         trigger_signals: [],
       },
     },
@@ -643,7 +641,7 @@ function scopedContractSpecs(contractSpecs: ContractSpec[], domain: DomainRecord
 }
 
 function deriveTaskGraphSpec(
-  coordinationTaskId: string,
+  graphId: string,
   domainId: string,
   nodes: Array<Record<string, unknown>>,
   edges: Array<Record<string, unknown>>,
@@ -693,8 +691,7 @@ function deriveTaskGraphSpec(
   });
 
   return {
-    graph_id: coordinationTaskId || "graph.draft",
-    coordination_task_id: coordinationTaskId,
+    graph_id: graphId || "graph.draft",
     domain_id: domainId,
     coordinator_agent_id: "",
     agent_group_id: "",
@@ -815,7 +812,6 @@ export function TaskSystemView() {
     currentSessionId,
     setOrchestrationInspectorTarget,
     setTaskGraphRunInteractionOpen,
-    setTaskSelection,
     setWorkspaceView,
     taskGraphLiveMonitor,
     taskGraphMonitorBinding,
@@ -824,10 +820,8 @@ export function TaskSystemView() {
   const [consolePayload, setConsolePayload] = useState<TaskSystemOverview | null>(null);
   const [engagementRuns, setEngagementRuns] = useState<EngagementRunRecord[]>([]);
   const [engagementEvents, setEngagementEvents] = useState<EngagementEventRecord[]>([]);
-  const [projectionCatalog, setProjectionCatalog] = useState<SoulProjectionCatalog | null>(null);
   const [orchestrationAgentCatalog, setOrchestrationAgentCatalog] = useState<OrchestrationAgentRuntimeCatalog | null>(null);
   const [loading, setLoading] = useState(true);
-  const [projectionLoading, setProjectionLoading] = useState(false);
   const [saving, setSaving] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -868,7 +862,6 @@ export function TaskSystemView() {
   const [runtimeLoading, setRuntimeLoading] = useState(false);
   const [runtimeError, setRuntimeError] = useState("");
   const selectedDomainIdRef = useRef("");
-  const projectionCatalogLoadRef = useRef<Promise<void> | null>(null);
   const orchestrationAgentCatalogLoadRef = useRef<Promise<void> | null>(null);
   const runtimeDefaultedRef = useRef(false);
 
@@ -899,25 +892,6 @@ export function TaskSystemView() {
     setSelectedEnvironmentId((current) => current && environmentRecords.some((item) => item.environment_id === current)
       ? current
       : environmentRecords[0]?.environment_id || "");
-  }, []);
-
-  const loadProjectionCatalog = useCallback(async () => {
-    if (projectionCatalogLoadRef.current) {
-      return projectionCatalogLoadRef.current;
-    }
-    const run = (async () => {
-      setProjectionLoading(true);
-      try {
-        setProjectionCatalog(await getSoulProjectionCards());
-      } catch {
-        setProjectionCatalog((current) => current ?? null);
-      } finally {
-        setProjectionLoading(false);
-        projectionCatalogLoadRef.current = null;
-      }
-    })();
-    projectionCatalogLoadRef.current = run;
-    return run;
   }, []);
 
   const loadOrchestrationAgentCatalog = useCallback(async () => {
@@ -959,7 +933,6 @@ export function TaskSystemView() {
         const overview = await getTaskSystemOverview();
         applyOverview(overview);
         void loadEngagementRuns();
-        void loadProjectionCatalog();
         void loadOrchestrationAgentCatalog();
       } catch (exc) {
         setError(exc instanceof Error ? exc.message : "任务系统加载失败");
@@ -970,7 +943,7 @@ export function TaskSystemView() {
     })();
     loadInFlightRef.current = run;
     return run;
-  }, [applyOverview, loadEngagementRuns, loadOrchestrationAgentCatalog, loadProjectionCatalog]);
+  }, [applyOverview, loadEngagementRuns, loadOrchestrationAgentCatalog]);
 
   useEffect(() => {
     if (activeWorkspaceView !== "task-system") return;
@@ -1118,13 +1091,6 @@ export function TaskSystemView() {
     () => editorEnvironmentTasks.map((task) => ({ value: task.task_id, label: task.task_title })),
     [editorEnvironmentTasks],
   );
-  const projectionCards = useMemo(() => projectionCatalog?.cards ?? [], [projectionCatalog]);
-  const domainProjectionCards = useMemo(() => projectionCards.filter((card) => {
-    if (!selectedDomain) return true;
-    const haystack = `${String(card.projection_id ?? "")} ${String(card.soul_id ?? "")} ${String(card.soul_name ?? "")}`.toLowerCase();
-    const domainToken = selectedDomain.domain_id.replace(/^domain\./, "").toLowerCase();
-    return haystack.includes(domainToken) || haystack.includes(selectedDomain.title.toLowerCase());
-  }), [projectionCards, selectedDomain]);
   const activeTaskGraphId = activeTaskGraphSummary?.graph_id || "";
 
   useEffect(() => {
@@ -2314,7 +2280,7 @@ export function TaskSystemView() {
     return matched.length ? matched : runtimeTaskRuns;
   }, [runtimeTaskRuns, selectedTaskGraph?.graph_id]);
   const selectedRuntimeSummary = runtimeTaskRuns.find((item) => getRuntimeTaskRunId(item) === runtimeTaskRunId.trim()) ?? null;
-  const selectedRuntimeRunRecord = dictOf(selectedRuntimeSummary?.task_run);
+  const selectedRuntimeRunRecord = dictOf(selectedRuntimeSummary);
   const runtimeMonitorForSelectedRun = runtimeTaskRunId.trim()
     && taskGraphLiveMonitor
     && recordFieldText(dictOf(taskGraphLiveMonitor.task_run), ["task_run_id", "id", "run_id"], "") === runtimeTaskRunId.trim()
@@ -2462,8 +2428,8 @@ export function TaskSystemView() {
     {
       value: "orchestration",
       label: "编排资源",
-      meta: `${orchestrationAgentCatalog?.agents?.length ?? 0} Agent / ${projectionCards.length} Projection`,
-      detail: "Agent 与 Projection",
+      meta: `${orchestrationAgentCatalog?.agents?.length ?? 0} Agent / ${orchestrationAgentCatalog?.profiles?.length ?? 0} 运行档案`,
+      detail: "Agent 与运行档案",
     },
     {
       value: "runtime",
@@ -2725,8 +2691,6 @@ export function TaskSystemView() {
               onSetDomainDraft={setDomainDraft}
               onSetEditingDomainName={setEditingDomainName}
               onSetEntryDraft={setEntryDraft}
-              projectionCount={domainProjectionCards.length}
-              projectionLoading={projectionLoading}
               saving={saving}
               selectedDomain={selectedDomain}
               workflowOptions={workflowOptions}
@@ -2818,7 +2782,6 @@ export function TaskSystemView() {
               onOpenOrchestration={openOrchestrationControl}
               onOpenWorkbench={() => openTaskGraphEditor(selectedTaskGraph?.graph_id)}
               orchestrationAgentCatalog={orchestrationAgentCatalog}
-              projectionCards={projectionCards}
               selectedTaskGraphId={selectedTaskGraph?.graph_id}
             />
           ) : null}

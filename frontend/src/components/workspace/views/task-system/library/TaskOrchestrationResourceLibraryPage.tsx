@@ -7,21 +7,15 @@ import type { OrchestrationAgentRuntimeCatalog } from "@/lib/api";
 import { TaskOrchestrationResourcePage } from "../TaskSystemPages";
 import { TaskSystemToolbarButton as ToolbarButton } from "../TaskSystemWorkbenchUi";
 
-type ProjectionCardSummary = {
-  projection_id: string;
-};
-
 export function TaskOrchestrationResourceLibraryPage({
   orchestrationAgentCatalog,
   onOpenOrchestration,
   onOpenWorkbench,
-  projectionCards,
   selectedTaskGraphId,
 }: {
   orchestrationAgentCatalog: OrchestrationAgentRuntimeCatalog | null;
   onOpenOrchestration: (focus?: { layer?: "registry" | "groups" | "runtime" | "eligibility"; reason?: string }) => void;
   onOpenWorkbench: () => void;
-  projectionCards: ProjectionCardSummary[];
   selectedTaskGraphId?: string;
 }) {
   const orchestrationAgents = orchestrationAgentCatalog?.agents ?? [];
@@ -33,7 +27,7 @@ export function TaskOrchestrationResourceLibraryPage({
         <div>
           <span>编排资源</span>
           <h3>Agent 与运行档案</h3>
-          <p>这里直接对接编排系统。任务系统负责任务与任务图，编排系统负责 Agent 主数据、投影引用和运行档案。</p>
+          <p>这里直接对接编排系统。任务系统负责任务与任务图，编排系统负责 Agent 主数据、运行档案和权限边界。</p>
         </div>
         <div className="boundary-actions">
           <ToolbarButton onClick={() => onOpenOrchestration({ layer: "registry", reason: "从任务系统进入编排控制台：管理 Agent 名册和主数据。" })}>
@@ -74,12 +68,12 @@ export function TaskOrchestrationResourceLibraryPage({
           </div>
         </article>
         <article className="boundary-card">
-          <header><strong>投影引用</strong><span>{projectionCards.length} 项</span></header>
+          <header><strong>装配边界</strong><span>任务图契约</span></header>
           <div className="boundary-kv">
-            <p><span>职责语言</span><strong>由 Projection / Prompt 主数据提供</strong></p>
-            <p><span>节点绑定</span><strong>在图工作台对象编辑台选择引用</strong></p>
+            <p><span>职责语言</span><strong>由节点角色 Prompt 和契约提供</strong></p>
+            <p><span>节点绑定</span><strong>在图工作台选择 Agent 与运行档案</strong></p>
             <p><span>资源读写</span><strong>在图工作台资源流配置</strong></p>
-            <p><span>运行边界</span><strong>统一进入运行档案</strong></p>
+            <p><span>运行边界</span><strong>统一进入运行档案与权限系统</strong></p>
           </div>
         </article>
       </section>

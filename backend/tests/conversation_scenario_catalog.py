@@ -237,21 +237,21 @@ SCENARIOS: tuple[ConversationScenario, ...] = (
         title="任务系统多 Agent 小说协作验收",
         category="acceptance",
         execution_mode="deterministic",
-        goal="验证多 Agent 协调任务能按正式协调对象跑通创意、审核、编写、纠察、验收与修正循环。",
+        goal="验证图任务能按正式 GraphHarnessConfig 与 graph_run 对象跑通创意、审核、编写、纠察、验收与修正循环。",
         coverage=("tasks", "sse", "stress"),
         assertions=(
-            "必须创建正式 CoordinationRun、CoordinationNodeRun、AgentRunResult 与 merge result。",
-            "协调流要覆盖创意提出、创意审核、审核通过、正式编写、内容纠察、修正循环、内容验收。",
+            "必须创建正式 graph_run、节点执行结果、AgentRunResult 与图级最终结果。",
+            "图任务流要覆盖创意提出、创意审核、审核通过、正式编写、内容纠察、修正循环、内容验收。",
             "最终必须进入 accepted 状态，而不是只有流程对象没有验收结论。",
         ),
         failure_modes=(
-            "协调任务只创建对象外壳，没有 stage-flow 推进。",
-            "多 Agent 节点存在但没有参与结果或 handoff 痕迹。",
+            "图任务只创建对象外壳，没有通过 GraphLoop 推进节点时序。",
+            "多 Agent 节点存在但没有参与结果或节点消息痕迹。",
             "修正循环或验收节点没有闭环，导致 accepted=false。",
         ),
         expected_artifacts=(
             "output/test_runs/<run>/artifacts/task-system-short-story-coordination-acceptance/*.json",
-            "runtime trace with coordination flow, node runs and agent run results",
+            "runtime trace with graph run, node results and agent run results",
         ),
         related_regressions=(
             "backend/tests/query_runtime_runtime_loop_regression.py",

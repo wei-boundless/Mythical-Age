@@ -222,7 +222,7 @@ function endpointSearchText(endpoint: CapabilityEndpoint) {
     endpoint.operation_id,
     endpoint.server_name,
     endpoint.transport,
-    endpoint.runtime_lane,
+    endpoint.invocation_channel,
     endpoint.model_visibility,
     endpoint.tags.join(" "),
   ].join(" ").toLowerCase();
@@ -1285,7 +1285,7 @@ export function CapabilitySystemWorkbench() {
                   columns={4}
                   items={[
                     { label: "内部能力", value: selectedEndpoint.operation_id },
-                    { label: "运行通道", value: selectedEndpoint.runtime_lane },
+                    { label: "调用通道", value: selectedEndpoint.invocation_channel },
                     { label: "连接方式", value: selectedEndpoint.transport },
                     { label: "模型可见", value: visibilityLabel(selectedEndpoint.model_visibility) },
                   ]}

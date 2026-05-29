@@ -241,13 +241,14 @@ def _agent_mode_shape(
                 task_contract_seed=task_contract_seed,
             ),
             "interaction_mode": interaction_mode,
-            "runtime_lane": str(mode_policy.get("runtime_lane") or ""),
+            "runtime_mode": interaction_mode,
             "projection_strength": str(mode_policy.get("projection_strength") or ""),
             "semantic_task_type": task_goal_type,
             "professional_profile_id": str(semantic_contract.get("professional_profile_id") or ""),
             "mode_policy": mode_policy,
             "task_requirement_contract": semantic_contract,
             "execution_obligation": execution_obligation,
+            "model_agent_plan_draft": dict(current_turn.get("model_agent_plan_draft") or {}),
         },
     )
 
@@ -302,11 +303,9 @@ def _shape_diagnostics(
 def _explicit_task_runtime(current_turn: dict[str, Any]) -> bool:
     if str(current_turn.get("continuation_stage_id") or "").strip():
         return True
-    if str(current_turn.get("stage_execution_request_ref") or "").strip():
+    if str(current_turn.get("work_request_ref") or "").strip():
         return True
-    if str(current_turn.get("coordination_run_id") or "").strip():
-        return True
-    if dict(current_turn.get("stage_execution_request") or {}):
+    if dict(current_turn.get("work_request") or {}):
         return True
     if dict(current_turn.get("node_work_order") or {}):
         return True

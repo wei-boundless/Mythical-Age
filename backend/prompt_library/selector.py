@@ -107,11 +107,6 @@ def build_prompt_selection_context(
         or dict(agent_turn_action_request.get("permission_request") or {})
         or {}
     )
-    context_binding = dict(
-        current_turn.get("context_binding")
-        or dict(task_contract_seed.get("context_binding") or {})
-        or {}
-    )
     semantic_contract = dict(
         contract.get("task_requirement_contract")
         or recipe_metadata.get("task_requirement_contract")
@@ -160,6 +155,32 @@ def build_prompt_selection_context(
         or assembly_metadata.get("mode_policy")
         or {}
     )
+    model_turn_decision = dict(
+        current_turn.get("model_turn_decision")
+        or bindings.get("model_turn_decision")
+        or {}
+    )
+    context_binding = dict(
+        current_turn.get("context_binding")
+        or dict(task_contract_seed.get("context_binding") or {})
+        or dict(model_turn_decision.get("context_binding_decision") or {})
+        or {}
+    )
+    action_permit = dict(
+        current_turn.get("action_permit")
+        or bindings.get("action_permit")
+        or {}
+    )
+    boundary_policy = dict(
+        current_turn.get("boundary_policy")
+        or bindings.get("boundary_policy")
+        or {}
+    )
+    request_facts = dict(
+        current_turn.get("request_facts")
+        or bindings.get("request_facts")
+        or {}
+    )
     workflow_steps = _normalize_steps(workflow.get("steps"), source="workflow")
     recipe_steps = _normalize_steps(recipe.get("step_blueprints"), source="recipe")
     task_graph_node_runtime = bool(
@@ -168,7 +189,7 @@ def build_prompt_selection_context(
         or assembly_metadata.get("task_graph_node_runtime") is True
         or registered_metadata.get("task_graph_node_runtime") is True
         or registered_structure.get("suppress_bundle_projection") is True
-        or str(registered_structure.get("execution_chain_type") or "").strip() == "coordination_node"
+        or str(registered_structure.get("execution_chain_type") or "").strip() == "task_graph_node"
     )
     workflow_id = str(
         workflow.get("workflow_id")
@@ -241,13 +262,10 @@ def build_prompt_selection_context(
             or assembly.get("task_mode")
             or "standard_mode"
         ).strip(),
-        runtime_lane=str(
-            mode_policy.get("runtime_lane")
-            or current_turn.get("runtime_lane")
-            or assembly_metadata.get("runtime_lane_hint")
-            or ""
-        ).strip(),
         process_kind=process_kind,
+        interaction_intent=str(model_turn_decision.get("interaction_intent") or current_turn.get("interaction_intent") or "").strip(),
+        action_intent=str(model_turn_decision.get("action_intent") or current_turn.get("action_intent") or "").strip(),
+        work_mode=str(model_turn_decision.get("work_mode") or current_turn.get("work_mode") or "").strip(),
         task_goal_type=str(
             semantic_contract.get("task_goal_type")
             or current_turn.get("task_goal_type")
@@ -299,6 +317,10 @@ def build_prompt_selection_context(
         plan_coverage_review=plan_coverage_review,
         verification_review=verification_review,
         completion_judgment=completion_judgment,
+        model_turn_decision=model_turn_decision,
+        action_permit=action_permit,
+        boundary_policy=boundary_policy,
+        request_facts=request_facts,
         metadata={
             "selector_version": "flow_aware_v1",
             "mode_policy_ref": str(mode_policy.get("authority") or ""),
@@ -381,6 +403,9 @@ class PromptSelector:
             "recipe_step_count": len(context.recipe_steps),
             "step_sequence": list(context.step_sequence),
             "task_graph_node_runtime": context.task_graph_node_runtime,
+            "work_mode": context.work_mode,
+            "interaction_intent": context.interaction_intent,
+            "action_intent": context.action_intent,
             "agent_turn_action_request_ref": str(context.agent_turn_action_request.get("request_id") or ""),
             "runtime_admission_ref": str(context.runtime_admission.get("admission_id") or ""),
             "goal_hypothesis_set_ref": str(context.goal_hypothesis_set.get("hypothesis_set_id") or ""),
@@ -574,7 +599,9 @@ def _compatibility_score(
         context.task_domain,
         context.task_mode,
         context.process_kind,
-        context.runtime_lane,
+        context.work_mode,
+        context.action_intent,
+        context.interaction_intent,
         context.current_step_kind,
         context.current_step_id,
     }
@@ -611,7 +638,7 @@ def _hard_omit_reason(resource: PromptResource, context: PromptSelectionContext)
         if (
             resource.applies_to_domains
             and context.task_domain
-            and not _matches_any(resource.applies_to_domains, {context.task_domain, context.task_mode, context.process_kind})
+            and not _matches_any(resource.applies_to_domains, {context.task_domain, context.task_mode, context.process_kind, context.work_mode, context.action_intent})
         ):
             return "domain_mismatch"
         if (
@@ -707,7 +734,9 @@ def _is_verification_context(context: PromptSelectionContext) -> bool:
         context.node_id,
         context.task_goal_type,
         context.process_kind,
-        context.runtime_lane,
+        context.work_mode,
+        context.action_intent,
+        context.interaction_intent,
     }
     if bool(context.verification_review):
         return True
@@ -716,6 +745,8 @@ def _is_verification_context(context: PromptSelectionContext) -> bool:
 
 def _is_planning_context(context: PromptSelectionContext) -> bool:
     if context.current_step_kind in {"execution_planning", "plan_coverage_review"}:
+        return True
+    if context.work_mode == "planning":
         return True
     if context.agent_plan_requirement:
         return True
@@ -726,6 +757,10 @@ def _is_execution_context(context: PromptSelectionContext) -> bool:
     if context.current_step_kind == "step_execution":
         return True
     if context.current_step_id.startswith("step_execution."):
+        return True
+    if context.work_mode == "implementation":
+        return True
+    if context.action_intent in {"edit_workspace", "run_command", "tool_call"}:
         return True
     if context.agent_plan_draft and not context.completion_judgment:
         return True

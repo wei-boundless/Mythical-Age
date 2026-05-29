@@ -13,6 +13,7 @@ from agent_system.registry.agent_registry import AgentRegistry
 from agent_system.registry.worker_agent_factory import default_worker_agent_blueprints
 from api.deps import require_runtime
 from capability_system import build_capability_catalog, build_default_operation_registry, build_orchestration_capability_items
+from harness.runtime import assemble_runtime
 from orchestration import ControlKernel, TaskContract, build_base_unit_catalog
 from orchestration.delegation_catalog import DelegationCatalogBuilder
 from orchestration.resource_inventory import build_runtime_resource_inventory
@@ -161,7 +162,6 @@ OPTION_LABELS: dict[str, str] = {
     "upstream_outputs": "上游交接",
     "working_memory": "工作记忆包",
     "task_durable_memory": "任务持久记忆",
-    "coordination_task_state": "协调任务状态",
     "assertions": "验收断言",
     "conversation_readonly": "会话记忆只读",
     "state_readonly": "状态记忆只读",
@@ -552,52 +552,59 @@ async def delete_orchestration_agent_group(group_id: str) -> dict[str, Any]:
 @router.post("/orchestration/body-preview")
 async def orchestration_body_preview(payload: OrchestrationPreviewRequest) -> dict[str, Any]:
     runtime = require_runtime()
-    agent_profile = runtime.query_runtime.agent_runtime_registry.get_profile("agent:0")
-    chain = runtime.query_runtime.agent_runtime_chain.build_runtime(
-        session_id=payload.session_id,
-        task_id=payload.task_id,
-        turn_id=payload.turn_id,
-        message=payload.user_goal,
-        source=payload.source,
-        task_selection={"turn_id": payload.turn_id, **dict(payload.task_selection or {})},
-        agent_runtime_profile=agent_profile,
-    )
-    task_operation = dict(chain.get("task_operation") or {})
+    runtime_assembly = _preview_runtime_assembly(runtime, payload)
+    assembly_payload = runtime_assembly.to_dict()
     return {
         "authority": "orchestration.body_preview",
-        "task_execution_assembly": dict(chain.get("task_execution_assembly") or task_operation.get("task_execution_assembly") or {}),
-        "task_body_orchestration": dict(chain.get("task_body_orchestration") or task_operation.get("task_body_orchestration") or {}),
-        "agent_body_profile": dict(task_operation.get("agent_body_profile") or {}),
-        "prompt_structure_profile": dict(task_operation.get("prompt_structure_profile") or {}),
-        "memory_scope_profile": dict(task_operation.get("memory_scope_profile") or {}),
-        "output_boundary_profile": dict(task_operation.get("output_boundary_profile") or {}),
-        "memory_runtime_view": dict(chain.get("memory_runtime_view") or {}),
-        "context_policy_result": dict(chain.get("context_policy_result") or {}),
+        "runtime_assembly": assembly_payload,
+        "runtime_profile": dict(assembly_payload.get("profile") or {}),
+        "task_environment": dict(assembly_payload.get("task_environment") or {}),
+        "operation_authorization": dict(assembly_payload.get("operation_authorization") or {}),
+        "available_tools": [dict(item) for item in list(assembly_payload.get("available_tools") or [])],
+        "tool_names": list(assembly_payload.get("tool_names") or []),
+        "rejected_capabilities": [dict(item) for item in list(assembly_payload.get("rejected_capabilities") or [])],
+        "diagnostics": dict(assembly_payload.get("diagnostics") or {}),
     }
 
 
 @router.post("/orchestration/runtime-spec-preview")
 async def orchestration_runtime_spec_preview(payload: OrchestrationPreviewRequest) -> dict[str, Any]:
     runtime = require_runtime()
-    agent_profile = runtime.query_runtime.agent_runtime_registry.get_profile("agent:0")
-    chain = runtime.query_runtime.agent_runtime_chain.build_runtime(
-        session_id=payload.session_id,
-        task_id=payload.task_id,
-        turn_id=payload.turn_id,
-        message=payload.user_goal,
-        source=payload.source,
-        task_selection={"turn_id": payload.turn_id, **dict(payload.task_selection or {})},
-        agent_runtime_profile=agent_profile,
-    )
-    task_operation = dict(chain.get("task_operation") or {})
+    runtime_assembly = _preview_runtime_assembly(runtime, payload)
+    assembly_payload = runtime_assembly.to_dict()
     return {
         "authority": "orchestration.runtime_spec_preview",
-        "task_execution_assembly": dict(chain.get("task_execution_assembly") or task_operation.get("task_execution_assembly") or {}),
-        "task_body_orchestration": dict(chain.get("task_body_orchestration") or task_operation.get("task_body_orchestration") or {}),
-        "agent_runtime_spec": dict(chain.get("agent_runtime_spec") or task_operation.get("agent_runtime_spec") or {}),
-        "memory_runtime_view": dict(chain.get("memory_runtime_view") or {}),
-        "context_policy_result": dict(chain.get("context_policy_result") or {}),
+        "runtime_assembly": assembly_payload,
+        "runtime_profile": dict(assembly_payload.get("profile") or {}),
+        "model_selection": dict(assembly_payload.get("model_selection") or {}),
+        "task_selection": dict(assembly_payload.get("task_selection") or {}),
+        "task_environment": dict(assembly_payload.get("task_environment") or {}),
+        "operation_authorization": dict(assembly_payload.get("operation_authorization") or {}),
+        "available_tools": [dict(item) for item in list(assembly_payload.get("available_tools") or [])],
+        "diagnostics": dict(assembly_payload.get("diagnostics") or {}),
     }
+
+
+def _preview_runtime_assembly(runtime: Any, payload: OrchestrationPreviewRequest):
+    query_runtime = runtime.query_runtime
+    agent_profile = query_runtime.agent_runtime_registry.get_profile("agent:0")
+    tool_instances = query_runtime._all_tool_instances()
+    return assemble_runtime(
+        backend_dir=runtime.base_dir,
+        session_id=payload.session_id,
+        turn_id=payload.turn_id,
+        agent_invocation_id=f"aginvoke:{payload.turn_id}:preview",
+        request_task_selection={
+            "turn_id": payload.turn_id,
+            "source": payload.source,
+            "preview_user_goal": payload.user_goal,
+            **dict(payload.task_selection or {}),
+        },
+        model_selection={},
+        agent_runtime_profile=agent_profile,
+        tool_instances=tool_instances,
+        definitions_by_name=dict(query_runtime.single_agent_runtime_host.tool_authorization_index.definitions_by_name or {}),
+    )
 
 
 @router.put("/orchestration/agents/{agent_id}/runtime-profile")

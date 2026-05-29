@@ -89,16 +89,9 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
             or execution_shape.execution_kind
             or "professional_mode"
         ).strip()
-        runtime_lane = str(mode_policy.get("runtime_lane") or "").strip()
-        tool_policy = dict(mode_policy.get("tool_policy") or {})
-        delegation_policy = dict(mode_policy.get("delegation_policy") or {})
-        checkpoint_policy = dict(mode_policy.get("checkpoint_policy") or {})
-        verification_policy = dict(mode_policy.get("verification_policy") or {})
-        sandbox_policy = dict(mode_policy.get("sandbox_policy") or {})
-        context_policy = dict(mode_policy.get("context_policy") or {})
-        output_policy = dict(mode_policy.get("output_policy") or {})
+        planning_policy = dict(mode_policy.get("planning_policy") or {})
+        task_lifecycle_policy = dict(mode_policy.get("task_lifecycle_policy") or {})
         execution_obligation = dict(semantic_contract.get("execution_obligation") or execution_shape.diagnostics.get("execution_obligation") or {})
-        strict = bool(verification_policy.get("strict") is True)
         professional = interaction_mode == "professional_mode"
         standard_or_professional = interaction_mode in {"standard_mode", "professional_mode"}
         runtime_task_id = _runtime_task_id_from_contract(semantic_contract)
@@ -132,13 +125,13 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
             semantic_contract=semantic_contract,
             execution_obligation=execution_obligation,
         )
-        optional_operations = [
-            str(item)
-            for item in tuple(tool_policy.get("allowed_operation_refs") or ())
-            if str(item).strip() != "op.model_response"
-        ]
+        optional_operations = _agent_runtime_operations(
+            mode_policy=mode_policy,
+            semantic_contract=semantic_contract,
+            execution_obligation=execution_obligation,
+        )
         if _agent_todo_explicitly_available(semantic_contract=semantic_contract):
-            optional_operations.append("op.agent_todo")
+            optional_operations = (*optional_operations, "op.agent_todo")
         return {
             "title": _interaction_mode_title(interaction_mode),
             "description": "Run the main Agent through the unified interaction-mode runtime with semantic contract, evidence, validation, and committed closeout.",
@@ -153,7 +146,6 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
             "step_blueprints": step_blueprints,
             "metadata": {
                 "execution_strategy": "interaction_mode_run",
-                "runtime_lane_hint": runtime_lane,
                 "interaction_mode": interaction_mode,
                 "runtime_step_topology": "unified_agent_task_lifecycle",
                 "compiled_step_count": len(step_blueprints),
@@ -167,7 +159,7 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
                 "semantic_task_type": str(semantic_contract.get("task_goal_type") or ""),
                 "professional_profile_id": str(semantic_contract.get("professional_profile_id") or ""),
                 "projection_strength": str(mode_policy.get("projection_strength") or ""),
-                "requires_evidence_packet": bool(tool_policy.get("requires_evidence_packet") or professional),
+                "requires_evidence_packet": professional,
                 "runtime_limits": {
                     "max_turns": 12 if professional else (4 if standard_or_professional else 2),
                     "max_model_calls": 32 if professional else (12 if standard_or_professional else 4),
@@ -176,12 +168,23 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
                     "repair_budget": 3 if professional else (1 if standard_or_professional else 0),
                     "stall_detector": standard_or_professional,
                 },
-                "checkpoint_policy": checkpoint_policy,
-                "delegation_policy": delegation_policy,
-                "tool_execution_policy": tool_policy,
-                "sandbox_policy": sandbox_policy,
-                "context_policy": context_policy,
-                "output_policy": output_policy,
+                "checkpoint_policy": {
+                    "authority": "harness.runtime.assembly",
+                    "terminal": True,
+                    "after_each_tool_action": professional,
+                    "after_delegation": professional,
+                },
+                "delegation_policy": {
+                    "authority": "harness.runtime.assembly",
+                    "requested": professional,
+                },
+                "runtime_mode_policy": {
+                    "authority": "task_system.runtime_mode_request",
+                    "planning_policy": planning_policy,
+                    "task_lifecycle_policy": task_lifecycle_policy,
+                    "tool_permission_authority": "harness.runtime.assembly",
+                    "sandbox_authority": "task_environment",
+                },
                 "background_policy": {
                     "enabled": professional,
                     "progress_event_interval_seconds": 30,
@@ -193,12 +196,16 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
                     "manual_recovery_on_unknown_side_effect": professional,
                     "reuse_completed_read_results": True,
                 },
-                "verification_policy": verification_policy,
+                "verification_policy": {
+                    "required": standard_or_professional,
+                    "strict": professional,
+                    "deliverable_validator": standard_or_professional,
+                },
                 "final_answer_requirements": (
                     "Answer according to the semantic task contract and the active interaction mode.",
                     "Do not invent evidence, tool execution, file writes, or test results that did not happen.",
                     "Do not output tool calls, DSML, raw parameters, or internal protocol fragments.",
-                    *tuple(_deliverable_requirement_lines(semantic_contract, strict=strict)),
+                    *tuple(_deliverable_requirement_lines(semantic_contract, strict=professional)),
                 ),
             },
         }
@@ -221,10 +228,9 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
             ),
             "metadata": {
                 "execution_strategy": "task_system_managed_node",
-                "runtime_lane_hint": "coordination_task",
                 "final_answer_requirements": (
                     "Complete the current task-system stage according to the provided stage work order.",
-                    "Do not choose a different task environment, route, or retrieval lane from the stage instructions.",
+                    "Do not choose a different task environment, route, or retrieval source from the stage instructions.",
                     "Do not invent evidence, file writes, or node outputs that were not produced in this run.",
                 ),
             },
@@ -287,7 +293,6 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
             ),
             "metadata": {
                 "execution_strategy": "direct_tool_preferred",
-                "runtime_lane_hint": "information_search",
                 "primary_tool_name": "web_search",
                 "primary_operation_ref": "op.web_search",
             },
@@ -324,7 +329,7 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
         }
     if recipe_id == "runtime.recipe.capability":
         return {
-            "title": "Builtin capability lane",
+            "title": "Builtin capability execution",
             "description": "Execute authorized capability operations and return grounded results.",
             "task_mode": "capability_execution",
             "source_kind": execution_shape.source_kind or "workspace",
@@ -469,17 +474,8 @@ def _agent_runtime_operations(
     semantic_contract: dict[str, Any],
     execution_obligation: dict[str, Any],
 ) -> tuple[str, ...]:
-    tool_policy = dict(mode_policy.get("tool_policy") or semantic_contract.get("tool_policy") or {})
-    values = [
-        str(item).strip()
-        for item in list(
-            tool_policy.get("allowed_operation_refs")
-            or tool_policy.get("optional_operations")
-            or semantic_contract.get("optional_operations")
-            or []
-        )
-        if str(item).strip()
-    ]
+    _ = mode_policy
+    values = [str(item).strip() for item in list(semantic_contract.get("optional_operations") or []) if str(item).strip()]
     actions = {str(item).strip() for item in list(semantic_contract.get("required_actions") or []) if str(item).strip()}
     if list(execution_obligation.get("required_reads") or []) or actions.intersection({"read_material", "inspect_code"}):
         values.extend(["op.read_file", "op.search_text", "op.search_files"])

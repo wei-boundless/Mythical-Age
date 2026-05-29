@@ -5,6 +5,8 @@ import json
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from .language import validate_harness_edge_config
+
 
 GRAPH_HARNESS_CONFIG_SCHEMA_VERSION = "graph_harness_config.v1"
 GRAPH_HARNESS_CONFIG_AUTHORITY = "harness.graph_harness_config"
@@ -51,6 +53,7 @@ class GraphHarnessConfig:
         if self.status not in {"published", "archived"}:
             raise ValueError("GraphHarnessConfig status must be published or archived")
         _validate_node_executors(self.nodes)
+        _validate_edges(self.nodes, self.edges)
 
     def content_payload(self) -> dict[str, Any]:
         payload = self.to_dict()
@@ -205,7 +208,7 @@ class GraphLoopState:
             active_work_orders={str(key): str(value) for key, value in dict(payload.get("active_work_orders") or {}).items()},
             work_order_index={str(key): dict(value) for key, value in dict(payload.get("work_order_index") or {}).items()},
             result_index={str(key): dict(value) for key, value in dict(payload.get("result_index") or {}).items()},
-            event_cursor=int(payload.get("event_cursor") or -1),
+            event_cursor=_int_or_default(payload.get("event_cursor"), -1),
             terminal_reason=str(payload.get("terminal_reason") or ""),
             diagnostics=dict(payload.get("diagnostics") or {}),
             authority=str(payload.get("authority") or "harness.graph_loop_state"),
@@ -317,6 +320,26 @@ class NodeResultEnvelope:
     created_at: float = 0.0
     authority: str = "harness.graph_node_result_envelope"
 
+    def __post_init__(self) -> None:
+        if self.authority != "harness.graph_node_result_envelope":
+            raise ValueError("NodeResultEnvelope authority must be harness.graph_node_result_envelope")
+        if not self.result_id:
+            raise ValueError("NodeResultEnvelope requires result_id")
+        if not self.graph_run_id:
+            raise ValueError("NodeResultEnvelope requires graph_run_id")
+        if not self.task_run_id:
+            raise ValueError("NodeResultEnvelope requires task_run_id")
+        if not self.node_id:
+            raise ValueError("NodeResultEnvelope requires node_id")
+        if not self.work_order_id:
+            raise ValueError("NodeResultEnvelope requires work_order_id")
+        if self.status not in {"completed", "failed"}:
+            raise ValueError("NodeResultEnvelope status must be completed or failed")
+        if self.status == "completed" and not (self.outputs or self.decisions or self.artifact_refs or self.memory_candidates or self.handoff_summary):
+            raise ValueError("NodeResultEnvelope completed result requires outputs, decisions, refs, candidates, or handoff_summary")
+        if self.status == "failed" and not str(dict(self.error or {}).get("reason") or "").strip():
+            raise ValueError("NodeResultEnvelope failed result requires error.reason")
+
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["artifact_refs"] = list(self.artifact_refs)
@@ -403,10 +426,18 @@ def _validate_node_executors(nodes: tuple[dict[str, Any], ...]) -> None:
     supported = {"agent", "resource", "human", "human_gate", "review_gate", "tool"}
     for node in nodes:
         node_id = str(dict(node).get("node_id") or "").strip()
+        if not node_id:
+            raise ValueError("GraphHarnessConfig node requires node_id")
         executor = dict(dict(node).get("executor") or {})
         executor_type = str(executor.get("executor_type") or "agent").strip() or "agent"
         if executor_type not in supported:
             raise ValueError(f"GraphHarnessConfig node executor_type is not supported: {node_id}")
+
+
+def _validate_edges(nodes: tuple[dict[str, Any], ...], edges: tuple[dict[str, Any], ...]) -> None:
+    nodes_by_id = {str(dict(node).get("node_id") or ""): dict(node) for node in nodes if str(dict(node).get("node_id") or "")}
+    for edge in edges:
+        validate_harness_edge_config(dict(edge), nodes_by_id=nodes_by_id)
 
 
 def stable_hash(payload: Any) -> str:
@@ -417,3 +448,12 @@ def stable_hash(payload: Any) -> str:
 def safe_id(value: str, *, limit: int = 120) -> str:
     safe = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in str(value or "")).strip("_")
     return (safe or "graph")[:limit]
+
+
+def _int_or_default(value: Any, default: int) -> int:
+    if value is None or value == "":
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default

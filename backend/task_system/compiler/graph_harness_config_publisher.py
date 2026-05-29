@@ -4,41 +4,23 @@ from pathlib import Path
 from typing import Any
 import time
 
+from harness.graph.language import (
+    ARTIFACT_EDGE_TYPES,
+    AUDIT_EDGE_TYPES,
+    DEPENDENCY_EDGE_TYPES,
+    EVENT_EDGE_TYPES,
+    EXECUTABLE_MEMORY_NODE_TYPES,
+    FILE_EDGE_TYPES,
+    MEMORY_EDGE_TYPES,
+    RESOURCE_NODE_TYPES,
+    REVISION_EDGE_TYPES,
+    harness_edge_scheduler_role,
+    harness_edge_semantic_role,
+)
 from harness.graph.models import GraphHarnessConfig, safe_id, stable_hash
 from task_system.compiler.layered_graph_normalizer import normalize_task_graph_layers
 from task_system.graphs.composable_graph_builder import build_composable_graph_view
 from task_system.registry.flow_registry import TaskFlowRegistry
-
-
-RESOURCE_NODE_TYPES = {
-    "memory",
-    "memory_resource",
-    "memory_repository",
-    "memory_collection",
-    "artifact_repository",
-    "thread_ledger",
-    "progress_ledger",
-    "issue_ledger",
-    "runtime_state_store",
-    "working_memory_store",
-}
-
-EXECUTABLE_MEMORY_NODE_TYPES = {"memory_commit", "memory_finalize"}
-MEMORY_EDGE_TYPES = {"memory_read", "memory_write", "memory_write_candidate", "memory_commit", "memory_handoff"}
-ARTIFACT_EDGE_TYPES = {"artifact_read", "artifact_write", "artifact_context", "artifact_commit"}
-REVISION_EDGE_TYPES = {"revision_request", "review_feedback", "repair_feedback", "conditional_feedback", "repair_route"}
-DEPENDENCY_EDGE_TYPES = {
-    "handoff",
-    "structured_handoff",
-    "control",
-    "gate",
-    "gate_pass",
-    "barrier",
-    "temporal_dependency",
-    "temporal_after",
-    "phase_dependency",
-    "sequence_dependency",
-}
 
 
 def publish_graph_harness_config_for_graph(
@@ -339,6 +321,7 @@ def _expand_composition_sources(
             "memory_edges": [],
             "artifact_context_edges": [],
             "composition_sources": [],
+            "issues": [],
         }
     node_ids = {str(node.get("node_id") or "") for node in nodes}
     edge_ids = {str(edge.get("edge_id") or "") for edge in edges}
@@ -812,37 +795,11 @@ def _is_resource_node_type(*, node_type: str, node_id: str = "") -> bool:
 
 
 def _semantic_role_for_edge(*, edge_type: str, metadata: dict[str, Any]) -> str:
-    explicit = str(metadata.get("semantic_role") or "").strip()
-    if explicit:
-        return explicit
-    normalized = str(edge_type or "").strip()
-    if normalized in MEMORY_EDGE_TYPES:
-        return "memory"
-    if normalized in ARTIFACT_EDGE_TYPES:
-        return "artifact"
-    if normalized in REVISION_EDGE_TYPES:
-        return "revision"
-    if normalized in DEPENDENCY_EDGE_TYPES:
-        return "control"
-    return "extension"
+    return harness_edge_semantic_role(edge_type=edge_type, metadata=metadata)
 
 
 def _scheduler_role_for_edge(*, edge_type: str, metadata: dict[str, Any]) -> str:
-    explicit = str(metadata.get("scheduler_role") or "").strip()
-    if explicit:
-        return explicit
-    normalized = str(edge_type or "").strip()
-    if normalized in DEPENDENCY_EDGE_TYPES:
-        return "dependency"
-    if normalized in REVISION_EDGE_TYPES:
-        return "conditional_dependency"
-    if normalized == "memory_read" or normalized in {"artifact_read", "artifact_context"}:
-        return "context"
-    if normalized in {"memory_commit", "memory_write", "memory_write_candidate", "artifact_write", "artifact_commit"}:
-        return "commit"
-    if normalized == "memory_handoff":
-        return "context"
-    return "none"
+    return harness_edge_scheduler_role(edge_type=edge_type, metadata=metadata)
 
 
 def _policy_dict(value: Any, *, string_key: str = "mode") -> dict[str, Any]:

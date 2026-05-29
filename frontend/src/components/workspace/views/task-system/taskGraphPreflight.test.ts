@@ -1,6 +1,60 @@
 import { describe, expect, it } from "vitest";
 
+import type { TaskGraphContractPreview } from "@/lib/api";
+
 import { buildTaskGraphPreflightReport } from "./taskGraphPreflight";
+
+function graphContractPreview(
+  patch: Pick<TaskGraphContractPreview, "valid" | "issues"> & Partial<TaskGraphContractPreview>,
+): TaskGraphContractPreview {
+  return {
+    authority: "test.task_graph_contract_preview",
+    contract_id: "contract.graph.test",
+    graph_id: "graph.test",
+    title: "测试图契约",
+    graph_harness_config: {
+      authority: "harness.graph_harness_config",
+      config_id: "ghcfg:test",
+      graph_id: "graph.test",
+      graph_title: "测试图契约",
+      publish_version: "published",
+      content_hash: "hash",
+      status: "published",
+      task_environment_id: "",
+      root_task_ref: "",
+      control: {},
+      nodes: [],
+      edges: [],
+      loop_frames: [],
+      resources: {},
+      memory: {},
+      artifacts: {},
+      permissions: {},
+      tools: {},
+      agents: {},
+      contracts: {},
+      composition_sources: [],
+      diagnostics: {},
+      authority_map: {},
+      source_refs: {},
+    },
+    scheduler_view: {
+      authority: "harness.graph.scheduler_view",
+      config_id: "ghcfg:test",
+      config_hash: "hash",
+      dependency_edges: [],
+      executable_node_ids: [],
+      start_node_ids: [],
+      terminal_node_ids: [],
+      diagnostics: {},
+    },
+    composition_sources: [],
+    split_plans: [],
+    object_trace_index: [],
+    summary: {},
+    ...patch,
+  };
+}
 
 describe("TaskGraph preflight", () => {
   it("blocks a multi-node graph without handoff edges", () => {
@@ -43,7 +97,7 @@ describe("TaskGraph preflight", () => {
       editorValid: true,
       nodes: [{ node_id: "draft", agent_id: "agent:writer" }],
       edges: [],
-      graphContract: {
+      graphContract: graphContractPreview({
         valid: false,
         issues: [
           {
@@ -53,7 +107,7 @@ describe("TaskGraph preflight", () => {
             severity: "error",
           },
         ],
-      },
+      }),
     });
 
     expect(report.valid).toBe(false);
@@ -156,7 +210,7 @@ describe("TaskGraph preflight", () => {
       editorValid: true,
       nodes: [{ node_id: "review", agent_id: "agent:reviewer" }],
       edges: [],
-      graphContract: {
+      graphContract: graphContractPreview({
         valid: true,
         issues: [
           {
@@ -166,7 +220,7 @@ describe("TaskGraph preflight", () => {
             severity: "warning",
           },
         ],
-      },
+      }),
     });
 
     const issue = report.issues.find((item) => item.title === "scheduler_policy_unsupported");

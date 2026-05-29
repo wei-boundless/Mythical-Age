@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from orchestration.coordination_recovery import _recovery_stage_business_acceptance
 from task_system.runtime_semantics.quality_gates import stage_business_acceptance
 from task_system.runtime_semantics.review_gate_verdict import extract_explicit_review_verdict
 
@@ -25,19 +24,9 @@ def test_chinese_review_conclusion_with_notes_accepts_runtime_and_breakpoint_rec
         terminal_status="completed",
         requires_file_artifact_refs=True,
     )
-    recovery = _recovery_stage_business_acceptance(
-        stage_id="world_review",
-        contract=_review_contract(),
-        explicit_inputs={},
-        final_content=content,
-        output_refs=["artifact:world_review"],
-        terminal_status="completed",
-    )
-
     assert extract_explicit_review_verdict(content) == "pass_with_notes"
     assert acceptance["accepted"] is True
     assert acceptance["business_accepted"] is True
-    assert recovery["accepted"] is True
 
 
 def test_chinese_review_rework_or_next_stage_no_rejects_runtime_and_breakpoint_recovery() -> None:
@@ -56,19 +45,9 @@ def test_chinese_review_rework_or_next_stage_no_rejects_runtime_and_breakpoint_r
         terminal_status="completed",
         requires_file_artifact_refs=True,
     )
-    recovery = _recovery_stage_business_acceptance(
-        stage_id="world_review",
-        contract=_review_contract(),
-        explicit_inputs={},
-        final_content=content,
-        output_refs=["artifact:world_review"],
-        terminal_status="completed",
-    )
-
     assert extract_explicit_review_verdict(content) == "revise"
     assert acceptance["accepted"] is False
     assert acceptance["business_accepted"] is False
-    assert recovery["accepted"] is False
 
 
 def test_conditional_pass_with_blockers_is_revise() -> None:
@@ -92,19 +71,9 @@ def test_conditional_pass_with_blockers_is_revise() -> None:
         terminal_status="completed",
         requires_file_artifact_refs=True,
     )
-    recovery = _recovery_stage_business_acceptance(
-        stage_id="character_review",
-        contract=_review_contract(),
-        explicit_inputs={},
-        final_content=content,
-        output_refs=["artifact:character_review"],
-        terminal_status="completed",
-    )
-
     assert extract_explicit_review_verdict(content) == "revise"
     assert acceptance["accepted"] is False
     assert acceptance["business_accepted"] is False
-    assert recovery["accepted"] is False
 
 
 def test_review_table_header_does_not_turn_passed_review_into_revise() -> None:
@@ -134,19 +103,9 @@ def test_review_table_header_does_not_turn_passed_review_into_revise() -> None:
         terminal_status="completed",
         requires_file_artifact_refs=True,
     )
-    recovery = _recovery_stage_business_acceptance(
-        stage_id="world_review",
-        contract=_review_contract(),
-        explicit_inputs={},
-        final_content=content,
-        output_refs=["artifact:world_review"],
-        terminal_status="completed",
-    )
-
     assert extract_explicit_review_verdict(content) == "pass"
     assert acceptance["accepted"] is True
     assert acceptance["business_accepted"] is True
-    assert recovery["accepted"] is True
 
 
 def test_passed_second_round_review_with_resolved_blockers_is_not_revised() -> None:
@@ -181,19 +140,9 @@ L1节“大泽：主角出身地”子节已完整锁定。
         terminal_status="completed",
         requires_file_artifact_refs=True,
     )
-    recovery = _recovery_stage_business_acceptance(
-        stage_id="world_review",
-        contract=_review_contract(),
-        explicit_inputs={},
-        final_content=content,
-        output_refs=["artifact:world_review"],
-        terminal_status="completed",
-    )
-
     assert extract_explicit_review_verdict(content) == "pass"
     assert acceptance["accepted"] is True
     assert acceptance["business_accepted"] is True
-    assert recovery["accepted"] is True
 
 
 def test_passed_review_that_mentions_completed_rework_does_not_revise() -> None:
@@ -228,18 +177,8 @@ def test_passed_review_that_mentions_completed_rework_does_not_revise() -> None:
         terminal_status="completed",
         requires_file_artifact_refs=True,
     )
-    recovery = _recovery_stage_business_acceptance(
-        stage_id="world_review",
-        contract=_review_contract(),
-        explicit_inputs={},
-        final_content=content,
-        output_refs=["artifact:world_review"],
-        terminal_status="completed",
-    )
-
     assert extract_explicit_review_verdict(content) == "pass"
     assert acceptance["accepted"] is True
     assert acceptance["business_accepted"] is True
-    assert recovery["accepted"] is True
 
 

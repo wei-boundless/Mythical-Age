@@ -16,8 +16,8 @@ const LAYER_CONTEXT: Record<TaskGraphStudioLayerId, { title: string; summary: st
   },
   agents: {
     title: "节点装配",
-    summary: "给当前图模块绑定执行器、Agent、Projection 与运行场景权限引用。",
-    checkpoints: ["执行器", "Agent 引用", "Projection"],
+    summary: "给当前图模块绑定执行器、Agent、运行档案与模型能力需求。",
+    checkpoints: ["执行器", "Agent 引用", "运行档案"],
   },
   topology: {
     title: "拓扑编辑",
@@ -25,14 +25,14 @@ const LAYER_CONTEXT: Record<TaskGraphStudioLayerId, { title: string; summary: st
     checkpoints: ["canonical 节点", "canonical 边", "入口/出口"],
   },
   modules: {
-    title: "编译预览",
-    summary: "查看后端标准视图、端口映射和图模块展开；这里用于诊断，不作为第二套运行图真相。",
-    checkpoints: ["标准视图", "端口诊断", "图模块展开"],
+    title: "图契约",
+    summary: "查看 TaskGraphDefinition 编译后的 GraphHarnessConfig、调度视图和图模块展开；这里只读诊断，不作为第二套运行图真相。",
+    checkpoints: ["GraphHarnessConfig", "调度视图", "图模块展开"],
   },
   responsibility: {
     title: "节点认知包",
     summary: "把节点身份、输入包、输出契约和 Prompt 使用方式配成同一个执行视图。",
-    checkpoints: ["身份投影", "输入包", "输出交接"],
+    checkpoints: ["角色 Prompt", "输入包", "输出交接"],
   },
   timeline: {
     title: "阶段与循环",
@@ -42,7 +42,7 @@ const LAYER_CONTEXT: Record<TaskGraphStudioLayerId, { title: string; summary: st
   memory: {
     title: "资源流",
     summary: "用仓库节点、collection、读写边、selector 和提交条件控制节点上下文。",
-    checkpoints: ["仓库结构", "读写边", "Snapshot"],
+    checkpoints: ["仓库结构", "读写边", "Checkpoint"],
   },
   risk: {
     title: "风险治理",

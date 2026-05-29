@@ -86,7 +86,7 @@ class ArtifactRepositoryStore:
                     artifact_id, artifact_ref, path, repository_id, collection_id,
                     output_contract_id, artifact_kind, producer_node_id, content_type, materialization_id,
                     logical_repository_id, effective_repository_id, task_run_id, scope_kind, scope_id,
-                    graph_id, stage_id, node_run_id, task_ref, coordination_run_id,
+                    graph_id, stage_id, node_run_id, task_ref, graph_run_id,
                     status, content_hash, metadata_json, created_at, updated_at, authority
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(artifact_id) DO UPDATE SET
@@ -106,7 +106,7 @@ class ArtifactRepositoryStore:
                     stage_id = excluded.stage_id,
                     node_run_id = excluded.node_run_id,
                     task_ref = excluded.task_ref,
-                    coordination_run_id = excluded.coordination_run_id,
+                    graph_run_id = excluded.graph_run_id,
                     status = excluded.status,
                     content_hash = excluded.content_hash,
                     metadata_json = excluded.metadata_json,
@@ -132,7 +132,7 @@ class ArtifactRepositoryStore:
                     stored.stage_id,
                     stored.node_run_id,
                     stored.task_ref,
-                    stored.coordination_run_id,
+                    stored.graph_run_id,
                     stored.status,
                     stored.content_hash,
                     _json(stored.metadata),
@@ -162,6 +162,7 @@ class ArtifactRepositoryStore:
         collection_id: str = "",
         status: str = "",
         graph_id: str = "",
+        graph_run_id: str = "",
         stage_id: str = "",
         node_run_id: str = "",
         task_ref: str = "",
@@ -187,6 +188,9 @@ class ArtifactRepositoryStore:
         if graph_id:
             filters.append("graph_id = ?")
             params.append(graph_id)
+        if graph_run_id:
+            filters.append("graph_run_id = ?")
+            params.append(graph_run_id)
         if stage_id:
             filters.append("stage_id = ?")
             params.append(stage_id)
@@ -259,7 +263,7 @@ class ArtifactRepositoryStore:
                     stage_id TEXT NOT NULL DEFAULT '',
                     node_run_id TEXT NOT NULL DEFAULT '',
                     task_ref TEXT NOT NULL DEFAULT '',
-                    coordination_run_id TEXT NOT NULL DEFAULT '',
+                    graph_run_id TEXT NOT NULL DEFAULT '',
                     status TEXT NOT NULL DEFAULT 'accepted',
                     content_hash TEXT NOT NULL DEFAULT '',
                     metadata_json TEXT NOT NULL DEFAULT '{}',
@@ -279,6 +283,7 @@ class ArtifactRepositoryStore:
                     "producer_node_id": "TEXT NOT NULL DEFAULT ''",
                     "content_type": "TEXT NOT NULL DEFAULT ''",
                     "materialization_id": "TEXT NOT NULL DEFAULT ''",
+                    "graph_run_id": "TEXT NOT NULL DEFAULT ''",
                 },
             )
             conn.executescript(
@@ -351,7 +356,7 @@ def _record_from_row(row: sqlite3.Row) -> ArtifactRecord:
         stage_id=str(row["stage_id"] or ""),
         node_run_id=str(row["node_run_id"] or ""),
         task_ref=str(row["task_ref"] or ""),
-        coordination_run_id=str(row["coordination_run_id"] or ""),
+        graph_run_id=str(row["graph_run_id"] or ""),
         status=str(row["status"] or "accepted"),
         content_hash=str(row["content_hash"] or ""),
         metadata=_loads(row["metadata_json"], {}),
@@ -386,5 +391,4 @@ def _ensure_columns(conn: sqlite3.Connection, table_name: str, columns: dict[str
         if column_name in existing:
             continue
         conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_spec}")
-
 

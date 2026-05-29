@@ -733,8 +733,6 @@ def _is_task_graph_node_runtime_context(current_turn_context: dict[str, Any]) ->
     context = dict(current_turn_context or {})
     if context.get("task_graph_node_runtime") is True or context.get("suppress_bundle_projection") is True:
         return True
-    if str(context.get("runtime_lane") or "").strip() == "coordination_task":
-        return True
     if str(context.get("continuation_stage_id") or "").strip() and str(
         context.get("selected_task_id")
         or context.get("task_id")

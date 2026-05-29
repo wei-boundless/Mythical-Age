@@ -87,7 +87,6 @@ class MemoryFacade:
             payload=payload,
             source="memory_system.facade",
             session_id=session_id,
-            lane_id="session_memory_maintenance",
         )
         from .maintenance import MemoryMaintenanceReceipt
 

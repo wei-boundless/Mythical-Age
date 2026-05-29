@@ -1361,39 +1361,34 @@ def _upsert_agents(backend_dir: Path) -> None:
         )
 
     runtime_registry = AgentRuntimeRegistry(backend_dir)
-    for agent_id, template_id, lanes, contexts, extra_ops in (
+    for agent_id, template_id, contexts, extra_ops in (
         (
             WORKER_AGENT_ID,
             "task_graph.writing.modular_novel.worker",
-            ("coordination_task",),
             ("task", "runtime_contracts", "artifact_refs", "memory_runtime_view"),
             ("op.text_metric",),
         ),
         (
             CREATOR_AGENT_ID,
             "task_graph.writing.modular_novel.creator",
-            ("coordination_task",),
             ("task", "runtime_contracts", "artifact_refs", "memory_runtime_view"),
             ("op.text_metric",),
         ),
         (
             REVIEWER_AGENT_ID,
             "task_graph.writing.modular_novel.reviewer",
-            ("coordination_task",),
             ("task", "runtime_contracts", "artifact_refs", "memory_runtime_view"),
             (),
         ),
         (
             MEMORY_AGENT_ID,
             "task_graph.writing.modular_novel.memory_steward",
-            ("coordination_task", "system_memory"),
             ("task", "runtime_contracts", "artifact_refs", "memory_runtime_view"),
             (),
         ),
         (
             MONITOR_AGENT_ID,
             "task_graph.writing.modular_novel.runtime_monitor",
-            ("task_graph_monitor",),
             ("task", "runtime_contracts", "artifact_refs", "memory_runtime_view", "task_graph_monitor"),
             (),
         ),
@@ -1756,7 +1751,7 @@ def _upsert_task_asset(
             "task_environment_id": ENVIRONMENT_ID,
             "environment_id": ENVIRONMENT_ID,
             "task_structure": {
-                "execution_chain_type": "coordination_node",
+                "execution_chain_type": "task_graph_node",
                 "memory_scope_hint": "writing_modular_novel",
                 "node_id": node_id,
                 "runtime_interaction_mode": "role_mode",
@@ -1791,7 +1786,7 @@ def _upsert_task_asset(
         output_contract_id=output_contract_id,
         safety_policy={"verification_mode": "artifact_or_trace", "write_mode": "scoped", "safety_class": "S2_bounded"},
         task_structure={
-            "execution_chain_type": "coordination_node",
+            "execution_chain_type": "task_graph_node",
             "memory_scope_hint": "writing_modular_novel",
             "node_id": node_id,
             "runtime_interaction_mode": "role_mode",
@@ -1840,7 +1835,7 @@ def _upsert_task_asset(
         default_agent_id=agent_id,
         allow_worker_agent_spawn=False,
         notes="模块化写作任务图使用通用任务图执行能力，不新增写作专用后端入口。",
-        metadata={"managed_by": MANAGED_BY, "execution_chain_type": "coordination_node", "node_id": node_id},
+        metadata={"managed_by": MANAGED_BY, "execution_chain_type": "task_graph_node", "node_id": node_id},
     )
 
 

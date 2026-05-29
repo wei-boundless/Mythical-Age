@@ -7,6 +7,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
+from harness.graph.models import NodeResultEnvelope, graph_harness_config_from_dict
 from harness.graph.scheduler_view import build_scheduler_view
 from task_system.compiler.graph_harness_config_publisher import build_graph_harness_config_from_graph
 from task_system.graphs.task_graph_models import (
@@ -138,3 +139,131 @@ def test_scheduler_view_uses_only_dependency_edges() -> None:
     assert dependency_edge_ids == {"edge.draft.review", "edge.draft.memory_commit"}
     assert scheduler.start_node_ids == ("draft",)
     assert set(scheduler.terminal_node_ids) == {"review", "memory.commit"}
+
+
+def test_graph_harness_config_rejects_unknown_scheduler_role() -> None:
+    graph_config = _graph_harness_config()
+    payload = graph_config.to_dict()
+    payload["edges"][0]["scheduler_role"] = "unsupported_scheduler_role"
+
+    try:
+        graph_harness_config_from_dict(payload)
+        raised = None
+    except ValueError as exc:
+        raised = exc
+
+    assert raised is not None
+    assert "scheduler_role" in str(raised)
+
+
+def test_graph_harness_config_rejects_unknown_edge_type_without_explicit_extension_role() -> None:
+    graph = TaskGraphDefinition(
+        graph_id="graph.test.unknown_edge_type",
+        title="Unknown Edge Type",
+        graph_kind="multi_agent",
+        entry_node_id="draft",
+        output_node_id="review",
+        publish_state="published",
+        enabled=True,
+        nodes=(
+            TaskGraphNodeDefinition(node_id="draft", node_type="agent", title="起草", agent_id="agent:0"),
+            TaskGraphNodeDefinition(node_id="review", node_type="agent", title="审核", agent_id="agent:0"),
+        ),
+        edges=(
+            TaskGraphEdgeDefinition(
+                edge_id="edge.draft.review",
+                source_node_id="draft",
+                target_node_id="review",
+                edge_type="custom_payload",
+            ),
+        ),
+    )
+
+    try:
+        build_graph_harness_config_from_graph(
+            graph=graph,
+            contract_manifest={"manifest_id": "contract-manifest:test", "valid": True},
+        )
+        raised = None
+    except ValueError as exc:
+        raised = exc
+
+    assert raised is not None
+    assert "unknown graph edge_type" in str(raised)
+
+
+def test_explicit_extension_edge_is_preserved_but_not_scheduled() -> None:
+    graph = TaskGraphDefinition(
+        graph_id="graph.test.extension_edge",
+        title="Extension Edge",
+        graph_kind="multi_agent",
+        entry_node_id="",
+        output_node_id="",
+        publish_state="published",
+        enabled=True,
+        nodes=(
+            TaskGraphNodeDefinition(node_id="draft", node_type="agent", title="起草", agent_id="agent:0"),
+            TaskGraphNodeDefinition(node_id="review", node_type="agent", title="审核", agent_id="agent:0"),
+        ),
+        edges=(
+            TaskGraphEdgeDefinition(
+                edge_id="edge.draft.review.note",
+                source_node_id="draft",
+                target_node_id="review",
+                edge_type="custom_payload",
+                metadata={"harness_semantic_role": "extension", "scheduler_role": "none"},
+            ),
+        ),
+    )
+
+    graph_config = build_graph_harness_config_from_graph(
+        graph=graph,
+        contract_manifest={"manifest_id": "contract-manifest:test", "valid": True},
+    )
+    edge = graph_config.edges[0]
+    scheduler = build_scheduler_view(graph_config)
+
+    assert edge["semantic_role"] == "extension"
+    assert edge["scheduler_role"] == "none"
+    assert scheduler.dependency_edges == ()
+    assert scheduler.start_node_ids == ("draft", "review")
+
+
+def test_graph_loop_completion_counts_executable_nodes_not_resource_nodes(tmp_path: Path) -> None:
+    from harness import AgentRuntimeServices, GraphHarness
+    from harness.runtime import SingleAgentRuntimeHost
+
+    graph_config = _graph_harness_config()
+    host = SingleAgentRuntimeHost(tmp_path / "runtime_state", backend_dir=BACKEND_DIR)
+    services = AgentRuntimeServices.from_runtime_host(host)
+    graph_harness = GraphHarness(services=services)
+    start = graph_harness.start_run(
+        session_id="session:test",
+        task_id="",
+        graph_config=graph_config,
+        dispatch_ready=True,
+    )
+
+    state = start.loop_state
+    pending_orders = list(start.node_work_orders)
+    for node_id in ("draft", "review", "memory.commit"):
+        order = next(item for item in pending_orders if item.node_id == node_id)
+        advance = graph_harness.accept_node_result(
+            graph_config=graph_config,
+            graph_run_id=start.graph_run.graph_run_id,
+            result=NodeResultEnvelope(
+                result_id=f"nresult:test:{node_id}",
+                graph_run_id=start.graph_run.graph_run_id,
+                task_run_id=start.task_run.task_run_id,
+                node_id=node_id,
+                work_order_id=order.work_order_id,
+                outputs={"ok": node_id},
+            ),
+        )
+        state = advance.loop_state
+        pending_orders = list(advance.node_work_orders)
+
+    assert state.status == "completed"
+    assert set(state.completed_node_ids) == {"draft", "review", "memory.commit"}
+    assert "memory.world" not in state.completed_node_ids
+    assert "issue.ledger" not in state.completed_node_ids

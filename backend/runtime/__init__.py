@@ -23,17 +23,6 @@ from .shared.context_manager import (
     RuntimeContextObservationRecord,
     RuntimeContextSnapshot,
 )
-from .agent_assembly import (
-    AgentAssemblyContract,
-    AgentInvocation,
-    DirectWorkOrder,
-    ExecutionPermit,
-    HumanWorkOrder,
-    NodeWorkOrder,
-    WorkOrder,
-    build_agent_assembly_contract,
-    build_agent_invocation,
-)
 from .shared.event_log import RuntimeEventLog
 from .shared.events import RuntimeEvent, RuntimeEventType
 from .shared.execution_record import (
@@ -47,12 +36,8 @@ from .shared.execution_record import (
     derive_replay_policy,
 )
 from .shared.models import (
-    AgentHandoffEnvelope,
     AgentRun,
     AgentRunResult,
-    CoordinationMergeResult,
-    CoordinationNodeRun,
-    CoordinationRun,
     ProjectProgressLedger,
     ProjectRuntimeStatus,
     RuntimeTerminalReason,
@@ -103,10 +88,6 @@ __all__ = [
     "RuntimeExecutionStore",
     "AgentRun",
     "AgentRunResult",
-    "CoordinationRun",
-    "CoordinationNodeRun",
-    "AgentHandoffEnvelope",
-    "CoordinationMergeResult",
     "ProjectProgressLedger",
     "ProjectRuntimeStatus",
     "SupervisionRecord",
@@ -117,13 +98,6 @@ __all__ = [
     "RuntimeContextObservationRecord",
     "RuntimeContextSnapshot",
     "RuntimeEvent",
-    "AgentAssemblyContract",
-    "AgentInvocation",
-    "DirectWorkOrder",
-    "ExecutionPermit",
-    "HumanWorkOrder",
-    "NodeWorkOrder",
-    "WorkOrder",
     "RuntimeEventLog",
     "RuntimeEventType",
     "RuntimeObservation",
@@ -145,8 +119,6 @@ __all__ = [
     "WorkerAgentSpawnRequest",
     "WorkerAgentSpawnResult",
     "build_executor_error_observation",
-    "build_agent_assembly_contract",
-    "build_agent_invocation",
     "build_execution_receipt",
     "build_idempotency_token",
     "build_model_response_runtime_admission",

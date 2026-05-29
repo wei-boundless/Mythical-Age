@@ -4,7 +4,6 @@ from importlib import import_module
 
 
 _EXPORTS: dict[str, tuple[str, str]] = {
-    "AgentHandoffEnvelope": ("runtime", "AgentHandoffEnvelope"),
     "AgentRun": ("runtime", "AgentRun"),
     "AgentRunResult": ("runtime", "AgentRunResult"),
     "ApprovalState": ("permissions", "ApprovalState"),
@@ -18,9 +17,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "ControlKernel": (".kernel", "ControlKernel"),
     "ControlKernelCandidateContext": (".contracts", "ControlKernelCandidateContext"),
     "ControlKernelResult": (".kernel", "ControlKernelResult"),
-    "CoordinationMergeResult": ("runtime", "CoordinationMergeResult"),
-    "CoordinationNodeRun": ("runtime", "CoordinationNodeRun"),
-    "CoordinationRun": ("runtime", "CoordinationRun"),
     "DenialTrackingState": ("permissions", "DenialTrackingState"),
     "ExecutionDispatchDecision": (".execution_scheduler", "ExecutionDispatchDecision"),
     "ExecutionGraph": (".execution_graph", "ExecutionGraph"),
@@ -48,8 +44,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "RuntimeEvent": ("runtime", "RuntimeEvent"),
     "RuntimeEventLog": ("runtime", "RuntimeEventLog"),
     "RuntimeExecutionStore": ("runtime", "RuntimeExecutionStore"),
-    "RuntimeLaneDescriptor": (".runtime_lane_registry", "RuntimeLaneDescriptor"),
-    "RuntimeLaneRegistry": (".runtime_lane_registry", "RuntimeLaneRegistry"),
     "RuntimeObservation": ("runtime", "RuntimeObservation"),
     "RuntimeObservationType": ("runtime", "RuntimeObservationType"),
     "RuntimeStateIndex": ("runtime", "RuntimeStateIndex"),
@@ -80,10 +74,6 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "build_tool_request_runtime_admission": ("runtime", "build_tool_request_runtime_admission"),
     "build_tool_result_observation": ("runtime", "build_tool_result_observation"),
     "build_user_message_commit_decision": (".commit_gate", "build_user_message_commit_decision"),
-    "default_runtime_lane_descriptors": (
-        ".runtime_lane_registry",
-        "default_runtime_lane_descriptors",
-    ),
     "derive_replay_policy": ("runtime", "derive_replay_policy"),
     "resolve_execution_dispatch": (".execution_scheduler", "resolve_execution_dispatch"),
     "summarize_runtime_loop_events": (".monitor", "summarize_runtime_loop_events"),

@@ -3,35 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from .language import (
+    EXECUTABLE_MEMORY_NODE_TYPES,
+    RESOURCE_NODE_TYPES,
+    edge_is_scheduler_dependency,
+)
 from .models import GraphHarnessConfig
-
-
-RESOURCE_NODE_TYPES = {
-    "memory",
-    "memory_resource",
-    "memory_repository",
-    "memory_collection",
-    "artifact_repository",
-    "thread_ledger",
-    "progress_ledger",
-    "issue_ledger",
-    "runtime_state_store",
-    "working_memory_store",
-}
-
-EXECUTABLE_MEMORY_NODE_TYPES = {"memory_commit", "memory_finalize"}
-DEPENDENCY_EDGE_TYPES = {
-    "handoff",
-    "structured_handoff",
-    "control",
-    "gate",
-    "gate_pass",
-    "barrier",
-    "temporal_dependency",
-    "temporal_after",
-    "phase_dependency",
-    "sequence_dependency",
-}
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,22 +138,4 @@ def _explicit_or_derived_terminal_ids(
 
 
 def _edge_is_scheduler_dependency(edge: dict[str, Any], *, nodes_by_id: dict[str, dict[str, Any]]) -> bool:
-    scheduler_role = str(edge.get("scheduler_role") or "").strip()
-    if scheduler_role:
-        if scheduler_role == "dependency":
-            return True
-        if scheduler_role == "commit":
-            return _commit_edge_targets_commit_executor(edge=edge, nodes_by_id=nodes_by_id)
-        return False
-    edge_type = str(edge.get("edge_type") or edge.get("mode") or "").strip()
-    if edge_type in DEPENDENCY_EDGE_TYPES:
-        return True
-    if edge_type in {"memory_commit", "memory_write", "memory_write_candidate", "artifact_commit"}:
-        return _commit_edge_targets_commit_executor(edge=edge, nodes_by_id=nodes_by_id)
-    return False
-
-
-def _commit_edge_targets_commit_executor(*, edge: dict[str, Any], nodes_by_id: dict[str, dict[str, Any]]) -> bool:
-    target_node = nodes_by_id.get(str(edge.get("target_node_id") or "")) or {}
-    target_type = str(target_node.get("node_type") or "").strip()
-    return target_type in {"memory_commit", "memory_finalize"}
+    return edge_is_scheduler_dependency(edge, nodes_by_id=nodes_by_id)

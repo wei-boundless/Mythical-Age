@@ -123,7 +123,8 @@ def test_internal_titles_are_not_exposed_and_route_is_authoritative():
             "title": "taskinst:internal",
             "project_title": "商业长篇项目",
             "graph_id": "graph:main",
-            "coordination_run_id": "coordrun:main",
+            "graph_run_id": "grun:main",
+            "graph_harness_config_id": "ghcfg:main",
         },
     )
 
@@ -132,6 +133,9 @@ def test_internal_titles_are_not_exposed_and_route_is_authoritative():
     assert item["title"] == "商业长篇项目"
     assert item["route"]["kind"] == "task_graph_run"
     assert item["route"]["graph_id"] == "graph:main"
+    assert item["graph_run_id"] == "grun:main"
+    assert item["has_graph_run"] is True
+    assert item["route"]["graph_run_id"] == "grun:main"
 
 
 def test_latest_step_summary_is_exposed_from_event_log():
@@ -162,7 +166,7 @@ def test_task_graph_route_without_graph_id_enters_diagnostics():
     projector = TaskRunMonitorProjector(EventLogStub())
     run = task_run(
         task_run_id="taskrun:graph",
-        diagnostics={"coordination_run_id": "coordrun:graph"},
+        diagnostics={"graph_run_id": "grun:graph", "graph_harness_config_id": "ghcfg:graph"},
     )
 
     item = projector.project_task_run(run, now=150.0)

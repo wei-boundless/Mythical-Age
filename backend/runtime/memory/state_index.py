@@ -9,12 +9,8 @@ from pathlib import Path
 from typing import Any
 
 from ..shared.models import (
-    AgentHandoffEnvelope,
     AgentRun,
     AgentRunResult,
-    CoordinationMergeResult,
-    CoordinationNodeRun,
-    CoordinationRun,
     ProjectProgressLedger,
     ProjectRuntimeStatus,
     SupervisionRecord,
@@ -76,76 +72,6 @@ class RuntimeStateIndex:
         with _STATE_INDEX_WRITE_LOCK:
             self._write_record("agent_run_results", result.agent_run_result_id, result.to_dict())
             self._append_index_id("task_agent_run_results", result.task_run_id, result.agent_run_result_id)
-            self._touch_meta()
-
-    def upsert_coordination_run(self, coordination_run: CoordinationRun) -> None:
-        with _STATE_INDEX_WRITE_LOCK:
-            payload = self._compact_coordination_run_payload(coordination_run.to_dict())
-            self._write_record("coordination_runs", coordination_run.coordination_run_id, payload)
-            self._append_index_id(
-                "task_coordination_runs",
-                coordination_run.task_run_id,
-                coordination_run.coordination_run_id,
-            )
-            task_run_payload = self._read_record("task_runs", coordination_run.task_run_id)
-            session_id = str(task_run_payload.get("session_id") or "")
-            if session_id:
-                self._maybe_write_latest_ref(
-                    "session_latest_coordination_task_runs",
-                    session_id,
-                    coordination_run.task_run_id,
-                    updated_at=float(payload.get("updated_at") or 0.0),
-                )
-                self._upsert_session_live_view(
-                    session_id=session_id,
-                    task_run_id=coordination_run.task_run_id,
-                    coordination_run_id=coordination_run.coordination_run_id,
-                    updated_at=float(payload.get("updated_at") or 0.0),
-                )
-            self._maybe_write_latest_ref(
-                "task_latest_coordination_runs",
-                coordination_run.task_run_id,
-                coordination_run.coordination_run_id,
-                updated_at=float(payload.get("updated_at") or 0.0),
-            )
-            self._touch_meta()
-
-    def upsert_coordination_node_run(self, node_run: CoordinationNodeRun) -> None:
-        with _STATE_INDEX_WRITE_LOCK:
-            self._write_record("coordination_node_runs", node_run.node_run_id, node_run.to_dict())
-            self._append_index_id(
-                "coordination_node_run_index",
-                node_run.coordination_run_id,
-                node_run.node_run_id,
-            )
-            self._touch_session_live_view_by_coordination(
-                coordination_run_id=node_run.coordination_run_id,
-                updated_at=float(node_run.updated_at or 0.0),
-            )
-            self._touch_meta()
-
-    def upsert_handoff_envelope(self, handoff: AgentHandoffEnvelope) -> None:
-        with _STATE_INDEX_WRITE_LOCK:
-            self._write_record("handoff_envelopes", handoff.handoff_id, handoff.to_dict())
-            self._append_index_id("coordination_handoffs", handoff.coordination_run_id, handoff.handoff_id)
-            self._touch_session_live_view_by_coordination(
-                coordination_run_id=handoff.coordination_run_id,
-                updated_at=float(handoff.created_at or 0.0),
-            )
-            self._touch_meta()
-
-    def upsert_coordination_merge_result(self, result: CoordinationMergeResult) -> None:
-        with _STATE_INDEX_WRITE_LOCK:
-            self._write_record("coordination_merge_results", result.merge_result_id, result.to_dict())
-            self._write_index_value(
-                "coordination_latest_merge_results",
-                result.coordination_run_id,
-                result.merge_result_id,
-            )
-            self._touch_session_live_view_by_coordination(
-                coordination_run_id=result.coordination_run_id,
-                updated_at=float(result.created_at or 0.0),
-            )
             self._touch_meta()
 
     def upsert_worker_spawn_request(self, request: WorkerAgentSpawnRequest) -> None:
@@ -215,17 +141,6 @@ class RuntimeStateIndex:
         ids = self._read_index_ids("task_agent_runs", task_run_id)
         return [_agent_run_from_payload(agent_runs[item]) for item in ids if item in agent_runs]
 
-    def list_task_coordination_runs(self, task_run_id: str) -> list[CoordinationRun]:
-        coordination_runs = self._read_record_bucket("coordination_runs")
-        ids = self._read_index_ids("task_coordination_runs", task_run_id)
-        return [_coordination_run_from_payload(coordination_runs[item]) for item in ids if item in coordination_runs]
-
-    def get_coordination_run(self, coordination_run_id: str) -> CoordinationRun | None:
-        coordination_run = self._read_record("coordination_runs", coordination_run_id)
-        if not coordination_run:
-            return None
-        return _coordination_run_from_payload(coordination_run)
-
     def get_project_progress_ledger(self, project_id: str) -> ProjectProgressLedger | None:
         payload = self._read_record("project_progress_ledgers", project_id)
         if not payload:
@@ -269,32 +184,6 @@ class RuntimeStateIndex:
         ids = self._read_index_ids("task_agent_run_results", task_run_id)
         return [_agent_run_result_from_payload(results[item]) for item in ids if item in results]
 
-    def list_coordination_node_runs(self, coordination_run_id: str) -> list[CoordinationNodeRun]:
-        node_runs = self._read_record_bucket("coordination_node_runs")
-        ids = self._read_index_ids("coordination_node_run_index", coordination_run_id)
-        return [_coordination_node_run_from_payload(node_runs[item]) for item in ids if item in node_runs]
-
-    def list_coordination_handoffs(self, coordination_run_id: str) -> list[AgentHandoffEnvelope]:
-        handoffs = self._read_record_bucket("handoff_envelopes")
-        ids = self._read_index_ids("coordination_handoffs", coordination_run_id)
-        return [_handoff_from_payload(handoffs[item]) for item in ids if item in handoffs]
-
-    def get_latest_coordination_merge_result(self, coordination_run_id: str) -> CoordinationMergeResult | None:
-        latest_id = self._read_index_value("coordination_latest_merge_results", coordination_run_id)
-        if latest_id:
-            payload = self._read_record("coordination_merge_results", latest_id)
-            if payload:
-                return _coordination_merge_result_from_payload(payload)
-        results = self._read_record_bucket("coordination_merge_results")
-        matches = [
-            _coordination_merge_result_from_payload(item)
-            for item in results.values()
-            if isinstance(item, dict) and str(item.get("coordination_run_id") or "") == coordination_run_id
-        ]
-        if not matches:
-            return None
-        return sorted(matches, key=lambda item: item.created_at, reverse=True)[0]
-
     def list_task_worker_spawn_requests(self, task_run_id: str) -> list[WorkerAgentSpawnRequest]:
         requests = self._read_record_bucket("worker_spawn_requests")
         ids = self._read_index_ids("task_worker_spawn_requests", task_run_id)
@@ -323,21 +212,12 @@ class RuntimeStateIndex:
         session_view = self._read_session_live_view(session_id)
         task_run_ids = self._read_index_ids("sessions", session_id)
         task_run_bucket = self._read_record_bucket("task_runs")
-        latest_coordination_task_run_id = str(
-            session_view.get("latest_coordination_task_run_id")
-            or self._read_index_value("session_latest_coordination_task_runs", session_id)
-            or ""
-        )
         latest_task_run_id = str(
             session_view.get("latest_task_run_id")
             or self._read_index_value("session_latest_task_runs", session_id)
             or ""
         )
-        preferred_task_run_ids = [
-            item
-            for item in [latest_coordination_task_run_id, latest_task_run_id]
-            if item
-        ]
+        preferred_task_run_ids = [item for item in [latest_task_run_id] if item]
         indexed_task_runs = [
             dict(task_run_bucket.get(task_run_id) or {})
             for task_run_id in task_run_ids
@@ -363,65 +243,9 @@ class RuntimeStateIndex:
             for task_run_id in preferred_task_run_ids
             if isinstance(task_run_bucket.get(task_run_id), dict)
         }
-        task_coordination_runs = {}
-        for task_run_id in preferred_task_run_ids:
-            latest_coordination_run_id = str(
-                self._read_index_value("task_latest_coordination_runs", task_run_id) or ""
-            )
-            if latest_coordination_run_id:
-                task_coordination_runs[task_run_id] = [latest_coordination_run_id]
-            else:
-                task_coordination_runs[task_run_id] = self._read_index_ids("task_coordination_runs", task_run_id)
-        coordination_run_ids = list(
-            dict.fromkeys(
-                coordination_run_id
-                for ids in task_coordination_runs.values()
-                for coordination_run_id in ids
-            )
-        )
-        coordination_runs = self._read_selected_records("coordination_runs", coordination_run_ids)
-        coordination_node_run_index = {
-            coordination_run_id: self._read_index_ids("coordination_node_run_index", coordination_run_id)
-            for coordination_run_id in coordination_run_ids
-        }
-        node_run_ids = list(
-            dict.fromkeys(
-                node_run_id
-                for ids in coordination_node_run_index.values()
-                for node_run_id in ids
-            )
-        )
-        coordination_node_runs = self._read_selected_records("coordination_node_runs", node_run_ids)
-        coordination_handoffs = {
-            coordination_run_id: self._read_index_ids("coordination_handoffs", coordination_run_id)
-            for coordination_run_id in coordination_run_ids
-        }
-        handoff_ids = list(
-            dict.fromkeys(
-                handoff_id
-                for ids in coordination_handoffs.values()
-                for handoff_id in ids
-            )
-        )
-        handoff_envelopes = self._read_selected_records("handoff_envelopes", handoff_ids)
-        latest_merge_ids = {
-            coordination_run_id: self._read_index_value("coordination_latest_merge_results", coordination_run_id)
-            for coordination_run_id in coordination_run_ids
-        }
-        coordination_merge_results = self._read_selected_records(
-            "coordination_merge_results",
-            [item for item in latest_merge_ids.values() if item],
-        )
         return {
             "task_runs": task_runs,
             "sessions": {session_id: preferred_task_run_ids},
-            "coordination_runs": coordination_runs,
-            "task_coordination_runs": task_coordination_runs,
-            "coordination_node_runs": coordination_node_runs,
-            "coordination_node_run_index": coordination_node_run_index,
-            "handoff_envelopes": handoff_envelopes,
-            "coordination_handoffs": coordination_handoffs,
-            "coordination_merge_results": coordination_merge_results,
             "project_progress_ledgers": self._read_selected_records(
                 "project_progress_ledgers",
                 self._read_index_ids("session_projects", session_id),
@@ -434,9 +258,7 @@ class RuntimeStateIndex:
                 "session_id": session_id,
                 "task_run_count": int(session_view.get("task_run_count") or len(task_run_ids)),
                 "latest_task_run_id": latest_task_run_id,
-                "latest_coordination_task_run_id": latest_coordination_task_run_id,
                 "freshest_task_run_id": freshest_task_run_id,
-                "latest_coordination_run_id": str(session_view.get("latest_coordination_run_id") or ""),
                 "active_project_id": str(self._read_index_value("session_active_project_status", session_id) or ""),
                 "updated_at": float(session_view.get("updated_at") or self._read_meta().get("updated_at") or 0.0),
             },
@@ -481,20 +303,10 @@ class RuntimeStateIndex:
     def _snapshot_without_task_runs(self, snapshot: dict[str, Any], task_run_ids: set[str]) -> tuple[dict[str, Any], dict[str, int]]:
         pruned = self._empty_snapshot()
         counts: dict[str, int] = {}
-        coordination_run_ids = {
-            str(item.get("coordination_run_id") or "")
-            for item in dict(snapshot.get("coordination_runs") or {}).values()
-            if isinstance(item, dict) and str(item.get("task_run_id") or "") in task_run_ids
-        }
-        coordination_run_ids.discard("")
         task_record_buckets = {
             "task_runs",
             "agent_runs",
             "agent_run_results",
-            "coordination_runs",
-            "coordination_node_runs",
-            "handoff_envelopes",
-            "coordination_merge_results",
             "worker_spawn_requests",
             "worker_spawn_results",
             "agent_delegation_requests",
@@ -508,11 +320,7 @@ class RuntimeStateIndex:
                 if not isinstance(value, dict):
                     continue
                 task_run_id = str(value.get("task_run_id") or value.get("observed_task_run_id") or "")
-                coordination_run_id = str(value.get("coordination_run_id") or value.get("observed_coordination_run_id") or "")
-                should_delete = bucket in task_record_buckets and (
-                    task_run_id in task_run_ids
-                    or coordination_run_id in coordination_run_ids
-                )
+                should_delete = bucket in task_record_buckets and task_run_id in task_run_ids
                 if should_delete:
                     counts[bucket] = counts.get(bucket, 0) + 1
                     continue
@@ -540,34 +348,6 @@ class RuntimeStateIndex:
         for result in dict(snapshot.get("agent_run_results") or {}).values():
             if isinstance(result, dict):
                 self._snapshot_append_index(snapshot, "task_agent_run_results", str(result.get("task_run_id") or ""), str(result.get("agent_run_result_id") or ""))
-        for coordination_run in dict(snapshot.get("coordination_runs") or {}).values():
-            if not isinstance(coordination_run, dict):
-                continue
-            task_run_id = str(coordination_run.get("task_run_id") or "")
-            coordination_run_id = str(coordination_run.get("coordination_run_id") or "")
-            updated_at = float(coordination_run.get("updated_at") or 0.0)
-            self._snapshot_append_index(snapshot, "task_coordination_runs", task_run_id, coordination_run_id)
-            self._snapshot_maybe_latest_task(snapshot, "task_latest_coordination_runs", task_run_id, coordination_run_id, updated_at, "coordination_runs")
-            task_run = dict(snapshot.get("task_runs") or {}).get(task_run_id) or {}
-            session_id = str(task_run.get("session_id") or "")
-            if session_id:
-                self._snapshot_maybe_latest_task(snapshot, "session_latest_coordination_task_runs", session_id, task_run_id, updated_at, "task_runs")
-        for node_run in dict(snapshot.get("coordination_node_runs") or {}).values():
-            if isinstance(node_run, dict):
-                self._snapshot_append_index(snapshot, "coordination_node_run_index", str(node_run.get("coordination_run_id") or ""), str(node_run.get("node_run_id") or ""))
-        for handoff in dict(snapshot.get("handoff_envelopes") or {}).values():
-            if isinstance(handoff, dict):
-                self._snapshot_append_index(snapshot, "coordination_handoffs", str(handoff.get("coordination_run_id") or ""), str(handoff.get("handoff_id") or ""))
-        for merge_result in dict(snapshot.get("coordination_merge_results") or {}).values():
-            if isinstance(merge_result, dict):
-                self._snapshot_maybe_latest_task(
-                    snapshot,
-                    "coordination_latest_merge_results",
-                    str(merge_result.get("coordination_run_id") or ""),
-                    str(merge_result.get("merge_result_id") or ""),
-                    float(merge_result.get("created_at") or 0.0),
-                    "coordination_merge_results",
-                )
         for request in dict(snapshot.get("worker_spawn_requests") or {}).values():
             if isinstance(request, dict):
                 self._snapshot_append_index(snapshot, "task_worker_spawn_requests", str(request.get("task_run_id") or ""), str(request.get("spawn_request_id") or ""))
@@ -640,30 +420,6 @@ class RuntimeStateIndex:
         compacted["diagnostics"] = diagnostics
         return compacted
 
-    def _compact_coordination_run_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
-        compacted = dict(payload)
-        diagnostics = dict(compacted.get("diagnostics") or {})
-        object_id = str(compacted.get("coordination_run_id") or "")
-        if graph_config := dict(diagnostics.get("graph_harness_config") or diagnostics.get("graph_harness_config_payload") or {}):
-            diagnostics["graph_harness_config_ref"] = self.runtime_objects.put_json_once(
-                "graph_harness_configs",
-                object_id,
-                graph_config,
-            )
-            diagnostics["graph_harness_config_summary"] = _graph_harness_config_summary(graph_config)
-            diagnostics.pop("graph_harness_config", None)
-            diagnostics.pop("graph_harness_config_payload", None)
-        if runtime_state := dict(
-            diagnostics.get("graph_coordination_state")
-            or {}
-        ):
-            diagnostics["graph_coordination_state_summary"] = _graph_coordination_state_summary(runtime_state)
-            diagnostics.pop("graph_coordination_state", None)
-        if flow := dict(diagnostics.get("coordination_flow") or {}):
-            diagnostics["coordination_flow"] = _coordination_flow_summary(flow)
-        compacted["diagnostics"] = diagnostics
-        return compacted
-
     def _read(self) -> dict[str, Any]:
         snapshot = self._empty_snapshot()
         for bucket in self._record_buckets():
@@ -685,32 +441,9 @@ class RuntimeStateIndex:
                 if isinstance(value, list):
                     self._write_index_value(bucket, str(key), list(value))
         for bucket in self._value_index_buckets():
-            if bucket == "coordination_latest_merge_results":
-                continue
             for key, value in dict(payload.get(bucket) or {}).items():
                 if value:
                     self._write_index_value(bucket, str(key), str(value))
-        for key, value in dict(payload.get("coordination_latest_merge_results") or {}).items():
-            if value:
-                self._write_index_value("coordination_latest_merge_results", str(key), str(value))
-        if not dict(payload.get("coordination_latest_merge_results") or {}):
-            latest_by_run: dict[str, dict[str, Any]] = {}
-            for result_id, value in dict(payload.get("coordination_merge_results") or {}).items():
-                if not isinstance(value, dict):
-                    continue
-                coordination_run_id = str(value.get("coordination_run_id") or "")
-                if not coordination_run_id:
-                    continue
-                current = latest_by_run.get(coordination_run_id)
-                created_at = float(value.get("created_at") or 0.0)
-                if current is None or created_at >= float(current.get("created_at") or 0.0):
-                    latest_by_run[coordination_run_id] = {"merge_result_id": str(result_id), "created_at": created_at}
-            for coordination_run_id, value in latest_by_run.items():
-                self._write_index_value(
-                    "coordination_latest_merge_results",
-                    coordination_run_id,
-                    str(value.get("merge_result_id") or ""),
-                )
         if not dict(payload.get("session_latest_task_runs") or {}):
             latest_task_runs: dict[str, dict[str, Any]] = {}
             for value in dict(payload.get("task_runs") or {}).values():
@@ -726,46 +459,6 @@ class RuntimeStateIndex:
                     latest_task_runs[session_id] = {"task_run_id": task_run_id, "updated_at": created}
             for session_id, value in latest_task_runs.items():
                 self._write_index_value("session_latest_task_runs", session_id, str(value.get("task_run_id") or ""))
-        if not dict(payload.get("task_latest_coordination_runs") or {}):
-            latest_by_task: dict[str, dict[str, Any]] = {}
-            latest_session_coordination_tasks: dict[str, dict[str, Any]] = {}
-            task_runs = {
-                str(item.get("task_run_id") or ""): dict(item)
-                for item in dict(payload.get("task_runs") or {}).values()
-                if isinstance(item, dict)
-            }
-            for value in dict(payload.get("coordination_runs") or {}).values():
-                if not isinstance(value, dict):
-                    continue
-                task_run_id = str(value.get("task_run_id") or "")
-                coordination_run_id = str(value.get("coordination_run_id") or "")
-                if not task_run_id or not coordination_run_id:
-                    continue
-                created = float(value.get("updated_at") or 0.0)
-                current = latest_by_task.get(task_run_id)
-                if current is None or created >= float(current.get("updated_at") or 0.0):
-                    latest_by_task[task_run_id] = {"coordination_run_id": coordination_run_id, "updated_at": created}
-                session_id = str(task_runs.get(task_run_id, {}).get("session_id") or "")
-                if session_id:
-                    current_session = latest_session_coordination_tasks.get(session_id)
-                    if current_session is None or created >= float(current_session.get("updated_at") or 0.0):
-                        latest_session_coordination_tasks[session_id] = {
-                            "task_run_id": task_run_id,
-                            "updated_at": created,
-                        }
-            for task_run_id, value in latest_by_task.items():
-                self._write_index_value(
-                    "task_latest_coordination_runs",
-                    task_run_id,
-                    str(value.get("coordination_run_id") or ""),
-                )
-            for session_id, value in latest_session_coordination_tasks.items():
-                self._write_index_value(
-                    "session_latest_coordination_task_runs",
-                    session_id,
-                    str(value.get("task_run_id") or ""),
-                )
-
     def _ensure_storage_ready(self) -> None:
         with _STATE_INDEX_WRITE_LOCK:
             meta = self._read_json(self.meta_path, {})
@@ -843,10 +536,6 @@ class RuntimeStateIndex:
         current_id = str(self._read_index_value(bucket, index_id) or "")
         if current_id:
             current_payload = self._read_record("task_runs", current_id) if bucket.startswith("session_") else {}
-            if bucket == "task_latest_coordination_runs":
-                current_payload = self._read_record("coordination_runs", current_id)
-            elif bucket == "session_latest_coordination_task_runs":
-                current_payload = self._read_record("task_runs", current_id)
             if float(current_payload.get("updated_at") or 0.0) > updated_at:
                 return
         self._write_index_value(bucket, index_id, record_id)
@@ -895,7 +584,6 @@ class RuntimeStateIndex:
         *,
         session_id: str,
         task_run_id: str,
-        coordination_run_id: str = "",
         updated_at: float,
     ) -> None:
         current = self._read_session_live_view(session_id)
@@ -906,61 +594,10 @@ class RuntimeStateIndex:
             or self._read_index_value("session_latest_task_runs", session_id)
             or ""
         )
-        latest_coordination_task_run_id = str(
-            (task_run_id if coordination_run_id else "")
-            or current.get("latest_coordination_task_run_id")
-            or self._read_index_value("session_latest_coordination_task_runs", session_id)
-            or ""
-        )
-        latest_coordination_run_id = str(
-            coordination_run_id
-            or current.get("latest_coordination_run_id")
-            or (
-                self._read_index_value("task_latest_coordination_runs", latest_coordination_task_run_id)
-                if latest_coordination_task_run_id
-                else ""
-            )
-            or ""
-        )
         payload = {
             "session_id": session_id,
             "task_run_count": task_run_count,
             "latest_task_run_id": latest_task_run_id,
-            "latest_coordination_task_run_id": latest_coordination_task_run_id,
-            "latest_coordination_run_id": latest_coordination_run_id,
-            "updated_at": float(updated_at or current.get("updated_at") or time.time()),
-            "authority": "orchestration.runtime_state_index.session_live_view",
-        }
-        self._atomic_write_path(self._session_live_view_path(session_id), payload)
-
-    def _touch_session_live_view_by_coordination(self, *, coordination_run_id: str, updated_at: float) -> None:
-        coordination_run = self._read_record("coordination_runs", coordination_run_id)
-        task_run_id = str(coordination_run.get("task_run_id") or "")
-        if not task_run_id:
-            return
-        task_run = self._read_record("task_runs", task_run_id)
-        session_id = str(task_run.get("session_id") or "")
-        if not session_id:
-            return
-        current = self._read_session_live_view(session_id)
-        payload = {
-            "session_id": session_id,
-            "task_run_count": int(current.get("task_run_count") or len(self._read_index_ids("sessions", session_id))),
-            "latest_task_run_id": str(
-                current.get("latest_task_run_id")
-                or self._read_index_value("session_latest_task_runs", session_id)
-                or task_run_id
-            ),
-            "latest_coordination_task_run_id": str(
-                current.get("latest_coordination_task_run_id")
-                or self._read_index_value("session_latest_coordination_task_runs", session_id)
-                or task_run_id
-            ),
-            "latest_coordination_run_id": str(
-                current.get("latest_coordination_run_id")
-                or self._read_index_value("task_latest_coordination_runs", task_run_id)
-                or coordination_run_id
-            ),
             "updated_at": float(updated_at or current.get("updated_at") or time.time()),
             "authority": "orchestration.runtime_state_index.session_live_view",
         }
@@ -972,10 +609,6 @@ class RuntimeStateIndex:
             "task_runs": "task_run_id",
             "agent_runs": "agent_run_id",
             "agent_run_results": "agent_run_result_id",
-            "coordination_runs": "coordination_run_id",
-            "coordination_node_runs": "node_run_id",
-            "handoff_envelopes": "handoff_id",
-            "coordination_merge_results": "merge_result_id",
             "worker_spawn_requests": "spawn_request_id",
             "worker_spawn_results": "spawn_result_id",
             "agent_delegation_requests": "request_id",
@@ -993,10 +626,6 @@ class RuntimeStateIndex:
             "task_runs",
             "agent_runs",
             "agent_run_results",
-            "coordination_runs",
-            "coordination_node_runs",
-            "handoff_envelopes",
-            "coordination_merge_results",
             "worker_spawn_requests",
             "worker_spawn_results",
             "agent_delegation_requests",
@@ -1012,9 +641,6 @@ class RuntimeStateIndex:
             "sessions",
             "task_agent_runs",
             "task_agent_run_results",
-            "task_coordination_runs",
-            "coordination_node_run_index",
-            "coordination_handoffs",
             "task_worker_spawn_requests",
             "task_worker_spawn_results",
             "task_agent_delegation_requests",
@@ -1027,10 +653,7 @@ class RuntimeStateIndex:
     @staticmethod
     def _value_index_buckets() -> tuple[str, ...]:
         return (
-            "coordination_latest_merge_results",
             "session_latest_task_runs",
-            "session_latest_coordination_task_runs",
-            "task_latest_coordination_runs",
             "graph_project_index",
             "session_active_project_status",
             "task_project_status",
@@ -1049,13 +672,6 @@ class RuntimeStateIndex:
             "task_agent_runs": {},
             "agent_run_results": {},
             "task_agent_run_results": {},
-            "coordination_runs": {},
-            "task_coordination_runs": {},
-            "coordination_node_runs": {},
-            "coordination_node_run_index": {},
-            "handoff_envelopes": {},
-            "coordination_handoffs": {},
-            "coordination_merge_results": {},
             "worker_spawn_requests": {},
             "task_worker_spawn_requests": {},
             "worker_spawn_results": {},
@@ -1134,25 +750,6 @@ def _task_run_from_payload(payload: dict[str, Any]) -> TaskRun:
     )
 
 
-def _graph_coordination_state_summary(payload: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "active_stage_id": str(payload.get("active_stage_id") or ""),
-        "active_task_ref": str(payload.get("active_task_ref") or ""),
-        "terminal_status": str(payload.get("terminal_status") or ""),
-        "ready_nodes": list(payload.get("ready_nodes") or []),
-        "running_nodes": list(payload.get("running_nodes") or []),
-        "completed_node_count": len(list(payload.get("completed_nodes") or [])),
-        "failed_node_count": len(list(payload.get("failed_nodes") or [])),
-        "blocked_node_count": len(list(payload.get("blocked_nodes") or [])),
-        "artifact_ref_count": len(list(payload.get("artifact_refs") or [])),
-        "working_memory_operation_count": int(
-            payload.get("working_memory_operation_count")
-            or len(list(payload.get("working_memory_operations") or []))
-            or 0
-        ),
-    }
-
-
 def _graph_harness_config_summary(payload: dict[str, Any]) -> dict[str, Any]:
     nodes = list(payload.get("nodes") or [])
     edges = list(payload.get("edges") or [])
@@ -1170,37 +767,6 @@ def _graph_harness_config_summary(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _coordination_flow_summary(payload: dict[str, Any]) -> dict[str, Any]:
-    stages = [dict(item) for item in list(payload.get("stages") or []) if isinstance(item, dict)]
-    return {
-        "coordination_mode": str(payload.get("coordination_mode") or ""),
-        "current_stage_id": str(payload.get("current_stage_id") or ""),
-        "next_stage_id": str(payload.get("next_stage_id") or ""),
-        "next_task_ref": str(payload.get("next_task_ref") or ""),
-        "terminal_status": str(payload.get("terminal_status") or ""),
-        "ready_nodes": list(payload.get("ready_nodes") or []),
-        "running_nodes": list(payload.get("running_nodes") or []),
-        "completed_nodes": list(payload.get("completed_nodes") or []),
-        "failed_nodes": list(payload.get("failed_nodes") or []),
-        "blocked_nodes": list(payload.get("blocked_nodes") or []),
-        "stage_count": len(stages),
-        "stages": [
-            {
-                "stage_id": str(stage.get("stage_id") or ""),
-                "node_id": str(stage.get("node_id") or ""),
-                "task_ref": str(stage.get("task_ref") or ""),
-                "status": str(stage.get("status") or ""),
-                "artifact_refs": [
-                    ref for ref in list(stage.get("artifact_refs") or []) if str(ref).startswith("artifact:")
-                ],
-                "working_memory_refs": list(stage.get("working_memory_refs") or []),
-            }
-            for stage in stages
-        ],
-        "working_memory_operation_count": int(payload.get("working_memory_operation_count") or 0),
-    }
-
-
 def _agent_run_from_payload(payload: dict[str, Any]) -> AgentRun:
     return AgentRun(
         agent_run_id=str(payload.get("agent_run_id") or ""),
@@ -1212,30 +778,9 @@ def _agent_run_from_payload(payload: dict[str, Any]) -> AgentRun:
         context_scope=str(payload.get("context_scope") or "task_default"),
         execution_runtime_kind=str(payload.get("execution_runtime_kind") or ""),
         parent_agent_run_ref=str(payload.get("parent_agent_run_ref") or ""),
-        coordination_run_ref=str(payload.get("coordination_run_ref") or ""),
         status=payload.get("status", "pending"),
         latest_checkpoint_ref=str(payload.get("latest_checkpoint_ref") or ""),
         result_ref=str(payload.get("result_ref") or ""),
-        created_at=float(payload.get("created_at") or 0.0),
-        updated_at=float(payload.get("updated_at") or 0.0),
-        diagnostics=dict(payload.get("diagnostics") or {}),
-    )
-
-
-def _coordination_run_from_payload(payload: dict[str, Any]) -> CoordinationRun:
-    return CoordinationRun(
-        coordination_run_id=str(payload.get("coordination_run_id") or ""),
-        task_run_id=str(payload.get("task_run_id") or ""),
-        graph_ref=str(payload.get("graph_ref") or ""),
-        coordinator_agent_id=str(payload.get("coordinator_agent_id") or ""),
-        topology_template_id=str(payload.get("topology_template_id") or ""),
-        communication_protocol_id=str(payload.get("communication_protocol_id") or ""),
-        handoff_policy=str(payload.get("handoff_policy") or ""),
-        failure_policy=str(payload.get("failure_policy") or ""),
-        merge_policy=str(payload.get("merge_policy") or ""),
-        status=payload.get("status", "pending"),
-        latest_checkpoint_ref=str(payload.get("latest_checkpoint_ref") or ""),
-        latest_merge_result_ref=str(payload.get("latest_merge_result_ref") or ""),
         created_at=float(payload.get("created_at") or 0.0),
         updated_at=float(payload.get("updated_at") or 0.0),
         diagnostics=dict(payload.get("diagnostics") or {}),
@@ -1252,54 +797,6 @@ def _agent_run_result_from_payload(payload: dict[str, Any]) -> AgentRunResult:
         output_ref=str(payload.get("output_ref") or ""),
         summary=str(payload.get("summary") or ""),
         artifact_refs=tuple(str(item) for item in list(payload.get("artifact_refs") or []) if str(item)),
-        created_at=float(payload.get("created_at") or 0.0),
-        diagnostics=dict(payload.get("diagnostics") or {}),
-    )
-
-
-def _coordination_node_run_from_payload(payload: dict[str, Any]) -> CoordinationNodeRun:
-    return CoordinationNodeRun(
-        node_run_id=str(payload.get("node_run_id") or ""),
-        coordination_run_id=str(payload.get("coordination_run_id") or ""),
-        task_run_id=str(payload.get("task_run_id") or ""),
-        node_id=str(payload.get("node_id") or ""),
-        role=str(payload.get("role") or ""),
-        assigned_agent_id=str(payload.get("assigned_agent_id") or ""),
-        assigned_agent_run_ref=str(payload.get("assigned_agent_run_ref") or ""),
-        status=payload.get("status", "pending"),
-        handoff_count=int(payload.get("handoff_count") or 0),
-        latest_handoff_ref=str(payload.get("latest_handoff_ref") or ""),
-        created_at=float(payload.get("created_at") or 0.0),
-        updated_at=float(payload.get("updated_at") or 0.0),
-        diagnostics=dict(payload.get("diagnostics") or {}),
-    )
-
-
-def _handoff_from_payload(payload: dict[str, Any]) -> AgentHandoffEnvelope:
-    return AgentHandoffEnvelope(
-        handoff_id=str(payload.get("handoff_id") or ""),
-        task_run_id=str(payload.get("task_run_id") or ""),
-        coordination_run_id=str(payload.get("coordination_run_id") or ""),
-        source_agent_run_ref=str(payload.get("source_agent_run_ref") or ""),
-        target_agent_run_ref=str(payload.get("target_agent_run_ref") or ""),
-        protocol_id=str(payload.get("protocol_id") or ""),
-        message_type=str(payload.get("message_type") or ""),
-        payload_ref=str(payload.get("payload_ref") or ""),
-        ack_state=str(payload.get("ack_state") or "pending"),
-        created_at=float(payload.get("created_at") or 0.0),
-        diagnostics=dict(payload.get("diagnostics") or {}),
-    )
-
-
-def _coordination_merge_result_from_payload(payload: dict[str, Any]) -> CoordinationMergeResult:
-    return CoordinationMergeResult(
-        merge_result_id=str(payload.get("merge_result_id") or ""),
-        coordination_run_id=str(payload.get("coordination_run_id") or ""),
-        task_run_id=str(payload.get("task_run_id") or ""),
-        merge_policy=str(payload.get("merge_policy") or ""),
-        final_result_ref=str(payload.get("final_result_ref") or ""),
-        accepted=bool(payload.get("accepted") is True),
-        unresolved_issue_refs=tuple(str(item) for item in list(payload.get("unresolved_issue_refs") or []) if str(item)),
         created_at=float(payload.get("created_at") or 0.0),
         diagnostics=dict(payload.get("diagnostics") or {}),
     )
@@ -1336,7 +833,6 @@ def _supervision_record_from_payload(payload: dict[str, Any]) -> SupervisionReco
         supervision_session_id=str(payload.get("supervision_session_id") or ""),
         project_id=str(payload.get("project_id") or ""),
         observed_task_run_id=str(payload.get("observed_task_run_id") or ""),
-        observed_coordination_run_id=str(payload.get("observed_coordination_run_id") or ""),
         issue_type=str(payload.get("issue_type") or ""),
         issue_summary=str(payload.get("issue_summary") or ""),
         root_cause=str(payload.get("root_cause") or ""),
@@ -1355,7 +851,6 @@ def _project_runtime_status_from_payload(payload: dict[str, Any]) -> ProjectRunt
         graph_id=str(payload.get("graph_id") or ""),
         project_title=str(payload.get("project_title") or ""),
         active_task_run_id=str(payload.get("active_task_run_id") or ""),
-        active_coordination_run_id=str(payload.get("active_coordination_run_id") or ""),
         active_run_status=str(payload.get("active_run_status") or ""),
         project_runtime_status=str(payload.get("project_runtime_status") or "watching"),
         metric_label=str(payload.get("metric_label") or "units"),

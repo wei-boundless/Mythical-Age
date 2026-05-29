@@ -71,6 +71,31 @@ CONTRACT_BINDING_SECTIONS = {
     "governance",
     "temporal",
 }
+RUNTIME_CONTRACT_KEYS = {
+    "execution_mode",
+    "wait_policy",
+    "join_policy",
+    "failure_policy",
+    "background_policy",
+    "notification_policy",
+    "resource_lifecycle_policy",
+    "runtime_policy",
+    "model_requirement",
+    "length_budget",
+    "loop_policy_ref",
+    "split_policy",
+    "merge_policy",
+    "batch_acceptance_policy",
+    "tool_execution_policy",
+    "stage_packet_policy",
+    "outline_thread_policy",
+    "prewrite_memory_plan_policy",
+    "dynamic_expansion",
+    "graph_composition",
+    "graph_module_runtime",
+    "graph_module_composition",
+    "sequence_index",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -735,8 +760,7 @@ def _contract_bindings_payload(value: Any) -> dict[str, Any]:
     payload = {str(key).strip(): value for key, value in value.items() if str(key).strip()}
     runtime = payload.get("runtime")
     runtime_payload = dict(runtime) if isinstance(runtime, dict) else {}
-    runtime_payload.pop("runtime_lane", None)
-    runtime_payload.pop("runtime_lane_hint", None)
+    _validate_runtime_contract_keys(runtime_payload)
     if isinstance(runtime, dict) and isinstance(runtime.get("model_requirement"), dict):
         runtime_payload["model_requirement"] = _normalize_model_requirement_payload(runtime.get("model_requirement"))
     if isinstance(runtime, dict) and isinstance(runtime.get("length_budget"), dict):
@@ -744,6 +768,17 @@ def _contract_bindings_payload(value: Any) -> dict[str, Any]:
     if runtime_payload:
         payload["runtime"] = runtime_payload
     return payload
+
+
+def _validate_runtime_contract_keys(payload: dict[str, Any]) -> None:
+    if not payload:
+        return
+    unsupported = sorted(str(key) for key in payload if str(key) not in RUNTIME_CONTRACT_KEYS)
+    if unsupported:
+        raise ValueError(
+            "contract_bindings.runtime contains unsupported fields: "
+            + ", ".join(unsupported)
+        )
 
 
 def _normalize_model_requirement_payload(value: Any) -> dict[str, Any]:

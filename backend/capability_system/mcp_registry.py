@@ -23,7 +23,7 @@ class MCPRegistryEntry:
     endpoint_protocol: str = MCP_COMPATIBLE_PROTOCOL_VERSION
     transport: str = "in_process"
     server_name: str = LOCAL_MCP_SERVER_NAME
-    runtime_lane: str = "mcp"
+    invocation_channel: str = "mcp"
     model_visibility: str = "not_direct_model_tool"
     input_modes: list[str] = field(default_factory=list)
     output_modes: list[str] = field(default_factory=list)

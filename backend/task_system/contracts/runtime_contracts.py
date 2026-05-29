@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
@@ -18,44 +18,6 @@ class SkillRuntimeView:
     forbidden_uses: tuple[str, ...] = ()
     required_operations: tuple[str, ...] = ()
     canonical_path: str = ""
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass(frozen=True, slots=True)
-class ProjectionRequirement:
-    task_id: str
-    role_type: str
-    posture_tags: tuple[str, ...] = ()
-    expression_density: str = "normal"
-    attention_focus: tuple[str, ...] = ()
-    projection_id: str = ""
-    soul_id: str = ""
-    identity_anchor: str = ""
-    projection_title: str = ""
-    projection_prompt: str = ""
-    reason: str = ""
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass(frozen=True, slots=True)
-class TaskPromptContract:
-    contract_id: str
-    task_id: str
-    definition_id: str
-    binding_id: str
-    task_section: str
-    workflow_section: str
-    skill_catalog_section: str = ""
-    skill_detail_section: str = ""
-    resource_section: str = ""
-    projection_section: str = ""
-    output_section: str = ""
-    guardrail_section: str = ""
-    metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

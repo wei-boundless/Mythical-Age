@@ -77,9 +77,9 @@ function publicTitle(value: unknown) {
 }
 
 function fallbackTitle(item: GlobalRuntimeMonitorItem) {
-  if (item.lifecycle === "completed" || item.bucket === "completed") return "会话任务已完成";
-  if (item.lifecycle === "failed" || item.bucket === "failed") return "会话任务失败";
+  if (item.lifecycle === "completed" || item.bucket === "completed") return "会话运行已完成";
+  if (item.lifecycle === "failed" || item.bucket === "failed") return "会话运行失败";
   if (item.bucket === "diagnostics" || item.lifecycle === "stale" || item.stale) return "运行状态需诊断";
-  if (item.lifecycle === "waiting" || item.lifecycle === "action_required") return "会话任务等待处理";
-  return "会话任务运行中";
+  if (item.lifecycle === "waiting" || item.lifecycle === "action_required") return "会话运行等待处理";
+  return "会话运行中";
 }

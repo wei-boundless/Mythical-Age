@@ -62,9 +62,9 @@ class TaskAssignment:
         chain_type = str(task_structure.get("execution_chain_type") or task_structure.get("chain_type") or "").strip()
         if not chain_type:
             chain_type = (
-                "coordination_chain"
+                "task_graph_chain"
                 if task_structure.get("task_graph_id") or task_structure.get("graph_id")
-                else "single_agent_chain"
+                else "agent_harness_chain"
             )
         payload["execution_chain_type"] = chain_type
         return payload
@@ -151,11 +151,11 @@ class TaskExecutionPolicy:
         execution_chain_type = str(metadata.get("execution_chain_type") or "").strip()
         if not execution_chain_type:
             execution_chain_type = (
-                "coordination_chain"
+                "task_graph_chain"
                 if metadata.get("task_graph_id")
                 or metadata.get("graph_id")
                 or self.allow_worker_agent_spawn
-                else "single_agent_chain"
+                else "agent_harness_chain"
             )
         payload["execution_chain_type"] = execution_chain_type
         payload["authority"] = "task_system.task_execution_policy"
@@ -233,46 +233,6 @@ class AgentTaskCarryingProfile:
             "blocked_reasons",
         ):
             payload[key] = list(payload[key])
-        return payload
-
-
-@dataclass(frozen=True, slots=True)
-class CoordinationTaskDefinition:
-    graph_id: str
-    title: str
-    coordination_mode: str
-    coordinator_agent_id: str
-    domain_id: str = ""
-    agent_group_id: str = ""
-    participant_agent_ids: tuple[str, ...] = ()
-    topology_template_id: str = ""
-    shared_context_policy: str = "explicit_refs_only"
-    memory_sharing_policy: str = "isolated_by_default"
-    handoff_policy: str = "filtered_handoff"
-    conflict_resolution_policy: str = "coordinator_review"
-    output_merge_policy: str = "coordinator_final_merge"
-    stop_conditions: tuple[str, ...] = ()
-    subtask_refs: tuple[str, ...] = ()
-    graph_nodes: tuple[dict[str, Any], ...] = ()
-    graph_edges: tuple[dict[str, Any], ...] = ()
-    communication_modes: tuple[str, ...] = ()
-    enabled: bool = False
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-    @property
-    def graph_ref(self) -> str:
-        return str(self.graph_id or "").strip()
-
-    def to_dict(self) -> dict[str, Any]:
-        payload = asdict(self)
-        payload["graph_id"] = str(self.graph_id or "").strip()
-        payload["graph_ref"] = self.graph_ref
-        payload["participant_agent_ids"] = list(self.participant_agent_ids)
-        payload["stop_conditions"] = list(self.stop_conditions)
-        payload["subtask_refs"] = list(self.subtask_refs)
-        payload["graph_nodes"] = [dict(item) for item in self.graph_nodes]
-        payload["graph_edges"] = [dict(item) for item in self.graph_edges]
-        payload["communication_modes"] = list(self.communication_modes)
         return payload
 
 

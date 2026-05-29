@@ -218,12 +218,18 @@ def build_task_graph_standard_view(
         source_ref=graph.graph_id,
     )
     layered = normalize_task_graph_layers(graph)
-    graph_config = build_graph_harness_config_from_graph(
-        graph=graph,
-        publish_version="standard-view",
-        graph_lookup=graph_lookup,
-    )
-    scheduler_view = build_scheduler_view(graph_config)
+    graph_config = None
+    scheduler_view = None
+    graph_config_issues: list[dict[str, Any]] = []
+    try:
+        graph_config = build_graph_harness_config_from_graph(
+            graph=graph,
+            publish_version="standard-view",
+            graph_lookup=graph_lookup,
+        )
+        scheduler_view = build_scheduler_view(graph_config)
+    except ValueError as exc:
+        graph_config_issues.append(_graph_harness_config_issue(graph=graph, error=str(exc)))
     runtime_semantics = compile_runtime_semantics_manifest(graph).to_dict()
     composable = build_composable_graph_view(graph=graph, layered_graph=layered)
     graph_module_expansions = _graph_module_expansions(
@@ -275,7 +281,7 @@ def build_task_graph_standard_view(
             if isinstance(item, dict)
         ),
         phases=_phase_specs(graph),
-        scheduler=_scheduler_view_payload(scheduler_view),
+        scheduler=_scheduler_view_payload(scheduler_view) if scheduler_view is not None else {},
         runtime_semantics=runtime_semantics,
     )
     runtime_isolation = TaskGraphRuntimeIsolationSpec(
@@ -320,7 +326,11 @@ def build_task_graph_standard_view(
             *[dict(issue) for issue in list(graph.to_dict().get("issues") or []) if isinstance(issue, dict)],
             *[dict(issue) for issue in list(layered.get("issues") or []) if isinstance(issue, dict)],
             *[dict(issue) for issue in list(composable.issues or []) if isinstance(issue, dict)],
-            *[dict(issue) for issue in list(dict(graph_config.diagnostics or {}).get("issues") or []) if isinstance(issue, dict)],
+            *(
+                [dict(issue) for issue in list(dict(graph_config.diagnostics or {}).get("issues") or []) if isinstance(issue, dict)]
+                if graph_config is not None
+                else graph_config_issues
+            ),
             *graph_module_expansion_issue_payloads,
         ]
     )
@@ -355,8 +365,8 @@ def build_task_graph_standard_view(
             "length_budget_preview": compiled_length_budget_preview(length_budget),
             "layered_graph": layered,
             "composable_graph": composable.to_dict(),
-            "graph_harness_config": _graph_harness_config_summary(graph_config.to_dict()),
-            "scheduler_view": _scheduler_view_payload(scheduler_view),
+            "graph_harness_config": _graph_harness_config_summary(graph_config.to_dict()) if graph_config is not None else _unavailable_graph_harness_config_summary(graph, graph_config_issues),
+            "scheduler_view": _scheduler_view_payload(scheduler_view) if scheduler_view is not None else {},
             "runtime_semantics": runtime_semantics,
             "graph_module_expansion_count": len(graph_module_expansions),
             "graph_module_expansion_issue_count": sum(len(item.issues) for item in graph_module_expansions),
@@ -594,6 +604,46 @@ def _graph_harness_config_summary(payload: dict[str, Any]) -> dict[str, Any]:
         "control": dict(payload.get("control") or {}),
         "authority_map": dict(payload.get("authority_map") or {}),
         "source_refs": dict(payload.get("source_refs") or {}),
+    }
+
+
+def _unavailable_graph_harness_config_summary(graph: TaskGraphDefinition, issues: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "authority": "harness.graph_harness_config",
+        "config_schema_version": "graph_harness_config.v1",
+        "config_id": "",
+        "content_hash": "",
+        "graph_id": graph.graph_id,
+        "publish_version": "standard-view",
+        "task_environment_id": "",
+        "node_count": 0,
+        "edge_count": 0,
+        "composition_source_count": 0,
+        "issue_count": len(issues),
+        "control": {},
+        "authority_map": {},
+        "source_refs": {"graph_id": graph.graph_id},
+        "available": False,
+    }
+
+
+def _graph_harness_config_issue(*, graph: TaskGraphDefinition, error: str) -> dict[str, Any]:
+    message = str(error or "graph harness config compile failed")
+    lowered = message.lower()
+    if "cyclic graph composition" in lowered:
+        code = "graph_module_self_reference" if graph.graph_id in message else "graph_composition_cycle"
+    elif "not found" in lowered:
+        code = "graph_module_linked_graph_not_found"
+    elif "linked_graph_id" in lowered:
+        code = "graph_module_linked_graph_id_missing"
+    else:
+        code = "graph_harness_config_compile_failed"
+    return {
+        "code": code,
+        "message": message,
+        "severity": "error",
+        "graph_id": graph.graph_id,
+        "authority": "task_system.task_graph_standard_view",
     }
 
 

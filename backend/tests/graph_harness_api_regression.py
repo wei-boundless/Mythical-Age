@@ -214,9 +214,7 @@ def test_task_graph_start_api_returns_node_work_order_for_published_config(tmp_p
     assert payload["node_work_orders"][0]["node_id"] == "produce"
     assert payload["node_work_orders"][0]["work_kind"] == "agent"
     assert payload["graph_run"]["graph_id"] == graph.graph_id
-    assert "coordination_run" not in payload
-    assert "coordination_run_id" not in payload
-    assert "stage_execution_request" not in payload
+    assert set(payload).issuperset({"graph_run", "graph_loop_state", "node_work_orders", "checkpoint"})
     assert payload["checkpoint"]["state"]["graph_id"] == graph.graph_id
 
 
@@ -312,7 +310,7 @@ def test_graph_harness_api_accepts_node_result_and_returns_next_work_order(tmp_p
     assert accepted["accepted_result"]["node_id"] == "first"
     assert accepted["node_work_orders"][0]["node_id"] == "second"
     assert accepted["graph_loop_state"]["completed_node_ids"] == ["first"]
-    assert "stage_execution_request" not in accepted
+    assert accepted["checkpoint"]["state"]["completed_node_ids"] == ["first"]
 
 
 def test_graph_harness_dispatch_ready_api_checkpoints_active_work_orders(tmp_path: Path) -> None:
@@ -419,8 +417,7 @@ def test_graph_harness_api_executes_work_order_and_accepts_result(tmp_path: Path
     assert executed["accepted_result"]["node_id"] == "produce"
     assert executed["graph_loop_state"]["status"] == "completed"
     assert executed["graph_result"]["status"] == "completed"
-    assert "coordination_run_id" not in str(executed)
-    assert "stage_execution_request" not in str(executed)
+    assert executed["checkpoint"]["state"]["status"] == "completed"
 
 
 def test_graph_run_monitor_returns_recoverable_active_work_orders(tmp_path: Path) -> None:

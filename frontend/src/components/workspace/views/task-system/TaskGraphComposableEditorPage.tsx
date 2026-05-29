@@ -166,12 +166,12 @@ export function TaskGraphComposableEditorPage({
 
   return (
     <section className="task-graph-composer-page" aria-label="任务图编辑器">
-      <section className="task-graph-standard-status task-graph-standard-status--diagnostic" aria-label="编译视图说明">
+      <section className="task-graph-standard-status task-graph-standard-status--diagnostic" aria-label="图契约诊断说明">
         <div className="task-graph-standard-status__identity">
-          <span>编译预览</span>
+          <span>图契约</span>
           <strong>标准视图用于诊断，不是第二套运行图编辑器</strong>
           <small>
-            {standardViewStale ? "当前编译预览已过期，请保存并刷新标准视图后再用于发布判断。 " : ""}
+            {standardViewStale ? "当前图契约诊断已过期，请保存并刷新标准视图后再用于发布判断。 " : ""}
             当前页面展示后端从 canonical nodes / edges 编译出的 units、interfaces、port edges 和图模块展开。
             {overlayPortEdgeCount ? ` 检测到 ${overlayPortEdgeCount} 条 metadata 覆盖边，请迁移为 canonical edge 后再发布。` : " 没有检测到覆盖边。"}
           </small>

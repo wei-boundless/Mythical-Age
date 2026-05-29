@@ -18,7 +18,7 @@ ALLOWED_BINDING_SOURCES = {
 
 
 @dataclass(frozen=True, slots=True)
-class CoordinationStageContract:
+class TaskGraphStageContract:
     stage_id: str
     task_ref: str
     node_id: str = ""
@@ -86,7 +86,7 @@ class CoordinationStageContract:
 
 
 @dataclass(frozen=True, slots=True)
-class CoordinationContinuationPolicy:
+class TaskGraphContinuationPolicy:
     mode: str = "topology_driven"
     auto_continue: bool = True
     max_auto_steps: int = 100
@@ -109,7 +109,7 @@ class CoordinationContinuationPolicy:
         }
 
     @classmethod
-    def from_metadata(cls, metadata: dict[str, Any]) -> "CoordinationContinuationPolicy":
+    def from_metadata(cls, metadata: dict[str, Any]) -> "TaskGraphContinuationPolicy":
         raw = dict(metadata.get("continuation_policy") or {})
         retry_budget = {
             str(key): int(value)
@@ -130,20 +130,20 @@ class CoordinationContinuationPolicy:
 
 def parse_stage_contracts(
     *,
-    coordination_task: Any,
+    graph_task: Any,
     topology_nodes: list[dict[str, Any]] | None = None,
     topology_edges: list[dict[str, Any]] | None = None,
-) -> tuple[CoordinationStageContract, ...]:
-    metadata = dict(getattr(coordination_task, "metadata", {}) or {})
+) -> tuple[TaskGraphStageContract, ...]:
+    metadata = dict(getattr(graph_task, "metadata", {}) or {})
     raw_contracts = metadata.get("stage_contracts")
     if not isinstance(raw_contracts, list):
         return derive_stage_contracts_from_graph(
-            coordination_task=coordination_task,
+            graph_task=graph_task,
             topology_nodes=topology_nodes,
             topology_edges=topology_edges,
         )
     node_by_stage = _node_by_stage_id(topology_nodes or [])
-    contracts: list[CoordinationStageContract] = []
+    contracts: list[TaskGraphStageContract] = []
     for raw in raw_contracts:
         if not isinstance(raw, dict):
             continue
@@ -153,7 +153,7 @@ def parse_stage_contracts(
         node = node_by_stage.get(stage_id, {})
         task_ref = str(raw.get("task_ref") or node.get("task_ref") or node.get("task_id") or "").strip()
         contracts.append(
-            CoordinationStageContract(
+            TaskGraphStageContract(
                 stage_id=stage_id,
                 task_ref=task_ref,
                 node_id=str(raw.get("node_id") or node.get("node_id") or "").strip(),
@@ -209,15 +209,15 @@ def parse_stage_contracts(
 
 def derive_stage_contracts_from_graph(
     *,
-    coordination_task: Any,
+    graph_task: Any,
     topology_nodes: list[dict[str, Any]] | None = None,
     topology_edges: list[dict[str, Any]] | None = None,
-) -> tuple[CoordinationStageContract, ...]:
+) -> tuple[TaskGraphStageContract, ...]:
     """Build continuation contracts from TaskGraph nodes when no explicit stage contracts exist."""
-    nodes = _effective_graph_nodes(coordination_task=coordination_task, topology_nodes=topology_nodes)
+    nodes = _effective_graph_nodes(graph_task=graph_task, topology_nodes=topology_nodes)
     if not nodes:
         return ()
-    edges = _effective_graph_edges(coordination_task=coordination_task, topology_edges=topology_edges)
+    edges = _effective_graph_edges(graph_task=graph_task, topology_edges=topology_edges)
     node_by_id = {
         str(node.get("node_id") or node.get("id") or "").strip(): dict(node)
         for node in nodes
@@ -233,12 +233,12 @@ def derive_stage_contracts_from_graph(
         if source in node_by_id and target in node_by_id:
             incoming_by_target.setdefault(target, []).append(dict(edge))
 
-    contracts: list[CoordinationStageContract] = []
+    contracts: list[TaskGraphStageContract] = []
     for node in nodes:
         node_id = str(node.get("node_id") or node.get("id") or "").strip()
         if not node_id:
             continue
-        task_ref = _stage_task_ref(coordination_task=coordination_task, node=node)
+        task_ref = _stage_task_ref(graph_task=graph_task, node=node)
         if not task_ref:
             continue
         input_bindings: list[dict[str, Any]] = []
@@ -260,7 +260,7 @@ def derive_stage_contracts_from_graph(
         output_key = _stage_output_key(node_id, node)
         output_mappings = [{"output_key": output_key, "required": True}]
         contracts.append(
-            CoordinationStageContract(
+            TaskGraphStageContract(
                 stage_id=node_id,
                 task_ref=task_ref,
                 node_id=node_id,
@@ -308,7 +308,7 @@ def derive_stage_contracts_from_graph(
     return tuple(contracts)
 
 
-def _stage_task_ref(*, coordination_task: Any, node: dict[str, Any]) -> str:
+def _stage_task_ref(*, graph_task: Any, node: dict[str, Any]) -> str:
     explicit_task_ref = str(
         node.get("task_id")
         or node.get("task_ref")
@@ -322,18 +322,18 @@ def _stage_task_ref(*, coordination_task: Any, node: dict[str, Any]) -> str:
     if node_type == "graph_module" or bool(metadata.get("graph_module")) or bool(metadata.get("linked_graph_id")):
         node_id = str(node.get("node_id") or node.get("id") or "").strip()
         graph_ref = str(
-            getattr(coordination_task, "graph_ref", "")
-            or getattr(coordination_task, "graph_id", "")
-            or str(dict(getattr(coordination_task, "metadata", {}) or {}).get("graph_id") or "")
+            getattr(graph_task, "graph_ref", "")
+            or getattr(graph_task, "graph_id", "")
+            or str(dict(getattr(graph_task, "metadata", {}) or {}).get("graph_id") or "")
         ).strip()
         if node_id and graph_ref:
             return f"task_graph.node.{graph_ref}.{node_id}"
     agent_id = str(node.get("agent_id") or "").strip()
     node_id = str(node.get("node_id") or node.get("id") or "").strip()
     graph_ref = str(
-        getattr(coordination_task, "graph_ref", "")
-        or getattr(coordination_task, "graph_id", "")
-        or str(dict(getattr(coordination_task, "metadata", {}) or {}).get("graph_id") or "")
+        getattr(graph_task, "graph_ref", "")
+        or getattr(graph_task, "graph_id", "")
+        or str(dict(getattr(graph_task, "metadata", {}) or {}).get("graph_id") or "")
     ).strip()
     if agent_id and node_id and graph_ref:
         return f"task_graph.node.{graph_ref}.{node_id}"
@@ -342,8 +342,8 @@ def _stage_task_ref(*, coordination_task: Any, node: dict[str, Any]) -> str:
 
 def validate_stage_contracts(
     *,
-    coordination_task: Any,
-    contracts: tuple[CoordinationStageContract, ...],
+    graph_task: Any,
+    contracts: tuple[TaskGraphStageContract, ...],
     stage_sequence: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, str]]:
     issues: list[dict[str, str]] = []
@@ -352,8 +352,8 @@ def validate_stage_contracts(
     task_refs = {
         str(item)
         for item in (
-            list(getattr(coordination_task, "subtask_refs", ()) or [])
-            + [str(dict(getattr(coordination_task, "metadata", {}) or {}).get("task_id") or "")]
+            list(getattr(graph_task, "subtask_refs", ()) or [])
+            + [str(dict(getattr(graph_task, "metadata", {}) or {}).get("task_id") or "")]
         )
         if str(item)
     }
@@ -366,7 +366,7 @@ def validate_stage_contracts(
         if not contract.task_ref:
             issues.append(_issue("missing_task_ref", "stage contract requires task_ref", contract.stage_id))
         elif task_refs and contract.task_ref not in task_refs and not str(contract.task_ref).startswith("task_graph.node."):
-            issues.append(_issue("task_ref_not_reachable", f"task_ref is not in coordination task refs: {contract.task_ref}", contract.stage_id))
+            issues.append(_issue("task_ref_not_reachable", f"task_ref is not in graph task refs: {contract.task_ref}", contract.stage_id))
         for binding in contract.input_bindings:
             source = str(binding.get("source") or "").strip()
             if source not in ALLOWED_BINDING_SOURCES:
@@ -379,7 +379,7 @@ def validate_stage_contracts(
     return issues
 
 
-def contract_by_stage(contracts: tuple[CoordinationStageContract, ...]) -> dict[str, CoordinationStageContract]:
+def contract_by_stage(contracts: tuple[TaskGraphStageContract, ...]) -> dict[str, TaskGraphStageContract]:
     return {contract.stage_id: contract for contract in contracts}
 
 
@@ -394,10 +394,10 @@ def _node_by_stage_id(nodes: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
 
 def _effective_graph_nodes(
     *,
-    coordination_task: Any,
+    graph_task: Any,
     topology_nodes: list[dict[str, Any]] | None,
 ) -> list[dict[str, Any]]:
-    task_nodes = [dict(item) for item in list(getattr(coordination_task, "graph_nodes", ()) or []) if isinstance(item, dict)]
+    task_nodes = [dict(item) for item in list(getattr(graph_task, "graph_nodes", ()) or []) if isinstance(item, dict)]
     template_nodes = [dict(item) for item in list(topology_nodes or []) if isinstance(item, dict)]
     if not task_nodes:
         return template_nodes
@@ -420,10 +420,10 @@ def _effective_graph_nodes(
 
 def _effective_graph_edges(
     *,
-    coordination_task: Any,
+    graph_task: Any,
     topology_edges: list[dict[str, Any]] | None,
 ) -> list[dict[str, Any]]:
-    task_edges = [dict(item) for item in list(getattr(coordination_task, "graph_edges", ()) or []) if isinstance(item, dict)]
+    task_edges = [dict(item) for item in list(getattr(graph_task, "graph_edges", ()) or []) if isinstance(item, dict)]
     return task_edges or [dict(item) for item in list(topology_edges or []) if isinstance(item, dict)]
 
 

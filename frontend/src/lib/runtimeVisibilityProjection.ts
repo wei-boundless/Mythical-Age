@@ -17,6 +17,11 @@ const INTERNAL_RUNTIME_STEPS = new Set([
   "bounded_observation_recorded",
 ]);
 
+function isChatTurnRunId(value: unknown) {
+  const normalized = text(value).toLowerCase();
+  return normalized.startsWith("turnrun:");
+}
+
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -507,6 +512,15 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
     const payload = record(runtimeEvent.payload);
     const contract = record(payload.contract);
     const goal = text(contract.user_visible_goal ?? contract.task_run_goal ?? taskRun.goal ?? taskRun.title);
+    const taskRunId = text(taskRun.task_run_id) || text(runtimeEvent.task_run_id);
+    if (isChatTurnRunId(taskRunId) || text(taskRun.execution_runtime_kind) === "single_agent_turn") {
+      return {
+        stageStatus: "会话运行开始",
+        activityTitle: "会话运行开始",
+        activityDetail: text(taskRun.status) || "本轮请求已进入 agent runtime",
+        level: "running",
+      };
+    }
     return {
       stageStatus: "正式任务已创建",
       activityTitle: "正式任务已创建",
@@ -517,7 +531,7 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
         level: "running",
         kind: "task_order",
         statusText: text(taskRun.status) || "running",
-        taskRunId: text(taskRun.task_run_id) || text(runtimeEvent.task_run_id),
+        taskRunId,
         eventId: text(runtimeEvent.event_id),
         createdAt: numberValue(runtimeEvent.created_at ?? taskRun.created_at) ?? Date.now(),
         meta: compactMeta([

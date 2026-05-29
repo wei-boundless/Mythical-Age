@@ -26,7 +26,7 @@ function numberText(value: unknown) {
 }
 
 function taskRunId(summary: HarnessTaskRunSummary | null | undefined) {
-  return text(asRecord(summary?.task_run).task_run_id, "");
+  return text(asRecord(summary).task_run_id, "");
 }
 
 function agentRuntimePhaseSummary(monitor: HarnessTaskRunLiveMonitor | null) {
@@ -93,8 +93,8 @@ export function AgentRuntimePhaseMonitorPage({
               <option value="">选择最近 TaskRun</option>
               {runtimeRunsForSelectedGraph.map((item, index) => {
                 const id = taskRunId(item) || `run_${index + 1}`;
-                const status = text(asRecord(item.task_run).status, "unknown");
-                return <option key={id} value={id}>{id} · {status} · {item.latest_event_type || "no_event"}</option>;
+                const status = text(asRecord(item).status, "unknown");
+                return <option key={id} value={id}>{id} · {status} · {item.execution_runtime_kind || "runtime"}</option>;
               })}
             </select>
           </Field>

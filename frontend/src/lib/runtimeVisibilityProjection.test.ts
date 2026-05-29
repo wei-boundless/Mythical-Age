@@ -202,4 +202,27 @@ describe("runtimeVisibilityProjection", () => {
       taskRunId: "taskrun:turn:session-1:1:abc",
     });
   });
+
+  it("does not project chat turn runtime start as a formal task", () => {
+    const projection = projectRuntimeStreamEvent("harness_run_started", {
+      task_run: {
+        task_run_id: "turnrun:session-1:1",
+        execution_runtime_kind: "single_agent_turn",
+        status: "running",
+      },
+      event: {
+        event_id: "rtevt:turn-start",
+        task_run_id: "turnrun:session-1:1",
+        created_at: 30,
+        payload: {},
+      },
+    });
+
+    expect(projection).toMatchObject({
+      stageStatus: "会话运行开始",
+      activityTitle: "会话运行开始",
+      level: "running",
+    });
+    expect(projection.progressEntry).toBeUndefined();
+  });
 });

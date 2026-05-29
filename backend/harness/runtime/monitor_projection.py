@@ -72,9 +72,9 @@ class TaskRunMonitorProjector:
             or ""
         )
         graph_id = str(route.get("graph_id") or "")
-        coordination_run_id = str(diagnostics.get("coordination_run_id") or "")
         graph_run_id = str(diagnostics.get("graph_run_id") or "")
         graph_harness_config_id = str(diagnostics.get("graph_harness_config_id") or "")
+        has_graph_run = bool(graph_run_id or graph_harness_config_id)
         return {
             "task_run_id": str(getattr(task_run, "task_run_id", "") or ""),
             "session_id": str(getattr(task_run, "session_id", "") or ""),
@@ -110,8 +110,6 @@ class TaskRunMonitorProjector:
             "artifact_count": len(list(diagnostics.get("artifact_refs") or [])),
             "artifact_refs": list(diagnostics.get("artifact_refs") or [])[:10],
             "route": route,
-            "coordination_run_id": coordination_run_id,
-            "coordination_status": str(diagnostics.get("coordination_status") or ""),
             "graph_run_id": graph_run_id,
             "graph_harness_config_id": graph_harness_config_id,
             "graph_id": graph_id,
@@ -119,7 +117,7 @@ class TaskRunMonitorProjector:
             "project_id": str(diagnostics.get("project_id") or ""),
             "project_title": self._public_text(diagnostics.get("project_title")),
             "project_runtime_status": None,
-            "has_coordination": bool(graph_run_id or coordination_run_id or graph_id),
+            "has_graph_run": has_graph_run,
             "event_count": len(events),
             "authority": "single_agent_runtime_monitor.item",
         }
@@ -212,10 +210,9 @@ class TaskRunMonitorProjector:
         task_id = str(getattr(task_run, "task_id", "") or "")
         execution_runtime_kind = str(getattr(task_run, "execution_runtime_kind", "") or "")
         graph_id = str(diagnostics.get("graph_id") or diagnostics.get("task_graph_id") or "")
-        coordination_run_id = str(diagnostics.get("coordination_run_id") or "")
         graph_run_id = str(diagnostics.get("graph_run_id") or "")
         graph_harness_config_id = str(diagnostics.get("graph_harness_config_id") or "")
-        if graph_run_id or coordination_run_id or graph_id:
+        if graph_run_id or graph_harness_config_id:
             kind = "task_graph_run"
         elif _is_chat_scoped(task_run_id=task_run_id, task_id=task_id):
             kind = "chat_turn_runtime"
@@ -228,7 +225,6 @@ class TaskRunMonitorProjector:
             "session_id": session_id,
             "task_run_id": task_run_id,
             "graph_id": graph_id,
-            "coordination_run_id": coordination_run_id,
             "graph_run_id": graph_run_id,
             "graph_harness_config_id": graph_harness_config_id,
         }
@@ -285,17 +281,17 @@ class TaskRunMonitorProjector:
             value = self._public_text(diagnostics.get(key))
             if value:
                 return value
-        if lifecycle == "completed":
-            return "会话任务已完成"
-        if lifecycle == "failed":
-            return "会话任务失败"
-        if lifecycle == "action_required":
-            return "会话任务等待处理"
-        if lifecycle == "stale":
-            return "运行状态需诊断"
         if str(getattr(task_run, "execution_runtime_kind", "") or "") == "single_agent_task":
             return "Agent 运行"
-        return "会话任务运行中"
+        if lifecycle == "completed":
+            return "会话运行已完成"
+        if lifecycle == "failed":
+            return "会话运行失败"
+        if lifecycle == "action_required":
+            return "会话运行等待处理"
+        if lifecycle == "stale":
+            return "运行状态需诊断"
+        return "会话运行中"
 
     def _public_text(self, value: Any) -> str:
         candidate = str(value or "").strip()

@@ -10,7 +10,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from prompt_library.assembler import assemble_runtime_prompt_contract
-from harness.runtime.phases import (
+from task_system.planning.agent_plan_support import (
     AgentPlanRequired,
     build_agent_plan_draft,
     empty_agent_plan_draft,
@@ -18,7 +18,7 @@ from harness.runtime.phases import (
 )
 from request_intent.request_signals import build_request_signals
 from task_system.services.assembly_builder import build_task_execution_assembly_bundle
-from tests.support.runtime_stubs import model_turn_context
+from tests.support.runtime_stubs import agent_turn_context
 
 
 def _frontend_contract() -> dict[str, object]:
@@ -164,16 +164,37 @@ def test_model_agent_plan_draft_is_accepted_when_schema_valid() -> None:
 
 def test_plan_coverage_hard_gate_stays_policy_without_generating_plan_steps() -> None:
     message = "请重构前端任务图编辑器，做成可运行的编辑器体验，并用浏览器验证关键工作流。"
-    turn_context = model_turn_context(
-        action_intent="edit_workspace",
-        work_mode="implementation",
-        interaction_intent="modify",
+    turn_context = agent_turn_context(
+        action_type="request_task_run",
         desired_outcome=message,
         deliverables=["runnable_artifact_refs", "workflow_acceptance", "verification_evidence"],
         planning_required=True,
         todo_required=True,
         task_goal_type="frontend_app_delivery",
         task_domain="development",
+    )
+    turn_context.update(
+        {
+            "model_turn_decision": {
+                "authority": "agent_runtime.model_turn_decision",
+                "decision_id": "decision:plan-gate",
+                "action_type": "request_task_run",
+            },
+            "request_facts": {
+                "authority": "request_facts.frame",
+                "explicit_paths": ["frontend"],
+            },
+            "boundary_policy": {
+                "authority": "agent_runtime.boundary_policy",
+                "policy_id": "boundary:plan-gate",
+                "allowed": True,
+            },
+            "action_permit": {
+                "authority": "agent_runtime.action_permit",
+                "permit_id": "permit:plan-gate",
+                "allowed": True,
+            },
+        }
     )
     query_understanding = {
         **build_request_signals(message).to_dict(),
@@ -194,8 +215,7 @@ def test_plan_coverage_hard_gate_stays_policy_without_generating_plan_steps() ->
             "runtime_interaction_mode": "professional_mode",
             "mode_policy": {
                 "execution_strategy": "interaction_mode_run",
-                "interaction_mode": "professional_mode",
-                "runtime_lane": "professional_task"},
+                "interaction_mode": "professional_mode"},
             "model_agent_plan_draft": {
                 "authority": "runtime.agent_plan_draft",
                 "plan_id": "agent-plan:incomplete",

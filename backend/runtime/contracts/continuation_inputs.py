@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..shared.artifact_refs import ArtifactRefIndex, collect_task_result_output_refs, dedupe_refs
-from .continuation_policy import CoordinationStageContract
+from .continuation_policy import TaskGraphStageContract
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,7 +25,7 @@ class ContinuationInputBinder:
     def bind(
         self,
         *,
-        stage_contract: CoordinationStageContract,
+        stage_contract: TaskGraphStageContract,
         current_task_result: dict[str, Any] | None = None,
         current_task_ref: str = "",
         stage_outputs: dict[str, Any] | None = None,
@@ -123,7 +123,7 @@ class ContinuationInputBinder:
     @staticmethod
     def _missing_required_inputs(
         *,
-        stage_contract: CoordinationStageContract,
+        stage_contract: TaskGraphStageContract,
         explicit_inputs: dict[str, Any],
     ) -> list[str]:
         required = set(stage_contract.required_inputs)

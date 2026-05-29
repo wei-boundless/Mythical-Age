@@ -28,7 +28,6 @@ class ExecutionDispatchDecision:
     dispatch_mode: DispatchMode
     wait_for_completion: bool
     background: bool = False
-    lane_id: str = ""
     reason: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -42,13 +41,11 @@ def resolve_execution_dispatch(
     wait_policy: str = "",
     join_policy: str = "",
     background_policy: dict[str, Any] | None = None,
-    runtime_lane: str = "",
     blocks_downstream: bool = True,
 ) -> ExecutionDispatchDecision:
     mode = str(execution_mode or "sync").strip() or "sync"
     wait_policy = str(wait_policy or "").strip()
     join_policy = str(join_policy or "").strip()
-    runtime_lane = str(runtime_lane or "").strip()
     background_policy = dict(background_policy or {})
     background_enabled = bool(background_policy.get("enabled"))
     background_blocks_downstream = bool(background_policy.get("blocks_downstream", blocks_downstream))
@@ -58,7 +55,6 @@ def resolve_execution_dispatch(
             execution_mode=mode,
             dispatch_mode="manual_gate",
             wait_for_completion=True,
-            lane_id=runtime_lane,
             reason="manual_gate requires explicit approval before completion.",
             metadata={
                 "wait_policy": wait_policy,
@@ -71,7 +67,6 @@ def resolve_execution_dispatch(
             execution_mode=mode,
             dispatch_mode="barrier",
             wait_for_completion=True,
-            lane_id=runtime_lane,
             reason="barrier nodes keep the current run open until the barrier resolves.",
             metadata={
                 "wait_policy": wait_policy,
@@ -85,7 +80,6 @@ def resolve_execution_dispatch(
             dispatch_mode="background",
             wait_for_completion=False,
             background=True,
-            lane_id=runtime_lane,
             reason="background nodes are dispatched out of band and do not block the main turn.",
             metadata={
                 "wait_policy": wait_policy,
@@ -98,7 +92,6 @@ def resolve_execution_dispatch(
             execution_mode=mode,
             dispatch_mode="async",
             wait_for_completion=False,
-            lane_id=runtime_lane,
             reason="async dispatch lets the main chain continue without waiting for completion.",
             metadata={
                 "wait_policy": wait_policy,
@@ -111,7 +104,6 @@ def resolve_execution_dispatch(
             execution_mode=mode,
             dispatch_mode="parallel",
             wait_for_completion=False,
-            lane_id=runtime_lane,
             reason="parallel dispatch fans out work and joins through the scheduler state.",
             metadata={
                 "wait_policy": wait_policy,
@@ -123,7 +115,6 @@ def resolve_execution_dispatch(
         execution_mode="sync",
         dispatch_mode="sync",
         wait_for_completion=True,
-        lane_id=runtime_lane,
         reason="sync dispatch keeps the work on the main path.",
         metadata={
             "wait_policy": wait_policy,
@@ -143,7 +134,6 @@ class BackgroundTaskRecord:
     error: str = ""
     source: str = ""
     session_id: str = ""
-    lane_id: str = ""
     coalesce_key: str = ""
     attempts: int = 0
     queued_at: str = field(default_factory=utc_now_iso)
@@ -239,7 +229,6 @@ class BackgroundTaskManager:
         payload: dict[str, Any] | None = None,
         source: str = "",
         session_id: str = "",
-        lane_id: str = "",
         coalesce_key: str = "",
     ) -> BackgroundTaskRecord:
         kind = str(task_kind or "").strip() or "default"
@@ -255,7 +244,6 @@ class BackgroundTaskManager:
             payload=dict(payload or {}),
             source=str(source or ""),
             session_id=str(session_id or ""),
-            lane_id=str(lane_id or ""),
             coalesce_key=key,
         )
         stored = self.store.write(record)

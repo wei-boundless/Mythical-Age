@@ -10,7 +10,6 @@ from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from task_system.registry.flow_models import (
     AgentTaskCarryingProfile,
     AgentTaskConnectionProfile,
-    CoordinationTaskDefinition,
     GeneralTaskProfile,
     SpecificTaskRecord,
     TaskDomainRecord,
@@ -149,9 +148,6 @@ def default_task_domains() -> tuple[TaskDomainRecord, ...]:
 def default_general_task_profiles() -> tuple[GeneralTaskProfile, ...]:
     return ()
 
-def default_coordination_tasks() -> tuple[CoordinationTaskDefinition, ...]:
-    return ()
-
 def default_task_communication_protocols() -> tuple[TaskCommunicationProtocol, ...]:
     return ()
 
@@ -187,12 +183,12 @@ def _default_execution_policy(task: TaskAssignment) -> TaskExecutionPolicy:
     ).strip()
     agent_group_id = str(task_structure.get("agent_group_id") or task_metadata.get("agent_group_id") or "").strip()
     execution_chain_type = str(task.to_dict().get("execution_chain_type") or "").strip() or (
-        "coordination_chain" if task_graph_id else "single_agent_chain"
+        "task_graph_chain" if task_graph_id else "agent_harness_chain"
     )
     return TaskExecutionPolicy(
         policy_id=f"taskexecpol:{task.task_id}",
         task_id=task.task_id,
-        execution_mode="single_agent" if not participant_ids else "coordinated_agents",
+        execution_mode="agent_harness" if not participant_ids else "task_graph",
         default_agent_id=normalize_agent_id(str(task.default_agent_id or "agent:0").strip() or "agent:0"),
         allow_worker_agent_spawn=False,
         worker_agent_blueprint_id="",
@@ -875,9 +871,6 @@ class TaskFlowRegistry:
         )
         self._invalidate_cache()
         return profile
-
-    def derive_coordination_task_view_from_graph(self, graph: TaskGraphDefinition) -> CoordinationTaskDefinition:
-        return self.graph_service.derive_coordination_task_view_from_graph(graph)
 
     def list_task_graphs(self) -> list[TaskGraphDefinition]:
         return self.task_graph_repository.list()

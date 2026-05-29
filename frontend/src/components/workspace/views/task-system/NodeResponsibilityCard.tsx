@@ -206,7 +206,7 @@ export function NodeResponsibilityCard({
         </div>
         <div className="task-graph-note">
           <strong>Prompt 边界</strong>
-          <span>节点职责直接写入任务图节点，运行时按角色 Prompt、输入契约和输出契约装配，不再通过 Projection 选择身份。</span>
+          <span>节点职责直接写入任务图节点，运行时按角色 Prompt、输入契约和输出契约装配，不再通过旧身份字段选择职责。</span>
         </div>
       </div>
     </article>

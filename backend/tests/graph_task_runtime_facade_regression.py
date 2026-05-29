@@ -130,6 +130,9 @@ def test_graph_harness_starts_published_config_and_creates_node_work_order() -> 
     assert start.node_work_orders[0].graph_run_id == start.graph_run.graph_run_id
     assert "内容起草员" in start.node_work_orders[0].message
     assert start.node_work_orders[0].input_package["initial_inputs"] == {"goal": "smoke"}
+    assert start.node_work_orders[0].input_package["materializer_authority"] == "harness.graph.context_materializer"
+    assert start.node_work_orders[0].input_package["node_identity"]["node_id"] == "draft"
+    assert "内容起草员" in start.node_work_orders[0].input_package["agent_instruction"]
     assert start.loop_state.work_order_index[start.node_work_orders[0].work_order_id]["node_id"] == "draft"
     assert runtime.graph_harness.get_checkpoint_state(start.graph_run.graph_run_id)["graph_id"] == graph.graph_id
     monitor = runtime.graph_harness.get_graph_run_monitor(start.graph_run.graph_run_id, graph_config=graph_config)
@@ -138,6 +141,124 @@ def test_graph_harness_starts_published_config_and_creates_node_work_order() -> 
     assert monitor["graph_loop_state"]["graph_id"] == graph.graph_id
     assert monitor["active_node_work_order_count"] == 1
     assert monitor["active_node_work_orders"][0]["work_order_id"] == start.node_work_orders[0].work_order_id
+    trace = runtime.single_agent_runtime_host.get_trace(start.task_run.task_run_id)
+    assert trace is not None
+    assert trace["graph_run_count"] == 1
+    assert trace["graph_runs"][0]["graph_run_id"] == start.graph_run.graph_run_id
+
+
+def test_graph_loop_persists_state_through_langgraph_checkpoint_store() -> None:
+    runtime = _runtime("graph-task-langgraph-checkpoint-")
+    registry = TaskFlowRegistry(runtime.base_dir)
+    graph = registry.upsert_task_graph(
+        graph_id="graph.test.langgraph_checkpoint_store",
+        title="LangGraph Checkpoint Store",
+        graph_kind="multi_agent",
+        entry_node_id="draft",
+        output_node_id="draft",
+        nodes=(
+            {
+                "node_id": "draft",
+                "node_type": "agent",
+                "title": "起草",
+                "task_id": "task.test.draft",
+                "agent_id": "agent:0",
+            },
+        ),
+        runtime_policy={"coordinator_agent_id": "agent:0"},
+        publish_state="published",
+        enabled=True,
+    )
+    graph_config = publish_graph_harness_config_for_graph(base_dir=runtime.base_dir, graph_id=graph.graph_id)
+
+    start = runtime.graph_harness.start_run(
+        session_id="session:test",
+        task_id="",
+        graph_config=graph_config,
+        initial_inputs={"goal": "checkpoint"},
+    )
+
+    checkpoint_store = runtime.single_agent_runtime_host.graph_checkpoint_store
+    latest = checkpoint_store.get_latest_checkpoint(start.graph_run.graph_run_id)
+
+    assert latest is not None
+    assert latest.metadata["backend"] == "harness.graph_checkpoint_store.langgraph"
+    assert latest.state["graph_id"] == graph.graph_id
+    assert latest.state["active_work_orders"] == {start.node_work_orders[0].node_id: start.node_work_orders[0].work_order_id}
+    assert latest.pending_writes
+    assert latest.pending_writes[0][1] == "active_work_order"
+    assert latest.pending_writes[0][2]["work_order_id"] == start.node_work_orders[0].work_order_id
+    assert latest.to_dict()["checkpoint_id"].startswith("gchk:")
+    assert runtime.graph_harness.get_latest_checkpoint(start.graph_run.graph_run_id)["checkpoint_id"].startswith("gchk:")
+    assert runtime.graph_harness.list_checkpoints(start.graph_run.graph_run_id, limit=1)[0]["checkpoint_id"].startswith("gchk:")
+    assert runtime.single_agent_runtime_host.runtime_objects.get_object(
+        f"rtobj:graph_loop_state:{start.graph_run.graph_run_id.replace(':', '_')}"
+    ) == {}
+
+
+def test_graph_loop_fails_closed_when_no_schedulable_start_node_exists() -> None:
+    runtime = _runtime("graph-task-unschedulable-start-")
+    registry = TaskFlowRegistry(runtime.base_dir)
+    graph = registry.upsert_task_graph(
+        graph_id="graph.test.unschedulable_cycle",
+        title="Unschedulable Cycle",
+        graph_kind="multi_agent",
+        nodes=(
+            {"node_id": "draft", "node_type": "agent", "title": "起草", "task_id": "task.test.draft", "agent_id": "agent:0"},
+            {"node_id": "review", "node_type": "agent", "title": "审核", "task_id": "task.test.review", "agent_id": "agent:0"},
+        ),
+        edges=(
+            {"edge_id": "edge.draft.review", "source_node_id": "draft", "target_node_id": "review", "edge_type": "handoff"},
+            {"edge_id": "edge.review.draft", "source_node_id": "review", "target_node_id": "draft", "edge_type": "handoff"},
+        ),
+        runtime_policy={"coordinator_agent_id": "agent:0"},
+        publish_state="published",
+        enabled=True,
+    )
+    graph_config = publish_graph_harness_config_for_graph(base_dir=runtime.base_dir, graph_id=graph.graph_id)
+
+    start = runtime.graph_harness.start_run(session_id="session:test", task_id="", graph_config=graph_config)
+    task_run = runtime.single_agent_runtime_host.state_index.get_task_run(start.task_run.task_run_id)
+    graph_run = runtime.graph_harness.get_graph_run(start.graph_run.graph_run_id)
+
+    assert start.loop_state.status == "failed"
+    assert start.loop_state.terminal_reason == "no_schedulable_start_nodes"
+    assert start.task_run.status == "failed"
+    assert start.graph_run.status == "failed"
+    assert start.node_work_orders == ()
+    assert start.checkpoint["state"]["status"] == "failed"
+    assert start.checkpoint["state"]["terminal_reason"] == "no_schedulable_start_nodes"
+    assert task_run is not None
+    assert task_run.status == "failed"
+    assert graph_run["status"] == "failed"
+
+
+def test_graph_loop_fails_closed_for_resource_only_graph() -> None:
+    runtime = _runtime("graph-task-resource-only-")
+    registry = TaskFlowRegistry(runtime.base_dir)
+    graph = registry.upsert_task_graph(
+        graph_id="graph.test.resource_only",
+        title="Resource Only",
+        graph_kind="multi_agent",
+        nodes=(
+            {"node_id": "memory.world", "node_type": "memory_repository", "title": "世界观记忆库"},
+        ),
+        runtime_policy={"coordinator_agent_id": "agent:0"},
+        publish_state="published",
+        enabled=True,
+    )
+    graph_config = publish_graph_harness_config_for_graph(base_dir=runtime.base_dir, graph_id=graph.graph_id)
+
+    start = runtime.graph_harness.start_run(session_id="session:test", task_id="", graph_config=graph_config)
+    task_run = runtime.single_agent_runtime_host.state_index.get_task_run(start.task_run.task_run_id)
+
+    assert start.loop_state.status == "failed"
+    assert start.loop_state.terminal_reason == "no_executable_nodes"
+    assert start.task_run.status == "failed"
+    assert start.graph_run.status == "failed"
+    assert start.node_work_orders == ()
+    assert task_run is not None
+    assert task_run.status == "failed"
 
 
 def test_graph_loop_accepts_node_result_and_advances_to_next_node() -> None:
@@ -185,13 +306,121 @@ def test_graph_loop_accepts_node_result_and_advances_to_next_node() -> None:
     assert "draft" in advance.loop_state.completed_node_ids
     assert advance.node_work_orders
     assert advance.node_work_orders[0].node_id == "review"
+    assert advance.node_work_orders[0].input_package["materializer_authority"] == "harness.graph.context_materializer"
     assert advance.node_work_orders[0].input_package["upstream_results"][0]["source_node_id"] == "draft"
     assert advance.node_work_orders[0].input_package["upstream_results"][0]["outputs"] == {"draft": "ok"}
+    assert advance.node_work_orders[0].input_package["upstream_handoff_packets"][0]["edge_id"] == "edge.draft.review"
     assert advance.node_work_orders[0].input_package["handoff_packets"][0]["edge_id"] == "edge.draft.review"
     assert advance.node_work_orders[0].input_package["handoff_packets"][0]["payload"]["outputs"] == {"draft": "ok"}
     assert advance.loop_state.edge_states["edge.draft.review"]["status"] == "ready"
     assert advance.loop_state.work_order_index[advance.node_work_orders[0].work_order_id]["node_id"] == "review"
     assert advance.graph_result is None
+
+
+def test_node_result_envelope_fails_closed_on_invalid_payload() -> None:
+    invalid_payloads = (
+        {
+            "result_id": "",
+            "graph_run_id": "grun:test",
+            "task_run_id": "taskrun:test",
+            "node_id": "draft",
+            "work_order_id": "gwork:test",
+            "outputs": {"ok": True},
+        },
+        {
+            "result_id": "nresult:test",
+            "graph_run_id": "grun:test",
+            "task_run_id": "taskrun:test",
+            "node_id": "draft",
+            "work_order_id": "gwork:test",
+            "status": "waiting",
+            "outputs": {"ok": True},
+        },
+        {
+            "result_id": "nresult:test",
+            "graph_run_id": "grun:test",
+            "task_run_id": "taskrun:test",
+            "node_id": "draft",
+            "work_order_id": "gwork:test",
+            "status": "failed",
+        },
+    )
+
+    for payload in invalid_payloads:
+        try:
+            NodeResultEnvelope.from_dict(payload)
+            raised = None
+        except ValueError as exc:
+            raised = exc
+        assert raised is not None
+
+
+def test_graph_resume_reconnects_active_work_orders_from_checkpoint() -> None:
+    runtime = _runtime("graph-task-resume-active-")
+    registry = TaskFlowRegistry(runtime.base_dir)
+    graph = registry.upsert_task_graph(
+        graph_id="graph.test.resume_active",
+        title="Resume Active",
+        graph_kind="multi_agent",
+        entry_node_id="draft",
+        output_node_id="draft",
+        nodes=(
+            {"node_id": "draft", "node_type": "agent", "title": "起草", "task_id": "task.test.draft", "agent_id": "agent:0"},
+        ),
+        runtime_policy={"coordinator_agent_id": "agent:0"},
+        publish_state="published",
+        enabled=True,
+    )
+    graph_config = publish_graph_harness_config_for_graph(base_dir=runtime.base_dir, graph_id=graph.graph_id)
+    start = runtime.graph_harness.start_run(session_id="session:test", task_id="", graph_config=graph_config)
+
+    resumed = runtime.graph_harness.resume_run(
+        graph_config=graph_config,
+        graph_run_id=start.graph_run.graph_run_id,
+    )
+
+    assert resumed.resumed is True
+    assert resumed.reason == "active_work_orders_reconnected"
+    assert resumed.active_work_orders[0]["work_order_id"] == start.node_work_orders[0].work_order_id
+    assert resumed.node_work_orders == ()
+
+
+def test_graph_resume_fails_closed_on_config_hash_mismatch() -> None:
+    runtime = _runtime("graph-task-resume-hash-mismatch-")
+    registry = TaskFlowRegistry(runtime.base_dir)
+    graph = registry.upsert_task_graph(
+        graph_id="graph.test.resume_hash_mismatch",
+        title="Resume Hash Mismatch",
+        graph_kind="multi_agent",
+        entry_node_id="draft",
+        output_node_id="draft",
+        nodes=(
+            {"node_id": "draft", "node_type": "agent", "title": "起草", "task_id": "task.test.draft", "agent_id": "agent:0"},
+        ),
+        runtime_policy={"coordinator_agent_id": "agent:0"},
+        publish_state="published",
+        enabled=True,
+    )
+    graph_config = publish_graph_harness_config_for_graph(base_dir=runtime.base_dir, graph_id=graph.graph_id)
+    start = runtime.graph_harness.start_run(session_id="session:test", task_id="", graph_config=graph_config)
+    wrong_config = type(graph_config)(
+        **{
+            **graph_config.to_dict(),
+            "content_hash": "wrong-hash",
+        }
+    )
+
+    try:
+        runtime.graph_harness.resume_run(
+            graph_config=wrong_config,
+            graph_run_id=start.graph_run.graph_run_id,
+        )
+        raised = None
+    except ValueError as exc:
+        raised = exc
+
+    assert raised is not None
+    assert "config_hash mismatch" in str(raised)
 
 
 def test_graph_harness_executes_agent_work_order_and_advances_loop() -> None:
@@ -247,9 +476,12 @@ def test_graph_harness_executes_agent_work_order_and_advances_loop() -> None:
     assert execution["accepted_result"]["node_id"] == "draft"
     assert execution["graph_loop_state"]["status"] == "completed"
     assert execution["graph_result"]["status"] == "completed"
+    stored_graph_result = runtime.single_agent_runtime_host.runtime_objects.get_object(
+        "rtobj:graph_result:" + execution["graph_result"]["result_id"].replace(":", "_")
+    )
+    assert stored_graph_result["authority"] == "harness.graph_result_envelope"
+    assert stored_graph_result["graph_run_id"] == start.graph_run.graph_run_id
     assert execution["node_executor_task_run"]["task_run_id"].startswith("gtask:")
-    assert "stage_execution_request" not in str(execution)
-    assert "coordination_run_id" not in str(execution)
 
 
 def test_graph_module_is_expanded_before_graph_harness_runtime() -> None:

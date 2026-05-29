@@ -52,8 +52,10 @@ class PromptSelectionContext:
     user_goal: str = ""
     agent_id: str = ""
     interaction_mode: str = "standard_mode"
-    runtime_lane: str = ""
     process_kind: str = ""
+    interaction_intent: str = ""
+    action_intent: str = ""
+    work_mode: str = ""
     task_goal_type: str = ""
     task_domain: str = ""
     task_mode: str = ""
@@ -88,6 +90,10 @@ class PromptSelectionContext:
     plan_coverage_review: dict[str, Any] = field(default_factory=dict)
     verification_review: dict[str, Any] = field(default_factory=dict)
     completion_judgment: dict[str, Any] = field(default_factory=dict)
+    model_turn_decision: dict[str, Any] = field(default_factory=dict)
+    action_permit: dict[str, Any] = field(default_factory=dict)
+    boundary_policy: dict[str, Any] = field(default_factory=dict)
+    request_facts: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
     authority: str = "prompt_library.selection_context"
 
@@ -111,6 +117,10 @@ class PromptSelectionContext:
         payload["plan_coverage_review"] = dict(self.plan_coverage_review or {})
         payload["verification_review"] = dict(self.verification_review or {})
         payload["completion_judgment"] = dict(self.completion_judgment or {})
+        payload["model_turn_decision"] = dict(self.model_turn_decision or {})
+        payload["action_permit"] = dict(self.action_permit or {})
+        payload["boundary_policy"] = dict(self.boundary_policy or {})
+        payload["request_facts"] = dict(self.request_facts or {})
         payload["metadata"] = dict(self.metadata)
         return payload
 

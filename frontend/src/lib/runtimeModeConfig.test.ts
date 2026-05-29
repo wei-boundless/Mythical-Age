@@ -17,7 +17,7 @@ describe("runtime mode config", () => {
     expect(catalog.find((mode) => mode.mode === "role")?.label).toBe("角色模式覆盖");
   });
 
-  it("normalizes runtime modes without deriving old runtime lanes", () => {
+  it("normalizes runtime modes without deriving execution channels", () => {
     const catalog = runtimeModeCatalogFrom([]);
 
     expect(normalizeRuntimeModes(["role", "professional"], catalog)).toEqual(["role", "professional"]);

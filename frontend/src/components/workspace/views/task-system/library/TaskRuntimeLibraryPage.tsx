@@ -33,7 +33,7 @@ function recordFieldText(record: Record<string, unknown> | null | undefined, key
 }
 
 function getRuntimeTaskRunId(summary: HarnessTaskRunSummary | null | undefined) {
-  return recordFieldText(dictOf(summary?.task_run), ["task_run_id", "id", "run_id"], "");
+  return recordFieldText(dictOf(summary), ["task_run_id", "id", "run_id"], "");
 }
 
 function formatRuntimeTime(value: unknown) {
@@ -134,9 +134,9 @@ export function TaskRuntimeLibraryPage({
               <option value="">全局概览，不筛选 task_run_id</option>
               {runtimeRunsForSelectedGraph.map((item, index) => {
                 const id = getRuntimeTaskRunId(item) || `run_${index}`;
-                const run = dictOf(item.task_run);
+                const run = dictOf(item);
                 const status = recordFieldText(run, ["status", "runtime_status"], "unknown");
-                const label = `${id} · ${status} · ${item.latest_event_type || "no_event"}`;
+                const label = `${id} · ${status} · ${item.graph_run_count ? `${item.graph_run_count} graph` : "no_graph"}`;
                 return <option key={id} value={id}>{label}</option>;
               })}
             </select>
@@ -165,8 +165,8 @@ export function TaskRuntimeLibraryPage({
           <header><strong>运行状态</strong><span>{monitorForSelectedRun?.status || recordFieldText(selectedRuntimeRunRecord, ["status", "runtime_status"], "未选择")}</span></header>
           <div className="boundary-kv">
             <p><span>task_run_id</span><strong>{runtimeTaskRunId.trim() || "未筛选"}</strong></p>
-            <p><span>最新事件</span><strong>{selectedRuntimeSummary?.latest_event_type || "-"}</strong></p>
-            <p><span>事件数量</span><strong>{selectedRuntimeSummary?.event_count ?? "-"}</strong></p>
+            <p><span>GraphRun</span><strong>{selectedRuntimeSummary?.graph_run_count ?? 0}</strong></p>
+            <p><span>RuntimeKind</span><strong>{selectedRuntimeSummary?.execution_runtime_kind || "-"}</strong></p>
             <p><span>更新时间</span><strong>{formatRuntimeTime(monitorForSelectedRun?.updated_at ?? selectedRuntimeRunRecord.updated_at)}</strong></p>
           </div>
         </article>

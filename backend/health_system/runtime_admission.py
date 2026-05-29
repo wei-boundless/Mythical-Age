@@ -7,7 +7,7 @@ from typing import Any
 from .execution_planner import build_health_agent_execution_plan
 from .models import HealthManagementCommand
 from .registry_records import get_health_issue_by_id
-from orchestration.runtime_lane_registry import DEFAULT_RUNTIME_LANE_REGISTRY
+from .runtime_lane_registry import DEFAULT_RUNTIME_LANE_REGISTRY
 
 
 AGENT_EXECUTION_COMMANDS = {"analyze_trace"}

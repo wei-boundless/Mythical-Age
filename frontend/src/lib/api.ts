@@ -142,7 +142,6 @@ export type AgentTaskConnectionProfile = {
   topology_refs: string[];
   default_flow_ref: string;
   default_workflow_ref: string;
-  default_runtime_lane_hint: string;
   validation_state: string;
   blocked_reasons: string[];
   diagnostics: Record<string, unknown>;
@@ -187,7 +186,6 @@ export type TaskSystemFlowUpsertPayload = {
   default_agent_id: string;
   default_workflow_id?: string;
   default_projection_id?: string;
-  default_runtime_lane?: string;
   default_memory_scope?: string;
   enabled?: boolean;
   metadata?: Record<string, unknown>;
@@ -464,27 +462,6 @@ export type ContractCompileIssue = {
   agent_id: string;
 };
 
-export type ContractManifest = {
-  authority: string;
-  manifest_id: string;
-  manifest_kind: string;
-  task_ref: string;
-  workflow_id: string;
-  coordination_task_id: string;
-  graph_id: string;
-  global_contracts: Array<Record<string, unknown>>;
-  workflow_contracts: Array<Record<string, unknown>>;
-  node_contracts: Array<Record<string, unknown>>;
-  edge_handoff_contracts: Array<Record<string, unknown>>;
-  graph_module_handoff_contracts: Array<Record<string, unknown>>;
-  runtime_contracts: Array<Record<string, unknown>>;
-  acceptance_contracts: Array<Record<string, unknown>>;
-  issues: ContractCompileIssue[];
-  graph_contract_bindings?: Record<string, unknown>;
-  metadata: Record<string, unknown>;
-  valid: boolean;
-};
-
 export type RuntimeContextSection = {
   section_id: string;
   title: string;
@@ -493,30 +470,6 @@ export type RuntimeContextSection = {
   source_ref: string;
   model_visible: boolean;
   metadata?: Record<string, unknown>;
-};
-
-export type RuntimeAssembly = {
-  authority: string;
-  assembly_id: string;
-  manifest_ref: string;
-  task_ref?: string;
-  workflow_id?: string;
-  coordination_task_ref?: string;
-  graph_id?: string;
-  graph_ref?: string;
-  node_id?: string;
-  agent_id: string;
-  agent_profile_id: string;
-  projection_id?: string;
-  runtime_lane: string;
-  context_sections: RuntimeContextSection[];
-  input_contract_refs?: string[];
-  output_contracts: Array<Record<string, unknown>>;
-  acceptance_contracts: Array<Record<string, unknown>>;
-  handoff_packets?: Array<Record<string, unknown>>;
-  failure_contract: Record<string, unknown>;
-  loop_policy: Record<string, unknown>;
-  diagnostics: Record<string, unknown>;
 };
 
 export type TaskGraphDraftTopologySpec = {
@@ -848,10 +801,7 @@ export type TaskGraphNodeRecord = {
   input_contract_id?: string;
   output_contract_id?: string;
   contract_bindings?: Record<string, unknown>;
-  runtime_lane?: string;
   context_visibility_policy?: Record<string, unknown>;
-  projection_id?: string;
-  projection_overlay_id?: string;
   executor_policy?: Record<string, unknown>;
   failure_policy?: Record<string, unknown>;
   human_gate_policy?: Record<string, unknown>;
@@ -1246,7 +1196,6 @@ export type OrchestrationOption = {
   requestable?: boolean;
   system_only?: boolean;
   deprecated?: boolean;
-  replacement_lane_id?: string;
   metadata?: Record<string, unknown>;
   operation_type?: string;
 };
@@ -1279,17 +1228,13 @@ export type OrchestrationAgentRuntimeCatalog = {
   options: {
     operations: OperationDescriptor[];
     task_graphs: string[];
-    runtime_lanes: string[];
     runtime_modes?: Array<Record<string, unknown>>;
-    runtime_lane_registry?: Record<string, unknown>;
-    runtime_lane_diagnostics?: Record<string, unknown>;
     memory_scopes: string[];
     context_sections: string[];
     approval_policies: string[];
     trace_policies: string[];
     operation_options?: OrchestrationOption[];
     task_graph_options?: OrchestrationOption[];
-    runtime_lane_options?: OrchestrationOption[];
     memory_scope_options?: OrchestrationOption[];
     context_section_options?: OrchestrationOption[];
     approval_policy_options?: OrchestrationOption[];
@@ -1776,7 +1721,7 @@ export type OrchestrationSnapshot = {
   session_id: string;
   run_id?: string;
   task_run_id?: string;
-  coordination_run_ids?: string[];
+  graph_run_ids?: string[];
   turn_id?: string;
   turn_index?: number;
   execution_mode: string;
@@ -1806,12 +1751,17 @@ export type HarnessTraceEvent = {
 };
 
 export type HarnessTaskRunSummary = {
-  task_run: Record<string, unknown>;
-  agent_run_count: number;
-  coordination_run_count: number;
-  event_count: number;
-  latest_event_type: string;
-  latest_checkpoint: Record<string, unknown> | null;
+  task_run_id: string;
+  session_id: string;
+  task_id: string;
+  status: string;
+  execution_runtime_kind: string;
+  created_at: number;
+  updated_at: number;
+  terminal_reason: string;
+  latest_event_offset: number;
+  graph_runs?: Array<Record<string, unknown>>;
+  graph_run_count?: number;
 };
 
 export type HarnessSessionTaskRuns = {
@@ -1825,6 +1775,7 @@ export type GlobalRuntimeMonitorItem = {
   task_run_id: string;
   session_id: string;
   task_id: string;
+  execution_runtime_kind: string;
   graph_run_id?: string;
   graph_harness_config_id?: string;
   title: string;
@@ -1857,20 +1808,17 @@ export type GlobalRuntimeMonitorItem = {
   latest_event_type: string;
   latest_event_at: number;
   event_count: number;
-  coordination_run_id: string;
-  coordination_status: string;
   graph_id: string;
   active_node_id: string;
   project_id: string;
   project_title: string;
   project_runtime_status: Record<string, unknown> | null;
-  has_coordination: boolean;
+  has_graph_run: boolean;
   route: {
     kind?: "chat_turn_runtime" | "agent_runtime_run" | "task_graph_run" | string;
     session_id?: string;
     task_run_id?: string;
     graph_id?: string;
-    coordination_run_id?: string;
     graph_run_id?: string;
     graph_harness_config_id?: string;
   };
@@ -1919,10 +1867,10 @@ export type RuntimeMonitorEventPayload = {
 export type HarnessTaskRunTrace = {
   authority: string;
   task_run: Record<string, unknown>;
-  coordination_runs: Array<Record<string, unknown>>;
+  graph_runs: Array<Record<string, unknown>>;
+  graph_run_count: number;
   event_count: number;
   events: HarnessTraceEvent[];
-  latest_checkpoint: Record<string, unknown> | null;
 };
 
 export type OrchestrationRuntimeOptionsPayload = {
@@ -1945,13 +1893,11 @@ export type HarnessTaskRunLiveMonitor = {
   latest_step_status?: string;
   artifact_count?: number;
   artifact_refs?: Array<Record<string, unknown>>;
-  latest_checkpoint: Record<string, unknown> | null;
   loop_state: Record<string, unknown>;
-  coordination_run: Record<string, unknown> | null;
   graph_run_id?: string;
   graph_harness_config_id?: string;
   agent_runtime_phase_summary?: Record<string, unknown> | null;
-  has_coordination: boolean;
+  has_graph_run: boolean;
   status: string;
   terminal_reason: string;
   updated_at: number;
@@ -1980,40 +1926,6 @@ export type RuntimeResourceInventory = {
   authority: string;
   inventory_id: string;
   items: RuntimeResourceInventoryItem[];
-};
-
-export type TaskGraphRunMonitorNode = {
-  node_id: string;
-  title: string;
-  node_type: string;
-  task_id: string;
-  agent_id: string;
-  execution_mode?: string;
-  phase_id: string;
-  sequence_index: number;
-  monitor_policy?: Record<string, unknown>;
-  background_policy?: Record<string, unknown>;
-  notification_policy?: Record<string, unknown>;
-  metadata?: Record<string, unknown>;
-  status: string;
-  artifact_refs: string[];
-  last_result_ref: string;
-};
-
-export type TaskGraphRunMonitorEdge = {
-  edge_id: string;
-  source_node_id: string;
-  target_node_id: string;
-  edge_type: string;
-  payload_contract_id: string;
-  status: string;
-};
-
-export type TaskGraphRunMonitorIssue = {
-  severity: string;
-  code: string;
-  message: string;
-  target_id: string;
 };
 
 export type TaskGraphBatchLifecycleView = {
@@ -2045,156 +1957,22 @@ export type TaskGraphBatchLifecycleView = {
   failed_batch_ids?: string[];
 };
 
-export type TaskGraphRunMonitorView = {
-  authority: "task_graph.run_monitor" | string;
-  source: string;
-  session_id: string;
-  task_run_id: string;
-  graph_run_id?: string;
-  coordination_run_id: string;
-  graph: {
-    graph_id: string;
-    title: string;
-    node_count: number;
-    edge_count: number;
-  };
-  runtime: {
-    status: string;
-    terminal_status: string;
-    terminal_reason: string;
-    failure?: {
-      message: string;
-      detail: string;
-      code: string;
-      provider: string;
-      model: string;
-      source: string;
-      step_id: string;
-      observation_ref: string;
-    };
-    active_node_id: string;
-    active_task_ref: string;
-    last_event_offset: number;
-    event_count: number;
-    checkpoint_ref: string;
-    checkpoint_updated_at: number;
-    task_checkpoint_ref: string;
-    updated_at: number;
-  };
-  project?: {
-    project_id: string;
-    project_title: string;
-    graph_id: string;
-  };
-  progress?: {
-    metric_label: string;
-    target_metric_total: number;
-    completed_metric_total: number;
-    committed_unit_count: number;
-    last_committed_unit_index: number;
-    remaining_metric_total: number;
-  };
-  supervision?: {
-    project_runtime_status: string;
-    active_run_status: string;
-    latest_artifact_root: string;
-    latest_event_at: number;
-    last_effective_output_at: number;
-    latest_record?: Record<string, unknown>;
-    record_count: number;
-  };
-  blocker?: Record<string, unknown>;
-  repair?: Record<string, unknown>;
-  topology: {
-    nodes: TaskGraphRunMonitorNode[];
-    edges: TaskGraphRunMonitorEdge[];
-  };
-  state: {
-    node_statuses: Record<string, string>;
-    edge_statuses: Record<string, string>;
-    ready_node_ids: string[];
-    running_node_ids: string[];
-    completed_node_ids: string[];
-    failed_node_ids: string[];
-    blocked_node_ids: string[];
-    waiting_node_ids: string[];
-  };
-  batch_lifecycle?: TaskGraphBatchLifecycleView;
-  batch_dispatcher?: Record<string, unknown>;
-  artifacts: Array<Record<string, unknown>>;
-  memory_operations: Array<Record<string, unknown>>;
-  stage_results: Array<Record<string, unknown>>;
-  current_node_execution_boundary?: Record<string, unknown>;
-  current_dispatch_context?: Record<string, unknown>;
-  current_context_packets?: {
-    memory_snapshot?: Record<string, unknown>;
-    artifact_context_packet?: Record<string, unknown>;
-    revision_packet?: Record<string, unknown>;
-    handoff_packet_refs?: string[];
-  };
-  timeline_result_records?: Array<Record<string, unknown>>;
-  temporal?: {
-    active_node_id: string;
-    active_activation_id: string;
-    active_execution_permit_id: string;
-    active_request_id: string;
-    boundary_valid: boolean;
-    violations: TaskGraphRunMonitorIssue[];
-    authority: string;
-  };
-  timeline?: {
-    ledger_id: string;
-    coordination_run_id: string;
-    root_task_run_id: string;
-    graph_id: string;
-    current_clock_seq: number;
-    event_count: number;
-    recent_events: Array<Record<string, unknown>>;
-    updated_at: number;
-    authority: string;
-  };
-  streaming?: {
-    enabled: boolean;
-    chunk_count: number;
-    accumulated_chars: number;
-    latest_chunk_at: number;
-    preview_text: string;
-    active_stream_ref: string;
-  };
-  health: {
-    valid: boolean;
-    issues: TaskGraphRunMonitorIssue[];
-  };
-};
-
-export function taskGraphRunsFromTrace(trace: { coordination_runs?: Array<Record<string, unknown>> } | null | undefined) {
-  return Array.isArray(trace?.coordination_runs) ? trace.coordination_runs : [];
+export function taskGraphRunsFromTrace(trace: { graph_runs?: Array<Record<string, unknown>> } | null | undefined) {
+  return Array.isArray(trace?.graph_runs) ? trace.graph_runs : [];
 }
 
-export function taskGraphRunIdsFromTrace(trace: { coordination_runs?: Array<Record<string, unknown>> } | null | undefined) {
+export function taskGraphRunIdsFromTrace(trace: { graph_runs?: Array<Record<string, unknown>> } | null | undefined) {
   return taskGraphRunsFromTrace(trace)
     .map((item) => taskGraphRunIdOf(item))
     .filter(Boolean);
 }
 
-export function latestTaskGraphRunFromTrace(trace: { coordination_runs?: Array<Record<string, unknown>> } | null | undefined) {
+export function latestTaskGraphRunFromTrace(trace: { graph_runs?: Array<Record<string, unknown>> } | null | undefined) {
   return taskGraphRunsFromTrace(trace)[0] ?? null;
 }
 
 export function taskGraphRunIdOf(run: Record<string, unknown> | null | undefined) {
-  return String(run?.coordination_run_id ?? run?.run_id ?? "").trim();
-}
-
-export function taskGraphRunFromLiveMonitor(liveMonitor: { coordination_run?: Record<string, unknown> | null } | null | undefined) {
-  return liveMonitor?.coordination_run ?? null;
-}
-
-export function taskGraphRunIdFromLiveMonitor(liveMonitor: { coordination_run?: Record<string, unknown> | null } | null | undefined) {
-  return taskGraphRunIdOf(taskGraphRunFromLiveMonitor(liveMonitor));
-}
-
-export function hasTaskGraphLiveRun(liveMonitor: { has_coordination?: boolean } | null | undefined) {
-  return Boolean(liveMonitor?.has_coordination);
+  return String(run?.graph_run_id ?? run?.run_id ?? "").trim();
 }
 
 export type HarnessSessionLiveMonitor = {
@@ -2204,8 +1982,6 @@ export type HarnessSessionLiveMonitor = {
   task_runs?: HarnessTaskRunLiveMonitor[];
   task_run_count: number;
   latest_task_run_id: string;
-  latest_coordination_task_run_id?: string;
-  latest_coordination_run_id?: string;
   project_runtime_status?: Record<string, unknown> | null;
   monitor: HarnessTaskRunLiveMonitor | null;
 };
@@ -2410,7 +2186,7 @@ export type OperationWorker = {
   a2a_protocol_version: string;
   transport: string;
   server_name: string;
-  runtime_lane: string;
+  invocation_channel: string;
   model_visibility: string;
   input_modes: string[];
   output_modes: string[];
@@ -2431,7 +2207,7 @@ export type OperationMCP = {
   endpoint_protocol?: string;
   transport: string;
   server_name?: string;
-  runtime_lane?: string;
+  invocation_channel?: string;
   model_visibility: string;
   input_modes?: string[];
   output_modes?: string[];
@@ -2451,7 +2227,7 @@ export type CapabilityEndpoint = {
   protocol_family: string;
   server_name: string;
   transport: string;
-  runtime_lane: string;
+  invocation_channel: string;
   invocation_mode: string;
   model_visibility: string;
   runtime_visibility: string;
@@ -3187,7 +2963,7 @@ export type ArtifactRepositoryRecord = {
   stage_id: string;
   node_run_id: string;
   task_ref: string;
-  coordination_run_id: string;
+  graph_run_id: string;
   status: string;
   content_hash: string;
   metadata: Record<string, unknown>;
@@ -3201,6 +2977,7 @@ export type ArtifactRepositoryOverview = {
   repository_id: string;
   collection_id: string;
   status: string;
+  graph_run_id?: string;
   repository_count: number;
   artifact_count: number;
   repositories: Array<Record<string, unknown>>;
@@ -3480,6 +3257,7 @@ export async function getArtifactRepositoryOverview(payload?: {
   repository_id?: string;
   collection_id?: string;
   status?: string;
+  graph_run_id?: string;
   limit?: number;
 }) {
   const params = new URLSearchParams();
@@ -4089,13 +3867,6 @@ export async function deleteTaskSystemContract(contractId: string) {
   });
 }
 
-export async function compileTaskSystemWorkflowContractManifest(workflowId: string, taskId: string) {
-  const params = new URLSearchParams({ task_id: taskId });
-  return request<ContractManifest>(
-    `/tasks/contract-manifests/workflows/${encodeURIComponent(workflowId)}?${params.toString()}`
-  );
-}
-
 export async function compileTaskSystemTaskGraphContract(graphId: string) {
   return request<TaskGraphContractPreview>(
     `/tasks/task-graph-contracts/task-graphs/${encodeURIComponent(graphId)}/compile`
@@ -4117,13 +3888,6 @@ export async function upsertTaskSystemTaskGraphStandardView(graphId: string, pay
     method: "PUT",
     body: JSON.stringify(payload)
   });
-}
-
-export async function buildTaskSystemWorkflowRuntimeAssembly(workflowId: string, taskId: string) {
-  const params = new URLSearchParams({ task_id: taskId });
-  return request<RuntimeAssembly>(
-    `/tasks/runtime-assemblies/workflows/${encodeURIComponent(workflowId)}?${params.toString()}`
-  );
 }
 
 export async function getTaskSystemNextIds() {

@@ -9,7 +9,6 @@ if str(BACKEND_DIR) not in sys.path:
 
 from context_system.projection.projection import ContextProjection
 from runtime.memory.observation_aggregator import ObservationAggregator
-from harness.loop.agent_execution import build_answer_readiness_judge_message
 
 
 def test_observation_aggregator_builds_evidence_items_without_losing_projection() -> None:
@@ -34,27 +33,5 @@ def test_observation_aggregator_builds_evidence_items_without_losing_projection(
     assert snapshot.evidence_items[0]["tool_name"] == "web_search"
     assert "北京今日晴" in snapshot.evidence_items[0]["result_preview"]
 
-
-def test_answer_readiness_message_asks_model_to_judge_before_more_tools() -> None:
-    aggregator = ObservationAggregator()
-    aggregator.add_tool_observation(
-        {
-            "tool_name": "web_search",
-            "tool_args": {"query": "黄金价格"},
-            "result": "查询：黄金价格\n关键信息：现货黄金报价为 2350 美元/盎司，时间口径为今日。",
-        }
-    )
-
-    message = build_answer_readiness_judge_message(
-        user_message="顺便查一下黄金价格，直接给结论和时间口径。",
-        aggregation=aggregator.snapshot(),
-        current_bundle_items=[],
-        remaining_model_calls=3,
-    )
-
-    assert "先判断证据是否足够" in message
-    assert "请直接收口回答" in message
-    assert "不要为了确认已经足够的信息而重复查询同类工具" in message
-    assert "现货黄金报价" in message
 
 

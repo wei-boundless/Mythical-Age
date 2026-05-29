@@ -285,14 +285,14 @@ def test_build_prompt_selection_context_preserves_task_flow_from_runtime_payload
             "task_requirement_contract": {
                 "task_goal_type": "task_graph_node_execution",
                 "domain": "writing"},
-            "mode_policy": {"interaction_mode": "professional_mode", "runtime_lane": "coordination_task"}},
+            "mode_policy": {"interaction_mode": "professional_mode", "runtime_mode": "professional_mode"}},
         task_execution_assembly={
-            "task_mode": "coordination_task",
+            "task_mode": "task_graph_node",
             "graph_ref": "graph.writing",
             "metadata": {"registered_task_id": "task.writing.node.world_design"}},
         selected_recipe={
             "recipe_id": "runtime.recipe.task_graph_node",
-            "task_mode": "coordination_task",
+            "task_mode": "task_graph_node",
             "step_blueprints": [{"step_id": "execute_node", "title": "执行节点", "step_kind": "execute"}]},
         task_workflow={
             "workflow_id": "workflow.writing.node.world_design",
@@ -304,7 +304,7 @@ def test_build_prompt_selection_context_preserves_task_flow_from_runtime_payload
         registered_task={
             "task_id": "task.writing.node.world_design",
             "metadata": {"node_id": "world_design", "task_graph_node_runtime": True},
-            "task_policy": {"task_structure": {"execution_chain_type": "coordination_node"}}},
+            "task_policy": {"task_structure": {"execution_chain_type": "task_graph_node"}}},
         skill_runtime_views=[],
         agent_id="agent:writer",
         current_turn_context={"task_graph_node_runtime": True, "current_step_id": "world_design"},
@@ -412,7 +412,7 @@ def test_prompt_selection_context_exposes_model_owned_understanding_inputs() -> 
                 "contract_id": "semantic-task:test:runtime-task",
                 "task_goal_type": "implementation",
                 "domain": "development"},
-            "mode_policy": {"interaction_mode": "professional_mode", "runtime_lane": "professional_task"},
+            "mode_policy": {"interaction_mode": "professional_mode", "runtime_mode": "professional_mode"},
             "bindings": {
                 "model_turn_decision": {"decision_id": "decision:test"},
                 "action_permit": {"permit_id": "permit:test"},

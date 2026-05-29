@@ -8,7 +8,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from prompt_library.assembler import assemble_runtime_prompt_contract
-from harness.runtime.phases import build_verification_review, judge_completion
+from runtime.outcome import build_verification_review, judge_completion
 from runtime.memory.evidence_packet import build_evidence_packet
 from runtime.tool_runtime.tool_result_envelope import build_tool_result_envelope
 

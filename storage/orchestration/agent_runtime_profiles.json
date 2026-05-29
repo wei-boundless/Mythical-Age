@@ -3213,8 +3213,7 @@
         "file_and_memory_side_effects_owned_by": "orchestration_runtime",
         "agent_side_memory_read_allowed": true,
         "agent_side_memory_read_tool": "memory_search",
-        "generic_length_metric_tool_enabled": true,
-        "allow_unregistered_runtime_lanes": true
+        "generic_length_metric_tool_enabled": true
       },
       "runtime_template_id": "task_graph.writing.modular_novel.worker",
       "runtime_mode_catalog": [
@@ -3466,8 +3465,7 @@
         "file_and_memory_side_effects_owned_by": "orchestration_runtime",
         "agent_side_memory_read_allowed": true,
         "agent_side_memory_read_tool": "memory_search",
-        "generic_length_metric_tool_enabled": true,
-        "allow_unregistered_runtime_lanes": true
+        "generic_length_metric_tool_enabled": true
       },
       "runtime_template_id": "task_graph.writing.modular_novel.creator",
       "runtime_mode_catalog": [
@@ -3718,8 +3716,7 @@
         "file_and_memory_side_effects_owned_by": "orchestration_runtime",
         "agent_side_memory_read_allowed": true,
         "agent_side_memory_read_tool": "memory_search",
-        "generic_length_metric_tool_enabled": false,
-        "allow_unregistered_runtime_lanes": true
+        "generic_length_metric_tool_enabled": false
       },
       "runtime_template_id": "task_graph.writing.modular_novel.reviewer",
       "runtime_mode_catalog": [
@@ -3970,8 +3967,7 @@
         "file_and_memory_side_effects_owned_by": "orchestration_runtime",
         "agent_side_memory_read_allowed": true,
         "agent_side_memory_read_tool": "memory_search",
-        "generic_length_metric_tool_enabled": false,
-        "allow_unregistered_runtime_lanes": true
+        "generic_length_metric_tool_enabled": false
       },
       "runtime_template_id": "task_graph.writing.modular_novel.memory_steward",
       "runtime_mode_catalog": [
@@ -4223,8 +4219,7 @@
         "file_and_memory_side_effects_owned_by": "orchestration_runtime",
         "agent_side_memory_read_allowed": true,
         "agent_side_memory_read_tool": "memory_search",
-        "generic_length_metric_tool_enabled": false,
-        "allow_unregistered_runtime_lanes": true
+        "generic_length_metric_tool_enabled": false
       },
       "runtime_template_id": "task_graph.writing.modular_novel.runtime_monitor",
       "runtime_mode_catalog": [

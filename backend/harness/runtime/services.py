@@ -19,6 +19,7 @@ class AgentRuntimeServices:
     prompt_accounting_ledger: Any
     state_index: Any
     runtime_objects: Any
+    graph_checkpoint_store: Any
     execution_store: Any
     operation_gate: Any
     tool_authorization_index: Any
@@ -54,6 +55,7 @@ class AgentRuntimeServices:
             prompt_accounting_ledger=getattr(host, "prompt_accounting_ledger", None),
             state_index=host.state_index,
             runtime_objects=host.runtime_objects,
+            graph_checkpoint_store=host.graph_checkpoint_store,
             execution_store=host.execution_store,
             operation_gate=host.operation_gate,
             tool_authorization_index=host.tool_authorization_index,

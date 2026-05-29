@@ -166,15 +166,14 @@ export type OrchestrationInspectorTarget = {
 
 export type TaskSelectionState = {
   selected_task_id?: string;
-  coordination_task_id?: string;
   task_graph_id?: string;
   selected_graph_id?: string;
   domain_id?: string;
   label?: string;
-  mode?: "single_task" | "coordination";
+  mode?: "single_task" | "task_graph";
   agent_id?: string;
   agent_profile_id?: string;
-  runtime_lane?: string;
+  runtime_mode?: string;
   interaction_mode?: string;
   runtime_interaction_mode?: string;
   runtime_assembly_hint?: Record<string, unknown>;

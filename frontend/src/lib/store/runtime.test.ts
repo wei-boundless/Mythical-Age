@@ -16,7 +16,7 @@ const api = vi.hoisted(() => ({
   getSessionHistory: vi.fn(),
   getSessionTokens: vi.fn(),
   getSoulImageAssetConfig: vi.fn(),
-  getTaskGraphRunMonitor: vi.fn(),
+  getGraphRunMonitor: vi.fn(),
   getWorkspaceContext: vi.fn(),
   listSessions: vi.fn(),
   listSkills: vi.fn(),
@@ -36,8 +36,7 @@ vi.mock("@/lib/api", () => ({
   getSoulImageAssetConfig: api.getSoulImageAssetConfig,
   getWorkspaceContext: api.getWorkspaceContext,
   isRequestAbortError: (error: unknown) => error instanceof DOMException && error.name === "AbortError",
-  getTaskGraphRunMonitor: api.getTaskGraphRunMonitor,
-  getTaskGraphRunMonitorDecisions: vi.fn(),
+  getGraphRunMonitor: api.getGraphRunMonitor,
   getOrchestrationHarnessTaskRunLiveMonitor: api.getOrchestrationHarnessTaskRunLiveMonitor,
   getOrchestrationHarnessSessionLiveMonitor: api.getOrchestrationHarnessSessionLiveMonitor,
   getRagMode: api.getRagMode,
@@ -85,16 +84,14 @@ function itemForMonitor(patch: Record<string, unknown>) {
     latest_event_type: "task_run_started",
     latest_event_at: 2,
     event_count: 1,
-    coordination_run_id: "",
     graph_run_id: "",
     graph_harness_config_id: "",
-    coordination_status: "",
     graph_id: "",
     active_node_id: "",
     project_id: "",
     project_title: "",
     project_runtime_status: null,
-    has_coordination: false,
+    has_graph_run: false,
     is_live: true,
     route: { kind: "chat_turn_runtime", session_id: "session:test", task_run_id: "taskrun:test" },
     ...patch,
@@ -162,19 +159,19 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     api.getSessionHistory.mockResolvedValue({ messages: [] });
     api.getSessionTokens.mockReset();
     api.getSessionTokens.mockResolvedValue(null);
-    api.getTaskGraphRunMonitor.mockReset();
-    api.getTaskGraphRunMonitor.mockResolvedValue({
-      authority: "task_graph.run_monitor",
+    api.getGraphRunMonitor.mockReset();
+    api.getGraphRunMonitor.mockResolvedValue({
+      authority: "harness.graph_run_monitor",
+      graph_run_id: "grun:bound",
+      graph_run: { graph_run_id: "grun:bound", task_run_id: "taskrun:bound", graph_id: "graph:test", config_id: "ghcfg:bound" },
       task_run_id: "taskrun:bound",
-      coordination_run_id: "coordrun:bound",
-      graph: { graph_id: "graph:test", title: "Test", node_count: 1, edge_count: 0 },
-      runtime: { status: "running", active_node_id: "draft", event_count: 1, updated_at: 1 },
-      topology: { nodes: [], edges: [] },
-      state: {},
-      artifacts: [],
-      memory_operations: [],
-      stage_results: [],
-      health: { valid: true, issues: [] },
+      task_run: { task_run_id: "taskrun:bound", status: "running" },
+      graph_harness_config: { config_id: "ghcfg:bound", graph_id: "graph:test" },
+      graph_loop_state: { status: "running", active_node_ids: ["draft"] },
+      active_node_work_orders: [{ node_id: "draft", work_order_id: "gwork:bound:draft" }],
+      active_node_work_order_count: 1,
+      events: [],
+      event_count: 1,
     });
     api.createSession.mockReset();
     api.createSession.mockResolvedValue({
@@ -226,15 +223,17 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     runtime.actions.bindTaskGraphMonitorRun({
       task_run_id: "taskrun:bound",
+      graph_run_id: "grun:bound",
+      graph_harness_config_id: "ghcfg:bound",
       graph_id: "graph:test",
     });
     await vi.runOnlyPendingTimersAsync();
     runtime.actions.setTaskGraphRunInteractionOpen(false);
     await vi.advanceTimersByTimeAsync(1200);
 
-    expect(api.getTaskGraphRunMonitor).toHaveBeenCalledTimes(3);
+    expect(api.getGraphRunMonitor).toHaveBeenCalledTimes(3);
     expect(store.getState().taskGraphMonitorBinding?.task_run_id).toBe("taskrun:bound");
-    expect(store.getState().taskGraphBoundRunMonitor?.runtime?.active_node_id).toBe("draft");
+    expect(store.getState().taskGraphBoundRunMonitor?.active_node_work_orders?.[0]?.node_id).toBe("draft");
   });
 
   it("keeps the global monitor selection on top-level TaskGraph runs", () => {
@@ -267,14 +266,15 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
           task_run_id: "taskrun:master",
           session_id: "session",
           title: "洪荒时代",
-          latest_event_type: "coordination_graph_module_imported_run_started",
-          coordination_run_id: "coordrun:master",
+          latest_event_type: "graph_run_created",
+          graph_run_id: "grun:master",
+          graph_harness_config_id: "ghcfg:master",
           graph_id: "graph.writing.modular_novel.master",
           active_node_id: "graph_module.design_init",
           project_id: "project",
           project_title: "洪荒时代",
-          has_coordination: true,
-          route: { kind: "task_graph_run", session_id: "session", task_run_id: "taskrun:master", graph_id: "graph.writing.modular_novel.master" },
+          has_graph_run: true,
+          route: { kind: "task_graph_run", session_id: "session", task_run_id: "taskrun:master", graph_id: "graph.writing.modular_novel.master", graph_run_id: "grun:master", graph_harness_config_id: "ghcfg:master" },
         }),
       ]);
 
@@ -310,16 +310,15 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
         task_run_id: "taskrun:master",
         session_id: "session",
         title: "长篇小说",
-        latest_event_type: "coordination_started",
-        coordination_run_id: "coordrun:master",
+        latest_event_type: "graph_run_created",
         graph_run_id: "grun:master",
         graph_harness_config_id: "ghcfg:master",
         graph_id: "graph.writing.master",
         active_node_id: "world_review",
         project_id: "project",
         project_title: "长篇小说",
-        has_coordination: true,
-        route: { kind: "task_graph_run", session_id: "session", task_run_id: "taskrun:master", graph_id: "graph.writing.master" },
+        has_graph_run: true,
+        route: { kind: "task_graph_run", session_id: "session", task_run_id: "taskrun:master", graph_id: "graph.writing.master", graph_run_id: "grun:master", graph_harness_config_id: "ghcfg:master" },
       }),
     ]));
 
@@ -578,18 +577,67 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
 
     runtime.actions.bindTaskGraphMonitorRun({
       task_run_id: "taskrun:bound",
+      graph_run_id: "grun:bound",
+      graph_harness_config_id: "ghcfg:bound",
       graph_id: "graph:test",
     });
     await vi.advanceTimersByTimeAsync(0);
-    expect(api.getTaskGraphRunMonitor).toHaveBeenCalledTimes(1);
+    expect(api.getGraphRunMonitor).toHaveBeenCalledTimes(1);
 
     void runtime.actions.sendMessage("你好").catch(() => undefined);
     await vi.advanceTimersByTimeAsync(0);
     await vi.advanceTimersByTimeAsync(4999);
-    expect(api.getTaskGraphRunMonitor).toHaveBeenCalledTimes(1);
+    expect(api.getGraphRunMonitor).toHaveBeenCalledTimes(1);
 
     await vi.advanceTimersByTimeAsync(1);
-    expect(api.getTaskGraphRunMonitor).toHaveBeenCalledTimes(2);
+    expect(api.getGraphRunMonitor).toHaveBeenCalledTimes(2);
+  });
+
+  it("continues session task monitor polling after chat stream hands off to a background task", async () => {
+    api.streamChat.mockImplementation(async (_payload, handlers) => {
+      handlers.onEvent("agent_turn_terminal", {
+        event: {
+          event_id: "rtevt:handoff",
+          task_run_id: "turnrun:test",
+          created_at: 2,
+          payload: {
+            status: "task_executor_scheduled",
+            terminal_reason: "task_executor_scheduled",
+            task_run: {
+              task_run_id: "taskrun:background",
+              status: "running",
+            },
+          },
+        },
+      });
+      handlers.onEvent("done", { content: "任务已进入后台执行。" });
+      return { terminalEvent: "done" };
+    });
+    api.getOrchestrationHarnessSessionLiveMonitor.mockResolvedValue({
+      active_task_run_id: "taskrun:background",
+      monitor: {
+        task_run_id: "taskrun:background",
+        session_id: "session:background",
+        status: "running",
+        task_run: {
+          task_run_id: "taskrun:background",
+          status: "running",
+        },
+      },
+      task_runs: [],
+    });
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:background",
+    });
+    const runtime = new WorkspaceRuntime(store);
+
+    await runtime.actions.sendMessage("开始后台任务");
+
+    expect(api.getOrchestrationHarnessSessionLiveMonitor).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(api.getOrchestrationHarnessSessionLiveMonitor).toHaveBeenCalledTimes(3);
+    expect(store.getState().sessionActivity.title).toBe("任务运行中");
   });
 
   it("does not surface transient global monitor aborts as user-visible errors", async () => {
@@ -929,7 +977,7 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
       currentSessionId: "session:image",
       selectedChatModelId: "openai::gpt-image-2",
       selectedChatMode: "image",
-      taskGraphLiveMonitor: { status: "running", has_coordination: true } as never,
+      taskGraphLiveMonitor: { status: "running", has_graph_run: true } as never,
       taskGraphRunMonitor: { runtime: { status: "running" } } as never,
       soulImageAssetConfig: {
         configured: true,
@@ -1028,7 +1076,11 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     vi.useRealTimers();
     api.streamChat.mockImplementation(async (_payload, handlers) => {
       handlers.onEvent("harness_run_started", {
-        task_run: { task_run_id: "taskrun:abc" },
+        task_run: {
+          task_run_id: "turnrun:abc",
+          execution_runtime_kind: "single_agent_turn",
+          status: "running",
+        },
         agent_run: { agent_run_id: "agentrun:abc" },
       });
       handlers.onEvent("done", { content: "done" });
@@ -1054,6 +1106,10 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(store.getState().taskSelection).toMatchObject({
       selected_task_id: "task.dev.frontend_ui",
     });
+    const assistant = store.getState().messages.at(-1);
+    expect(assistant?.runtimeProgress ?? []).not.toContainEqual(
+      expect.objectContaining({ title: "正式任务已创建" }),
+    );
   });
 
   it("attaches formal task lifecycle signals to the assistant task flow", () => {

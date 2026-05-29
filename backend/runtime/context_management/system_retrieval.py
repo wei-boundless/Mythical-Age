@@ -241,36 +241,6 @@ class SystemRetrievalStage:
         return outcome
 
 
-def build_context_policy_with_retrieval(
-    *,
-    agent_runtime_chain: Any,
-    session_id: str,
-    user_message: str,
-    memory_intent: Any | None,
-    task_operation: dict[str, Any],
-    retrieval_results: list[dict[str, Any]] | None,
-    allowed_search_sources: set[str],
-) -> dict[str, Any]:
-    memory_request_profile = dict(task_operation.get("task_memory_request_profile") or {})
-    retrieval_allowed = task_operation_allows_context_retrieval(
-        task_operation=task_operation,
-        allowed_search_sources=allowed_search_sources,
-    )
-    context_policy_result = agent_runtime_chain.build_context_policy_result(
-        session_id=session_id,
-        message=user_message,
-        memory_intent=memory_intent,
-        memory_request_profile=memory_request_profile,
-        retrieval_results=retrieval_results if retrieval_allowed else None,
-        retrieval_allowed=retrieval_allowed,
-    )
-    if context_policy_result is None:
-        return {}
-    if hasattr(context_policy_result, "to_dict"):
-        return dict(context_policy_result.to_dict())
-    return dict(context_policy_result)
-
-
 def build_system_retrieval_request_parts(
     *,
     user_message: str,
@@ -342,16 +312,6 @@ def path_from_context_recall(
     return ""
 
 
-def task_operation_allows_context_retrieval(
-    *,
-    task_operation: dict[str, Any],
-    allowed_search_sources: set[str],
-) -> bool:
-    if not operation_allowed_by_search_policy("op.mcp_retrieval", allowed_search_sources):
-        return False
-    return task_operation_requests_context_retrieval(task_operation)
-
-
 def task_operation_requests_context_retrieval(task_operation: dict[str, Any]) -> bool:
     query_understanding = dict(task_operation.get("query_understanding") or {})
     context_binding = dict(query_understanding.get("context_binding") or {})
@@ -361,10 +321,7 @@ def task_operation_requests_context_retrieval(task_operation: dict[str, Any]) ->
     if bool(signals.get("memory_recall_required")):
         return False
     current_turn = dict(task_operation.get("current_turn_context") or {})
-    if _selection_is_coordination_task(current_turn):
-        return False
-    assembly = dict(task_operation.get("task_execution_assembly") or {})
-    if str(assembly.get("runtime_lane") or "").strip() == "coordination_task":
+    if _selection_is_graph_work_request(current_turn):
         return False
     operation_requirement = dict(task_operation.get("operation_requirement") or {})
     operations = {
@@ -395,12 +352,12 @@ def system_retrieval_source_kind(
     ).strip()
 
 
-def _selection_is_coordination_task(selection: dict[str, Any]) -> bool:
+def _selection_is_graph_work_request(selection: dict[str, Any]) -> bool:
     return bool(
-        str(selection.get("coordination_run_id") or "").strip()
-        or str(selection.get("continuation_stage_id") or "").strip()
-        or str(selection.get("stage_execution_request_id") or "").strip()
-        or dict(selection.get("stage_execution_request") or {})
+        str(selection.get("continuation_stage_id") or "").strip()
+        or str(selection.get("work_request_id") or "").strip()
+        or str(selection.get("work_request_ref") or "").strip()
+        or dict(selection.get("work_request") or {})
     )
 
 

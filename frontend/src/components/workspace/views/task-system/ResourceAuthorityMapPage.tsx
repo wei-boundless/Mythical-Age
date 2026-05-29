@@ -35,7 +35,7 @@ export function ResourceAuthorityMapPage({
         <div>
           <span>资源权威地图</span>
           <h3>运行资源分层</h3>
-          <p>这里只展示资源在运行时的权威层级。目录、图、投影和 checkpoint 都可以参与上下文，但只有当前指令和执行义务能授权副作用。</p>
+          <p>这里只展示资源在运行时的权威层级。目录、图契约、运行档案和 checkpoint 都可以参与上下文，但只有当前指令和执行义务能授权副作用。</p>
         </div>
         <div className="boundary-actions">
           <ToolbarButton disabled={loading} onClick={onRefresh}>
@@ -57,7 +57,7 @@ export function ResourceAuthorityMapPage({
           <header><strong>执行原则</strong><span>professional mother runtime</span></header>
           <div className="task-graph-note">
             <strong>目录资源不做意图裁决</strong>
-            <span>TaskDomain 和 Projection 只能提供筛选、表达和组织信息，不能取消当前回合的读写验证义务。</span>
+            <span>TaskDomain 和资源目录只能提供筛选、表达和组织信息，不能取消当前回合的读写验证义务。</span>
           </div>
           <div className="task-graph-note">
             <strong>状态恢复要重新绑定当前义务</strong>

@@ -320,7 +320,6 @@ PROFESSIONAL_TASK_SELECTION: dict[str, Any] = {
     "mode_policy": {
         "execution_strategy": "interaction_mode_run",
         "interaction_mode": "professional_mode",
-        "runtime_lane": "professional_task",
     },
 }
 
@@ -346,7 +345,6 @@ PROFESSIONAL_ITERATIVE_GAME_DELIVERY_TURNS: tuple[LongScenarioTurn, ...] = (
             "event=runtime_sandbox_prepared",
             "event.tool=write_file",
             "event.tool=terminal",
-            "trace.coordination_runs=0",
             "sandbox.enabled",
             "sandbox.root.contains=output/sandbox_runs",
             "sandbox.real_workspace_access=read_only",
@@ -375,7 +373,6 @@ PROFESSIONAL_ITERATIVE_GAME_DELIVERY_TURNS: tuple[LongScenarioTurn, ...] = (
             "event=runtime_sandbox_prepared",
             "event.tool=read_file",
             "event.tool=terminal",
-            "trace.coordination_runs=0",
             "sandbox.enabled",
             "sandbox.root.contains=output/sandbox_runs",
             "sandbox.real_workspace_access=read_only",
@@ -403,7 +400,6 @@ PROFESSIONAL_ITERATIVE_GAME_DELIVERY_TURNS: tuple[LongScenarioTurn, ...] = (
             "event=runtime_sandbox_prepared",
             "event.tool=read_file",
             "event.tool=terminal",
-            "trace.coordination_runs=0",
             "sandbox.enabled",
             "sandbox.root.contains=output/sandbox_runs",
             "sandbox.real_workspace_access=read_only",
@@ -428,7 +424,6 @@ PROFESSIONAL_ITERATIVE_GAME_DELIVERY_TURNS: tuple[LongScenarioTurn, ...] = (
             "event=runtime_sandbox_prepared",
             "event.tool=read_file",
             "event.tool=terminal",
-            "trace.coordination_runs=0",
             "sandbox.enabled",
             "sandbox.root.contains=output/sandbox_runs",
             "sandbox.real_workspace_access=read_only",
@@ -454,7 +449,6 @@ PROFESSIONAL_ITERATIVE_GAME_DELIVERY_TURNS: tuple[LongScenarioTurn, ...] = (
             "event=runtime_sandbox_prepared",
             "event.tool=terminal",
             "trace.artifact.contains=frontend/public/games/arcane_dungeon_studio",
-            "trace.coordination_runs=0",
             "sandbox.enabled",
             "sandbox.root.contains=output/sandbox_runs",
             "sandbox.real_workspace_access=read_only",
@@ -504,7 +498,6 @@ SANDBOX_FILE_OPS_ACCEPTANCE_TURNS: tuple[LongScenarioTurn, ...] = (
         checks=(
             "response.contains_all=Atlas Finch|Operations Research|SANDBOX-FILE-OPS-READY",
             "task_run.nonempty",
-            "trace.coordination_runs=0",
             "response.nonempty",
         ),
         params={
@@ -513,7 +506,6 @@ SANDBOX_FILE_OPS_ACCEPTANCE_TURNS: tuple[LongScenarioTurn, ...] = (
                 "mode_policy": {
                     "execution_strategy": "interaction_mode_run",
                     "interaction_mode": "professional_mode",
-                    "runtime_lane": "professional_task",
                 },
             }
         },
@@ -535,7 +527,6 @@ SANDBOX_FILE_OPS_ACCEPTANCE_TURNS: tuple[LongScenarioTurn, ...] = (
             "sandbox.root.contains=output/sandbox_runs",
             "sandbox.real_workspace_access=read_only",
             "task_run.nonempty",
-            "trace.coordination_runs=0",
             "response.nonempty",
         ),
         params={
@@ -544,7 +535,6 @@ SANDBOX_FILE_OPS_ACCEPTANCE_TURNS: tuple[LongScenarioTurn, ...] = (
                 "mode_policy": {
                     "execution_strategy": "interaction_mode_run",
                     "interaction_mode": "professional_mode",
-                    "runtime_lane": "professional_task",
                 },
             }
         },
@@ -566,7 +556,6 @@ SANDBOX_FILE_OPS_ACCEPTANCE_TURNS: tuple[LongScenarioTurn, ...] = (
             "sandbox.real_workspace_access=read_only",
             "response.contains_any=sandbox|沙箱|output/sandbox_runs|workspace",
             "task_run.nonempty",
-            "trace.coordination_runs=0",
             "response.nonempty",
         ),
         params={
@@ -575,7 +564,6 @@ SANDBOX_FILE_OPS_ACCEPTANCE_TURNS: tuple[LongScenarioTurn, ...] = (
                 "mode_policy": {
                     "execution_strategy": "interaction_mode_run",
                     "interaction_mode": "professional_mode",
-                    "runtime_lane": "professional_task",
                 },
             }
         },
@@ -609,7 +597,6 @@ PROFESSIONAL_CODE_FIX_TURNS: tuple[LongScenarioTurn, ...] = (
             "sandbox.enabled",
             "sandbox.root.contains=output/sandbox_runs",
             "sandbox.real_workspace_access=read_only",
-            "trace.coordination_runs=0",
             "task_run.nonempty",
             "response.contains_any=通过|passed|修复|ready",
             "response.nonempty",
@@ -637,7 +624,6 @@ PROFESSIONAL_TEST_REPORT_TRIAGE_TURNS: tuple[LongScenarioTurn, ...] = (
             "task_run.nonempty",
             "trace.available",
             "trace.agent_run_results.nonempty",
-            "trace.coordination_runs=0",
             "response.contains_all=结构|回归|根因",
             "response.contains_any=memory|context|artifact|writeback|写回|审批",
             "response.nonempty",
@@ -669,7 +655,6 @@ PROFESSIONAL_DOC_DATA_ANALYSIS_TURNS: tuple[LongScenarioTurn, ...] = (
             "task_run.nonempty",
             "trace.available",
             "trace.agent_run_results.nonempty",
-            "trace.coordination_runs=0",
             "response.contains_all=治理|库存|行动",
             "response.nonempty",
         ),
@@ -699,7 +684,6 @@ PROFESSIONAL_FEATURE_SLICE_TURNS: tuple[LongScenarioTurn, ...] = (
             "sandbox.enabled",
             "sandbox.root.contains=output/sandbox_runs",
             "sandbox.real_workspace_access=read_only",
-            "trace.coordination_runs=0",
             "task_run.nonempty",
             "response.contains_all=后端|前端|测试",
             "response.nonempty",
@@ -729,7 +713,6 @@ PROFESSIONAL_OPS_TROUBLESHOOTING_TURNS: tuple[LongScenarioTurn, ...] = (
             "sandbox.enabled",
             "sandbox.root.contains=output/sandbox_runs",
             "sandbox.real_workspace_access=read_only",
-            "trace.coordination_runs=0",
             "task_run.nonempty",
             "response.contains_all=超时|原因|验证",
             "response.nonempty",
@@ -764,7 +747,6 @@ PROFESSIONAL_DEEP_CODE_EXECUTION_TURNS: tuple[LongScenarioTurn, ...] = (
             "sandbox.enabled",
             "sandbox.root.contains=output/sandbox_runs",
             "sandbox.real_workspace_access=read_only",
-            "trace.coordination_runs=0",
             "task_run.nonempty",
             "response.contains_all=修复|验证|边界",
             "response.contains_any=passed|通过|1 passed",
@@ -806,7 +788,6 @@ PROFESSIONAL_ROGUELIKE_CAMPAIGN_DELIVERY_TURNS: tuple[LongScenarioTurn, ...] = (
             "event.tool=read_file",
             "event.tool=write_file",
             "event.tool=terminal",
-            "trace.coordination_runs=0",
             "sandbox.enabled",
             "sandbox.root.contains=output/sandbox_runs",
             "sandbox.real_workspace_access=read_only",

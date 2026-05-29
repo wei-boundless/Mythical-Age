@@ -29,7 +29,7 @@ type RuntimeProjectionFallback = {
   latestEventType?: string;
   isLive?: boolean;
   graphId?: string;
-  hasCoordination?: boolean;
+  hasGraphRun?: boolean;
 };
 
 function record(value: unknown): Record<string, unknown> {
@@ -54,7 +54,7 @@ function looksInternalIdentifier(value: string) {
     || lowered.startsWith("turnrun:")
     || lowered.startsWith("session:")
     || lowered.startsWith("taskinst:")
-    || lowered.startsWith("coordrun:");
+    || lowered.startsWith("grun:");
 }
 
 function publicText(value: unknown) {
@@ -63,7 +63,7 @@ function publicText(value: unknown) {
 }
 
 function statusFromMonitor(item: GlobalRuntimeMonitorItem) {
-  return text(item.status) || text(item.coordination_status) || "unknown";
+  return text(item.status) || "unknown";
 }
 
 function routeKind(item: GlobalRuntimeMonitorItem) {
@@ -132,7 +132,7 @@ export function runtimeWorkProjectionFromMonitorItem(item: GlobalRuntimeMonitorI
   if (route === "task_graph_run") return taskGraphProjection(item);
   if (route === "agent_runtime_run") return agentRuntimeProjection(item);
   if (route === "chat_turn_runtime") return chatTurnRuntimeProjection(item);
-  if (item.has_coordination || text(item.graph_id)) return taskGraphProjection(item);
+  if (item.has_graph_run || text(item.graph_run_id) || text(item.graph_harness_config_id)) return taskGraphProjection(item);
   if (isChatScopedRun(item)) return chatTurnRuntimeProjection(item);
   if (text(item.latest_event_type).startsWith("agent_runtime_")) return agentRuntimeProjection(item);
   return chatTurnRuntimeProjection(item);
@@ -144,7 +144,7 @@ export function runtimeWorkProjectionFromLiveMonitor(
   if (!monitor) return null;
   const taskRun = taskRunRecordFromLiveMonitor(monitor);
   const taskRunId = text(taskRun.task_run_id);
-  if (monitor.has_coordination) {
+  if (monitor.has_graph_run || text(monitor.graph_run_id) || text(monitor.graph_harness_config_id)) {
     return {
       workId: taskRunId,
       workKind: "task_graph_run",

@@ -185,7 +185,17 @@ export function TaskGraphPublishRunPage({
     setRunTraceLoading(true);
     setRunTraceError("");
     try {
-      setRunTrace(await getOrchestrationHarnessTrace(taskRunId.trim(), { includePayloads: false, includeModelMessages: false }));
+      const trace = await getOrchestrationHarnessTrace(taskRunId.trim(), { includePayloads: false, includeModelMessages: false });
+      const latestGraphRun = taskGraphRunsFromTrace(trace)[0] ?? {};
+      const nextGraphRunId = String(latestGraphRun.graph_run_id ?? "").trim();
+      const nextConfigId = String(latestGraphRun.config_id ?? latestGraphRun.graph_harness_config_id ?? "").trim();
+      if (nextGraphRunId) {
+        setGraphRunId(nextGraphRunId);
+      }
+      if (nextConfigId) {
+        setGraphHarnessConfigId(nextConfigId);
+      }
+      setRunTrace(trace);
     } catch (error) {
       setRunTrace(null);
       setRunTraceError(error instanceof Error ? error.message : "运行追踪读取失败");
@@ -252,15 +262,18 @@ export function TaskGraphPublishRunPage({
   }
 
   function bindManualTaskRun() {
-    if (!graphRunId.trim() || !graphHarnessConfigId.trim()) {
-      setRunTraceError("请先输入 GraphRun ID 和 GraphHarnessConfig ID。");
+    const latestGraphRun = taskGraphRuns[0] ?? {};
+    const targetGraphRunId = String(graphRunId || latestGraphRun.graph_run_id || "").trim();
+    const targetConfigId = String(graphHarnessConfigId || latestGraphRun.config_id || latestGraphRun.graph_harness_config_id || "").trim();
+    if (!targetGraphRunId || !targetConfigId) {
+      setRunTraceError("请先读取包含 GraphRun 的 TaskRun trace，或创建一个新的图运行。");
       return;
     }
     setRunTraceError("");
     bindTaskGraphMonitorRun({
       task_run_id: taskRunId.trim() || undefined,
-      graph_run_id: graphRunId.trim(),
-      graph_harness_config_id: graphHarnessConfigId.trim(),
+      graph_run_id: targetGraphRunId,
+      graph_harness_config_id: targetConfigId,
       graph_id: graphId,
       session_id: runSessionId.trim() || undefined,
       title: graphId,
@@ -377,9 +390,8 @@ export function TaskGraphPublishRunPage({
             <div className="task-graph-mini-kv">
               <p><span>TaskRun</span><strong>{String(runTrace.task_run?.task_run_id ?? runTrace.task_run?.run_id ?? taskRunId)}</strong></p>
               <p><span>状态</span><strong>{String(runTrace.task_run?.status ?? "unknown")}</strong></p>
-              <p><span>TaskGraphRun</span><strong>{taskGraphRuns.length}</strong></p>
+              <p><span>GraphRun</span><strong>{taskGraphRuns.length}</strong></p>
               <p><span>事件</span><strong>{runTrace.event_count}</strong></p>
-              <p><span>Checkpoint</span><strong>{runTrace.latest_checkpoint ? "存在" : "无"}</strong></p>
             </div>
             {schedulerSummary.available ? (
               <section className="task-graph-runtime-spec-panel">
@@ -455,7 +467,6 @@ export function TaskGraphPublishRunPage({
               <summary>Trace JSON</summary>
               <pre>{JSON.stringify({
                 task_run: runTrace.task_run,
-                latest_checkpoint: runTrace.latest_checkpoint,
                 task_graph_runs: taskGraphRuns,
               }, null, 2)}</pre>
             </details>

@@ -170,7 +170,7 @@ def build_execution_obligation(
         "verify_required": verify_required,
         "forbid_write": forbid_write,
         "natural_language_write_forbid_signal": natural_language_write_forbid_signal,
-        "forbid_write_authority": "runtime_contract_or_operation_gate",
+        "forbid_write_authority": "model_turn_decision_or_boundary_policy",
         "hard_write_authority": "operation_gate_and_sandbox_policy",
         "structured_write_forbidden": forbid_write,
         "scoped_write_constraints": scoped_write_constraints,
@@ -222,16 +222,52 @@ def build_execution_obligation(
 
 
 def _resource_contract_from_current_turn(current_turn: dict[str, Any]) -> dict[str, Any]:
-    for key in ("resource_contract", "task_contract_seed", "task_requirement_contract"):
-        value = current_turn.get(key)
-        if not isinstance(value, dict):
+    contracts: list[dict[str, Any]] = []
+    for value in (
+        current_turn.get("resource_contract"),
+        dict(current_turn.get("task_contract_seed") or {}).get("resource_contract"),
+        dict(current_turn.get("task_requirement_contract") or {}).get("resource_contract"),
+        dict(current_turn.get("model_turn_decision") or {}).get("resource_contract"),
+        dict(dict(current_turn.get("model_turn_decision") or {}).get("task_contract_seed") or {}).get("resource_contract"),
+    ):
+        if isinstance(value, dict) and value:
+            contracts.append(dict(value))
+    return _merge_resource_contracts(contracts)
+
+
+def _merge_resource_contracts(contracts: list[dict[str, Any]]) -> dict[str, Any]:
+    merged: dict[str, Any] = {}
+    for contract in contracts:
+        for key, value in dict(contract or {}).items():
+            if key in {
+                "source_projects",
+                "target_projects",
+                "required_read_files",
+                "required_read_dirs",
+                "required_write_files",
+                "required_write_dirs",
+            }:
+                merged[key] = _dedupe_resource_values(
+                    [
+                        *list(merged.get(key) or []),
+                        *list(value or []),
+                    ]
+                )
+            elif key not in merged:
+                merged[key] = value
+    return merged
+
+
+def _dedupe_resource_values(values: list[Any]) -> list[Any]:
+    result: list[Any] = []
+    seen: set[str] = set()
+    for value in values:
+        key = str(value if not isinstance(value, dict) else sorted(value.items())).strip()
+        if not key or key in seen:
             continue
-        if key == "resource_contract" and value:
-            return dict(value)
-        nested = value.get("resource_contract")
-        if isinstance(nested, dict) and nested:
-            return dict(nested)
-    return {}
+        seen.add(key)
+        result.append(value)
+    return result
 
 
 def _collect_required_reads_from_resource_contract(resource_contract: dict[str, Any]) -> list[dict[str, Any]]:
@@ -403,9 +439,11 @@ def _natural_language_write_forbid_signal(
 
 
 def _structured_write_forbidden(current_turn: dict[str, Any]) -> bool:
+    model_decision = dict(current_turn.get("model_turn_decision") or {})
     forbidden = {
         str(item).strip()
         for item in [
+            *list(model_decision.get("forbidden_actions") or []),
             *list(dict(current_turn.get("task_contract_seed") or {}).get("forbidden_actions") or []),
             *list(dict(current_turn.get("task_requirement_contract") or {}).get("forbidden_actions") or []),
             *list(dict(current_turn.get("task_goal_spec") or current_turn.get("goal_frame") or {}).get("forbidden_actions") or []),
@@ -423,9 +461,12 @@ def _scoped_write_constraints(
     resource_contract: dict[str, Any],
 ) -> list[dict[str, Any]]:
     normalized = str(text or "").lower()
+    model_decision = dict(current_turn.get("model_turn_decision") or {})
     raw_constraints = [
         str(item or "").strip()
         for item in [
+            *list(model_decision.get("constraints") or []),
+            *list(model_decision.get("forbidden_actions") or []),
             *list(dict(current_turn.get("task_contract_seed") or {}).get("constraints") or []),
             *list(dict(current_turn.get("task_contract_seed") or {}).get("forbidden_actions") or []),
             *list(dict(current_turn.get("task_requirement_contract") or {}).get("constraints") or []),
@@ -470,21 +511,28 @@ def _profile_obligation_requirements(
     task_goal_spec: dict[str, Any],
     current_turn: dict[str, Any],
 ) -> dict[str, Any]:
+    model_decision = dict(current_turn.get("model_turn_decision") or {})
     explicit_task_goal_type = str(
         current_turn.get("semantic_task_type")
         or current_turn.get("task_goal_type")
         or dict(current_turn.get("task_requirement_contract") or {}).get("task_goal_type")
+        or model_decision.get("task_goal_type")
         or ""
     ).strip()
     task_goal_type = str(explicit_task_goal_type or task_goal_spec.get("task_goal_type") or "").strip()
     profile = get_task_goal_profile(task_goal_type)
+    structured_verification = _structured_verification_from_completion_criteria(current_turn)
     if profile is None:
         return {
             "required_writes": (),
             "required_commands": (),
-            "required_verifications": (),
+            "required_verifications": tuple(structured_verification["verifications"]),
             "required_deliverables": (),
-            "evidence": {"matched": False, "task_goal_type": task_goal_type},
+            "evidence": {
+                "matched": False,
+                "task_goal_type": task_goal_type,
+                "structured_completion_criteria": structured_verification["criteria"],
+            },
         }
     actions = {str(item).strip() for item in tuple(profile.required_actions or ()) if str(item).strip()}
     writes: list[dict[str, Any]] = []
@@ -514,6 +562,8 @@ def _profile_obligation_requirements(
                 "source": "task_goal_profile",
             }
         )
+    commands.extend(structured_verification["commands"])
+    verifications.extend(structured_verification["verifications"])
     required_verifications = (
         []
         if explicit_task_goal_type
@@ -545,8 +595,83 @@ def _profile_obligation_requirements(
             "required_actions": sorted(actions),
             "explicit_task_goal_type": explicit_task_goal_type,
             "task_goal_spec_type": str(task_goal_spec.get("task_goal_type") or ""),
+            "structured_completion_criteria": structured_verification["criteria"],
         },
     }
+
+
+def _structured_verification_from_completion_criteria(current_turn: dict[str, Any]) -> dict[str, Any]:
+    criteria = _completion_criteria_from_current_turn(current_turn)
+    if not criteria:
+        return {"criteria": [], "commands": [], "verifications": []}
+    verification_markers = (
+        "verify",
+        "verified",
+        "verification",
+        "validate",
+        "validated",
+        "test",
+        "browser",
+        "terminal",
+        "command",
+        "exists",
+        "运行",
+        "验证",
+        "测试",
+        "浏览器",
+        "终端",
+        "命令",
+        "存在",
+        "打开",
+    )
+    if not any(_has_any(str(item or "").lower(), verification_markers) for item in criteria):
+        return {"criteria": criteria, "commands": [], "verifications": []}
+    joined = "\n".join(criteria).lower()
+    commands = [
+        {
+            "kind": "verification_command",
+            "command_hint": "structured_completion_criteria",
+            "required": True,
+            "source": "model_turn_decision.completion_criteria",
+        }
+    ]
+    if "browser" in joined or "浏览器" in joined or "打开" in joined:
+        commands.append(
+            {
+                "kind": "browser_or_runtime_check",
+                "command_hint": "structured_completion_criteria",
+                "required": True,
+                "source": "model_turn_decision.completion_criteria",
+            }
+        )
+    return {
+        "criteria": criteria,
+        "commands": commands,
+        "verifications": [
+            {
+                "kind": "evidence",
+                "verification_kind": "structured_completion_criteria",
+                "criterion_id": _slug_label(criteria[0]),
+                "title": criteria[0],
+                "required": True,
+                "source": "model_turn_decision.completion_criteria",
+            }
+        ],
+    }
+
+
+def _completion_criteria_from_current_turn(current_turn: dict[str, Any]) -> list[str]:
+    model_decision = dict(current_turn.get("model_turn_decision") or {})
+    action_request = dict(current_turn.get("agent_turn_action_request") or {})
+    completion_contract = dict(action_request.get("completion_contract") or {})
+    seed = dict(current_turn.get("task_contract_seed") or {})
+    values = [
+        *list(model_decision.get("completion_criteria") or []),
+        *list(seed.get("completion_criteria") or []),
+        *list(completion_contract.get("completion_criteria") or []),
+        *list(current_turn.get("completion_criteria") or []),
+    ]
+    return _dedupe([str(item).strip() for item in values if str(item).strip()])
 
 
 def _slug_label(value: str) -> str:

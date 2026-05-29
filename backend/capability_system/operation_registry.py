@@ -123,7 +123,7 @@ def default_operation_descriptors() -> list[OperationDescriptor]:
             "op.model_response",
             "model",
             "Model response",
-            "Generate the model response for the single-agent runtime lane.",
+            "Generate the model response for the current agent invocation.",
             aliases=("model_response", "main_response"),
             risk_tags=("model_response", "read_only"),
             read_only=True,

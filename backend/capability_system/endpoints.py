@@ -18,7 +18,7 @@ class CapabilityEndpoint:
     protocol_family: str
     server_name: str
     transport: str
-    runtime_lane: str
+    invocation_channel: str
     invocation_mode: str
     model_visibility: str
     runtime_visibility: str
@@ -61,7 +61,7 @@ def _mcp_endpoint(mcp: dict[str, Any]) -> CapabilityEndpoint:
         protocol_family=str(mcp.get("endpoint_protocol") or MCP_COMPATIBLE_PROTOCOL_VERSION),
         server_name=server_name,
         transport=str(mcp.get("transport") or "in_process"),
-        runtime_lane=str(mcp.get("runtime_lane") or "mcp"),
+        invocation_channel=str(mcp.get("invocation_channel") or "mcp"),
         invocation_mode="orchestrator_only",
         model_visibility=str(mcp.get("model_visibility") or "not_direct_model_tool"),
         runtime_visibility="agent_internal",

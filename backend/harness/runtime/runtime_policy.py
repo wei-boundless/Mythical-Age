@@ -7,23 +7,20 @@ def model_stream_policy_from_task_execution_assembly(
     task_execution_assembly: dict[str, Any],
     *,
     current_turn_context: dict[str, Any] | None = None,
-    stage_execution_request: dict[str, Any] | None = None,
-    agent_assembly_contract: dict[str, Any] | None = None,
+    runtime_assembly: dict[str, Any] | None = None,
     runtime_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     assembly_payload = dict(task_execution_assembly or {})
     assembly_metadata = dict(assembly_payload.get("metadata") or {})
     assembly_diagnostics = dict(assembly_payload.get("diagnostics") or {})
-    agent_assembly = dict(agent_assembly_contract or {})
+    runtime_payload = dict(runtime_assembly or {})
     turn_context = dict(current_turn_context or {})
-    stage_request = dict(stage_execution_request or {})
     policy: dict[str, Any] = {}
     for candidate in (
         assembly_metadata.get("stream_policy"),
         assembly_diagnostics.get("stream_policy"),
-        agent_assembly.get("stream_policy"),
+        runtime_payload.get("stream_policy"),
         runtime_policy,
-        stage_request.get("stream_policy"),
         turn_context.get("stream_policy"),
     ):
         candidate_dict = dict(candidate or {})
@@ -52,24 +49,21 @@ def artifact_policy_from_task_execution_assembly(
     selected_recipe_payload: dict[str, Any],
     task_execution_assembly: dict[str, Any],
     current_turn_context: dict[str, Any] | None = None,
-    stage_execution_request: dict[str, Any] | None = None,
-    agent_assembly_contract: dict[str, Any] | None = None,
+    runtime_assembly: dict[str, Any] | None = None,
     runtime_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     assembly_payload = dict(task_execution_assembly or {})
     assembly_metadata = dict(assembly_payload.get("metadata") or {})
     assembly_diagnostics = dict(assembly_payload.get("diagnostics") or {})
-    agent_assembly = dict(agent_assembly_contract or {})
+    runtime_payload = dict(runtime_assembly or {})
     turn_context = dict(current_turn_context or {})
-    stage_request = dict(stage_execution_request or {})
     policy: dict[str, Any] = {}
     for candidate in (
         dict(selected_recipe_payload or {}).get("artifact_policy"),
         assembly_metadata.get("artifact_policy"),
         assembly_diagnostics.get("artifact_policy"),
-        agent_assembly.get("artifact_policy"),
+        runtime_payload.get("artifact_policy"),
         runtime_policy,
-        stage_request.get("artifact_policy"),
         turn_context.get("artifact_policy"),
     ):
         candidate_dict = dict(candidate or {})

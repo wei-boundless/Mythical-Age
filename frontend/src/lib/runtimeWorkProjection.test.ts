@@ -8,6 +8,7 @@ function item(patch: Partial<GlobalRuntimeMonitorItem>): GlobalRuntimeMonitorIte
     task_run_id: "taskrun:1",
     session_id: "session:1",
     task_id: "task:general",
+    execution_runtime_kind: "single_agent_turn",
     title: "General run",
     status: "running",
     terminal_reason: "",
@@ -23,14 +24,14 @@ function item(patch: Partial<GlobalRuntimeMonitorItem>): GlobalRuntimeMonitorIte
     latest_event_type: "task_run_started",
     latest_event_at: 2,
     event_count: 1,
-    coordination_run_id: "",
-    coordination_status: "",
+    graph_run_id: "",
+    graph_harness_config_id: "",
     graph_id: "",
     active_node_id: "",
     project_id: "",
     project_title: "",
     project_runtime_status: null,
-    has_coordination: false,
+    has_graph_run: false,
     route: { kind: "chat_turn_runtime", session_id: "session:1", task_run_id: "taskrun:1" },
     ...patch,
   };
@@ -39,10 +40,12 @@ function item(patch: Partial<GlobalRuntimeMonitorItem>): GlobalRuntimeMonitorIte
 describe("runtimeWorkProjection", () => {
   it("shows task graph runs as first-class runtime work", () => {
     const monitorItem = item({
-      has_coordination: true,
+      has_graph_run: true,
+      graph_run_id: "grun:main",
+      graph_harness_config_id: "ghcfg:main",
       graph_id: "graph:main",
       title: "实现五关 roguelike",
-      route: { kind: "task_graph_run", session_id: "session:1", task_run_id: "taskrun:1", graph_id: "graph:main" },
+      route: { kind: "task_graph_run", session_id: "session:1", task_run_id: "taskrun:1", graph_id: "graph:main", graph_run_id: "grun:main" },
     });
 
     const projection = runtimeWorkProjectionFromMonitorItem(monitorItem);
@@ -65,9 +68,11 @@ describe("runtimeWorkProjection", () => {
     const child = item({
       task_run_id: "taskrun:child",
       graph_id: "graph:main",
-      has_coordination: true,
+      has_graph_run: true,
+      graph_run_id: "grun:child",
+      graph_harness_config_id: "ghcfg:main",
       bucket: "diagnostics",
-      route: { kind: "task_graph_run", session_id: "session:1", task_run_id: "taskrun:child", graph_id: "graph:main" },
+      route: { kind: "task_graph_run", session_id: "session:1", task_run_id: "taskrun:child", graph_id: "graph:main", graph_run_id: "grun:child" },
     });
 
     const visible = visibleRuntimeMonitorItems({
@@ -150,25 +155,25 @@ describe("runtimeWorkProjection", () => {
   it("projects single agent task runs as long tasks with latest step summary", () => {
     const run = item({
       task_run_id: "taskrun:single-agent",
-      runtime_lane: "single_agent_task",
+      execution_runtime_kind: "single_agent_task",
       latest_step_summary: "系统已执行工具并把观察回灌给 agent。",
       route: { kind: "agent_runtime_run", session_id: "session:1", task_run_id: "taskrun:single-agent" },
     });
 
     expect(runtimeWorkProjectionFromMonitorItem(run)).toMatchObject({
       workKind: "agent_runtime_run",
-      displayTypeLabel: "长任务",
+      displayTypeLabel: "Agent 运行",
       latestStepSummary: "系统已执行工具并把观察回灌给 agent。",
     });
   });
 
-  it("keeps chat-scoped task runs attached to their conversation even when they use task runtime lane", () => {
+  it("keeps chat-scoped task runs attached to their conversation even when they use task runtime mode", () => {
     const run = item({
       task_run_id: "taskrun:turn:session-a:1:abc",
       session_id: "session-a",
       task_id: "task:turn:session-a:1",
       title: "task:turn:session-a:1",
-      runtime_lane: "single_agent_task",
+      execution_runtime_kind: "single_agent_task",
       latest_event_type: "task_run_lifecycle_waiting_executor",
       route: { kind: "chat_turn_runtime", session_id: "session-a", task_run_id: "taskrun:turn:session-a:1:abc" },
     });
@@ -187,11 +192,9 @@ describe("runtimeWorkProjection", () => {
       task_run: {},
       status: "running",
       terminal_reason: "",
-      has_coordination: false,
-      coordination_run: null,
+      has_graph_run: false,
       loop_state: {},
       agent_runtime_phase_summary: null,
-      latest_checkpoint: null,
       updated_at: 1,
     })).toBeNull();
   });

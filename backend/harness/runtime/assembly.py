@@ -136,8 +136,17 @@ def assemble_runtime(
         mode=profile.mode,
         selection=selection,
     )
+    tool_instances_by_name = {
+        str(getattr(tool, "name", "") or ""): tool
+        for tool in list(tool_instances or [])
+        if str(getattr(tool, "name", "") or "")
+    }
     available_tools = tuple(
-        _tool_view(tool_name=name, definition=definitions_by_name.get(name))
+        _tool_view(
+            tool_name=name,
+            definition=definitions_by_name.get(name),
+            tool_instance=tool_instances_by_name.get(name),
+        )
         for name in visible_tool_names
         if definitions_by_name.get(name) is not None
     )
@@ -423,9 +432,9 @@ def _assemble_soul_role_prompt(
         return {}, [{"capability": "soul_role_prompt", "reason": "soul_not_found"}]
 
 
-def _tool_view(*, tool_name: str, definition: Any) -> dict[str, Any]:
+def _tool_view(*, tool_name: str, definition: Any, tool_instance: Any | None = None) -> dict[str, Any]:
     contract = getattr(definition, "contract", None)
-    return {
+    payload = {
         "tool_name": tool_name,
         "operation_id": str(getattr(definition, "operation_id", "") or ""),
         "display_name": str(getattr(definition, "display_name", "") or tool_name),
@@ -434,6 +443,31 @@ def _tool_view(*, tool_name: str, definition: Any) -> dict[str, Any]:
         "owner_scope": str(getattr(contract, "owner_scope", "") or "none"),
         "read_only": bool(getattr(definition, "is_read_only", False)),
     }
+    description = str(getattr(tool_instance, "description", "") or "").strip()
+    if description:
+        payload["description"] = description
+    input_schema = _tool_input_schema(tool_instance)
+    if input_schema:
+        payload["input_schema"] = input_schema
+    return payload
+
+
+def _tool_input_schema(tool_instance: Any | None) -> dict[str, Any]:
+    args_schema = getattr(tool_instance, "args_schema", None)
+    if args_schema is None:
+        return {}
+    try:
+        if hasattr(args_schema, "model_json_schema"):
+            schema = args_schema.model_json_schema()
+        elif hasattr(args_schema, "schema"):
+            schema = args_schema.schema()
+        else:
+            return {}
+    except Exception:
+        return {}
+    if not isinstance(schema, dict):
+        return {}
+    return dict(schema)
 
 
 def _filter_tool_names_by_profile(

@@ -41,6 +41,7 @@ def test_artifact_repository_records_contract_and_file_hash(tmp_path) -> None:
         repository_id="artifact.project.manuscript",
         collection_id="chapters",
         graph_id="graph:novel",
+        graph_run_id="grun:novel:001",
         stage_id="chapter_draft",
         node_run_id="nodeexec:chapter_draft:001",
         task_ref="task.chapter_draft",
@@ -52,11 +53,13 @@ def test_artifact_repository_records_contract_and_file_hash(tmp_path) -> None:
         status="accepted",
     )
 
-    overview = service.overview(output_contract_id="contract.chapter.draft")
+    overview = service.overview(output_contract_id="contract.chapter.draft", graph_run_id="grun:novel:001")
     assert overview["artifact_count"] == 1
+    assert service.overview(output_contract_id="contract.chapter.draft", graph_run_id="grun:other")["artifact_count"] == 0
     record = overview["artifacts"][0]
     assert record["output_contract_id"] == "contract.chapter.draft"
     assert record["producer_node_id"] == "chapter_draft"
+    assert record["graph_run_id"] == "grun:novel:001"
     assert record["content_hash"] == hashlib.sha1(artifact.read_bytes()).hexdigest()
     assert record["content_hash"] != hashlib.sha1(b"artifact:output/run-one/chapter.md").hexdigest()
     assert record["metadata"]["content_hash_source"] == "file"
@@ -102,13 +105,26 @@ def test_artifact_repository_migrates_existing_sqlite_schema(tmp_path) -> None:
                 stage_id TEXT NOT NULL DEFAULT '',
                 node_run_id TEXT NOT NULL DEFAULT '',
                 task_ref TEXT NOT NULL DEFAULT '',
-                coordination_run_id TEXT NOT NULL DEFAULT '',
                 status TEXT NOT NULL DEFAULT 'accepted',
                 content_hash TEXT NOT NULL DEFAULT '',
                 metadata_json TEXT NOT NULL DEFAULT '{}',
                 created_at TEXT NOT NULL DEFAULT '',
                 updated_at TEXT NOT NULL DEFAULT '',
                 authority TEXT NOT NULL DEFAULT 'artifact_repository.record'
+            );
+            INSERT INTO artifact_records (
+                artifact_id, artifact_ref, path, repository_id, collection_id,
+                logical_repository_id, effective_repository_id, task_run_id, scope_kind, scope_id,
+                graph_id, stage_id, node_run_id, task_ref,
+                status, content_hash, metadata_json, created_at, updated_at, authority
+            ) VALUES (
+                'artifactrec:legacy', 'artifact:output/legacy.md', 'output/legacy.md',
+                'artifact.project.manuscript', 'default', 'artifact.project.manuscript',
+                'run:taskrun_legacy:artifact.project.manuscript', 'taskrun:legacy',
+                'run_scoped', 'taskrun:legacy', 'graph:legacy', 'stage:legacy',
+                'nodeexec:legacy', 'task.legacy',
+                'accepted', 'hash', '{}', '2026-01-01T00:00:00+00:00',
+                '2026-01-01T00:00:00+00:00', 'artifact_repository.record'
             );
             """
         )
@@ -122,6 +138,8 @@ def test_artifact_repository_migrates_existing_sqlite_schema(tmp_path) -> None:
     )
 
     assert service.overview(output_contract_id="contract.migrated")["artifact_count"] == 1
+    legacy = service.overview(output_contract_id="", task_run_id="taskrun:legacy")["artifacts"][0]
+    assert legacy["graph_run_id"] == ""
 
 
 def test_artifact_ref_index_uses_repository_for_contract_lookup(tmp_path) -> None:

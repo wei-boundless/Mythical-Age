@@ -13,7 +13,7 @@
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
         "runtime_limits": {},
-        "execution_chain_type": "coordination_node",
+        "execution_chain_type": "task_graph_node",
         "task_graph_id": "",
         "graph_id": "",
         "communication_protocol_id": "",
@@ -23,7 +23,7 @@
         "node_id": "project_brief"
       },
       "authority": "task_system.task_execution_policy",
-      "execution_chain_type": "coordination_node",
+      "execution_chain_type": "task_graph_node",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
       "task_privilege": "bounded"
@@ -41,7 +41,7 @@
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
         "runtime_limits": {},
-        "execution_chain_type": "coordination_node",
+        "execution_chain_type": "task_graph_node",
         "task_graph_id": "",
         "graph_id": "",
         "communication_protocol_id": "",
@@ -51,7 +51,7 @@
         "node_id": "world_design"
       },
       "authority": "task_system.task_execution_policy",
-      "execution_chain_type": "coordination_node",
+      "execution_chain_type": "task_graph_node",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
       "task_privilege": "bounded"
@@ -69,7 +69,7 @@
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
         "runtime_limits": {},
-        "execution_chain_type": "coordination_node",
+        "execution_chain_type": "task_graph_node",
         "task_graph_id": "",
         "graph_id": "",
         "communication_protocol_id": "",
@@ -79,7 +79,7 @@
         "node_id": "world_review"
       },
       "authority": "task_system.task_execution_policy",
-      "execution_chain_type": "coordination_node",
+      "execution_chain_type": "task_graph_node",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
       "task_privilege": "bounded"
@@ -97,7 +97,7 @@
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
         "runtime_limits": {},
-        "execution_chain_type": "coordination_node",
+        "execution_chain_type": "task_graph_node",
         "task_graph_id": "",
         "graph_id": "",
         "communication_protocol_id": "",
@@ -107,7 +107,7 @@
         "node_id": "memory_commit_world"
       },
       "authority": "task_system.task_execution_policy",
-      "execution_chain_type": "coordination_node",
+      "execution_chain_type": "task_graph_node",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
       "task_privilege": "bounded"
@@ -125,7 +125,7 @@
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
         "runtime_limits": {},
-        "execution_chain_type": "coordination_node",
+        "execution_chain_type": "task_graph_node",
         "task_graph_id": "",
         "graph_id": "",
         "communication_protocol_id": "",
@@ -135,7 +135,7 @@
         "node_id": "character_design"
       },
       "authority": "task_system.task_execution_policy",
-      "execution_chain_type": "coordination_node",
+      "execution_chain_type": "task_graph_node",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
       "task_privilege": "bounded"
@@ -153,7 +153,7 @@
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
         "runtime_limits": {},
-        "execution_chain_type": "coordination_node",
+        "execution_chain_type": "task_graph_node",
         "task_graph_id": "",
         "graph_id": "",
         "communication_protocol_id": "",
@@ -163,7 +163,7 @@
         "node_id": "character_review"
       },
       "authority": "task_system.task_execution_policy",
-      "execution_chain_type": "coordination_node",
+      "execution_chain_type": "task_graph_node",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
       "task_privilege": "bounded"
@@ -181,7 +181,7 @@
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
         "runtime_limits": {},
-        "execution_chain_type": "coordination_node",
+        "execution_chain_type": "task_graph_node",
         "task_graph_id": "",
         "graph_id": "",
         "communication_protocol_id": "",
@@ -191,7 +191,7 @@
         "node_id": "plot_design"
       },
       "authority": "task_system.task_execution_policy",
-      "execution_chain_type": "coordination_node",
+      "execution_chain_type": "task_graph_node",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
       "task_privilege": "bounded"
@@ -209,7 +209,7 @@
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
         "runtime_limits": {},
-        "execution_chain_type": "coordination_node",
+        "execution_chain_type": "task_graph_node",
         "task_graph_id": "",
         "graph_id": "",
         "communication_protocol_id": "",
@@ -219,7 +219,7 @@
         "node_id": "design_sync"
       },
       "authority": "task_system.task_execution_policy",
-      "execution_chain_type": "coordination_node",
+      "execution_chain_type": "task_graph_node",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
       "task_privilege": "bounded"
@@ -237,7 +237,7 @@
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
         "runtime_limits": {},
-        "execution_chain_type": "coordination_node",
+        "execution_chain_type": "task_graph_node",
         "task_graph_id": "",
         "graph_id": "",
         "communication_protocol_id": "",
@@ -247,7 +247,7 @@
         "node_id": "memory_commit_character"
       },
       "authority": "task_system.task_execution_policy",
-      "execution_chain_type": "coordination_node",
+      "execution_chain_type": "task_graph_node",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
       "task_privilege": "bounded"
@@ -265,7 +265,7 @@
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
         "runtime_limits": {},
-        "execution_chain_type": "coordination_node",
+        "execution_chain_type": "task_graph_node",
         "task_graph_id": "",
         "graph_id": "",
         "communication_protocol_id": "",
@@ -275,7 +275,7 @@
         "node_id": "outline_design"
       },
       "authority": "task_system.task_execution_policy",
-      "execution_chain_type": "coordination_node",
+      "execution_chain_type": "task_graph_node",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
       "task_privilege": "bounded"
@@ -293,7 +293,7 @@
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
         "runtime_limits": {},
-        "execution_chain_type": "coordination_node",
+        "execution_chain_type": "task_graph_node",
         "task_graph_id": "",
         "graph_id": "",
         "communication_protocol_id": "",
@@ -303,7 +303,7 @@
         "node_id": "outline_review"
       },
       "authority": "task_system.task_execution_policy",
-      "execution_chain_type": "coordination_node",
+      "execution_chain_type": "task_graph_node",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
       "task_privilege": "bounded"
@@ -321,7 +321,7 @@
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
         "runtime_limits": {},
-        "execution_chain_type": "coordination_node",
+        "execution_chain_type": "task_graph_node",
         "task_graph_id": "",
         "graph_id": "",
         "communication_protocol_id": "",
@@ -331,7 +331,7 @@
         "node_id": "baseline_memory_seed"
       },
       "authority": "task_system.task_execution_policy",
-      "execution_chain_type": "coordination_node",
+      "execution_chain_type": "task_graph_node",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
       "task_privilege": "bounded"
@@ -349,7 +349,7 @@
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
         "runtime_limits": {},
-        "execution_chain_type": "coordination_node",
+        "execution_chain_type": "task_graph_node",
         "task_graph_id": "",
         "graph_id": "",
         "communication_protocol_id": "",
@@ -359,7 +359,7 @@
         "node_id": "volume_plan"
       },
       "authority": "task_system.task_execution_policy",
-      "execution_chain_type": "coordination_node",
+      "execution_chain_type": "task_graph_node",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
       "task_privilege": "bounded"
@@ -377,7 +377,7 @@
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
         "runtime_limits": {},
-        "execution_chain_type": "coordination_node",
+        "execution_chain_type": "task_graph_node",
         "task_graph_id": "",
         "graph_id": "",
         "communication_protocol_id": "",
@@ -387,7 +387,7 @@
         "node_id": "chapter_outline"
       },
       "authority": "task_system.task_execution_policy",
-      "execution_chain_type": "coordination_node",
+      "execution_chain_type": "task_graph_node",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
       "task_privilege": "bounded"
@@ -405,7 +405,7 @@
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
         "runtime_limits": {},
-        "execution_chain_type": "coordination_node",
+        "execution_chain_type": "task_graph_node",
         "task_graph_id": "",
         "graph_id": "",
         "communication_protocol_id": "",
@@ -415,7 +415,7 @@
         "node_id": "chapter_draft"
       },
       "authority": "task_system.task_execution_policy",
-      "execution_chain_type": "coordination_node",
+      "execution_chain_type": "task_graph_node",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
       "task_privilege": "bounded"
@@ -433,7 +433,7 @@
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
         "runtime_limits": {},
-        "execution_chain_type": "coordination_node",
+        "execution_chain_type": "task_graph_node",
         "task_graph_id": "",
         "graph_id": "",
         "communication_protocol_id": "",
@@ -443,7 +443,7 @@
         "node_id": "chapter_review"
       },
       "authority": "task_system.task_execution_policy",
-      "execution_chain_type": "coordination_node",
+      "execution_chain_type": "task_graph_node",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
       "task_privilege": "bounded"
@@ -461,7 +461,7 @@
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
         "runtime_limits": {},
-        "execution_chain_type": "coordination_node",
+        "execution_chain_type": "task_graph_node",
         "task_graph_id": "",
         "graph_id": "",
         "communication_protocol_id": "",
@@ -471,7 +471,7 @@
         "node_id": "memory_commit_chapter"
       },
       "authority": "task_system.task_execution_policy",
-      "execution_chain_type": "coordination_node",
+      "execution_chain_type": "task_graph_node",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
       "task_privilege": "bounded"
@@ -489,7 +489,7 @@
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
         "runtime_limits": {},
-        "execution_chain_type": "coordination_node",
+        "execution_chain_type": "task_graph_node",
         "task_graph_id": "",
         "graph_id": "",
         "communication_protocol_id": "",
@@ -499,7 +499,7 @@
         "node_id": "chapter_progress_router"
       },
       "authority": "task_system.task_execution_policy",
-      "execution_chain_type": "coordination_node",
+      "execution_chain_type": "task_graph_node",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
       "task_privilege": "bounded"
@@ -517,7 +517,7 @@
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
         "runtime_limits": {},
-        "execution_chain_type": "coordination_node",
+        "execution_chain_type": "task_graph_node",
         "task_graph_id": "",
         "graph_id": "",
         "communication_protocol_id": "",
@@ -527,7 +527,7 @@
         "node_id": "volume_review"
       },
       "authority": "task_system.task_execution_policy",
-      "execution_chain_type": "coordination_node",
+      "execution_chain_type": "task_graph_node",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
       "task_privilege": "bounded"
@@ -545,7 +545,7 @@
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
         "runtime_limits": {},
-        "execution_chain_type": "coordination_node",
+        "execution_chain_type": "task_graph_node",
         "task_graph_id": "",
         "graph_id": "",
         "communication_protocol_id": "",
@@ -555,7 +555,7 @@
         "node_id": "volume_commit"
       },
       "authority": "task_system.task_execution_policy",
-      "execution_chain_type": "coordination_node",
+      "execution_chain_type": "task_graph_node",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
       "task_privilege": "bounded"
@@ -573,7 +573,7 @@
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
         "runtime_limits": {},
-        "execution_chain_type": "coordination_node",
+        "execution_chain_type": "task_graph_node",
         "task_graph_id": "",
         "graph_id": "",
         "communication_protocol_id": "",
@@ -583,7 +583,7 @@
         "node_id": "volume_postmortem"
       },
       "authority": "task_system.task_execution_policy",
-      "execution_chain_type": "coordination_node",
+      "execution_chain_type": "task_graph_node",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
       "task_privilege": "bounded"
@@ -601,7 +601,7 @@
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
         "runtime_limits": {},
-        "execution_chain_type": "coordination_node",
+        "execution_chain_type": "task_graph_node",
         "task_graph_id": "",
         "graph_id": "",
         "communication_protocol_id": "",
@@ -611,7 +611,7 @@
         "node_id": "world_outline_extension_proposal"
       },
       "authority": "task_system.task_execution_policy",
-      "execution_chain_type": "coordination_node",
+      "execution_chain_type": "task_graph_node",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
       "task_privilege": "bounded"
@@ -629,7 +629,7 @@
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
         "runtime_limits": {},
-        "execution_chain_type": "coordination_node",
+        "execution_chain_type": "task_graph_node",
         "task_graph_id": "",
         "graph_id": "",
         "communication_protocol_id": "",
@@ -639,7 +639,7 @@
         "node_id": "extension_review"
       },
       "authority": "task_system.task_execution_policy",
-      "execution_chain_type": "coordination_node",
+      "execution_chain_type": "task_graph_node",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
       "task_privilege": "bounded"
@@ -657,7 +657,7 @@
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
         "runtime_limits": {},
-        "execution_chain_type": "coordination_node",
+        "execution_chain_type": "task_graph_node",
         "task_graph_id": "",
         "graph_id": "",
         "communication_protocol_id": "",
@@ -667,7 +667,7 @@
         "node_id": "extension_commit"
       },
       "authority": "task_system.task_execution_policy",
-      "execution_chain_type": "coordination_node",
+      "execution_chain_type": "task_graph_node",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
       "task_privilege": "bounded"
@@ -685,7 +685,7 @@
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
         "runtime_limits": {},
-        "execution_chain_type": "coordination_node",
+        "execution_chain_type": "task_graph_node",
         "task_graph_id": "",
         "graph_id": "",
         "communication_protocol_id": "",
@@ -695,7 +695,7 @@
         "node_id": "next_volume_router"
       },
       "authority": "task_system.task_execution_policy",
-      "execution_chain_type": "coordination_node",
+      "execution_chain_type": "task_graph_node",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
       "task_privilege": "bounded"
@@ -713,7 +713,7 @@
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
         "runtime_limits": {},
-        "execution_chain_type": "coordination_node",
+        "execution_chain_type": "task_graph_node",
         "task_graph_id": "",
         "graph_id": "",
         "communication_protocol_id": "",
@@ -723,7 +723,7 @@
         "node_id": "final_assemble"
       },
       "authority": "task_system.task_execution_policy",
-      "execution_chain_type": "coordination_node",
+      "execution_chain_type": "task_graph_node",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
       "task_privilege": "bounded"
@@ -741,7 +741,7 @@
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
         "runtime_limits": {},
-        "execution_chain_type": "coordination_node",
+        "execution_chain_type": "task_graph_node",
         "task_graph_id": "",
         "graph_id": "",
         "communication_protocol_id": "",
@@ -751,7 +751,7 @@
         "node_id": "final_review"
       },
       "authority": "task_system.task_execution_policy",
-      "execution_chain_type": "coordination_node",
+      "execution_chain_type": "task_graph_node",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
       "task_privilege": "bounded"
@@ -769,7 +769,7 @@
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
         "runtime_limits": {},
-        "execution_chain_type": "coordination_node",
+        "execution_chain_type": "task_graph_node",
         "task_graph_id": "",
         "graph_id": "",
         "communication_protocol_id": "",
@@ -779,7 +779,7 @@
         "node_id": "memory_finalize"
       },
       "authority": "task_system.task_execution_policy",
-      "execution_chain_type": "coordination_node",
+      "execution_chain_type": "task_graph_node",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
       "task_privilege": "bounded"
@@ -797,7 +797,7 @@
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
         "runtime_limits": {},
-        "execution_chain_type": "coordination_chain",
+        "execution_chain_type": "task_graph_chain",
         "task_graph_id": "",
         "graph_id": "",
         "communication_protocol_id": "",
@@ -805,7 +805,7 @@
         "agent_group_id": ""
       },
       "authority": "task_system.task_execution_policy",
-      "execution_chain_type": "coordination_chain",
+      "execution_chain_type": "task_graph_chain",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
       "task_privilege": "bounded"

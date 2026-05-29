@@ -830,7 +830,11 @@ export class WorkspaceRuntime {
         && this.store.getState().currentSessionId === sessionId
       ) {
         await this.refreshSessionDetails(sessionId);
-        await this.hydrateLatestOrchestrationSnapshot(sessionId);
+        const shouldContinueMonitor = await this.hydrateLatestOrchestrationSnapshot(sessionId);
+        if (shouldContinueMonitor) {
+          this.orchestrationMonitorSessionId = sessionId;
+          this.scheduleNextOrchestrationMonitorPoll(sessionId);
+        }
       }
       this.refreshSessionsInBackground();
       this.scheduleSessionRefreshes();
@@ -1479,8 +1483,9 @@ export class WorkspaceRuntime {
       return;
     }
     this.orchestrationMonitorInFlight = true;
+    let shouldContinue = false;
     try {
-      const shouldContinue = await this.hydrateLatestOrchestrationSnapshot(targetSessionId);
+      shouldContinue = await this.hydrateLatestOrchestrationSnapshot(targetSessionId);
       if (!shouldContinue && !this.store.getState().activeStreamSessionIds.includes(targetSessionId)) {
         this.stopOrchestrationMonitorPolling();
         return;
@@ -1488,7 +1493,7 @@ export class WorkspaceRuntime {
     } finally {
       this.orchestrationMonitorInFlight = false;
       if (this.orchestrationMonitorSessionId === targetSessionId) {
-        if (this.store.getState().activeStreamSessionIds.includes(targetSessionId)) {
+        if (this.store.getState().activeStreamSessionIds.includes(targetSessionId) || shouldContinue) {
           this.scheduleNextOrchestrationMonitorPoll(targetSessionId);
         } else {
           this.stopOrchestrationMonitorPolling();
@@ -1540,14 +1545,14 @@ export class WorkspaceRuntime {
       const activeTaskRun = this.harnessMonitorTaskRun(activeMonitor);
       const liveStatus = String(activeMonitor.status ?? activeTaskRun.status ?? "").trim();
       const hasActiveHarnessRun = ["created", "running", "waiting_executor", "waiting_approval", "blocked"].includes(liveStatus);
-      const hasActiveGraphRun = Boolean(activeMonitor.has_coordination) && hasActiveHarnessRun;
+      const hasActiveGraphRun = Boolean(activeMonitor.has_graph_run || activeMonitor.graph_run_id || activeMonitor.graph_harness_config_id) && hasActiveHarnessRun;
       const hasPendingApproval = liveStatus === "waiting_approval" || String((activeMonitor.loop_state as Record<string, unknown> | undefined)?.terminal_reason ?? "") === "waiting_approval";
       const taskRunId = String(activeTaskRun.task_run_id ?? activeMonitor.task_run_id ?? liveMonitor.active_task_run_id ?? "").trim();
       const graphRunId = String(activeMonitor.graph_run_id ?? activeTaskRun.graph_run_id ?? "").trim();
       const graphHarnessConfigId = this.graphHarnessConfigIdFromMonitor(activeMonitor);
       this.updateSessionActivityFromLiveMonitor(liveStatus, taskRunId, graphRunId);
       let taskGraphRunMonitor = this.store.getState().taskGraphRunMonitor;
-      if (graphRunId && graphHarnessConfigId && activeMonitor.has_coordination) {
+      if (graphRunId && graphHarnessConfigId && hasActiveGraphRun) {
         taskGraphRunMonitor = await getGraphRunMonitor(graphRunId, graphHarnessConfigId).catch(() => null);
       } else {
         taskGraphRunMonitor = null;
@@ -1572,10 +1577,7 @@ export class WorkspaceRuntime {
     if (direct) {
       return direct;
     }
-    const graphRun = monitor.coordination_run && typeof monitor.coordination_run === "object" && !Array.isArray(monitor.coordination_run)
-      ? monitor.coordination_run as Record<string, unknown>
-      : {};
-    return String(graphRun.config_id ?? graphRun.graph_harness_config_id ?? "").trim();
+    return "";
   }
 
   private activeHarnessSessionMonitor(liveMonitor: Awaited<ReturnType<typeof getOrchestrationHarnessSessionLiveMonitor>>) {
@@ -2013,10 +2015,10 @@ export class WorkspaceRuntime {
     const taskGraphBinding = work.workKind === "task_graph_run"
       ? this.normalizeTaskGraphMonitorBinding({
         task_run_id: selected.task_run_id,
-        graph_run_id: selected.graph_run_id,
-        graph_harness_config_id: selected.graph_harness_config_id,
-        graph_id: selected.graph_id,
-        session_id: selected.session_id,
+        graph_run_id: String(selected.graph_run_id ?? ""),
+        graph_harness_config_id: String(selected.graph_harness_config_id ?? ""),
+        graph_id: String(selected.graph_id ?? ""),
+        session_id: String(selected.session_id ?? ""),
         title: work.title,
       })
       : null;
@@ -2132,7 +2134,7 @@ export class WorkspaceRuntime {
     }
   }
 
-  private updateSessionActivityFromLiveMonitor(liveStatus: string, taskRunId: string, coordinationRunId: string) {
+  private updateSessionActivityFromLiveMonitor(liveStatus: string, taskRunId: string, graphRunId: string) {
     const normalizedStatus = liveStatus.trim();
     if (!normalizedStatus) {
       return;
@@ -2152,7 +2154,7 @@ export class WorkspaceRuntime {
             debug: {
               event: "runtime_live_monitor",
               taskRunId: taskRunId || "",
-              coordinationRunId: coordinationRunId || "",
+              graphRunId: graphRunId || "",
             },
           },
           updatedAt: Date.now(),
@@ -2175,7 +2177,7 @@ export class WorkspaceRuntime {
             debug: {
               event: "runtime_live_monitor",
               taskRunId: taskRunId || "",
-              coordinationRunId: coordinationRunId || "",
+              graphRunId: graphRunId || "",
             },
           },
           updatedAt: Date.now(),
@@ -2198,7 +2200,7 @@ export class WorkspaceRuntime {
             debug: {
               event: "runtime_live_monitor",
               taskRunId: taskRunId || "",
-              coordinationRunId: coordinationRunId || "",
+              graphRunId: graphRunId || "",
             },
           },
           updatedAt: Date.now(),
@@ -2221,7 +2223,7 @@ export class WorkspaceRuntime {
             debug: {
               event: "runtime_live_monitor",
               taskRunId: taskRunId || "",
-              coordinationRunId: coordinationRunId || "",
+              graphRunId: graphRunId || "",
             },
           },
           updatedAt: Date.now(),

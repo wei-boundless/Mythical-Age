@@ -107,13 +107,6 @@ def _strip_task_graph_prompt_metadata(
     return cleaned
 
 
-def _strip_task_graph_projection_fields(node: dict[str, object]) -> dict[str, object]:
-    next_node = dict(node)
-    next_node.pop("projection_id", None)
-    next_node.pop("projection_overlay_id", None)
-    return next_node
-
-
 def _migrate_task_graph_legacy_prompt_nodes(
     base_dir,
     *,
@@ -125,7 +118,7 @@ def _migrate_task_graph_legacy_prompt_nodes(
     prompt_registry = PromptLibraryRegistry(base_dir)
     migrated_nodes: list[dict[str, object]] = []
     for node in nodes:
-        next_node = _strip_task_graph_projection_fields(dict(node))
+        next_node = dict(node)
         metadata = dict(next_node.get("metadata") or {})
         prompt = _build_task_graph_node_role_prompt(next_node, metadata)
         prompt_resource_id = ""
@@ -194,7 +187,7 @@ class TaskFlowContractBindingUpsertRequest(BaseModel):
 
 class TaskExecutionPolicyUpsertRequest(BaseModel):
     task_id: str = Field(..., min_length=3, max_length=160)
-    execution_chain_type: str = Field(default="single_agent_chain", max_length=120)
+    execution_chain_type: str = Field(default="agent_harness_chain", max_length=120)
     runtime_agent_selection_policy: str = Field(default="orchestration_default", max_length=120)
     default_agent_id: str = Field(default="agent:0", max_length=160)
     task_level: str = Field(default="standard", max_length=80)
@@ -315,32 +308,6 @@ class TaskGraphStandardViewUpsertRequest(BaseModel):
     timeline: dict[str, object] = Field(default_factory=dict)
     runtime_isolation: dict[str, object] = Field(default_factory=dict)
     metadata: dict[str, object] = Field(default_factory=dict)
-
-
-class TaskGraphBundleUpsertRequest(BaseModel):
-    graph_id: str = Field(..., min_length=3, max_length=160)
-    title: str = Field(..., min_length=1, max_length=160)
-    coordination_mode: str = Field(default="review_merge", max_length=120)
-    coordinator_agent_id: str = Field(default="agent:0", max_length=160)
-    domain_id: str = Field(default="", max_length=160)
-    agent_group_id: str = Field(default="", max_length=160)
-    participant_agent_ids: list[str] = Field(default_factory=list)
-    topology_template_id: str = Field(default="", max_length=160)
-    shared_context_policy: str = Field(default="explicit_refs_only", max_length=120)
-    memory_sharing_policy: str = Field(default="isolated_by_default", max_length=120)
-    handoff_policy: str = Field(default="filtered_handoff", max_length=120)
-    conflict_resolution_policy: str = Field(default="coordinator_review", max_length=120)
-    output_merge_policy: str = Field(default="coordinator_final_merge", max_length=120)
-    stop_conditions: list[str] = Field(default_factory=list)
-    subtask_refs: list[str] = Field(default_factory=list)
-    graph_nodes: list[dict[str, object]] = Field(default_factory=list)
-    graph_edges: list[dict[str, object]] = Field(default_factory=list)
-    communication_modes: list[str] = Field(default_factory=list)
-    enabled: bool = False
-    metadata: dict[str, object] = Field(default_factory=dict)
-
-
-CoordinationTaskUpsertRequest = TaskGraphBundleUpsertRequest
 
 
 class TopologyTemplateUpsertRequest(BaseModel):
@@ -1146,9 +1113,9 @@ async def upsert_task_system_execution_policy(
         TaskFlowRegistry(runtime.base_dir).upsert_task_execution_policy(
             task_id=payload.task_id,
             execution_mode=(
-                "coordinated_agents"
+                "task_graph"
                 if payload.allow_worker_agent_spawn
-                else "single_agent"
+                else "agent_harness"
             ),
             default_agent_id=payload.default_agent_id,
             allow_worker_agent_spawn=payload.allow_worker_agent_spawn,
@@ -1283,44 +1250,6 @@ async def upsert_task_system_task_graph(
         )
         if payload.publish_state == "published":
             publish_graph_harness_config_for_graph(base_dir=runtime.base_dir, graph_id=payload.graph_id)
-    except ValueError as exc:
-        from fastapi import HTTPException
-
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return _task_system_payload(runtime.base_dir)
-
-
-@router.put("/tasks/task-graph-bundles/{graph_id}")
-async def upsert_task_system_task_graph_bundle(
-    graph_id: str,
-    payload: TaskGraphBundleUpsertRequest,
-) -> dict[str, object]:
-    runtime = require_runtime()
-    if payload.graph_id != graph_id:
-        payload = payload.model_copy(update={"graph_id": graph_id})
-    try:
-        TaskFlowRegistry(runtime.base_dir).upsert_graph_task(
-            graph_id=payload.graph_id,
-            title=payload.title,
-            coordination_mode=payload.coordination_mode,
-            coordinator_agent_id=payload.coordinator_agent_id,
-            domain_id=payload.domain_id,
-            agent_group_id=payload.agent_group_id,
-            participant_agent_ids=tuple(payload.participant_agent_ids),
-            topology_template_id=payload.topology_template_id,
-            shared_context_policy=payload.shared_context_policy,
-            memory_sharing_policy=payload.memory_sharing_policy,
-            handoff_policy=payload.handoff_policy,
-            conflict_resolution_policy=payload.conflict_resolution_policy,
-            output_merge_policy=payload.output_merge_policy,
-            stop_conditions=tuple(payload.stop_conditions),
-            subtask_refs=tuple(payload.subtask_refs),
-            graph_nodes=tuple(dict(item) for item in payload.graph_nodes),
-            graph_edges=tuple(dict(item) for item in payload.graph_edges),
-            communication_modes=tuple(payload.communication_modes),
-            enabled=payload.enabled,
-            metadata=payload.metadata,
-        )
     except ValueError as exc:
         from fastapi import HTTPException
 

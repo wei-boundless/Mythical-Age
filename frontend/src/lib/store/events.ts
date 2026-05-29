@@ -597,7 +597,7 @@ export function buildSnapshotFromHarnessTrace(trace: HarnessTaskRunTrace): Orche
     ...(snapshot as OrchestrationSnapshot),
     source: "runtime-trace",
     task_run_id: String(taskRun["task_run_id"] ?? ""),
-    coordination_run_ids: taskGraphRunIdsFromTrace(trace),
+    graph_run_ids: taskGraphRunIdsFromTrace(trace),
     execution_mode: String((taskRun["diagnostics"] as Record<string, unknown> | undefined)?.["execution_mode"] ?? snapshot.execution_mode),
     route: String(taskRun["task_id"] ?? snapshot.route),
     summary: `已载入 TaskRun ${String(taskRun["task_run_id"] ?? "").trim() || "-"}`,
