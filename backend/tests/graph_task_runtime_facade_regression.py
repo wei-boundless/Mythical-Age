@@ -241,9 +241,11 @@ def test_graph_harness_starts_published_config_and_creates_node_work_order() -> 
         },
     ).packet
     stable_payload = json.loads(packet.model_messages[1]["content"].split("\n", 1)[1])
-    visible_initial = stable_payload["task_contract"]["graph_slot"]["edge_contracts"]["inbound_edge_contexts"][0]["payload"]["initial_inputs"]
+    graph_context = stable_payload["task_contract"]["graph_node_context"]
+    visible_initial = graph_context["authorized_inputs"][0]["payload"]["initial_inputs"]
     assert visible_initial == {"goal": "smoke"}
     assert "input_package" not in packet.model_messages[1]["content"]
+    assert "graph_slot" not in packet.model_messages[1]["content"]
     work_order_summary = start.loop_state.work_order_index[start.node_work_orders[0].work_order_id]
     assert work_order_summary["node_id"] == "draft"
     assert work_order_summary["work_order_ref"]
@@ -690,12 +692,12 @@ def test_graph_node_task_contract_keeps_model_visible_artifact_payload(tmp_path:
     ).packet
     stable_payload = json.loads(packet.model_messages[1]["content"].split("\n", 1)[1])
     visible_contract = stable_payload["task_contract"]
-    inbound = visible_contract["graph_slot"]["edge_contracts"]["inbound_edge_contexts"][0]
+    inbound = visible_contract["graph_node_context"]["authorized_inputs"][0]
 
-    assert inbound["edge_id"] == "edge.draft.review"
     assert inbound["payload"]["artifact_payloads"][0]["content"] == "世界设定正文"
     assert "resource_requirements" not in visible_contract
     assert "input_package" not in json.dumps(stable_payload, ensure_ascii=False)
+    assert "graph_slot" not in json.dumps(stable_payload, ensure_ascii=False)
     assert "upstream_results" not in json.dumps(visible_contract, ensure_ascii=False)
     assert "hidden_control_refs" not in json.dumps(visible_contract, ensure_ascii=False)
 

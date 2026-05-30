@@ -9,18 +9,66 @@ function shortText(value: string, limit = 1200) {
   return normalized.length > limit ? `${normalized.slice(0, limit - 1)}...` : normalized;
 }
 
+function compactText(value: string, limit = 180) {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized.length > limit ? `${normalized.slice(0, limit - 1)}...` : normalized;
+}
+
+function parsedInput(input: string): Record<string, unknown> {
+  try {
+    const payload = JSON.parse(input);
+    return payload && typeof payload === "object" && !Array.isArray(payload) ? payload as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
+
+function firstString(...values: unknown[]) {
+  for (const value of values) {
+    const text = typeof value === "string" ? value.trim() : "";
+    if (text) return text;
+  }
+  return "";
+}
+
+function toolTraceLabel(toolCall: ToolCall) {
+  const input = parsedInput(toolCall.input || "");
+  const args = input.args && typeof input.args === "object" && !Array.isArray(input.args)
+    ? input.args as Record<string, unknown>
+    : input;
+  const command = firstString(
+    args.command,
+    args.cmd,
+    args.script,
+    args.query,
+    args.path,
+    args.file_path,
+    args.pattern,
+  );
+  if (command) {
+    return compactText(command);
+  }
+  if (toolCall.input.trim() && !toolCall.input.trim().startsWith("{")) {
+    return compactText(toolCall.input);
+  }
+  return compactText(toolCall.tool || "tool");
+}
+
 export function RuntimeEvidencePanel({ toolCalls }: { toolCalls: ToolCall[] }) {
   if (!toolCalls.length) {
     return null;
   }
+  const latest = toolCalls[toolCalls.length - 1];
+  const traceLabel = toolTraceLabel(latest);
 
   return (
     <details className="runtime-evidence-panel">
       <summary className="runtime-evidence-panel__summary">
         <ChevronRight size={13} className="runtime-evidence-panel__chevron" />
         <TerminalSquare size={13} />
-        <span>执行证据</span>
-        <strong>{toolCalls.length} 次工具调用</strong>
+        <span>Running</span>
+        <code>{traceLabel}</code>
+        {toolCalls.length > 1 ? <strong>{toolCalls.length} calls</strong> : null}
       </summary>
       <div className="runtime-evidence-panel__list">
         {toolCalls.map((toolCall, index) => (

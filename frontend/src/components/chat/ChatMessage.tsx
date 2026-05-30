@@ -48,6 +48,7 @@ export function ChatMessage({
   const [draft, setDraft] = useState(content);
   const [failedImageSrc, setFailedImageSrc] = useState("");
   const imageUnavailable = Boolean(image?.src && failedImageSrc === image.src);
+  const hasRuntimeDetails = !isUser && Boolean(runtimeAttachments.length || runtimeProgress.length);
 
   return (
     <article
@@ -82,10 +83,6 @@ export function ChatMessage({
         ) : null}
       </div>
       {!isUser && <RetrievalCard results={retrievals} />}
-      {!isUser && (runtimeAttachments.length || runtimeProgress.length) ? (
-        <RuntimeRunSummary attachments={runtimeAttachments} entries={runtimeProgress} />
-      ) : null}
-      {!isUser && <RuntimeEvidencePanel toolCalls={toolCalls} />}
       <div className={isUser ? "chat-message-shell__content whitespace-pre-wrap leading-7" : "chat-message-shell__content markdown"}>
         {isUser && editing ? (
           <div className="message-edit-form">
@@ -142,10 +139,14 @@ export function ChatMessage({
           </div>
         ) : (
           <ReactMarkdown remarkPlugins={[remarkGfm]}>
-            {content || (runtimeProgress.length ? "" : "正在思考...")}
+            {content || (hasRuntimeDetails ? "" : "正在思考...")}
           </ReactMarkdown>
         )}
       </div>
+      {hasRuntimeDetails ? (
+        <RuntimeRunSummary attachments={runtimeAttachments} entries={runtimeProgress} />
+      ) : null}
+      {!isUser && <RuntimeEvidencePanel toolCalls={toolCalls} />}
     </article>
   );
 }

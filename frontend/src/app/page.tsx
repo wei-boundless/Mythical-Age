@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { Database, HeartPulse, LayoutGrid, MessageSquare, Network, Settings, Sparkles, Workflow } from "lucide-react";
+import { BookOpen, Database, HeartPulse, LayoutGrid, MessageSquare, Network, Settings, Sparkles, Workflow } from "lucide-react";
 
 import { AppProvider, useAppStore } from "@/lib/store";
 import { lazy, Suspense } from "react";
@@ -20,6 +20,7 @@ const SoulSystemView = lazy(() => import("@/components/workspace/views/Playgroun
 const SystemConfigView = lazy(() => import("@/components/workspace/views/SystemConfigView").then((module) => ({ default: module.SystemConfigView })));
 const TaskSystemView = lazy(() => import("@/components/workspace/views/TaskSystemView").then((module) => ({ default: module.TaskSystemView })));
 const CodeEnvironmentView = lazy(() => import("@/components/workspace/views/CodeEnvironmentView").then((module) => ({ default: module.CodeEnvironmentView })));
+const CreativeEnvironmentView = lazy(() => import("@/components/workspace/views/CreativeEnvironmentView").then((module) => ({ default: module.CreativeEnvironmentView })));
 
 function LazyView({ children }: { children: ReactNode }) {
   return (
@@ -31,6 +32,7 @@ function LazyView({ children }: { children: ReactNode }) {
 
 const WORKSPACE_QUERY_VIEWS = new Set<WorkspaceView>([
   "chat",
+  "creative",
   "memory",
   "health-system",
   "playground",
@@ -46,6 +48,7 @@ const WORKSPACE_TONES = new Set(["water", "leaf", "gold", "ember", "lumen"]);
 
 const SYSTEM_NAV_ITEMS: Array<{ view: WorkspaceView; label: string; icon: typeof MessageSquare }> = [
   { view: "chat", label: "会话", icon: MessageSquare },
+  { view: "creative", label: "创作", icon: BookOpen },
   { view: "memory", label: "记忆", icon: Database },
   { view: "task-system", label: "任务", icon: Workflow },
   { view: "orchestration", label: "编排", icon: Network },
@@ -133,6 +136,7 @@ function Workspace() {
     if (
       activeWorkspaceView !== "chat"
       && activeWorkspaceView !== "memory"
+      && activeWorkspaceView !== "creative"
       && activeWorkspaceView !== "playground"
       && activeWorkspaceView !== "task-system"
       && activeWorkspaceView !== "health-system"
@@ -171,6 +175,7 @@ function Workspace() {
 
   const shouldShowTaskGraphRunInteractionDock =
     activeWorkspaceView === "chat"
+    || activeWorkspaceView === "creative"
     || activeWorkspaceView === "orchestration"
     || activeWorkspaceView === "task-system"
     || activeWorkspaceView === "health-system"
@@ -184,6 +189,12 @@ function Workspace() {
     content = (
       <SystemPageShell label="编排系统" view="orchestration">
         <LazyView><OrchestrationView /></LazyView>
+      </SystemPageShell>
+    );
+  } else if (activeWorkspaceView === "creative") {
+    content = (
+      <SystemPageShell label="创作环境" view="creative">
+        <LazyView><CreativeEnvironmentView /></LazyView>
       </SystemPageShell>
     );
   } else if (activeWorkspaceView === "task-system") {

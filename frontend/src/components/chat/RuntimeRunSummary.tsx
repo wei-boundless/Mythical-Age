@@ -9,7 +9,7 @@ import type { RuntimeProgressEntry, SessionActivityLevel } from "@/lib/store/typ
 
 const MAX_VISIBLE_STEPS = 5;
 
-type RuntimeRunState = "error" | "waiting" | "running" | "success";
+type RuntimeRunState = "error" | "waiting" | "running" | "success" | "stopped";
 type RuntimeStepView = {
   id: string;
   level: SessionActivityLevel;
@@ -72,6 +72,7 @@ function statusRunState(value: unknown): RuntimeRunState | null {
   const status = cleanText(value).toLowerCase();
   if (!status) return null;
   if (["failed", "error", "aborted", "cancelled", "blocked", "失败", "受阻"].includes(status)) return "error";
+  if (["stopped", "已停止", "user_stopped"].includes(status)) return "stopped";
   if (status.includes("waiting") || status.includes("等待") || status === "queued" || status === "paused") return "waiting";
   if (["completed", "success", "完成", "已完成"].includes(status)) return "success";
   if (["created", "running", "进行中", "运行中"].includes(status)) return "running";
@@ -96,6 +97,10 @@ function isVisibleEntry(entry: RuntimeProgressEntry) {
 function isWorkEntry(entry: RuntimeProgressEntry) {
   const taskRunId = String(entry.taskRunId ?? "").trim().toLowerCase();
   return taskRunId.startsWith("taskrun:turn:") || entry.kind === "task_order" || entry.kind === "task_draft";
+}
+
+function isPlanEntry(entry: RuntimeProgressEntry) {
+  return entry.kind === "task_order" || entry.kind === "task_draft";
 }
 
 function entryBody(entry: RuntimeProgressEntry | undefined) {
@@ -128,9 +133,10 @@ function stageOutput(entry: RuntimeProgressEntry | undefined) {
   const toolName = String(entry?.toolName || "").trim();
   const normalized = entryBody(entry)
     .replace(/^已为当前步骤装配 上下文，并交给 助手 判断下一步。?$/i, "正在整理上下文，准备继续处理。")
-    .replace(/^当前工作 上下文 已送入模型，正在等待 助手 返回任务动作。?$/i, "正在处理这一步。")
-    .replace(/^任务 上下文 已送入模型，正在等待 助手 返回任务动作。?$/i, "正在处理这一步。")
-    .replace(/^上下文 已送入模型，正在等待 助手 返回任务动作。?$/i, "正在处理这一步。")
+    .replace(/^当前工作 上下文 已送入模型，正在等待 助手 返回任务动作。?$/i, "正在分析当前目标和已有进展，准备决定下一步。")
+    .replace(/^任务 上下文 已送入模型，正在等待 助手 返回任务动作。?$/i, "正在分析当前目标和已有进展，准备决定下一步。")
+    .replace(/^上下文 已送入模型，正在等待 助手 返回任务动作。?$/i, "正在分析当前目标和已有进展，准备决定下一步。")
+    .replace(/^正在处理这一步。?$/i, "正在分析当前目标和已有进展，准备决定下一步。")
     .replace(/^系统正在等待 助手返回下一步.*$/i, "正在等待下一步结果。")
     .replace(/^已执行 助手 请求的任务工具调用。?$/i, toolName ? `${toolName} 调用完成。` : "工具调用完成。")
     .replace(/^已执行 助手 请求的任务工具调用，并把真实观察交回给 助手。?$/i, toolName ? `${toolName} 调用完成，结果已交回助手。` : "工具结果已交回助手。")
@@ -138,7 +144,8 @@ function stageOutput(entry: RuntimeProgressEntry | undefined) {
     .replace(/^助手 已返回任务动作请求：tool_call。?$/i, toolName ? `助手准备调用 ${toolName}。` : "助手准备调用工具。")
     .replace(/^目标已满足，处理流程已完成收尾.*$/i, "目标已满足，结果已记录。")
     .replace(/^目标已满足。?$/i, "目标已满足，准备交付结果。")
-    .replace(/^(?:任务)?模型调用仍在进行中，(?:系统)?继续等待(?:待)? 助手 动作返回。等待轮次：\d+。?$/i, "正在生成下一步动作。")
+    .replace(/^(?:任务)?模型调用仍在进行中，(?:系统)?继续等待(?:待)? 助手 动作返回。等待轮次：\d+。?$/i, "正在根据当前进展形成下一步处理动作。")
+    .replace(/^正在生成下一步动作。?$/i, "正在根据当前进展形成下一步处理动作。")
     .replace(/^已完成动作准入检查：allow。?$/i, "执行边界已确认。")
     .replace(/^当前工作处理流程已建立。?$/i, "已确认目标，开始处理。")
     .trim();
@@ -153,6 +160,7 @@ function stageOutput(entry: RuntimeProgressEntry | undefined) {
 
 function entryLevel(entry: RuntimeProgressEntry, runState: RuntimeRunState, isLatest: boolean): SessionActivityLevel {
   if (runState === "success") return "success";
+  if (runState === "stopped") return isLatest ? "stopped" : "success";
   if (runState === "error") return isLatest ? "error" : "success";
   if (runState === "waiting") return isLatest ? "waiting" : "success";
   if (!isLatest) return "success";
@@ -165,6 +173,7 @@ function entryLevel(entry: RuntimeProgressEntry, runState: RuntimeRunState, isLa
 function entryStatus(entry: RuntimeProgressEntry, runState: RuntimeRunState, isLatest: boolean) {
   if (!isLatest) return "已完成";
   if (runState === "success") return "已完成";
+  if (runState === "stopped") return "已停止";
   if (runState === "error") return "失败";
   if (runState === "waiting") return "等待";
   if (entry.level === "success" || entry.completedAt || statusRunState(entry.statusText) === "success") return "已完成";
@@ -218,13 +227,14 @@ function compactStepViews(entries: RuntimeProgressEntry[], runState: RuntimeRunS
 function isTerminalEntry(entry: RuntimeProgressEntry | undefined) {
   if (!entry) return false;
   const eventType = String(entry.eventType || "").toLowerCase();
-  return entry.kind === "terminal" || eventType === "done" || eventType.includes("terminal") || eventType.includes("finished") || eventType.includes("completed");
+  return entry.kind === "terminal" || eventType === "done" || eventType === "stopped" || eventType.includes("terminal") || eventType.includes("finished") || eventType.includes("completed");
 }
 
 function runtimeRunState(entries: RuntimeProgressEntry[]): RuntimeRunState {
   const latest = entries[entries.length - 1];
   const latestStatus = statusRunState(latest?.statusText);
   if (latest?.level === "error" || latestStatus === "error") return "error";
+  if (latest?.level === "stopped" || latestStatus === "stopped") return "stopped";
   if (latest?.level === "waiting" || latestStatus === "waiting") return "waiting";
   if (isTerminalEntry(latest) && (latest?.level === "success" || latest?.completedAt || latestStatus === "success")) return "success";
   if (entries.some((entry) => entry.level === "error" && isTerminalEntry(entry))) return "error";
@@ -245,6 +255,7 @@ function combinedRunState(entries: RuntimeProgressEntry[], attachments: SessionR
     ...attachments.map(attachmentRunState).filter((state): state is RuntimeRunState => Boolean(state)),
   ];
   if (states.includes("error")) return "error";
+  if (states.includes("stopped")) return "stopped";
   if (states.includes("waiting")) return "waiting";
   if (states.includes("running")) return "running";
   return "success";
@@ -254,6 +265,7 @@ function stepIcon(level: SessionActivityLevel) {
   if (level === "success") return <Check size={12} />;
   if (level === "error") return <CircleX size={13} />;
   if (level === "waiting") return <CircleEllipsis size={13} />;
+  if (level === "stopped") return <Circle size={13} />;
   if (level === "running") return <CircleDot size={13} />;
   return <Circle size={13} />;
 }
@@ -307,36 +319,43 @@ function entriesFromAttachments(attachments: SessionRuntimeAttachment[]): Runtim
   });
 }
 
-function completedCount(steps: RuntimeStepView[]) {
-  return steps.filter((entry) => entry.level === "success" || entry.status === "已完成").length;
-}
-
-function progressSummary(doneCount: number, totalCount: number, runState: RuntimeRunState) {
-  if (totalCount <= 1) {
-    if (runState === "error") return "需要处理";
-    if (runState === "waiting") return "等待继续";
-    if (runState === "success") return "";
-    return "进行中";
+function conversationalLine(step: RuntimeStepView, runState: RuntimeRunState, isLatest: boolean) {
+  const output = step.output || step.phase;
+  if (runState === "success" && isLatest) {
+    return output ? `我已经完成这轮处理：${output}` : "我已经完成这轮处理。";
   }
-  if (runState === "success") return `${totalCount} 步`;
-  if (runState === "error") return `${doneCount}/${totalCount} 已完成`;
-  if (runState === "waiting") return `${doneCount}/${totalCount} 已完成`;
-  return `${doneCount}/${totalCount} 已完成`;
+  if (runState === "stopped" && isLatest) {
+    return output ? `这轮生成已停止：${output}` : "这轮生成已停止。";
+  }
+  if (step.level === "error") {
+    return output ? `我遇到了一个需要处理的问题：${output}` : "我遇到了一个需要处理的问题，需要先处理后才能继续。";
+  }
+  if (step.level === "waiting") {
+    return output ? `我需要先等你确认：${output}` : "我需要先等你确认。";
+  }
+  if (step.level === "success" || step.status === "已完成" || (!isLatest && runState !== "error")) {
+    return output ? `我已经处理完这一步：${output}` : "我已经处理完这一步。";
+  }
+  if (/^我/.test(output)) return output;
+  if (/^正在/.test(output)) return `我${output}`;
+  return output ? `我正在处理：${output}` : "我正在同步当前进展。";
 }
 
 export function RuntimeRunSummary({ entries, attachments = [] }: { entries: RuntimeProgressEntry[]; attachments?: SessionRuntimeAttachment[] }) {
   const activities = useMemo(() => [...entries, ...entriesFromAttachments(attachments)].filter(isVisibleEntry), [entries, attachments]);
   const runState = combinedRunState(activities, attachments);
   const [expanded, setExpanded] = useState(runState === "error" || runState === "waiting");
-  const allSteps = compactStepViews(activities, runState);
-  const detailSteps = expanded ? allSteps : [];
+  const planActivities = activities.filter(isPlanEntry);
+  const progressActivities = activities.filter((entry) => !isPlanEntry(entry));
+  const progressSource = progressActivities.length ? progressActivities : activities;
+  const allSteps = compactStepViews(progressSource, runState);
+  const planSteps = compactStepViews(planActivities, runState);
+  const detailSteps = expanded ? allSteps.slice(0, -1) : [];
   const visibleSteps = detailSteps.slice(-MAX_VISIBLE_STEPS);
   const latest = allSteps[allSteps.length - 1];
   const hasWorkActivity = activities.some(isWorkEntry);
-  const doneCount = completedCount(allSteps);
-  const totalCount = allSteps.length;
   const hasMoreSteps = detailSteps.length > visibleSteps.length;
-  const summaryMeta = progressSummary(doneCount, totalCount, runState);
+  const hasPlan = planSteps.length > 0;
 
   useEffect(() => {
     if (runState === "error" || runState === "waiting") {
@@ -360,26 +379,32 @@ export function RuntimeRunSummary({ entries, attachments = [] }: { entries: Runt
         <span className="runtime-run-summary__mark" aria-hidden="true">{stepIcon(runState === "success" ? "success" : latest.level)}</span>
         <span className="runtime-run-summary__summary">
           <span className="runtime-run-summary__line">
-            <strong>{runState === "success" ? "已完成" : latest.phase}</strong>
-            <span>{latest.output}</span>
+            <span>{conversationalLine(latest, runState, true)}</span>
           </span>
           {latest.agentBrief ? <small className="runtime-run-summary__brief">{latest.agentBrief}</small> : null}
         </span>
-        {summaryMeta ? <span className="runtime-run-summary__meta"><span>{summaryMeta}</span></span> : null}
       </button>
+      {hasPlan ? (
+        <div className="runtime-run-summary__plan" aria-label="处理计划">
+          <strong>计划</strong>
+          <ol>
+            {planSteps.map((entry) => (
+              <li key={entry.id}>{entry.output}</li>
+            ))}
+          </ol>
+        </div>
+      ) : null}
       <div className="runtime-run-summary__items" hidden={!expanded || !visibleSteps.length}>
         {visibleSteps.map((entry) => (
           <div className="runtime-run-summary__item" data-level={entry.level} key={entry.id}>
             <span className="runtime-run-summary__item-mark">{stepIcon(entry.level)}</span>
             <span className="runtime-run-summary__item-copy">
-              <strong>{entry.phase}</strong>
-              <span>{entry.output}</span>
+              <span>{conversationalLine(entry, runState, false)}</span>
               {entry.agentBrief ? <small>{entry.agentBrief}</small> : null}
             </span>
-            <em>{entry.status}</em>
           </div>
         ))}
-        {hasMoreSteps ? <button className="runtime-run-summary__more" onClick={() => setExpanded(true)} type="button">查看更早进展</button> : null}
+        {hasMoreSteps ? <button className="runtime-run-summary__more" onClick={() => setExpanded(true)} type="button">展开更早进展</button> : null}
       </div>
     </section>
   );

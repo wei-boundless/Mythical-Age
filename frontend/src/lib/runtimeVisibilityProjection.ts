@@ -772,11 +772,11 @@ export function projectRuntimeStreamEvent(event: string, data: Record<string, un
     return {
       stageStatus: "已停止",
       activityTitle: "已停止本轮生成",
-      activityDetail: "已按你的操作中断当前处理",
+      activityDetail: "这轮生成已停止",
       level: "stopped",
       terminalEvent: "stopped",
       progressEntry: entry("stopped", "已停止本轮生成", {
-        body: "已按你的操作中断当前处理",
+        body: "这轮生成已停止",
         level: "stopped",
         kind: "terminal",
         statusText: "已停止",

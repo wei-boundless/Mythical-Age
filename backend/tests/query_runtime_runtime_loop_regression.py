@@ -48,7 +48,7 @@ def _action_request(
     *,
     action_type: str,
     final_answer: str = "",
-    public_progress_note: str = "",
+    public_progress_note: str = "正在处理当前请求。",
     task_contract_seed: dict[str, object] | None = None,
     diagnostics: dict[str, object] | None = None,
 ) -> dict[str, object]:
@@ -374,9 +374,14 @@ class _ActiveWorkDecisionModelRuntime:
             decision = self.decisions.pop(0) if self.decisions else {
                 "authority": "harness.loop.active_work_turn_decision",
                 "action": "answer_about_active_work",
+                "relation_to_current_work": "current_work",
+                "evidence": "测试桩默认指向当前工作",
                 "response": "现在是正在处理。",
                 "confidence": 0.9,
             }
+            if str(decision.get("action") or "") not in {"normal_response", "start_new_work"}:
+                decision.setdefault("relation_to_current_work", "current_work")
+                decision.setdefault("evidence", "测试桩指向当前工作")
             return SimpleNamespace(content=json.dumps(decision, ensure_ascii=False))
         return SimpleNamespace(content=json.dumps(_action_request(action_type="respond", final_answer="普通回复。"), ensure_ascii=False))
 
@@ -1414,14 +1419,15 @@ def test_task_run_executor_recovers_invalid_model_action_as_observation() -> Non
                     "turn_id": "",
                     "action_type": "",
                 },
-                {
-                    "authority": "harness.loop.model_action_request",
-                    "request_id": "model-action:test:complete-after-repair",
-                    "turn_id": "",
-                    "action_type": "respond",
-                    "final_answer": "已按合同完成。",
-                    "diagnostics": {"artifacts": []},
-                },
+                    {
+                        "authority": "harness.loop.model_action_request",
+                        "request_id": "model-action:test:complete-after-repair",
+                        "turn_id": "",
+                        "action_type": "respond",
+                        "public_progress_note": "已修正上一步输出格式，正在收口结果。",
+                        "final_answer": "已按合同完成。",
+                        "diagnostics": {"artifacts": []},
+                    },
             ],
             agent_turn_action_request=_action_request(
                 action_type="request_task_run",
@@ -1863,11 +1869,373 @@ def _seed_active_work(runtime, *, task_run_id: str = "taskrun:active-work", sess
     return task_run_id
 
 
+def test_active_work_turn_policy_repairs_control_only_to_reply_then_control() -> None:
+    from harness.loop.active_work import active_work_turn_decision_from_payload
+
+    decision = active_work_turn_decision_from_payload(
+        {
+            "authority": "harness.loop.active_work_turn_decision",
+            "action": "continue_active_work",
+            "turn_response_policy": "active_work_only",
+            "continuation_strategy": "same_run_resume",
+            "relation_to_current_work": "current_work",
+            "evidence": "用户说继续当前工作",
+            "response": "好，我接着处理。",
+            "confidence": 0.95,
+        },
+        user_message="继续当前工作",
+    )
+
+    assert decision.action == "continue_active_work"
+    assert decision.turn_response_policy == "answer_then_active_work"
+    assert decision.answer_obligation == "acknowledgement_only"
+    assert decision.continuation_strategy == "same_run_resume"
+
+
+def test_active_work_router_requires_current_work_relation_before_intercepting_turn() -> None:
+    class LegacyShapeActiveWorkModelRuntime:
+        def __init__(self) -> None:
+            self.active_work_decision_count = 0
+
+        async def invoke_messages(self, messages, **_kwargs):
+            content = str(messages or "")
+            if "harness.loop.active_work_turn_decision.input" in content:
+                self.active_work_decision_count += 1
+                return SimpleNamespace(
+                    content=json.dumps(
+                        {
+                            "authority": "harness.loop.active_work_turn_decision",
+                            "action": "answer_about_active_work",
+                            "response": "现在是正在处理。",
+                            "confidence": 0.95,
+                        },
+                        ensure_ascii=False,
+                    )
+                )
+            return SimpleNamespace(content=json.dumps(_action_request(action_type="respond", final_answer="普通回复。"), ensure_ascii=False))
+
+    model = LegacyShapeActiveWorkModelRuntime()
+    runtime = build_query_runtime(model_runtime=model)
+    task_run_id = _seed_active_work(runtime, task_run_id="taskrun:active-work-route-gate")
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(QueryRequest(session_id="session-active-work", message="解释一下 LangGraph 的 checkpoint 机制")):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    trace = runtime.single_agent_runtime_host.get_trace(task_run_id, include_payloads=True)
+    event_types = [str(dict(item).get("event_type") or "") for item in list(dict(trace or {}).get("events") or [])]
+
+    assert model.active_work_decision_count == 1
+    assert any(event.get("type") == "done" and str(event.get("content") or "") == "普通回复。" for event in events)
+    assert any(event.get("type") == "runtime_assembly_compiled" for event in events)
+    assert "task_run_resume_requested" not in event_types
+    assert "active_task_steer_recorded" not in event_types
+
+
+def test_role_mode_bypasses_active_work_router_even_when_session_has_resumable_task() -> None:
+    model = _ActiveWorkDecisionModelRuntime([
+        {
+            "authority": "harness.loop.active_work_turn_decision",
+            "action": "continue_active_work",
+            "relation_to_current_work": "current_work",
+            "evidence": "用户说继续当前工作",
+            "response": "不应该进入当前工作。",
+            "confidence": 0.99,
+        }
+    ])
+    runtime = build_query_runtime(model_runtime=model)
+    task_run_id = _seed_active_work(runtime, task_run_id="taskrun:role-mode-active-work")
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            QueryRequest(
+                session_id="session-active-work",
+                message="修复了吗",
+                runtime_mode="role",
+                soul_id="hebo",
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    trace = runtime.single_agent_runtime_host.get_trace(task_run_id, include_payloads=True)
+    event_types = [str(dict(item).get("event_type") or "") for item in list(dict(trace or {}).get("events") or [])]
+
+    assert model.active_work_decision_count == 0
+    assert any(event.get("type") == "runtime_assembly_compiled" for event in events)
+    assert any(event.get("type") == "done" and str(event.get("content") or "") == "普通回复。" for event in events)
+    assert "task_run_resume_requested" not in event_types
+    assert "active_task_steer_recorded" not in event_types
+    assert "task_run_executor_scheduled" not in event_types
+
+
+def test_active_work_router_is_gated_by_runtime_assembly_context_policy() -> None:
+    model = _ActiveWorkDecisionModelRuntime([
+        {
+            "authority": "harness.loop.active_work_turn_decision",
+            "action": "continue_active_work",
+            "relation_to_current_work": "current_work",
+            "evidence": "用户说继续当前工作",
+            "response": "不应该进入当前工作。",
+            "confidence": 0.99,
+        }
+    ])
+    runtime = build_query_runtime(model_runtime=model)
+    task_run_id = _seed_active_work(runtime, task_run_id="taskrun:active-work-context-disabled")
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            QueryRequest(
+                session_id="session-active-work",
+                message="继续当前工作",
+                runtime_mode="standard",
+                task_selection={
+                    "runtime_mode_policy": {
+                        "task_lifecycle_policy": {"request_task_run": True},
+                        "context_policy": {"task_context": "available", "active_work_context": "disabled"},
+                    },
+                },
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    assembly = dict(next(event for event in events if event.get("type") == "runtime_assembly_compiled").get("runtime_assembly") or {})
+    profile = dict(assembly.get("profile") or {})
+    trace = runtime.single_agent_runtime_host.get_trace(task_run_id, include_payloads=True)
+    event_types = [str(dict(item).get("event_type") or "") for item in list(dict(trace or {}).get("events") or [])]
+
+    assert dict(profile.get("context_policy") or {}).get("active_work_context") == "disabled"
+    assert model.active_work_decision_count == 0
+    assert any(event.get("type") == "done" and str(event.get("content") or "") == "普通回复。" for event in events)
+    assert "task_run_resume_requested" not in event_types
+    assert "active_task_steer_recorded" not in event_types
+    assert "task_run_executor_scheduled" not in event_types
+
+
+def test_active_work_router_coerces_question_turns_to_status_answer() -> None:
+    model = _ActiveWorkDecisionModelRuntime([
+        {
+            "authority": "harness.loop.active_work_turn_decision",
+            "action": "continue_active_work",
+            "turn_response_policy": "active_work_only",
+            "user_turn_kind": "question",
+            "answer_obligation": "direct_answer_required",
+            "relation_to_current_work": "current_work",
+            "evidence": "用户在问当前工作是否已经完成",
+            "response": "我会继续推进。",
+            "confidence": 0.98,
+        }
+    ])
+    runtime = build_query_runtime(model_runtime=model)
+    task_run_id = _seed_active_work(runtime, task_run_id="taskrun:question-coerced-to-status")
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(QueryRequest(session_id="session-active-work", message="到底修复了没有")):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    trace = runtime.single_agent_runtime_host.get_trace(task_run_id, include_payloads=True)
+    event_types = [str(dict(item).get("event_type") or "") for item in list(dict(trace or {}).get("events") or [])]
+    task_run = runtime.single_agent_runtime_host.state_index.get_task_run(task_run_id)
+
+    assert model.active_work_decision_count == 1
+    assert any(event.get("type") == "done" and "现在是" in str(event.get("content") or "") for event in events)
+    assert any(event.get("type") == "done" and "我会继续推进" not in str(event.get("content") or "") for event in events)
+    assert "task_run_resume_requested" not in event_types
+    assert "task_run_executor_scheduled" not in event_types
+    assert task_run is not None
+    assert task_run.status == "waiting_executor"
+
+
+def test_active_work_router_coerces_complaint_turns_to_status_answer() -> None:
+    model = _ActiveWorkDecisionModelRuntime([
+        {
+            "authority": "harness.loop.active_work_turn_decision",
+            "action": "continue_active_work",
+            "turn_response_policy": "active_work_only",
+            "user_turn_kind": "complaint",
+            "answer_obligation": "direct_answer_required",
+            "relation_to_current_work": "current_work",
+            "evidence": "用户质疑为什么这么简单的任务耗时很久",
+            "response": "我会继续处理。",
+            "confidence": 0.98,
+        }
+    ])
+    runtime = build_query_runtime(model_runtime=model)
+    task_run_id = _seed_active_work(runtime, task_run_id="taskrun:complaint-coerced-to-status")
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(QueryRequest(session_id="session-active-work", message="还没做完吗。这么简单的修复任务为什么你改这么长时间")):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    trace = runtime.single_agent_runtime_host.get_trace(task_run_id, include_payloads=True)
+    event_types = [str(dict(item).get("event_type") or "") for item in list(dict(trace or {}).get("events") or [])]
+    task_run = runtime.single_agent_runtime_host.state_index.get_task_run(task_run_id)
+
+    assert model.active_work_decision_count == 1
+    assert any(event.get("type") == "done" and "现在是" in str(event.get("content") or "") for event in events)
+    assert "task_run_resume_requested" not in event_types
+    assert "task_run_executor_scheduled" not in event_types
+    assert task_run is not None
+    assert task_run.status == "waiting_executor"
+
+
+def test_active_work_router_can_answer_user_first_then_continue_task() -> None:
+    model = _ActiveWorkDecisionModelRuntime([
+        {
+            "authority": "harness.loop.active_work_turn_decision",
+            "action": "answer_then_continue_active_work",
+            "turn_response_policy": "answer_then_active_work",
+            "continuation_strategy": "same_run_resume",
+            "relation_to_current_work": "current_work",
+            "evidence": "用户问当前修复是否完成，并希望任务继续推进",
+            "response": "回答后继续处理。",
+            "confidence": 0.96,
+        }
+    ])
+    runtime = build_query_runtime(model_runtime=model)
+    task_run_id = _seed_active_work(runtime, task_run_id="taskrun:answer-then-continue")
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(QueryRequest(session_id="session-active-work", message="先说下修复了吗，然后继续处理")):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    trace = runtime.single_agent_runtime_host.get_trace(task_run_id, include_payloads=True)
+    event_types = [str(dict(item).get("event_type") or "") for item in list(dict(trace or {}).get("events") or [])]
+    task_run = runtime.single_agent_runtime_host.state_index.get_task_run(task_run_id)
+
+    assert model.active_work_decision_count == 1
+    assert any(event.get("type") == "runtime_assembly_compiled" for event in events)
+    assert not any(event.get("type") == "harness_run_started" for event in events)
+    assert any(event.get("type") == "done" and str(event.get("content") or "") == "回答后继续处理。" for event in events)
+    assert "task_run_resume_requested" in event_types
+    assert "task_run_executor_scheduled" in event_types
+    assert task_run is not None
+    assert task_run.status == "running"
+
+
+def test_interrupted_work_candidate_does_not_checkout_without_context_match() -> None:
+    from harness.loop.task_executor import stop_task_run
+
+    model = _ActiveWorkDecisionModelRuntime([
+        {
+            "authority": "harness.loop.active_work_turn_decision",
+            "action": "normal_response",
+            "turn_response_policy": "answer_only",
+            "relation_to_current_work": "independent_turn",
+            "evidence": "",
+            "response": "",
+            "confidence": 0.9,
+        }
+    ])
+    runtime = build_query_runtime(model_runtime=model)
+    host = runtime.single_agent_runtime_host
+    source_task_run_id = _seed_active_work(
+        runtime,
+        task_run_id="taskrun:interrupted-unrelated-turn",
+        session_id="session-interrupted-unrelated-turn",
+    )
+    stop_task_run(host, source_task_run_id, reason="用户停止")
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(QueryRequest(session_id="session-interrupted-unrelated-turn", message="解释一下模型配置有什么区别")):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    source_task = host.state_index.get_task_run(source_task_run_id)
+    source_events = [
+        str(dict(item).get("event_type") or "")
+        for item in list(dict(host.get_trace(source_task_run_id, include_payloads=False) or {}).get("events") or [])
+    ]
+    child_runs = [
+        item
+        for item in host.state_index.list_session_task_runs("session-interrupted-unrelated-turn")
+        if str(item.task_run_id).startswith(f"{source_task_run_id}:checkout:")
+    ]
+
+    assert model.active_work_decision_count == 1
+    assert any(event.get("type") == "done" and str(event.get("content") or "") == "普通回复。" for event in events)
+    assert source_task is not None
+    assert source_task.status == "aborted"
+    assert child_runs == []
+    assert "task_run_checkout_created" not in source_events
+    assert "task_run_executor_scheduled" not in source_events
+
+
+def test_active_work_continue_emits_user_feedback_and_schedules_executor() -> None:
+    model = _ActiveWorkDecisionModelRuntime([
+        {
+            "authority": "harness.loop.active_work_turn_decision",
+            "action": "continue_active_work",
+            "turn_response_policy": "active_work_only",
+            "continuation_strategy": "same_run_resume",
+            "relation_to_current_work": "current_work",
+            "evidence": "用户明确要求继续当前工作",
+            "response": "我会继续处理当前工作。",
+            "confidence": 0.96,
+        }
+    ])
+    runtime = build_query_runtime(model_runtime=model)
+    task_run_id = _seed_active_work(runtime, task_run_id="taskrun:feedback-before-schedule")
+
+    async def _run_incrementally() -> tuple[list[dict[str, object]], str, str]:
+        events: list[dict[str, object]] = []
+        stream = runtime.astream(QueryRequest(session_id="session-active-work", message="继续当前工作"))
+        status_when_done = ""
+        while True:
+            event = await stream.__anext__()
+            events.append(event)
+            if event.get("type") == "done":
+                task_run = runtime.single_agent_runtime_host.state_index.get_task_run(task_run_id)
+                status_when_done = str(getattr(task_run, "status", "") or "")
+                break
+        try:
+            await stream.__anext__()
+        except StopAsyncIteration:
+            pass
+        task_run = runtime.single_agent_runtime_host.state_index.get_task_run(task_run_id)
+        return events, status_when_done, str(getattr(task_run, "status", "") or "")
+
+    events, status_when_done, final_status = asyncio.run(_run_incrementally())
+    monitor = runtime.single_agent_runtime_host.get_task_run_live_monitor(task_run_id)
+    step_events = [
+        dict(getattr(item, "payload", {}) or {})
+        for item in runtime.single_agent_runtime_host.event_log.list_events(task_run_id)
+        if getattr(item, "event_type", "") == "step_summary_recorded"
+    ]
+
+    assert any(event.get("type") == "done" and str(event.get("content") or "") == "我会继续处理当前工作。" for event in events)
+    assert status_when_done == "running"
+    assert final_status == "running"
+    assert monitor is not None
+    assert monitor["latest_interaction_turn_id"] == "turn:session-active-work:1"
+    assert any("持续汇报" in str(item.get("summary") or "") for item in step_events)
+
+
 def test_active_work_continue_reuses_current_task_run_without_new_task() -> None:
     model = _ActiveWorkDecisionModelRuntime([
         {
             "authority": "harness.loop.active_work_turn_decision",
             "action": "continue_active_work",
+            "continuation_strategy": "same_run_resume",
             "response": "好，我接着处理。",
             "confidence": 0.94,
         }
@@ -1907,6 +2275,7 @@ def test_active_work_continue_user_aborted_creates_checkout_without_reviving_sou
         {
             "authority": "harness.loop.active_work_turn_decision",
             "action": "continue_active_work",
+            "continuation_strategy": "checkout_fork",
             "response": "好，我会先检查上次中断处的现状，再接着处理。",
             "confidence": 0.95,
         }
@@ -1960,6 +2329,53 @@ def test_active_work_continue_user_aborted_creates_checkout_without_reviving_sou
     assert dict(child_summary.get("lineage") or {}).get("parent_task_run_id") == source_task_run_id
 
 
+def test_interrupted_continue_requires_model_checkout_strategy() -> None:
+    from harness.loop.task_executor import stop_task_run
+
+    model = _ActiveWorkDecisionModelRuntime([
+        {
+            "authority": "harness.loop.active_work_turn_decision",
+            "action": "continue_active_work",
+            "response": "好，我接着处理。",
+            "confidence": 0.95,
+        }
+    ])
+    runtime = build_query_runtime(model_runtime=model)
+    host = runtime.single_agent_runtime_host
+    source_task_run_id = _seed_active_work(
+        runtime,
+        task_run_id="taskrun:interrupted-missing-strategy",
+        session_id="session-interrupted-missing-strategy",
+    )
+    stop_task_run(host, source_task_run_id, reason="用户停止")
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(QueryRequest(session_id="session-interrupted-missing-strategy", message="继续刚才那个任务")):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    source_task = host.state_index.get_task_run(source_task_run_id)
+    child_runs = [
+        item
+        for item in host.state_index.list_session_task_runs("session-interrupted-missing-strategy")
+        if str(item.task_run_id).startswith(f"{source_task_run_id}:checkout:")
+    ]
+    source_events = [
+        str(dict(item).get("event_type") or "")
+        for item in list(dict(host.get_trace(source_task_run_id, include_payloads=False) or {}).get("events") or [])
+    ]
+
+    assert model.active_work_decision_count == 1
+    assert any(event.get("type") == "done" and "已中断，可继续" in str(event.get("content") or "") for event in events)
+    assert source_task is not None
+    assert source_task.status == "aborted"
+    assert child_runs == []
+    assert "task_run_checkout_created" not in source_events
+    assert "task_run_executor_scheduled" not in source_events
+
+
 def test_active_work_continue_prefers_interrupted_task_over_stale_completed_executor_status() -> None:
     from harness.loop.task_executor import stop_task_run
     from harness.loop.work_rollout import work_rollout_summary
@@ -1968,6 +2384,7 @@ def test_active_work_continue_prefers_interrupted_task_over_stale_completed_exec
         {
             "authority": "harness.loop.active_work_turn_decision",
             "action": "continue_active_work",
+            "continuation_strategy": "checkout_fork",
             "response": "好，我会先检查上次中断处的现状，再接着处理。",
             "confidence": 0.95,
         }
@@ -2042,6 +2459,7 @@ def test_active_work_append_instruction_to_user_aborted_creates_checkout_with_in
         {
             "authority": "harness.loop.active_work_turn_decision",
             "action": "append_instruction_to_active_work",
+            "continuation_strategy": "checkout_fork",
             "response": "收到，我会按这个补充方向继续处理。",
             "appended_instruction": "恢复后先检查当前文件状态，再继续实现。",
             "confidence": 0.95,
@@ -2132,6 +2550,7 @@ def test_active_work_appends_user_instruction_to_current_task_run() -> None:
         {
             "authority": "harness.loop.active_work_turn_decision",
             "action": "append_instruction_to_active_work",
+            "continuation_strategy": "same_run_resume",
             "response": "收到，我会按这个补充方向继续处理。",
             "appended_instruction": "把界面改得更自然，少一点开发痕迹。",
             "confidence": 0.95,
@@ -2167,6 +2586,7 @@ def test_active_work_running_continue_records_steer_without_duplicate_executor()
         {
             "authority": "harness.loop.active_work_turn_decision",
             "action": "continue_active_work",
+            "continuation_strategy": "already_running",
             "response": "我正在接着处理，新的进展会继续更新在这里。",
             "appended_instruction": "优先修美术资源加载",
             "confidence": 0.95,
@@ -2206,6 +2626,7 @@ def test_active_work_running_plain_continue_does_not_create_work_instruction() -
         {
             "authority": "harness.loop.active_work_turn_decision",
             "action": "continue_active_work",
+            "continuation_strategy": "already_running",
             "response": "我正在接着处理，新的进展会继续更新在这里。",
             "confidence": 0.95,
         }
@@ -3091,6 +3512,26 @@ def test_model_action_request_accepts_public_progress_note() -> None:
     assert diagnostics["status"] == "accepted"
     assert action is not None
     assert action.public_progress_note == "我先检查现有文件，确认下一步修改范围。"
+
+
+def test_task_model_action_request_requires_public_progress_note() -> None:
+    from harness.loop.model_action_protocol import model_action_request_from_payload
+
+    action, diagnostics = model_action_request_from_payload(
+        {
+            "authority": "harness.loop.model_action_request",
+            "request_id": "model-action:test:missing-progress",
+            "turn_id": "taskrun:test:progress-required",
+            "action_type": "tool_call",
+            "tool_call": {"tool_name": "read_file", "args": {"path": "README.md"}},
+        },
+        turn_id="taskrun:test:progress-required",
+        require_public_progress_note=True,
+    )
+
+    assert action is None
+    assert diagnostics["status"] == "invalid"
+    assert "public_progress_note_required" in diagnostics["validation_errors"]
 
 
 def test_public_runtime_progress_preserves_user_level_task_wording() -> None:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 from typing import Annotated
 
@@ -46,6 +47,61 @@ async def code_environment_workspace_tree(
         max_depth=max_depth,
         max_entries=max_entries,
     )
+
+
+@router.get("/code-environment/git-status")
+async def code_environment_git_status() -> dict[str, object]:
+    layout = ProjectLayout.from_backend_dir(Path(__file__).resolve().parents[1])
+    project_root = layout.project_root
+    try:
+        branch_result = subprocess.run(
+            ["git", "-C", str(project_root), "branch", "--show-current"],
+            check=False,
+            capture_output=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=8,
+        )
+        status_result = subprocess.run(
+            ["git", "-C", str(project_root), "status", "--porcelain=v1", "-b"],
+            check=False,
+            capture_output=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=8,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {
+            "authority": "code_environment.git_status",
+            "available": False,
+            "branch": "",
+            "items": [],
+            "error": str(exc),
+        }
+    if status_result.returncode != 0:
+        return {
+            "authority": "code_environment.git_status",
+            "available": False,
+            "branch": branch_result.stdout.strip(),
+            "items": [],
+            "error": status_result.stderr.strip() or "git status failed",
+        }
+    lines = [line for line in status_result.stdout.splitlines() if line.strip()]
+    items = []
+    for line in lines:
+        if line.startswith("##"):
+            continue
+        status = line[:2].strip() or "?"
+        path = line[3:].strip() if len(line) > 3 else ""
+        items.append({"status": status, "path": path})
+    return {
+        "authority": "code_environment.git_status",
+        "available": True,
+        "branch": branch_result.stdout.strip(),
+        "items": items,
+        "changed_count": len(items),
+        "error": "",
+    }
 
 
 @router.get("/code-environment/sidecar/status")

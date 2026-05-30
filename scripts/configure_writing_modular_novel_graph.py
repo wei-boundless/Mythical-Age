@@ -575,8 +575,15 @@ def _volume_loop_contract(title_template: str) -> dict[str, Any]:
     return _node_loop("loop.volume", title_template=title_template)
 
 
+GRAPH_NODE_RESPONSE_BOUNDARY_PROMPT = ""
+
+
 def _role_prompt(*sections: str) -> str:
-    return "\n\n".join(section.strip() for section in sections if str(section or "").strip())
+    return "\n\n".join(
+        section.strip()
+        for section in (*sections, GRAPH_NODE_RESPONSE_BOUNDARY_PROMPT)
+        if str(section or "").strip()
+    )
 
 
 DESIGN_NODES: tuple[NodeSpec, ...] = (
@@ -1471,7 +1478,7 @@ def _upsert_agents(backend_dir: Path) -> None:
             thinking_mode="disabled",
             reasoning_effort="",
             stream_policy=dict(writing_model_profile.stream_policy),
-            fallback_profile_ref=writing_model_profile.fallback_profile_ref,
+            fallback_profile_ref="",
             capability_tags=tuple(writing_model_profile.capability_tags),
             metadata=dict(writing_model_profile.metadata),
         )
@@ -3508,8 +3515,8 @@ def _model_requirement(node_id: str) -> dict[str, Any]:
         capability_tags.insert(0, "long_output")
     return {
         "profile_ref": MODEL_PROFILE_REF,
-        "provider_family": "deepseek",
-        "model_family": "deepseek-v4",
+        "provider_family": WRITING_MODEL_PROVIDER,
+        "model_family": WRITING_MODEL_NAME,
         "capability_tags": capability_tags,
         "min_context_tokens": 200000,
         "min_output_tokens": min_output,

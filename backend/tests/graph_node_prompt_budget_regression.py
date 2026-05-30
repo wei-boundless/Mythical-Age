@@ -94,26 +94,51 @@ def test_graph_node_task_packet_does_not_embed_full_graph_policy() -> None:
         observations=[],
         runtime_assembly={
             "assembly_id": "rtasm:test",
-            "profile": {"mode": "professional", "interaction_mode": "task_execution"},
+            "profile": {
+                "mode": "professional",
+                "interaction_mode": "task_execution",
+                "context_policy": {"task_run_context": "disabled"},
+                "prompt_pack_refs_by_invocation": {"task_execution": ["runtime.pack.graph_node_execution.v1"]},
+                "operation_authorization_projection": {"model_visible": "summary_without_denials"},
+            },
             "task_environment": {"environment_id": "env.test"},
-            "operation_authorization": {"allowed_operations": []},
+            "operation_authorization": {"allowed_operations": [], "denied_operations": ["op.write_file", "op.edit_file"]},
         },
     ).packet
 
     stable_payload = json.loads(packet.model_messages[1]["content"].split("\n", 1)[1])
 
     assert len(packet.model_messages[1]["content"]) < 80000
-    assert "contract" not in stable_payload["task_run"]["diagnostics"]
+    assert "task_run" not in stable_payload
     assert "other_node_79" not in packet.model_messages[1]["content"]
     all_message_content = "".join(message["content"] for message in packet.model_messages)
     assert "graph_identity" not in all_message_content
     assert "state_refs" not in all_message_content
     assert "runtime_controls" not in all_message_content
     assert "input_package" not in all_message_content
+    assert "graph_slot" not in all_message_content
+    assert "memory_contract" not in all_message_content
+    assert "acceptance_policy" not in all_message_content
+    assert "runtime.task_execution.v1" not in all_message_content
+    assert "写入交付物时优先使用 write_file" not in all_message_content
+    assert "write_file" not in all_message_content
+    assert "edit_file" not in all_message_content
+    assert "denied_operations" not in all_message_content
+    assert "task_run_id" not in all_message_content
+    assert packet.prompt_pack_refs == ("runtime.pack.graph_node_execution.v1",)
+    manifest = packet.diagnostics["prompt_manifest"]
+    assert "runtime.graph_node_execution.v1" in manifest["stable_prompt_refs"]
+    assert "runtime.task_execution.v1" not in manifest["stable_prompt_refs"]
+    assert not any(str(ref).startswith("task_prompt_contract:") for ref in manifest["stable_contract_refs"])
+    assert any(str(ref).startswith("graph_node_prompt_contract:") for ref in manifest["stable_contract_refs"])
+    assert "final_answer 必须是可被下游节点或系统物化的完整结果" in all_message_content
     assert "gchk:hidden" not in all_message_content
     assert "gwork:test:target_node:1" not in all_message_content
     assert "grun:test" not in all_message_content
     task_contract = stable_payload["task_contract"]
     assert "resource_requirements" not in task_contract
     assert "prompt_contract" not in task_contract
-    assert task_contract["graph_slot"]["node_contract"]["prompt_contract"]["role_prompt"] == "你是一名测试执行员。"
+    assert "graph_slot" not in task_contract
+    graph_context = task_contract["graph_node_context"]
+    assert graph_context["node"]["role_prompt"] == "你是一名测试执行员。"
+    assert "memory" not in graph_context

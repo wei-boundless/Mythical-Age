@@ -64,7 +64,7 @@ class RuntimeCompiler:
         }
         permission_policy = dict(profile_payload.get("permission_policy") or {"permission_scope": "action_request_only"})
         permission_policy.setdefault("permission_scope", str(permission_policy.get("scope") or "action_request_only"))
-        prompt_pack_refs = tuple(str(item) for item in list(profile_payload.get("prompt_pack_refs") or []) if str(item))
+        prompt_pack_refs = _prompt_pack_refs_for_invocation(profile_payload, invocation_kind="turn_action")
         soul_role_prompt = dict(assembly_payload.get("soul_role_prompt") or {})
         tool_payloads = tuple(dict(item) for item in list(available_tools or []) if isinstance(item, dict))
         agent_visible_runtime_projection = _agent_visible_runtime_projection(
@@ -286,15 +286,18 @@ class RuntimeCompiler:
         }
         permission_policy = dict(profile_payload.get("permission_policy") or {"permission_scope": "task_run_execution"})
         permission_policy.setdefault("permission_scope", str(permission_policy.get("scope") or "task_run_execution"))
-        prompt_pack_refs = tuple(str(item) for item in list(profile_payload.get("prompt_pack_refs") or []) if str(item))
         tool_payloads = tuple(dict(item) for item in list(available_tools or []) if isinstance(item, dict))
-        graph_slot_projection = _graph_slot_model_visible_projection(_graph_slot_from_contract(contract))
+        graph_slot = _graph_slot_from_contract(contract)
+        graph_runtime_projection = bool(graph_slot)
+        task_run_context_enabled = _task_run_context_enabled(profile_payload)
+        prompt_pack_refs = _prompt_pack_refs_for_invocation(profile_payload, invocation_kind="task_execution")
+        operation_authorization = dict(assembly_payload.get("operation_authorization") or {})
         agent_visible_runtime_projection = _agent_visible_runtime_projection(
             invocation_kind="task_execution",
             allowed_action_types=("respond", "ask_user", "tool_call", "block"),
             profile_payload=profile_payload,
             environment_payload=environment_payload,
-            operation_authorization=dict(assembly_payload.get("operation_authorization") or {}),
+            operation_authorization=operation_authorization,
             available_tools=tool_payloads,
         )
         envelope = RuntimeEnvelope(
@@ -314,7 +317,7 @@ class RuntimeCompiler:
             permission_policy=permission_policy,
             prompt_policy={"invocation_kind": "task_execution"},
             output_policy={"format": "model_action_request_json"},
-            graph_slot=graph_slot_projection,
+            graph_slot=graph_slot,
             diagnostics={
                 "task_run_id": task_run_id,
                 "model_selection": dict(model_selection or {}),
@@ -333,6 +336,8 @@ class RuntimeCompiler:
             contract=contract,
             assembly_payload=assembly_payload,
         )
+        if not task_run_context_enabled:
+            task_prompt_contract = {}
         prompt_assembly = self._assemble_prompt_pack(
             invocation_kind="task_execution",
             prompt_pack_refs=prompt_pack_refs,
@@ -375,26 +380,31 @@ class RuntimeCompiler:
         )
         stable_payload = {
             "schema": schema,
-            "task_run": _task_run_stable_payload(task_run, graph_runtime_projection=bool(graph_slot_projection)),
             "task_contract": _task_contract_stable_payload(contract),
             "task_environment": _environment_stable_payload(environment_payload),
             "available_tools": _stable_tool_catalog_payload(tool_payloads),
             "tool_catalog_hash": _stable_json_hash([dict(item) for item in tool_payloads]),
         }
+        if task_run_context_enabled:
+            stable_payload["task_run"] = _task_run_stable_payload(task_run, graph_runtime_projection=graph_runtime_projection)
         dynamic_payload = {
-            "operation_authorization": dict(assembly_payload.get("operation_authorization") or {}),
+            "operation_authorization": _operation_authorization_model_visible(
+                operation_authorization,
+                profile_payload=profile_payload,
+            ),
             "runtime_context": _runtime_context_payload(
                 assembly_payload,
                 agent_visible_runtime_projection=agent_visible_runtime_projection,
             ),
         }
         volatile_payload = {
-            "runtime_envelope": envelope.to_dict(),
-            "task_run_state": _task_run_volatile_payload(task_run),
             "execution_state": dict(execution_state or {}),
             "observations": [dict(item) for item in list(observations or [])],
-            "work_history": _work_rollout_payload(work_rollout),
         }
+        if task_run_context_enabled:
+            volatile_payload["runtime_envelope"] = _runtime_envelope_model_visible(envelope.to_dict())
+            volatile_payload["task_run_state"] = _task_run_volatile_payload(task_run)
+            volatile_payload["work_history"] = _work_rollout_payload(work_rollout)
         packet_id = f"rtpacket:{task_run_id}:task_execution:{executor_epoch}:{invocation_index}"
         model_messages, segment_plan = _model_messages_and_segment_plan(
             packet_id=packet_id,
@@ -468,7 +478,10 @@ class RuntimeCompiler:
                 invocation_kind="task_execution",
             ),
             packet_id=packet_id,
-            dynamic_projection_refs=("agent_visible_runtime_projection", "operation_authorization"),
+            dynamic_projection_refs=(
+                "agent_visible_runtime_projection",
+                _operation_authorization_projection_ref(profile_payload),
+            ),
             volatile_state_refs=(
                 "runtime_envelope",
                 "execution_state",
@@ -532,7 +545,7 @@ class RuntimeCompiler:
         }
         permission_policy = dict(profile_payload.get("permission_policy") or {"permission_scope": "bounded_read_observation"})
         permission_policy.setdefault("permission_scope", str(permission_policy.get("scope") or "bounded_read_observation"))
-        prompt_pack_refs = tuple(str(item) for item in list(profile_payload.get("prompt_pack_refs") or []) if str(item))
+        prompt_pack_refs = _prompt_pack_refs_for_invocation(profile_payload, invocation_kind="tool_observation_followup")
         soul_role_prompt = dict(assembly_payload.get("soul_role_prompt") or {})
         tool_payloads = tuple(dict(item) for item in list(available_tools or []) if isinstance(item, dict))
         agent_visible_runtime_projection = _agent_visible_runtime_projection(
@@ -958,6 +971,23 @@ def _string_tuple(value: Any) -> tuple[str, ...]:
     return tuple(str(item).strip() for item in list(value or []) if str(item).strip())
 
 
+def _prompt_pack_refs_for_invocation(profile_payload: dict[str, Any], *, invocation_kind: str) -> tuple[str, ...]:
+    by_invocation = dict(profile_payload.get("prompt_pack_refs_by_invocation") or {})
+    refs = _string_tuple(by_invocation.get(invocation_kind))
+    if refs:
+        return refs
+    return _string_tuple(profile_payload.get("prompt_pack_refs"))
+
+
+def _task_run_context_enabled(profile_payload: dict[str, Any]) -> bool:
+    context_policy = dict(profile_payload.get("context_policy") or {})
+    raw = context_policy.get("task_run_context", context_policy.get("task_context", True))
+    if isinstance(raw, bool):
+        return raw
+    value = str(raw or "").strip().lower()
+    return value not in {"disabled", "none", "off", "false", "0", "omitted"}
+
+
 def _task_prompt_contract_from_runtime(
     *,
     task_run: dict[str, Any],
@@ -1185,6 +1215,36 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
     if permission_scope:
         lines.append(f"- 权限边界由本轮运行上下文决定；当前权限范围：{permission_scope}。")
     return "\n".join(lines) + "\n"
+
+
+def _operation_authorization_model_visible(
+    authorization: dict[str, Any],
+    *,
+    profile_payload: dict[str, Any],
+) -> dict[str, Any]:
+    payload = dict(authorization or {})
+    policy = dict(profile_payload.get("operation_authorization_projection") or {})
+    mode = str(policy.get("model_visible") or policy.get("mode") or "full").strip()
+    if mode != "summary_without_denials":
+        return payload
+    allowed_operations = [
+        str(item)
+        for item in list(payload.get("allowed_operations") or [])
+        if str(item)
+    ]
+    return {
+        "authority": "harness.runtime.operation_authorization.model_visible_summary",
+        "allowed_operations": allowed_operations,
+        "allowed_operation_count": len(allowed_operations),
+        "omitted_denials": True,
+        "reason": str(policy.get("reason") or "当前编排配置要求只向模型展示可用操作摘要。"),
+    }
+
+
+def _operation_authorization_projection_ref(profile_payload: dict[str, Any]) -> str:
+    policy = dict(profile_payload.get("operation_authorization_projection") or {})
+    mode = str(policy.get("model_visible") or policy.get("mode") or "full").strip()
+    return "operation_authorization.model_visible_summary" if mode == "summary_without_denials" else "operation_authorization"
 
 
 def _work_rollout_instruction(work_rollout: dict[str, Any] | None) -> str:
@@ -1470,195 +1530,279 @@ def _graph_slot_node_prompt_contract(contract: dict[str, Any]) -> dict[str, Any]
     return dict(node_contract.get("prompt_contract") or {})
 
 
-def _graph_slot_model_visible_projection(graph_slot: dict[str, Any]) -> dict[str, Any]:
+def _graph_node_model_context_projection(graph_slot: dict[str, Any]) -> dict[str, Any]:
     slot = dict(graph_slot or {})
     if not slot:
         return {}
     node_contract = dict(slot.get("node_contract") or {})
     edge_contracts = dict(slot.get("edge_contracts") or {})
     memory_contract = dict(slot.get("memory_contract") or {})
-    output_contract = dict(slot.get("output_contract") or {})
     loop_contract = dict(slot.get("loop_contract") or {})
-    return _drop_empty_payload(
-        {
-            "node_contract": _graph_slot_node_contract_projection(node_contract),
-            "edge_contracts": _graph_slot_edge_contracts_projection(edge_contracts),
-            "memory_contract": _graph_slot_memory_contract_projection(memory_contract),
-            "loop_contract": _graph_slot_loop_contract_projection(loop_contract),
-            "output_contract": _graph_slot_output_contract_projection(output_contract),
-            "visibility": {
-                "model_visible_projection": _string_list(dict(slot.get("visibility") or {}).get("model_visible_projection")),
-                "system_control_fields_omitted": True,
-                "authority": "harness.runtime.graph_slot.model_visible_projection",
-            },
-            "authority": "harness.runtime.graph_slot.model_visible_projection",
-        }
-    )
-
-
-def _graph_slot_node_contract_projection(node_contract: dict[str, Any]) -> dict[str, Any]:
+    output_contract = dict(slot.get("output_contract") or {})
     node_identity = dict(node_contract.get("node_identity") or {})
-    output_contract = dict(node_contract.get("output_contract") or {})
     return _drop_empty_payload(
         {
-            "node_identity": {
-                "node_id": str(node_identity.get("node_id") or ""),
-                "title": str(node_identity.get("title") or ""),
-                "node_type": str(node_identity.get("node_type") or ""),
-                "task_ref": str(node_identity.get("task_ref") or ""),
+            "node": _graph_node_prompt_context(node_contract=node_contract, node_identity=node_identity),
+            "authorized_inputs": _graph_authorized_inputs(edge_contracts.get("inbound_edge_contexts")),
+            "memory": _graph_visible_memory_snapshots(memory_contract),
+            "loop": _graph_visible_loop_context(loop_contract),
+            "output": _graph_visible_output_requirements(output_contract),
+            "constraints": _graph_visible_constraints(node_contract=node_contract, output_contract=output_contract),
+            "visibility": {
+                "runtime_contract_details_omitted": True,
+                "system_control_fields_omitted": True,
+                "authority": "harness.runtime.graph_node_context.visibility",
             },
-            "prompt_contract": dict(node_contract.get("prompt_contract") or {}),
-            "input_contract": _truncate_value(dict(node_contract.get("input_contract") or {}), max_chars=12000),
-            "output_contract": {
-                "node_contract_id": str(output_contract.get("node_contract_id") or ""),
-                "input_contract_id": str(output_contract.get("input_contract_id") or ""),
-                "output_contract_id": str(output_contract.get("output_contract_id") or ""),
-                "contract_bindings": _truncate_value(dict(output_contract.get("contract_bindings") or {}), max_chars=12000),
-            },
-            "acceptance_policy": _truncate_value(dict(node_contract.get("acceptance_policy") or {}), max_chars=12000),
-            "authority": "harness.runtime.graph_slot.node_contract_projection",
+            "authority": "harness.runtime.graph_node_model_context",
         }
     )
 
 
-def _graph_slot_edge_contracts_projection(edge_contracts: dict[str, Any]) -> dict[str, Any]:
+def _graph_node_prompt_context(*, node_contract: dict[str, Any], node_identity: dict[str, Any]) -> dict[str, Any]:
+    prompt = dict(node_contract.get("prompt_contract") or {})
+    normalized = _normalize_prompt_contract(
+        prompt,
+        contract_id=str(node_identity.get("node_id") or prompt.get("contract_id") or "graph_node_prompt"),
+    )
     return _drop_empty_payload(
         {
-            "inbound_flow_packets": [
-                _graph_slot_flow_packet_projection(dict(item))
-                for item in list(edge_contracts.get("inbound_flow_packets") or [])[:16]
-                if isinstance(item, dict)
-            ],
-            "inbound_edge_contexts": _graph_slot_inbound_context_projection(edge_contracts.get("inbound_edge_contexts")),
-            "outbound_edge_policies": [
-                _graph_slot_outbound_edge_policy_projection(dict(item))
-                for item in list(edge_contracts.get("outbound_edge_policies") or [])[:16]
-                if isinstance(item, dict)
-            ],
-            "authority": "harness.runtime.graph_slot.edge_contract_projection",
+            "title": str(node_identity.get("title") or ""),
+            "node_type": str(node_identity.get("node_type") or ""),
+            "role_prompt": normalized.get("role_prompt") or "",
+            "task_instruction": normalized.get("task_instruction") or "",
+            "output_instruction": normalized.get("output_instruction") or "",
+            "forbidden_behavior": list(normalized.get("forbidden_behavior") or []),
+            "definition_of_done": list(normalized.get("definition_of_done") or []),
+            "authority": "harness.runtime.graph_node_context.node",
         }
     )
 
 
-def _graph_slot_flow_packet_projection(packet: dict[str, Any]) -> dict[str, Any]:
-    return _drop_empty_payload(
-        {
-            "packet_type": str(packet.get("packet_type") or ""),
-            "source_node_id": str(packet.get("source_node_id") or ""),
-            "target_node_id": str(packet.get("target_node_id") or ""),
-            "edge_id": str(packet.get("edge_id") or ""),
-            "payload_contract_id": str(packet.get("payload_contract_id") or ""),
-            "packet_contract_id": str(packet.get("packet_contract_id") or packet.get("payload_contract_id") or ""),
-            "target_context_key": str(packet.get("target_context_key") or ""),
-            "target_input_slot": str(packet.get("target_input_slot") or ""),
-            "delivery_policy": str(packet.get("delivery_policy") or ""),
-        }
-    )
-
-
-def _graph_slot_inbound_context_projection(value: Any) -> list[dict[str, Any]]:
-    contexts: list[dict[str, Any]] = []
+def _graph_authorized_inputs(value: Any) -> list[dict[str, Any]]:
+    inputs: list[dict[str, Any]] = []
     for item in _inbound_context_stable_payload(value):
-        payload = {
-            "context_id": str(item.get("context_id") or ""),
-            "packet_type": str(item.get("packet_type") or ""),
-            "source_node_id": str(item.get("source_node_id") or ""),
-            "target_node_id": str(item.get("target_node_id") or ""),
-            "edge_id": str(item.get("edge_id") or ""),
-            "payload_contract_id": str(item.get("payload_contract_id") or ""),
-            "packet_contract_id": str(item.get("packet_contract_id") or item.get("payload_contract_id") or ""),
-            "target_context_key": str(item.get("target_context_key") or ""),
-            "target_input_slot": str(item.get("target_input_slot") or ""),
-            "delivery_policy": str(item.get("delivery_policy") or ""),
-            "payload": dict(item.get("payload") or {}),
-            "artifact_refs": _bounded_dict_list(item.get("artifact_refs"), limit=12),
-            "memory_refs": _bounded_dict_list(item.get("memory_refs"), limit=12),
-            "result_refs": _bounded_dict_list(item.get("result_refs"), limit=8),
-            "authority": "harness.runtime.graph_slot.inbound_context_projection",
-        }
-        contexts.append(_drop_empty_payload(payload))
-    return contexts
+        slot = str(item.get("target_input_slot") or item.get("target_context_key") or "").strip()
+        label = slot or str(item.get("target_context_key") or "").strip()
+        payload = dict(item.get("payload") or {})
+        artifact_refs = _model_visible_artifact_refs(item.get("artifact_refs"))
+        memory_refs = _model_visible_ref_summaries(item.get("memory_refs"), limit=8)
+        inputs.append(
+            _drop_empty_payload(
+                {
+                    "slot": slot,
+                    "label": label,
+                    "packet_type": str(item.get("packet_type") or ""),
+                    "content": _authorized_input_content(payload),
+                    "payload": _authorized_input_payload(payload),
+                    "artifact_refs": artifact_refs,
+                    "memory_refs": memory_refs,
+                    "authority": "harness.runtime.graph_node_context.authorized_input",
+                }
+            )
+        )
+    return inputs
 
 
-def _graph_slot_outbound_edge_policy_projection(edge: dict[str, Any]) -> dict[str, Any]:
-    projection_policy = dict(edge.get("projection_policy") or {})
-    return _drop_empty_payload(
-        {
-            "edge_id": str(edge.get("edge_id") or ""),
-            "target_node_id": str(edge.get("target_node_id") or ""),
-            "edge_type": str(edge.get("edge_type") or ""),
-            "semantic_role": str(edge.get("semantic_role") or ""),
-            "packet_contract_id": str(edge.get("packet_contract_id") or edge.get("payload_contract_id") or ""),
-            "source_output_selector": str(edge.get("source_output_selector") or ""),
-            "target_context_key": str(edge.get("target_context_key") or ""),
-            "target_input_slot": str(edge.get("target_input_slot") or ""),
-            "projection_policy": _truncate_value(projection_policy, max_chars=8000),
-        }
-    )
+def _authorized_input_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    allowed: dict[str, Any] = {}
+    for key in (
+        "initial_inputs",
+        "artifact_payloads",
+        "handoff_summary",
+        "summary",
+        "content",
+        "text",
+        "title",
+        "project_id",
+        "graph_id",
+    ):
+        if key in payload:
+            allowed[key] = payload.get(key)
+    return _truncate_value(allowed, max_chars=30000) if allowed else {}
 
 
-def _graph_slot_memory_contract_projection(memory_contract: dict[str, Any]) -> dict[str, Any]:
-    snapshots = [
-        _graph_slot_memory_snapshot_projection(dict(item))
-        for item in list(memory_contract.get("resolved_snapshots") or [])[:16]
-        if isinstance(item, dict)
-    ]
-    return _drop_empty_payload(
-        {
-            "resolved_snapshots": snapshots,
-            "authority": "harness.runtime.graph_slot.memory_contract_projection",
-        }
-    )
+def _authorized_input_content(payload: dict[str, Any]) -> str:
+    for key in ("content", "text", "handoff_summary", "summary"):
+        text = str(payload.get(key) or "").strip()
+        if text:
+            return text[:30000]
+    artifact_payloads = [dict(item) for item in list(payload.get("artifact_payloads") or []) if isinstance(item, dict)]
+    parts = [str(item.get("content") or item.get("text") or "").strip() for item in artifact_payloads]
+    joined = "\n\n".join(part for part in parts if part)
+    return joined[:30000]
 
 
-def _graph_slot_memory_snapshot_projection(snapshot: dict[str, Any]) -> dict[str, Any]:
+def _model_visible_artifact_refs(value: Any) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
+    for item in _bounded_dict_list(value, limit=8):
+        refs.append(
+            _drop_empty_payload(
+                {
+                    "path": str(item.get("path") or item.get("artifact_path") or item.get("src") or item.get("absolute_path") or ""),
+                    "title": str(item.get("title") or item.get("label") or ""),
+                    "summary": str(item.get("summary") or "")[:1000],
+                }
+            )
+        )
+    return refs
+
+
+def _model_visible_ref_summaries(value: Any, *, limit: int) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
+    for item in _bounded_dict_list(value, limit=limit):
+        refs.append(
+            _drop_empty_payload(
+                {
+                    "label": str(item.get("label") or item.get("title") or item.get("collection_id") or ""),
+                    "summary": str(item.get("summary") or item.get("payload_summary") or "")[:1000],
+                }
+            )
+        )
+    return refs
+
+
+def _graph_visible_memory_snapshots(memory_contract: dict[str, Any]) -> list[dict[str, Any]]:
+    snapshots: list[dict[str, Any]] = []
+    for item in list(memory_contract.get("resolved_snapshots") or [])[:12]:
+        if isinstance(item, dict):
+            snapshots.append(_graph_visible_memory_snapshot(dict(item)))
+    return snapshots
+
+
+def _graph_visible_memory_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
     records = snapshot.get("records") or snapshot.get("items") or snapshot.get("memories") or []
+    visible_records: list[dict[str, Any]] = []
+    for item in list(records)[:8]:
+        if not isinstance(item, dict):
+            continue
+        visible_records.append(
+            _drop_empty_payload(
+                {
+                    "title": str(item.get("title") or item.get("label") or ""),
+                    "summary": str(item.get("summary") or "")[:1000],
+                    "content": str(item.get("canonical_text") or item.get("content") or item.get("text") or "")[:4000],
+                }
+            )
+        )
     return _drop_empty_payload(
         {
-            "snapshot_id": str(snapshot.get("snapshot_id") or snapshot.get("memory_snapshot_id") or ""),
-            "logical_repository_id": str(snapshot.get("logical_repository_id") or snapshot.get("repository_id") or ""),
-            "collection_id": str(snapshot.get("collection_id") or snapshot.get("collection") or ""),
+            "label": str(snapshot.get("label") or snapshot.get("title") or snapshot.get("collection_id") or snapshot.get("collection") or ""),
+            "collection": str(snapshot.get("collection_id") or snapshot.get("collection") or ""),
             "summary": str(snapshot.get("summary") or "")[:2000],
-            "records": _truncate_value([dict(item) for item in list(records)[:12] if isinstance(item, dict)], max_chars=24000),
-            "authority": "harness.runtime.graph_slot.memory_snapshot_projection",
+            "records": visible_records,
+            "visibility": str(snapshot.get("visibility") or snapshot.get("state") or ""),
+            "authority": "harness.runtime.graph_node_context.memory_snapshot",
         }
     )
 
 
-def _graph_slot_loop_contract_projection(loop_contract: dict[str, Any]) -> dict[str, Any]:
+def _graph_visible_loop_context(loop_contract: dict[str, Any]) -> dict[str, Any]:
+    variables = dict(loop_contract.get("variables") or {})
+    allowed = {
+        key: variables.get(key)
+        for key in (
+            "volume_index",
+            "chapter_index",
+            "unit_index",
+            "batch_index",
+            "batch_start_index",
+            "batch_end_index",
+            "batch_chapter_range",
+            "target_measure_units",
+            "unit_target_measure",
+            "units_per_batch",
+            "completed_groups",
+            "group_current_measure",
+            "total_current_measure",
+            "metric_label",
+        )
+        if key in variables
+    }
+    active_frame = dict(dict(loop_contract.get("loop_context") or {}).get("active_frame") or {})
+    if active_frame:
+        allowed["active_frame"] = _truncate_value(active_frame, max_chars=4000)
     return _drop_empty_payload(
         {
-            "scope_id": str(loop_contract.get("scope_id") or ""),
-            "variables": _truncate_value(dict(loop_contract.get("variables") or {}), max_chars=8000),
-            "dynamic_bindings": _truncate_value(dict(loop_contract.get("dynamic_bindings") or {}), max_chars=8000),
-            "authority": "harness.runtime.graph_slot.loop_contract_projection",
+            "variables": _truncate_value(allowed, max_chars=8000),
+            "authority": "harness.runtime.graph_node_context.loop",
         }
     )
 
 
-def _graph_slot_output_contract_projection(output_contract: dict[str, Any]) -> dict[str, Any]:
+def _graph_visible_output_requirements(output_contract: dict[str, Any]) -> dict[str, Any]:
+    output_policy = dict(output_contract.get("output_policy") or {})
+    expected = dict(output_contract.get("expected_result_contract") or {})
+    targets = _visible_output_targets(output_policy=output_policy, expected=expected)
+    required_sections = _string_list(output_policy.get("required_sections") or expected.get("required_sections"))
     return _drop_empty_payload(
         {
-            "output_policy": _truncate_value(dict(output_contract.get("output_policy") or {}), max_chars=16000),
-            "expected_result_contract": _truncate_value(dict(output_contract.get("expected_result_contract") or {}), max_chars=16000),
-            "authority": "harness.runtime.graph_slot.output_contract_projection",
+            "output_contract_id": str(output_policy.get("output_contract_id") or expected.get("output_contract_id") or ""),
+            "artifact_paths": targets,
+            "required_sections": required_sections,
+            "candidate_state": str(dict(output_policy.get("state_boundary") or {}).get("candidate_state") or ""),
+            "primary_content_key": str(output_policy.get("primary_content_key") or ""),
+            "authority": "harness.runtime.graph_node_context.output",
         }
     )
+
+
+def _visible_output_targets(*, output_policy: dict[str, Any], expected: dict[str, Any]) -> list[str]:
+    candidates: list[Any] = []
+    candidates.extend(list(output_policy.get("artifact_targets") or []))
+    candidates.extend(list(output_policy.get("artifacts") or []))
+    candidates.extend(list(expected.get("artifact_targets") or []))
+    candidates.extend(list(expected.get("artifact_refs") or []))
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in candidates:
+        if isinstance(item, dict):
+            path = str(item.get("path") or item.get("artifact_path") or item.get("target_path") or "").strip()
+        else:
+            path = str(item or "").strip()
+        if path and path not in seen:
+            seen.add(path)
+            result.append(path)
+    return result
+
+
+def _graph_visible_constraints(*, node_contract: dict[str, Any], output_contract: dict[str, Any]) -> list[str]:
+    constraints: list[str] = []
+    prompt = dict(node_contract.get("prompt_contract") or {})
+    constraints.extend(_string_list(prompt.get("forbidden_behavior")))
+    expected = dict(output_contract.get("expected_result_contract") or {})
+    constraints.extend(_string_list(expected.get("constraints")))
+    output_policy = dict(output_contract.get("output_policy") or {})
+    constraints.extend(_string_list(output_policy.get("constraints")))
+    return _dedupe_strings(constraints)
+
+
+def _dedupe_strings(values: Any) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in list(values or []):
+        text = str(value or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+    return result
 
 
 def _task_contract_stable_payload(contract: dict[str, Any]) -> dict[str, Any]:
     payload = dict(contract or {})
     graph_slot = _graph_slot_from_contract(payload)
     if graph_slot:
-        payload["contract_id"] = "graph_node_contract"
-        payload["graph_slot"] = _graph_slot_model_visible_projection(graph_slot)
-        payload["origin"] = _graph_task_contract_origin_model_visible(dict(payload.get("origin") or {}))
-        payload.pop("created_from_packet_ref", None)
-        payload.pop("source_contract_ref", None)
-        payload.pop("external_plan_ref", None)
-        payload.pop("resource_requirements", None)
-        payload.pop("prompt_contract", None)
-        payload.pop("runtime_profile", None)
+        return _drop_empty_payload(
+            {
+                "contract_id": "graph_node_contract",
+                "contract_source": str(payload.get("contract_source") or "graph_node_work_order"),
+                "task_environment_id": str(payload.get("task_environment_id") or ""),
+                "origin": _graph_task_contract_origin_model_visible(dict(payload.get("origin") or {})),
+                "graph_node_context": _graph_node_model_context_projection(graph_slot),
+                "completion_criteria": _string_list(payload.get("completion_criteria")),
+                "authority": "harness.runtime.graph_node_contract.model_visible",
+            }
+        )
     resource_requirements = dict(payload.get("resource_requirements") or {})
     if resource_requirements:
         payload["resource_requirements"] = _resource_requirements_stable_payload(resource_requirements)
@@ -1672,6 +1816,12 @@ def _graph_task_contract_origin_model_visible(origin: dict[str, Any]) -> dict[st
         "node_id": str(origin.get("node_id") or ""),
         "authority": "harness.runtime.graph_task_contract_origin.model_visible_projection",
     }
+
+
+def _runtime_envelope_model_visible(envelope: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(envelope or {})
+    payload.pop("graph_slot", None)
+    return payload
 
 
 def _resource_requirements_stable_payload(resource_requirements: dict[str, Any]) -> dict[str, Any]:

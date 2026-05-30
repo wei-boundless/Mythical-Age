@@ -124,13 +124,20 @@ def _latest_interaction_turn_id(events: list[dict[str, Any]]) -> str:
         event_type = str(event.get("event_type") or "")
         payload = dict(event.get("payload") or {})
         refs = dict(event.get("refs") or {})
-        if event_type in {"user_work_instruction_recorded", "active_task_steer_recorded"}:
+        if event_type in {
+            "user_work_instruction_recorded",
+            "active_task_steer_recorded",
+            "task_run_resume_requested",
+            "task_run_executor_scheduled",
+            "step_summary_recorded",
+        }:
             steer = dict(payload.get("steer") or {})
             observation = dict(payload.get("observation") or {})
             observation_payload = dict(observation.get("payload") or {})
             structured_payload = dict(observation_payload.get("structured_payload") or {})
             for candidate in (
                 refs.get("turn_ref"),
+                payload.get("turn_id"),
                 dict(payload.get("submission") or {}).get("turn_id"),
                 observation.get("request_ref"),
                 structured_payload.get("turn_id"),

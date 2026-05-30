@@ -204,7 +204,14 @@ def request_task_run_pause(runtime_host: Any, task_run_id: str, *, reason: str =
     return {"ok": True, "accepted": True, "task_run": updated.to_dict(), "control": _runtime_control_payload(updated)}
 
 
-def resume_paused_task_run(runtime_host: Any, task_run_id: str, *, reason: str = "", requested_by: str = "user") -> dict[str, Any]:
+def resume_paused_task_run(
+    runtime_host: Any,
+    task_run_id: str,
+    *,
+    reason: str = "",
+    requested_by: str = "user",
+    turn_id: str = "",
+) -> dict[str, Any]:
     task_run = runtime_host.state_index.get_task_run(task_run_id)
     if task_run is None:
         return _not_found(task_run_id)
@@ -231,8 +238,13 @@ def resume_paused_task_run(runtime_host: Any, task_run_id: str, *, reason: str =
     event = runtime_host.event_log.append(
         task_run_id,
         "task_run_resume_requested",
-        payload={"task_run_id": task_run_id, "reason": reason, "requested_by": requested_by},
-        refs={"task_run_ref": task_run_id},
+        payload={
+            "task_run_id": task_run_id,
+            "reason": reason,
+            "requested_by": requested_by,
+            **({"turn_id": turn_id} if turn_id else {}),
+        },
+        refs={"task_run_ref": task_run_id, **({"turn_ref": turn_id} if turn_id else {})},
     )
     updated = replace(
         task_run,
@@ -246,6 +258,7 @@ def resume_paused_task_run(runtime_host: Any, task_run_id: str, *, reason: str =
                 "executor_status": "waiting_executor",
                 "recovery_action": resume_recovery_action,
                 **({"recoverable_error": resume_recoverable} if resume_recoverable else {}),
+                **({"latest_interaction_turn_id": turn_id} if turn_id else {}),
             },
             state=_TASK_RUN_RESUME_REQUESTED,
             requested_by=requested_by,
@@ -263,6 +276,7 @@ def resume_paused_task_run(runtime_host: Any, task_run_id: str, *, reason: str =
         step="task_run_resume_requested",
         status="waiting_executor",
         summary="继续请求已记录，我会从原进度接着处理。",
+        refs={"turn_ref": turn_id} if turn_id else None,
     )
     append_work_rollout_item(
         runtime_host,
@@ -272,7 +286,7 @@ def resume_paused_task_run(runtime_host: Any, task_run_id: str, *, reason: str =
         status="waiting_executor",
         summary="继续请求已记录，我会从原进度接着处理。",
         event_offset=event.offset,
-        refs={"task_run_ref": task_run_id},
+        refs={"task_run_ref": task_run_id, **({"turn_ref": turn_id} if turn_id else {})},
     )
     return {"ok": True, "accepted": True, "task_run": updated.to_dict(), "control": _runtime_control_payload(updated)}
 
@@ -722,7 +736,7 @@ async def _execute_claimed_task_run(
             task_run_id=current_task.task_run_id,
             step=f"task_model_action_invocation_started:{step_index}",
             status="running",
-            summary="正在处理这一步。",
+            summary="正在分析当前目标、已有进展和最新要求，准备决定下一步。",
             refs={"runtime_invocation_packet_ref": compilation.packet.packet_id},
         )
         try:
@@ -898,6 +912,28 @@ async def _execute_claimed_task_run(
             )
 
         if action_request.action_type == "tool_call":
+            tool_progress = _tool_call_progress_summary(action_request)
+            _record_task_step_summary(
+                runtime_host,
+                task_run_id=current_task.task_run_id,
+                step=f"task_tool_call_started:{step_index}",
+                status="running",
+                summary=tool_progress,
+                public_progress_note=action_request.public_progress_note,
+                presentation_source="model_action.public_progress_note",
+                refs={"action_request_ref": action_request.request_id},
+            )
+            append_work_rollout_item(
+                runtime_host,
+                task_run=current_task,
+                item_type="progress",
+                title="执行操作",
+                status="running",
+                summary=tool_progress,
+                event_offset=action_event.offset,
+                refs={"action_request_ref": action_request.request_id, "runtime_invocation_packet_ref": compilation.packet.packet_id},
+                payload={"tool_name": str(action_request.tool_call.get("tool_name") or action_request.tool_call.get("name") or "")},
+            )
             observation = await _execute_task_tool_call(
                 runtime_host,
                 services=services,
@@ -1138,7 +1174,10 @@ async def _invoke_task_model_action(
             suffix=uuid.uuid4().hex[:8],
         ),
     )
-    return model_action_request_from_payload(payload, turn_id=task_run_id)
+    return model_action_request_from_payload(
+        payload,
+        turn_id=task_run_id,
+    )
 
 
 async def _await_task_model_action_with_status(
@@ -1189,7 +1228,7 @@ async def _await_task_model_action_with_status(
                     task_run_id=task_run_id,
                     step=f"task_model_action_waiting:{step_index}",
                     status="running",
-                    summary=f"仍在处理中，正在等待下一步结果。等待轮次：{wait_round}。",
+                    summary=f"正在根据当前进展形成下一步处理动作。等待轮次：{wait_round}。",
                     refs={"runtime_invocation_packet_ref": packet_ref},
                 )
         signal = peek_executor_signal(runtime_host, task_run_id=task_run_id, executor_epoch=executor_epoch)
@@ -3430,7 +3469,14 @@ def _record_task_step_summary(
                 current,
                 updated_at=event.created_at,
                 latest_event_offset=event.offset,
-                diagnostics={**dict(current.diagnostics or {}), "latest_step": step, "latest_step_status": status, "latest_step_summary": visible_summary},
+                diagnostics={
+                    **dict(current.diagnostics or {}),
+                    "latest_step": step,
+                    "latest_step_status": status,
+                    "latest_step_summary": visible_summary,
+                    **({"latest_public_progress_note": visible_note or visible_summary} if (visible_note or visible_summary) else {}),
+                    **({"agent_brief_output": visible_brief} if visible_brief else {}),
+                },
             )
         )
     return event.to_dict()
@@ -3438,6 +3484,46 @@ def _record_task_step_summary(
 
 def _action_progress_note(action_request: ModelActionRequest) -> str:
     return public_runtime_progress_summary(action_request.public_progress_note) or public_action_progress_summary(action_request.action_type)
+
+
+def _tool_call_progress_summary(action_request: ModelActionRequest) -> str:
+    note = public_runtime_progress_summary(action_request.public_progress_note)
+    if note:
+        return note
+    tool_call = dict(action_request.tool_call or {})
+    tool_name = str(tool_call.get("tool_name") or tool_call.get("name") or "").strip()
+    args = dict(tool_call.get("args") or tool_call.get("tool_args") or {})
+    target = _tool_target_preview(args)
+    display = _public_tool_display_name(tool_name)
+    if target:
+        return f"正在使用{display}处理 {target}。"
+    return f"正在使用{display}处理当前步骤。"
+
+
+def _public_tool_display_name(tool_name: str) -> str:
+    normalized = str(tool_name or "").strip()
+    lowered = normalized.lower()
+    mapping = {
+        "image_generate": "生图工具",
+        "image_generation": "生图工具",
+        "generate_image": "生图工具",
+        "write_file": "文件写入工具",
+        "edit_file": "文件编辑工具",
+        "read_file": "文件读取工具",
+        "terminal": "命令工具",
+        "shell": "命令工具",
+    }
+    if lowered in mapping:
+        return mapping[lowered]
+    return normalized.replace("_", " ") or "工具"
+
+
+def _tool_target_preview(args: dict[str, Any]) -> str:
+    for key in ("path", "file_path", "target_path", "prompt", "query", "command"):
+        value = str(args.get(key) or "").strip()
+        if value:
+            return " ".join(value.split())[:120].rstrip()
+    return ""
 
 
 def _public_policy(policy: dict[str, Any]) -> dict[str, Any]:

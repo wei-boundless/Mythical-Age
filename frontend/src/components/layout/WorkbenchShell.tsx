@@ -8,6 +8,8 @@ import {
   Folder,
   FolderOpen,
   MessageSquare,
+  PanelLeftClose,
+  PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
   Plus,
@@ -25,8 +27,18 @@ type CenterPanel = "chat" | "file";
 
 const LEFT_WIDTH_KEY = "agentWorkbench.leftWidth";
 const RIGHT_WIDTH_KEY = "agentWorkbench.rightWidth";
+const LEFT_COLLAPSED_KEY = "agentWorkbench.leftCollapsed";
+const RIGHT_COLLAPSED_KEY = "agentWorkbench.rightCollapsed";
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
+}
+
+function clampLeftWidth(value: number) {
+  return clamp(value, 180, 780);
+}
+
+function clampRightWidth(value: number) {
+  return clamp(value, 240, 820);
 }
 
 function compactFileName(path: string) {
@@ -52,8 +64,8 @@ function usePersistedWorkbenchWidths() {
   useEffect(() => {
     const left = Number(window.localStorage.getItem(LEFT_WIDTH_KEY));
     const right = Number(window.localStorage.getItem(RIGHT_WIDTH_KEY));
-    if (Number.isFinite(left) && left > 0) setSidebarWidth(clamp(left, 220, 420));
-    if (Number.isFinite(right) && right > 0) setInspectorWidth(clamp(right, 300, 560));
+    if (Number.isFinite(left) && left > 0) setSidebarWidth(clampLeftWidth(left));
+    if (Number.isFinite(right) && right > 0) setInspectorWidth(clampRightWidth(right));
   }, [setInspectorWidth, setSidebarWidth]);
 
   useEffect(() => {
@@ -275,12 +287,16 @@ function WorkspaceManagerPanel({ onOpenFile }: { onOpenFile: (path: string) => v
 
 function MainToolbar({
   centerPanel,
+  leftPanelCollapsed,
   onReturnToChat,
+  onToggleLeftPanel,
   onToggleRightPanel,
   rightPanelCollapsed,
 }: {
   centerPanel: CenterPanel;
+  leftPanelCollapsed: boolean;
   onReturnToChat: () => void;
+  onToggleLeftPanel: () => void;
   onToggleRightPanel: () => void;
   rightPanelCollapsed: boolean;
 }) {
@@ -311,6 +327,15 @@ function MainToolbar({
         <span>{activityLabel}</span>
       </div>
       <div className="workbench-toolbar-actions">
+        <button
+          aria-label={leftPanelCollapsed ? "打开左侧工作区" : "收起左侧工作区"}
+          className="workbench-toolbar-icon-button"
+          onClick={onToggleLeftPanel}
+          title={leftPanelCollapsed ? "打开左侧工作区" : "收起左侧工作区"}
+          type="button"
+        >
+          {leftPanelCollapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
+        </button>
         {centerPanel === "file" ? (
           <button onClick={onReturnToChat} type="button">返回会话</button>
         ) : null}
@@ -372,32 +397,90 @@ function RightToolPanel() {
   );
 }
 
-export function WorkbenchShell({ children }: { children: ReactNode }) {
+function CollapsedPanelRail({
+  label,
+  onOpen,
+  side,
+}: {
+  label: string;
+  onOpen: () => void;
+  side: "left" | "right";
+}) {
+  return (
+    <aside className={`workbench-collapsed-rail workbench-collapsed-rail--${side}`} aria-label={`${label}已收起`}>
+      <button aria-label={`打开${label}`} onClick={onOpen} title={`打开${label}`} type="button">
+        {side === "left" ? <PanelLeftOpen size={16} /> : <PanelRightOpen size={16} />}
+      </button>
+      <span>{label}</span>
+    </aside>
+  );
+}
+
+export function WorkbenchShell({
+  children,
+  className = "",
+  leftPanel,
+  leftPanelLabel = "工作区",
+  rightPanel,
+  rightPanelLabel = "辅助栏",
+}: {
+  children: ReactNode;
+  className?: string;
+  leftPanel?: ReactNode;
+  leftPanelLabel?: string;
+  rightPanel?: ReactNode;
+  rightPanelLabel?: string;
+}) {
   const { inspectorWidth, loadInspectorFile, setInspectorWidth, setSidebarWidth, sidebarWidth } = useAppStore();
+  const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
   const [centerPanel, setCenterPanel] = useState<CenterPanel>("chat");
   usePersistedWorkbenchWidths();
 
-  const effectiveLeftWidth = clamp(sidebarWidth, 220, 420);
-  const effectiveRightWidth = rightCollapsed ? 0 : clamp(inspectorWidth, 300, 560);
+  useEffect(() => {
+    setLeftCollapsed(window.localStorage.getItem(LEFT_COLLAPSED_KEY) === "true");
+    setRightCollapsed(window.localStorage.getItem(RIGHT_COLLAPSED_KEY) === "true");
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(LEFT_COLLAPSED_KEY, String(leftCollapsed));
+  }, [leftCollapsed]);
+
+  useEffect(() => {
+    window.localStorage.setItem(RIGHT_COLLAPSED_KEY, String(rightCollapsed));
+  }, [rightCollapsed]);
+
+  const effectiveLeftWidth = leftCollapsed ? 44 : clampLeftWidth(sidebarWidth);
+  const effectiveRightWidth = rightCollapsed ? 44 : clampRightWidth(inspectorWidth);
+  const left = leftPanel ?? (
+    <WorkspaceManagerPanel
+      onOpenFile={(path) => {
+        void loadInspectorFile(path).then(() => setCenterPanel("file"));
+      }}
+    />
+  );
+  const right = rightPanel ?? <RightToolPanel />;
 
   return (
     <main
-      className="agent-workbench agent-workbench--chat-only"
+      className={["agent-workbench agent-workbench--chat-only", className].filter(Boolean).join(" ")}
       style={{
-        gridTemplateColumns: `${effectiveLeftWidth}px 8px minmax(0, 1fr) ${rightCollapsed ? "0px 0px" : `8px ${effectiveRightWidth}px`}`,
+        gridTemplateColumns: `${effectiveLeftWidth}px ${leftCollapsed ? "0px" : "8px"} minmax(0, 1fr) ${rightCollapsed ? `0px ${effectiveRightWidth}px` : `8px ${effectiveRightWidth}px`}`,
       }}
     >
-      <WorkspaceManagerPanel
-        onOpenFile={(path) => {
-          void loadInspectorFile(path).then(() => setCenterPanel("file"));
-        }}
-      />
-      <ResizeHandle label="调整左栏宽度" onResize={(delta) => setSidebarWidth(clamp(sidebarWidth + delta, 220, 420))} side="left" />
+      {leftCollapsed ? (
+        <CollapsedPanelRail label={leftPanelLabel} onOpen={() => setLeftCollapsed(false)} side="left" />
+      ) : left}
+      {leftCollapsed ? null : (
+        <ResizeHandle label={`调整${leftPanelLabel}宽度`} onResize={(delta) => setSidebarWidth(clampLeftWidth(sidebarWidth + delta))} side="left" />
+      )}
+      {leftCollapsed ? <div aria-hidden="true" /> : null}
       <section className="workbench-center" aria-label="主工作区">
         <MainToolbar
           centerPanel={centerPanel}
+          leftPanelCollapsed={leftCollapsed}
           onReturnToChat={() => setCenterPanel("chat")}
+          onToggleLeftPanel={() => setLeftCollapsed((value) => !value)}
           onToggleRightPanel={() => setRightCollapsed((value) => !value)}
           rightPanelCollapsed={rightCollapsed}
         />
@@ -406,10 +489,13 @@ export function WorkbenchShell({ children }: { children: ReactNode }) {
         </div>
       </section>
       {rightCollapsed ? null : (
-        <ResizeHandle label="调整右栏宽度" onResize={(delta) => setInspectorWidth(clamp(inspectorWidth + delta, 300, 560))} side="right" />
+        <ResizeHandle label={`调整${rightPanelLabel}宽度`} onResize={(delta) => setInspectorWidth(clampRightWidth(inspectorWidth + delta))} side="right" />
       )}
-      {rightCollapsed ? null : (
-        <RightToolPanel />
+      {rightCollapsed ? <div aria-hidden="true" /> : null}
+      {rightCollapsed ? (
+        <CollapsedPanelRail label={rightPanelLabel} onOpen={() => setRightCollapsed(false)} side="right" />
+      ) : (
+        right
       )}
     </main>
   );

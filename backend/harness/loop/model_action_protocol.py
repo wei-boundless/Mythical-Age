@@ -43,6 +43,7 @@ def model_action_request_from_payload(
     payload: dict[str, Any] | None,
     *,
     turn_id: str,
+    require_public_progress_note: bool = False,
 ) -> tuple[ModelActionRequest | None, dict[str, Any]]:
     raw = dict(payload or {})
     errors: list[str] = []
@@ -79,6 +80,8 @@ def model_action_request_from_payload(
     user_question = str(raw.get("user_question") or "").strip()
     blocking_reason = str(raw.get("blocking_reason") or "").strip()
     public_progress_note = _public_progress_note(raw.get("public_progress_note"))
+    if require_public_progress_note and not public_progress_note:
+        errors.append("public_progress_note_required")
     if action_type == "respond" and not final_answer:
         errors.append("final_answer_required_for_respond")
     if action_type == "ask_user" and not user_question:

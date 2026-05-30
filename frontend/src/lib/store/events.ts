@@ -238,7 +238,7 @@ function userReceiptForEvent(event: string, data: Record<string, unknown>): User
     return {
       level: "stopped",
       title: "已停止本轮生成",
-      body: "已按你的操作中断当前处理。",
+      body: "这轮生成已停止。",
       debug: { event },
     };
   }
@@ -887,7 +887,7 @@ export function reduceStreamEvent(
     return {
       state: patchAssistant(stateWithOrchestration, session.assistantId, (message) => ({
         ...message,
-        content: message.content || "已停止，可修改后重新发送。",
+        content: message.content,
         stageStatus: "已停止"
       })),
       session

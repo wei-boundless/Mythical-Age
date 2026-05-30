@@ -62,8 +62,10 @@ export class WorkspaceRuntime {
   private orchestrationMonitorSessionId: string | null = null;
   private orchestrationMonitorInFlight = false;
   private taskGraphMonitorTimer: number | null = null;
+  private taskGraphAutoAdvanceTimer: number | null = null;
   private taskGraphMonitorGraphRunId: string | null = null;
   private taskGraphMonitorInFlight = false;
+  private taskGraphAutoAdvanceInFlight = false;
   private globalRuntimeMonitorTimer: number | null = null;
   private globalRuntimeMonitorInFlight = false;
   private globalRuntimeMonitorPolling = false;
@@ -177,6 +179,9 @@ export class WorkspaceRuntime {
       },
       setTaskGraphRunInteractionOpen: (open) => {
         this.setTaskGraphRunInteractionOpen(open);
+      },
+      setTaskGraphAutoAdvanceEnabled: (enabled) => {
+        this.setTaskGraphAutoAdvanceEnabled(enabled);
       },
       evaluateBoundTaskGraphMonitor: async () => {
         await this.evaluateBoundTaskGraphMonitor();
@@ -1466,10 +1471,13 @@ export class WorkspaceRuntime {
 
   private clearTaskGraphMonitorRun() {
     this.stopTaskGraphMonitorPolling();
+    this.stopTaskGraphAutoAdvance();
     this.store.setState((prev) => ({
       ...prev,
       taskGraphMonitorBinding: null,
       taskGraphBoundRunMonitor: null,
+      taskGraphAutoAdvanceEnabled: false,
+      taskGraphAutoAdvancePending: false,
       taskGraphMonitorError: "",
       taskGraphRunInteractionOpen: false,
     }));
@@ -1485,6 +1493,42 @@ export class WorkspaceRuntime {
     if (!open && !binding?.graph_run_id) {
       this.stopTaskGraphMonitorPolling();
     }
+  }
+
+  private setTaskGraphAutoAdvanceEnabled(enabled: boolean) {
+    if (!enabled) {
+      this.stopTaskGraphAutoAdvance();
+      this.store.setState((prev) => ({
+        ...prev,
+        taskGraphAutoAdvanceEnabled: false,
+        taskGraphAutoAdvancePending: false,
+      }));
+      return;
+    }
+    this.store.setState((prev) => ({
+      ...prev,
+      taskGraphAutoAdvanceEnabled: true,
+      taskGraphMonitorError: "",
+    }));
+    const state = this.store.getState();
+    if (state.taskGraphBoundRunMonitor) {
+      this.scheduleTaskGraphAutoAdvance(state.taskGraphBoundRunMonitor);
+    } else {
+      void this.evaluateBoundTaskGraphMonitor().then(() => {
+        const nextState = this.store.getState();
+        if (nextState.taskGraphAutoAdvanceEnabled && nextState.taskGraphBoundRunMonitor) {
+          this.scheduleTaskGraphAutoAdvance(nextState.taskGraphBoundRunMonitor);
+        }
+      });
+    }
+  }
+
+  private stopTaskGraphAutoAdvance() {
+    if (typeof window !== "undefined" && this.taskGraphAutoAdvanceTimer !== null) {
+      window.clearTimeout(this.taskGraphAutoAdvanceTimer);
+    }
+    this.taskGraphAutoAdvanceTimer = null;
+    this.taskGraphAutoAdvanceInFlight = false;
   }
 
   private stopTaskGraphMonitorPolling() {
@@ -1544,6 +1588,7 @@ export class WorkspaceRuntime {
           taskGraphBoundRunMonitor: monitor,
           taskGraphMonitorError: "",
         }));
+        this.scheduleTaskGraphAutoAdvance(monitor);
       }
     } catch (error) {
       if (this.taskGraphMonitorGraphRunId === targetGraphRunId) {
@@ -1611,6 +1656,76 @@ export class WorkspaceRuntime {
         taskGraphMonitorError: error instanceof Error ? error.message : "续跑失败",
       }));
     } finally {
+      this.store.setState((prev) => ({ ...prev, taskGraphMonitorActionLoading: false }));
+    }
+  }
+
+  private scheduleTaskGraphAutoAdvance(monitor: Awaited<ReturnType<typeof getGraphRunMonitor>>) {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const state = this.store.getState();
+    if (!state.taskGraphAutoAdvanceEnabled || this.taskGraphAutoAdvanceInFlight || this.taskGraphAutoAdvanceTimer !== null) {
+      return;
+    }
+    const loopState = monitor.graph_loop_state && typeof monitor.graph_loop_state === "object"
+      ? monitor.graph_loop_state as Record<string, unknown>
+      : {};
+    const readyNodeIds = Array.isArray(loopState.ready_node_ids) ? loopState.ready_node_ids : [];
+    const runningNodeIds = Array.isArray(loopState.running_node_ids) ? loopState.running_node_ids : [];
+    const status = String(loopState.status || monitor.task_run?.status || monitor.graph_run?.status || "").toLowerCase();
+    const activeWorkOrderCount = Number(monitor.active_node_work_order_count ?? (Array.isArray(monitor.active_node_work_orders) ? monitor.active_node_work_orders.length : 0));
+    const terminal = ["completed", "succeeded", "success", "failed", "cancelled", "canceled", "stopped"].includes(status);
+    if (terminal || readyNodeIds.length === 0 || runningNodeIds.length > 0 || activeWorkOrderCount > 0) {
+      this.store.setState((prev) => ({ ...prev, taskGraphAutoAdvancePending: false }));
+      return;
+    }
+    const binding = state.taskGraphMonitorBinding;
+    const graphRunId = String(binding?.graph_run_id || monitor.graph_run_id || "").trim();
+    const graphHarnessConfigId = String(binding?.graph_harness_config_id || loopState.config_id || "").trim();
+    if (!graphRunId || !graphHarnessConfigId) {
+      this.store.setState((prev) => ({ ...prev, taskGraphAutoAdvancePending: false }));
+      return;
+    }
+    this.store.setState((prev) => ({ ...prev, taskGraphAutoAdvancePending: true }));
+    this.taskGraphAutoAdvanceTimer = window.setTimeout(() => {
+      this.taskGraphAutoAdvanceTimer = null;
+      void this.runTaskGraphAutoAdvance(graphRunId, graphHarnessConfigId);
+    }, 2500);
+  }
+
+  private async runTaskGraphAutoAdvance(graphRunId: string, graphHarnessConfigId: string) {
+    const state = this.store.getState();
+    if (!state.taskGraphAutoAdvanceEnabled || this.taskGraphAutoAdvanceInFlight) {
+      this.store.setState((prev) => ({ ...prev, taskGraphAutoAdvancePending: false }));
+      return;
+    }
+    this.taskGraphAutoAdvanceInFlight = true;
+    this.store.setState((prev) => ({
+      ...prev,
+      taskGraphAutoAdvancePending: false,
+      taskGraphMonitorActionLoading: true,
+      taskGraphMonitorError: "",
+    }));
+    try {
+      await runGraphRunUntilIdle(graphRunId, {
+        graph_harness_config_id: graphHarnessConfigId,
+        max_dispatch_requests: 1,
+      });
+      const monitor = await getGraphRunMonitor(graphRunId, graphHarnessConfigId);
+      this.store.setState((prev) => ({
+        ...prev,
+        taskGraphBoundRunMonitor: monitor,
+      }));
+      this.scheduleTaskGraphAutoAdvance(monitor);
+    } catch (error) {
+      this.store.setState((prev) => ({
+        ...prev,
+        taskGraphAutoAdvanceEnabled: false,
+        taskGraphMonitorError: error instanceof Error ? error.message : "自动推进失败",
+      }));
+    } finally {
+      this.taskGraphAutoAdvanceInFlight = false;
       this.store.setState((prev) => ({ ...prev, taskGraphMonitorActionLoading: false }));
     }
   }
@@ -1903,7 +2018,13 @@ export class WorkspaceRuntime {
       ? taskRun.diagnostics as Record<string, unknown>
       : {};
     const taskIdForAnchor = String(monitor.task_id ?? taskRun.task_id ?? "").trim();
-    const anchorTurnId = this.turnIdFromTaskRunId(taskRunId)
+    const latestInteractionTurnId = String(
+      (monitor as Record<string, unknown>).latest_interaction_turn_id
+      ?? taskRunDiagnostics.latest_interaction_turn_id
+      ?? "",
+    ).trim();
+    const anchorTurnId = latestInteractionTurnId
+      || this.turnIdFromTaskRunId(taskRunId)
       || String(taskRunDiagnostics.turn_id ?? taskIdForAnchor).trim().replace(/^task:/, "");
     const latestProgressEntry = this.runtimeProgressEntryFromMonitor(monitor, taskRunId);
     const attachment: SessionRuntimeAttachment = {

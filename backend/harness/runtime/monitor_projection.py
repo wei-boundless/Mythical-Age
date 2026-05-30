@@ -32,6 +32,7 @@ class TaskRunMonitorProjector:
         events = self._recent_events(str(getattr(task_run, "task_run_id", "") or ""), limit=240)
         latest_event = events[-1].to_dict() if events else {}
         latest_step = self._latest_step_summary(events)
+        latest_interaction_turn_id = _latest_interaction_turn_id(events, diagnostics=dict(getattr(task_run, "diagnostics", {}) or {}))
         event_count = self._event_count(str(getattr(task_run, "task_run_id", "") or ""), events=events)
         diagnostics = dict(getattr(task_run, "diagnostics", {}) or {})
         created_at = float(getattr(task_run, "created_at", 0.0) or 0.0)
@@ -128,6 +129,7 @@ class TaskRunMonitorProjector:
             "latest_step": latest_step,
             "latest_step_summary": summary,
             "latest_public_progress_note": public_runtime_progress_summary(latest_step.get("public_progress_note") or summary),
+            "latest_interaction_turn_id": latest_interaction_turn_id,
             "agent_brief_output": agent_brief,
             "latest_step_name": str(latest_step.get("step") or diagnostics.get("latest_step") or ""),
             "latest_step_status": str(latest_step.get("status") or diagnostics.get("latest_step_status") or ""),
@@ -413,6 +415,38 @@ class TaskRunMonitorProjector:
 
 def _is_chat_scoped(*, task_run_id: str, task_id: str) -> bool:
     return task_run_id.startswith("turnrun:") or task_run_id.startswith("taskrun:turn:") or task_id.startswith("turn:") or task_id.startswith("task:turn:")
+
+
+def _latest_interaction_turn_id(events: list[Any], *, diagnostics: dict[str, Any]) -> str:
+    for event in reversed(events):
+        event_type = str(getattr(event, "event_type", "") or "")
+        payload = dict(getattr(event, "payload", {}) or {})
+        refs = dict(getattr(event, "refs", {}) or {})
+        if event_type in {
+            "user_work_instruction_recorded",
+            "active_task_steer_recorded",
+            "task_run_resume_requested",
+            "task_run_executor_scheduled",
+            "step_summary_recorded",
+            "task_run_checkout_created",
+        }:
+            steer = dict(payload.get("steer") or {})
+            submission = dict(payload.get("submission") or {})
+            for candidate in (
+                refs.get("turn_ref"),
+                payload.get("turn_id"),
+                submission.get("turn_id"),
+                steer.get("turn_id"),
+            ):
+                turn_id = _valid_turn_ref(candidate)
+                if turn_id:
+                    return turn_id
+    return _valid_turn_ref(diagnostics.get("latest_interaction_turn_id"))
+
+
+def _valid_turn_ref(value: Any) -> str:
+    candidate = str(value or "").strip()
+    return candidate if candidate.startswith("turn:") else ""
 
 
 def _looks_internal_identifier(value: str) -> bool:

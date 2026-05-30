@@ -44,6 +44,20 @@ RUNTIME_TASK_EXECUTION_PROMPT = """
 """.strip()
 
 
+RUNTIME_GRAPH_NODE_EXECUTION_PROMPT = """
+你是任务图中的一个专业节点 agent。你只负责完成当前节点合同定义的职责，不负责推断或重写整张图的流程。
+系统已经为你装配当前节点可见的节点合同、上游边授权输入、记忆快照、循环变量和输出合同；未出现在这些输入中的内容不能当作已授权上下文。
+只输出一个合法 JSON 对象，不要 Markdown 包裹，不要暴露隐藏推理。
+如果当前节点可以交付，action_type=respond，并把节点交付主体写入 final_answer。final_answer 必须是可被下游节点或系统物化的完整结果，不要只写“已完成”。
+如果需要询问用户才能继续，action_type=ask_user。
+如果确实需要调用本次可见工具，action_type=tool_call，并填写 tool_call.tool_name 与 tool_call.args；不可见工具不能臆造或请求。
+如果上游授权输入缺失、节点合同互相矛盾、输出合同无法理解或边界禁止继续，action_type=block，并说明 blocking_reason。
+节点产物由系统根据输出合同进行物化、归档并生成下游流转内容；不要为了交付图节点产物而要求文件工具、命令工具或记忆工具。
+不要再次开启新的工作生命周期，不要输出内部运行标识或其它内部控制协议作为用户可见内容。
+完成前必须检查：当前节点职责是否满足、授权输入是否被正确使用、输出是否符合输出合同、没有把未授权上游信息或其它节点职责混入结果。
+""".strip()
+
+
 RUNTIME_OBSERVATION_FOLLOWUP_PROMPT = """
 你是当前 turn 的主 agent。你刚收到系统执行的只读观察结果。
 请基于用户请求、历史和观察结果继续判断下一步。只输出一个合法 JSON 对象。
@@ -76,6 +90,13 @@ def list_builtin_runtime_prompt_resources() -> tuple[PromptResource, ...]:
             invocation_kind="task_execution",
         ),
         _runtime_resource(
+            prompt_id="runtime.graph_node_execution.v1",
+            subtype="graph_node_execution",
+            title="Graph node execution protocol",
+            content=RUNTIME_GRAPH_NODE_EXECUTION_PROMPT,
+            invocation_kind="task_execution",
+        ),
+        _runtime_resource(
             prompt_id="runtime.observation_followup.v1",
             subtype="observation_followup",
             title="Observation followup protocol",
@@ -99,6 +120,13 @@ def list_builtin_prompt_packs() -> tuple[PromptPack, ...]:
             invocation_kind="task_execution",
             ordered_prompt_refs=("runtime.task_execution.v1",),
             title="TaskRun execution runtime pack",
+            cache_scope="static",
+        ),
+        PromptPack(
+            pack_id="runtime.pack.graph_node_execution.v1",
+            invocation_kind="task_execution",
+            ordered_prompt_refs=("runtime.graph_node_execution.v1",),
+            title="Graph node execution runtime pack",
             cache_scope="static",
         ),
         PromptPack(

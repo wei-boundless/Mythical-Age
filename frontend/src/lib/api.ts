@@ -135,6 +135,15 @@ export type CodeEnvironmentWorkspaceTree = {
   tree: CodeEnvironmentTreeNode;
 };
 
+export type CodeEnvironmentGitStatus = {
+  authority: string;
+  available: boolean;
+  branch: string;
+  items: Array<{ status: string; path: string }>;
+  changed_count?: number;
+  error?: string;
+};
+
 export type PiSidecarStatus = {
   running: boolean;
   pid?: number | null;
@@ -3979,6 +3988,10 @@ export async function getCodeEnvironmentWorkspaceTree(options: {
     max_entries: String(options.maxEntries || 10000),
   });
   return request<CodeEnvironmentWorkspaceTree>(`/code-environment/workspace-tree?${params.toString()}`);
+}
+
+export async function getCodeEnvironmentGitStatus() {
+  return request<CodeEnvironmentGitStatus>("/code-environment/git-status");
 }
 
 export async function getPiSidecarStatus() {

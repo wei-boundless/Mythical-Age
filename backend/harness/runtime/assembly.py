@@ -26,6 +26,8 @@ class RuntimeAssemblyProfile:
     mode: RuntimeMode
     interaction_mode: str
     prompt_pack_refs: tuple[str, ...] = ()
+    prompt_pack_refs_by_invocation: dict[str, Any] = field(default_factory=dict)
+    operation_authorization_projection: dict[str, Any] = field(default_factory=dict)
     allowed_operations: tuple[str, ...] = ()
     interaction_policy: dict[str, Any] = field(default_factory=dict)
     tool_policy: dict[str, Any] = field(default_factory=dict)
@@ -45,6 +47,11 @@ class RuntimeAssemblyProfile:
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["prompt_pack_refs"] = list(self.prompt_pack_refs)
+        payload["prompt_pack_refs_by_invocation"] = {
+            str(key): [str(item) for item in list(value or []) if str(item)]
+            for key, value in dict(self.prompt_pack_refs_by_invocation or {}).items()
+        }
+        payload["operation_authorization_projection"] = dict(self.operation_authorization_projection or {})
         payload["allowed_operations"] = list(self.allowed_operations)
         return payload
 
@@ -235,6 +242,8 @@ def build_runtime_assembly_profile(
         mode=normalized if normalized in {ROLE_MODE, STANDARD_MODE, PROFESSIONAL_MODE, CUSTOM_MODE} else "custom",
         interaction_mode=interaction_mode,
         prompt_pack_refs=_string_tuple(mode_policy.get("prompt_pack_refs")),
+        prompt_pack_refs_by_invocation=dict(mode_policy.get("prompt_pack_refs_by_invocation") or {}),
+        operation_authorization_projection=dict(mode_policy.get("operation_authorization_projection") or {}),
         allowed_operations=base_operations,
         interaction_policy=dict(mode_policy.get("interaction_policy") or {}),
         tool_policy=tool_policy,
@@ -338,6 +347,8 @@ def _resolved_mode_runtime_policy(
             "approval_policy": dict(preset.get("approval_policy") or {}),
             "artifact_policy": dict(preset.get("artifact_policy") or {}),
             "soul_prompt_policy": dict(preset.get("soul_prompt_policy") or {}),
+            "prompt_pack_refs_by_invocation": dict(preset.get("prompt_pack_refs_by_invocation") or {}),
+            "operation_authorization_projection": dict(preset.get("operation_authorization_projection") or {}),
         },
         profile_default,
         explicit_policy,

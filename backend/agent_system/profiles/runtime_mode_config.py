@@ -30,6 +30,7 @@ class AgentRuntimeModeConfig:
     self_review_policy: dict[str, Any] | None = None
     step_summary_policy: dict[str, Any] | None = None
     approval_policy: dict[str, Any] | None = None
+    prompt_pack_refs_by_invocation: dict[str, Any] | None = None
     builtin: bool = True
     editable: bool = False
     description: str = ""
@@ -53,11 +54,21 @@ MODE_CONFIGS: dict[str, AgentRuntimeModeConfig] = {
         planning_policy={"plan_mode": "disabled", "specified_plan_allowed": False},
         task_lifecycle_policy={"request_task_run": False, "requires_completion_evidence": False},
         tool_exposure_policy={},
-        context_policy={"history_scope": "conversation", "task_context": "disabled"},
+        context_policy={
+            "history_scope": "conversation",
+            "task_context": "disabled",
+            "task_run_context": "disabled",
+            "active_work_context": "disabled",
+        },
         memory_policy={"read_scope": "conversation_readonly", "write_scope": "none"},
         self_review_policy={"enabled": False, "before_final": "basic_consistency"},
         step_summary_policy={"enabled": True, "detail": "compact"},
         approval_policy={"permission_scope": "role_conversation_readonly"},
+        prompt_pack_refs_by_invocation={
+            "turn_action": ("runtime.pack.turn_action.v1",),
+            "task_execution": ("runtime.pack.task_execution.v1",),
+            "tool_observation_followup": ("runtime.pack.observation_followup.v1",),
+        },
     ),
     STANDARD_MODE: AgentRuntimeModeConfig(
         mode=STANDARD_MODE,
@@ -73,11 +84,21 @@ MODE_CONFIGS: dict[str, AgentRuntimeModeConfig] = {
         planning_policy={"plan_mode": "disabled", "specified_plan_allowed": False},
         task_lifecycle_policy={"request_task_run": True, "requires_completion_evidence": True},
         tool_exposure_policy={},
-        context_policy={"history_scope": "conversation_and_task", "task_context": "available"},
+        context_policy={
+            "history_scope": "conversation_and_task",
+            "task_context": "available",
+            "task_run_context": "enabled",
+            "active_work_context": "available",
+        },
         memory_policy={"read_scope": "agent_profile", "write_scope": "candidate_only"},
         self_review_policy={"enabled": True, "before_final": "check_answer_or_task_state"},
         step_summary_policy={"enabled": True, "detail": "compact"},
         approval_policy={"permission_scope": "standard_agent_profile_ceiling"},
+        prompt_pack_refs_by_invocation={
+            "turn_action": ("runtime.pack.turn_action.v1",),
+            "task_execution": ("runtime.pack.task_execution.v1",),
+            "tool_observation_followup": ("runtime.pack.observation_followup.v1",),
+        },
     ),
     PROFESSIONAL_MODE: AgentRuntimeModeConfig(
         mode=PROFESSIONAL_MODE,
@@ -94,7 +115,12 @@ MODE_CONFIGS: dict[str, AgentRuntimeModeConfig] = {
         planning_policy={"plan_mode": "available", "specified_plan_allowed": True, "todo_required_when_task_run": True},
         task_lifecycle_policy={"request_task_run": True, "requires_completion_evidence": True, "artifact_evidence_required": True},
         tool_exposure_policy={},
-        context_policy={"history_scope": "conversation_task_and_recovery", "task_context": "required_for_task_run"},
+        context_policy={
+            "history_scope": "conversation_task_and_recovery",
+            "task_context": "required_for_task_run",
+            "task_run_context": "enabled",
+            "active_work_context": "required_for_task_run",
+        },
         memory_policy={"read_scope": "agent_profile", "write_scope": "candidate_with_receipt"},
         self_review_policy={
             "enabled": True,
@@ -103,6 +129,11 @@ MODE_CONFIGS: dict[str, AgentRuntimeModeConfig] = {
         },
         step_summary_policy={"enabled": True, "detail": "stepwise"},
         approval_policy={"permission_scope": "professional_agent_profile_ceiling"},
+        prompt_pack_refs_by_invocation={
+            "turn_action": ("runtime.pack.turn_action.v1",),
+            "task_execution": ("runtime.pack.task_execution.v1",),
+            "tool_observation_followup": ("runtime.pack.observation_followup.v1",),
+        },
     ),
     CUSTOM_MODE: AgentRuntimeModeConfig(
         mode=CUSTOM_MODE,

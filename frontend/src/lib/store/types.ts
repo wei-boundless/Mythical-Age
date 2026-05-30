@@ -118,6 +118,7 @@ export type SkillSummary = {
 
 export type WorkspaceView =
   | "chat"
+  | "creative"
   | "memory"
   | "health-system"
   | "capability-system"
@@ -267,6 +268,8 @@ export type StoreState = {
   taskGraphBoundRunMonitor: GraphRunMonitorView | null;
   taskGraphMonitorLoading: boolean;
   taskGraphMonitorActionLoading: boolean;
+  taskGraphAutoAdvanceEnabled: boolean;
+  taskGraphAutoAdvancePending: boolean;
   taskGraphMonitorError: string;
   taskGraphRunInteractionOpen: boolean;
   orchestrationInspectorTarget: OrchestrationInspectorTarget | null;
@@ -305,6 +308,7 @@ export type StoreActions = {
   bindTaskGraphMonitorRun: (binding: Omit<TaskGraphMonitorBinding, "bound_at"> & { bound_at?: number }) => void;
   clearTaskGraphMonitorRun: () => void;
   setTaskGraphRunInteractionOpen: (open: boolean) => void;
+  setTaskGraphAutoAdvanceEnabled: (enabled: boolean) => void;
   evaluateBoundTaskGraphMonitor: () => Promise<void>;
   continueBoundTaskGraphRun: () => Promise<void>;
   resumeTaskGraphRun: (taskGraphRunId: string, payload?: Record<string, unknown>) => Promise<void>;

@@ -752,6 +752,54 @@ describe("WorkspaceRuntime task graph monitor polling", () => {
     expect(attachment?.progress_entries?.map((item) => item.id)).toEqual(["step:packet", "step:model"]);
   });
 
+  it("anchors resumed task progress to the turn that resumed it", async () => {
+    const taskRunId = "taskrun:turn:session:live:1:abc";
+    const store = createStore<StoreState>({
+      ...getDefaultState(),
+      currentSessionId: "session:live",
+      messages: [
+        { id: "user:1", role: "user", content: "开始任务", toolCalls: [], retrievals: [], sourceIndex: 0 },
+        { id: "assistant:1", role: "assistant", content: "任务已接管", toolCalls: [], retrievals: [], sourceIndex: 1 },
+        { id: "user:2", role: "user", content: "继续", toolCalls: [], retrievals: [], sourceIndex: 2 },
+        { id: "assistant:2", role: "assistant", content: "我会继续处理当前工作。", toolCalls: [], retrievals: [], sourceIndex: 3 },
+      ],
+    });
+    const runtime = new WorkspaceRuntime(store) as unknown as {
+      hydrateLatestOrchestrationSnapshot: (sessionId: string) => Promise<boolean>;
+    };
+    api.getOrchestrationHarnessSessionLiveMonitor.mockResolvedValueOnce({
+      active_task_run_id: taskRunId,
+      monitor: {
+        task_run_id: taskRunId,
+        session_id: "session:live",
+        status: "running",
+        event_count: 3,
+        latest_interaction_turn_id: "turn:session:live:3",
+        latest_step: {
+          event_id: "step:resume",
+          step: "task_executor_scheduled",
+          status: "running",
+          created_at: 3,
+        },
+        latest_step_summary: "已开始继续处理；接下来会持续汇报正在推进的步骤。",
+        latest_event: { event_type: "step_summary_recorded" },
+        updated_at: 3,
+        task_run: {
+          task_run_id: taskRunId,
+          task_id: "task:turn:session:live:1",
+          status: "running",
+        },
+      },
+      task_runs: [],
+    });
+
+    await runtime.hydrateLatestOrchestrationSnapshot("session:live");
+
+    expect(store.getState().messages[1]?.runtimeAttachments ?? []).toHaveLength(0);
+    expect(store.getState().messages[3]?.runtimeAttachments?.[0]?.anchor_turn_id).toBe("turn:session:live:3");
+    expect(store.getState().messages[3]?.runtimeAttachments?.[0]?.progress_entries?.[0]?.id).toBe("step:resume");
+  });
+
   it("controls the active session task run from chat actions", async () => {
     const taskRunId = "taskrun:turn:session-control:1:abc";
     const store = createStore<StoreState>({

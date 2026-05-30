@@ -22,6 +22,7 @@ ActiveWorkTurnAction = Literal[
     "ask_user",
     "start_new_work",
     "normal_response",
+    "answer_then_continue_active_work",
 ]
 
 _ALLOWED_ACTIONS: set[str] = {
@@ -33,9 +34,20 @@ _ALLOWED_ACTIONS: set[str] = {
     "ask_user",
     "start_new_work",
     "normal_response",
+    "answer_then_continue_active_work",
+}
+_CURRENT_WORK_ACTIONS = {
+    "continue_active_work",
+    "pause_active_work",
+    "stop_active_work",
+    "append_instruction_to_active_work",
+    "answer_about_active_work",
+    "ask_user",
+    "answer_then_continue_active_work",
 }
 _ACTIVE_WORK_STATUSES = {"created", "running", "waiting_executor", "waiting_approval", "blocked"}
 _TERMINAL_STATUSES = {"completed", "success", "failed", "aborted", "cancelled", "error"}
+_MIN_CURRENT_WORK_CONFIDENCE = 0.65
 _CHECKOUTABLE_TERMINAL_REASONS = {
     "user_aborted",
     "stream_cancelled",
@@ -121,6 +133,12 @@ class ActiveWorkTurnDecision:
     appended_instruction: str = ""
     reason: str = ""
     confidence: float = 0.0
+    relation_to_current_work: str = "ambiguous"
+    evidence: str = ""
+    turn_response_policy: str = ""
+    user_turn_kind: str = "ambiguous"
+    answer_obligation: str = "unspecified"
+    continuation_strategy: str = ""
     authority: str = "harness.loop.active_work_turn_decision"
 
     def to_dict(self) -> dict[str, Any]:
@@ -221,21 +239,46 @@ async def decide_active_work_turn(
     invoker = getattr(model_runtime, "invoke_messages", None)
     if not callable(invoker):
         return ActiveWorkTurnDecision(
-            action="ask_user",
-            response="我需要确认一下：你是要继续处理当前这件事，还是开始新的请求？",
+            action="normal_response",
+            response="",
             reason="model_runtime_unavailable",
         )
     messages = [
         {
             "role": "system",
             "content": (
-                "你负责判断用户这一句话和当前正在处理的工作之间的关系。\n"
+                "你负责判断用户这一句话在对话中应该如何处理：直接回答用户，或在回答用户后控制当前工作。\n"
                 "用户仍然是在和同一个助手对话；不要把内部运行状态、执行器、TaskRun 或协议细节说给用户。\n"
+                "当前工作只是候选上下文，不是默认接管本轮输入的理由。\n"
+                "断点、暂停、可续跑或可 checkout 只说明存在一个可参考的工作候选，不能单独成为继续工作的理由；"
+                "是否继续、回答、开始新目标或保持普通对话，必须根据用户本轮原话、会话上下文和当前工作摘要综合判断。\n"
+                "硬性规则：每一轮都必须形成用户可见的自然语言回复；禁止选择只控制当前工作、不给用户回复的处理方式。\n"
+                "交互优先级：用户的问题、质疑、追问、抱怨、要求解释耗时或问是否完成，都必须先得到自然语言回答；"
+                "只有用户明确下达继续、暂停、停止、改方向等控制命令时，才可以在回复后控制当前工作。\n"
                 "请只输出一个 JSON 对象，不要输出 Markdown。\n"
                 "可选 action：continue_active_work、pause_active_work、stop_active_work、"
-                "append_instruction_to_active_work、answer_about_active_work、ask_user、start_new_work、normal_response。\n"
-                "判断规则：如果用户是在让当前工作继续、暂停、停止、补充方向、询问进度，应选择对应当前工作的动作；"
-                "如果用户明确开启无关新目标，选择 start_new_work；如果只是普通闲聊且不涉及当前工作，选择 normal_response。\n"
+                "append_instruction_to_active_work、answer_about_active_work、ask_user、start_new_work、normal_response、"
+                "answer_then_continue_active_work。\n"
+                "你必须先判断本轮响应策略 turn_response_policy：answer_only、answer_then_active_work；不能输出只控制当前工作的策略。\n"
+                "你还必须判断 user_turn_kind：question、complaint、command、mixed、statement、ambiguous；"
+                "并判断 answer_obligation：direct_answer_required、acknowledgement_only、none。\n"
+                "如果 action 会继续或追加当前工作，你必须判断 continuation_strategy："
+                "same_run_resume、checkout_fork、already_running、defer、none。"
+                "same_run_resume 表示继续同一个可续跑工作；checkout_fork 表示当前工作已中断、停止或失败，需要从断点创建新的继续尝试；"
+                "already_running 表示工作仍在跑，只记录补充指令或回复状态；defer 表示本轮不应恢复执行，先回答或询问用户；none 表示本轮不涉及继续。\n"
+                "判断规则：如果用户当前更需要直接回答，选择 normal_response；如果用户只是在明确控制当前工作，选择对应当前工作的动作，"
+                "但 response 仍然要给出简短自然确认；"
+                "如果用户是在询问当前工作的状态、进展、是否完成、是否修复、为什么这么久，或表达对耗时的不满，选择 answer_about_active_work，不要选择 continue_active_work；"
+                "如果用户的问题需要先得到直接回答，同时又明确希望当前工作继续，选择 answer_then_continue_active_work；"
+                "continue_active_work 只用于用户本轮主要是在下达继续推进的命令，不用于回答用户的问题；"
+                "如果用户在断点后提出的是无关问题、闲聊、配置切换、角色对话或新的目标，不要继续旧工作；按语义选择 normal_response 或 start_new_work。\n"
+                "如果用户明确开启无关新目标，选择 start_new_work；如果只是普通闲聊、普通问答或不涉及当前工作，选择 normal_response。\n"
+                "当 action 是 answer_about_active_work 时，response 必须像正常助手回复：直接回应用户关切，说明当前状态、最近进展和耗时原因；"
+                "不要只说“继续推进”，也不要把运行进展当作表格或系统状态播报。\n"
+                "当 action 是 continue_active_work、pause_active_work、stop_active_work 或 append_instruction_to_active_work 时，"
+                "response 必须是给用户看的自然确认，turn_response_policy 必须是 answer_then_active_work。\n"
+                "只有当用户原话有足够证据指向当前工作时，relation_to_current_work 才能是 current_work；"
+                "不能因为会话里存在当前工作就推断用户一定在说它。\n"
                 "不要依赖单个关键词，必须结合当前工作状态和用户原话判断。"
             ),
         },
@@ -250,6 +293,12 @@ async def decide_active_work_turn(
                     "output_contract": {
                         "authority": "harness.loop.active_work_turn_decision",
                         "action": "one_allowed_action",
+                        "turn_response_policy": "answer_only | answer_then_active_work",
+                        "user_turn_kind": "question | complaint | command | mixed | statement | ambiguous",
+                        "answer_obligation": "direct_answer_required | acknowledgement_only | none",
+                        "continuation_strategy": "same_run_resume | checkout_fork | already_running | defer | none",
+                        "relation_to_current_work": "current_work | independent_turn | ambiguous",
+                        "evidence": "引用用户原话中能证明它指向当前工作的短语；无证据时留空",
                         "response": "给用户看的简短自然回复；不能包含内部协议名",
                         "appended_instruction": "当 action 为 append_instruction_to_active_work 时，写入用户补充指令原意",
                         "reason": "简短判断依据",
@@ -274,8 +323,8 @@ async def decide_active_work_turn(
         )
     except Exception:
         return ActiveWorkTurnDecision(
-            action="ask_user",
-            response="我需要确认一下：你是要继续处理当前这件事，还是开始新的请求？",
+            action="normal_response",
+            response="",
             reason="active_work_decision_model_failed",
         )
     return active_work_turn_decision_from_payload(
@@ -290,8 +339,8 @@ def active_work_turn_decision_from_payload(payload: dict[str, Any] | None, *, us
     action = str(raw.get("action") or raw.get("intent") or "").strip()
     if authority != "harness.loop.active_work_turn_decision" or action not in _ALLOWED_ACTIONS:
         return ActiveWorkTurnDecision(
-            action="ask_user",
-            response="我需要确认一下：你是要继续处理当前这件事，还是开始新的请求？",
+            action="normal_response",
+            response="",
             reason="active_work_turn_decision_invalid",
         )
     response = public_active_work_text(str(raw.get("response") or ""))
@@ -302,13 +351,155 @@ def active_work_turn_decision_from_payload(payload: dict[str, Any] | None, *, us
         confidence = float(raw.get("confidence") or 0.0)
     except (TypeError, ValueError):
         confidence = 0.0
+    relation_to_current_work = _normalize_relation_to_current_work(
+        raw.get("relation_to_current_work") or raw.get("relation")
+    )
+    evidence = str(raw.get("evidence") or raw.get("routing_evidence") or "").strip()
+    turn_response_policy = _normalize_turn_response_policy(raw.get("turn_response_policy"), action=action)
+    user_turn_kind = _normalize_user_turn_kind(raw.get("user_turn_kind") or raw.get("turn_kind") or raw.get("utterance_kind"))
+    answer_obligation = _normalize_answer_obligation(
+        raw.get("answer_obligation") or raw.get("response_obligation"),
+        user_turn_kind=user_turn_kind,
+        turn_response_policy=turn_response_policy,
+        action=action,
+    )
+    continuation_strategy = _normalize_continuation_strategy(
+        raw.get("continuation_strategy") or raw.get("resume_strategy") or raw.get("continuation_mode"),
+        action=action,
+    )
+    if action in _CURRENT_WORK_ACTIONS and not _current_work_route_established(
+        relation_to_current_work=relation_to_current_work,
+        evidence=evidence,
+        confidence=confidence,
+    ):
+        return ActiveWorkTurnDecision(
+            action="normal_response",
+            response="",
+            reason="active_work_relation_not_established",
+            confidence=confidence,
+            relation_to_current_work=relation_to_current_work,
+            evidence=evidence,
+            turn_response_policy=turn_response_policy,
+            user_turn_kind=user_turn_kind,
+            answer_obligation=answer_obligation,
+            continuation_strategy=continuation_strategy,
+        )
+    if action in {"continue_active_work", "append_instruction_to_active_work"} and answer_obligation == "direct_answer_required":
+        return ActiveWorkTurnDecision(
+            action="answer_about_active_work",
+            response="",
+            appended_instruction=appended_instruction,
+            reason="active_work_direct_answer_required",
+            confidence=confidence,
+            relation_to_current_work=relation_to_current_work,
+            evidence=evidence,
+            turn_response_policy="answer_only",
+            user_turn_kind=user_turn_kind,
+            answer_obligation=answer_obligation,
+            continuation_strategy="none",
+        )
     return ActiveWorkTurnDecision(
         action=action,  # type: ignore[arg-type]
         response=response,
         appended_instruction=appended_instruction,
         reason=str(raw.get("reason") or "").strip(),
         confidence=confidence,
+        relation_to_current_work=relation_to_current_work,
+        evidence=evidence,
+        turn_response_policy=turn_response_policy,
+        user_turn_kind=user_turn_kind,
+        answer_obligation=answer_obligation,
+        continuation_strategy=continuation_strategy,
     )
+
+
+def _normalize_relation_to_current_work(value: Any) -> str:
+    relation = str(value or "").strip().lower()
+    if relation in {"current_work", "current", "active_work", "task", "same_work"}:
+        return "current_work"
+    if relation in {"independent_turn", "independent", "new_turn", "unrelated", "normal_response"}:
+        return "independent_turn"
+    return "ambiguous"
+
+
+def _current_work_route_established(*, relation_to_current_work: str, evidence: str, confidence: float) -> bool:
+    if relation_to_current_work != "current_work":
+        return False
+    if not str(evidence or "").strip():
+        return False
+    return confidence >= _MIN_CURRENT_WORK_CONFIDENCE
+
+
+def _normalize_turn_response_policy(value: Any, *, action: str) -> str:
+    policy = str(value or "").strip().lower()
+    if policy in {"answer_only", "answer_then_active_work"}:
+        return policy
+    if policy == "active_work_only":
+        return "answer_then_active_work"
+    if action == "answer_then_continue_active_work":
+        return "answer_then_active_work"
+    if action in {"normal_response", "start_new_work"}:
+        return "answer_only"
+    return "answer_then_active_work"
+
+
+def _normalize_user_turn_kind(value: Any) -> str:
+    kind = str(value or "").strip().lower()
+    if kind in {"question", "ask", "status_question", "progress_question"}:
+        return "question"
+    if kind in {"complaint", "frustration", "critique", "status_critique", "latency_complaint"}:
+        return "complaint"
+    if kind in {"command", "instruction", "control", "request"}:
+        return "command"
+    if kind in {"mixed", "question_and_command", "ask_then_command"}:
+        return "mixed"
+    if kind in {"statement", "chat", "comment"}:
+        return "statement"
+    return "ambiguous"
+
+
+def _normalize_answer_obligation(value: Any, *, user_turn_kind: str, turn_response_policy: str, action: str) -> str:
+    obligation = str(value or "").strip().lower()
+    if obligation in {"direct_answer_required", "answer_required", "must_answer", "answer_user_first"}:
+        return "direct_answer_required"
+    if obligation in {"acknowledgement_only", "ack_only", "ack"}:
+        return "acknowledgement_only"
+    if obligation in {"none", "no_answer_required"}:
+        return "none"
+    if user_turn_kind in {"question", "complaint", "mixed"}:
+        return "direct_answer_required"
+    if action == "answer_then_continue_active_work":
+        return "direct_answer_required"
+    if action in {"continue_active_work", "append_instruction_to_active_work", "pause_active_work", "stop_active_work"}:
+        return "acknowledgement_only"
+    if turn_response_policy == "answer_then_active_work":
+        return "acknowledgement_only"
+    return "unspecified"
+
+
+def _normalize_continuation_strategy(value: Any, *, action: str) -> str:
+    strategy = str(value or "").strip().lower()
+    aliases = {
+        "continue_same_run": "same_run_resume",
+        "same_run": "same_run_resume",
+        "resume": "same_run_resume",
+        "resume_same_task": "same_run_resume",
+        "fork": "checkout_fork",
+        "checkout": "checkout_fork",
+        "resume_from_checkpoint": "checkout_fork",
+        "running": "already_running",
+        "record_instruction": "already_running",
+        "wait": "defer",
+        "ask_first": "defer",
+        "no_resume": "none",
+        "normal_response": "none",
+    }
+    strategy = aliases.get(strategy, strategy)
+    if strategy in {"same_run_resume", "checkout_fork", "already_running", "defer", "none"}:
+        return strategy
+    if action in {"normal_response", "start_new_work", "answer_about_active_work", "ask_user", "pause_active_work", "stop_active_work"}:
+        return "none"
+    return ""
 
 
 def public_active_work_text(value: str) -> str:
@@ -377,6 +568,8 @@ def default_reply_for_action(action: str, context: ActiveWorkContext) -> str:
         return "收到，我会按这个补充方向继续处理。"
     if action == "answer_about_active_work":
         return active_work_status_reply(context)
+    if action == "answer_then_continue_active_work":
+        return "我先回答你这句话，然后继续处理当前工作。"
     return "我需要确认一下：你是要继续处理当前这件事，还是开始新的请求？"
 
 

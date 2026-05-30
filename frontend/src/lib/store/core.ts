@@ -97,6 +97,8 @@ export function getDefaultState(): StoreState {
     taskGraphBoundRunMonitor: null,
     taskGraphMonitorLoading: false,
     taskGraphMonitorActionLoading: false,
+    taskGraphAutoAdvanceEnabled: false,
+    taskGraphAutoAdvancePending: false,
     taskGraphMonitorError: "",
     taskGraphRunInteractionOpen: false,
     orchestrationInspectorTarget: null,

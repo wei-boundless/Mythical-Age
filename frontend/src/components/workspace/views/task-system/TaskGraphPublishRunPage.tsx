@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2, MessageSquareShare, PlayCircle, RefreshCw, Save, Send, TriangleAlert } from "lucide-react";
+import { CheckCircle2, MessageSquareShare, PauseCircle, PlayCircle, RefreshCw, Save, Send, TriangleAlert } from "lucide-react";
 
 import {
   compileTaskSystemTaskGraphContract,
@@ -104,9 +104,13 @@ export function TaskGraphPublishRunPage({
     continueBoundTaskGraphRun,
     evaluateBoundTaskGraphMonitor,
     setTaskGraphRunInteractionOpen,
+    setTaskGraphAutoAdvanceEnabled,
+    taskGraphAutoAdvanceEnabled,
+    taskGraphAutoAdvancePending,
     taskGraphBoundRunMonitor,
     taskGraphMonitorBinding,
     taskGraphMonitorError,
+    taskGraphMonitorActionLoading,
     taskGraphMonitorLoading,
   } = useAppStore();
   const [localGraphContract, setLocalGraphContract] = useState<TaskGraphContractPreview | null>(null);
@@ -489,8 +493,16 @@ export function TaskGraphPublishRunPage({
           <TaskSystemToolbarButton disabled={!taskGraphMonitorBinding || taskGraphMonitorLoading} onClick={() => void evaluateBoundTaskGraphMonitor()}>
             <TriangleAlert size={15} />执行一次监测
           </TaskSystemToolbarButton>
-          <TaskSystemToolbarButton disabled={!taskGraphMonitorBinding || taskGraphMonitorLoading} onClick={() => void continueBoundTaskGraphRun()}>
-            <PlayCircle size={15} />续跑当前阶段
+          <TaskSystemToolbarButton disabled={!taskGraphMonitorBinding || taskGraphMonitorLoading || taskGraphMonitorActionLoading} onClick={() => void continueBoundTaskGraphRun()}>
+            <PlayCircle size={15} />手动续跑一次
+          </TaskSystemToolbarButton>
+          <TaskSystemToolbarButton
+            disabled={!taskGraphMonitorBinding || taskGraphMonitorLoading || taskGraphMonitorActionLoading}
+            onClick={() => setTaskGraphAutoAdvanceEnabled(!taskGraphAutoAdvanceEnabled)}
+            variant={taskGraphAutoAdvanceEnabled ? "primary" : undefined}
+          >
+            {taskGraphAutoAdvanceEnabled ? <PauseCircle size={15} /> : <PlayCircle size={15} />}
+            {taskGraphAutoAdvanceEnabled ? "自动推进中" : "切到自动推进"}
           </TaskSystemToolbarButton>
           <TaskSystemToolbarButton disabled={!taskGraphMonitorBinding} onClick={() => setTaskGraphRunInteractionOpen(true)}>
             <MessageSquareShare size={15} />打开交互窗口
@@ -507,6 +519,16 @@ export function TaskGraphPublishRunPage({
             <span>创建运行或输入 TaskRun ID 后点击绑定，浮窗会按 TaskRun 独立轮询，不再跟随聊天会话。</span>
           </div>
         )}
+        <div className={taskGraphAutoAdvanceEnabled ? "task-graph-auto-advance task-graph-auto-advance--enabled" : "task-graph-auto-advance"}>
+          <strong>{taskGraphAutoAdvanceEnabled ? "自动推进已开启" : "手动推进模式"}</strong>
+          <span>
+            {taskGraphAutoAdvancePending
+              ? "监控已观察到可派发节点，延时保护后会自动续跑一次。"
+              : taskGraphAutoAdvanceEnabled
+                ? "监控只在 ready 节点存在且没有活动 WorkOrder 时触发续跑。"
+                : "当前不会自动派发 ready 节点，需要点击续跑当前阶段。"}
+          </span>
+        </div>
         {taskGraphBoundRunMonitor ? (
           <div className="task-graph-runtime-spec-panel">
             <div className="task-graph-mini-kv">

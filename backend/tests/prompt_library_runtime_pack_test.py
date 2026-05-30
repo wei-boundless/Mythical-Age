@@ -203,6 +203,21 @@ def test_prompt_assembly_adds_skill_and_soul_refs_only_when_explicit(tmp_path: P
     assert [item.category for item in explicit.sections] == ["runtime", "skill", "soul"]
 
 
+def test_graph_node_runtime_pack_is_distinct_from_taskrun_pack(tmp_path: Path) -> None:
+    assembly = PromptAssemblyService(tmp_path).assemble(
+        PromptAssemblyRequest(
+            invocation_kind="task_execution",
+            prompt_pack_refs=("runtime.pack.graph_node_execution.v1",),
+            prompt_refs=(),
+        )
+    )
+
+    assert assembly.prompt_pack_refs == ("runtime.pack.graph_node_execution.v1",)
+    assert [item.prompt_ref for item in assembly.sections] == ["runtime.graph_node_execution.v1"]
+    assert "任务图中的一个专业节点 agent" in assembly.content
+    assert "写入交付物时优先使用 write_file" not in assembly.content
+
+
 def test_runtime_compiler_uses_prompt_manifest_and_runtime_pack_refs() -> None:
     result = RuntimeCompiler().compile_turn_action_packet(
         session_id="session:pack",
