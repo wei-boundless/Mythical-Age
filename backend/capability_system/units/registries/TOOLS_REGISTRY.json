@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "tool_count": 30,
+  "tool_count": 38,
   "tools": [
     {
       "name": "agent_todo",
@@ -64,6 +64,328 @@
       ],
       "safe_for_auto_route": false,
       "schema_identity": "local.tools/agent_todo",
+      "runtime_visibility": "main_runtime",
+      "prompt_exposure_policy": "schema_only",
+      "resource_exposure_policy": "none",
+      "is_read_only": false,
+      "is_destructive": false,
+      "is_concurrency_safe": false
+    },
+    {
+      "name": "spawn_subagent",
+      "display_name": "启动子 Agent",
+      "operation_id": "op.subagent_spawn",
+      "module": "tools.subagent_control_tool",
+      "contract": {
+        "required_inputs": [
+          "target_agent_id",
+          "goal"
+        ],
+        "required_bindings": [],
+        "optional_inputs": [
+          "instructions",
+          "context_refs",
+          "expected_outputs"
+        ],
+        "owner_scope": "none",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "clarify",
+        "context_policy": "inline",
+        "result_channel": "canonical"
+      },
+      "resolution_contract": {
+        "path_field": "",
+        "path_kind": "",
+        "binding_field": "",
+        "allow_message_extraction": false
+      },
+      "output_contract": {
+        "display_mode": "summary_text",
+        "finalization_policy": "none",
+        "persistence_policy": "persist_canonical"
+      },
+      "projection_contract": {
+        "task_summary_policy": "canonical_only",
+        "result_ref_policy": "default",
+        "memory_projection_policy": "canonical_only"
+      },
+      "capability_tags": [
+        "agent",
+        "subagent",
+        "lifecycle"
+      ],
+      "supported_modalities": [
+        "task",
+        "workspace",
+        "text"
+      ],
+      "safety_tags": [
+        "agent_execution",
+        "state"
+      ],
+      "route_hints": [
+        "tool",
+        "subagent",
+        "spawn"
+      ],
+      "safe_for_auto_route": false,
+      "schema_identity": "local.tools/spawn_subagent",
+      "runtime_visibility": "main_runtime",
+      "prompt_exposure_policy": "schema_only",
+      "resource_exposure_policy": "none",
+      "is_read_only": false,
+      "is_destructive": false,
+      "is_concurrency_safe": false
+    },
+    {
+      "name": "send_subagent_message",
+      "display_name": "发送子 Agent 消息",
+      "operation_id": "op.subagent_message",
+      "module": "tools.subagent_control_tool",
+      "contract": {
+        "required_inputs": [
+          "subagent_run_ref",
+          "message"
+        ],
+        "required_bindings": [],
+        "optional_inputs": [
+          "context_refs"
+        ],
+        "owner_scope": "none",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "clarify",
+        "context_policy": "inline",
+        "result_channel": "canonical"
+      },
+      "resolution_contract": {
+        "path_field": "",
+        "path_kind": "",
+        "binding_field": "",
+        "allow_message_extraction": false
+      },
+      "output_contract": {
+        "display_mode": "summary_text",
+        "finalization_policy": "none",
+        "persistence_policy": "persist_canonical"
+      },
+      "projection_contract": {
+        "task_summary_policy": "canonical_only",
+        "result_ref_policy": "default",
+        "memory_projection_policy": "canonical_only"
+      },
+      "capability_tags": [
+        "agent",
+        "subagent",
+        "lifecycle"
+      ],
+      "supported_modalities": [
+        "task",
+        "workspace",
+        "text"
+      ],
+      "safety_tags": [
+        "agent_execution",
+        "state"
+      ],
+      "route_hints": [
+        "tool",
+        "subagent",
+        "message"
+      ],
+      "safe_for_auto_route": false,
+      "schema_identity": "local.tools/send_subagent_message",
+      "runtime_visibility": "main_runtime",
+      "prompt_exposure_policy": "schema_only",
+      "resource_exposure_policy": "none",
+      "is_read_only": false,
+      "is_destructive": false,
+      "is_concurrency_safe": false
+    },
+    {
+      "name": "wait_subagent",
+      "display_name": "等待子 Agent",
+      "operation_id": "op.subagent_wait",
+      "module": "tools.subagent_control_tool",
+      "contract": {
+        "required_inputs": [
+          "subagent_run_ref"
+        ],
+        "required_bindings": [],
+        "optional_inputs": [
+          "since_message_ref"
+        ],
+        "owner_scope": "none",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "clarify",
+        "context_policy": "inline",
+        "result_channel": "canonical"
+      },
+      "resolution_contract": {
+        "path_field": "",
+        "path_kind": "",
+        "binding_field": "",
+        "allow_message_extraction": false
+      },
+      "output_contract": {
+        "display_mode": "summary_text",
+        "finalization_policy": "none",
+        "persistence_policy": "persist_canonical"
+      },
+      "projection_contract": {
+        "task_summary_policy": "canonical_only",
+        "result_ref_policy": "default",
+        "memory_projection_policy": "canonical_only"
+      },
+      "capability_tags": [
+        "agent",
+        "subagent",
+        "lifecycle"
+      ],
+      "supported_modalities": [
+        "task",
+        "workspace",
+        "text"
+      ],
+      "safety_tags": [
+        "agent_execution",
+        "state"
+      ],
+      "route_hints": [
+        "tool",
+        "subagent",
+        "wait"
+      ],
+      "safe_for_auto_route": false,
+      "schema_identity": "local.tools/wait_subagent",
+      "runtime_visibility": "main_runtime",
+      "prompt_exposure_policy": "schema_only",
+      "resource_exposure_policy": "none",
+      "is_read_only": true,
+      "is_destructive": false,
+      "is_concurrency_safe": false
+    },
+    {
+      "name": "list_subagents",
+      "display_name": "列出子 Agent",
+      "operation_id": "op.subagent_list",
+      "module": "tools.subagent_control_tool",
+      "contract": {
+        "required_inputs": [],
+        "required_bindings": [],
+        "optional_inputs": [
+          "status"
+        ],
+        "owner_scope": "none",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "clarify",
+        "context_policy": "inline",
+        "result_channel": "canonical"
+      },
+      "resolution_contract": {
+        "path_field": "",
+        "path_kind": "",
+        "binding_field": "",
+        "allow_message_extraction": false
+      },
+      "output_contract": {
+        "display_mode": "summary_text",
+        "finalization_policy": "none",
+        "persistence_policy": "persist_canonical"
+      },
+      "projection_contract": {
+        "task_summary_policy": "canonical_only",
+        "result_ref_policy": "default",
+        "memory_projection_policy": "canonical_only"
+      },
+      "capability_tags": [
+        "agent",
+        "subagent",
+        "lifecycle"
+      ],
+      "supported_modalities": [
+        "task",
+        "workspace",
+        "text"
+      ],
+      "safety_tags": [
+        "agent_execution",
+        "state"
+      ],
+      "route_hints": [
+        "tool",
+        "subagent",
+        "list"
+      ],
+      "safe_for_auto_route": false,
+      "schema_identity": "local.tools/list_subagents",
+      "runtime_visibility": "main_runtime",
+      "prompt_exposure_policy": "schema_only",
+      "resource_exposure_policy": "none",
+      "is_read_only": true,
+      "is_destructive": false,
+      "is_concurrency_safe": true
+    },
+    {
+      "name": "close_subagent",
+      "display_name": "关闭子 Agent",
+      "operation_id": "op.subagent_close",
+      "module": "tools.subagent_control_tool",
+      "contract": {
+        "required_inputs": [
+          "subagent_run_ref"
+        ],
+        "required_bindings": [],
+        "optional_inputs": [
+          "reason"
+        ],
+        "owner_scope": "none",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "clarify",
+        "context_policy": "inline",
+        "result_channel": "canonical"
+      },
+      "resolution_contract": {
+        "path_field": "",
+        "path_kind": "",
+        "binding_field": "",
+        "allow_message_extraction": false
+      },
+      "output_contract": {
+        "display_mode": "summary_text",
+        "finalization_policy": "none",
+        "persistence_policy": "persist_canonical"
+      },
+      "projection_contract": {
+        "task_summary_policy": "canonical_only",
+        "result_ref_policy": "default",
+        "memory_projection_policy": "canonical_only"
+      },
+      "capability_tags": [
+        "agent",
+        "subagent",
+        "lifecycle"
+      ],
+      "supported_modalities": [
+        "task",
+        "workspace",
+        "text"
+      ],
+      "safety_tags": [
+        "agent_execution",
+        "state"
+      ],
+      "route_hints": [
+        "tool",
+        "subagent",
+        "close"
+      ],
+      "safe_for_auto_route": false,
+      "schema_identity": "local.tools/close_subagent",
       "runtime_visibility": "main_runtime",
       "prompt_exposure_policy": "schema_only",
       "resource_exposure_policy": "none",
@@ -614,6 +936,203 @@
       ],
       "safe_for_auto_route": false,
       "schema_identity": "local.tools/read_structured_file",
+      "runtime_visibility": "main_runtime",
+      "prompt_exposure_policy": "schema_only",
+      "resource_exposure_policy": "explicit_resource",
+      "is_read_only": true,
+      "is_destructive": false,
+      "is_concurrency_safe": true
+    },
+    {
+      "name": "python_code_outline",
+      "display_name": "Python 代码结构",
+      "operation_id": "op.python_code_outline",
+      "module": "tools.python_ast_tools",
+      "contract": {
+        "required_inputs": [
+          "path"
+        ],
+        "required_bindings": [],
+        "optional_inputs": [
+          "max_symbols"
+        ],
+        "owner_scope": "explicit_path",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "clarify",
+        "context_policy": "inline",
+        "result_channel": "canonical"
+      },
+      "resolution_contract": {
+        "path_field": "path",
+        "path_kind": "workspace",
+        "binding_field": "",
+        "allow_message_extraction": false
+      },
+      "output_contract": {
+        "display_mode": "summary_text",
+        "finalization_policy": "none",
+        "persistence_policy": "persist_canonical"
+      },
+      "projection_contract": {
+        "task_summary_policy": "canonical_only",
+        "result_ref_policy": "default",
+        "memory_projection_policy": "canonical_only"
+      },
+      "capability_tags": [
+        "python",
+        "ast",
+        "code_outline",
+        "symbol_index",
+        "code_intelligence"
+      ],
+      "supported_modalities": [
+        "code",
+        "workspace"
+      ],
+      "safety_tags": [
+        "read",
+        "official_ast"
+      ],
+      "route_hints": [
+        "tool",
+        "python_code",
+        "code_outline",
+        "symbol_index"
+      ],
+      "safe_for_auto_route": true,
+      "schema_identity": "local.tools/python_code_outline",
+      "runtime_visibility": "main_runtime",
+      "prompt_exposure_policy": "schema_only",
+      "resource_exposure_policy": "explicit_resource",
+      "is_read_only": true,
+      "is_destructive": false,
+      "is_concurrency_safe": true
+    },
+    {
+      "name": "python_parse_check",
+      "display_name": "Python 语法检查",
+      "operation_id": "op.python_parse_check",
+      "module": "tools.python_ast_tools",
+      "contract": {
+        "required_inputs": [
+          "path"
+        ],
+        "required_bindings": [],
+        "optional_inputs": [],
+        "owner_scope": "explicit_path",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "clarify",
+        "context_policy": "inline",
+        "result_channel": "canonical"
+      },
+      "resolution_contract": {
+        "path_field": "path",
+        "path_kind": "workspace",
+        "binding_field": "",
+        "allow_message_extraction": false
+      },
+      "output_contract": {
+        "display_mode": "summary_text",
+        "finalization_policy": "none",
+        "persistence_policy": "persist_canonical"
+      },
+      "projection_contract": {
+        "task_summary_policy": "canonical_only",
+        "result_ref_policy": "default",
+        "memory_projection_policy": "canonical_only"
+      },
+      "capability_tags": [
+        "python",
+        "ast",
+        "parse_check",
+        "diagnostics",
+        "code_intelligence"
+      ],
+      "supported_modalities": [
+        "code",
+        "workspace"
+      ],
+      "safety_tags": [
+        "read",
+        "official_ast"
+      ],
+      "route_hints": [
+        "tool",
+        "python_code",
+        "parse_check",
+        "diagnostics"
+      ],
+      "safe_for_auto_route": true,
+      "schema_identity": "local.tools/python_parse_check",
+      "runtime_visibility": "main_runtime",
+      "prompt_exposure_policy": "schema_only",
+      "resource_exposure_policy": "explicit_resource",
+      "is_read_only": true,
+      "is_destructive": false,
+      "is_concurrency_safe": true
+    },
+    {
+      "name": "python_symbol_search",
+      "display_name": "Python 符号搜索",
+      "operation_id": "op.python_symbol_search",
+      "module": "tools.python_ast_tools",
+      "contract": {
+        "required_inputs": [
+          "query"
+        ],
+        "required_bindings": [],
+        "optional_inputs": [
+          "roots",
+          "max_results"
+        ],
+        "owner_scope": "none",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "clarify",
+        "context_policy": "inline",
+        "result_channel": "canonical"
+      },
+      "resolution_contract": {
+        "path_field": "",
+        "path_kind": "",
+        "binding_field": "",
+        "allow_message_extraction": false
+      },
+      "output_contract": {
+        "display_mode": "summary_text",
+        "finalization_policy": "none",
+        "persistence_policy": "persist_canonical"
+      },
+      "projection_contract": {
+        "task_summary_policy": "canonical_only",
+        "result_ref_policy": "default",
+        "memory_projection_policy": "canonical_only"
+      },
+      "capability_tags": [
+        "python",
+        "ast",
+        "symbol_search",
+        "code_intelligence",
+        "workspace"
+      ],
+      "supported_modalities": [
+        "code",
+        "workspace"
+      ],
+      "safety_tags": [
+        "read",
+        "official_ast"
+      ],
+      "route_hints": [
+        "tool",
+        "python_code",
+        "symbol_search",
+        "code_search"
+      ],
+      "safe_for_auto_route": true,
+      "schema_identity": "local.tools/python_symbol_search",
       "runtime_visibility": "main_runtime",
       "prompt_exposure_policy": "schema_only",
       "resource_exposure_policy": "explicit_resource",
@@ -1930,6 +2449,36 @@
       "metadata": {}
     },
     {
+      "package_id": "pkg.development.python",
+      "title": "Python 开发工具",
+      "description": "基于 Python 官方 ast 标准库的代码结构、符号定位、语法检查，以及开发诊断类只读工具。",
+      "category": "开发工具",
+      "operation_ids": [
+        "op.codebase_search",
+        "op.python_code_outline",
+        "op.python_symbol_search",
+        "op.python_parse_check",
+        "op.git_status",
+        "op.git_diff",
+        "op.git_log",
+        "op.git_show",
+        "op.git_branch_list"
+      ],
+      "risk_level": "低",
+      "managed": true,
+      "default_enabled": true,
+      "tags": [
+        "development",
+        "python",
+        "official_ast",
+        "code_intelligence"
+      ],
+      "metadata": {
+        "parser_authority": "python.stdlib.ast",
+        "usage_policy": "For Python development tasks, use symbol/outline/parse tools before broad file reading. File reads, writes, and command execution remain governed by their own generic packages."
+      }
+    },
+    {
       "package_id": "pkg.git.read",
       "title": "Git 只读",
       "description": "查看版本库状态、差异、日志、对象和分支。",
@@ -2040,6 +2589,28 @@
       "tags": [
         "agent",
         "state"
+      ],
+      "metadata": {}
+    },
+    {
+      "package_id": "pkg.subagent.lifecycle",
+      "title": "子 Agent 生命周期",
+      "description": "启动、通信、观察和关闭任务内子 Agent。",
+      "category": "通用能力",
+      "operation_ids": [
+        "op.subagent_spawn",
+        "op.subagent_message",
+        "op.subagent_wait",
+        "op.subagent_list",
+        "op.subagent_close"
+      ],
+      "risk_level": "高",
+      "managed": true,
+      "default_enabled": false,
+      "tags": [
+        "agent",
+        "subagent",
+        "lifecycle"
       ],
       "metadata": {}
     },

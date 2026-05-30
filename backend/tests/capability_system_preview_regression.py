@@ -192,6 +192,74 @@ def test_operation_descriptor_exports_thick_contract_fields() -> None:
     assert descriptor.safety_validator_ref == "filesystem_path"
 
 
+def test_python_ast_operations_are_read_only_scoped_tools() -> None:
+    registry = build_default_operation_registry()
+    requirement = build_operation_requirement(
+        task_id="task-python-ast",
+        source="task_binding_preview",
+        required_task_operations=(
+            "op.python_code_outline",
+            "op.python_parse_check",
+            "op.python_symbol_search",
+        ),
+    )
+
+    policy = build_resource_policy_candidate(requirement, registry)
+    decisions = {decision.operation_id: decision for decision in policy.decisions}
+    views = {view.resource_id: view for view in build_resource_runtime_views(policy, registry)}
+
+    assert decisions["op.python_code_outline"].decision == "allow"
+    assert decisions["op.python_parse_check"].decision == "allow"
+    assert decisions["op.python_symbol_search"].decision == "allow"
+    assert policy.allowed_tools == (
+        "python_code_outline",
+        "python_parse_check",
+        "python_symbol_search",
+    )
+    for operation_id in (
+        "op.python_code_outline",
+        "op.python_parse_check",
+        "op.python_symbol_search",
+    ):
+        descriptor = registry.get_operation(operation_id)
+        assert descriptor is not None
+        assert descriptor.read_only is True
+        assert descriptor.destructive is False
+        assert descriptor.safety_validator_ref == "filesystem_path"
+        assert views[operation_id].available_to_model is True
+        assert views[operation_id].runtime_executable is False
+
+
+def test_python_ast_operation_gate_uses_filesystem_path_validator() -> None:
+    registry = build_default_operation_registry()
+    policy = _runtime_policy(allowed=("op.python_code_outline",), task_id="task-python-ast-gate")
+    gate = OperationGate(registry)
+
+    allowed = gate.check(
+        "op.python_code_outline",
+        resource_policy=policy,
+        directive_ref="directive-python-outline",
+        context=OperationGatePipelineContext(
+            operation_input={"path": "backend/capability_system/tool_packages.py"},
+            validators={"filesystem_path": validate_filesystem_path},
+        ),
+    )
+    denied = gate.check(
+        "op.python_code_outline",
+        resource_policy=policy,
+        directive_ref="directive-python-outline-denied",
+        context=OperationGatePipelineContext(
+            operation_input={"path": "../outside.py"},
+            validators={"filesystem_path": validate_filesystem_path},
+        ),
+    )
+
+    assert allowed.allowed is True
+    assert denied.allowed is False
+    assert denied.reason == "filesystem path escapes through parent traversal"
+    assert denied.pipeline_stage == "operation_specific_safety_validator"
+
+
 def test_operation_gate_pipeline_strips_dangerous_auto_allow() -> None:
     registry = build_default_operation_registry()
     policy = _runtime_policy(

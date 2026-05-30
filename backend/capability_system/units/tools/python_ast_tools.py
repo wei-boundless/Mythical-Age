@@ -197,7 +197,10 @@ def _collect_symbols(tree: ast.AST | None, *, path: str) -> list[PythonSymbol]:
 
 def _collect_node(node: ast.AST, *, path: str, parent: str, symbols: list[PythonSymbol], top_level: bool) -> None:
     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-        kind = "async_function" if isinstance(node, ast.AsyncFunctionDef) else ("method" if parent else "function")
+        if isinstance(node, ast.AsyncFunctionDef):
+            kind = "async_method" if parent else "async_function"
+        else:
+            kind = "method" if parent else "function"
         symbols.append(_symbol(node.name, kind, path=path, parent=parent, node=node))
         return
     if isinstance(node, ast.ClassDef):

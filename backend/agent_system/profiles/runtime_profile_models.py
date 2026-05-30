@@ -9,6 +9,22 @@ from .runtime_mode_config import mode_config_catalog
 
 
 @dataclass(frozen=True, slots=True)
+class SubagentPolicy:
+    enabled: bool = False
+    allowed_subagent_ids: tuple[str, ...] = ()
+    max_subagent_runs_per_task: int = 0
+    max_active_subagents: int = 0
+    context_policy: str = "summary_and_refs_only"
+    result_policy: str = "observation_refs_only"
+    allow_nested_subagents: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["allowed_subagent_ids"] = list(self.allowed_subagent_ids)
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
 class AgentRuntimeProfile:
     agent_profile_id: str
     agent_id: str
@@ -21,10 +37,7 @@ class AgentRuntimeProfile:
     allowed_memory_scopes: tuple[str, ...] = ()
     allowed_context_sections: tuple[str, ...] = ()
     use_shared_contract: bool = True
-    can_delegate_to_agents: bool = False
-    allowed_delegate_agent_ids: tuple[str, ...] = ()
-    max_delegate_calls_per_turn: int = 1
-    delegate_context_policy: str = "summary_and_refs_only"
+    subagent_policy: SubagentPolicy = field(default_factory=SubagentPolicy)
     approval_policy: str = "default"
     trace_policy: str = "runtime_event_log"
     lifecycle_policy: str = "orchestration_managed"
@@ -44,9 +57,9 @@ class AgentRuntimeProfile:
             "blocked_operations",
             "allowed_memory_scopes",
             "allowed_context_sections",
-            "allowed_delegate_agent_ids",
         ):
             payload[key] = list(payload[key])
+        payload["subagent_policy"] = self.subagent_policy.to_dict()
         payload["allowed_tool_packages"] = [item.to_dict() for item in self.allowed_tool_packages]
         payload["final_allowed_operations"] = list(self.allowed_operations)
         payload["model_profile"] = self.model_profile.to_dict()

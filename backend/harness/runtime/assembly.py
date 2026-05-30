@@ -20,6 +20,14 @@ from .operation_projection import project_operation_authorization
 
 RuntimeMode = Literal["role", "standard", "professional", "custom"]
 
+_SUBAGENT_TOOL_NAMES = {
+    "spawn_subagent",
+    "send_subagent_message",
+    "wait_subagent",
+    "list_subagents",
+    "close_subagent",
+}
+
 
 @dataclass(frozen=True, slots=True)
 class RuntimeAssemblyProfile:
@@ -342,6 +350,7 @@ def _resolved_mode_runtime_policy(
             "tool_exposure_policy": dict(preset.get("tool_exposure_policy") or {}),
             "context_policy": dict(preset.get("context_policy") or {}),
             "memory_policy": dict(preset.get("memory_policy") or {}),
+            "subagent_policy": dict(preset.get("subagent_policy") or {}),
             "self_review_policy": dict(preset.get("self_review_policy") or {}),
             "step_summary_policy": dict(preset.get("step_summary_policy") or {}),
             "approval_policy": dict(preset.get("approval_policy") or {}),
@@ -431,13 +440,25 @@ def _profile_operations(agent_runtime_profile: Any | None) -> tuple[str, ...]:
 
 
 def _subagent_policy(*, agent_runtime_profile: Any | None, mode_policy: dict[str, Any], mode: str) -> dict[str, Any]:
-    _ = agent_runtime_profile, mode
+    profile_policy = getattr(agent_runtime_profile, "subagent_policy", None)
+    profile_payload = profile_policy.to_dict() if hasattr(profile_policy, "to_dict") else dict(profile_policy or {})
+    allowed_ids = _string_tuple(profile_payload.get("allowed_subagent_ids"))
+    mode_enabled = mode_policy.get("enabled")
+    profile_enabled = bool(profile_payload.get("enabled") is True)
+    enabled = profile_enabled if mode_enabled is None else bool(mode_enabled is True and profile_enabled)
+    if mode == ROLE_MODE:
+        enabled = False
     return {
+        **profile_payload,
         **dict(mode_policy or {}),
-        "enabled": False,
-        "max_delegate_calls_per_turn": 0,
-        "allowed_delegate_agent_ids": [],
-        "disabled_reason": "agent_control_runtime_not_configured",
+        "enabled": enabled and bool(allowed_ids),
+        "allowed_subagent_ids": list(allowed_ids),
+        "max_subagent_runs_per_task": max(0, int(profile_payload.get("max_subagent_runs_per_task") or 0)),
+        "max_active_subagents": max(0, int(profile_payload.get("max_active_subagents") or 0)),
+        "context_policy": str(profile_payload.get("context_policy") or "summary_and_refs_only"),
+        "result_policy": str(profile_payload.get("result_policy") or "observation_refs_only"),
+        "allow_nested_subagents": bool(profile_payload.get("allow_nested_subagents") is True),
+        **({"disabled_reason": "role_mode_disallows_subagents"} if mode == ROLE_MODE else {}),
     }
 
 
@@ -525,10 +546,20 @@ def _filter_tool_names_by_profile(
     visible: list[str] = []
     filtered: list[dict[str, str]] = []
     read_only_only = bool(dict(profile.tool_policy or {}).get("read_only_tools_only") is True)
+    subagent_enabled = bool(dict(profile.subagent_policy or {}).get("enabled") is True)
     for tool_name in tool_names:
         definition = definitions_by_name.get(tool_name)
         if definition is None:
             filtered.append({"tool_name": tool_name, "reason": "missing_tool_definition"})
+            continue
+        if tool_name in _SUBAGENT_TOOL_NAMES and not subagent_enabled:
+            filtered.append(
+                {
+                    "tool_name": tool_name,
+                    "operation_id": str(getattr(definition, "operation_id", "") or ""),
+                    "reason": "subagent_lifecycle_disabled_by_profile",
+                }
+            )
             continue
         if read_only_only and not bool(getattr(definition, "is_read_only", False)):
             filtered.append(

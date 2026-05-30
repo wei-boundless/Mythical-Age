@@ -135,12 +135,18 @@ export function TaskSystemShell<T extends string>({
           style={{ "--task-system-sidebar-width": `${sidebarWidth}px` } as CSSProperties}
         >
           <aside className="task-system-database-sidebar" aria-label="任务系统数据库导航">
+            <header className="task-system-workspace-head">
+              <div>
+                <strong>任务系统</strong>
+                <span>对象导航</span>
+              </div>
+            </header>
             {contextSlot ? (
               <section className="task-system-domain-context">
                 {contextSlot}
               </section>
             ) : null}
-            <nav className="task-system-object-switcher" aria-label="任务系统对象工作区">
+            <nav className="task-system-object-switcher" aria-label="任务系统对象导航">
               {layerSlot ?? fallbackLayerSlot}
             </nav>
           </aside>

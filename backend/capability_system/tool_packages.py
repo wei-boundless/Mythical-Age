@@ -71,6 +71,33 @@ def default_tool_packages() -> tuple[ToolPackageDefinition, ...]:
             tags=("search", "workspace"),
         ),
         ToolPackageDefinition(
+            package_id="pkg.development.python",
+            title="Python 开发工具",
+            description="基于 Python 官方 ast 标准库的代码结构、符号定位、语法检查，以及开发诊断类只读工具。",
+            category="开发工具",
+            operation_ids=(
+                "op.codebase_search",
+                "op.python_code_outline",
+                "op.python_symbol_search",
+                "op.python_parse_check",
+                "op.git_status",
+                "op.git_diff",
+                "op.git_log",
+                "op.git_show",
+                "op.git_branch_list",
+            ),
+            risk_level="低",
+            default_enabled=True,
+            tags=("development", "python", "official_ast", "code_intelligence"),
+            metadata={
+                "parser_authority": "python.stdlib.ast",
+                "usage_policy": (
+                    "For Python development tasks, use symbol/outline/parse tools before broad file reading. "
+                    "File reads, writes, and command execution remain governed by their own generic packages."
+                ),
+            },
+        ),
+        ToolPackageDefinition(
             package_id="pkg.git.read",
             title="Git 只读",
             description="查看版本库状态、差异、日志、对象和分支。",
@@ -129,6 +156,22 @@ def default_tool_packages() -> tuple[ToolPackageDefinition, ...]:
             risk_level="低",
             default_enabled=True,
             tags=("agent", "state"),
+        ),
+        ToolPackageDefinition(
+            package_id="pkg.subagent.lifecycle",
+            title="子 Agent 生命周期",
+            description="启动、通信、观察和关闭任务内子 Agent。",
+            category="通用能力",
+            operation_ids=(
+                "op.subagent_spawn",
+                "op.subagent_message",
+                "op.subagent_wait",
+                "op.subagent_list",
+                "op.subagent_close",
+            ),
+            risk_level="高",
+            default_enabled=False,
+            tags=("agent", "subagent", "lifecycle"),
         ),
         ToolPackageDefinition(
             package_id="pkg.execution",

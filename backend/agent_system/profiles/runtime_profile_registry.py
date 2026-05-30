@@ -8,7 +8,7 @@ from project_layout import ProjectLayout
 
 from ..registry.agent_registry import AgentRegistry
 from ..identity import agent_id_aliases, normalize_agent_id, normalize_agent_id_sequence
-from .runtime_profile_models import AgentRuntimeProfile
+from .runtime_profile_models import AgentRuntimeProfile, SubagentPolicy
 from capability_system.tool_packages import (
     ToolPackageSelection,
     default_enabled_package_selections,
@@ -75,12 +75,16 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             extra_allowed_operations=("op.shell",),
             allowed_operations=(
                 "op.model_response",
+                "op.codebase_search",
                 "op.read_file",
                 "op.list_dir",
                 "op.stat_path",
                 "op.path_exists",
                 "op.glob_paths",
                 "op.read_structured_file",
+                "op.python_code_outline",
+                "op.python_parse_check",
+                "op.python_symbol_search",
                 "op.search_files",
                 "op.search_text",
                 "op.git_status",
@@ -96,7 +100,13 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 "op.web_search",
                 "op.fetch_url",
                 "op.memory_read",
-                "op.agent_todo",                "op.image_generate",
+                "op.agent_todo",
+                "op.image_generate",
+                "op.subagent_spawn",
+                "op.subagent_message",
+                "op.subagent_wait",
+                "op.subagent_list",
+                "op.subagent_close",
                 "op.mcp_retrieval",
                 "op.mcp_pdf",
                 "op.mcp_structured_data",
@@ -108,18 +118,23 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             allowed_memory_scopes=("conversation_readonly", "state_readonly", "long_term_candidate"),
             allowed_context_sections=("conversation", "state", "task", "projection", "tool", "runtime_contracts"),
             use_shared_contract=True,
-            can_delegate_to_agents=True,
-            allowed_delegate_agent_ids=(
-                "agent:knowledge_searcher",
-                "agent:codebase_searcher",
-                "agent:memory_searcher",
-                "agent:pdf_reader",
-                "agent:table_analyst",
-                "agent:web_researcher",
-                "agent:verifier",
+            subagent_policy=SubagentPolicy(
+                enabled=True,
+                allowed_subagent_ids=(
+                    "agent:knowledge_searcher",
+                    "agent:codebase_searcher",
+                    "agent:memory_searcher",
+                    "agent:pdf_reader",
+                    "agent:table_analyst",
+                    "agent:web_researcher",
+                    "agent:verifier",
+                ),
+                max_subagent_runs_per_task=4,
+                max_active_subagents=2,
+                context_policy="summary_and_refs_only",
+                result_policy="observation_refs_only",
+                allow_nested_subagents=False,
             ),
-            max_delegate_calls_per_turn=4,
-            delegate_context_policy="summary_and_refs_only",
             lifecycle_policy="system_builtin",
             metadata={
                 "runtime_template_id": "builtin.main.default",
@@ -182,7 +197,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             allowed_memory_scopes=("conversation_readonly", "state_readonly", "issue_local_readonly", "health_trace_readonly"),
             allowed_context_sections=("task", "health_issue", "runtime_trace", "prompt_manifest", "assertions", "runtime_contracts", "artifact_refs"),
             use_shared_contract=True,
-            can_delegate_to_agents=False,
             approval_policy="read_only_first",
             trace_policy="runtime_event_log",
             lifecycle_policy="system_builtin",
@@ -245,7 +259,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             allowed_memory_scopes=("conversation_readonly", "state_readonly"),
             allowed_context_sections=("task", "runtime_trace", "memory_runtime_view", "prompt_manifest", "runtime_contracts", "artifact_refs"),
             use_shared_contract=True,
-            can_delegate_to_agents=False,
             approval_policy="read_only_first",
             trace_policy="runtime_event_log",
             lifecycle_policy="system_builtin",
@@ -292,7 +305,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             allowed_memory_scopes=(),
             allowed_context_sections=("task", "projection", "tool", "runtime_contracts", "artifact_refs"),
             use_shared_contract=True,
-            can_delegate_to_agents=False,
             approval_policy="read_only_first",
             lifecycle_policy="system_builtin",
             metadata={
@@ -310,7 +322,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             allowed_memory_scopes=("conversation_readonly", "state_readonly"),
             allowed_context_sections=("task", "projection", "tool", "runtime_contracts", "artifact_refs"),
             use_shared_contract=True,
-            can_delegate_to_agents=False,
             approval_policy="read_only_first",
             lifecycle_policy="system_builtin",
             metadata={"worker_kind": "pdf_analysis", "delegation_kind": "pdf_reading", "runtime_template_id": "builtin.specialist.pdf_reader"},
@@ -323,7 +334,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             allowed_memory_scopes=("conversation_readonly", "state_readonly"),
             allowed_context_sections=("task", "projection", "tool", "runtime_contracts", "artifact_refs"),
             use_shared_contract=True,
-            can_delegate_to_agents=False,
             approval_policy="read_only_first",
             lifecycle_policy="system_builtin",
             metadata={"worker_kind": "structured_data_analysis", "delegation_kind": "table_analysis", "runtime_template_id": "builtin.specialist.table_analyst"},
@@ -351,7 +361,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             allowed_memory_scopes=(),
             allowed_context_sections=("task", "projection", "tool", "runtime_contracts", "artifact_refs"),
             use_shared_contract=True,
-            can_delegate_to_agents=False,
             approval_policy="read_only_first",
             lifecycle_policy="system_builtin",
             metadata={
@@ -421,7 +430,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             allowed_memory_scopes=(),
             allowed_context_sections=("task", "projection", "tool", "runtime_contracts", "artifact_refs"),
             use_shared_contract=True,
-            can_delegate_to_agents=False,
             approval_policy="read_only_first",
             lifecycle_policy="system_builtin",
             metadata={
@@ -467,7 +475,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             allowed_memory_scopes=("conversation_readonly", "state_readonly"),
             allowed_context_sections=("task", "projection", "tool", "runtime_contracts", "artifact_refs", "memory_runtime_view"),
             use_shared_contract=True,
-            can_delegate_to_agents=False,
             approval_policy="read_only_first",
             lifecycle_policy="system_builtin",
             metadata={
@@ -495,7 +502,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             allowed_memory_scopes=("conversation_readonly", "state_readonly"),
             allowed_context_sections=("task", "projection", "runtime_trace", "assertions", "runtime_contracts", "artifact_refs"),
             use_shared_contract=True,
-            can_delegate_to_agents=False,
             approval_policy="read_only_first",
             trace_policy="runtime_event_log",
             lifecycle_policy="system_builtin",
@@ -563,18 +569,42 @@ def _profile_from_dict(payload: dict[str, Any]) -> AgentRuntimeProfile:
         allowed_memory_scopes=tuple(_normalize_memory_scopes(normalized_agent_id, payload.get("allowed_memory_scopes"))),
         allowed_context_sections=tuple(str(item) for item in list(payload.get("allowed_context_sections") or []) if str(item)),
         use_shared_contract=bool(payload.get("use_shared_contract", True)),
-        can_delegate_to_agents=bool(payload.get("can_delegate_to_agents", False)),
-        allowed_delegate_agent_ids=normalize_agent_id_sequence(
-            str(item) for item in list(payload.get("allowed_delegate_agent_ids") or []) if str(item)
-        ),
-        max_delegate_calls_per_turn=max(0, int(payload.get("max_delegate_calls_per_turn", 1) or 0)),
-        delegate_context_policy=str(payload.get("delegate_context_policy") or "summary_and_refs_only"),
+        subagent_policy=_subagent_policy_from_payload(payload),
         approval_policy=str(payload.get("approval_policy") or "default"),
         trace_policy=str(payload.get("trace_policy") or "runtime_event_log"),
         lifecycle_policy=str(payload.get("lifecycle_policy") or "orchestration_managed"),
         model_profile=parse_agent_model_profile(payload.get("model_profile")),
         metadata=metadata,
     )
+
+
+def _subagent_policy_from_payload(payload: dict[str, Any]) -> SubagentPolicy:
+    raw = dict(payload.get("subagent_policy") or {})
+    legacy_allowed = normalize_agent_id_sequence(
+        str(item) for item in list(payload.get("allowed_delegate_agent_ids") or []) if str(item)
+    )
+    allowed_ids = normalize_agent_id_sequence(
+        str(item) for item in list(raw.get("allowed_subagent_ids") or legacy_allowed) if str(item)
+    )
+    enabled = bool(raw.get("enabled", payload.get("can_delegate_to_agents", False)))
+    max_runs = int(raw.get("max_subagent_runs_per_task", payload.get("max_delegate_calls_per_turn", 0)) or 0)
+    max_active = int(raw.get("max_active_subagents", min(max_runs, 2) if max_runs else 0) or 0)
+    return SubagentPolicy(
+        enabled=enabled and bool(allowed_ids),
+        allowed_subagent_ids=allowed_ids,
+        max_subagent_runs_per_task=max(0, max_runs),
+        max_active_subagents=max(0, max_active),
+        context_policy=str(raw.get("context_policy") or payload.get("delegate_context_policy") or "summary_and_refs_only"),
+        result_policy=str(raw.get("result_policy") or "observation_refs_only"),
+        allow_nested_subagents=bool(raw.get("allow_nested_subagents", False)),
+    )
+
+
+def _coerce_subagent_policy_for_upsert(value: SubagentPolicy | dict[str, Any] | None) -> SubagentPolicy:
+    if isinstance(value, SubagentPolicy):
+        return value
+    payload = {"subagent_policy": dict(value or {})}
+    return _subagent_policy_from_payload(payload)
 
 
 def _infer_runtime_template_id(agent_id: str, payload: dict[str, Any]) -> str:
@@ -654,10 +684,7 @@ class AgentRuntimeRegistry:
         allowed_memory_scopes: tuple[str, ...] = (),
         allowed_context_sections: tuple[str, ...] = (),
         use_shared_contract: bool = True,
-        can_delegate_to_agents: bool = False,
-        allowed_delegate_agent_ids: tuple[str, ...] = (),
-        max_delegate_calls_per_turn: int = 1,
-        delegate_context_policy: str = "summary_and_refs_only",
+        subagent_policy: SubagentPolicy | dict[str, Any] | None = None,
         approval_policy: str = "default",
         trace_policy: str = "runtime_event_log",
         lifecycle_policy: str = "orchestration_managed",
@@ -708,12 +735,9 @@ class AgentRuntimeRegistry:
             allowed_memory_scopes=tuple(_normalize_memory_scopes(target, allowed_memory_scopes)),
             allowed_context_sections=tuple(str(item).strip() for item in allowed_context_sections if str(item).strip()),
             use_shared_contract=bool(use_shared_contract),
-            can_delegate_to_agents=bool(can_delegate_to_agents),
-            allowed_delegate_agent_ids=normalize_agent_id_sequence(
-                str(item).strip() for item in allowed_delegate_agent_ids if str(item).strip()
+            subagent_policy=_coerce_subagent_policy_for_upsert(
+                subagent_policy if subagent_policy is not None else (current.subagent_policy if current else None)
             ),
-            max_delegate_calls_per_turn=max(0, int(max_delegate_calls_per_turn or 0)),
-            delegate_context_policy=str(delegate_context_policy or "summary_and_refs_only").strip() or "summary_and_refs_only",
             approval_policy=str(approval_policy or "default").strip() or "default",
             trace_policy=str(trace_policy or "runtime_event_log").strip() or "runtime_event_log",
             lifecycle_policy=str(lifecycle_policy or "orchestration_managed").strip() or "orchestration_managed",
@@ -808,11 +832,7 @@ def _merge_items_by_key(
 def _migrate_profile_payload(payload: dict[str, Any]) -> dict[str, Any]:
     next_payload = dict(payload)
     next_payload["agent_id"] = normalize_agent_id(str(payload.get("agent_id") or ""))
-    next_payload["allowed_delegate_agent_ids"] = list(
-        normalize_agent_id_sequence(
-            str(item) for item in list(payload.get("allowed_delegate_agent_ids") or []) if str(item)
-        )
-    )
+    next_payload["subagent_policy"] = _subagent_policy_from_payload(payload).to_dict()
     next_payload["allowed_memory_scopes"] = _normalize_memory_scopes(
         next_payload["agent_id"],
         payload.get("allowed_memory_scopes"),
@@ -844,6 +864,10 @@ def _migrate_profile_payload(payload: dict[str, Any]) -> dict[str, Any]:
     ).to_dict()
     next_payload.pop("allowed_task_modes", None)
     next_payload.pop("allowed_delegate_agent_categories", None)
+    next_payload.pop("can_delegate_to_agents", None)
+    next_payload.pop("allowed_delegate_agent_ids", None)
+    next_payload.pop("max_delegate_calls_per_turn", None)
+    next_payload.pop("delegate_context_policy", None)
     next_payload.pop("output_contracts", None)
     return next_payload
 
@@ -876,12 +900,15 @@ def _enforce_system_builtin_profile_payload(
         "blocked_operations",
         "allowed_memory_scopes",
         "allowed_context_sections",
-        "allowed_delegate_agent_ids",
     ):
         enforced[key] = _merge_sequence_field(
             default_payload.get(key),
             payload.get(key),
         )
+    enforced["subagent_policy"] = _merge_subagent_policy_payloads(
+        default_payload.get("subagent_policy"),
+        payload.get("subagent_policy"),
+    )
     enforced["allowed_memory_scopes"] = _normalize_memory_scopes(
         agent_id,
         enforced.get("allowed_memory_scopes"),
@@ -890,11 +917,6 @@ def _enforce_system_builtin_profile_payload(
         enforced.get("blocked_operations"),
         allowed_operations=enforced.get("allowed_operations"),
     )
-    if str(default_payload.get("agent_id") or "") == "agent:0":
-        enforced["max_delegate_calls_per_turn"] = max(
-            int(default_payload.get("max_delegate_calls_per_turn") or 0),
-            int(payload.get("max_delegate_calls_per_turn") or 0),
-        )
     enforced["metadata"] = {
         **dict(payload.get("metadata") or {}),
         **{
@@ -904,6 +926,26 @@ def _enforce_system_builtin_profile_payload(
         },
     }
     return enforced
+
+
+def _merge_subagent_policy_payloads(default_value: Any, payload_value: Any) -> dict[str, Any]:
+    default_policy = _subagent_policy_from_payload({"subagent_policy": dict(default_value or {})}).to_dict()
+    payload_policy = _subagent_policy_from_payload({"subagent_policy": dict(payload_value or {})}).to_dict()
+    allowed = _merge_sequence_field(default_policy.get("allowed_subagent_ids"), payload_policy.get("allowed_subagent_ids"))
+    return {
+        **default_policy,
+        **payload_policy,
+        "enabled": bool(default_policy.get("enabled") or payload_policy.get("enabled")) and bool(allowed),
+        "allowed_subagent_ids": allowed,
+        "max_subagent_runs_per_task": max(
+            int(default_policy.get("max_subagent_runs_per_task") or 0),
+            int(payload_policy.get("max_subagent_runs_per_task") or 0),
+        ),
+        "max_active_subagents": max(
+            int(default_policy.get("max_active_subagents") or 0),
+            int(payload_policy.get("max_active_subagents") or 0),
+        ),
+    }
 
 
 def _merge_sequence_field(default_value: Any, payload_value: Any) -> list[str]:

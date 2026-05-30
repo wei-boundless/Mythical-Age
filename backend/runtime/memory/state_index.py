@@ -23,6 +23,7 @@ from harness.execution.delegation_models import (
     delegation_result_from_dict,
 )
 from agent_system.registry.worker_agent_blueprints import WorkerAgentSpawnRequest, WorkerAgentSpawnResult
+from harness.agent_control.models import SubagentMessage, subagent_message_from_dict
 from ..shared.runtime_object_store import RuntimeObjectStore
 
 
@@ -72,6 +73,13 @@ class RuntimeStateIndex:
         with _STATE_INDEX_WRITE_LOCK:
             self._write_record("agent_run_results", result.agent_run_result_id, result.to_dict())
             self._append_index_id("task_agent_run_results", result.task_run_id, result.agent_run_result_id)
+            self._touch_meta()
+
+    def upsert_subagent_message(self, message: SubagentMessage) -> None:
+        with _STATE_INDEX_WRITE_LOCK:
+            self._write_record("subagent_messages", message.message_id, message.to_dict())
+            self._append_index_id("task_subagent_messages", message.task_run_id, message.message_id)
+            self._append_index_id("subagent_run_messages", message.subagent_run_ref, message.message_id)
             self._touch_meta()
 
     def upsert_worker_spawn_request(self, request: WorkerAgentSpawnRequest) -> None:
@@ -183,6 +191,16 @@ class RuntimeStateIndex:
         results = self._read_record_bucket("agent_run_results")
         ids = self._read_index_ids("task_agent_run_results", task_run_id)
         return [_agent_run_result_from_payload(results[item]) for item in ids if item in results]
+
+    def list_task_subagent_messages(self, task_run_id: str) -> list[SubagentMessage]:
+        messages = self._read_record_bucket("subagent_messages")
+        ids = self._read_index_ids("task_subagent_messages", task_run_id)
+        return [subagent_message_from_dict(messages[item]) for item in ids if item in messages]
+
+    def list_subagent_run_messages(self, subagent_run_ref: str) -> list[SubagentMessage]:
+        messages = self._read_record_bucket("subagent_messages")
+        ids = self._read_index_ids("subagent_run_messages", subagent_run_ref)
+        return [subagent_message_from_dict(messages[item]) for item in ids if item in messages]
 
     def list_task_worker_spawn_requests(self, task_run_id: str) -> list[WorkerAgentSpawnRequest]:
         requests = self._read_record_bucket("worker_spawn_requests")
@@ -307,6 +325,7 @@ class RuntimeStateIndex:
             "task_runs",
             "agent_runs",
             "agent_run_results",
+            "subagent_messages",
             "worker_spawn_requests",
             "worker_spawn_results",
             "agent_delegation_requests",
@@ -348,6 +367,10 @@ class RuntimeStateIndex:
         for result in dict(snapshot.get("agent_run_results") or {}).values():
             if isinstance(result, dict):
                 self._snapshot_append_index(snapshot, "task_agent_run_results", str(result.get("task_run_id") or ""), str(result.get("agent_run_result_id") or ""))
+        for message in dict(snapshot.get("subagent_messages") or {}).values():
+            if isinstance(message, dict):
+                self._snapshot_append_index(snapshot, "task_subagent_messages", str(message.get("task_run_id") or ""), str(message.get("message_id") or ""))
+                self._snapshot_append_index(snapshot, "subagent_run_messages", str(message.get("subagent_run_ref") or ""), str(message.get("message_id") or ""))
         for request in dict(snapshot.get("worker_spawn_requests") or {}).values():
             if isinstance(request, dict):
                 self._snapshot_append_index(snapshot, "task_worker_spawn_requests", str(request.get("task_run_id") or ""), str(request.get("spawn_request_id") or ""))
@@ -609,6 +632,7 @@ class RuntimeStateIndex:
             "task_runs": "task_run_id",
             "agent_runs": "agent_run_id",
             "agent_run_results": "agent_run_result_id",
+            "subagent_messages": "message_id",
             "worker_spawn_requests": "spawn_request_id",
             "worker_spawn_results": "spawn_result_id",
             "agent_delegation_requests": "request_id",
@@ -626,6 +650,7 @@ class RuntimeStateIndex:
             "task_runs",
             "agent_runs",
             "agent_run_results",
+            "subagent_messages",
             "worker_spawn_requests",
             "worker_spawn_results",
             "agent_delegation_requests",
@@ -641,6 +666,8 @@ class RuntimeStateIndex:
             "sessions",
             "task_agent_runs",
             "task_agent_run_results",
+            "task_subagent_messages",
+            "subagent_run_messages",
             "task_worker_spawn_requests",
             "task_worker_spawn_results",
             "task_agent_delegation_requests",
@@ -672,6 +699,9 @@ class RuntimeStateIndex:
             "task_agent_runs": {},
             "agent_run_results": {},
             "task_agent_run_results": {},
+            "subagent_messages": {},
+            "task_subagent_messages": {},
+            "subagent_run_messages": {},
             "worker_spawn_requests": {},
             "task_worker_spawn_requests": {},
             "worker_spawn_results": {},

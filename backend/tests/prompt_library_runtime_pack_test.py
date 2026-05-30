@@ -277,6 +277,10 @@ def test_runtime_compiler_assembles_agent_and_environment_prompt_refs() -> None:
     assert manifest["cache_boundary"]["cache_scope_counts"]["static_environment"] == 1
     assert "通用主 agent" in result.packet.system_instructions
     assert "开发沙盒资源边界" in result.packet.system_instructions
+    assert "python_symbol_search" in result.packet.system_instructions
+    assert "python_code_outline" in result.packet.system_instructions
+    assert "python_parse_check" in result.packet.system_instructions
+    assert "不要在文件没有变化、假设没有变化时重复调用同一个 outline 或 symbol search" in result.packet.system_instructions
     assert stable_payload["task_environment"]["environment_prompts"] == [
         {
             "prompt_id": "environment.development.sandbox.v1",
@@ -285,6 +289,16 @@ def test_runtime_compiler_assembles_agent_and_environment_prompt_refs() -> None:
         }
     ]
     assert "开发沙盒资源边界" not in result.packet.model_messages[1]["content"]
+
+
+def test_development_readonly_environment_prompt_exposes_python_ast_usage_policy() -> None:
+    resource = PromptLibraryRegistry(BACKEND_DIR).get_active_resource("environment.development.readonly.v1")
+
+    assert resource is not None
+    assert "python_symbol_search" in resource.content
+    assert "python_code_outline" in resource.content
+    assert "python_parse_check" in resource.content
+    assert "这些 AST 工具是只读代码智能工具" in resource.content
 
 
 def test_stored_prompt_resources_use_current_runtime_mode_names() -> None:

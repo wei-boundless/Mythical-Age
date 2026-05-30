@@ -27,6 +27,7 @@ class AgentRuntimeModeConfig:
     tool_exposure_policy: dict[str, Any] | None = None
     context_policy: dict[str, Any] | None = None
     memory_policy: dict[str, Any] | None = None
+    subagent_policy: dict[str, Any] | None = None
     self_review_policy: dict[str, Any] | None = None
     step_summary_policy: dict[str, Any] | None = None
     approval_policy: dict[str, Any] | None = None
@@ -61,6 +62,7 @@ MODE_CONFIGS: dict[str, AgentRuntimeModeConfig] = {
             "active_work_context": "disabled",
         },
         memory_policy={"read_scope": "conversation_readonly", "write_scope": "none"},
+        subagent_policy={"enabled": False},
         self_review_policy={"enabled": False, "before_final": "basic_consistency"},
         step_summary_policy={"enabled": True, "detail": "compact"},
         approval_policy={"permission_scope": "role_conversation_readonly"},
@@ -91,6 +93,7 @@ MODE_CONFIGS: dict[str, AgentRuntimeModeConfig] = {
             "active_work_context": "available",
         },
         memory_policy={"read_scope": "agent_profile", "write_scope": "candidate_only"},
+        subagent_policy={"enabled": True},
         self_review_policy={"enabled": True, "before_final": "check_answer_or_task_state"},
         step_summary_policy={"enabled": True, "detail": "compact"},
         approval_policy={"permission_scope": "standard_agent_profile_ceiling"},
@@ -122,6 +125,7 @@ MODE_CONFIGS: dict[str, AgentRuntimeModeConfig] = {
             "active_work_context": "required_for_task_run",
         },
         memory_policy={"read_scope": "agent_profile", "write_scope": "candidate_with_receipt"},
+        subagent_policy={"enabled": True},
         self_review_policy={
             "enabled": True,
             "checkpoints": ("before_tool", "after_tool", "before_final"),

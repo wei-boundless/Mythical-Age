@@ -27,6 +27,7 @@ from orchestration.commit_gate import build_assistant_session_message_commit_dec
 from project_layout import ProjectLayout
 from harness.runtime import RuntimeCompiler, TaskExecutorServices, assemble_runtime, build_execution_context
 from harness.runtime.public_progress import public_action_progress_summary, public_runtime_progress_summary
+from harness.agent_control.controller import SUBAGENT_TOOL_NAMES, SubagentControl
 
 from .admission import admit_model_action
 from .executor_sequence import claim_executor_sequence, next_model_action_request_id
@@ -1336,6 +1337,30 @@ async def _execute_task_tool_call(
             backend_config=services.backend_config,
         )
         return observation
+    if tool_name in SUBAGENT_TOOL_NAMES:
+        parent_agent_run = _ensure_executor_agent_run(runtime_host, task_run=task_run)
+        payload = await SubagentControl(runtime_host, services=services).execute_tool(
+            tool_name=tool_name,
+            tool_args=tool_args,
+            task_run=task_run,
+            parent_agent_run=parent_agent_run,
+            runtime_assembly=runtime_assembly,
+        )
+        observation = _subagent_control_observation(
+            task_run_id=task_run.task_run_id,
+            request_ref=action_request.request_id,
+            directive_ref=directive.directive_id,
+            tool_name=tool_name,
+            tool_args=tool_args,
+            payload=payload,
+        )
+        observation["payload"]["operation_gate"] = gate_result.to_dict() if hasattr(gate_result, "to_dict") else {}
+        observation["payload"]["runtime_fingerprint"] = _current_runtime_fingerprint(
+            runtime_assembly,
+            runtime_host=runtime_host,
+            backend_config=services.backend_config,
+        )
+        return observation
     execution_context = build_execution_context(
         packet_ref=packet_ref,
         action_request_ref=action_request.request_id,
@@ -2398,7 +2423,19 @@ def _load_lifecycle(runtime_host: Any, task_run: Any) -> TaskLifecycleRecord:
 
 
 def _ensure_executor_agent_run(runtime_host: Any, *, task_run: Any) -> Any:
+    expected_id = f"agrun:{task_run.task_run_id}:main"
     runs = runtime_host.state_index.list_task_agent_runs(task_run.task_run_id)
+    for item in runs:
+        if str(getattr(item, "agent_run_id", "") or "") == expected_id:
+            updated = replace(item, status="running", updated_at=time.time())
+            runtime_host.state_index.upsert_agent_run(updated)
+            return updated
+    runs = [
+        item
+        for item in runs
+        if not str(getattr(item, "parent_agent_run_ref", "") or "").strip()
+        and str(getattr(item, "spawn_mode", "") or "single_agent") == "single_agent"
+    ]
     if runs:
         current = runs[-1]
         updated = replace(current, status="running", updated_at=time.time())
@@ -3507,11 +3544,47 @@ def _public_tool_display_name(tool_name: str) -> str:
         "image_generate": "生图工具",
         "image_generation": "生图工具",
         "generate_image": "生图工具",
+        "spawn_subagent": "子 Agent 启动工具",
+        "send_subagent_message": "子 Agent 消息工具",
+        "wait_subagent": "子 Agent 等待工具",
+        "list_subagents": "子 Agent 列表工具",
+        "close_subagent": "子 Agent 关闭工具",
         "write_file": "文件写入工具",
         "edit_file": "文件编辑工具",
         "read_file": "文件读取工具",
         "terminal": "命令工具",
         "shell": "命令工具",
+    }
+
+
+def _subagent_control_observation(
+    *,
+    task_run_id: str,
+    request_ref: str,
+    directive_ref: str,
+    tool_name: str,
+    tool_args: dict[str, Any],
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    ok = bool(dict(payload or {}).get("ok") is True)
+    return {
+        "observation_id": f"rtobs:{task_run_id}:subagent:{uuid.uuid4().hex[:8]}",
+        "task_run_id": task_run_id,
+        "observation_type": "tool_result" if ok else "executor_error",
+        "source": f"tool:{tool_name}",
+        "request_ref": request_ref,
+        "directive_ref": directive_ref,
+        "content_chars": len(json.dumps(payload, ensure_ascii=False)),
+        "payload": {
+            "tool_name": tool_name,
+            "tool_args": tool_args,
+            "result": payload,
+            **({"error": str(dict(payload).get("error") or "subagent_control_failed")} if not ok else {}),
+        },
+        "needs_model_followup": not ok,
+        "created_at": time.time(),
+        "authority": "orchestration.runtime_observation",
+        **({"error": str(dict(payload).get("error") or "subagent_control_failed")} if not ok else {}),
     }
     if lowered in mapping:
         return mapping[lowered]

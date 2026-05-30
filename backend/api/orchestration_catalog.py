@@ -45,10 +45,7 @@ class AgentRuntimeProfileRequest(BaseModel):
     allowed_memory_scopes: list[str] = Field(default_factory=list)
     allowed_context_sections: list[str] = Field(default_factory=list)
     use_shared_contract: bool = True
-    can_delegate_to_agents: bool = False
-    allowed_delegate_agent_ids: list[str] = Field(default_factory=list)
-    max_delegate_calls_per_turn: int = Field(default=1, ge=0)
-    delegate_context_policy: str = Field(default="summary_and_refs_only", max_length=120)
+    subagent_policy: dict[str, Any] = Field(default_factory=dict)
     approval_policy: str = Field(default="default", max_length=80)
     trace_policy: str = Field(default="runtime_event_log", max_length=120)
     lifecycle_policy: str = Field(default="orchestration_managed", max_length=120)
@@ -638,10 +635,7 @@ async def upsert_orchestration_agent_runtime_profile(
             allowed_memory_scopes=tuple(payload.allowed_memory_scopes),
             allowed_context_sections=tuple(payload.allowed_context_sections),
             use_shared_contract=payload.use_shared_contract,
-            can_delegate_to_agents=payload.can_delegate_to_agents,
-            allowed_delegate_agent_ids=tuple(payload.allowed_delegate_agent_ids),
-            max_delegate_calls_per_turn=payload.max_delegate_calls_per_turn,
-            delegate_context_policy=payload.delegate_context_policy,
+            subagent_policy=payload.subagent_policy,
             approval_policy=payload.approval_policy,
             trace_policy=payload.trace_policy,
             lifecycle_policy=payload.lifecycle_policy,

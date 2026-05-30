@@ -69,6 +69,11 @@ def development_sandbox_environment() -> TaskEnvironmentDefinition:
                     "\n在这个环境中定位代码、文件或文本时，应优先使用 search_text、search_files、glob_paths、read_file、list_dir "
                     "等专用搜索和读取工具；只有在需要运行验证、执行脚本、批量处理或专用工具无法表达时，才使用 terminal。"
                     "不要反复读取整文件来代替搜索；如果已经知道目标函数、错误消息或关键词，应先精确搜索，再读取必要片段。"
+                    "\n处理 Python 开发任务时，如果 runtime packet 提供了 python_symbol_search、python_code_outline 或 python_parse_check，"
+                    "你应把它们作为代码理解和语法验证的优先工具。已知符号名但不知道文件时，先用 python_symbol_search 定位定义或引用；"
+                    "已知文件但不了解结构时，先用 python_code_outline 查看类、函数和行号；修改 Python 文件后，优先用 python_parse_check 做语法检查，"
+                    "再运行更重的测试。AST 工具只用于只读代码智能，不能替代 edit_file、write_file 或测试命令。"
+                    "不要在文件没有变化、假设没有变化时重复调用同一个 outline 或 symbol search；一旦已经定位到具体缺陷并具备写权限，应进入最小范围编辑和验证。"
                     "\n如果一次查找跨越多个文件、模块关系或历史上下文，并且 runtime packet 装配了可委派子 agent，"
                     "可以委派搜索或代码理解型子 agent；主 agent 仍负责最终判断、编辑和验收。"
                     "\n当 edit_file 返回 old_text not found、write_file 被拒绝、命令语法错误或路径不存在时，"
@@ -157,6 +162,9 @@ def development_readonly_environment() -> TaskEnvironmentDefinition:
                 content=(
                     "你处在开发只读资源边界中。这个环境允许围绕项目工作区、git/worktree 视图和相关材料做读取、搜索、审查和方案评估。"
                     "约束是不能写入项目、不能执行 shell、不能控制浏览器；实际可用工具仍以 runtime packet 为准。"
+                    "检查 Python 代码时，如果 runtime packet 提供 python_symbol_search、python_code_outline 或 python_parse_check，"
+                    "应优先用它们定位符号、理解文件结构和确认语法，而不是反复读取整文件。"
+                    "这些 AST 工具是只读代码智能工具；在只读边界内只能产出诊断、证据和修改建议，不能声称已经完成代码修改。"
                     "如果任务需要修改、运行命令或生成正式 artifact，应请求进入具备相应资源边界的任务生命周期，而不是在只读边界内伪造执行。"
                 ),
             ),

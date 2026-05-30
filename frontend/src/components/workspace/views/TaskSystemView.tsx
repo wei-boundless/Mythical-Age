@@ -833,7 +833,7 @@ export function TaskSystemView() {
   const [editorDomainId, setEditorDomainId] = useState("");
   const [editorTaskGraphId, setEditorTaskGraphId] = useState("");
   const [taskLayer, setTaskLayer] = useState<TaskLayer>("management");
-  const [taskSystemLayer, setTaskSystemLayer] = useState<TaskSystemLayer>("domains");
+  const [taskSystemLayer, setTaskSystemLayer] = useState<TaskSystemLayer>("graphs");
   const [editingDomainName, setEditingDomainName] = useState(false);
   const [taskGraphEditorSelection, setTaskGraphEditorSelection] = useState(() => emptyTaskGraphEditorSelection());
   const [linkingFromNodeId, setLinkingFromNodeId] = useState("");
@@ -2489,15 +2489,15 @@ export function TaskSystemView() {
     </div>
   );
   const managementLayerSlot = (
-    <div className="task-system-object-table" aria-label="任务系统对象目录">
+    <div className="task-system-object-table task-system-object-table--home-switch" aria-label="任务系统主页面切换">
       <div className="task-system-object-table__head" aria-hidden="true">
-        <span>对象</span>
+        <span>任务系统主页</span>
         <span>当前记录</span>
         <span>状态</span>
       </div>
       {[...primaryTaskSystemLayerItems, ...supportingTaskSystemLayerItems].map((item) => {
         const active = taskSystemLayer === item.value;
-        const scope = primaryTaskSystemLayerItems.some((entry) => entry.value === item.value) ? "主对象" : "支撑对象";
+        const scope = primaryTaskSystemLayerItems.some((entry) => entry.value === item.value) ? "主页面" : "支撑页";
         return (
           <button
             aria-current={active ? "page" : undefined}
@@ -2534,7 +2534,7 @@ export function TaskSystemView() {
     setSelectedGraphNodeId("");
     setSelectedGraphEdgeId("");
     setLinkingFromNodeId("");
-    setTaskLayer("editor");
+    setTaskLayer("management");
     setTaskSystemLayer("graphs");
   }
 
@@ -2582,11 +2582,27 @@ export function TaskSystemView() {
         ) : null}
       </div>
       <div className="task-graph-editor-chrome__actions task-graph-editor-chrome__actions--minimal">
-        <ToolbarButton onClick={() => selectTaskSystemLayer("graphs")}>返回任务图库</ToolbarButton>
+        {taskLayer === "editor" ? <ToolbarButton onClick={() => selectTaskSystemLayer("graphs")}>返回任务图库</ToolbarButton> : null}
         <ToolbarButton disabled={saving === "task-graph-create"} onClick={() => void createTaskGraphDraft()}><Network size={15} />新图草稿</ToolbarButton>
       </div>
     </>
   );
+  const graphWorkbenchTaskGraphs = taskLayer === "editor" ? editorTaskGraphs : taskGraphs;
+  const graphWorkbenchSelectedGraph = taskLayer === "editor" ? editorSelectedTaskGraph : selectedTaskGraph;
+  const graphWorkbenchSelectedGraphId = taskLayer === "editor" ? editorTaskGraphId : selectedTaskGraphId;
+  const graphWorkbenchSelectedDomain = taskLayer === "editor" ? editorDomain : selectedDomain;
+  const graphWorkbenchDomainTasks = taskLayer === "editor" ? editorEnvironmentTasks : selectedDomainTasks;
+  const setGraphWorkbenchSelectedGraphId = (graphId: string) => {
+    if (taskLayer === "editor") {
+      setEditorTaskGraphId(graphId);
+      return;
+    }
+    setSelectedTaskGraphId(graphId);
+    setEditorTaskGraphId(graphId);
+    setSelectedGraphNodeId("");
+    setSelectedGraphEdgeId("");
+    setLinkingFromNodeId("");
+  };
 
   const taskGraphEditorWorkbench = (
     <TaskGraphWorkbench
@@ -2599,7 +2615,7 @@ export function TaskSystemView() {
       applyTaskGraphTemplate={applyTaskGraphTemplate}
       boundTaskGraphTaskIds={boundTaskGraphTaskIds}
       contractSpecs={editorContractSpecs}
-      taskGraphs={editorTaskGraphs}
+      taskGraphs={graphWorkbenchTaskGraphs}
       domainTaskOptions={editorDomainTaskOptions}
       duplicateTaskGraphDraft={duplicateTaskGraphDraft}
       editorIssueCount={editorIssueCount}
@@ -2616,16 +2632,16 @@ export function TaskSystemView() {
       reverseTaskGraphEdge={reverseTaskGraphEdge}
       saveTaskGraphStack={saveTaskGraphStack}
       saving={saving}
-      selectedTaskGraph={editorSelectedTaskGraph}
-      selectedTaskGraphId={editorTaskGraphId}
-      selectedDomain={editorDomain}
-      selectedDomainTasks={editorEnvironmentTasks}
+      selectedTaskGraph={graphWorkbenchSelectedGraph}
+      selectedTaskGraphId={graphWorkbenchSelectedGraphId}
+      selectedDomain={graphWorkbenchSelectedDomain}
+      selectedDomainTasks={graphWorkbenchDomainTasks}
       selectedGraphEdge={selectedGraphEdge}
       selectedGraphEdgeId={selectedGraphEdgeId}
       selectedGraphNode={selectedGraphNode}
       selectedGraphNodeId={selectedGraphNodeId}
       setLinkingFromNodeId={setLinkingFromNodeId}
-      setSelectedTaskGraphId={setEditorTaskGraphId}
+      setSelectedTaskGraphId={setGraphWorkbenchSelectedGraphId}
       setSelectedGraphEdgeId={setSelectedGraphEdgeId}
       setSelectedGraphNodeId={setSelectedGraphNodeId}
       taskGraphDirty={topologyDirty}
@@ -2738,25 +2754,21 @@ export function TaskSystemView() {
           ) : null}
 
           {taskSystemLayer === "graphs" ? (
-            <TaskGraphLibraryPage
-              activeGraphEdges={activeGraphEdges}
-              activeGraphNodes={activeGraphNodes}
-              editorIssueCount={editorIssueCount}
-              editorPublished={editorPublished}
-              editorValid={editorValid}
-              onCreateGraph={() => void createTaskGraphDraft()}
-              onDuplicateGraph={() => void duplicateTaskGraphDraft()}
-              onOpenWorkbench={openTaskGraphEditor}
-              onSaveGraph={() => void saveTaskGraphStack(false)}
-              onSelectGraph={setSelectedTaskGraphId}
-              saving={saving}
-              selectedDomain={selectedDomain}
-              selectedTaskGraph={selectedTaskGraph}
-              selectedTaskGraphId={selectedTaskGraphId}
-              standardViewError={taskGraphStandardViewError}
-              taskGraphDraft={taskGraphDraftV2}
-              taskGraphs={taskGraphs}
-            />
+            <section className="task-system-dedicated-page task-system-dedicated-page--graph">
+              <header className="task-system-dedicated-page__head">
+                <div>
+                  <span>图任务主页面</span>
+                  <strong>{selectedTaskGraph?.title || "任务图编辑器"}</strong>
+                  <p>任务图在主页面直接编辑，图库选择、节点配置、边契约、发布运行集中在同一工作区。</p>
+                </div>
+                <div className="task-system-dedicated-page__actions">
+                  <ToolbarButton disabled={saving === "task-graph-create"} onClick={() => void createTaskGraphDraft()}><Network size={15} />新图草稿</ToolbarButton>
+                  <ToolbarButton disabled={!selectedTaskGraph || saving === "task-graph-duplicate"} onClick={() => void duplicateTaskGraphDraft()}>复制当前图</ToolbarButton>
+                  <ToolbarButton disabled={saving === "task-graph"} onClick={() => void saveTaskGraphStack(false)}>保存图任务</ToolbarButton>
+                </div>
+              </header>
+              {taskGraphEditorWorkbench}
+            </section>
           ) : null}
 
           {taskSystemLayer === "environments" ? (

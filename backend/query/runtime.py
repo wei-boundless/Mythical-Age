@@ -722,6 +722,7 @@ class QueryRuntime:
                 str(dict(payload or {}).get("session_id") or ""),
                 payload,
             ),
+            execute_task_run_callback=self.execute_task_run,
         )
 
     def _create_graph_node_task_run(self, *, graph_config: Any, work_order: Any) -> TaskRun:

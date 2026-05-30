@@ -1420,6 +1420,32 @@ export class WorkspaceRuntime {
 
   private setWorkspaceView(view: WorkspaceView) {
     this.store.setState((prev) => ({ ...prev, activeWorkspaceView: view }));
+    this.syncWorkspaceViewUrl(view);
+  }
+
+  private syncWorkspaceViewUrl(view: WorkspaceView) {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const historyApi = window.history;
+    const location = window.location;
+    if (!historyApi?.replaceState || !location?.href) {
+      return;
+    }
+    try {
+      const url = new URL(location.href);
+      if (view === "chat") {
+        url.searchParams.delete("view");
+      } else {
+        url.searchParams.set("view", view);
+      }
+      const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+      if (nextUrl !== `${location.pathname}${location.search}${location.hash}`) {
+        historyApi.replaceState({}, "", nextUrl);
+      }
+    } catch {
+      // URL synchronization is UI convenience state; view state remains authoritative.
+    }
   }
 
   private setMemoryInspectorTarget(target: StoreState["memoryInspectorTarget"]) {

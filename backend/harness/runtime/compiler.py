@@ -1129,7 +1129,8 @@ def _agent_visible_runtime_projection(
             "visible_tool_names": tool_names,
             "allowed_operation_count": len(allowed_operations),
             "tools_are_limited_to_runtime_packet": True,
-            "subagent_delegation_enabled": bool(subagent.get("enabled") is True),
+            "subagent_lifecycle_enabled": bool(subagent.get("enabled") is True),
+            "allowed_subagent_ids": [str(item) for item in list(subagent.get("allowed_subagent_ids") or []) if str(item)],
         },
         "permission_boundary": {
             "permission_scope": str(permission.get("permission_scope") or permission.get("scope") or ""),
@@ -1193,8 +1194,8 @@ def _runtime_projection_instruction(projection: dict[str, Any]) -> str:
     if "tool_call" in allowed_actions:
         visible_count = int(tool_boundary.get("visible_tool_count") or 0)
         lines.append(f"- 工具只能从本轮上下文中实际可见的工具选择；当前可见工具数：{visible_count}。")
-    if bool(tool_boundary.get("subagent_delegation_enabled") is True):
-        lines.append("- 如需委派子 agent，只能在可见委派工具和授权范围内进行；主 agent 仍负责最终判断和收口。")
+    if bool(tool_boundary.get("subagent_lifecycle_enabled") is True):
+        lines.append("- 如需子 agent 协作，只能通过可见的子 agent 生命周期工具启动、通信、观察和关闭；主 agent 仍负责最终判断和收口。")
     if bool(planning.get("todo_required_when_task_run") is True):
         lines.append("- 进入持续处理流程后，需要维护步骤状态；步骤状态不能替代真实交付物或验收证据。")
     if bool(task_lifecycle.get("requires_completion_evidence") is True):

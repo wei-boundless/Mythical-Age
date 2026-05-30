@@ -16,6 +16,7 @@ import {
   type PiSidecarCommandResponse,
   type PiSidecarStatus,
 } from "@/lib/api";
+import { WorkspaceModeSwitcher } from "@/components/layout/WorkspaceModeSwitcher";
 
 function hostConfig() {
   const config = globalThis.__MYTHICAL_AGENT_HOST__ || (typeof window !== "undefined" ? window.mythicalAgentHost?.getConfig() : undefined);
@@ -132,10 +133,13 @@ export function CodeEnvironmentView({ embedded = false }: { embedded?: boolean }
           <span>专业模式</span>
           <h1>{embedded ? "代码环境" : "专业模式代码环境"}</h1>
         </div>
-        <button disabled={loading} onClick={() => void load()} type="button">
-          <RefreshCw size={15} />
-          <span>刷新</span>
-        </button>
+        <div className="code-environment-console__actions">
+          <WorkspaceModeSwitcher />
+          <button disabled={loading} onClick={() => void load()} type="button">
+            <RefreshCw size={15} />
+            <span>刷新</span>
+          </button>
+        </div>
       </header>
 
       <div className="code-environment-status-grid">

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { BookOpen, Database, HeartPulse, LayoutGrid, MessageSquare, Network, Settings, Sparkles, Workflow } from "lucide-react";
+import { BookOpen, Database, HeartPulse, LayoutGrid, MessageSquare, MonitorCog, Network, Settings, Sparkles, Workflow } from "lucide-react";
 
 import { AppProvider, useAppStore } from "@/lib/store";
 import { lazy, Suspense } from "react";
@@ -49,6 +49,7 @@ const WORKSPACE_TONES = new Set(["water", "leaf", "gold", "ember", "lumen"]);
 const SYSTEM_NAV_ITEMS: Array<{ view: WorkspaceView; label: string; icon: typeof MessageSquare }> = [
   { view: "chat", label: "会话", icon: MessageSquare },
   { view: "creative", label: "创作", icon: BookOpen },
+  { view: "code-environment", label: "开发", icon: MonitorCog },
   { view: "memory", label: "记忆", icon: Database },
   { view: "task-system", label: "任务", icon: Workflow },
   { view: "orchestration", label: "编排", icon: Network },
@@ -115,6 +116,7 @@ function Workspace() {
     taskGraphRunInteractionOpen,
   } = useAppStore();
   const [forcedPlayground, setForcedPlayground] = useState(false);
+  const [locationSearch, setLocationSearch] = useState("");
 
   useEffect(() => {
     window.localStorage.removeItem("chatVisualMode");
@@ -125,12 +127,31 @@ function Workspace() {
     } else {
       delete document.documentElement.dataset.workspaceTone;
     }
-    const view = new URLSearchParams(window.location.search).get("view");
-    if (view && WORKSPACE_QUERY_VIEWS.has(view as WorkspaceView)) {
+  }, [setWorkspaceView]);
+
+  useEffect(() => {
+    function syncLocationSearch() {
+      setLocationSearch(window.location.search);
+    }
+    syncLocationSearch();
+    window.addEventListener("popstate", syncLocationSearch);
+    window.addEventListener("focus", syncLocationSearch);
+    const timer = window.setInterval(syncLocationSearch, 500);
+    return () => {
+      window.removeEventListener("popstate", syncLocationSearch);
+      window.removeEventListener("focus", syncLocationSearch);
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  useEffect(() => {
+    const currentSearch = typeof window === "undefined" ? locationSearch : window.location.search;
+    const view = new URLSearchParams(currentSearch).get("view");
+    if (view && WORKSPACE_QUERY_VIEWS.has(view as WorkspaceView) && activeWorkspaceView !== view) {
       setWorkspaceView(view as WorkspaceView);
       setForcedPlayground(view === "playground");
     }
-  }, [setWorkspaceView]);
+  }, [activeWorkspaceView, locationSearch, setWorkspaceView]);
 
   useEffect(() => {
     if (
@@ -153,9 +174,6 @@ function Workspace() {
   function returnToWorkspace() {
     setForcedPlayground(false);
     setWorkspaceView("chat");
-    const url = new URL(window.location.href);
-    url.searchParams.delete("view");
-    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
   }
 
   const taskGraphRunInteractionDock = (

@@ -7799,6 +7799,10 @@ button:hover {
   min-width: 0;
 }
 
+.creative-workspace-left {
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
 .creative-project-card {
   display: grid;
   gap: 5px;
@@ -7827,6 +7831,16 @@ button:hover {
   display: grid;
   gap: 10px;
   padding: 10px;
+}
+
+.creative-section-list {
+  min-height: 0;
+  overflow: auto;
+}
+
+.creative-session-compact {
+  border-top: 1px solid rgba(148, 163, 184, 0.14);
+  padding: 8px 10px 10px;
 }
 
 .creative-section {
@@ -7927,7 +7941,7 @@ button:hover {
 }
 
 .creative-session-compact {
-  padding: 0 10px 10px;
+  padding: 8px 10px 10px;
 }
 
 .creative-right-body {
@@ -8102,6 +8116,126 @@ button:hover {
   color: var(--creative-ink);
   font-size: 13px;
   white-space: nowrap;
+}
+
+.workbench-mode-select {
+  position: relative;
+  display: inline-grid;
+  align-items: center;
+  min-width: 102px;
+  max-width: 132px;
+}
+
+.workbench-mode-select select {
+  width: 100%;
+  min-width: 0;
+  appearance: none;
+  border: 1px solid rgba(15, 118, 110, 0.2);
+  border-radius: 8px;
+  background: rgba(240, 253, 250, 0.82);
+  color: #0f3f3a;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 760;
+  line-height: 1.2;
+  outline: none;
+  padding: 7px 26px 7px 10px;
+}
+
+.workbench-mode-select select:hover,
+.workbench-mode-select select:focus {
+  border-color: rgba(15, 118, 110, 0.36);
+  background: rgba(204, 251, 241, 0.72);
+}
+
+.workbench-mode-select svg {
+  pointer-events: none;
+  position: absolute;
+  right: 8px;
+  color: #0f766e;
+}
+
+.task-system-workspace-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 13px;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-soul) 12%, var(--color-border));
+}
+
+.task-system-workspace-head div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.task-system-workspace-head strong {
+  color: var(--color-text);
+  font-size: 0.78rem;
+  line-height: 1.2;
+}
+
+.task-system-workspace-head span {
+  color: var(--color-text-soft);
+  font-size: 0.68rem;
+}
+
+.task-system-object-table--home-switch .task-system-object-row strong {
+  display: grid;
+  gap: 3px;
+}
+
+.task-system-dedicated-page {
+  display: grid;
+  gap: 12px;
+  min-height: 0;
+}
+
+.task-system-dedicated-page__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 14%, var(--color-border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-panel) 92%, #061018);
+  padding: 12px 14px;
+}
+
+.task-system-dedicated-page__head > div:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.task-system-dedicated-page__head span {
+  color: var(--color-text-soft);
+  font-size: 0.7rem;
+  font-weight: 760;
+}
+
+.task-system-dedicated-page__head strong {
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: 1rem;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-system-dedicated-page__head p {
+  margin: 0;
+  color: var(--color-text-soft);
+  font-size: 0.74rem;
+  line-height: 1.45;
+}
+
+.task-system-dedicated-page__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .runtime-run-summary__brief {
@@ -26767,7 +26901,6 @@ html[data-workspace-tone] .agent-workbench {
 .workbench-resource-panel,
 .workbench-right-panel {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
   border-right: 1px solid var(--workbench-line);
@@ -26778,7 +26911,13 @@ html[data-workspace-tone] .agent-workbench {
   backdrop-filter: blur(14px) saturate(1.04);
 }
 
+.workbench-resource-panel {
+  grid-template-rows: auto auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
 .workbench-right-panel {
+  grid-template-rows: auto minmax(0, 1fr);
   border-right: 0;
   border-left: 1px solid var(--workbench-line);
 }
@@ -28344,6 +28483,12 @@ html[data-workspace-tone] .agent-workbench {
   font-size: 20px;
   font-weight: 760;
   letter-spacing: 0;
+}
+
+.code-environment-console__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .code-environment-console__header button {

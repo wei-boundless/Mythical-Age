@@ -249,8 +249,8 @@ def _side_effect_kind(tool_name: str) -> str:
         return "write"
     if tool_name in {"terminal", "browser_control"}:
         return "verification"
-    if tool_name == "delegate_to_agent":
-        return "delegation"
+    if tool_name in {"spawn_subagent", "send_subagent_message", "wait_subagent", "list_subagents", "close_subagent"}:
+        return "subagent_lifecycle"
     return "read"
 
 
@@ -288,8 +288,8 @@ def _satisfies_for_tool(
         if has_structured_envelope and status == "ok" and _structured_verification_intent(structured_payload):
             return ("verify_command",)
         return ()
-    if tool_name == "delegate_to_agent":
-        return ("delegate_review",)
+    if tool_name in {"spawn_subagent", "send_subagent_message", "wait_subagent", "list_subagents", "close_subagent"}:
+        return ("subagent_lifecycle",)
     return ()
 
 

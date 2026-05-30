@@ -14,12 +14,12 @@ import {
   PanelRightOpen,
   Plus,
   RefreshCw,
-  Save,
   Trash2,
 } from "lucide-react";
 import { useEffect, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 
 import { TaskMonitorDock } from "@/components/layout/TaskMonitorDock";
+import { WorkspaceModeSwitcher } from "@/components/layout/WorkspaceModeSwitcher";
 import type { CodeEnvironmentTreeNode } from "@/lib/api";
 import { useAppStore } from "@/lib/store";
 
@@ -173,13 +173,11 @@ function WorkbenchProjectTreeNode({
 function WorkspaceManagerPanel({ onOpenFile }: { onOpenFile: (path: string) => void }) {
   const {
     currentSessionId,
-    inspectorDirty,
     inspectorPath,
     sessions,
     createNewSession,
     refreshWorkspaceTree,
     removeSession,
-    saveInspector,
     selectSession,
     workspaceContext,
     workspaceTree,
@@ -188,20 +186,18 @@ function WorkspaceManagerPanel({ onOpenFile }: { onOpenFile: (path: string) => v
   } = useAppStore();
   const visibleSessions = [...sessions].sort((a, b) => b.updated_at - a.updated_at);
   const currentSession = sessions.find((session) => session.id === currentSessionId) ?? null;
-  const projectName = workspaceContext?.project_name || "当前工作区";
+  const projectName = workspaceContext?.project_name || "当前项目";
   const projectRoot = workspaceContext?.project_root || "未加载项目根";
   const projectTreeNodes = workspaceTree?.tree.children || [];
 
   return (
-    <aside className="workbench-resource-panel" aria-label="工作区管理">
+    <aside className="workbench-resource-panel" aria-label="任务环境管理">
       <header className="workbench-panel-head">
         <div>
-          <strong>工作区</strong>
-          <span>主会话</span>
+          <strong>任务环境</strong>
+          <span>环境集合</span>
         </div>
-        <button aria-label="保存当前文件" className="workbench-icon-button" disabled={!inspectorDirty} onClick={() => void saveInspector()} type="button">
-          <Save size={15} />
-        </button>
+        <WorkspaceModeSwitcher />
       </header>
 
       <section className="workbench-project-context" aria-label="当前项目上下文">
@@ -328,10 +324,10 @@ function MainToolbar({
       </div>
       <div className="workbench-toolbar-actions">
         <button
-          aria-label={leftPanelCollapsed ? "打开左侧工作区" : "收起左侧工作区"}
+          aria-label={leftPanelCollapsed ? "打开左侧任务环境" : "收起左侧任务环境"}
           className="workbench-toolbar-icon-button"
           onClick={onToggleLeftPanel}
-          title={leftPanelCollapsed ? "打开左侧工作区" : "收起左侧工作区"}
+          title={leftPanelCollapsed ? "打开左侧任务环境" : "收起左侧任务环境"}
           type="button"
         >
           {leftPanelCollapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
@@ -420,7 +416,7 @@ export function WorkbenchShell({
   children,
   className = "",
   leftPanel,
-  leftPanelLabel = "工作区",
+  leftPanelLabel = "任务环境",
   rightPanel,
   rightPanelLabel = "辅助栏",
 }: {
@@ -475,7 +471,7 @@ export function WorkbenchShell({
         <ResizeHandle label={`调整${leftPanelLabel}宽度`} onResize={(delta) => setSidebarWidth(clampLeftWidth(sidebarWidth + delta))} side="left" />
       )}
       {leftCollapsed ? <div aria-hidden="true" /> : null}
-      <section className="workbench-center" aria-label="主工作区">
+      <section className="workbench-center" aria-label="主任务环境">
         <MainToolbar
           centerPanel={centerPanel}
           leftPanelCollapsed={leftCollapsed}

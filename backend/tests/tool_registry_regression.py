@@ -33,8 +33,9 @@ def main() -> None:
 
     payload = json.loads(capability_paths.tools_registry_path.read_text(encoding="utf-8"))
     assert payload["version"] == 2
-    assert payload["tool_count"] >= 20
+    assert payload["tool_count"] >= 23
     assert payload["tool_packages"]
+    assert any(item["package_id"] == "pkg.development.python" and item["category"] == "开发工具" for item in payload["tool_packages"])
     assert any(item["package_id"] == "pkg.git.read" for item in payload["tool_packages"])
     assert any(item["package_id"] == "pkg.git.write" for item in payload["tool_packages"])
 
@@ -54,6 +55,9 @@ def main() -> None:
         "path_exists",
         "glob_paths",
         "read_structured_file",
+        "python_code_outline",
+        "python_parse_check",
+        "python_symbol_search",
         "text_metric",
         "git_status",
         "git_diff",
@@ -77,6 +81,10 @@ def main() -> None:
         assert by_name[name]["is_read_only"] is False
 
     assert by_name["python_repl"]["safe_for_auto_route"] is False
+    assert by_name["python_code_outline"]["operation_id"] == "op.python_code_outline"
+    assert by_name["python_parse_check"]["operation_id"] == "op.python_parse_check"
+    assert by_name["python_symbol_search"]["operation_id"] == "op.python_symbol_search"
+    assert "official_ast" in by_name["python_code_outline"]["safety_tags"]
     assert by_name["terminal"]["safe_for_auto_route"] is False
     assert by_name["text_metric"]["operation_id"] == "op.text_metric"
     assert "length_budget" in by_name["text_metric"]["capability_tags"]

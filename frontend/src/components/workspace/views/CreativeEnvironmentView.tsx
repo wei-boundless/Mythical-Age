@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  BookOpen,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
@@ -18,6 +17,7 @@ import {
 } from "lucide-react";
 
 import { WorkbenchShell } from "@/components/layout/WorkbenchShell";
+import { WorkspaceModeSwitcher } from "@/components/layout/WorkspaceModeSwitcher";
 import { CenterWorkspaceView } from "@/components/workspace/views/center/CenterWorkspaceView";
 import {
   getCodeEnvironment,
@@ -127,13 +127,13 @@ function CreativeLeftPanel({
   }
 
   return (
-    <aside className="workbench-resource-panel creative-workspace-left" aria-label="创作工作区">
+    <aside className="workbench-resource-panel creative-workspace-left" aria-label="创作任务环境">
       <header className="workbench-panel-head">
         <div>
-          <strong>创作工作区</strong>
-          <span>作品文件</span>
+          <strong>任务环境</strong>
+          <span>环境集合</span>
         </div>
-        <BookOpen size={16} />
+        <WorkspaceModeSwitcher />
       </header>
 
       <section className="creative-project-card">
@@ -262,7 +262,7 @@ function CreativeRightPanel({
           </header>
           <dl>
             <div><dt>环境</dt><dd>env.creation.writing</dd></div>
-            <div><dt>工作区</dt><dd title={projectRoot}>{projectRoot}</dd></div>
+            <div><dt>项目根</dt><dd title={projectRoot}>{projectRoot}</dd></div>
             <div><dt>写入策略</dt><dd>作品文件与图产物隔离</dd></div>
           </dl>
         </section>
@@ -348,7 +348,7 @@ export function CreativeEnvironmentView() {
     <WorkbenchShell
       className="creative-environment-shell"
       leftPanel={<CreativeLeftPanel selectedItemId={selectedItemId} onSelectItem={selectItem} />}
-      leftPanelLabel="创作目录"
+      leftPanelLabel="创作任务环境"
       rightPanel={(
         <CreativeRightPanel
           environment={environment}
@@ -377,4 +377,3 @@ export function CreativeEnvironmentView() {
     </WorkbenchShell>
   );
 }
-

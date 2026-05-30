@@ -13,24 +13,48 @@ from capability_system.tool_packages import (
     default_tool_packages,
     resolve_tool_package_operations,
 )
+from capability_system.operation_registry import default_operation_descriptors
 
 
 def main() -> None:
     packages = {item.package_id: item for item in default_tool_packages()}
+    operation_ids = {item.operation_id for item in default_operation_descriptors()}
+    for package in packages.values():
+        missing = [item for item in package.operation_ids if item not in operation_ids]
+        assert not missing, f"{package.package_id} contains unknown operations: {missing}"
+
+    assert "pkg.development.python" in packages
     assert "pkg.git.read" in packages
     assert "pkg.git.write" in packages
     assert "pkg.git.remote" in packages
+    assert packages["pkg.development.python"].category == "开发工具"
+    assert packages["pkg.development.python"].default_enabled is True
+    assert packages["pkg.development.python"].metadata["parser_authority"] == "python.stdlib.ast"
+    assert "op.codebase_search" in packages["pkg.development.python"].operation_ids
+    assert "op.python_code_outline" in packages["pkg.development.python"].operation_ids
+    assert "op.python_symbol_search" in packages["pkg.development.python"].operation_ids
+    assert "op.python_parse_check" in packages["pkg.development.python"].operation_ids
+    assert "op.git_diff" in packages["pkg.development.python"].operation_ids
+    assert "op.read_file" not in packages["pkg.development.python"].operation_ids
+    assert "op.write_file" not in packages["pkg.development.python"].operation_ids
+    assert "op.edit_file" not in packages["pkg.development.python"].operation_ids
+    assert "op.shell" not in packages["pkg.development.python"].operation_ids
     assert packages["pkg.git.read"].category == "版本控制"
     assert packages["pkg.git.remote"].default_enabled is False
 
     resolved = resolve_tool_package_operations(
         (
+            ToolPackageSelection(package_id="pkg.development.python"),
             ToolPackageSelection(package_id="pkg.git.read"),
             ToolPackageSelection(package_id="pkg.git.write", exclude_operations=("op.git_restore",)),
         ),
         extra_allowed_operations=("op.read_file",),
         blocked_operations=("op.git_push",),
     )
+    assert "op.python_code_outline" in resolved
+    assert "op.python_symbol_search" in resolved
+    assert "op.python_parse_check" in resolved
+    assert "op.codebase_search" in resolved
     assert "op.git_status" in resolved
     assert "op.git_commit" in resolved
     assert "op.git_restore" not in resolved
